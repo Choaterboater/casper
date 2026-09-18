@@ -5,5 +5,6 @@ export * from "./project/inspect";
 export * from "./project/model";
 export * from "./runtime/pi";
 export * from "./runtime/types";
+export * from "./skills/registry";
 export * from "./task/classify";
 export * from "./tui/banner";

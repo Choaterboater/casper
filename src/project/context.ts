@@ -8,6 +8,7 @@ export interface ProjectContext {
   model: ProjectModel;
   profileName: string;
   policy: CasperPolicy;
+  skills: { maxActive: number };
   rules: {
     profile: string | null;
     project: string | null;
@@ -39,6 +40,7 @@ export async function loadProjectContext(
     model,
     profileName: configuration.profileName,
     policy: configuration.policy,
+    skills: configuration.skills,
     rules: {
       profile: configuration.profileRules,
       project: configuration.projectRules,

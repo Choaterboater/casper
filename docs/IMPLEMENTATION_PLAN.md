@@ -130,3 +130,43 @@ Phase 1 is complete when:
 - Unchanged deterministic project facts are restored from cache.
 - Prompts carry a compact task classification and only detected relevant commands.
 - `bun run check` passes.
+
+## Phase 2 — Skills (Complete)
+
+### Scope
+Add a Casper-owned skill registry without changing the runtime boundary or implementing capabilities, verification, or orchestration.
+
+### Deliverables
+1. Discover Agent Skills-compatible Markdown from `~/.casper/skills/`, `.casper/skills/`, and compatible Pi/Agents/Claude/Codex skill directories.
+2. Index frontmatter metadata only; preserve unknown metadata and report malformed skills without preventing startup.
+3. Deterministically rank by task text, tags, intents, and project stack; load at most six relevant bodies per prompt by default (`skills.maxActive`).
+4. Track canonical file paths and source. User-owned Casper skills are trusted; project/external skills require explicit, content-hash-bound review. Skill metadata cannot grant trust or tool permissions.
+5. Add `/skills`, `/skills inspect <id>`, `/skills trust <id> <sha256>`, and `/skills block <id>` for local inspection and review. No model call for these commands.
+6. Inject only selected skill bodies with their base directories, source, and trust state. Disable Pi's independent skill discovery in the adapter.
+7. Cover discovery, ranking, trust, changed content, and app prompt integration with isolated filesystem fixtures; run typecheck, tests, and live CLI smoke checks.
+
+### Acceptance
+A TypeScript MCP task receives relevant approved skill bodies, but no unrelated or unreviewed bodies. Listing skills shows metadata/provenance only. Missing directories, malformed files, and duplicate names have deterministic outcomes and do not crash startup.
+
+### Implemented Files
+- `src/skills/registry.ts`: discovery, provenance, review/block decisions, bounded body loading, and prompt formatting.
+- `src/skills/metadata.ts`: bounded frontmatter parsing and validation.
+- `src/skills/rank.ts`: deterministic task/stack ranking.
+- `src/app.ts`: local skill commands and per-prompt selection.
+- `src/config/load.ts`, `src/project/context.ts`: layered `skills.maxActive` setting.
+- `src/runtime/pi.ts`: disable independent Pi skill discovery so Casper controls injection.
+- `tests/phase2-skills.test.ts`, `tests/casper-app.integration.test.ts`: isolated registry/app coverage.
+
+### Verification
+- Phase 1 checkpoint committed as `e9f1f87` before Phase 2 changes.
+- `bun run check`: typecheck passed; 19 tests passed, 116 assertions, no failures.
+- `git diff --check`: passed.
+- CLI `--help`: displays the new local commands.
+- Isolated real CLI/Pi smoke: discovered four fixture skills, listed metadata without bodies, inspected and approved the exact project-skill digest, and delivered only the native TypeScript MCP and reviewed project skill to the live model. Unrelated and unreviewed external bodies were excluded. `/skills block`, updated listing, and `/exit` succeeded.
+- Smoke fixtures used temporary project/home/trust directories; no real user skill approvals were changed.
+- Independent standards/spec review found two issues: eager runtime startup blocked local commands, and project skill symlinks could escape the project. Both were reproduced with failing regression tests, fixed, and independently re-reviewed with no blocking findings.
+- Final smoke also verified `/skills` works with empty Pi configuration without creating a model session, rejects out-of-project skill symlinks, and still supports interactive inspection/trust, lazy live-model startup, selective injection, blocking, and exit.
+- Review details and remaining intentional limitations: `docs/PHASE2_REVIEW.md`.
+
+### Deliberate Limits
+Deterministic ranking only; no embeddings or learning. No built-in skill pack, remote imports, permission grants, or helper-script execution. Trust gates automatic injection and covers `SKILL.md` content, not its referenced assets or general tool access. Already-injected bodies remain in Pi's conversation history. Frontmatter changes require restart/re-indexing. See `README.md` for trust semantics and size limits.

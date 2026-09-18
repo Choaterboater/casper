@@ -88,6 +88,9 @@ export class PiRuntime implements AgentRuntime {
       cwd: options.cwd,
       agentDir,
       settingsManager,
+      // Casper owns discovery, trust checks, and per-task skill selection.
+      noSkills: true,
+      skillsOverride: () => ({ skills: [], diagnostics: [] }),
       systemPromptOverride: (basePrompt) => {
         if (!options.systemPromptAppend) {
           return basePrompt;

@@ -34,6 +34,7 @@ export interface LoadedConfiguration {
   profileRules: string | null;
   projectRules: string | null;
   projectOverrides: ProjectModelOverrides;
+  skills: { maxActive: number };
 }
 
 export interface LoadConfigurationOptions {
@@ -239,8 +240,18 @@ export async function loadConfiguration(
     "default";
   const profileDir = path.join(casperHome, "profiles", selectedProfile);
   const profileDocument = await readYaml(path.join(profileDir, "config.yaml"));
+  let maxActive = 6;
+  for (const document of [globalDocument, profileDocument, projectDocument]) {
+    const value = isMapping(document.skills) ? document.skills.maxActive : undefined;
+    if (value === undefined) continue;
+    if (typeof value !== "number" || !Number.isInteger(value) || value < 0 || value > 32) {
+      throw new Error("skills.maxActive must be an integer between 0 and 32");
+    }
+    maxActive = value;
+  }
 
   return {
+    skills: { maxActive },
     profileName: selectedProfile,
     policy: mergePolicy(
       policyLayer(globalDocument),

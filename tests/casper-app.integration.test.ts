@@ -6,6 +6,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { CasperApp } from "../src/app";
 import { loadProjectContext } from "../src/project/context";
+import { SkillRegistry } from "../src/skills/registry";
 import type {
   AgentRuntime,
   RuntimeEventListener,
@@ -67,6 +68,101 @@ afterEach(async () => {
 });
 
 describe("CasperApp", () => {
+  test("local skill commands work without starting an unavailable runtime", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "casper-local-project-"));
+    const homeDir = await mkdtemp(path.join(os.tmpdir(), "casper-local-home-"));
+    tempDirs.push(root, homeDir);
+    const directory = path.join(root, ".casper/skills/mcp");
+    await mkdir(directory, { recursive: true });
+    await writeFile(path.join(directory, "SKILL.md"), "---\nname: mcp\ndescription: MCP authoring.\n---\nLOCAL_BODY");
+    let output = "";
+    const app = new CasperApp({
+      runtimeFactory: () => { throw new Error("Runtime unavailable"); },
+      loadProjectContext: (project) => loadProjectContext(project, { homeDir }),
+      loadSkillRegistry: (context) => SkillRegistry.discover({ projectRoot: context.info.root, homeDir }),
+      output: { write: (text) => { output += text; } },
+    });
+    try {
+      await app.runOnce("/skills", root);
+      const id = output.match(/mcp@[a-f0-9]+/)![0];
+      await app.runOnce(`/skills inspect ${id}`);
+      const digest = output.match(/SHA256: ([a-f0-9]{64})/)![1];
+      await app.runOnce(`/skills trust ${id} ${digest}`);
+      await app.runOnce(`/skills block ${id}`);
+      await app.runOnce("/project");
+      expect(output).toContain("LOCAL_BODY");
+      expect(output).toContain("Trusted reviewed content");
+      expect(output).toContain("Blocked");
+      expect(output.match(/CASPER/g)).toHaveLength(1);
+      await expect(app.runOnce("Add an MCP tool")).rejects.toThrow("Runtime unavailable");
+    } finally {
+      await app.close();
+    }
+  });
+
+  test("selects relevant skill bodies per task and handles inspection/trust commands without model calls", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "casper-skills-app-"));
+    const homeDir = await mkdtemp(path.join(os.tmpdir(), "casper-skills-home-"));
+    tempDirs.push(root, homeDir);
+    await writeFile(path.join(root, "package.json"), JSON.stringify({ devDependencies: { typescript: "latest" } }));
+    const fixtures = [
+      [path.join(homeDir, ".casper/skills/mcp"), "mcp-tools", "tags: [mcp]\nstacks: [typescript]\n", "MCP_INSTRUCTIONS"],
+      [path.join(homeDir, ".casper/skills/ts"), "typescript", "tags: [typescript]\n", "TS_INSTRUCTIONS"],
+      [path.join(homeDir, ".casper/skills/ui"), "react-ui", "tags: [react, layout]\n", "UNRELATED_INSTRUCTIONS"],
+      [path.join(root, ".casper/skills/project"), "project-mcp", "tags: [mcp]\n", "PROJECT_INSTRUCTIONS"],
+    ];
+    for (const [directory, name, fields, body] of fixtures) {
+      await mkdir(directory, { recursive: true });
+      await writeFile(path.join(directory, "SKILL.md"), `---\nname: ${name}\ndescription: Guidance for ${name}\n${fields}---\n${body}`);
+    }
+    const runtime = new FakeRuntime();
+    let output = "";
+    const app = new CasperApp({
+      runtimeFactory: () => runtime,
+      loadProjectContext: (project) => loadProjectContext(project, { homeDir }),
+      loadSkillRegistry: (context) => SkillRegistry.discover({ projectRoot: context.info.root, homeDir, maxActive: context.skills.maxActive }),
+      output: { write: (text) => { output += text; } },
+    });
+    try {
+      await app.runOnce("/skills", root);
+      expect(runtime.prompts).toHaveLength(0);
+      expect(output).toContain("4 indexed");
+      expect(output).toContain("[project; untrusted]");
+      expect(output).not.toContain("_INSTRUCTIONS");
+      expect(runtime.startOptions).toBeUndefined();
+      await app.runOnce("Add a TypeScript MCP tool");
+      expect(runtime.startOptions?.systemPromptAppend).not.toContain("_INSTRUCTIONS");
+      expect(runtime.prompts[0]).toContain("MCP_INSTRUCTIONS");
+      expect(runtime.prompts[0]).toContain("TS_INSTRUCTIONS");
+      expect(runtime.prompts[0]).not.toContain("UNRELATED_INSTRUCTIONS");
+      expect(runtime.prompts[0]).not.toContain("PROJECT_INSTRUCTIONS");
+      expect(runtime.prompts[0]).toContain("User request:\nAdd a TypeScript MCP tool");
+
+      const id = output.match(/project-mcp@[a-f0-9]+/)![0];
+      output = "";
+      await app.runOnce(`/skills inspect ${id}`);
+      expect(output).toContain("PROJECT_INSTRUCTIONS");
+      expect(runtime.prompts).toHaveLength(1);
+      const digest = output.match(/SHA256: ([a-f0-9]{64})/)![1];
+      await app.runOnce(`/skills trust ${id} incorrect`);
+      expect(output).toContain("digest is incorrect");
+      await app.runOnce(`/skills trust ${id} ${digest}`);
+      expect(runtime.prompts).toHaveLength(1);
+      await app.runOnce("Add a TypeScript MCP tool");
+      expect(runtime.prompts[1]).toContain("PROJECT_INSTRUCTIONS");
+      await app.runOnce(`/skills block ${id}`);
+      await app.runOnce("Add a TypeScript MCP tool");
+      expect(runtime.prompts[2]).not.toContain("PROJECT_INSTRUCTIONS");
+      await app.runOnce("Hello there");
+      expect(runtime.prompts[3]).not.toContain("_INSTRUCTIONS");
+      await app.runOnce("/skills nonsense");
+      expect(output).toContain("Usage: /skills");
+      expect(runtime.prompts).toHaveLength(4);
+    } finally {
+      await app.close();
+    }
+  });
+
   test("starts with a Casper banner, detects git branch, and streams runtime output", async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "casper-phase1-project-"));
     const homeDir = await mkdtemp(path.join(os.tmpdir(), "casper-phase1-home-"));
@@ -96,6 +192,7 @@ describe("CasperApp", () => {
     const app = new CasperApp({
       runtimeFactory: () => fakeRuntime,
       loadProjectContext: (project) => loadProjectContext(project, { homeDir }),
+      loadSkillRegistry: (context) => SkillRegistry.discover({ projectRoot: context.info.root, homeDir }),
       output: {
         write(text: string) {
           output += text;

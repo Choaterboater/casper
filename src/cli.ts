@@ -9,6 +9,14 @@ Usage:
   casper               Start interactive mode
   casper <prompt>      Run one prompt and exit
   casper --help        Show help
+
+Local commands:
+  /project                         Show project context
+  /skills                          List skill metadata and trust
+  /skills inspect <id>             Inspect a skill and its content digest
+  /skills trust <id> <sha256>       Approve the exact reviewed skill content
+  /skills block <id>               Prevent future skill injection
+  /exit                            Exit interactive mode
 `);
 }
 
