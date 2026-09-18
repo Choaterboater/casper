@@ -2,7 +2,7 @@
 
 Casper is a standalone coding companion CLI built as its own project.
 
-For Phase 0, Casper uses Pi as a pinned runtime dependency through a thin adapter layer:
+Casper uses Pi as a pinned runtime dependency through a thin adapter layer:
 
 ```text
 Casper CLI / app
@@ -18,32 +18,47 @@ This means:
 - Pi is not forked.
 - OMP is not a runtime dependency.
 
-## Phase 0 includes
+## Current scope (Phases 0–1)
 
-- Bun + TypeScript project
-- pinned Pi dependency
-- `AgentRuntime` interface
-- `PiRuntime` implementation
-- `casper` CLI
-- compact Casper ghost/banner
-- current project root detection
-- Git branch detection when available
-- Pi-backed session startup
-- response streaming through Casper output
-- read/edit/run-code capability in the current repo through Pi tools
-- one end-to-end integration test
+- Bun + TypeScript CLI with a pinned Pi runtime dependency
+- thin `AgentRuntime` / `PiRuntime` seam
+- compact Casper banner and streamed runtime output
+- Git root and branch inspection
+- deterministic language, framework, package-manager, and command detection
+- cached project models under `~/.casper/projects/`
+- global, profile, and project policy loading with safe precedence
+- selected profiles and profile/project rules
+- deterministic task classification and relevant command context
+- `/project` summary in interactive mode
 
-## Phase 0 does not include
+Not implemented yet: skills, verification/repair, MCP, LSP, visualization, memory, or subagents.
 
-- profiles
-- project config
-- verification / repair loop
-- MCP
-- LSP
-- MindMesh
-- memory
-- subagents
-- advanced TUI
+## Configuration
+
+Casper reads these optional files:
+
+```text
+~/.casper/config.yaml
+~/.casper/profiles/<profile>/config.yaml
+~/.casper/profiles/<profile>/rules.md
+<project>/.casper/project.yaml
+<project>/.casper/rules.md
+```
+
+Select a profile with `CASPER_PROFILE`, `profile:` in project/global configuration, or the default profile name `default`. Precedence is safe defaults → global → selected profile → project. Project model fields can be overridden in `.casper/project.yaml`:
+
+```yaml
+profile: default
+languages: [typescript]
+frameworks: [react]
+packageManager: bun
+commands:
+  test: bun test
+  build: bun run build
+policy:
+  behavior:
+    autonomy: high
+```
 
 ## Requirements
 
