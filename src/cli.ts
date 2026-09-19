@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 
 import { CasperApp } from "./app";
+import { taskExitCode } from "./task/result";
 
 function printHelp(): void {
   console.log(`Casper — your coding companion
@@ -103,7 +104,7 @@ async function main(): Promise<void> {
     for (const server of [...new Set(languageServers)]) await app.runOnce(`/lsp connect ${server}`);
     if (prompt) {
       const report = await app.runOnce(prompt);
-      if (report) process.exitCode = report.status === "pass" ? 0 : report.status === "incomplete" ? 2 : 1;
+      process.exitCode = taskExitCode(report, app.getLastTaskResult());
       return;
     }
 

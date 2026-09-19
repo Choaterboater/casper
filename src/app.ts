@@ -24,6 +24,8 @@ import type {
 } from "./runtime/types";
 import { SkillRegistry, formatSelectedSkills } from "./skills/registry";
 import { classifyTask, formatTaskPrompt } from "./task/classify";
+import { formatTaskResult, type TaskResult, type ObservedCheck } from "./task/result";
+import { boundObservationText } from "./runtime/observation";
 import { renderBanner, renderProjectSummary } from "./tui/banner";
 import type { ProjectCommand } from "./project/model";
 import { CHECK_NAMES, formatVerificationReport, formatVerificationResult, type VerificationReport } from "./verify/evidence";
@@ -109,6 +111,11 @@ export class CasperApp {
   private workspaceTransition = false;
   private workspaceNeedsRebind = false;
   private taskRuntimeFailed = false;
+  private taskRuntimeCancelled = false;
+  private lastTaskResult?: TaskResult;
+  private readonly observedEdits = new Set<string>();
+  private readonly observedChecks = new Map<ProjectCommand, ObservedCheck>();
+  private possibleMutations = false;
   private memoryWork?: Promise<void>;
 
   constructor(options: CasperAppOptions = {}) {
@@ -168,6 +175,11 @@ export class CasperApp {
     this.output.write(` visualize ${this.visualization.providerNames().join(", ")} (${context.visualize.outputDir ? "artifacts outside workspace" : "in-conversation only"}; use /visualize)\n\n`);
     for (const diagnostic of this.visualization.diagnostics) this.output.write(`[visualize] ${diagnostic}\n`);
     return project;
+  }
+
+  /** Last normal coding/chat request; local commands clear it. Not acceptance evidence. */
+  getLastTaskResult(): TaskResult | undefined {
+    return this.lastTaskResult ? structuredClone(this.lastTaskResult) : undefined;
   }
 
   async runOnce(prompt: string, cwd = process.cwd()): Promise<VerificationReport | undefined> {
@@ -267,6 +279,7 @@ export class CasperApp {
           cwd: context.info.root,
           tools: this.runtimeTools,
           afterFileEdit: async (file, signal) => {
+            this.observeEdit(file);
             const reports = await this.lsp!.afterEdit(file, signal);
             return reports.length ? `LSP diagnostics after edit: ${JSON.stringify(boundCapabilityResult(reports))}\nRepair new errors before continuing; unavailable or unversioned reports are not proof of a clean file.` : undefined;
           },
@@ -295,6 +308,12 @@ export class CasperApp {
     if (this.commandActive) throw new Error("Another command is active; wait for active subagents or workspace transition");
     const transition = /^\/(?:branch|switch)(?:\s|$)/.test(prompt);
     if (transition && this.subagents.isBusy) throw new Error("Wait for active subagents before changing workspaces");
+    this.lastTaskResult = undefined;
+    this.observedEdits.clear();
+    this.observedChecks.clear();
+    this.possibleMutations = false;
+    this.taskRuntimeFailed = false;
+    this.taskRuntimeCancelled = false;
     this.commandActive = true;
     this.workspaceTransition = transition;
     try {
@@ -374,7 +393,6 @@ export class CasperApp {
     if (this.closing) return;
     const session = await this.ensureRuntime();
     if (this.closing) return;
-    this.taskRuntimeFailed = false;
     let verification: VerificationReport | undefined;
     try {
       await session.prompt([
@@ -382,15 +400,25 @@ export class CasperApp {
         skillContext,
         formatTaskPrompt(prompt, classification, context.model),
       ].filter(Boolean).join("\n\n"));
-      if (!this.closing && this.autoVerify && classification.mode === "modify" && classification.verification.length) {
-        verification = await this.runVerification(classification.verification, true, prompt);
+      if (!this.closing && !this.taskRuntimeFailed && this.autoVerify && classification.mode === "modify" && classification.verification.length) {
+        // Automatic checks use available project commands, not four mandatory categories.
+        // Explicit /verify requests retain missing-command evidence.
+        const checks = classification.verification.filter((name) => context.model.commands[name]?.trim());
+        verification = await this.runVerification(checks, true, prompt);
       }
     } catch (error) {
       this.taskRuntimeFailed = true;
       throw error;
     } finally {
+      const execution = this.closing || this.taskRuntimeCancelled ? "cancelled" : this.taskRuntimeFailed ? "failed" : "completed";
+      this.lastTaskResult = { execution, verification, observedEdits: [...this.observedEdits],
+        observedChecks: [...this.observedChecks.values()], possibleMutations: this.possibleMutations };
+      if (!this.closing) {
+        this.ensureLineBreak();
+        this.output.write(`${formatTaskResult(this.lastTaskResult)}\n`);
+      }
       await this.recordTaskOutcome({ task: prompt, skills: selected.map(({ skill }) => skill.id),
-        modelStatus: this.closing ? "cancelled" : this.taskRuntimeFailed ? "failed" : "completed", verification });
+        modelStatus: execution, verification });
     }
     return verification;
   }
@@ -444,9 +472,14 @@ export class CasperApp {
         repair: repair ? async (prompt) => {
           await this.prepareCapabilities(request);
           const session = await this.ensureRuntime();
-          if (!controller.signal.aborted) await session.prompt(prompt);
+          if (!controller.signal.aborted) {
+            await session.prompt(prompt);
+            if (this.taskRuntimeFailed) throw new Error("Repair model stopped unsuccessfully; changes retained.");
+          }
         } : undefined,
-        onResult: (result) => { this.ensureLineBreak(); this.output.write(`${formatVerificationResult(result)}\n`); },
+        onResult: (result) => {
+          this.ensureLineBreak(); this.output.write(`${formatVerificationResult(result)}\n`);
+        },
         onRepair: (attempt, max) => { this.output.write(`↻ repair ${attempt}/${max}\n`); },
       });
       const report = await this.verificationWork;
@@ -765,7 +798,10 @@ export class CasperApp {
   private handleRuntimeEvent(event: RuntimeEvent): void {
     switch (event.type) {
       case "assistant_response_end":
-        if (!["stop", "toolUse"].includes(event.stopReason)) this.taskRuntimeFailed = true;
+        // Pi may retry a provider error inside prompt(); only the final response
+        // determines the stop outcome. Thrown prompt errors are handled separately.
+        this.taskRuntimeCancelled = event.stopReason === "aborted";
+        this.taskRuntimeFailed = !["stop", "toolUse"].includes(event.stopReason);
         break;
       case "assistant_text_delta":
         this.output.write(event.delta);
@@ -777,6 +813,10 @@ export class CasperApp {
         this.endedWithNewline = true;
         break;
       case "tool_end":
+        // A failure/abort can follow partial writes. A shell success need not have
+        // written anything. Keep uncertainty separate from observed edit paths.
+        if (["bash", "edit", "write"].includes(event.toolName) || (event.toolName === "lsp" && event.input?.operation === "rename")) this.possibleMutations = true;
+        if (event.toolName === "bash") this.observeRuntimeCheck(event);
         this.output.write(`${event.isError ? "✗" : "✓"} ${event.toolName}\n`);
         this.endedWithNewline = true;
         break;
@@ -790,6 +830,20 @@ export class CasperApp {
         this.endedWithNewline = true;
         break;
     }
+  }
+
+  private observeRuntimeCheck(event: Extract<RuntimeEvent, { type: "tool_end" }>): void {
+    const command = event.input?.command;
+    if (!command || Buffer.byteLength(command) > 8192) return;
+    const name = CHECK_NAMES.find((candidate) => this.projectContext?.model.commands[candidate]?.trim() === command.trim());
+    if (!name) return;
+    const output = boundObservationText(event.output?.text ?? "");
+    this.observedChecks.set(name, { name, command, toolStatus: event.isError ? "error" : "success",
+      output: output.text, truncated: output.truncated || Boolean(event.output?.truncated) });
+  }
+
+  private observeEdit(path: string): void {
+    if (this.observedEdits.size < 32) this.observedEdits.add(path.slice(0, 512));
   }
 
   private ensureLineBreak(): void {

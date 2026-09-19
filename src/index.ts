@@ -19,6 +19,7 @@ export * from "./sessions/manager";
 export * from "./sessions/store";
 export * from "./workspace/worktree";
 export * from "./task/classify";
+export * from "./task/result";
 export * from "./tui/banner";
 export * from "./verify/evidence";
 export * from "./verify/registry";

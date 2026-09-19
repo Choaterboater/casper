@@ -104,6 +104,36 @@ test("real /delegate reads evidence but cannot write, shell, recurse, or load am
   expect(sessions.filter((file) => file.endsWith(".jsonl"))).toHaveLength(0);
 }, 15_000);
 
+test("real Pi forwards correlated bounded shell diagnostics without edit bodies or fabricated exit codes", async () => {
+  let step = 0;
+  const f = await fixture(() => step++ === 0 ? calls([
+    { name: "bash", args: { command: "printf SHELL_DIAGNOSTIC; exit 7" } },
+    { name: "write", args: { path: "changed.txt", content: "EDIT_BODY_NOT_AN_OBSERVATION" } },
+  ]) : answer("Done"));
+  const harness = path.join(f.agent, "observations.ts");
+  await writeFile(harness, `import { PiRuntime } from ${JSON.stringify(path.join(import.meta.dir, "../src/runtime/pi.ts"))};
+const runtime = new PiRuntime();
+const events = [];
+try {
+  const session = await runtime.start({ cwd: process.cwd() });
+  session.subscribe(event => { if (event.type === 'tool_start' || event.type === 'tool_end') events.push(event); });
+  await session.prompt('Run the fixture commands.');
+  console.log('OBSERVATIONS=' + JSON.stringify(events));
+} finally { await runtime.dispose(); }
+`);
+  const result = await f.run([harness]);
+  expect({ exit: result.exit, stderr: result.stderr }).toEqual({ exit: 0, stderr: "" });
+  const events: RuntimeEvent[] = JSON.parse(result.stdout.split("OBSERVATIONS=")[1]!);
+  const shell = events.find((event) => event.type === "tool_end" && event.toolName === "bash");
+  expect(shell).toMatchObject({ toolCallId: "call_0", input: { command: "printf SHELL_DIAGNOSTIC; exit 7" }, isError: true });
+  if (shell?.type !== "tool_end") throw new Error("Missing shell observation");
+  expect(shell.output?.text).toContain("SHELL_DIAGNOSTIC");
+  expect(shell.output?.text).toContain("code 7");
+  expect(shell).not.toHaveProperty("exitCode");
+  expect(JSON.stringify(events)).not.toContain("EDIT_BODY_NOT_AN_OBSERVATION");
+  expect(await readFile(path.join(f.project, "changed.txt"), "utf8")).toBe("EDIT_BODY_NOT_AN_OBSERVATION");
+}, 15_000);
+
 test("real parent Pi delegates and receives the child report without sharing child tools or history", async () => {
   let parentCalls = 0; let childCalls = 0;
   const f = await fixture((payload) => {
