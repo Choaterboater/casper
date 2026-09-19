@@ -30,6 +30,7 @@ function createApp(root: string, options: { autoVerify?: boolean; respond?: (pro
       await options.onStart?.();
       if (!options.respond) throw new Error("Runtime unavailable");
       return {
+        setTools() {},
         async prompt(text) { prompts.push(text); await options.respond!(text); },
         async abort() { await options.onAbort?.(); }, subscribe: () => () => {},
         getState: () => ({ cwd: root, isStreaming: false }),

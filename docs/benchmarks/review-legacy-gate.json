@@ -1,0 +1,101 @@
+{
+  "baseline": "f8bb28eaf0b79d3279587f5960657d1023e7555b",
+  "environment": {
+    "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+    "bun": "1.4.0"
+  },
+  "method": "Identical current legacy test files; shared current node_modules; alternating baseline/current; wall time excludes source setup; no typecheck.",
+  "testHashes": {
+    "tests/casper-app.integration.test.ts": "61f4092f1fd27c8a2ec023457eb49d6acdf32cd6f73ae5d7a7fc823d39462c07",
+    "tests/phase1-project-context.test.ts": "e346026401171ac2a84049eeeec0fdd8fc1f3743ce7626c0aa84dfefb0da84e4",
+    "tests/phase2-skills.test.ts": "0daa502739e365cc06e7f2d033df854ea3dce6403b2c39432b9806255cca1cea",
+    "tests/phase3-app.integration.test.ts": "782af60bc5367354593f3f37b57cce342d537683fea0ffa01cd43890f35c843d",
+    "tests/phase3-verification.test.ts": "2e858896925333e6fea6cada5936bf2ddef5bf9a7892eb0736c0bc61acb3c01f"
+  },
+  "sourceHashes": {
+    "src/agents/manager.ts": "13d537c73c499fcef3326cb33bb8c89029f35cde74599b984fc5d7fd5e21cbd8",
+    "src/app.ts": "ce79495b634b131e5fc84c73e7a91d87a4908d265960e32f7263cf8d5d7f6d31",
+    "src/capabilities/broker.ts": "90752349e4b915d9dae65f901cfdc8d39a9bf4f26833c026da4f575eeb06acf6",
+    "src/capabilities/result.ts": "a02d72e7886470460b6a1a4d3b87cfd9fd433d06ba17fb527fbcf95c3be4e84a",
+    "src/cli.ts": "dc9a868f658ddd0db07471cb23da08c7495dc71af5539ffac790900a78fe3815",
+    "src/config/load.ts": "d33e56db89f582baee157b7b8c4305e84e6cebbbc5b3d1f68c8f3c98e73887b8",
+    "src/index.ts": "68ed1c6e593acc5fe1f14fc3e8c136710cefcf3c7c8632c0081e99ba50419b96",
+    "src/lsp/config.ts": "541e4a8a085f8a2c634613ded6219d9ba68c9ae91d34cb16f9cf1a183b68408c",
+    "src/lsp/edits.ts": "7a4e7384b1406b083ea94e5b71db154b797d0b7037c1abfab089b6ed9f637b00",
+    "src/lsp/manager.ts": "100890ccc559aec3e274620e44533bf3a60a78d5c9a16e2b63206e2e7d8af422",
+    "src/lsp/protocol.ts": "dadee4fa8e12c9142a9abebd5139e6ec34acd53ebb4e30fe8329b84ed4afd13b",
+    "src/lsp/tools.ts": "220d39fa0ace67cb1fd2d90d2c5b5bdeab0ab8adfc4183dd0a1541b2758096b6",
+    "src/lsp/workspace.ts": "e7c2099534bd21c25781c0af9489c23fa22fb61695f7836f83646bb3c03d88ca",
+    "src/mcp/config.ts": "bba017ac4d32f2896c804cf49de975af49f801441e8c2fe1362bdcb492643bc0",
+    "src/mcp/manager.ts": "ffd71e5055346c2761584476cd71432a5a2add989ba6da231eac0df0bec92b09",
+    "src/memory/store.ts": "37bcab258b2e72d646b64abea6c09eac9fe54bae4982b7fa7a6d6cc6ccd73836",
+    "src/project/context.ts": "9a564f85c433d0c94822555f5947a104acbe7cdcae7929d21fde97dd82186873",
+    "src/project/inspect.ts": "f10c36ede0e97852a48892a49a89aa3cbbf28930456f96b15678126cd66f36ed",
+    "src/project/model.ts": "19c710c747c357110333236d10a8bf5be10d3f43f287329bed753246f554eff2",
+    "src/runtime/pi.ts": "074cce7bd2b49577247af430ef79b9ad986e36d6bfe500563bd58cbf3140400e",
+    "src/runtime/types.ts": "d35876925084458b4a9210c365306938bebf8c40c3690ad658cda07ce2239019",
+    "src/sessions/manager.ts": "b9c07535d4fbbab143f8c326dce16ea7aab4c77ccde9e933cd13dff3deb5e8ee",
+    "src/sessions/store.ts": "c8124d660f88ef3dc26ba9eb6190b93d1a516b6f475f8daffef4dcab8a4e9b43",
+    "src/skills/metadata.ts": "6fe05f3e4f71d25b8098b4b90602d88857da09dd6aaff759fde8dd75abe4b5fa",
+    "src/skills/rank.ts": "1f1ba75385a0c54078a1797f2040f13d53930b6e74a2b369ef482daf5464218c",
+    "src/skills/registry.ts": "de3453cd4f049b3f58d85e2d838a651ac904186c4fd228cd919321948c68a6ec",
+    "src/task/classify.ts": "343183fd2af5571731bba6ac3d197eac3e349de3a346a8052744ac16fed92dcf",
+    "src/tui/banner.ts": "9bbb58f90c2d42f6f7896390e0b5b8f120736ab5d73ebb4fafd439fd32fe8a47",
+    "src/verify/command.ts": "9e4dc43e68c45ed09edeb35cd09670281d5a9c107646ae3eddd098768be6aad9",
+    "src/verify/evidence.ts": "165c5765c9d5db663b7d4dce216c78163f298d609d9be5b65904f43b340c966b",
+    "src/verify/registry.ts": "38adad6f45c28a2d8e577d2c6ee06476a62d9d5010ab1c0bebdb0e68c4e4397c",
+    "src/verify/repair-loop.ts": "9c0616a44287dd5bbf8570d5548f119c7b3857786cd0d6d6586e3de6e0d2776e",
+    "src/visualize/artifacts.c": "666bc5093d9ebd96a12eec4860dac28162f93fc2427997849bc1813ec214184a",
+    "src/visualize/artifacts.ts": "2688dafef327e74a6248ac42e643128cac761591afe431590806c304fa399a3c",
+    "src/visualize/mermaid.ts": "807d9361dc5c05dc9be5f65b879be6f3f95462456d6fc4e09f4858ffcced1091",
+    "src/visualize/mindmesh.ts": "edb14f7035ebf9132fa4580126c587cc6284ff8b16b856bb8aac779c33b310e2",
+    "src/visualize/repo.ts": "51cb83172df926fdb383ef6d2f39f37e1da89c65c3db2d3ef8bc1a28098c20a0",
+    "src/visualize/router.ts": "2d21860920880651ba98dac3492084bfebe375af38c141e644ede93eb4838a10",
+    "src/visualize/tools.ts": "dc06844b2b0b554b15404035d98c8d4d0cdca98d58b0ba9e206318d2c9cc02f5",
+    "src/visualize/types.ts": "d1c48e735d54a68ebf3e58c2972cc1aff871b02745a8ba6922d98358e9be6e3c",
+    "src/workspace/worktree.ts": "e92eab745010153764bd7b0c68723da1b09f908a030afa22abbd3dc2802c5007"
+  },
+  "lockHash": "d34768239287bfab3f847235d8a38885303dfffd75bd1b0390737c3e7e0e150b",
+  "samples": [
+    {
+      "revision": "baseline",
+      "run": 1,
+      "seconds": 8.534,
+      "exitCode": 0
+    },
+    {
+      "revision": "current",
+      "run": 1,
+      "seconds": 8.095,
+      "exitCode": 0
+    },
+    {
+      "revision": "baseline",
+      "run": 2,
+      "seconds": 8.611,
+      "exitCode": 0
+    },
+    {
+      "revision": "current",
+      "run": 2,
+      "seconds": 7.931,
+      "exitCode": 0
+    },
+    {
+      "revision": "baseline",
+      "run": 3,
+      "seconds": 9.037,
+      "exitCode": 0
+    },
+    {
+      "revision": "current",
+      "run": 3,
+      "seconds": 7.57,
+      "exitCode": 0
+    }
+  ],
+  "medianSeconds": {
+    "baseline": 8.611,
+    "current": 7.931
+  }
+}

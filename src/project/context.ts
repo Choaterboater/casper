@@ -1,16 +1,19 @@
 import os from "node:os";
 import { loadConfiguration, type CasperPolicy } from "../config/load";
+import type { VisualizationSettings } from "../visualize/router";
 import type { ProjectInfo } from "./inspect";
-import { loadProjectModel, type ProjectModel } from "./model";
+import { loadProjectModel, projectStateDirectory, type ProjectModel } from "./model";
 
 export interface ProjectContext {
   info: ProjectInfo;
+  stateDirectory: string;
   model: ProjectModel;
   profileName: string;
   policy: CasperPolicy;
   skills: { maxActive: number };
   verification: { timeoutMs: number };
   repair: { maxAttempts: number };
+  visualize: VisualizationSettings;
   rules: {
     profile: string | null;
     project: string | null;
@@ -39,12 +42,14 @@ export async function loadProjectContext(
 
   return {
     info,
+    stateDirectory: projectStateDirectory(info.root, homeDir),
     model,
     profileName: configuration.profileName,
     policy: configuration.policy,
     skills: configuration.skills,
     verification: configuration.verification,
     repair: configuration.repair,
+    visualize: configuration.visualize,
     rules: {
       profile: configuration.profileRules,
       project: configuration.projectRules,
@@ -84,6 +89,9 @@ export function formatProjectContext(context: ProjectContext): string {
     `- git commit: ${policy.git.commit}`,
     `- git push: ${policy.git.push}`,
     "- confirm destructive operations: true",
+    `- isolate parallel agents: ${policy.workspace.isolateWhen.parallelAgents}`,
+    `- isolate risky refactors: ${policy.workspace.isolateWhen.riskyRefactor}`,
+    `- isolate experimental branches: ${policy.workspace.isolateWhen.experimentalBranch}`,
   ];
 
   if (rules.profile) {

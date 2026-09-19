@@ -18,7 +18,7 @@ This means:
 - Pi is not forked.
 - OMP is not a runtime dependency.
 
-## Current scope (Phases 0–3)
+## Current scope (Phases 0–8; Phase 9 started)
 
 - Bun + TypeScript CLI with a pinned Pi runtime dependency
 - thin `AgentRuntime` / `PiRuntime` seam
@@ -35,7 +35,66 @@ This means:
 - Casper-owned typecheck/lint/test/build verification with structured command evidence
 - explicit local checks, bounded model-assisted repair, and opt-in post-task verification
 
-Not implemented yet: MCP, LSP, visualization, memory, or subagents.
+- MCP configuration discovery and explicitly authorized stdio/Streamable HTTP connections
+- bounded capability discovery, selective direct tools, and router-style MCP preference
+- exact-call confirmation for non-read MCP tools and local `/mcp` status
+
+- Casper-owned opt-in LSP connections, symbols, definitions, references, and language-aware rename
+- exact interactive rename approval, snapshot preflight, and diagnostics after native edits
+
+- neutral graph IR, `VisualizationProvider` seam, Mermaid fallback, and MindMesh schema-6 file adapter
+- read-only `visualize` tool for visualization-intent prompts, deterministic repository dependency graphs, and local `/visualize` commands
+
+- Pi-backed named session branches with `/tree`, `/branch`, and `/switch`
+- policy-gated experimental Git worktrees with reviewed verify/apply/discard return-to-main workflows
+
+- bounded read-only explorer/reviewer subagents through `delegate` and `/delegate`
+- enforced child tool selection, run/dispatch limits, cancellation, and bounded reports
+
+- explicit project facts and truthful task outcomes (Phase 9's first slice)
+
+Not implemented yet: reference search, `casper learn`, candidate-to-skill promotion, or writing subagents. Phase 4 is validated with local generic/HPE-style fixtures and a live model; actual deployment-specific HPE acceptance remains pending. Independent Phase 6–8 reviews and corrective follow-ups are recorded in `docs/PHASE6_REVIEW.md`, `docs/PHASE7_REVIEW.md`, and `docs/PHASE8_REVIEW.md`; runtime findings are resolved. Interactive MindMesh remains a disclosed broader-plan gap, not completed integration. Phase 9 is incomplete and awaits its own review.
+
+## Language servers
+
+Configure `.casper/lsp.json`, inspect `/lsp`, then explicitly `/lsp connect <name>` (or use leading `--lsp <name>`). No automatic installation or startup. The single `lsp` tool provides diagnostics, symbols, definitions, references, and approval-gated rename. Native edit/write results include diagnostics from connected servers. Missing or unversioned diagnostics are not proof of clean code.
+
+See [`docs/LSP.md`](docs/LSP.md) for configuration, safety, limits, and diagnostics semantics; [`docs/PHASE5_IMPLEMENTATION.md`](docs/PHASE5_IMPLEMENTATION.md) for completed acceptance, and [`docs/PHASE5_REVIEW.md`](docs/PHASE5_REVIEW.md) for independent review evidence. The subsequent [debug/performance report](docs/PHASE5_PERFORMANCE.md) includes controlled before/after measurements; rerun local benchmarks with `bun run scripts/benchmark-lsp.ts`.
+
+## Visualization
+
+Ask for a diagram (`map out the authentication flow`, `show me the auth flow as a mind map`) and Casper exposes a read-only `visualize` tool that renders a neutral graph through configured providers: Mermaid text inline, plus MindMesh JSON and Mermaid files saved under `~/.casper/visualizations/<project>/` — never inside the repository. `/visualize repo [dir]` renders the project's relative-import dependency graph locally without a model. A diagram never authorizes code changes. See [`docs/VISUALIZATION.md`](docs/VISUALIZATION.md) and [`docs/PHASE6_IMPLEMENTATION.md`](docs/PHASE6_IMPLEMENTATION.md).
+
+## Named sessions and worktree experiments
+
+Use `/tree` to inspect named branches, `/branch <name>` to clone the active Pi conversation, and `/switch <branch>` to resume one. Experimental branches use a managed Git worktree by default and all creation/switching requires exact interactive approval. Return with `/switch main apply` (verify, review the complete diff, apply it uncommitted) or `/switch main discard` (review, then unregister without applying). Candidate changes during approval are preserved. Cleanup retains files in a printed recovery directory rather than force-deleting bytes that an external editor could still be changing.
+
+See [`docs/SESSIONS.md`](docs/SESSIONS.md) for the workflow, policy, safety checks, and limits, [`docs/PHASE7_IMPLEMENTATION.md`](docs/PHASE7_IMPLEMENTATION.md) for implementation evidence, and [`docs/PHASE7_PERFORMANCE.md`](docs/PHASE7_PERFORMANCE.md) for the debug/optimization follow-up.
+
+## Bounded subagents
+
+```text
+/delegate explorer Find the authentication entry points and their callers
+/delegate reviewer Inspect src/sessions/manager.ts for approval-race risks
+```
+
+The primary model can also call `delegate` with a self-contained `role`, `goal`, and optional `context`. Both roles use fresh, read-only Pi sessions with only `read`, `grep`, `find`, and `ls`; no shell, writes, external capabilities, ambient extensions, or recursion. Children inspect the active workspace (including uncommitted work) without creating worktrees. Workspace switches wait for child work to finish.
+
+Limits: 2 concurrent children, 4 delegations per prepared parent prompt, 180 seconds / 12 model turns / 48 tool calls per child. Results are bounded and explicitly report failures, limits, and truncation. Child model defaults come from global Pi settings, not project model overrides. Read-only tool authority is **not an OS sandbox or spending cap**; reports are not verification evidence. See [`docs/PHASE8_IMPLEMENTATION.md`](docs/PHASE8_IMPLEMENTATION.md) for lifecycle, context, safety limits, and real Pi fixture acceptance.
+
+## Project facts and task outcomes — Phase 9 first slice
+
+```text
+/memory remember API calls belong in services/
+/memory
+/memory forget <fact-id>
+/memory outcomes
+/memory accept <outcome-id> yes
+```
+
+Facts are explicit human-entered guidance, included on the next parent prompt; current repository evidence/rules/policy take precedence. Normal model tasks record bounded local task summaries, selected skills, verification/skip status, and repair counts. Model completion is not a verification pass. Human acceptance stays unknown until explicitly recorded. No raw model/tool/check outputs are copied. These owner-only plaintext files may contain sensitive task/fact text; inspect them under the existing `~/.casper/projects/<project-key>/` directory.
+
+Reference search, `casper learn`, and human promotion of learned candidates are **not implemented yet**. See [`docs/PHASE9_IMPLEMENTATION.md`](docs/PHASE9_IMPLEMENTATION.md) for storage, limits, validation, and the remaining Phase 9 scope.
 
 ## Configuration
 
@@ -62,6 +121,11 @@ commands:
 policy:
   behavior:
     autonomy: high
+  workspace:
+    isolateWhen:
+      parallelAgents: true
+      riskyRefactor: true
+      experimentalBranch: true
 ```
 
 ## Skills
@@ -158,6 +222,24 @@ The terminal shows concise results, not full logs. Programmatic `CasperApp.runOn
 One-shot exit codes: **0** passed, **1** failed/blocked, **2** incomplete (one or more skips). Timeouts and cancellation terminate verifier process groups on POSIX; Windows only has direct-process cleanup and has not been validated. SIGINT/SIGTERM cancel checks and prevent further repair; the CLI gives cleanup up to one second, then exits even if runtime startup/abort is stalled. Programmatic `app.close()` drains runtime startup and verification before disposal but has no forced-exit deadline. Command timeouts do not bound model response time. Commands and runtime tools are not sandboxed, and command output may contain secrets—review your checks before sending their failure evidence to a model.
 
 See [`docs/PHASE3_VERIFICATION.md`](docs/PHASE3_VERIFICATION.md) for validation and the live failure → repair → rerun smoke, and [`docs/PHASE3_REVIEW.md`](docs/PHASE3_REVIEW.md) for pre-commit review/debugging/performance findings.
+
+## MCP capabilities
+
+MCP configuration is discovered as metadata only. Servers start disconnected; neither project configuration nor skills can grant connection or write permission. **No HPE server is bundled or enabled for everyone.** Personal integrations belong in a user/profile MCP file (for example `~/.casper/profiles/stephen/mcp.json`); the HPE-named test fixtures do not configure real servers.
+
+```text
+/mcp                         # local redacted status, no Pi startup
+/mcp connect <name>           # explicitly authorize this server for this process
+/mcp disconnect <name>        # disconnect and revoke consent
+```
+
+```bash
+bun run src/cli.ts --mcp docs "Find the pagination documentation"
+```
+
+Casper accepts common `mcpServers` JSON maps from user, selected-profile, and project files. It supports stdio and Streamable HTTP with environment/header authentication. A large catalog contributes at most six selected direct tools plus `find_capability` and `call_capability`, not all its schemas. Native router surfaces are preferred. Results are bounded to 16 KiB; non-read calls require exact interactive confirmation and are denied in one-shot mode. Connection consent and annotations are not sandboxing; existing Pi tools remain unsandboxed.
+
+See [MCP configuration, usage, safety, and limits](docs/MCP.md) and [Phase 4 validation](docs/PHASE4_VERIFICATION.md).
 
 ## Requirements
 
