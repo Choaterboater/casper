@@ -9,6 +9,9 @@ import { projectStateDirectory } from "../src/project/model";
 import { SkillRegistry } from "../src/skills/registry";
 import type { RuntimeEventListener, RuntimeSession } from "../src/runtime/types";
 import type { VerificationReport } from "../src/verify/evidence";
+import { VerifierRegistry } from "../src/verify/registry";
+import { verifyAndRepair } from "../src/verify/repair-loop";
+import { runCommandCheck } from "../src/verify/command";
 
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -89,6 +92,12 @@ test("outcome state rejects coerced enum values and unknown nested evidence fiel
     { verification: ["pass"] },
     { checks: [{ name: "test", status: ["skip"] }] },
     { checks: [{ name: "test", status: "pass", stdout: "must not be accepted" }] },
+    { checks: [{ name: "test", status: "pass", freshness: ["fresh"] }] },
+    { checks: [{ name: "test", status: "pass", scope: { inputs: ["../outside"] } }] },
+    { checks: [{ name: "test", status: "pass", freshnessReason: "x".repeat(2049) }] },
+    { checks: [{ name: "test", status: "pass", exitCode: "0" }] },
+    { coverage: "certified" },
+    { verificationMeaning: ["command-execution"] },
   ]) {
     const source = JSON.stringify({ ...saved, ...patch }) + "\n";
     await writeFile(file, source);
@@ -108,12 +117,54 @@ test("outcomes preserve skip/unverified evidence and never infer human acceptanc
   expect(first.verification).toBe("not-run");
   expect(first.accepted).toBeNull(); expect(second.accepted).toBeNull();
   expect(second.verification).toBe("incomplete");
-  expect(second.checks).toEqual([{ name: "test", status: "skip" }]);
+  expect(second.checks).toMatchObject([{ name: "test", status: "skip", exitCode: null, freshness: "unavailable" }]);
   expect(await readFile(path.join(context.stateDirectory, "outcomes.jsonl"), "utf8")).not.toContain("DO_NOT_STORE_OUTPUT");
   await store.acceptOutcome(second.id, true);
   const saved = (await store.outcomes()).find((entry) => entry.id === second.id)!;
   expect(saved.accepted).toBe(true);
   expect(saved.verification).toBe("incomplete");
+});
+
+test("legacy outcomes stay readable and explicitly unqualified in local memory inspection", async () => {
+  const { project, context, store } = await fixture();
+  const legacy = { id: "legacy", createdAt: "2026-01-01T00:00:00.000Z", task: "Build", skills: [],
+    modelStatus: "completed", verification: "pass", checks: [{ name: "build", status: "pass" }], repairAttempts: 0, accepted: null };
+  const file = path.join(context.stateDirectory, "outcomes.jsonl");
+  const source = JSON.stringify(legacy) + "\n";
+  await writeFile(file, source);
+  const [saved] = await store.outcomes();
+  expect(saved?.checks[0]).toMatchObject({ freshness: "unavailable", exitCode: null });
+  expect(saved?.checks[0]?.freshnessReason).toContain("not recorded");
+  expect(saved?.verificationMeaning).toBeUndefined();
+  let output = "";
+  const app = new CasperApp({ output: { write: (value) => { output += value; } }, loadProjectContext: async () => context });
+  cleanup.push(() => app.close());
+  await app.runOnce("/memory outcomes", project);
+  expect(output).toContain('"verificationMeaning": "legacy"');
+  expect(output).toContain('"freshness": "unavailable"');
+  expect(output).toContain('"coverage": "not-certified"');
+  expect(await readFile(file, "utf8")).toBe(source);
+});
+
+test("saved command passes retain stale, unknown and declared-scope qualifications after reopening", async () => {
+  for (const freshness of ["fresh", "stale", "unavailable"] as const) {
+    const { project, context, store } = await fixture();
+    await writeFile(path.join(project, "source.ts"), "before");
+    const scope = freshness === "unavailable" ? undefined : { inputs: ["source.ts"] };
+    const registry = new VerifierRegistry();
+    registry.register({ name: "build", scope, run: () => runCommandCheck({ name: "build", cwd: project, timeoutMs: 1000,
+      command: freshness === "stale" ? "printf after > source.ts" : "printf DO_NOT_STORE_OUTPUT" }) });
+    const report = await verifyAndRepair({ registry, checks: ["build"], cwd: project, request: "Build" });
+    await store.recordOutcome({ task: "Build", skills: [], modelStatus: "completed", verification: report });
+    const [saved] = await new ProjectMemory(context.stateDirectory).outcomes();
+    expect(saved).toMatchObject({ verification: "pass", verificationMeaning: "command-execution", coverage: "not-certified", accepted: null });
+    expect(saved?.checks[0]).toMatchObject({ name: "build", status: "pass", exitCode: 0, freshness });
+    expect(saved?.checks[0]?.scope).toEqual(scope);
+    if (freshness === "stale") expect(saved?.checks[0]?.freshnessReason).toContain("Declared inputs changed");
+    if (freshness === "unavailable") expect(saved?.checks[0]?.freshnessReason).toContain("No input scope declared");
+    expect(JSON.stringify(saved)).not.toContain("DO_NOT_STORE_OUTPUT");
+    expect(JSON.stringify(saved)).not.toContain("workspaceState");
+  }
 });
 
 test("memory commands stay local; facts reach only this project's prompts and tasks record honest outcomes", async () => {

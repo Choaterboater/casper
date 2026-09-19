@@ -1,4 +1,4 @@
-import type { VerificationReport } from "../verify/evidence";
+import { formatVerificationReport, type VerificationReport } from "../verify/evidence";
 import type { ProjectCommand } from "../project/model";
 
 /** Tool-reported diagnostics, not process exit evidence or a reusable check pass. */
@@ -20,6 +20,8 @@ export interface TaskResult {
   observedChecks?: ObservedCheck[];
 }
 
+/** Exit 0 describes command execution (or unverified task completion), not fresh
+ * inputs or behavioral acceptance. Stale/unknown evidence stays in the receipt. */
 export function taskExitCode(report?: VerificationReport, task?: TaskResult): number {
   if (task?.execution === "cancelled") return 130;
   if (task?.execution === "failed") return 1;
@@ -33,9 +35,6 @@ export function formatTaskResult(task: TaskResult): string {
   const edits = task.observedEdits?.length ? `; observed edits: ${task.observedEdits.map(safe).join(", ")}` : "";
   const possible = task.possibleMutations ? "; possible tool writes (scope unknown)" : "";
   const checks = task.observedChecks?.length ? `; shell check observations: ${task.observedChecks.map(({ name, toolStatus }) => `${name}:${toolStatus}`).join(", ")} (diagnostics only)` : "";
-  const evidence = !report ? "no Casper verification recorded"
-    : report.status === "pass" ? `selected checks passed: ${report.results.map(({ name }) => name).join(", ")}; requested behavior is not independently certified`
-    : `verification ${report.status}; see check results above`;
-  const freshness = report?.results.some((result) => result.freshness === "unavailable") ? "; filesystem freshness unavailable" : "";
-  return `[task] Execution ${task.execution}${edits}${possible}${checks}; ${evidence}${freshness}.`;
+  const evidence = report ? formatVerificationReport(report) : "no Casper verification recorded.";
+  return `[task] Execution ${task.execution}${edits}${possible}${checks}; ${evidence}`;
 }

@@ -31,6 +31,7 @@ import type { ProjectCommand } from "./project/model";
 import { CHECK_NAMES, formatVerificationReport, formatVerificationResult, type VerificationReport } from "./verify/evidence";
 import { VerifierRegistry } from "./verify/registry";
 import { verifyAndRepair } from "./verify/repair-loop";
+import { VerificationTask } from "./verify/task";
 import { MermaidProvider } from "./visualize/mermaid";
 import { MindMeshProvider } from "./visualize/mindmesh";
 import { buildRepoGraph } from "./visualize/repo";
@@ -58,6 +59,7 @@ export interface CasperAppOptions {
   sessionHomeDir?: string;
   output?: OutputWriter;
   input?: Readable;
+  /** Opt in to model-selected casper_check calls and bounded post-task repair. */
   autoVerify?: boolean;
 }
 
@@ -103,6 +105,7 @@ export class CasperApp {
   private readonly autoVerify: boolean;
   private verificationAbort?: AbortController;
   private verificationWork?: Promise<VerificationReport>;
+  private checkTask?: VerificationTask;
   private readonly sessionHomeDir?: string;
   private sessionWorkspace?: SessionWorkspaceManager;
   private sessionWorkspaceStart?: Promise<SessionWorkspaceManager>;
@@ -235,6 +238,7 @@ export class CasperApp {
     if (this.closeWork) return this.closeWork;
     this.closing = true;
     this.verificationAbort?.abort();
+    this.checkTask?.abort();
     this.visualizationAbort?.abort();
     this.subagentsClose = this.subagents.close();
     this.mcpClose = this.broker?.close();
@@ -254,6 +258,7 @@ export class CasperApp {
       try {
         await this.visualizationWork?.catch(() => {});
         await this.verificationWork;
+        await this.checkTask?.close();
         await this.memoryWork;
       } finally {
         this.unsubscribe?.();
@@ -319,7 +324,12 @@ export class CasperApp {
     try {
       if (this.workspaceNeedsRebind) await this.rebindWorkspace(this.activeWorkspaceRoot());
       return await this.handlePromptCommand(prompt);
-    } finally { this.commandActive = false; this.workspaceTransition = false; }
+    } finally {
+      await this.checkTask?.close();
+      this.checkTask = undefined;
+      this.commandActive = false;
+      this.workspaceTransition = false;
+    }
   }
 
   private async handlePromptCommand(prompt: string): Promise<VerificationReport | undefined> {
@@ -389,6 +399,10 @@ export class CasperApp {
     const skillContext = formatSelectedSkills(selected);
     const memoryContext = await new ProjectMemory(context.stateDirectory).context();
     if (this.closing) return;
+    if (this.autoVerify) this.checkTask = new VerificationTask(
+      VerifierRegistry.forProject(context.model, context.verification.timeoutMs), this.activeWorkspaceRoot(),
+      (result) => { this.ensureLineBreak(); this.output.write(`${formatVerificationResult(result)}\n`); },
+    );
     await this.prepareCapabilities(prompt, classification.intent === "visualize");
     if (this.closing) return;
     const session = await this.ensureRuntime();
@@ -400,17 +414,20 @@ export class CasperApp {
         skillContext,
         formatTaskPrompt(prompt, classification, context.model),
       ].filter(Boolean).join("\n\n"));
-      if (!this.closing && !this.taskRuntimeFailed && this.autoVerify && classification.mode === "modify" && classification.verification.length) {
-        // Automatic checks use available project commands, not four mandatory categories.
-        // Explicit /verify requests retain missing-command evidence.
-        const checks = classification.verification.filter((name) => context.model.commands[name]?.trim());
-        verification = await this.runVerification(checks, true, prompt);
+      if (!this.closing && !this.taskRuntimeFailed && !this.checkTask?.signal.aborted && this.checkTask?.checks.length) {
+        verification = await this.runVerification(this.checkTask.checks, true, prompt, this.checkTask);
       }
     } catch (error) {
       this.taskRuntimeFailed = true;
       throw error;
     } finally {
-      const execution = this.closing || this.taskRuntimeCancelled ? "cancelled" : this.taskRuntimeFailed ? "failed" : "completed";
+      const execution = this.closing || this.taskRuntimeCancelled || this.checkTask?.signal.aborted ? "cancelled" : this.taskRuntimeFailed ? "failed" : "completed";
+      // Keep already-executed evidence on terminal error/cancellation, but never
+      // launch another command or repair prompt after the task has stopped.
+      if (!verification && this.checkTask?.checks.length) verification = {
+        status: "blocked", reason: `Task ${execution}; no further checks or repair.`, repairAttempts: 0,
+        results: await this.checkTask.refresh(), rounds: this.checkTask.rounds,
+      };
       this.lastTaskResult = { execution, verification, observedEdits: [...this.observedEdits],
         observedChecks: [...this.observedChecks.values()], possibleMutations: this.possibleMutations };
       if (!this.closing) {
@@ -442,7 +459,8 @@ export class CasperApp {
     else if (action === "forget" && args.length === 1) { await memory.forget(args[0]!); result = "Fact forgotten"; }
     else if (action === "outcomes" && !args.length) result = (await memory.outcomes()).map((entry) => ({
       id: entry.id, task: entry.task.slice(0, 256), modelStatus: entry.modelStatus,
-      verification: entry.verification, checks: entry.checks, repairAttempts: entry.repairAttempts, accepted: entry.accepted,
+      verification: entry.verification, verificationMeaning: entry.verificationMeaning ?? "legacy", coverage: entry.coverage,
+      checks: entry.checks, repairAttempts: entry.repairAttempts, accepted: entry.accepted,
     }));
     else if (action === "accept" && args.length === 2 && ["yes", "no"].includes(args[1]!)) {
       await memory.acceptOutcome(args[0]!, args[1] === "yes"); result = "Human acceptance recorded (not verification evidence)";
@@ -455,6 +473,7 @@ export class CasperApp {
     checks: readonly ProjectCommand[],
     repair: boolean,
     request = `Make the selected verification checks pass: ${checks.join(", ")}.`,
+    task?: VerificationTask,
   ): Promise<VerificationReport> {
     const context = this.projectContext!;
     const controller = new AbortController();
@@ -462,7 +481,7 @@ export class CasperApp {
     this.ensureLineBreak();
     try {
       this.verificationWork = verifyAndRepair({
-        registry: VerifierRegistry.forProject(context.model, context.verification.timeoutMs),
+        ...(task ? { task } : { registry: VerifierRegistry.forProject(context.model, context.verification.timeoutMs) }),
         checks,
         cwd: this.activeWorkspaceRoot(),
         request,
@@ -616,6 +635,7 @@ export class CasperApp {
     const nextTools = [
       ...await this.broker!.prepare(task),
       this.delegateTool(),
+      ...(this.checkTask ? [this.checkTask.tool()] : []),
       ...lspTools(this.lsp!, this.confirmRename),
       ...(includeVisualization ? visualizationTools({ router: this.visualization!, projectRoot: this.activeWorkspaceRoot() }) : []),
     ];

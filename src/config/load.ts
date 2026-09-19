@@ -2,8 +2,9 @@ import { readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { parse } from "yaml";
-import type { ProjectModelOverrides } from "../project/model";
+import type { ProjectCommand, ProjectModelOverrides } from "../project/model";
 import { CHECK_NAMES } from "../verify/evidence";
+import { isVerificationScope, type VerificationScope } from "../verify/scope";
 import { resolveVisualizationSettings, type VisualizationSettings } from "../visualize/router";
 
 export type Autonomy = "low" | "medium" | "high";
@@ -255,6 +256,18 @@ function verificationCommands(document: Mapping): Record<string, string> {
   return document.verify as Record<string, string>;
 }
 
+function verificationScopes(document: Mapping): Partial<Record<ProjectCommand, VerificationScope>> | undefined {
+  const scopes = isMapping(document.verification) ? document.verification.scopes : undefined;
+  if (scopes === undefined) return undefined;
+  if (!isMapping(scopes)) throw new Error("verification.scopes must be a mapping of check names to input scopes");
+  for (const [name, scope] of Object.entries(scopes)) {
+    if (!CHECK_NAMES.some((check) => check === name) || !isVerificationScope(scope)) {
+      throw new Error(`Invalid verification.scopes.${name}: expected bounded, nonempty project-relative inputs and optional exclude paths (no globs)`);
+    }
+  }
+  return scopes as Partial<Record<ProjectCommand, VerificationScope>>;
+}
+
 function projectOverrides(document: Mapping): ProjectModelOverrides {
   const project = isMapping(document.project) ? document.project : document;
   const commands = isMapping(project.commands)
@@ -275,6 +288,7 @@ function projectOverrides(document: Mapping): ProjectModelOverrides {
     frameworks: stringArray(project.frameworks),
     packageManager: stringValue(project.packageManager),
     commands: { ...commands, ...verificationCommands(document) },
+    verificationScopes: verificationScopes(document),
     architecture,
     conventions: stringArray(project.conventions),
   };

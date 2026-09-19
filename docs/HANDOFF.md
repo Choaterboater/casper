@@ -1,214 +1,149 @@
-# Casper Handoff — Reviewed Checkpoint; Phase 9 Still Partial
+# Casper — next-session handoff
 
-## Latest update — coding-loop consolidation, reviewed partial checkpoint
+## Resume here: work-driven check tool checkpoint
 
-The user paused roadmap expansion to focus on a direct Pi-style coding loop, informed by prior projects rather than recreating SkyN3t. No aggregate scoring gate or mandatory agent pipeline. See `docs/HARNESS_COMPARISON_RESEARCH.md` (including the local project corpus) and `docs/CODING_LOOP_AUDIT.md` for research and the agreed direction.
+Read the managed-tool follow-up in `docs/CODING_LOOP_EVIDENCE_CONTRACT.md` and the current README verification section before changing this slice. Run `git status --short` and `git log -1 --oneline`; preserve any later local changes. This user-requested checkpoint includes the evidence-contract correction and managed check tool. Everything below **Historical authorization** records earlier checkpoints, not current implementation instructions.
 
-User-authorized first slice implemented: automatic verification filters to available commands (explicit `/verify` retains missing-command skips); no commands yields explicit incomplete evidence; single-check repair avoids a duplicate passing rerun while multi-check regression sweeps remain. Normal requests print execution/verification receipts and expose a detached `getLastTaskResult()` without changing `runOnce()`'s existing return contract. CLI uses task execution status as well as verification status. Nonthrowing error/abort stops cannot appear successful or trigger automatic post-task repair; failed repair execution is blocked with edits retained.
+- `--verify` / `autoVerify: true` now offers `casper_check({ check: "test" })` during normal tasks. The model selects checks based on actual work; keyword classification no longer selects or filters checks. No selection means no recorded verification, including docs-only/no-change work.
+- `src/verify/task.ts` shares task-local scoped evidence between the tool and the existing repair owner. Managed calls serialize; valid scoped passes are reused, observed input changes invalidate them, and captured tools expire at task end. Commands/scopes stay frozen. Native bash and `src/runtime/pi.ts` are unchanged.
+- Only unresolved actual failures reach bounded repair after the primary prompt settles. No nested repair prompt. Successful managed checks during repair can avoid duplicate commands. Cancellation stops running/queued checks and retains already-executed evidence as blocked.
+- `tests/work-driven-checks.integration.test.ts` exercises `CasperApp.runOnce()` and `RuntimeTool.execute()` with real commands. The added pinned-Pi/local-provider case in `tests/phase8-pi.integration.test.ts` proves native edit → check → reuse → later edit → failure → repair through Pi 0.85.1. Each vertical fixture executes the selected managed command **three times** (pass, fail, repaired pass), with one repair prompt and no additional human approval.
+- Full validation: `bun run check` — TypeScript clean; **247 tests / 1,537 assertions**, **67.76 s** test-runner time. The first full run caught an unnecessary prompt-label compatibility change; that was corrected before this passing rerun. `git diff --check` is clean.
 
-The user authorized a focused correctness review, fixes, validation, and a partial checkpoint commit before recovery/model work. The review reproduced stale passes after external edits and later verifier mutations, plus incorrect failure reporting after Pi recovered a provider error. The provisional event-counter cache and fabricated shell exit evidence were removed. Casper-run checks now carry bounded before/after filesystem evidence, with later invalidation and reuse only within one verification invocation. New requests and explicit `/verify` calls start fresh. Snapshot limits/unsupported trees disable reuse and disclose unknown freshness; external inputs and post-report changes are not certified. Native edit paths, possible partial tool writes, and exact-command shell diagnostics are reported separately. Raw Pi shell results are **not** verifier passes. See `docs/CODING_LOOP_REVIEW.md` for Standards/Spec findings and limitations.
+Limits: this is a managed subset, not transparent shell reuse or a live-model benchmark. Native signal-killed bash can still resolve successfully without exit metadata; its events remain diagnostics. Scope is a declaration, not discovered dependency coverage; observations are bounded/non-atomic and do not lock native/external writers. Unknown-scope or stale passes are rechecked once at normal task completion and remain qualified if still unavailable/stale. Repeated unknown-scope calls do not deduplicate. Model selection quality, comparative productivity/cost, and independent acceptance have not been evaluated.
 
-Final corrective-checkpoint validation: `bun run check` passed **223 tests / 1,298 assertions**, TypeScript passed; `git diff --check` passed. Details are in `docs/CODING_LOOP_REVIEW.md`. Single-agent review/testing, not independent review. No external inference, production service access, or push. The user authorized committing this checkpoint; use `git log -1` for its identity.
+Next useful step is review of this checkpoint against `7ce29ad`, not recovery/model controls or a broader autonomy change. The user explicitly requested this commit after validation. No live-model spending, credential access or push occurred. Further commits, pushes and broader work require separate authorization.
 
-Still pending: replacing keyword-based verification selection, trustworthy execution observation/reuse of model-run native checks, progress-aware recovery, reasoning-effort/model controls, and task-level stop/steer. Automatic verification remains opt-in. No new trust policy, changed autonomy defaults, or unrelated phase expansion.
+## Historical authorization: work-driven check tool agreed, not implemented
 
-## Prior update — user-authorized debug/review and commit
+The user agreed to the tool-based next slice and wants to start a fresh session first. No OMP/Codex launch is required; an independent review afterward is optional. Preserve the existing uncommitted implementation, tests, README, and review/handoff documents. Do not reset to `7ce29ad` or mistake the original handoff below for current working-tree status.
 
-The user authorized reviewing all changes since `f8bb28e`, correcting defects, and committing the checkpoint. See `docs/REVIEW_CHECKPOINT.md` for separate Standards/Spec findings, limitations, and reproducible performance evidence. This additional pass was single-agent, not an independent parallel review.
+Next slice:
 
-Fixed FIFO hangs in memory and MCP/LSP discovery, malformed outcome schema acceptance, and visualization scope symlink escape. Failing regressions were run before each correction. Final `bun run check` passed three times: **204 tests / 1,186 assertions**, TypeScript passed; median wall time **63.024 s**. Same 41-test legacy workload: Phase 3 source median **8.611 s**, current **7.931 s**. No runtime optimization claim is made; the larger full gate includes new safety and real-server tests.
+- Add an opt-in `casper_check` runtime tool using Casper's existing command runner and frozen configured commands/scopes. Keep native bash unchanged. This is a deliberate managed-check subset, not transparent shell reuse.
+- Replace request-keyword authority with actual-work-driven, model-selected checks. Keep Pi's ordinary edit/check loop; do not add a mandatory four-check pipeline or infer behavioral acceptance.
+- Share task-local scoped evidence with the existing verification/repair owner: reuse valid passes, invalidate them after relevant edits, and feed actual failures into bounded repair. No nested repair prompt inside a tool execution.
+- Agreed test seams: `CasperApp.runOnce()` and `RuntimeTool.execute()`, using real local commands, plus a pinned-Pi/local-provider integration fixture. Start with a failing vertical-path test; prove vague request → edit → relevant check → no duplicate valid pass → later input edit invalidation → failure → repair. Cover docs-only/no-change work, unknown scope, concurrent/partial edits, cancellation, and new-task isolation without claiming a live-model benchmark.
+- Recovery/model controls, default autonomy changes, live-model spending, commits and pushes remain outside this authorization.
 
-This user-requested commit checkpoints existing Phase 4–9 work and corrections; no push is authorized. Historical “uncommitted”/test-count statements below describe earlier checkpoints. Interactive MindMesh, remaining Phase 9 reference/search/learning/promotion work and independent review, and separately authorized real-HPE acceptance remain open. Do not advance phases based on this checkpoint alone.
+### SDK finding from the resume investigation
 
-## Prior update — independent reviews, corrective follow-ups, and Phase 9's first slice
+Inspected the pinned public Pi package (`@earendil-works/pi-coding-agent` 0.85.1), SDK/extensions documentation and tool examples. Local pinned SDK/extensions docs matched the installed Pi docs. Re-read relevant docs before implementing integration changes.
 
-The user confirmed `f8bb28e` → current working tree (including untracked files) as the review baseline and authorized the next phase afterward. Six independent read-only reviewers (`gpt-6-astra`, medium reasoning; user config/MCP disabled) covered Standards and Spec separately for Phases 6, 7, and 8. Further independent follow-ups verified corrections. **Reported runtime findings are resolved; no new actionable runtime findings remained in final follow-ups.** Optional duplication heuristics are advisory. **Interactive MindMesh remains an explicitly unimplemented broader §17A requirement; file export is not full interactive integration and that scope gap was not waived.** Reports: `docs/PHASE6_REVIEW.md`, `docs/PHASE7_REVIEW.md`, `docs/PHASE8_REVIEW.md`. Reviewed pre-Phase9 source hashes: `docs/reviews/phase678-source-hashes.json`.
+- `BashToolDetails` contains truncation/full-output information, not an exit code. Tool-event success remains diagnostic only.
+- Public `BashOperations.exec` **does** expose actual `exitCode` and cwd; `createLocalBashOperations` and tool-definition factories are exported. Do not claim Pi has no trustworthy execution seam. Using that seam for native model shell calls requires owning/overriding the bash definition and preserving shell/prefix/environment semantics; the agreed smaller approach avoids that expansion.
+- A temporary real-command probe wrapped `createBashTool` with `createLocalBashOperations`: `true` produced operation exit **0** and a resolved tool; `exit 7` produced exit **7** and a rejected tool; `kill -TERM $$` produced exit **null** but a **resolved** tool. Resolved results had no exit metadata. Never parse displayed output or promote `isError: false` into exit 0.
+- The probe used no model or credentials, changed no repository source, and removed its temporary directory. The next slice has not been implemented or tested yet. Last full validation remains the 232-test run below.
 
-Fixes include collision-safe graph projection, correct visualization-vs-modification classification, bounded repository IR, cancellation/draining, and descriptor-relative artifact directory/file creation (Bun-native POSIX bridge; macOS tested, Linux not acceptance-tested here). Session fixes preserve restart linkage, revoke capabilities before transitions, block failed-rebind prompts, preserve the winning concurrent worktree creator, and leave ignored main files intact. **Cleanup now retains candidate files by atomic rename into a recovery directory**, then unregisters only the owned worktree through a private placeholder; it does not force-delete candidate bytes or globally prune unrelated worktrees. Administration backlink/branch checks prevent redirected `.git` pointers from selecting another index. Recovery paths survive partial cleanup and restart. Child-run fixes cover workspace-admission races, truncated-tool-loop budgets, and cancellation during authentication preflight.
+Suggested new-session prompt:
 
-Review acceptance: **194 tests / 1123 assertions**, TypeScript and `git diff --check` passed. Earlier measured Phase 6/7 performance numbers are historical; no new optimization/benchmark claim is made for these changed safety paths. Reviewer-model calls were authorized; no production MCP/HPE access, Casper commits, or pushes.
+> Read the current top sections of docs/HANDOFF.md and docs/CODING_LOOP_EVIDENCE_CONTRACT.md, then implement the agreed opt-in casper_check work-driven slice test-first at the listed public seams. Preserve all uncommitted work. Keep native bash unchanged, reuse only valid scoped evidence, and retain one bounded repair owner. No recovery/model expansion, live-model spending, commit, or push.
 
-**Phase 9 is started, not complete.** Its first slice adds `src/memory/store.ts`, explicit local `/memory remember|forget` facts, bounded guidance on subsequent parent prompts, task-outcome summaries with exact verification/skip status, and explicit `/memory accept <id> yes|no`. Human acceptance starts unknown and model completion is never a verification pass. Files are owner-only JSONL under the existing workspace-specific project state path, bounded and atomically updated under a lock; corrupt state fails closed. Reference-project search, `casper learn`, and digest-bound candidate-to-reference/skill promotion remain pending. See `docs/PHASE9_IMPLEMENTATION.md`. Latest full check: **199 tests / 1157 assertions**, TypeScript passed. Phase 9 has not had its own independent review; prior reviews do not approve these new edits.
+## Follow-up: evidence contract slice implemented (uncommitted)
 
-## Prior update — Phase 8 resumed, hardened, and validated with real Pi fixtures
+After this handoff, the user approved the narrow contract-and-regression correction. Read `docs/CODING_LOOP_EVIDENCE_CONTRACT.md` and the updated README first for the current behavior, validation, limitations, and next step. Command success is now separate from scoped freshness; reuse requires a declared input scope, and durable outcomes preserve qualifications. `bun run check` passed: **232 tests / 1,396 assertions**, TypeScript clean. Work-driven selection and the full direct-loop proof are still pending; no recovery/model expansion, new default autonomy, commit, or push occurred.
 
-After the interrupted/wrong-model session, the user explicitly requested resuming Phase 8. The provisional implementation was treated as unverified and hardened rather than merely repeating its completion claim. Casper exposes only `explorer` and `reviewer` through `delegate` and `/delegate <explorer|reviewer> <goal>`, both read-only.
+The original handoff below is preserved as historical context, not a description of the new working tree. In particular, `workspaceState` now returns `{ fingerprint }` or `{ reason }`; the old availability probes need the updated interface shown in the new contract document. Preserve all existing uncommitted work.
 
-An app-owned manager now enforces concurrency (2), dispatch count (4 per prepared parent prompt), wall time (180 seconds), bounded incremental report collection, cancellation/shutdown, fresh child ownership, and late-start prevention. The runtime seam now uses an explicit optional `startReadOnly` capability, not the provisional `allowedToolNames` hint. Actual Pi startup selects only `read`/`grep`/`find`/`ls`, disables ambient executable resources and persistence, and enforces 12-turn/48-tool-call budgets. Model errors, truncated/empty replies, and incomplete cleanup are disclosed. Child model defaults come from global Pi settings; no model preferences/credentials were changed. Read-only authority is not an OS sandbox or token/dollar cap.
+## Start here (original direction-review handoff)
 
-Regressions reproduced pre-cancelled runtime startup and ignored unknown/write-authorizing arguments before fixes. Added lifecycle/concurrency/Unicode/error coverage and real pinned-Pi subprocess acceptance against a local deterministic provider fixture: safe reads, refused write/shell/recursion, hostile ambient-resource isolation, primary-to-child result delivery, budgets, cancellation, provider failure, and branch → child in worktree → reviewed discard → child in main with fresh context. **`bun run check`: 172 tests / 1020 assertions, TypeScript passed.** Three additional Phase 8 runs each passed 24 tests / 155 assertions; `git diff --check` passed. See `docs/PHASE8_IMPLEMENTATION.md` for scope and limits. No external live-model request, personal/production service access, Casper commit, or push was performed.
+**Code checkpoint:** `7ce29ad` — `Checkpoint partial coding-loop evidence with freshness corrections`.
 
-At this earlier checkpoint, independent Phase 6–8 reviews were pending. They are now recorded in the latest update above; the interactive MindMesh scope gap remains open.
+**Latest user request:** review the direction without defending the previous work, then write a fresh handoff. That review is complete; its new findings are **not fixed**. This session changed documentation only. No new commit or push was performed.
 
-## Prior update — Phase 7 sessions/branches/worktrees implemented, debugged, and optimized
+Read in this order:
 
-The user explicitly authorized Phase 7 and requested a final debug/optimization pass, while leaving Phase 6's pending independent-review gate unchanged. Phase 7 now has Pi-backed named session branches (`/tree`, `/branch`, `/switch`), policy-gated experimental Git worktrees, exact interactive approvals, and verify/review/apply-or-discard return-to-main workflows. Pi owns conversation JSONL and runtime switching; Casper stores only branch/workspace relations under `~/.casper/sessions/`. Applying transports an exact bounded candidate patch and leaves it uncommitted; no commit or push behavior was added.
+1. `docs/CODING_LOOP_DIRECTION_REVIEW.md` — latest assessment, measured problems, reproducible probes, proposed next step.
+2. `docs/CODING_LOOP_AUDIT.md` — agreed direct-loop direction and original gaps.
+3. `docs/CODING_LOOP_REVIEW.md` — the earlier checkpoint's corrections, tests, and limits. Its successful review is not product-readiness approval.
 
-Real temporary-Git tests cover clean-source/race/tamper checks, byte-exact tracked/untracked/binary transport, concurrent manifests, failed verification, approval-time mutations, apply/discard, and cleanup. An isolated subprocess exercises actual Pi SDK 0.85.1 session clone/name/context/switch persistence without a model call. The final hardening pass fixed 12 safety/correctness defects and parallelized independent read-only Git probes; controlled 100-file A–B–B–A measurements reduced capture median 306.18 → 203.09 ms, apply 511.31 → 348.50 ms, and remove 492.45 → 344.68 ms. `bun run check`: TypeScript passed, **148 tests / 865 assertions**; two additional Phase 7 runs and five focused race repeats passed. See `docs/SESSIONS.md`, `docs/PHASE7_IMPLEMENTATION.md`, and `docs/PHASE7_PERFORMANCE.md`. Independent Phase 7 Standards/Spec review remains pending. **Phase 6's independent review is also still pending; Phase 7 authorization did not waive or complete it.**
+Then run `git status --short` and `git log -1 --oneline`. Expected changes from this session are this replacement handoff and the new direction-review document, uncommitted. Preserve them and any newer user work. The earlier long historical handoff is preserved in Git: `git show 7ce29ad:docs/HANDOFF.md`.
 
-All Phase 1–7 work remains uncommitted and unpushed. No personal/production service was contacted.
+## Bottom line
 
-## Prior update — Phase 6 debug/performance pass complete
+**The direction is right; the evidence implementation is still an experiment, not a completed daily-driver improvement.** Keep Pi's direct loop and the honest reporting fixes. Resolve evidence scope/result semantics and prove one useful edit → check → repair path before adding stalled-progress recovery or effort/model adjustment.
 
-Five reproduced defects fixed with regressions: `buildRepoGraph` crash on >1 MiB files, EEXIST on same-title concurrent renders (now suffixed, never overwritten), invalid Mermaid from `:`/`"` titles and empty labels, quadratic import matching (1919 → 0.49 ms on an adversarial 1 MiB file), and `/visualize repo` not cancellable by `close()`. Batched scanning cut a 2000-file scan 293 → 52 ms. `bun run check`: TypeScript passed, **137 tests / 794 assertions**; Phase 6 suites ×3: 20 tests / 198 assertions each. Details: `docs/PHASE6_PERFORMANCE.md`. Independent review still pending.
+The latest review was a **single-agent self-review**, not independent review. No external inference or comparative real-task evaluation was performed. Do not claim neutrality is guaranteed or that Casper already reduces supervision/cost relative to Pi or OMP.
 
-## Prior update — Phase 6 visualization implemented
+## What is actually implemented
 
-The user authorized Phase 6 ("read and start phase 6"). The Phase 6 contract from `docs/CASPER_COMPLETE_PLAN.md` (generic graph IR, `VisualizationProvider`, Mermaid fallback, MindMesh adapter; acceptance `map out the authentication flow` without affecting the workspace) is implemented and locally validated. **Independent Standards/Spec review has not yet been run for Phase 6.**
+- Pi owns the primary inspect/edit/shell loop. No score, factory pipeline, mandatory council or mandatory subagent.
+- Automatic post-task verification remains **opt-in and keyword-selected**, filtered to available commands. Explicit missing checks remain skips; no applicable commands means incomplete evidence.
+- Real verifier failures enter the existing bounded repair prompt in the same session. Useful edits survive failure/cancellation.
+- Task receipts and `getLastTaskResult()` distinguish execution from optional verification. CLI handles terminal failure/abort. Pi-recovered provider errors are not terminal task failures.
+- Native edit paths, possible tool writes (including partial/failed writes), and bounded exact-command shell diagnostics are observable.
+- Raw Pi shell status is **not** a trustworthy exit code or reusable verifier pass. The provisional implementation that treated it as such was removed.
+- Casper-run checks use bounded before/after whole-workspace fingerprints. Within one `verifyAndRepair` invocation, unchanged passing evidence may be reused. New requests and explicit `/verify` calls start fresh.
+- Known-stale results produce incomplete reports. Unavailable fingerprints disable reuse but can accompany a passing command report with a warning. This distinction has practical problems below.
 
-- New module `src/visualize/` (`types.ts`, `mermaid.ts`, `mindmesh.ts`, `router.ts`, `repo.ts`, `tools.ts`), a `visualize` task intent, `visualize.providers`/`visualize.outputDir` configuration, `/visualize` and `/visualize repo [dir]` commands, and a `visualize` runtime tool exposed only for visualization-intent prompts.
-- MindMesh output is a schema-6 canonical map written to a file; Casper never connects to or starts a MindMesh server. Graph→tree projection is deterministic with cross edges disclosed in `lossiness`, notes, and `extensions.casper`.
-- Artifacts default to `~/.casper/visualizations/<project-slug>/` with exclusive create. Project configuration may disable but not redirect the directory.
-- `bun run check`: TypeScript passed, **132 tests / 781 assertions**. Real CLI `/visualize repo src` against Casper wrote both artifacts with no model session. One-off external acceptance: MindMesh's actual `jsonImporter` accepted the emitted file with 0 migration notes and 0 invariant issues (not a test dependency).
-- Two defects were found and fixed during implementation (synthetic-root id collision; cyclic-fixture root assumption). Details: `docs/PHASE6_IMPLEMENTATION.md`; usage/limits: `docs/VISUALIZATION.md`.
+## Open findings that should drive the next session
 
-Next for Phase 6: run the independent Standards/Spec review gate (as in `docs/PHASE4_REVIEW.md` / `docs/PHASE5_REVIEW.md`), resolve findings, optionally run a live-model smoke where a real model authors a graph. Not started for visualization: Graphviz, image rendering, or interactive MindMesh. Phase 8 is now implemented (see latest update); Phase 9+ remains unstarted.
+### 1. Successful output-producing checks get an inconsistent aggregate result
 
-All work remains uncommitted and unpushed. No personal/production server connections were made.
+A temporary project with unchanged `source.ts` and `.gitignore` excluding `dist/` ran:
 
-## Prior update — debug/performance follow-up complete
-
-The user requested a full debug, speed-test, and optimization pass. Full repository validation and focused LSP stress/benchmarks are complete, with separate independent Standards/Spec reviews finding no actionable issues.
-
-- Fixed reproduced late server startup after immediate disconnect, queued cancellation blocked behind approval, and mixed post-rename diagnostic snapshots.
-- Linear bounded protocol framing, file-sized snapshot buffers (no persistent cache), and bounded batched diagnostic collection with shared wait budget and final whole-batch validation.
-- Controlled A–B–B–A local-fixture medians: 100-file rename **4700.62 → 319.46 ms** (~93% lower); 100-open-file diagnostics **77.08 → 38.12 ms**; 1 MiB/256-byte-chunk framing **372.70 → 0.583 ms**. Startup stayed roughly unchanged (~175 → 171 ms); these are local workload measurements, not external model/compiler speed claims.
-- `bun run check`: TypeScript passed, **117 tests / 596 assertions**. Three repeated Phase 5 suites: **46 tests / 207 assertions each**, all passed. Benchmark script separately typechecked; `git diff --check` passed.
-- Evidence: `docs/PHASE5_PERFORMANCE.md`; raw samples/source hashes: `docs/benchmarks/phase5-lsp.json`; rerun: `bun run scripts/benchmark-lsp.ts`.
-
-All existing work is preserved uncommitted and unpushed. No personal/production server connections, configuration, or later-phase features were added.
-
-## Phase 5 delivery (prior completion evidence)
-
-Phase 5 implementation, real-server rename acceptance, and independent Standards/Spec review gates are complete within the documented scope.
-
-- Casper-owned opt-in LSP: diagnostics after native edits, symbols, definitions, references, language-aware rename, bounded stdio lifecycle, and local `/lsp` commands.
-- Exact interactive rename approval, full-workspace snapshot/membership validation, native Pi mutation queues, cancellation, and honest partial-write/diagnostic evidence.
-- Real Pyright repository-wide rename: declaration/import/call updated, unrelated text preserved, fresh zero diagnostics across all three files, independent CLI check passed. Real TypeScript navigation/rename and before/after compiler checks also passed; its unversioned reports are not counted as strict fresh-diagnostic evidence.
-- Actual Pi/local-provider protocol coverage includes native-write diagnostics, one-shot denial, and interactive approved rename.
-- Independent reviews and follow-ups complete; all findings resolved. `bun run check`: TypeScript passed, **109 tests / 541 assertions**. Three final Phase 5 repeats: **38 tests / 152 assertions each**, all passed. `git diff --check` passed.
-
-Read `docs/LSP.md`, `docs/PHASE5_IMPLEMENTATION.md`, and `docs/PHASE5_REVIEW.md` for usage, safety limits, evidence, and review fixes. TypeScript Language Server `6.0.0` and Pyright `1.1.414` are pinned test-only devDependencies; no personal server configuration was created.
-
-All Phase 4 and Phase 5 changes remain preserved, uncommitted, and unpushed. Personal HPE acceptance still requires separate authorization. Phase 6 is implemented pending review (see top). The Phase 4 evidence below remains historical.
-
-Repository: `/Users/stephenchoate/Documents/Casper`
-
-## Start here
-
-1. Check `git status --short` and `git log -1`; the user requested a Phase 4–9 review checkpoint commit. Preserve any subsequent work. Read `docs/REVIEW_CHECKPOINT.md` first.
-2. Run `bun run check`.
-3. Read:
-   - `docs/PHASE9_IMPLEMENTATION.md` — implemented facts/outcomes slice and remaining reference/learning/promotion scope.
-   - `docs/PHASE6_REVIEW.md`, `docs/PHASE7_REVIEW.md`, `docs/PHASE8_REVIEW.md` — independent axes, corrections, follow-ups, and remaining scope limitation.
-   - `docs/PHASE8_IMPLEMENTATION.md` — Phase 8 delegated explorer/reviewer scope, design, limits, and validation.
-   - `docs/PHASE7_PERFORMANCE.md` — Phase 7 debug fixes, controlled measurements, and final validation.
-   - `docs/PHASE7_IMPLEMENTATION.md` — Phase 7 architecture, delivery, validation, and remaining gates.
-   - `docs/SESSIONS.md` — named-session/worktree usage, policy, and safety limits.
-   - `docs/PHASE6_PERFORMANCE.md` — Phase 6 debug fixes, measurements, validation.
-   - `docs/PHASE6_IMPLEMENTATION.md` — Phase 6 delivery, design decisions, validation, remaining gates.
-   - `docs/VISUALIZATION.md` — graph IR, providers, configuration, tree projection, limits.
-   - `docs/PHASE5_PERFORMANCE.md` — latest debug fixes, controlled measurements, validation, and independent review.
-   - `docs/PHASE5_IMPLEMENTATION.md` — delivered LSP scope and real-server acceptance.
-   - `docs/PHASE5_REVIEW.md` — independent review fixes, final validation, and remaining limits.
-   - `docs/LSP.md` — configuration, consent, rename safeguards, and diagnostics semantics.
-   - `docs/PHASE4_REVIEW.md` — independent Standards/Spec findings, regression fixes, and follow-up status.
-   - `docs/IMPLEMENTATION_PLAN.md` — Phase 4 contract and delivered evidence.
-   - `docs/MCP.md` — configuration, connection consent, broker behavior, safety, limits.
-   - `docs/PHASE4_VERIFICATION.md` — fixture/live evidence and regression fixes.
-   - `docs/CASPER_COMPLETE_PLAN.md` — Phase 4 scope and later phases.
-
-Historically, no commit or push was requested/performed in Phases 4 or 5. This review's baseline was `f8bb28e` (Phase 3 handoff), with Phase 3 implementation at `9bad614`. The latest user request authorizes committing the combined checkpoint, not pushing.
-
-## What is implemented
-
-- Metadata-only discovery of user/profile/project MCP JSON configuration with provenance and deterministic overrides.
-- Explicit process-local connection consent: `/mcp connect <name>` or leading repeatable `--mcp <name>`. Startup and `/mcp` never execute/contact a server.
-- Pinned official MCP SDK stdio and Streamable HTTP support, environment/header authentication, bounded paginated discovery, notification refresh, cancellation, dead-server isolation, capped on-demand reconnect, cleanup.
-- Local capability descriptors/search and lexical task selection: at most six direct MCP tools plus `find_capability`/`call_capability`. Native HPE-style routing is preferred.
-- Exact IDs survive collisions; schemas load on demand; all invocations validate target arguments. Runtime-neutral tools translate to Pi only in `src/runtime/pi.ts`.
-- Reads need a reviewed server/read-only annotation. Non-read/unknown tools require exact interactive approval; one-shot calls fail closed. No model-controlled authorization flag.
-- Bounded result envelopes: 16 KiB and 50 global array entries, error preservation, Unicode-safe preview, explicit truncation. No raw-result artifact.
-- `/mcp` status and connect/disconnect work without Pi startup.
-
-Main new files:
-
-```text
-src/mcp/config.ts
-src/mcp/manager.ts
-src/capabilities/broker.ts
-src/capabilities/result.ts
-tests/fixtures/mcp-server.ts
-tests/phase4-mcp.test.ts
-tests/phase4-app.integration.test.ts
-docs/MCP.md
-docs/PHASE4_VERIFICATION.md
-docs/PHASE4_REVIEW.md
+```sh
+mkdir -p dist; printf built > dist/output.js
 ```
 
-Existing app/CLI/runtime/public exports and README were updated. Pi stays pinned at `0.85.1`; new direct pins are MCP SDK `1.30.0` and `typebox` `1.3.7`.
+Both executions exited **0**:
 
-## Validation
+- Ordinary fixture: freshness **stale**, report **incomplete**, CLI mapping **2**.
+- Same fixture with an unrelated symlink: freshness **unavailable**, report **pass**, CLI mapping **0**.
 
-- Full check after independent-review fixes: **71 tests / 389 assertions**, TypeScript passed.
-- Three repeated Phase 4 suites: **30 tests / 164 assertions** each, all passed.
-- Real local stdio and HTTP fixtures, both JSON and SSE HTTP responses.
-- Actual Pi/provider payload test: 340-tool catalog → 8 additional tools, with initially hidden rare-tool search/schema/call. Same-session tool replacement/removal also verified.
-- Live model: GitHub Copilot `gpt-5.4` via real Pi, two local 340-tool fixtures (generic and router), five successful read-only tool calls, zero errors, CLI exit 0. Temporary auth copies removed. No production MCPs or devices accessed.
-- Reproduced and fixed: slow SDK child cleanup versus CLI deadline; initial Pi allowlist suppressing later task-selected tools; live-provider empty optional discovery fields.
-- Optimization follow-up: local `/project` startup **419 → 141 ms** in a paired sample (~66% lower latency) by deferring Pi's SDK import until a model is needed. No startup MCP connections.
-- Warm 340-tool search **1.5014 → 0.0325 ms**, schema inspection **0.9260 → 0.0028 ms**, local validated call **2.3752 → 0.1079 ms**. Index/validator caches are tied to catalog revisions and connection identity.
+The fingerprint treats intended outputs as input changes; making observation unavailable improves the aggregate status. This was reproduced after the commit, not fixed. Full runnable probe is in the direction review. Do not merely suppress real stale-input evidence or turn every uncertainty into a mandatory failure gate.
 
-Details: `docs/PHASE4_VERIFICATION.md`. The first live run was not counted as passing despite process exit 0; its discovery tool failures were fixed and the live workflow rerun successfully.
+### 2. Reuse is unavailable on Casper's own checkout in the measured state
 
-## Optimization/debugging follow-up
+`workspaceState(process.cwd())` returned unavailable in **5/5** probes (roughly 23–52 ms each). The cause was not diagnosed: the function returns only `undefined`, not a specific limit/error reason. This is not an end-to-end benchmark. Whole-tree requirements include ignored files and reject symlinks/special files/oversized trees. Do not simply raise budgets or silently exclude dependencies and claim complete input coverage.
 
-The user asked to optimize/debug and clarify whether HPE is personal. **The core is generic; no HPE server/credentials are bundled or connected for other users.** Put personal definitions in a selected user profile such as `~/.casper/profiles/stephen/mcp.json`, not a shared project file. A new fixture regression proves default/unrelated profiles do not inherit personal HPE definitions. No actual personal configuration was created.
+### 3. Observed work still does not drive verification
 
-Five defects were reproduced with failing regressions and fixed:
-- Pending approval surviving disconnect/reconnect with an identical schema.
-- HTTP cancellation returning while its unanswered POST remained in flight.
-- Interactive MCP command failures terminating the session.
-- EOF leaving the input loop pending.
-- Concurrent close returning before teardown already initiated by a cancelled call completed.
+`src/app.ts:403–407` still keys automatic verification on classification. `Continue` and `Make the login button work` select no checks even if work is subsequently done; a README typo can select broad checks. Native check reuse and actual-work-driven selection remain unfinished.
 
-`MCPManager.catalogRevision` and per-connection generations now govern broker cache invalidation and approval identity. Metadata/schema/validator changes and removals invalidate together. Request failure/cancellation closes the affected server connection (including sibling requests), rather than only sending a protocol notification; it never replays the call. Cleanup callers share the same teardown promise. The app runtime factory can now be asynchronous, and shutdown drains that load/start operation without launching a late model session.
+### 4. Durable outcomes lose the freshness qualification
 
-Current follow-up validation used local fixtures only, including the actual Pi adapter with a local model-protocol fixture. The live model evidence above belongs to the initial Phase 4 smoke; no fresh external model or HPE connection was made for the optimization pass.
+`ProjectMemory.recordOutcome()` stores verification status and check name/status, not freshness/reason/scope. A pass with unavailable freshness loses its caveat in `/memory outcomes`. Human acceptance correctly stays unknown. Outcomes are not currently injected as model guidance—only explicit facts are—so do not exaggerate the impact. Preserve compact qualifications when revising the outcome contract; do not build an evidence database.
 
-## Independent review follow-up
+## Recommended next slice — propose before implementing
 
-Two separate read-only reviewer processes covered all ten tracked changes and all nine original untracked source/test/document files. Standards found a P2 result-integrity breach and a P3 duplicated-budget heuristic. Spec found three P2 defects, including the same result-integrity breach. Three concrete defects were reproduced with failing regressions and fixed:
+1. Agree on a small, consistent contract separating **command exit, input freshness, check scope, and behavioral coverage** across reports, CLI, repair and saved summaries.
+2. Reproduce the successful-build/symlink inconsistency and introduce desired-behavior regressions. Existing passing tests partly encode the current policy, not proof it is the right policy.
+3. Prove one vertical path: vague request → actual edit → relevant model-selected check → reliable execution evidence → no duplicate passing check → later input edit invalidates it → actual failure reaches repair.
+4. Inspect the pinned public Pi SDK for a trustworthy execution observation seam. Do not parse terminal output or treat `isError: false` as exit 0. If native execution cannot be observed reliably, propose a small Casper check tool using the existing runner inside Pi's ordinary loop; label it as a subset, not transparent shell reuse.
+5. Test source changes, docs-only work, artifact/coverage generation, later/partial/external edits, and a dependency-heavy repository. Measure actual command counts and user interruptions, not a new quality score.
+6. **Only then** add evidence-based stalled-progress recovery, supported effort controls and explicitly approved model switches. Keep one recovery owner. Task stop/steer remains a near-term need.
 
-- Schema inspection truncated `enum`/`required` arrays; exact-ID discovery now returns a lossless `inputSchemaJson` string. The schema budget counts its escaped representation, shared across inspection/direct/fallback paths and tested at the boundary.
-- Application records resembling MCP content lost fields/cursors; only top-level protocol blocks are decoded, preserving metadata and ordinary application fields.
-- Refresh timeout left unanswered HTTP discovery work open; failed refresh now releases the connection.
+Prefer narrowing or replacing the provisional fingerprint policy over layering another policy around it. The user has requested this review/handoff, not authorized a broad redesign, new default autonomy, or live-model spending.
 
-Independent follow-up reviews found no blocking issues. Spec identified one additional P3 (binary omission discarded nonbinary metadata); it was reproduced, fixed, and independently re-reviewed as resolved. All reported findings are resolved. Full check and three repeats passed at the counts above. No fresh external live-model smoke or actual HPE connection was performed. Review reports and coverage: `docs/PHASE4_REVIEW.md`.
+## Relevant code
 
-## Remaining Phase 4 gates
+| Concern | Files |
+|---|---|
+| Prompt/receipt/verification integration | `src/app.ts`, `src/task/classify.ts`, `src/task/result.ts`, `src/cli.ts` |
+| Runtime observations | `src/runtime/types.ts`, `src/runtime/pi.ts`, `src/runtime/observation.ts` |
+| Execution/freshness/reuse/repair | `src/verify/command.ts`, `registry.ts`, `evidence.ts`, `workspace-state.ts`, `repair-loop.ts` |
+| Durable outcome projection | `src/memory/store.ts` |
+| Current regressions | `tests/coding-loop-evidence.test.ts`, `tests/phase3-app.integration.test.ts`, `tests/phase3-verification.test.ts` |
+| Actual Pi/local-provider coverage | `tests/phase8-pi.integration.test.ts` and Phase 5 app fixtures |
 
-1. **Review gate complete:** independent Standards/Spec reviews and focused follow-ups completed; all reported findings resolved. See `docs/PHASE4_REVIEW.md`. Phase 3's sign-off was not reused.
-2. **Actual HPE deployment acceptance is pending for the user's optional personal integration**, not a requirement for every Casper user. Local fixtures validate generic and router exposure styles; they are not actual HPE servers. Obtain explicit endpoint/credential/read-only authorization before connecting. Do not infer permission for network/device writes from this handoff.
-3. Commit only if requested. Nothing is pushed.
+Keep SDK-specific work in the runtime module, use the pinned public interface, and read its current docs before changing integration. No Pi fork or generalized event platform.
 
-Phase 5 is complete. Phases 6–8 are implemented and independently reviewed with runtime findings resolved; interactive MindMesh remains a broader-plan gap. Phase 9's facts/outcomes slice is implemented; its reference/search/learning/promotion work and independent review remain pending. Do not infer authorization for writing/swarm expansion or actual HPE access from fixture success.
+## Validation and limits
 
-## Off-topic TypeSafe/Jev follow-up — deferred
+- Last full code-checkpoint gate: `bun run check` — **223 tests / 1,298 assertions**, TypeScript passed, **63.55 s** test-runner time.
+- Latest direction-review rerun: `bun test tests/coding-loop-evidence.test.ts tests/phase3-app.integration.test.ts tests/phase3-verification.test.ts` — **40 tests / 214 assertions**, **10.13 s**.
+- Latest probes: build-artifact/symlink status comparison, five actual-checkout fingerprint calls, current classification examples. Temporary fixtures removed; no repository source changed.
+- Full suite was not rerun for the documentation-only direction review. No live-model quality, speed, cost, independent acceptance, or production-service claim.
 
-The user subsequently said **no Jev** when authorizing Phase 5. Do not resume the experiment unless explicitly requested. Previously, the user chose to test Jev later, not integrate it into Casper. No TypeSafe API calls or paid evaluations were made. Casper source/dependencies were not changed for TypeSafe.
+## Constraints and parked work
 
-Personal setup outside this repository: the user saved a key in `~/.config/typesafe-ai/.env` (owner-only permissions). Do not print/read it into agent context. An unfinished helper exists at `~/.pi/agent/extensions/typesafe/client.ts`; there is no `index.ts` entry point and no registered TypeSafe tool. Do not describe the extension as installed/working. Resume that separate experiment only when requested, with explicit evaluation scope and a small spending cap. Jev is a structured-decision model, not a drop-in replacement for Pi's main coding model.
+- Preserve Pi's direct loop, useful edits, cancellation, and honest unknown/stale evidence. No scoring gates, mandatory agent pipeline, or repeated approvals for ordinary already-authorized local work.
+- Automatic verification remains opt-in. Do not change model preferences, credentials, trust policy, or autonomy defaults as part of this handoff.
+- No push. The previous commit authorization was used for `7ce29ad`; do not infer authorization for another commit from this documentation request.
+- Phases 4–8 and Phase 9's facts/outcomes slice remain checkpointed at `db139f7` and later. Do not reopen unrelated MCP/LSP/worktree/visualization breadth. Interactive MindMesh, the rest of Phase 9, and real personal-HPE acceptance remain pending; no HPE/production access is authorized.
+- No Jev/TypeSafe experiment or credential access. Historical research is design input, not authority to add a vendor or resume old experiments.
 
-## Important limits
+## Suggested first prompt for the next session
 
-- MCP connection consent is not sandboxing; read-only annotations are claims by the reviewed server. Pi's normal shell/filesystem tools remain unsandboxed.
-- No persisted MCP trust, OAuth provisioning, config writes, automatic server installation, or legacy SSE transport. Restart to reload configuration.
-- No blanket write authorization. Interactive confirmation requires complete arguments within 4 KiB and an explicit `yes`.
-- Credentials stay out of status and controlled errors, but server results/call arguments can contain secrets and persist in Pi conversation history.
-- No generic continuation/replay for consequential calls; no full raw artifact. Provider read cursors survive only when the bounded result permits.
-- Reconnect is on demand with a two-attempt/30-second per-server cap, not continuous background healing. No periodic HTTP health probes.
-- Direct SDK-owned stdio children are terminated within the CLI cleanup window; escaped/daemonized descendants and Windows behavior are not validated.
-- Tool selection remains lexical. Oversized input schemas are blocked; inactive registrations can remain inside Pi, while the active model-facing set is bounded.
-
-Earlier phase evidence remains in `docs/PHASE2_REVIEW.md`, `docs/PHASE3_REVIEW.md`, and `docs/PHASE3_VERIFICATION.md`.
+> Read docs/HANDOFF.md and docs/CODING_LOOP_DIRECTION_REVIEW.md. Review checkpoint 7ce29ad against the original direct-Pi-loop goal. Reproduce the successful-build/symlink freshness inconsistency, then propose the smallest correction to evidence scope and result semantics. Do not add recovery/model adjustment yet, do not restore fabricated shell exit evidence, and do not introduce scoring gates or a factory pipeline. Preserve the uncommitted review/handoff documents.

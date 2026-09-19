@@ -2,8 +2,8 @@ import { constants } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, open, realpath, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { CHECK_NAMES, type VerificationReport } from "../verify/evidence";
-import type { ProjectCommand } from "../project/model";
+import { CHECK_NAMES, summarizeVerification, summarizeVerificationCheck, type VerificationReport, type VerificationCheckSummary } from "../verify/evidence";
+import { isVerificationScope } from "../verify/scope";
 
 const MAX_FILE_BYTES = 1_048_576;
 const MAX_RECORDS = 1000;
@@ -15,7 +15,10 @@ export interface TaskOutcome {
   skills: string[];
   modelStatus: "completed" | "failed" | "cancelled";
   verification: VerificationReport["status"] | "not-run";
-  checks: Array<{ name: ProjectCommand; status: "pass" | "fail" | "skip" }>;
+  /** Absent on legacy records, whose aggregate status had different semantics. */
+  verificationMeaning?: "command-execution";
+  coverage?: "not-certified";
+  checks: Array<Pick<VerificationCheckSummary, "name" | "status"> & Partial<VerificationCheckSummary>>;
   repairAttempts: number;
   accepted: boolean | null;
   createdAt: string;
@@ -35,8 +38,14 @@ function outcome(value: unknown): value is TaskOutcome {
     && (value.accepted === null || typeof value.accepted === "boolean")
     && Array.isArray(value.checks) && value.checks.length <= CHECK_NAMES.length && value.checks.every((check) => record(check)
       && CHECK_NAMES.some((name) => name === check.name) && typeof check.status === "string" && ["pass", "fail", "skip"].includes(check.status)
-      && Object.keys(check).every((key) => ["name", "status"].includes(key)))
-    && Object.keys(value).every((key) => ["id", "task", "skills", "modelStatus", "verification", "checks", "repairAttempts", "accepted", "createdAt"].includes(key));
+      && (check.exitCode === undefined || check.exitCode === null || (Number.isSafeInteger(check.exitCode) && Number(check.exitCode) >= 0))
+      && (check.freshness === undefined || (typeof check.freshness === "string" && ["fresh", "stale", "unavailable"].includes(check.freshness)))
+      && (check.freshnessReason === undefined || string(check.freshnessReason, 2048))
+      && (check.scope === undefined || isVerificationScope(check.scope))
+      && Object.keys(check).every((key) => ["name", "status", "exitCode", "scope", "freshness", "freshnessReason"].includes(key)))
+    && (value.verificationMeaning === undefined || value.verificationMeaning === "command-execution")
+    && (value.coverage === undefined || value.coverage === "not-certified")
+    && Object.keys(value).every((key) => ["id", "task", "skills", "modelStatus", "verification", "verificationMeaning", "coverage", "checks", "repairAttempts", "accepted", "createdAt"].includes(key));
 }
 function text(value: string, max: number, field: string): string {
   if (!string(value, max) || !value.trim()) throw new Error(`${field} must be nonempty and at most ${max} UTF-8 bytes`);
@@ -48,7 +57,11 @@ export class ProjectMemory {
   constructor(readonly directory: string) {}
 
   async facts(): Promise<ProjectFact[]> { return this.read("memory.jsonl", fact); }
-  async outcomes(): Promise<TaskOutcome[]> { return (await this.read("outcomes.jsonl", outcome)).slice(-20).reverse(); }
+  async outcomes(): Promise<TaskOutcome[]> {
+    return (await this.read("outcomes.jsonl", outcome)).slice(-20).reverse().map((entry) => ({
+      ...entry, checks: entry.checks.map(summarizeVerificationCheck), coverage: entry.coverage ?? "not-certified",
+    }));
+  }
 
   async remember(value: string): Promise<ProjectFact> {
     const normalized = text(value, 1024, "Fact");
@@ -85,12 +98,13 @@ export class ProjectMemory {
   }
 
   async recordOutcome(input: { task: string; skills: string[]; modelStatus: TaskOutcome["modelStatus"]; verification?: VerificationReport }): Promise<TaskOutcome> {
+    const summary = input.verification ? summarizeVerification(input.verification) : undefined;
     const result: TaskOutcome = {
       id: randomUUID(), createdAt: new Date().toISOString(), task: text(input.task, 4096, "Task"),
       skills: [...input.skills], modelStatus: input.modelStatus,
-      verification: input.verification?.status ?? "not-run",
-      checks: input.verification?.results.map(({ name, status }) => ({ name, status })) ?? [],
-      repairAttempts: input.verification?.repairAttempts ?? 0,
+      verification: summary?.status ?? "not-run", verificationMeaning: "command-execution",
+      checks: summary?.checks ?? [], coverage: summary?.coverage ?? "not-certified",
+      repairAttempts: summary?.repairAttempts ?? 0,
       accepted: null, // Never infer human acceptance from model completion or passing tests.
     };
     await this.update("outcomes.jsonl", outcome, (entries) => [...entries, result]);
