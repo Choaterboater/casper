@@ -4,6 +4,16 @@ Implemented after the direction review at `7ce29ad`, with user approval for the 
 
 The original `CODING_LOOP_DIRECTION_REVIEW.md` remains the historical assessment. Its work-driven-selection finding is now addressed by the managed-tool follow-up below, not by transparent shell reuse. No recovery/model expansion, native-shell exit inference, new verification default, external inference, credential access, or push was added.
 
+## Native-edit invalidation review correction
+
+Review of `7ce29ad..43073d7` reproduced a P2 gap: a scoped pass → native write creating an included file → native removal of that file → another managed check reused the old pass. Casper recorded the edit but refreshed input identity only at check boundaries, so restored directory membership erased the invalidating observation.
+
+The user-approved correction forwards existing native edit/write observations into the task's frozen scopes. Matching evidence stays invalidated until a new execution; a per-check edit revision also catches observed edits during a running check, even if its before/after fingerprints match. An asynchronous freshness refresh cannot overwrite that invalidation. Failed native edit/write paths conservatively invalidate possible partial writes without claiming a completed edit. Excluded/unrelated paths do not invalidate other scopes, and observations neither select checks nor inherit the receipt's 32-path limit. Explicit repair shares its active evidence with these observations without exposing the opt-in tool.
+
+Regressions use `CasperApp.runOnce()` and `RuntimeTool.execute()` with real commands. The original case, overlapping native edits, possible partial writes, and explicit-repair reuse were made red before their corrections. The permanent pinned-Pi/local-provider regression now executes **two** commands across check → native write → native removal → check → reuse. The existing vertical fixture still executes **three** commands with **one** repair prompt. Separate local-provider cancellation and fresh-task probes remain green.
+
+Validation: **79 focused repository tests / 553 assertions** passed (evidence, verification/app, memory, managed checks, and three selected pinned-Pi cases). The subsequent pre-commit full gate, `bun run check`, passed with TypeScript clean and **254 tests / 1,581 assertions**, **70.02 s** test-runner time. This remains single-agent inspection/local-fixture evidence, not live-model or independent acceptance. Native bash, `src/runtime/pi.ts`, the command runner and dependency pins are unchanged. Unobserved shell/external mutations still rely on bounded non-atomic scope observations; no watcher, shell override, recovery/model expansion or push was added. The user separately authorized the correction checkpoint commit and handoff.
+
 ## Work-driven managed-tool follow-up
 
 The opt-in `casper_check({ check: "test" })` slice is implemented and included in the checkpoint. `--verify` / `autoVerify: true` exposes it during normal tasks. The model sees all available configured commands and selects checks from actual work; the classifier no longer controls execution or filters the advertised checks. If the model selects none (including docs-only/no-change work), the receipt says no verification was recorded. Explicit `/verify` remains local and starts fresh.

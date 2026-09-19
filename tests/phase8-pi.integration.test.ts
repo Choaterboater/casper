@@ -190,6 +190,40 @@ try {
   expect(repair[0].text).toContain('"exitCode": 1');
 }, 15_000);
 
+test("pinned Pi retains native edit invalidation after later work restores directory membership", async () => {
+  let step = 0;
+  const f = await fixture(() => {
+    switch (step++) {
+      case 0: case 3: case 4: return calls([{ name: "casper_check", args: { check: "test" } }]);
+      case 1: return calls([{ name: "write", args: { path: "src/transient", content: "intermediate source\n" } }]);
+      case 2: return calls([{ name: "bash", args: { command: "rm src/transient" } }]);
+      default: return answer("DONE");
+    }
+  });
+  await mkdir(path.join(f.project, "src"));
+  await mkdir(path.join(f.project, ".casper"));
+  await writeFile(path.join(f.project, ".casper/project.yaml"), JSON.stringify({
+    verify: { test: "printf x >> test-runs" }, verification: { scopes: { test: { inputs: ["src"] } } },
+  }));
+  const harness = path.join(f.agent, "native-invalidation.ts");
+  await writeFile(harness, `import { CasperApp } from ${JSON.stringify(path.join(import.meta.dir, "../src/app.ts"))};
+const app = new CasperApp({ autoVerify: true });
+try {
+  const report = await app.runOnce('Continue');
+  console.log('CHECK_RESULT=' + JSON.stringify({ report, task: app.getLastTaskResult() }));
+} finally { await app.close(); }
+`);
+  const result = await f.run([harness]);
+  expect({ exit: result.exit, stderr: result.stderr }).toEqual({ exit: 0, stderr: "" });
+  const { report, task }: { report: VerificationReport; task: TaskResult } = JSON.parse(result.stdout.split("CHECK_RESULT=")[1]!);
+  expect(report).toMatchObject({ status: "pass", repairAttempts: 0 });
+  expect(report.rounds.flat().map((check) => Boolean(check.reused))).toEqual([false, false, true]);
+  expect(report.results[0]).toMatchObject({ freshness: "fresh", exitCode: 0 });
+  expect(task.observedEdits).toEqual(["src/transient"]);
+  expect(await readFile(path.join(f.project, "test-runs"), "utf8")).toBe("xx");
+  expect(f.payloads).toHaveLength(6);
+}, 15_000);
+
 test("real parent Pi delegates and receives the child report without sharing child tools or history", async () => {
   let parentCalls = 0; let childCalls = 0;
   const f = await fixture((payload) => {
