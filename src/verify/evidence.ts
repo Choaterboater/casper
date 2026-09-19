@@ -14,6 +14,11 @@ export interface VerificationResult {
   truncated: boolean;
   durationMs: number;
   reason?: string;
+  /** Bounded local filesystem identity, not a guarantee about external inputs. */
+  workspaceState?: string;
+  freshness?: "fresh" | "stale" | "unavailable";
+  /** True when a passing result with matching local filesystem evidence was reused. */
+  reused?: boolean;
 }
 
 export interface VerificationReport {
@@ -26,7 +31,7 @@ export interface VerificationReport {
 
 export function verificationStatus(results: VerificationResult[]): VerificationReport["status"] {
   if (results.some((result) => result.status === "fail")) return "fail";
-  if (!results.length || results.some((result) => result.status === "skip")) return "incomplete";
+  if (!results.length || results.some((result) => result.status === "skip" || result.freshness === "stale")) return "incomplete";
   return "pass";
 }
 
@@ -39,7 +44,8 @@ function terminalText(value: string): string {
 export function formatVerificationResult(result: VerificationResult): string {
   const mark = { pass: "✓", fail: "✗", skip: "–" }[result.status];
   const detail = result.reason ?? (result.exitCode === null ? result.signal : `exit ${result.exitCode}`);
-  return `${mark} ${result.name}${result.command ? `  ${terminalText(result.command)}` : ""}  (${detail ? terminalText(detail) + "; " : ""}${result.durationMs}ms${result.truncated ? "; output truncated" : ""})`;
+  const source = result.reused ? "reused filesystem-matched evidence; " : "";
+  return `${mark} ${result.name}${result.command ? `  ${terminalText(result.command)}` : ""}  (${source}${detail ? terminalText(detail) + "; " : ""}${result.durationMs}ms${result.truncated ? "; output truncated" : ""}${result.freshness ? `; filesystem ${result.freshness}` : ""})`;
 }
 
 export function formatVerificationReport(report: VerificationReport): string {

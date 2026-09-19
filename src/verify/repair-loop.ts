@@ -3,6 +3,7 @@ import { promisify } from "node:util";
 import type { ProjectCommand } from "../project/model";
 import { verificationStatus, type VerificationReport, type VerificationResult } from "./evidence";
 import { VerifierRegistry } from "./registry";
+import { workspaceState } from "./workspace-state";
 
 const execFileAsync = promisify(execFile);
 
@@ -39,20 +40,52 @@ export async function verifyAndRepair(options: VerificationOptions): Promise<Ver
   let repairAttempts = 0;
   const report = (status: VerificationReport["status"], reason?: string): VerificationReport =>
     ({ status, reason, results, rounds, repairAttempts });
+  // Task-local only: explicit /verify always executes new checks. Registry commands
+  // are frozen; reuse here is limited to the same bounded local filesystem state.
+  const latest = new Map<ProjectCommand, VerificationResult>();
   const run = async (names: readonly ProjectCommand[]) => {
-    const round = await options.registry.run(names, { signal: options.signal, onResult: options.onResult });
+    const round: VerificationResult[] = [];
+    for (const name of new Set(names)) {
+      if (options.signal?.aborted) break;
+      const before = await workspaceState(options.cwd, options.signal);
+      const cached = latest.get(name);
+      let result: VerificationResult;
+      if (before && cached?.status === "pass" && cached.freshness === "fresh" && cached.workspaceState === before) {
+        result = { ...cached, reused: true };
+      } else {
+        const [executed] = await options.registry.run([name], { signal: options.signal });
+        if (!executed) break;
+        const after = await workspaceState(options.cwd, options.signal);
+        const sameWorkspace = executed.cwd === options.cwd;
+        result = { ...executed, workspaceState: sameWorkspace ? before : undefined,
+          freshness: sameWorkspace && before && after ? before === after ? "fresh" : "stale" : "unavailable" };
+      }
+      latest.set(name, result);
+      round.push(result);
+      options.onResult?.(result);
+    }
     rounds.push(round);
-    const latest = new Map(results.map((result) => [result.name, result]));
-    for (const result of round) latest.set(result.name, result);
-    results = checks.flatMap((name) => latest.has(name) ? [latest.get(name)!] : []);
     return round;
+  };
+  const refresh = async () => {
+    const current = await workspaceState(options.cwd, options.signal);
+    results = checks.flatMap((name) => {
+      const result = latest.get(name);
+      if (!result) return [];
+      return [{ ...result, freshness: result.freshness === "stale" ? "stale" as const
+        : !current || !result.workspaceState ? "unavailable" as const
+        : current === result.workspaceState ? "fresh" as const : "stale" as const }];
+    });
   };
 
   await run(checks);
   while (true) {
+    await refresh();
     if (options.signal?.aborted) return report("blocked", "Verification cancelled.");
     const failures = results.filter((result) => result.status === "fail");
-    if (!failures.length) return report(verificationStatus(results));
+    if (!failures.length) return report(verificationStatus(results), !checks.length ? "No applicable verification commands configured or detected."
+      : results.some((result) => result.freshness === "stale") ? "Workspace changed during or after checks; stale passes do not verify current files."
+      : results.some((result) => result.freshness === "unavailable") ? "Commands ran; workspace freshness unavailable (scope mismatch, unsupported tree or snapshot budget). No evidence reused for unknown state." : undefined);
     if (!options.repair || repairAttempts >= maxAttempts) {
       return report("fail", options.repair ? "Repair limit reached." : "Run /verify repair to request repair.");
     }
@@ -72,11 +105,16 @@ export async function verifyAndRepair(options: VerificationOptions): Promise<Ver
     try {
       await options.repair(prompt);
     } catch (error) {
+      await refresh();
       return report("blocked", `Repair runtime failed: ${error instanceof Error ? error.message : String(error)}`);
     }
-    if (options.signal?.aborted) return report("blocked", "Verification cancelled.");
+    if (options.signal?.aborted) {
+      await refresh();
+      return report("blocked", "Verification cancelled.");
+    }
     const targeted = await run(failures.map((result) => result.name));
-    // A targeted pass alone cannot prove the repair did not regress another gate.
-    if (targeted.every((result) => result.status === "pass") && !options.signal?.aborted) await run(checks);
+    // Preserve the regression selection; only unchanged filesystem evidence can
+    // skip execution. The single targeted check already covers a single selection.
+    if (checks.length > 1 && targeted.every((result) => result.status === "pass") && !options.signal?.aborted) await run(checks);
   }
 }

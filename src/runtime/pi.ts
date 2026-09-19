@@ -16,6 +16,7 @@ import type {
   ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { observationInput, observationOutput, type ToolObservationInput } from "./observation";
 import type {
   AgentRuntime,
   RuntimeEventListener,
@@ -53,6 +54,7 @@ class PiToolController {
 
 class PiRuntimeSession implements RuntimeSession {
   private readonly listeners = new Set<RuntimeEventListener>();
+  private readonly toolInputs = new Map<string, ToolObservationInput>();
   private unsubscribePi?: () => void;
 
   constructor(
@@ -154,11 +156,13 @@ class PiRuntimeSession implements RuntimeSession {
   detach(): void {
     this.unsubscribePi?.();
     this.unsubscribePi = undefined;
+    this.toolInputs.clear();
     this.listeners.clear();
   }
 
   private bind(session: AgentSession): void {
     this.unsubscribePi?.();
+    this.toolInputs.clear();
     this.unsubscribePi = session.subscribe((event) => {
       switch (event.type) {
         case "message_start":
@@ -174,13 +178,20 @@ class PiRuntimeSession implements RuntimeSession {
             this.emit({ type: "assistant_text_delta", delta: event.assistantMessageEvent.delta });
           }
           break;
-        case "tool_execution_start":
-          this.emit({ type: "tool_start", toolName: event.toolName });
+        case "tool_execution_start": {
+          const input = observationInput(event.args);
+          if (this.toolInputs.size < 64) this.toolInputs.set(event.toolCallId, input);
+          this.emit({ type: "tool_start", toolName: event.toolName, toolCallId: event.toolCallId, input });
           break;
-        case "tool_execution_end":
-          this.emit({ type: "tool_end", toolName: event.toolName, isError: event.isError });
+        }
+        case "tool_execution_end": {
+          const input = this.toolInputs.get(event.toolCallId);
+          this.toolInputs.delete(event.toolCallId);
+          this.emit({ type: "tool_end", toolName: event.toolName, toolCallId: event.toolCallId, input, output: event.toolName === "bash" ? observationOutput(event.result) : undefined, isError: event.isError });
           break;
+        }
         case "agent_end":
+          this.toolInputs.clear();
           this.emit({ type: "message_end" });
           break;
       }

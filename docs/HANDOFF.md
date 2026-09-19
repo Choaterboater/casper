@@ -1,6 +1,18 @@
 # Casper Handoff — Reviewed Checkpoint; Phase 9 Still Partial
 
-## Latest update — user-authorized debug/review and commit
+## Latest update — coding-loop consolidation, reviewed partial checkpoint
+
+The user paused roadmap expansion to focus on a direct Pi-style coding loop, informed by prior projects rather than recreating SkyN3t. No aggregate scoring gate or mandatory agent pipeline. See `docs/HARNESS_COMPARISON_RESEARCH.md` (including the local project corpus) and `docs/CODING_LOOP_AUDIT.md` for research and the agreed direction.
+
+User-authorized first slice implemented: automatic verification filters to available commands (explicit `/verify` retains missing-command skips); no commands yields explicit incomplete evidence; single-check repair avoids a duplicate passing rerun while multi-check regression sweeps remain. Normal requests print execution/verification receipts and expose a detached `getLastTaskResult()` without changing `runOnce()`'s existing return contract. CLI uses task execution status as well as verification status. Nonthrowing error/abort stops cannot appear successful or trigger automatic post-task repair; failed repair execution is blocked with edits retained.
+
+The user authorized a focused correctness review, fixes, validation, and a partial checkpoint commit before recovery/model work. The review reproduced stale passes after external edits and later verifier mutations, plus incorrect failure reporting after Pi recovered a provider error. The provisional event-counter cache and fabricated shell exit evidence were removed. Casper-run checks now carry bounded before/after filesystem evidence, with later invalidation and reuse only within one verification invocation. New requests and explicit `/verify` calls start fresh. Snapshot limits/unsupported trees disable reuse and disclose unknown freshness; external inputs and post-report changes are not certified. Native edit paths, possible partial tool writes, and exact-command shell diagnostics are reported separately. Raw Pi shell results are **not** verifier passes. See `docs/CODING_LOOP_REVIEW.md` for Standards/Spec findings and limitations.
+
+Final corrective-checkpoint validation: `bun run check` passed **223 tests / 1,298 assertions**, TypeScript passed; `git diff --check` passed. Details are in `docs/CODING_LOOP_REVIEW.md`. Single-agent review/testing, not independent review. No external inference, production service access, or push. The user authorized committing this checkpoint; use `git log -1` for its identity.
+
+Still pending: replacing keyword-based verification selection, trustworthy execution observation/reuse of model-run native checks, progress-aware recovery, reasoning-effort/model controls, and task-level stop/steer. Automatic verification remains opt-in. No new trust policy, changed autonomy defaults, or unrelated phase expansion.
+
+## Prior update — user-authorized debug/review and commit
 
 The user authorized reviewing all changes since `f8bb28e`, correcting defects, and committing the checkpoint. See `docs/REVIEW_CHECKPOINT.md` for separate Standards/Spec findings, limitations, and reproducible performance evidence. This additional pass was single-agent, not an independent parallel review.
 

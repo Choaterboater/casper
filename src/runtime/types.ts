@@ -1,3 +1,5 @@
+import type { ToolObservationInput, ToolObservationOutput } from "./observation";
+
 export interface RuntimeToolContext {
   /** Serialize multi-file mutations with the runtime's native file writers. */
   withFileLocks<T>(paths: string[], work: () => Promise<T>): Promise<T>;
@@ -54,8 +56,9 @@ export type RuntimeEvent =
   | { type: "assistant_response_start" }
   | { type: "assistant_response_end"; stopReason: string; errorMessage?: string }
   | { type: "assistant_text_delta"; delta: string }
-  | { type: "tool_start"; toolName: string }
-  | { type: "tool_end"; toolName: string; isError: boolean }
+  | { type: "tool_start"; toolName: string; toolCallId?: string; input?: ToolObservationInput }
+  /** Diagnostic tool status only: isError=false is not process-exit evidence. */
+  | { type: "tool_end"; toolName: string; toolCallId?: string; input?: ToolObservationInput; output?: ToolObservationOutput; isError: boolean }
   | { type: "message_end" }
   | { type: "error"; message: string };
 
