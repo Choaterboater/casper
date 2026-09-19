@@ -34,6 +34,28 @@ describe("Phase 3 verification", () => {
     expect((await loadProjectContext(info, { homeDir })).model.commands.test).toBe("echo replacement");
   });
 
+  test("declared check scope ignores only explicit outputs, not source edits or gitignored inputs", async () => {
+    const { root, context } = await fixture(`verify:
+  build: mkdir -p dist; printf built > dist/output.js
+  test: printf after > source.ts
+verification:
+  scopes:
+    build:
+      inputs: ["."]
+      exclude: [dist, home]
+`);
+    await writeFile(path.join(root, "source.ts"), "before");
+    await writeFile(path.join(root, ".gitignore"), "source.ts\ndist/\n");
+    const options = { registry: VerifierRegistry.forProject(context.model), checks: ["build"] as const, cwd: root, request: "Build" };
+    const report = await verifyAndRepair(options);
+    expect(report.results[0]).toMatchObject({ status: "pass", freshness: "fresh",
+      scope: { inputs: ["."], exclude: ["dist", "home"] } });
+    // A real later check changes an input, even though Git ignores it.
+    const changed = await verifyAndRepair({ ...options, checks: ["build", "test"] });
+    expect(changed.status).toBe("pass");
+    expect(changed.results[0]?.freshness).toBe("stale");
+  });
+
   test("merges bounded settings across global/profile/project and rejects invalid verification config", async () => {
     const { root, homeDir } = await fixture("repair:\n  maxAttempts: 0\n");
     const profile = path.join(homeDir, ".casper/profiles/default");
@@ -46,6 +68,30 @@ describe("Phase 3 verification", () => {
     for (const invalid of ["verify: []", "verify:\n  typo: echo test", "verify:\n  test: false", "verify:\n  test: ''", "repair:\n  maxAttempts: 11", "repair:\n  maxAttempts: -1", "repair:\n  maxAttempts: 1.5", "verification:\n  timeoutMs: 0"]) {
       await writeFile(path.join(root, ".casper/project.yaml"), invalid);
       await expect(loadConfiguration({ projectRoot: root, homeDir })).rejects.toThrow();
+    }
+  });
+
+  test("scope declarations reject ambiguous paths and stay frozen with the check command", async () => {
+    const { root, homeDir, context } = await fixture(`verify:
+  test: "true"
+verification:
+  scopes:
+    test:
+      inputs: [source.ts]
+`);
+    await writeFile(path.join(root, "source.ts"), "before");
+    const registry = VerifierRegistry.forProject(context.model);
+    context.model.verificationScopes!.test!.inputs[0] = "unrelated";
+    context.model.commands.test = "false";
+    const report = await verifyAndRepair({ registry, checks: ["test"], cwd: root, request: "Check" });
+    expect(report.results[0]).toMatchObject({ command: "true", scope: { inputs: ["source.ts"] }, freshness: "fresh" });
+    for (const scopes of [[], { typo: { inputs: ["src"] } }, { test: { inputs: [] } },
+      { test: { inputs: ["../outside"] } }, { test: { inputs: ["/outside"] } },
+      { test: { inputs: ["src/**"] } }, { test: { inputs: ["src"], exclude: ["src"] } },
+      { test: { inputs: ["."], exclude: ["."] } }, { test: { inputs: ["src"], extra: true } },
+      { test: { inputs: Array(33).fill("src") } }]) {
+      await writeFile(path.join(root, ".casper/project.yaml"), JSON.stringify({ verification: { scopes } }));
+      await expect(loadConfiguration({ projectRoot: root, homeDir })).rejects.toThrow("verification.scopes");
     }
   });
 

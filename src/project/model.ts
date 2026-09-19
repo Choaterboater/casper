@@ -3,6 +3,7 @@ import { mkdir, readFile, readdir, rename, stat, writeFile } from "node:fs/promi
 import os from "node:os";
 import path from "node:path";
 import type { ProjectInfo } from "./inspect";
+import type { VerificationScope } from "../verify/scope";
 
 export type ProjectCommand = "build" | "test" | "lint" | "typecheck";
 
@@ -11,6 +12,7 @@ export interface ProjectModelOverrides {
   frameworks?: string[];
   packageManager?: string;
   commands?: Record<string, string>;
+  verificationScopes?: Partial<Record<ProjectCommand, VerificationScope>>;
   architecture?: Record<string, string>;
   conventions?: string[];
 }
@@ -26,6 +28,7 @@ export interface ProjectModel {
   frameworks: string[];
   packageManager: string | null;
   commands: Partial<Record<ProjectCommand, string>>;
+  verificationScopes?: Partial<Record<ProjectCommand, VerificationScope>>;
   architecture: Record<string, string>;
   conventions: string[];
   detectedAt: string;
@@ -321,6 +324,7 @@ async function detectModel(
     frameworks: overrides.frameworks ?? sortedUnique(frameworks),
     packageManager,
     commands: { ...commands, ...(overrides.commands ?? {}) },
+    verificationScopes: overrides.verificationScopes,
     architecture: overrides.architecture ?? {},
     conventions: overrides.conventions ?? [],
     detectedAt: new Date().toISOString(),

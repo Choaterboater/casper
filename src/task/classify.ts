@@ -1,4 +1,5 @@
 import type { ProjectCommand, ProjectModel } from "../project/model";
+import { CHECK_NAMES } from "../verify/evidence";
 
 export type TaskIntent =
   | "fix"
@@ -14,6 +15,7 @@ export type TaskIntent =
 export interface TaskClassification {
   intent: TaskIntent;
   mode: "read" | "modify";
+  /** Legacy lexical hint only; never selects or authorizes command execution. */
   verification: ProjectCommand[];
 }
 
@@ -49,15 +51,16 @@ export function formatTaskPrompt(
   classification: TaskClassification,
   model: ProjectModel,
 ): string {
-  const availableChecks = classification.verification
+  const availableChecks = CHECK_NAMES
     .filter((name) => model.commands[name])
     .map((name) => `${name}=${model.commands[name]}`);
 
   return [
-    "Casper task classification:",
+    "Casper initial classification (hints, not authority over the request or actual work):",
     `- intent: ${classification.intent}`,
     `- mode: ${classification.mode}`,
-    `- available relevant checks: ${availableChecks.length ? availableChecks.join("; ") : "none detected"}`,
+    `- available configured checks: ${availableChecks.length ? availableChecks.join("; ") : "none detected"}`,
+    "Select checks based on actual work and relevant changed behavior, not request keywords. If casper_check is available, use it for relevant configured checks after edits settle. No mandatory four-check pipeline; docs-only or no-change work may need none. Explain unrun checks without claiming verified behavior.",
     "",
     "User request:",
     request,

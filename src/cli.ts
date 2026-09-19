@@ -43,7 +43,8 @@ Local commands:
 
 Checks: typecheck lint test build (all by default).
 Verification executes repository shell commands; use only in trusted projects.
-One-shot verification exits 0 on pass, 1 on failure/blocked, 2 on incomplete (skips).
+One-shot checks exit 0 on command success, 1 on failure/blocked, 2 on skips/no commands.
+Exit 0 does not certify current inputs or behavior; see scoped freshness in the receipt.
 MCP connection executes a configured program or contacts its URL. Review its source first.
 Non-read MCP calls require exact interactive confirmation; denied in one-shot mode.
 LSP connection executes a configured program. Review .casper/lsp.json first.
