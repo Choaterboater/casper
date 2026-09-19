@@ -105,6 +105,8 @@ export class CasperApp {
   private readonly autoVerify: boolean;
   private verificationAbort?: AbortController;
   private verificationWork?: Promise<VerificationReport>;
+  /** Active repair evidence; sharing it does not grant managed-tool consent. */
+  private verificationTask?: VerificationTask;
   private checkTask?: VerificationTask;
   private readonly sessionHomeDir?: string;
   private sessionWorkspace?: SessionWorkspaceManager;
@@ -477,11 +479,16 @@ export class CasperApp {
   ): Promise<VerificationReport> {
     const context = this.projectContext!;
     const controller = new AbortController();
+    const evidence = task ?? new VerificationTask(
+      VerifierRegistry.forProject(context.model, context.verification.timeoutMs), this.activeWorkspaceRoot(),
+      (result) => { this.ensureLineBreak(); this.output.write(`${formatVerificationResult(result)}\n`); },
+    );
     this.verificationAbort = controller;
+    this.verificationTask = evidence;
     this.ensureLineBreak();
     try {
       this.verificationWork = verifyAndRepair({
-        ...(task ? { task } : { registry: VerifierRegistry.forProject(context.model, context.verification.timeoutMs) }),
+        task: evidence,
         checks,
         cwd: this.activeWorkspaceRoot(),
         request,
@@ -496,15 +503,14 @@ export class CasperApp {
             if (this.taskRuntimeFailed) throw new Error("Repair model stopped unsuccessfully; changes retained.");
           }
         } : undefined,
-        onResult: (result) => {
-          this.ensureLineBreak(); this.output.write(`${formatVerificationResult(result)}\n`);
-        },
         onRepair: (attempt, max) => { this.output.write(`↻ repair ${attempt}/${max}\n`); },
       });
       const report = await this.verificationWork;
       this.output.write(`${formatVerificationReport(report)}\n`);
       return report;
     } finally {
+      if (!task) await evidence.close();
+      this.verificationTask = undefined;
       this.verificationAbort = undefined;
       this.verificationWork = undefined;
     }
@@ -836,6 +842,9 @@ export class CasperApp {
         // A failure/abort can follow partial writes. A shell success need not have
         // written anything. Keep uncertainty separate from observed edit paths.
         if (["bash", "edit", "write"].includes(event.toolName) || (event.toolName === "lsp" && event.input?.operation === "rename")) this.possibleMutations = true;
+        // Successful native writes invalidate in afterFileEdit, before LSP awaits.
+        // Failed writes may be partial; invalidate without claiming a completed edit.
+        if (event.isError && ["edit", "write"].includes(event.toolName) && event.input?.path) (this.checkTask ?? this.verificationTask)?.invalidateForEdit(event.input.path);
         if (event.toolName === "bash") this.observeRuntimeCheck(event);
         this.output.write(`${event.isError ? "✗" : "✓"} ${event.toolName}\n`);
         this.endedWithNewline = true;
@@ -863,6 +872,7 @@ export class CasperApp {
   }
 
   private observeEdit(path: string): void {
+    (this.checkTask ?? this.verificationTask)?.invalidateForEdit(path);
     if (this.observedEdits.size < 32) this.observedEdits.add(path.slice(0, 512));
   }
 

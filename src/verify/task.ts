@@ -1,3 +1,4 @@
+import path from "node:path";
 import type { ProjectCommand } from "../project/model";
 import type { RuntimeTool } from "../runtime/types";
 import { CHECK_NAMES, type VerificationResult } from "./evidence";
@@ -10,6 +11,7 @@ import { workspaceState } from "./workspace-state";
 export class VerificationTask {
   readonly rounds: VerificationResult[][] = [];
   private readonly latest = new Map<ProjectCommand, VerificationResult>();
+  private readonly inputEdits = new Map<ProjectCommand, number>();
   private readonly controller = new AbortController();
   private closed = false;
   private pending: Promise<unknown> = Promise.resolve();
@@ -24,6 +26,23 @@ export class VerificationTask {
   get signal(): AbortSignal { return this.controller.signal; }
   abort(): void { this.controller.abort(); }
   async close(): Promise<void> { this.closed = true; this.abort(); await this.pending; }
+
+  /** Remember observed input edits even if later work restores the fingerprint. */
+  invalidateForEdit(file: string): void {
+    if (this.closed) return;
+    const relative = path.relative(this.cwd, path.resolve(this.cwd, file.replace(/^@/, ""))).split(path.sep).join("/") || ".";
+    if (relative === ".." || relative.startsWith("../") || path.isAbsolute(relative)) return;
+    const contains = (root: string, target: string) => root === "." || target === root || target.startsWith(root + "/");
+    for (const name of CHECK_NAMES) {
+      const scope = this.registry.scope(name);
+      if (!scope || scope.exclude?.some((entry) => contains(entry, relative))) continue;
+      if (scope.inputs.some((entry) => contains(entry, relative) || contains(relative, entry))) {
+        this.inputEdits.set(name, (this.inputEdits.get(name) ?? 0) + 1);
+        const result = this.latest.get(name);
+        if (result) this.latest.set(name, { ...result, freshness: "stale", freshnessReason: "Declared-input evidence invalidated by an observed edit/write." });
+      }
+    }
+  }
 
   private enqueue<T>(work: () => Promise<T>): Promise<T> {
     const next = this.pending.then(work);
@@ -63,6 +82,7 @@ export class VerificationTask {
       if (combined.aborted) break;
       await this.refreshResults(combined);
       const scope = this.registry.scope(name);
+      const editsBefore = this.inputEdits.get(name);
       const before = await workspaceState(this.cwd, scope, combined);
       const cached = this.latest.get(name);
       let result: VerificationResult;
@@ -73,10 +93,12 @@ export class VerificationTask {
         if (!executed) break;
         const after = await workspaceState(this.cwd, scope, combined);
         const sameWorkspace = executed.cwd === this.cwd;
-        const freshness = sameWorkspace && before.fingerprint && after.fingerprint
+        const edited = this.inputEdits.get(name) !== editsBefore;
+        const freshness = !sameWorkspace ? "unavailable" : edited ? "stale" : before.fingerprint && after.fingerprint
           ? before.fingerprint === after.fingerprint ? "fresh" : "stale" : "unavailable";
         result = { ...executed, scope, workspaceState: sameWorkspace ? before.fingerprint : undefined, freshness,
           freshnessReason: !sameWorkspace ? "Check cwd differs from input scope cwd."
+            : edited ? "Edit/write observed during the check; declared-input evidence invalidated."
             : freshness === "stale" ? "Declared inputs changed during the check."
             : before.reason ?? after.reason };
       }
@@ -99,8 +121,10 @@ export class VerificationTask {
   private async refreshResults(signal?: AbortSignal): Promise<VerificationResult[]> {
     const combined = signal ? AbortSignal.any([signal, this.signal]) : this.signal;
     const results: VerificationResult[] = [];
-    for (const [name, result] of this.latest) {
-      const current = await workspaceState(this.cwd, result.scope, combined);
+    for (const [name, previous] of this.latest) {
+      const current = await workspaceState(this.cwd, previous.scope, combined);
+      // Native edit callbacks can invalidate evidence while observation awaits I/O.
+      const result = this.latest.get(name)!;
       // Missing before/after evidence never becomes fresh at report time. Known
       // stale evidence stays stale, even if directory membership is restored.
       const freshness = result.freshness !== "fresh" ? result.freshness

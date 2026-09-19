@@ -46,7 +46,7 @@ export async function verifyAndRepair(options: VerificationOptions): Promise<Ver
 
   // A tool failure is already real command evidence, not a request to execute
   // the same failure again before handing it to the single repair owner.
-  if (!options.task) await run(checks());
+  if (!task.checks.length) await run(checks());
   else {
     await refresh();
     // Recheck selected passes that cannot support reuse, and known-invalidated

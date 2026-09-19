@@ -201,6 +201,128 @@ test("undeclared scope never supports reuse; excluded generated outputs do not i
   }
 });
 
+test("observed native edits invalidate scoped passes even when later work restores directory membership", async () => {
+  const root = await fixture();
+  await writeFile(path.join(root, "src/value"), "good\n");
+  const { app } = createApp(root, async (_prompt, tools, options) => {
+    const tool = checkTool(tools);
+    expect(await check(tool)).toMatchObject({ status: "pass", freshness: "fresh" });
+    await writeFile(path.join(root, "src/transient"), "intermediate source\n");
+    await options.afterFileEdit?.("src/transient");
+    await rm(path.join(root, "src/transient"));
+    const next = await check(tool);
+    expect(next.reused).not.toBe(true);
+    expect(next).toMatchObject({ status: "pass", freshness: "fresh" });
+  });
+  expect((await app.runOnce("Continue", root))?.status).toBe("pass");
+  expect(app.getLastTaskResult()?.observedEdits).toEqual(["src/transient"]);
+  expect(await readFile(path.join(root, "test-runs"), "utf8")).toBe("xx");
+});
+
+test("native edit invalidation is independent of the receipt's bounded edit list", async () => {
+  const root = await fixture();
+  await writeFile(path.join(root, "src/value"), "good\n");
+  const { app } = createApp(root, async (_prompt, tools, options) => {
+    for (let index = 0; index < 32; index++) {
+      const file = `note-${index}`;
+      await writeFile(path.join(root, file), "note\n");
+      await options.afterFileEdit?.(file);
+    }
+    const tool = checkTool(tools);
+    expect((await check(tool)).status).toBe("pass");
+    await writeFile(path.join(root, "src/transient"), "intermediate source\n");
+    await options.afterFileEdit?.("src/transient");
+    await rm(path.join(root, "src/transient"));
+    expect((await check(tool)).reused).not.toBe(true);
+  });
+  expect((await app.runOnce("Continue", root))?.status).toBe("pass");
+  expect(app.getLastTaskResult()?.observedEdits).toHaveLength(32);
+  expect(await readFile(path.join(root, "test-runs"), "utf8")).toBe("xx");
+});
+
+test("an observed native edit during a check stays stale even when membership is restored before command completion", async () => {
+  const root = await fixture({ verify: { test: "printf x >> test-runs; touch started; while test ! -f release; do sleep 0.01; done" },
+    verification: { timeoutMs: 2000, scopes: { test: { inputs: ["src"] } } } });
+  const { app } = createApp(root, async (_prompt, tools, options) => {
+    const tool = checkTool(tools);
+    const pending = check(tool);
+    await waitForFile(path.join(root, "started"));
+    await writeFile(path.join(root, "src/transient"), "intermediate source\n");
+    await options.afterFileEdit?.("src/transient");
+    await rm(path.join(root, "src/transient"));
+    await writeFile(path.join(root, "release"), "");
+    expect(await pending).toMatchObject({ status: "pass", exitCode: 0, freshness: "stale" });
+    const next = await check(tool);
+    expect(next.reused).not.toBe(true);
+    expect(next).toMatchObject({ status: "pass", freshness: "fresh" });
+    expect(await check(tool)).toMatchObject({ status: "pass", reused: true });
+  });
+  expect((await app.runOnce("Continue", root))?.status).toBe("pass");
+  expect(await readFile(path.join(root, "test-runs"), "utf8")).toBe("xx");
+});
+
+test("a failed native write with possible partial edits invalidates matching evidence without claiming a completed edit", async () => {
+  const root = await fixture();
+  await writeFile(path.join(root, "src/value"), "good\n");
+  const { app } = createApp(root, async (_prompt, tools, _options, emit) => {
+    const tool = checkTool(tools);
+    expect((await check(tool)).status).toBe("pass");
+    await writeFile(path.join(root, "src/transient"), "partial source\n");
+    emit({ type: "tool_end", toolName: "write", isError: true, input: { path: "@./src/transient" } });
+    await rm(path.join(root, "src/transient"));
+    expect((await check(tool)).reused).not.toBe(true);
+  });
+  expect((await app.runOnce("Continue", root))?.status).toBe("pass");
+  expect(app.getLastTaskResult()).toMatchObject({ possibleMutations: true, observedEdits: [] });
+  expect(await readFile(path.join(root, "test-runs"), "utf8")).toBe("xx");
+});
+
+test("native edit invalidation respects excluded paths, scope boundaries and unrelated checks", async () => {
+  const root = await fixture({ verify: { test: command, build: "printf x >> build-runs" },
+    verification: { scopes: { test: { inputs: ["src"], exclude: ["src/generated"] }, build: { inputs: ["docs"] } } } });
+  await writeFile(path.join(root, "src/value"), "good\n");
+  await mkdir(path.join(root, "docs"));
+  const { app } = createApp(root, async (_prompt, tools, options) => {
+    const tool = checkTool(tools);
+    expect((await check(tool)).status).toBe("pass");
+    expect((await check(tool, "build")).status).toBe("pass");
+    for (const file of ["src/generated/report", "src-other/value"]) {
+      await mkdir(path.dirname(path.join(root, file)), { recursive: true });
+      await writeFile(path.join(root, file), "unrelated output\n");
+      await options.afterFileEdit?.(file);
+    }
+    expect((await check(tool)).reused).toBe(true);
+    expect((await check(tool, "build")).reused).toBe(true);
+    const transient = path.join(root, "src/transient");
+    await writeFile(transient, "intermediate source\n");
+    await options.afterFileEdit?.(transient); // Absolute native paths use the same frozen scope.
+    await rm(transient);
+    expect((await check(tool)).reused).not.toBe(true);
+    expect((await check(tool, "build")).reused).toBe(true);
+  });
+  expect((await app.runOnce("Continue", root))?.status).toBe("pass");
+  expect(await readFile(path.join(root, "test-runs"), "utf8")).toBe("xx");
+  expect(await readFile(path.join(root, "build-runs"), "utf8")).toBe("x");
+});
+
+test("explicit repair retains native edit invalidation without exposing the opt-in check tool", async () => {
+  const root = await fixture({ verify: { test: command, build: "printf x >> build-runs; test -f fixed" },
+    verification: { scopes: { test: { inputs: ["src"] }, build: { inputs: ["fixed"] } } } });
+  await writeFile(path.join(root, "src/value"), "good\n");
+  const { app, prompts } = createApp(root, async (_prompt, tools, options) => {
+    expect(tools.map((tool) => tool.name)).not.toContain("casper_check");
+    await writeFile(path.join(root, "src/transient"), "intermediate source\n");
+    await options.afterFileEdit?.("src/transient");
+    await rm(path.join(root, "src/transient"));
+    await writeFile(path.join(root, "fixed"), "");
+    await options.afterFileEdit?.("fixed");
+  }, false);
+  expect(await app.runOnce("/verify repair test build", root)).toMatchObject({ status: "pass", repairAttempts: 1 });
+  expect(prompts).toHaveLength(1);
+  expect(await readFile(path.join(root, "test-runs"), "utf8")).toBe("xx");
+  expect(await readFile(path.join(root, "build-runs"), "utf8")).toBe("xx");
+});
+
 test("another managed check invalidates scoped evidence even if an input directory is later restored", async () => {
   const root = await fixture({ verify: { test: command, build: "touch src/transient" }, verification: { scopes: { test: { inputs: ["src"] } } } });
   await writeFile(path.join(root, "src/value"), "good\n");
@@ -255,12 +377,16 @@ test("concurrent requests for the same scoped check execute once and return one 
 
 test("check guidance lists available commands regardless of request words; docs-only and no-change work select none", async () => {
   const root = await fixture();
-  const { app, prompts, output } = createApp(root, async (prompt, tools) => {
+  const { app, prompts, output } = createApp(root, async (prompt, tools, options) => {
     checkTool(tools);
     expect(prompt).toContain(`test=${command}`);
     expect(prompt).toContain("build=printf x >> build-runs");
     expect(prompt).toContain("actual work");
     if (prompt.includes("README typo")) await writeFile(path.join(root, "README.md"), "corrected spelling\n");
+    if (prompt.includes("Fix addition")) {
+      await writeFile(path.join(root, "src/value"), "good\n");
+      await options.afterFileEdit?.("src/value"); // Invalidation must not select an unchosen check.
+    }
   });
   for (const request of ["Continue", "Fix README typo", "Fix addition"]) {
     expect(await app.runOnce(request, root)).toBeUndefined();
