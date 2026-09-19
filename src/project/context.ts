@@ -9,6 +9,8 @@ export interface ProjectContext {
   profileName: string;
   policy: CasperPolicy;
   skills: { maxActive: number };
+  verification: { timeoutMs: number };
+  repair: { maxAttempts: number };
   rules: {
     profile: string | null;
     project: string | null;
@@ -41,6 +43,8 @@ export async function loadProjectContext(
     profileName: configuration.profileName,
     policy: configuration.policy,
     skills: configuration.skills,
+    verification: configuration.verification,
+    repair: configuration.repair,
     rules: {
       profile: configuration.profileRules,
       project: configuration.projectRules,

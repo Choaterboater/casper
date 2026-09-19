@@ -8,3 +8,6 @@ export * from "./runtime/types";
 export * from "./skills/registry";
 export * from "./task/classify";
 export * from "./tui/banner";
+export * from "./verify/evidence";
+export * from "./verify/registry";
+export * from "./verify/repair-loop";

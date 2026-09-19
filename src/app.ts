@@ -16,6 +16,10 @@ import type {
 import { SkillRegistry, formatSelectedSkills } from "./skills/registry";
 import { classifyTask, formatTaskPrompt } from "./task/classify";
 import { renderBanner, renderProjectSummary } from "./tui/banner";
+import type { ProjectCommand } from "./project/model";
+import { CHECK_NAMES, formatVerificationReport, formatVerificationResult, type VerificationReport } from "./verify/evidence";
+import { VerifierRegistry } from "./verify/registry";
+import { verifyAndRepair } from "./verify/repair-loop";
 
 export interface OutputWriter {
   write(text: string): void;
@@ -28,6 +32,7 @@ export interface CasperAppOptions {
   loadSkillRegistry?: (context: ProjectContext) => Promise<SkillRegistry>;
   output?: OutputWriter;
   input?: Readable;
+  autoVerify?: boolean;
 }
 
 const DEFAULT_SYSTEM_PROMPT_APPEND = [
@@ -44,13 +49,19 @@ export class CasperApp {
   private readonly output: OutputWriter;
   private readonly input: Readable;
   private runtime?: AgentRuntime;
+  private runtimeStart?: Promise<RuntimeSession>;
   private session?: RuntimeSession;
+  private closing = false;
+  private closeWork?: Promise<void>;
   private unsubscribe?: () => void;
   private readline?: ReadlineInterface;
   private projectContext?: ProjectContext;
   private skillRegistry?: SkillRegistry;
   private readonly reportedSkillWarnings = new Set<string>();
   private endedWithNewline = true;
+  private readonly autoVerify: boolean;
+  private verificationAbort?: AbortController;
+  private verificationWork?: Promise<VerificationReport>;
 
   constructor(options: CasperAppOptions = {}) {
     this.runtimeFactory = options.runtimeFactory ?? (() => new PiRuntime());
@@ -62,9 +73,11 @@ export class CasperApp {
     }));
     this.output = options.output ?? process.stdout;
     this.input = options.input ?? process.stdin;
+    this.autoVerify = options.autoVerify ?? false;
   }
 
   async start(cwd = process.cwd()): Promise<ProjectInfo> {
+    if (this.closing) throw new Error("Casper is closing");
     if (this.projectContext) return this.projectContext.info;
     const project = await this.inspectProjectFn(cwd);
     const context = await this.loadProjectContextFn(project);
@@ -77,13 +90,13 @@ export class CasperApp {
     return project;
   }
 
-  async runOnce(prompt: string, cwd = process.cwd()): Promise<void> {
+  async runOnce(prompt: string, cwd = process.cwd()): Promise<VerificationReport | undefined> {
     if (!this.projectContext) {
       await this.start(cwd);
     }
 
     this.writePrompt(prompt);
-    await this.handlePrompt(prompt);
+    return this.handlePrompt(prompt);
   }
 
   async runInteractive(cwd = process.cwd()): Promise<void> {
@@ -114,28 +127,50 @@ export class CasperApp {
     }
   }
 
-  async close(): Promise<void> {
-    this.unsubscribe?.();
-    this.readline?.close();
-    await this.runtime?.dispose();
+  close(): Promise<void> {
+    if (this.closeWork) return this.closeWork;
+    this.closing = true;
+    this.verificationAbort?.abort();
+    this.closeWork = this.finishClose();
+    return this.closeWork;
+  }
+
+  private async finishClose(): Promise<void> {
+    // Startup may still be in flight when termination arrives. Drain it before
+    // disposing, but leave a startup error with its original prompt caller.
+    await this.runtimeStart?.catch(() => {});
+    try {
+      await this.session?.abort();
+    } finally {
+      try {
+        await this.verificationWork;
+      } finally {
+        this.unsubscribe?.();
+        this.readline?.close();
+        await this.runtime?.dispose();
+      }
+    }
   }
 
   private async ensureRuntime(): Promise<RuntimeSession> {
+    if (this.closing) throw new Error("Casper is closing");
     if (this.session) return this.session;
     const context = this.projectContext!;
     this.runtime = this.runtimeFactory();
-    this.session = await this.runtime.start({
+    this.runtimeStart = this.runtime.start({
       cwd: context.info.root,
       systemPromptAppend: [
         DEFAULT_SYSTEM_PROMPT_APPEND,
         formatProjectContext(context),
       ].join("\n\n"),
     });
+    this.session = await this.runtimeStart;
     this.unsubscribe = this.session.subscribe((event) => this.handleRuntimeEvent(event));
     return this.session;
   }
 
-  private async handlePrompt(prompt: string): Promise<void> {
+  private async handlePrompt(prompt: string): Promise<VerificationReport | undefined> {
+    if (this.closing) return;
     if (prompt === "/project") {
       this.output.write(`${renderProjectSummary(this.projectContext!)}\n`);
       return;
@@ -143,6 +178,15 @@ export class CasperApp {
     if (/^\/skills(?:\s|$)/.test(prompt)) {
       await this.handleSkillsCommand(prompt);
       return;
+    }
+    if (/^\/verify(?:\s|$)/.test(prompt)) {
+      const args = prompt.trim().split(/\s+/).slice(1);
+      const repair = args[0] === "repair";
+      if (repair) args.shift();
+      if (args.some((arg) => !CHECK_NAMES.some((name) => name === arg))) {
+        throw new Error("Usage: /verify [repair] [typecheck|lint|test|build ...]");
+      }
+      return this.runVerification(args.length ? args as ProjectCommand[] : CHECK_NAMES, repair);
     }
     const context = this.projectContext!;
     const classification = classifyTask(prompt);
@@ -152,11 +196,50 @@ export class CasperApp {
       this.output.write(` skills selected: ${selected.map(({ skill }) => skill.name).join(", ")}\n`);
     }
     const skillContext = formatSelectedSkills(selected);
+    if (this.closing) return;
     const session = await this.ensureRuntime();
+    if (this.closing) return;
     await session.prompt([
       skillContext,
       formatTaskPrompt(prompt, classification, context.model),
     ].filter(Boolean).join("\n\n"));
+    if (!this.closing && this.autoVerify && classification.mode === "modify" && classification.verification.length) {
+      return this.runVerification(classification.verification, true, prompt);
+    }
+  }
+
+  private async runVerification(
+    checks: readonly ProjectCommand[],
+    repair: boolean,
+    request = `Make the selected verification checks pass: ${checks.join(", ")}.`,
+  ): Promise<VerificationReport> {
+    const context = this.projectContext!;
+    const controller = new AbortController();
+    this.verificationAbort = controller;
+    this.ensureLineBreak();
+    try {
+      this.verificationWork = verifyAndRepair({
+        registry: VerifierRegistry.forProject(context.model, context.verification.timeoutMs),
+        checks,
+        cwd: context.info.root,
+        request,
+        constraints: [context.rules.profile, context.rules.project, ...context.model.conventions].filter(Boolean).join("\n"),
+        maxAttempts: context.repair.maxAttempts,
+        signal: controller.signal,
+        repair: repair ? async (prompt) => {
+          const session = await this.ensureRuntime();
+          if (!controller.signal.aborted) await session.prompt(prompt);
+        } : undefined,
+        onResult: (result) => { this.ensureLineBreak(); this.output.write(`${formatVerificationResult(result)}\n`); },
+        onRepair: (attempt, max) => { this.output.write(`↻ repair ${attempt}/${max}\n`); },
+      });
+      const report = await this.verificationWork;
+      this.output.write(`${formatVerificationReport(report)}\n`);
+      return report;
+    } finally {
+      this.verificationAbort = undefined;
+      this.verificationWork = undefined;
+    }
   }
 
   private async handleSkillsCommand(prompt: string): Promise<void> {

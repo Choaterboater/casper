@@ -170,3 +170,40 @@ A TypeScript MCP task receives relevant approved skill bodies, but no unrelated 
 
 ### Deliberate Limits
 Deterministic ranking only; no embeddings or learning. No built-in skill pack, remote imports, permission grants, or helper-script execution. Trust gates automatic injection and covers `SKILL.md` content, not its referenced assets or general tool access. Already-injected bodies remain in Pi's conversation history. Frontmatter changes require restart/re-indexing. See `README.md` for trust semantics and size limits.
+
+## Phase 3 — Verification + Repair (Complete)
+
+### Scope and execution contract
+- A Casper-owned registry of typecheck/lint/test/build command adapters; no Pi imports outside the runtime adapter.
+- Project `verify:` commands override detected/model commands. Missing commands remain visible skips, never passes.
+- `/verify [typecheck|lint|test|build ...]` runs independently of the model. `/verify repair [checks ...]` explicitly permits bounded repair through the existing session boundary.
+- CLI `--verify` explicitly authorizes automatic verification/repair after relevant modifying prompts. Startup, read-only prompts, and default prompts do not automatically execute repository verification scripts. This is execution consent, not a sandbox or a persisted repository-trust system.
+- Structured per-run evidence: command, cwd, status, exit code/signal, bounded stdout/stderr, truncation, duration, and timeout/spawn errors. Commands run sequentially at the project root with timeouts and process cleanup.
+- Default maximum three repair prompts (`repair.maxAttempts`, 0–10). Feed exact failing commands/output, original request/constraints, and available Git changed-file context to the same runtime session. Rerun failed checks first; require a fresh full selected suite before reporting success after repair.
+- Concise check/repair/final output; retain structured history through the app result. Missing checks yield incomplete verification; exhausted failures yield failure and a nonzero one-shot CLI exit.
+
+### Implementation sequence
+1. Configuration, evidence types, bounded shell command adapter, registry.
+2. Bounded repair runner and concise result formatting.
+3. Local commands and opt-in post-task integration, preserving lazy Pi startup.
+4. Isolated command/config/repair/app tests covering failures, skips, limits, timeouts, output bounds, and regression gates.
+5. `bun run check`, diff checks, and a real CLI/Pi smoke demonstrating failure → repair → successful rerun in a temporary repository.
+
+### Implemented files
+- `src/verify/{evidence,command,registry,repair-loop}.ts`: structured evidence, bounded command adapters, registration, and repair policy.
+- `src/config/load.ts`, `src/project/context.ts`: canonical project verification commands and layered timeout/attempt limits.
+- `src/app.ts`, `src/cli.ts`, `src/index.ts`: local commands, opt-in post-task verification, reports, exit codes, and cancellation.
+- `tests/phase3-verification.test.ts`, `tests/phase3-app.integration.test.ts`: command, configuration, repair, app, and real-CLI coverage.
+- `README.md`, `docs/PHASE3_VERIFICATION.md`: execution contract, usage, limits, and live smoke evidence.
+
+### Acceptance evidence
+- Initial working tree was clean at Phase 2 checkpoint `c8603ce`; baseline `bun run check` passed (19 tests, 116 assertions).
+- Final `bun run check`: TypeScript passed; 41 tests, 225 assertions, no failures.
+- `git diff --check` and CLI help passed.
+- Live isolated CLI/Pi smoke: Casper observed a failing Bun test, passed exact evidence to Pi, Pi repaired subtraction to addition without modifying tests/config/rules, and Casper's targeted/full selected-suite reruns passed. One repair attempt; CLI exit 0. A separate `bun test` passed (1 test, 2 assertions).
+- Existing `AgentRuntime`/`PiRuntime` files and dependency pins remain unchanged. Independent standards/spec reviews identified stale explicit-repair context and stalled-startup termination; both have regression-tested fixes and both independent follow-up reviews report no blocking findings. Targeted debugging also fixed post-shutdown verification, abort-error disposal, and intact UTF-8 evidence. Review/follow-up results and performance measurements: `docs/PHASE3_REVIEW.md`.
+- Three repeated Phase 3 test runs passed (22 tests / 109 assertions each). Startup benchmarking showed no clear regression; output stress checks retained bounded evidence for up to 256 MiB of command output. No speculative performance refactoring was needed.
+- Detailed live smoke evidence and deliberate limits: `docs/PHASE3_VERIFICATION.md`.
+
+### Exclusions
+No Pika, MCP, LSP, new tool framework, persistence database, subagents, or other later-phase features.

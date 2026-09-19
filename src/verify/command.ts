@@ -1,0 +1,96 @@
+import { spawn } from "node:child_process";
+import type { ProjectCommand } from "../project/model";
+import type { VerificationResult } from "./evidence";
+
+const OUTPUT_BYTES = 8192;
+
+// Drain all output, retaining a bounded head and tail of each stream.
+class OutputCapture {
+  private head = Buffer.alloc(0);
+  private tail = Buffer.alloc(0);
+  private size = 0;
+
+  add(chunk: Buffer): void {
+    this.size += chunk.length;
+    const headBytes = Math.min(chunk.length, OUTPUT_BYTES / 2 - this.head.length);
+    if (headBytes > 0) this.head = Buffer.concat([this.head, chunk.subarray(0, headBytes)]);
+    const remainder = chunk.subarray(headBytes);
+    this.tail = Buffer.concat([this.tail, remainder]).subarray(-OUTPUT_BYTES / 2);
+  }
+
+  get truncated(): boolean { return this.size > OUTPUT_BYTES; }
+  text(): string {
+    // Decode intact output as one buffer: the head/tail boundary can bisect
+    // a multibyte character even when no bytes were discarded.
+    if (!this.truncated) return Buffer.concat([this.head, this.tail]).toString("utf8");
+    return this.head.toString("utf8") + "\n[...output truncated...]\n" + this.tail.toString("utf8");
+  }
+}
+
+export interface CommandCheckOptions {
+  name: ProjectCommand;
+  command: string;
+  cwd: string;
+  timeoutMs: number;
+  signal?: AbortSignal;
+}
+
+export async function runCommandCheck(options: CommandCheckOptions): Promise<VerificationResult> {
+  const { name, command, cwd, timeoutMs, signal } = options;
+  if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 3_600_000) {
+    throw new Error("Verification timeout must be between 1 and 3600000ms");
+  }
+  const started = performance.now();
+  const stdout = new OutputCapture();
+  const stderr = new OutputCapture();
+  const base = () => ({
+    name, command, cwd,
+    stdout: stdout.text(), stderr: stderr.text(),
+    truncated: stdout.truncated || stderr.truncated,
+    durationMs: Math.round(performance.now() - started),
+  });
+  if (signal?.aborted) {
+    return { ...base(), status: "fail", exitCode: null, signal: null, reason: "Verification cancelled" };
+  }
+
+  return new Promise((resolve) => {
+    let reason: string | undefined;
+    // A separate process group lets timeout/cancellation terminate shell children
+    // as well as the shell. Windows falls back to terminating the direct process.
+    let child;
+    try {
+      child = spawn(command, { cwd, shell: true, detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
+    } catch (error) {
+      resolve({ ...base(), status: "fail", exitCode: null, signal: null, reason: `Could not execute: ${error instanceof Error ? error.message : String(error)}` });
+      return;
+    }
+    let killTimer: ReturnType<typeof setTimeout> | undefined;
+    const kill = (terminationSignal: NodeJS.Signals) => {
+      try {
+        if (process.platform !== "win32" && child.pid) process.kill(-child.pid, terminationSignal);
+        else child.kill(terminationSignal);
+      } catch { /* The process may already have exited. */ }
+    };
+    const stop = (message: string) => {
+      if (reason) return;
+      reason = message;
+      kill("SIGTERM");
+      killTimer = setTimeout(() => kill("SIGKILL"), 100);
+    };
+    const abort = () => stop("Verification cancelled");
+    const timer = setTimeout(() => stop(`Timed out after ${timeoutMs}ms`), timeoutMs);
+    signal?.addEventListener("abort", abort, { once: true });
+    child.stdout.on("data", (chunk: Buffer) => stdout.add(chunk));
+    child.stderr.on("data", (chunk: Buffer) => stderr.add(chunk));
+    child.on("error", (error) => { reason = `Could not execute: ${error.message}`; });
+    child.on("close", (exitCode, exitSignal) => {
+      clearTimeout(timer);
+      clearTimeout(killTimer);
+      signal?.removeEventListener("abort", abort);
+      // Even when the shell closes first, finish cleanup of its timed-out group.
+      if (reason) kill("SIGKILL");
+      resolve({ ...base(), status: !reason && exitCode === 0 ? "pass" : "fail", exitCode, signal: exitSignal, reason });
+    });
+    if (signal?.aborted) abort();
+  });
+}

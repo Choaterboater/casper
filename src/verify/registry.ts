@@ -1,0 +1,52 @@
+import type { ProjectCommand, ProjectModel } from "../project/model";
+import { runCommandCheck } from "./command";
+import { CHECK_NAMES, type VerificationResult } from "./evidence";
+
+export interface Verifier {
+  name: ProjectCommand;
+  run(signal?: AbortSignal): Promise<VerificationResult>;
+}
+
+export class VerifierRegistry {
+  private readonly verifiers = new Map<ProjectCommand, Verifier>();
+
+  register(verifier: Verifier): void {
+    if (this.verifiers.has(verifier.name)) throw new Error(`Verifier already registered: ${verifier.name}`);
+    this.verifiers.set(verifier.name, verifier);
+  }
+
+  async run(
+    names: readonly ProjectCommand[],
+    options: { signal?: AbortSignal; onResult?: (result: VerificationResult) => void } = {},
+  ): Promise<VerificationResult[]> {
+    const selected = [...new Set(names)].map((name) => {
+      const verifier = this.verifiers.get(name);
+      if (!verifier) throw new Error(`Unknown verifier: ${name}`);
+      return verifier;
+    });
+    const results: VerificationResult[] = [];
+    for (const verifier of selected) {
+      const result = await verifier.run(options.signal);
+      results.push(result);
+      options.onResult?.(result);
+      if (options.signal?.aborted) break;
+    }
+    return results;
+  }
+
+  static forProject(model: ProjectModel, timeoutMs = 120_000): VerifierRegistry {
+    const registry = new VerifierRegistry();
+    const cwd = model.project.root;
+    for (const name of CHECK_NAMES) {
+      // Freeze the command contract for this task, including throughout repairs.
+      const command = model.commands[name];
+      registry.register({
+        name,
+        run: async (signal) => command?.trim()
+          ? runCommandCheck({ name, command, cwd, timeoutMs, signal })
+          : { name, cwd, status: "skip", exitCode: null, signal: null, stdout: "", stderr: "", truncated: false, durationMs: 0, reason: "No command configured or detected" },
+      });
+    }
+    return registry;
+  }
+}

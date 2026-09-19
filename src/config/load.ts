@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { parse } from "yaml";
 import type { ProjectModelOverrides } from "../project/model";
+import { CHECK_NAMES } from "../verify/evidence";
 
 export type Autonomy = "low" | "medium" | "high";
 export type AskQuestions = "beforeChanges" | "onlyWhenBlocked";
@@ -35,6 +36,8 @@ export interface LoadedConfiguration {
   projectRules: string | null;
   projectOverrides: ProjectModelOverrides;
   skills: { maxActive: number };
+  verification: { timeoutMs: number };
+  repair: { maxAttempts: number };
 }
 
 export interface LoadConfigurationOptions {
@@ -200,6 +203,29 @@ function stringArray(value: unknown): string[] | undefined {
   return strings.length === value.length ? strings : undefined;
 }
 
+function boundedSetting(document: Mapping, section: string, key: string, fallback: number, min: number, max: number): number {
+  const settings = document[section];
+  if (settings === undefined) return fallback;
+  if (!isMapping(settings)) throw new Error(`${section} must be a mapping`);
+  const value = settings[key];
+  if (value === undefined) return fallback;
+  if (typeof value !== "number" || !Number.isInteger(value) || value < min || value > max) {
+    throw new Error(`${section}.${key} must be an integer between ${min} and ${max}`);
+  }
+  return value;
+}
+
+function verificationCommands(document: Mapping): Record<string, string> {
+  if (document.verify === undefined) return {};
+  if (!isMapping(document.verify)) throw new Error("verify must be a mapping of check names to commands");
+  for (const [name, command] of Object.entries(document.verify)) {
+    if (!CHECK_NAMES.some((check) => check === name) || typeof command !== "string" || !command.trim()) {
+      throw new Error(`Invalid verify.${name}: expected a nonempty typecheck/lint/test/build command`);
+    }
+  }
+  return document.verify as Record<string, string>;
+}
+
 function projectOverrides(document: Mapping): ProjectModelOverrides {
   const project = isMapping(document.project) ? document.project : document;
   const commands = isMapping(project.commands)
@@ -219,7 +245,7 @@ function projectOverrides(document: Mapping): ProjectModelOverrides {
     languages: stringArray(project.languages),
     frameworks: stringArray(project.frameworks),
     packageManager: stringValue(project.packageManager),
-    commands,
+    commands: { ...commands, ...verificationCommands(document) },
     architecture,
     conventions: stringArray(project.conventions),
   };
@@ -241,7 +267,11 @@ export async function loadConfiguration(
   const profileDir = path.join(casperHome, "profiles", selectedProfile);
   const profileDocument = await readYaml(path.join(profileDir, "config.yaml"));
   let maxActive = 6;
+  let timeoutMs = 120_000;
+  let maxAttempts = 3;
   for (const document of [globalDocument, profileDocument, projectDocument]) {
+    timeoutMs = boundedSetting(document, "verification", "timeoutMs", timeoutMs, 1, 3_600_000);
+    maxAttempts = boundedSetting(document, "repair", "maxAttempts", maxAttempts, 0, 10);
     const value = isMapping(document.skills) ? document.skills.maxActive : undefined;
     if (value === undefined) continue;
     if (typeof value !== "number" || !Number.isInteger(value) || value < 0 || value > 32) {
@@ -252,6 +282,8 @@ export async function loadConfiguration(
 
   return {
     skills: { maxActive },
+    verification: { timeoutMs },
+    repair: { maxAttempts },
     profileName: selectedProfile,
     policy: mergePolicy(
       policyLayer(globalDocument),
