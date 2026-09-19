@@ -1,4 +1,13 @@
 import readline from "node:readline";
+import { ProjectMemory, type TaskOutcome } from "./memory/store";
+import { formatSubagentReport, SubagentManager, type SubagentRole } from "./agents/manager";
+import { discoverLSPConfiguration, type LSPConfiguration } from "./lsp/config";
+import { LSPManager, type ConfirmRename } from "./lsp/manager";
+import { lspTools } from "./lsp/tools";
+import { boundCapabilityResult } from "./capabilities/result";
+import { discoverMCPConfiguration, type MCPConfiguration } from "./mcp/config";
+import { MCPManager } from "./mcp/manager";
+import { CapabilityBroker, type ConfirmCapability } from "./capabilities/broker";
 import type { Interface as ReadlineInterface } from "node:readline";
 import type { Writable, Readable } from "node:stream";
 import {
@@ -7,11 +16,11 @@ import {
   type ProjectContext,
 } from "./project/context";
 import { inspectProject, type ProjectInfo } from "./project/inspect";
-import { PiRuntime } from "./runtime/pi";
 import type {
   AgentRuntime,
   RuntimeEvent,
   RuntimeSession,
+  RuntimeTool,
 } from "./runtime/types";
 import { SkillRegistry, formatSelectedSkills } from "./skills/registry";
 import { classifyTask, formatTaskPrompt } from "./task/classify";
@@ -20,16 +29,31 @@ import type { ProjectCommand } from "./project/model";
 import { CHECK_NAMES, formatVerificationReport, formatVerificationResult, type VerificationReport } from "./verify/evidence";
 import { VerifierRegistry } from "./verify/registry";
 import { verifyAndRepair } from "./verify/repair-loop";
+import { MermaidProvider } from "./visualize/mermaid";
+import { MindMeshProvider } from "./visualize/mindmesh";
+import { buildRepoGraph } from "./visualize/repo";
+import { VisualizationRouter } from "./visualize/router";
+import { describeVisualization, visualizationTools } from "./visualize/tools";
+import type { VisualizationProvider } from "./visualize/types";
+import { SessionWorkspaceManager, type ReturnAction } from "./sessions/manager";
 
 export interface OutputWriter {
   write(text: string): void;
 }
 
 export interface CasperAppOptions {
-  runtimeFactory?: () => AgentRuntime;
+  runtimeFactory?: () => AgentRuntime | Promise<AgentRuntime>;
+  /** Fresh child runtime per invocation; must implement startReadOnly. Never reuse the main runtime. */
+  subagentRuntimeFactory?: () => AgentRuntime | Promise<AgentRuntime>;
   inspectProject?: (cwd: string) => Promise<ProjectInfo>;
   loadProjectContext?: (project: ProjectInfo) => Promise<ProjectContext>;
   loadSkillRegistry?: (context: ProjectContext) => Promise<SkillRegistry>;
+  loadMCPConfiguration?: (context: ProjectContext) => Promise<MCPConfiguration>;
+  loadLSPConfiguration?: (context: ProjectContext) => Promise<LSPConfiguration>;
+  /** Override the built-in Mermaid/MindMesh providers (tests, extensions). */
+  visualizationProviders?: VisualizationProvider[];
+  /** Override ~/.casper for named-session/worktree state (primarily tests/embedders). */
+  sessionHomeDir?: string;
   output?: OutputWriter;
   input?: Readable;
   autoVerify?: boolean;
@@ -42,10 +66,25 @@ const DEFAULT_SYSTEM_PROMPT_APPEND = [
 ].join("\n");
 
 export class CasperApp {
-  private readonly runtimeFactory: () => AgentRuntime;
+  private readonly runtimeFactory: () => AgentRuntime | Promise<AgentRuntime>;
+  private readonly subagents: SubagentManager;
+  private subagentsClose?: Promise<void>;
   private readonly inspectProjectFn: (cwd: string) => Promise<ProjectInfo>;
   private readonly loadProjectContextFn: (project: ProjectInfo) => Promise<ProjectContext>;
   private readonly loadSkillRegistryFn: (context: ProjectContext) => Promise<SkillRegistry>;
+  private readonly loadMCPConfigurationFn: (context: ProjectContext) => Promise<MCPConfiguration>;
+  private readonly loadLSPConfigurationFn: (context: ProjectContext) => Promise<LSPConfiguration>;
+  private lsp?: LSPManager;
+  private lspClose?: Promise<void>;
+  private visualization?: VisualizationRouter;
+  private visualizationAbort?: AbortController;
+  private visualizationWork?: Promise<void>;
+  private readonly visualizationProviders: VisualizationProvider[];
+  private mcp?: MCPManager;
+  private broker?: CapabilityBroker;
+  private runtimeTools: RuntimeTool[] = [];
+  private mcpClose?: Promise<void>;
+  private confirmationPending = false;
   private readonly output: OutputWriter;
   private readonly input: Readable;
   private runtime?: AgentRuntime;
@@ -62,18 +101,45 @@ export class CasperApp {
   private readonly autoVerify: boolean;
   private verificationAbort?: AbortController;
   private verificationWork?: Promise<VerificationReport>;
+  private readonly sessionHomeDir?: string;
+  private sessionWorkspace?: SessionWorkspaceManager;
+  private sessionWorkspaceStart?: Promise<SessionWorkspaceManager>;
+  private lastTaskRequest?: string;
+  private commandActive = false;
+  private workspaceTransition = false;
+  private workspaceNeedsRebind = false;
+  private taskRuntimeFailed = false;
+  private memoryWork?: Promise<void>;
 
   constructor(options: CasperAppOptions = {}) {
-    this.runtimeFactory = options.runtimeFactory ?? (() => new PiRuntime());
+    const freshPiRuntime = async () => {
+      const { PiRuntime } = await import("./runtime/pi");
+      return new PiRuntime();
+    };
+    this.runtimeFactory = options.runtimeFactory ?? freshPiRuntime;
+    this.subagents = new SubagentManager({ runtimeFactory: async () => {
+      if (this.workspaceTransition || this.workspaceNeedsRebind) throw new Error("Workspace transition is in progress; delegation is blocked");
+      const child = await (options.subagentRuntimeFactory ?? freshPiRuntime)();
+      if (child === this.runtime) throw new Error("The main runtime cannot be reused as a subagent");
+      return child;
+    } });
     this.inspectProjectFn = options.inspectProject ?? inspectProject;
     this.loadProjectContextFn = options.loadProjectContext ?? loadProjectContext;
     this.loadSkillRegistryFn = options.loadSkillRegistry ?? ((context) => SkillRegistry.discover({
       projectRoot: context.info.root,
       maxActive: context.skills.maxActive,
     }));
+    this.loadMCPConfigurationFn = options.loadMCPConfiguration ?? ((context) => discoverMCPConfiguration({
+      projectRoot: context.info.root, profileName: context.profileName,
+    }));
+    this.loadLSPConfigurationFn = options.loadLSPConfiguration ?? ((context) => discoverLSPConfiguration({
+      projectRoot: context.info.root, profileName: context.profileName,
+    }));
     this.output = options.output ?? process.stdout;
     this.input = options.input ?? process.stdin;
     this.autoVerify = options.autoVerify ?? false;
+    this.visualizationProviders = options.visualizationProviders ?? [new MermaidProvider(), new MindMeshProvider()];
+    this.sessionHomeDir = options.sessionHomeDir;
   }
 
   async start(cwd = process.cwd()): Promise<ProjectInfo> {
@@ -82,11 +148,25 @@ export class CasperApp {
     const project = await this.inspectProjectFn(cwd);
     const context = await this.loadProjectContextFn(project);
     const registry = await this.loadSkillRegistryFn(context);
+    const mcpConfiguration = await this.loadMCPConfigurationFn(context);
+    const lspConfiguration = await this.loadLSPConfigurationFn(context);
+    if (this.closing) throw new Error("Casper is closing");
     this.projectContext = context;
     this.skillRegistry = registry;
+    this.mcp = new MCPManager(mcpConfiguration);
+    this.lsp = new LSPManager(context.info.root, lspConfiguration);
+    this.visualization = new VisualizationRouter({ providers: this.visualizationProviders, settings: context.visualize, workspaceRoot: context.info.root });
+    this.broker = new CapabilityBroker(this.mcp, (call, signal) => this.confirmCapability(call, signal));
     this.output.write(renderBanner(context));
     this.output.write(` skills    ${this.skillRegistry.list().length} indexed (use /skills)\n\n`);
+    this.output.write(" memory    explicit facts; task summaries recorded locally, acceptance unknown (use /memory)\n\n");
     this.reportSkillWarnings();
+    this.output.write(` mcp       ${this.mcp.status().length} configured (disconnected; use /mcp)\n\n`);
+    for (const diagnostic of this.mcp.diagnostics) this.output.write(`[mcp] ${diagnostic}\n`);
+    this.output.write(` lsp       ${lspConfiguration.servers.length} configured (disconnected; use /lsp)\n\n`);
+    for (const diagnostic of lspConfiguration.diagnostics) this.output.write(`[lsp] ${diagnostic}\n`);
+    this.output.write(` visualize ${this.visualization.providerNames().join(", ")} (${context.visualize.outputDir ? "artifacts outside workspace" : "in-conversation only"}; use /visualize)\n\n`);
+    for (const diagnostic of this.visualization.diagnostics) this.output.write(`[visualize] ${diagnostic}\n`);
     return project;
   }
 
@@ -109,10 +189,17 @@ export class CasperApp {
       output: this.output as Writable,
     });
 
-    while (true) {
-      const line = await new Promise<string>((resolve) => {
-        this.readline!.question("> ", resolve);
+    const rl = this.readline;
+    let inputClosed = false;
+    rl.once("close", () => { inputClosed = true; });
+    while (!this.closing && !inputClosed) {
+      const line = await new Promise<string | undefined>((resolve) => {
+        const finish = (value?: string) => { rl.removeListener("close", onClose); resolve(value); };
+        const onClose = () => finish();
+        rl.once("close", onClose);
+        rl.question("> ", finish);
       });
+      if (line === undefined) break;
       const prompt = line.trim();
 
       if (!prompt) {
@@ -123,7 +210,12 @@ export class CasperApp {
         break;
       }
 
-      await this.handlePrompt(prompt);
+      try { await this.handlePrompt(prompt); }
+      catch (error) {
+        if (this.closing) break;
+        this.ensureLineBreak();
+        this.output.write(`[error] ${error instanceof Error ? error.message : String(error)}\n`);
+      }
     }
   }
 
@@ -131,6 +223,11 @@ export class CasperApp {
     if (this.closeWork) return this.closeWork;
     this.closing = true;
     this.verificationAbort?.abort();
+    this.visualizationAbort?.abort();
+    this.subagentsClose = this.subagents.close();
+    this.mcpClose = this.broker?.close();
+    this.lspClose = this.lsp?.close();
+    this.readline?.close();
     this.closeWork = this.finishClose();
     return this.closeWork;
   }
@@ -143,11 +240,14 @@ export class CasperApp {
       await this.session?.abort();
     } finally {
       try {
+        await this.visualizationWork?.catch(() => {});
         await this.verificationWork;
+        await this.memoryWork;
       } finally {
         this.unsubscribe?.();
         this.readline?.close();
-        await this.runtime?.dispose();
+        try { await this.runtime?.dispose(); }
+        finally { await Promise.all([this.mcpClose, this.lspClose, this.subagentsClose]); }
       }
     }
   }
@@ -155,24 +255,95 @@ export class CasperApp {
   private async ensureRuntime(): Promise<RuntimeSession> {
     if (this.closing) throw new Error("Casper is closing");
     if (this.session) return this.session;
-    const context = this.projectContext!;
-    this.runtime = this.runtimeFactory();
-    this.runtimeStart = this.runtime.start({
-      cwd: context.info.root,
-      systemPromptAppend: [
-        DEFAULT_SYSTEM_PROMPT_APPEND,
-        formatProjectContext(context),
-      ].join("\n\n"),
-    });
-    this.session = await this.runtimeStart;
-    this.unsubscribe = this.session.subscribe((event) => this.handleRuntimeEvent(event));
-    return this.session;
+    if (!this.runtimeStart) {
+      const context = this.projectContext!;
+      // Record the whole load/start operation before invoking the factory, so
+      // close() also drains a lazy SDK import and prevents post-shutdown start.
+      this.runtimeStart = Promise.resolve().then(async () => {
+        if (this.closing) throw new Error("Casper is closing");
+        this.runtime = await this.runtimeFactory();
+        if (this.closing) throw new Error("Casper is closing");
+        this.session = await this.runtime.start({
+          cwd: context.info.root,
+          tools: this.runtimeTools,
+          afterFileEdit: async (file, signal) => {
+            const reports = await this.lsp!.afterEdit(file, signal);
+            return reports.length ? `LSP diagnostics after edit: ${JSON.stringify(boundCapabilityResult(reports))}\nRepair new errors before continuing; unavailable or unversioned reports are not proof of a clean file.` : undefined;
+          },
+          systemPromptAppend: [DEFAULT_SYSTEM_PROMPT_APPEND, formatProjectContext(context)].join("\n\n"),
+        });
+        await (await this.ensureSessionWorkspace()).resumeActive(this.session);
+        this.unsubscribe = this.session.subscribe((event) => this.handleRuntimeEvent(event));
+        return this.session;
+      }).catch(async (error) => {
+        if (!this.closing) {
+          const failedRuntime = this.runtime;
+          this.runtime = undefined;
+          this.session = undefined;
+          await failedRuntime?.dispose().catch(() => {});
+        }
+        throw error;
+      }).finally(() => {
+        if (!this.session) this.runtimeStart = undefined;
+      });
+    }
+    return this.runtimeStart;
   }
 
   private async handlePrompt(prompt: string): Promise<VerificationReport | undefined> {
     if (this.closing) return;
+    if (this.commandActive) throw new Error("Another command is active; wait for active subagents or workspace transition");
+    const transition = /^\/(?:branch|switch)(?:\s|$)/.test(prompt);
+    if (transition && this.subagents.isBusy) throw new Error("Wait for active subagents before changing workspaces");
+    this.commandActive = true;
+    this.workspaceTransition = transition;
+    try {
+      if (this.workspaceNeedsRebind) await this.rebindWorkspace(this.activeWorkspaceRoot());
+      return await this.handlePromptCommand(prompt);
+    } finally { this.commandActive = false; this.workspaceTransition = false; }
+  }
+
+  private async handlePromptCommand(prompt: string): Promise<VerificationReport | undefined> {
+    if (this.closing) return;
+    if (/^\/memory(?:\s|$)/.test(prompt)) {
+      this.memoryWork = this.handleMemoryCommand(prompt);
+      try { await this.memoryWork; }
+      finally { this.memoryWork = undefined; }
+      return;
+    }
     if (prompt === "/project") {
       this.output.write(`${renderProjectSummary(this.projectContext!)}\n`);
+      return;
+    }
+    if (/^\/tree(?:\s|$)/.test(prompt)) {
+      if (prompt !== "/tree") throw new Error("Usage: /tree");
+      this.output.write((await this.ensureSessionWorkspace()).renderTree());
+      return;
+    }
+    if (/^\/branch(?:\s|$)/.test(prompt)) {
+      await this.handleBranchCommand(prompt);
+      return;
+    }
+    if (/^\/switch(?:\s|$)/.test(prompt)) {
+      await this.handleSwitchCommand(prompt);
+      return;
+    }
+    if (/^\/delegate(?:\s|$)/.test(prompt)) {
+      await this.handleDelegateCommand(prompt);
+      return;
+    }
+    if (/^\/lsp(?:\s|$)/.test(prompt)) {
+      await this.handleLSPCommand(prompt);
+      return;
+    }
+    if (/^\/visualize(?:\s|$)/.test(prompt)) {
+      this.visualizationWork = this.handleVisualizeCommand(prompt);
+      try { await this.visualizationWork; }
+      finally { this.visualizationWork = undefined; }
+      return;
+    }
+    if (/^\/mcp(?:\s|$)/.test(prompt)) {
+      await this.handleMCPCommand(prompt);
       return;
     }
     if (/^\/skills(?:\s|$)/.test(prompt)) {
@@ -190,22 +361,66 @@ export class CasperApp {
     }
     const context = this.projectContext!;
     const classification = classifyTask(prompt);
+    this.lastTaskRequest = prompt;
     const selected = await this.skillRegistry!.loadForTask(prompt, context.model, classification);
     this.reportSkillWarnings();
     if (selected.length) {
       this.output.write(` skills selected: ${selected.map(({ skill }) => skill.name).join(", ")}\n`);
     }
     const skillContext = formatSelectedSkills(selected);
+    const memoryContext = await new ProjectMemory(context.stateDirectory).context();
+    if (this.closing) return;
+    await this.prepareCapabilities(prompt, classification.intent === "visualize");
     if (this.closing) return;
     const session = await this.ensureRuntime();
     if (this.closing) return;
-    await session.prompt([
-      skillContext,
-      formatTaskPrompt(prompt, classification, context.model),
-    ].filter(Boolean).join("\n\n"));
-    if (!this.closing && this.autoVerify && classification.mode === "modify" && classification.verification.length) {
-      return this.runVerification(classification.verification, true, prompt);
+    this.taskRuntimeFailed = false;
+    let verification: VerificationReport | undefined;
+    try {
+      await session.prompt([
+        memoryContext,
+        skillContext,
+        formatTaskPrompt(prompt, classification, context.model),
+      ].filter(Boolean).join("\n\n"));
+      if (!this.closing && this.autoVerify && classification.mode === "modify" && classification.verification.length) {
+        verification = await this.runVerification(classification.verification, true, prompt);
+      }
+    } catch (error) {
+      this.taskRuntimeFailed = true;
+      throw error;
+    } finally {
+      await this.recordTaskOutcome({ task: prompt, skills: selected.map(({ skill }) => skill.id),
+        modelStatus: this.closing ? "cancelled" : this.taskRuntimeFailed ? "failed" : "completed", verification });
     }
+    return verification;
+  }
+
+  private async recordTaskOutcome(input: { task: string; skills: string[]; modelStatus: TaskOutcome["modelStatus"]; verification?: VerificationReport }): Promise<void> {
+    // Shutdown is not a completed task. Never launch a late persistence operation.
+    if (this.closing) return;
+    this.memoryWork = new ProjectMemory(this.projectContext!.stateDirectory).recordOutcome(input).then(() => {}, () => {
+      this.output.write("[memory] Task outcome was not recorded (invalid, locked, full, or unavailable state); no acceptance inferred.\n");
+    });
+    try { await this.memoryWork; }
+    finally { this.memoryWork = undefined; }
+  }
+
+  private async handleMemoryCommand(prompt: string): Promise<void> {
+    const memory = new ProjectMemory(this.projectContext!.stateDirectory);
+    const [, action, ...args] = prompt.trim().split(/\s+/);
+    let result: unknown;
+    if (!action) result = await memory.facts();
+    else if (action === "remember" && args.length) result = await memory.remember(prompt.replace(/^\/memory\s+remember\s+/, ""));
+    else if (action === "forget" && args.length === 1) { await memory.forget(args[0]!); result = "Fact forgotten"; }
+    else if (action === "outcomes" && !args.length) result = (await memory.outcomes()).map((entry) => ({
+      id: entry.id, task: entry.task.slice(0, 256), modelStatus: entry.modelStatus,
+      verification: entry.verification, checks: entry.checks, repairAttempts: entry.repairAttempts, accepted: entry.accepted,
+    }));
+    else if (action === "accept" && args.length === 2 && ["yes", "no"].includes(args[1]!)) {
+      await memory.acceptOutcome(args[0]!, args[1] === "yes"); result = "Human acceptance recorded (not verification evidence)";
+    } else throw new Error("Usage: /memory | /memory remember <fact> | /memory forget <id> | /memory outcomes | /memory accept <outcome-id> <yes|no>");
+    const serialized = JSON.stringify(result, null, 2).replace(/[\u202a-\u202e\u2066-\u2069]/gu, (char) => `\\u${char.codePointAt(0)!.toString(16)}`);
+    this.output.write(`[memory] ${serialized}\n`);
   }
 
   private async runVerification(
@@ -221,12 +436,13 @@ export class CasperApp {
       this.verificationWork = verifyAndRepair({
         registry: VerifierRegistry.forProject(context.model, context.verification.timeoutMs),
         checks,
-        cwd: context.info.root,
+        cwd: this.activeWorkspaceRoot(),
         request,
         constraints: [context.rules.profile, context.rules.project, ...context.model.conventions].filter(Boolean).join("\n"),
         maxAttempts: context.repair.maxAttempts,
         signal: controller.signal,
         repair: repair ? async (prompt) => {
+          await this.prepareCapabilities(request);
           const session = await this.ensureRuntime();
           if (!controller.signal.aborted) await session.prompt(prompt);
         } : undefined,
@@ -240,6 +456,251 @@ export class CasperApp {
       this.verificationAbort = undefined;
       this.verificationWork = undefined;
     }
+  }
+
+  private async ensureSessionWorkspace(): Promise<SessionWorkspaceManager> {
+    if (this.sessionWorkspace) return this.sessionWorkspace;
+    if (!this.sessionWorkspaceStart) {
+      const context = this.projectContext!;
+      this.sessionWorkspaceStart = SessionWorkspaceManager.open({
+        projectRoot: context.info.root,
+        gitBranch: context.info.gitBranch,
+        policy: context.policy.workspace,
+        homeDir: this.sessionHomeDir,
+      }).then((manager) => {
+        this.sessionWorkspace = manager;
+        return manager;
+      }).finally(() => { this.sessionWorkspaceStart = undefined; });
+    }
+    return this.sessionWorkspaceStart;
+  }
+
+  private async handleBranchCommand(prompt: string): Promise<void> {
+    if (this.subagents.isBusy) throw new Error("Wait for active subagents before changing workspaces");
+    const [, name, ...extra] = prompt.trim().split(/\s+/);
+    if (!name || extra.length) throw new Error("Usage: /branch <name>");
+    const manager = await this.ensureSessionWorkspace();
+    const context = [
+      `Casper named session branch: ${name}`,
+      `Parent session branch: ${manager.activeName}`,
+      this.lastTaskRequest ? `Latest task contract request: ${this.lastTaskRequest}` : "No task request has been submitted in this process.",
+      formatProjectContext(this.projectContext!),
+    ].join("\n\n");
+    const transition = await manager.branch(name, {
+      getRuntime: () => this.runtimeForWorkspaceTransition(),
+      confirm: (preview, question) => this.confirmExact(preview, question),
+      context,
+    });
+    if (!transition) {
+      this.output.write("[sessions] Branch creation not approved.\n");
+      return;
+    }
+    await this.rebindWorkspace(transition.workspacePath);
+    this.output.write(`[sessions] active ${transition.name} · ${transition.workspacePath}\n`);
+  }
+
+  private async handleSwitchCommand(prompt: string): Promise<void> {
+    if (this.subagents.isBusy) throw new Error("Wait for active subagents before changing workspaces");
+    const [, name, action, ...extra] = prompt.trim().split(/\s+/);
+    if (!name || extra.length || (action !== undefined && action !== "apply" && action !== "discard")) {
+      throw new Error("Usage: /switch <branch> | /switch main <apply|discard>");
+    }
+    const manager = await this.ensureSessionWorkspace();
+    let transition;
+    if (action !== undefined) {
+      if (name !== "main") throw new Error("Apply/discard is only valid when returning to main");
+      transition = await manager.returnToMain(action as ReturnAction, {
+        getRuntime: () => this.runtimeForWorkspaceTransition(),
+        confirm: (preview, question) => this.confirmExact(preview, question),
+        verify: async () => (await this.runVerification(
+          CHECK_NAMES,
+          false,
+          `Verify session branch ${manager.activeName} before returning to main.`,
+        )).status,
+      });
+    } else {
+      transition = await manager.switch(name, {
+        getRuntime: () => this.runtimeForWorkspaceTransition(),
+        confirm: (preview, question) => this.confirmExact(preview, question),
+      });
+    }
+    if (!transition) {
+      this.output.write("[sessions] Switch not approved.\n");
+      return;
+    }
+    await this.rebindWorkspace(transition.workspacePath);
+    this.output.write(`[sessions] active ${transition.name} · ${transition.workspacePath}\n`);
+    if (transition.preservedPath) this.output.write(`[sessions] Candidate files retained for recovery: ${JSON.stringify(transition.preservedPath)}\n`);
+    if (transition.cleanupWarning) {
+      this.output.write(`[sessions] Return did not complete cleanly; review the session tree and repository state: ${transition.cleanupWarning}\n`);
+    }
+  }
+
+  private async revokeWorkspaceCapabilities(): Promise<void> {
+    this.workspaceNeedsRebind = true;
+    if (this.runtimeTools.length && !this.session?.setTools) throw new Error("Runtime cannot revoke workspace capabilities");
+    this.session?.setTools?.([]);
+    this.runtimeTools = [];
+    await Promise.all([this.broker?.close(), this.lsp?.close()]);
+  }
+
+  private async runtimeForWorkspaceTransition(): Promise<RuntimeSession> {
+    const session = await this.ensureRuntime();
+    await this.revokeWorkspaceCapabilities();
+    return session;
+  }
+
+  private async rebindWorkspace(cwd: string): Promise<void> {
+    await this.revokeWorkspaceCapabilities();
+    const project = await this.inspectProjectFn(cwd);
+    const context = await this.loadProjectContextFn(project);
+    const [registry, mcpConfiguration, lspConfiguration] = await Promise.all([
+      this.loadSkillRegistryFn(context),
+      this.loadMCPConfigurationFn(context),
+      this.loadLSPConfigurationFn(context),
+    ]);
+    this.projectContext = context;
+    this.skillRegistry = registry;
+    this.mcp = new MCPManager(mcpConfiguration);
+    this.lsp = new LSPManager(context.info.root, lspConfiguration);
+    this.visualization = new VisualizationRouter({ providers: this.visualizationProviders, settings: context.visualize, workspaceRoot: context.info.root });
+    this.broker = new CapabilityBroker(this.mcp, (call, signal) => this.confirmCapability(call, signal));
+    this.runtimeTools = [];
+    this.session?.setTools?.([]);
+    await this.session?.appendContext?.([
+      "Casper switched the active workspace for this named session branch.",
+      formatProjectContext(context),
+    ].join("\n\n"));
+    this.workspaceNeedsRebind = false;
+    this.output.write(`[sessions] workspace context rebound to ${context.info.root}; MCP/LSP connections require fresh explicit consent.\n`);
+  }
+
+  private activeWorkspaceRoot(): string {
+    return this.session?.getState().cwd ?? this.projectContext!.info.root;
+  }
+
+  private async prepareCapabilities(task: string, includeVisualization = false): Promise<void> {
+    const nextTools = [
+      ...await this.broker!.prepare(task),
+      this.delegateTool(),
+      ...lspTools(this.lsp!, this.confirmRename),
+      ...(includeVisualization ? visualizationTools({ router: this.visualization!, projectRoot: this.activeWorkspaceRoot() }) : []),
+    ];
+    if (this.closing) return;
+    if (this.session) {
+      if ((nextTools.length || this.runtimeTools.length) && !this.session.setTools) throw new Error("Runtime does not support custom capabilities");
+      this.session.setTools?.(nextTools);
+    }
+    this.runtimeTools = nextTools;
+  }
+
+  private async handleLSPCommand(prompt: string): Promise<void> {
+    const [, action, name, ...extra] = prompt.trim().split(/\s+/);
+    if (action && (!name || extra.length || !["connect", "disconnect"].includes(action))) {
+      throw new Error("Usage: /lsp | /lsp connect <name> | /lsp disconnect <name>");
+    }
+    if (action === "connect") await this.lsp!.connect(name!);
+    if (action === "disconnect") await this.lsp!.disconnect(name!);
+    const statuses = this.lsp!.status();
+    this.output.write(statuses.length ? statuses.map((entry) => `${entry.name} [${entry.state}]\n  source: ${entry.source}`).join("\n") + "\n" : "No LSP servers configured.\n");
+  }
+
+  private async handleVisualizeCommand(prompt: string): Promise<void> {
+    const [, action, scope, ...extra] = prompt.trim().split(/\s+/);
+    if (action && (action !== "repo" || extra.length)) throw new Error("Usage: /visualize | /visualize repo [directory]");
+    const router = this.visualization!;
+    if (!action) {
+      this.output.write([
+        `providers: ${router.providerNames().join(", ")}`,
+        `artifacts: ${router.settings.outputDir ?? "disabled (in-conversation only)"}`,
+        "Visualization is read-only and never modifies the workspace.",
+        "",
+      ].join("\n"));
+      return;
+    }
+    const controller = new AbortController();
+    this.visualizationAbort = controller;
+    try {
+      const repo = await buildRepoGraph({ root: this.activeWorkspaceRoot(), scope, signal: controller.signal });
+      const rendered = await router.render(repo.graph, controller.signal);
+      const description = describeVisualization(rendered, [`Scanned ${repo.filesScanned} files at ${repo.granularity} granularity.`, ...repo.notes]);
+      this.output.write(`${rendered.primary.content}\n`);
+      for (const note of [...(description.notes as string[]), ...rendered.primary.lossiness]) this.output.write(`[visualize] ${note}\n`);
+      for (const artifact of rendered.artifacts) this.output.write(`[visualize] wrote ${artifact.path} (${artifact.bytes} bytes)\n`);
+    } finally { this.visualizationAbort = undefined; }
+  }
+
+  private delegateTool(): RuntimeTool {
+    return this.subagents.createTool(() => ({
+      cwd: this.activeWorkspaceRoot(),
+      projectContext: formatProjectContext(this.projectContext!),
+    }));
+  }
+
+  private async handleDelegateCommand(prompt: string): Promise<void> {
+    const match = prompt.match(/^\/delegate\s+(explorer|reviewer)\s+([\s\S]+)$/);
+    if (!match) throw new Error("Usage: /delegate <explorer|reviewer> <goal>");
+    const [, role, goal] = match;
+    const result = await this.subagents.run({
+      role: role as SubagentRole,
+      goal,
+      cwd: this.activeWorkspaceRoot(),
+      projectContext: formatProjectContext(this.projectContext!),
+    });
+    if (!this.closing) this.output.write(formatSubagentReport(result));
+    if (result.status !== "completed") throw new Error(`Delegation ${result.status}; see the bounded report above`);
+  }
+
+  private confirmRename: ConfirmRename = async (preview, signal) => {
+    const text = JSON.stringify(preview);
+    if (Buffer.byteLength(text) > 16_384) return false;
+    return this.confirmExact(`LSP rename confirmation (exact edits; zero-based UTF-16):\n${text}\n`, "Apply this exact rename? Type yes: ", signal);
+  };
+
+  private async handleMCPCommand(prompt: string): Promise<void> {
+    const [, action, name, ...extra] = prompt.trim().split(/\s+/);
+    if (action && (!name || extra.length || !["connect", "disconnect"].includes(action))) {
+      throw new Error("Usage: /mcp | /mcp connect <name> | /mcp disconnect <name>");
+    }
+    if (action === "connect") await this.mcp!.connect(name!);
+    if (action === "disconnect") await this.mcp!.disconnect(name!);
+    const statuses = this.mcp!.status();
+    this.output.write(statuses.length ? statuses.map((status) => [
+      `${status.name} [${status.transport}; ${status.state}] ${status.toolCount} tools`,
+      `  source: ${status.source}`,
+      ...(status.error ? [`  ${status.error}`] : []),
+    ].join("\n")).join("\n") + "\n" : "No MCP servers configured.\n");
+    if (action === "connect" && statuses.find((status) => status.name === name)?.state !== "ready") {
+      throw new Error("MCP connection failed; no tools exposed");
+    }
+  }
+
+  private confirmCapability: ConfirmCapability = async (call, signal) => {
+    const args = JSON.stringify(call.arguments);
+    // Never approve truncated arguments or implicitly accept in one-shot mode.
+    if (Buffer.byteLength(args) > 4096) return false;
+    return this.confirmExact(`MCP confirmation: ${JSON.stringify(call.capability.id)} [${call.capability.safety}]\nArguments: ${args}\n`, "Allow this exact external call? Type yes: ", signal);
+  };
+
+  private async confirmExact(preview: string, question: string, signal?: AbortSignal): Promise<boolean> {
+    if (!this.readline || this.confirmationPending || this.closing || signal?.aborted) return false;
+    this.confirmationPending = true;
+    this.ensureLineBreak();
+    this.output.write(preview);
+    try {
+      return await new Promise<boolean>((resolve) => {
+        const rl = this.readline!;
+        const finish = (approved: boolean) => {
+          signal?.removeEventListener("abort", cancel);
+          rl.removeListener("close", cancel);
+          resolve(approved);
+        };
+        const cancel = () => finish(false);
+        signal?.addEventListener("abort", cancel, { once: true });
+        rl.once("close", cancel);
+        rl.question(question, { signal }, (answer) => finish(answer.trim() === "yes"));
+      });
+    } finally { this.confirmationPending = false; }
   }
 
   private async handleSkillsCommand(prompt: string): Promise<void> {
@@ -303,6 +764,9 @@ export class CasperApp {
 
   private handleRuntimeEvent(event: RuntimeEvent): void {
     switch (event.type) {
+      case "assistant_response_end":
+        if (!["stop", "toolUse"].includes(event.stopReason)) this.taskRuntimeFailed = true;
+        break;
       case "assistant_text_delta":
         this.output.write(event.delta);
         this.endedWithNewline = event.delta.endsWith("\n");
@@ -320,6 +784,7 @@ export class CasperApp {
         this.ensureLineBreak();
         break;
       case "error":
+        this.taskRuntimeFailed = true;
         this.ensureLineBreak();
         this.output.write(`[error] ${event.message}\n`);
         this.endedWithNewline = true;

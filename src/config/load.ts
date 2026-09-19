@@ -4,6 +4,7 @@ import path from "node:path";
 import { parse } from "yaml";
 import type { ProjectModelOverrides } from "../project/model";
 import { CHECK_NAMES } from "../verify/evidence";
+import { resolveVisualizationSettings, type VisualizationSettings } from "../visualize/router";
 
 export type Autonomy = "low" | "medium" | "high";
 export type AskQuestions = "beforeChanges" | "onlyWhenBlocked";
@@ -27,6 +28,13 @@ export interface CasperPolicy {
     push: GitActionPolicy;
     confirmDestructive: true;
   };
+  workspace: {
+    isolateWhen: {
+      parallelAgents: boolean;
+      riskyRefactor: boolean;
+      experimentalBranch: boolean;
+    };
+  };
 }
 
 export interface LoadedConfiguration {
@@ -38,6 +46,7 @@ export interface LoadedConfiguration {
   skills: { maxActive: number };
   verification: { timeoutMs: number };
   repair: { maxAttempts: number };
+  visualize: VisualizationSettings;
 }
 
 export interface LoadConfigurationOptions {
@@ -52,6 +61,9 @@ type PolicyLayer = {
   code?: Partial<CasperPolicy["code"]>;
   git?: Partial<Omit<CasperPolicy["git"], "confirmDestructive">> & {
     confirmDestructive?: boolean;
+  };
+  workspace?: {
+    isolateWhen?: Partial<CasperPolicy["workspace"]["isolateWhen"]>;
   };
 };
 
@@ -72,6 +84,13 @@ export const SAFE_DEFAULT_POLICY: CasperPolicy = {
     commit: "neverUnlessRequested",
     push: "neverUnlessRequested",
     confirmDestructive: true,
+  },
+  workspace: {
+    isolateWhen: {
+      parallelAgents: true,
+      riskyRefactor: true,
+      experimentalBranch: true,
+    },
   },
 };
 
@@ -139,6 +158,8 @@ function policyLayer(document: Mapping): PolicyLayer {
   const behavior = section("behavior");
   const code = section("code");
   const git = section("git");
+  const workspace = section("workspace");
+  const isolateWhen = isMapping(workspace.isolateWhen) ? workspace.isolateWhen : {};
 
   return {
     behavior: {
@@ -165,6 +186,13 @@ function policyLayer(document: Mapping): PolicyLayer {
       push: git.push === "never" || git.push === "neverUnlessRequested" ? git.push : undefined,
       confirmDestructive: booleanValue(git.confirmDestructive),
     },
+    workspace: {
+      isolateWhen: {
+        parallelAgents: booleanValue(isolateWhen.parallelAgents),
+        riskyRefactor: booleanValue(isolateWhen.riskyRefactor),
+        experimentalBranch: booleanValue(isolateWhen.experimentalBranch),
+      },
+    },
   };
 }
 
@@ -189,6 +217,7 @@ export function mergePolicy(...layers: PolicyLayer[]): CasperPolicy {
     // Destructive operations always require confirmation. Lower-precedence
     // configuration may tighten policy, but may not remove this restriction.
     policy.git.confirmDestructive = true;
+    Object.assign(policy.workspace.isolateWhen, defined(layer.workspace?.isolateWhen ?? {}));
   }
 
   return policy;
@@ -284,6 +313,15 @@ export async function loadConfiguration(
     skills: { maxActive },
     verification: { timeoutMs },
     repair: { maxAttempts },
+    visualize: resolveVisualizationSettings({
+      projectName: path.basename(options.projectRoot),
+      homeDir,
+      layers: [
+        { document: globalDocument, source: "global" },
+        { document: profileDocument, source: "profile" },
+        { document: projectDocument, source: "project" },
+      ],
+    }),
     profileName: selectedProfile,
     policy: mergePolicy(
       policyLayer(globalDocument),

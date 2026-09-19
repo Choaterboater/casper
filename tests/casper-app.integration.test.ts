@@ -33,6 +33,7 @@ class FakeRuntimeSession implements RuntimeSession {
     this.emit({ type: "message_end" });
   }
 
+  setTools(): void {}
   async abort(): Promise<void> {}
 
   subscribe(listener: RuntimeEventListener): () => void {

@@ -1,5 +1,9 @@
 # Casper Implementation Plan
 
+## Current checkpoint
+
+Phase 4–8 implementations and Phase 9's initial facts/outcomes slice are checkpointed by user request after an additional debug/review pass. See `docs/REVIEW_CHECKPOINT.md` and the latest `docs/HANDOFF.md` update for current evidence (**204 tests / 1,186 assertions**, three full runs), scope gaps, and review limitations. Later-phase implementation details live in their `PHASE*_IMPLEMENTATION.md` files. Historical phase statements below are not the current commit/review status. Phase 9 remains partial; interactive MindMesh and separately authorized real-HPE acceptance remain open. No push or next-phase expansion is authorized by this checkpoint.
+
 ## Phase 0 — Runtime Shell (Complete)
 
 ### Scope
@@ -207,3 +211,64 @@ Deterministic ranking only; no embeddings or learning. No built-in skill pack, r
 
 ### Exclusions
 No Pika, MCP, LSP, new tool framework, persistence database, subagents, or other later-phase features.
+
+## Phase 4 — MCP Capability Broker (Implemented; deployment acceptance pending)
+
+### Scope and execution contract
+- Preserve the Pi seam. Add runtime-neutral custom-tool definitions and replacement of Casper-owned tools; only the Pi adapter translates these into SDK registrations.
+- Use the pinned official MCP TypeScript SDK for stdio and Streamable HTTP, not a second hand-written protocol stack. Pi has no built-in MCP manager. No OMP runtime dependency.
+- Discover `~/.casper/mcp.json`, selected-profile `mcp.json`, project `mcp.json`, `.mcp.json`, and `.casper/mcp.json` in that precedence order. Accept the common `mcpServers` map. Keep source information; validate entries independently; report malformed/unsupported definitions without leaking credentials.
+- Discovery/status never executes commands or contacts servers. Every definition starts disconnected. `/mcp connect <name>` or leading CLI `--mcp <name>` explicitly authorizes that loaded definition for this process only. Project config cannot self-grant trust. No credential/config writes, OAuth flow, or production connections during development.
+- MCP manager owns bounded connection/request deadlines, paginated tool discovery, list-change refresh, dead-connection invalidation, bounded reconnect attempts/cooldown, cancellation, and idempotent teardown. Never transparently replay a tool call after failure.
+- Broker owns stable collision-safe IDs, schema-free metadata indexing, lexical task ranking, router-style preference, and a small direct surface (at most six MCP tools, with a total schema budget). Keep `find_capability` (search or inspect one schema) and `call_capability` as discovery/invocation fallback, so uncommon tools remain usable without exposing the catalog.
+- Conservative classification: explicit read-only annotations permit reads; diagnostic annotations are visible; unknown tools require confirmation like writes. Generic router dispatchers are consequential even when their names sound safe. Skills and tool descriptions cannot grant permission. Interactive exact-call confirmation for non-read calls; fail closed without a confirmation UI. Runtime shell tools remain unsandboxed.
+- Bound every model-facing MCP result by items and serialized bytes, including errors. Preserve error status, disclose truncation, retain provider continuation data when possible; do not invent replay/continuation for consequential calls. No raw-result persistence in this slice.
+- `/mcp` shows redacted status/counts; local connect/disconnect commands work without Pi. Startup stays lazy.
+
+### Implementation and acceptance sequence
+1. Configuration discovery and MCP lifecycle module; filesystem fixtures plus real local stdio/HTTP protocol servers.
+2. Broker metadata/ranking/safety/result bounds; a 340-tool generic fixture plus an HPE-style `find_tool` / `invoke_read_tool` / `invoke_tool` fixture.
+3. Runtime custom-tool seam, app commands, and CLI connection opt-in; test through the existing app/runtime seam and a real Pi SDK session with no remote server access.
+4. Acceptance: at most eight additional model-facing tools for a 340-tool catalog; an initially unselected rare tool can be searched, its schema loaded, and called. Router-style fixture prefers its native router surface. Verify collision routing, annotations/confirmation, invalid arguments, bounded Unicode/large results, partial failures, timeout/cancel, refresh/removal, reconnect, and shutdown.
+5. Run `bun run check`, repeated Phase 4 tests, diff checks, isolated real CLI smoke, and (if model authentication is available) a live Pi read-only fixture workflow. Record fixture versus live-HPE evidence honestly; actual production HPE acceptance requires separate authorization.
+
+### Reference findings
+- Pi SDK/docs: public dynamic `registerTool` and `setActiveTools` allow selective tools without a fork; Pi explicitly does not provide MCP itself.
+- GreenCLI local `src-tauri/src/mcp/client.rs`: keep status locks short, filter dead tools, refresh on list-change, and separate credential material from renderer state.
+- OMP upstream `packages/coding-agent/src/mcp/manager.ts`: connection generations prevent late resurrection; deduplicate reconnects and cap reconnect storms; never gate startup on all servers.
+- Local secure-ssid HPE `docs/tool-router.md`: prefer native discovery/read dispatch, treat generic dispatch as consequential, keep schemas on demand, and bound both items and bytes. Its native cursors apply only to reads. These repositories are design references, not dependencies.
+
+### Delivered evidence
+- `src/mcp/{config,manager}.ts`, `src/capabilities/{broker,result}.ts`, runtime custom-tool support, app commands, CLI `--mcp`, and public exports are implemented.
+- `bun run check` after optimization/debugging: TypeScript passed; **66 tests / 363 assertions**, no failures. Three repeated Phase 4 runs: **25 tests / 138 assertions** each, all passed. Diff whitespace checks passed.
+- Real local stdio and Streamable HTTP fixtures (JSON and SSE); 340-tool generic and router catalogs; strict small-surface, schema/search/call, refresh, collision, safety, cancellation, reconnect, and teardown coverage.
+- Real Pi/provider-payload fixture proves a 15-tool initial surface (7 existing + 8 broker), discovery of an initially hidden rare tool, and same-session active-set replacement/removal.
+- Live Pi read-only smoke against two local 340-tool MCP fixtures passed with five calls and zero tool errors after fixing the discovered empty-optional-field compatibility bug. No production MCP/device access.
+- Regression-tested fixes also cover SDK child cleanup exceeding Casper's CLI deadline and Pi's permanent initial allowlist excluding later selected tools.
+- Initial startup sample showed ~46 ms added cost. Follow-up profiling removed eager Pi SDK import from local commands: paired Phase 4 startup median **419 → 141 ms** (~66% lower). Warm 340-tool search **1.5014 → 0.0325 ms**, schema lookup **0.9260 → 0.0028 ms**, validated local call **2.3752 → 0.1079 ms**, via revision-bound indexing/validator caches. No startup MCP connections.
+- Follow-up regressions fixed approval surviving reconnect, unanswered HTTP POSTs after cancellation, interactive command failures terminating the session, EOF hangs, and close skipping concurrent teardown. Cache invalidation and lazy runtime shutdown have regression coverage.
+- HPE is an optional user/profile configuration, never a bundled global integration. Fixture coverage proves personal-profile definitions do not leak into unrelated/default profiles.
+- Detailed evidence and limits: `docs/PHASE4_VERIFICATION.md`; usage/safety: `docs/MCP.md`.
+- Independent Standards/Spec review covered the full tracked diff and every original untracked file. Three concrete defects were reproduced and fixed (lossy schema inspection, recursive application-data normalization, and refresh-timeout HTTP cleanup); shared schema-budget policy also has boundary coverage. Follow-ups found no blocking issues; an additional P3 binary-metadata omission was regression-tested, fixed, and independently re-reviewed as resolved. Final check: **71 tests / 389 assertions**, TypeScript passed; three Phase 4 repeats: **30 tests / 164 assertions each**. All reported findings resolved. Reports: `docs/PHASE4_REVIEW.md`.
+- **Pending:** separately authorized real-HPE deployment acceptance for the optional personal integration. Changes remain uncommitted; no push.
+
+### Exclusions
+No Pika, LSP, visualization, sessions/worktrees, subagents, memory, embeddings, code-mode sandbox, remote credential provisioning, or device/network writes were part of Phase 4.
+
+## Phase 5 — LSP (complete)
+
+The user explicitly authorized Phase 5. Delivered the smallest Casper-owned stdio language-server layer for diagnostics after native edits, document/workspace symbols, definitions, references, and language-aware rename. OMP was studied as reference only; no runtime dependency or fork added.
+
+- Metadata-only layered LSP configuration; explicit `/lsp connect` / leading `--lsp` consent, local status/disconnect, no automatic server installation or startup.
+- Bounded protocol framing, initialization, UTF-16 synchronization, deadlines, cancellation, failure isolation, and process-group teardown.
+- One runtime-neutral `lsp` tool. Pi-only diagnostics hooks and native mutation-queue translation stay in `src/runtime/pi.ts`.
+- Exact interactive rename approval; one-shot denial; bounded whole-workspace snapshots, path/range/version/membership preflight and revalidation; honest partial-write reporting without rollback/replay.
+- Fresh versus unversioned/unavailable/timeout diagnostics. Two-phase content/version synchronization prevents stale dependency reports from masquerading as fresh.
+- Actual TypeScript language-server navigation/rename plus before/after compiler checks. Actual Pyright repository-wide rename returned fresh zero diagnostics across all three files, preserved unrelated text, and passed its independent CLI check.
+- Independent Standards/Spec review and follow-ups complete; all findings resolved. **109 tests / 541 assertions**, TypeScript passed. Three repeated Phase 5 suites passed (**38 tests / 152 assertions each**).
+
+Configuration/limits: `docs/LSP.md`. Implementation/acceptance: `docs/PHASE5_IMPLEMENTATION.md`. Review evidence: `docs/PHASE5_REVIEW.md`.
+
+Subsequent debug/performance pass: startup-consent and queued-cancellation fixes, coherent diagnostic batches, linear framing, and bounded file-sized buffers. Paired local-fixture 100-file rename median **4700.62 → 319.46 ms**; evidence and reproducible benchmark in `docs/PHASE5_PERFORMANCE.md`. Current validation: **117 tests / 596 assertions**, TypeScript passed; three repeats **46 tests / 207 assertions each**; both independent follow-up reviews found no actionable issues.
+
+Changes remain uncommitted and unpushed. Optional personal HPE acceptance remains separately pending authorization. Phase 6 and other later features were not started.

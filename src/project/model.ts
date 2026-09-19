@@ -126,10 +126,14 @@ async function fingerprint(
   return hash.digest("hex");
 }
 
-function cachePath(root: string, homeDir: string): string {
+export function projectStateDirectory(root: string, homeDir: string): string {
   const id = createHash("sha256").update(root).digest("hex").slice(0, 16);
   const safeName = path.basename(root).replace(/[^a-zA-Z0-9._-]/g, "-") || "project";
-  return path.join(homeDir, ".casper", "projects", `${safeName}-${id}`, "project.json");
+  return path.join(homeDir, ".casper", "projects", `${safeName}-${id}`);
+}
+
+function cachePath(root: string, homeDir: string): string {
+  return path.join(projectStateDirectory(root, homeDir), "project.json");
 }
 
 async function readCache(filePath: string, expectedFingerprint: string): Promise<ProjectModel | null> {

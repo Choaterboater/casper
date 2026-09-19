@@ -8,6 +8,7 @@ export type TaskIntent =
   | "document"
   | "configure"
   | "inspect"
+  | "visualize"
   | "general";
 
 export interface TaskClassification {
@@ -20,6 +21,7 @@ const INTENT_PATTERNS: Array<[TaskIntent, RegExp]> = [
   ["fix", /\b(fix|bug|broken|failing|failure|error|regression|debug)\b/i],
   ["refactor", /\b(refactor|restructure|rename|extract|simplif(?:y|ication)|clean up)\b/i],
   ["test", /\b(test|spec|coverage|verify|typecheck|lint)\b/i],
+  ["visualize", /\b(visuali[sz]e|diagram|mind ?map|flowchart|dependency graph|map out|draw|chart)\b/i],
   ["document", /\b(document|documentation|readme|docs|comment|explain)\b/i],
   ["configure", /\b(configure|configuration|setup|set up|install|upgrade|dependency)\b/i],
   ["implement", /\b(add|build|create|implement|introduce|support|feature|change|update)\b/i],
@@ -27,10 +29,13 @@ const INTENT_PATTERNS: Array<[TaskIntent, RegExp]> = [
 ];
 
 export function classifyTask(text: string): TaskClassification {
-  const intent = INTENT_PATTERNS.find(([, pattern]) => pattern.test(text))?.[0] ?? "general";
-  const mode = intent === "inspect" || intent === "general" ? "read" : "modify";
+  // Explicit visualization actions take priority over the subject being described.
+  const visualizationRequest = /^(?:(?:can|could|would) you\s+)?(?:please\s+)?(?:visuali[sz]e|map out|draw|chart|diagram|mind ?map|flowchart)\b|^(?:(?:can|could|would) you\s+)?(?:please\s+)?(?:show|give|create|make|generate|produce)\b.{0,100}\b(?:diagram|mind ?map|flowchart|dependency graph|chart)\b|\bas (?:a |an )?(?:diagram|mind ?map|flowchart|dependency graph)\b/i.test(text.trim());
+  const modificationRequest = /^(?:(?:can|could|would) you\s+)?(?:please\s+)?(?:fix|add|implement|change|update|refactor|rename|remove|delete|write|build|test)\b/i.test(text.trim());
+  const intent = visualizationRequest && !modificationRequest ? "visualize" : INTENT_PATTERNS.find(([candidate, pattern]) => (!modificationRequest || candidate !== "visualize") && pattern.test(text))?.[0] ?? "general";
+  const mode = intent === "inspect" || intent === "general" || intent === "visualize" ? "read" : "modify";
   const verification: ProjectCommand[] =
-    intent === "document" || intent === "inspect" || intent === "general"
+    intent === "document" || intent === "inspect" || intent === "general" || intent === "visualize"
       ? []
       : intent === "test"
         ? ["test"]
