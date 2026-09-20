@@ -135,6 +135,51 @@ test("unverified normal completion is labeled separately and the returned task r
   } finally { await app.close(); }
 });
 
+test("task observations retain bounded latest shell diagnostics, detached results and command-local state", async () => {
+  const root = await fixture();
+  let turns = 0;
+  const { app, output } = createApp(root, {
+    editOnPrompt: (count) => count === 1,
+    respond: async (_prompt, emit) => {
+      if (++turns !== 1) return;
+      emit({ type: "tool_end", toolName: "bash", input: { command: "test -f fixed" },
+        output: { text: "old diagnostic", truncated: false }, isError: false });
+      emit({ type: "tool_end", toolName: "bash", input: { command: "  test -f fixed\n" },
+        output: { text: `HEAD\n${"🙂".repeat(4096)}\nTAIL`, truncated: false }, isError: true });
+      // Neither a different shell command nor a non-shell tool may replace the check observation.
+      emit({ type: "tool_end", toolName: "bash", input: { command: "test -f fixed && echo extra" },
+        output: { text: "not the configured check", truncated: false }, isError: false });
+      emit({ type: "tool_end", toolName: "read", input: { command: "test -f fixed" },
+        output: { text: "not a shell result", truncated: false }, isError: false });
+    },
+  });
+  try {
+    await app.runOnce("hey", root);
+    const result = app.getLastTaskResult()!;
+    expect(result).toMatchObject({ execution: "completed", observedEdits: ["changed.ts"], possibleMutations: true });
+    expect(result.verification).toBeUndefined();
+    expect(result.observedChecks).toHaveLength(1);
+    const check = result.observedChecks![0]!;
+    expect(check).toMatchObject({ name: "test", command: "  test -f fixed\n", toolStatus: "error", truncated: true });
+    expect(check.output).toStartWith("HEAD\n");
+    expect(check.output).toEndWith("\nTAIL");
+    expect(check.output).toContain("[...output truncated...]");
+    expect(check.output).not.toContain("�");
+    expect(Buffer.byteLength(check.output)).toBeLessThanOrEqual(8192);
+    expect(output()).toContain("shell check observations: test:error (diagnostics only)");
+    result.observedEdits!.push("invented.ts");
+    check.output = "changed by caller";
+    expect(app.getLastTaskResult()?.observedEdits).toEqual(["changed.ts"]);
+    expect(app.getLastTaskResult()?.observedChecks?.[0]?.output).toStartWith("HEAD\n");
+    await app.runOnce("/status");
+    expect(app.getLastTaskResult()).toBeUndefined();
+    const before = output().length;
+    await app.runOnce("hey");
+    expect(app.getLastTaskResult()).toMatchObject({ execution: "completed", observedEdits: [], observedChecks: [], possibleMutations: false });
+    expect(output().slice(before)).not.toContain("[task]");
+  } finally { await app.close(); }
+});
+
 test("fresh requests never reuse evidence; self-mutating scoped checks retain stale qualifications", async () => {
   const root = await fixture();
   await writeFile(path.join(root, ".casper/project.yaml"), 'verify:\n  test: "printf x >> check-runs"\nverification:\n  scopes:\n    test:\n      inputs: ["."]\n      exclude: [home]\n');
