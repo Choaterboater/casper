@@ -2,6 +2,8 @@
 
 Casper is a standalone coding companion CLI built as its own project.
 
+After [local installation](#install), run `casper` from the project directory you want to work in. Use `casper --help` or `casper /project` without making a model call.
+
 Casper uses Pi as a pinned runtime dependency through a thin adapter layer:
 
 ```text
@@ -53,8 +55,9 @@ This means:
 
 - explicit project facts and truthful task outcomes (Phase 9's first slice)
 - read-only local reference search with configured sources and file/line provenance
+- `casper learn <local-repo>` with host-checked source citations and inert, inspectable drafts
 
-Not implemented yet: `casper learn`, candidate-to-skill promotion, or writing subagents. Phase 4 is validated with local generic/HPE-style fixtures and a live model; actual deployment-specific HPE acceptance remains pending. Independent Phase 6–8 reviews and corrective follow-ups are recorded in `docs/PHASE6_REVIEW.md`, `docs/PHASE7_REVIEW.md`, and `docs/PHASE8_REVIEW.md`; runtime findings are resolved. Interactive MindMesh remains a disclosed broader-plan gap, not completed integration. Phase 9 is incomplete and awaits its own review.
+Not implemented yet: human candidate promotion into references/skills, or writing subagents. Phase 4 is validated with local generic/HPE-style fixtures and a live model; actual deployment-specific HPE acceptance remains pending. Independent Phase 6–8 reviews and corrective follow-ups are recorded in `docs/PHASE6_REVIEW.md`, `docs/PHASE7_REVIEW.md`, and `docs/PHASE8_REVIEW.md`; runtime findings are resolved. Interactive MindMesh remains a disclosed broader-plan gap, not completed integration. Phase 9 is incomplete and awaits its own review.
 
 ## Language servers
 
@@ -95,7 +98,9 @@ Limits: 2 concurrent children, 4 delegations per prepared parent prompt, 180 sec
 
 Facts are explicit human-entered guidance, included on the next parent prompt; current repository evidence/rules/policy take precedence. Normal model tasks record bounded local task summaries, selected skills, verification/skip status, and repair counts. Model completion is not a verification pass. Human acceptance stays unknown until explicitly recorded. No raw model/tool/check outputs are copied. These owner-only plaintext files may contain sensitive task/fact text; inspect them under the existing `~/.casper/projects/<project-key>/` directory.
 
-`casper learn` and human promotion of learned candidates are **not implemented yet**. See [`docs/PHASE9_IMPLEMENTATION.md`](docs/PHASE9_IMPLEMENTATION.md) for storage, validation, and remaining Phase 9 scope.
+If facts are invalid or unreadable, normal tasks warn and continue without remembered guidance; the facts file is not reset or repaired. Explicit `/memory` reads and changes still fail closed on invalid state. A later prompt rereads repaired facts. Full outcome stores still refuse new records; no automatic pruning or stale-lock removal is performed.
+
+Learning candidate generation is available separately below; human promotion is **not implemented yet**. See [`docs/PHASE9_IMPLEMENTATION.md`](docs/PHASE9_IMPLEMENTATION.md) for storage, validation, and remaining Phase 9 scope.
 
 ## Local reference search
 
@@ -109,6 +114,18 @@ Declare local sources and explicit search paths in `~/.casper/references.yaml` o
 
 See [`docs/REFERENCES.md`](docs/REFERENCES.md) for configuration, source consent, search semantics, incomplete-result qualifications and lifecycle limits. No sources are enabled automatically.
 
+## Learning candidates
+
+```sh
+casper learn ~/Projects/example
+casper learn list ~/Projects/example
+casper learn inspect ~/Projects/example <draft-id>
+```
+
+Generation uses one bounded read-only explorer with global Pi model defaults; source text may reach that provider. It proposes patterns with context, tradeoffs, use/avoid guidance and host-checked file/line/digest citations. Source quotes are not proof that a pattern worked. Owner-only plaintext drafts stay unpromoted, unverified and unaccepted; no skills, references, facts or rules are activated. Listing and inspection are local and need no model credentials.
+
+Generation refuses sources overlapping Pi's writable state before model/auth startup; local listing and inspection do not start Pi. See [`docs/LEARNING.md`](docs/LEARNING.md) for limits, storage, failure semantics and privacy. Read-only tools are not a filesystem sandbox or spending cap. Validation uses scripted localhost providers, not a live-model usefulness trial. Promotion stays paused pending representative real-project evaluation; independent Phase 9 review remains required.
+
 ## Configuration
 
 Casper reads these optional files:
@@ -121,7 +138,11 @@ Casper reads these optional files:
 <project>/.casper/rules.md
 ```
 
-Select a profile with `CASPER_PROFILE`, `profile:` in project/global configuration, or the default profile name `default`. Precedence is safe defaults → global → selected profile → project. Project model fields can be overridden in `.casper/project.yaml`:
+Profile selection precedence is the programmatic `profileName` option → `CASPER_PROFILE` → project `profile:` → global `profile:` → `default`. Names must be 1–64 ASCII letters, digits, underscores, dots or hyphens, starting with a letter or digit. Every supplied selection is validated, even if overridden; malformed values (including empty strings, surrounding whitespace and non-string YAML values) stop configuration loading. Policy precedence is safe defaults → global → selected profile → project.
+
+**Profile trust:** project-local `profile:` is intentionally allowed to select an existing user profile, including its rules, MCP/LSP definitions and reference sources. Inspect an unfamiliar repository's `.casper/project.yaml` before running Casper: selecting a profile can expose configured reference excerpts to model tasks. MCP/LSP discovery remains metadata-only and connection still requires explicit consent. Name validation prevents lexical traversal; it does not confine user-owned profile symlinks or sandbox native tools. Direct MCP/LSP/reference discovery skips invalid profile names rather than loading a profile file.
+
+Project model fields can be overridden in `.casper/project.yaml`. The `commands:` map (also supported under `project.commands`) admits only string values for `typecheck`, `lint`, `test` and `build`; unknown keys and non-string values are ignored rather than passed into the project model or prompts. Project-local `verify:` overrides these commands and retains stricter validation:
 
 ```yaml
 profile: default
@@ -145,15 +166,24 @@ policy:
 
 Casper owns skill selection; Pi's independent skill discovery is disabled inside the Casper adapter.
 
-Discovery locations (at startup):
+Discovery locations (at startup; only Casper's own roots are enabled by default):
 
 | Source | Locations | Default activation trust |
 | --- | --- | --- |
 | User | `~/.casper/skills/` | Trusted when the canonical file is inside this directory |
 | Project | `<project>/.casper/skills/` | Untrusted until reviewed |
-| Compatible external | `~/.pi/agent/skills/`, `~/.agents/skills/`, `~/.claude/skills/`, `~/.codex/skills/`; project `.pi/skills/`, `.agents/skills/`, `.claude/skills/`, `.codex/skills/` | Untrusted until reviewed |
+| Compatible external **(opt-in)** | `~/.pi/agent/skills/`, `~/.agents/skills/`, `~/.claude/skills/`, `~/.codex/skills/`; project `.pi/skills/`, `.agents/skills/`, `.claude/skills/`, `.codex/skills/` | Untrusted until reviewed |
 
-Directories are scanned recursively for `SKILL.md`; standalone `.md` files with valid frontmatter also work. Once a directory contains `SKILL.md`, its references and scripts are not indexed as separate skills. Canonical paths deduplicate symlinks. Project discovery starts only at the listed project skill directories (no ancestor scanning) and rejects directory/file symlinks that resolve outside the canonical project root. In-project symlinks remain supported. Pi packages and custom Pi skill paths are not imported.
+Enable imports explicitly in `~/.casper/config.yaml` or `~/.casper/profiles/<profile>/config.yaml`:
+
+```yaml
+skills:
+  imports: [pi, agents] # default []; supported names: pi, agents, claude, codex
+```
+
+Each enabled name imports its user and project roots from the table. Profile lists replace global lists; `[]` disables imports. Project-authored `skills.imports` is rejected rather than allowed to enable imports. Existing project profile selection still applies (see Profile trust above). Importing is discovery only, not trust; existing digest-bound review requirements remain. No external skill files are modified.
+
+Directories are scanned recursively for `SKILL.md`; standalone `.md` files with skill frontmatter also work. A standalone file declares skill intent with a `name` or `description` frontmatter field; ordinary docs (including title-only frontmatter) are ignored. Malformed declared skills still produce warnings. Startup summarizes new warnings; `/skills diagnostics` retains full detail. Once a directory contains `SKILL.md`, its references and scripts are not indexed as separate skills. Canonical paths deduplicate symlinks. Project discovery starts only at the listed project skill directories (no ancestor scanning) and rejects directory/file symlinks that resolve outside the canonical project root. In-project symlinks remain supported. Pi packages and custom Pi skill paths are not imported.
 
 Example `~/.casper/skills/mcp-authoring/SKILL.md`:
 
@@ -182,10 +212,11 @@ Only selected bodies are read and injected, with their source and base directory
 
 ### Inspect and review
 
-These commands are local and work without model credentials or runtime startup; they do not send skill bodies to the model. Pi starts lazily on the first non-local prompt:
+These skill commands are local and work without model credentials or runtime startup; they do not send skill bodies to the model. Pi starts lazily on `/model` or the first non-local prompt:
 
 ```text
 /skills
+/skills diagnostics
 /skills inspect <id>
 /skills trust <id> <sha256>
 /skills block <id>
@@ -238,7 +269,7 @@ Tool calls and post-task verification share one task-local evidence store. Concu
 
 A tool returns execution evidence to Pi's ordinary edit/check loop; it never starts a nested repair prompt. Unresolved actual failures reach the existing bounded repair owner after the main prompt settles, carrying the exact command, bounded output, exit status, available Git changed-file context, original request, and constraints. Post-task repair preserves that task's request; explicit `/verify repair` uses the objective of making the selected checks pass, not an unrelated earlier prompt. Failed checks rerun first; after they pass, multi-check selections revisit the full selection to catch regressions, reusing only passing results with matching **declared-input** evidence. A valid managed pass obtained during repair also avoids a duplicate command. New requests and explicit `/verify` calls always start fresh; captured old check tools are revoked. The model saying “done” is not a passing result. Up to three repair prompts run by default. Passing selected checks does not imply unselected checks passed.
 
-The terminal shows concise results, not full logs. Programmatic `CasperApp.runOnce()` returns a `VerificationReport` for verification runs, including all rounds. `getLastTaskResult()` returns a detached result for the last normal request, separating execution (`completed`, `failed`, `cancelled`) from optional verification; local commands clear this result. Normal requests print a factual execution/verification receipt, including bounded observed native edit paths, possible tool writes (including failed/partial writes), and exact-command shell observations. **Shell tool status is diagnostic data, not process-exit evidence:** native shell checks are not reused or counted as verifier passes. Terminal model error/abort stops skip further checks and repair, retain already-executed managed evidence as blocked, and produce CLI exit codes 1/130 rather than success; an intermediate provider error recovered by Pi is not a terminal failure. Otherwise verification exit codes remain 0 for pass, 2 for incomplete, and 1 for failure/blocked; completion without verification exits 0 without claiming verified behavior. Evidence includes cwd, command, status, exit code/signal, duration, stdout/stderr, failure reason, and truncation. Each stream retains at most 8 KiB of original bytes (head/tail plus a truncation marker); this bounded evidence is what repair receives. No evidence database or unbounded raw-log artifact is created.
+The terminal shows concise results, not full logs. Programmatic `CasperApp.runOnce()` returns a `VerificationReport` for verification runs, including all rounds. `getLastTaskResult()` returns a detached result for the last normal request, separating execution (`completed`, `failed`, `cancelled`) from optional verification; local commands clear this result. Coding requests print a factual execution/verification receipt, including bounded observed native edit paths, possible tool writes (including failed/partial writes), and exact-command shell observations. Successful general conversation without observed effects or verification omits that terminal receipt; the structured task result and local outcome are still retained. Failures/cancellation always remain visible. **Shell tool status is diagnostic data, not process-exit evidence:** native shell checks are not reused or counted as verifier passes. Terminal model error/abort stops skip further checks and repair, retain already-executed managed evidence as blocked, and produce CLI exit codes 1/130 rather than success; an intermediate provider error recovered by Pi is not a terminal failure. Otherwise verification exit codes remain 0 for pass, 2 for incomplete, and 1 for failure/blocked; completion without verification exits 0 without claiming verified behavior. Evidence includes cwd, command, status, exit code/signal, duration, stdout/stderr, failure reason, and truncation. Each stream retains at most 8 KiB of original bytes (head/tail plus a truncation marker); this bounded evidence is what repair receives. No evidence database or unbounded raw-log artifact is created.
 
 **Command success, input freshness, declared scope, and behavioral coverage are separate facts.** Reports and receipts say `Checks pass (command execution)`, not that the current files or requested behavior are verified. Stale or unavailable inputs remain explicitly unverified and cannot support reuse; they do not rewrite successful command exits or trigger a new repair/approval loop. Only actual check failures enter the existing bounded repair loop. Saved task outcomes and `/memory outcomes` retain exit codes, scope, freshness and a bounded freshness reason, without storing output or fingerprints. Human acceptance still starts unknown. Legacy outcomes remain readable, are labeled as legacy, and missing freshness stays unavailable.
 
@@ -248,7 +279,7 @@ Freshness is observed before/after each check and at report time; checks also re
 
 **Declared scope is an assumption, not discovered dependency coverage.** For example, the sample above does not observe installed `node_modules`, environment variables, external tools or services. A lockfile does not prove installed dependencies are unchanged. If a check depends on excluded/unlisted inputs, changes there can go undetected: include them or leave the scope undeclared to disable reuse. Even a fresh scoped result does not certify behavior. These bounded observations are not atomic snapshots, a sandbox, or a guarantee against transient changes during commands or edits after reporting. See [`docs/CODING_LOOP_EVIDENCE_CONTRACT.md`](docs/CODING_LOOP_EVIDENCE_CONTRACT.md) for this slice's regressions, measurements, and remaining work.
 
-One-shot exit codes: **0** selected commands passed (execution only, even if freshness is stale/unavailable), **1** failed/blocked, **2** incomplete (skips or no commands). Timeouts and cancellation terminate verifier process groups on POSIX; Windows only has direct-process cleanup and has not been validated. SIGINT/SIGTERM cancel checks and prevent further repair; the CLI gives cleanup up to one second, then exits even if runtime startup/abort is stalled. Programmatic `app.close()` drains runtime startup and verification before disposal but has no forced-exit deadline. Command timeouts do not bound model response time. Commands and runtime tools are not sandboxed, and command output may contain secrets—review your checks before sending their output to a model.
+One-shot exit codes: **0** selected commands passed (execution only, even if freshness is stale/unavailable), **1** failed/blocked, **2** incomplete (skips or no commands). Timeouts and cancellation terminate verifier process groups on POSIX; Windows only has direct-process cleanup and has not been validated. One-shot SIGINT and any SIGTERM cancel checks and prevent further repair; the CLI gives cleanup up to one second, then exits even if runtime startup/abort is stalled. Interactive Ctrl-C cancels the active task while keeping the session; it drains existing cleanup without a forced per-task deadline. Programmatic `app.close()` drains runtime startup and verification before disposal but has no forced-exit deadline. Command timeouts do not bound model response time. Commands and runtime tools are not sandboxed, and command output may contain secrets—review your checks before sending their output to a model.
 
 See [`docs/PHASE3_VERIFICATION.md`](docs/PHASE3_VERIFICATION.md) for validation and the live failure → repair → rerun smoke, and [`docs/PHASE3_REVIEW.md`](docs/PHASE3_REVIEW.md) for pre-commit review/debugging/performance findings.
 
@@ -272,37 +303,62 @@ See [MCP configuration, usage, safety, and limits](docs/MCP.md) and [Phase 4 val
 
 ## Requirements
 
-Casper depends on Pi's SDK package and whatever model/provider auth Pi can access.
+Casper requires Bun on your PATH and the dependencies installed in this checkout. Model tasks use Pi's SDK package and whatever model/provider auth Pi can access; local help and project inspection need no model credentials.
 
 In practice, that means you need working model authentication available to Pi, for example through:
 - supported environment variables such as `ANTHROPIC_API_KEY`, or
 - Pi's stored auth/config
 
+`/login` explains setup without changing credentials or making provider calls. From this checkout, `bun run node_modules/.bin/pi` opens the pinned Pi runtime; use its `/login`, complete the selected provider's flow, exit Pi, and restart Casper. Never paste credentials into Casper chat. Embedded OAuth remains unimplemented. Select models in Casper with `/model`; Casper's parent-conversation defaults are separate from Pi settings.
+
 ## Install
 
+From the root of this checkout:
+
 ```bash
-bun install
+bun install --frozen-lockfile
+chmod +x src/cli.ts
+mkdir -p "$HOME/.local/bin"
+ln -s "$PWD/src/cli.ts" "$HOME/.local/bin/casper"
 ```
+
+Ensure `~/.local/bin` is on your PATH. The link follows this checkout, so code updates take effect immediately; moving or deleting the checkout breaks the link. This is a local development installation, not a bundled release. If `casper` already exists at that location, inspect it before replacing it.
 
 ## Run
 
 Interactive:
 
 ```bash
-bun run src/cli.ts
+casper
 ```
 
 One-shot prompt:
 
 ```bash
-bun run src/cli.ts "Summarize this repository"
+casper "Summarize this repository"
 ```
 
 Help:
 
 ```bash
-bun run src/cli.ts --help
+casper --help
 ```
+
+You can still launch directly from this checkout with `bun run dev` if you do not want a PATH link.
+
+`/help` shows the same concise help locally; `/help all` retains the full command/safety reference. Unknown slash commands are rejected without calling a model or recording a task outcome. `/exit` and `/quit` end interactive mode and are successful no-ops in one-shot mode.
+
+### Interactive terminal
+
+- Color and basic Markdown styling for headings, emphasis, inline code and code fences. `NO_COLOR` disables color; redirected output and `TERM=dumb` stay plain.
+- Streamed output stays above the editable draft. Enter during active work retains the draft rather than queuing another request. Press Enter again once idle to submit it.
+- Ctrl-C cancels active work while retaining the session and existing changes. At idle it clears a draft, or exits if empty. Editable-terminal confirmations use a fresh input field and restore the previous draft afterward; Ctrl-C/EOF deny approval. Piped line input discards unfinished fragments at approval transitions. With actual terminal input but `TERM=dumb` or redirected output, exact approval is denied because fresh keystrokes cannot be established safely. `NO_COLOR` alone does not disable approvals.
+- Tool activity includes file/command targets, running/completed/failed states and elapsed time, plus bounded error previews. Common credentials are redacted from previews; this is not a general secret detector. Tool completion is not a verification pass.
+- `/status` shows integration/storage information and host-reported selected provider/model, reasoning level, local credential availability, selection source, and Casper default. Before lazy runtime startup it explicitly says model/auth are not initialized/checked. Credentials configured is **not** a connection test. No defaults or credentials are changed by status.
+- `/model` opens Pi's searchable picker inside Casper. **Enter** selects for this conversation; **Ctrl+S** selects and saves a default for new parent conversations in `~/.casper/settings.json`. Escape/Ctrl-C cancel. `/model <id or provider/id>` selects an exact unique match or opens filtered search. Plain/redirected terminals and `TERM=dumb` list models; use an exact ID to select.
+- Restored conversations retain their recorded model; fresh ones use the Casper default. Without either, choose with `/model`. Missing auth or an unavailable recorded model blocks sending—there is no implicit Pi-default or provider fallback. Selection itself generates no model response; the next request sends conversation context to the selected provider. The picker refreshes local catalogs only, although provider-defined credential checks can run configured key-resolution programs.
+
+This remains a bounded readline terminal with a temporarily hosted Pi picker, not a full-screen TUI: no themes, animations, multiline editor or embedded OAuth. Delegation and learning retain their separately documented global Pi defaults. See [model selection and validation](docs/MODEL_SELECTION.md) and [the earlier terminal UX slice](docs/TERMINAL_UX.md).
 
 ## Checks
 
@@ -312,13 +368,26 @@ Typecheck:
 bun run typecheck
 ```
 
-Tests:
+Tests (serial fallback; POSIX terminal tests also require `python3` for its standard-library PTY support):
 
 ```bash
 bun test
 ```
 
-Combined check:
+Parallel tests (four isolated Bun processes, one test file per process):
+
+```bash
+bun run test:fast
+```
+
+The runner prints each file's diagnostics together and a file-level summary;
+any failed file makes the command fail. Test discovery includes `tests/*.test.ts`.
+
+Parallel testing remains opt-in: a later validation run hit an unresolved
+SIGTERM process-cleanup failure despite five initial clean runs. No test deadline
+has been relaxed. The default combined check retains serial execution.
+
+Combined check (typecheck + serial tests):
 
 ```bash
 bun run check

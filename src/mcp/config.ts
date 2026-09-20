@@ -2,6 +2,7 @@ import { constants } from "node:fs";
 import { open } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { isValidProfileName } from "../config/profile";
 
 export interface MCPServerDefinition {
   name: string;
@@ -55,7 +56,7 @@ export async function discoverMCPConfiguration(options: {
   const home = options.homeDir ?? os.homedir();
   const profile = options.profileName ?? "default";
   const files = [path.join(home, ".casper/mcp.json")];
-  if (/^[a-zA-Z0-9_.-]+$/.test(profile) && profile !== "." && profile !== "..") {
+  if (isValidProfileName(profile)) {
     files.push(path.join(home, ".casper/profiles", profile, "mcp.json"));
   }
   files.push(...["mcp.json", ".mcp.json", ".casper/mcp.json"].map((file) => path.join(options.projectRoot, file)));

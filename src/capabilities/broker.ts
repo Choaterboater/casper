@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import { AjvJsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/ajv-provider.js";
 import type { JsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/types.js";
 import { isRecord } from "../mcp/config";
 import type { MCPManager, MCPTool } from "../mcp/manager";
@@ -31,6 +30,8 @@ export type ConfirmCapability = (call: {
   capability: CapabilityDescriptor; arguments: Record<string, unknown>;
 }, signal?: AbortSignal) => Promise<boolean>;
 
+let validatorModule: typeof import("@modelcontextprotocol/sdk/validation/ajv-provider.js") | undefined;
+let validatorLoad: Promise<NonNullable<typeof validatorModule>> | undefined;
 const MAX_SCHEMA_BYTES = 12_000;
 const MAX_DIRECT_SCHEMA_BYTES = 32_000;
 function requireSupportedSchema(capability: Capability): void {
@@ -91,9 +92,17 @@ export class CapabilityBroker {
     // to bypass the target tool's actual schema.
     let valid = false;
     try {
-      capability.validate ??= new AjvJsonSchemaValidator().getValidator(capability.tool.inputSchema);
+      if (!capability.validate) {
+        validatorModule ??= await (validatorLoad ??= import("@modelcontextprotocol/sdk/validation/ajv-provider.js"));
+        capability.validate ??= new validatorModule.AjvJsonSchemaValidator().getValidator(capability.tool.inputSchema);
+      }
       valid = capability.validate(frozenArgs).valid;
     } catch { throw new Error("Unsupported MCP input schema; call blocked"); }
+    // A first-use import yields: do not ask for approval using a cancelled call
+    // or stale catalog, even before the existing post-approval identity check.
+    combined.throwIfAborted();
+    this.sync();
+    if (this.get(id).fingerprint !== capability.fingerprint) throw new Error("MCP tool changed during validation; search and review again");
     if (!valid) throw new Error("Invalid MCP arguments; inspect the capability schema");
     if (capability.descriptor.safety !== "read") {
       const approved = await this.confirm?.({

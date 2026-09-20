@@ -1,7 +1,5 @@
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { ToolListChangedNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
+import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import type { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { resolveEnvironment, type MCPConfiguration, type MCPServerDefinition } from "./config";
 
@@ -28,6 +26,7 @@ interface Entry {
   tools: MCPTool[];
   client?: Client;
   transport?: Transport;
+  stdio?: StdioClientTransport;
   abort: AbortController;
   work?: Promise<void>;
   refresh?: Promise<void>;
@@ -195,31 +194,44 @@ export class MCPManager {
     entry.error = undefined;
     entry.attempts.push(Date.now());
     entry.generation++;
-    const client = new Client({ name: "casper", version: "0.1.0" }, { capabilities: {} });
-    entry.client = client;
+    let client: Client | undefined;
     const current = () => !this.closed && entry.approved && entry.client === client && !controller.signal.aborted && entry.state !== "failed";
-    client.onerror = () => { /* Raw transport errors can contain headers/URLs. */ };
-    client.onclose = () => {
-      if (!current()) return;
-      this.publish(entry, []);
-      entry.state = "failed";
-      entry.error = "Connection closed; next task may reconnect (bounded)";
-    };
-    client.setNotificationHandler(ToolListChangedNotificationSchema, () => {
-      if (entry.client !== client || controller.signal.aborted) return;
-      entry.dirty = true;
-      if (entry.state === "ready") this.scheduleRefresh(entry, client);
-    });
     try {
+      const [{ Client }, { ToolListChangedNotificationSchema }] = await Promise.all([
+        import("@modelcontextprotocol/sdk/client/index.js"),
+        import("@modelcontextprotocol/sdk/types.js"),
+      ]);
+      // Module loading cannot be aborted. Recheck consent/deadline before any
+      // client or transport is created, including after the transport import.
+      if (!current()) throw new Error("stale connection");
+      const connectedClient = new Client({ name: "casper", version: "0.1.0" }, { capabilities: {} });
+      client = connectedClient;
+      entry.client = connectedClient;
+      connectedClient.onerror = () => { /* Raw transport errors can contain headers/URLs. */ };
+      connectedClient.onclose = () => {
+        if (!current()) return;
+        this.publish(entry, []);
+        entry.state = "failed";
+        entry.error = "Connection closed; next task may reconnect (bounded)";
+      };
+      connectedClient.setNotificationHandler(ToolListChangedNotificationSchema, () => {
+        if (entry.client !== connectedClient || controller.signal.aborted) return;
+        entry.dirty = true;
+        if (entry.state === "ready") this.scheduleRefresh(entry, connectedClient);
+      });
       const config = entry.definition.transport;
       let transport: Transport;
       if (config.type === "stdio") {
-        transport = new StdioClientTransport({
+        const { StdioClientTransport } = await import("@modelcontextprotocol/sdk/client/stdio.js");
+        if (!current()) throw new Error("stale connection");
+        transport = entry.stdio = new StdioClientTransport({
           command: resolveEnvironment(config.command), args: config.args.map(resolveEnvironment),
           env: Object.fromEntries(Object.entries(config.env).map(([k, v]) => [k, resolveEnvironment(v)])),
           cwd: entry.definition.cwd, stderr: "ignore", maxBufferSize: MAX_WIRE_BYTES,
         });
       } else {
+        const { StreamableHTTPClientTransport } = await import("@modelcontextprotocol/sdk/client/streamableHttp.js");
+        if (!current()) throw new Error("stale connection");
         transport = new StreamableHTTPClientTransport(new URL(config.url), {
           requestInit: { headers: Object.fromEntries(Object.entries(config.headers).map(([k, v]) => [k, resolveEnvironment(v)])) },
           reconnectionOptions: { maxRetries: 2, initialReconnectionDelay: 500, maxReconnectionDelay: 2000, reconnectionDelayGrowFactor: 2 },
@@ -312,12 +324,13 @@ export class MCPManager {
     entry.abort.abort();
     const client = entry.client;
     const transport = entry.transport;
+    const pid = entry.stdio?.pid;
     entry.client = undefined;
     entry.transport = undefined;
+    entry.stdio = undefined;
     if (client) client.onclose = undefined;
     // The SDK allows 4s before KILL, longer than Casper's 1s CLI exit deadline.
     // Accelerate direct-child cleanup; close() still owns stdin and reaping.
-    const pid = transport instanceof StdioClientTransport ? transport.pid : null;
     const kill = (signal: NodeJS.Signals) => { if (pid) try { process.kill(pid, signal); } catch { /* already exited */ } };
     const term = pid ? setTimeout(() => kill("SIGTERM"), 200) : undefined;
     const force = pid ? setTimeout(() => kill("SIGKILL"), 450) : undefined;

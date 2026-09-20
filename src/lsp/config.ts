@@ -2,6 +2,7 @@ import { constants } from "node:fs";
 import { open } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { isValidProfileName } from "../config/profile";
 import { record } from "./protocol";
 
 export interface LSPServerDefinition {
@@ -18,7 +19,7 @@ export async function discoverLSPConfiguration(options: { projectRoot: string; h
   const home = options.homeDir ?? os.homedir();
   const files = [path.join(home, ".casper/lsp.json")];
   const profile = options.profileName ?? "default";
-  if (/^[\w.-]+$/.test(profile) && profile !== "." && profile !== "..") files.push(path.join(home, ".casper/profiles", profile, "lsp.json"));
+  if (isValidProfileName(profile)) files.push(path.join(home, ".casper/profiles", profile, "lsp.json"));
   files.push(path.join(options.projectRoot, ".casper/lsp.json"));
   const servers = new Map<string, LSPServerDefinition>();
   const diagnostics: string[] = [];

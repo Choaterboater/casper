@@ -1,4 +1,6 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
+import * as fs from "node:fs/promises";
+import type { BigIntStats, StatOptions, Stats } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -37,6 +39,66 @@ test("facts are explicit, idempotent, bounded, inspectable, and isolated by work
   await expect(store.remember("😀".repeat(257))).rejects.toThrow("1024");
   await store.forget(added.id);
   expect(await store.context()).toBe("");
+});
+
+test("small memory reads allocate only the observed file size plus a sentinel", async () => {
+  const { context, store } = await fixture();
+  const saved = await store.remember("Use pnpm.");
+  const size = (await stat(path.join(context.stateDirectory, "memory.jsonl"))).size;
+  const allocate = spyOn(Buffer, "alloc");
+  try {
+    expect(await store.facts()).toEqual([saved]);
+    expect(allocate.mock.calls.map(([bytes]) => bytes)).toEqual([size + 1]);
+  } finally { allocate.mockRestore(); }
+});
+
+test("right-sized reads retain empty, exact-byte-limit and record-limit behavior", async () => {
+  const { context, store } = await fixture();
+  const file = path.join(context.stateDirectory, "memory.jsonl");
+  await writeFile(file, "");
+  expect(await store.facts()).toEqual([]);
+  const value = { id: "one", text: "Fact", createdAt: "now" };
+  const line = JSON.stringify(value) + "\n";
+  await writeFile(file, line.padEnd(1_048_576, " "));
+  expect(await store.facts()).toEqual([value]);
+  await fs.appendFile(file, " ");
+  await expect(store.facts()).rejects.toThrow("Cannot read valid memory state");
+  const lines = Array.from({ length: 1000 }, (_, index) => JSON.stringify({ ...value, id: String(index) }) + "\n").join("");
+  await writeFile(file, lines);
+  expect(await store.facts()).toHaveLength(1000);
+  await fs.appendFile(file, line);
+  await expect(store.facts()).rejects.toThrow("Cannot read valid memory state");
+});
+
+test("memory reads reject growth after fstat rather than admitting a partial JSONL prefix", async () => {
+  const { context, store } = await fixture();
+  await store.remember("Original fact");
+  const file = path.join(context.stateDirectory, "memory.jsonl");
+  const original = await readFile(file, "utf8");
+  const originalOpen = fs.open;
+  // Inject a real append after the reader's fstat, at the filesystem seam.
+  const opened = spyOn(fs, "open").mockImplementation(async (...args: Parameters<typeof fs.open>) => {
+    const handle = await originalOpen(...args);
+    if (args[0] === file) {
+      const originalStat = handle.stat.bind(handle);
+      function growingStat(options?: StatOptions & { bigint?: false }): Promise<Stats>;
+      function growingStat(options: StatOptions & { bigint: true }): Promise<BigIntStats>;
+      function growingStat(options?: StatOptions): Promise<Stats | BigIntStats>;
+      async function growingStat(options?: StatOptions): Promise<Stats | BigIntStats> {
+        const info = await originalStat(options);
+        // Whitespace is valid JSONL padding: parsing alone cannot detect truncation.
+        await fs.appendFile(file, "\n" + JSON.stringify({ id: "late", text: "Late fact", createdAt: "now" }) + "\n");
+        return info;
+      }
+      handle.stat = growingStat;
+    }
+    return handle;
+  });
+  try {
+    await expect(store.facts()).rejects.toThrow("Cannot read valid memory state");
+  } finally { opened.mockRestore(); }
+  expect(await readFile(file, "utf8")).toStartWith(original);
+  expect((await store.facts()).map((entry) => entry.text)).toEqual(["Original fact", "Late fact"]);
 });
 
 test("independent memory writers merge under a lock without losing facts", async () => {
@@ -165,6 +227,109 @@ test("saved command passes retain stale, unknown and declared-scope qualificatio
     expect(JSON.stringify(saved)).not.toContain("DO_NOT_STORE_OUTPUT");
     expect(JSON.stringify(saved)).not.toContain("workspaceState");
   }
+});
+
+test("unavailable facts warn and omit guidance without blocking tasks or rewriting facts", async () => {
+  const { project, home, context, store } = await fixture();
+  const prompts: string[] = [];
+  let output = "";
+  const session: RuntimeSession = {
+    setTools: () => {}, subscribe: () => () => {},
+    prompt: async (value) => {
+      prompts.push(value);
+      if (value.includes("Fail deliberately")) throw new Error("Scripted runtime failure");
+    }, abort: async () => {},
+    getState: () => ({ cwd: project, isStreaming: false }),
+  };
+  const app = new CasperApp({
+    output: { write: (value) => { output += value; } },
+    runtimeFactory: () => ({ start: async () => session, dispose: async () => {} }),
+    sessionHomeDir: home, loadProjectContext: async () => context,
+    loadSkillRegistry: () => SkillRegistry.discover({ projectRoot: project, homeDir: home }),
+    loadMCPConfiguration: async () => ({ servers: [], diagnostics: [] }),
+    loadLSPConfiguration: async () => ({ servers: [], diagnostics: [] }),
+    loadReferenceConfiguration: async () => ({ sources: [], diagnostics: [] }),
+  });
+  cleanup.push(() => app.close());
+  const file = path.join(context.stateDirectory, "memory.jsonl");
+  const overBudget = Array.from({ length: 65 }, (_, index) => JSON.stringify({ id: String(index), text: "Over-budget guidance", createdAt: "now" }) + "\n").join("");
+  for (const source of ["{not json\nPRIVATE_FACT\u001b[31m", "x".repeat(1_048_577), JSON.stringify({ id: "bad", text: 12, createdAt: "now" }), Buffer.from([0xff, 0x0a]), overBudget]) {
+    await writeFile(file, source);
+    output = "";
+    await app.runOnce("Inspect the repository", project);
+    expect(prompts.at(-1)).toContain("Inspect the repository");
+    expect(prompts.at(-1)).not.toContain("Casper human-entered project facts");
+    expect(output).toContain("[memory] Facts unavailable");
+    expect(output).toContain("continuing without them");
+    expect(output).not.toContain("PRIVATE_FACT");
+    expect(app.getLastTaskResult()?.execution).toBe("completed");
+    expect((await store.outcomes())[0]).toMatchObject({ modelStatus: "completed", verification: "not-run", accepted: null });
+    const count = prompts.length;
+    for (const command of ["/memory", "/memory remember Do not overwrite", "/memory forget bad"]) {
+      if (source === overBudget && command === "/memory") {
+        // Structurally valid facts remain inspectable even if the prompt budget rejects them.
+        await app.runOnce(command);
+      } else {
+        await expect(app.runOnce(command)).rejects.toThrow();
+      }
+    }
+    expect(prompts).toHaveLength(count);
+    expect(await readFile(file)).toEqual(Buffer.from(source));
+  }
+  await writeFile(file, "bad json\n");
+  await expect(app.runOnce("Fail deliberately")).rejects.toThrow("Scripted runtime failure");
+  expect(app.getLastTaskResult()?.execution).toBe("failed");
+  expect((await store.outcomes())[0]).toMatchObject({ modelStatus: "failed", verification: "not-run", accepted: null });
+  expect(await readFile(file, "utf8")).toBe("bad json\n");
+  // Manual repair is observed on the next prompt, without restarting the app.
+  await writeFile(file, "");
+  await app.runOnce("/memory remember Restored guidance");
+  output = "";
+  await app.runOnce("Inspect again");
+  expect(prompts.at(-1)).toContain("Restored guidance");
+  expect(output).not.toContain("Facts unavailable");
+  await rm(file);
+  const external = path.join(home, "PRIVATE_PATH");
+  await writeFile(external, "Do not read or rewrite");
+  await symlink(external, file);
+  output = "";
+  await app.runOnce("Inspect with unreadable facts");
+  expect(prompts.at(-1)).not.toContain("Restored guidance");
+  expect(output).toContain("Facts unavailable");
+  expect(output).not.toContain("PRIVATE_PATH");
+  expect(await readFile(external, "utf8")).toBe("Do not read or rewrite");
+  expect((await fs.lstat(file)).isSymbolicLink()).toBe(true);
+  await rm(file);
+  output = "";
+  await app.runOnce("Inspect with no facts");
+  expect(prompts.at(-1)).not.toContain("Restored guidance");
+  expect(output).not.toContain("Facts unavailable");
+});
+
+test("shutdown during a failing facts read cannot start a late runtime or record an outcome", async () => {
+  const { project, home, context, store } = await fixture();
+  let starts = 0;
+  let output = "";
+  const app = new CasperApp({
+    output: { write: (value) => { output += value; } },
+    runtimeFactory: () => { starts++; throw new Error("Unexpected runtime initialization"); },
+    sessionHomeDir: home, loadProjectContext: async () => context,
+    loadSkillRegistry: () => SkillRegistry.discover({ projectRoot: project, homeDir: home }),
+    loadMCPConfiguration: async () => ({ servers: [], diagnostics: [] }),
+    loadLSPConfiguration: async () => ({ servers: [], diagnostics: [] }),
+    loadReferenceConfiguration: async () => ({ sources: [], diagnostics: [] }),
+  });
+  cleanup.push(() => app.close());
+  const facts = spyOn(ProjectMemory.prototype, "context").mockImplementation(async () => {
+    await app.close();
+    throw new Error("Read failed during shutdown");
+  });
+  try { await app.runOnce("Inspect the repository", project); }
+  finally { facts.mockRestore(); }
+  expect(starts).toBe(0);
+  expect(output).not.toContain("Facts unavailable");
+  expect(app.getLastTaskResult()).toBeUndefined();
+  expect(await store.outcomes()).toEqual([]);
 });
 
 test("memory commands stay local; facts reach only this project's prompts and tasks record honest outcomes", async () => {

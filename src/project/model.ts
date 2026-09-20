@@ -11,7 +11,7 @@ export interface ProjectModelOverrides {
   languages?: string[];
   frameworks?: string[];
   packageManager?: string;
-  commands?: Record<string, string>;
+  commands?: Partial<Record<ProjectCommand, string>>;
   verificationScopes?: Partial<Record<ProjectCommand, VerificationScope>>;
   architecture?: Record<string, string>;
   conventions?: string[];

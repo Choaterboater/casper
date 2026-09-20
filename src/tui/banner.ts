@@ -23,17 +23,9 @@ export function renderProjectSummary(context: ProjectContext): string {
 
 export function renderBanner(context: ProjectContext): string {
   return [
-    "      .-.",
-    "     (o o)",
-    "     | O \\",
-    "      \\   \\",
-    "       `~~~'",
-    "",
-    "      CASPER",
-    "your coding companion",
-    "",
-    renderProjectSummary(context),
-    " runtime   pi",
+    "CASPER · your coding companion",
+    ` project   ${context.model.project.name} · branch ${context.info.gitBranch ?? "(no git branch)"} · profile ${context.profileName}`,
+    " /help · /status · /login · /model",
     "",
   ].join("\n");
 }

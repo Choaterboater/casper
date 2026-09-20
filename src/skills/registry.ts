@@ -7,6 +7,8 @@ import type { TaskClassification } from "../task/classify";
 import { MAX_SKILL_BYTES, parseSkillMetadata, readSkillHeader, splitSkill, type SkillMetadata } from "./metadata";
 import { scoreSkill } from "./rank";
 
+export const SKILL_IMPORTS = ["pi", "agents", "claude", "codex"] as const;
+export type SkillImport = typeof SKILL_IMPORTS[number];
 export type SkillSource = "user" | "project" | "external";
 export type SkillTrust = "trusted" | "reviewed-external" | "untrusted" | "blocked";
 
@@ -29,6 +31,7 @@ export interface SkillRegistryOptions {
   projectRoot: string;
   homeDir?: string;
   maxActive?: number;
+  imports?: readonly SkillImport[];
 }
 
 interface SkillEntry {
@@ -124,7 +127,9 @@ export class SkillRegistry {
       { base: this.homeDir, pi: ".pi/agent/skills", projectScoped: false },
       { base: this.options.projectRoot, pi: ".pi/skills", projectScoped: true },
     ]) {
-      for (const relative of [pi, ".agents/skills", ".claude/skills", ".codex/skills"]) {
+      for (const imported of new Set(this.options.imports ?? [])) {
+        if (!SKILL_IMPORTS.includes(imported)) throw new Error("Unknown skills.imports source");
+        const relative = imported === "pi" ? pi : `.${imported}/skills`;
         roots.push({ directory: path.join(base, relative), source: "external", projectScoped });
       }
     }
@@ -167,7 +172,8 @@ export class SkillRegistry {
                 continue;
               }
               if (seenFiles.has(filePath)) continue;
-              const header = await readSkillHeader(filePath);
+              const header = name === "SKILL.md" ? await readSkillHeader(filePath) : await readSkillHeader(filePath, true);
+              if (header === undefined) continue;
               const metadata = parseSkillMetadata(header);
               // A symlink out of the user skill directory cannot gain implicit trust.
               const userOwned = root.source === "user" && isWithin(trustedUserDirectory, filePath);

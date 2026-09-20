@@ -1,8 +1,9 @@
 # Local reference search
 
 Phase 9 now supports read-only search of explicitly configured local source paths.
-It retrieves examples; it does not implement `casper learn`, promote skills, rewrite
-rules, or certify that a pattern fits the current project.
+It retrieves examples; it does not generate learning candidates, promote skills,
+rewrite rules, or certify that a pattern fits the current project. The separate
+[`casper learn` command](LEARNING.md) produces unpromoted drafts only.
 
 ## Configure sources
 
@@ -56,8 +57,9 @@ module does not create an additional raw-content store or memory facts/outcomes.
 ```
 
 These commands work without model credentials or Pi startup. `*` selects all
-configured sources. Output is JSON with terminal control characters escaped.
-Invalid command/query/source arguments produce an error; a valid but incomplete
+configured sources. CLI and tool output share JSON encoding that escapes C0,
+DEL/C1 and bidi controls while preserving parsed values. Escaping counts toward
+the serialized result budget. Invalid command/query/source arguments produce an error; a valid but incomplete
 search reports `status: partial` rather than pretending the entire corpus had no
 matches. CLI exit 0 means the local search command completed, not complete search
 coverage; inspect its status/issues.
@@ -94,8 +96,10 @@ Search reads regular UTF-8 files with supported documentation/source extensions:
 
 Hidden entries, `node_modules`, `vendor`, `dist`, `build`, `coverage`, `target`,
 `__pycache__`, standard package lockfiles, and unsupported extensions are excluded.
-Repository ignore/configuration files are not executed or interpreted. Source
-roots are resolved explicitly; symlinks inside them, including parents of named
+Eligible files are deduplicated by filesystem identity; an excluded filename or
+lockfile cannot suppress an eligible hardlink. Directory cycle protection remains
+separate from filename eligibility. Repository ignore/configuration files are not
+executed or interpreted. Source roots are resolved explicitly; symlinks inside them, including parents of named
 input files, are skipped. Non-regular files, unavailable paths, invalid text,
 oversized files and scan limits produce partial results with issues. Missing
 sources never trigger cloning, installation or provider calls, and do not prevent

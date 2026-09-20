@@ -198,6 +198,23 @@ test("real CLI local reference search works without model configuration or crede
   expect(result.stdout).not.toContain("UNREQUESTED_REFERENCE_BODY");
 });
 
+test("reference CLI and model output escape terminal controls without altering excerpts", async () => {
+  const { home, project, reference } = await fixture();
+  const excerpt = "MCP routing \u007f\u0085\u009b31m\u009dignored\u009c\u202e\u001b[0m";
+  await writeFile(path.join(reference, "README.md"), excerpt + "\n");
+  const result = await cli(project, home, "/references search router MCP routing");
+  expect({ exit: result.exit, stderr: result.stderr }).toEqual({ exit: 0, stderr: "" });
+  const unsafe = (text: string) => [...text].filter((char) => /[\u001b\u007f-\u009f\u202a-\u202e\u2066-\u2069]/u.test(char)).map((char) => char.codePointAt(0));
+  expect(unsafe(result.stdout)).toEqual([]);
+  const line = result.stdout.split("\n").find((line) => line.startsWith("[references] "))!;
+  expect(JSON.parse(line.slice("[references] ".length)).matches[0].excerpt).toBe(excerpt);
+  const runtime = new ReferenceRuntime();
+  const app = appFor(home, runtime, () => {});
+  await app.runOnce("Find the configured routing example", project);
+  expect(unsafe(runtime.result)).toEqual([]);
+  expect(JSON.parse(runtime.result).matches[0].excerpt).toBe(excerpt);
+});
+
 test("pinned Pi receives only requested excerpts with provenance from the real read-only tool", async () => {
   const { home, project } = await fixture();
   const payloads: Array<{ tools: Array<{ function: { name: string } }>; messages: unknown[] }> = [];
@@ -221,6 +238,7 @@ test("pinned Pi receives only requested excerpts with provenance from the real r
     baseUrl: `http://127.0.0.1:${provider.port}/v1`, api: "openai-completions", apiKey: "local-fixture-not-a-secret", models: [{ id: "fixture" }],
   } } }));
   await writeFile(path.join(agentDir, "settings.json"), JSON.stringify({ defaultProvider: "fixture", defaultModel: "fixture", retry: { enabled: false } }));
+  await writeFile(path.join(home, ".casper/settings.json"), JSON.stringify({ defaultProvider: "fixture", defaultModel: "fixture" }));
   const result = await cli(project, home, "Find the configured reference's MCP routing example; do not change files.");
   expect({ exit: result.exit, stderr: result.stderr }).toEqual({ exit: 0, stderr: "" });
   expect(result.stdout).toContain("REFERENCE_FIXTURE_COMPLETE");

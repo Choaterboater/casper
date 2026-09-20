@@ -65,6 +65,13 @@ Design references: the installed OMP binary exposes concurrency and per-subagent
 
 ## Read-only is not a sandbox
 
+A subsequent [Phase 9 correction](PHASE9_IMPLEMENTATION.md#review-corrections)
+adds a bounded, alias-aware preflight before Pi model/auth initialization. A
+read-only workspace may not contain the active Pi state directory or the resolved
+`auth.json` / `models-store.json` destinations. Overlap fails before provider
+requests or state creation; ordinary parent sessions are unchanged. This is a
+check of known state paths, not atomic filesystem isolation or a hardlink audit.
+
 The child model has no shell, write/edit, MCP, LSP, visualization, or delegate tool, and ambient executable extensions cannot override its readers. This restricts **model tool authority**, not operating-system permissions. Native readers may access paths outside the workspace, host read-tool executables and global provider/auth configuration remain trusted, and authentication may perform provider-owned I/O. Do not use this as a hostile-code or secret-isolation sandbox.
 
 Cancellation is abort-aware, not process killing. An uncooperative injected runtime or stalled filesystem/SDK operation can outlive the caller deadline. Casper reports pending cleanup, stops waiting after the grace period, retains that capacity slot until actual disposal drains, and prevents late startup from launching a prompt. The app's existing CLI shutdown deadline remains the final process-exit safeguard. No claim of a hard OS resource/token sandbox is made.

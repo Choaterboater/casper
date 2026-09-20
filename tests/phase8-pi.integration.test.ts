@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -38,6 +38,10 @@ async function fixture(respond: (payload: Payload) => Response, hostile = false)
     baseUrl: `http://127.0.0.1:${server.port}/v1`, api: "openai-completions", apiKey: "local-fixture-not-a-secret", models: [{ id: "fixture" }],
   } } }));
   await writeFile(path.join(agent, "settings.json"), JSON.stringify({ defaultProvider: "fixture", defaultModel: "fixture", retry: { enabled: false } }));
+  // Parent conversations now require an explicit Casper default. Children retain
+  // their existing separately scoped Pi-default behavior in this model UX slice.
+  await mkdir(path.join(home, ".casper"));
+  await writeFile(path.join(home, ".casper/settings.json"), JSON.stringify({ defaultProvider: "fixture", defaultModel: "fixture" }));
   if (hostile) {
     await mkdir(path.join(agent, "extensions"));
     await writeFile(path.join(agent, "extensions", "ambient.ts"), `import { writeFileSync } from 'node:fs';
@@ -106,6 +110,32 @@ test("real /delegate reads evidence but cannot write, shell, recurse, or load am
   const sessions = await readdir(path.join(f.agent, "sessions"), { recursive: true }).catch(() => []);
   expect(sessions.filter((file) => file.endsWith(".jsonl"))).toHaveLength(0);
 }, 15_000);
+
+test("read-only Pi refuses a source containing its active state before initialization", async () => {
+  const f = await fixture(() => answer("must not be requested"));
+  const before = await snapshot(f.agent);
+  const result = await f.run([adapter, f.agent, "turns"]);
+  expect(result.exit).toBe(1);
+  expect(result.stderr).toContain("overlaps writable runtime state");
+  expect(f.payloads).toEqual([]);
+  expect(await snapshot(f.agent)).toEqual(before);
+});
+
+test("ordinary parent Pi startup remains allowed when state is inside its workspace", async () => {
+  const f = await fixture(() => answer("ORDINARY_PARENT_UNCHANGED"));
+  const state = path.join(f.project, ".pi/agent");
+  await mkdir(path.dirname(state));
+  await rename(f.agent, state);
+  await symlink(state, f.agent);
+  const result = await f.run([cli, "Inspect this project without edits"]);
+  expect({ exit: result.exit, stderr: result.stderr }).toEqual({ exit: 0, stderr: "" });
+  expect(result.stdout).toContain("ORDINARY_PARENT_UNCHANGED");
+  expect(result.stdout).toContain("model     fixture / fixture");
+  expect(result.stdout).toContain("credentials configured (not a connection test)");
+  expect(result.stdout).not.toContain("local-fixture-not-a-secret");
+  expect(f.payloads).toHaveLength(1);
+  expect(f.payloads[0]?.tools.map((tool) => tool.function.name)).toContain("bash");
+});
 
 test("real Pi forwards correlated bounded shell diagnostics without edit bodies or fabricated exit codes", async () => {
   let step = 0;
@@ -559,6 +589,15 @@ test("review regression: cancelling during auth preflight cannot start a later r
   expect(result.exit).toBe(0);
   expect(JSON.parse(result.stdout.split("READONLY_RESULT=")[1]!).cancelled).toBe(true);
   expect(f.payloads).toHaveLength(0);
+});
+
+test("parent cancellation during auth preflight prevents a late request and leaves the session usable", async () => {
+  const f = await fixture(() => answer("AFTER_CANCEL_OK"));
+  const result = await f.run([path.join(import.meta.dir, "fixtures/pi-interactive-cancel.ts")]);
+  expect({ exit: result.exit, stderr: result.stderr }).toEqual({ exit: 0, stderr: "" });
+  expect(result.stdout).toContain("CANCELLED=true");
+  expect(f.payloads).toHaveLength(1);
+  expect(JSON.stringify(f.payloads[0])).toContain("AFTER_CANCEL_SESSION_STILL_USABLE");
 });
 
 test("real Pi caller cancellation stops a streaming child", async () => {

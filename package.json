@@ -10,6 +10,7 @@
     "dev": "bun run src/cli.ts",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
+    "test:fast": "bun run scripts/test-parallel.ts",
     "check": "bun run typecheck && bun test"
   },
   "dependencies": {

@@ -1,6 +1,7 @@
 export * from "./app";
 export * from "./agents/manager";
 export * from "./memory/store";
+export * from "./learn/candidates";
 export * from "./references/config";
 export * from "./references/library";
 export * from "./config/load";

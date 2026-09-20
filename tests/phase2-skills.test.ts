@@ -52,7 +52,7 @@ describe("Phase 2 skills", () => {
     await skill(path.join(options.projectRoot, ".agents/skills/mcp"), "agents-mcp", "AGENTS_BODY", metadata);
     await skill(path.join(options.homeDir, ".claude/skills/mcp"), "claude-mcp", "CLAUDE_BODY", metadata);
     await skill(path.join(options.projectRoot, ".codex/skills/mcp"), "codex-mcp", "CODEX_BODY", metadata);
-    const registry = await SkillRegistry.discover(options);
+    const registry = await SkillRegistry.discover({ ...options, imports: ["pi", "agents", "claude", "codex"] });
     const summaries = registry.list();
     expect(summaries).toHaveLength(6);
     expect(summaries.find((item) => item.name === "mcp-tools")).toMatchObject({
@@ -164,7 +164,7 @@ describe("Phase 2 skills", () => {
     const inside = path.join(options.projectRoot, "shared-skill");
     await skill(inside, "inside-mcp", "INSIDE_BODY", metadata);
     await symlink(inside, path.join(options.projectRoot, ".agents/skills/inside"));
-    const registry = await SkillRegistry.discover(options);
+    const registry = await SkillRegistry.discover({ ...options, imports: ["pi", "agents", "claude", "codex"] });
     expect(registry.list().map((item) => item.name)).toEqual(["inside-mcp"]);
     expect(registry.list()[0].trust).toBe("untrusted");
     expect(registry.diagnostics.join(" ")).toContain("outside the project root");
@@ -200,7 +200,7 @@ describe("Phase 2 skills", () => {
     await writeFile(path.join(root, "legacy.md"), "---\nname: legacy-mcp\ndescription: MCP authoring.\n---\nLEGACY_BODY");
     await skill(path.join(root, "nested"), "nested-mcp", "NESTED_BODY", metadata);
     await skill(path.join(root, "nested/references"), "not-a-skill", "REFERENCE_BODY");
-    const registry = await SkillRegistry.discover(options);
+    const registry = await SkillRegistry.discover({ ...options, imports: ["pi"] });
     expect(registry.list().map((item) => item.name)).toEqual(["legacy-mcp", "nested-mcp"]);
     expect(await load(registry)).toEqual([]);
   });

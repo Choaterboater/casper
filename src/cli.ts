@@ -1,66 +1,12 @@
 #!/usr/bin/env bun
 
 import { CasperApp } from "./app";
+import { CandidateLibrary, formatLearningResult } from "./learn/candidates";
 import { taskExitCode } from "./task/result";
 
-function printHelp(): void {
-  console.log(`Casper — your coding companion
+import { HELP_TEXT } from "./tui/help";
 
-Usage:
-  casper               Start interactive mode
-  casper <prompt>      Run one prompt and exit
-  casper --verify ...  Authorize post-task checks and bounded repair
-  casper --mcp <name>  Authorize and connect a configured MCP (repeatable)
-  casper --lsp <name>  Authorize and start a configured language server (repeatable)
-  casper --help        Show help
-
-Local commands:
-  /project                         Show project context
-  /memory                          List human-entered project facts
-  /memory remember <fact>          Save an explicit project fact (no model)
-  /memory forget <id>              Remove a fact
-  /memory outcomes                 Show the latest 20 task outcomes
-  /memory accept <id> <yes|no>      Record human acceptance, not test evidence
-  /references                      List configured local reference sources
-  /references search <id|*> <query> Search reference text locally (no model)
-  /tree                            Show named session/workspace branches
-  /branch <name>                   Clone this Pi session (isolated by policy)
-  /switch <branch>                 Switch session and workspace (confirmation required)
-  /switch main apply               Verify/review/apply candidate, then clean up
-  /switch main discard             Review/discard candidate, then clean up
-  /delegate <explorer|reviewer> <goal>  Run a bounded read-only subagent (uses a model)
-  /skills                          List skill metadata and trust
-  /skills inspect <id>             Inspect a skill and its content digest
-  /skills trust <id> <sha256>       Approve the exact reviewed skill content
-  /skills block <id>               Prevent future skill injection
-  /mcp                             Show redacted MCP status (no connection)
-  /mcp connect <name>               Authorize this server for this process
-  /mcp disconnect <name>            Disconnect and revoke process-local consent
-  /lsp                             Show language-server status (no startup)
-  /lsp connect <name>               Authorize this language server for this process
-  /lsp disconnect <name>            Stop this language server
-  /verify [checks ...]              Run project checks without a model
-  /verify repair [checks ...]       Run checks and authorize bounded repair
-  /exit                            Exit interactive mode
-
-Checks: typecheck lint test build (all by default).
-Verification executes repository shell commands; use only in trusted projects.
-One-shot checks exit 0 on command success, 1 on failure/blocked, 2 on skips/no commands.
-Exit 0 does not certify current inputs or behavior; see scoped freshness in the receipt.
-MCP connection executes a configured program or contacts its URL. Review its source first.
-Non-read MCP calls require exact interactive confirmation; denied in one-shot mode.
-LSP connection executes a configured program. Review .casper/lsp.json first.
-LSP rename requires exact interactive approval; one-shot rename is denied.
-Session branching/switching and worktree creation/removal require exact interactive approval.
-Subagents get read/grep/find/ls only; no edit/write/bash/MCP/LSP or recursive delegation.
-Limits: 2 concurrent, 4 delegations per parent prompt; 180 seconds/12 turns/48 tool calls per child.
-Children use global Pi model defaults. Reports are advisory; read-only tools are not an OS sandbox.
-Applying a candidate leaves its reviewed diff uncommitted; Casper never commits or pushes it.
-Worktree cleanup unregisters Git state and retains candidate files in a printed recovery directory.
-`);
-}
-
-export function installShutdownHandlers(app: CasperApp): () => void {
+export function installShutdownHandlers(app: { close(): Promise<void>; interrupt?(): boolean }): () => void {
   const shutdown = (exitCode: number) => {
     // Runtime startup/abort has no deadline in the adapter contract. Give
     // verifier cleanup time to finish, but do not let it trap SIGINT/SIGTERM.
@@ -68,9 +14,9 @@ export function installShutdownHandlers(app: CasperApp): () => void {
     const exit = () => { clearTimeout(deadline); process.exit(exitCode); };
     void app.close().then(exit, exit);
   };
-  const interrupt = () => shutdown(130);
+  const interrupt = () => { if (!app.interrupt?.()) shutdown(130); };
   const terminate = () => shutdown(143);
-  process.once("SIGINT", interrupt);
+  process.on("SIGINT", interrupt);
   process.once("SIGTERM", terminate);
   return () => {
     process.removeListener("SIGINT", interrupt);
@@ -82,7 +28,7 @@ async function main(): Promise<void> {
   const args = process.argv.slice(2);
 
   if (args.includes("--help") || args.includes("-h")) {
-    printHelp();
+    process.stdout.write(HELP_TEXT);
     return;
   }
 
@@ -97,6 +43,29 @@ async function main(): Promise<void> {
       if (!name || !/^[a-zA-Z0-9_.-]{1,64}$/.test(name)) throw new Error(`${flag} requires a configured server name`);
       (flag === "--lsp" ? languageServers : servers).push(name);
     }
+  }
+  if (args[0] === "learn") {
+    if (autoVerify || servers.length || languageServers.length) throw new Error("learn cannot be combined with --verify, --mcp or --lsp");
+    const learning = new CandidateLibrary({ runtimeFactory: async () => {
+      const { PiRuntime } = await import("./runtime/pi");
+      return new PiRuntime();
+    } });
+    const removeShutdownHandlers = installShutdownHandlers(learning);
+    try {
+      let result;
+      if (args[1] === "list" && args.length === 3) result = await learning.list(args[2]!);
+      else if (args[1] === "inspect" && args.length === 4) result = await learning.inspect(args[2]!, args[3]!);
+      else if (args.length === 2 && !["list", "inspect"].includes(args[1]!)) result = await learning.generate(args[1]!);
+      else throw new Error("Usage: casper learn <local-repo> | learn list <local-repo> | learn inspect <local-repo> <draft-id>");
+      console.log(formatLearningResult(result));
+    } catch (error) {
+      console.error(formatLearningResult({ status: "failed", error: error instanceof Error ? error.message : "Learning failed" }));
+      process.exitCode = 1;
+    } finally {
+      try { await learning.close(); }
+      finally { removeShutdownHandlers(); }
+    }
+    return;
   }
   const prompt = args.join(" ").trim();
   const app = new CasperApp({ autoVerify });

@@ -85,7 +85,9 @@ test("acceptance: 'map out the authentication flow' yields a visual, saves artif
   const output: string[] = [];
   const app = makeApp(runtime, home, output);
   await app.start(project);
-  expect(output.join("")).toContain(" visualize mermaid, mindmesh (artifacts outside workspace; use /visualize)");
+  expect(output.join("")).not.toContain(" visualize ");
+  await app.runOnce("/visualize");
+  expect(output.join("")).toContain(`providers: mermaid, mindmesh\nartifacts: ${path.join(home, ".casper", "visualizations", "project")}`);
   const before = await snapshot(project);
 
   await app.runOnce("map out the authentication flow");
@@ -127,7 +129,9 @@ test("invalid model-authored graphs fail closed inside the tool without touching
   const output: string[] = [];
   const app = makeApp(runtime, home, output);
   await app.start(project);
-  expect(output.join("")).toContain("(in-conversation only; use /visualize)");
+  expect(output.join("")).not.toContain(" visualize ");
+  await app.runOnce("/visualize");
+  expect(output.join("")).toContain("artifacts: disabled (in-conversation only)");
   await app.runOnce("draw a flowchart of login");
   expect(runtime.results[0]!.isError).toBe(true);
   expect(JSON.parse(runtime.results[0]!.text).data.error).toContain('unknown node "missing"');
