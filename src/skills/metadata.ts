@@ -22,17 +22,32 @@ export function splitSkill(source: string): { header: string; body: string } {
   return { header: match[1], body: source.slice(match[0].length).trim() };
 }
 
-export async function readSkillHeader(filePath: string): Promise<string> {
+export async function readSkillHeader(filePath: string, standalone: true): Promise<string | undefined>;
+export async function readSkillHeader(filePath: string, standalone?: false): Promise<string>;
+export async function readSkillHeader(filePath: string, standalone = false): Promise<string | undefined> {
   const file = await open(filePath, "r");
   try {
     const info = await file.stat();
-    if (!info.isFile() || info.size > MAX_SKILL_BYTES) {
-      throw new Error("skill must be a regular file no larger than 256 KiB");
-    }
+    if (!info.isFile()) throw new Error("skill must be a regular file");
     const buffer = Buffer.alloc(MAX_HEADER_BYTES);
     const { bytesRead } = await file.read(buffer, 0, buffer.length, 0);
+    const source = buffer.subarray(0, bytesRead).toString("utf8");
+    // Standalone skills declare name or description in frontmatter. Ordinary
+    // docs (including title-only frontmatter) are not rejected skill candidates.
+    // Detect intent before YAML parsing so malformed declared skills still warn.
+    const opening = /^\uFEFF?---\r?\n/.exec(source);
+    const frontmatter = opening ? source.slice(opening[0].length).split(/\r?\n---(?:\r?\n|$)/, 1)[0]! : "";
+    if (standalone) {
+      let declared = /(?:^|[\n{,])\s*["']?(?:name|description)["']?\s*:/m.test(frontmatter);
+      try {
+        const value: unknown = parse(frontmatter);
+        declared ||= Boolean(value && typeof value === "object" && ("name" in value || "description" in value));
+      } catch { /* malformed declared skills are still validated below */ }
+      if (!declared) return undefined;
+    }
+    if (info.size > MAX_SKILL_BYTES) throw new Error("skill must be a regular file no larger than 256 KiB");
     // Only frontmatter is retained in the index, never the instruction body.
-    return splitSkill(buffer.subarray(0, bytesRead).toString("utf8")).header;
+    return splitSkill(source).header;
   } finally {
     await file.close();
   }

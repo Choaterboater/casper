@@ -1,4 +1,8 @@
 import { existsSync } from "node:fs";
+import { lstat, realpath } from "node:fs/promises";
+import path from "node:path";
+import { READ_ONLY_STATE_CONFLICT } from "./types";
+import { PiModels } from "./pi-models";
 import {
   createAgentSessionFromServices,
   createAgentSessionRuntime,
@@ -20,12 +24,15 @@ import { nativeEditPath, observationInput, observationOutput, type ToolObservati
 import type {
   AgentRuntime,
   RuntimeEventListener,
+  RuntimeModelSelection,
+  RuntimeModelSelectionOptions,
   RuntimeForkOptions,
   RuntimeReadOnlyStartOptions,
   RuntimeSession,
   RuntimeSessionInfo,
   RuntimeStartOptions,
   RuntimeState,
+  RuntimeStatus,
   RuntimeSwitchOptions,
   RuntimeTool,
 } from "./types";
@@ -56,11 +63,13 @@ class PiRuntimeSession implements RuntimeSession {
   private readonly listeners = new Set<RuntimeEventListener>();
   private readonly toolInputs = new Map<string, ToolObservationInput>();
   private unsubscribePi?: () => void;
+  private promptActive = false;
 
   constructor(
     private readonly runtime: AgentSessionRuntime,
     private readonly tools: PiToolController,
     private readonly readOnly?: { options: RuntimeReadOnlyStartOptions; limitReason: () => string | undefined },
+    private readonly models?: PiModels,
   ) {
     this.bind(runtime.session);
     runtime.setRebindSession(async (session) => { this.bind(session); });
@@ -118,11 +127,40 @@ class PiRuntimeSession implements RuntimeSession {
     });
   }
 
-  async prompt(text: string): Promise<void> {
+  selectModel(options: RuntimeModelSelectionOptions): Promise<RuntimeModelSelection> {
+    if (this.promptActive) throw new Error("Wait for active work before changing models.");
+    if (!this.models) throw new Error("Model selection is unavailable in read-only children.");
+    return this.models.select(this.runtime.session, options);
+  }
+
+  getStatus(): RuntimeStatus {
+    const session = this.runtime.session;
+    if (this.models) return this.models.status(session);
+    const model = session.model;
+    return {
+      provider: model?.provider, model: model?.id, thinkingLevel: session.thinkingLevel,
+      auth: model ? session.modelRuntime.hasConfiguredAuth(model.provider) ? "configured" : "missing" : "unknown",
+    };
+  }
+
+  async prompt(text: string, signal?: AbortSignal): Promise<void> {
+    if (this.promptActive) throw new Error("A prompt is already active.");
+    this.promptActive = true;
     const cancel = () => { void this.runtime.session.abort().catch(() => {}); };
+    const agent = this.runtime.session.agent;
+    const stream = agent.streamFunction;
+    // Cancellation can arrive while Pi is resolving auth, before its agent has
+    // an AbortController. Never start a late request after that cancellation.
+    if (signal) agent.streamFunction = (model, context, options) => {
+      signal.throwIfAborted();
+      return stream(model, context, options);
+    };
+    signal?.addEventListener("abort", cancel, { once: true });
     this.readOnly?.options.signal.addEventListener("abort", cancel, { once: true });
     try {
+      signal?.throwIfAborted();
       this.readOnly?.options.signal.throwIfAborted();
+      this.models?.assertReady(this.runtime.session);
       await this.runtime.session.prompt(text, { expandPromptTemplates: !this.readOnly });
       const limitReason = this.readOnly?.limitReason();
       if (limitReason) this.emit({ type: "assistant_response_end", stopReason: "limit", errorMessage: limitReason });
@@ -133,6 +171,9 @@ class PiRuntimeSession implements RuntimeSession {
       });
       throw error;
     } finally {
+      this.promptActive = false;
+      if (signal) agent.streamFunction = stream;
+      signal?.removeEventListener("abort", cancel);
       this.readOnly?.options.signal.removeEventListener("abort", cancel);
     }
   }
@@ -188,7 +229,7 @@ class PiRuntimeSession implements RuntimeSession {
         case "tool_execution_end": {
           const input = this.toolInputs.get(event.toolCallId);
           this.toolInputs.delete(event.toolCallId);
-          this.emit({ type: "tool_end", toolName: event.toolName, toolCallId: event.toolCallId, input, output: event.toolName === "bash" ? observationOutput(event.result) : undefined, isError: event.isError });
+          this.emit({ type: "tool_end", toolName: event.toolName, toolCallId: event.toolCallId, input, output: event.toolName === "bash" || event.isError ? observationOutput(event.result) : undefined, isError: event.isError });
           break;
         }
         case "agent_end":
@@ -204,8 +245,46 @@ class PiRuntimeSession implements RuntimeSession {
   }
 }
 
+/** Resolve existing state aliases and prospective missing suffixes without creating anything.
+ * This is a bounded, non-atomic preflight, not protection against concurrent path replacement. */
+async function canonicalStatePath(file: string, signal: AbortSignal): Promise<string> {
+  if (Buffer.byteLength(file) > 4096) throw new Error("Writable runtime state path exceeds the preflight limit");
+  let prefix = file;
+  const suffix: string[] = [];
+  for (let step = 0; step < 128; step++) {
+    signal.throwIfAborted();
+    try { return path.join(await realpath(prefix), ...suffix); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      // A dangling symlink is not a missing ordinary path: never invent its destination.
+      const entry = await lstat(prefix).catch((error: NodeJS.ErrnoException) => { if (error.code !== "ENOENT") throw error; });
+      if (entry) throw new Error("Cannot resolve writable runtime state");
+      const parent = path.dirname(prefix);
+      if (parent === prefix) throw error;
+      suffix.unshift(path.basename(prefix));
+      prefix = parent;
+    }
+  }
+  throw new Error("Writable runtime state path exceeds the preflight limit");
+}
+
+async function checkReadOnlyState(options: RuntimeReadOnlyStartOptions, agentDir: string): Promise<void> {
+  const root = await realpath(options.cwd);
+  // Pi owns these locations. Check the directory plus the two files it can write
+  // during ModelRuntime.create, including file symlinks into an otherwise separate source.
+  for (const target of [agentDir, `${agentDir}/auth.json`, path.join(agentDir, "models-store.json")]) {
+    const destination = await canonicalStatePath(target, options.signal);
+    const relative = path.relative(root, destination);
+    if (!relative || (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative))) {
+      throw new Error(READ_ONLY_STATE_CONFLICT);
+    }
+  }
+  options.signal.throwIfAborted();
+}
+
 export class PiRuntime implements AgentRuntime {
   private runtime?: AgentSessionRuntime;
+  private models?: PiModels;
   private wrapper?: PiRuntimeSession;
 
   start(options: RuntimeStartOptions): Promise<RuntimeSession> {
@@ -223,7 +302,9 @@ export class PiRuntime implements AgentRuntime {
     if (this.runtime) throw new Error("Pi runtime already started");
     readOnly?.signal.throwIfAborted();
     const agentDir = getAgentDir();
+    if (readOnly) await checkReadOnlyState(readOnly, agentDir);
     const modelRuntime = await ModelRuntime.create({ authPath: `${agentDir}/auth.json`, modelsPath: `${agentDir}/models.json`, signal: readOnly?.signal });
+    const models = this.models = readOnly ? undefined : new PiModels(modelRuntime, agentDir);
     const tools = new PiToolController(options.tools ?? []);
     let limitReason: string | undefined;
     let toolCalls = 0;
@@ -276,55 +357,58 @@ export class PiRuntime implements AgentRuntime {
       // hooks, project settings, or ambient skills. In-memory settings prevent
       // child model/session choices from rewriting the user's Pi preferences.
       const global = readOnly ? SettingsManager.create(cwd, agentDir).getGlobalSettings() : undefined;
-      const services = await createAgentSessionServices({
-        cwd,
-        agentDir,
-        modelRuntime,
-        settingsManager: global ? SettingsManager.inMemory({
-          defaultProvider: global.defaultProvider, defaultModel: global.defaultModel,
-          defaultThinkingLevel: global.defaultThinkingLevel,
-          compaction: { enabled: false }, retry: { enabled: false },
-        }) : undefined,
-        resourceLoaderOptions: {
-          extensionFactories: [extensionFactory],
-          ...(readOnly ? {
-            noExtensions: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
-            systemPrompt: options.systemPromptAppend ?? "Read-only Casper subagent.",
-            appendSystemPrompt: [],
-          } : {}),
-          // Casper owns discovery, trust checks, and per-task skill selection.
-          noSkills: true,
-          skillsOverride: () => ({ skills: [], diagnostics: [] }),
-          systemPromptOverride: (basePrompt) => readOnly ? options.systemPromptAppend : options.systemPromptAppend
-            ? `${basePrompt ?? ""}\n\n${options.systemPromptAppend}`
-            : basePrompt,
-        },
-      });
-      readOnly?.signal.throwIfAborted();
-      const created = await createAgentSessionFromServices({
-        services, sessionManager, sessionStartEvent,
-        ...(readOnly ? { tools: ["read", "grep", "find", "ls"] } : {}),
-      });
-      if (readOnly) {
-        const stream = created.session.agent.streamFunction;
-        created.session.agent.streamFunction = (model, context, streamOptions) => {
-          // prompt() can await auth before an agent AbortController exists. Link
-          // the caller's cancellation at the last seam before provider execution.
-          readOnly.signal.throwIfAborted();
-          return stream(model, context, streamOptions);
-        };
-        created.session.agent.shouldStopAfterTurn = ({ message }) => {
-          turns++;
-          if (!limitReason && message.content.some((part) => part.type === "toolCall") && (turns >= readOnly.maxTurns || toolCalls >= readOnly.maxToolCalls)) {
-            limitReason = "Subagent turn/tool-call budget exhausted";
-          }
-          return Boolean(limitReason) || readOnly.signal.aborted;
-        };
-      } else created.session.setActiveToolsByName([
-        "read", "bash", "edit", "write", "grep", "find", "ls",
-        ...tools.current().map((tool) => tool.name),
-      ]);
-      return { ...created, services, diagnostics: services.diagnostics };
+      const build = async (modelOptions?: { settingsManager: SettingsManager; modelRuntime: ModelRuntime; model: AgentSession["model"] }) => {
+        const services = await createAgentSessionServices({
+          cwd,
+          agentDir,
+          modelRuntime: modelOptions?.modelRuntime ?? modelRuntime,
+          settingsManager: modelOptions?.settingsManager ?? (global ? SettingsManager.inMemory({
+            defaultProvider: global.defaultProvider, defaultModel: global.defaultModel,
+            defaultThinkingLevel: global.defaultThinkingLevel,
+            compaction: { enabled: false }, retry: { enabled: false },
+          }) : undefined),
+          resourceLoaderOptions: {
+            extensionFactories: [extensionFactory],
+            ...(readOnly ? {
+              noExtensions: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
+              systemPrompt: options.systemPromptAppend ?? "Read-only Casper subagent.",
+              appendSystemPrompt: [],
+            } : {}),
+            // Casper owns discovery, trust checks, and per-task skill selection.
+            noSkills: true,
+            skillsOverride: () => ({ skills: [], diagnostics: [] }),
+            systemPromptOverride: (basePrompt) => readOnly ? options.systemPromptAppend : options.systemPromptAppend
+              ? `${basePrompt ?? ""}\n\n${options.systemPromptAppend}`
+              : basePrompt,
+          },
+        });
+        readOnly?.signal.throwIfAborted();
+        const created = await createAgentSessionFromServices({
+          services, sessionManager, sessionStartEvent, model: modelOptions?.model,
+          ...(readOnly ? { tools: ["read", "grep", "find", "ls"] } : {}),
+        });
+        if (readOnly) {
+          const stream = created.session.agent.streamFunction;
+          created.session.agent.streamFunction = (model, context, streamOptions) => {
+            // prompt() can await auth before an agent AbortController exists. Link
+            // the caller's cancellation at the last seam before provider execution.
+            readOnly.signal.throwIfAborted();
+            return stream(model, context, streamOptions);
+          };
+          created.session.agent.shouldStopAfterTurn = ({ message }) => {
+            turns++;
+            if (!limitReason && message.content.some((part) => part.type === "toolCall") && (turns >= readOnly.maxTurns || toolCalls >= readOnly.maxToolCalls)) {
+              limitReason = "Subagent turn/tool-call budget exhausted";
+            }
+            return Boolean(limitReason) || readOnly.signal.aborted;
+          };
+        } else created.session.setActiveToolsByName([
+          "read", "bash", "edit", "write", "grep", "find", "ls",
+          ...tools.current().map((tool) => tool.name),
+        ]);
+        return { ...created, services, diagnostics: services.diagnostics };
+      };
+      return models ? models.create(cwd, sessionManager, build) : build();
     };
 
     this.runtime = await createAgentSessionRuntime(createRuntime, {
@@ -332,11 +416,12 @@ export class PiRuntime implements AgentRuntime {
       agentDir,
       sessionManager: readOnly ? SessionManager.inMemory(options.cwd) : SessionManager.create(options.cwd),
     });
-    this.wrapper = new PiRuntimeSession(this.runtime, tools, readOnly ? { options: readOnly, limitReason: () => limitReason } : undefined);
+    this.wrapper = new PiRuntimeSession(this.runtime, tools, readOnly ? { options: readOnly, limitReason: () => limitReason } : undefined, models);
     return this.wrapper;
   }
 
   async dispose(): Promise<void> {
+    await this.models?.close(); this.models = undefined;
     this.wrapper?.detach();
     this.wrapper = undefined;
     const runtime = this.runtime;

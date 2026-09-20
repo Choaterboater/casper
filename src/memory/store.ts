@@ -130,14 +130,16 @@ export class ProjectMemory {
     try {
       const info = await file.stat();
       if (!info.isFile() || info.size > MAX_FILE_BYTES) throw new Error("Memory state must be a regular file below 1 MiB");
-      const bytes = Buffer.alloc(MAX_FILE_BYTES + 1);
+      // One sentinel byte detects growth beyond the observed size; never parse
+      // a truncated prefix as the complete store, even if it ends on valid JSONL.
+      const bytes = Buffer.alloc(Math.min(info.size + 1, MAX_FILE_BYTES + 1));
       let count = 0;
       while (count < bytes.length) {
         const read = await file.read(bytes, count, bytes.length - count, count);
         if (!read.bytesRead) break;
         count += read.bytesRead;
       }
-      if (count > MAX_FILE_BYTES) throw new Error("Memory state exceeds 1 MiB");
+      if (count === bytes.length) throw new Error("Memory state grew during read or exceeds 1 MiB");
       const source = new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, count));
       const entries: unknown[] = source.split("\n").filter((line) => line.trim()).map((line) => JSON.parse(line));
       if (entries.length > MAX_RECORDS || !entries.every(valid)) throw new Error("Invalid memory records");

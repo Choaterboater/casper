@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { loadConfiguration } from "../src/config/load";
 import type { ProjectInfo } from "../src/project/inspect";
 import { loadProjectModel } from "../src/project/model";
 import { classifyTask, formatTaskPrompt } from "../src/task/classify";
+import { formatProjectContext, loadProjectContext } from "../src/project/context";
 
 const tempDirs: string[] = [];
 
@@ -77,6 +78,30 @@ describe("Phase 1 project context", () => {
     expect(configuration.projectRules).toBe("Never edit generated files.");
     expect(configuration.projectOverrides.languages).toEqual(["typescript"]);
     expect(configuration.projectOverrides.commands).toEqual({ test: "bun test" });
+  });
+
+  test("project command overrides admit only supported keys through context, prompt and cache", async () => {
+    const root = await temporaryDirectory("casper-command-config-");
+    const homeDir = await temporaryDirectory("casper-command-home-");
+    const info: ProjectInfo = { root, cwd: root, name: "example", gitBranch: null, isGit: false };
+    await mkdir(path.join(root, ".casper"));
+    await writeFile(path.join(root, "package.json"), JSON.stringify({ packageManager: "bun@1.4.0", scripts: { build: "build", lint: "lint" } }));
+    for (const nested of [false, true]) {
+      const commands = { test: "configured-test", typecheck: "configured-typecheck", lint: 12,
+        deploy: "UNSUPPORTED_DEPLOY", constructor: "UNSUPPORTED_CONSTRUCTOR", Test: "UNSUPPORTED_CASE" };
+      await writeFile(path.join(root, ".casper/project.yaml"), JSON.stringify({
+        ...(nested ? { project: { commands } } : { commands }), verify: { test: "verified-test" },
+      }));
+      const config = await loadConfiguration({ projectRoot: root, homeDir });
+      const context = await loadProjectContext(info, { homeDir });
+      expect(formatProjectContext(context)).not.toContain("UNSUPPORTED_");
+      expect(config.projectOverrides.commands).toEqual({ test: "verified-test", typecheck: "configured-typecheck" });
+      expect(context.model.commands).toEqual({ build: "bun run build", lint: "bun run lint", test: "verified-test", typecheck: "configured-typecheck" });
+      expect(formatTaskPrompt("Fix tests", classifyTask("Fix tests"), context.model)).not.toContain("UNSUPPORTED_");
+      const cache = await readFile(path.join(context.stateDirectory, "project.json"), "utf8");
+      expect(cache).not.toContain("UNSUPPORTED_");
+      expect((await loadProjectContext(info, { homeDir })).model).toEqual(context.model);
+    }
   });
 
   test("detects stack and commands, then reuses and invalidates the project cache", async () => {

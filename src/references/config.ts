@@ -1,6 +1,7 @@
 import os from "node:os";
 import path from "node:path";
 import { parse } from "yaml";
+import { isValidProfileName } from "../config/profile";
 import { isRecord } from "../mcp/config";
 import { readReferenceFile, referenceText } from "./files";
 
@@ -43,7 +44,7 @@ export async function discoverReferenceConfiguration(options: { homeDir?: string
   const home = options.homeDir ?? os.homedir();
   const files = [path.join(home, ".casper/references.yaml")];
   const profile = options.profileName ?? "default";
-  if (/^[a-zA-Z0-9_-][a-zA-Z0-9_.-]*$/.test(profile) && profile.length <= 64) {
+  if (isValidProfileName(profile)) {
     files.push(path.join(home, ".casper/profiles", profile, "references.yaml"));
   }
   const sources = new Map<string, ReferenceSource>();

@@ -7,6 +7,8 @@ import { promisify } from "node:util";
 import { CasperApp } from "../src/app";
 import { loadProjectContext } from "../src/project/context";
 import { SkillRegistry } from "../src/skills/registry";
+import { ProjectMemory } from "../src/memory/store";
+import { HELP_TEXT } from "../src/tui/help";
 import type {
   AgentRuntime,
   RuntimeEventListener,
@@ -69,6 +71,55 @@ afterEach(async () => {
 });
 
 describe("CasperApp", () => {
+  test.each(["/help", "/help all", "/status", "/login", "/skills diagnostics", "/exit", "/quit", "/nope", "/verfy typecheck", "  /nope  "])("%s stays local without runtime startup or outcomes", async (prompt) => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "casper-command-project-"));
+    const homeDir = await mkdtemp(path.join(os.tmpdir(), "casper-command-home-"));
+    tempDirs.push(root, homeDir);
+    const runtime = new FakeRuntime();
+    let starts = 0;
+    let stateDirectory = "";
+    let output = "";
+    const app = new CasperApp({
+      runtimeFactory: () => { starts++; return runtime; },
+      loadProjectContext: async (project) => {
+        const context = await loadProjectContext(project, { homeDir });
+        stateDirectory = context.stateDirectory;
+        return context;
+      },
+      loadSkillRegistry: (context) => SkillRegistry.discover({ projectRoot: context.info.root, homeDir }),
+      output: { write: (text) => { output += text; } },
+    });
+    try {
+      if (["/help", "/help all", "/status", "/login", "/skills diagnostics", "/exit", "/quit"].includes(prompt.trim())) {
+        expect(await app.runOnce(prompt, root)).toBeUndefined();
+        if (prompt === "/help") expect(output).toContain(HELP_TEXT);
+      } else {
+        await expect(app.runOnce(prompt, root)).rejects.toThrow("Unknown command");
+      }
+      expect(starts).toBe(0);
+      expect(runtime.prompts).toHaveLength(0);
+      expect(app.getLastTaskResult()).toBeUndefined();
+      expect(await new ProjectMemory(stateDirectory).outcomes()).toEqual([]);
+    } finally { await app.close(); }
+  });
+
+  test("CLI help and exit commands succeed locally while unknown commands exit 1", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "casper-command-cli-"));
+    tempDirs.push(root);
+    const cli = path.resolve(import.meta.dir, "../src/cli.ts");
+    for (const command of ["--help", "/help", "/exit", "/quit", "/verfy typecheck"]) {
+      const child = Bun.spawn([process.execPath, cli, command], {
+        cwd: root, env: { ...process.env, HOME: root, CASPER_PROFILE: "default" }, stdout: "pipe", stderr: "pipe",
+      });
+      const [stdout, stderr, code] = await Promise.all([
+        new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited,
+      ]);
+      expect(code).toBe(command.startsWith("/verfy") ? 1 : 0);
+      if (command.includes("help")) expect(stdout).toContain(HELP_TEXT);
+      if (command.startsWith("/verfy")) expect(stderr).toContain('Unknown command "/verfy"');
+    }
+  });
+
   test("local skill commands work without starting an unavailable runtime", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "casper-local-project-"));
     const homeDir = await mkdtemp(path.join(os.tmpdir(), "casper-local-home-"));
@@ -154,8 +205,15 @@ describe("CasperApp", () => {
       await app.runOnce(`/skills block ${id}`);
       await app.runOnce("Add a TypeScript MCP tool");
       expect(runtime.prompts[2]).not.toContain("PROJECT_INSTRUCTIONS");
+      output = "";
       await app.runOnce("Hello there");
+      expect(output).not.toContain("[task]");
       expect(runtime.prompts[3]).not.toContain("_INSTRUCTIONS");
+      expect(app.getLastTaskResult()).toBeDefined();
+      await app.runOnce("/help");
+      expect(app.getLastTaskResult()).toBeUndefined();
+      await expect(app.runOnce("/nope")).rejects.toThrow("Unknown command");
+      expect(app.getLastTaskResult()).toBeUndefined();
       await app.runOnce("/skills nonsense");
       expect(output).toContain("Usage: /skills");
       expect(runtime.prompts).toHaveLength(4);
@@ -202,6 +260,8 @@ describe("CasperApp", () => {
     });
 
     await app.runOnce("fix this failing test", tempDir);
+    expect(output).not.toContain("stack     ");
+    await app.runOnce("/project");
     await app.close();
 
     expect(fakeRuntime.startOptions?.cwd).toBe(expectedRoot);

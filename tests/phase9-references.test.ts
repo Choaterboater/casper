@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { link, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { discoverReferenceConfiguration } from "../src/references/config";
@@ -42,6 +42,23 @@ test("local reference search returns literal matches with inspectable source pro
   expect(result.guidance).toContain("Current repository");
   expect(result.guidance).toContain("untrusted");
   expect(await readFile(path.join(repo, "docs/router.md"), "utf8")).toBe(source);
+});
+
+for (const excluded of ["a.data", "package-lock.json"]) test(`an excluded ${excluded} hardlink cannot hide an eligible reference file`, async () => {
+  const { home, repo, config } = await fixture();
+  await writeFile(path.join(repo, "docs", excluded), "needle\n");
+  await link(path.join(repo, "docs", excluded), path.join(repo, "docs/z.md"));
+  await link(path.join(repo, "docs", excluded), path.join(repo, "docs/zz.md"));
+  const paths = excluded === "a.data" ? ["docs"] : [`docs/${excluded}`, "docs/z.md", "docs/zz.md", "docs"];
+  await writeFile(config, JSON.stringify({ references: { router: { path: repo, paths } } }));
+  const library = new ReferenceLibrary(await discoverReferenceConfiguration({ homeDir: home }));
+  cleanup.push(() => library.close());
+  const result = await library.search({ query: "needle" });
+  expect(result.status).toBe("complete");
+  expect(result.issues).toEqual([]);
+  expect(result.matches.map((entry) => entry.file)).toEqual(["docs/z.md"]);
+  expect(result.filesSearched).toBe(1); // Eligible hardlinks and overlapping paths still deduplicate.
+  expect(result.bytesRead).toBe(7);
 });
 
 test("configuration is user/profile metadata only, with null disables and no invalid-override fallback", async () => {
@@ -190,6 +207,23 @@ test("tool results retain whole provenance records within the serialized result 
   expect(result.matches.length).toBeLessThan(8);
   expect(result.issues.join("\n")).toContain("limit reached");
   expect(result.matches[0]).toMatchObject({ source: "router", file: "docs/many.md", line: 1 });
+});
+
+test("C1 escaping participates in the reference tool's serialized byte budget", async () => {
+  const { home, repo } = await fixture();
+  await writeFile(path.join(repo, "docs/controls.md"), Array(12).fill("needle " + "\u009b".repeat(500)).join("\n"));
+  const library = new ReferenceLibrary(await discoverReferenceConfiguration({ homeDir: home }));
+  cleanup.push(() => library.close());
+  const output = await library.tools()[0]!.execute({ query: "needle" });
+  expect(output.isError).not.toBe(true);
+  expect(output.text.includes("\u009b")).toBe(false);
+  expect(Buffer.byteLength(output.text)).toBeLessThanOrEqual(16_384);
+  const result = JSON.parse(output.text);
+  expect(result.status).toBe("partial");
+  expect(result.matches.length).toBeGreaterThan(0);
+  expect(result.matches.length).toBeLessThan(8);
+  expect(result.matches[0].excerpt).toBe("needle " + "\u009b".repeat(500));
+  expect(result.matches[0]).toMatchObject({ source: "router", file: "docs/controls.md", line: 1 });
 });
 
 test("cancellation and close stop pending searches and revoke captured tools", async () => {

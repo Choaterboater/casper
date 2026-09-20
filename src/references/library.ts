@@ -5,6 +5,9 @@ import { isRecord } from "../mcp/config";
 import type { RuntimeTool } from "../runtime/types";
 import type { ReferenceConfiguration, ReferenceSource } from "./config";
 import { readReferenceFile, referenceText } from "./files";
+import { formatTerminalJSON as formatReferenceResult } from "../tui/json";
+
+export { formatReferenceResult };
 
 const MAX_FILE_BYTES = 131_072;
 const MAX_TOTAL_BYTES = 4_194_304;
@@ -39,10 +42,6 @@ export interface ReferenceSearchResult {
   scope: string;
 }
 
-/** Safe terminal output too: JSON escapes control characters; escape bidi controls explicitly. */
-export function formatReferenceResult(result: unknown): string {
-  return (JSON.stringify(result) ?? "null").replace(/[\u202a-\u202e\u2066-\u2069]/gu, (char) => `\\u${char.codePointAt(0)!.toString(16)}`);
-}
 function excerpt(line: string, offset: number): { excerpt: string; excerptTruncated: boolean } {
   let start = Math.max(0, offset - 120);
   if (start && /[\uDC00-\uDFFF]/u.test(line[start]!)) start--;
@@ -168,6 +167,8 @@ export class ReferenceLibrary {
           }
           const info = await lstat(target);
           if (info.isSymbolicLink()) { issue(`${source.id}: skipped symlink ${relative}`); return; }
+          // An excluded filename must not consume the identity of an eligible hardlink.
+          if (info.isFile() && (!TEXT_EXTENSIONS.has(path.extname(relative).toLowerCase()) || /(?:^|\/)(?:package-lock\.json|yarn\.lock|bun\.lock|pnpm-lock\.yaml)$/.test(relative))) return;
           const identity = `${info.dev}:${info.ino}`;
           if (seen.has(identity)) return;
           seen.add(identity);
@@ -187,7 +188,6 @@ export class ReferenceLibrary {
             return;
           }
           if (!info.isFile()) { issue(`${source.id}: skipped non-regular file ${relative}`); return; }
-          if (!TEXT_EXTENSIONS.has(path.extname(relative).toLowerCase()) || /(?:^|\/)(?:package-lock\.json|yarn\.lock|bun\.lock|pnpm-lock\.yaml)$/.test(relative)) return;
           if (info.size > MAX_FILE_BYTES) { issue(`${source.id}: file exceeds ${MAX_FILE_BYTES} bytes: ${relative}`); return; }
           if (result.bytesRead + info.size > MAX_TOTAL_BYTES) { issue("Total read limit reached; narrow the configured paths."); stopped = true; return; }
           const bytes = await readReferenceFile(target, Math.min(MAX_FILE_BYTES, MAX_TOTAL_BYTES - result.bytesRead));

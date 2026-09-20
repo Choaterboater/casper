@@ -2,8 +2,10 @@ import { readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { parse } from "yaml";
+import { isValidProfileName } from "./profile";
 import type { ProjectCommand, ProjectModelOverrides } from "../project/model";
 import { CHECK_NAMES } from "../verify/evidence";
+import { SKILL_IMPORTS, type SkillImport } from "../skills/registry";
 import { isVerificationScope, type VerificationScope } from "../verify/scope";
 import { resolveVisualizationSettings, type VisualizationSettings } from "../visualize/router";
 
@@ -44,7 +46,7 @@ export interface LoadedConfiguration {
   profileRules: string | null;
   projectRules: string | null;
   projectOverrides: ProjectModelOverrides;
-  skills: { maxActive: number };
+  skills: { maxActive: number; imports: SkillImport[] };
   verification: { timeoutMs: number };
   repair: { maxAttempts: number };
   visualize: VisualizationSettings;
@@ -272,7 +274,8 @@ function projectOverrides(document: Mapping): ProjectModelOverrides {
   const project = isMapping(document.project) ? document.project : document;
   const commands = isMapping(project.commands)
     ? Object.fromEntries(
-        Object.entries(project.commands).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
+        Object.entries(project.commands).filter((entry): entry is [ProjectCommand, string] =>
+          CHECK_NAMES.some((name) => name === entry[0]) && typeof entry[1] === "string"),
       )
     : undefined;
   const architecture = isMapping(project.architecture)
@@ -301,14 +304,34 @@ export async function loadConfiguration(
   const casperHome = path.join(homeDir, ".casper");
   const globalDocument = await readYaml(path.join(casperHome, "config.yaml"));
   const projectDocument = await readYaml(path.join(options.projectRoot, ".casper", "project.yaml"));
-  const selectedProfile =
-    stringValue(options.profileName) ??
-    stringValue(process.env.CASPER_PROFILE) ??
-    stringValue(projectDocument.profile) ??
-    stringValue(globalDocument.profile) ??
-    "default";
+  const candidates = [
+    { source: "options.profileName", value: options.profileName },
+    { source: "CASPER_PROFILE", value: process.env.CASPER_PROFILE },
+    { source: "project profile", value: projectDocument.profile },
+    { source: "global profile", value: globalDocument.profile },
+  ];
+  let selectedProfile: string | undefined;
+  for (const { source, value } of candidates) {
+    if (value === undefined) continue;
+    if (!isValidProfileName(value)) {
+      throw new Error(`Invalid profile name in ${source}: expected 1–64 ASCII letters, digits, underscores, dots or hyphens, starting with a letter or digit`);
+    }
+    selectedProfile ??= value;
+  }
+  selectedProfile ??= "default";
   const profileDir = path.join(casperHome, "profiles", selectedProfile);
   const profileDocument = await readYaml(path.join(profileDir, "config.yaml"));
+  let imports: SkillImport[] = [];
+  for (const document of [globalDocument, profileDocument, projectDocument]) {
+    if (document.skills !== undefined && !isMapping(document.skills)) throw new Error("skills must be a mapping");
+    const value = isMapping(document.skills) ? document.skills.imports : undefined;
+    if (value === undefined) continue;
+    if (document === projectDocument) throw new Error("skills.imports is user/profile-only; projects cannot enable imports");
+    if (!Array.isArray(value) || !value.every((entry): entry is SkillImport => SKILL_IMPORTS.includes(entry))) {
+      throw new Error("skills.imports must be a list containing only pi, agents, claude, codex");
+    }
+    imports = [...new Set<SkillImport>(value)];
+  }
   let maxActive = 6;
   let timeoutMs = 120_000;
   let maxAttempts = 3;
@@ -324,7 +347,7 @@ export async function loadConfiguration(
   }
 
   return {
-    skills: { maxActive },
+    skills: { maxActive, imports },
     verification: { timeoutMs },
     repair: { maxAttempts },
     visualize: resolveVisualizationSettings({

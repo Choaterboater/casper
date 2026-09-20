@@ -1,4 +1,6 @@
-import readline from "node:readline";
+import { HELP_TEXT, FULL_HELP_TEXT, LOGIN_HELP } from "./tui/help";
+import { InteractiveTerminal } from "./tui/terminal";
+import { formatRuntimeStatus, formatToolActivity } from "./tui/format";
 import { ProjectMemory, type TaskOutcome } from "./memory/store";
 import { discoverReferenceConfiguration, type ReferenceConfiguration } from "./references/config";
 import { formatReferenceResult, ReferenceLibrary } from "./references/library";
@@ -10,8 +12,7 @@ import { boundCapabilityResult } from "./capabilities/result";
 import { discoverMCPConfiguration, type MCPConfiguration } from "./mcp/config";
 import { MCPManager } from "./mcp/manager";
 import { CapabilityBroker, type ConfirmCapability } from "./capabilities/broker";
-import type { Interface as ReadlineInterface } from "node:readline";
-import type { Writable, Readable } from "node:stream";
+import type { Readable } from "node:stream";
 import {
   formatProjectContext,
   loadProjectContext,
@@ -94,7 +95,11 @@ export class CasperApp {
   private broker?: CapabilityBroker;
   private runtimeTools: RuntimeTool[] = [];
   private mcpClose?: Promise<void>;
-  private confirmationPending = false;
+  private readonly terminal: InteractiveTerminal;
+  private interactive = false;
+  private cancelBeforeCommand = false;
+  private commandAbort?: AbortController;
+  private readonly toolStarted = new Map<string, number>();
   private readonly output: OutputWriter;
   private readonly input: Readable;
   private runtime?: AgentRuntime;
@@ -103,7 +108,6 @@ export class CasperApp {
   private closing = false;
   private closeWork?: Promise<void>;
   private unsubscribe?: () => void;
-  private readline?: ReadlineInterface;
   private projectContext?: ProjectContext;
   private skillRegistry?: SkillRegistry;
   private readonly reportedSkillWarnings = new Set<string>();
@@ -146,6 +150,7 @@ export class CasperApp {
     this.loadSkillRegistryFn = options.loadSkillRegistry ?? ((context) => SkillRegistry.discover({
       projectRoot: context.info.root,
       maxActive: context.skills.maxActive,
+      imports: context.skills.imports,
     }));
     this.loadMCPConfigurationFn = options.loadMCPConfiguration ?? ((context) => discoverMCPConfiguration({
       projectRoot: context.info.root, profileName: context.profileName,
@@ -156,22 +161,25 @@ export class CasperApp {
     this.loadReferenceConfigurationFn = options.loadReferenceConfiguration ?? ((context) => discoverReferenceConfiguration({
       profileName: context.profileName,
     }));
-    this.output = options.output ?? process.stdout;
     this.input = options.input ?? process.stdin;
+    this.terminal = new InteractiveTerminal(this.input, options.output ?? process.stdout,
+      () => this.cancelCurrent(), () => { if (this.commandActive && !this.closing) void this.close(); });
+    this.output = { write: (text) => this.terminal.write(text) };
     this.autoVerify = options.autoVerify ?? false;
     this.visualizationProviders = options.visualizationProviders ?? [new MermaidProvider(), new MindMeshProvider()];
     this.sessionHomeDir = options.sessionHomeDir;
   }
 
-  async start(cwd = process.cwd()): Promise<ProjectInfo> {
-    if (this.closing) throw new Error("Casper is closing");
-    if (this.projectContext) return this.projectContext.info;
+  /** Load all workspace metadata before publishing it. No connections or model startup. */
+  private async loadWorkspace(cwd: string) {
     const project = await this.inspectProjectFn(cwd);
     const context = await this.loadProjectContextFn(project);
-    const registry = await this.loadSkillRegistryFn(context);
-    const mcpConfiguration = await this.loadMCPConfigurationFn(context);
-    const lspConfiguration = await this.loadLSPConfigurationFn(context);
-    const referenceConfiguration = await this.loadReferenceConfigurationFn(context);
+    const [registry, mcpConfiguration, lspConfiguration, referenceConfiguration] = await Promise.all([
+      this.loadSkillRegistryFn(context),
+      this.loadMCPConfigurationFn(context),
+      this.loadLSPConfigurationFn(context),
+      this.loadReferenceConfigurationFn(context),
+    ]);
     if (this.closing) throw new Error("Casper is closing");
     this.references = new ReferenceLibrary(referenceConfiguration);
     this.projectContext = context;
@@ -180,18 +188,21 @@ export class CasperApp {
     this.lsp = new LSPManager(context.info.root, lspConfiguration);
     this.visualization = new VisualizationRouter({ providers: this.visualizationProviders, settings: context.visualize, workspaceRoot: context.info.root });
     this.broker = new CapabilityBroker(this.mcp, (call, signal) => this.confirmCapability(call, signal));
+    return { project, context, registry, mcp: this.mcp, visualization: this.visualization, lspConfiguration, referenceConfiguration };
+  }
+
+  async start(cwd = process.cwd()): Promise<ProjectInfo> {
+    if (this.closing) throw new Error("Casper is closing");
+    if (this.projectContext) return this.projectContext.info;
+    const { project, context, mcp, visualization, lspConfiguration, referenceConfiguration } = await this.loadWorkspace(cwd);
+    if (this.closing) throw new Error("Casper is closing");
     this.output.write(renderBanner(context));
-    this.output.write(` skills    ${this.skillRegistry.list().length} indexed (use /skills)\n\n`);
-    this.output.write(" memory    explicit facts; task summaries recorded locally, acceptance unknown (use /memory)\n\n");
-    if (referenceConfiguration.sources.length) this.output.write(` references ${referenceConfiguration.sources.length} local sources (read-only; use /references)\n\n`);
+    this.output.write(`${formatRuntimeStatus(this.session?.getStatus?.())}\n`);
     for (const diagnostic of referenceConfiguration.diagnostics) this.output.write(`[references] ${formatReferenceResult(diagnostic)}\n`);
     this.reportSkillWarnings();
-    this.output.write(` mcp       ${this.mcp.status().length} configured (disconnected; use /mcp)\n\n`);
-    for (const diagnostic of this.mcp.diagnostics) this.output.write(`[mcp] ${diagnostic}\n`);
-    this.output.write(` lsp       ${lspConfiguration.servers.length} configured (disconnected; use /lsp)\n\n`);
+    for (const diagnostic of mcp.diagnostics) this.output.write(`[mcp] ${diagnostic}\n`);
     for (const diagnostic of lspConfiguration.diagnostics) this.output.write(`[lsp] ${diagnostic}\n`);
-    this.output.write(` visualize ${this.visualization.providerNames().join(", ")} (${context.visualize.outputDir ? "artifacts outside workspace" : "in-conversation only"}; use /visualize)\n\n`);
-    for (const diagnostic of this.visualization.diagnostics) this.output.write(`[visualize] ${diagnostic}\n`);
+    for (const diagnostic of visualization.diagnostics) this.output.write(`[visualize] ${diagnostic}\n`);
     return project;
   }
 
@@ -206,7 +217,7 @@ export class CasperApp {
     }
 
     this.writePrompt(prompt);
-    return this.handlePrompt(prompt);
+    return this.handlePrompt(prompt.trim());
   }
 
   async runInteractive(cwd = process.cwd()): Promise<void> {
@@ -214,22 +225,16 @@ export class CasperApp {
       await this.start(cwd);
     }
 
-    this.readline = readline.createInterface({
-      input: this.input,
-      output: this.output as Writable,
-    });
-
-    const rl = this.readline;
-    let inputClosed = false;
-    rl.once("close", () => { inputClosed = true; });
-    while (!this.closing && !inputClosed) {
-      const line = await new Promise<string | undefined>((resolve) => {
-        const finish = (value?: string) => { rl.removeListener("close", onClose); resolve(value); };
-        const onClose = () => finish();
-        rl.once("close", onClose);
-        rl.question("> ", finish);
-      });
+    this.interactive = true;
+    this.terminal.start();
+    while (!this.closing) {
+      this.cancelBeforeCommand = false;
+      const line = await this.terminal.readCommand();
       if (line === undefined) break;
+      if (this.cancelBeforeCommand) {
+        this.output.write("[cancel] Request cancelled before startup.\n");
+        continue;
+      }
       const prompt = line.trim();
 
       if (!prompt) {
@@ -244,14 +249,35 @@ export class CasperApp {
       catch (error) {
         if (this.closing) break;
         this.ensureLineBreak();
-        this.output.write(`[error] ${error instanceof Error ? error.message : String(error)}\n`);
+        if (!this.commandAbort?.signal.aborted) this.output.write(`[error] ${error instanceof Error ? error.message : String(error)}\n`);
       }
     }
+    this.terminal.close();
+    this.interactive = false;
+  }
+
+  /** OS SIGINT and terminal Ctrl-C share cancellation, without disposing the session. */
+  interrupt(): boolean {
+    if (!this.interactive) return false;
+    this.terminal.interrupt();
+    return true;
+  }
+
+  private cancelCurrent(): void {
+    if (!this.commandActive) { this.cancelBeforeCommand = true; return; }
+    if (this.commandAbort?.signal.aborted) return;
+    this.commandAbort?.abort();
+    this.taskRuntimeCancelled = true;
+    this.verificationAbort?.abort(); this.checkTask?.abort(); this.visualizationAbort?.abort();
+    void this.session?.abort().catch(() => {});
+    this.terminal.endAssistant();
+    this.output.write("[cancel] Cancelling active work; changes already made are retained.\n");
   }
 
   close(): Promise<void> {
     if (this.closeWork) return this.closeWork;
     this.closing = true;
+    this.commandAbort?.abort();
     this.verificationAbort?.abort();
     this.checkTask?.abort();
     this.visualizationAbort?.abort();
@@ -259,7 +285,7 @@ export class CasperApp {
     this.mcpClose = this.broker?.close();
     this.lspClose = this.lsp?.close();
     this.referencesClose = this.references?.close();
-    this.readline?.close();
+    this.terminal.close();
     this.closeWork = this.finishClose();
     return this.closeWork;
   }
@@ -278,7 +304,7 @@ export class CasperApp {
         await this.memoryWork;
       } finally {
         this.unsubscribe?.();
-        this.readline?.close();
+        this.terminal.close();
         try { await this.runtime?.dispose(); }
         finally { await Promise.all([this.mcpClose, this.lspClose, this.subagentsClose, this.referencesClose]); }
       }
@@ -308,6 +334,7 @@ export class CasperApp {
         });
         await (await this.ensureSessionWorkspace()).resumeActive(this.session);
         this.unsubscribe = this.session.subscribe((event) => this.handleRuntimeEvent(event));
+        this.output.write(`${formatRuntimeStatus(this.session.getStatus?.() ?? { auth: "unknown" })}\n`);
         return this.session;
       }).catch(async (error) => {
         if (!this.closing) {
@@ -336,6 +363,7 @@ export class CasperApp {
     this.taskRuntimeFailed = false;
     this.taskRuntimeCancelled = false;
     this.commandActive = true;
+    this.commandAbort = new AbortController();
     this.workspaceTransition = transition;
     try {
       if (this.workspaceNeedsRebind) await this.rebindWorkspace(this.activeWorkspaceRoot());
@@ -350,6 +378,39 @@ export class CasperApp {
 
   private async handlePromptCommand(prompt: string): Promise<VerificationReport | undefined> {
     if (this.closing) return;
+    if (prompt === "/help" || prompt === "/help all") {
+      this.output.write(prompt === "/help" ? HELP_TEXT : FULL_HELP_TEXT);
+      return;
+    }
+    if (prompt === "/login") { this.output.write(LOGIN_HELP); return; }
+    if (/^\/model(?:\s|$)/.test(prompt)) {
+      if (this.subagents.isBusy) throw new Error("Wait for active subagents before changing models.");
+      const session = await this.ensureRuntime();
+      this.commandAbort?.signal.throwIfAborted();
+      if (!session.selectModel) throw new Error("This runtime does not support model selection.");
+      const result = await session.selectModel({ query: prompt.slice(6).trim() || undefined, signal: this.commandAbort?.signal,
+        picker: this.interactive ? this.terminal.modelPickerHost() : undefined });
+      this.output.write(`${formatRuntimeStatus(result.status)}\n`);
+      if (result.selected) this.output.write(result.savedDefault
+        ? "[model] Selected and saved as the Casper default for new conversations. Shared Pi settings unchanged.\n"
+        : "[model] Selected for this conversation only; startup default unchanged.\n");
+      if (result.selected) this.output.write(`[model] The next request sends this conversation's context to ${result.status.provider}.\n`);
+      if (result.models) {
+        this.output.write(result.models.length ? result.models.map((model) => `  ${model.provider}/${model.id}`).join("\n") + "\n" : "No models with configured credentials. Use /login for setup guidance.\n");
+        this.output.write("Use /model <provider/model-id> to select. Selection does not send a prompt.\n");
+      }
+      return;
+    }
+    if (prompt === "/status") {
+      this.output.write(`${formatRuntimeStatus(this.session ? this.session.getStatus?.() ?? { auth: "unknown" } : undefined)}\n`);
+      this.output.write(` skills    ${this.skillRegistry!.list().length} indexed; imports: ${this.projectContext!.skills.imports?.join(", ") || "none"} (/skills diagnostics)\n`);
+      this.output.write(` mcp       ${this.mcp!.status().length} configured (/mcp for connection status)\n`);
+      this.output.write(` lsp       ${this.lsp!.status().length} configured (/lsp for connection status)\n`);
+      this.output.write(` visualize ${this.visualization!.providerNames().join(", ")} (/visualize)\n`);
+      this.output.write(" memory    explicit facts and local task summaries; acceptance unknown until recorded (/memory)\n references read-only local sources (/references)\n");
+      return;
+    }
+    if (prompt === "/exit" || prompt === "/quit") return;
     if (/^\/memory(?:\s|$)/.test(prompt)) {
       this.memoryWork = this.handleMemoryCommand(prompt);
       try { await this.memoryWork; }
@@ -408,6 +469,9 @@ export class CasperApp {
       }
       return this.runVerification(args.length ? args as ProjectCommand[] : CHECK_NAMES, repair);
     }
+    if (prompt.startsWith("/")) {
+      throw new Error(`Unknown command ${JSON.stringify(prompt.split(/\s+/)[0])}. Type /help for local commands.`);
+    }
     const context = this.projectContext!;
     const classification = classifyTask(prompt);
     this.lastTaskRequest = prompt;
@@ -417,31 +481,38 @@ export class CasperApp {
       this.output.write(` skills selected: ${selected.map(({ skill }) => skill.name).join(", ")}\n`);
     }
     const skillContext = formatSelectedSkills(selected);
-    const memoryContext = await new ProjectMemory(context.stateDirectory).context();
-    if (this.closing) return;
+    let memoryContext = "";
+    try {
+      memoryContext = await new ProjectMemory(context.stateDirectory).context();
+    } catch {
+      // Facts are optional guidance. Keep explicit memory operations fail-closed,
+      // and never echo possibly sensitive file contents or paths from read errors.
+      if (!this.closing) this.output.write("[memory] Facts unavailable (invalid or unreadable state); continuing without them. Preserve and inspect memory.jsonl before manual repair.\n");
+    }
+    if (this.closing || this.commandAbort?.signal.aborted) return;
     if (this.autoVerify) this.checkTask = new VerificationTask(
       VerifierRegistry.forProject(context.model, context.verification.timeoutMs), this.activeWorkspaceRoot(),
       (result) => { this.ensureLineBreak(); this.output.write(`${formatVerificationResult(result)}\n`); },
     );
     await this.prepareCapabilities(prompt, classification.intent === "visualize");
-    if (this.closing) return;
+    if (this.closing || this.commandAbort?.signal.aborted) return;
     const session = await this.ensureRuntime();
-    if (this.closing) return;
+    if (this.closing || this.commandAbort?.signal.aborted) return;
     let verification: VerificationReport | undefined;
     try {
       await session.prompt([
         memoryContext,
         skillContext,
         formatTaskPrompt(prompt, classification, context.model),
-      ].filter(Boolean).join("\n\n"));
-      if (!this.closing && !this.taskRuntimeFailed && !this.checkTask?.signal.aborted && this.checkTask?.checks.length) {
+      ].filter(Boolean).join("\n\n"), this.commandAbort?.signal);
+      if (!this.closing && !this.commandAbort?.signal.aborted && !this.taskRuntimeFailed && !this.checkTask?.signal.aborted && this.checkTask?.checks.length) {
         verification = await this.runVerification(this.checkTask.checks, true, prompt, this.checkTask);
       }
     } catch (error) {
       this.taskRuntimeFailed = true;
       throw error;
     } finally {
-      const execution = this.closing || this.taskRuntimeCancelled || this.checkTask?.signal.aborted ? "cancelled" : this.taskRuntimeFailed ? "failed" : "completed";
+      const execution = this.closing || this.commandAbort?.signal.aborted || this.taskRuntimeCancelled || this.checkTask?.signal.aborted ? "cancelled" : this.taskRuntimeFailed ? "failed" : "completed";
       // Keep already-executed evidence on terminal error/cancellation, but never
       // launch another command or repair prompt after the task has stopped.
       if (!verification && this.checkTask?.checks.length) verification = {
@@ -451,8 +522,11 @@ export class CasperApp {
       this.lastTaskResult = { execution, verification, observedEdits: [...this.observedEdits],
         observedChecks: [...this.observedChecks.values()], possibleMutations: this.possibleMutations };
       if (!this.closing) {
+        this.terminal.endAssistant();
         this.ensureLineBreak();
-        this.output.write(`${formatTaskResult(this.lastTaskResult)}\n`);
+        if (classification.intent !== "general" || execution !== "completed" || verification || this.possibleMutations || this.observedEdits.size || this.observedChecks.size) {
+          this.output.write(`${formatTaskResult(this.lastTaskResult)}\n`);
+        }
       }
       await this.recordTaskOutcome({ task: prompt, skills: selected.map(({ skill }) => skill.id),
         modelStatus: execution, verification });
@@ -512,6 +586,9 @@ export class CasperApp {
       VerifierRegistry.forProject(context.model, context.verification.timeoutMs), this.activeWorkspaceRoot(),
       (result) => { this.ensureLineBreak(); this.output.write(`${formatVerificationResult(result)}\n`); },
     );
+    const cancel = () => controller.abort();
+    this.commandAbort?.signal.addEventListener("abort", cancel, { once: true });
+    if (this.commandAbort?.signal.aborted) cancel();
     this.verificationAbort = controller;
     this.verificationTask = evidence;
     this.ensureLineBreak();
@@ -528,7 +605,7 @@ export class CasperApp {
           await this.prepareCapabilities(request);
           const session = await this.ensureRuntime();
           if (!controller.signal.aborted) {
-            await session.prompt(prompt);
+            await session.prompt(prompt, controller.signal);
             if (this.taskRuntimeFailed) throw new Error("Repair model stopped unsuccessfully; changes retained.");
           }
         } : undefined,
@@ -539,6 +616,7 @@ export class CasperApp {
       return report;
     } finally {
       if (!task) await evidence.close();
+      this.commandAbort?.signal.removeEventListener("abort", cancel);
       this.verificationTask = undefined;
       this.verificationAbort = undefined;
       this.verificationWork = undefined;
@@ -639,22 +717,8 @@ export class CasperApp {
 
   private async rebindWorkspace(cwd: string): Promise<void> {
     await this.revokeWorkspaceCapabilities();
-    const project = await this.inspectProjectFn(cwd);
-    const context = await this.loadProjectContextFn(project);
-    const [registry, mcpConfiguration, lspConfiguration, referenceConfiguration] = await Promise.all([
-      this.loadSkillRegistryFn(context),
-      this.loadMCPConfigurationFn(context),
-      this.loadLSPConfigurationFn(context),
-      this.loadReferenceConfigurationFn(context),
-    ]);
+    const { context } = await this.loadWorkspace(cwd);
     if (this.closing) throw new Error("Casper is closing");
-    this.references = new ReferenceLibrary(referenceConfiguration);
-    this.projectContext = context;
-    this.skillRegistry = registry;
-    this.mcp = new MCPManager(mcpConfiguration);
-    this.lsp = new LSPManager(context.info.root, lspConfiguration);
-    this.visualization = new VisualizationRouter({ providers: this.visualizationProviders, settings: context.visualize, workspaceRoot: context.info.root });
-    this.broker = new CapabilityBroker(this.mcp, (call, signal) => this.confirmCapability(call, signal));
     this.runtimeTools = [];
     this.session?.setTools?.([]);
     await this.session?.appendContext?.([
@@ -736,6 +800,7 @@ export class CasperApp {
     const result = await this.subagents.run({
       role: role as SubagentRole,
       goal,
+      signal: this.commandAbort?.signal,
       cwd: this.activeWorkspaceRoot(),
       projectContext: formatProjectContext(this.projectContext!),
     });
@@ -775,24 +840,9 @@ export class CasperApp {
   };
 
   private async confirmExact(preview: string, question: string, signal?: AbortSignal): Promise<boolean> {
-    if (!this.readline || this.confirmationPending || this.closing || signal?.aborted) return false;
-    this.confirmationPending = true;
-    this.ensureLineBreak();
-    this.output.write(preview);
-    try {
-      return await new Promise<boolean>((resolve) => {
-        const rl = this.readline!;
-        const finish = (approved: boolean) => {
-          signal?.removeEventListener("abort", cancel);
-          rl.removeListener("close", cancel);
-          resolve(approved);
-        };
-        const cancel = () => finish(false);
-        signal?.addEventListener("abort", cancel, { once: true });
-        rl.once("close", cancel);
-        rl.question(question, { signal }, (answer) => finish(answer.trim() === "yes"));
-      });
-    } finally { this.confirmationPending = false; }
+    if (!this.interactive || this.closing || signal?.aborted || this.commandAbort?.signal.aborted) return false;
+    const signals = [signal, this.commandAbort?.signal].filter((value): value is AbortSignal => Boolean(value));
+    return this.terminal.confirm(preview, question, signals.length ? AbortSignal.any(signals) : undefined);
   }
 
   private async handleSkillsCommand(prompt: string): Promise<void> {
@@ -801,11 +851,14 @@ export class CasperApp {
     try {
       if (!action) {
         const skills = registry.list();
+        this.output.write(`${skills.length} indexed; imports: ${this.projectContext!.skills.imports?.join(", ") || "none"}\n`);
         this.output.write(skills.length ? skills.map((skill) => [
           `${skill.id} [${skill.source}; ${skill.trust}${skill.disableModelInvocation ? "; manual-only" : ""}]`,
           `  ${JSON.stringify(skill.description)}`,
           `  ${skill.filePath}`,
         ].join("\n")).join("\n\n") + "\n" : "No skills discovered.\n");
+      } else if (action === "diagnostics" && !id) {
+        this.output.write(registry.diagnostics.length ? registry.diagnostics.join("\n") + "\n" : "No skill warnings.\n");
       } else if (action === "inspect" && id && !sha256) {
         const inspected = await registry.inspect(id);
         this.output.write([
@@ -838,11 +891,10 @@ export class CasperApp {
   }
 
   private reportSkillWarnings(): void {
-    for (const warning of this.skillRegistry!.diagnostics) {
-      if (this.reportedSkillWarnings.has(warning)) continue;
-      this.reportedSkillWarnings.add(warning);
-      this.output.write(`[skills] ${warning}\n`);
-    }
+    const warnings = this.skillRegistry!.diagnostics.filter((warning) => !this.reportedSkillWarnings.has(warning));
+    if (!warnings.length) return;
+    for (const warning of warnings) this.reportedSkillWarnings.add(warning);
+    this.output.write(`[skills] ${warnings.length} new warning${warnings.length === 1 ? "" : "s"}; use /skills diagnostics\n`);
   }
 
   private writePrompt(prompt: string): void {
@@ -857,18 +909,21 @@ export class CasperApp {
   private handleRuntimeEvent(event: RuntimeEvent): void {
     switch (event.type) {
       case "assistant_response_end":
+        this.terminal.endAssistant();
         // Pi may retry a provider error inside prompt(); only the final response
         // determines the stop outcome. Thrown prompt errors are handled separately.
         this.taskRuntimeCancelled = event.stopReason === "aborted";
         this.taskRuntimeFailed = !["stop", "toolUse"].includes(event.stopReason);
         break;
       case "assistant_text_delta":
-        this.output.write(event.delta);
-        this.endedWithNewline = event.delta.endsWith("\n");
+        this.terminal.assistant(event.delta);
+        this.endedWithNewline = true;
         break;
       case "tool_start":
+        this.terminal.endAssistant();
         this.ensureLineBreak();
-        this.output.write(`• ${event.toolName}\n`);
+        if (event.toolCallId) this.toolStarted.set(event.toolCallId, performance.now());
+        this.output.write(`${formatToolActivity(event)}\n`);
         this.endedWithNewline = true;
         break;
       case "tool_end":
@@ -879,14 +934,20 @@ export class CasperApp {
         // Failed writes may be partial; invalidate without claiming a completed edit.
         if (event.isError && ["edit", "write"].includes(event.toolName) && typeof event.input?.path === "string") (this.checkTask ?? this.verificationTask)?.invalidateForEdit(event.input.path);
         if (event.toolName === "bash") this.observeRuntimeCheck(event);
-        this.output.write(`${event.isError ? "✗" : "✓"} ${event.toolName}\n`);
+        this.terminal.endAssistant();
+        const started = event.toolCallId ? this.toolStarted.get(event.toolCallId) : undefined;
+        if (event.toolCallId) this.toolStarted.delete(event.toolCallId);
+        this.output.write(`${formatToolActivity(event, started === undefined ? undefined : performance.now() - started)}\n`);
         this.endedWithNewline = true;
         break;
       case "message_end":
+        this.terminal.endAssistant();
+        this.toolStarted.clear();
         this.ensureLineBreak();
         break;
       case "error":
         this.taskRuntimeFailed = true;
+        this.terminal.endAssistant();
         this.ensureLineBreak();
         this.output.write(`[error] ${event.message}\n`);
         this.endedWithNewline = true;

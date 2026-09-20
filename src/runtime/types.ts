@@ -1,3 +1,4 @@
+import type { Readable } from "node:stream";
 import type { ToolObservationInput, ToolObservationOutput } from "./observation";
 
 export interface RuntimeToolContext {
@@ -21,12 +22,56 @@ export interface RuntimeStartOptions {
   afterFileEdit?: (path: string, signal?: AbortSignal) => Promise<string | undefined>;
 }
 
+/** Safe preflight diagnostic; callers may surface this exact message without forwarding provider errors. */
+export const READ_ONLY_STATE_CONFLICT = "Read-only workspace overlaps writable runtime state; choose a different source or move runtime state outside it.";
+
 export interface RuntimeReadOnlyStartOptions {
   cwd: string;
   systemPromptAppend?: string;
   signal: AbortSignal;
   maxTurns: number;
   maxToolCalls: number;
+}
+
+export interface RuntimeStatus {
+  provider?: string;
+  model?: string;
+  thinkingLevel?: string;
+  /** Local credential snapshot only; never a provider connectivity claim. */
+  auth: "configured" | "missing" | "unknown";
+  selectionSource?: "conversation" | "default" | "none";
+  defaultModel?: { provider: string; id: string };
+  /** Generation is blocked until the user resolves this selection. */
+  blocked?: string;
+}
+
+export interface RuntimePickerIO {
+  input: Readable & { isRaw?: boolean; setRawMode?(raw: boolean): unknown };
+  output: { write(text: string): void; columns?: number; rows?: number;
+    on?(event: "resize", listener: () => void): unknown; off?(event: "resize", listener: () => void): unknown };
+  color: boolean;
+  onEOF(): void;
+}
+
+/** A host grants exclusive terminal ownership only for this operation. No Pi UI types escape. */
+export interface RuntimeModelPickerHost {
+  run<T>(operation: (io: RuntimePickerIO) => Promise<T>): Promise<T>;
+}
+
+export interface RuntimeModelSelectionOptions {
+  query?: string;
+  /** Explicitly select AND save a Casper startup default. */
+  persist?: boolean;
+  signal?: AbortSignal;
+  picker?: RuntimeModelPickerHost;
+}
+
+export interface RuntimeModelSelection {
+  status: RuntimeStatus;
+  selected: boolean;
+  savedDefault: boolean;
+  /** Plain-terminal listing; opening a list never selects its first row. */
+  models?: Array<{ provider: string; id: string; name: string }>;
 }
 
 export interface RuntimeState {
@@ -74,7 +119,9 @@ export interface RuntimeSession {
   switchSession?(options: RuntimeSwitchOptions): Promise<RuntimeSessionInfo>;
   /** Persist context in the active conversation without triggering a model turn. */
   appendContext?(text: string): Promise<void>;
-  prompt(text: string): Promise<void>;
+  getStatus?(): RuntimeStatus;
+  selectModel?(options: RuntimeModelSelectionOptions): Promise<RuntimeModelSelection>;
+  prompt(text: string, signal?: AbortSignal): Promise<void>;
   abort(): Promise<void>;
   subscribe(listener: RuntimeEventListener): () => void;
   getState(): RuntimeState;

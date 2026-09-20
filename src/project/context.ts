@@ -1,5 +1,5 @@
 import os from "node:os";
-import { loadConfiguration, type CasperPolicy } from "../config/load";
+import { loadConfiguration, type CasperPolicy, type LoadedConfiguration } from "../config/load";
 import type { VisualizationSettings } from "../visualize/router";
 import type { ProjectInfo } from "./inspect";
 import { loadProjectModel, projectStateDirectory, type ProjectModel } from "./model";
@@ -10,7 +10,7 @@ export interface ProjectContext {
   model: ProjectModel;
   profileName: string;
   policy: CasperPolicy;
-  skills: { maxActive: number };
+  skills: LoadedConfiguration["skills"];
   verification: { timeoutMs: number };
   repair: { maxAttempts: number };
   visualize: VisualizationSettings;
