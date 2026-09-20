@@ -1,195 +1,431 @@
 # Casper — next-session handoff
 
-## Resume here: Phase 9 local reference search — checkpoint
+## Resume here — local checkpoints committed; unrelated/newer work remains
 
-The user approved resuming Phase 9 with **explicitly configured, read-only local
-reference search**, then requested **commit and continue**. This checkpoint records
-that search slice. The toy coding demo is parked, not a phase gate or the user's
-current task; the older next-session proposal below remains superseded.
+The user authorized a local checkpoint and then the handoff. Two code commits
+were created on `main`, without pushing:
 
-This checkpoint builds on `5d5773f`; resolve it with `git log -1 --oneline`. Check
-git status and preserve later local work. **This checkpoint commit is authorized;
-no push or further commit is authorized.**
+| Commit | Scope | Exact committed-code validation |
+| --- | --- | --- |
+| `624088b` | Existing candidate-only learning, safety/config corrections, lazy capability loading, terminal UX and Casper-owned model selection, including picker diagnostic sanitization and opt-in test runner | **426 tests / 2,828 assertions**, TypeScript clean; 33 files; 139.57 s test portion |
+| `254095c` | Separate slash-command/model-task paths and passive task observations, with app-level characterization and design/review docs | **427 tests / 2,843 assertions**, TypeScript clean; 33 files; 138.52 s test portion |
 
-### Current delivery
+Each code tree was exported directly from its staged Git tree and checked serially
+with a temporary HOME, an allowlisted environment and offline Pi settings. The
+existing pinned `node_modules` was linked into each export; no install or dependency
+change was made. This handoff and archived handoff history are recorded in a
+subsequent documentation-only commit; use `git log -3 --oneline` for current HEAD.
 
-- `/references` lists configured source metadata; `/references search <id|*> <query>`
-  searches locally without Pi or credentials. Normal parent tasks get one
-  `search_references` tool only when sources are configured.
-- User/profile `references.yaml` files explicitly name local roots and search
-  paths. No sources are automatically installed; project-local files cannot add
-  arbitrary external roots. Existing profile selection still applies.
-- Excerpts carry configuration/root/file/line/digest provenance. Partial results,
-  read/result bounds and missing sources stay explicit. Current repository rules
-  outrank reference examples; nothing is executed, learned or promoted.
-- One `ReferenceLibrary` serves CLI and tool calls, rereads content per query,
-  cancels/drains searches on close and revokes old tools on workspace rebinding.
-- Native bash, the Pi adapter, dependency pins, verifier and single repair owner
-  are unchanged. No spending cap, new task-attempt policy, recovery/model feature,
-  remote retrieval or external integration was added. Backburner research stays parked.
+The earlier **432 tests / 4,787 assertions** result included the five untracked
+website tests. Those files were deliberately excluded from the code checkpoints.
+The different counts are different test inventories, not weakened assertions.
+Do not call either result a validation of newer work below.
 
-Read [REFERENCES.md](REFERENCES.md) for the user/configuration contract and
-[Phase 9 search validation](PHASE9_IMPLEMENTATION.md#search-validation) before
-modifying this slice. Implementation: `src/references/`, app/CLI/public exports;
-permanent coverage: `tests/phase9-references*.test.ts`.
+### Still uncommitted — preserve and review separately
 
-### Current validation
+- `web/tic-tac-toe/`: all seven user website files, unchanged during checkpointing.
+- **User's random Casper test:** `package.json` now adds a `netcalc` script,
+  alongside `tools/netcalc/` and `tests/netcalc/`. These appeared while the checkpoint
+  trees were being validated; the user confirmed they were just testing Casper.
+  This output was not edited, staged, reviewed or tested in this checkpoint.
+  Leave it separate; no deletion was requested. Check for an active writer before
+  changing it or rerunning a full-tree gate.
+- Existing unrelated plan edits: `docs/CASPER_COMPLETE_PLAN.md`,
+  `docs/IMPLEMENTATION_PLAN.md`, `docs/PHASE3_VERIFICATION.md`.
+- Local trial evidence: `docs/ACCEPTANCE_TRIAL.md`, `docs/acceptance/` (including
+  the saved **unapplied** O4 candidate). No evidence was modified or candidate applied.
+- Local optimization/benchmark material: `docs/DEBUG_OPTIMIZATION_REVIEW.md`,
+  `docs/benchmarks/STARTUP_O2*`, `docs/benchmarks/STARTUP_O3*`, and
+  `scripts/benchmark-startup.ts`. These remain outside the checkpoint, including
+  any historical-document links to those local files.
 
-- Fresh checkpoint `bun run check`: TypeScript clean; **313 tests / 2,010 assertions**,
-  0 failures, 90.72 s test-runner time. `git diff --check` passed.
-- New reference suites: **19 tests / 131 assertions**, passing. Module/local-command
-  tracers and rejected-text/Unicode corrections were red before their fixes.
-- Real CLI plus pinned Pi with scripted localhost responses validate the new
-  tool flow; no live-model usefulness trial or paid model call was performed.
-- Checkpoint gate log: `/tmp/casper-references-checkpoint-ifOLmu/full-check.log`.
-  Earlier implementation gate: `/tmp/casper-phase9-references-WAc4aT/full-check.log`
-  (same counts, 89.69 s). These are local single-agent implementation/checkpoint
-  validation, not independent Phase 9 acceptance or daily-driver readiness.
+Checkpoint preservation snapshot and exact-tree gate logs:
+`/var/folders/yj/l1q2ypcj68qck8m_kcrdv26r0000gp/T/casper-checkpoint-ucx73n8x`.
+Temporary evidence may disappear; the committed tests and scoped counts above do
+not depend on those paths surviving.
 
-### Next decision
+**Next session:** read this section first, inspect `git status --short` and
+`git log -3 --oneline`, and coordinate around the newer netcalc work. The bounded
+app refactor and picker correction are complete; choose a separately scoped next
+issue rather than continuing them indefinitely. Review details:
+[APP_STRUCTURE_REVIEW.md](APP_STRUCTURE_REVIEW.md) and
+[MODEL_SELECTION_REVIEW.md](MODEL_SELECTION_REVIEW.md).
 
-Phase 9 still needs `casper learn` candidate generation, explicit human promotion,
-and its full independent Standards/Spec review. Agree the next slice before
-implementing it; reference search does not authorize those features or Phase 10.
-The evidence correction at `5d5773f` remains closed within its documented limits.
+No push, live-provider trial, personal credential change, OAuth work, Phase 9
+promotion or Phase 10 expansion was performed. Reviews remain local/single-agent;
+Phase 9's independent review/promotion questions and the historical verifier
+SIGTERM cleanup flake are not closed by these commits. Statements below about
+uncommitted work or earlier HEADs are historical and superseded by this section.
 
-Separate user-setting change earlier in this session: the user approved changing
-`~/.pi/agent/settings.json` defaults to `openai-codex / gpt-6-astra` for their Codex
-subscription. Only those two fields changed; backup is
-`~/.pi/agent/settings.json.backup-wGTIo5`. This is outside the repository and is not
-new Casper model support or proof of live-model/billing behavior. Preserve it.
+## Previous checkpoint — bounded CasperApp refactor complete
 
-## Earlier evidence correction checkpoint — slice closed
+The user authorized reviewing and completing the first structural slice in
+[APP_STRUCTURE_PLAN.md](APP_STRUCTURE_PLAN.md). It is implemented and locally
+reviewed, still uncommitted. See [APP_STRUCTURE_REVIEW.md](APP_STRUCTURE_REVIEW.md)
+for the isolated diff review, validation and limitations.
 
-The user requested this commit and handoff after the bounded native-path/evidence correction and its validation. This checkpoint builds on `2475975`; resolve its commit with `git log -1 --oneline`, run `git status --short`, and preserve any later local work. **This checkpoint commit is authorized; no push or further commit is authorized.**
+- `CasperApp` now separates slash-command dispatch from normal model-task execution
+  while retaining the existing shared command-lifetime wrapper.
+- New internal `src/task/observations.ts` owns bounded edit paths, shell-check
+  diagnostics and possible-write flags. It neither verifies results nor owns tool
+  authority, cancellation, persistence or repair. It is not barrel-exported.
+- Cancellation, consent, runtime/workspace lifetime, edit invalidation, verifier
+  evidence, task outcomes and the single repair owner retain their existing owners.
+  No router framework or capability caching was added.
+- One characterization at the app seam passed before source edits and after the
+  refactor. Existing tests were retained. Final serial isolated `bun run check`:
+  **432 tests / 4,787 assertions**, TypeScript clean (34 files; 136.61 s test portion).
+  The full gate includes CLI/PTY behavior, model diagnostics and shutdown cleanup.
+- Standards 0 findings; Spec 0 findings in the bounded **single-agent** review.
+  No independent/subagent review was available. A passing cleanup test does not
+  diagnose the historical intermittent verifier SIGTERM failure.
+- Preservation snapshot:
+  `/var/folders/yj/l1q2ypcj68qck8m_kcrdv26r0000gp/T/casper-app-refactor-baseline-42ivg7ee`.
+  Website/acceptance evidence, dependencies, CLI mode and unrelated dirty work are
+  unchanged. Only app/observation code, one test file and app-structure/handoff docs
+  changed.
 
-**Latest status: both reviewed findings corrected and locally validated. Treat this correction slice as closed within its documented limits.** The next session should agree a user-visible milestone, not restart an open-ended path review. Reopen this slice for a concrete reproducible contract regression or an approved change that affects it. This is not independent acceptance or daily-driver readiness.
+**Next boundary:** this first structural slice is complete; further architecture
+or product work needs separate scope. No live-provider trial, personal credential
+change, commit, push, OAuth work or Phase 9 promotion. The saved O4 candidate remains
+unapplied. The app remains a substantial control layer; completion is not a claim
+that every future maintainability concern has been resolved.
 
-Read [Missing-suffix and empty-path correction](CODING_LOOP_EVIDENCE_CONTRACT.md#missing-suffix-and-empty-path-correction) and the README verification section before changing this slice. The earlier review failures below are preserved as historical evidence, not remaining open findings.
+## Previous checkpoint — `/model` review correction complete
 
-## Latest correction — completed locally
+The user authorized continuing after the fresh review found one P2 terminal-safety
+regression. That issue is now fixed: the picker catalog view sanitizes diagnostic
+text, refresh-error provider labels/messages and rejected refresh diagnostics
+before Pi adds its renderer controls. Model-selection policy is unchanged.
 
-- **P2 missing-suffix identity:** `src/verify/task.ts` now records where canonical resolution stops. Possible case/Unicode aliases of the first missing entry under the same canonical parent invalidate conservatively. This also covers a missing parent of a named input, even when the observed write targets its sibling. Exclusions suppress observations only when their traversal spelling is known; a removed parent cannot invent an exclusion spelling.
-- **P3 empty expanded path:** `src/app.ts` accepts an observed string path even when empty, so native `@` still invalidates as cwd after one-time expansion. Invalid/omitted paths remain distinct from the empty string.
-- **Eleven permanent regressions/controls** were added at the app/tool and pinned-Pi seams. They cover case, NFC/NFD and `ß`/`ẞ` missing names, removed input parents, exclusion ambiguity, overlapping partial writes, explicit repair, unrelated missing names, known excluded parents and the empty path. Alias-specific tests detect filesystem behavior rather than assume it from the OS name.
-- The native-`@`, missing-name and exclusion tracers failed before implementation. A further missing-parent case and Unicode-case control were also made red before their corrections. Against the isolated pre-fix source, all **nine** new regression cases fail and both non-invalidating controls pass; all eleven pass with the correction.
-- Production changes in this latest slice are confined to `src/verify/task.ts` and the failed-observation guard in `src/app.ts`. Earlier Pi observation-path edits were preserved. Native bash, the command runner, dependency pins, lookup bounds and the single repair owner remain unchanged.
+Two permanent regressions reproduced the failures before their fixes and now pass
+for color and NO_COLOR, including malformed local catalogs, refresh failures,
+OSC/C1/bidi controls, readable errors and cancellation without selection.
+See [MODEL_SELECTION_REVIEW.md](MODEL_SELECTION_REVIEW.md) for the finding,
+correction, review limits and evidence.
 
-### Latest validation
+Latest serial isolated `bun run check`: **431 tests / 4,772 assertions**, TypeScript
+clean (34 files; 153.06 s test portion). Three extra repeats of the diagnostic
+regressions plus production CLI PTY test passed. Only the picker adapter, model
+selection tests and three model/handoff documents changed; all website files,
+saved acceptance evidence, dependency pins and unrelated dirty work are preserved.
+
+**Next boundary:** this bounded correction is complete and remains uncommitted.
+No outstanding finding from the local single-agent review; this is not independent
+Phase 9 sign-off. Agree separate scope before OAuth, child/learning defaults or
+Phase 9 promotion. No live-provider trial, personal credential change, commit or push.
+
+## Previous checkpoint — approved Casper-owned `/model` slice locally complete
+
+The user approved continuing the reuse-based model-selection slice and looping
+through checks. Implementation and local Standards/Spec self-review are complete,
+still uncommitted. No independent/subagent review was available; this is not
+Phase 9 promotion. Read [MODEL_SELECTION.md](MODEL_SELECTION.md) for scope,
+reuse evidence, integration corrections, defaults/restoration semantics and limits.
+
+- `/model` hosts the **actual Pi 0.85.1 picker**. Exact `/model <id or provider/id>`
+  selects directly; other interactive queries prefill search. Enter selects for
+  the conversation; Ctrl+S also saves the new-parent default. Plain/redirected
+  terminals and `TERM=dumb` list models instead. No OMP dependency or new command tree.
+- Casper defaults live in `~/.casper/settings.json` using Pi's settings manager.
+  Shared global/project Pi model defaults are neither adopted nor rewritten.
+  Restored/forked conversations use their recorded selection; a missing/unavailable
+  model blocks generation rather than silently falling back. `/status` reports the
+  selected identity, reasoning, local auth, selection source, default and block reason.
+- Selection records through Pi's transcript. Tests reproduced and fixed lost
+  inactive branches and first-response `EEXIST` in the initial integration.
+  Readline yields exclusive input ownership to the picker and restores the draft,
+  cursor **and history**. Pending auth cannot select/save after cancellation or disposal.
+- Picker catalog refresh is local-only. Configured credential-resolution programs
+  can still run; configured runtime extensions still load as before. Credential
+  availability is not a connectivity test. No embedded OAuth or credential migration.
+  Delegation and learning intentionally retain their separately documented global
+  Pi defaults; Casper defaults here apply to parent conversations only.
+- Final serial `bun run check`: **429 tests / 4,708 assertions**, TypeScript clean
+  (34 files; test portion 136.56 s). Three extra production-model PTY repeats and
+  isolated installed-`casper` smoke checks passed. Added
+  coverage includes isolated preferences/auth fixtures, missing-model/auth guards,
+  default-write failures, restoration/forks, alias/corrupt settings, cancellation,
+  concurrent work, an actual **localhost-only** reply after model selection, and
+  the production CLI in a real PTY. No live providers or personal credentials used.
+- The pre-edit preservation baseline is
+  `/var/folders/yj/l1q2ypcj68qck8m_kcrdv26r0000gp/T/casper-model-baseline-omh8563k`.
+  All seven `web/` files and twenty `docs/acceptance/` files remain hash-identical.
+  Existing unrelated dirty work, dependencies/pins and CLI installation are preserved.
+
+**Next boundary:** this bounded parent-model slice is complete, not all future
+model/auth UX or Phase 9. Agree separate scope before embedded OAuth, propagating
+Casper defaults into child/learning runs, broader terminal controls, or Phase 10.
+The saved O4 candidate remains unapplied; no new live-model trial, credentials
+change, commit or push was authorized or performed.
+
+## Previous checkpoint — terminal slice complete (historical)
+
+The user approved the bounded **quiet startup / usable prompt** slice, including
+color, and asked to iterate until it was complete. Implementation and local
+validation and a follow-up single-agent Standards/Spec review are complete, still
+uncommitted. Read [TERMINAL_UX_REVIEW.md](TERMINAL_UX_REVIEW.md) for review findings,
+fixes and next-phase readiness; [TERMINAL_UX.md](TERMINAL_UX.md) retains the slice's
+scope and validation details.
+
+- Skill discovery now defaults to Casper roots only. User/profile `skills.imports`
+  enables Pi/shared/Claude/Codex roots explicitly; import is not trust. Ordinary docs
+  are ignored; real warnings are summarized and inspectable via `/skills diagnostics`.
+- The CLI now has color/basic Markdown, target-bearing tool activity, preserved
+  drafts during streaming, busy-Enter protection, Ctrl-C task cancellation, and
+  fresh confirmation input. `/status`, `/login` setup guidance and `/help all` are
+  local. Active model/auth status comes from the host; startup remains lazy.
+- Review reproduced and fixed two plain-mode gaps: pretyped approval reuse and
+  buffered/invisible streaming deltas. Cooked TTY input (`TERM=dumb` or redirected
+  output) now fails closed on exact approvals; piped-input fragments are discarded.
+- Latest serial gate: **411 tests / 4,624 assertions**, TypeScript clean; three
+  additional terminal regression repeats passed. PTY coverage includes streaming,
+  wrapped input/cursor preservation, cancellation, confirmations (deny/approve/
+  Ctrl-C/EOF), color/NO_COLOR, and `TERM=dumb` fail-closed behavior. Auth-preflight
+  cancellation is tested against a localhost Pi protocol fixture.
+- All seven website files and twenty saved acceptance-evidence files remain
+  hash-identical to the pre-edit manifest. Existing unrelated uncommitted files,
+  dependency pins, CLI executable mode and installed link were preserved. Website
+  game tests passed as part of the gate; no browser acceptance was performed.
+
+**Standing limits remain:** saved O4 trial candidate unapplied; no new live-model
+trial, commit, push or Phase 10 expansion. Phase 9's independent review/promotion
+questions remain open. A green gate does not diagnose the historical verifier
+SIGTERM cleanup flake. The user subsequently confirmed blue output and successful
+chat with host status `openai-codex / gpt-6-astra`, reasoning medium; this is human
+feedback, not an agent-run trial. They reiterated that Casper should be its own
+product: Pi is the runtime, not a long-term setup workflow users must manage.
+
+**Next recommendation:** agree a bounded Casper-owned `/model` slice, including
+selection persistence and Casper-specific defaults without rewriting shared Pi
+settings. Model switching and embedded OAuth remain unimplemented. This review
+makes the terminal slice ready for that planning discussion; it does not authorize
+implementation, full-screen TUI expansion, or completion of Phase 9.
+
+## Pre-slice handoff (historical context; superseded above)
+
+**Previous direction: preserve the coding capability; make the interactive terminal
+usable.** The user launched `casper`, asked it to build a polished tic-tac-toe
+website, and said **“it did built the app well though.”** They also said the
+terminal does not feel like Pi, OMP, Codex or Copilot: no colors, opaque activity,
+noisy startup and missing expected controls. This is broader than a cosmetic fix.
+The latest request was this handoff, not authorization for a full TUI rewrite.
+
+1. Check `git status --short` and preserve all existing changes, especially the new
+   **`web/tic-tac-toe/`** app. HEAD remains **`c8df223` — Add read-only local reference
+   search**. Substantial work is uncommitted. If the user's Casper session is still
+   writing in this checkout, coordinate before editing the CLI it runs.
+2. Start with the real-use findings below, not another optimization pass. Agree a
+   bounded interactive-UX slice and skill-source policy with the user. Basic input,
+   activity visibility and onboarding should not be deferred behind advanced phases.
+   No discovery, color, input, login or model-display fix has been implemented yet.
+3. For a discovery fix, reproduce with a realistic temporary skill tree (ordinary
+   docs alongside valid/invalid skill entries); assert warning behavior, not just
+   successful launch. For input/rendering work, include a real TTY/PTY exercise of
+   typing during streaming, cancellation and confirmations. Empty-HOME smoke tests
+   alone missed the actual startup experience.
+4. The older O4 candidate remains an independent pending decision, **unapplied**.
+   If resuming it, read [trial 01](acceptance/TRIAL_01.md) and its
+   [patch](acceptance/trial-01/candidate.patch), review fallback costs, and obtain
+   application approval. It is not a prerequisite for terminal UX work.
+
+**No automatic candidate application, agent-initiated live-model run, promotion,
+Phase 10 expansion, commit or push.** The user's own website-building session is
+new human feedback, not renewed authorization for agent-run trials. Before another
+trial, agree command-timeout headroom and a new provider allowance. Independent
+Phase 9 Standards/Spec review remains pending.
+
+## Human real-use feedback — successful task, rough interface
+
+The user ran the installed command in this repository. Chat worked and Casper
+built the requested website; the user liked the result. The new untracked
+`web/tic-tac-toe/` contains `index.html`, `style.css`, `app.js`, `game.js`,
+`game.test.js`, `serve.ts` and `README.md`. Preserve it as user work. This handoff
+only inventories those files: no website review, browser validation, test run or
+independent acceptance was performed. The pasted transcript ends during writes;
+do not invent its final verification status, usage or exact runtime model.
+
+Observed interface problems and proposed next behavior:
+
+- **Startup flood:** 44 skills were indexed, followed by many warnings about normal
+  Markdown files under `~/.claude/skills/AionUi` and `paperclip`. The user explicitly
+  objected that Claude is not what they are using. Two actual Codex `SKILL.md`
+  entries also failed description-length validation; retain genuine diagnostics.
+- **Discovery cause is visible in code:** `src/skills/registry.ts:scan` automatically
+  adds Pi, shared `.agents`, Claude and Codex roots independently of provider. It
+  recurses through every `.md` file unless that directory contains `SKILL.md`;
+  ordinary repo docs therefore become invalid skill candidates. This is Casper's
+  scanner, not Claude running or evidence of a provider switch. No corrective
+  reproduction/test or implementation was completed in this session.
+- **Recommended discovery policy:** make other tools' roots explicit opt-in and
+  keep ordinary docs out of rejection logs. Confirm the exact default roots/import
+  configuration before changing them. Standalone frontmatter `.md` skills are
+  currently documented and tested behavior; distinguish them from ordinary docs
+  rather than silently breaking compatibility. Summarize genuine warnings at
+  startup and retain inspectable detail. Leave the user's external skill files alone.
+- **Activity:** output such as `• read` / `✓ write` hides the file, command and result.
+  Show meaningful operation targets, progress and useful result/error summaries,
+  with appropriate redaction; this does not require exposing private reasoning.
+- **Input and rendering:** no readable color/Markdown presentation; the transcript
+  includes `/hHey!` while text streams. Treat input/output interference as a reported
+  symptom requiring reproduction, not a diagnosed readline race. Provide an input
+  area that survives streamed output and supports cancellation/approval safely.
+- **Identity and auth:** `/login` is currently unknown. Chat nevertheless worked
+  with existing authentication. Asking the model its identity produced only a vague
+  “OpenAI model” answer. Display authoritative provider/model information from the
+  host runtime and provide a clear login/status path; do not guess identity from
+  generated prose or change the user's defaults/credentials implicitly.
+- **Information hierarchy:** startup prints unused MCP/LSP/visualization status;
+  `/help` dumps a long command/safety reference. A casual “hey” gets
+  `[task] Execution completed; no Casper verification recorded.` Prefer concise
+  startup/help and task-appropriate summaries, retaining detailed status, audit
+  evidence and safety disclosures where they matter. Never imply checks passed
+  merely by removing a noisy disclaimer.
+
+The agreed conversational direction is **basic terminal usability before more
+advanced features**, not merely adding colors. Themes/animations can wait. The
+coding result is positive human evidence; it neither erases the UX gaps nor proves
+general reliability. Preserve working execution, trust, consent and verification.
+
+### Entry points for the next slice
+
+- Discovery and warnings: `src/skills/registry.ts`,
+  `src/app.ts:reportSkillWarnings`, `tests/phase2-skills.test.ts`,
+  [README Skills](../README.md#skills).
+- Interaction/rendering: readline and runtime event handling in `src/app.ts`,
+  `src/tui/banner.ts`, `src/tui/help.ts`, `src/cli.ts`,
+  `tests/casper-app.integration.test.ts`.
+- Existing event data: `src/runtime/types.ts` and `src/runtime/pi.ts` already carry
+  tool-call IDs and input observations, with output observations for bash. Inspect
+  the actual contracts before proposing a new event interface. If using Pi's TUI
+  or SDK APIs, read the installed Pi documentation/examples first; no library or
+  renderer replacement has been selected.
+
+## Local `casper` command is installed
+
+The user authorized this setup. `src/cli.ts` is now executable (`0755`), and
+`~/.local/bin/casper` links to
+`/Users/stephenchoate/Documents/Casper/src/cli.ts`. That directory was already on
+PATH; no shell settings, Bun package registration, credentials or dependencies
+were changed. `command -v casper` also resolves in a login zsh.
+
+From any project directory, **`casper` starts interactive mode**. `casper --help`
+and `casper /project` work locally without model calls. Those two commands and an
+interactive `/exit` smoke test all exited 0 from an unrelated temporary project
+with isolated HOME and no credentials. No live-model call was made for installation.
+
+This is a development link to the current main checkout, **not** the trial
+candidate, a packaged release or a readiness sign-off. Moving/deleting the checkout
+breaks the link. Preserve it unless the user asks otherwise. README Install/Run
+instructions now explain setup. The installation changed only the executable
+mode bit in source; CLI contents were checked against the saved baseline manifest.
+Subsequent user work added the website; it was not part of the installation.
+
+## Latest user preference: task progress, not a countdown
+
+The user said that prominently calling out a “10 min timer” could scare people
+away. Treat that limit as an **internal acceptance-experiment safeguard**, not a
+Casper product requirement or normal task-duration promise. Lead with what Casper
+is doing, checks/results, completion and requests for input. Keep exact limits in
+engineering evidence; explain a reached limit honestly when relevant.
+
+No customer-facing countdown or general ten-minute task cap was implemented.
+Configurable limits in advanced settings are a possible UX direction, not a newly
+shipped feature or authorization to implement one. Do not hide material spending
+limits or failures. The user explicitly chose the original trial rather than
+adaptive reasoning-effort escalation; that feature remains unimplemented.
+
+## Trial outcome — keep these three results separate
 
 | Evidence | Result |
-|---|---|
-| `bun run check` | TypeScript clean; **294 tests / 1,879 assertions**, 0 failures, 88.07 s |
-| All supplemental probes | **78 tests / 836 assertions**, 0 failures, 45.92 s; includes the prior 65 controls and all 13 formerly mixed red/green reproduction cases |
+| --- | --- |
+| Frozen pre-website baseline | **389 tests / 2,599 assertions**, TypeScript clean; corrected isolated serial gate 117.63 s |
+| Live Casper task | **286.10 s**, CLI exit **1**: managed full suite timed out at its existing **120-second command limit**; managed typecheck passed; zero repair attempts |
+| Unchanged candidate, separately evaluated afterward | **398 tests / 2,609 assertions**, TypeScript clean, serial gate 120.49 s; all six evaluator cases and real `/project` check passed |
 
-Pinned-Pi cancellation/process cleanup, task isolation, explicit repair and its cancellation, one-time path expansion, included/excluded link chains, lookup limits and asynchronous refresh remain green. No additional distinct defect was confirmed in the bounded implementation/self-review. This is local single-agent evidence, not independent acceptance or daily-driver readiness; no live-model spending was performed.
+The outer experiment timeout was **not reached**. The separately passing host gate
+does not turn the failed managed check into a pass. The last validated main-code
+baseline was 389 tests, not the unapplied candidate's 398. The user has since added
+website files including a test file; today's full-tree count has not been measured.
+No supervising-agent code repair or model rerun occurred in the approved trial.
 
-**Conservative trade-off:** ambiguous absent names can cause extra executions even on case-sensitive filesystems. Existing canonical prefixes and literal exclusions are not case-folded; distinct missing entries and known excluded parents retain their non-invalidating controls. Lookup remains synchronous and bounded, not atomic or a guarantee against concurrent alias replacement/external writers. Windows remains unvalidated.
+The candidate changes only `src/project/inspect.ts` and adds
+`tests/project-inspect.test.ts`. Git process counts:
 
-Temporary correction evidence is at `/tmp/casper-missing-identity-fix-jQmsN3/` (`full-check.log`, `supplemental.log`, red/green tracer logs, `permanent-pre-fix-red-final.log`, and the pre-fix source copy). Permanent regressions are in `tests/work-driven-checks.integration.test.ts` and `tests/phase8-pi.integration.test.ts`; they do not depend on temporary artifacts surviving.
+- Ordinary committed, nested, detached and linked-worktree inspection: **2 → 1**.
+- Unborn branch: **2 → 3**; non-Git directory: **1 → 2**. These are real costs to
+  consider before application, not a universal startup improvement.
+- Controlled fresh-process inspection median: **89.11 → 60.05 ms**. This is a
+  traced inspection fixture, not whole CLI startup or general productivity.
 
-## Review findings before this correction (resolved)
+Provider: approved **Codex subscription / gpt-6-astra**, fixed **medium** effort.
+Session reports 13 assistant messages, 12 tool calls and 75,819 total tokens
+including cache reads. Actual subscription charge/remaining allowance is
+unavailable; no hard dollar/token cap was claimed. No separately paid API provider
+was used. Temporary protected auth was removed; original source/auth/settings
+were unchanged at the end-of-run audit. Preserve the user's existing Pi defaults.
 
-The following descriptions and results concern the pre-correction source reviewed against `2475975`.
+### Unresolved cleanup evidence
 
-- **P2 — missing-suffix alias identity, also present at `2475975`.** `src/verify/task.ts` retains literal missing suffixes that can stop matching a case-aliased named input once its target is absent. Reproduced through `CasperApp.runOnce()` / `RuntimeTool.execute()` with removed partial writes, and pinned Pi with a failed edit of a missing case alias. Additional app/tool probes show the same gap during overlapping checks, explicit repair, and exclusion matching after a case-aliased parent is removed; an NFC/NFD variant also fails. These are one residual identity defect, not multiple new regressions. No concurrent alias replacement is needed.
-- **P3 — expanded `@` becomes an ignored empty failed-tool path, introduced in the earlier uncommitted diff.** `src/runtime/pi.ts` expands `@` to `""` (cwd), but the truthiness guard in `src/app.ts` drops it. The pinned-Pi case passed at `2475975` and failed with the reviewed pre-correction diff; `.` was the passing control on both. This is a conservative-handling inconsistency: the write fails on a directory, with **no demonstrated actual partial mutation**.
-- No additional distinct code defect or actionable standards finding was confirmed in the full nine-file review. Native bash, the command runner, dependency pins and the single repair owner remain unchanged.
+The first isolated baseline failed two profile tests because the harness forced
+`CASPER_PROFILE=default`; removing that override corrected the setup. It also
+reproduced the existing **SIGTERM verifier cleanup failure** (`leaked` marker
+present). The later gate passed, but the cleanup cause remains unresolved. It has
+now occurred in a **serial** gate as well as the earlier parallel run.
 
-### Pre-correction review validation (historical)
+Keep `bun run check` serial and `test:fast` opt-in. Preserve cleanup assertions and
+deadlines. A bounded investigation of this concrete failure is reasonable if
+approved; another open-ended path/scope audit is not the next task. Do not attribute
+the cleanup failure to the profile override or claim that rerunning diagnosed it.
 
-Recorded before the follow-up code correction:
+## Evidence to read on demand
 
-| Evidence | Result |
-|---|---|
-| `bun run check` | TypeScript clean; **283 tests / 1,793 assertions**, 0 failures, 84.77 s |
-| Passing supplemental controls | **65 tests / 730 assertions**, 0 failures, 41.32 s; includes the prior 45 plus 20 new controls |
-| Open-finding reproduction suite | **6 controls passed / 7 cases failed**, 13 tests / 101 assertions, 5.73 s; six failures exercise P2 and one exercises P3 |
+- **Trial assessment, usage, logs and limitations:**
+  [acceptance/TRIAL_01.md](acceptance/TRIAL_01.md). Its `trial-01/` directory contains
+  the permanent prompt, patch, manifests, evaluator, samples and separate gate logs.
+- **Original agreed trial scope:** [ACCEPTANCE_TRIAL.md](ACCEPTANCE_TRIAL.md), now
+  marked executed. Historical approval wording is not permission for another run.
+- **Raw local snapshots/session:** `/tmp/casper-acceptance-sgTCoi/`, possibly absent
+  later. No copied access/refresh token values remained after cleanup. The saved
+  evaluator names that temporary root; recreating it requires matching baseline
+  and candidate directories. Do not depend on temporary paths surviving.
+- **Prior fixes/optimization details:**
+  [DEBUG_OPTIMIZATION_REVIEW.md](DEBUG_OPTIMIZATION_REVIEW.md#follow-up-implementation-status).
+- **Earlier checkpoints and historical validation only:**
+  [HANDOFF_HISTORY.md](HANDOFF_HISTORY.md). Its old “next” instructions are superseded.
 
-The supplemental controls retain path-expansion, symlink-chain, exclusion, lookup-limit, cancellation/process-cleanup and task-isolation coverage. Two deadline controls use a controlled monotonic clock; they do not establish hard preemption of blocking filesystem calls. Explicit repair still has one owner; its missing-alias reuse failure belongs to P2 above.
+## Existing uncommitted work to preserve
 
-Those review probes were temporary at the time; their cases now have permanent coverage above, and the 13-case reproduction suite is green. Historical review/probe logs remain at `/tmp/casper-2475975-review-Ajv6j2/` (`REVIEW.md`, `check-handoff.log`, `handoff-controls.log`, `handoff-repros.log`). The contract retains pre-fix reproduction steps if these artifacts are absent.
+- Phase 9 candidate-only learning and corrections: read [LEARNING.md](LEARNING.md)
+  before changing generation, provenance or persistence. Drafts remain unpromoted,
+  unverified and unaccepted; read-only tools are not an OS sandbox or spending cap.
+- Opt-in fast tests; local `/help`, one-shot exit and unknown-command rejection.
+- Shared profile validation; optional-facts fallback; bounded, right-sized memory
+  reads; supported project-command keys only. Lock recovery and outcome pruning
+  remain deferred pending explicit ownership/retention rules.
+- O2 deferred MCP/validator loading and O3 shared parallel workspace discovery.
+  O2 showed a local startup gain; O3 did not establish a material speedup. Preserve
+  consent, cancellation, catalog identity and cleanup behavior.
 
-That review left the working tree unchanged. A docs-only handoff update followed, then the user authorized the bounded code correction recorded above. Historical failures are not erased or relabeled as passing runs.
+The trial added evidence, **not O4 production code**. `src/project/inspect.ts` is
+still unchanged and `tests/project-inspect.test.ts` absent in the main tree. The
+saved patch previously passed `git apply --check`; it remains unapplied.
 
-## Implemented follow-up (before final review)
+Agent handoff/install work changed documentation and the CLI executable mode only;
+the user subsequently generated the website with Casper. This latest handoff update
+is docs-only. `git diff --check` passed, and the earlier three installed-command
+smoke tests passed. No full suite or live model was run for this update. Full-gate
+counts above are historical; the user's own successful task is separate evidence.
 
-- Review reproduced one P2: native `file://`, tilde, Unicode-space, `@@` and aliased absolute paths could bypass scope invalidation after directory membership was restored. Canonical file URLs were tested separately from macOS `/var` versus `/private/var` aliases. These were one path-identity defect, not six independent findings.
-- `src/runtime/observation.ts` now expands supported native edit/write syntax once. Both success callbacks and failed-tool observations use it through `src/runtime/pi.ts`. Downstream paths are literal; verification no longer strips a second `@`.
-- `src/verify/task.ts` resolves filesystem aliases for observations and declared input roots synchronously before advancing edit revisions. Missing targets retain their suffix under the nearest existing canonical ancestor. Other resolution failures conservatively invalidate scoped evidence rather than claiming the observation was unrelated. No observation selects a check.
-- Acceptance self-review caught and corrected a P2 regression in the first version of this fix: canonicalizing an observed `SRC/transient` to `src/transient` but comparing against a literal `SRC` scope missed invalidation on a case-insensitive filesystem. A pinned-Pi differential probe passed at `2475975` and failed with the first fix. Matching now resolves both sides and reconstructs the declared input's traversal spelling for exclusions; exclusions themselves are not followed through symlinks into other included inputs. The permanent regression was red before correction and explicitly skips on case-sensitive fixture filesystems. An additional app/tool control covers an excluded symlink pointing to an included input.
-- A further review against `2475975` found one P2 in the uncommitted canonical-only matcher: an included symlink to excluded/out-of-scope output lost its invalidating observation after the link was removed. The pinned-Pi probes passed at `2475975` and failed before this correction; no concurrent alias replacement was involved. The user approved the bounded fix before editing. `src/verify/task.ts` now retains traversed symlink entries as well as their referent, using actual directory-entry spelling for exclusions. Lookup is synchronous and bounded (4,096 work items / 500 ms per observation, 40 link hops per path); missing suffixes are retained, while invalid non-directory traversal or lookup failure is conservative.
-- Eleven permanent regressions/controls were added for the included-symlink correction. The tracer failed before implementation; nine alias regressions also failed in an isolated pre-correction copy. Coverage includes partial writes with removed targets, overlapping checks, explicit repair, outside-workspace targets and case-aliased link chains, while excluded links and unrelated checks remain non-invalidating. An invalid `file/..` traversal probe was made red before correcting the new resolver's non-directory guard. Production edits in this latest slice are confined to `src/verify/task.ts`; the pre-existing Pi adapter edits were preserved unchanged.
-- Permanent regressions exercise `CasperApp.runOnce()`, `RuntimeTool.execute()` and pinned Pi 0.85.1 with scripted localhost responses. File URLs, double `@`, tilde, Unicode spaces, and a failed edit through an alias with missing parents were made red before their corresponding corrections. Controls cover ordinary paths, exclusions, unrelated checks, removed partial writes and unresolvable paths.
-- **Native bash, the command runner, dependency pins and the single repair owner are unchanged.** Unlike the earlier checkpoint, `src/runtime/pi.ts` does change: only edit/write observation-path handling. No tool override, watcher, recovery/model expansion or research integration was added.
+## Phase readiness and standing limits
 
-### Implementation checkpoint validation (before final review)
+Phase 9 is incomplete: independent Standards/Spec review and a decision on human
+promotion remain pending. The self-hosted coding trial does not validate learning
+quality, production integrations or general daily-driver readiness. Phase 10,
+research activation and further feature expansion stay paused.
 
-- `bun run check`: TypeScript clean; **283 tests / 1,793 assertions**, **0 failures**, **98.21 s** test-runner time. The earlier 272-test / 1,710-assertion gate was green before the included-symlink regression was discovered.
-- All **45 supplemental local probes / 576 assertions** passed: the original 19 path/lifecycle probes, 16 normalization/scope-spelling controls, six original symlink repros and four traversal controls. Pinned-Pi shutdown/runtime abort retains blocked evidence, stops queued commands/descendants, revokes old tools and starts new tasks plus explicit verification fresh. Explicit repair still has one owner and no managed tool; cancellation during repair retains invalidation without reruns. The asynchronous-refresh probe also passes.
-- Temporary review evidence remains at `/tmp/casper-round2-review-vHXB0B/`, `/tmp/casper-path-acceptance-HSqRtI/`, `/var/folders/yj/l1q2ypcj68qck8m_kcrdv26r0000gp/T/casper-2475975-review-v2k7ael0/` and `/tmp/casper-alias-fix-awu6c2iu/` (latest logs, pre-correction snapshot and traversal controls). Permanent regressions are in the repository tests. Do not rely on temporary files surviving a new machine/session.
-- Single-agent implementation validation/self-review only, not independent acceptance. No live-model spending. Path lookup and scope snapshots remain non-atomic; no guarantee against concurrent alias replacement or arbitrary external writers. Windows remains unvalidated.
-
-## Previous checkpoint: 2475975
-
-The earlier user-requested checkpoint built on `43073d7` (`Add opt-in work-driven checks with task-local scoped evidence`). Its completed work and validation below are historical, not the current uncommitted diff.
-
-### What that checkpoint completed
-
-- Reviewed `7ce29ad..43073d7` against the opt-in `casper_check` agreement. Single-agent inspection and local validation, not independent review. One confirmed P2 spec finding: a scoped pass → observed native write creating an included file → native removal → another managed check reused the old pass because directory membership matched again.
-- Corrected that finding in `src/verify/task.ts` and `src/app.ts`. Existing native edit/write observations invalidate matching frozen scopes until another execution. Per-check edit revisions cover observed edits during a running check; asynchronous freshness refresh cannot overwrite invalidation. Failed native edit/write paths conservatively invalidate possible partial writes without claiming completed edits.
-- Kept scope boundaries and exclusions effective. Unrelated edits do not invalidate other checks. Invalidation neither selects checks nor depends on the receipt's 32-path display cap.
-- Shared the same behavior with explicit repair through `src/verify/repair-loop.ts`, without exposing the managed tool to non-opted-in requests. There remains one bounded repair owner, after the primary prompt settles.
-- Added six regressions in `tests/work-driven-checks.integration.test.ts` and one in `tests/phase8-pi.integration.test.ts`; strengthened the no-selection case. The original, overlapping-edit, partial-write and explicit-repair failures were reproduced before correction. The pinned-Pi native-write/removal case was also reproduced before the fix.
-
-**Native bash, `src/runtime/pi.ts`, the command runner and dependency pins are unchanged.** No recovery/model controls, new autonomy default, filesystem watcher or shell override was added.
-
-### Checkpoint validation (historical)
-
-Full gate immediately before `2475975`:
-
-```sh
-bun run check
-```
-
-- TypeScript clean; **254 tests / 1,581 assertions**, **0 failures**, **70.02 s** test-runner time.
-- Earlier focused validation: **79 tests / 553 assertions** across verification/app, evidence, memory, managed checks and three selected pinned-Pi cases.
-- The restored-membership Pi regression executes **two** real commands across check → native write → native removal → check → reuse.
-- The existing edit/check/failure/repair vertical fixtures still execute **three** real commands with **one** repair prompt and no additional human approval.
-- Separate temporary pinned-Pi cancellation and task-isolation probes passed: started-command evidence retained as blocked, queued work/descendants stopped, and new tasks plus explicit `/verify` start fresh. Temporary reproduction files were removed after passing reruns; permanent regressions remain in the repo.
-- `git diff --check` clean. Tests use real local commands, language servers and scripted localhost providers; no live-model spending or production-service evaluation.
-
-A deliberately early-returning fake runtime lost pending evidence in an exploratory probe, but that behavior was not reproduced with pinned Pi and was not promoted as a confirmed Pi-path finding or fixed. Do not relabel that probe as a production regression.
-
-## Current contract and limits
-
-- Managed checks remain opt-in (`--verify` / `autoVerify: true`). The model chooses relevant checks from actual work; no selection means no Casper verification recorded. Explicit `/verify` remains available and starts fresh.
-- Command outcome, declared-input freshness, behavioral coverage and human acceptance remain separate. Fresh scoped evidence permits task-local reuse; it does not certify requested behavior or unlisted dependencies.
-- Scope observations remain bounded/non-atomic and do not lock native/external writers. Unobserved shell/external changes still rely on those observations. Unknown or stale selected passes get one completion-time recheck, not a freshness-seeking loop; repeated unknown-scope calls do not deduplicate.
-- Native shell events remain diagnostics, never process-exit evidence. Pinned Pi's signal-killed bash can still resolve successfully without exit metadata; no exit zero is inferred from that.
-- No live-model selection/productivity/cost comparison or independent acceptance has been performed. Passing fixtures are not daily-driver readiness approval.
-
-## Parked research — not a roadmap change
-
-For a future **security review** or **CLI/TUI usability pass**, read `docs/REFERENCE_IDEAS_BACKBURNER.md`:
-
-- Cloudflare `security-audit-skill`: useful trust-boundary and adversarial-validation guidance. Its full audit pipeline and OS-sandbox execution requirements are not implemented in Casper.
-- `ayghri/i-have-adhd`: useful low-noise communication ideas, not authority to discard evidence, invent causes/estimates, or impose a persistent style. Treat accessibility as a user preference, not a diagnosis.
-
-Both repositories were inspected at pinned revisions using public primary sources. Nothing was installed, activated or executed from them. Integration and paid experiments remain unapproved.
-
-## Historical next-session proposal (superseded by Phase 9 work above)
-
-1. Read this handoff and the evidence contract for the completed behavior and limits. Check git status and preserve later local work. The correction is closed; another broad filesystem audit is not the default next task.
-2. Propose **one bounded, user-visible milestone** with explicit acceptance criteria. Recommended: demonstrate Casper completing one small representative coding task using existing capabilities, with a correct change, real checks and an understandable result. Scripted fixtures establish mechanics, not real-world usefulness.
-3. Agree the task/project, allowed edits, checks and stop conditions with the user before implementation or evaluation. Any live-model/provider trial also needs explicit approval and a spending bound. Planning this milestone does not authorize the trial.
-
-Keep the documented non-atomic and platform limitations visible. If a concrete regression appears, report its reproduction and agree a bounded correction rather than restarting unlimited edge-case exploration. Preserve native bash, dependency pins and the single repair owner. Recovery/model expansion, trust/autonomy changes, new integrations, research activation, further commits and push remain unapproved.
-
-Historical suggested resume prompt (not current instructions):
-
-> Read docs/HANDOFF.md and docs/CODING_LOOP_EVIDENCE_CONTRACT.md. Check git status and preserve later local work. Treat the coding-loop evidence correction as closed within its documented limits; do not restart a broad path/verification audit without a concrete reproducible regression. Latest gate: TypeScript clean, 294 tests / 1,879 assertions; all 78 supplemental probes / 836 assertions passed. These are local single-agent results, not independent acceptance or daily-driver readiness. Help me agree one bounded, user-visible next milestone: a small representative coding task using Casper's existing capabilities. Propose the task, acceptance criteria, execution limits and any required budget, then get my approval before implementation or live-model calls. Keep docs/REFERENCE_IDEAS_BACKBURNER.md parked. No recovery/model expansion, new integrations, further commit or push without separate approval.
-
-## Historical context
-
-`43073d7` introduced the managed tool and evidence contract; `7ce29ad` is the earlier partial-evidence baseline. Earlier handoff history is preserved with `git show 43073d7:docs/HANDOFF.md`. `docs/CODING_LOOP_DIRECTION_REVIEW.md`, `docs/CODING_LOOP_AUDIT.md` and the phase review documents remain historical design/review evidence, not authorization to resume their old instructions.
+Preserve native bash, dependency pins, the verification command runner and the
+single post-primary repair owner. The earlier filesystem/evidence correction is
+closed within its documented limits; reopen only for a concrete reproducible
+contract regression or an approved affecting change. Scope observations and reads
+remain non-atomic; Windows remains unvalidated.
