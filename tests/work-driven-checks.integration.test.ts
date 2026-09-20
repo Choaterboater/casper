@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { CasperApp } from "../src/app";
@@ -12,6 +12,19 @@ import { taskExitCode } from "../src/task/result";
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
 const command = "printf x >> test-runs; grep -qx good src/value";
+const filesystemAliases = await (async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-missing-alias-probe-"));
+  try {
+    await writeFile(path.join(root, "case"), "");
+    await writeFile(path.join(root, "caf\u00e9"), "");
+    await writeFile(path.join(root, "\u00df"), "");
+    return {
+      caseInsensitive: await realpath(path.join(root, "CASE")).then(() => true, () => false),
+      unicodeEquivalent: await realpath(path.join(root, "cafe\u0301")).then(() => true, () => false),
+      unicodeCaseEquivalent: await realpath(path.join(root, "\u1e9e")).then(() => true, () => false),
+    };
+  } finally { await rm(root, { recursive: true, force: true }); }
+})();
 async function fixture(config: unknown = {
   verify: { test: command, build: "printf x >> build-runs" },
   verification: { scopes: { test: { inputs: ["src"] } } },
@@ -261,6 +274,26 @@ test("an observed native edit during a check stays stale even when membership is
   expect(await readFile(path.join(root, "test-runs"), "utf8")).toBe("xx");
 });
 
+test.skipIf(!filesystemAliases.caseInsensitive)("a missing named alias observed during a check stays stale after partial-write removal", async () => {
+  const root = await fixture({ verify: { test: "printf x >> test-runs; touch started; while test ! -f release; do sleep 0.01; done" },
+    verification: { timeoutMs: 2000, scopes: { test: { inputs: ["SRC/MISSING"] } } } });
+  const { app } = createApp(root, async (_prompt, tools, _options, emit) => {
+    const tool = checkTool(tools);
+    const pending = check(tool);
+    await waitForFile(path.join(root, "started"));
+    await writeFile(path.join(root, "src/missing"), "partial");
+    await rm(path.join(root, "src/missing"));
+    emit({ type: "tool_end", toolName: "write", isError: true, input: { path: "src/missing" } });
+    await writeFile(path.join(root, "release"), "");
+    expect(await pending).toMatchObject({ status: "pass", exitCode: 0, freshness: "stale" });
+    expect((await check(tool)).reused).not.toBe(true);
+    expect((await check(tool)).reused).toBe(true);
+  });
+  expect(await app.runOnce("Continue", root)).toMatchObject({ status: "pass", repairAttempts: 0 });
+  expect(app.getLastTaskResult()).toMatchObject({ observedEdits: [], possibleMutations: true });
+  expect(await readFile(path.join(root, "test-runs"), "utf8")).toBe("xx");
+});
+
 test("a failed native write with possible partial edits invalidates matching evidence without claiming a completed edit", async () => {
   const root = await fixture();
   await writeFile(path.join(root, "src/value"), "good\n");
@@ -268,7 +301,7 @@ test("a failed native write with possible partial edits invalidates matching evi
     const tool = checkTool(tools);
     expect((await check(tool)).status).toBe("pass");
     await writeFile(path.join(root, "src/transient"), "partial source\n");
-    emit({ type: "tool_end", toolName: "write", isError: true, input: { path: "@./src/transient" } });
+    emit({ type: "tool_end", toolName: "write", isError: true, input: { path: "./src/transient" } });
     await rm(path.join(root, "src/transient"));
     expect((await check(tool)).reused).not.toBe(true);
   });
@@ -277,11 +310,128 @@ test("a failed native write with possible partial edits invalidates matching evi
   expect(await readFile(path.join(root, "test-runs"), "utf8")).toBe("xx");
 });
 
-test("native edit invalidation respects excluded paths, scope boundaries and unrelated checks", async () => {
+test("a failed partial native write remains invalidating after its aliased target and parent are removed", async () => {
+  const root = await fixture();
+  const alias = path.join(root, "alias");
+  await symlink(await realpath(root), alias, "dir");
+  await writeFile(path.join(root, "src/value"), "good\n");
+  const { app } = createApp(root, async (_prompt, tools, _options, emit) => {
+    const tool = checkTool(tools);
+    expect((await check(tool)).status).toBe("pass");
+    await mkdir(path.join(root, "src/transient"));
+    await writeFile(path.join(root, "src/transient/partial"), "partial source\n");
+    await rm(path.join(root, "src/transient"), { recursive: true });
+    emit({ type: "tool_end", toolName: "write", isError: true, input: { path: path.join(alias, "src/transient/partial") } });
+    expect((await check(tool)).reused).not.toBe(true);
+  });
+  expect((await app.runOnce("Continue", root))?.status).toBe("pass");
+  expect(app.getLastTaskResult()).toMatchObject({ possibleMutations: true, observedEdits: [] });
+  expect(await readFile(path.join(root, "test-runs"), "utf8")).toBe("xx");
+});
+
+for (const form of ["case", "unicode", "unicode-case", "missing-parent"]) test.skipIf(form === "unicode" ? !filesystemAliases.unicodeEquivalent
+  : form === "unicode-case" ? !filesystemAliases.unicodeCaseEquivalent : !filesystemAliases.caseInsensitive)(`a removed partial write still invalidates a missing named input (${form})`, async () => {
+  const declared = form === "unicode" ? "src/caf\u00e9" : form === "unicode-case" ? "src/\u1e9e" : "SRC/MISSING";
+  const observed = form === "unicode" ? "src/cafe\u0301" : form === "unicode-case" ? "src/\u00df" : "src/missing";
+  const input = form === "missing-parent" ? `${declared}/named` : declared;
+  const file = form === "missing-parent" ? `${observed}/other` : observed;
+  const root = await fixture({ verify: { test: "printf x >> test-runs", build: "printf x >> build-runs" },
+    verification: { scopes: { test: { inputs: [input] }, build: { inputs: ["docs"] } } } });
+  await mkdir(path.join(root, "docs"));
+  const { app } = createApp(root, async (_prompt, tools, _options, emit) => {
+    const tool = checkTool(tools);
+    expect(await check(tool)).toMatchObject({ status: "pass", freshness: "fresh" });
+    expect((await check(tool, "build")).freshness).toBe("fresh");
+    await mkdir(path.dirname(path.join(root, file)), { recursive: true });
+    await writeFile(path.join(root, file), "partial");
+    expect(await realpath(path.join(root, declared))).toBe(await realpath(path.join(root, observed)));
+    await rm(path.join(root, observed), { recursive: true });
+    emit({ type: "tool_end", toolName: "write", isError: true, input: { path: file } });
+    expect((await check(tool)).reused).not.toBe(true);
+    expect((await check(tool)).reused).toBe(true);
+    expect((await check(tool, "build")).reused).toBe(true);
+  });
+  expect(await app.runOnce("Continue", root)).toMatchObject({ status: "pass", repairAttempts: 0 });
+  expect(app.getLastTaskResult()).toMatchObject({ observedEdits: [], possibleMutations: true });
+  expect(await readFile(path.join(root, "test-runs"), "utf8")).toBe("xx");
+  expect(await readFile(path.join(root, "build-runs"), "utf8")).toBe("x");
+});
+
+test.skipIf(!filesystemAliases.caseInsensitive)("a removed case-aliased parent cannot supply an exclusion spelling for a partial write", async () => {
+  const root = await fixture({ verify: { test: "printf x >> test-runs", build: "printf x >> build-runs" },
+    verification: { scopes: { test: { inputs: ["src"], exclude: ["src/generated"] }, build: { inputs: ["docs"] } } } });
+  await mkdir(path.join(root, "docs"));
+  const { app } = createApp(root, async (_prompt, tools, _options, emit) => {
+    const tool = checkTool(tools);
+    expect((await check(tool)).freshness).toBe("fresh");
+    expect((await check(tool, "build")).freshness).toBe("fresh");
+    await mkdir(path.join(root, "src/GENERATED"));
+    await writeFile(path.join(root, "src/generated/transient"), "partial");
+    expect(await realpath(path.join(root, "src/generated/transient"))).toBe(path.join(await realpath(root), "src/GENERATED/transient"));
+    await rm(path.join(root, "src/GENERATED"), { recursive: true });
+    emit({ type: "tool_end", toolName: "write", isError: true, input: { path: "src/generated/transient" } });
+    expect((await check(tool)).reused).not.toBe(true);
+    expect((await check(tool)).reused).toBe(true);
+    expect((await check(tool, "build")).reused).toBe(true);
+  });
+  expect(await app.runOnce("Continue", root)).toMatchObject({ status: "pass", repairAttempts: 0 });
+  expect(app.getLastTaskResult()).toMatchObject({ observedEdits: [], possibleMutations: true });
+  expect(await readFile(path.join(root, "test-runs"), "utf8")).toBe("xx");
+  expect(await readFile(path.join(root, "build-runs"), "utf8")).toBe("x");
+});
+
+test("distinct missing entries do not invalidate a missing named input or select other checks", async () => {
+  const root = await fixture({ verify: { test: "printf x >> test-runs", build: "touch unselected" },
+    verification: { scopes: { test: { inputs: ["src/missing/named"] } } } });
+  const { app } = createApp(root, async (_prompt, tools, _options, emit) => {
+    const tool = checkTool(tools);
+    expect((await check(tool)).freshness).toBe("fresh");
+    for (const file of ["src/missing-other", "src/other/named", "docs/missing", "src/value"]) {
+      emit({ type: "tool_end", toolName: "edit", isError: true, input: { path: file } });
+      expect((await check(tool)).reused).toBe(true);
+    }
+  });
+  expect(await app.runOnce("Continue", root)).toMatchObject({ status: "pass", repairAttempts: 0 });
+  expect(await readFile(path.join(root, "test-runs"), "utf8")).toBe("x");
+  expect(await Bun.file(path.join(root, "unselected")).exists()).toBe(false);
+});
+
+test("a resolved excluded parent still excludes missing descendants", async () => {
+  const root = await fixture({ verify: { test: "printf x >> test-runs" },
+    verification: { scopes: { test: { inputs: ["src"], exclude: ["src/generated"] } } } });
+  await mkdir(path.join(root, "src/generated"));
+  const { app } = createApp(root, async (_prompt, tools, _options, emit) => {
+    const tool = checkTool(tools);
+    expect((await check(tool)).freshness).toBe("fresh");
+    emit({ type: "tool_end", toolName: "write", isError: true, input: { path: "src/generated/missing/nested" } });
+    expect((await check(tool)).reused).toBe(true);
+  });
+  expect(await app.runOnce("Continue", root)).toMatchObject({ status: "pass", repairAttempts: 0 });
+  expect(await readFile(path.join(root, "test-runs"), "utf8")).toBe("x");
+});
+
+test("an unresolvable observed native path invalidates selected scoped evidence rather than claiming it is unrelated", async () => {
+  const root = await fixture();
+  await writeFile(path.join(root, "src/value"), "good\n");
+  await symlink("cycle", path.join(root, "cycle"));
+  const { app } = createApp(root, async (_prompt, tools, _options, emit) => {
+    const tool = checkTool(tools);
+    expect((await check(tool)).status).toBe("pass");
+    emit({ type: "tool_end", toolName: "write", isError: true, input: { path: "cycle/partial" } });
+    expect((await check(tool)).reused).not.toBe(true);
+  });
+  expect(await app.runOnce("Continue", root)).toMatchObject({ status: "pass", repairAttempts: 0 });
+  expect(await readFile(path.join(root, "test-runs"), "utf8")).toBe("xx");
+  expect(await Bun.file(path.join(root, "build-runs")).exists()).toBe(false);
+});
+
+for (const form of ["literal", "alias"]) test(`native edit invalidation respects excluded paths, scope boundaries and unrelated checks (${form})`, async () => {
   const root = await fixture({ verify: { test: command, build: "printf x >> build-runs" },
     verification: { scopes: { test: { inputs: ["src"], exclude: ["src/generated"] }, build: { inputs: ["docs"] } } } });
   await writeFile(path.join(root, "src/value"), "good\n");
   await mkdir(path.join(root, "docs"));
+  const alias = path.join(root, "alias");
+  await symlink(await realpath(root), alias, "dir");
   const { app } = createApp(root, async (_prompt, tools, options) => {
     const tool = checkTool(tools);
     expect((await check(tool)).status).toBe("pass");
@@ -289,13 +439,13 @@ test("native edit invalidation respects excluded paths, scope boundaries and unr
     for (const file of ["src/generated/report", "src-other/value"]) {
       await mkdir(path.dirname(path.join(root, file)), { recursive: true });
       await writeFile(path.join(root, file), "unrelated output\n");
-      await options.afterFileEdit?.(file);
+      await options.afterFileEdit?.(form === "alias" ? path.join(alias, file) : file);
     }
     expect((await check(tool)).reused).toBe(true);
     expect((await check(tool, "build")).reused).toBe(true);
     const transient = path.join(root, "src/transient");
     await writeFile(transient, "intermediate source\n");
-    await options.afterFileEdit?.(transient); // Absolute native paths use the same frozen scope.
+    await options.afterFileEdit?.(form === "alias" ? path.join(alias, "src/transient") : transient);
     await rm(transient);
     expect((await check(tool)).reused).not.toBe(true);
     expect((await check(tool, "build")).reused).toBe(true);
@@ -303,6 +453,109 @@ test("native edit invalidation respects excluded paths, scope boundaries and unr
   expect((await app.runOnce("Continue", root))?.status).toBe("pass");
   expect(await readFile(path.join(root, "test-runs"), "utf8")).toBe("xx");
   expect(await readFile(path.join(root, "build-runs"), "utf8")).toBe("x");
+});
+
+for (const destination of ["excluded", "outside"]) for (const outcome of ["success", "partial-failure"]) test(`an included symlink retains native invalidation after removal (${destination}, ${outcome})`, async () => {
+  const root = await fixture({ verify: { test: "printf x >> test-runs", build: "printf x >> build-runs" },
+    verification: { scopes: { test: { inputs: ["src"], exclude: ["src/generated"] }, build: { inputs: ["docs"] } } } });
+  await mkdir(path.join(root, "src/generated"));
+  await mkdir(path.join(root, "outside"));
+  await mkdir(path.join(root, "docs"));
+  const { app } = createApp(root, async (_prompt, tools, options, emit) => {
+    const tool = checkTool(tools);
+    expect(await check(tool)).toMatchObject({ status: "pass", freshness: "fresh" });
+    expect((await check(tool, "build")).freshness).toBe("fresh");
+    await symlink(destination === "excluded" ? "generated" : "../outside", path.join(root, "src/link"), "dir");
+    await writeFile(path.join(root, "src/link/transient"), "temporary output\n");
+    if (outcome === "success") await options.afterFileEdit?.("src/link/transient");
+    await rm(path.join(root, "src/link/transient"));
+    // Partial-write observations can arrive after the target is already absent.
+    if (outcome === "partial-failure") emit({ type: "tool_end", toolName: "write", isError: true, input: { path: "src/link/transient" } });
+    await rm(path.join(root, "src/link"));
+    expect((await check(tool)).reused).not.toBe(true);
+    expect(await check(tool)).toMatchObject({ status: "pass", freshness: "fresh", reused: true });
+    expect((await check(tool, "build")).reused).toBe(true);
+  });
+  expect(await app.runOnce("Continue", root)).toMatchObject({ status: "pass", repairAttempts: 0 });
+  expect(app.getLastTaskResult()?.observedEdits).toEqual(outcome === "success" ? ["src/link/transient"] : []);
+  if (outcome === "partial-failure") expect(app.getLastTaskResult()?.possibleMutations).toBe(true);
+  expect(await readFile(path.join(root, "test-runs"), "utf8")).toBe("xx");
+  expect(await readFile(path.join(root, "build-runs"), "utf8")).toBe("x");
+});
+
+test("an included symlink observed during a check stays invalidating after removal", async () => {
+  const root = await fixture({ verify: { test: "printf x >> test-runs; touch started; while test ! -f release; do sleep 0.01; done" },
+    verification: { timeoutMs: 2000, scopes: { test: { inputs: ["src"], exclude: ["src/generated"] } } } });
+  await mkdir(path.join(root, "src/generated"));
+  const { app } = createApp(root, async (_prompt, tools, options) => {
+    const tool = checkTool(tools);
+    const pending = check(tool);
+    await waitForFile(path.join(root, "started"));
+    await symlink("generated", path.join(root, "src/link"), "dir");
+    await writeFile(path.join(root, "src/link/transient"), "temporary output\n");
+    await options.afterFileEdit?.("src/link/transient");
+    await rm(path.join(root, "src/link/transient"));
+    await rm(path.join(root, "src/link"));
+    await writeFile(path.join(root, "release"), "");
+    expect(await pending).toMatchObject({ status: "pass", exitCode: 0, freshness: "stale" });
+    expect((await check(tool)).reused).not.toBe(true);
+    expect(await check(tool)).toMatchObject({ status: "pass", freshness: "fresh", reused: true });
+  });
+  expect((await app.runOnce("Continue", root))?.status).toBe("pass");
+  expect(await readFile(path.join(root, "test-runs"), "utf8")).toBe("xx");
+});
+
+test("an invalid symlink traversal stays unknown rather than being classified as unrelated", async () => {
+  const root = await fixture({ verify: { test: "printf x >> test-runs", build: "touch unselected" },
+    verification: { scopes: { test: { inputs: ["src"] } } } });
+  await writeFile(path.join(root, "regular"), "not a directory");
+  await mkdir(path.join(root, "outside"));
+  await symlink("regular/../outside", path.join(root, "alias"), "dir");
+  const { app } = createApp(root, async (_prompt, tools, _options, emit) => {
+    const tool = checkTool(tools);
+    expect(await check(tool)).toMatchObject({ status: "pass", freshness: "fresh" });
+    await expect(writeFile(path.join(root, "alias/transient"), "cannot write")).rejects.toHaveProperty("code", "ENOTDIR");
+    emit({ type: "tool_end", toolName: "write", isError: true, input: { path: "alias/transient" } });
+    expect((await check(tool)).reused).not.toBe(true);
+  });
+  expect(await app.runOnce("Continue", root)).toMatchObject({ status: "pass", repairAttempts: 0 });
+  expect(await readFile(path.join(root, "test-runs"), "utf8")).toBe("xx");
+  expect(await Bun.file(path.join(root, "unselected")).exists()).toBe(false);
+});
+
+test("an excluded symlink to unrelated output does not invalidate scoped evidence", async () => {
+  const root = await fixture({ verify: { test: "printf x >> test-runs" },
+    verification: { scopes: { test: { inputs: ["src"], exclude: ["src/generated"] } } } });
+  await mkdir(path.join(root, "outside"));
+  await symlink("../outside", path.join(root, "src/generated"), "dir");
+  const { app } = createApp(root, async (_prompt, tools, options, emit) => {
+    const tool = checkTool(tools);
+    expect(await check(tool)).toMatchObject({ status: "pass", freshness: "fresh" });
+    await writeFile(path.join(root, "src/generated/transient"), "excluded output\n");
+    await options.afterFileEdit?.("src/generated/transient");
+    await rm(path.join(root, "src/generated/transient"));
+    emit({ type: "tool_end", toolName: "write", isError: true, input: { path: "src/generated/missing" } });
+    expect((await check(tool)).reused).toBe(true);
+  });
+  expect((await app.runOnce("Continue", root))?.status).toBe("pass");
+  expect(await readFile(path.join(root, "test-runs"), "utf8")).toBe("x");
+});
+
+test("an excluded symlink does not hide a native write to an included input", async () => {
+  const root = await fixture({ verify: { test: command },
+    verification: { scopes: { test: { inputs: ["src"], exclude: ["src/generated"] } } } });
+  await writeFile(path.join(root, "src/value"), "good\n");
+  await symlink(".", path.join(root, "src/generated"), "dir");
+  const { app } = createApp(root, async (_prompt, tools, options) => {
+    const tool = checkTool(tools);
+    expect(await check(tool)).toMatchObject({ status: "pass", freshness: "fresh" });
+    await writeFile(path.join(root, "src/generated/transient"), "included source\n");
+    await options.afterFileEdit?.("src/generated/transient");
+    await rm(path.join(root, "src/transient"));
+    expect((await check(tool)).reused).not.toBe(true);
+  });
+  expect((await app.runOnce("Continue", root))?.status).toBe("pass");
+  expect(await readFile(path.join(root, "test-runs"), "utf8")).toBe("xx");
 });
 
 test("explicit repair retains native edit invalidation without exposing the opt-in check tool", async () => {
@@ -314,6 +567,43 @@ test("explicit repair retains native edit invalidation without exposing the opt-
     await writeFile(path.join(root, "src/transient"), "intermediate source\n");
     await options.afterFileEdit?.("src/transient");
     await rm(path.join(root, "src/transient"));
+    await writeFile(path.join(root, "fixed"), "");
+    await options.afterFileEdit?.("fixed");
+  }, false);
+  expect(await app.runOnce("/verify repair test build", root)).toMatchObject({ status: "pass", repairAttempts: 1 });
+  expect(prompts).toHaveLength(1);
+  expect(await readFile(path.join(root, "test-runs"), "utf8")).toBe("xx");
+  expect(await readFile(path.join(root, "build-runs"), "utf8")).toBe("xx");
+});
+
+test("explicit repair retains included symlink invalidation with one owner and no managed tool", async () => {
+  const root = await fixture({ verify: { test: "printf x >> test-runs", build: "printf x >> build-runs; test -f fixed" },
+    verification: { scopes: { test: { inputs: ["src"], exclude: ["src/generated"] }, build: { inputs: ["fixed"] } } } });
+  await mkdir(path.join(root, "src/generated"));
+  const { app, prompts } = createApp(root, async (_prompt, tools, options) => {
+    expect(tools.map((tool) => tool.name)).not.toContain("casper_check");
+    await symlink("generated", path.join(root, "src/link"), "dir");
+    await writeFile(path.join(root, "src/link/transient"), "temporary output\n");
+    await options.afterFileEdit?.("src/link/transient");
+    await rm(path.join(root, "src/link/transient"));
+    await rm(path.join(root, "src/link"));
+    await writeFile(path.join(root, "fixed"), "");
+    await options.afterFileEdit?.("fixed");
+  }, false);
+  expect(await app.runOnce("/verify repair test build", root)).toMatchObject({ status: "pass", repairAttempts: 1 });
+  expect(prompts).toHaveLength(1);
+  expect(await readFile(path.join(root, "test-runs"), "utf8")).toBe("xx");
+  expect(await readFile(path.join(root, "build-runs"), "utf8")).toBe("xx");
+});
+
+test.skipIf(!filesystemAliases.caseInsensitive)("explicit repair retains a removed missing-name alias with one owner and no managed tool", async () => {
+  const root = await fixture({ verify: { test: "printf x >> test-runs", build: "printf x >> build-runs; test -f fixed" },
+    verification: { scopes: { test: { inputs: ["SRC/MISSING"] }, build: { inputs: ["fixed"] } } }, repair: { maxAttempts: 1 } });
+  const { app, prompts } = createApp(root, async (_prompt, tools, options, emit) => {
+    expect(tools.map((tool) => tool.name)).not.toContain("casper_check");
+    await writeFile(path.join(root, "src/missing"), "partial");
+    await rm(path.join(root, "src/missing"));
+    emit({ type: "tool_end", toolName: "write", isError: true, input: { path: "src/missing" } });
     await writeFile(path.join(root, "fixed"), "");
     await options.afterFileEdit?.("fixed");
   }, false);

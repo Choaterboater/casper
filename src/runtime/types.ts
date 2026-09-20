@@ -16,7 +16,8 @@ export interface RuntimeStartOptions {
   cwd: string;
   systemPromptAppend?: string;
   tools?: RuntimeTool[];
-  /** Append diagnostics to successful native edit/write results before the next model turn. */
+  /** Append diagnostics to successful native edit/write results before the next model turn.
+   * Path is literal (native input syntax expanded once), absolute or relative to cwd. */
   afterFileEdit?: (path: string, signal?: AbortSignal) => Promise<string | undefined>;
 }
 
