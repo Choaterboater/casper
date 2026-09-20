@@ -1,6 +1,65 @@
 # Casper — next-session handoff
 
-## Resume here: evidence correction checkpoint — slice closed
+## Resume here: Phase 9 local reference search — checkpoint
+
+The user approved resuming Phase 9 with **explicitly configured, read-only local
+reference search**, then requested **commit and continue**. This checkpoint records
+that search slice. The toy coding demo is parked, not a phase gate or the user's
+current task; the older next-session proposal below remains superseded.
+
+This checkpoint builds on `5d5773f`; resolve it with `git log -1 --oneline`. Check
+git status and preserve later local work. **This checkpoint commit is authorized;
+no push or further commit is authorized.**
+
+### Current delivery
+
+- `/references` lists configured source metadata; `/references search <id|*> <query>`
+  searches locally without Pi or credentials. Normal parent tasks get one
+  `search_references` tool only when sources are configured.
+- User/profile `references.yaml` files explicitly name local roots and search
+  paths. No sources are automatically installed; project-local files cannot add
+  arbitrary external roots. Existing profile selection still applies.
+- Excerpts carry configuration/root/file/line/digest provenance. Partial results,
+  read/result bounds and missing sources stay explicit. Current repository rules
+  outrank reference examples; nothing is executed, learned or promoted.
+- One `ReferenceLibrary` serves CLI and tool calls, rereads content per query,
+  cancels/drains searches on close and revokes old tools on workspace rebinding.
+- Native bash, the Pi adapter, dependency pins, verifier and single repair owner
+  are unchanged. No spending cap, new task-attempt policy, recovery/model feature,
+  remote retrieval or external integration was added. Backburner research stays parked.
+
+Read [REFERENCES.md](REFERENCES.md) for the user/configuration contract and
+[Phase 9 search validation](PHASE9_IMPLEMENTATION.md#search-validation) before
+modifying this slice. Implementation: `src/references/`, app/CLI/public exports;
+permanent coverage: `tests/phase9-references*.test.ts`.
+
+### Current validation
+
+- Fresh checkpoint `bun run check`: TypeScript clean; **313 tests / 2,010 assertions**,
+  0 failures, 90.72 s test-runner time. `git diff --check` passed.
+- New reference suites: **19 tests / 131 assertions**, passing. Module/local-command
+  tracers and rejected-text/Unicode corrections were red before their fixes.
+- Real CLI plus pinned Pi with scripted localhost responses validate the new
+  tool flow; no live-model usefulness trial or paid model call was performed.
+- Checkpoint gate log: `/tmp/casper-references-checkpoint-ifOLmu/full-check.log`.
+  Earlier implementation gate: `/tmp/casper-phase9-references-WAc4aT/full-check.log`
+  (same counts, 89.69 s). These are local single-agent implementation/checkpoint
+  validation, not independent Phase 9 acceptance or daily-driver readiness.
+
+### Next decision
+
+Phase 9 still needs `casper learn` candidate generation, explicit human promotion,
+and its full independent Standards/Spec review. Agree the next slice before
+implementing it; reference search does not authorize those features or Phase 10.
+The evidence correction at `5d5773f` remains closed within its documented limits.
+
+Separate user-setting change earlier in this session: the user approved changing
+`~/.pi/agent/settings.json` defaults to `openai-codex / gpt-6-astra` for their Codex
+subscription. Only those two fields changed; backup is
+`~/.pi/agent/settings.json.backup-wGTIo5`. This is outside the repository and is not
+new Casper model support or proof of live-model/billing behavior. Preserve it.
+
+## Earlier evidence correction checkpoint — slice closed
 
 The user requested this commit and handoff after the bounded native-path/evidence correction and its validation. This checkpoint builds on `2475975`; resolve its commit with `git log -1 --oneline`, run `git status --short`, and preserve any later local work. **This checkpoint commit is authorized; no push or further commit is authorized.**
 
@@ -119,7 +178,7 @@ For a future **security review** or **CLI/TUI usability pass**, read `docs/REFER
 
 Both repositories were inspected at pinned revisions using public primary sources. Nothing was installed, activated or executed from them. Integration and paid experiments remain unapproved.
 
-## Next session
+## Historical next-session proposal (superseded by Phase 9 work above)
 
 1. Read this handoff and the evidence contract for the completed behavior and limits. Check git status and preserve later local work. The correction is closed; another broad filesystem audit is not the default next task.
 2. Propose **one bounded, user-visible milestone** with explicit acceptance criteria. Recommended: demonstrate Casper completing one small representative coding task using existing capabilities, with a correct change, real checks and an understandable result. Scripted fixtures establish mechanics, not real-world usefulness.
@@ -127,7 +186,7 @@ Both repositories were inspected at pinned revisions using public primary source
 
 Keep the documented non-atomic and platform limitations visible. If a concrete regression appears, report its reproduction and agree a bounded correction rather than restarting unlimited edge-case exploration. Preserve native bash, dependency pins and the single repair owner. Recovery/model expansion, trust/autonomy changes, new integrations, research activation, further commits and push remain unapproved.
 
-Suggested resume prompt:
+Historical suggested resume prompt (not current instructions):
 
 > Read docs/HANDOFF.md and docs/CODING_LOOP_EVIDENCE_CONTRACT.md. Check git status and preserve later local work. Treat the coding-loop evidence correction as closed within its documented limits; do not restart a broad path/verification audit without a concrete reproducible regression. Latest gate: TypeScript clean, 294 tests / 1,879 assertions; all 78 supplemental probes / 836 assertions passed. These are local single-agent results, not independent acceptance or daily-driver readiness. Help me agree one bounded, user-visible next milestone: a small representative coding task using Casper's existing capabilities. Propose the task, acceptance criteria, execution limits and any required budget, then get my approval before implementation or live-model calls. Keep docs/REFERENCE_IDEAS_BACKBURNER.md parked. No recovery/model expansion, new integrations, further commit or push without separate approval.
 

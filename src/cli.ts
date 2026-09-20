@@ -21,6 +21,8 @@ Local commands:
   /memory forget <id>              Remove a fact
   /memory outcomes                 Show the latest 20 task outcomes
   /memory accept <id> <yes|no>      Record human acceptance, not test evidence
+  /references                      List configured local reference sources
+  /references search <id|*> <query> Search reference text locally (no model)
   /tree                            Show named session/workspace branches
   /branch <name>                   Clone this Pi session (isolated by policy)
   /switch <branch>                 Switch session and workspace (confirmation required)

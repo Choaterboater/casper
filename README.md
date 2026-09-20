@@ -52,8 +52,9 @@ This means:
 - enforced child tool selection, run/dispatch limits, cancellation, and bounded reports
 
 - explicit project facts and truthful task outcomes (Phase 9's first slice)
+- read-only local reference search with configured sources and file/line provenance
 
-Not implemented yet: reference search, `casper learn`, candidate-to-skill promotion, or writing subagents. Phase 4 is validated with local generic/HPE-style fixtures and a live model; actual deployment-specific HPE acceptance remains pending. Independent Phase 6–8 reviews and corrective follow-ups are recorded in `docs/PHASE6_REVIEW.md`, `docs/PHASE7_REVIEW.md`, and `docs/PHASE8_REVIEW.md`; runtime findings are resolved. Interactive MindMesh remains a disclosed broader-plan gap, not completed integration. Phase 9 is incomplete and awaits its own review.
+Not implemented yet: `casper learn`, candidate-to-skill promotion, or writing subagents. Phase 4 is validated with local generic/HPE-style fixtures and a live model; actual deployment-specific HPE acceptance remains pending. Independent Phase 6–8 reviews and corrective follow-ups are recorded in `docs/PHASE6_REVIEW.md`, `docs/PHASE7_REVIEW.md`, and `docs/PHASE8_REVIEW.md`; runtime findings are resolved. Interactive MindMesh remains a disclosed broader-plan gap, not completed integration. Phase 9 is incomplete and awaits its own review.
 
 ## Language servers
 
@@ -94,7 +95,19 @@ Limits: 2 concurrent children, 4 delegations per prepared parent prompt, 180 sec
 
 Facts are explicit human-entered guidance, included on the next parent prompt; current repository evidence/rules/policy take precedence. Normal model tasks record bounded local task summaries, selected skills, verification/skip status, and repair counts. Model completion is not a verification pass. Human acceptance stays unknown until explicitly recorded. No raw model/tool/check outputs are copied. These owner-only plaintext files may contain sensitive task/fact text; inspect them under the existing `~/.casper/projects/<project-key>/` directory.
 
-Reference search, `casper learn`, and human promotion of learned candidates are **not implemented yet**. See [`docs/PHASE9_IMPLEMENTATION.md`](docs/PHASE9_IMPLEMENTATION.md) for storage, limits, validation, and the remaining Phase 9 scope.
+`casper learn` and human promotion of learned candidates are **not implemented yet**. See [`docs/PHASE9_IMPLEMENTATION.md`](docs/PHASE9_IMPLEMENTATION.md) for storage, validation, and remaining Phase 9 scope.
+
+## Local reference search
+
+```text
+/references
+/references search router reconnect
+/references search * schema routing
+```
+
+Declare local sources and explicit search paths in `~/.casper/references.yaml` or the selected profile's `references.yaml`. These commands are local and need no model credentials. Configured sources also enable one read-only `search_references` tool; it returns requested excerpts with source/file/line/digest provenance rather than injecting whole repositories. Current repository evidence and rules remain authoritative. No project execution, remote fetching, learning or automatic promotion.
+
+See [`docs/REFERENCES.md`](docs/REFERENCES.md) for configuration, source consent, search semantics, incomplete-result qualifications and lifecycle limits. No sources are enabled automatically.
 
 ## Configuration
 

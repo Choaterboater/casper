@@ -2,7 +2,7 @@
 
 ## Current checkpoint
 
-Phase 4–8 implementations and Phase 9's initial facts/outcomes slice are checkpointed by user request after an additional debug/review pass. See `docs/REVIEW_CHECKPOINT.md` and the latest `docs/HANDOFF.md` update for current evidence (**204 tests / 1,186 assertions**, three full runs), scope gaps, and review limitations. Later-phase implementation details live in their `PHASE*_IMPLEMENTATION.md` files. Historical phase statements below are not the current commit/review status. Phase 9 remains partial; interactive MindMesh and separately authorized real-HPE acceptance remain open. No push or next-phase expansion is authorized by this checkpoint.
+Phase 9's read-only local reference-search slice is implemented, locally validated and checkpointed by user request on top of `5d5773f`, whose coding-loop evidence correction remains closed. Fresh checkpoint gate: **313 tests / 2,010 assertions**, TypeScript clean. See `docs/HANDOFF.md`, `docs/PHASE9_IMPLEMENTATION.md` and `docs/REFERENCES.md` for current scope/evidence. `docs/REVIEW_CHECKPOINT.md` and phase statements below retain historical results, not current counts or authorization. Next: agree the bounded `casper learn` candidate-generation slice before implementation. Phase 9 still needs learning candidates, reviewed promotion and its independent review; interactive MindMesh and separately authorized real-HPE acceptance remain open. Further feature slices, commits and push require approval.
 
 ## Phase 0 — Runtime Shell (Complete)
 
