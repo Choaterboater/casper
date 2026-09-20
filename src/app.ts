@@ -27,8 +27,8 @@ import type {
 } from "./runtime/types";
 import { SkillRegistry, formatSelectedSkills } from "./skills/registry";
 import { classifyTask, formatTaskPrompt } from "./task/classify";
-import { formatTaskResult, type TaskResult, type ObservedCheck } from "./task/result";
-import { boundObservationText } from "./runtime/observation";
+import { formatTaskResult, type TaskResult } from "./task/result";
+import { TaskObservations } from "./task/observations";
 import { renderBanner, renderProjectSummary } from "./tui/banner";
 import type { ProjectCommand } from "./project/model";
 import { CHECK_NAMES, formatVerificationReport, formatVerificationResult, type VerificationReport } from "./verify/evidence";
@@ -128,9 +128,7 @@ export class CasperApp {
   private taskRuntimeFailed = false;
   private taskRuntimeCancelled = false;
   private lastTaskResult?: TaskResult;
-  private readonly observedEdits = new Set<string>();
-  private readonly observedChecks = new Map<ProjectCommand, ObservedCheck>();
-  private possibleMutations = false;
+  private observations = new TaskObservations();
   private memoryWork?: Promise<void>;
 
   constructor(options: CasperAppOptions = {}) {
@@ -357,9 +355,7 @@ export class CasperApp {
     const transition = /^\/(?:branch|switch)(?:\s|$)/.test(prompt);
     if (transition && this.subagents.isBusy) throw new Error("Wait for active subagents before changing workspaces");
     this.lastTaskResult = undefined;
-    this.observedEdits.clear();
-    this.observedChecks.clear();
-    this.possibleMutations = false;
+    this.observations = new TaskObservations();
     this.taskRuntimeFailed = false;
     this.taskRuntimeCancelled = false;
     this.commandActive = true;
@@ -367,7 +363,7 @@ export class CasperApp {
     this.workspaceTransition = transition;
     try {
       if (this.workspaceNeedsRebind) await this.rebindWorkspace(this.activeWorkspaceRoot());
-      return await this.handlePromptCommand(prompt);
+      return await (prompt.startsWith("/") ? this.handleSlashCommand(prompt) : this.runModelTask(prompt));
     } finally {
       await this.checkTask?.close();
       this.checkTask = undefined;
@@ -376,7 +372,7 @@ export class CasperApp {
     }
   }
 
-  private async handlePromptCommand(prompt: string): Promise<VerificationReport | undefined> {
+  private async handleSlashCommand(prompt: string): Promise<VerificationReport | undefined> {
     if (this.closing) return;
     if (prompt === "/help" || prompt === "/help all") {
       this.output.write(prompt === "/help" ? HELP_TEXT : FULL_HELP_TEXT);
@@ -469,9 +465,11 @@ export class CasperApp {
       }
       return this.runVerification(args.length ? args as ProjectCommand[] : CHECK_NAMES, repair);
     }
-    if (prompt.startsWith("/")) {
-      throw new Error(`Unknown command ${JSON.stringify(prompt.split(/\s+/)[0])}. Type /help for local commands.`);
-    }
+    throw new Error(`Unknown command ${JSON.stringify(prompt.split(/\s+/)[0])}. Type /help for local commands.`);
+  }
+
+  private async runModelTask(prompt: string): Promise<VerificationReport | undefined> {
+    if (this.closing) return;
     const context = this.projectContext!;
     const classification = classifyTask(prompt);
     this.lastTaskRequest = prompt;
@@ -519,12 +517,12 @@ export class CasperApp {
         status: "blocked", reason: `Task ${execution}; no further checks or repair.`, repairAttempts: 0,
         results: await this.checkTask.refresh(), rounds: this.checkTask.rounds,
       };
-      this.lastTaskResult = { execution, verification, observedEdits: [...this.observedEdits],
-        observedChecks: [...this.observedChecks.values()], possibleMutations: this.possibleMutations };
+      const observations = this.observations.snapshot();
+      this.lastTaskResult = { execution, verification, ...observations };
       if (!this.closing) {
         this.terminal.endAssistant();
         this.ensureLineBreak();
-        if (classification.intent !== "general" || execution !== "completed" || verification || this.possibleMutations || this.observedEdits.size || this.observedChecks.size) {
+        if (classification.intent !== "general" || execution !== "completed" || verification || observations.possibleMutations || observations.observedEdits.length || observations.observedChecks.length) {
           this.output.write(`${formatTaskResult(this.lastTaskResult)}\n`);
         }
       }
@@ -927,13 +925,10 @@ export class CasperApp {
         this.endedWithNewline = true;
         break;
       case "tool_end":
-        // A failure/abort can follow partial writes. A shell success need not have
-        // written anything. Keep uncertainty separate from observed edit paths.
-        if (["bash", "edit", "write"].includes(event.toolName) || (event.toolName === "lsp" && event.input?.operation === "rename")) this.possibleMutations = true;
+        this.observations.observeToolEnd(event, this.projectContext?.model.commands);
         // Successful native writes invalidate in afterFileEdit, before LSP awaits.
         // Failed writes may be partial; invalidate without claiming a completed edit.
         if (event.isError && ["edit", "write"].includes(event.toolName) && typeof event.input?.path === "string") (this.checkTask ?? this.verificationTask)?.invalidateForEdit(event.input.path);
-        if (event.toolName === "bash") this.observeRuntimeCheck(event);
         this.terminal.endAssistant();
         const started = event.toolCallId ? this.toolStarted.get(event.toolCallId) : undefined;
         if (event.toolCallId) this.toolStarted.delete(event.toolCallId);
@@ -955,19 +950,9 @@ export class CasperApp {
     }
   }
 
-  private observeRuntimeCheck(event: Extract<RuntimeEvent, { type: "tool_end" }>): void {
-    const command = event.input?.command;
-    if (!command || Buffer.byteLength(command) > 8192) return;
-    const name = CHECK_NAMES.find((candidate) => this.projectContext?.model.commands[candidate]?.trim() === command.trim());
-    if (!name) return;
-    const output = boundObservationText(event.output?.text ?? "");
-    this.observedChecks.set(name, { name, command, toolStatus: event.isError ? "error" : "success",
-      output: output.text, truncated: output.truncated || Boolean(event.output?.truncated) });
-  }
-
   private observeEdit(path: string): void {
     (this.checkTask ?? this.verificationTask)?.invalidateForEdit(path);
-    if (this.observedEdits.size < 32) this.observedEdits.add(path.slice(0, 512));
+    this.observations.recordEdit(path);
   }
 
   private ensureLineBreak(): void {
