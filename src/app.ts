@@ -1,5 +1,7 @@
 import readline from "node:readline";
 import { ProjectMemory, type TaskOutcome } from "./memory/store";
+import { discoverReferenceConfiguration, type ReferenceConfiguration } from "./references/config";
+import { formatReferenceResult, ReferenceLibrary } from "./references/library";
 import { formatSubagentReport, SubagentManager, type SubagentRole } from "./agents/manager";
 import { discoverLSPConfiguration, type LSPConfiguration } from "./lsp/config";
 import { LSPManager, type ConfirmRename } from "./lsp/manager";
@@ -53,6 +55,7 @@ export interface CasperAppOptions {
   loadSkillRegistry?: (context: ProjectContext) => Promise<SkillRegistry>;
   loadMCPConfiguration?: (context: ProjectContext) => Promise<MCPConfiguration>;
   loadLSPConfiguration?: (context: ProjectContext) => Promise<LSPConfiguration>;
+  loadReferenceConfiguration?: (context: ProjectContext) => Promise<ReferenceConfiguration>;
   /** Override the built-in Mermaid/MindMesh providers (tests, extensions). */
   visualizationProviders?: VisualizationProvider[];
   /** Override ~/.casper for named-session/worktree state (primarily tests/embedders). */
@@ -78,6 +81,9 @@ export class CasperApp {
   private readonly loadSkillRegistryFn: (context: ProjectContext) => Promise<SkillRegistry>;
   private readonly loadMCPConfigurationFn: (context: ProjectContext) => Promise<MCPConfiguration>;
   private readonly loadLSPConfigurationFn: (context: ProjectContext) => Promise<LSPConfiguration>;
+  private readonly loadReferenceConfigurationFn: (context: ProjectContext) => Promise<ReferenceConfiguration>;
+  private references?: ReferenceLibrary;
+  private referencesClose?: Promise<void>;
   private lsp?: LSPManager;
   private lspClose?: Promise<void>;
   private visualization?: VisualizationRouter;
@@ -147,6 +153,9 @@ export class CasperApp {
     this.loadLSPConfigurationFn = options.loadLSPConfiguration ?? ((context) => discoverLSPConfiguration({
       projectRoot: context.info.root, profileName: context.profileName,
     }));
+    this.loadReferenceConfigurationFn = options.loadReferenceConfiguration ?? ((context) => discoverReferenceConfiguration({
+      profileName: context.profileName,
+    }));
     this.output = options.output ?? process.stdout;
     this.input = options.input ?? process.stdin;
     this.autoVerify = options.autoVerify ?? false;
@@ -162,7 +171,9 @@ export class CasperApp {
     const registry = await this.loadSkillRegistryFn(context);
     const mcpConfiguration = await this.loadMCPConfigurationFn(context);
     const lspConfiguration = await this.loadLSPConfigurationFn(context);
+    const referenceConfiguration = await this.loadReferenceConfigurationFn(context);
     if (this.closing) throw new Error("Casper is closing");
+    this.references = new ReferenceLibrary(referenceConfiguration);
     this.projectContext = context;
     this.skillRegistry = registry;
     this.mcp = new MCPManager(mcpConfiguration);
@@ -172,6 +183,8 @@ export class CasperApp {
     this.output.write(renderBanner(context));
     this.output.write(` skills    ${this.skillRegistry.list().length} indexed (use /skills)\n\n`);
     this.output.write(" memory    explicit facts; task summaries recorded locally, acceptance unknown (use /memory)\n\n");
+    if (referenceConfiguration.sources.length) this.output.write(` references ${referenceConfiguration.sources.length} local sources (read-only; use /references)\n\n`);
+    for (const diagnostic of referenceConfiguration.diagnostics) this.output.write(`[references] ${formatReferenceResult(diagnostic)}\n`);
     this.reportSkillWarnings();
     this.output.write(` mcp       ${this.mcp.status().length} configured (disconnected; use /mcp)\n\n`);
     for (const diagnostic of this.mcp.diagnostics) this.output.write(`[mcp] ${diagnostic}\n`);
@@ -245,6 +258,7 @@ export class CasperApp {
     this.subagentsClose = this.subagents.close();
     this.mcpClose = this.broker?.close();
     this.lspClose = this.lsp?.close();
+    this.referencesClose = this.references?.close();
     this.readline?.close();
     this.closeWork = this.finishClose();
     return this.closeWork;
@@ -266,7 +280,7 @@ export class CasperApp {
         this.unsubscribe?.();
         this.readline?.close();
         try { await this.runtime?.dispose(); }
-        finally { await Promise.all([this.mcpClose, this.lspClose, this.subagentsClose]); }
+        finally { await Promise.all([this.mcpClose, this.lspClose, this.subagentsClose, this.referencesClose]); }
       }
     }
   }
@@ -340,6 +354,10 @@ export class CasperApp {
       this.memoryWork = this.handleMemoryCommand(prompt);
       try { await this.memoryWork; }
       finally { this.memoryWork = undefined; }
+      return;
+    }
+    if (/^\/references(?:\s|$)/.test(prompt)) {
+      await this.handleReferencesCommand(prompt);
       return;
     }
     if (prompt === "/project") {
@@ -471,6 +489,17 @@ export class CasperApp {
     this.output.write(`[memory] ${serialized}\n`);
   }
 
+  private async handleReferencesCommand(prompt: string): Promise<void> {
+    if (prompt.trim() === "/references") {
+      this.output.write(`[references] ${formatReferenceResult(this.references!.list())}\n`);
+      return;
+    }
+    const match = prompt.match(/^\/references\s+search\s+(\S+)\s+([\s\S]+)$/);
+    if (!match) throw new Error("Usage: /references | /references search <source-id|*> <literal query>");
+    const result = await this.references!.search({ query: match[2]!, ...(match[1] === "*" ? {} : { source: match[1]! }) });
+    if (!this.closing) this.output.write(`[references] ${formatReferenceResult(result)}\n`);
+  }
+
   private async runVerification(
     checks: readonly ProjectCommand[],
     repair: boolean,
@@ -599,7 +628,7 @@ export class CasperApp {
     if (this.runtimeTools.length && !this.session?.setTools) throw new Error("Runtime cannot revoke workspace capabilities");
     this.session?.setTools?.([]);
     this.runtimeTools = [];
-    await Promise.all([this.broker?.close(), this.lsp?.close()]);
+    await Promise.all([this.broker?.close(), this.lsp?.close(), this.references?.close()]);
   }
 
   private async runtimeForWorkspaceTransition(): Promise<RuntimeSession> {
@@ -612,11 +641,14 @@ export class CasperApp {
     await this.revokeWorkspaceCapabilities();
     const project = await this.inspectProjectFn(cwd);
     const context = await this.loadProjectContextFn(project);
-    const [registry, mcpConfiguration, lspConfiguration] = await Promise.all([
+    const [registry, mcpConfiguration, lspConfiguration, referenceConfiguration] = await Promise.all([
       this.loadSkillRegistryFn(context),
       this.loadMCPConfigurationFn(context),
       this.loadLSPConfigurationFn(context),
+      this.loadReferenceConfigurationFn(context),
     ]);
+    if (this.closing) throw new Error("Casper is closing");
+    this.references = new ReferenceLibrary(referenceConfiguration);
     this.projectContext = context;
     this.skillRegistry = registry;
     this.mcp = new MCPManager(mcpConfiguration);
@@ -643,6 +675,7 @@ export class CasperApp {
       this.delegateTool(),
       ...(this.checkTask ? [this.checkTask.tool()] : []),
       ...lspTools(this.lsp!, this.confirmRename),
+      ...this.references!.tools(),
       ...(includeVisualization ? visualizationTools({ router: this.visualization!, projectRoot: this.activeWorkspaceRoot() }) : []),
     ];
     if (this.closing) return;

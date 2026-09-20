@@ -1,6 +1,6 @@
 # Phase 9 — Memory / Reference Learning (started)
 
-**Status: first slice implemented and locally validated; Phase 9 is NOT complete and has not had its independent review.** The user authorized moving to the next phase after reviewing Phases 6–8. Their runtime review findings were resolved before this slice; the broader-plan interactive MindMesh gap remains separately disclosed.
+**Status: explicit facts/outcomes and local reference search implemented and locally validated; Phase 9 is NOT complete and has not had its independent review.** The initial facts/outcomes slice followed the Phases 6–8 review. The user later approved resuming Phase 9 with read-only local reference search after closing the coding-loop evidence correction. The broader-plan interactive MindMesh gap remains separately disclosed.
 
 ## Original scope
 
@@ -10,11 +10,11 @@
 | --- | --- |
 | Explicit project facts | Implemented in this slice |
 | Task outcomes | Implemented in this slice |
-| Reference-project search | Pending |
+| Reference-project search | Implemented for explicitly configured local paths; remote retrieval unsupported |
 | `casper learn <repo>` | Pending — not a command implemented by this slice |
 | Human candidate promotion into references/skills | Pending |
 
-No autonomous prompt rewriting, global policy changes, embeddings/database, external reference fetching, repository corpus scanning, or implicit skill promotion was added.
+No autonomous prompt rewriting, global policy changes, embeddings/database, remote reference fetching, automatic corpus discovery, or implicit skill promotion was added. Reference content is searched only on demand within user-configured local paths.
 
 ## Commands
 
@@ -80,9 +80,63 @@ Local administrative commands and direct `/delegate` are not normal parent tasks
 
 The user requested another debug/review pass and a checkpoint commit. `docs/REVIEW_CHECKPOINT.md` records this **single-agent** review (not the still-pending independent full Phase 9 gate). Reproduced and fixed memory FIFO hangs and schema coercion/unknown nested evidence acceptance; rejected state stays untouched. The Phase 9 suite now passes **7 tests / 49 assertions**. Final full checks passed three times: **204 tests / 1,186 assertions**, TypeScript passed. No Phase 9 scope expansion or push.
 
+## Local reference search slice
+
+Implemented after correction checkpoint `5d5773f` and checkpointed by user request.
+Usage, configuration and precise limits are in [REFERENCES.md](REFERENCES.md).
+
+- `src/references/config.ts` discovers user/profile metadata only. Sources require
+  an explicit local root and relative search paths. Project files cannot define
+  new external roots; invalid entries are diagnostic and missing repositories
+  remain optional. No user sources were installed by this implementation.
+- `ReferenceLibrary` is the shared read-only module for `/references`,
+  `/references search <id|*> <query>` and the conditional `search_references` tool.
+  Search returns matching-line excerpts with config/root/file/line/digest
+  provenance, read counts, partial-result qualifications and current-repo authority.
+- Source text is read per query, not injected at startup or added to memory/skills.
+  No shell, Git, project code, remote fetch, new dependency, index or background
+  watcher is involved. Native bash, the Pi adapter and verifier/repair owner are
+  unchanged. This adds no model-spending or task-attempt policy.
+- Search rejects path/command overrides, skips internal symlinks/special files,
+  bounds reads/results, and reports missing/unsupported inputs without inventing
+  complete coverage. Shutdown drains searches and workspace rebinding revokes old
+  tools. The documented filesystem observations are non-atomic, not sandboxing.
+
+### Search validation
+
+The module tracer initially failed before the module existed. The local-command
+tracer then failed because `/references` incorrectly started the runtime; it is
+now genuinely local. Further red tests exposed rejected-text byte accounting and
+Unicode lowercasing moving excerpt offsets; both were corrected before the gate.
+
+- New suites: **19 tests / 131 assertions**, all passing. They exercise configuration
+  precedence/disables, rejected overrides, literal queries, scope/provenance,
+  fresh content reads, partial results, Unicode, result/read budgets, FIFO refusal,
+  cancellation, shutdown, workspace rebinding, absent sources and unchanged facts/
+  outcome semantics.
+- Real CLI local search works without model configuration or credentials.
+- Pinned Pi 0.85.1 with a **scripted localhost provider** calls the real reference
+  tool and receives only the requested excerpt, provenance and authority guidance.
+  This is not a live-model usefulness test or independent acceptance.
+- `bun run check`: TypeScript clean; **313 tests / 2,010 assertions**, 0 failures,
+  89.69 s test-runner time. `git diff --check` passed. Saved local gate log:
+  `/tmp/casper-phase9-references-WAc4aT/full-check.log`; permanent tests do not rely
+  on it surviving.
+
+The user subsequently requested a checkpoint commit. Its fresh `bun run check`
+passed with TypeScript clean and **313 tests / 2,010 assertions**, 0 failures,
+90.72 s test-runner time; log: `/tmp/casper-references-checkpoint-ifOLmu/full-check.log`.
+`git diff --check` also passed.
+
+These are single-agent implementation/checkpoint validations, not independent
+acceptance. No paid model calls, production services, real user reference scans
+or push were performed.
+
 ## Next Phase 9 work
 
-1. Explicitly configured/local reference sources and bounded search, with source provenance and current-repo authority.
-2. `casper learn <repo>` candidate generation that does not execute project code or activate extracted guidance.
-3. Digest-bound human review/promotion (reference only, project/global skill, ignore), never automatic global policy mutation.
-4. Phase 9 independent Standards/Spec review after the complete scope is implemented.
+1. `casper learn <repo>` candidate generation that does not execute project code or activate extracted guidance.
+2. Digest-bound human review/promotion (reference only, project/global skill, ignore), never automatic global policy mutation.
+3. Phase 9 independent Standards/Spec review after the complete scope is implemented.
+
+Agree each remaining slice before implementing it. Local search is not approval
+for learning/promotion, remote retrieval, recovery/model expansion or Phase 10.
