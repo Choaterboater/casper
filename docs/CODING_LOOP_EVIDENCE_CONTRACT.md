@@ -4,7 +4,96 @@ Implemented after the direction review at `7ce29ad`, with user approval for the 
 
 The original `CODING_LOOP_DIRECTION_REVIEW.md` remains the historical assessment. Its work-driven-selection finding is now addressed by the managed-tool follow-up below, not by transparent shell reuse. No recovery/model expansion, native-shell exit inference, new verification default, external inference, credential access, or push was added.
 
-## Native-edit invalidation review correction
+## Missing-suffix and empty-path correction
+
+After the review and docs-only handoff below, the user approved finishing the two bounded findings and then requested this checkpoint commit. **Both are corrected and locally validated; this correction slice is closed within its documented limits.** Further work should follow an agreed user-visible milestone or a concrete reproducible contract regression, not another open-ended path audit. This is not independent acceptance or daily-driver readiness.
+
+`src/verify/task.ts` now retains the canonical existing parent separately from a missing suffix. When both a declared input and an observation stop at that same parent, possible case/Unicode aliases of the first missing entry conservatively invalidate evidence. That entry can be the named input itself or an included parent: a partial write to a sibling can create/remove that parent too. Only unresolved entries are compared this way; existing canonical prefixes and declared exclusion strings are not folded.
+
+Exclusions can suppress an observation only when the known traversal prefix establishes that it is excluded. For example, an existing excluded `src/generated` still excludes missing descendants, but an already-removed parent cannot prove that the actual entry was `generated` rather than included `GENERATED`. **Ambiguous absent names may cause extra executions even on case-sensitive filesystems.** This is conservative invalidation, not invented filesystem case-sensitivity or a claim that a failed tool completed a write. Distinct missing entries and known excluded parents retain non-invalidating controls.
+
+`src/app.ts` now distinguishes an empty string path from absent path metadata in failed native observations. Native `@` expands once to the empty relative path and still denotes cwd; it no longer disappears at the truthiness guard. The Pi adapter's existing expansion behavior is preserved.
+
+Eleven permanent app/tool and pinned-Pi regressions/controls were added in `tests/work-driven-checks.integration.test.ts` and `tests/phase8-pi.integration.test.ts`. They cover removed case/NFC-NFD/Unicode-case names, a missing named-input parent, exclusion ambiguity, overlap, explicit repair, unrelated missing names, known excluded parents and empty expanded paths. The primary tracers were red before implementation; additional parent and `ß`/`ẞ` cases were red before correcting those details. All nine regression cases fail against an isolated pre-fix source copy, while the two non-invalidating controls pass; all eleven pass with the correction. Alias-specific fixtures probe filesystem behavior and skip explicitly when the required equivalence is unsupported.
+
+See [Latest validation](HANDOFF.md#latest-validation) for the full gate and all supplemental probes, including the formerly failing 13-case suite. Temporary correction logs/source evidence are at `/tmp/casper-missing-identity-fix-jQmsN3/`; the permanent regressions do not depend on those files.
+
+Production edits in this slice are confined to task path matching and the app's failed-observation guard. Native bash, the command runner, dependency pins, 4,096-work-item / 500-ms / 40-hop lookup bounds and the single repair owner are unchanged. Invalidation stays synchronous and does not select checks. Cancellation/task-isolation fixtures remain green. Lookup and scope observations remain non-atomic; Windows and concurrent alias replacement remain outside validated guarantees. No live-model spending, new integration or push was performed. The user authorized the correction checkpoint commit after validation; further commits require separate approval.
+
+## Findings that prompted this correction (resolved)
+
+The following descriptions, source locations and actual results refer to the **pre-correction** uncommitted diff reviewed against `2475975`. They are retained to explain the defects and reproduce the red behavior in a pre-fix source copy, not as remaining open findings. The intended contract is unchanged; the corrected source now satisfies the expected outcomes below.
+
+### P2 — missing-suffix alias identity (pre-existing at 2475975)
+
+Pre-correction locations: `src/verify/task.ts:29–31` (`pathIdentity`) and `src/verify/task.ts:119–125` (scope matching).
+
+The pre-fix resolver returned a canonical existing ancestor plus the literal unresolved suffix. On the reviewed case-insensitive filesystem, declared `SRC/MISSING` and observed `src/missing` identify the same input while it exists, but their missing suffixes compared as different strings after removal. An observed partial write could therefore leave old evidence reusable as `fresh`. This also failed at `2475975`: **a residual gap, not an introduced P2 regression**. No concurrent alias replacement was needed.
+
+Reproduce at `CasperApp.runOnce()` / `RuntimeTool.execute()`:
+
+1. Create directory `src`; leave the named input absent. Configure `verify.test: "printf x >> test-runs"` and `verification.scopes.test.inputs: ["SRC/MISSING"]`. Opt in with `autoVerify: true`.
+2. In the runtime fixture, execute `casper_check({ check: "test" })` and obtain a fresh pass.
+3. Write partial content to `src/missing`. Confirm `realpath()` returns the same path for both spellings, then remove the file before emitting `{ type: "tool_end", toolName: "write", isError: true, input: { path: "src/missing" } }` through the runtime event seam.
+4. Execute the managed check again. **Pre-fix actual:** `reused: true`, `freshness: "fresh"`, one command (`test-runs` contains `x`). **Expected and now observed:** another execution (`xx`). Failed-write evidence still records possible mutations without claiming a completed edit.
+
+The identical-spelling observation `SRC/MISSING` is a passing control; an unrelated check scoped to `docs` still reuses. NFC/NFD spellings (`"src/caf\u00e9"` versus `"src/cafe\u0301"`) reproduce the same missing-name gap on this filesystem. Establish filesystem equivalence rather than assuming it from the OS name.
+
+Pinned Pi **0.85.1**, scripted localhost-provider reproduction:
+
+- Use the same missing named input, then script check → native `edit` of `src/missing` with `edits: [{ oldText: "old", newText: "new" }]` → check → check → final answer.
+- The native edit fails because the target is absent. **Pre-fix reuse:** `[false, true, true]`; **expected and now observed:** `[false, false, true]`, with two commands. The identical-spelling control passes.
+- This proves real failed-edit handling, **not an actual partial Pi write**. The removed-partial-write scenario is reproduced at the app/tool seam above.
+
+Additional pre-fix app/tool manifestations of the same P2:
+
+- **Overlap:** hold a real check open using a `started`/`release` file handshake; perform step 3 while it runs, then release it. The result is incorrectly `fresh`, rather than `stale`, and the next call reuses it. The literal-spelling control invalidates synchronously.
+- **Explicit repair:** select test plus build with `/verify repair test build`, without opting in to the managed tool. Keep the test configuration above; build uses `printf x >> build-runs; test -f fixed` with input `fixed`. During the one repair prompt, perform step 3, then write `fixed` and invoke its successful-edit callback. Build correctly executes twice, but test incorrectly executes only once. There remains **one repair owner and no managed tool**; the failure is missing test invalidation.
+- **Exclusions after parent removal:** declare input `src` and literal exclusion `src/generated`. After a fresh pass, create actual directory entry `src/GENERATED` and write through case alias `src/generated/transient`. `workspaceState()` confirms that the uppercase traversal spelling is included. Remove the file and uppercase parent before the failed-write observation for the lowercase path, then check again. The missing suffix is incorrectly treated as excluded and the old pass is reused. Keeping the parent until observation is a passing control in current code. **Preserve literal traversal exclusions; simply case-folding exclusions would be wrong.**
+
+These manifestations also failed at `2475975`. The code reviewed before this follow-up already fixed the parent-still-present exclusion control, which failed at that baseline. The follow-up now also fixes the missing-name and removed-parent cases. These manifestations belong to one identity defect, not separate findings.
+
+### P3 — expanded @ becomes an ignored empty path (introduced)
+
+Pre-correction locations: changed `src/runtime/pi.ts:183`, interacting with then-unchanged `src/app.ts:847`.
+
+Pi interprets native `@` as an empty relative path, hence cwd. At review time the adapter stored `input.path = ""`, but the app's truthiness guard dropped that failed-tool observation before verification could interpret it as cwd.
+
+To reproduce with pinned Pi and a localhost provider, configure a check that appends to `test-runs`, scoped to an existing `src` directory. Script check → native `write({ path: "@", content: "cannot overwrite a directory" })` → check → check → final answer. The write fails on cwd. Before correction, the uncommitted code executed one command with reuse `[false, true, true]`; `2475975` executed two with `[false, false, true]`. The corrected code also executes two. Native path `.` is a passing control on both pre-fix versions and after correction.
+
+This is a **low-priority conservative-handling inconsistency**. The reproduction demonstrates no actual partial mutation or falsely validated changed content; keep that qualification and distinguish it from P2.
+
+### Pre-correction review evidence
+
+See [Pre-correction review validation](HANDOFF.md#pre-correction-review-validation-historical) for the then-green gate and **separate failing reproduction suite**. Standards review found no actionable violations; spec review found these two root causes, not one finding per failing variant. This was local single-agent review, not independent acceptance or daily-driver readiness.
+
+The original review harnesses were temporary; permanent regressions for the findings are now recorded above. Optional historical artifacts remain in `/tmp/casper-2475975-review-Ajv6j2/`: `REVIEW.md`, `missing-case.test.ts`, `missing-contexts.test.ts`, `empty-expanded-path.test.ts`, plus `check-handoff.log`, `handoff-controls.log`, `handoff-repros.log` and per-suite baseline/current logs. Baseline comparison used a separate `git archive 2475975` source copy with pinned dependencies; the working checkout was preserved. The reproduction steps above retain the red scenarios if temporary artifacts are absent.
+
+The user subsequently approved the bounded correction and regressions, now completed above, and requested the checkpoint commit. Further changes still require agreement; no new phase, integration, model spending, additional commit or push is authorized.
+
+## Native-path identity follow-up
+
+Review of `43073d7..2475975` found one remaining P2: Pi accepts native path forms that the invalidator interpreted differently. Canonical `file://` URLs, tilde paths, Unicode-space normalization, double `@` prefixes and filesystem aliases could leave a recorded matching edit unrecognized, allowing an old pass to revive after directory membership was restored. Failed-write observations had the same mapping gap. The user approved this bounded correction; it was **uncommitted during review** and is now included in the user-requested checkpoint. Push remains unapproved.
+
+The Pi adapter now expands native edit/write syntax once for both successful callbacks and failed-tool path observations. Downstream consumers receive literal filesystem paths; verification does not strip another `@`. The task resolves aliases for cwd, the observed path and declared input roots synchronously, so an overlapping check cannot finish before the edit revision is updated. Exclusions retain the scope observer's traversal spelling beneath each declared input; they are not followed through symlinks into other included inputs. Missing targets resolve via their nearest existing ancestor with the missing suffix retained. Other resolution errors conservatively invalidate scoped evidence, without selecting checks or changing command outcomes. Identity also retains traversed symlink entries: an included link remains invalidating even if its target is excluded or outside the scope. Excluded/unrelated observations with no included traversal remain non-invalidating. Synchronous identity lookup is bounded per edit observation to 4,096 work items and 500 ms checked between operations, with at most 40 symlink hops per path; exhaustion is unknown identity, not evidence that a path is unrelated.
+
+Permanent regressions cover these forms at `CasperApp.runOnce()`, `RuntimeTool.execute()` and the pinned-Pi/local-provider seam, including failed native edit/write observations, missing aliased parents, restored membership after partial writes, exclusions and unrelated checks. File URL, double-`@`, tilde, Unicode-space and missing-target alias cases were made red before their corresponding corrections. The eight successful-write path fixtures each execute two commands across check → write → native removal → check → reuse. Failed edits/writes conservatively rerun once without recording a completed edit.
+
+Acceptance self-review caught a P2 regression in the first fix: a declared `SRC` scope on a case-insensitive filesystem was compared against a canonical `src/transient` observation and could incorrectly reuse its pass. The pinned-Pi probe passed against `2475975` but failed against that first fix. Resolving both input roots and observations now retains included-path invalidation and the original exclusion semantics. The permanent regression was red before correction, and skips explicitly on case-sensitive fixture filesystems; an app/tool control also ensures an excluded symlink cannot hide a write to an included file.
+
+### Included-symlink traversal correction
+
+A further review against `2475975` reproduced one P2 in the uncommitted canonical-only matcher: check → create included `src/link` → native write through the link to excluded/out-of-scope output → remove output/link → check reused the old pass. The two pinned-Pi probes passed at `2475975` and failed against that matcher, without concurrent alias replacement. The prior green gate (**272 tests / 1,710 assertions**, plus **19 supplemental probes / 151 assertions**) did not cover this inverse of the excluded-link-to-included-target control. The user approved this bounded correction before implementation.
+
+`src/verify/task.ts` now retains both the referent and the observed symlink entries, including entries reached through a link chain. Matching uses the link's actual directory-entry spelling, preserving case-aliased scope roots and literal exclusions. A named input's observed symlinked parent also invalidates its evidence. Missing targets retain their suffix under the last existing canonical directory; invalid non-directory traversal and lookup failures remain conservative. The lookup stays synchronous, so overlapping checks cannot publish fresh evidence ahead of the edit revision. No shell override, watcher, command selection or new repair owner was introduced.
+
+Eleven permanent app/tool and pinned-Pi tests were added. The first tracer was red before the fix; all nine included-alias regression cases were also red in an isolated pre-correction source copy. They cover successful and partial writes (including an already-removed target), unrelated checks, overlapping checks, explicit repair, excluded/outside-workspace targets and case-aliased link chains. The excluded-link-to-unrelated-output control remains green. An additional invalid `file/..` traversal regression was made red before tightening the resolver's non-directory guard. Existing one-time path expansion, exclusions and single-owner controls remain intact.
+
+Implementation-checkpoint validation (before the final review above): `bun run check` passed with TypeScript clean, **283 tests / 1,793 assertions**, **0 failures**, **98.21 s** test-runner time. All **45 supplemental local probes / 576 assertions** passed, including the original 19 lifecycle/path probes, 16 normalization/scope-spelling controls, six original symlink repros and four traversal controls. Pinned-Pi cancellation/process cleanup, task isolation, explicit repair and its cancellation, plus asynchronous freshness refresh remain green. These are local scripted-provider fixtures and single-agent implementation/self-review evidence, not live-model or independent acceptance.
+
+**Native bash, the command runner, dependency pins and the single repair owner are unchanged.** `src/runtime/pi.ts` changes only edit/write observation-path handling; earlier statements below about that file being unchanged describe the preceding checkpoints. No watcher, shell override, recovery/model expansion or integration was added. Path lookup and scope observations remain non-atomic and cannot reconstruct an alias replaced concurrently with observation. Windows remains unvalidated. Backburner references remain parked.
+
+## Native-edit invalidation review correction (2475975)
 
 Review of `7ce29ad..43073d7` reproduced a P2 gap: a scoped pass → native write creating an included file → native removal of that file → another managed check reused the old pass. Casper recorded the edit but refreshed input identity only at check boundaries, so restored directory membership erased the invalidating observation.
 

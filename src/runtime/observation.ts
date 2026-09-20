@@ -1,4 +1,19 @@
+import { homedir } from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+/** Native edit/write paths are literal filesystem paths, not tool-input syntax. */
 export interface ToolObservationInput { path?: string; command?: string; operation?: string }
+
+/** Pi 0.85.1's native edit/write path syntax (its resolver is not an SDK export).
+ * Expand once at the adapter boundary; the result is a literal filesystem path. */
+export function nativeEditPath(input: string): string | undefined {
+  const file = input.replace(/[\u00a0\u2000-\u200a\u202f\u205f\u3000]/g, " ").replace(/^@/, "");
+  if (file === "~") return homedir();
+  if (file.startsWith("~/") || (process.platform === "win32" && file.startsWith("~\\"))) return path.join(homedir(), file.slice(2));
+  try { return file.startsWith("file://") ? fileURLToPath(file) : file; }
+  catch { return undefined; } // Pi rejects an invalid file URL before any write.
+}
 export interface ToolObservationOutput { text: string; truncated: boolean }
 
 /** Only identity fields, never edit bodies, credentials or arbitrary tool arguments. */

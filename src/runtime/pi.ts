@@ -16,7 +16,7 @@ import type {
   ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { observationInput, observationOutput, type ToolObservationInput } from "./observation";
+import { nativeEditPath, observationInput, observationOutput, type ToolObservationInput } from "./observation";
 import type {
   AgentRuntime,
   RuntimeEventListener,
@@ -180,6 +180,7 @@ class PiRuntimeSession implements RuntimeSession {
           break;
         case "tool_execution_start": {
           const input = observationInput(event.args);
+          if (["edit", "write"].includes(event.toolName) && input.path !== undefined) input.path = nativeEditPath(input.path);
           if (this.toolInputs.size < 64) this.toolInputs.set(event.toolCallId, input);
           this.emit({ type: "tool_start", toolName: event.toolName, toolCallId: event.toolCallId, input });
           break;
@@ -239,8 +240,10 @@ export class PiRuntime implements AgentRuntime {
         });
         pi.on("tool_result", async (event, ctx) => {
           if (event.isError || !["edit", "write"].includes(event.toolName) || typeof event.input.path !== "string" || !options.afterFileEdit) return;
+          const file = nativeEditPath(event.input.path);
+          if (file === undefined) return;
           let text: string | undefined;
-          try { text = await options.afterFileEdit(event.input.path.replace(/^@/, ""), ctx.signal); }
+          try { text = await options.afterFileEdit(file, ctx.signal); }
           catch { text = "LSP diagnostics unavailable after edit; the file was written. Do not treat missing diagnostics as clean."; }
           if (text) return { content: [...event.content, { type: "text" as const, text }] };
         });

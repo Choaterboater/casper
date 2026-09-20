@@ -844,7 +844,7 @@ export class CasperApp {
         if (["bash", "edit", "write"].includes(event.toolName) || (event.toolName === "lsp" && event.input?.operation === "rename")) this.possibleMutations = true;
         // Successful native writes invalidate in afterFileEdit, before LSP awaits.
         // Failed writes may be partial; invalidate without claiming a completed edit.
-        if (event.isError && ["edit", "write"].includes(event.toolName) && event.input?.path) (this.checkTask ?? this.verificationTask)?.invalidateForEdit(event.input.path);
+        if (event.isError && ["edit", "write"].includes(event.toolName) && typeof event.input?.path === "string") (this.checkTask ?? this.verificationTask)?.invalidateForEdit(event.input.path);
         if (event.toolName === "bash") this.observeRuntimeCheck(event);
         this.output.write(`${event.isError ? "✗" : "✓"} ${event.toolName}\n`);
         this.endedWithNewline = true;
