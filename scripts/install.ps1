@@ -19,6 +19,9 @@
 # NOT VALIDATED ON WINDOWS: written to the same contract as scripts/install.sh, but no
 # Windows host has run it. Treat the first Windows run as a test (see docs/RELEASE.md).
 $ErrorActionPreference = 'Stop'
+if ($PSVersionTable.PSVersion -lt [version]'5.1') {
+  throw 'Windows PowerShell 5.1 or newer is required.'
+}
 # Windows PowerShell 5.1 may otherwise negotiate an obsolete TLS version.
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
@@ -42,7 +45,10 @@ $Artifact = 'casper-windows-x64.exe'
 $Tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("casper-install-" + [guid]::NewGuid().ToString('N'))
 # An interrupted update must not leave the staged download behind.
 $Staged = $null
+$PreviousProgressPreference = $ProgressPreference
 try {
+  # Rendering per-chunk progress makes large downloads extremely slow in PS 5.1.
+  $ProgressPreference = 'SilentlyContinue'
   New-Item -ItemType Directory -Path $Tmp | Out-Null
   Write-Host "Downloading $Artifact from $BaseUrl"
   $ArtifactPath = Join-Path $Tmp $Artifact
@@ -96,6 +102,7 @@ try {
   }
   Write-Host "Installed $Reported to $Target"
 } finally {
+  $ProgressPreference = $PreviousProgressPreference
   Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $Tmp
   if ($Staged) { Remove-Item -Force -ErrorAction SilentlyContinue $Staged }
 }

@@ -19,6 +19,27 @@ jobs:
       - run: bun run typecheck
       - run: bun test tests/release-compile.test.ts
       - run: bun run build:release
+      - name: Compare direct and staged Windows launches
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $binary = (Resolve-Path dist/release/casper-windows-x64.exe).Path
+          foreach ($name in @('casper.exe', '.casper-download.exe')) {
+            $dir = Join-Path $env:RUNNER_TEMP 'launch space'
+            New-Item -ItemType Directory -Force $dir | Out-Null
+            $copy = Join-Path $dir $name
+            Copy-Item $binary $copy -Force
+            $out = & $copy --version
+            Write-Host "LAUNCH $name exit=$LASTEXITCODE stdout=<$out>"
+          }
+          $out = & $binary --version
+          Write-Host "DIRECT exit=$LASTEXITCODE stdout=<$out>"
+          bun run src/cli.ts --version
+          Write-Host "SOURCE exit=$LASTEXITCODE"
+          $p = Start-Process $binary -ArgumentList '--version' -Wait -PassThru -RedirectStandardOutput "$env:RUNNER_TEMP/version.stdout" -RedirectStandardError "$env:RUNNER_TEMP/version.stderr"
+          Write-Host "REDIRECT exit=$($p.ExitCode)"
+          Get-Content "$env:RUNNER_TEMP/version.stdout"
+          Get-Content "$env:RUNNER_TEMP/version.stderr"
       - name: Windows PowerShell 5.1 installer
         shell: powershell
         run: ./scripts/test-install-windows.ps1
