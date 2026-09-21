@@ -1,8 +1,8 @@
 # Platform support — macOS, Linux, Windows
 
-Status: implemented. macOS is the only platform with recorded host validation;
-Linux shares the POSIX code paths without a recorded host run, and Windows is
-implemented with simulated-platform tests. See **Evidence** and **Limits** below,
+Status: macOS has broad local validation. Windows x64 installation and noninteractive
+startup are validated in CI under PowerShell 5.1 and 7; broader Windows behavior still
+relies on simulated-platform coverage. Linux has no recorded host run. See **Limits** below,
 and [PLATFORM_VERIFICATION.md](PLATFORM_VERIFICATION.md) for the runbook that
 validates a host (`bun tools/platform-report.ts`).
 
@@ -95,9 +95,10 @@ startup model preference.
   credentials and browser screenshots are written owner-only with `chmod`, which Windows
   neither stores nor enforces; the fixtures that assert `0o600`/`0o700` are gated by the
   `posixModes` probe in `tests/support/platform.ts` instead of failing there.
-- **Windows has no recorded host run.** Its behavior is implemented and covered by
-  simulated process tables plus the shared POSIX suite; the PowerShell/wmic listing,
-  Windows signal semantics and Windows browser/adapters are not host-validated.
+- **Windows host coverage is limited to installation/startup.** CI verifies compiled
+  image reads, PATH, version/help/licenses, project inspection and inline diagrams.
+  The PowerShell/wmic process listing, signal semantics, interactive UI and optional
+  browser/adapters are not established by those smoke checks.
 - **Linux has no recorded host run either.** All recorded gates ran on macOS; Linux
   exercises the same POSIX branches and the same `ps`/group semantics.
 - Process discovery is non-atomic and bounded. Unobserved daemonized descendants,

@@ -5,23 +5,22 @@
 A terminal coding companion built on Pi, with its own interface, project context,
 and verification controls.
 
-**Source preview — no binary release published yet.** Core macOS paths are validated
-locally; Windows and Linux still need real-host testing. Binary publication is blocked
-on image-resource packaging and third-party notices. See [release status](docs/RELEASE.md).
+**Early preview.** macOS is validated locally; Windows x64 installation and startup
+are tested in CI under PowerShell 5.1 and 7. Linux still needs host testing. Binaries
+are unsigned, and interactive UI issues remain. See [release details](docs/RELEASE.md).
 
-## Planned binary installation
+## Install
 
-**The commands below are not live yet.** Until a release is published, use
-[Develop from source](#develop-from-source). The planned compiled application will
-not require Bun or a source checkout.
+No Bun installation or source checkout is required.
 
 **Windows x64 — PowerShell:**
 
 ```powershell
-powershell -ExecutionPolicy Bypass -c "irm https://github.com/Choaterboater/casper/releases/download/v0.1.0/install.ps1 | iex"
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.1.0/install.ps1 | iex
 ```
 
-Open a new terminal after installation, then run `casper` from your project folder.
+Then run `casper` from your project folder. If an existing terminal does not find it,
+open a new terminal.
 Windows ARM64 does not have a release artifact yet.
 
 **macOS / Linux:**

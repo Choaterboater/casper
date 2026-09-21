@@ -1,6 +1,6 @@
 # Casper installer for Windows.
 #
-#   powershell -ExecutionPolicy Bypass -c "irm https://github.com/Choaterboater/casper/releases/download/v0.1.0/install.ps1 | iex"
+#   [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.1.0/install.ps1 | iex
 #
 # Downloads the self-contained casper-windows-x64.exe, verifies its SHA-256 against the
 # release's SHA256SUMS, installs it under %LOCALAPPDATA%\Programs\casper and adds that
@@ -16,8 +16,8 @@
 #   CASPER_VERSION      Required installed version; the installer fails on any other.
 #   CASPER_SHA256       Expected digest, when SHA256SUMS cannot be fetched.
 #
-# NOT VALIDATED ON WINDOWS: written to the same contract as scripts/install.sh, but no
-# Windows host has run it. Treat the first Windows run as a test (see docs/RELEASE.md).
+# Installer and startup smoke checks run on Windows CI with PowerShell 5.1 and 7.
+# This does not certify all interactive/optional features (see docs/RELEASE.md).
 $ErrorActionPreference = 'Stop'
 if ($PSVersionTable.PSVersion -lt [version]'5.1') {
   throw 'Windows PowerShell 5.1 or newer is required.'

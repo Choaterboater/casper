@@ -1,19 +1,16 @@
 # Windows preview checklist
 
-This preview targets **Windows x64**. Its first Windows runs are validation, not
-established platform support. You do not need Bun or a Git checkout to use the
+This preview targets **Windows x64**. Installation and noninteractive startup are
+validated on Windows CI with PowerShell 5.1 and 7; desktop usage remains a preview. You do not need Bun or a Git checkout to use the
 compiled application. Unsigned executables may trigger SmartScreen; do not bypass
 an unexpected warning without verifying the download source.
 
-## 1. Install once the preview is published
+## 1. Install
 
-**No binary release is published yet; this command is a planned URL, not a working
-installer.** See [release blockers](RELEASE.md#current-release-blockers).
-
-After those blockers are resolved and the preview is published, in PowerShell:
+In PowerShell (not an administrator window):
 
 ```powershell
-powershell -ExecutionPolicy Bypass -c "irm https://github.com/Choaterboater/casper/releases/download/v0.1.0/install.ps1 | iex"
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.1.0/install.ps1 | iex
 ```
 
 The installer checks SHA-256, tests the staged executable's version, and installs
@@ -63,6 +60,10 @@ runs Casper itself, not every arbitrary project command.
 
 ## 4. Optional integrations and limitations
 
+- The login picker currently prints selection updates instead of moving its visible
+  highlight. This known UI issue is queued for the next fix.
+- Pi's model-facing Bash tool needs Bash (for example Git for Windows). Casper's
+  own verifier uses `cmd.exe`. Installing Casper does not install those other tools.
 - Browser discovery includes installed Chrome and Edge. No browser is downloaded.
 - Screenshot-file and diagram-artifact creation use a POSIX native bridge. Windows
   diagram requests fall back to inline text; screenshot files are unavailable.

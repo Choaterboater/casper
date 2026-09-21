@@ -1,0 +1,41 @@
+name: Verify published Windows installer
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Published release tag
+        required: true
+        default: v0.1.0
+permissions:
+  contents: read
+jobs:
+  install:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        shell: [powershell, pwsh]
+    steps:
+      - name: Install anonymously with no checkout or Bun on PATH
+        shell: ${{ matrix.shell }}
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:RELEASE_TAG -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+$') { throw 'Invalid release tag' }
+          $env:Path = "$env:SystemRoot\System32;$env:SystemRoot;$env:SystemRoot\System32\WindowsPowerShell\v1.0"
+          $env:CASPER_INSTALL_DIR = Join-Path $env:RUNNER_TEMP 'published casper'
+          [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+          Invoke-RestMethod "https://github.com/Choaterboater/casper/releases/download/$env:RELEASE_TAG/install.ps1" | Invoke-Expression
+          $version = casper --version
+          if ($LASTEXITCODE -ne 0 -or $version -ne "casper $($env:RELEASE_TAG.Substring(1))") { throw 'Published version failed' }
+          $null = casper --help
+          if ($LASTEXITCODE -ne 0) { throw 'Published help failed' }
+          $notices = casper --licenses
+          if ($LASTEXITCODE -ne 0 -or ($notices -join "`n") -notmatch 'THIRD.PARTY') { throw 'Missing license notices' }
+          Set-Content index.ts 'export const answer = 42;'
+          $null = casper /project
+          if ($LASTEXITCODE -ne 0) { throw 'Published project inspection failed' }
+          $diagram = casper '/visualize repo'
+          if ($LASTEXITCODE -ne 0 -or ($diagram -join "`n") -notmatch 'flowchart LR') { throw 'Published inline diagram failed' }
+          Write-Host 'PASS: anonymous GitHub one-line install and startup without Bun or source checkout'
