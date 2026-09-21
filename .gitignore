@@ -1,0 +1,12 @@
+node_modules/
+dist/
+coverage/
+.DS_Store
+*.bun-build
+.scratch/
+
+# Local credentials and generated state
+.env
+.env.*
+/.casper/
+/.pi/

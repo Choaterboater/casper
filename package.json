@@ -1,0 +1,32 @@
+{
+  "name": "casper",
+  "version": "0.1.0",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "casper": "./src/cli.ts"
+  },
+  "scripts": {
+    "dev": "bun run src/cli.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "test:fast": "bun run scripts/test-parallel.ts",
+    "build:release": "bun run scripts/build-release.ts",
+    "check": "bun run typecheck && bun test"
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "0.85.1",
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "puppeteer-core": "25.11.0",
+    "typebox": "1.3.7",
+    "yaml": "2.8.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.30",
+    "bun-types": "^1.3.0",
+    "pyright": "1.1.414",
+    "typescript": "^5.9.3",
+    "typescript-language-server": "6.0.0"
+  }
+}

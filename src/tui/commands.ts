@@ -1,0 +1,32 @@
+import type { SlashCommand } from "@earendil-works/pi-tui";
+
+/** Discoverability only: command dispatch and authorization remain in CasperApp. */
+export const COMMANDS: SlashCommand[] = [
+  { name: "model", description: "Change model (remembered globally; --session for temporary)" },
+  { name: "effort", description: "Show or change supported reasoning effort" },
+  { name: "status", description: "Project, model, tools and session status" },
+  { name: "help", description: "Command reference and keyboard controls" },
+  { name: "context", description: "Context usage and loaded capabilities" },
+  { name: "usage", description: "Session tokens and reported cost estimate" },
+  { name: "compact", description: "Summarize context (sends a model request)" },
+  { name: "clear", description: "Start a fresh conversation; keep workspace files" },
+  { name: "resume", description: "List or resume a named conversation" },
+  { name: "diff", description: "Inspect current workspace changes" },
+  { name: "verify", description: "Run repository verification checks" },
+  { name: "project", description: "Detected project stack and configuration" },
+  { name: "skills", description: "Available, loaded and imported skills" },
+  { name: "mcp", description: "MCP server and tool controls" },
+  { name: "lsp", description: "Language server diagnostics" },
+  { name: "browser", description: "Disposable browser inspection and screenshots" },
+  { name: "debug", description: "Local debugger targets, breakpoints and inspection" },
+  { name: "permissions", description: "Explain current tool and approval boundaries" },
+  { name: "tree", description: "Named conversation/workspace tree" },
+  { name: "branch", description: "Create an isolated workspace conversation" },
+  { name: "switch", description: "Switch named workspace conversation" },
+  { name: "memory", description: "Explicit project facts and task outcomes" },
+  { name: "references", description: "Search local reference projects" },
+  { name: "visualize", description: "Render diagrams" },
+  { name: "delegate", description: "Bounded read-only subagent" },
+  { name: "login", description: "Configure provider credentials" },
+  { name: "exit", description: "Leave Casper" },
+];
