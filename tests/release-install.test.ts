@@ -163,7 +163,7 @@ posixOnly("a failing version probe preserves the previous installation even when
 posixOnly("the compiled CLI renders artifact files outside the checkout without Bun on PATH", async () => {
   const root = await tempDir("casper-binary-test-");
   const binary = path.join(root, "casper");
-  await compileExecutable(path.join(repoRoot, "src/cli.ts"), binary);
+  await compileExecutable(path.join(repoRoot, "src/standalone.ts"), binary);
   const notices = Bun.spawn([binary, "--licenses"], { cwd: root, env: { PATH: "/usr/bin:/bin" }, stdout: "pipe", stderr: "pipe" });
   const [noticeText, noticeError, noticeExit] = await Promise.all([new Response(notices.stdout).text(), new Response(notices.stderr).text(), notices.exited]);
   expect({ exit: noticeExit, error: noticeError }).toEqual({ exit: 0, error: "" });

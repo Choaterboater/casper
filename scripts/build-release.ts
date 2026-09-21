@@ -87,7 +87,7 @@ async function main(): Promise<void> {
   for (const target of targets) {
     const name = artifactName(target);
     const outfile = path.join(outputDir, name);
-    await compileExecutable(path.join(repoRoot, "src/cli.ts"), outfile, target as Bun.Build.CompileTarget);
+    await compileExecutable(path.join(repoRoot, "src/standalone.ts"), outfile, target as Bun.Build.CompileTarget);
     const digest = new Bun.CryptoHasher("sha256").update(await Bun.file(outfile).arrayBuffer()).digest("hex");
     checksums.push(`${digest}  ${name}`);
     const size = (await Bun.file(outfile).size / (1024 * 1024)).toFixed(1);

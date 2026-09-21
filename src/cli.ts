@@ -36,7 +36,7 @@ export function leadingFlag(args: readonly string[]): "help" | "version" | "lice
   return undefined;
 }
 
-async function main(): Promise<void> {
+export async function runCli(): Promise<void> {
   const args = process.argv.slice(2);
 
   const flag = leadingFlag(args);
@@ -113,7 +113,7 @@ async function main(): Promise<void> {
 }
 
 if (import.meta.main) {
-  main().catch((error) => {
+  runCli().catch((error) => {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
   });
