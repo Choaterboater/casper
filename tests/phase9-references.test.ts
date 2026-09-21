@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { discoverReferenceConfiguration } from "../src/references/config";
 import { ReferenceLibrary } from "../src/references/library";
+import { needsFifos, needsSymlinks } from "./support/platform";
 
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -82,6 +83,26 @@ test("configuration is user/profile metadata only, with null disables and no inv
   expect(await readFile(config, "utf8")).toContain("router");
 });
 
+needsSymlinks("the promoted reference source is reserved and only resolves to real owner state", async () => {
+  const { home, repo, config } = await fixture();
+  const promoted = path.join(home, ".casper/promoted-references");
+  await mkdir(promoted);
+  await writeFile(path.join(promoted, "pattern.md"), "promoted needle\n");
+  await writeFile(config, JSON.stringify({ references: { "casper-promoted": { path: repo, paths: ["."] } } }));
+  const discovered = await discoverReferenceConfiguration({ homeDir: home });
+  expect(discovered.sources).toEqual([{ id: "casper-promoted", configuration: "digest-bound human learning promotion",
+    root: promoted, paths: ["."], useFor: ["human-promoted reusable patterns"] }]);
+  expect(discovered.diagnostics.join("\n")).toContain("reserved");
+  const library = new ReferenceLibrary(discovered); cleanup.push(() => library.close());
+  expect((await library.search({ query: "needle", source: "casper-promoted" })).matches[0]?.excerpt).toBe("promoted needle");
+  await rm(promoted, { recursive: true });
+  const outside = path.join(home, "outside-promoted"); await mkdir(outside);
+  await symlink(outside, promoted, "dir");
+  const redirected = await discoverReferenceConfiguration({ homeDir: home });
+  expect(redirected.sources).toEqual([]);
+  expect(redirected.diagnostics.join("\n")).toContain("real directory");
+});
+
 test("malformed, remote, traversal and executable source definitions cannot authorize reads", async () => {
   const { home, repo, config } = await fixture();
   for (const source of [
@@ -137,7 +158,7 @@ test("content is read anew while configuration and returned metadata cannot wide
   expect((await discoverReferenceConfiguration({ homeDir: home })).sources).toEqual([]);
 });
 
-test("configured-path parents and traversed symlinks cannot expose outside content", async () => {
+needsSymlinks("configured-path parents and traversed symlinks cannot expose outside content", async () => {
   const { home, repo, root, config } = await fixture();
   const outside = path.join(root, "outside");
   await mkdir(outside);
@@ -276,7 +297,7 @@ test("a partial read budget cannot be mistaken for a complete no-match search", 
   expect(result.issues.join("\n")).toContain("Total read limit");
 });
 
-test.skipIf(process.platform === "win32")("FIFO configuration and reference entries cannot wait for a writer", async () => {
+needsFifos("FIFO configuration and reference entries cannot wait for a writer", async () => {
   const { home, repo, config } = await fixture();
   await rm(config);
   const fifo = Bun.spawn(["mkfifo", config, path.join(repo, "docs/pipe.txt")], { stdout: "ignore", stderr: "pipe" });

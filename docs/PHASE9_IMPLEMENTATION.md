@@ -1,6 +1,6 @@
-# Phase 9 — Memory / Reference Learning (started)
+# Phase 9 — Memory / Reference Learning
 
-**Status: explicit facts/outcomes, local reference search and learning candidate generation implemented and locally validated; Phase 9 is NOT complete and has not had its independent review.** The initial facts/outcomes slice followed the Phases 6–8 review. The user later approved local reference search, checkpointed at `c8df223`, then approved candidate-only learning. Human promotion remains pending. The broader-plan interactive MindMesh gap remains separately disclosed.
+**Status: explicit facts/outcomes, local reference search, learning candidate generation, and digest-bound human promotion are implemented and locally validated. Phase 9's final review/gate is recorded below; Phase 10 remains out of scope.** The initial facts/outcomes slice followed the Phases 6–8 review. The user later approved local reference search, candidate-only learning, and then local human promotion. The broader-plan interactive MindMesh gap remains separately disclosed.
 
 ## Original scope
 
@@ -11,10 +11,10 @@
 | Explicit project facts | Implemented in this slice |
 | Task outcomes | Implemented in this slice |
 | Reference-project search | Implemented for explicitly configured local paths; remote retrieval unsupported |
-| `casper learn <repo>` | Implemented: local, bounded read-only candidate generation; no promotion |
-| Human candidate promotion into references/skills | Pending |
+| `casper learn <repo>` | Implemented: local, bounded read-only candidate generation |
+| Human candidate promotion into references/skills | Implemented: digest-bound reference/project-skill/global-skill/ignore decisions |
 
-No autonomous prompt rewriting, global policy changes, embeddings/database, remote reference fetching, automatic corpus discovery, or implicit skill promotion was added. Reference content is searched only on demand within user-configured local paths.
+No autonomous prompt rewriting, global policy changes, embeddings/database, remote reference fetching, automatic corpus discovery, or implicit/model-directed skill promotion was added. Reference content is searched only on demand within user-configured local paths or the reserved owner-state source created by explicit human promotion.
 
 ## Commands
 
@@ -140,9 +140,9 @@ The contract and limits are in [LEARNING.md](LEARNING.md).
 
 - `CandidateLibrary` is one module for generation, listing, inspection and close.
   The top-level `casper learn <local-repo>` command invokes one existing bounded
-  read-only explorer, never the unrestricted parent app. `learn list` / `learn
-  inspect` stay local. No interactive `/learn` or model-facing learning tool was
-  added.
+  read-only explorer, never the unrestricted parent app. `learn list`, `learn
+  inspect`, and `learn promote` stay local. No interactive `/learn` or model-facing
+  learning/promotion tool was added.
 - Up to four candidates contain problem/context/pattern, tentative rationale,
   tradeoffs, use/avoid guidance and exact source citations. Casper checks the
   quoted lines after generation and hashes the observed raw bytes; the model
@@ -155,9 +155,10 @@ The contract and limits are in [LEARNING.md](LEARNING.md).
 - Successful nonempty batches persist as owner-only plaintext in the existing
   source-root project-state directory, in `learning-candidates.jsonl`. Atomic
   append-under-lock, schema/digest validation and record/byte caps preserve
-  existing drafts. They stay unpromoted, unverified and unaccepted; no active
-  facts, outcomes, references, skills or policy are changed. Empty output is not
-  proof that the source has no reusable patterns.
+  existing drafts. Generation leaves them unpromoted, unverified and unaccepted;
+  no active facts, outcomes, references, skills or policy are changed without a
+  later explicit human promotion. Empty output is not proof that the source has
+  no reusable patterns.
 - Incomplete/error/truncated output and bad citations reject the entire batch.
   Close/cancellation aborts the child and drains pending host work; the CLI keeps
   its existing shutdown deadline. No new retry/repair loop or model support.
@@ -252,15 +253,58 @@ No live/paid model calls, promotion, commits or push. This closes the three
 reproduced defects within the stated limits; it is **not independent Phase 9
 acceptance or evidence of representative usefulness**.
 
-## Next decision — features paused
+## Digest-bound human-promotion slice
 
-Keep the foundation. Agree a representative real-project task, baseline and
-acceptance criteria, plus separate authorization for any live-model budget.
-Independent Standards/Spec review is still required and cannot be replaced by
-this same-agent review. Keep promotion and Phase 10 paused until the next scope
-is agreed; the toy coding demo and backburner research remain parked.
+`casper learn promote <repo> <draft-id> <draft-sha256> <candidate-number>
+<reference|project-skill|global-skill|ignore> [skill-name]` is a human-only local
+operation. It starts no Pi runtime and makes no provider request. Exact ID/digest,
+candidate number, disposition, and (for skills) validated destination name are
+required on the command line. One immutable decision is allowed per candidate;
+an exact replay is idempotent and a conflicting replay is rejected.
 
-Digest-bound human promotion (reference only, project/global skill, ignore)
-remains unimplemented, never automatic global policy mutation. Candidate
-corrections are not approval for promotion, remote retrieval, recovery/model
-expansion, new integrations, further commits or push.
+Original drafts remain unchanged. Decisions are independently inspectable in
+`learning-promotions.jsonl` and bind both draft and candidate digests. Reference
+artifacts activate through the reserved `casper-promoted` source. Global skills
+activate under user skill state; project skills activate only for the matching
+project from its existing owner-state directory, never by writing the checkout.
+`ignore` records review without creating an artifact. Every generated artifact
+retains historical citations and explicit non-verification/current-authority
+guidance.
+
+Publication is create-only: destination collisions and symlinked roots fail
+without replacement. A user-wide lock serializes publication; the artifact is
+staged, the decision ledger is atomically replaced, and the staged directory is
+renamed into place. If interruption occurs after the ledger commit, only an exact
+replay can finish the recorded digest-matching stage. Corrupt, inconsistent,
+misdirected, oversized or duplicate decision state fails closed and is preserved.
+The threat boundary remains owner state: this is not protection from another
+process with the same user privileges, and no fsync/crash-durability claim is
+made.
+
+Focused public-interface tests cover all four dispositions, no-provider local
+promotion, activation through real reference/skill registries, exact consent,
+idempotence, conflict refusal, concurrency, destination collision, symlink
+refusal, corrupt-state preservation, unchanged source repositories and terminal
+output. Exact final counts and the Phase 9 review result are recorded after the
+final gate below.
+
+## Final Phase 9 validation and review
+
+The final isolated Phase 9 run passed **85 tests / 650 assertions** across memory,
+reference, reference-app and learning suites. The final serial `bun run check`
+passed with TypeScript clean and **459 tests / 4,959 assertions** across 36 files
+(157.44 seconds test-runner time). `git diff --check` passed. Full temporary log:
+`/tmp/casper-phase9-final-gate.XHwNP4/full-check.log`; permanent tests do not rely
+on it. No live provider, external source, production service, personal credential,
+commit or push was used.
+
+[PHASE9_REVIEW.md](PHASE9_REVIEW.md) records separate Standards and Spec passes:
+0 actionable findings on each axis. The available harness had no independent
+review sub-agent, so this is explicitly a same-agent review and not an independent
+sign-off. That limitation is preserved rather than silently relabeling the gate.
+
+## Boundary after Phase 9
+
+Phase 10, remote retrieval, autonomous promotion, recovery/model expansion, new
+integrations, live-provider trials, personal credential changes, commits and push
+remain outside this work. Agree separate scope before any of them.

@@ -167,6 +167,17 @@ export class SessionWorkspaceManager {
     this.boundRuntime = runtime;
   }
 
+  /** Keep the named workspace bound to its new conversation after clear/resume. */
+  async rememberConversation(runtime: RuntimeSession): Promise<void> {
+    requireBranchingRuntime(runtime);
+    const session = runtime.getSessionInfo();
+    const existing = this.store.get(this.currentName);
+    const expected = existing?.workspacePath ?? this.store.primaryWorkspace;
+    if (!await sameFilesystemPath(session.cwd, expected)) throw new Error("Conversation workspace does not match the active named workspace.");
+    await this.store.upsert(existing ? { ...existing, sessionId: session.sessionId, sessionFile: session.sessionFile, updatedAt: now() }
+      : branchRecord({ name: this.currentName, parent: null, session, workspacePath: expected, gitBranch: this.initialGitBranch }));
+  }
+
   renderTree(): string {
     const records = this.store.list();
     const main = records.find((branch) => branch.name === "main");

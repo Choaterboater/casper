@@ -1,7 +1,7 @@
-import { constants } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, open, realpath, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, realpath, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { openNoFollow } from "../platform/files";
 import { CHECK_NAMES, summarizeVerification, summarizeVerificationCheck, type VerificationReport, type VerificationCheckSummary } from "../verify/evidence";
 import { isVerificationScope } from "../verify/scope";
 
@@ -120,9 +120,9 @@ export class ProjectMemory {
   }
 
   private async read<T extends { id: string }>(name: string, valid: (value: unknown) => value is T): Promise<T[]> {
-    // Nonblocking open reaches fstat even for FIFOs with no writer. O_NOFOLLOW
-    // still rejects final symlinks; only regular files are read below.
-    const file = await open(path.join(this.directory, name), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK).catch((error: NodeJS.ErrnoException) => {
+    // Nonblocking open reaches fstat even for FIFOs with no writer, and a final
+    // symlink is never followed; only regular files are read below.
+    const file = await openNoFollow(path.join(this.directory, name)).catch((error: NodeJS.ErrnoException) => {
       if (error.code === "ENOENT") return undefined;
       throw error;
     });

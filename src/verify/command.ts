@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import type { ProjectCommand } from "../project/model";
 import type { VerificationResult } from "./evidence";
+import { osSupportsProcessGroups, ownSpawnedTree, type OwnedProcesses, terminateTree } from "../platform/processes";
 
 const OUTPUT_BYTES = 8192;
 
@@ -56,10 +57,12 @@ export async function runCommandCheck(options: CommandCheckOptions): Promise<Ver
   return new Promise((resolve) => {
     let reason: string | undefined;
     // A separate process group lets timeout/cancellation terminate shell children
-    // as well as the shell. Windows falls back to terminating the direct process.
+    // as well as the shell; Windows has no groups and terminates verified descendants.
     let child;
+    let owner: OwnedProcesses | undefined;
     try {
-      child = spawn(command, { cwd, shell: true, detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
+      child = spawn(command, { cwd, shell: true, detached: osSupportsProcessGroups, stdio: ["ignore", "pipe", "pipe"] });
+      owner = ownSpawnedTree(child.pid, () => child!.exitCode === null && child!.signalCode === null);
     } catch (error) {
       resolve({ ...base(), status: "fail", exitCode: null, signal: null, reason: `Could not execute: ${error instanceof Error ? error.message : String(error)}` });
       return;
@@ -67,7 +70,7 @@ export async function runCommandCheck(options: CommandCheckOptions): Promise<Ver
     let killTimer: ReturnType<typeof setTimeout> | undefined;
     const kill = (terminationSignal: NodeJS.Signals) => {
       try {
-        if (process.platform !== "win32" && child.pid) process.kill(-child.pid, terminationSignal);
+        if (owner || osSupportsProcessGroups) terminateTree(owner, child.pid, terminationSignal);
         else child.kill(terminationSignal);
       } catch { /* The process may already have exited. */ }
     };

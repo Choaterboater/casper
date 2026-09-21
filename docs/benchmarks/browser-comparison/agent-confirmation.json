@@ -1,0 +1,183 @@
+{
+  "directory": "/tmp/casper-browser-compare.TwvHx3/policy-Z6nhnh",
+  "calls": [
+    {
+      "args": [
+        "open",
+        "http://127.0.0.1:63699"
+      ],
+      "stdout": "{\"success\":true,\"data\":{\"lifecycle\":{\"effectiveLaunch\":{\"browserLaunched\":true,\"engine\":\"chrome\",\"launchHash\":16534651556364989610},\"launched\":false,\"relaunchedBrowser\":false,\"restartedBackground\":false,\"restoreStatus\":\"not_configured\",\"reused\":true,\"saveStatus\":\"not_attempted\"},\"targetId\":\"4098F42421B5E1E19E3440E160857861\",\"title\":\"\",\"url\":\"http://127.0.0.1:63699/\"},\"error\":null}\n",
+      "stderr": "",
+      "parsed": {
+        "success": true,
+        "data": {
+          "lifecycle": {
+            "effectiveLaunch": {
+              "browserLaunched": true,
+              "engine": "chrome",
+              "launchHash": 16534651556364990000
+            },
+            "launched": false,
+            "relaunchedBrowser": false,
+            "restartedBackground": false,
+            "restoreStatus": "not_configured",
+            "reused": true,
+            "saveStatus": "not_attempted"
+          },
+          "targetId": "4098F42421B5E1E19E3440E160857861",
+          "title": "",
+          "url": "http://127.0.0.1:63699/"
+        },
+        "error": null
+      }
+    },
+    {
+      "args": [
+        "click",
+        "#effect"
+      ],
+      "stdout": "{\"success\":true,\"data\":{\"action\":\"click\",\"confirmation_id\":\"r57608\",\"confirmation_required\":true},\"error\":null}\n",
+      "stderr": "",
+      "parsed": {
+        "success": true,
+        "data": {
+          "action": "click",
+          "confirmation_id": "r57608",
+          "confirmation_required": true
+        },
+        "error": null
+      }
+    },
+    {
+      "args": [
+        "deny",
+        "r57608"
+      ],
+      "stdout": "{\"success\":true,\"data\":{\"action\":\"click\",\"denied\":true,\"lifecycle\":{\"effectiveLaunch\":{\"browserLaunched\":true,\"engine\":\"chrome\",\"launchHash\":16534651556364989610},\"launched\":false,\"relaunchedBrowser\":false,\"restartedBackground\":false,\"restoreStatus\":\"not_configured\",\"reused\":false,\"saveStatus\":\"not_attempted\"}},\"error\":null}\n",
+      "stderr": "",
+      "parsed": {
+        "success": true,
+        "data": {
+          "action": "click",
+          "denied": true,
+          "lifecycle": {
+            "effectiveLaunch": {
+              "browserLaunched": true,
+              "engine": "chrome",
+              "launchHash": 16534651556364990000
+            },
+            "launched": false,
+            "relaunchedBrowser": false,
+            "restartedBackground": false,
+            "restoreStatus": "not_configured",
+            "reused": false,
+            "saveStatus": "not_attempted"
+          }
+        },
+        "error": null
+      }
+    },
+    {
+      "args": [
+        "click",
+        "#effect"
+      ],
+      "stdout": "{\"success\":true,\"data\":{\"action\":\"click\",\"confirmation_id\":\"r416143\",\"confirmation_required\":true},\"error\":null}\n",
+      "stderr": "",
+      "parsed": {
+        "success": true,
+        "data": {
+          "action": "click",
+          "confirmation_id": "r416143",
+          "confirmation_required": true
+        },
+        "error": null
+      }
+    },
+    {
+      "args": [
+        "confirm",
+        "r416143"
+      ],
+      "stdout": "{\"success\":true,\"data\":{\"action\":\"click\",\"confirmed\":true,\"lifecycle\":{\"effectiveLaunch\":{\"browserLaunched\":true,\"engine\":\"chrome\",\"launchHash\":16534651556364989610},\"launched\":false,\"relaunchedBrowser\":false,\"restartedBackground\":false,\"restoreStatus\":\"not_configured\",\"reused\":false,\"saveStatus\":\"not_attempted\"},\"result\":{\"data\":{\"clicked\":\"#effect\",\"lifecycle\":{\"effectiveLaunch\":{\"browserLaunched\":true,\"engine\":\"chrome\",\"launchHash\":16534651556364989610},\"launched\":false,\"relaunchedBrowser\":false,\"restartedBackground\":false,\"restoreStatus\":\"not_configured\",\"reused\":true,\"saveStatus\":\"not_attempted\"}},\"id\":\"r416143\",\"success\":true}},\"error\":null}\n",
+      "stderr": "",
+      "parsed": {
+        "success": true,
+        "data": {
+          "action": "click",
+          "confirmed": true,
+          "lifecycle": {
+            "effectiveLaunch": {
+              "browserLaunched": true,
+              "engine": "chrome",
+              "launchHash": 16534651556364990000
+            },
+            "launched": false,
+            "relaunchedBrowser": false,
+            "restartedBackground": false,
+            "restoreStatus": "not_configured",
+            "reused": false,
+            "saveStatus": "not_attempted"
+          },
+          "result": {
+            "data": {
+              "clicked": "#effect",
+              "lifecycle": {
+                "effectiveLaunch": {
+                  "browserLaunched": true,
+                  "engine": "chrome",
+                  "launchHash": 16534651556364990000
+                },
+                "launched": false,
+                "relaunchedBrowser": false,
+                "restartedBackground": false,
+                "restoreStatus": "not_configured",
+                "reused": true,
+                "saveStatus": "not_attempted"
+              }
+            },
+            "id": "r416143",
+            "success": true
+          }
+        },
+        "error": null
+      }
+    },
+    {
+      "args": [
+        "close"
+      ],
+      "stdout": "{\"success\":true,\"data\":{\"closed\":true,\"lifecycle\":{\"effectiveLaunch\":{\"browserLaunched\":false,\"engine\":\"chrome\",\"launchHash\":null},\"launched\":false,\"relaunchedBrowser\":false,\"restartedBackground\":false,\"restoreStatus\":\"not_configured\",\"reused\":false,\"saveStatus\":\"not_configured\"},\"restoreStatus\":\"not_configured\",\"saveStatus\":\"not_configured\"},\"error\":null}\n",
+      "stderr": "",
+      "parsed": {
+        "success": true,
+        "data": {
+          "closed": true,
+          "lifecycle": {
+            "effectiveLaunch": {
+              "browserLaunched": false,
+              "engine": "chrome",
+              "launchHash": null
+            },
+            "launched": false,
+            "relaunchedBrowser": false,
+            "restartedBackground": false,
+            "restoreStatus": "not_configured",
+            "reused": false,
+            "saveStatus": "not_configured"
+          },
+          "restoreStatus": "not_configured",
+          "saveStatus": "not_configured"
+        },
+        "error": null
+      }
+    }
+  ],
+  "effectsBeforeApproval": 0,
+  "effectsAfterDenial": 0,
+  "effectsAfterApproval": 1,
+  "passed": true,
+  "socketFiles": [
+    "namespaces"
+  ]
+}

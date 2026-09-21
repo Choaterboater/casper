@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, readdir, realpath, rename, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import type { ProjectModel } from "../project/model";
+import { projectStateDirectory, type ProjectModel } from "../project/model";
 import type { TaskClassification } from "../task/classify";
 import { MAX_SKILL_BYTES, parseSkillMetadata, readSkillHeader, splitSkill, type SkillMetadata } from "./metadata";
 import { scoreSkill } from "./rank";
@@ -117,11 +117,11 @@ export class SkillRegistry {
 
   private async scan(): Promise<void> {
     const canonicalHome = await realpath(this.homeDir).catch(() => path.resolve(this.homeDir));
-    const trustedUserDirectory = path.join(canonicalHome, ".casper", "skills");
     const canonicalProject = await realpath(this.options.projectRoot);
-    const roots: Array<{ directory: string; source: SkillSource; projectScoped: boolean }> = [
-      { directory: path.join(this.homeDir, ".casper", "skills"), source: "user", projectScoped: false },
-      { directory: path.join(this.options.projectRoot, ".casper", "skills"), source: "project", projectScoped: true },
+    const roots: Array<{ directory: string; source: SkillSource; projectScoped: boolean; userOwned: boolean }> = [
+      { directory: path.join(canonicalHome, ".casper", "skills"), source: "user", projectScoped: false, userOwned: true },
+      { directory: path.join(canonicalProject, ".casper", "skills"), source: "project", projectScoped: true, userOwned: false },
+      { directory: path.join(projectStateDirectory(canonicalProject, canonicalHome), "skills"), source: "project", projectScoped: false, userOwned: true },
     ];
     for (const { base, pi, projectScoped } of [
       { base: this.homeDir, pi: ".pi/agent/skills", projectScoped: false },
@@ -130,7 +130,7 @@ export class SkillRegistry {
       for (const imported of new Set(this.options.imports ?? [])) {
         if (!SKILL_IMPORTS.includes(imported)) throw new Error("Unknown skills.imports source");
         const relative = imported === "pi" ? pi : `.${imported}/skills`;
-        roots.push({ directory: path.join(base, relative), source: "external", projectScoped });
+        roots.push({ directory: path.join(base, relative), source: "external", projectScoped, userOwned: false });
       }
     }
 
@@ -176,7 +176,7 @@ export class SkillRegistry {
               if (header === undefined) continue;
               const metadata = parseSkillMetadata(header);
               // A symlink out of the user skill directory cannot gain implicit trust.
-              const userOwned = root.source === "user" && isWithin(trustedUserDirectory, filePath);
+              const userOwned = root.userOwned && isWithin(path.resolve(root.directory), filePath);
               const record = this.records[filePath];
               const summary: SkillSummary = {
                 ...metadata,

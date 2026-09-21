@@ -7,8 +7,11 @@ import path from "node:path";
 // Node exposes file handles but not directory-relative creation. Casper is a Bun
 // application; these POSIX calls pin directory setup and artifact writes/cleanup to the validated
 // directory inode rather than re-following a pathname that can become a symlink.
+/** Secure directory-relative artifact I/O needs POSIX openat; other platforms stay in-conversation. */
+export const artifactFilesystemSupported = process.platform === "darwin" || process.platform === "linux";
+
 function loadOperations() {
-  if (process.platform !== "darwin" && process.platform !== "linux") throw new Error("Secure artifact creation requires macOS or Linux; set visualize.outputDir: false for inline output");
+  if (!artifactFilesystemSupported) throw new Error("Secure artifact creation requires macOS or Linux; set visualize.outputDir: false for inline output");
   return cc({
     source: new URL("./artifacts.c", import.meta.url),
     define: { CASPER_DARWIN: process.platform === "darwin" ? "1" : "0" },

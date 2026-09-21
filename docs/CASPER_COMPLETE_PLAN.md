@@ -2,15 +2,24 @@
 
 **Working name:** Casper  
 **Product identity:** A project-aware coding companion built on Pi as a dependency, with a small Casper-owned control layer, progressive skills/capabilities, and evidence-based verification.  
-**Primary interface:** Terminal/TUI first, with SDK/RPC integration points for desktop companions such as CasperCloud.  
+**Primary interface:** Terminal/TUI first; optional SDK/RPC interfaces require a concrete Casper workflow.
 **Core design goal:** Make a coding companion that works exceptionally well for your workflows while keeping the core generic enough for other developers to use.  
 **Revision:** v2 — updated after comparing SkyN3t, both current HPE Networking MCP branches, GreenCLI, OMP, and the intended MindMesh/CasperCloud roles.
 
 ---
 
+## Current scope correction — reference projects are not deliverables
+
+The user explicitly clarified that **CasperCloud was supplied as a reference
+project**, not a Casper client/integration requirement. Useful ideas or code may
+inform Casper where justified. All historical statements below proposing a
+CasperCloud companion, SDK/RPC integration or Phase 10 deliverable are superseded
+by this clarification. Do not modify that project or block Casper completion on
+integrating it. Generic richer-client ideas remain optional, not automatic scope.
+
 ## 1. Executive Summary
 
-Casper should **not** be a SkyN3t rewrite, an OMP reskin, a Pika-based workflow engine, or a giant prompt wrapped around Pi.
+Casper should **not** be a SkyN3t rewrite, an OMP reskin, or a giant prompt wrapped around Pi.
 
 Casper should be its own product with a deliberately small control plane.
 
@@ -110,9 +119,7 @@ The existing projects are a **design corpus**, not dependencies that all need to
 
 ### Non-negotiable simplification
 
-**Pika is out of the Casper design.**
-
-Casper may keep the useful idea of a small project verification contract, but verification remains Casper-owned and simple: commands, structured results, evidence, and repair. No Pika kernel, profile packs, lease system, repo ownership model, or second orchestration framework.
+Verification remains Casper-owned and simple: project-native commands, structured results, evidence, and repair.
 
 The guiding principle for v1 is:
 
@@ -182,7 +189,6 @@ Avoid allowing Casper to evolve into these things too early:
 - an opaque scoring system;
 - a framework where every feature requires another agent;
 - a fork that makes upgrading Pi/OMP painful;
-- a Pika-managed repository workflow;
 - SkyN3t 3.0 under another name.
 
 The operating principle should be:
@@ -707,55 +713,7 @@ These are generic developer-tool behaviors, not networking-specific features.
 
 ---
 
-# 8B. Pika Decision — Explicitly Excluded
-
-Pika should **not** be part of Casper's runtime or repository workflow.
-
-The comparison surfaced one useful concept from the newer HPE MCP branch:
-
-```text
-project declares:
-- canonical checks
-- project conventions
-- what "verified" means
-```
-
-Casper should implement that directly.
-
-Example:
-
-```yaml
-# .casper/project.yaml
-
-verify:
-  typecheck: "bun run check"
-  test: "bun test"
-  build: "bun run build"
-
-rules:
-  - "do not edit generated files"
-  - "prefer existing dependencies"
-```
-
-That is enough.
-
-Casper does **not** need:
-
-- a separate verification kernel;
-- profile-pack locks;
-- task leases;
-- repository claim/ownership semantics;
-- a second workflow engine;
-- a separate evidence database just to run tests;
-- Pika as an execution dependency.
-
-Rule:
-
-> **Verification must reduce uncertainty, not create another layer that can fail independently of the project.**
-
----
-
-# 8C. Generic Core, Personal Profile
+# 8B. Generic Core, Personal Profile
 
 Casper should be usable by other people, but optimizing the default design around real workflows is still valuable.
 
@@ -1724,7 +1682,7 @@ Do not build a complex model tournament initially.
 
 # 19. Build/Change Contract
 
-Borrow the useful idea from SkyN3t without a heavy implementation. This is Casper-owned runtime state—not Pika, not a second workflow engine.
+Borrow the useful idea from SkyN3t without a heavy implementation. This is small Casper-owned runtime state.
 
 Before a substantial task, Casper forms a small task contract:
 
@@ -1809,7 +1767,7 @@ type TaskState =
 
 # 21. Verification
 
-This is one of the most valuable lessons from SkyN3t, but Casper should implement it **without Pika**.
+This is one of the most valuable lessons from SkyN3t: run project-native checks and report structured evidence.
 
 The rule is simple:
 
@@ -2725,8 +2683,6 @@ Acceptance:
 
 Casper encounters a real type/test failure, feeds exact evidence back into Pi, repairs it, and reruns checks.
 
-No Pika.
-
 ---
 
 ## Phase 4 — MCP capability broker
@@ -2834,10 +2790,14 @@ Build:
 
 ## Phase 10 — Debugger and richer clients
 
-Later:
+Scoped browser and local-DAP debugging are implemented; see
+[DEBUGGER.md](DEBUGGER.md) and [PHASE10_DEBUGGER_REVIEW.md](PHASE10_DEBUGGER_REVIEW.md).
+The latest gate is 518 tests / 5,345 assertions, TypeScript clean. CasperCloud remains
+reference material only. The historical roadmap below is not an acceptance checklist
+requiring additional clients before completion:
 
-- DAP/debugger workflows;
-- CasperCloud SDK/RPC client;
+- DAP/debugger workflows (bounded local workflow delivered; broader adapters optional);
+- optional Casper-owned SDK/RPC interface if a concrete workflow warrants it (not CasperCloud integration);
 - richer browser verification;
 - collaborative/remote use if valuable.
 
@@ -2889,7 +2849,6 @@ Do **not** delay v1 for:
 large multi-agent swarm
 advisor model
 automatic prompt mutation
-Pika
 Best-of-N
 full debugger
 desktop app
@@ -3116,7 +3075,7 @@ These should live near the top of the repository.
 
 ## Rule 11
 
-**Do not rebuild SkyN3t or Pika inside Casper.**
+**Do not rebuild SkyN3t inside Casper.**
 
 ---
 
@@ -3131,7 +3090,6 @@ Does Pi already provide this?
 Does OMP already provide this through its SDK?
 Did one of the HPE MCPs or GreenCLI already solve the low-token/lifecycle problem?
 Did SkyN3t already teach us a failure mode here?
-Are we accidentally recreating Pika-like orchestration?
 Will this add permanent context or tool overhead?
 Can we measure whether this helps?
 ```
@@ -3215,8 +3173,6 @@ Why Bun/TypeScript:
 
 Do not add a database until memory/index requirements justify one.
 
-Do not add Pika.
-
 Do not add OMP as a runtime dependency.
 
 Do not add a vector database just to implement first-pass tool selection. Start with metadata + lexical search and add embeddings only if evals prove they help.
@@ -3289,7 +3245,6 @@ Things that became expensive
 
 What Casper does differently
 - runtime adapter owns the Pi/OMP boundary
-- no Pika workflow layer
 - one main agent
 - small state machine
 - progressive skills
@@ -3449,7 +3404,6 @@ Explicitly **not** in the initial chain:
 ```text
 Pi fork
 OMP runtime dependency
-Pika
 Cortex
 Best-of-N
 advisor-on-every-turn
@@ -3562,16 +3516,6 @@ Key conclusion:
 
 **Carry the lessons, not the factory/orchestration architecture.**
 
-## Pika
-
-The newer HPE MCP branch contains a repository-contract/verification approach associated with Pika.
-
-Decision:
-
-**Pika is explicitly excluded from Casper.**
-
-Keep only the simple concept of declaring project-native verification commands.
-
 ## MindMesh
 
 User-defined role:
@@ -3651,7 +3595,6 @@ Use Pi?           YES
 Use OMP as base?  NO
 Fork OMP?         NO
 Study OMP?        YES
-Use Pika?         NO
 ```
 
 The role of each source is:
@@ -3671,8 +3614,6 @@ The role of each source is:
 **MindMesh gives Casper visual reasoning/output through a generic provider interface.**
 
 **CasperCloud can consume Casper later through an SDK/RPC boundary.**
-
-**Pika is not part of the architecture.**
 
 And the core rule is:
 

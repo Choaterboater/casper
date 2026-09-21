@@ -19,6 +19,21 @@ function withoutModels(settings: Settings): Settings {
 export class PiModels {
   private readonly selections = new WeakMap<AgentSession, Selection>();
   private selecting = false;
+  private authenticating = false;
+  private readonly staleAuth = new Set<string>();
+
+  get busy(): boolean { return this.selecting || this.authenticating; }
+  setAuthenticating(active: boolean): void { this.authenticating = active; }
+  invalidateAuth(provider: string): void { this.staleAuth.add(provider); }
+
+  async refreshAuth(provider: string, signal: AbortSignal): Promise<boolean> {
+    try {
+      const result = await this.catalog.refresh({ providers: [provider], allowNetwork: false, signal });
+      if (signal.aborted || result.aborted || result.errors.size) return false;
+      this.staleAuth.delete(provider);
+      return true;
+    } catch { return false; }
+  }
   private selectionSignal?: AbortSignal;
   private readonly lifetime = new AbortController();
   private selectionDone: Promise<void> = Promise.resolve();
@@ -99,12 +114,35 @@ export class PiModels {
     // is not a user selection and must never authorize a request or appear as one.
     const model = reference && session.model?.provider === reference.provider && session.model.id === reference.id
       ? this.catalog.getModel(reference.provider, reference.id) : undefined;
-    const auth = reference ? this.catalog.hasConfiguredAuth(reference.provider) ? "configured" : "missing" : "unknown";
+    const stale = reference && this.staleAuth.has(reference.provider);
+    const auth = stale ? "unknown" : reference ? this.catalog.hasConfiguredAuth(reference.provider) ? "configured" : "missing" : "unknown";
     const blocked = !reference ? "No Casper model selected. Use /model to choose one."
+      : stale ? "Credential state needs local refresh. Restart Casper before using this provider; do not repeat login blindly."
       : !model ? `Model ${reference.provider}/${reference.id} is unavailable. Use /model to choose another; no fallback was selected.`
-      : auth === "missing" ? `Credentials missing for ${reference.provider}. Use /login for setup guidance or /model to choose another.` : undefined;
+      : auth === "missing" ? `Credentials missing for ${reference.provider}. Use /login for OpenAI Codex, configure another supported credential, or /model to choose another.` : undefined;
     return { provider: reference?.provider, model: reference?.id, thinkingLevel: model ? session.thinkingLevel : undefined,
+      availableThinkingLevels: model ? session.getAvailableThinkingLevels() : [],
       auth, selectionSource: selection.source, defaultModel: this.defaultReference(), blocked };
+  }
+
+  async setEffort(session: AgentSession, level: string, persist: boolean): Promise<RuntimeStatus> {
+    this.assertReady(session);
+    if (this.busy || !session.isIdle) throw new Error("Wait for active work before changing effort.");
+    const supported = session.getAvailableThinkingLevels().find(value => value === level);
+    if (!supported) throw new Error(`Unsupported effort. Choose: ${session.getAvailableThinkingLevels().join(", ")}`);
+    session.setThinkingLevel(supported, { persist: false });
+    // This manager is in-memory and Casper-owned; never touch shared Pi settings.
+    session.settingsManager.setModelThinkingLevel(session.model!.provider, session.model!.id, supported);
+    if (persist) {
+      const preferences = this.preferences();
+      const model = session.model!;
+      preferences.setModelThinkingLevel(model.provider, model.id, supported);
+      if (this.defaultReference(preferences)?.id === model.id && this.defaultReference(preferences)?.provider === model.provider)
+        preferences.setDefaultThinkingLevel(supported);
+      await preferences.flush();
+      if (preferences.drainErrors().length) throw new Error("Effort applied to this conversation, but could not be saved.");
+    }
+    return this.status(session);
   }
 
   async close(): Promise<void> {
@@ -115,12 +153,13 @@ export class PiModels {
   assertReady(session: AgentSession): void {
     this.lifetime.signal.throwIfAborted();
     if (this.selecting) throw new Error("Model selection is in progress; wait before sending a request.");
+    if (this.authenticating) throw new Error("Login is in progress; wait before sending a request.");
     const blocked = this.status(session).blocked;
     if (blocked) throw new Error(blocked);
   }
 
   async select(session: AgentSession, options: RuntimeModelSelectionOptions): Promise<RuntimeModelSelection> {
-    if (this.selecting || !session.isIdle) throw new Error("Wait for active work before changing models.");
+    if (this.busy || !session.isIdle) throw new Error("Wait for active work before changing models.");
     const signal = options.signal ? AbortSignal.any([options.signal, this.lifetime.signal]) : this.lifetime.signal;
     options = { ...options, signal };
     signal.throwIfAborted();
@@ -137,17 +176,18 @@ export class PiModels {
         const { pickPiModel } = await import("./pi-model-picker");
         options.signal?.throwIfAborted();
         const picked = await options.picker.run((io) => pickPiModel(io, this.catalog,
-          this.status(session).blocked ? undefined : session.model, this.defaultReference(), options.query, options.signal));
+          this.status(session).blocked ? undefined : session.model, this.defaultReference(), options.query, options.signal, options.persist === false));
         options.signal?.throwIfAborted();
         if (!picked) return { status: this.status(session), selected: false, savedDefault: false };
-        model = this.catalog.getModel(picked.provider, picked.id); persist = picked.persist;
+        model = this.catalog.getModel(picked.provider, picked.id); persist = options.persist === false ? false : picked.persist;
       }
       if (!model) {
         if (query) throw new Error(matches.length ? "Ambiguous model; use provider/model-id." : "Unknown model. Use /model to see available models.");
         return { status: this.status(session), selected: false, savedDefault: false,
           models: this.catalog.getAvailableSnapshot().map(({ provider, id, name }) => ({ provider, id, name })) };
       }
-      if (!this.catalog.hasConfiguredAuth(model.provider)) throw new Error(`Credentials missing for ${model.provider}. Use /login for setup guidance; selection unchanged.`);
+      if (this.staleAuth.has(model.provider)) throw new Error("Credential state needs local refresh. Restart Casper before selecting this provider.");
+      if (!this.catalog.hasConfiguredAuth(model.provider)) throw new Error(`Credentials missing for ${model.provider}. Use /login for OpenAI Codex or configure another supported credential; selection unchanged.`);
       await session.setModel(model, { persist: false });
       this.selections.set(session, { reference: { provider: model.provider, id: model.id }, source: "conversation" });
       // Pi defers a new file until the first assistant response. Materialize only
@@ -162,6 +202,8 @@ export class PiModels {
       if (persist) {
         const preferences = this.preferences();
         preferences.setDefaultModelAndProvider(model.provider, model.id);
+        preferences.setDefaultThinkingLevel(session.thinkingLevel);
+        preferences.setModelThinkingLevel(model.provider, model.id, session.thinkingLevel);
         await preferences.flush();
         if (preferences.drainErrors().length) throw new Error("Model selected for this conversation, but the Casper default could not be saved.");
       }

@@ -1,0 +1,500 @@
+$ bun run typecheck && bun test
+$ tsc --noEmit
+bun test v1.4.0 (1381054db)
+
+tests/phase9-references-app.test.ts:
+(pass) reference listing/search are local and do not create model tasks or memory outcomes [239.90ms]
+(pass) a configured model tool returns advisory excerpts on demand and is revoked on close [63.54ms]
+(pass) project files alone expose no reference tool and absent references do not block ordinary coding [62.88ms]
+(pass) named-session rebinding reloads source metadata and revokes the old captured tool [115.06ms]
+(pass) real CLI local reference search works without model configuration or credentials [263.85ms]
+(pass) reference CLI and model output escape terminal controls without altering excerpts [325.32ms]
+(pass) pinned Pi receives only requested excerpts with provenance from the real read-only tool [721.44ms]
+
+tests/phase1-project-context.test.ts:
+66 |     );
+67 |     await writeFile(path.join(root, ".casper", "rules.md"), "Never edit generated files.");
+68 | 
+69 |     const configuration = await loadConfiguration({ projectRoot: root, homeDir });
+70 | 
+71 |     expect(configuration.profileName).toBe("project-profile");
+                                           ^
+error: expect(received).toBe(expected)
+
+Expected: "project-profile"
+Received: "default"
+
+      at <anonymous> (/private/tmp/casper-acceptance-sgTCoi/baseline/tests/phase1-project-context.test.ts:71:39)
+(fail) Phase 1 project context > loads the selected profile, project rules, overrides, and merged safe policy [4.89ms]
+(pass) Phase 1 project context > project command overrides admit only supported keys through context, prompt and cache [5.61ms]
+(pass) Phase 1 project context > detects stack and commands, then reuses and invalidates the project cache [2.82ms]
+(pass) Phase 1 project context > classifies a task and supplies only detected relevant commands [0.05ms]
+
+tests/phase5-lsp-real.test.ts:
+(pass) real TypeScript LSP resolves symbols/references and renames across files without compiler regressions [7366.20ms]
+(pass) real Pyright acceptance: repository-wide rename finishes with fresh zero diagnostics [1990.43ms]
+
+tests/casper-app.integration.test.ts:
+(pass) CasperApp > /help stays local without runtime startup or outcomes [35.85ms]
+(pass) CasperApp > /exit stays local without runtime startup or outcomes [31.20ms]
+(pass) CasperApp > /quit stays local without runtime startup or outcomes [82.82ms]
+(pass) CasperApp > /nope stays local without runtime startup or outcomes [31.28ms]
+(pass) CasperApp > /verfy typecheck stays local without runtime startup or outcomes [31.15ms]
+(pass) CasperApp >   /nope   stays local without runtime startup or outcomes [31.90ms]
+(pass) CasperApp > CLI help and exit commands succeed locally while unknown commands exit 1 [664.14ms]
+(pass) CasperApp > local skill commands work without starting an unavailable runtime [37.40ms]
+(pass) CasperApp > selects relevant skill bodies per task and handles inspection/trust commands without model calls [85.16ms]
+266 |     expect(output).toContain("project");
+267 |     expect(output).toContain("stack     typescript · react");
+268 |     expect(output).toContain("package   bun");
+269 |     expect(output).toContain("build     bun run build");
+270 |     expect(output).toContain("test      bun run test");
+271 |     expect(output).toContain("profile   integration");
+                         ^
+error: expect(received).toContain(expected)
+
+Expected to contain: "profile   integration"
+Received: "      .-.\n     (o o)\n     | O \\\n      \\   \\\n       `~~~'\n\n      CASPER\nyour coding companion\n\n project   casper-phase1-project-atxYzV\n stack     typescript · react\n package   bun\n build     bun run build\n test      bun run test\n profile   default\n branch    main\n runtime   pi\n skills    0 indexed (use /skills)\n\n memory    explicit facts; task summaries recorded locally, acceptance unknown (use /memory)\n\n mcp       0 configured (disconnected; use /mcp)\n\n lsp       0 configured (disconnected; use /lsp)\n\n visualize mermaid, mindmesh (artifacts outside workspace; use /visualize)\n\n> fix this failing test\n• read\n✓ read\nHandled: Casper initial classification (hints, not authority over the request or actual work):\n- intent: fix\n- mode: modify\n- available configured checks: typecheck=bun run typecheck; test=bun run test; build=bun run build\nSelect checks based on actual work and relevant changed behavior, not request keywords. If casper_check is available, use it for relevant configured checks after edits settle. No mandatory four-check pipeline; docs-only or no-change work may need none. Explain unrun checks without claiming verified behavior.\n\nUser request:\nfix this failing test\n[task] Execution completed; no Casper verification recorded.\n"
+
+      at <anonymous> (/private/tmp/casper-acceptance-sgTCoi/baseline/tests/casper-app.integration.test.ts:271:20)
+(fail) CasperApp > starts with a Casper banner, detects git branch, and streams runtime output [136.58ms]
+
+tests/phase3-app.integration.test.ts:
+(pass) runtime error and abort stops are not reported as successful tasks or followed by verification [137.79ms]
+(pass) a nonthrowing failed repair stops instead of claiming a passing rerun [174.98ms]
+(pass) no model-selected checks is unverified, while explicit missing checks stay incomplete [64.94ms]
+(pass) unverified normal completion is labeled separately and the returned task result is detached [52.18ms]
+(pass) fresh requests never reuse evidence; self-mutating scoped checks retain stale qualifications [299.56ms]
+(pass) tool-reported success is diagnostic only, never fabricated exit evidence [112.11ms]
+(pass) repair receives actual verifier failure; shell status remains a separate observation [193.89ms]
+(pass) review: failed writes and late shell success cannot certify changed files [649.52ms]
+(pass) review: a recovered Pi provider error is not a terminal task failure [69.09ms]
+(pass) review: external edits between explicit checks cannot reuse an old pass [116.88ms]
+(pass) review: a later verifier can invalidate an earlier passing check [132.25ms]
+(pass) /verify is local, exposes failure and skips, validates names before execution, and keeps startup lazy [104.07ms]
+(pass) /verify repair sends evidence through the runtime seam and reports a real successful rerun [189.11ms]
+(pass) explicit repair uses its own objective rather than an unrelated previous request [178.65ms]
+(pass) managed checks require opt-in and model selection, and repair retains the original session and request [242.26ms]
+(pass) closing the app cancels an active verification command without starting a repair [125.20ms]
+(pass) cancellation during lazy runtime startup prevents a repair prompt [169.95ms]
+(pass) closing during the initial prompt prevents post-task verification and repair [69.06ms]
+(pass) closing drains initial runtime startup without prompting and disposes only once [68.07ms]
+(pass) shutdown still disposes the runtime when abort rejects [62.26ms]
+406 |     for (let attempt = 0; attempt < 200 && !await Bun.file(path.join(root, "started")).exists(); attempt++) await Bun.sleep(10);
+407 |     expect(await Bun.file(path.join(root, "started")).exists()).toBe(true);
+408 |     child.kill("SIGTERM");
+409 |     expect(await child.exited).toBe(143);
+410 |     await Bun.sleep(1100);
+411 |     expect(await Bun.file(path.join(root, "leaked")).exists()).toBe(false);
+                                                                     ^
+error: expect(received).toBe(expected)
+
+Expected: false
+Received: true
+
+      at <anonymous> (/private/tmp/casper-acceptance-sgTCoi/baseline/tests/phase3-app.integration.test.ts:411:64)
+(fail) CLI termination cleans up a running verifier process group [1431.01ms]
+(pass) CLI shutdown has a deadline when runtime startup never settles [1379.80ms]
+(pass) one-shot CLI returns meaningful exit codes without model credentials [1071.71ms]
+
+tests/phase7-app-review.test.ts:
+(pass) review regression: failed destination context loading revokes old capabilities and blocks prompts until recovery [1084.46ms]
+
+tests/phase5-lsp-edits.test.ts:
+(pass) Phase 5 LSP edit preflight > applies unordered rename edits against one snapshot without mutating input [0.12ms]
+(pass) Phase 5 LSP edit preflight > preserves CRLF, CR, and UTF-16 positions [0.07ms]
+(pass) Phase 5 LSP edit preflight > supports multiline replacement and insertion at EOF [0.05ms]
+(pass) Phase 5 LSP edit preflight > retains same-position insertion order and permits touching ranges [0.02ms]
+(pass) Phase 5 LSP edit preflight > rejects overlapping, duplicate, and reversed ranges [0.12ms]
+(pass) Phase 5 LSP edit preflight > rejects out-of-bounds and malformed positions rather than clamping [0.07ms]
+
+tests/test-parallel.test.ts:
+(pass) parallel runner propagates failures and still runs every queued file [56.76ms]
+
+tests/phase7-sessions.test.ts:
+(pass) Phase 7 sessions and worktrees > review regression: concurrent same-name creation preserves the winner [1096.47ms]
+(pass) Phase 7 sessions and worktrees > review regression: changes after cleanup snapshot survive in a recovery directory [2814.55ms]
+(pass) Phase 7 sessions and worktrees > review follow-up: cleanup preserves unrelated missing worktree registration and index [1598.60ms]
+(pass) Phase 7 sessions and worktrees > review final: redirected candidate git pointer cannot unregister another worktree [1406.16ms]
+(pass) Phase 7 sessions and worktrees > review follow-up: locked cleanup records its recovery location even when unregister fails [1393.39ms]
+(pass) Phase 7 sessions and worktrees > review regression: ignored main files do not poison applied-diff verification [1634.14ms]
+(pass) Phase 7 sessions and worktrees > review regression: restart resumes named conversation before updating outgoing linkage [1427.86ms]
+(pass) Phase 7 sessions and worktrees > workspace isolation policy is layered and defaults to all three guarded reasons [197.79ms]
+(pass) Phase 7 sessions and worktrees > a candidate worktree captures tracked and untracked changes, applies the exact reviewed patch, and cleans up [1802.24ms]
+(pass) Phase 7 sessions and worktrees > isolation refuses dirty or changed source state rather than silently dropping pre-existing work [530.84ms]
+(pass) Phase 7 sessions and worktrees > concurrent branch-store writers do not lose independent session branches [44.97ms]
+(pass) Phase 7 sessions and worktrees > named branches preserve session linkage and shared-workspace switching when isolation is disabled [251.99ms]
+(pass) Phase 7 sessions and worktrees > return-to-main verifies and shows the complete diff before applying without a commit [1763.54ms]
+(pass) Phase 7 sessions and worktrees > failed verification preserves the candidate, and discard still requires reviewed confirmation [1382.59ms]
+(pass) Phase 7 sessions and worktrees > main changes made during apply approval preserve both workspaces and keep the branch recoverable [1003.67ms]
+(pass) Phase 7 sessions and worktrees > candidate changes made during approval are preserved rather than destructively discarded [1284.04ms]
+(pass) Phase 7 sessions and worktrees > local tree is lazy and one-shot branch creation fails closed without creating a worktree [482.68ms]
+(pass) Phase 7 sessions and worktrees > the pinned Pi adapter clones, names, resumes, and persists context through its session runtime [429.97ms]
+
+tests/phase9-learn.test.ts:
+(pass) learn produces an unpromoted draft with host-checked provenance, inspectable locally after restart [613.51ms]
+(pass) learning rejects source overlap with Pi state before creating files or calling a provider [471.61ms]
+(pass) learning state preflight handles default-root without modifying the source [407.23ms]
+(pass) learning state preflight handles state-alias without modifying the source [416.64ms]
+(pass) learning state preflight handles missing-state without modifying the source [405.55ms]
+(pass) learning refuses a separate Pi state's auth.json symlink into source [419.44ms]
+(pass) learning refuses a separate Pi state's models-store.json symlink into source [415.38ms]
+(pass) learning still permits sibling Pi state without changing source or model defaults [447.00ms]
+(pass) learning output escapes terminal controls without altering the saved candidate [461.91ms]
+(pass) learning refuses malformed JSON without publishing a draft [518.15ms]
+(pass) learning refuses unknown fields without publishing a draft [523.53ms]
+(pass) learning refuses model acceptance without publishing a draft [521.70ms]
+(pass) learning refuses model digests without publishing a draft [510.08ms]
+(pass) learning refuses excess candidates without publishing a draft [503.17ms]
+(pass) learning refuses cut-off completion without publishing a draft [533.37ms]
+(pass) learning refuses oversized response without publishing a draft [515.73ms]
+(pass) host evidence checks reject invented quote and publish no part of a mixed batch [508.03ms]
+(pass) host evidence checks reject incorrect lines and publish no part of a mixed batch [524.08ms]
+(pass) host evidence checks reject traversal and publish no part of a mixed batch [517.80ms]
+(pass) host evidence checks reject absolute path and publish no part of a mixed batch [507.86ms]
+(pass) host evidence checks reject hidden file and publish no part of a mixed batch [516.68ms]
+(pass) host evidence checks reject missing file and publish no part of a mixed batch [709.10ms]
+(pass) source changes after model reading cannot supply a matching evidence quote [520.04ms]
+(pass) no supported patterns is a qualified empty result, not a fabricated candidate [500.74ms]
+(pass) invalid learning commands stay local and never fall through to an unrestricted prompt [648.34ms]
+(pass) learning cannot activate ambient extensions, project commands, skills, facts or reference configuration [526.38ms]
+(pass) concurrent learning processes preserve both immutable drafts and keep repositories isolated [765.63ms]
+(pass) inspection retains observed provenance after source edits or removal, never claiming refreshed evidence [574.98ms]
+(pass) corrupted draft state fails closed before model startup and stays untouched [643.30ms]
+(pass) symlinked evidence parents, binary text and oversized files cannot become draft provenance [2017.63ms]
+(pass) learning refuses a state directory redirected into source files before model startup [74.78ms]
+(pass) a read-only tool failure or attempted mutation cannot publish an apparently complete draft [536.30ms]
+(pass) exhausting the existing explorer turn limit saves no truncated draft and starts no repair [544.84ms]
+(pass) provider failure does not expose raw provider text or record an outcome as a learning draft [530.67ms]
+(pass) FIFO evidence and stored drafts fail without waiting for a writer [1010.36ms]
+(pass) CLI cancellation drains the read-only run without publishing late candidates [523.40ms]
+(pass) Unicode and CRLF citations retain exact quoted lines and a digest of raw file bytes [457.34ms]
+(pass) invalid, duplicated and oversized draft stores are never reset or sent to a model [765.39ms]
+(pass) a full draft store refuses further generation rather than pruning earlier drafts [608.34ms]
+
+tests/phase6-visualize.test.ts:
+(pass) graph IR rejects malformed, oversized, and dangling input; accepts normalized graphs [0.66ms]
+(pass) spanning tree is deterministic: natural root, synthetic root for forests/cycles, cross edges preserved [0.27ms]
+(pass) Mermaid flowchart escapes labels, groups subgraphs, and labels edges [0.33ms]
+(pass) Mermaid mindmap projects a tree, strips shape characters, and discloses cross edges [0.17ms]
+(pass) MindMesh provider emits a schema-6 tree document that satisfies MindMesh invariants [0.44ms]
+(pass) MindMesh synthetic root cannot collide with graph ids and keeps every node reachable [0.08ms]
+(pass) router renders configured providers in order, writes artifacts outside the workspace, and never overwrites [56.12ms]
+(pass) visualization settings: defaults outside the workspace, tilde expansion, project may only disable [0.19ms]
+(pass) repo graph resolves relative imports, groups by directory, ignores vendored/symlinked trees, and collapses large graphs [9.21ms]
+(pass) visualize tool validates arguments, bounds results, and reports repo scans [3.73ms]
+(pass) task classification recognizes visualization requests as read-only without verification [0.06ms]
+(pass) regression: oversized sources are skipped without crashing and are disclosed [1.77ms]
+(pass) regression: concurrent renders with identical titles and timestamps get distinct artifact names [3.37ms]
+(pass) regression: Mermaid titles with colons and labels that strip to nothing stay syntactically valid [0.08ms]
+(pass) performance: import matching is linear on adversarial sources [2.35ms]
+
+tests/workspace-loading.test.ts:
+(pass) independent workspace discovery overlaps only after context and publishes only when all ready [3.75ms]
+(pass) failed parallel discovery publishes no partial workspace and a retry reloads configuration [2.86ms]
+(pass) closing during workspace discovery prevents late publication and runtime startup [2.94ms]
+(pass) invalid project context stops all dependent discovery [2.36ms]
+
+tests/phase2-skills.test.ts:
+(pass) Phase 2 skills > indexes native and compatible skills as metadata with source, trust, and unknown fields [14.15ms]
+(pass) Phase 2 skills > ranks relevant metadata, excludes incompatible/unrelated/manual-only skills, and limits bodies [12.98ms]
+(pass) Phase 2 skills > loads current bodies on demand instead of retaining them in the metadata index [3.39ms]
+(pass) Phase 2 skills > requires exact reviewed content, persists trust, and rejects changed content even after restart [6.64ms]
+(pass) Phase 2 skills > blocking a user skill survives restart and cannot be overridden by its frontmatter [4.21ms]
+(pass) Phase 2 skills > handles malformed skills, duplicate names, missing roots and symlink loops deterministically [8.90ms]
+(pass) Phase 2 skills > does not follow project skill symlinks outside the project, but permits in-project links [8.54ms]
+(pass) Phase 2 skills > symlinking project content into user skills does not implicitly trust it [2.68ms]
+(pass) Phase 2 skills > an equally relevant reviewed project skill wins a name collision without loading both bodies [5.43ms]
+(pass) Phase 2 skills > discovers root Markdown skills and ignores files under a skill's references directory [3.69ms]
+(pass) Phase 2 skills > bounds file and prompt sizes, and defaults to six selected skills [12.21ms]
+(pass) Phase 2 skills > a corrupt trust store fails closed rather than silently reactivating blocked user skills [3.76ms]
+(pass) Phase 2 skills > honors layered maxActive settings but does not accept project-authored trust decisions [3.85ms]
+
+tests/review-config.test.ts:
+(pass) profile selections reject traversal and malformed values at every precedence layer [31.52ms]
+(pass) all four loaders agree on profile names and load the same valid profile [16.90ms]
+(pass) mcp discovery rejects a project FIFO without blocking startup [31.94ms]
+(pass) lsp discovery rejects a project FIFO without blocking startup [35.78ms]
+
+tests/work-driven-checks.integration.test.ts:
+(pass) closing drains an active model-selected command and retains cancellation evidence without repair [168.40ms]
+(pass) an external edit overlapping a real check leaves its exit success stale and prevents reuse [215.69ms]
+(pass) the tool returns bounded real output and keeps startup commands/scopes frozen despite config edits [152.68ms]
+(pass) signal termination is a real failed check, never an inferred exit zero [109.76ms]
+(pass) tool arguments cannot change command authority and missing checks remain skips [70.98ms]
+(pass) managed checks stay opt-in even for an explicit coding request [71.91ms]
+(pass) check evidence and tool authority end with each task; explicit verification also starts fresh [208.23ms]
+(pass) undeclared scope never supports reuse; excluded generated outputs do not invalidate declared inputs [364.34ms]
+(pass) observed native edits invalidate scoped passes even when later work restores directory membership [175.75ms]
+(pass) native edit invalidation is independent of the receipt's bounded edit list [217.83ms]
+(pass) an observed native edit during a check stays stale even when membership is restored before command completion [202.45ms]
+(pass) a missing named alias observed during a check stays stale after partial-write removal [211.45ms]
+(pass) a failed native write with possible partial edits invalidates matching evidence without claiming a completed edit [195.62ms]
+(pass) a failed partial native write remains invalidating after its aliased target and parent are removed [216.61ms]
+(pass) a removed partial write still invalidates a missing named input (case) [199.42ms]
+(pass) a removed partial write still invalidates a missing named input (unicode) [206.01ms]
+(pass) a removed partial write still invalidates a missing named input (unicode-case) [224.48ms]
+(pass) a removed partial write still invalidates a missing named input (missing-parent) [229.93ms]
+(pass) a removed case-aliased parent cannot supply an exclusion spelling for a partial write [225.44ms]
+(pass) distinct missing entries do not invalidate a missing named input or select other checks [110.43ms]
+(pass) a resolved excluded parent still excludes missing descendants [123.04ms]
+(pass) an unresolvable observed native path invalidates selected scoped evidence rather than claiming it is unrelated [168.57ms]
+(pass) native edit invalidation respects excluded paths, scope boundaries and unrelated checks (literal) [278.71ms]
+(pass) native edit invalidation respects excluded paths, scope boundaries and unrelated checks (alias) [305.83ms]
+(pass) an included symlink retains native invalidation after removal (excluded, success) [221.31ms]
+(pass) an included symlink retains native invalidation after removal (excluded, partial-failure) [260.82ms]
+(pass) an included symlink retains native invalidation after removal (outside, success) [185.57ms]
+(pass) an included symlink retains native invalidation after removal (outside, partial-failure) [185.97ms]
+(pass) an included symlink observed during a check stays invalidating after removal [216.69ms]
+(pass) an invalid symlink traversal stays unknown rather than being classified as unrelated [174.01ms]
+(pass) an excluded symlink to unrelated output does not invalidate scoped evidence [118.23ms]
+(pass) an excluded symlink does not hide a native write to an included input [173.75ms]
+(pass) explicit repair retains native edit invalidation without exposing the opt-in check tool [342.13ms]
+(pass) explicit repair retains included symlink invalidation with one owner and no managed tool [269.62ms]
+(pass) explicit repair retains a removed missing-name alias with one owner and no managed tool [261.88ms]
+(pass) another managed check invalidates scoped evidence even if an input directory is later restored [256.26ms]
+(pass) tool cancellation kills real commands and queued checks without starting repair [764.21ms]
+(pass) concurrent requests for the same scoped check execute once and return one reused pass [265.30ms]
+(pass) check guidance lists available commands regardless of request words; docs-only and no-change work select none [91.13ms]
+(pass) a selected pass is rechecked after a later partial edit, before any repair decision [161.19ms]
+(pass) a vague request follows edit → selected check → scoped reuse → invalidation → failure → one repair owner [279.75ms]
+
+tests/phase4-app.integration.test.ts:
+(pass) app keeps status/connect local, replaces task surfaces, and denies one-shot consequential MCP calls [176.78ms]
+(pass) closing during a lazy runtime factory drains it without starting a late model session [34.19ms]
+(pass) interactive MCP errors leave the session usable, and EOF ends the input loop [34.16ms]
+(pass) interactive EOF while idle does not leave runInteractive pending [37.31ms]
+(pass) interactive approval shows exact arguments and permits only an explicit yes [158.59ms]
+(pass) real CLI and Pi adapter send a small surface and complete search/schema/call via a local model protocol fixture [1470.06ms]
+
+tests/phase5-lsp.test.ts:
+(pass) Phase 5 LSP > framing handles fragmented multibyte bodies and multiple messages; rejects bad bounds [0.47ms]
+(pass) Phase 5 LSP > configuration is metadata-only, layered and invalid overrides fail closed [2.37ms]
+(pass) Phase 5 LSP > requests timeout, cancel, survive late work, and close is shared [558.91ms]
+(pass) Phase 5 LSP > stubborn shutdown and initialization failure are bounded [210.63ms]
+(pass) Phase 5 LSP > symbols, definitions, references, and diagnostics use connected server only [36.24ms]
+(pass) Phase 5 LSP > diagnostics never confuse silent with verified clean [432.90ms]
+(pass) Phase 5 LSP > diagnostics never confuse stale with verified clean [428.95ms]
+(pass) Phase 5 LSP > diagnostics never confuse unversioned with verified clean [283.65ms]
+(pass) Phase 5 LSP > diagnostics never confuse pull with verified clean [29.12ms]
+(pass) Phase 5 LSP > diagnostics never confuse pull-fail with verified clean [29.23ms]
+(pass) Phase 5 LSP > rename preflights all files, requires exact approval, then refreshes diagnostics [40.22ms]
+(pass) Phase 5 LSP > edits or reconnect during approval revoke a rename without clobbering user work [34.88ms]
+(pass) Phase 5 LSP > workspace edits reject resource operations, stale versions, outside/symlink targets and conflicts [3.07ms]
+(pass) Phase 5 LSP > disconnect/reconnect in flight and close during initialization settle [95.69ms]
+(pass) Phase 5 LSP > failed synchronization never advances the local document snapshot [33.18ms]
+(pass) Phase 5 LSP > a file changed while diagnostics are pending cannot be reported fresh [136.73ms]
+(pass) Phase 5 LSP > server death after writes reports changed paths and unavailable diagnostics [37.62ms]
+(pass) Phase 5 LSP > partial I/O failure discloses modified paths and never rolls back user data [3.24ms]
+(pass) Phase 5 LSP > diagnostics synchronize changed open dependencies before claiming freshness [36.66ms]
+(pass) Phase 5 LSP > simultaneous dependent/dependency changes invalidate premature reports [34.08ms]
+(pass) Phase 5 LSP > post-rename evidence waits until all dependency contents are synchronized [38.01ms]
+(pass) Phase 5 LSP > partial didChange/didSave failure invalidates connection rather than retrying an old range [88.48ms]
+(pass) Phase 5 LSP > new source files added during approval revoke the whole rename [34.95ms]
+(pass) Phase 5 LSP > disconnect after the commit gate cancels remaining validation and writes [33.44ms]
+(pass) Phase 5 LSP > cancellation bounds an uncooperative approval callback and prevents late writes [35.41ms]
+(pass) Phase 5 LSP > cancellation bounds an uncooperative locks callback and prevents late writes [31.07ms]
+(pass) Phase 5 LSP > tool arguments cannot grant approval and bounds are checked without Pi [30.60ms]
+
+tests/phase4-mcp.test.ts:
+(pass) MCP config discovery is metadata-only, layered, isolated per entry, and redacts errors [4.23ms]
+(pass) a personal HPE profile is not discovered for default or unrelated profiles [2.06ms]
+(pass) 340 generic tools expose at most eight schemas and rare tools remain discoverable and callable [90.99ms]
+(pass) schema inspection preserves enum and required semantics beyond the result item budget [89.34ms]
+(pass) escaped schema budgets agree across inspection, direct selection, and fallback calls [85.94ms]
+(pass) HPE-style router catalogs prefer native discovery and read dispatch, never generic dispatch permission [90.57ms]
+(pass) collision-safe names route to the exact server and non-read calls need immutable exact-call approval [109.73ms]
+(pass) invalid arguments never reach approval, and a tool changed during approval cannot execute [115.09ms]
+(pass) disconnect and reconnect revoke a pending approval even when the tool schema is identical [180.50ms]
+(pass) list-change notifications refresh and remove stale tools without restarting [101.06ms]
+(pass) cached descriptors, input validators, and safety decisions invalidate together after refresh [101.44ms]
+(pass) dead servers do not poison healthy ones; reconnect is bounded and does not replay calls [1028.68ms]
+(pass) timeouts, caller cancellation, and close during handshake settle without late resurrection [832.66ms]
+(pass) stdio teardown kills an uncooperative server within the CLI cleanup deadline [542.63ms]
+(pass) close drains child cleanup already started by a concurrent cancelled call [569.83ms]
+(pass) result normalization preserves application records and content-block metadata [0.38ms]
+(pass) binary content omits payloads but retains bounded protocol metadata [0.21ms]
+(pass) results bound array items and serialized bytes, preserve Unicode and errors, and disclose discarded output [177.95ms]
+(pass) Streamable HTTP (JSON responses: %s) supports headers, pagination, refresh, and redacted status [41.70ms]
+(pass) Streamable HTTP (JSON responses: %s) supports headers, pagination, refresh, and redacted status [24.27ms]
+(pass) HTTP cancellation/deadline (cancel) closes its unanswered POST [69.49ms]
+(pass) HTTP cancellation/deadline (timeout) closes its unanswered POST [567.01ms]
+(pass) HTTP catalog-refresh timeout closes its unanswered POST and removes stale capabilities [569.80ms]
+(pass) HTTP redirects cannot forward configured secrets and failures do not echo server bodies [8.79ms]
+
+tests/phase5-lsp-stress.test.ts:
+(pass) disconnect immediately cancels startup consent without launching a late server [52.34ms]
+(pass) cancelled queued reads settle before the active approval finishes [35.49ms]
+(pass) post-rename missing diagnostics share one wait budget rather than one per file [370.72ms]
+(pass) a concurrent disk change invalidates the entire post-rename diagnostic batch [57.42ms]
+(pass) repeated concurrent starts, queued cancellation, and teardown leave no fixture children [351.34ms]
+(pass) batched pull diagnostics are concurrent but never exceed eight in flight [109.35ms]
+(pass) framing is chunk-boundary independent across deterministic fragmented streams [2.94ms]
+(pass) snapshots retain exact byte/file bounds including UTF-8 BOM and empty files [3.52ms]
+
+tests/coding-loop-evidence.test.ts:
+(pass) artifact-only build success cannot improve when an unrelated symlink disables observation [104.78ms]
+(pass) filesystem identity covers bytes, membership, permissions and ignored files [7.55ms]
+(pass) unsupported trees, FIFOs, limits and cancellation never supply reusable identity [14.20ms]
+(pass) repair retains regression coverage and reuses only an unchanged targeted passing check [208.55ms]
+(pass) an edit overlapping a verifier cannot be stamped as fresh at completion [43.10ms]
+(pass) unknown filesystem state disables reuse while still reporting actual command exits [191.57ms]
+(pass) observed stale evidence stays invalid even when repair restores directory membership [208.59ms]
+(pass) deleting a named input after a pass is known stale, not just unavailable [65.37ms]
+(pass) a verifier executing in a different cwd cannot borrow another workspace's fingerprint [28.35ms]
+(pass) dependency-heavy workspaces can observe an explicitly limited scope without treating artifacts as inputs [40.52ms]
+(pass) a missing after-observation never becomes reusable merely because the final observation succeeds [79.04ms]
+(pass) observation envelopes omit arbitrary arguments, bound Unicode output and disclose producer truncation [0.48ms]
+
+tests/phase6-app.integration.test.ts:
+(pass) acceptance: 'map out the authentication flow' yields a visual, saves artifacts outside the workspace, and leaves code untouched [82.31ms]
+(pass) invalid model-authored graphs fail closed inside the tool without touching the session [70.23ms]
+(pass) /visualize is local and read-only; /visualize repo renders a dependency graph without a model [49.50ms]
+(pass) project configuration cannot redirect artifact writes [32.54ms]
+(pass) regression: closing during /visualize repo cancels the scan instead of writing artifacts afterwards [155.92ms]
+
+tests/phase3-verification.test.ts:
+(pass) Phase 3 verification > project verify commands override model commands, invalidate cache, and retain detected fallbacks [4.42ms]
+(pass) Phase 3 verification > declared check scope ignores only explicit outputs, not source edits or gitignored inputs [126.81ms]
+(pass) Phase 3 verification > merges bounded settings across global/profile/project and rejects invalid verification config [11.49ms]
+(pass) Phase 3 verification > scope declarations reject ambiguous paths and stay frozen with the check command [51.00ms]
+(pass) Phase 3 verification > captures real command evidence and root cwd, bounds output, and never treats missing checks as pass [118.72ms]
+(pass) Phase 3 verification > preserves exact UTF-8 evidence below the truncation limit [61.94ms]
+(pass) Phase 3 verification > reports unavailable tools and spawn errors as failures, not passes or hidden skips [43.88ms]
+(pass) Phase 3 verification > times out and kills shell descendants; cancellation also returns bounded evidence [708.82ms]
+(pass) Phase 3 verification > repairs a real failing test using exact evidence, then runs targeted and full gates [285.62ms]
+(pass) Phase 3 verification > detects a regression in a previously passing gate and preserves the original command contract [330.99ms]
+(pass) Phase 3 verification > stops at the default three attempts, honors zero, and does not repair skips or runtime errors [394.45ms]
+(pass) Phase 3 verification > registry rejects duplicates and preserves explicit check order without double runs [69.56ms]
+
+tests/phase8-subagents.test.ts:
+(pass) Phase 8 bounded subagents > pre-cancelled delegation never creates a runtime [0.62ms]
+(pass) Phase 8 bounded subagents > unknown delegate arguments cannot silently grant write access [0.48ms]
+(pass) Phase 8 bounded subagents > unsupported runtimes fail closed instead of ignoring a read-only hint [0.31ms]
+(pass) Phase 8 bounded subagents > /delegate uses a fresh read-only child without starting the parent [55.99ms]
+(pass) Phase 8 bounded subagents > delegation budget spans concurrent calls and resets only for a new parent tool [0.38ms]
+(pass) Phase 8 bounded subagents > concurrency is reserved during lazy startup and late factories cannot prompt after cancellation [21.38ms]
+(pass) Phase 8 bounded subagents > cancellation during startup prevents a late prompt and disposes exactly once [0.20ms]
+(pass) Phase 8 bounded subagents > wall deadline aborts an active child and returns honest incomplete status [31.20ms]
+(pass) Phase 8 bounded subagents > close is shared, aborts active commands, and prevents workspace changes and post-close output [41.44ms]
+(pass) Phase 8 bounded subagents > only the final response is returned; streamed Unicode and terminal controls are bounded [0.52ms]
+(pass) Phase 8 bounded subagents > surrogate-split deltas survive and truncation retains a prefix, not disjoint fragments [0.16ms]
+(pass) Phase 8 bounded subagents > a shared child runtime is refused without disposing the active owner [0.18ms]
+(pass) Phase 8 bounded subagents > excess streaming text aborts before an unbounded event log can grow [0.62ms]
+(pass) Phase 8 bounded subagents > model failures, cut-off replies, empty reports, and disposal failures are not success [0.45ms]
+(pass) Phase 8 bounded subagents > tool envelopes stay below 16 KiB even when report/goal escaping expands the JSON [0.53ms]
+(pass) Phase 8 bounded subagents > app refuses to reuse its primary runtime and retains fail-closed tool replacement [132.13ms]
+(pass) Phase 8 bounded subagents > review regression: workspace approval reserves admission against commands and captured delegate tools [62.17ms]
+(pass) Phase 8 bounded subagents > parent tasks expose delegation, invalid commands stay local, and command failures reject [65.30ms]
+
+tests/phase5-app.integration.test.ts:
+(pass) LSP local commands stay lazy; one-shot rename denied; disconnect removes tool [98.66ms]
+(pass) interactive rename displays exact edits and requires yes [113.49ms]
+(pass) real CLI/Pi tool surface appends LSP diagnostics to native writes before the next model request [1290.81ms]
+
+tests/phase6-review.test.ts:
+(pass) review: synthetic identity and rendered identities cannot shadow graph nodes [0.44ms]
+(pass) review: visualization action takes precedence over subject keywords [0.05ms]
+(pass) review follow-up: visualization words used as nouns do not suppress authorized verification [0.03ms]
+(pass) review: global relative artifact path resolves under user home [0.85ms]
+(pass) review: canonical workspace destinations rejected before creating directories [2.42ms]
+(pass) review: cancellation in final provider prevents persistence, including inline results [1.05ms]
+(pass) review: cancellation during directory setup prevents files [1.67ms]
+(pass) review: repository scope cannot follow symlinks outside the project [3.61ms]
+(pass) review: long multibyte repository paths yield deterministic validated IR [5.56ms]
+(pass) review follow-up: replacing the artifact directory with a workspace symlink cannot redirect writes [2.39ms]
+(pass) review final: a swapped ancestor cannot redirect creation of missing output directories [1.88ms]
+(pass) review: cancellation after open or write cleans only this render's artifacts [5.16ms]
+
+tests/phase9-memory.test.ts:
+(pass) facts are explicit, idempotent, bounded, inspectable, and isolated by workspace [4.80ms]
+(pass) small memory reads allocate only the observed file size plus a sentinel [3.05ms]
+(pass) right-sized reads retain empty, exact-byte-limit and record-limit behavior [5.22ms]
+(pass) memory reads reject growth after fstat rather than admitting a partial JSONL prefix [3.12ms]
+(pass) independent memory writers merge under a lock without losing facts [168.22ms]
+(pass) malformed, duplicated, oversized, and symlinked state fails closed without resetting it [8.40ms]
+(pass) non-regular memory state is rejected without waiting for a FIFO writer [50.78ms]
+(pass) outcome state rejects coerced enum values and unknown nested evidence fields [16.90ms]
+(pass) outcomes preserve skip/unverified evidence and never infer human acceptance [6.02ms]
+(pass) legacy outcomes stay readable and explicitly unqualified in local memory inspection [38.52ms]
+(pass) saved command passes retain stale, unknown and declared-scope qualifications after reopening [120.83ms]
+(pass) unavailable facts warn and omit guidance without blocking tasks or rewriting facts [90.83ms]
+(pass) shutdown during a failing facts read cannot start a late runtime or record an outcome [31.30ms]
+(pass) memory commands stay local; facts reach only this project's prompts and tasks record honest outcomes [68.14ms]
+
+tests/phase8-pi.integration.test.ts:
+(pass) real /delegate reads evidence but cannot write, shell, recurse, or load ambient extensions/settings [657.02ms]
+(pass) read-only Pi refuses a source containing its active state before initialization [360.99ms]
+(pass) ordinary parent Pi startup remains allowed when state is inside its workspace [678.23ms]
+(pass) real Pi forwards correlated bounded shell diagnostics without edit bodies or fabricated exit codes [441.41ms]
+(pass) pinned Pi uses managed checks in its native edit loop, reuses scoped passes, and hands real failure to one repair owner [911.90ms]
+(pass) pinned Pi retains native edit invalidation after restored directory membership (relative) [786.04ms]
+(pass) pinned Pi retains native edit invalidation after restored directory membership (at-prefix) [832.44ms]
+(pass) pinned Pi retains native edit invalidation after restored directory membership (absolute) [801.03ms]
+(pass) pinned Pi retains native edit invalidation after restored directory membership (file-url) [780.46ms]
+(pass) pinned Pi retains native edit invalidation after restored directory membership (double-at) [799.90ms]
+(pass) pinned Pi retains native edit invalidation after restored directory membership (tilde) [778.41ms]
+(pass) pinned Pi retains native edit invalidation after restored directory membership (unicode-space) [775.27ms]
+(pass) pinned Pi retains native edit invalidation after restored directory membership (alias) [752.95ms]
+(pass) pinned Pi retains included symlink invalidation after removal (excluded) [784.85ms]
+(pass) pinned Pi retains included symlink invalidation after removal (outside-workspace) [766.16ms]
+(pass) pinned Pi matches a case-aliased scope root without broadening its exclusions [818.24ms]
+(pass) pinned Pi invalidates a failed edit of a missing case-aliased named input [793.95ms]
+(pass) pinned Pi preserves exclusions for case-aliased symlinks while retaining included traversal [869.61ms]
+(pass) pinned Pi conservatively invalidates a failed native edit (alias) [826.58ms]
+(pass) pinned Pi conservatively invalidates a failed native edit (file-url) [904.03ms]
+(pass) pinned Pi conservatively invalidates a failed native edit (double-at) [796.62ms]
+(pass) pinned Pi conservatively invalidates a failed native write (alias) [763.09ms]
+(pass) pinned Pi conservatively invalidates a failed native write (file-url) [773.39ms]
+(pass) pinned Pi conservatively invalidates a failed native write (double-at) [765.20ms]
+(pass) pinned Pi invalidates a failed native write whose expanded path is cwd [775.85ms]
+(pass) real parent Pi delegates and receives the child report without sharing child tools or history [690.58ms]
+(pass) real read-only Pi enforces turns budget before more work [407.92ms]
+(pass) real read-only Pi enforces calls budget before more work [423.28ms]
+(pass) delegation follows a reviewed worktree switch and return with fresh project context [2271.37ms]
+(pass) review regression: truncated tool loops still obey the model-turn ceiling [419.65ms]
+(pass) review regression: cancelling during auth preflight cannot start a later request [414.97ms]
+(pass) real Pi caller cancellation stops a streaming child [425.83ms]
+(pass) real CLI delegation fails rather than calling a provider error a successful report [632.98ms]
+
+tests/mcp-lazy-startup.test.ts:
+(pass) local app commands and unapproved preparation do not load MCP SDK or Ajv [294.12ms]
+(pass) a cold approved connection loads the real SDK and retains schema validation and cleanup [258.36ms]
+(pass) cancel during validator import blocks approval and invocation [82.49ms]
+(pass) close during validator import blocks approval and invocation [77.68ms]
+(pass) refresh during validator import blocks approval and invocation [79.04ms]
+(pass) close during SDK index loading prevents late transport creation [182.10ms]
+(pass) disconnect during SDK index loading prevents late transport creation [174.35ms]
+(pass) timeout during SDK index loading prevents late transport creation [683.33ms]
+(pass) close during SDK stdio loading prevents late transport creation [183.73ms]
+(pass) disconnect during SDK stdio loading prevents late transport creation [183.20ms]
+(pass) timeout during SDK stdio loading prevents late transport creation [743.12ms]
+
+tests/phase9-references.test.ts:
+(pass) local reference search returns literal matches with inspectable source provenance [4.37ms]
+(pass) an excluded a.data hardlink cannot hide an eligible reference file [4.76ms]
+(pass) an excluded package-lock.json hardlink cannot hide an eligible reference file [5.33ms]
+(pass) configuration is user/profile metadata only, with null disables and no invalid-override fallback [4.33ms]
+(pass) malformed, remote, traversal and executable source definitions cannot authorize reads [7.41ms]
+(pass) literal queries cannot supply paths, regex programs, or extra tool arguments [3.44ms]
+(pass) content is read anew while configuration and returned metadata cannot widen the library [4.13ms]
+(pass) configured-path parents and traversed symlinks cannot expose outside content [5.13ms]
+(pass) unavailable, oversized and invalid text stay qualified; bytes read for rejected text still count [4.45ms]
+(pass) long Unicode lines retain the actual matching text and valid excerpts [3.00ms]
+(pass) tool results retain whole provenance records within the serialized result budget [3.50ms]
+(pass) C1 escaping participates in the reference tool's serialized byte budget [5.50ms]
+(pass) cancellation and close stop pending searches and revoke captured tools [2.87ms]
+(pass) multiple sources respect valid profile overrides and explicit source selection [5.54ms]
+(pass) a partial read budget cannot be mistaken for a complete no-match search [23.13ms]
+(pass) FIFO configuration and reference entries cannot wait for a writer [76.67ms]
+
+3 tests failed:
+(fail) Phase 1 project context > loads the selected profile, project rules, overrides, and merged safe policy [4.89ms]
+(fail) CasperApp > starts with a Casper banner, detects git branch, and streams runtime output [136.58ms]
+(fail) CLI termination cleans up a running verifier process group [1431.01ms]
+
+ 386 pass
+ 3 fail
+ 2582 expect() calls
+Ran 389 tests across 29 files. [117.64s]
+error: script "check" exited with code 1

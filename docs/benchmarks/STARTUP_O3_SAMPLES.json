@@ -1,0 +1,122 @@
+{
+  "environment": {
+    "bun": "1.4.0",
+    "platform": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M2 Pro"
+  },
+  "importedDependencies": {
+    "before": 0,
+    "after": 0
+  },
+  "results": {
+    "before:app_import_ms": {
+      "count": 10,
+      "medianMs": 36.955,
+      "minMs": 35.864,
+      "maxMs": 40.524,
+      "samplesMs": [
+        36.996,
+        37.547,
+        39.286,
+        37.115,
+        40.524,
+        36.715,
+        36.306,
+        36.914,
+        35.865,
+        35.864
+      ]
+    },
+    "before:import_process_ms": {
+      "count": 10,
+      "medianMs": 59.105,
+      "minMs": 56.194,
+      "maxMs": 75.616,
+      "samplesMs": [
+        58.609,
+        59.553,
+        61.609,
+        59.13,
+        75.616,
+        59.079,
+        57.94,
+        61.249,
+        56.194,
+        58.22
+      ]
+    },
+    "after:app_import_ms": {
+      "count": 10,
+      "medianMs": 35.876,
+      "minMs": 33.908,
+      "maxMs": 41.151,
+      "samplesMs": [
+        35.61,
+        34.8,
+        35.732,
+        37.006,
+        35.814,
+        35.939,
+        33.908,
+        36.405,
+        41.151,
+        36.073
+      ]
+    },
+    "after:import_process_ms": {
+      "count": 10,
+      "medianMs": 56.81,
+      "minMs": 52.664,
+      "maxMs": 63.108,
+      "samplesMs": [
+        57.854,
+        56.734,
+        52.664,
+        57.534,
+        62.862,
+        56.887,
+        54.442,
+        56.572,
+        63.108,
+        52.799
+      ]
+    },
+    "before:project_process_ms": {
+      "count": 10,
+      "medianMs": 99.53,
+      "minMs": 91.721,
+      "maxMs": 120.738,
+      "samplesMs": [
+        100.299,
+        120.738,
+        110.007,
+        98.761,
+        93.394,
+        97.408,
+        102.993,
+        96.088,
+        91.721,
+        100.821
+      ]
+    },
+    "after:project_process_ms": {
+      "count": 10,
+      "medianMs": 97.69,
+      "minMs": 90.996,
+      "maxMs": 101.376,
+      "samplesMs": [
+        93.216,
+        94.342,
+        101.376,
+        99.635,
+        99.053,
+        101.156,
+        98.389,
+        92.485,
+        96.991,
+        90.996
+      ]
+    }
+  }
+}

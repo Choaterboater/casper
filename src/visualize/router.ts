@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { VisualizationGraph, VisualizationProvider, VisualizationResult, VisualizationType } from "./types";
-import { ArtifactDirectory } from "./artifacts";
+import { ArtifactDirectory, artifactFilesystemSupported } from "./artifacts";
 
 export interface VisualizationSettings {
   /** Providers to render, in preference order; the first result is shown inline. */
@@ -17,6 +17,8 @@ export interface RenderedVisualization {
   graph: VisualizationGraph;
   primary: VisualizationResult;
   artifacts: Array<{ provider: string; path: string; bytes: number; lossiness: string[] }>;
+  /** Present when artifact files were not written for a platform reason. */
+  artifactNote?: string;
   /** Providers configured but unable to render this type. */
   skipped: string[];
 }
@@ -67,7 +69,11 @@ export class VisualizationRouter {
     }
     if (!results.length) throw new Error(`No configured provider supports ${graph.type}`);
     const artifacts: RenderedVisualization["artifacts"] = [];
-    if (this.settings.outputDir) {
+    let artifactNote: string | undefined;
+    if (this.settings.outputDir && !artifactFilesystemSupported) {
+      artifactNote = `Artifact files require macOS or Linux; on ${process.platform} the diagram stays in-conversation.`;
+      this.diagnostics.push(artifactNote);
+    } else if (this.settings.outputDir) {
       check();
       const workspace = await canonicalPath(this.workspaceRoot, check);
       check();
@@ -122,7 +128,7 @@ export class VisualizationRouter {
       } finally { await directory.close(); }
     }
     check();
-    return { graph, primary: results[0]!, artifacts, skipped };
+    return { graph, primary: results[0]!, artifacts, skipped, ...(artifactNote ? { artifactNote } : {}) };
   }
 }
 

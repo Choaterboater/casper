@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
-import { constants, type BigIntStats } from "node:fs";
-import { lstat, open, opendir, realpath } from "node:fs/promises";
+import type { BigIntStats } from "node:fs";
+import { lstat, opendir, realpath } from "node:fs/promises";
 import path from "node:path";
+import { openNoFollow } from "../platform/files";
 import { isVerificationScope, type VerificationScope } from "./scope";
 
 function identity(stat: BigIntStats): string {
@@ -68,7 +69,7 @@ export async function workspaceState(cwd: string, scope?: VerificationScope, sig
         bytes += size;
         if (size > 1024 * 1024) throw new Error(`Input exceeds 1 MiB: ${relative}`);
         if (bytes > 16 * 1024 * 1024) throw new Error("Input observation exceeded 16 MiB total.");
-        const handle = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+        const handle = await openNoFollow(file);
         try {
           if (identity(await handle.stat({ bigint: true })) !== id) throw new Error(`Input changed while observing: ${relative}`);
           const buffer = Buffer.alloc(size + 1);

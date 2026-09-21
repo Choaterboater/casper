@@ -8,6 +8,7 @@ import { LSPManager } from "../src/lsp/manager";
 import { discoverLSPConfiguration } from "../src/lsp/config";
 import { planWorkspaceEdit, commitPlan } from "../src/lsp/workspace";
 import { lspTools } from "../src/lsp/tools";
+import { needsSymlinks, posixOnly } from "./support/platform";
 
 const cleanup: (() => Promise<unknown>)[] = [];
 afterEach(async () => { for (const fn of cleanup.splice(0).reverse()) await fn(); });
@@ -142,7 +143,7 @@ describe("Phase 5 LSP", () => {
     expect(await readFile(path.join(root, "a.ts"), "utf8")).toBe("old();");
   });
 
-  test("workspace edits reject resource operations, stale versions, outside/symlink targets and conflicts", async () => {
+  needsSymlinks("workspace edits reject resource operations, stale versions, outside/symlink targets and conflicts", async () => {
     const { root } = await fixture();
     const uri = pathToFileURL(path.join(root, "a.ts")).href;
     const edit = { range: { start: { line: 0, character: 0 }, end: { line: 0, character: 3 } }, newText: "new" };
@@ -199,7 +200,7 @@ describe("Phase 5 LSP", () => {
     expect(await readFile(path.join(root, "a.ts"), "utf8")).toBe("new();");
   });
 
-  test("partial I/O failure discloses modified paths and never rolls back user data", async () => {
+  posixOnly("partial I/O failure discloses modified paths and never rolls back user data", async () => {
     const { root } = await fixture();
     const edit = { range: { start: { line: 0, character: 0 }, end: { line: 0, character: 3 } }, newText: "new" };
     const changes = Object.fromEntries(["a.ts", "b.ts"].map((file) => [pathToFileURL(path.join(root, file)).href, [edit]]));

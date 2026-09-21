@@ -8,6 +8,7 @@ import { runCommandCheck } from "../src/verify/command";
 import { formatVerificationReport, formatVerificationResult } from "../src/verify/evidence";
 import { VerifierRegistry } from "../src/verify/registry";
 import { verifyAndRepair } from "../src/verify/repair-loop";
+import { checkCommand } from "./support/check-command";
 
 const dirs: string[] = [];
 async function fixture(config = "") {
@@ -73,7 +74,7 @@ verification:
 
   test("scope declarations reject ambiguous paths and stay frozen with the check command", async () => {
     const { root, homeDir, context } = await fixture(`verify:
-  test: "true"
+  test: ${JSON.stringify(checkCommand())}
 verification:
   scopes:
     test:
@@ -82,9 +83,9 @@ verification:
     await writeFile(path.join(root, "source.ts"), "before");
     const registry = VerifierRegistry.forProject(context.model);
     context.model.verificationScopes!.test!.inputs[0] = "unrelated";
-    context.model.commands.test = "false";
+    context.model.commands.test = checkCommand("exit:1");
     const report = await verifyAndRepair({ registry, checks: ["test"], cwd: root, request: "Check" });
-    expect(report.results[0]).toMatchObject({ command: "true", scope: { inputs: ["source.ts"] }, freshness: "fresh" });
+    expect(report.results[0]).toMatchObject({ command: checkCommand(), scope: { inputs: ["source.ts"] }, freshness: "fresh" });
     for (const scopes of [[], { typo: { inputs: ["src"] } }, { test: { inputs: [] } },
       { test: { inputs: ["../outside"] } }, { test: { inputs: ["/outside"] } },
       { test: { inputs: ["src/**"] } }, { test: { inputs: ["src"], exclude: ["src"] } },
@@ -96,18 +97,19 @@ verification:
   });
 
   test("captures real command evidence and root cwd, bounds output, and never treats missing checks as pass", async () => {
-    const { root, context } = await fixture('verify:\n  test: "printf exact-error >&2; exit 7"\n');
+    const failing = checkCommand("stderr:exact-error", "exit:7");
+    const { root, context } = await fixture(`verify:\n  test: ${JSON.stringify(failing)}\n`);
     const registry = VerifierRegistry.forProject(context.model);
     const report = await verifyAndRepair({ registry, checks: ["test", "lint"], cwd: root, request: "test" });
     expect(report.status).toBe("fail");
-    expect(report.results[0]).toMatchObject({ command: "printf exact-error >&2; exit 7", cwd: root, status: "fail", exitCode: 7, stderr: "exact-error", truncated: false });
+    expect(report.results[0]).toMatchObject({ command: failing, cwd: root, status: "fail", exitCode: 7, stderr: "exact-error", truncated: false });
     expect(report.results[1].status).toBe("skip");
     expect(formatVerificationReport(report)).toContain("1 fail, 1 skip");
     const missing = await verifyAndRepair({ registry, checks: ["typecheck", "build"], cwd: root, request: "test" });
     expect(missing.status).toBe("incomplete");
-    const pwd = await runCommandCheck({ name: "test", command: "pwd", cwd: root, timeoutMs: 1000 });
+    const pwd = await runCommandCheck({ name: "test", command: checkCommand("cwd"), cwd: root, timeoutMs: 1000 });
     expect(pwd.stdout.trim()).toBe(await realpath(root));
-    const noisy = await runCommandCheck({ name: "test", command: `bun -e 'console.log("HEAD" + "x".repeat(100000) + "TAIL"); console.error("error-tail")'`, cwd: root, timeoutMs: 2000 });
+    const noisy = await runCommandCheck({ name: "test", command: checkCommand("stdout:HEAD", "pad:100000", "stdout:TAIL", "stderr:error-tail"), cwd: root, timeoutMs: 2000 });
     expect(noisy.status).toBe("pass");
     expect(noisy.truncated).toBe(true);
     expect(noisy.stdout.length).toBeLessThan(8300);
@@ -119,9 +121,9 @@ verification:
 
   test("preserves exact UTF-8 evidence below the truncation limit", async () => {
     const { root } = await fixture();
-    const result = await runCommandCheck({ name: "test", command: `bun -e 'process.stdout.write("a".repeat(4095) + "é" + "tail")'`, cwd: root, timeoutMs: 1000 });
+    const result = await runCommandCheck({ name: "test", command: checkCommand(`stdout:${"a".repeat(4095)}étail`), cwd: root, timeoutMs: 1000 });
     expect(result.truncated).toBe(false);
-    expect(result.stdout).toBe("a".repeat(4095) + "é" + "tail");
+    expect(result.stdout).toBe("a".repeat(4095) + "étail");
   });
 
   test("reports unavailable tools and spawn errors as failures, not passes or hidden skips", async () => {
@@ -129,7 +131,7 @@ verification:
     const missing = await runCommandCheck({ name: "lint", command: "casper-nonexistent-tool-34562", cwd: root, timeoutMs: 1000 });
     expect(missing.status).toBe("fail");
     expect(missing.exitCode).not.toBe(0);
-    const spawn = await runCommandCheck({ name: "test", command: "true", cwd: path.join(root, "absent"), timeoutMs: 1000 });
+    const spawn = await runCommandCheck({ name: "test", command: checkCommand(), cwd: path.join(root, "absent"), timeoutMs: 1000 });
     expect(spawn.status).toBe("fail");
     expect(spawn.reason).toContain("Could not execute");
     const invalid = await runCommandCheck({ name: "test", command: "echo\u0000bad", cwd: root, timeoutMs: 1000 });
@@ -137,21 +139,23 @@ verification:
     expect(invalid.reason).toContain("Could not execute");
   });
 
-  test("times out and kills shell descendants; cancellation also returns bounded evidence", async () => {
+  test("times out without leaving delayed work; cancellation also returns bounded evidence", async () => {
     const { root } = await fixture();
-    const timed = await runCommandCheck({ name: "test", command: "(sleep 0.5; touch leaked) & wait", cwd: root, timeoutMs: 40 });
+    const timed = await runCommandCheck({ name: "test", command: checkCommand("sleep:500", "touch:leaked"), cwd: root, timeoutMs: 40 });
     expect(timed.status).toBe("fail");
     expect(timed.reason).toContain("Timed out");
+    // Real delay on purpose: the timeout and its kill are the platform clock's, so the
+    // check has to be given time to be terminated before its delayed work can run.
     await Bun.sleep(650);
     expect(await Bun.file(path.join(root, "leaked")).exists()).toBe(false);
     const controller = new AbortController();
-    const pending = runCommandCheck({ name: "test", command: "sleep 10", cwd: root, timeoutMs: 2000, signal: controller.signal });
+    const pending = runCommandCheck({ name: "test", command: checkCommand("sleep:10000"), cwd: root, timeoutMs: 2000, signal: controller.signal });
     controller.abort();
     expect((await pending).reason).toBe("Verification cancelled");
   });
 
   test("repairs a real failing test using exact evidence, then runs targeted and full gates", async () => {
-    const { root, context } = await fixture("verify:\n  test: bun test\n  build: printf build-ok\n");
+    const { root, context } = await fixture(`verify:\n  test: bun test\n  build: ${JSON.stringify(checkCommand("stdout:build-ok"))}\n`);
     await writeFile(path.join(root, "sum.ts"), "export const sum = (a: number, b: number) => a - b;\n");
     await writeFile(path.join(root, "sum.test.ts"), 'import { expect, test } from "bun:test"; import { sum } from "./sum"; test("sum", () => expect(sum(2, 3)).toBe(5));\n');
     const prompts: string[] = [];
@@ -171,7 +175,8 @@ verification:
   });
 
   test("detects a regression in a previously passing gate and preserves the original command contract", async () => {
-    const { root, context } = await fixture('verify:\n  test: "test -f fixed"\n  build: "test ! -f regressed"\n');
+    const contract = checkCommand("forbid:regressed");
+    const { root, context } = await fixture(`verify:\n  test: ${JSON.stringify(checkCommand("require:fixed"))}\n  build: ${JSON.stringify(contract)}\n`);
     let attempts = 0;
     const registry = VerifierRegistry.forProject(context.model);
     const report = await verifyAndRepair({ registry, checks: ["test", "build"], cwd: root, request: "fix", repair: async () => {
@@ -179,17 +184,17 @@ verification:
       if (attempts === 1) {
         await writeFile(path.join(root, "fixed"), "");
         await writeFile(path.join(root, "regressed"), "");
-        context.model.commands.build = "true";
+        context.model.commands.build = checkCommand();
       } else await rm(path.join(root, "regressed"));
     } });
     expect(report.status).toBe("pass");
     expect(report.repairAttempts).toBe(2);
     expect(report.rounds[2].find((result) => result.name === "build")?.status).toBe("fail");
-    expect(report.results.find((result) => result.name === "build")?.command).toBe("test ! -f regressed");
+    expect(report.results.find((result) => result.name === "build")?.command).toBe(contract);
   });
 
   test("stops at the default three attempts, honors zero, and does not repair skips or runtime errors", async () => {
-    const { root, context } = await fixture("verify:\n  test: 'exit 1'\n");
+    const { root, context } = await fixture(`verify:\n  test: ${JSON.stringify(checkCommand("exit:1"))}\n`);
     const options = { registry: VerifierRegistry.forProject(context.model), checks: ["test"] as const, cwd: root, request: "fix" };
     let calls = 0;
     const repair = async () => { calls++; };

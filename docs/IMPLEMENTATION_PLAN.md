@@ -2,7 +2,27 @@
 
 ## Current checkpoint
 
-Phase 9's read-only local reference-search slice is implemented, locally validated and checkpointed by user request on top of `5d5773f`, whose coding-loop evidence correction remains closed. Fresh checkpoint gate: **313 tests / 2,010 assertions**, TypeScript clean. See `docs/HANDOFF.md`, `docs/PHASE9_IMPLEMENTATION.md` and `docs/REFERENCES.md` for current scope/evidence. `docs/REVIEW_CHECKPOINT.md` and phase statements below retain historical results, not current counts or authorization. Next: agree the bounded `casper learn` candidate-generation slice before implementation. Phase 9 still needs learning candidates, reviewed promotion and its independent review; interactive MindMesh and separately authorized real-HPE acceptance remain open. Further feature slices, commits and push require approval.
+Phases 0–9, the daily-use terminal, multi-provider login and scoped Phase 10
+browser/local-DAP debugging are implemented, and Phase 10 is closed as scoped
+(optional clients are not prerequisites). Casper now targets macOS, Linux and
+Windows through one Casper-owned platform layer, and the test suite declares
+explicit skips for POSIX-only fixtures instead of failing off POSIX. The evaluation
+suite (master plan §48) is implemented and measured: nine tasks over six fixture
+repositories, with a recorded baseline of 9/9 tasks, 42 model responses, 174,760
+tokens and 152.1 s wall clock (`docs/EVALUATION.md`). The latest isolated gate passes
+TypeScript and **535 tests / 3,528 assertions** across 47 files, 0 skips
+(`bunfig.toml` scopes `bun test` to `tests/`, which also keeps the website suite
+`web/tic-tac-toe/game.test.js` out — run it explicitly). See
+`docs/TERMINAL_UX.md`, `docs/MULTI_PROVIDER_LOGIN_REVIEW.md`, `docs/BROWSER.md`,
+`docs/DEBUGGER.md`, `docs/PHASE10_DEBUGGER_REVIEW.md`, `docs/PLATFORM_SUPPORT.md`,
+`docs/PLATFORM_VERIFICATION.md`, `docs/EVALUATION.md` and `docs/HANDOFF.md` for
+current contracts/evidence. Generic SDK/RPC and collaboration remain optional future
+work; LLDB and real Windows/Linux host runs are not yet validated.
+CasperCloud is a reference project, not a required integration or client.
+
+### Historical Phase 9 checkpoint
+
+Phase 9 now includes explicit facts/outcomes, local reference search, bounded `casper learn` candidate generation, and local digest-bound human promotion to references/project skills/global skills or ignore. Promotion starts no model, preserves immutable drafts, records separately inspectable create-only decisions, and never overwrites an existing destination. The final current-tree gate and review evidence are recorded in `docs/PHASE9_IMPLEMENTATION.md` and `docs/HANDOFF.md`; `docs/REVIEW_CHECKPOINT.md` and phase statements below retain historical results, not current counts or authorization. Phase 10, live-model trials, personal credential changes, commits, push, remote retrieval and autonomous promotion require separately agreed scope. The coding-loop evidence correction at `5d5773f` remains closed; interactive MindMesh and separately authorized real-HPE acceptance remain open.
 
 ## Phase 0 — Runtime Shell (Complete)
 
@@ -14,7 +34,6 @@ Build only the smallest viable Casper runtime shell described in Phase 0 of `doc
 - Use Pi as a pinned dependency through a thin `AgentRuntime` / `PiRuntime` adapter.
 - Do not fork Pi.
 - Do not add OMP as a runtime dependency.
-- Do not implement Pika.
 - Do not implement MCP, LSP, MindMesh, subagents, memory, advanced verification, or future profile/skill systems yet.
 - Keep the code small and easy to replace.
 
@@ -210,7 +229,7 @@ Deterministic ranking only; no embeddings or learning. No built-in skill pack, r
 - Detailed live smoke evidence and deliberate limits: `docs/PHASE3_VERIFICATION.md`.
 
 ### Exclusions
-No Pika, MCP, LSP, new tool framework, persistence database, subagents, or other later-phase features.
+No MCP, LSP, new tool framework, persistence database, subagents, or other later-phase features.
 
 ## Phase 4 — MCP Capability Broker (Implemented; deployment acceptance pending)
 
@@ -253,7 +272,7 @@ No Pika, MCP, LSP, new tool framework, persistence database, subagents, or other
 - **Pending:** separately authorized real-HPE deployment acceptance for the optional personal integration. Changes remain uncommitted; no push.
 
 ### Exclusions
-No Pika, LSP, visualization, sessions/worktrees, subagents, memory, embeddings, code-mode sandbox, remote credential provisioning, or device/network writes were part of Phase 4.
+No LSP, visualization, sessions/worktrees, subagents, memory, embeddings, code-mode sandbox, remote credential provisioning, or device/network writes were part of Phase 4.
 
 ## Phase 5 — LSP (complete)
 

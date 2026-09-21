@@ -20,11 +20,13 @@ This means:
 - Pi is not forked.
 - OMP is not a runtime dependency.
 
-## Current scope (Phases 0–8; Phase 9 started)
+## Current scope (Phases 0–9 and Phase 10 browser/local debugging)
 
 - Bun + TypeScript CLI with a pinned Pi runtime dependency
 - thin `AgentRuntime` / `PiRuntime` seam
-- compact Casper banner and streamed runtime output
+- scrollback-friendly multiline terminal, persistent status footer and fuzzy command discovery
+- globally remembered model/effort, session-only overrides, context/usage and clear/resume controls
+- offline interface demo: `bun tools/terminal-demo.ts` ([terminal guide](docs/TERMINAL_UX.md))
 - Git root and branch inspection
 - deterministic language, framework, package-manager, and command detection
 - cached project models under `~/.casper/projects/`
@@ -56,14 +58,69 @@ This means:
 - explicit project facts and truthful task outcomes (Phase 9's first slice)
 - read-only local reference search with configured sources and file/line provenance
 - `casper learn <local-repo>` with host-checked source citations and inert, inspectable drafts
+- digest-bound, create-only human promotion to references/project skills/global skills, plus ignore decisions
 
-Not implemented yet: human candidate promotion into references/skills, or writing subagents. Phase 4 is validated with local generic/HPE-style fixtures and a live model; actual deployment-specific HPE acceptance remains pending. Independent Phase 6–8 reviews and corrective follow-ups are recorded in `docs/PHASE6_REVIEW.md`, `docs/PHASE7_REVIEW.md`, and `docs/PHASE8_REVIEW.md`; runtime findings are resolved. Interactive MindMesh remains a disclosed broader-plan gap, not completed integration. Phase 9 is incomplete and awaits its own review.
+- [browser-assisted debugging](docs/BROWSER.md) with disposable installed Chrome/Chromium, bounded inspection and owner-only screenshots
+- task-owned development servers, interaction consent, immutable behavior/layout replay and scoped freshness reporting
+- browser evidence kept separate from repository verification
+- [local DAP debugging](docs/DEBUGGER.md): exact launch approval, source breakpoints, bounded stack/variable inspection and owned-process cleanup
+- explicit `/debug` commands; no automatic model injection, remote attach or adapter installation
+
+Not implemented yet: writing subagents. Phase 4 is validated with local generic/HPE-style fixtures and a live model; actual deployment-specific HPE acceptance remains pending. Independent Phase 6–8 reviews and corrective follow-ups are recorded in `docs/PHASE6_REVIEW.md`, `docs/PHASE7_REVIEW.md`, and `docs/PHASE8_REVIEW.md`; runtime findings are resolved. Interactive MindMesh remains a disclosed broader-plan gap, not completed integration. Phase 9's implementation and same-agent Standards/Spec review are complete; no independent reviewer was available, so independent sign-off is not claimed.
+
+## Platform support
+
+Casper targets macOS, Linux and Windows with the same control plane. One shared layer
+(`src/platform/`) owns OS differences instead of per-feature platform branches:
+
+- **Process ownership** (`processes.ts`) — POSIX uses `ps` parentage and process
+  groups; Windows has no groups, so it lists the process table through PowerShell
+  `Get-CimInstance Win32_Process` (legacy `wmic` fallback) and terminates only
+  verified descendants, children first. A PID whose OS identity stamp changed is
+  never treated as owned, and an unusable process listing fails closed: cleanup is
+  reported **unknown** and blocks new debugger/model/workspace work.
+- **Environment isolation** (`environment.ts`) — spawned adapters, browsers and
+  development servers get an allowlisted environment with a temporary user
+  directory (`HOME`/`TMPDIR` on POSIX; `USERPROFILE`, `APPDATA`, `LOCALAPPDATA`,
+  `TEMP`/`TMP` plus the Windows loader variables elsewhere). Provider credentials
+  are never inherited.
+- **State-file access** (`files.ts`) — `O_NOFOLLOW`/`O_NONBLOCK` do not exist on
+  Windows; those callers reject a final symlink explicitly there and degrade to a
+  non-atomic pre-open observation instead of failing.
+
+| Area | macOS | Linux | Windows |
+| --- | --- | --- | --- |
+| CLI, terminal, sessions, verification, skills, MCP, LSP | validated here | shared POSIX paths; no host run recorded | implemented; real-host validation pending |
+| Browser sessions and owned dev servers | validated against installed Chrome | discovery list implemented; no host run recorded | implemented (Chrome/Edge discovery); real-host validation pending |
+| Local DAP debugger | validated with installed debugpy 1.8.20 | shared POSIX paths; no host run recorded | implemented; real-host validation pending |
+| Diagram artifact files | validated | implemented via `openat`; no host run recorded | unavailable: diagrams stay in-conversation (fails closed) |
+| POSIX-only test fixtures (PTY, symlink, FIFO, mode bits, process groups, native shell commands) | run | run | explicit skips with stated reasons; no Windows coverage |
+
+"Implemented; real-host validation pending" means the code path exists and is
+covered by simulated-platform tests plus the shared POSIX suite, but no gate has run
+on that OS. Process discovery and cleanup are bounded, non-atomic observations, not
+a sandbox: unobserved daemonized descendants and PID-reuse races are not certified on
+any platform. See [platform support details](docs/PLATFORM_SUPPORT.md),
+[debugger limits](docs/DEBUGGER.md) and [browser limits](docs/BROWSER.md). To
+validate a host, run the [platform verification runbook](docs/PLATFORM_VERIFICATION.md):
+`bun tools/platform-report.ts` plus the typecheck and platform suite.
 
 ## Language servers
 
 Configure `.casper/lsp.json`, inspect `/lsp`, then explicitly `/lsp connect <name>` (or use leading `--lsp <name>`). No automatic installation or startup. The single `lsp` tool provides diagnostics, symbols, definitions, references, and approval-gated rename. Native edit/write results include diagnostics from connected servers. Missing or unversioned diagnostics are not proof of clean code.
 
 See [`docs/LSP.md`](docs/LSP.md) for configuration, safety, limits, and diagnostics semantics; [`docs/PHASE5_IMPLEMENTATION.md`](docs/PHASE5_IMPLEMENTATION.md) for completed acceptance, and [`docs/PHASE5_REVIEW.md`](docs/PHASE5_REVIEW.md) for independent review evidence. The subsequent [debug/performance report](docs/PHASE5_PERFORMANCE.md) includes controlled before/after measurements; rerun local benchmarks with `bun run scripts/benchmark-lsp.ts`.
+
+## Local debugger
+
+Configure project `.casper/debug.json`, inspect `/debug`, then `/debug start <target>`.
+Casper asks before executing the exact adapter and program. Use `/debug threads`,
+`/debug stack <thread>`, `/debug scopes <frame>`, `/debug variables <handle>`,
+`/debug continue <thread>` and `/debug stop`. Values may contain secrets; debugging
+is not verification. Real installed debugpy is validated on macOS; Linux shares the
+POSIX code path and Windows is implemented (PowerShell/wmic parentage) without a
+real-host gate yet. See [configuration and limits](docs/DEBUGGER.md) and
+[Phase 10 release evidence](docs/PHASE10_DEBUGGER_REVIEW.md).
 
 ## Visualization
 
@@ -100,7 +157,7 @@ Facts are explicit human-entered guidance, included on the next parent prompt; c
 
 If facts are invalid or unreadable, normal tasks warn and continue without remembered guidance; the facts file is not reset or repaired. Explicit `/memory` reads and changes still fail closed on invalid state. A later prompt rereads repaired facts. Full outcome stores still refuse new records; no automatic pruning or stale-lock removal is performed.
 
-Learning candidate generation is available separately below; human promotion is **not implemented yet**. See [`docs/PHASE9_IMPLEMENTATION.md`](docs/PHASE9_IMPLEMENTATION.md) for storage, validation, and remaining Phase 9 scope.
+Learning candidate generation and explicit human promotion are available separately below. See [`docs/PHASE9_IMPLEMENTATION.md`](docs/PHASE9_IMPLEMENTATION.md) for storage, validation, and remaining Phase 9 scope.
 
 ## Local reference search
 
@@ -110,9 +167,9 @@ Learning candidate generation is available separately below; human promotion is 
 /references search * schema routing
 ```
 
-Declare local sources and explicit search paths in `~/.casper/references.yaml` or the selected profile's `references.yaml`. These commands are local and need no model credentials. Configured sources also enable one read-only `search_references` tool; it returns requested excerpts with source/file/line/digest provenance rather than injecting whole repositories. Current repository evidence and rules remain authoritative. No project execution, remote fetching, learning or automatic promotion.
+Declare local sources and explicit search paths in `~/.casper/references.yaml` or the selected profile's `references.yaml`. These commands are local and need no model credentials. Configured sources also enable one read-only `search_references` tool; it returns requested excerpts with source/file/line/digest provenance rather than injecting whole repositories. Current repository evidence and rules remain authoritative. No project execution, remote fetching, model-directed learning, or automatic promotion. The reserved `casper-promoted` source appears only after a human explicitly promotes a candidate as a reference.
 
-See [`docs/REFERENCES.md`](docs/REFERENCES.md) for configuration, source consent, search semantics, incomplete-result qualifications and lifecycle limits. No sources are enabled automatically.
+See [`docs/REFERENCES.md`](docs/REFERENCES.md) for configuration, source consent, search semantics, incomplete-result qualifications and lifecycle limits. No external source is enabled automatically.
 
 ## Learning candidates
 
@@ -120,11 +177,15 @@ See [`docs/REFERENCES.md`](docs/REFERENCES.md) for configuration, source consent
 casper learn ~/Projects/example
 casper learn list ~/Projects/example
 casper learn inspect ~/Projects/example <draft-id>
+casper learn promote ~/Projects/example <draft-id> <draft-sha256> <candidate-number> reference
+casper learn promote ~/Projects/example <draft-id> <draft-sha256> <candidate-number> project-skill <skill-name>
+casper learn promote ~/Projects/example <draft-id> <draft-sha256> <candidate-number> global-skill <skill-name>
+casper learn promote ~/Projects/example <draft-id> <draft-sha256> <candidate-number> ignore
 ```
 
-Generation uses one bounded read-only explorer with global Pi model defaults; source text may reach that provider. It proposes patterns with context, tradeoffs, use/avoid guidance and host-checked file/line/digest citations. Source quotes are not proof that a pattern worked. Owner-only plaintext drafts stay unpromoted, unverified and unaccepted; no skills, references, facts or rules are activated. Listing and inspection are local and need no model credentials.
+Generation uses one bounded read-only explorer with global Pi model defaults; source text may reach that provider. It proposes patterns with context, tradeoffs, use/avoid guidance and host-checked file/line/digest citations. Source quotes are not proof that a pattern worked. Owner-only plaintext drafts stay unverified and unaccepted. Generation never activates them. Listing, inspection and promotion are local and need no model credentials. Promotion requires a human to repeat the exact draft digest, candidate number and disposition; one immutable decision is recorded per candidate. Existing destinations are never overwritten.
 
-Generation refuses sources overlapping Pi's writable state before model/auth startup; local listing and inspection do not start Pi. See [`docs/LEARNING.md`](docs/LEARNING.md) for limits, storage, failure semantics and privacy. Read-only tools are not a filesystem sandbox or spending cap. Validation uses scripted localhost providers, not a live-model usefulness trial. Promotion stays paused pending representative real-project evaluation; independent Phase 9 review remains required.
+Generation refuses sources overlapping Pi's writable state before model/auth startup; local listing, inspection and promotion do not start Pi. Promoted references are searchable as `casper-promoted`; project skills remain in per-project Casper state and global skills in user state. See [`docs/LEARNING.md`](docs/LEARNING.md) for consent syntax, limits, storage, recovery semantics and privacy. Read-only tools are not a filesystem sandbox or spending cap. Validation uses scripted localhost providers, not a live-model usefulness trial. Phase 9's same-agent Standards/Spec review found no issues; independent sign-off remains unavailable.
 
 ## Configuration
 
@@ -279,7 +340,7 @@ Freshness is observed before/after each check and at report time; checks also re
 
 **Declared scope is an assumption, not discovered dependency coverage.** For example, the sample above does not observe installed `node_modules`, environment variables, external tools or services. A lockfile does not prove installed dependencies are unchanged. If a check depends on excluded/unlisted inputs, changes there can go undetected: include them or leave the scope undeclared to disable reuse. Even a fresh scoped result does not certify behavior. These bounded observations are not atomic snapshots, a sandbox, or a guarantee against transient changes during commands or edits after reporting. See [`docs/CODING_LOOP_EVIDENCE_CONTRACT.md`](docs/CODING_LOOP_EVIDENCE_CONTRACT.md) for this slice's regressions, measurements, and remaining work.
 
-One-shot exit codes: **0** selected commands passed (execution only, even if freshness is stale/unavailable), **1** failed/blocked, **2** incomplete (skips or no commands). Timeouts and cancellation terminate verifier process groups on POSIX; Windows only has direct-process cleanup and has not been validated. One-shot SIGINT and any SIGTERM cancel checks and prevent further repair; the CLI gives cleanup up to one second, then exits even if runtime startup/abort is stalled. Interactive Ctrl-C cancels the active task while keeping the session; it drains existing cleanup without a forced per-task deadline. Programmatic `app.close()` drains runtime startup and verification before disposal but has no forced-exit deadline. Command timeouts do not bound model response time. Commands and runtime tools are not sandboxed, and command output may contain secrets—review your checks before sending their output to a model.
+One-shot exit codes: **0** selected commands passed (execution only, even if freshness is stale/unavailable), **1** failed/blocked, **2** incomplete (skips or no commands). Timeouts and cancellation terminate verifier process groups on POSIX; Windows terminates verified descendants through OS parentage, which has no real-host gate yet. One-shot SIGINT and any SIGTERM cancel checks and prevent further repair; the CLI gives cleanup up to one second, then exits even if runtime startup/abort is stalled. Interactive Ctrl-C cancels the active task while keeping the session; it drains existing cleanup without a forced per-task deadline. Programmatic `app.close()` drains runtime startup and verification before disposal but has no forced-exit deadline. Command timeouts do not bound model response time. Commands and runtime tools are not sandboxed, and command output may contain secrets—review your checks before sending their output to a model.
 
 See [`docs/PHASE3_VERIFICATION.md`](docs/PHASE3_VERIFICATION.md) for validation and the live failure → repair → rerun smoke, and [`docs/PHASE3_REVIEW.md`](docs/PHASE3_REVIEW.md) for pre-commit review/debugging/performance findings.
 
@@ -309,11 +370,60 @@ In practice, that means you need working model authentication available to Pi, f
 - supported environment variables such as `ANTHROPIC_API_KEY`, or
 - Pi's stored auth/config
 
-`/login` explains setup without changing credentials or making provider calls. From this checkout, `bun run node_modules/.bin/pi` opens the pinned Pi runtime; use its `/login`, complete the selected provider's flow, exit Pi, and restart Casper. Never paste credentials into Casper chat. Embedded OAuth remains unimplemented. Select models in Casper with `/model`; Casper's parent-conversation defaults are separate from Pi settings.
+In an interactive terminal, `/login` offers **OpenAI Codex**, **GitHub Copilot**, **Anthropic/Claude** and **OpenRouter**. Exact `/login <provider-id>` skips only the provider chooser. Codex and Copilot use device codes; Claude and OpenRouter offer private API-key entry or browser authorization. Casper never opens a browser automatically or accepts account passwords. Keys and callback URLs/codes belong only in the dedicated hidden login prompt, never chat or command arguments.
+
+Fresh consent discloses replacement of the selected provider in the resolved Pi/Casper shared `auth.json`. Copilot login may enable account model policies; Claude browser sign-in is documented by Pi as billed extra usage, and OpenRouter browser sign-in creates a permanent key billed from credits. Cancellation cannot undo remote changes. Other provider entries and model defaults are preserved. Browser callbacks are loopback-only; GitHub Enterprise hosts are not included. Plain/redirected terminals show local guidance only. Select models afterward with `/model`; local credential availability is not a connection test. See [login review](docs/MULTI_PROVIDER_LOGIN_REVIEW.md) for validation and limits.
 
 ## Install
 
-From the root of this checkout:
+macOS and Linux — one line:
+
+```bash
+curl -fsSL https://<release-host>/install.sh | sh
+```
+
+Windows (PowerShell):
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://<release-host>/install.ps1 | iex"
+```
+
+Update Casper by running the same command again; the installer replaces the binary in
+place. It downloads one self-contained executable for your platform, verifies its
+SHA-256 against the release's `SHA256SUMS`, installs it to `~/.local/bin/casper`
+(`%LOCALAPPDATA%\Programs\casper` on Windows), clears the macOS quarantine flag, and
+then runs `casper --version` to prove the installed binary works. **No sudo, no Bun
+and no checkout are required on the target machine** — Bun and every dependency are
+embedded in the binary.
+
+`<release-host>` is the one value that has to exist: the artifacts and installers are
+built and verified locally, but no release host is configured yet. Build them with
+`bun run build:release` (host platform) or `bun run build:release -- --all`, upload
+**every file** in `dist/release/` — that directory holds the per-platform binaries,
+`SHA256SUMS`, `VERSION` and copies of both installers, so the URLs above resolve — and
+point `CASPER_BASE_URL` in `scripts/install.sh` / `scripts/install.ps1` at it. See
+[release process](docs/RELEASE.md).
+
+Verification is not optional: if no digest can be obtained, or the digest does not
+match, the installer refuses to install and deletes the download. Nothing is written
+outside the install directory.
+
+Useful installer options (`sh scripts/install.sh --help`):
+
+```bash
+--dir <path>            # install somewhere else
+--version 0.1.0         # require this exact installed version
+--sha256 <hex>          # verify out of band when SHA256SUMS is unreachable
+--force                 # replace an existing symlink (for example a development link)
+```
+
+Offline or internal installs work by pointing at a directory instead of a URL:
+
+```bash
+CASPER_BASE_URL=/path/to/dist/release sh scripts/install.sh
+```
+
+### From source (development checkout)
 
 ```bash
 bun install --frozen-lockfile
@@ -322,7 +432,7 @@ mkdir -p "$HOME/.local/bin"
 ln -s "$PWD/src/cli.ts" "$HOME/.local/bin/casper"
 ```
 
-Ensure `~/.local/bin` is on your PATH. The link follows this checkout, so code updates take effect immediately; moving or deleting the checkout breaks the link. This is a local development installation, not a bundled release. If `casper` already exists at that location, inspect it before replacing it.
+Ensure `~/.local/bin` is on your PATH. The link follows this checkout, so code updates take effect immediately; moving or deleting the checkout breaks the link. This is a local development installation, not a bundled release. The installer refuses to overwrite such a link unless you pass `--force`.
 
 ## Run
 
@@ -355,10 +465,12 @@ You can still launch directly from this checkout with `bun run dev` if you do no
 - Ctrl-C cancels active work while retaining the session and existing changes. At idle it clears a draft, or exits if empty. Editable-terminal confirmations use a fresh input field and restore the previous draft afterward; Ctrl-C/EOF deny approval. Piped line input discards unfinished fragments at approval transitions. With actual terminal input but `TERM=dumb` or redirected output, exact approval is denied because fresh keystrokes cannot be established safely. `NO_COLOR` alone does not disable approvals.
 - Tool activity includes file/command targets, running/completed/failed states and elapsed time, plus bounded error previews. Common credentials are redacted from previews; this is not a general secret detector. Tool completion is not a verification pass.
 - `/status` shows integration/storage information and host-reported selected provider/model, reasoning level, local credential availability, selection source, and Casper default. Before lazy runtime startup it explicitly says model/auth are not initialized/checked. Credentials configured is **not** a connection test. No defaults or credentials are changed by status.
-- `/model` opens Pi's searchable picker inside Casper. **Enter** selects for this conversation; **Ctrl+S** selects and saves a default for new parent conversations in `~/.casper/settings.json`. Escape/Ctrl-C cancel. `/model <id or provider/id>` selects an exact unique match or opens filtered search. Plain/redirected terminals and `TERM=dumb` list models; use an exact ID to select.
+- `/model` opens Pi's searchable picker inside Casper. **Enter remembers globally** in `~/.casper/settings.json`; **Ctrl+S is session-only**. Escape/Ctrl-C cancel. `/model <id or provider/id>` remembers an exact unique selection; `/model --session [model]` opts out. Plain/redirected terminals and `TERM=dumb` list models; use an exact ID to select.
+- `/effort` opens supported reasoning levels; `/effort high [--session]` is the shortcut. Type `/` for fuzzy command discovery, use Tab for completion and `@` for file-path suggestions. Shift+Enter where supported or Ctrl+J inserts a newline.
+- `/context` and `/usage` show runtime estimates without inventing billing. `/compact` explicitly invokes model-assisted summarization. `/clear` starts a new conversation, not a file rollback; `/resume [exact-id]` lists/restores conversations in this workspace. `/diff` shows bounded Git changes; `/permissions` explains actual boundaries.
 - Restored conversations retain their recorded model; fresh ones use the Casper default. Without either, choose with `/model`. Missing auth or an unavailable recorded model blocks sending—there is no implicit Pi-default or provider fallback. Selection itself generates no model response; the next request sends conversation context to the selected provider. The picker refreshes local catalogs only, although provider-defined credential checks can run configured key-resolution programs.
 
-This remains a bounded readline terminal with a temporarily hosted Pi picker, not a full-screen TUI: no themes, animations, multiline editor or embedded OAuth. Delegation and learning retain their separately documented global Pi defaults. See [model selection and validation](docs/MODEL_SELECTION.md) and [the earlier terminal UX slice](docs/TERMINAL_UX.md).
+The main-screen Pi renderer retains normal terminal scrollback and exclusively lends input to pickers. The persistent footer shows the startup-default snapshot or active model, effort, context, runtime tokens and activity; `/status` refreshes the branch snapshot. Unknown usage/cost stays unknown. No permission/verification guarantee is implied by the footer. Plain output remains line-oriented. Delegation and learning retain their separately documented global Pi defaults. See [the terminal guide and offline demo](docs/TERMINAL_UX.md) and [validation](docs/DAILY_TERMINAL_REVIEW.md).
 
 ## Checks
 
@@ -381,14 +493,46 @@ bun run test:fast
 ```
 
 The runner prints each file's diagnostics together and a file-level summary;
-any failed file makes the command fail. Test discovery includes `tests/*.test.ts`.
+any failed file makes the command fail. `bunfig.toml` scopes discovery to `tests/`
+so evaluation fixtures under `evals/fixtures/` keep their own test files without
+joining this suite. The same scope means the website suite is not swept in either:
+run `bun test ./web/tic-tac-toe/game.test.js` explicitly for it. POSIX-only
+fixtures (Python 3 PTY drivers, symlinks, FIFOs, POSIX mode bits, process groups and
+signals, native shell commands the product parses) declare an explicit skip through
+`tests/support/platform.ts` instead of failing on a host that cannot run them, and a
+fixture's configured check runs the runtime against
+`tests/fixtures/check-script.ts` rather than a POSIX shell pipeline, so those suites
+run anywhere. POSIX assertions are unchanged. See
+[platform verification](docs/PLATFORM_VERIFICATION.md) for the per-suite list and
+what a Windows run still does not cover.
 
-Parallel testing remains opt-in: a later validation run hit an unresolved
-SIGTERM process-cleanup failure despite five initial clean runs. No test deadline
-has been relaxed. The default combined check retains serial execution.
+Parallel testing remains opt-in. The historical SIGTERM cleanup-test flake was
+reproduced as an interrupted-sleep marker race; corrected fixtures now also check
+TERM-resistant descendants with inherited and closed pipes. See
+[`docs/VERIFIER_SHUTDOWN_REVIEW.md`](docs/VERIFIER_SHUTDOWN_REVIEW.md) for diagnosis,
+fault-injection evidence and limits. No cleanup assertion or deadline was relaxed;
+the default combined check retains serial execution.
 
 Combined check (typecheck + serial tests):
 
 ```bash
 bun run check
 ```
+
+## Evaluation suite
+
+Casper's own tests for agent behavior (master plan §48): nine tasks over six
+dependency-free fixture repositories, measured by task success, independent
+verification success, model responses, files touched, repair attempts, tokens and
+wall clock. Fixtures are the solved baseline; a per-task setup overlay creates the
+unsolved state, and `tests/eval-suite.test.ts` asserts both directions without a
+model.
+
+```bash
+bun tools/eval.ts --list          # task ids
+bun tools/eval.ts                 # every task (uses the configured model)
+```
+
+A real run uses the configured provider, so provider billing is the user's; Casper
+state is isolated to a temporary home so runs stay comparable. Contract, metrics,
+grading and limits: [`docs/EVALUATION.md`](docs/EVALUATION.md).

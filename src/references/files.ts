@@ -1,9 +1,8 @@
-import { constants } from "node:fs";
-import { open } from "node:fs/promises";
+import { openNoFollow } from "../platform/files";
 
 /** Shared reference/config reader: no scripts, final symlinks, FIFO waits, or unbounded reads. */
 export async function readReferenceFile(filePath: string, maxBytes: number): Promise<Buffer> {
-  const file = await open(filePath, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  const file = await openNoFollow(filePath);
   try {
     const info = await file.stat();
     if (!info.isFile()) throw new Error("not a regular file");

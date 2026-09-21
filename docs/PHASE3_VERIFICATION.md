@@ -9,7 +9,7 @@
 - `src/app.ts`, `src/cli.ts`: `/verify`, `/verify repair`, opt-in `--verify`, lazy runtime startup, programmatic reports, meaningful exit codes, and termination cleanup.
 - Configuration: project-local `verify:` command overrides; layered `verification.timeoutMs` and `repair.maxAttempts`.
 
-Pi remains behind the unchanged runtime adapter. No new dependencies, Pika, MCP, LSP, subagents, database, or later-phase features were added.
+Pi remains behind the unchanged runtime adapter. No new dependencies, MCP, LSP, subagents, database, or later-phase features were added.
 
 ## Execution decision
 
@@ -114,7 +114,7 @@ This was a real model-assisted repair, not a model claim substituted for verifie
 
 ## Intentional limits
 
-- Checks are shell commands, not language-specific diagnostic parsers. No sandbox, dependency installer, persistent trust store, or permission broker.
+- Checks are shell commands, not language-specific diagnostic parsers. The shell is the platform's (`sh` on macOS/Linux, `cmd.exe` on Windows — see [PLATFORM_SUPPORT.md](PLATFORM_SUPPORT.md)), so a POSIX-only pipeline in a check only works on a POSIX host. No sandbox, dependency installer, persistent trust store, or permission broker.
 - Settings and command discovery are loaded at startup. The selected command strings stay frozen through repair, but the scripts/configuration those commands execute can still be modified by the model; preventing test weakening remains prompt guidance.
 - Missing commands stay skips; an explicitly selected subset only proves that subset. No overall success when a selected check is skipped.
 - Each stream retains 8 KiB of original output bytes plus a truncation marker. Large middle sections are discarded, not persisted as raw artifacts. Reports/history live in memory; normal Pi conversation persistence may retain injected failure evidence.

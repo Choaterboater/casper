@@ -1,0 +1,72 @@
+{
+  "status": "pass",
+  "cases": [
+    {
+      "name": "committed",
+      "baselineGitStarts": 2,
+      "candidateGitStarts": 1
+    },
+    {
+      "name": "nested",
+      "baselineGitStarts": 2,
+      "candidateGitStarts": 1
+    },
+    {
+      "name": "unborn",
+      "baselineGitStarts": 2,
+      "candidateGitStarts": 3
+    },
+    {
+      "name": "non-git",
+      "baselineGitStarts": 1,
+      "candidateGitStarts": 2
+    },
+    {
+      "name": "detached",
+      "baselineGitStarts": 2,
+      "candidateGitStarts": 1
+    },
+    {
+      "name": "worktree",
+      "baselineGitStarts": 2,
+      "candidateGitStarts": 1
+    }
+  ],
+  "cli": true,
+  "timing": {
+    "before": {
+      "medianMs": 89.10645849999992,
+      "minMs": 80.73079100000041,
+      "maxMs": 112.214833,
+      "samplesMs": [
+        95.23670900000002,
+        86.107708,
+        88.85637499999984,
+        88.02929100000028,
+        89.35654199999999,
+        102.3130000000001,
+        92.13179199999968,
+        88.23245899999984,
+        112.214833,
+        80.73079100000041
+      ]
+    },
+    "after": {
+      "medianMs": 60.051312999999936,
+      "minMs": 56.04116699999986,
+      "maxMs": 65.82491600000003,
+      "samplesMs": [
+        63.53054199999997,
+        56.04116699999986,
+        64.28375000000005,
+        58.98195900000019,
+        61.120666999999685,
+        65.82491600000003,
+        57.89162499999975,
+        58.7060419999998,
+        61.72770799999989,
+        57.84375
+      ]
+    }
+  }
+}

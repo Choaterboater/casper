@@ -1,0 +1,89 @@
+      .-.
+     (o o)
+     | O \
+      \   \
+       `~~~'
+
+      CASPER
+your coding companion
+
+ project   candidate
+ stack     typescript
+ package   bun
+ build     (not detected)
+ test      env -u PI_CODING_AGENT_DIR -u CASPER_PROFILE bun test
+ profile   default
+ branch    (no git branch)
+ runtime   pi
+ skills    0 indexed (use /skills)
+
+ memory    explicit facts; task summaries recorded locally, acceptance unknown (use /memory)
+
+ mcp       0 configured (disconnected; use /mcp)
+
+ lsp       0 configured (disconnected; use /lsp)
+
+ visualize mermaid, mindmesh (artifacts outside workspace; use /visualize)
+
+> Perform one bounded coding task in this disposable Casper checkout: reduce redundant Git subprocesses in inspectProject while preserving its existing public behavior.
+
+Allowed edits ONLY:
+- src/project/inspect.ts
+- a new tests/project-inspect.test.ts
+
+Do not edit any existing tests, configuration, dependencies, runtime/verification code, documentation, or other files. This copy may have no .git history; do not create repository commits/branches, push, apply changes elsewhere, or access the original checkout. Your output will be evaluated separately; do not modify the evaluator or attempt to locate it.
+
+Requirements:
+- Preserve ProjectInfo: resolved cwd, canonical Git root when applicable, root-derived name, isGit, and current branch name or null.
+- Preserve normal committed repositories, newly initialized/unborn branches, detached HEAD, nested working directories, linked worktrees, and non-Git directories. Cover a directory name containing spaces/Unicode.
+- Demonstrate fewer Git invocations for an ordinary committed repository without trading away correctness in those cases. Avoid fragile parsing and do not merely move redundant calls into the background.
+- Add behavioral regression tests through inspectProject(cwd), using real temporary Git fixtures. Tests may initialize and commit these temporary fixture repositories only; no commits to this candidate repository. Write the relevant regression/control tests before changing implementation.
+- Use the existing Casper managed check tool for relevant typecheck/test commands after edits settle. For any direct bun test command, prefix it with env -u PI_CODING_AGENT_DIR -u CASPER_PROFILE so test subprocesses do not inherit the trial's provider configuration. Full tests are serial and take roughly two minutes. Do not weaken tests, change deadlines, add fake passing lint/build commands, or describe missing checks as passed.
+
+No MCP/LSP connections, delegation/subagents, external references, network commands, provider/model/effort changes, credential reads, environment dumps, package installation, skill activation/promotion, or unrelated refactoring. Do not inspect files outside this checkout except installed dependencies required by existing tests and temporary Git test fixtures. Use the existing coding tools and local verification only.
+
+This is already the authorized trial task; implement it rather than reopening planning or requesting credentials. You have one supervised attempt within a ten-minute wall-clock limit. No post-task model repair or rerun is authorized. Stop when the bounded task settles and provide a concise receipt: changed files, checks actually run and their results, Git invocation reduction evidence, and any limitations or failures. Do not infer human acceptance or claim a latency improvement without measurements.
+• read
+✓ read
+• ls
+✓ ls
+I’ll add real-Git regression tests first, then combine the ordinary repository probes into one invocation, with a fallback for cases the combined probe cannot resolve.
+• read
+✓ read
+• write
+✓ write
+• bash
+✗ bash
+• edit
+✓ edit
+• bash
+✗ bash
+The baseline passes all eight behavior tests; the invocation test fails as expected, recording two Git calls. I corrected the extra ambiguous-HEAD fixture to use `update-ref`, since `git tag` rejects that name.
+• edit
+✓ edit
+• edit
+✓ edit
+• bash
+✓ bash
+All nine focused tests now pass. The ordinary committed-repository case records one Git invocation instead of two. Unborn or ambiguous HEAD falls back to the original probes; that path now uses three calls. I’ll run the managed typecheck and full test suite next.
+• casper_check
+✓ typecheck  bun run typecheck  (exit 0; 3426ms; inputs unavailable; scope undeclared; No input scope declared; current files unverified; reuse disabled)
+✓ casper_check
+• casper_check
+✗ test  env -u PI_CODING_AGENT_DIR -u CASPER_PROFILE bun test  (Timed out after 120000ms; 120017ms; output truncated; inputs unavailable; scope undeclared; No input scope declared; current files unverified; reuse disabled)
+✗ casper_check
+Changed only:
+- `src/project/inspect.ts`
+- New `tests/project-inspect.test.ts`
+
+Git tracing demonstrates ordinary committed inspection drops from **2 invocations to 1**. Regression coverage includes all requested cases, plus newline paths and ambiguous HEAD.
+
+Checks:
+- Focused tests: **9 passed**.
+- Managed typecheck: **passed**.
+- Managed full suite: **timed out at 120 seconds (SIGTERM)**; not a pass.
+
+Limitation: fallback cases can use extra Git calls. No latency improvement claimed.
+✓ typecheck  bun run typecheck  (exit 0; 3291ms; inputs unavailable; scope undeclared; No input scope declared; current files unverified; reuse disabled)
+Checks fail (command execution): 1 pass, 1 fail, 0 skip; 0 repair attempt(s). Repair limit reached. typecheck: inputs unavailable; scope undeclared; No input scope declared; current files unverified; reuse disabled | test: inputs unavailable; scope undeclared; No input scope declared; current files unverified; reuse disabled. requested behavior is not independently certified.
+[task] Execution completed; observed edits: tests/project-inspect.test.ts, src/project/inspect.ts; possible tool writes (scope unknown); Checks fail (command execution): 1 pass, 1 fail, 0 skip; 0 repair attempt(s). Repair limit reached. typecheck: inputs unavailable; scope undeclared; No input scope declared; current files unverified; reuse disabled | test: inputs unavailable; scope undeclared; No input scope declared; current files unverified; reuse disabled. requested behavior is not independently certified.
