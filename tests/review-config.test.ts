@@ -6,6 +6,7 @@ import { loadConfiguration } from "../src/config/load";
 import { discoverMCPConfiguration } from "../src/mcp/config";
 import { discoverLSPConfiguration } from "../src/lsp/config";
 import { discoverReferenceConfiguration } from "../src/references/config";
+import { needsFifos } from "./support/platform";
 
 test("profile selections reject traversal and malformed values at every precedence layer", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-profile-review-"));
@@ -81,7 +82,7 @@ test("all four loaders agree on profile names and load the same valid profile", 
 });
 
 for (const kind of ["mcp", "lsp"] as const) {
-  test(`${kind} discovery rejects a project FIFO without blocking startup`, async () => {
+needsFifos(`${kind} discovery rejects a project FIFO without blocking startup`, async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "casper-config-review-"));
     try {
       await mkdir(path.join(root, ".casper"));

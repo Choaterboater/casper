@@ -1,9 +1,10 @@
-# Learning candidates — no promotion
+# Learning candidates and human promotion
 
 `casper learn` proposes reusable patterns from an explicitly supplied local
-repository. It produces **unpromoted drafts**, never active skills, reference
-configuration, facts, system prompts or global rules. Reference search remains a
-separate, read-only retrieval feature; no source is configured automatically.
+repository. Generation produces **unpromoted drafts**, never active guidance.
+A separate local command lets a human bind one exact draft candidate to an
+explicit reference, project-skill, global-skill, or ignore decision. The model
+cannot choose a disposition or invoke promotion.
 
 ## Commands and consent
 
@@ -11,6 +12,10 @@ separate, read-only retrieval feature; no source is configured automatically.
 casper learn ~/Projects/example
 casper learn list ~/Projects/example
 casper learn inspect ~/Projects/example <draft-id>
+casper learn promote ~/Projects/example <draft-id> <draft-sha256> <candidate-number> reference
+casper learn promote ~/Projects/example <draft-id> <draft-sha256> <candidate-number> project-skill <skill-name>
+casper learn promote ~/Projects/example <draft-id> <draft-sha256> <candidate-number> global-skill <skill-name>
+casper learn promote ~/Projects/example <draft-id> <draft-sha256> <candidate-number> ignore
 ```
 
 Generation uses **one bounded read-only explorer** with the existing global Pi
@@ -23,17 +28,31 @@ this slice.
 The source must be an explicit local directory; relative paths resolve from the
 caller's cwd, `~/` uses the user's home, and the supplied root is canonicalized.
 It need not be a Git checkout. URLs and cloning are unsupported. Paths with spaces
-must be shell-quoted. To name repositories literally called `list` or `inspect`,
-use `./list` or `./inspect`.
+must be shell-quoted. To name repositories literally called `list`, `inspect`, or `promote`, use a
+path such as `./list`.
 
-`list` and `inspect` are local: no credentials, model startup, source scan, or
-normal-task outcome recording. They also work after the source is removed if you
-supply the saved draft's **canonical `sourceRoot`**. Inspection shows historical
+`list`, `inspect`, and `promote` are local: no credentials, provider call, model
+startup, source scan, or normal-task outcome recording. `promote` requires the
+exact ID and SHA-256 shown by inspection plus a one-based candidate number and
+explicit disposition. Skill names are lowercase alphanumeric words separated by
+single hyphens, up to 64 characters. Extra or missing arguments fail locally.
+
+A candidate can receive only one immutable decision. Repeating the exact command
+is idempotent and returns the same decision; trying to change its disposition or
+skill name fails. `ignore` records review without creating active content. A
+reference is published under the reserved `casper-promoted` reference source. A
+project skill is project-scoped but stored in Casper's owner state, not in the
+source checkout. A global skill is available from owner state to all projects.
+Reference and skill artifacts carry an explicit caveat that promotion is not
+verification and does not override current evidence or rules.
+
+All three local operations also work after the source is removed if you supply
+the saved draft's **canonical `sourceRoot`**. Inspection shows historical
 observations, not refreshed source evidence. Records are keyed by source root,
 not the caller's workspace. Moving a source does not migrate its drafts.
 
 These are top-level CLI commands, not an interactive `/learn` command or a
-model-facing learning tool. `learn` cannot be combined with `--verify`, `--mcp`
+model-facing learning or promotion tool. `learn` cannot be combined with `--verify`, `--mcp`
 or `--lsp`; invalid learning syntax fails locally rather than becoming an
 unrestricted parent prompt.
 
@@ -131,6 +150,10 @@ no record. This is not proof that the repository contains no reusable patterns.
 ```text
 ~/.casper/projects/<source-name>-<canonical-root-hash>/
   learning-candidates.jsonl
+  learning-promotions.jsonl
+  skills/<skill-name>/SKILL.md                 # project-skill
+~/.casper/promoted-references/<draft-id>-<n>/REFERENCE.md
+~/.casper/skills/<skill-name>/SKILL.md         # global-skill
 ```
 
 The existing project-state identity is reused. This file is separate from facts
@@ -140,9 +163,8 @@ state-directory symlinks and state locations inside the source repository.
 Each successful nonempty invocation appends one immutable batch with a generated
 ID, timestamp, canonical source root, candidates and a batch `sha256`. The batch
 digest covers `JSON.stringify` of the record without its `sha256` property, using
-the stored property order. It detects altered records, not authenticity: someone
-with write access can change a record and recompute its digest. Digest-bound
-human promotion is still a separate, unimplemented feature.
+the stored property order. It detects altered records, not authenticity: someone with write access can
+change a record and recompute its digest.
 
 Storage is owner-only **plaintext**, not encrypted. Saved prose and exact quotes
 can contain sensitive source text. No raw model transcript, tool output, command
@@ -155,15 +177,35 @@ a crash-durability/fsync guarantee. Concurrent processes preserve each other's
 records. Interrupted locks are not stolen; preserve/inspect state before manual
 recovery. No automatic deletion, pruning or reset is performed.
 
-The store admits at most **100 batches / 1 MiB**. Existing malformed, duplicated,
+Promotion decisions are separate append-only-by-policy records. Each binds the
+source root, draft ID/digest, candidate number/digest, disposition, optional skill
+name, artifact path/digest, timestamp and decision digest. The ledger admits at
+most **400 decisions / 1 MiB**. A user-wide lock serializes artifact publication
+across projects. Artifacts are staged with exclusive files, the decision ledger
+is atomically replaced, and the staged directory is then renamed into its
+create-only destination. Existing destinations are never replaced. If the
+ledger commit succeeds but activation is interrupted, repeating the exact
+command can finish only the recorded, digest-matching staged artifact. Missing,
+changed, redirected or inconsistent state fails closed for manual inspection.
+
+Drafts and decisions remain owner-only plaintext. Promotion copies candidate
+prose and historical evidence into the selected Markdown artifact; this can
+include sensitive source text. The generated artifact is ordinary owner-managed
+content after activation: later manual edits are not a new promotion decision.
+No automatic revocation, migration, pruning, rollback or remote publication is
+performed.
+
+The draft store admits at most **100 batches / 1 MiB**. Existing malformed, duplicated,
 wrong-source, digest-mismatched, invalid UTF-8, oversized, symlinked or special-file
 state fails closed before generation. The write reloads and revalidates under the
 lock and refuses a full store. Inspect/archive it manually before continuing.
 
-`list` returns IDs, timestamps, digests and candidate counts. `inspect` returns the
-exact saved batch, without promoting or revalidating it. CLI output is JSON with
+`list` returns IDs, timestamps, digests, candidate counts and decision counts.
+`inspect` returns the exact saved batch and its separate decisions without
+refreshing source evidence. CLI output is JSON with
 terminal controls escaped. Exit 0 means a local command completed (`saved`,
-`no-candidates`, `listed`, `inspected`), not pattern correctness, repository-wide
+`no-candidates`, `listed`, `inspected`, `promoted`, `ignored`,
+`already-decided`), not pattern correctness, repository-wide
 coverage, verification or human acceptance. Failures exit 1 and publish no partial
 batch; prior drafts are preserved.
 

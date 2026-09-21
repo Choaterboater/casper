@@ -1,9 +1,10 @@
 # Local reference search
 
 Phase 9 now supports read-only search of explicitly configured local source paths.
-It retrieves examples; it does not generate learning candidates, promote skills,
-rewrite rules, or certify that a pattern fits the current project. The separate
-[`casper learn` command](LEARNING.md) produces unpromoted drafts only.
+It retrieves examples; it does not generate learning candidates, choose
+promotions, rewrite rules, or certify that a pattern fits the current project.
+The separate [`casper learn` command](LEARNING.md) produces inert drafts and
+supports an explicit digest-bound human promotion command.
 
 ## Configure sources
 
@@ -34,8 +35,15 @@ configuration file is reported and ignored; other valid files remain usable.
 Existing profile-selection rules apply, including project selection of a
 user-defined profile. Project-local `references.yaml` files and `references`
 fields in project configuration are **not** source definitions. A project cannot
-supply an arbitrary external root to the reference tool. No source definitions
-are installed by Casper automatically.
+supply an arbitrary external root to the reference tool. External source
+definitions are never installed automatically.
+
+`casper-promoted` is reserved. It cannot be supplied or overridden by these
+configuration files. After a human promotes a learning candidate with the
+`reference` disposition, Casper exposes the owner-state directory
+`~/.casper/promoted-references/` under that source ID. The source is absent until
+that real (non-symlink) directory exists. Promotion is create-only and copies the
+reviewed candidate plus historical citations; it does not refresh or verify them.
 
 Startup reads configuration metadata only. Repository content is opened on an
 explicit local search or a model's `search_references` call. Configuration is

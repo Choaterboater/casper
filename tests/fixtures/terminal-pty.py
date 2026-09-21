@@ -71,19 +71,23 @@ class Screen:
     def text(self): return "\n".join("".join(row).rstrip() for row in self.rows)
 
 class Session:
-    def __init__(self, bun, repo, root, no_color=False, term="xterm-256color", app=None, extra_env=None):
+    def __init__(self, bun, repo, root, no_color=False, term="xterm-256color", app=None, extra_env=None, preload=None, setup=None):
         self.root = pathlib.Path(root)
         home = self.root / "home"; home.mkdir()
         project = self.root / "project"; (project / ".casper").mkdir(parents=True)
         (project / ".casper/mcp.json").write_text(json.dumps({"mcpServers": {"fixture": {
             "command": bun, "args": [str(repo / "tests/fixtures/mcp-server.ts")]
         }}}))
+        if setup: setup(home, project)
         self.master, slave = pty.openpty()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 100, 80, 0, 0))
         env = {"HOME": str(home), "PATH": os.environ["PATH"], "TERM": term, "CASPER_TTY_CONTROL": root}
         if no_color: env["NO_COLOR"] = "1"
         if extra_env: env.update(extra_env)
-        self.process = subprocess.Popen([bun, str(repo / (app or "tests/fixtures/terminal-app.ts"))], cwd=project,
+        command = [bun]
+        if preload: command += ["--preload", str(repo / preload)]
+        command += [str(repo / (app or "tests/fixtures/terminal-app.ts"))]
+        self.process = subprocess.Popen(command, cwd=project,
                                         env=env, stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
         os.close(slave)
         self.screen = Screen()
@@ -109,7 +113,8 @@ class Session:
             if text in self.screen.text(): return
         raise AssertionError("Missing screen text: " + repr(text) + "\nSCREEN:\n" + self.screen.text()[-6000:])
 
-    def send(self, text): os.write(self.master, text.encode())
+    # A physical Enter sends CR in raw mode; LF is Ctrl+J (multiline input).
+    def send(self, text): os.write(self.master, text.replace("\n", "\r").encode())
     def release(self, name): (self.root / name).touch()
     def requests(self):
         file = self.root / "requests.jsonl"
@@ -160,7 +165,7 @@ def exercise(bun, repo, root, no_color):
         s.until("Cancelling active work")
         s.until("Execution cancelled")
         s.send("Q\n")
-        s.until("Echo: " + "x" * 40)
+        s.until("Echo:")  # Pi wraps an overlong word after the label; exact draft checked below.
         assert s.requests()[-1] == "x" * 93 + "Qxx", s.requests()
         # Clear separation between a pretyped draft and an exact confirmation.
         s.send("/mcp connect fixture\n")
@@ -191,7 +196,7 @@ def exercise(bun, repo, root, no_color):
         s.pump()
         assert len((s.root / "approvals.jsonl").read_text().splitlines()) == 3
         s.send("/login\n")
-        s.until("Never paste credentials into chat")
+        s.until("This runtime does not support login")
         assert not any(request.startswith("/") for request in s.requests())
         before = s.requests()
         s.send("hold\n\x03")
@@ -211,6 +216,7 @@ def exercise_eof(bun, repo, root):
     s = Session(bun, repo, root)
     try:
         s.until("/help · /status · /login")
+        s.until("│ idle")  # Banner output precedes raw editor ownership.
         s.send("/mcp connect fixture\n")
         s.until("340 tools")
         s.send("approval-eof\n")

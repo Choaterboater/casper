@@ -37,6 +37,7 @@ export interface RuntimeStatus {
   provider?: string;
   model?: string;
   thinkingLevel?: string;
+  availableThinkingLevels?: string[];
   /** Local credential snapshot only; never a provider connectivity claim. */
   auth: "configured" | "missing" | "unknown";
   selectionSource?: "conversation" | "default" | "none";
@@ -58,6 +59,22 @@ export interface RuntimeModelPickerHost {
   run<T>(operation: (io: RuntimePickerIO) => Promise<T>): Promise<T>;
 }
 
+export type RuntimeAuthProvider = "openai-codex" | "github-copilot" | "anthropic" | "openrouter";
+
+export interface RuntimeAuthenticationOptions {
+  /** Omit to show the local provider chooser. Secrets are never command arguments. */
+  provider?: RuntimeAuthProvider;
+  terminalHost: RuntimeModelPickerHost;
+  signal?: AbortSignal;
+}
+
+/** No credentials or provider diagnostics may cross this boundary. */
+export type RuntimeAuthenticationResult =
+  | { status: "saved" }
+  | { status: "saved-needs-refresh" }
+  | { status: "cancelled"; effect: "none" | "unknown" }
+  | { status: "failed"; effect: "none" | "unknown"; reason: "unavailable" | "destination" | "provider" };
+
 export interface RuntimeModelSelectionOptions {
   query?: string;
   /** Explicitly select AND save a Casper startup default. */
@@ -73,6 +90,16 @@ export interface RuntimeModelSelection {
   /** Plain-terminal listing; opening a list never selects its first row. */
   models?: Array<{ provider: string; id: string; name: string }>;
 }
+
+export interface RuntimeUsage {
+  context?: { tokens: number | null; contextWindow: number; percent: number | null };
+  tokens: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number };
+  /** SDK/catalog estimate, never an invoice or subscription charge. */
+  estimatedCost?: number;
+  messages: number;
+}
+
+export interface RuntimeConversation { id: string; name?: string; modified: string; }
 
 export interface RuntimeState {
   cwd: string;
@@ -121,6 +148,12 @@ export interface RuntimeSession {
   appendContext?(text: string): Promise<void>;
   getStatus?(): RuntimeStatus;
   selectModel?(options: RuntimeModelSelectionOptions): Promise<RuntimeModelSelection>;
+  setEffort?(level: string, persist: boolean): Promise<RuntimeStatus>;
+  getUsage?(): RuntimeUsage;
+  listConversations?(): Promise<RuntimeConversation[]>;
+  clearConversation?(): Promise<void>;
+  resumeConversation?(id: string): Promise<void>;
+  compact?(instructions?: string, signal?: AbortSignal): Promise<void>;
   prompt(text: string, signal?: AbortSignal): Promise<void>;
   abort(): Promise<void>;
   subscribe(listener: RuntimeEventListener): () => void;
@@ -128,6 +161,8 @@ export interface RuntimeSession {
 }
 
 export interface AgentRuntime {
+  /** Local chooser/consent precedes any writable auth storage or provider operation. */
+  authenticate?(options: RuntimeAuthenticationOptions): Promise<RuntimeAuthenticationResult>;
   start(options: RuntimeStartOptions): Promise<RuntimeSession>;
   /** Explicit capability, not an optional hint to start(). Must enforce read/grep/find/ls only,
    * disable ambient executable extensions and persistence, honor cancellation and run limits.

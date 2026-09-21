@@ -3,6 +3,7 @@ import { lstat, realpath } from "node:fs/promises";
 import path from "node:path";
 import { READ_ONLY_STATE_CONFLICT } from "./types";
 import { PiModels } from "./pi-models";
+import { authenticatePi } from "./pi-auth";
 import {
   createAgentSessionFromServices,
   createAgentSessionRuntime,
@@ -23,6 +24,8 @@ import { Type } from "typebox";
 import { nativeEditPath, observationInput, observationOutput, type ToolObservationInput } from "./observation";
 import type {
   AgentRuntime,
+  RuntimeAuthenticationOptions,
+  RuntimeAuthenticationResult,
   RuntimeEventListener,
   RuntimeModelSelection,
   RuntimeModelSelectionOptions,
@@ -35,6 +38,8 @@ import type {
   RuntimeStatus,
   RuntimeSwitchOptions,
   RuntimeTool,
+  RuntimeUsage,
+  RuntimeConversation,
 } from "./types";
 
 class PiToolController {
@@ -127,10 +132,65 @@ class PiRuntimeSession implements RuntimeSession {
     });
   }
 
+  get busy(): boolean { return this.promptActive || !this.runtime.session.isIdle; }
+
   selectModel(options: RuntimeModelSelectionOptions): Promise<RuntimeModelSelection> {
     if (this.promptActive) throw new Error("Wait for active work before changing models.");
     if (!this.models) throw new Error("Model selection is unavailable in read-only children.");
     return this.models.select(this.runtime.session, options);
+  }
+
+  setEffort(level: string, persist: boolean): Promise<RuntimeStatus> {
+    if (this.busy || !this.models) throw new Error("Effort cannot be changed during active work or in a read-only child.");
+    return this.models.setEffort(this.runtime.session, level, persist);
+  }
+
+  getUsage(): RuntimeUsage {
+    const session = this.runtime.session;
+    const stats = session.getSessionStats();
+    return { context: this.getStatus().model ? session.getContextUsage() : undefined,
+      tokens: stats.tokens, messages: stats.totalMessages,
+      estimatedCost: stats.cost > 0 ? stats.cost : undefined };
+  }
+
+  async listConversations(): Promise<RuntimeConversation[]> {
+    return (await SessionManager.list(this.runtime.cwd)).map(info => ({ id: info.id, name: info.name, modified: info.modified.toISOString() }));
+  }
+
+  private persistUnwrittenConversation(): void {
+    const session = this.runtime.session;
+    if (session.sessionFile && !existsSync(session.sessionFile)) {
+      session.exportToJsonl(session.sessionFile);
+      session.sessionManager.setSessionFile(session.sessionFile);
+    }
+  }
+
+  async clearConversation(): Promise<void> {
+    if (this.busy || this.readOnly || this.models?.busy) throw new Error("Wait for active work before clearing context.");
+    this.persistUnwrittenConversation();
+    const result = await this.runtime.newSession();
+    if (result.cancelled) throw new Error("New conversation cancelled.");
+    this.persistUnwrittenConversation();
+  }
+
+  async resumeConversation(id: string): Promise<void> {
+    if (this.busy || this.readOnly || this.models?.busy) throw new Error("Wait for active work before resuming.");
+    const saved = (await SessionManager.list(this.runtime.cwd)).filter(info => info.id === id);
+    if (saved.length !== 1) throw new Error("Unknown or ambiguous conversation ID in this workspace. Use /resume to list IDs.");
+    this.persistUnwrittenConversation();
+    const result = await this.runtime.switchSession(saved[0]!.path, { cwdOverride: this.runtime.cwd });
+    if (result.cancelled) throw new Error("Resume cancelled.");
+  }
+
+  async compact(instructions?: string, signal?: AbortSignal): Promise<void> {
+    if (this.busy || this.readOnly) throw new Error("Wait for active work before compacting.");
+    this.models?.assertReady(this.runtime.session);
+    const session = this.runtime.session;
+    const abort = () => session.abortCompaction();
+    signal?.throwIfAborted();
+    signal?.addEventListener("abort", abort, { once: true });
+    try { await session.compact(instructions); signal?.throwIfAborted(); }
+    finally { signal?.removeEventListener("abort", abort); }
   }
 
   getStatus(): RuntimeStatus {
@@ -286,6 +346,31 @@ export class PiRuntime implements AgentRuntime {
   private runtime?: AgentSessionRuntime;
   private models?: PiModels;
   private wrapper?: PiRuntimeSession;
+  private readonly lifetime = new AbortController();
+  private authWork?: Promise<RuntimeAuthenticationResult>;
+  private readOnly = false;
+  private starting = false;
+
+  async authenticate(options: RuntimeAuthenticationOptions): Promise<RuntimeAuthenticationResult> {
+    if (this.readOnly || this.starting || this.authWork || this.wrapper?.busy || this.models?.busy || this.lifetime.signal.aborted) {
+      return { status: "failed", effect: "none", reason: "unavailable" };
+    }
+    this.models?.setAuthenticating(true);
+    this.authWork = Promise.resolve().then(async (): Promise<RuntimeAuthenticationResult> => {
+      const { provider, ...result } = await authenticatePi(options, path.resolve(getAgentDir(), "auth.json"), this.lifetime.signal);
+      if (provider && (result.status === "saved" || result.status === "saved-needs-refresh" || ("effect" in result && result.effect === "unknown"))) {
+        this.models?.invalidateAuth(provider);
+        if (result.status === "saved" || result.status === "saved-needs-refresh") {
+          const signal = AbortSignal.any([this.lifetime.signal, ...(options.signal ? [options.signal] : []), AbortSignal.timeout(15_000)]);
+          const refreshed = this.models ? await this.models.refreshAuth(provider, signal) : result.status === "saved";
+          return { status: refreshed ? "saved" : "saved-needs-refresh" };
+        }
+      }
+      return result;
+    });
+    try { return await this.authWork; }
+    finally { this.authWork = undefined; this.models?.setAuthenticating(false); }
+  }
 
   start(options: RuntimeStartOptions): Promise<RuntimeSession> {
     return this.create(options);
@@ -295,10 +380,18 @@ export class PiRuntime implements AgentRuntime {
     for (const limit of [options.maxTurns, options.maxToolCalls]) {
       if (!Number.isInteger(limit) || limit < 1) throw new Error("Invalid read-only runtime budget");
     }
+    this.readOnly = true;
     return this.create({ cwd: options.cwd, systemPromptAppend: options.systemPromptAppend }, options);
   }
 
   private async create(options: RuntimeStartOptions, readOnly?: RuntimeReadOnlyStartOptions): Promise<RuntimeSession> {
+    if (this.authWork || this.starting || this.lifetime.signal.aborted) throw new Error("Runtime is busy or closed.");
+    this.starting = true;
+    try { return await this.createSession(options, readOnly); }
+    finally { this.starting = false; }
+  }
+
+  private async createSession(options: RuntimeStartOptions, readOnly?: RuntimeReadOnlyStartOptions): Promise<RuntimeSession> {
     if (this.runtime) throw new Error("Pi runtime already started");
     readOnly?.signal.throwIfAborted();
     const agentDir = getAgentDir();
@@ -421,6 +514,8 @@ export class PiRuntime implements AgentRuntime {
   }
 
   async dispose(): Promise<void> {
+    this.lifetime.abort();
+    await this.authWork;
     await this.models?.close(); this.models = undefined;
     this.wrapper?.detach();
     this.wrapper = undefined;

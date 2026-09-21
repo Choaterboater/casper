@@ -1,6 +1,16 @@
 # Casper-owned model selection
 
-## Approved scope
+**Current behavior:** normal picker Enter and exact `/model` selection now remember
+the global Casper default; Ctrl+S or `/model --session` selects only for the current
+conversation. `/effort` exposes supported levels with the same remembered/session
+choice. `/clear` and `/resume` are now available. See [current terminal guide](TERMINAL_UX.md)
+and [daily-use review](DAILY_TERMINAL_REVIEW.md).
+
+The remainder is the historical initial-slice report. Its original Enter/Ctrl+S
+semantics, readline implementation, feature exclusions and validation counts are
+superseded by the later approved daily-use slice, not statements of current limits.
+
+## Original approved scope
 
 The user approved a reuse-first `/model` slice and iteration through regression
 checks and the serial gate. Pi remains the runtime; Casper owns model preferences

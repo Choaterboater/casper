@@ -20,6 +20,7 @@ import { SessionWorkspaceManager } from "../src/sessions/manager";
 import { SessionBranchStore, sessionProjectKey, type NamedSessionBranch } from "../src/sessions/store";
 import { SkillRegistry } from "../src/skills/registry";
 import { GitWorktreeManager } from "../src/workspace/worktree";
+import { posixOnly } from "./support/platform";
 
 const execFileAsync = promisify(execFile);
 const cleanup: Array<() => Promise<unknown>> = [];
@@ -222,7 +223,7 @@ describe("Phase 7 sessions and worktrees", () => {
     });
   });
 
-  test("a candidate worktree captures tracked and untracked changes, applies the exact reviewed patch, and cleans up", async () => {
+  posixOnly("a candidate worktree captures tracked and untracked changes, applies the exact reviewed patch, and cleans up", async () => {
     const { home, repo } = await repository();
     const manager = await GitWorktreeManager.open(repo, home);
     expect(manager).toBeDefined();

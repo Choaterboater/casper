@@ -3,6 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { formatRuntimeStatus, formatToolActivity, MarkdownFormatter, redactPreview, terminalText } from "../src/tui/format";
+import { posixOnly } from "./support/platform";
 
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
@@ -40,8 +41,8 @@ test("model and auth display distinguishes uninitialized, missing, configured an
   expect(formatRuntimeStatus({ auth: "unknown" })).toContain("none selected");
 });
 
-test("real PTY: input survives streamed output, cancellation and exact confirmations", async () => {
-  if (process.platform === "win32") return; // POSIX PTY; Windows remains unvalidated.
+// python3 runs the standard-library PTY fixture; Windows has no equivalent here.
+posixOnly("real PTY: input survives streamed output, cancellation and exact confirmations", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-terminal-pty-")); roots.push(root);
   const child = Bun.spawn(["python3", path.join(import.meta.dir, "fixtures/terminal-pty.py"), process.execPath, root], { stdout: "pipe", stderr: "pipe" });
   const timer = setTimeout(() => child.kill(), 25_000);

@@ -1,5 +1,14 @@
+import { execFile } from "node:child_process";
+import type { DebugRequest, DebugSession } from "./debug/session";
+import { promisify } from "node:util";
+import os from "node:os";
+import { modelPreference } from "./tui/model-preference";
 import { HELP_TEXT, FULL_HELP_TEXT, LOGIN_HELP } from "./tui/help";
+import { BrowserSession } from "./browser/session";
+import { browserTool } from "./browser/tools";
+import { formatTerminalJSON } from "./tui/json";
 import { InteractiveTerminal } from "./tui/terminal";
+import { pickEffort } from "./tui/effort-picker";
 import { formatRuntimeStatus, formatToolActivity } from "./tui/format";
 import { ProjectMemory, type TaskOutcome } from "./memory/store";
 import { discoverReferenceConfiguration, type ReferenceConfiguration } from "./references/config";
@@ -39,6 +48,7 @@ import { MermaidProvider } from "./visualize/mermaid";
 import { MindMeshProvider } from "./visualize/mindmesh";
 import { buildRepoGraph } from "./visualize/repo";
 import { VisualizationRouter } from "./visualize/router";
+import { artifactFilesystemSupported } from "./visualize/artifacts";
 import { describeVisualization, visualizationTools } from "./visualize/tools";
 import type { VisualizationProvider } from "./visualize/types";
 import { SessionWorkspaceManager, type ReturnAction } from "./sessions/manager";
@@ -83,6 +93,10 @@ export class CasperApp {
   private readonly loadMCPConfigurationFn: (context: ProjectContext) => Promise<MCPConfiguration>;
   private readonly loadLSPConfigurationFn: (context: ProjectContext) => Promise<LSPConfiguration>;
   private readonly loadReferenceConfigurationFn: (context: ProjectContext) => Promise<ReferenceConfiguration>;
+  private browser?: BrowserSession;
+  private browserClose?: Promise<void>;
+  private debugSession?: DebugSession;
+  private debugClose?: Promise<void>;
   private references?: ReferenceLibrary;
   private referencesClose?: Promise<void>;
   private lsp?: LSPManager;
@@ -103,6 +117,7 @@ export class CasperApp {
   private readonly output: OutputWriter;
   private readonly input: Readable;
   private runtime?: AgentRuntime;
+  private runtimeLoad?: Promise<AgentRuntime>;
   private runtimeStart?: Promise<RuntimeSession>;
   private session?: RuntimeSession;
   private closing = false;
@@ -126,6 +141,8 @@ export class CasperApp {
   private workspaceTransition = false;
   private workspaceNeedsRebind = false;
   private taskRuntimeFailed = false;
+  private displayedError?: string;
+  private savedModelDisplay?: string;
   private taskRuntimeCancelled = false;
   private lastTaskResult?: TaskResult;
   private observations = new TaskObservations();
@@ -214,7 +231,7 @@ export class CasperApp {
       await this.start(cwd);
     }
 
-    this.writePrompt(prompt);
+    this.writePrompt(/^\s*\/login(?:\s|$)/.test(prompt) ? "/login" : prompt);
     return this.handlePrompt(prompt.trim());
   }
 
@@ -223,10 +240,13 @@ export class CasperApp {
       await this.start(cwd);
     }
 
+    this.savedModelDisplay = await modelPreference(this.sessionHomeDir ?? os.homedir());
     this.interactive = true;
+    this.updateFooter();
     this.terminal.start();
     while (!this.closing) {
       this.cancelBeforeCommand = false;
+      this.updateFooter();
       const line = await this.terminal.readCommand();
       if (line === undefined) break;
       if (this.cancelBeforeCommand) {
@@ -247,7 +267,8 @@ export class CasperApp {
       catch (error) {
         if (this.closing) break;
         this.ensureLineBreak();
-        if (!this.commandAbort?.signal.aborted) this.output.write(`[error] ${error instanceof Error ? error.message : String(error)}\n`);
+        const message = error instanceof Error ? error.message : String(error);
+        if (!this.commandAbort?.signal.aborted && this.displayedError !== message) this.output.write(`[error] ${message}\n`);
       }
     }
     this.terminal.close();
@@ -266,6 +287,10 @@ export class CasperApp {
     if (this.commandAbort?.signal.aborted) return;
     this.commandAbort?.abort();
     this.taskRuntimeCancelled = true;
+    this.debugClose = this.debugSession?.close();
+    void this.debugClose?.catch(() => {});
+    this.browserClose = this.browser?.close();
+    void this.browserClose?.catch(() => {});
     this.verificationAbort?.abort(); this.checkTask?.abort(); this.visualizationAbort?.abort();
     void this.session?.abort().catch(() => {});
     this.terminal.endAssistant();
@@ -283,6 +308,8 @@ export class CasperApp {
     this.mcpClose = this.broker?.close();
     this.lspClose = this.lsp?.close();
     this.referencesClose = this.references?.close();
+    this.debugClose = this.debugSession?.close();
+    this.browserClose = this.browser?.close();
     this.terminal.close();
     this.closeWork = this.finishClose();
     return this.closeWork;
@@ -291,6 +318,7 @@ export class CasperApp {
   private async finishClose(): Promise<void> {
     // Startup may still be in flight when termination arrives. Drain it before
     // disposing, but leave a startup error with its original prompt caller.
+    await this.runtimeLoad?.catch(() => {});
     await this.runtimeStart?.catch(() => {});
     try {
       await this.session?.abort();
@@ -304,9 +332,20 @@ export class CasperApp {
         this.unsubscribe?.();
         this.terminal.close();
         try { await this.runtime?.dispose(); }
-        finally { await Promise.all([this.mcpClose, this.lspClose, this.subagentsClose, this.referencesClose]); }
+        finally { await Promise.all([this.mcpClose, this.lspClose, this.subagentsClose, this.referencesClose, this.browserClose, this.debugClose]); }
       }
     }
+  }
+
+  /** One adapter-construction owner, shared by auth and session startup. */
+  private acquireRuntime(): Promise<AgentRuntime> {
+    if (!this.runtimeLoad) this.runtimeLoad = Promise.resolve().then(async () => {
+      if (this.closing) throw new Error("Casper is closing");
+      this.runtime = await this.runtimeFactory();
+      if (this.closing) throw new Error("Casper is closing");
+      return this.runtime;
+    }).catch((error) => { if (!this.closing) this.runtimeLoad = undefined; throw error; });
+    return this.runtimeLoad;
   }
 
   private async ensureRuntime(): Promise<RuntimeSession> {
@@ -318,7 +357,7 @@ export class CasperApp {
       // close() also drains a lazy SDK import and prevents post-shutdown start.
       this.runtimeStart = Promise.resolve().then(async () => {
         if (this.closing) throw new Error("Casper is closing");
-        this.runtime = await this.runtimeFactory();
+        this.runtime = await this.acquireRuntime();
         if (this.closing) throw new Error("Casper is closing");
         this.session = await this.runtime.start({
           cwd: context.info.root,
@@ -332,12 +371,15 @@ export class CasperApp {
         });
         await (await this.ensureSessionWorkspace()).resumeActive(this.session);
         this.unsubscribe = this.session.subscribe((event) => this.handleRuntimeEvent(event));
-        this.output.write(`${formatRuntimeStatus(this.session.getStatus?.() ?? { auth: "unknown" })}\n`);
+        const status = this.session.getStatus?.() ?? { auth: "unknown" as const };
+        if (!status.blocked) this.output.write(`${formatRuntimeStatus(status)}\n`);
+        this.updateFooter();
         return this.session;
       }).catch(async (error) => {
         if (!this.closing) {
           const failedRuntime = this.runtime;
           this.runtime = undefined;
+          this.runtimeLoad = undefined;
           this.session = undefined;
           await failedRuntime?.dispose().catch(() => {});
         }
@@ -357,18 +399,22 @@ export class CasperApp {
     this.lastTaskResult = undefined;
     this.observations = new TaskObservations();
     this.taskRuntimeFailed = false;
+    this.displayedError = undefined;
     this.taskRuntimeCancelled = false;
     this.commandActive = true;
     this.commandAbort = new AbortController();
+    this.updateFooter();
     this.workspaceTransition = transition;
     try {
       if (this.workspaceNeedsRebind) await this.rebindWorkspace(this.activeWorkspaceRoot());
       return await (prompt.startsWith("/") ? this.handleSlashCommand(prompt) : this.runModelTask(prompt));
     } finally {
       await this.checkTask?.close();
+      if (!prompt.startsWith("/")) await this.browser?.close();
       this.checkTask = undefined;
       this.commandActive = false;
       this.workspaceTransition = false;
+      this.updateFooter();
     }
   }
 
@@ -378,13 +424,40 @@ export class CasperApp {
       this.output.write(prompt === "/help" ? HELP_TEXT : FULL_HELP_TEXT);
       return;
     }
-    if (prompt === "/login") { this.output.write(LOGIN_HELP); return; }
+    if (/^\/login(?:\s|$)/.test(prompt)) {
+      const argument = prompt.slice(6).trim();
+      const provider = (["openai-codex", "github-copilot", "anthropic", "openrouter"] as const).find(id => id === argument);
+      if (argument && !provider) {
+        this.output.write("Usage: /login [openai-codex|github-copilot|anthropic|openrouter]\n"); return;
+      }
+      const host = this.interactive ? this.terminal.exclusiveHost() : undefined;
+      if (!host) { this.output.write(LOGIN_HELP); return; }
+      if (this.subagents.isBusy) throw new Error("Wait for active subagents before login.");
+      try {
+        const runtime = await this.acquireRuntime();
+        this.commandAbort?.signal.throwIfAborted();
+        if (!runtime.authenticate) { this.output.write("[login] This runtime does not support login.\n"); return; }
+        const result = await runtime.authenticate({ provider,
+          terminalHost: host, signal: this.commandAbort?.signal });
+        if (result.status === "saved") this.output.write("[login] Credential saved. Local auth refreshed; not a connection test. Model and defaults unchanged. Use /model to choose a model.\n");
+        else if (result.status === "saved-needs-refresh") this.output.write("[login] Credential saved, but local auth needs refresh. Restart Casper; do not repeat login blindly.\n");
+        else if ("effect" in result && result.effect === "unknown") this.output.write("[login] Login ended; credential save outcome unknown. Restart and inspect local auth before retrying.\n");
+        else if (result.status === "cancelled") this.output.write("[login] Cancelled; no credential saved.\n");
+        else this.output.write(result.reason === "destination"
+          ? "[login] Unsafe credential destination. Requires a private, owner-held regular file in real directories; no permissions were repaired.\n"
+          : "[login] Login unavailable or failed. No credential saved. Disable PI_TUI_WRITE_LOG if set. Check provider eligibility and loopback callback availability; no automatic method fallback.\n");
+      } catch { this.output.write("[login] Login could not complete. No provider diagnostics are displayed.\n"); }
+      return;
+    }
     if (/^\/model(?:\s|$)/.test(prompt)) {
       if (this.subagents.isBusy) throw new Error("Wait for active subagents before changing models.");
       const session = await this.ensureRuntime();
       this.commandAbort?.signal.throwIfAborted();
       if (!session.selectModel) throw new Error("This runtime does not support model selection.");
-      const result = await session.selectModel({ query: prompt.slice(6).trim() || undefined, signal: this.commandAbort?.signal,
+      const argument = prompt.slice(6).trim();
+      const sessionOnly = /^--session(?:\s|$)/.test(argument);
+      const result = await session.selectModel({ query: (sessionOnly ? argument.slice(9).trim() : argument) || undefined,
+        persist: !sessionOnly, signal: this.commandAbort?.signal,
         picker: this.interactive ? this.terminal.modelPickerHost() : undefined });
       this.output.write(`${formatRuntimeStatus(result.status)}\n`);
       if (result.selected) this.output.write(result.savedDefault
@@ -392,21 +465,120 @@ export class CasperApp {
         : "[model] Selected for this conversation only; startup default unchanged.\n");
       if (result.selected) this.output.write(`[model] The next request sends this conversation's context to ${result.status.provider}.\n`);
       if (result.models) {
-        this.output.write(result.models.length ? result.models.map((model) => `  ${model.provider}/${model.id}`).join("\n") + "\n" : "No models with configured credentials. Use /login for setup guidance.\n");
+        this.output.write(result.models.length ? result.models.map((model) => `  ${model.provider}/${model.id}`).join("\n") + "\n" : "No models with configured credentials. Use /login to configure a supported provider.\n");
         this.output.write("Use /model <provider/model-id> to select. Selection does not send a prompt.\n");
       }
       return;
     }
+    if (/^\/effort(?:\s|$)/.test(prompt)) {
+      if (this.subagents.isBusy) throw new Error("Wait for active subagents before changing effort.");
+      const session = await this.ensureRuntime();
+      const args = prompt.split(/\s+/).slice(1);
+      if (!args.length) {
+        const status = session.getStatus?.();
+        const host = this.interactive ? this.terminal.exclusiveHost() : undefined;
+        if (host && session.setEffort && status?.availableThinkingLevels?.length) {
+          const selected = await host.run(io => pickEffort(io, status.availableThinkingLevels!, status.thinkingLevel, this.commandAbort?.signal));
+          if (selected) this.output.write(`${formatRuntimeStatus(await session.setEffort(selected.level, selected.persist))}\n`);
+        } else this.output.write(`Effort: ${status?.thinkingLevel ?? "unavailable"}. Supported: ${status?.availableThinkingLevels?.join(", ") || "unavailable"}\nUse /effort <level> [--session].\n`);
+      } else {
+        if (args.length > 2 || (args.length === 2 && args[1] !== "--session")) throw new Error("Usage: /effort <level> [--session]");
+        if (!session.setEffort) throw new Error("This runtime does not support effort controls.");
+        this.output.write(`${formatRuntimeStatus(await session.setEffort(args[0]!, args[1] !== "--session"))}\n`);
+      }
+      return;
+    }
+    if (prompt === "/permissions") {
+      this.output.write("Permissions: native read/edit/write/bash tools execute within the requested coding task; no OS sandbox or universal shell approval gate.\nMCP, workspace transitions, debugger launch and consequential browser operations have their own exact approvals.\nNo SAFE/YOLO or read-only mode is implied. /verify may execute project scripts.\n");
+      return;
+    }
+    if (prompt === "/context" || prompt === "/usage") {
+      const session = await this.ensureRuntime();
+      const usage = session.getUsage?.();
+      const context = usage?.context;
+      if (prompt === "/context") {
+        this.output.write(`Context: ${context?.tokens == null ? "unavailable" : `${context.tokens} / ${context.contextWindow} tokens (estimate; ${context.percent?.toFixed(1) ?? "?"}%)`}\n`);
+        this.output.write(`Messages: ${usage?.messages ?? "unavailable"}; indexed skills: ${this.skillRegistry!.list().length}; Casper custom tools: ${this.runtimeTools.length}.\nPer-file/skill/tool token attribution is unavailable. /compact sends a model request.\n`);
+      } else this.output.write(`Usage: ${usage ? formatTerminalJSON(usage.tokens) : "unavailable"}\nCost: ${usage?.estimatedCost === undefined ? "unavailable" : `$${usage.estimatedCost.toFixed(4)} SDK/catalog estimate`}; not a bill or a subscription charge.\n`);
+      return;
+    }
+    if (/^\/compact(?:\s|$)/.test(prompt)) {
+      if (this.subagents.isBusy) throw new Error("Wait for active subagents before compacting.");
+      const session = await this.ensureRuntime();
+      if (!session.compact) throw new Error("This runtime does not support compaction.");
+      this.output.write("[context] Compacting with the selected model; workspace files unchanged.\n");
+      await session.compact(prompt.slice(8).trim() || undefined, this.commandAbort?.signal);
+      this.output.write("[context] Conversation compacted; context usage may remain unavailable until the next response.\n");
+      return;
+    }
+    if (prompt === "/clear" || /^\/resume(?:\s|$)/.test(prompt)) {
+      if (this.subagents.isBusy) throw new Error("Wait for active subagents before changing conversations.");
+      const session = await this.ensureRuntime();
+      const id = prompt.slice(7).trim();
+      if (prompt === "/resume") {
+        if (!session.listConversations) throw new Error("This runtime does not support conversation listing. Use /tree and /switch for named workspaces.");
+        const saved = await session.listConversations();
+        this.output.write(saved.length ? saved.map(item => `${item.id}  ${item.name ?? "(unnamed)"}  ${item.modified}`).join("\n") + "\n" : "No saved conversations in this workspace.\n");
+        this.output.write("Use /resume <exact-id>; /tree and /switch manage named workspaces.\n");
+        return;
+      }
+      await this.browser?.close(); this.browser = undefined;
+      await this.stopDebugger(); this.debugSession = undefined;
+      if (prompt === "/clear") {
+        if (!session.clearConversation) throw new Error("This runtime does not support fresh conversations.");
+        await session.clearConversation();
+      } else {
+        if (!session.resumeConversation) throw new Error("This runtime does not support conversation resume.");
+        await session.resumeConversation(id);
+      }
+      this.lastTaskRequest = undefined;
+      await (await this.ensureSessionWorkspace()).rememberConversation(session);
+      this.output.write(`[session] ${prompt === "/clear" ? "Fresh conversation started" : "Conversation resumed"}; workspace files unchanged. Previous conversations remain available through /resume.\n`);
+      this.output.write(`${formatRuntimeStatus(session.getStatus?.())}\n`);
+      return;
+    }
+    if (prompt === "/diff") {
+      const git = async (args: string[]) => {
+        try { return (await promisify(execFile)("git", ["--no-pager", ...args], {
+          cwd: this.activeWorkspaceRoot(), timeout: 5000, maxBuffer: 64 * 1024,
+        })).stdout; }
+        catch (error) {
+          if (error && typeof error === "object" && "code" in error && error.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER" && "stdout" in error && typeof error.stdout === "string")
+            return error.stdout.slice(0, 64 * 1024) + "\n[diff truncated at display limit]\n";
+          throw error;
+        }
+      };
+      this.output.write(await git(["status", "--short"]));
+      this.output.write(await git(["diff", "--no-ext-diff", "--no-textconv", "HEAD", "--"]));
+      this.output.write("[diff] Tracked changes against HEAD; untracked files listed above, contents not included. Output limited to 64 KiB per command.\n");
+      return;
+    }
     if (prompt === "/status") {
+      const info = await this.inspectProjectFn(this.activeWorkspaceRoot());
+      this.projectContext!.info.gitBranch = info.gitBranch;
+      this.output.write(`${renderProjectSummary(this.projectContext!)}\n`);
       this.output.write(`${formatRuntimeStatus(this.session ? this.session.getStatus?.() ?? { auth: "unknown" } : undefined)}\n`);
       this.output.write(` skills    ${this.skillRegistry!.list().length} indexed; imports: ${this.projectContext!.skills.imports?.join(", ") || "none"} (/skills diagnostics)\n`);
       this.output.write(` mcp       ${this.mcp!.status().length} configured (/mcp for connection status)\n`);
       this.output.write(` lsp       ${this.lsp!.status().length} configured (/lsp for connection status)\n`);
+      this.output.write(` browser   ${this.browser?.status().state ?? "idle"}; disposable local browser (/browser)\n`);
+      this.output.write(` debugger  ${this.debugSession?.status().state ?? "idle"}; explicit local DAP (/debug)\n`);
+      const usage = this.session?.getUsage?.();
+      this.output.write(` context   ${usage?.context?.percent == null ? "unavailable" : `${usage.context.percent.toFixed(1)}% (estimate)`}; ${usage?.tokens.total ?? "unavailable"} session tokens (/context, /usage)\n`);
+      this.output.write(" policy    native coding tools enabled; not sandboxed (/permissions). Verification requires explicit scoped checks (/verify).\n");
       this.output.write(` visualize ${this.visualization!.providerNames().join(", ")} (/visualize)\n`);
       this.output.write(" memory    explicit facts and local task summaries; acceptance unknown until recorded (/memory)\n references read-only local sources (/references)\n");
       return;
     }
     if (prompt === "/exit" || prompt === "/quit") return;
+    if (/^\/debug(?:\s|$)/.test(prompt)) {
+      await this.handleDebugCommand(prompt);
+      return;
+    }
+    if (/^\/browser(?:\s|$)/.test(prompt)) {
+      await this.handleBrowserCommand(prompt);
+      return;
+    }
     if (/^\/memory(?:\s|$)/.test(prompt)) {
       this.memoryWork = this.handleMemoryCommand(prompt);
       try { await this.memoryWork; }
@@ -435,6 +607,7 @@ export class CasperApp {
       return;
     }
     if (/^\/delegate(?:\s|$)/.test(prompt)) {
+      await this.stopDebugger();
       await this.handleDelegateCommand(prompt);
       return;
     }
@@ -470,6 +643,10 @@ export class CasperApp {
 
   private async runModelTask(prompt: string): Promise<VerificationReport | undefined> {
     if (this.closing) return;
+    // Debug values and active debuggees do not silently become model-task context.
+    await this.stopDebugger();
+    // A finished task's immutable evidence belongs to its receipt, not the next prompt.
+    if (this.browser?.status().state === "closed") this.browser = undefined;
     const context = this.projectContext!;
     const classification = classifyTask(prompt);
     this.lastTaskRequest = prompt;
@@ -518,11 +695,12 @@ export class CasperApp {
         results: await this.checkTask.refresh(), rounds: this.checkTask.rounds,
       };
       const observations = this.observations.snapshot();
-      this.lastTaskResult = { execution, verification, ...observations };
+      const browser = !this.closing && this.browser ? await this.browser.report() : undefined;
+      this.lastTaskResult = { execution, verification, ...observations, ...(browser?.checks.length ? { browser } : {}) };
       if (!this.closing) {
         this.terminal.endAssistant();
         this.ensureLineBreak();
-        if (classification.intent !== "general" || execution !== "completed" || verification || observations.possibleMutations || observations.observedEdits.length || observations.observedChecks.length) {
+        if (classification.intent !== "general" || execution !== "completed" || verification || browser?.checks.length || observations.possibleMutations || observations.observedEdits.length || observations.observedChecks.length) {
           this.output.write(`${formatTaskResult(this.lastTaskResult)}\n`);
         }
       }
@@ -704,7 +882,9 @@ export class CasperApp {
     if (this.runtimeTools.length && !this.session?.setTools) throw new Error("Runtime cannot revoke workspace capabilities");
     this.session?.setTools?.([]);
     this.runtimeTools = [];
-    await Promise.all([this.broker?.close(), this.lsp?.close(), this.references?.close()]);
+    await Promise.all([this.broker?.close(), this.lsp?.close(), this.references?.close(), this.browser?.close(), this.stopDebugger()]);
+    this.browser = undefined;
+    this.debugSession = undefined;
   }
 
   private async runtimeForWorkspaceTransition(): Promise<RuntimeSession> {
@@ -738,6 +918,8 @@ export class CasperApp {
       ...(this.checkTask ? [this.checkTask.tool()] : []),
       ...lspTools(this.lsp!, this.confirmRename),
       ...this.references!.tools(),
+      ...(/https?:\/\/|\b(browser|website|webpage|frontend|layout|responsive|overflow|css|puppeteer|playwright)\b/i.test(task) || this.browser?.status().state === "ready"
+        ? [browserTool(this.browserSession(), this.commandAbort?.signal)] : []),
       ...(includeVisualization ? visualizationTools({ router: this.visualization!, projectRoot: this.activeWorkspaceRoot() }) : []),
     ];
     if (this.closing) return;
@@ -746,6 +928,68 @@ export class CasperApp {
       this.session.setTools?.(nextTools);
     }
     this.runtimeTools = nextTools;
+  }
+
+  private async stopDebugger(): Promise<void> {
+    await this.debugSession?.close();
+    if (this.debugSession?.status().ownedProcessCleanup === "unknown") {
+      throw new Error("Debugger process cleanup is unconfirmed. Inspect /debug and owned processes before starting more work; restarting does not prove cleanup.");
+    }
+  }
+
+  private async handleDebugCommand(prompt: string): Promise<void> {
+    const argument = prompt.slice(6).trim();
+    const [action, ...args] = argument.split(/\s+/);
+    if (action === "stop" && !args.length) {
+      await this.debugSession?.close();
+      this.output.write(`${formatTerminalJSON(this.debugSession?.status() ?? { state: "idle" })}\n`); return;
+    }
+    let request: DebugRequest | undefined;
+    if (action === "start" && args.length === 1 && /^[\w-]{1,64}$/.test(args[0])) request = { action: "start", target: args[0] };
+    else if (action === "threads" && !args.length) request = { action: "threads" };
+    else if ((action === "stack" || action === "continue") && args.length === 1 && /^\d{1,10}$/.test(args[0])) request = { action, threadId: Number(args[0]) };
+    else if (action === "scopes" && args.length === 1) request = { action, frame: args[0] };
+    else if (action === "variables" && args.length === 1) request = { action, reference: args[0] };
+    else if (action === "breakpoints") {
+      const match = argument.slice(action.length).trim().match(/^(.+) (clear|[1-9]\d*(?:,[1-9]\d*)*)$/);
+      if (match) request = { action, path: match[1], lines: match[2] === "clear" ? [] : match[2].split(",").map(Number) };
+    }
+    if (action && !request) throw new Error("Usage: /debug | start <target> | breakpoints <path> <line,line|clear> | threads | stack <thread> | scopes <frame> | variables <handle> | continue <thread> | stop");
+    if (this.subagents.isBusy) throw new Error("Wait for active subagents before using the debugger");
+    if (!this.debugSession || (request?.action === "start" && ["closed", "failed"].includes(this.debugSession.status().state))) {
+      await this.stopDebugger();
+      const { DebugSession } = await import("./debug/session");
+      this.commandAbort?.signal.throwIfAborted();
+      if (this.closing) return;
+      this.debugSession = new DebugSession({ projectRoot: this.activeWorkspaceRoot(),
+        confirm: (preview, signal) => this.confirmExact(`Debugger execution confirmation:\n${preview}\nAdapter and debuggee execute code; not sandboxed. Debug values may contain secrets.\n`, "Launch this exact debugger target? Type yes: ", signal),
+      });
+    }
+    const result = request ? await this.debugSession.run(request, this.commandAbort?.signal)
+      : { ...this.debugSession.status(), targets: await this.debugSession.targets() };
+    this.output.write(`${formatTerminalJSON(result)}\n`);
+  }
+
+  private browserSession(): BrowserSession {
+    if (!this.browser || this.browser.status().state === "closed") this.browser = new BrowserSession({
+      projectRoot: this.activeWorkspaceRoot(), stateDirectory: this.projectContext!.stateDirectory,
+      confirm: (request, signal) => this.confirmExact(`Browser action:\n${formatTerminalJSON(request)}\n`, "Allow this exact action? Type yes: ", signal),
+    });
+    return this.browser;
+  }
+
+  private async handleBrowserCommand(prompt: string): Promise<void> {
+    const [, action, ...args] = prompt.split(/\s+/);
+    if (!action) { this.output.write(`${formatTerminalJSON(this.browser?.status() ?? { state: "idle" })}\n`); return; }
+    if (action === "close" && !args.length) { await this.browser?.close(); this.output.write("[browser] Closed owned browser; saved screenshots retained.\n"); return; }
+    if (action === "open" && args.length === 1) {
+      const result = await this.browserSession().run({ action, url: args[0] }, this.commandAbort?.signal);
+      this.output.write(`${formatTerminalJSON(result)}\n`); return;
+    }
+    if (["inspect", "diagnostics", "screenshot"].includes(action) && !args.length) {
+      this.output.write(`${formatTerminalJSON(await this.browserSession().run({ action }, this.commandAbort?.signal))}\n`); return;
+    }
+    throw new Error("Usage: /browser | /browser open <url> | /browser inspect|diagnostics|screenshot|close");
   }
 
   private async handleLSPCommand(prompt: string): Promise<void> {
@@ -766,7 +1010,7 @@ export class CasperApp {
     if (!action) {
       this.output.write([
         `providers: ${router.providerNames().join(", ")}`,
-        `artifacts: ${router.settings.outputDir ?? "disabled (in-conversation only)"}`,
+        `artifacts: ${!router.settings.outputDir ? "disabled (in-conversation only)" : artifactFilesystemSupported ? router.settings.outputDir : "in-conversation only (artifact files need macOS or Linux)"}`,
         "Visualization is read-only and never modifies the workspace.",
         "",
       ].join("\n"));
@@ -904,7 +1148,20 @@ export class CasperApp {
     this.endedWithNewline = true;
   }
 
+  private updateFooter(): void {
+    if (!this.projectContext) return;
+    try {
+      const project = this.projectContext.info;
+      const status = this.session?.getStatus?.();
+      const usage = this.session?.getUsage?.();
+      const percent = usage?.context?.percent;
+      const model = status?.model ? `${status.provider}/${status.model} · ${status.thinkingLevel ?? "effort —"}` : this.savedModelDisplay ?? "model not initialized · /model";
+      this.terminal.setStatus(`${project.name}/${project.gitBranch ?? "no git"} │ ${model} │ ctx ${percent == null ? "—" : `${percent.toFixed(0)}%~`} │ ${usage ? `${usage.tokens.total} tok │ ` : ""}${usage?.estimatedCost === undefined ? "" : `$${usage.estimatedCost.toFixed(3)} est │ `}${this.commandActive ? "working" : "idle"}`, project.root);
+    } catch { this.terminal.setStatus("Session status unavailable · /status", this.projectContext.info.root); }
+  }
+
   private handleRuntimeEvent(event: RuntimeEvent): void {
+    if (event.type !== "assistant_text_delta") this.updateFooter();
     switch (event.type) {
       case "assistant_response_end":
         this.terminal.endAssistant();
@@ -926,6 +1183,7 @@ export class CasperApp {
         break;
       case "tool_end":
         this.observations.observeToolEnd(event, this.projectContext?.model.commands);
+        if (["bash", "edit", "write"].includes(event.toolName)) this.browser?.invalidate();
         // Successful native writes invalidate in afterFileEdit, before LSP awaits.
         // Failed writes may be partial; invalidate without claiming a completed edit.
         if (event.isError && ["edit", "write"].includes(event.toolName) && typeof event.input?.path === "string") (this.checkTask ?? this.verificationTask)?.invalidateForEdit(event.input.path);
@@ -944,13 +1202,15 @@ export class CasperApp {
         this.taskRuntimeFailed = true;
         this.terminal.endAssistant();
         this.ensureLineBreak();
-        this.output.write(`[error] ${event.message}\n`);
+        if (this.displayedError !== event.message) this.output.write(`[error] ${event.message}\n`);
+        this.displayedError = event.message;
         this.endedWithNewline = true;
         break;
     }
   }
 
   private observeEdit(path: string): void {
+    this.browser?.invalidate();
     (this.checkTask ?? this.verificationTask)?.invalidateForEdit(path);
     this.observations.recordEdit(path);
   }

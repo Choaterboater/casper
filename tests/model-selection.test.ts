@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { needsPosixModes, needsSymlinks, posixOnly } from "./support/platform";
 import os from "node:os";
 import path from "node:path";
 
@@ -18,7 +19,7 @@ async function fixture() {
   await writeFile(path.join(project, ".pi/settings.json"), shared);
   await writeFile(path.join(agent, "auth.json"), "{}\n");
   await writeFile(path.join(agent, "models.json"), JSON.stringify({ providers: {
-    fixture: { baseUrl: "http://127.0.0.1:9/v1", api: "openai-completions", apiKey: "fixture-not-a-secret", models: [{ id: "first" }, { id: "second" }, { id: "shared" }] },
+    fixture: { baseUrl: "http://127.0.0.1:9/v1", api: "openai-completions", apiKey: "fixture-not-a-secret", models: [{ id: "first" }, { id: "second", reasoning: true }, { id: "shared" }] },
     missing: { baseUrl: "http://127.0.0.1:9/v1", api: "openai-completions", models: [{ id: "no-auth" }] },
   } }));
   const env = { HOME: home, PATH: process.env.PATH!, PI_CODING_AGENT_DIR: agent, PI_OFFLINE: "1", PI_TELEMETRY: "0" };
@@ -43,11 +44,79 @@ try { const session = await runtime.start({ cwd: process.cwd() }); ${body} } fin
   return { home, project, agent, casper, shared, env, run, cli };
 }
 
+test("local diff remains usable when workspace changes exceed the display budget", async () => {
+  const f = await fixture();
+  const git = async (...args: string[]) => {
+    const child = Bun.spawn(["git", "-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", ...args], { cwd: f.project, env: f.env, stdout: "ignore", stderr: "pipe" });
+    expect(await child.exited).toBe(0);
+  };
+  await writeFile(path.join(f.project, "tracked.txt"), "before\n");
+  await git("init", "-b", "main"); await git("add", "tracked.txt"); await git("commit", "-m", "Temporary fixture baseline");
+  await writeFile(path.join(f.project, "tracked.txt"), "after\n".repeat(15000));
+  const result = await f.cli("/diff");
+  expect(result.exit).toBe(0);
+  expect(result.stdout).toContain("+after");
+  expect(result.stdout).toContain("truncated");
+  expect(await readFile(path.join(f.project, "tracked.txt"), "utf8")).toBe("after\n".repeat(15000));
+}, 15_000);
+
+test("context and usage are local; fresh conversations retain saved sessions without touching source files", async () => {
+  const f = await fixture();
+  await f.cli("/model", "fixture/second");
+  const context = await f.cli("/context");
+  expect(context.exit).toBe(0);
+  expect(context.stdout).toContain("Context");
+  const usage = await f.cli("/usage");
+  expect(usage.exit).toBe(0);
+  expect(usage.stdout).toContain("not a bill");
+  expect((await f.cli("/clear")).exit).toBe(0);
+  const listed = await f.cli("/resume");
+  expect(listed.exit).toBe(0);
+  expect(listed.stdout).toContain("Use /resume <exact-id>");
+  const result = await f.run(`
+const before = session.getSessionInfo();
+await session.selectModel({ query: 'fixture/second', persist: false });
+await session.clearConversation();
+const after = session.getSessionInfo();
+const saved = await session.listConversations();
+await session.resumeConversation(before.sessionId);
+console.log('RESULT=' + JSON.stringify({ before: before.sessionId, after: after.sessionId, saved, resumed: session.getSessionInfo().sessionId }));`);
+  expect(result.after).not.toBe(result.before);
+  expect(result.resumed).toBe(result.before);
+  expect(result.saved.length).toBeGreaterThanOrEqual(2);
+  expect(await readFile(path.join(f.project, ".pi/settings.json"), "utf8")).toBe(f.shared);
+}, 15_000);
+
+test("remembered effort survives switching away and back within the same conversation", async () => {
+  const f = await fixture();
+  const status = await f.run(`
+await session.selectModel({ query: 'fixture/second', persist: true });
+await session.setEffort('high', true);
+await session.selectModel({ query: 'fixture/first', persist: false });
+await session.selectModel({ query: 'fixture/second', persist: false });
+console.log('RESULT=' + JSON.stringify(session.getStatus()));`);
+  expect(status.thinkingLevel).toBe("high");
+}, 15_000);
+
+test("effort is validated, remembered for the default, and session-only changes stay local", async () => {
+  const f = await fixture();
+  await f.cli("/model", "fixture/second");
+  const changed = await f.cli("/effort", "high");
+  expect(changed.exit).toBe(0);
+  expect(changed.stdout).toContain("high");
+  expect(await f.run(`console.log('RESULT=' + JSON.stringify(session.getStatus()));`)).toMatchObject({ thinkingLevel: "high" });
+  const rejected = await f.cli("/effort", "bananas");
+  expect(rejected.exit).not.toBe(0);
+  await f.cli("/effort", "low", "--session");
+  expect(await f.run(`console.log('RESULT=' + JSON.stringify(session.getStatus()));`)).toMatchObject({ thinkingLevel: "high" });
+  expect(await readFile(path.join(f.agent, "settings.json"), "utf8")).toBe(f.shared);
+}, 15_000);
+
 test("model selection changes the conversation without adopting or rewriting shared Pi defaults", async () => {
   const f = await fixture();
   const result = await f.run(`
 const initial = session.getStatus();
-const selected = await session.selectModel({ query: 'fixture/second' });
+const selected = await session.selectModel({ query: 'fixture/second', persist: false });
 console.log('RESULT=' + JSON.stringify({ initial, selected, status: session.getStatus() }));`);
   expect(result.initial.model).toBeUndefined();
   expect(result.initial.blocked).toContain("/model");
@@ -58,7 +127,7 @@ console.log('RESULT=' + JSON.stringify({ initial, selected, status: session.getS
   expect(await readFile(path.join(f.casper, "settings.json"), "utf8").catch(() => "absent")).toBe("absent");
 }, 15_000);
 
-test("plain /model lists locally; an exact selection does not become a fresh conversation's default", async () => {
+test("plain /model lists locally; an exact selection is remembered across fresh conversations", async () => {
   const f = await fixture();
   const listed = await f.cli("/model");
   expect(listed.exit).toBe(0);
@@ -68,11 +137,15 @@ test("plain /model lists locally; an exact selection does not become a fresh con
   expect(selected.exit).toBe(0);
   expect(selected.stdout).toContain("conversation");
   const restored = await f.cli("/model");
-  expect(restored.stdout).toContain("No Casper model selected");
+  expect(restored.stdout).toContain("fixture / second");
+  expect(restored.stdout).not.toContain("No Casper model selected");
   expect(restored.stdout).not.toContain("\u001b[");
+  expect((await f.cli("/model", "--session", "fixture/first")).exit).toBe(0);
+  expect((await f.cli("/model")).stdout).toContain("fixture / second");
 }, 15_000);
 
-test("production CLI hosts Pi's picker without losing terminal ownership", async () => {
+// python3 runs the standard-library PTY fixture; Windows has no equivalent here.
+posixOnly("production CLI hosts Pi's picker without losing terminal ownership", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-model-pty-"));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
   const child = Bun.spawn(["python3", path.join(import.meta.dir, "fixtures/model-pty.py"), process.execPath, root], { stdout: "pipe", stderr: "pipe" });
@@ -244,7 +317,7 @@ console.log('RESULT=' + JSON.stringify({ failure, unchanged, selected: session.g
   expect(result.selected).toMatchObject({ provider: "other", model: "first" });
 }, 15_000);
 
-test("failed default persistence reports failure while retaining the explicitly selected conversation model", async () => {
+needsPosixModes("failed default persistence reports failure while retaining the explicitly selected conversation model", async () => {
   const f = await fixture();
   const result = await f.run(`
 const { chmodSync } = await import('node:fs');
@@ -295,6 +368,48 @@ ModelRuntime.prototype.checkAuth = original;
 console.log('RESULT=' + JSON.stringify({ outcome }));`);
   expect(result.outcome).toBe("AbortError");
   expect(await readFile(path.join(f.casper, "settings.json"), "utf8").catch(() => "absent")).toBe("absent");
+}, 15_000);
+
+test("explicit compaction uses the local provider, cancels active work, and pre-aborted compact sends nothing", async () => {
+  const f = await fixture();
+  let requests = 0;
+  const marker = path.join(f.home, "compaction-arrived");
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, idleTimeout: 0, async fetch() {
+    requests++;
+    if (requests === 5) {
+      await writeFile(marker, "arrived");
+      return new Response(new ReadableStream({ start() {} }), { headers: { "content-type": "text/event-stream" } });
+    }
+    const event = { id: "fixture", object: "chat.completion.chunk", created: 1, model: "first", choices: [{ index: 0, delta: { role: "assistant", content: "LOCAL_COMPACTION_SUMMARY" }, finish_reason: "stop" }], usage: { prompt_tokens: 200, completion_tokens: 10, total_tokens: 210 } };
+    return new Response(`data: ${JSON.stringify(event)}\n\ndata: [DONE]\n\n`, { headers: { "content-type": "text/event-stream" } });
+  } });
+  cleanup.push(async () => { server.stop(true); });
+  const config = JSON.parse(await readFile(path.join(f.agent, "models.json"), "utf8"));
+  config.providers.fixture.baseUrl = `http://127.0.0.1:${server.port}/v1`;
+  await writeFile(path.join(f.agent, "models.json"), JSON.stringify(config));
+  await writeFile(path.join(f.agent, "settings.json"), JSON.stringify({ compaction: { enabled: false, keepRecentTokens: 10, reserveTokens: 100 }, retry: { enabled: false } }));
+  const result = await f.run(`
+await session.selectModel({ query: 'fixture/first', persist: false });
+await session.prompt('Explain this synthetic context. '.repeat(100));
+await session.prompt('One more local fixture response.');
+await session.compact('Keep the fixture facts.');
+const controller = new AbortController(); controller.abort();
+let aborted = false;
+try { await session.compact(undefined, controller.signal); } catch (error) { aborted = error.name === 'AbortError'; }
+await session.prompt('Additional synthetic context. '.repeat(100));
+const activeController = new AbortController();
+const active = session.compact(undefined, activeController.signal).then(() => false, () => true);
+while (!await Bun.file(${JSON.stringify(marker)}).exists()) await Bun.sleep(10);
+activeController.abort();
+const activeAborted = await active;
+console.log('RESULT=' + JSON.stringify({ aborted, activeAborted, file: session.getSessionInfo().sessionFile, usage: session.getUsage() }));`);
+  expect(requests).toBe(5);
+  expect(result.aborted).toBe(true);
+  expect(result.activeAborted).toBe(true);
+  expect(result.usage.tokens.total).toBeGreaterThan(0);
+  const transcript = await readFile(result.file, "utf8");
+  expect(transcript).toContain('"type":"compaction"');
+  expect(transcript).toContain("LOCAL_COMPACTION_SUMMARY");
 }, 15_000);
 
 test("selection before the first response keeps Pi persistence writable for the next prompt", async () => {
@@ -387,9 +502,8 @@ test("corrupt Casper defaults fail visibly without resetting the file or adoptin
   expect(await readFile(path.join(f.agent, "settings.json"), "utf8")).toBe(f.shared);
 }, 15_000);
 
-test("a Casper settings alias cannot rewrite shared Pi settings", async () => {
+needsSymlinks("a Casper settings alias cannot rewrite shared Pi settings", async () => {
   const f = await fixture();
-  const { symlink } = await import("node:fs/promises");
   await symlink(path.join(f.agent, "settings.json"), path.join(f.casper, "settings.json"));
   const result = await f.cli("/model", "fixture/second");
   expect(result.exit).toBe(1);
@@ -418,7 +532,7 @@ await session.switchSession({ cwd: process.cwd(), sessionFile: ${JSON.stringify(
 console.log('RESULT=' + JSON.stringify({ fresh, restored: session.getStatus() }));`);
   expect(restored.fresh).toMatchObject({ model: "first", selectionSource: "default" });
   expect(restored.restored).toMatchObject({ model: "second", selectionSource: "conversation" });
-  expect(JSON.parse(await readFile(path.join(f.casper, "settings.json"), "utf8"))).toEqual({ defaultProvider: "fixture", defaultModel: "first" });
+  expect(JSON.parse(await readFile(path.join(f.casper, "settings.json"), "utf8"))).toEqual({ defaultProvider: "fixture", defaultModel: "first", defaultThinkingLevel: "off", modelThinkingLevels: { "fixture/first": "off" } });
   expect(await readFile(path.join(f.agent, "settings.json"), "utf8")).toBe(f.shared);
   expect(await readFile(path.join(f.project, ".pi/settings.json"), "utf8")).toBe(f.shared);
 }, 15_000);

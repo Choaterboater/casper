@@ -1,0 +1,4 @@
+# Casper's own suite lives in tests/. Evaluation fixtures under evals/fixtures ship
+# their own test files: they run inside a copied work directory, never here.
+[test]
+root = "tests"

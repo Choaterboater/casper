@@ -5,6 +5,7 @@ import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { CasperApp } from "../src/app";
+import { leadingFlag } from "../src/cli";
 import { loadProjectContext } from "../src/project/context";
 import { SkillRegistry } from "../src/skills/registry";
 import { ProjectMemory } from "../src/memory/store";
@@ -120,7 +121,31 @@ describe("CasperApp", () => {
     }
   });
 
-  test("local skill commands work without starting an unavailable runtime", async () => {
+  test("CLI flags are read only from a leading argument, never from a prompt", async () => {
+    // A one-character flag must not be swallowed out of a multi-word prompt.
+    expect(leadingFlag(["explain", "the", "-v", "flag"])).toBeUndefined();
+    expect(leadingFlag(["what", "does", "--version", "print"])).toBeUndefined();
+    expect(leadingFlag(["fix", "--help", "output"])).toBeUndefined();
+    expect(leadingFlag(["--version"])).toBe("version");
+    expect(leadingFlag(["-v"])).toBe("version");
+    expect(leadingFlag(["--help"])).toBe("help");
+    expect(leadingFlag(["-h"])).toBe("help");
+    expect(leadingFlag([])).toBeUndefined();
+
+    const root = await mkdtemp(path.join(os.tmpdir(), "casper-command-flags-"));
+    tempDirs.push(root);
+    const cli = path.resolve(import.meta.dir, "../src/cli.ts");
+    for (const args of [["--version"], ["-v"]]) {
+      const child = Bun.spawn([process.execPath, cli, ...args], {
+        cwd: root, env: { ...process.env, HOME: root, CASPER_PROFILE: "default" }, stdout: "pipe", stderr: "pipe",
+      });
+      const [stdout, code] = await Promise.all([new Response(child.stdout).text(), child.exited]);
+      expect({ leading: stdout.trim().startsWith("casper "), code }).toEqual({ leading: true, code: 0 });
+      expect(stdout).not.toContain("Casper — your coding companion");
+    }
+  });
+
+test("local skill commands work without starting an unavailable runtime", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "casper-local-project-"));
     const homeDir = await mkdtemp(path.join(os.tmpdir(), "casper-local-home-"));
     tempDirs.push(root, homeDir);

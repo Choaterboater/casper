@@ -7,14 +7,21 @@ import { loadProjectContext } from "../src/project/context";
 import type { AgentRuntime, RuntimeSession, RuntimeEventListener, RuntimeTool } from "../src/runtime/types";
 import { taskExitCode } from "../src/task/result";
 import { SkillRegistry } from "../src/skills/registry";
+import { checkCommand } from "./support/check-command";
+import { posixOnly } from "./support/platform";
 
 const dirs: string[] = [];
+/** The default fixture check passes once the `fixed` marker exists. */
+const defaultCheck = checkCommand("require:fixed");
+/** Gated fixtures keep POSIX check text: the model-reported `tool_end` commands they assert
+ * against are matched verbatim (trimmed) against the configured check command. */
+const posixCheckConfig = 'verify:\n  test: "test -f fixed"\nrepair:\n  maxAttempts: 1\n';
 async function fixture() {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-verify-app-"));
   dirs.push(root);
   await mkdir(path.join(root, ".casper"));
   await mkdir(path.join(root, "home"));
-  await writeFile(path.join(root, ".casper/project.yaml"), 'verify:\n  test: "test -f fixed"\nrepair:\n  maxAttempts: 1\n');
+  await writeFile(path.join(root, ".casper/project.yaml"), `verify:\n  test: ${JSON.stringify(defaultCheck)}\nrepair:\n  maxAttempts: 1\n`);
   return root;
 }
 
@@ -135,8 +142,10 @@ test("unverified normal completion is labeled separately and the returned task r
   } finally { await app.close(); }
 });
 
-test("task observations retain bounded latest shell diagnostics, detached results and command-local state", async () => {
+posixOnly("task observations retain bounded latest shell diagnostics, detached results and command-local state", async () => {
   const root = await fixture();
+  // The configured check command must stay the text the model-reported commands below carry.
+  await writeFile(path.join(root, ".casper/project.yaml"), posixCheckConfig);
   let turns = 0;
   const { app, output } = createApp(root, {
     editOnPrompt: (count) => count === 1,
@@ -182,7 +191,7 @@ test("task observations retain bounded latest shell diagnostics, detached result
 
 test("fresh requests never reuse evidence; self-mutating scoped checks retain stale qualifications", async () => {
   const root = await fixture();
-  await writeFile(path.join(root, ".casper/project.yaml"), 'verify:\n  test: "printf x >> check-runs"\nverification:\n  scopes:\n    test:\n      inputs: ["."]\n      exclude: [home]\n');
+  await writeFile(path.join(root, ".casper/project.yaml"), `verify:\n  test: ${JSON.stringify(checkCommand("append:check-runs"))}\nverification:\n  scopes:\n    test:\n      inputs: ["."]\n      exclude: [home]\n`);
   const { app, output } = createApp(root, {
     autoVerify: true,
     editOnPrompt: (count) => count === 3,
@@ -200,7 +209,7 @@ test("fresh requests never reuse evidence; self-mutating scoped checks retain st
   } finally { await app.close(); }
 });
 
-test("tool-reported success is diagnostic only, never fabricated exit evidence", async () => {
+posixOnly("tool-reported success is diagnostic only, never fabricated exit evidence", async () => {
   const root = await fixture();
   await writeFile(path.join(root, ".casper/project.yaml"), 'verify:\n  test: "test -f fixed"\nrepair:\n  maxAttempts: 0\n');
   const { app } = createApp(root, { autoVerify: true, checkOnPrompt: true, selectCheckOnPrompt: () => true, respond: async () => {} });
@@ -213,8 +222,10 @@ test("tool-reported success is diagnostic only, never fabricated exit evidence",
   } finally { await app.close(); }
 });
 
-test("repair receives actual verifier failure; shell status remains a separate observation", async () => {
+posixOnly("repair receives actual verifier failure; shell status remains a separate observation", async () => {
   const root = await fixture();
+  // The configured check command must stay the text the model-reported command below carries.
+  await writeFile(path.join(root, ".casper/project.yaml"), posixCheckConfig);
   const { app, prompts } = createApp(root, {
     autoVerify: true,
     checkFailureOnPrompt: true,
@@ -237,7 +248,7 @@ test("review: failed writes and late shell success cannot certify changed files"
   for (const toolName of ["bash", "write", "edit", "lsp"]) {
     const root = await fixture();
     await writeFile(path.join(root, "fixed"), "");
-    await writeFile(path.join(root, ".casper/project.yaml"), 'verify:\n  test: "test -f fixed"\nrepair:\n  maxAttempts: 0\n');
+    await writeFile(path.join(root, ".casper/project.yaml"), `verify:\n  test: ${JSON.stringify(defaultCheck)}\nrepair:\n  maxAttempts: 0\n`);
     const { app } = createApp(root, { autoVerify: true, selectCheckOnPrompt: () => true, respond: async (_prompt, emit) => {
       emit({ type: "tool_start", toolName: "bash", toolCallId: "check", input: { command: "test -f fixed" } });
       await rm(path.join(root, "fixed"));
@@ -279,7 +290,7 @@ test("review: external edits between explicit checks cannot reuse an old pass", 
 test("review: a later verifier can invalidate an earlier passing check", async () => {
   const root = await fixture();
   await writeFile(path.join(root, "fixed"), "");
-  await writeFile(path.join(root, ".casper/project.yaml"), 'verify:\n  test: "test -f fixed"\n  build: "rm -f fixed"\nverification:\n  scopes:\n    test:\n      inputs: ["."]\n      exclude: [home]\n');
+  await writeFile(path.join(root, ".casper/project.yaml"), `verify:\n  test: ${JSON.stringify(defaultCheck)}\n  build: ${JSON.stringify(checkCommand("remove:fixed"))}\nverification:\n  scopes:\n    test:\n      inputs: ["."]\n      exclude: [home]\n`);
   const { app, output } = createApp(root);
   try {
     const report = await app.runOnce("/verify test build", root);
@@ -310,6 +321,7 @@ test("/verify is local, exposes failure and skips, validates names before execut
 
 test("/verify repair sends evidence through the runtime seam and reports a real successful rerun", async () => {
   const root = await fixture();
+  const command = checkCommand("require:fixed");
   const { app, prompts, starts, output } = createApp(root, { respond: async () => { await writeFile(path.join(root, "fixed"), ""); } });
   try {
     const report = await app.runOnce("/verify repair test", root);
@@ -317,7 +329,7 @@ test("/verify repair sends evidence through the runtime seam and reports a real 
     expect(report?.repairAttempts).toBe(1);
     expect(report?.rounds.map((round) => round[0].status)).toEqual(["fail", "pass"]);
     expect(prompts).toHaveLength(1);
-    expect(prompts[0]).toContain('"command": "test -f fixed"');
+    expect(prompts[0]).toContain(`"command": ${JSON.stringify(command)}`);
     expect(starts()).toBe(1);
     expect(output()).toContain("↻ repair 1/1");
     expect(output()).toContain("Checks pass (command execution)");
@@ -365,7 +377,7 @@ test("managed checks require opt-in and model selection, and repair retains the 
 
 test("closing the app cancels an active verification command without starting a repair", async () => {
   const root = await fixture();
-  await writeFile(path.join(root, ".casper/project.yaml"), 'verify:\n  test: "touch started; sleep 10"\n');
+  await writeFile(path.join(root, ".casper/project.yaml"), `verify:\n  test: ${JSON.stringify(checkCommand("touch:started", "sleep:10000"))}\n`);
   const { app, starts } = createApp(root);
   await app.start(root);
   const pending = app.runOnce("/verify repair test");
@@ -394,7 +406,7 @@ test("cancellation during lazy runtime startup prevents a repair prompt", async 
 
 test("closing during the initial prompt prevents post-task verification and repair", async () => {
   const root = await fixture();
-  await writeFile(path.join(root, ".casper/project.yaml"), 'verify:\n  test: "touch ran-after-close; exit 1"\nrepair:\n  maxAttempts: 1\n');
+  await writeFile(path.join(root, ".casper/project.yaml"), `verify:\n  test: ${JSON.stringify(checkCommand("touch:ran-after-close", "exit:1"))}\nrepair:\n  maxAttempts: 1\n`);
   const started = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
   const { app, prompts } = createApp(root, {
@@ -441,9 +453,10 @@ test("shutdown still disposes the runtime when abort rejects", async () => {
   expect(disposals()).toBe(1);
 });
 
-test("CLI termination cleans up a running verifier process group", async () => {
+posixOnly("CLI termination cleans up a running verifier process group", async () => {
   const root = await fixture();
-  await writeFile(path.join(root, ".casper/project.yaml"), 'verify:\n  test: "touch started; (sleep 1; touch leaked) & wait"\n');
+  // An interrupted sleep must not fast-forward into the delayed-work marker.
+  await writeFile(path.join(root, ".casper/project.yaml"), 'verify:\n  test: "touch started; (sleep 1 && touch leaked) & wait"\n');
   const child = Bun.spawn([process.execPath, path.resolve("src/cli.ts"), "/verify test"], {
     cwd: root, env: { ...process.env, HOME: path.join(root, "home"), CASPER_PROFILE: "default" }, stdout: "ignore", stderr: "ignore",
   });
@@ -457,7 +470,70 @@ test("CLI termination cleans up a running verifier process group", async () => {
   } finally { child.kill(); }
 });
 
-test("CLI shutdown has a deadline when runtime startup never settles", async () => {
+posixOnly("verifier descendant fixture survives TERM without advancing its delayed marker", async () => {
+  const root = await fixture();
+  const child = Bun.spawn([process.execPath, path.resolve("tests/fixtures/verifier-descendant.ts")], {
+    cwd: root, stdout: "ignore", stderr: "ignore",
+  });
+  try {
+    for (let attempt = 0; attempt < 200 && !await Bun.file(path.join(root, "started")).exists(); attempt++) await Bun.sleep(10);
+    expect(await Bun.file(path.join(root, "started")).exists()).toBe(true);
+    child.kill("SIGTERM");
+    for (let attempt = 0; attempt < 20 && !await Bun.file(path.join(root, "term-received")).exists(); attempt++) await Bun.sleep(10);
+    expect(await Bun.file(path.join(root, "term-received")).exists()).toBe(true);
+    expect(await Bun.file(path.join(root, "leaked")).exists()).toBe(false);
+    await Bun.sleep(1100);
+    expect(await Bun.file(path.join(root, "leaked")).exists()).toBe(true);
+  } finally { child.kill("SIGKILL"); await child.exited; }
+});
+
+function processExists(pid: number): boolean {
+  try { process.kill(pid, 0); return true; }
+  catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ESRCH") return false;
+    throw error;
+  }
+}
+
+for (const redirected of [false, true]) posixOnly(`CLI termination kills a TERM-resistant descendant (${redirected ? "closed" : "inherited"} pipes)`, async () => {
+  const root = await fixture();
+  // Closed pipes let the shell's close event precede descendant exit; inherited
+  // pipes keep close pending and require the timed SIGKILL escalation.
+  const command = `printf '%s' "$$" > verifier-pgid; ${JSON.stringify(process.execPath)} ${JSON.stringify(path.resolve("tests/fixtures/verifier-descendant.ts"))}${redirected ? " >/dev/null 2>&1" : ""} & wait`;
+  await writeFile(path.join(root, ".casper/project.yaml"), JSON.stringify({ verify: { test: command } }));
+  const child = Bun.spawn([process.execPath, path.resolve("src/cli.ts"), "/verify test"], {
+    cwd: root, env: { ...process.env, HOME: path.join(root, "home"), CASPER_PROFILE: "default" }, stdout: "ignore", stderr: "ignore",
+  });
+  try {
+    for (let attempt = 0; attempt < 200 && !await Bun.file(path.join(root, "started")).exists(); attempt++) await Bun.sleep(10);
+    expect(await Bun.file(path.join(root, "started")).exists()).toBe(true);
+    const descendant = Number(await Bun.file(path.join(root, "started")).text());
+    const group = Number(await Bun.file(path.join(root, "verifier-pgid")).text());
+    expect(descendant).toBeGreaterThan(1);
+    expect(group).toBeGreaterThan(1);
+    expect(descendant).not.toBe(group);
+    expect(processExists(descendant)).toBe(true);
+    child.kill("SIGTERM");
+    expect(await child.exited).toBe(143);
+    await Bun.sleep(1100);
+    expect(await Bun.file(path.join(root, "leaked")).exists()).toBe(false);
+    expect(processExists(descendant)).toBe(false);
+    expect(processExists(-group)).toBe(false);
+  } finally {
+    child.kill("SIGKILL");
+    await child.exited;
+    // Fault-injected cleanup failures must not leave the fixture running.
+    const group = Number(await Bun.file(path.join(root, "verifier-pgid")).text().catch(() => "0"));
+    if (Number.isSafeInteger(group) && group > 1) {
+      try { process.kill(-group, "SIGKILL"); }
+      catch (error) {
+        if (!(error instanceof Error && "code" in error && error.code === "ESRCH")) throw error;
+      }
+    }
+  }
+});
+
+posixOnly("CLI shutdown has a deadline when runtime startup never settles", async () => {
   const root = await fixture();
   const harness = path.join(root, "stalled-runtime.ts");
   await writeFile(harness, `
@@ -487,7 +563,7 @@ test("CLI shutdown has a deadline when runtime startup never settles", async () 
   } finally { clearTimeout(deadline); child.kill(); }
 });
 
-test("one-shot CLI returns meaningful exit codes without model credentials", async () => {
+posixOnly("one-shot CLI returns meaningful exit codes without model credentials", async () => {
   const root = await fixture();
   const cli = path.resolve("src/cli.ts");
   const run = async (prompt: string) => {
@@ -505,7 +581,7 @@ test("one-shot CLI returns meaningful exit codes without model credentials", asy
   expect(passed.stdout).toContain("Checks pass (command execution)");
   expect(passed.stderr).toBe("");
   await writeFile(path.join(root, "source.ts"), "before");
-  await writeFile(path.join(root, ".casper/project.yaml"), 'verify:\n  build: "mkdir -p dist; printf built > dist/output.js"\nverification:\n  scopes:\n    build:\n      inputs: [source.ts]\n');
+  await writeFile(path.join(root, ".casper/project.yaml"), `verify:\n  build: ${JSON.stringify(checkCommand("mkdir:dist", "write:dist/output.js=built"))}\nverification:\n  scopes:\n    build:\n      inputs: [source.ts]\n`);
   const built = await run("/verify build");
   expect(built.code).toBe(0);
   expect(built.stdout).toContain("inputs fresh");
@@ -513,7 +589,7 @@ test("one-shot CLI returns meaningful exit codes without model credentials", asy
   const linked = await run("/verify build");
   expect(linked.code).toBe(0);
   expect(linked.stdout).toContain("inputs fresh");
-  await writeFile(path.join(root, ".casper/project.yaml"), 'verify:\n  build: "printf after > source.ts"\nverification:\n  scopes:\n    build:\n      inputs: [source.ts]\n');
+  await writeFile(path.join(root, ".casper/project.yaml"), `verify:\n  build: ${JSON.stringify(checkCommand("write:source.ts=after"))}\nverification:\n  scopes:\n    build:\n      inputs: [source.ts]\n`);
   const stale = await run("/verify build");
   expect(stale.code).toBe(0); // Exit status describes execution, not input currency.
   expect(stale.stdout).toContain("inputs stale");

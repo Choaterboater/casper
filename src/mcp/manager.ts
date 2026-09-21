@@ -2,6 +2,7 @@ import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import type { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { resolveEnvironment, type MCPConfiguration, type MCPServerDefinition } from "./config";
+import { ownSpawnedTree, type OwnedProcesses, terminateTree } from "../platform/processes";
 
 export interface MCPTool {
   name: string;
@@ -27,6 +28,7 @@ interface Entry {
   client?: Client;
   transport?: Transport;
   stdio?: StdioClientTransport;
+  owner?: OwnedProcesses;
   abort: AbortController;
   work?: Promise<void>;
   refresh?: Promise<void>;
@@ -255,6 +257,8 @@ export class MCPManager {
       }
       entry.transport = transport;
       await client.connect(transport, this.requestOptions(entry));
+      // Windows has no process groups: own the stdio server's descendants while it is alive.
+      entry.owner = ownSpawnedTree(entry.stdio?.pid, () => true);
       const tools = await this.listTools(entry, client);
       if (!current()) throw new Error("stale connection");
       entry.state = "ready";
@@ -325,13 +329,15 @@ export class MCPManager {
     const client = entry.client;
     const transport = entry.transport;
     const pid = entry.stdio?.pid;
+    const owner = entry.owner;
     entry.client = undefined;
     entry.transport = undefined;
     entry.stdio = undefined;
+    entry.owner = undefined;
     if (client) client.onclose = undefined;
     // The SDK allows 4s before KILL, longer than Casper's 1s CLI exit deadline.
-    // Accelerate direct-child cleanup; close() still owns stdin and reaping.
-    const kill = (signal: NodeJS.Signals) => { if (pid) try { process.kill(pid, signal); } catch { /* already exited */ } };
+    // Accelerate cleanup of this exact tree; close() still owns stdin and reaping.
+    const kill = (signal: NodeJS.Signals) => { terminateTree(owner, pid, signal); };
     const term = pid ? setTimeout(() => kill("SIGTERM"), 200) : undefined;
     const force = pid ? setTimeout(() => kill("SIGKILL"), 450) : undefined;
     entry.releaseWork = (async () => {

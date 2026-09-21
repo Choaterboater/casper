@@ -1,0 +1,10 @@
+{
+  "status": "exited",
+  "modelTaskStarted": true,
+  "timedOut": false,
+  "pid": 49438,
+  "startedAtUnix": 1789916024.164622,
+  "exitCode": 1,
+  "elapsedSeconds": 286.0955285419477,
+  "temporaryCredentialRemoved": true
+}

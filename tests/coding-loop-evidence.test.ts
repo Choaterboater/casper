@@ -9,6 +9,8 @@ import { VerifierRegistry } from "../src/verify/registry";
 import { verifyAndRepair } from "../src/verify/repair-loop";
 import { workspaceState } from "../src/verify/workspace-state";
 import { formatVerificationReport, formatVerificationResult } from "../src/verify/evidence";
+import { checkCommand } from "./support/check-command";
+import { needsPosixModes, posixOnly, posixSymlinks } from "./support/platform";
 
 const dirs: string[] = [];
 async function fixture() {
@@ -18,7 +20,7 @@ async function fixture() {
 }
 afterEach(async () => { await Promise.all(dirs.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
 
-test("artifact-only build success cannot improve when an unrelated symlink disables observation", async () => {
+posixSymlinks("artifact-only build success cannot improve when an unrelated symlink disables observation", async () => {
   for (const linked of [false, true]) {
     const root = await fixture();
     await writeFile(path.join(root, "source.ts"), "export const value = 1;\n");
@@ -26,7 +28,7 @@ test("artifact-only build success cannot improve when an unrelated symlink disab
     if (linked) await symlink("/dev/null", path.join(root, "unrelated-link"));
     const registry = new VerifierRegistry();
     registry.register({ name: "build", run: () => runCommandCheck({ name: "build",
-      command: "mkdir -p dist; printf built > dist/output.js", cwd: root, timeoutMs: 1000 }) });
+      command: checkCommand("mkdir:dist", "write:dist/output.js=built"), cwd: root, timeoutMs: 1000 }) });
     const report = await verifyAndRepair({ registry, checks: ["build"], cwd: root, request: "Build" });
     expect(report.results[0]?.exitCode).toBe(0);
     expect(report.status).toBe("pass"); // Command outcome, not certification of current inputs.
@@ -34,7 +36,7 @@ test("artifact-only build success cannot improve when an unrelated symlink disab
   }
 });
 
-test("filesystem identity covers bytes, membership, permissions and ignored files", async () => {
+needsPosixModes("filesystem identity covers bytes, membership, permissions and ignored files", async () => {
   const root = await fixture();
   await writeFile(path.join(root, ".gitignore"), "ignored\n");
   const file = path.join(root, "ignored");
@@ -53,7 +55,7 @@ test("filesystem identity covers bytes, membership, permissions and ignored file
   expect((await workspaceState(root, scope)).fingerprint).not.toBe(permission);
 });
 
-test("unsupported trees, FIFOs, limits and cancellation never supply reusable identity", async () => {
+posixOnly("unsupported trees, FIFOs, limits and cancellation never supply reusable identity", async () => {
   const root = await fixture();
   const file = path.join(root, "entry");
   const scope = { inputs: ["."] };
@@ -74,7 +76,7 @@ test("repair retains regression coverage and reuses only an unchanged targeted p
   const root = await fixture();
   const registry = new VerifierRegistry();
   const counts = { test: 0, build: 0 };
-  for (const [name, command] of [["test", "test -f fixed"], ["build", "test ! -f regression && mkdir -p dist && printf built > dist/output.js"]] as const) registry.register({ name, scope: { inputs: ["."], exclude: ["dist"] }, run: async (signal) => {
+  for (const [name, command] of [["test", checkCommand("require:fixed")], ["build", checkCommand("forbid:regression", "mkdir:dist", "write:dist/output.js=built")]] as const) registry.register({ name, scope: { inputs: ["."], exclude: ["dist"] }, run: async (signal) => {
     counts[name]++;
     return runCommandCheck({ name, command, cwd: root, timeoutMs: 1000, signal });
   } });
@@ -93,7 +95,7 @@ test("an edit overlapping a verifier cannot be stamped as fresh at completion", 
   const checked = Promise.withResolvers<void>();
   const changed = Promise.withResolvers<void>();
   registry.register({ name: "test", scope: { inputs: ["."] }, run: async () => {
-    const result = await runCommandCheck({ name: "test", command: "true", cwd: root, timeoutMs: 1000 });
+    const result = await runCommandCheck({ name: "test", command: checkCommand(), cwd: root, timeoutMs: 1000 });
     checked.resolve();
     await changed.promise;
     return result;
@@ -115,14 +117,15 @@ test("an edit overlapping a verifier cannot be stamped as fresh at completion", 
   expect(formatTaskResult({ execution: "completed", verification: report })).toContain("requested behavior is not independently certified");
 });
 
-test("unknown filesystem state disables reuse while still reporting actual command exits", async () => {
+// `/dev/null` as a link target is POSIX-only; Windows has no equivalent device path.
+posixOnly("unknown filesystem state disables reuse while still reporting actual command exits", async () => {
   const root = await fixture();
   await symlink("/dev/null", path.join(root, "unsupported"));
   const registry = new VerifierRegistry();
   let calls = 0;
   for (const name of ["test", "build"] as const) registry.register({ name, scope: { inputs: ["."] }, run: () => {
     calls++;
-    return runCommandCheck({ name, command: name === "test" ? "test -f fixed" : "true", cwd: root, timeoutMs: 1000 });
+    return runCommandCheck({ name, command: name === "test" ? checkCommand("require:fixed") : checkCommand(), cwd: root, timeoutMs: 1000 });
   } });
   const report = await verifyAndRepair({ registry, cwd: root, checks: ["test", "build"], request: "fix", repair: () => writeFile(path.join(root, "fixed"), "") });
   expect(calls).toBe(5);
@@ -136,9 +139,9 @@ test("observed stale evidence stays invalid even when repair restores directory 
   await mkdir(path.join(root, "src"));
   const registry = new VerifierRegistry();
   registry.register({ name: "test", scope: { inputs: ["src"] }, run: () => runCommandCheck({ name: "test", cwd: root, timeoutMs: 1000,
-    command: "printf x >> test-runs" }) });
+    command: checkCommand("append:test-runs") }) });
   registry.register({ name: "build", run: () => runCommandCheck({ name: "build", cwd: root, timeoutMs: 1000,
-    command: "if test -f fixed; then exit 0; else touch src/temporary; exit 1; fi" }) });
+    command: checkCommand("on-failure:touch:src/temporary", "require:fixed") }) });
   const report = await verifyAndRepair({ registry, checks: ["test", "build"], cwd: root, request: "Check", repair: async () => {
     await rm(path.join(root, "src/temporary"));
     await writeFile(path.join(root, "fixed"), "");
@@ -153,9 +156,9 @@ test("deleting a named input after a pass is known stale, not just unavailable",
   await writeFile(path.join(root, "source.ts"), "before");
   const registry = new VerifierRegistry();
   registry.register({ name: "test", scope: { inputs: ["source.ts"] }, run: () => runCommandCheck({
-    name: "test", command: "test -f source.ts", cwd: root, timeoutMs: 1000 }) });
+    name: "test", command: checkCommand("require:source.ts"), cwd: root, timeoutMs: 1000 }) });
   registry.register({ name: "build", run: () => runCommandCheck({
-    name: "build", command: "rm source.ts", cwd: root, timeoutMs: 1000 }) });
+    name: "build", command: checkCommand("remove:source.ts"), cwd: root, timeoutMs: 1000 }) });
   const report = await verifyAndRepair({ registry, checks: ["test", "build"], cwd: root, request: "Check" });
   expect(report.results[0]).toMatchObject({ status: "pass", freshness: "stale" });
   expect(formatVerificationReport(report)).toContain("current files unverified");
@@ -165,13 +168,14 @@ test("a verifier executing in a different cwd cannot borrow another workspace's 
   const root = await fixture();
   const other = await fixture();
   const registry = new VerifierRegistry();
-  registry.register({ name: "test", scope: { inputs: ["."] }, run: () => runCommandCheck({ name: "test", command: "true", cwd: other, timeoutMs: 1000 }) });
+  registry.register({ name: "test", scope: { inputs: ["."] }, run: () => runCommandCheck({ name: "test", command: checkCommand(), cwd: other, timeoutMs: 1000 }) });
   const report = await verifyAndRepair({ registry, cwd: root, checks: ["test"], request: "check" });
   expect(report.results[0]).toMatchObject({ status: "pass", cwd: other, freshness: "unavailable" });
   expect(report.results[0]?.workspaceState).toBeUndefined();
 });
 
-test("dependency-heavy workspaces can observe an explicitly limited scope without treating artifacts as inputs", async () => {
+// `/dev/null` as a link target is POSIX-only; Windows has no equivalent device path.
+posixOnly("dependency-heavy workspaces can observe an explicitly limited scope without treating artifacts as inputs", async () => {
   const root = await fixture();
   await mkdir(path.join(root, "node_modules"));
   await writeFile(path.join(root, "node_modules", "large"), Buffer.alloc(2 * 1024 * 1024));
@@ -181,7 +185,7 @@ test("dependency-heavy workspaces can observe an explicitly limited scope withou
   const scope = { inputs: ["src"], exclude: ["src/coverage"] };
   const registry = new VerifierRegistry();
   registry.register({ name: "test", scope, run: () => runCommandCheck({ name: "test", cwd: root, timeoutMs: 1000,
-    command: "mkdir -p src/coverage; printf coverage > src/coverage/results.json" }) });
+    command: checkCommand("mkdir:src/coverage", "write:src/coverage/results.json=coverage") }) });
   const report = await verifyAndRepair({ registry, checks: ["test"], cwd: root, request: "Check" });
   expect(report.results[0]).toMatchObject({ status: "pass", freshness: "fresh", scope });
   expect(formatVerificationReport(report)).toContain("declared local scope only");
@@ -192,7 +196,7 @@ test("dependency-heavy workspaces can observe an explicitly limited scope withou
   expect((await workspaceState(root, { inputs: ["linked-src/code.ts"] })).reason).toContain("Unsupported input parent");
 });
 
-test("a missing after-observation never becomes reusable merely because the final observation succeeds", async () => {
+posixOnly("a missing after-observation never becomes reusable merely because the final observation succeeds", async () => {
   const root = await fixture();
   const registry = new VerifierRegistry();
   registry.register({ name: "test", scope: { inputs: ["."] }, run: () => runCommandCheck({ name: "test", cwd: root, timeoutMs: 1000,

@@ -3,6 +3,9 @@ import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { SkillRegistry } from "../src/skills/registry";
+import { classifyTask } from "../src/task/classify";
+import { needsFifos, needsSymlinks, posixModes, posixOnly } from "./support/platform";
 
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -89,7 +92,7 @@ test("learn produces an unpromoted draft with host-checked provenance, inspectab
   const listed = await f.run(["learn", "list", f.project]);
   expect(listed.exit).toBe(0);
   expect(JSON.parse(listed.stdout).drafts).toEqual([{ id: generated.draft.id, createdAt: generated.draft.createdAt,
-    sha256: generated.draft.sha256, candidates: 1, status: "unpromoted" }]);
+    sha256: generated.draft.sha256, candidates: 1, decisions: 0, status: "unpromoted" }]);
   const inspected = await f.run(["learn", "inspect", f.project, generated.draft.id]);
   expect(inspected.exit).toBe(0);
   expect(JSON.parse(inspected.stdout).draft).toEqual(generated.draft);
@@ -99,7 +102,165 @@ test("learn produces an unpromoted draft with host-checked provenance, inspectab
   const state = await snapshot(path.join(f.home, ".casper"));
   expect(Object.keys(state)).toHaveLength(1);
   expect(Object.keys(state)[0]).toEndWith("/learning-candidates.jsonl");
-  expect((await stat(path.join(f.home, ".casper", Object.keys(state)[0]!))).mode & 0o777).toBe(0o600);
+  // Mode bits are a POSIX guarantee; Windows synthesizes them (tests/support/platform.ts).
+  if (posixModes) expect((await stat(path.join(f.home, ".casper", Object.keys(state)[0]!))).mode & 0o777).toBe(0o600);
+}, 15_000);
+
+test("digest-bound human promotion makes one candidate a searchable reference without another model call", async () => {
+  const f = await fixture();
+  const generated = JSON.parse((await f.run(["learn", f.project])).stdout).draft;
+  const promoted = await f.run(["learn", "promote", f.project, generated.id, generated.sha256, "1", "reference"]);
+  expect({ exit: promoted.exit, stderr: promoted.stderr }).toEqual({ exit: 0, stderr: "" });
+  expect(JSON.parse(promoted.stdout)).toMatchObject({ status: "promoted", decision: { draftId: generated.id,
+    draftSha256: generated.sha256, candidateIndex: 1, disposition: "reference" } });
+  expect(f.payloads).toHaveLength(2);
+  const searched = await f.run(["/references", "search", "casper-promoted", "atomic"]);
+  expect(searched.exit).toBe(0);
+  expect(searched.stdout).toContain('"source":"casper-promoted"');
+  expect(searched.stdout).toContain("Atomic publication");
+  expect(f.payloads).toHaveLength(2);
+  const inspected = JSON.parse((await f.run(["learn", "inspect", f.project, generated.id])).stdout);
+  expect(inspected.decisions).toHaveLength(1);
+  expect(inspected.decisions[0]).toEqual(JSON.parse(promoted.stdout).decision);
+}, 15_000);
+
+for (const disposition of ["project-skill", "global-skill"] as const) test(`human promotion activates a trusted ${disposition} from owner-controlled state`, async () => {
+  const f = await fixture();
+  const generated = JSON.parse((await f.run(["learn", f.project])).stdout).draft;
+  const name = disposition === "project-skill" ? "atomic-project-pattern" : "atomic-global-pattern";
+  const promoted = await f.run(["learn", "promote", f.project, generated.id, generated.sha256, "1", disposition, name]);
+  expect({ exit: promoted.exit, stderr: promoted.stderr }).toEqual({ exit: 0, stderr: "" });
+  const result = JSON.parse(promoted.stdout);
+  expect(result).toMatchObject({ status: "promoted", decision: { disposition, skillName: name } });
+  expect(f.payloads).toHaveLength(2);
+  const registry = await SkillRegistry.discover({ projectRoot: f.project, homeDir: f.home });
+  const skill = registry.list().find((entry) => entry.name === name);
+  expect(skill).toMatchObject({ name, trust: "trusted", source: disposition === "project-skill" ? "project" : "user" });
+  expect(skill!.filePath.startsWith(f.project)).toBe(false);
+  const loaded = await registry.loadForTask(`use ${name}`, {
+    schemaVersion: 1, project: { name: "fixture", root: f.project, git: false }, languages: [], frameworks: [], packageManager: null,
+    commands: {}, architecture: {}, conventions: [], detectedAt: new Date(0).toISOString(),
+  }, classifyTask(`use ${name}`));
+  expect(loaded.map((entry) => entry.skill.name)).toContain(name);
+  expect(loaded[0]?.body).toContain("human explicitly promoted this exact digest-bound candidate");
+}, 15_000);
+
+test("ignore and promotion consent are exact, immutable, idempotent and local", async () => {
+  const f = await fixture(); const before = await snapshot(f.project);
+  const draft = JSON.parse((await f.run(["learn", f.project])).stdout).draft;
+  const wrong = await f.run(["learn", "promote", f.project, draft.id, "0".repeat(64), "1", "reference"]);
+  expect(wrong.exit).toBe(1);
+  expect(wrong.stderr).toContain("inspect it again");
+  let inspected = JSON.parse((await f.run(["learn", "inspect", f.project, draft.id])).stdout);
+  expect(inspected.decisions).toEqual([]);
+  const ignored = await f.run(["learn", "promote", f.project, draft.id, draft.sha256, "1", "ignore"]);
+  expect(ignored.exit).toBe(0);
+  expect(JSON.parse(ignored.stdout)).toMatchObject({ status: "ignored", decision: { disposition: "ignore" } });
+  expect(JSON.parse(ignored.stdout).decision).not.toHaveProperty("artifact");
+  const repeated = await f.run(["learn", "promote", f.project, draft.id, draft.sha256, "1", "ignore"]);
+  expect(JSON.parse(repeated.stdout)).toMatchObject({ status: "already-decided", decision: { id: JSON.parse(ignored.stdout).decision.id } });
+  const conflict = await f.run(["learn", "promote", f.project, draft.id, draft.sha256, "1", "reference"]);
+  expect(conflict.exit).toBe(1);
+  expect(conflict.stderr).toContain("different immutable promotion decision");
+  inspected = JSON.parse((await f.run(["learn", "inspect", f.project, draft.id])).stdout);
+  expect(inspected.decisions).toHaveLength(1);
+  expect(await snapshot(f.project)).toEqual(before);
+  expect(f.payloads).toHaveLength(2);
+}, 15_000);
+
+test("concurrent identical promotion commits one decision and one create-only artifact", async () => {
+  const f = await fixture();
+  const draft = JSON.parse((await f.run(["learn", f.project])).stdout).draft;
+  const args = ["learn", "promote", f.project, draft.id, draft.sha256, "1", "global-skill", "atomic-concurrent"];
+  const [first, second] = await Promise.all([f.run(args), f.run(args)]);
+  expect([first.exit, second.exit]).toEqual([0, 0]);
+  expect(new Set([JSON.parse(first.stdout).status, JSON.parse(second.stdout).status])).toEqual(new Set(["promoted", "already-decided"]));
+  expect(JSON.parse(first.stdout).decision.id).toBe(JSON.parse(second.stdout).decision.id);
+  const inspected = JSON.parse((await f.run(["learn", "inspect", f.project, draft.id])).stdout);
+  expect(inspected.decisions).toHaveLength(1);
+  const registry = await SkillRegistry.discover({ projectRoot: f.project, homeDir: f.home });
+  expect(registry.list().filter((entry) => entry.name === "atomic-concurrent")).toHaveLength(1);
+  expect(f.payloads).toHaveLength(2);
+}, 15_000);
+
+test("promotion never overwrites existing skills and corrupted decisions fail closed", async () => {
+  const f = await fixture();
+  const draft = JSON.parse((await f.run(["learn", f.project])).stdout).draft;
+  const target = path.join(f.home, ".casper/skills/protected/SKILL.md");
+  await mkdir(path.dirname(target), { recursive: true }); await writeFile(target, "KEEP\n");
+  const collision = await f.run(["learn", "promote", f.project, draft.id, draft.sha256, "1", "global-skill", "protected"]);
+  expect(collision.exit).toBe(1);
+  expect(collision.stderr).toContain("already exists");
+  expect(await readFile(target, "utf8")).toBe("KEEP\n");
+  let inspected = JSON.parse((await f.run(["learn", "inspect", f.project, draft.id])).stdout);
+  expect(inspected.decisions).toEqual([]);
+  const ignored = JSON.parse((await f.run(["learn", "promote", f.project, draft.id, draft.sha256, "1", "ignore"])).stdout);
+  const stateFiles = await snapshot(path.join(f.home, ".casper"));
+  const promotionRelative = Object.keys(stateFiles).find((file) => file.endsWith("/learning-promotions.jsonl"))!;
+  const promotionFile = path.join(f.home, ".casper", promotionRelative);
+  await writeFile(promotionFile, "corrupt\n");
+  for (const args of [["learn", "list", f.project], ["learn", "inspect", f.project, draft.id],
+    ["learn", "promote", f.project, draft.id, draft.sha256, "1", "ignore"]]) {
+    const result = await f.run(args);
+    expect(result.exit).toBe(1);
+    expect(result.stderr).toContain("preserve the file");
+  }
+  expect(await readFile(promotionFile, "utf8")).toBe("corrupt\n");
+  expect(ignored.decision.disposition).toBe("ignore");
+  expect(f.payloads).toHaveLength(2);
+}, 15_000);
+
+test("exact replay recovers only a recorded staged artifact and never repairs changed active content", async () => {
+  const f = await fixture();
+  const draft = JSON.parse((await f.run(["learn", f.project])).stdout).draft;
+  const args = ["learn", "promote", f.project, draft.id, draft.sha256, "1", "reference"];
+  const first = JSON.parse((await f.run(args)).stdout);
+  const artifact = first.decision.artifact as { path: string; stagingPath: string };
+  await rename(path.dirname(artifact.path), path.dirname(artifact.stagingPath));
+  const recovered = await f.run(args);
+  expect(recovered.exit).toBe(0);
+  expect(JSON.parse(recovered.stdout)).toMatchObject({ status: "already-decided", decision: { id: first.decision.id } });
+  expect(await readFile(artifact.path, "utf8")).toContain("Atomic publication");
+  await writeFile(artifact.path, "CHANGED\n");
+  const changed = await f.run(args);
+  expect(changed.exit).toBe(1);
+  expect(changed.stderr).toContain("changed; refusing recovery or replacement");
+  expect(await readFile(artifact.path, "utf8")).toBe("CHANGED\n");
+  expect(f.payloads).toHaveLength(2);
+}, 15_000);
+
+for (const redirected of ["active", "staged"] as const) needsSymlinks(`promotion replay refuses a redirected ${redirected} artifact directory`, async () => {
+  const f = await fixture();
+  const draft = JSON.parse((await f.run(["learn", f.project])).stdout).draft;
+  const args = ["learn", "promote", f.project, draft.id, draft.sha256, "1", "reference"];
+  const first = JSON.parse((await f.run(args)).stdout);
+  const artifact = first.decision.artifact as { path: string; stagingPath: string };
+  const outside = path.join(f.root, "redirected-artifact");
+  await rename(path.dirname(artifact.path), outside);
+  const redirectedPath = path.dirname(redirected === "active" ? artifact.path : artifact.stagingPath);
+  await symlink(outside, redirectedPath, "dir");
+  const before = await snapshot(outside);
+  const replay = await f.run(args);
+  expect(replay.exit).toBe(1);
+  expect(replay.stderr).toContain("real directories, not symlinks");
+  expect(await snapshot(outside)).toEqual(before);
+  expect(await realpath(redirectedPath)).toBe(await realpath(outside));
+  expect(f.payloads).toHaveLength(2);
+}, 15_000);
+
+needsSymlinks("promotion rejects symlinked artifact roots without writing through them", async () => {
+  const f = await fixture();
+  const draft = JSON.parse((await f.run(["learn", f.project])).stdout).draft;
+  const outside = await mkdtemp(path.join(os.tmpdir(), "casper-promoted-outside-"));
+  cleanup.push(() => rm(outside, { recursive: true, force: true }));
+  await symlink(outside, path.join(f.home, ".casper", "promoted-references"), "dir");
+  const result = await f.run(["learn", "promote", f.project, draft.id, draft.sha256, "1", "reference"]);
+  expect(result.exit).toBe(1);
+  expect(result.stderr).toContain("real directories, not symlinks");
+  expect(await readdir(outside)).toEqual([]);
+  const inspected = JSON.parse((await f.run(["learn", "inspect", f.project, draft.id])).stdout);
+  expect(inspected.decisions).toEqual([]);
+  expect(f.payloads).toHaveLength(2);
 }, 15_000);
 
 test("learning rejects source overlap with Pi state before creating files or calling a provider", async () => {
@@ -119,7 +280,7 @@ test("learning rejects source overlap with Pi state before creating files or cal
   expect(JSON.parse((await f.run(["learn", "list", f.project])).stdout).drafts).toEqual([]);
 });
 
-for (const layout of ["default-root", "state-alias", "missing-state"]) test(`learning state preflight handles ${layout} without modifying the source`, async () => {
+for (const layout of ["default-root", "state-alias", "missing-state"]) needsSymlinks(`learning state preflight handles ${layout} without modifying the source`, async () => {
   const f = await fixture(() => answer('{"candidates":[]}'));
   let source = f.project;
   let requested = source;
@@ -145,7 +306,7 @@ for (const layout of ["default-root", "state-alias", "missing-state"]) test(`lea
   expect(await snapshot(source)).toEqual(before);
 });
 
-for (const file of ["auth.json", "models-store.json"]) test(`learning refuses a separate Pi state's ${file} symlink into source`, async () => {
+for (const file of ["auth.json", "models-store.json"]) needsSymlinks(`learning refuses a separate Pi state's ${file} symlink into source`, async () => {
   const f = await fixture(() => answer('{"candidates":[]}'));
   const protectedFile = path.join(f.project, file);
   await writeFile(protectedFile, "{}\n");
@@ -242,6 +403,12 @@ test("invalid learning commands stay local and never fall through to an unrestri
   const f = await fixture();
   for (const args of [
     ["learn"], ["learn", "inspect", f.project], ["learn", f.project, "--promote"],
+    ["learn", "promote", f.project],
+    ["learn", "promote", f.project, "bad-id", "0".repeat(64), "1", "reference"],
+    ["learn", "promote", f.project, "00000000-0000-0000-0000-000000000000", "0".repeat(64), "zero", "reference"],
+    ["learn", "promote", f.project, "00000000-0000-0000-0000-000000000000", "0".repeat(64), "1", "automatic"],
+    ["learn", "promote", f.project, "00000000-0000-0000-0000-000000000000", "0".repeat(64), "1", "global-skill"],
+    ["learn", "promote", f.project, "00000000-0000-0000-0000-000000000000", "0".repeat(64), "1", "reference", "extra-name"],
     ["learn", "https://example.com/repo"], ["learn", "git@example.com:repo"],
     ["learn", path.join(f.root, "missing")], ["learn", path.join(f.project, "pattern.txt")], ["learn", f.home],
     ["--verify", "learn", f.project], ["--mcp", "fixture", "learn", f.project], ["--lsp", "fixture", "learn", f.project],
@@ -327,7 +494,7 @@ test("corrupted draft state fails closed before model startup and stays untouche
   expect(f.payloads).toHaveLength(1);
 });
 
-test("symlinked evidence parents, binary text and oversized files cannot become draft provenance", async () => {
+needsSymlinks("symlinked evidence parents, binary text and oversized files cannot become draft provenance", async () => {
   let evidenceFile = "pattern.txt";
   const f = await fixture(() => answer(JSON.stringify({ candidates: [{ ...candidate, evidence: [{ ...candidate.evidence[0], file: evidenceFile }] }] })));
   const file = path.join(f.project, "pattern.txt");
@@ -350,7 +517,7 @@ test("symlinked evidence parents, binary text and oversized files cannot become 
   expect(JSON.parse(result.stdout).draft.sourceRoot).toBe(await realpath(f.project));
 });
 
-test("learning refuses a state directory redirected into source files before model startup", async () => {
+needsSymlinks("learning refuses a state directory redirected into source files before model startup", async () => {
   const f = await fixture();
   await symlink(f.project, path.join(f.home, ".casper"));
   const before = await snapshot(f.project);
@@ -394,7 +561,7 @@ test("provider failure does not expose raw provider text or record an outcome as
   expect(f.payloads).toHaveLength(1);
 });
 
-test.skipIf(process.platform === "win32")("FIFO evidence and stored drafts fail without waiting for a writer", async () => {
+needsFifos("FIFO evidence and stored drafts fail without waiting for a writer", async () => {
   const f = await fixture(() => answer(JSON.stringify({ candidates: [candidate] })));
   const file = path.join(f.project, "pattern.txt");
   await rm(file);
@@ -410,7 +577,7 @@ test.skipIf(process.platform === "win32")("FIFO evidence and stored drafts fail 
   expect(f.payloads).toHaveLength(2);
 }, 15_000);
 
-test.skipIf(process.platform === "win32")("CLI cancellation drains the read-only run without publishing late candidates", async () => {
+posixOnly("CLI cancellation drains the read-only run without publishing late candidates", async () => {
   let enter!: () => void;
   const entered = new Promise<void>((resolve) => { enter = resolve; });
   const f = await fixture(() => {
@@ -444,7 +611,7 @@ test("Unicode and CRLF citations retain exact quoted lines and a digest of raw f
   }]);
 });
 
-test("invalid, duplicated and oversized draft stores are never reset or sent to a model", async () => {
+needsSymlinks("invalid, duplicated and oversized draft stores are never reset or sent to a model", async () => {
   const f = await fixture(() => answer(JSON.stringify({ candidates: [candidate] })));
   const draft = JSON.parse((await f.run(["learn", f.project])).stdout).draft;
   const file = path.join(f.home, ".casper", Object.keys(await snapshot(path.join(f.home, ".casper")))[0]!);

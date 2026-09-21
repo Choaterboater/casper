@@ -9,6 +9,7 @@ import { MindMeshProvider } from "../src/visualize/mindmesh";
 import { buildRepoGraph } from "../src/visualize/repo";
 import { VisualizationRouter, resolveVisualizationSettings } from "../src/visualize/router";
 import { parseVisualizationGraph, spanningTree } from "../src/visualize/types";
+import { needsSymlinks } from "./support/platform";
 
 const roots: string[] = [];
 afterEach(async () => { for (const root of roots.splice(0)) await fs.rm(root, { recursive: true, force: true }); });
@@ -51,7 +52,7 @@ test("review: global relative artifact path resolves under user home", async () 
   const { root } = await fixture();
   expect(resolveVisualizationSettings({ homeDir: root, projectName: "x", layers: [{ source: "global", document: { visualize: { outputDir: "diagrams" } } }] }).outputDir).toBe(path.join(root, "diagrams"));
 });
-test("review: canonical workspace destinations rejected before creating directories", async () => {
+needsSymlinks("review: canonical workspace destinations rejected before creating directories", async () => {
   const { root, workspace } = await fixture();
   const alias = path.join(root, "alias"); await fs.symlink(workspace, alias);
   for (const outputDir of [workspace, path.join(workspace, "new/deep"), path.join(alias, "new/deep")]) {
@@ -86,7 +87,7 @@ test("review: cancellation during directory setup prevents files", async () => {
     expect(await fs.readdir(out).catch(() => [])).toEqual([]);
   } finally { mock.mockRestore(); }
 });
-test("review: repository scope cannot follow symlinks outside the project", async () => {
+needsSymlinks("review: repository scope cannot follow symlinks outside the project", async () => {
   const { root, workspace } = await fixture();
   const external = path.join(root, "external");
   await fs.mkdir(external);
@@ -116,7 +117,7 @@ test("review: long multibyte repository paths yield deterministic validated IR",
   }
 });
 
-test("review follow-up: replacing the artifact directory with a workspace symlink cannot redirect writes", async () => {
+needsSymlinks("review follow-up: replacing the artifact directory with a workspace symlink cannot redirect writes", async () => {
   const { root, workspace, out } = await fixture(); await fs.mkdir(out);
   const retained = path.join(root, "original-output");
   const actualOut = await fs.realpath(out);
@@ -140,7 +141,7 @@ test("review follow-up: replacing the artifact directory with a workspace symlin
   } finally { opened.mockRestore(); resolved.mockRestore(); }
 });
 
-test("review final: a swapped ancestor cannot redirect creation of missing output directories", async () => {
+needsSymlinks("review final: a swapped ancestor cannot redirect creation of missing output directories", async () => {
   const { root, workspace, out } = await fixture(); await fs.mkdir(out);
   const actualOut = await fs.realpath(out); const retained = path.join(root, "retained");
   const resolve = fs.realpath; let swapped = false;

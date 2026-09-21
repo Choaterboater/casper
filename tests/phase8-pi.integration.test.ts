@@ -7,6 +7,10 @@ import type { RuntimeEvent } from "../src/runtime/types";
 import type { VerificationReport } from "../src/verify/evidence";
 import type { TaskResult } from "../src/task/result";
 
+import { POSIX, needsSymlinks, posixOnly } from "./support/platform";
+import { checkCommand } from "./support/check-command";
+/** The fixture check every managed-check test here runs; the native commands stay shell. */
+const runsCheck = checkCommand("append:test-runs");
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
 interface Payload {
@@ -121,7 +125,7 @@ test("read-only Pi refuses a source containing its active state before initializ
   expect(await snapshot(f.agent)).toEqual(before);
 });
 
-test("ordinary parent Pi startup remains allowed when state is inside its workspace", async () => {
+needsSymlinks("ordinary parent Pi startup remains allowed when state is inside its workspace", async () => {
   const f = await fixture(() => answer("ORDINARY_PARENT_UNCHANGED"));
   const state = path.join(f.project, ".pi/agent");
   await mkdir(path.dirname(state));
@@ -137,7 +141,7 @@ test("ordinary parent Pi startup remains allowed when state is inside its worksp
   expect(f.payloads[0]?.tools.map((tool) => tool.function.name)).toContain("bash");
 });
 
-test("real Pi forwards correlated bounded shell diagnostics without edit bodies or fabricated exit codes", async () => {
+posixOnly("real Pi forwards correlated bounded shell diagnostics without edit bodies or fabricated exit codes", async () => {
   let step = 0;
   const f = await fixture(() => step++ === 0 ? calls([
     { name: "bash", args: { command: "printf SHELL_DIAGNOSTIC; exit 7" } },
@@ -167,9 +171,9 @@ try {
   expect(await readFile(path.join(f.project, "changed.txt"), "utf8")).toBe("EDIT_BODY_NOT_AN_OBSERVATION");
 }, 15_000);
 
-test("pinned Pi uses managed checks in its native edit loop, reuses scoped passes, and hands real failure to one repair owner", async () => {
+posixOnly("pinned Pi uses managed checks in its native edit loop, reuses scoped passes, and hands real failure to one repair owner", async () => {
   const native = "printf native > native-proof; kill -TERM $$";
-  const command = "printf x >> test-runs; grep -qx good src/value";
+  const command = checkCommand("append:test-runs", "require-line:src/value=good");
   let step = 0;
   const f = await fixture(() => {
     switch (step++) {
@@ -221,7 +225,7 @@ try {
   expect(repair[0].text).toContain('"exitCode": 1');
 }, 15_000);
 
-for (const form of ["relative", "at-prefix", "absolute", "file-url", "double-at", "tilde", "unicode-space", "alias"]) test(`pinned Pi retains native edit invalidation after restored directory membership (${form})`, async () => {
+for (const form of ["relative", "at-prefix", "absolute", "file-url", "double-at", "tilde", "unicode-space", "alias"]) posixOnly(`pinned Pi retains native edit invalidation after restored directory membership (${form})`, async () => {
   let step = 0;
   const input = form === "double-at" ? "@src" : form === "unicode-space" ? "src dir" : "src";
   let nativePath = form === "double-at" ? "@@src/transient" : "src/transient";
@@ -236,7 +240,7 @@ for (const form of ["relative", "at-prefix", "absolute", "file-url", "double-at"
   await mkdir(path.join(f.project, input));
   await mkdir(path.join(f.project, ".casper"));
   await writeFile(path.join(f.project, ".casper/project.yaml"), JSON.stringify({
-    verify: { test: "printf x >> test-runs" }, verification: { scopes: { test: { inputs: [input] } } },
+    verify: { test: runsCheck }, verification: { scopes: { test: { inputs: [input] } } },
   }));
   if (form === "at-prefix") nativePath = "@./src/transient";
   if (form === "absolute") nativePath = path.join(await realpath(f.project), "src/transient");
@@ -269,7 +273,7 @@ try {
   expect(f.payloads).toHaveLength(6);
 }, 15_000);
 
-for (const destination of ["excluded", "outside-workspace"]) test(`pinned Pi retains included symlink invalidation after removal (${destination})`, async () => {
+for (const destination of ["excluded", "outside-workspace"]) posixOnly(`pinned Pi retains included symlink invalidation after removal (${destination})`, async () => {
   let step = 0;
   let linkTarget = "generated";
   const f = await fixture(() => {
@@ -288,7 +292,7 @@ for (const destination of ["excluded", "outside-workspace"]) test(`pinned Pi ret
   }
   await mkdir(path.join(f.project, ".casper"));
   await writeFile(path.join(f.project, ".casper/project.yaml"), JSON.stringify({
-    verify: { test: "printf x >> test-runs" },
+    verify: { test: runsCheck },
     verification: { scopes: { test: { inputs: ["src"], exclude: ["src/generated"] } } },
   }));
   const harness = path.join(f.agent, "included-symlink.ts");
@@ -321,7 +325,7 @@ const caseInsensitiveFilesystem = await (async () => {
   } finally { await rm(root, { recursive: true, force: true }); }
 })();
 
-test.skipIf(!caseInsensitiveFilesystem)("pinned Pi matches a case-aliased scope root without broadening its exclusions", async () => {
+test.skipIf(!caseInsensitiveFilesystem || !POSIX)("pinned Pi matches a case-aliased scope root without broadening its exclusions", async () => {
   let step = 0;
   const f = await fixture(() => {
     switch (step++) {
@@ -336,7 +340,7 @@ test.skipIf(!caseInsensitiveFilesystem)("pinned Pi matches a case-aliased scope 
   await mkdir(path.join(f.project, "src/generated"), { recursive: true });
   await mkdir(path.join(f.project, ".casper"));
   await writeFile(path.join(f.project, ".casper/project.yaml"), JSON.stringify({
-    verify: { test: "printf x >> test-runs" },
+    verify: { test: runsCheck },
     verification: { scopes: { test: { inputs: ["SRC"], exclude: ["SRC/generated"] } } },
   }));
   const harness = path.join(f.agent, "case-scope.ts");
@@ -368,7 +372,7 @@ test.skipIf(!caseInsensitiveFilesystem)("pinned Pi invalidates a failed edit of 
   await mkdir(path.join(f.project, "src"));
   await mkdir(path.join(f.project, ".casper"));
   await writeFile(path.join(f.project, ".casper/project.yaml"), JSON.stringify({
-    verify: { test: "printf x >> test-runs" }, verification: { scopes: { test: { inputs: ["SRC/MISSING"] } } },
+    verify: { test: runsCheck }, verification: { scopes: { test: { inputs: ["SRC/MISSING"] } } },
   }));
   const harness = path.join(f.agent, "missing-native-alias.ts");
   await writeFile(harness, `import { CasperApp } from ${JSON.stringify(path.join(import.meta.dir, "../src/app.ts"))};
@@ -388,7 +392,7 @@ try {
   expect(await readFile(path.join(f.project, "test-runs"), "utf8")).toBe("xx");
 }, 15_000);
 
-test.skipIf(!caseInsensitiveFilesystem)("pinned Pi preserves exclusions for case-aliased symlinks while retaining included traversal", async () => {
+test.skipIf(!caseInsensitiveFilesystem || !POSIX)("pinned Pi preserves exclusions for case-aliased symlinks while retaining included traversal", async () => {
   let step = 0;
   const f = await fixture(() => {
     switch (step++) {
@@ -406,7 +410,7 @@ test.skipIf(!caseInsensitiveFilesystem)("pinned Pi preserves exclusions for case
   await symlink("../outside", path.join(f.project, "src/generated"), "dir");
   await mkdir(path.join(f.project, ".casper"));
   await writeFile(path.join(f.project, ".casper/project.yaml"), JSON.stringify({
-    verify: { test: "printf x >> test-runs" },
+    verify: { test: runsCheck },
     verification: { scopes: { test: { inputs: ["SRC"], exclude: ["SRC/generated"] } } },
   }));
   const harness = path.join(f.agent, "case-symlink.ts");
@@ -427,7 +431,7 @@ try {
   expect(await readFile(path.join(f.project, "test-runs"), "utf8")).toBe("xx");
 }, 15_000);
 
-for (const toolName of ["edit", "write"]) for (const form of ["alias", "file-url", "double-at"]) test(`pinned Pi conservatively invalidates a failed native ${toolName} (${form})`, async () => {
+for (const toolName of ["edit", "write"]) for (const form of ["alias", "file-url", "double-at"]) needsSymlinks(`pinned Pi conservatively invalidates a failed native ${toolName} (${form})`, async () => {
   let step = 0;
   const input = form === "double-at" ? "@src" : "src";
   // Edit a missing target; write to a directory. Neither error is a completed edit.
@@ -444,7 +448,7 @@ for (const toolName of ["edit", "write"]) for (const form of ["alias", "file-url
   await mkdir(path.join(f.project, input));
   await mkdir(path.join(f.project, ".casper"));
   await writeFile(path.join(f.project, ".casper/project.yaml"), JSON.stringify({
-    verify: { test: "printf x >> test-runs" }, verification: { scopes: { test: { inputs: [input] } } },
+    verify: { test: runsCheck }, verification: { scopes: { test: { inputs: [input] } } },
   }));
   if (form === "alias") {
     const alias = path.join(f.agent, "project-alias");
@@ -482,7 +486,7 @@ test("pinned Pi invalidates a failed native write whose expanded path is cwd", a
   await mkdir(path.join(f.project, "src"));
   await mkdir(path.join(f.project, ".casper"));
   await writeFile(path.join(f.project, ".casper/project.yaml"), JSON.stringify({
-    verify: { test: "printf x >> test-runs" }, verification: { scopes: { test: { inputs: ["src"] } } },
+    verify: { test: runsCheck }, verification: { scopes: { test: { inputs: ["src"] } } },
   }));
   const harness = path.join(f.agent, "empty-native-path.ts");
   await writeFile(harness, `import { CasperApp } from ${JSON.stringify(path.join(import.meta.dir, "../src/app.ts"))};

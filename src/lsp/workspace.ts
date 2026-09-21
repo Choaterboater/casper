@@ -1,5 +1,5 @@
-import { constants } from "node:fs";
-import { open, opendir, realpath, type FileHandle } from "node:fs/promises";
+import { opendir, realpath, type FileHandle } from "node:fs/promises";
+import { openNoFollow, openNoFollowUpdate } from "../platform/files";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { applyTextEdits, type TextEdit } from "./edits";
@@ -37,7 +37,7 @@ async function readSnapshotBytes(file: FileHandle, expectedBytes: number): Promi
 
 export async function snapshot(root: string, input: string): Promise<Snapshot> {
   const target = await projectPath(root, input);
-  const file = await open(target, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  const file = await openNoFollow(target);
   try {
     const stat = await file.stat();
     if (!stat.isFile() || stat.nlink !== 1 || stat.size > MAX_FILE_BYTES) throw new Error("LSP requires a regular, single-link file within 1 MiB");
@@ -138,7 +138,7 @@ export async function commitPlan(root: string, files: readonly PlannedFile[], si
       signal?.throwIfAborted();
       await validatePlan(root, [file]);
       signal?.throwIfAborted();
-      const handle = await open(file.path, constants.O_RDWR | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+      const handle = await openNoFollowUpdate(file.path);
       try {
         const stat = await handle.stat();
         if (stat.dev !== file.dev || stat.ino !== file.ino || stat.nlink !== 1 || !stat.isFile()) throw new Error("Rename target identity changed");

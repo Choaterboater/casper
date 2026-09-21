@@ -22,7 +22,7 @@ export function describeVisualization(rendered: RenderedVisualization, notes: st
     skippedProviders: rendered.skipped,
     notes: [
       ...notes,
-      ...(rendered.artifacts.length ? [] : ["No artifact written (visualize.outputDir disabled); content is in-conversation only."]),
+      ...(rendered.artifacts.length ? [] : [rendered.artifactNote ?? "No artifact written (visualize.outputDir disabled); content is in-conversation only."]),
       "Visualization is read-only; it does not authorize code changes.",
     ],
   };

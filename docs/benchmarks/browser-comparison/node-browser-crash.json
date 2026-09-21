@@ -1,0 +1,810 @@
+{
+  "runtime": {
+    "node": "25.9.0",
+    "acorn": "8.16.0",
+    "ada": "3.4.4",
+    "amaro": "1.1.8",
+    "ares": "1.34.6",
+    "brotli": "1.2.0",
+    "cldr": "48.0",
+    "icu": "78.3",
+    "lief": "0.17.0",
+    "llhttp": "9.3.1",
+    "merve": "1.2.2",
+    "modules": "141",
+    "napi": "10",
+    "nbytes": "0.1.3",
+    "ncrypto": "0.0.1",
+    "nghttp2": "1.68.1",
+    "nghttp3": "",
+    "ngtcp2": "",
+    "openssl": "3.6.3",
+    "simdjson": "4.6.0",
+    "simdutf": "7.3.3",
+    "sqlite": "3.51.3",
+    "tz": "2026a",
+    "undici": "7.24.4",
+    "unicode": "17.0",
+    "uv": "1.52.1",
+    "uvwasi": "0.0.23",
+    "v8": "14.1.146.11-node.25",
+    "zlib": "1.2.12",
+    "zstd": "1.5.7"
+  },
+  "packages": {
+    "puppeteer-core": "25.11.0",
+    "chrome-devtools-mcp": "1.9.0",
+    "agent-browser": "0.38.1"
+  },
+  "fixture": "Synthetic interaction + mobile overflow + console/503 + second localhost resource origin",
+  "limitations": [
+    "Not a live-agent or Casper integration test",
+    "No token/cost benchmark",
+    "No production credentials",
+    "Read-only page evaluation is harness-authored, not model supplied"
+  ],
+  "trials": [
+    {
+      "kind": "puppeteer",
+      "repeat": 0,
+      "dir": "/tmp/casper-browser-compare.TwvHx3/puppeteer-1789945577150",
+      "operations": [
+        {
+          "name": "launch+open",
+          "ms": 450.917,
+          "bytes": 13
+        },
+        {
+          "name": "inspect",
+          "ms": 11.984500000000025,
+          "bytes": 73
+        },
+        {
+          "name": "fill+click",
+          "ms": 64.31604200000004,
+          "bytes": 13
+        },
+        {
+          "name": "metrics",
+          "ms": 0.8740840000000389,
+          "bytes": 136
+        },
+        {
+          "name": "screenshot",
+          "ms": 52.750958999999966,
+          "bytes": 80
+        },
+        {
+          "name": "diagnostics",
+          "ms": 0.14470800000003692,
+          "bytes": 472
+        },
+        {
+          "name": "reload",
+          "ms": 10.473124999999982,
+          "bytes": 13
+        },
+        {
+          "name": "fill+click",
+          "ms": 85.55975000000001,
+          "bytes": 13
+        },
+        {
+          "name": "metrics",
+          "ms": 0.6142919999999776,
+          "bytes": 133
+        },
+        {
+          "name": "screenshot",
+          "ms": 41.44487500000014,
+          "bytes": 79
+        },
+        {
+          "name": "missing-element",
+          "ms": 602.2943329999998,
+          "bytes": 71
+        },
+        {
+          "name": "metrics",
+          "ms": 0.8271660000000338,
+          "bytes": 133
+        },
+        {
+          "name": "metrics",
+          "ms": 0.21887500000002547,
+          "error": "Error: Attempted to use detached Frame 'F56B7EB1E02EE95A5C89C9017BBBB16B'."
+        },
+        {
+          "name": "close",
+          "ms": 0.29950000000008004,
+          "bytes": 15
+        }
+      ],
+      "observation": "Local debugging fixture\nName Save\nNot saved\nSend message (synthetic)",
+      "before": {
+        "status": "Still broken",
+        "viewport": 375,
+        "width": 916,
+        "crossOriginLoaded": true,
+        "syntheticSecret": true,
+        "pageUrl": "http://127.0.0.1:63188/"
+      },
+      "diagnostics": {
+        "console": [
+          {
+            "type": "error",
+            "text": "fixture-console-failure"
+          },
+          {
+            "type": "error",
+            "text": "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+          },
+          {
+            "type": "exception",
+            "text": "Error: fixture-uncaught-failure"
+          }
+        ],
+        "network": [
+          {
+            "url": "http://127.0.0.1:63188/",
+            "status": 200
+          },
+          {
+            "url": "http://127.0.0.1:63187/resource.js",
+            "status": 200
+          },
+          {
+            "url": "http://127.0.0.1:63188/broken-api",
+            "status": 503
+          },
+          {
+            "url": "http://127.0.0.1:63188/favicon.ico",
+            "status": 200
+          }
+        ]
+      },
+      "after": {
+        "status": "Saved Ada",
+        "viewport": 375,
+        "width": 375,
+        "crossOriginLoaded": true,
+        "syntheticSecret": true,
+        "pageUrl": "http://127.0.0.1:63188/"
+      },
+      "before.png": {
+        "bytes": 16960,
+        "width": 375,
+        "height": 700
+      },
+      "after.png": {
+        "bytes": 18309,
+        "width": 375,
+        "height": 700
+      },
+      "timeout": {
+        "timedOut": true,
+        "error": "TimeoutError: Timed out after waiting 600ms"
+      },
+      "recovery": {
+        "status": "Saved Ada",
+        "viewport": 375,
+        "width": 375,
+        "crossOriginLoaded": true,
+        "syntheticSecret": true,
+        "pageUrl": "http://127.0.0.1:63188/"
+      },
+      "activeProcesses": [
+        {
+          "pid": 50941,
+          "command": "50941 50937 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --allow-pre-commit-input --disable-background-networking --disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-breakpad --disable-client-side-phishing-detection --disable-component-extensions-with-background-pages --disable-crash-reporter --disable-default-apps --disable-dev-shm-usage --disable-hang-monitor --disable-infobars --disable-ipc-flooding-protection --disable-popup-blocking --disable-prompt-on-repost --disable-renderer-backgrounding --disable-search-engine-choice-screen --disable-sync --enable-automation --export-tagged-pdf --force-color-profile=srgb --generate-pdf-document-outline --metrics-recording-only --no-first-run --password-store=basic --use-mock-keychain --disable-features=Translate,AcceptCHFrame,MediaRouter,OptimizationHints,WebUIReloadButton,WebUIOmniboxPopup,WebUIOmniboxAimPopup,ProcessPerSiteUpToMainFrameThreshold,IsolateSandboxedIframes --enable-features=PdfOopif --user-data-dir=/tmp/casper-browser-compare.TwvHx3/puppeteer-1789945577150/profile --headless=new --hide-scrollbars --mute-audio --disable-extensions about:blank --remote-debugging-port=0"
+        },
+        {
+          "pid": 50945,
+          "command": "50945 50941 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/153.0.8010.53/Helpers/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper --type=gpu-process --disable-breakpad --headless=new --noerrdialogs --user-data-dir=/tmp/casper-browser-compare.TwvHx3/puppeteer-1789945577150/profile --gpu-preferences=WAAAAAAAAAAgAQAEAAAAAAAAAAAAAGAAQAAAAAAAAAADAAAAAAAAADgAAAAAAAAAAAAAAAAAAAACAAAAAAAAAAAAAAAAAAAAKAAAAAAAAAAoAAAAAAAAAAgAAAAAAAAADAAAAAEAAAAAAAAAAAAAAAgAAAAAAAAACAAAAAAAAAA= --shared-files --field-trial-handle=1718379636,r,1656187756367892253,4372327676581631600,262144 --enable-features=PdfOopif --disable-features=AcceptCHFrame,IsolateSandboxedIframes,MediaRouter,OptimizationHints,PaintHolding,ProcessPerSiteUpToMainFrameThreshold,Translate,WebUIOmniboxAimPopup,WebUIOmniboxPopup,WebUIReloadButton --variations-seed-version --pseudonymization-salt-handle=1935764596,r,15672565236828834224,4474753249581672139,4 --trace-process-track-uuid=3190708988185955192 --seatbelt-client=25"
+        },
+        {
+          "pid": 50946,
+          "command": "50946 50941 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/153.0.8010.53/Helpers/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper --type=utility --utility-sub-type=network.mojom.NetworkService --lang=en-US --service-sandbox-type=network --mute-audio --noerrdialogs --user-data-dir=/tmp/casper-browser-compare.TwvHx3/puppeteer-1789945577150/profile --shared-files --field-trial-handle=1718379636,r,1656187756367892253,4372327676581631600,262144 --enable-features=PdfOopif --disable-features=AcceptCHFrame,IsolateSandboxedIframes,MediaRouter,OptimizationHints,PaintHolding,ProcessPerSiteUpToMainFrameThreshold,Translate,WebUIOmniboxAimPopup,WebUIOmniboxPopup,WebUIReloadButton --variations-seed-version --pseudonymization-salt-handle=1935764596,r,15672565236828834224,4474753249581672139,4 --trace-process-track-uuid=3190708989122997041 --seatbelt-client=25"
+        },
+        {
+          "pid": 50947,
+          "command": "50947 50941 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/153.0.8010.53/Helpers/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper --type=utility --utility-sub-type=storage.mojom.StorageService --lang=en-US --service-sandbox-type=service --mute-audio --noerrdialogs --user-data-dir=/tmp/casper-browser-compare.TwvHx3/puppeteer-1789945577150/profile --shared-files --field-trial-handle=1718379636,r,1656187756367892253,4372327676581631600,262144 --enable-features=PdfOopif --disable-features=AcceptCHFrame,IsolateSandboxedIframes,MediaRouter,OptimizationHints,PaintHolding,ProcessPerSiteUpToMainFrameThreshold,Translate,WebUIOmniboxAimPopup,WebUIOmniboxPopup,WebUIReloadButton --variations-seed-version --pseudonymization-salt-handle=1935764596,r,15672565236828834224,4474753249581672139,4 --trace-process-track-uuid=3190708990060038890 --seatbelt-client=39"
+        },
+        {
+          "pid": 50949,
+          "command": "50949 50941 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/153.0.8010.53/Helpers/Google Chrome Helper (Renderer).app/Contents/MacOS/Google Chrome Helper (Renderer) --type=renderer --noerrdialogs --user-data-dir=/tmp/casper-browser-compare.TwvHx3/puppeteer-1789945577150/profile --disable-background-timer-throttling --disable-breakpad --enable-automation --force-color-profile=srgb --remote-debugging-port=0 --allow-pre-commit-input --lang=en-US --num-raster-threads=4 --enable-zero-copy --enable-gpu-memory-buffer-compositor-resources --enable-main-frame-before-activation --renderer-client-id=7 --launch-time-ticks=602985373566 --shared-files --field-trial-handle=1718379636,r,1656187756367892253,4372327676581631600,262144 --enable-features=PdfOopif --disable-features=AcceptCHFrame,IsolateSandboxedIframes,MediaRouter,OptimizationHints,PaintHolding,ProcessPerSiteUpToMainFrameThreshold,Translate,WebUIOmniboxAimPopup,WebUIOmniboxPopup,WebUIReloadButton --variations-seed-version --pseudonymization-salt-handle=1935764596,r,15672565236828834224,4474753249581672139,4 --trace-process-track-uuid=3190708992871164437 --seatbelt-client=72"
+        },
+        {
+          "pid": 50950,
+          "command": "50950 50941 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/153.0.8010.53/Helpers/Google Chrome Helper (Renderer).app/Contents/MacOS/Google Chrome Helper (Renderer) --type=renderer --noerrdialogs --user-data-dir=/tmp/casper-browser-compare.TwvHx3/puppeteer-1789945577150/profile --disable-background-timer-throttling --disable-breakpad --enable-automation --force-color-profile=srgb --remote-debugging-port=0 --allow-pre-commit-input --lang=en-US --num-raster-threads=4 --enable-zero-copy --enable-gpu-memory-buffer-compositor-resources --enable-main-frame-before-activation --renderer-client-id=6 --launch-time-ticks=602985381553 --shared-files --field-trial-handle=1718379636,r,1656187756367892253,4372327676581631600,262144 --enable-features=PdfOopif --disable-features=AcceptCHFrame,IsolateSandboxedIframes,MediaRouter,OptimizationHints,PaintHolding,ProcessPerSiteUpToMainFrameThreshold,Translate,WebUIOmniboxAimPopup,WebUIOmniboxPopup,WebUIReloadButton --variations-seed-version --pseudonymization-salt-handle=1935764596,r,15672565236828834224,4474753249581672139,4 --trace-process-track-uuid=3190708991934122588 --seatbelt-client=72"
+        },
+        {
+          "pid": 50951,
+          "command": "50951 50941 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/153.0.8010.53/Helpers/Google Chrome Helper (Renderer).app/Contents/MacOS/Google Chrome Helper (Renderer) --type=renderer --noerrdialogs --user-data-dir=/tmp/casper-browser-compare.TwvHx3/puppeteer-1789945577150/profile --disable-background-timer-throttling --disable-breakpad --enable-automation --force-color-profile=srgb --remote-debugging-port=0 --allow-pre-commit-input --lang=en-US --num-raster-threads=4 --enable-zero-copy --enable-gpu-memory-buffer-compositor-resources --enable-main-frame-before-activation --renderer-client-id=8 --launch-time-ticks=602985438612 --shared-files --field-trial-handle=1718379636,r,1656187756367892253,4372327676581631600,262144 --enable-features=PdfOopif --disable-features=AcceptCHFrame,IsolateSandboxedIframes,MediaRouter,OptimizationHints,PaintHolding,ProcessPerSiteUpToMainFrameThreshold,Translate,WebUIOmniboxAimPopup,WebUIOmniboxPopup,WebUIReloadButton --variations-seed-version --pseudonymization-salt-handle=1935764596,r,15672565236828834224,4474753249581672139,4 --trace-process-track-uuid=3190708993808206286 --seatbelt-client=96"
+        },
+        {
+          "pid": 50952,
+          "command": "50952 50941 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/153.0.8010.53/Helpers/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper --type=utility --utility-sub-type=proxy_resolver.mojom.ProxyResolverFactory --lang=en-US --service-sandbox-type=service --mute-audio --noerrdialogs --user-data-dir=/tmp/casper-browser-compare.TwvHx3/puppeteer-1789945577150/profile --shared-files --field-trial-handle=1718379636,r,1656187756367892253,4372327676581631600,262144 --enable-features=PdfOopif --disable-features=AcceptCHFrame,IsolateSandboxedIframes,MediaRouter,OptimizationHints,PaintHolding,ProcessPerSiteUpToMainFrameThreshold,Translate,WebUIOmniboxAimPopup,WebUIOmniboxPopup,WebUIReloadButton --variations-seed-version --pseudonymization-salt-handle=1935764596,r,15672565236828834224,4474753249581672139,4 --trace-process-track-uuid=3190708994745248135 --seatbelt-client=97"
+        }
+      ],
+      "afterCrashError": "Error: Attempted to use detached Frame 'F56B7EB1E02EE95A5C89C9017BBBB16B'.",
+      "afterCrashMs": 0.2339159999999083,
+      "passed": true,
+      "residualProcesses": []
+    },
+    {
+      "kind": "mcp",
+      "repeat": 0,
+      "dir": "/tmp/casper-browser-compare.TwvHx3/mcp-1789945580412",
+      "operations": [
+        {
+          "name": "launch+open",
+          "ms": 984.7612920000001,
+          "bytes": 130
+        },
+        {
+          "name": "inspect",
+          "ms": 5.184792000000016,
+          "bytes": 613
+        },
+        {
+          "name": "fill+click",
+          "ms": 460.38275000000067,
+          "bytes": 210
+        },
+        {
+          "name": "metrics",
+          "ms": 103.91125000000011,
+          "bytes": 136
+        },
+        {
+          "name": "screenshot",
+          "ms": 10.732208000000355,
+          "bytes": 318
+        },
+        {
+          "name": "diagnostics",
+          "ms": 15.920291000000361,
+          "bytes": 1166
+        },
+        {
+          "name": "reload",
+          "ms": 112.85854199999994,
+          "bytes": 299
+        },
+        {
+          "name": "fill+click",
+          "ms": 473.0421670000005,
+          "bytes": 210
+        },
+        {
+          "name": "metrics",
+          "ms": 103.16729200000009,
+          "bytes": 133
+        },
+        {
+          "name": "screenshot",
+          "ms": 12.844375000000582,
+          "bytes": 317
+        },
+        {
+          "name": "missing-element",
+          "ms": 603.0404170000002,
+          "bytes": 253
+        },
+        {
+          "name": "metrics",
+          "ms": 102.14804200000071,
+          "bytes": 133
+        },
+        {
+          "name": "metrics",
+          "ms": 405.46829199999956,
+          "error": "Error: {\"content\":[{\"type\":\"text\",\"text\":\"Note: the browser was restarted or reconnected since the last call. Page ids have changed. Call list_pages to see open pages.\\nError: No page found\"}],\"isError\":true}"
+        },
+        {
+          "name": "close",
+          "ms": 73.35641699999996,
+          "bytes": 15
+        }
+      ],
+      "observation": {
+        "content": [
+          {
+            "type": "text",
+            "text": "Emulating viewport: {\"deviceScaleFactor\":1,\"isMobile\":false,\"hasTouch\":false,\"isLandscape\":false,\"width\":375,\"height\":700}\n## Latest page snapshot\nuid=1_0 RootWebArea \"Casper comparison fixture\" url=\"http://127.0.0.1:63188/\"\n  uid=1_1 main\n    uid=1_2 heading \"Local debugging fixture\" level=\"1\"\n    uid=1_3 StaticText \"Name \"\n    uid=1_4 textbox \"Name\"\n    uid=1_5 button \"Save\"\n    uid=1_6 status atomic live=\"polite\" relevant=\"additions text\"\n      uid=1_7 StaticText \"Not saved\"\n    uid=1_8 button \"Send message (synthetic)\"\n"
+          }
+        ]
+      },
+      "before": {
+        "status": "Still broken",
+        "viewport": 375,
+        "width": 916,
+        "crossOriginLoaded": true,
+        "syntheticSecret": true,
+        "pageUrl": "http://127.0.0.1:63188/"
+      },
+      "diagnostics": {
+        "console": {
+          "content": [
+            {
+              "type": "text",
+              "text": "Emulating viewport: {\"deviceScaleFactor\":1,\"isMobile\":false,\"hasTouch\":false,\"isLandscape\":false,\"width\":375,\"height\":700}\n## Console messages\nShowing 1-4 of 4 (Page 1 of 1).\nmsgid=1 [error] fixture-console-failure (1 args)\n  at  ((index):7:9)\nmsgid=2 [issue] An element doesn’t have an autocomplete attribute (count: 1)\nmsgid=3 [error] Failed to load resource: the server responded with a status of 503 (Service Unavailable) (0 args)\nmsgid=4 [error] Uncaught Error: fixture-uncaught-failure (0 args)\n  at  ((index):7:85)\n  --- setTimeout -------------------------\n  at  ((index):7:63)\nNote: stack trace line and column numbers use 1-based indexing"
+            }
+          ]
+        },
+        "network": {
+          "content": [
+            {
+              "type": "text",
+              "text": "Emulating viewport: {\"deviceScaleFactor\":1,\"isMobile\":false,\"hasTouch\":false,\"isLandscape\":false,\"width\":375,\"height\":700}\n## Network requests\nShowing 1-4 of 4 (Page 1 of 1).\nreqid=1 GET http://127.0.0.1:63188/ [200]\nreqid=2 GET http://127.0.0.1:63187/resource.js [200]\nreqid=3 GET http://127.0.0.1:63188/broken-api [503]\nreqid=4 GET http://127.0.0.1:63188/favicon.ico [200]"
+            }
+          ]
+        }
+      },
+      "after": {
+        "status": "Saved Ada",
+        "viewport": 375,
+        "width": 375,
+        "crossOriginLoaded": true,
+        "syntheticSecret": true,
+        "pageUrl": "http://127.0.0.1:63188/"
+      },
+      "before.png": {
+        "bytes": 23301,
+        "width": 375,
+        "height": 700
+      },
+      "after.png": {
+        "bytes": 24621,
+        "width": 375,
+        "height": 700
+      },
+      "timeout": {
+        "timedOut": true,
+        "result": {
+          "content": [
+            {
+              "type": "text",
+              "text": "Emulating viewport: {\"deviceScaleFactor\":1,\"isMobile\":false,\"hasTouch\":false,\"isLandscape\":false,\"width\":375,\"height\":700}\nError: Timed out after waiting 600ms"
+            }
+          ],
+          "isError": true
+        }
+      },
+      "recovery": {
+        "status": "Saved Ada",
+        "viewport": 375,
+        "width": 375,
+        "crossOriginLoaded": true,
+        "syntheticSecret": true,
+        "pageUrl": "http://127.0.0.1:63188/"
+      },
+      "activeProcesses": [
+        {
+          "pid": 50984,
+          "command": "50984 50983 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --allow-pre-commit-input --disable-background-networking --disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-breakpad --disable-client-side-phishing-detection --disable-component-extensions-with-background-pages --disable-crash-reporter --disable-default-apps --disable-dev-shm-usage --disable-hang-monitor --disable-infobars --disable-ipc-flooding-protection --disable-popup-blocking --disable-prompt-on-repost --disable-renderer-backgrounding --disable-search-engine-choice-screen --disable-sync --enable-automation --export-tagged-pdf --force-color-profile=srgb --generate-pdf-document-outline --metrics-recording-only --no-first-run --password-store=basic --use-mock-keychain --disable-features=Translate,AcceptCHFrame,MediaRouter,OptimizationHints,WebUIReloadButton,WebUIOmniboxPopup,WebUIOmniboxAimPopup,ProcessPerSiteUpToMainFrameThreshold,IsolateSandboxedIframes --enable-features=PdfOopif --headless=new --hide-scrollbars --mute-audio --disable-extensions about:blank --hide-crash-restore-bubble --screen-info={3840x2160} --remote-debugging-pipe --user-data-dir=/tmp/casper-browser-compare.TwvHx3/mcp-1789945580412/tmp/puppeteer_dev_chrome_profile-n8lPz5"
+        },
+        {
+          "pid": 50988,
+          "command": "50988 50984 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/153.0.8010.53/Helpers/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper --type=gpu-process --disable-breakpad --headless=new --noerrdialogs --user-data-dir=/tmp/casper-browser-compare.TwvHx3/mcp-1789945580412/tmp/puppeteer_dev_chrome_profile-n8lPz5 --gpu-preferences=WAAAAAAAAAAgAQAEAAAAAAAAAAAAAGAAQAAAAAAAAAADAAAAAAAAADgAAAAAAAAAAAAAAAAAAAACAAAAAAAAAAAAAAAAAAAAKAAAAAAAAAAoAAAAAAAAAAgAAAAAAAAADAAAAAEAAAAAAAAAAAAAAAgAAAAAAAAACAAAAAAAAAA= --shared-files --field-trial-handle=1718379636,r,5688037251558029728,12496929920169584777,262144 --enable-features=PdfOopif --disable-features=AcceptCHFrame,IsolateSandboxedIframes,MediaRouter,OptimizationHints,PaintHolding,ProcessPerSiteUpToMainFrameThreshold,Translate,WebUIOmniboxAimPopup,WebUIOmniboxPopup,WebUIReloadButton --variations-seed-version --pseudonymization-salt-handle=1935764596,r,671327685723062626,12317950457809486646,4 --trace-process-track-uuid=3190708988185955192 --seatbelt-client=26"
+        },
+        {
+          "pid": 50989,
+          "command": "50989 50984 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/153.0.8010.53/Helpers/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper --type=utility --utility-sub-type=network.mojom.NetworkService --lang=en-US --service-sandbox-type=network --mute-audio --noerrdialogs --user-data-dir=/tmp/casper-browser-compare.TwvHx3/mcp-1789945580412/tmp/puppeteer_dev_chrome_profile-n8lPz5 --shared-files --field-trial-handle=1718379636,r,5688037251558029728,12496929920169584777,262144 --enable-features=PdfOopif --disable-features=AcceptCHFrame,IsolateSandboxedIframes,MediaRouter,OptimizationHints,PaintHolding,ProcessPerSiteUpToMainFrameThreshold,Translate,WebUIOmniboxAimPopup,WebUIOmniboxPopup,WebUIReloadButton --variations-seed-version --pseudonymization-salt-handle=1935764596,r,671327685723062626,12317950457809486646,4 --trace-process-track-uuid=3190708989122997041 --seatbelt-client=26"
+        },
+        {
+          "pid": 50990,
+          "command": "50990 50984 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/153.0.8010.53/Helpers/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper --type=utility --utility-sub-type=storage.mojom.StorageService --lang=en-US --service-sandbox-type=service --mute-audio --noerrdialogs --user-data-dir=/tmp/casper-browser-compare.TwvHx3/mcp-1789945580412/tmp/puppeteer_dev_chrome_profile-n8lPz5 --shared-files --field-trial-handle=1718379636,r,5688037251558029728,12496929920169584777,262144 --enable-features=PdfOopif --disable-features=AcceptCHFrame,IsolateSandboxedIframes,MediaRouter,OptimizationHints,PaintHolding,ProcessPerSiteUpToMainFrameThreshold,Translate,WebUIOmniboxAimPopup,WebUIOmniboxPopup,WebUIReloadButton --variations-seed-version --pseudonymization-salt-handle=1935764596,r,671327685723062626,12317950457809486646,4 --trace-process-track-uuid=3190708990060038890 --seatbelt-client=43"
+        },
+        {
+          "pid": 50992,
+          "command": "50992 50984 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/153.0.8010.53/Helpers/Google Chrome Helper (Renderer).app/Contents/MacOS/Google Chrome Helper (Renderer) --type=renderer --noerrdialogs --user-data-dir=/tmp/casper-browser-compare.TwvHx3/mcp-1789945580412/tmp/puppeteer_dev_chrome_profile-n8lPz5 --disable-background-timer-throttling --disable-breakpad --enable-automation --force-color-profile=srgb --remote-debugging-pipe --allow-pre-commit-input --lang=en-US --num-raster-threads=4 --enable-zero-copy --enable-gpu-memory-buffer-compositor-resources --enable-main-frame-before-activation --renderer-client-id=7 --launch-time-ticks=602989029045 --shared-files --field-trial-handle=1718379636,r,5688037251558029728,12496929920169584777,262144 --enable-features=PdfOopif --disable-features=AcceptCHFrame,IsolateSandboxedIframes,MediaRouter,OptimizationHints,PaintHolding,ProcessPerSiteUpToMainFrameThreshold,Translate,WebUIOmniboxAimPopup,WebUIOmniboxPopup,WebUIReloadButton --variations-seed-version --pseudonymization-salt-handle=1935764596,r,671327685723062626,12317950457809486646,4 --trace-process-track-uuid=3190708992871164437 --seatbelt-client=69"
+        },
+        {
+          "pid": 50993,
+          "command": "50993 50984 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/153.0.8010.53/Helpers/Google Chrome Helper (Renderer).app/Contents/MacOS/Google Chrome Helper (Renderer) --type=renderer --noerrdialogs --user-data-dir=/tmp/casper-browser-compare.TwvHx3/mcp-1789945580412/tmp/puppeteer_dev_chrome_profile-n8lPz5 --disable-background-timer-throttling --disable-breakpad --enable-automation --force-color-profile=srgb --remote-debugging-pipe --allow-pre-commit-input --lang=en-US --num-raster-threads=4 --enable-zero-copy --enable-gpu-memory-buffer-compositor-resources --enable-main-frame-before-activation --renderer-client-id=6 --launch-time-ticks=602989040048 --shared-files --field-trial-handle=1718379636,r,5688037251558029728,12496929920169584777,262144 --enable-features=PdfOopif --disable-features=AcceptCHFrame,IsolateSandboxedIframes,MediaRouter,OptimizationHints,PaintHolding,ProcessPerSiteUpToMainFrameThreshold,Translate,WebUIOmniboxAimPopup,WebUIOmniboxPopup,WebUIReloadButton --variations-seed-version --pseudonymization-salt-handle=1935764596,r,671327685723062626,12317950457809486646,4 --trace-process-track-uuid=3190708991934122588 --seatbelt-client=69"
+        },
+        {
+          "pid": 50994,
+          "command": "50994 50984 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/153.0.8010.53/Helpers/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper --type=utility --utility-sub-type=proxy_resolver.mojom.ProxyResolverFactory --lang=en-US --service-sandbox-type=service --mute-audio --noerrdialogs --user-data-dir=/tmp/casper-browser-compare.TwvHx3/mcp-1789945580412/tmp/puppeteer_dev_chrome_profile-n8lPz5 --shared-files --field-trial-handle=1718379636,r,5688037251558029728,12496929920169584777,262144 --enable-features=PdfOopif --disable-features=AcceptCHFrame,IsolateSandboxedIframes,MediaRouter,OptimizationHints,PaintHolding,ProcessPerSiteUpToMainFrameThreshold,Translate,WebUIOmniboxAimPopup,WebUIOmniboxPopup,WebUIReloadButton --variations-seed-version --pseudonymization-salt-handle=1935764596,r,671327685723062626,12317950457809486646,4 --trace-process-track-uuid=3190708993808206286 --seatbelt-client=88"
+        },
+        {
+          "pid": 50995,
+          "command": "50995 50984 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/153.0.8010.53/Helpers/Google Chrome Helper (Renderer).app/Contents/MacOS/Google Chrome Helper (Renderer) --type=renderer --noerrdialogs --user-data-dir=/tmp/casper-browser-compare.TwvHx3/mcp-1789945580412/tmp/puppeteer_dev_chrome_profile-n8lPz5 --disable-background-timer-throttling --disable-breakpad --enable-automation --force-color-profile=srgb --remote-debugging-pipe --allow-pre-commit-input --lang=en-US --num-raster-threads=4 --enable-zero-copy --enable-gpu-memory-buffer-compositor-resources --enable-main-frame-before-activation --renderer-client-id=9 --launch-time-ticks=602989156692 --shared-files --field-trial-handle=1718379636,r,5688037251558029728,12496929920169584777,262144 --enable-features=PdfOopif --disable-features=AcceptCHFrame,IsolateSandboxedIframes,MediaRouter,OptimizationHints,PaintHolding,ProcessPerSiteUpToMainFrameThreshold,Translate,WebUIOmniboxAimPopup,WebUIOmniboxPopup,WebUIReloadButton --variations-seed-version --pseudonymization-salt-handle=1935764596,r,671327685723062626,12317950457809486646,4 --trace-process-track-uuid=3190708994745248135 --seatbelt-client=101"
+        }
+      ],
+      "afterCrashError": "Error: {\"content\":[{\"type\":\"text\",\"text\":\"Note: the browser was restarted or reconnected since the last call. Page ids have changed. Call list_pages to see open pages.\\nError: No page found\"}],\"isError\":true}",
+      "afterCrashMs": 405.48575000000073,
+      "passed": true,
+      "residualProcesses": []
+    },
+    {
+      "kind": "agent-browser",
+      "repeat": 0,
+      "dir": "/tmp/casper-browser-compare.TwvHx3/agent-browser-1789945585879",
+      "operations": [
+        {
+          "name": "launch+open",
+          "ms": 713.7622919999994,
+          "bytes": 408
+        },
+        {
+          "name": "inspect",
+          "ms": 30.59333300000071,
+          "bytes": 718
+        },
+        {
+          "name": "fill+click",
+          "ms": 57.010457999998835,
+          "bytes": 312
+        },
+        {
+          "name": "metrics",
+          "ms": 25.11987500000032,
+          "bytes": 136
+        },
+        {
+          "name": "screenshot",
+          "ms": 61.06037500000093,
+          "bytes": 377
+        },
+        {
+          "name": "diagnostics",
+          "ms": 55.583458000000974,
+          "bytes": 3922
+        },
+        {
+          "name": "reload",
+          "ms": 33.12170800000058,
+          "bytes": 326
+        },
+        {
+          "name": "fill+click",
+          "ms": 57.41450000000077,
+          "bytes": 312
+        },
+        {
+          "name": "metrics",
+          "ms": 27.55475000000115,
+          "bytes": 133
+        },
+        {
+          "name": "screenshot",
+          "ms": 45.751125000000684,
+          "bytes": 376
+        },
+        {
+          "name": "missing-element",
+          "ms": 19.502167000000554,
+          "bytes": 696
+        },
+        {
+          "name": "metrics",
+          "ms": 17.01350000000093,
+          "bytes": 133
+        },
+        {
+          "name": "metrics",
+          "ms": 521.4204170000012,
+          "error": "Error: Error: Command failed: /tmp/casper-browser-compare.TwvHx3/node_modules/agent-browser/bin/agent-browser-darwin-arm64 --json --session comparison --namespace agent-browser-1789945585879 --config /tmp/casper-browser-compare.TwvHx3/agent-browser-1789945585879/agent-browser.json --executable-path /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --profile /tmp/casper-browser-compare.TwvHx3/agent-browser-1789945585879/profile --idle-timeout 15s --no-webmcp eval JSON.stringify({status:document.querySelector('#status').textContent,\n  viewport:innerWidth, width:document.documentElement.scrollWidth, crossOriginLoaded:window.crossOriginLoaded===true,\n  syntheticSecret:document.cookie.includes('synthetic_fixture_cookie'), pageUrl:location.href})\n\nstdout: {\"success\":false,\"data\":null,\"error\":\"Evaluation error: TypeError: Cannot read properties of null (reading 'textContent')\\n    at <anonymous>:1:57\"}\n\nstderr: "
+        },
+        {
+          "name": "close",
+          "ms": 128.7100419999988,
+          "bytes": 358
+        }
+      ],
+      "socketDir": "/tmp/cab-2hX7EG",
+      "observation": {
+        "success": true,
+        "data": {
+          "lifecycle": {
+            "effectiveLaunch": {
+              "browserLaunched": true,
+              "engine": "chrome",
+              "launchHash": 12813276142437427000
+            },
+            "launched": false,
+            "relaunchedBrowser": false,
+            "restartedBackground": false,
+            "restoreStatus": "not_configured",
+            "reused": true,
+            "saveStatus": "not_attempted"
+          },
+          "origin": "http://127.0.0.1:63188/",
+          "refs": {
+            "e1": {
+              "name": "Local debugging fixture",
+              "role": "heading"
+            },
+            "e2": {
+              "name": "Save",
+              "role": "button"
+            },
+            "e3": {
+              "name": "Send message (synthetic)",
+              "role": "button"
+            },
+            "e4": {
+              "name": "Name",
+              "role": "textbox"
+            }
+          },
+          "removedRefs": [],
+          "snapshot": "- heading \"Local debugging fixture\" [level=1, ref=e1]\n- textbox \"Name\" [ref=e4]\n- button \"Save\" [ref=e2]\n- button \"Send message (synthetic)\" [ref=e3]"
+        },
+        "error": null
+      },
+      "before": {
+        "status": "Still broken",
+        "viewport": 375,
+        "width": 916,
+        "crossOriginLoaded": true,
+        "syntheticSecret": true,
+        "pageUrl": "http://127.0.0.1:63188/"
+      },
+      "diagnostics": {
+        "console": {
+          "success": true,
+          "data": {
+            "lifecycle": {
+              "effectiveLaunch": {
+                "browserLaunched": true,
+                "engine": "chrome",
+                "launchHash": 12813276142437427000
+              },
+              "launched": false,
+              "relaunchedBrowser": false,
+              "restartedBackground": false,
+              "restoreStatus": "not_configured",
+              "reused": true,
+              "saveStatus": "not_attempted"
+            },
+            "messages": [
+              {
+                "args": [
+                  {
+                    "type": "string",
+                    "value": "fixture-console-failure"
+                  }
+                ],
+                "text": "fixture-console-failure",
+                "type": "error"
+              }
+            ]
+          },
+          "error": null
+        },
+        "exceptions": {
+          "success": true,
+          "data": {
+            "errors": [
+              {
+                "column": 84,
+                "line": 6,
+                "text": "Error: fixture-uncaught-failure\n    at http://127.0.0.1:63188/:7:85",
+                "url": null
+              }
+            ],
+            "lifecycle": {
+              "effectiveLaunch": {
+                "browserLaunched": true,
+                "engine": "chrome",
+                "launchHash": 12813276142437427000
+              },
+              "launched": false,
+              "relaunchedBrowser": false,
+              "restartedBackground": false,
+              "restoreStatus": "not_configured",
+              "reused": true,
+              "saveStatus": "not_attempted"
+            }
+          },
+          "error": null
+        },
+        "network": {
+          "success": true,
+          "data": {
+            "lifecycle": {
+              "effectiveLaunch": {
+                "browserLaunched": true,
+                "engine": "chrome",
+                "launchHash": 12813276142437427000
+              },
+              "launched": false,
+              "relaunchedBrowser": false,
+              "restartedBackground": false,
+              "restoreStatus": "not_configured",
+              "reused": true,
+              "saveStatus": "not_attempted"
+            },
+            "requests": [
+              {
+                "headers": {
+                  "Upgrade-Insecure-Requests": "1",
+                  "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36",
+                  "sec-ch-ua": "\"Google Chrome\";v=\"153\", \"Not_A Brand\";v=\"8\", \"Chromium\";v=\"153\"",
+                  "sec-ch-ua-mobile": "?0",
+                  "sec-ch-ua-platform": "\"macOS\""
+                },
+                "method": "GET",
+                "mimeType": "text/html",
+                "requestId": "A9C03FB8026CF56127BCE977979C26F2",
+                "resourceType": "Document",
+                "responseHeaders": {
+                  "Cache-Control": "no-store",
+                  "Connection": "keep-alive",
+                  "Content-Length": "956",
+                  "Content-Type": "text/html",
+                  "Date": "Sun, 20 Sep 2026 23:06:26 GMT",
+                  "Keep-Alive": "timeout=5"
+                },
+                "status": 200,
+                "timestamp": 1789945586560,
+                "url": "http://127.0.0.1:63188/"
+              },
+              {
+                "headers": {
+                  "Referer": "http://127.0.0.1:63188/",
+                  "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36",
+                  "sec-ch-ua": "\"Google Chrome\";v=\"153\", \"Not_A Brand\";v=\"8\", \"Chromium\";v=\"153\"",
+                  "sec-ch-ua-mobile": "?0",
+                  "sec-ch-ua-platform": "\"macOS\""
+                },
+                "method": "GET",
+                "mimeType": "text/javascript",
+                "requestId": "51065.2",
+                "resourceType": "Script",
+                "responseHeaders": {
+                  "Connection": "keep-alive",
+                  "Content-Length": "30",
+                  "Content-Type": "text/javascript",
+                  "Date": "Sun, 20 Sep 2026 23:06:26 GMT",
+                  "Keep-Alive": "timeout=5"
+                },
+                "status": 200,
+                "timestamp": 1789945586560,
+                "url": "http://127.0.0.1:63187/resource.js"
+              },
+              {
+                "headers": {
+                  "Referer": "http://127.0.0.1:63188/",
+                  "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36",
+                  "sec-ch-ua": "\"Google Chrome\";v=\"153\", \"Not_A Brand\";v=\"8\", \"Chromium\";v=\"153\"",
+                  "sec-ch-ua-mobile": "?0",
+                  "sec-ch-ua-platform": "\"macOS\""
+                },
+                "method": "GET",
+                "mimeType": "text/plain",
+                "requestId": "51065.4",
+                "resourceType": "Fetch",
+                "responseHeaders": {
+                  "Connection": "keep-alive",
+                  "Content-Type": "text/plain",
+                  "Date": "Sun, 20 Sep 2026 23:06:26 GMT",
+                  "Keep-Alive": "timeout=5",
+                  "Transfer-Encoding": "chunked"
+                },
+                "status": 503,
+                "timestamp": 1789945586560,
+                "url": "http://127.0.0.1:63188/broken-api"
+              },
+              {
+                "headers": {
+                  "Referer": "http://127.0.0.1:63188/",
+                  "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36",
+                  "sec-ch-ua": "\"Google Chrome\";v=\"153\", \"Not_A Brand\";v=\"8\", \"Chromium\";v=\"153\"",
+                  "sec-ch-ua-mobile": "?0",
+                  "sec-ch-ua-platform": "\"macOS\""
+                },
+                "method": "GET",
+                "mimeType": "text/html",
+                "requestId": "51065.5",
+                "resourceType": "Other",
+                "responseHeaders": {
+                  "Cache-Control": "no-store",
+                  "Connection": "keep-alive",
+                  "Content-Length": "956",
+                  "Content-Type": "text/html",
+                  "Date": "Sun, 20 Sep 2026 23:06:26 GMT",
+                  "Keep-Alive": "timeout=5"
+                },
+                "status": 200,
+                "timestamp": 1789945586560,
+                "url": "http://127.0.0.1:63188/favicon.ico"
+              }
+            ]
+          },
+          "error": null
+        }
+      },
+      "after": {
+        "status": "Saved Ada",
+        "viewport": 375,
+        "width": 375,
+        "crossOriginLoaded": true,
+        "syntheticSecret": true,
+        "pageUrl": "http://127.0.0.1:63188/"
+      },
+      "before.png": {
+        "bytes": 16960,
+        "width": 375,
+        "height": 700
+      },
+      "after.png": {
+        "bytes": 18309,
+        "width": 375,
+        "height": 700
+      },
+      "timeout": {
+        "timedOut": true,
+        "error": "Error: Error: Command failed: /tmp/casper-browser-compare.TwvHx3/node_modules/agent-browser/bin/agent-browser-darwin-arm64 --json --session comparison --namespace agent-browser-1789945585879 --config /tmp/casper-browser-compare.TwvHx3/agent-browser-1789945585879/agent-browser.json --executable-path /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --profile /tmp/casper-browser-compare.TwvHx3/agent-browser-1789945585879/profile --idle-timeout 15s --no-webmcp click #missing\n\nstdout: {\"success\":false,\"data\":null,\"error\":\"Element not found: #missing. Verify the selector, role, or name is correct and the element exists in the DOM.\"}\n\nstderr: "
+      },
+      "recovery": {
+        "status": "Saved Ada",
+        "viewport": 375,
+        "width": 375,
+        "crossOriginLoaded": true,
+        "syntheticSecret": true,
+        "pageUrl": "http://127.0.0.1:63188/"
+      },
+      "activeProcesses": [
+        {
+          "pid": 51054,
+          "command": "51054 51053 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --remote-debugging-port=0 --no-first-run --no-default-browser-check --disable-background-networking --disable-backgrounding-occluded-windows --disable-component-update --disable-default-apps --disable-hang-monitor --disable-popup-blocking --disable-prompt-on-repost --disable-sync --disable-features=Translate --enable-features=NetworkService,NetworkServiceInProcess --metrics-recording-only --password-store=basic --use-mock-keychain --headless=new --hide-scrollbars --enable-unsafe-swiftshader --user-data-dir=/tmp/casper-browser-compare.TwvHx3/agent-browser-1789945585879/profile --window-size=1280,720"
+        },
+        {
+          "pid": 51058,
+          "command": "51058 51054 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/153.0.8010.53/Helpers/Google Chrome Helper (GPU).app/Contents/MacOS/Google Chrome Helper (GPU) --type=gpu-process --headless=new --enable-unsafe-swiftshader --noerrdialogs --user-data-dir=/tmp/casper-browser-compare.TwvHx3/agent-browser-1789945585879/profile --gpu-preferences=WAAAAAAAAAAgAAAEAAAAAAAAAAAAAGAAQAAAAAAAAAADAAAAAAAAADgAAAAAAAAAAAAAAAAAAAACAAAAAAAAAAAAAAAAAAAAKAAAAAAAAAAoAAAAAAAAAAgAAAAAAAAADAAAAAEAAAAAAAAAAAAAAAgAAAAAAAAACAAAAAAAAAA= --shared-files --field-trial-handle=1718379636,r,4587541103888218579,12648806802653631976,262144 --enable-features=NetworkService,NetworkServiceInProcess --disable-features=PaintHolding,Translate --variations-seed-version --pseudonymization-salt-handle=1935764596,r,1023437397841609583,12932277170524499196,4 --trace-process-track-uuid=3190708988185955192 --seatbelt-client=11"
+        },
+        {
+          "pid": 51059,
+          "command": "51059 51054 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/153.0.8010.53/Helpers/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper --type=utility --utility-sub-type=network.mojom.NetworkService --lang=en-US --service-sandbox-type=network --noerrdialogs --user-data-dir=/tmp/casper-browser-compare.TwvHx3/agent-browser-1789945585879/profile --shared-files --field-trial-handle=1718379636,r,4587541103888218579,12648806802653631976,262144 --enable-features=NetworkService,NetworkServiceInProcess --disable-features=PaintHolding,Translate --variations-seed-version --pseudonymization-salt-handle=1935764596,r,1023437397841609583,12932277170524499196,4 --trace-process-track-uuid=3190708989122997041 --seatbelt-client=11"
+        },
+        {
+          "pid": 51060,
+          "command": "51060 51054 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/153.0.8010.53/Helpers/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper --type=utility --utility-sub-type=storage.mojom.StorageService --lang=en-US --service-sandbox-type=service --noerrdialogs --user-data-dir=/tmp/casper-browser-compare.TwvHx3/agent-browser-1789945585879/profile --shared-files --field-trial-handle=1718379636,r,4587541103888218579,12648806802653631976,262144 --enable-features=NetworkService,NetworkServiceInProcess --disable-features=PaintHolding,Translate --variations-seed-version --pseudonymization-salt-handle=1935764596,r,1023437397841609583,12932277170524499196,4 --trace-process-track-uuid=3190708990060038890 --seatbelt-client=39"
+        },
+        {
+          "pid": 51062,
+          "command": "51062 51054 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/153.0.8010.53/Helpers/Google Chrome Helper (Renderer).app/Contents/MacOS/Google Chrome Helper (Renderer) --type=renderer --top-chrome-webui --noerrdialogs --user-data-dir=/tmp/casper-browser-compare.TwvHx3/agent-browser-1789945585879/profile --remote-debugging-port=0 --lang=en-US --num-raster-threads=4 --enable-zero-copy --enable-gpu-memory-buffer-compositor-resources --enable-main-frame-before-activation --renderer-client-id=6 --launch-time-ticks=602994206782 --shared-files --field-trial-handle=1718379636,r,4587541103888218579,12648806802653631976,262144 --enable-features=NetworkService,NetworkServiceInProcess --disable-features=PaintHolding,Translate --variations-seed-version --pseudonymization-salt-handle=1935764596,r,1023437397841609583,12932277170524499196,4 --trace-process-track-uuid=3190708991934122588 --seatbelt-client=73"
+        },
+        {
+          "pid": 51064,
+          "command": "51064 51054 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/153.0.8010.53/Helpers/Google Chrome Helper (Renderer).app/Contents/MacOS/Google Chrome Helper (Renderer) --type=renderer --noerrdialogs --user-data-dir=/tmp/casper-browser-compare.TwvHx3/agent-browser-1789945585879/profile --remote-debugging-port=0 --lang=en-US --num-raster-threads=4 --enable-zero-copy --enable-gpu-memory-buffer-compositor-resources --enable-main-frame-before-activation --renderer-client-id=7 --launch-time-ticks=602994242882 --shared-files --field-trial-handle=1718379636,r,4587541103888218579,12648806802653631976,262144 --enable-features=NetworkService,NetworkServiceInProcess --disable-features=PaintHolding,Translate --variations-seed-version --pseudonymization-salt-handle=1935764596,r,1023437397841609583,12932277170524499196,4 --trace-process-track-uuid=3190708992871164437 --seatbelt-client=77"
+        },
+        {
+          "pid": 51065,
+          "command": "51065 51054 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/153.0.8010.53/Helpers/Google Chrome Helper (Renderer).app/Contents/MacOS/Google Chrome Helper (Renderer) --type=renderer --noerrdialogs --user-data-dir=/tmp/casper-browser-compare.TwvHx3/agent-browser-1789945585879/profile --remote-debugging-port=0 --lang=en-US --num-raster-threads=4 --enable-zero-copy --enable-gpu-memory-buffer-compositor-resources --enable-main-frame-before-activation --renderer-client-id=9 --launch-time-ticks=602994317807 --shared-files --field-trial-handle=1718379636,r,4587541103888218579,12648806802653631976,262144 --enable-features=NetworkService,NetworkServiceInProcess --disable-features=PaintHolding,Translate --variations-seed-version --pseudonymization-salt-handle=1935764596,r,1023437397841609583,12932277170524499196,4 --trace-process-track-uuid=3190708994745248135 --seatbelt-client=85"
+        },
+        {
+          "pid": 51066,
+          "command": "51066 51054 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/153.0.8010.53/Helpers/Google Chrome Helper (Renderer).app/Contents/MacOS/Google Chrome Helper (Renderer) --type=renderer --noerrdialogs --user-data-dir=/tmp/casper-browser-compare.TwvHx3/agent-browser-1789945585879/profile --extension-process --remote-debugging-port=0 --lang=en-US --num-raster-threads=4 --enable-zero-copy --enable-gpu-memory-buffer-compositor-resources --enable-main-frame-before-activation --renderer-client-id=10 --launch-time-ticks=602994320096 --shared-files --field-trial-handle=1718379636,r,4587541103888218579,12648806802653631976,262144 --enable-features=NetworkService,NetworkServiceInProcess --disable-features=PaintHolding,Translate --variations-seed-version --pseudonymization-salt-handle=1935764596,r,1023437397841609583,12932277170524499196,4 --trace-process-track-uuid=3190708995682289984 --seatbelt-client=85"
+        },
+        {
+          "pid": 51067,
+          "command": "51067 51054 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/153.0.8010.53/Helpers/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper --type=utility --utility-sub-type=proxy_resolver.mojom.ProxyResolverFactory --lang=en-US --service-sandbox-type=service --noerrdialogs --user-data-dir=/tmp/casper-browser-compare.TwvHx3/agent-browser-1789945585879/profile --shared-files --field-trial-handle=1718379636,r,4587541103888218579,12648806802653631976,262144 --enable-features=NetworkService,NetworkServiceInProcess --disable-features=PaintHolding,Translate --variations-seed-version --pseudonymization-salt-handle=1935764596,r,1023437397841609583,12932277170524499196,4 --trace-process-track-uuid=3190708996619331833 --seatbelt-client=93"
+        },
+        {
+          "pid": 51068,
+          "command": "51068 51054 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/153.0.8010.53/Helpers/Google Chrome Helper (Renderer).app/Contents/MacOS/Google Chrome Helper (Renderer) --type=renderer --noerrdialogs --user-data-dir=/tmp/casper-browser-compare.TwvHx3/agent-browser-1789945585879/profile --remote-debugging-port=0 --lang=en-US --num-raster-threads=4 --enable-zero-copy --enable-gpu-memory-buffer-compositor-resources --enable-main-frame-before-activation --renderer-client-id=12 --launch-time-ticks=602994366354 --shared-files --field-trial-handle=1718379636,r,4587541103888218579,12648806802653631976,262144 --enable-features=NetworkService,NetworkServiceInProcess --disable-features=PaintHolding,Translate --variations-seed-version --pseudonymization-salt-handle=1935764596,r,1023437397841609583,12932277170524499196,4 --trace-process-track-uuid=3190708997556373682 --seatbelt-client=98"
+        },
+        {
+          "pid": 51069,
+          "command": "51069 51054 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/153.0.8010.53/Helpers/Google Chrome Helper (Renderer).app/Contents/MacOS/Google Chrome Helper (Renderer) --type=renderer --noerrdialogs --user-data-dir=/tmp/casper-browser-compare.TwvHx3/agent-browser-1789945585879/profile --extension-process --remote-debugging-port=0 --lang=en-US --num-raster-threads=4 --enable-zero-copy --enable-gpu-memory-buffer-compositor-resources --enable-main-frame-before-activation --renderer-client-id=13 --launch-time-ticks=602994468602 --shared-files --field-trial-handle=1718379636,r,4587541103888218579,12648806802653631976,262144 --enable-features=NetworkService,NetworkServiceInProcess --disable-features=PaintHolding,Translate --variations-seed-version --pseudonymization-salt-handle=1935764596,r,1023437397841609583,12932277170524499196,4 --trace-process-track-uuid=3190708998493415531 --seatbelt-client=108"
+        },
+        {
+          "pid": 51071,
+          "command": "51071 51054 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/153.0.8010.53/Helpers/Google Chrome Helper (Renderer).app/Contents/MacOS/Google Chrome Helper (Renderer) --type=renderer --noerrdialogs --user-data-dir=/tmp/casper-browser-compare.TwvHx3/agent-browser-1789945585879/profile --remote-debugging-port=0 --lang=en-US --num-raster-threads=4 --enable-zero-copy --enable-gpu-memory-buffer-compositor-resources --enable-main-frame-before-activation --renderer-client-id=14 --launch-time-ticks=602994490872 --shared-files --field-trial-handle=1718379636,r,4587541103888218579,12648806802653631976,262144 --enable-features=NetworkService,NetworkServiceInProcess --disable-features=PaintHolding,Translate --variations-seed-version --pseudonymization-salt-handle=1935764596,r,1023437397841609583,12932277170524499196,4 --trace-process-track-uuid=3190708999430457380 --seatbelt-client=107"
+        }
+      ],
+      "afterCrashError": "Error: Error: Command failed: /tmp/casper-browser-compare.TwvHx3/node_modules/agent-browser/bin/agent-browser-darwin-arm64 --json --session comparison --namespace agent-browser-1789945585879 --config /tmp/casper-browser-compare.TwvHx3/agent-browser-1789945585879/agent-browser.json --executable-path /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --profile /tmp/casper-browser-compare.TwvHx3/agent-browser-1789945585879/profile --idle-timeout 15s --no-webmcp eval JSON.stringify({status:document.querySelector('#status').textContent,\n  viewport:innerWidth, width:document.documentElement.scrollWidth, crossOriginLoaded:window.crossOriginLoaded===true,\n  syntheticSecret:document.cookie.includes('synthetic_fixture_cookie'), pageUrl:location.href})\n\nstdout: {\"success\":false,\"data\":null,\"error\":\"Evaluation error: TypeError: Cannot read properties of null (reading 'textContent')\\n    at <anonymous>:1:57\"}\n\nstderr: ",
+      "afterCrashMs": 521.4386250000007,
+      "passed": true,
+      "residualProcesses": []
+    }
+  ],
+  "syntheticEffects": 0,
+  "controlServerAlive": true
+}

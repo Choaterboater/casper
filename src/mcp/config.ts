@@ -1,5 +1,4 @@
-import { constants } from "node:fs";
-import { open } from "node:fs/promises";
+import { openFollowed } from "../platform/files";
 import os from "node:os";
 import path from "node:path";
 import { isValidProfileName } from "../config/profile";
@@ -65,7 +64,7 @@ export async function discoverMCPConfiguration(options: {
   for (const source of files) {
     let document: unknown;
     try {
-      const file = await open(source, constants.O_RDONLY | constants.O_NONBLOCK);
+      const file = await openFollowed(source);
       try {
         if (!(await file.stat()).isFile()) throw new Error("configuration must be a regular file");
         const bytes = Buffer.alloc(1024 * 1024 + 1);

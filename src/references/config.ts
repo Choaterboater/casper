@@ -1,3 +1,4 @@
+import { lstat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { parse } from "yaml";
@@ -12,6 +13,8 @@ export interface ReferenceSource {
   paths: string[];
   useFor: string[];
 }
+export const PROMOTED_REFERENCE_SOURCE = "casper-promoted";
+
 export interface ReferenceConfiguration {
   sources: ReferenceSource[];
   diagnostics: string[];
@@ -64,6 +67,10 @@ export async function discoverReferenceConfiguration(options: { homeDir?: string
     for (const [id, value] of Object.entries(document.references)) {
       // Invalid overrides and explicit null disables never resurrect a lower-priority root.
       sources.delete(id);
+      if (id === PROMOTED_REFERENCE_SOURCE) {
+        diagnostics.push(`${configuration} (${id}): source ID is reserved for digest-bound human promotions`);
+        continue;
+      }
       if (value === null) continue;
       try {
         if (sources.size >= 32) throw new Error("at most 32 sources are supported");
@@ -73,6 +80,13 @@ export async function discoverReferenceConfiguration(options: { homeDir?: string
       }
     }
   }
+  const promotedRoot = path.join(home, ".casper", "promoted-references");
+  try {
+    const info = await lstat(promotedRoot);
+    if (!info.isDirectory() || info.isSymbolicLink()) diagnostics.push(`Cannot use promoted references: ${promotedRoot} must be a real directory`);
+    else sources.set(PROMOTED_REFERENCE_SOURCE, { id: PROMOTED_REFERENCE_SOURCE,
+      configuration: "digest-bound human learning promotion", root: promotedRoot, paths: ["."], useFor: ["human-promoted reusable patterns"] });
+  } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") diagnostics.push(`Cannot inspect promoted references: ${promotedRoot}`); }
   return { sources: [...sources.values()].sort((a, b) => a.id.localeCompare(b.id)),
     diagnostics: diagnostics.length <= 16 ? diagnostics : [...diagnostics.slice(0, 16), `${diagnostics.length - 16} further reference configuration diagnostics omitted.`] };
 }

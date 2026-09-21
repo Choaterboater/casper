@@ -6,6 +6,7 @@ import { loadConfiguration } from "../src/config/load";
 import type { ProjectModel } from "../src/project/model";
 import { SkillRegistry, formatSelectedSkills } from "../src/skills/registry";
 import { classifyTask } from "../src/task/classify";
+import { needsSymlinks } from "./support/platform";
 
 const temporary: string[] = [];
 const task = "Add a TypeScript MCP tool with bounded output";
@@ -129,7 +130,7 @@ describe("Phase 2 skills", () => {
     expect(await load(restored)).toEqual([]);
   });
 
-  test("handles malformed skills, duplicate names, missing roots and symlink loops deterministically", async () => {
+  needsSymlinks("handles malformed skills, duplicate names, missing roots and symlink loops deterministically", async () => {
     const options = await fixture();
     expect((await SkillRegistry.discover(options)).list()).toEqual([]);
     const root = path.join(options.homeDir, ".casper/skills");
@@ -149,7 +150,7 @@ describe("Phase 2 skills", () => {
     expect(await load(registry)).toEqual(await load(again));
   });
 
-  test("does not follow project skill symlinks outside the project, but permits in-project links", async () => {
+  needsSymlinks("does not follow project skill symlinks outside the project, but permits in-project links", async () => {
     const options = await fixture();
     const outside = path.join(options.homeDir, "outside");
     const file = await skill(outside, "outside-mcp", "OUTSIDE_BODY", metadata);
@@ -170,7 +171,7 @@ describe("Phase 2 skills", () => {
     expect(registry.diagnostics.join(" ")).toContain("outside the project root");
   });
 
-  test("symlinking project content into user skills does not implicitly trust it", async () => {
+  needsSymlinks("symlinking project content into user skills does not implicitly trust it", async () => {
     const options = await fixture();
     const source = path.join(options.projectRoot, "external-skill");
     await skill(source, "mcp-tools", "UNTRUSTED", metadata);

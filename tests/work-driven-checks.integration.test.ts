@@ -8,10 +8,12 @@ import type { AgentRuntime, RuntimeEventListener, RuntimeStartOptions, RuntimeTo
 import { SkillRegistry } from "../src/skills/registry";
 import type { VerificationResult } from "../src/verify/evidence";
 import { taskExitCode } from "../src/task/result";
+import { checkCommand } from "./support/check-command";
+import { needsSymlinks, posixOnly } from "./support/platform";
 
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
-const command = "printf x >> test-runs; grep -qx good src/value";
+const command = checkCommand("append:test-runs", "require-line:src/value=good");
 const filesystemAliases = await (async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-missing-alias-probe-"));
   try {
@@ -26,7 +28,7 @@ const filesystemAliases = await (async () => {
   } finally { await rm(root, { recursive: true, force: true }); }
 })();
 async function fixture(config: unknown = {
-  verify: { test: command, build: "printf x >> build-runs" },
+  verify: { test: command, build: checkCommand("append:build-runs") },
   verification: { scopes: { test: { inputs: ["src"] } } },
   repair: { maxAttempts: 1 },
 }) {
@@ -88,7 +90,7 @@ async function waitForFile(file: string): Promise<void> {
 }
 
 test("closing drains an active model-selected command and retains cancellation evidence without repair", async () => {
-  const root = await fixture({ verify: { test: "touch started; sleep 10" }, verification: { timeoutMs: 2000 } });
+  const root = await fixture({ verify: { test: checkCommand("touch:started", "sleep:10000") }, verification: { timeoutMs: 2000 } });
   const { app, prompts } = createApp(root, async (_prompt, tools) => {
     expect(await check(checkTool(tools))).toMatchObject({ status: "fail", reason: "Verification cancelled" });
   });
@@ -103,7 +105,7 @@ test("closing drains an active model-selected command and retains cancellation e
 });
 
 test("an external edit overlapping a real check leaves its exit success stale and prevents reuse", async () => {
-  const overlap = "printf x >> test-runs; grep -qx good src/value || exit 7; touch started; while test ! -f release; do sleep 0.01; done";
+  const overlap = checkCommand("fail:7", "append:test-runs", "require-line:src/value=good", "touch:started", "wait:release");
   const root = await fixture({ verify: { test: overlap }, verification: { timeoutMs: 2000, scopes: { test: { inputs: ["src"] } } }, repair: { maxAttempts: 0 } });
   await writeFile(path.join(root, "src/value"), "good\n");
   const { app } = createApp(root, async (_prompt, tools) => {
@@ -122,10 +124,10 @@ test("an external edit overlapping a real check leaves its exit success stale an
 });
 
 test("the tool returns bounded real output and keeps startup commands/scopes frozen despite config edits", async () => {
-  const noisy = `bun -e 'process.stdout.write("HEAD" + "x".repeat(20000) + "TAIL"); process.stderr.write("exact failure"); process.exit(7)'`;
+  const noisy = checkCommand("stdout:HEAD", "pad:20000", "stdout:TAIL", "stderr:exact failure", "exit:7");
   const root = await fixture({ verify: { test: noisy }, verification: { scopes: { test: { inputs: ["src"] } } }, repair: { maxAttempts: 0 } });
   const { app } = createApp(root, async (_prompt, tools) => {
-    await writeFile(path.join(root, ".casper/project.yaml"), JSON.stringify({ verify: { test: "true" }, verification: { scopes: { test: { inputs: ["unrelated"] } } } }));
+    await writeFile(path.join(root, ".casper/project.yaml"), JSON.stringify({ verify: { test: checkCommand() }, verification: { scopes: { test: { inputs: ["unrelated"] } } } }));
     const result = await check(checkTool(tools));
     expect(result).toMatchObject({ command: noisy, status: "fail", exitCode: 7, truncated: true, scope: { inputs: ["src"] }, freshness: "fresh", stderr: "exact failure" });
     expect(result.stdout).toStartWith("HEAD");
@@ -135,7 +137,7 @@ test("the tool returns bounded real output and keeps startup commands/scopes fro
   expect((await app.runOnce("Continue", root))?.results[0]?.command).toBe(noisy);
 });
 
-test("signal termination is a real failed check, never an inferred exit zero", async () => {
+posixOnly("signal termination is a real failed check, never an inferred exit zero", async () => {
   const root = await fixture({ verify: { test: "printf before-signal; kill -TERM $$" }, repair: { maxAttempts: 0 } });
   const { app, prompts } = createApp(root, async (_prompt, tools) => {
     const result = await checkTool(tools).execute({ check: "test" });
@@ -197,7 +199,7 @@ test("check evidence and tool authority end with each task; explicit verificatio
 
 test("undeclared scope never supports reuse; excluded generated outputs do not invalidate declared inputs", async () => {
   for (const scoped of [false, true]) {
-    const root = await fixture({ verify: { test: "printf x >> test-runs; mkdir -p src/coverage; printf generated > src/coverage/report" },
+    const root = await fixture({ verify: { test: checkCommand("append:test-runs", "mkdir:src/coverage", "write:src/coverage/report=generated") },
       verification: scoped ? { scopes: { test: { inputs: ["src"], exclude: ["src/coverage"] } } } : {} });
     const { app } = createApp(root, async (_prompt, tools) => {
       const tool = checkTool(tools);
@@ -254,7 +256,7 @@ test("native edit invalidation is independent of the receipt's bounded edit list
 });
 
 test("an observed native edit during a check stays stale even when membership is restored before command completion", async () => {
-  const root = await fixture({ verify: { test: "printf x >> test-runs; touch started; while test ! -f release; do sleep 0.01; done" },
+  const root = await fixture({ verify: { test: checkCommand("append:test-runs", "touch:started", "wait:release") },
     verification: { timeoutMs: 2000, scopes: { test: { inputs: ["src"] } } } });
   const { app } = createApp(root, async (_prompt, tools, options) => {
     const tool = checkTool(tools);
@@ -275,7 +277,7 @@ test("an observed native edit during a check stays stale even when membership is
 });
 
 test.skipIf(!filesystemAliases.caseInsensitive)("a missing named alias observed during a check stays stale after partial-write removal", async () => {
-  const root = await fixture({ verify: { test: "printf x >> test-runs; touch started; while test ! -f release; do sleep 0.01; done" },
+  const root = await fixture({ verify: { test: checkCommand("append:test-runs", "touch:started", "wait:release") },
     verification: { timeoutMs: 2000, scopes: { test: { inputs: ["SRC/MISSING"] } } } });
   const { app } = createApp(root, async (_prompt, tools, _options, emit) => {
     const tool = checkTool(tools);
@@ -310,7 +312,7 @@ test("a failed native write with possible partial edits invalidates matching evi
   expect(await readFile(path.join(root, "test-runs"), "utf8")).toBe("xx");
 });
 
-test("a failed partial native write remains invalidating after its aliased target and parent are removed", async () => {
+needsSymlinks("a failed partial native write remains invalidating after its aliased target and parent are removed", async () => {
   const root = await fixture();
   const alias = path.join(root, "alias");
   await symlink(await realpath(root), alias, "dir");
@@ -335,7 +337,7 @@ for (const form of ["case", "unicode", "unicode-case", "missing-parent"]) test.s
   const observed = form === "unicode" ? "src/cafe\u0301" : form === "unicode-case" ? "src/\u00df" : "src/missing";
   const input = form === "missing-parent" ? `${declared}/named` : declared;
   const file = form === "missing-parent" ? `${observed}/other` : observed;
-  const root = await fixture({ verify: { test: "printf x >> test-runs", build: "printf x >> build-runs" },
+  const root = await fixture({ verify: { test: checkCommand("append:test-runs"), build: checkCommand("append:build-runs") },
     verification: { scopes: { test: { inputs: [input] }, build: { inputs: ["docs"] } } } });
   await mkdir(path.join(root, "docs"));
   const { app } = createApp(root, async (_prompt, tools, _options, emit) => {
@@ -358,7 +360,7 @@ for (const form of ["case", "unicode", "unicode-case", "missing-parent"]) test.s
 });
 
 test.skipIf(!filesystemAliases.caseInsensitive)("a removed case-aliased parent cannot supply an exclusion spelling for a partial write", async () => {
-  const root = await fixture({ verify: { test: "printf x >> test-runs", build: "printf x >> build-runs" },
+  const root = await fixture({ verify: { test: checkCommand("append:test-runs"), build: checkCommand("append:build-runs") },
     verification: { scopes: { test: { inputs: ["src"], exclude: ["src/generated"] }, build: { inputs: ["docs"] } } } });
   await mkdir(path.join(root, "docs"));
   const { app } = createApp(root, async (_prompt, tools, _options, emit) => {
@@ -381,7 +383,7 @@ test.skipIf(!filesystemAliases.caseInsensitive)("a removed case-aliased parent c
 });
 
 test("distinct missing entries do not invalidate a missing named input or select other checks", async () => {
-  const root = await fixture({ verify: { test: "printf x >> test-runs", build: "touch unselected" },
+  const root = await fixture({ verify: { test: checkCommand("append:test-runs"), build: checkCommand("touch:unselected") },
     verification: { scopes: { test: { inputs: ["src/missing/named"] } } } });
   const { app } = createApp(root, async (_prompt, tools, _options, emit) => {
     const tool = checkTool(tools);
@@ -397,7 +399,7 @@ test("distinct missing entries do not invalidate a missing named input or select
 });
 
 test("a resolved excluded parent still excludes missing descendants", async () => {
-  const root = await fixture({ verify: { test: "printf x >> test-runs" },
+  const root = await fixture({ verify: { test: checkCommand("append:test-runs") },
     verification: { scopes: { test: { inputs: ["src"], exclude: ["src/generated"] } } } });
   await mkdir(path.join(root, "src/generated"));
   const { app } = createApp(root, async (_prompt, tools, _options, emit) => {
@@ -410,7 +412,7 @@ test("a resolved excluded parent still excludes missing descendants", async () =
   expect(await readFile(path.join(root, "test-runs"), "utf8")).toBe("x");
 });
 
-test("an unresolvable observed native path invalidates selected scoped evidence rather than claiming it is unrelated", async () => {
+needsSymlinks("an unresolvable observed native path invalidates selected scoped evidence rather than claiming it is unrelated", async () => {
   const root = await fixture();
   await writeFile(path.join(root, "src/value"), "good\n");
   await symlink("cycle", path.join(root, "cycle"));
@@ -425,8 +427,8 @@ test("an unresolvable observed native path invalidates selected scoped evidence 
   expect(await Bun.file(path.join(root, "build-runs")).exists()).toBe(false);
 });
 
-for (const form of ["literal", "alias"]) test(`native edit invalidation respects excluded paths, scope boundaries and unrelated checks (${form})`, async () => {
-  const root = await fixture({ verify: { test: command, build: "printf x >> build-runs" },
+for (const form of ["literal", "alias"]) needsSymlinks(`native edit invalidation respects excluded paths, scope boundaries and unrelated checks (${form})`, async () => {
+  const root = await fixture({ verify: { test: command, build: checkCommand("append:build-runs") },
     verification: { scopes: { test: { inputs: ["src"], exclude: ["src/generated"] }, build: { inputs: ["docs"] } } } });
   await writeFile(path.join(root, "src/value"), "good\n");
   await mkdir(path.join(root, "docs"));
@@ -455,8 +457,8 @@ for (const form of ["literal", "alias"]) test(`native edit invalidation respects
   expect(await readFile(path.join(root, "build-runs"), "utf8")).toBe("x");
 });
 
-for (const destination of ["excluded", "outside"]) for (const outcome of ["success", "partial-failure"]) test(`an included symlink retains native invalidation after removal (${destination}, ${outcome})`, async () => {
-  const root = await fixture({ verify: { test: "printf x >> test-runs", build: "printf x >> build-runs" },
+for (const destination of ["excluded", "outside"]) for (const outcome of ["success", "partial-failure"]) needsSymlinks(`an included symlink retains native invalidation after removal (${destination}, ${outcome})`, async () => {
+  const root = await fixture({ verify: { test: checkCommand("append:test-runs"), build: checkCommand("append:build-runs") },
     verification: { scopes: { test: { inputs: ["src"], exclude: ["src/generated"] }, build: { inputs: ["docs"] } } } });
   await mkdir(path.join(root, "src/generated"));
   await mkdir(path.join(root, "outside"));
@@ -483,8 +485,8 @@ for (const destination of ["excluded", "outside"]) for (const outcome of ["succe
   expect(await readFile(path.join(root, "build-runs"), "utf8")).toBe("x");
 });
 
-test("an included symlink observed during a check stays invalidating after removal", async () => {
-  const root = await fixture({ verify: { test: "printf x >> test-runs; touch started; while test ! -f release; do sleep 0.01; done" },
+needsSymlinks("an included symlink observed during a check stays invalidating after removal", async () => {
+  const root = await fixture({ verify: { test: checkCommand("append:test-runs", "touch:started", "wait:release") },
     verification: { timeoutMs: 2000, scopes: { test: { inputs: ["src"], exclude: ["src/generated"] } } } });
   await mkdir(path.join(root, "src/generated"));
   const { app } = createApp(root, async (_prompt, tools, options) => {
@@ -505,8 +507,8 @@ test("an included symlink observed during a check stays invalidating after remov
   expect(await readFile(path.join(root, "test-runs"), "utf8")).toBe("xx");
 });
 
-test("an invalid symlink traversal stays unknown rather than being classified as unrelated", async () => {
-  const root = await fixture({ verify: { test: "printf x >> test-runs", build: "touch unselected" },
+needsSymlinks("an invalid symlink traversal stays unknown rather than being classified as unrelated", async () => {
+  const root = await fixture({ verify: { test: checkCommand("append:test-runs"), build: checkCommand("touch:unselected") },
     verification: { scopes: { test: { inputs: ["src"] } } } });
   await writeFile(path.join(root, "regular"), "not a directory");
   await mkdir(path.join(root, "outside"));
@@ -523,8 +525,8 @@ test("an invalid symlink traversal stays unknown rather than being classified as
   expect(await Bun.file(path.join(root, "unselected")).exists()).toBe(false);
 });
 
-test("an excluded symlink to unrelated output does not invalidate scoped evidence", async () => {
-  const root = await fixture({ verify: { test: "printf x >> test-runs" },
+needsSymlinks("an excluded symlink to unrelated output does not invalidate scoped evidence", async () => {
+  const root = await fixture({ verify: { test: checkCommand("append:test-runs") },
     verification: { scopes: { test: { inputs: ["src"], exclude: ["src/generated"] } } } });
   await mkdir(path.join(root, "outside"));
   await symlink("../outside", path.join(root, "src/generated"), "dir");
@@ -541,7 +543,7 @@ test("an excluded symlink to unrelated output does not invalidate scoped evidenc
   expect(await readFile(path.join(root, "test-runs"), "utf8")).toBe("x");
 });
 
-test("an excluded symlink does not hide a native write to an included input", async () => {
+needsSymlinks("an excluded symlink does not hide a native write to an included input", async () => {
   const root = await fixture({ verify: { test: command },
     verification: { scopes: { test: { inputs: ["src"], exclude: ["src/generated"] } } } });
   await writeFile(path.join(root, "src/value"), "good\n");
@@ -559,7 +561,7 @@ test("an excluded symlink does not hide a native write to an included input", as
 });
 
 test("explicit repair retains native edit invalidation without exposing the opt-in check tool", async () => {
-  const root = await fixture({ verify: { test: command, build: "printf x >> build-runs; test -f fixed" },
+  const root = await fixture({ verify: { test: command, build: checkCommand("append:build-runs", "require:fixed") },
     verification: { scopes: { test: { inputs: ["src"] }, build: { inputs: ["fixed"] } } } });
   await writeFile(path.join(root, "src/value"), "good\n");
   const { app, prompts } = createApp(root, async (_prompt, tools, options) => {
@@ -576,8 +578,8 @@ test("explicit repair retains native edit invalidation without exposing the opt-
   expect(await readFile(path.join(root, "build-runs"), "utf8")).toBe("xx");
 });
 
-test("explicit repair retains included symlink invalidation with one owner and no managed tool", async () => {
-  const root = await fixture({ verify: { test: "printf x >> test-runs", build: "printf x >> build-runs; test -f fixed" },
+needsSymlinks("explicit repair retains included symlink invalidation with one owner and no managed tool", async () => {
+  const root = await fixture({ verify: { test: checkCommand("append:test-runs"), build: checkCommand("append:build-runs", "require:fixed") },
     verification: { scopes: { test: { inputs: ["src"], exclude: ["src/generated"] }, build: { inputs: ["fixed"] } } } });
   await mkdir(path.join(root, "src/generated"));
   const { app, prompts } = createApp(root, async (_prompt, tools, options) => {
@@ -597,7 +599,7 @@ test("explicit repair retains included symlink invalidation with one owner and n
 });
 
 test.skipIf(!filesystemAliases.caseInsensitive)("explicit repair retains a removed missing-name alias with one owner and no managed tool", async () => {
-  const root = await fixture({ verify: { test: "printf x >> test-runs", build: "printf x >> build-runs; test -f fixed" },
+  const root = await fixture({ verify: { test: checkCommand("append:test-runs"), build: checkCommand("append:build-runs", "require:fixed") },
     verification: { scopes: { test: { inputs: ["SRC/MISSING"] }, build: { inputs: ["fixed"] } } }, repair: { maxAttempts: 1 } });
   const { app, prompts } = createApp(root, async (_prompt, tools, options, emit) => {
     expect(tools.map((tool) => tool.name)).not.toContain("casper_check");
@@ -614,7 +616,7 @@ test.skipIf(!filesystemAliases.caseInsensitive)("explicit repair retains a remov
 });
 
 test("another managed check invalidates scoped evidence even if an input directory is later restored", async () => {
-  const root = await fixture({ verify: { test: command, build: "touch src/transient" }, verification: { scopes: { test: { inputs: ["src"] } } } });
+  const root = await fixture({ verify: { test: command, build: checkCommand("touch:src/transient") }, verification: { scopes: { test: { inputs: ["src"] } } } });
   await writeFile(path.join(root, "src/value"), "good\n");
   const { app } = createApp(root, async (_prompt, tools) => {
     const tool = checkTool(tools);
@@ -629,8 +631,8 @@ test("another managed check invalidates scoped evidence even if an input directo
   await app.runOnce("Continue", root);
 });
 
-test("tool cancellation kills real commands and queued checks without starting repair", async () => {
-  const root = await fixture({ verify: { test: "touch started; (sleep 0.5; touch leaked) & wait", build: "touch queued-ran" }, verification: { timeoutMs: 2000 } });
+posixOnly("tool cancellation kills real commands and queued checks without starting repair", async () => {
+  const root = await fixture({ verify: { test: "touch started; (sleep 0.5 && touch leaked) & wait", build: checkCommand("touch:queued-ran") }, verification: { timeoutMs: 2000 } });
   const controller = new AbortController();
   const { app, prompts } = createApp(root, async (_prompt, tools) => {
     const tool = checkTool(tools);
@@ -653,7 +655,7 @@ test("tool cancellation kills real commands and queued checks without starting r
 });
 
 test("concurrent requests for the same scoped check execute once and return one reused pass", async () => {
-  const root = await fixture({ verify: { test: `sleep 0.1; ${command}` }, verification: { scopes: { test: { inputs: ["src"] } } } });
+  const root = await fixture({ verify: { test: checkCommand("sleep:100", "append:test-runs", "require-line:src/value=good") }, verification: { scopes: { test: { inputs: ["src"] } } } });
   await writeFile(path.join(root, "src/value"), "good\n");
   const { app } = createApp(root, async (_prompt, tools) => {
     const tool = checkTool(tools);
@@ -670,7 +672,7 @@ test("check guidance lists available commands regardless of request words; docs-
   const { app, prompts, output } = createApp(root, async (prompt, tools, options) => {
     checkTool(tools);
     expect(prompt).toContain(`test=${command}`);
-    expect(prompt).toContain("build=printf x >> build-runs");
+    expect(prompt).toContain(`build=${checkCommand("append:build-runs")}`);
     expect(prompt).toContain("actual work");
     if (prompt.includes("README typo")) await writeFile(path.join(root, "README.md"), "corrected spelling\n");
     if (prompt.includes("Fix addition")) {
@@ -709,7 +711,7 @@ test("a vague request follows edit → selected check → scoped reuse → inval
     const tool = checkTool(tools);
     if (prompt.startsWith("Casper verification repair")) {
       expect(prompt).toContain("Original request:\nContinue");
-      expect(prompt).toContain(`\"command\": \"${command}\"`);
+      expect(prompt).toContain(`"command": ${JSON.stringify(command)}`);
       expect(prompt).toContain('"exitCode": 1');
       await writeFile(path.join(root, "src/value"), "good\n");
       expect(await check(tool)).toMatchObject({ status: "pass", exitCode: 0, freshness: "fresh" });

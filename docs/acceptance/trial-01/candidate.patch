@@ -1,0 +1,141 @@
+diff --git a/src/project/inspect.ts b/src/project/inspect.ts
+--- a/src/project/inspect.ts
++++ b/src/project/inspect.ts
+@@ -23,9 +23,26 @@
+ 
+ export async function inspectProject(cwd: string): Promise<ProjectInfo> {
+   const resolvedCwd = path.resolve(cwd);
+-  const gitRoot = await git(["rev-parse", "--show-toplevel"], resolvedCwd);
++  const combined = await git(
++    ["rev-parse", "--symbolic-full-name", "HEAD", "--show-toplevel"],
++    resolvedCwd,
++  );
++  // Ref names cannot contain newlines, but directory names can. Put the
++  // full ref first and split only once, leaving the absolute root intact.
++  const separator = combined?.indexOf("\n") ?? -1;
++  const ref = separator >= 0 ? combined!.slice(0, separator) : null;
++  let gitRoot: string | null;
++  let gitBranch: string | null;
++  if (ref === "HEAD" || ref?.startsWith("refs/heads/")) {
++    gitRoot = combined!.slice(separator + 1).trim() || null;
++    gitBranch = ref === "HEAD" ? null : ref.slice("refs/heads/".length);
++  } else {
++    // Unborn HEAD cannot be resolved by rev-parse. Ambiguous or otherwise
++    // unexpected output also uses the original probes rather than guessing.
++    gitRoot = await git(["rev-parse", "--show-toplevel"], resolvedCwd);
++    gitBranch = gitRoot ? await git(["branch", "--show-current"], gitRoot) : null;
++  }
+   const root = gitRoot ?? resolvedCwd;
+-  const gitBranch = gitRoot ? await git(["branch", "--show-current"], root) : null;
+ 
+   return {
+     cwd: resolvedCwd,
+diff --git a/tests/project-inspect.test.ts b/tests/project-inspect.test.ts
+new file mode 100644
+--- /dev/null
++++ b/tests/project-inspect.test.ts
+@@ -0,0 +1,104 @@
++import { afterEach, expect, test } from "bun:test";
++import { execFileSync } from "node:child_process";
++import { mkdir, mkdtemp, readFile, realpath, rm } from "node:fs/promises";
++import os from "node:os";
++import path from "node:path";
++import { inspectProject } from "../src/project/inspect";
++
++const temporaryDirectories: string[] = [];
++
++afterEach(async () => {
++  await Promise.all(temporaryDirectories.splice(0).map((directory) =>
++    rm(directory, { recursive: true, force: true }),
++  ));
++});
++
++function git(cwd: string, ...args: string[]): string {
++  return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
++}
++
++async function fixture(committed = true, name = "project space 日本語") {
++  const temporary = await mkdtemp(path.join(os.tmpdir(), "casper-inspect-"));
++  temporaryDirectories.push(temporary);
++  const root = path.join(await realpath(temporary), name);
++  await mkdir(root);
++  git(root, "init", "--initial-branch=topic/日本語");
++  if (committed) {
++    git(root, "-c", "user.name=Inspect Test", "-c", "user.email=inspect@example.invalid",
++      "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null",
++      "commit", "--allow-empty", "-m", "fixture");
++  }
++  return root;
++}
++
++async function expectProject(cwd: string, root: string, gitBranch: string | null, isGit = true) {
++  expect(await inspectProject(cwd)).toEqual({
++    cwd: path.resolve(cwd), root, name: path.basename(root), gitBranch, isGit,
++  });
++}
++
++test("committed repository preserves spaces, Unicode, and all ProjectInfo fields", async () => {
++  const root = await fixture();
++  await expectProject(root, root, "topic/日本語");
++});
++
++test("nested relative working directory resolves to the canonical Git root", async () => {
++  const root = await fixture();
++  const nested = path.join(root, "nested", "working directory");
++  await mkdir(nested, { recursive: true });
++  await expectProject(path.relative(process.cwd(), nested), root, "topic/日本語");
++});
++
++test("unborn branch still has a branch name", async () => {
++  const root = await fixture(false);
++  await expectProject(root, root, "topic/日本語");
++});
++
++test("detached HEAD has no current branch", async () => {
++  const root = await fixture();
++  git(root, "checkout", "--detach");
++  await expectProject(root, root, null);
++});
++
++test("linked worktree uses its own root and branch", async () => {
++  const root = await fixture();
++  const worktree = path.join(path.dirname(root), "linked space 日本語");
++  git(root, "worktree", "add", "-b", "linked-branch", worktree);
++  const nested = path.join(worktree, "nested");
++  await mkdir(nested);
++  await expectProject(nested, worktree, "linked-branch");
++});
++
++test("non-Git directory uses its resolved cwd and no branch", async () => {
++  const root = await fixture();
++  const directory = path.join(path.dirname(root), "not a repository 日本語");
++  await mkdir(directory);
++  await expectProject(path.relative(process.cwd(), directory), directory, null, false);
++});
++
++test("newline in root does not corrupt combined Git output parsing", async () => {
++  const root = await fixture(true, "project\nwith newline");
++  await expectProject(root, root, "topic/日本語");
++});
++
++test("ambiguous HEAD tag does not replace the current branch", async () => {
++  const root = await fixture();
++  git(root, "update-ref", "refs/tags/HEAD", "HEAD");
++  await expectProject(root, root, "topic/日本語");
++});
++
++test("ordinary committed inspection needs only one Git invocation", async () => {
++  const root = await fixture();
++  const trace = path.join(path.dirname(root), "git-trace.log");
++  const previousTrace = process.env.GIT_TRACE;
++  try {
++    process.env.GIT_TRACE = trace;
++    await expectProject(root, root, "topic/日本語");
++  } finally {
++    if (previousTrace === undefined) delete process.env.GIT_TRACE;
++    else process.env.GIT_TRACE = previousTrace;
++  }
++  const invocations = (await readFile(trace, "utf8")).split("\n")
++    .filter((line) => line.includes("built-in: git "));
++  expect(invocations).toHaveLength(1);
++});

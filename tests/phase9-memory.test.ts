@@ -14,6 +14,7 @@ import type { VerificationReport } from "../src/verify/evidence";
 import { VerifierRegistry } from "../src/verify/registry";
 import { verifyAndRepair } from "../src/verify/repair-loop";
 import { runCommandCheck } from "../src/verify/command";
+import { needsFifos, needsSymlinks, posixModes } from "./support/platform";
 
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -32,7 +33,8 @@ test("facts are explicit, idempotent, bounded, inspectable, and isolated by work
   const added = await store.remember("Use pnpm for package scripts.");
   expect(await store.remember("Use pnpm for package scripts.")).toEqual(added);
   expect(await new ProjectMemory(context.stateDirectory).facts()).toEqual([added]);
-  expect((await stat(path.join(context.stateDirectory, "memory.jsonl"))).mode & 0o777).toBe(0o600);
+  // Mode bits are a POSIX guarantee; Windows synthesizes them (tests/support/platform.ts).
+  if (posixModes) expect((await stat(path.join(context.stateDirectory, "memory.jsonl"))).mode & 0o777).toBe(0o600);
   expect(await store.context()).toContain("Current repository evidence");
   expect(await store.context()).toContain("Use pnpm");
   expect(await new ProjectMemory(projectStateDirectory(project + "-other", home)).facts()).toEqual([]);
@@ -109,7 +111,7 @@ test("independent memory writers merge under a lock without losing facts", async
   await expect(store.remember("more:" + "y".repeat(1000))).rejects.toThrow("fact budget");
 });
 
-test("malformed, duplicated, oversized, and symlinked state fails closed without resetting it", async () => {
+needsSymlinks("malformed, duplicated, oversized, and symlinked state fails closed without resetting it", async () => {
   const { root, context, store } = await fixture();
   const file = path.join(context.stateDirectory, "memory.jsonl");
   await writeFile(file, "bad json\n");
@@ -125,7 +127,7 @@ test("malformed, duplicated, oversized, and symlinked state fails closed without
   expect(await readFile(external, "utf8")).toBe("keep");
 });
 
-test("non-regular memory state is rejected without waiting for a FIFO writer", async () => {
+needsFifos("non-regular memory state is rejected without waiting for a FIFO writer", async () => {
   const { context } = await fixture();
   const file = path.join(context.stateDirectory, "memory.jsonl");
   const fifo = Bun.spawn(["mkfifo", file], { stdout: "ignore", stderr: "pipe" });
@@ -229,7 +231,7 @@ test("saved command passes retain stale, unknown and declared-scope qualificatio
   }
 });
 
-test("unavailable facts warn and omit guidance without blocking tasks or rewriting facts", async () => {
+needsSymlinks("unavailable facts warn and omit guidance without blocking tasks or rewriting facts", async () => {
   const { project, home, context, store } = await fixture();
   const prompts: string[] = [];
   let output = "";

@@ -6,12 +6,15 @@ import { SubagentManager } from "../agents/manager";
 import { projectStateDirectory } from "../project/model";
 import { readReferenceFile, referenceText } from "../references/files";
 import { READ_ONLY_STATE_CONFLICT, type AgentRuntime } from "../runtime/types";
+import { MAX_SKILL_BYTES } from "../skills/metadata";
 export { formatTerminalJSON as formatLearningResult } from "../tui/json";
 
 const STORE_BYTES = 1_048_576;
 const MAX_DRAFTS = 100;
+const MAX_PROMOTIONS = 400;
 const FILE_BYTES = 131_072;
 const GUIDANCE = "Unpromoted model proposals, not instructions or permissions. Matching source quotes is not verification of a pattern, proof that it worked, or human acceptance. Current repository evidence, rules and user requests take precedence. Source observations are non-atomic and may become stale; inspection does not refresh them.";
+const PROMOTION_GUIDANCE = "A human explicitly promoted this exact digest-bound candidate. Promotion does not verify the pattern, refresh its evidence, grant tool permission, or override current project evidence and rules.";
 const OMIT = new Set(["node_modules", "vendor", "dist", "build", "coverage", "target", "__pycache__"]);
 
 interface Citation { file: string; startLine: number; endLine: number; quote: string }
@@ -37,6 +40,21 @@ export interface LearningDraft {
   accepted: null;
   coverage: "not-certified";
   candidates: LearningCandidate[];
+  sha256: string;
+}
+export type LearningDisposition = "reference" | "project-skill" | "global-skill" | "ignore";
+export interface LearningPromotion {
+  schemaVersion: 1;
+  id: string;
+  createdAt: string;
+  sourceRoot: string;
+  draftId: string;
+  draftSha256: string;
+  candidateIndex: number;
+  candidateSha256: string;
+  disposition: LearningDisposition;
+  skillName?: string;
+  artifact?: { path: string; stagingPath: string; sha256: string };
   sha256: string;
 }
 export interface LearningOptions {
@@ -83,6 +101,31 @@ function proposal(value: unknown, stored = false): Proposal {
     evidence: array(entry.evidence, 1, 4).map((entry) => citation(entry, stored)) };
 }
 function digest(value: unknown): string { return createHash("sha256").update(JSON.stringify(value)).digest("hex"); }
+function contentDigest(value: string | Uint8Array): string { return createHash("sha256").update(value).digest("hex"); }
+function storedPromotion(value: unknown, root: string): LearningPromotion {
+  const entry = object(value, ["schemaVersion", "id", "createdAt", "sourceRoot", "draftId", "draftSha256", "candidateIndex", "candidateSha256", "disposition",
+    ...(typeof (value as Record<string, unknown>)?.skillName === "string" ? ["skillName"] : []),
+    ...((value as Record<string, unknown>)?.artifact ? ["artifact"] : []), "sha256"]);
+  if (entry.schemaVersion !== 1 || typeof entry.id !== "string" || !/^[a-f0-9-]{36}$/.test(entry.id)
+    || typeof entry.createdAt !== "string" || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(entry.createdAt)
+    || entry.sourceRoot !== root || typeof entry.draftId !== "string" || !/^[a-f0-9-]{36}$/.test(entry.draftId)
+    || !Number.isInteger(entry.candidateIndex) || (entry.candidateIndex as number) < 1 || (entry.candidateIndex as number) > 4
+    || !["reference", "project-skill", "global-skill", "ignore"].includes(entry.disposition as string)) throw new Error("Invalid learning promotion metadata");
+  digestString(entry.draftSha256); digestString(entry.candidateSha256);
+  const needsName = entry.disposition === "project-skill" || entry.disposition === "global-skill";
+  if (needsName !== (typeof entry.skillName === "string") || (needsName && (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(entry.skillName as string) || (entry.skillName as string).length > 64))) {
+    throw new Error("Invalid promoted skill name");
+  }
+  if (entry.disposition === "ignore" && entry.artifact !== undefined) throw new Error("Ignored candidates cannot have artifacts");
+  if (entry.artifact !== undefined) {
+    const artifact = object(entry.artifact, ["path", "stagingPath", "sha256"]);
+    text(artifact.path, 4096); text(artifact.stagingPath, 4096); digestString(artifact.sha256);
+  } else if (entry.disposition !== "ignore") throw new Error("Promoted artifact metadata is required");
+  const { sha256, ...body } = entry;
+  if (digest(body) !== digestString(sha256)) throw new Error("Learning promotion digest mismatch");
+  return entry as unknown as LearningPromotion;
+}
+
 function storedDraft(value: unknown, root: string): LearningDraft {
   const entry = object(value, ["schemaVersion", "id", "createdAt", "sourceRoot", "status", "verification", "accepted", "coverage", "candidates", "sha256"]);
   if (entry.schemaVersion !== 1 || typeof entry.id !== "string" || !/^[a-f0-9-]{36}$/.test(entry.id)
@@ -179,8 +222,11 @@ export class CandidateLibrary {
   list(repo: string) {
     return this.track(async () => {
       const root = await this.root(repo, false);
-      const drafts = await this.read(await this.directory(root), root);
-      return { status: "listed" as const, drafts: drafts.map(({ id, createdAt, sha256, candidates, status }) => ({ id, createdAt, sha256, candidates: candidates.length, status })), guidance: GUIDANCE };
+      const directory = await this.directory(root);
+      const drafts = await this.read(directory, root);
+      const decisions = await this.readPromotions(directory, root, drafts);
+      return { status: "listed" as const, drafts: drafts.map(({ id, createdAt, sha256, candidates, status }) => ({ id, createdAt, sha256,
+        candidates: candidates.length, decisions: decisions.filter((entry) => entry.draftId === id).length, status })), guidance: GUIDANCE };
     });
   }
 
@@ -188,9 +234,71 @@ export class CandidateLibrary {
     return this.track(async () => {
       if (!/^[a-f0-9-]{36}$/.test(id)) throw new Error("Invalid learning draft ID");
       const root = await this.root(repo, false);
-      const draft = (await this.read(await this.directory(root), root)).find((draft) => draft.id === id);
+      const directory = await this.directory(root);
+      const drafts = await this.read(directory, root);
+      const draft = drafts.find((entry) => entry.id === id);
       if (!draft) throw new Error("Unknown learning draft ID");
-      return { status: "inspected" as const, draft, guidance: GUIDANCE };
+      const decisions = (await this.readPromotions(directory, root, drafts)).filter((decision) => decision.draftId === id);
+      return { status: "inspected" as const, draft, decisions, guidance: GUIDANCE };
+    });
+  }
+
+  /** Human-only, digest-bound promotion. Drafts remain immutable; decisions are separate records. */
+  promote(repo: string, draftId: string, draftSha256: string, candidateIndex: number,
+    disposition: LearningDisposition, skillName?: string) {
+    return this.track(async () => {
+      if (!/^[a-f0-9-]{36}$/.test(draftId) || !/^[a-f0-9]{64}$/.test(draftSha256)) throw new Error("Inspect the draft and provide its exact ID and SHA-256");
+      if (!Number.isInteger(candidateIndex) || candidateIndex < 1 || candidateIndex > 4) throw new Error("Candidate number must be an integer from 1 to 4");
+      if (!["reference", "project-skill", "global-skill", "ignore"].includes(disposition)) throw new Error("Unknown promotion disposition");
+      const named = disposition === "project-skill" || disposition === "global-skill";
+      if (named ? !skillName || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(skillName) || skillName.length > 64 : skillName !== undefined) {
+        throw new Error(named ? "Skill promotion requires a 1–64 character lowercase hyphenated skill name" : "Only skill promotion accepts a skill name");
+      }
+      const root = await this.root(repo, false);
+      const directory = await this.directory(root);
+      const draft = (await this.read(directory, root)).find((entry) => entry.id === draftId);
+      if (!draft || draft.sha256 !== draftSha256) throw new Error("Draft changed, is unknown, or its digest is incorrect; inspect it again before promotion");
+      const candidate = draft.candidates[candidateIndex - 1];
+      if (!candidate) throw new Error("Unknown candidate number; inspect the draft again");
+      const candidateSha256 = digest(candidate);
+      const canonicalHome = await realpath(this.home);
+      await mkdir(path.join(canonicalHome, ".casper"), { recursive: true, mode: 0o700 });
+      const lock = path.join(canonicalHome, ".casper", "learning-promotion.lock");
+      await this.acquire(lock, this.abort.signal);
+      let stagingDirectory: string | undefined;
+      let committed = false;
+      try {
+        const currentDrafts = await this.read(directory, root);
+        const currentDraft = currentDrafts.find((entry) => entry.id === draftId);
+        const currentCandidate = currentDraft?.candidates[candidateIndex - 1];
+        if (!currentDraft || currentDraft.sha256 !== draftSha256 || !currentCandidate || digest(currentCandidate) !== candidateSha256) {
+          throw new Error("Draft changed after consent; inspect it again before promotion");
+        }
+        const decisions = await this.readPromotions(directory, root, currentDrafts);
+        const prior = decisions.find((entry) => entry.draftId === draftId && entry.candidateIndex === candidateIndex);
+        if (prior) {
+          if (prior.draftSha256 !== draftSha256 || prior.candidateSha256 !== candidateSha256 || prior.disposition !== disposition || prior.skillName !== skillName) {
+            throw new Error("This candidate already has a different immutable promotion decision");
+          }
+          await this.finishArtifact(prior);
+          return { status: "already-decided" as const, decision: prior, guidance: PROMOTION_GUIDANCE };
+        }
+        const id = randomUUID();
+        const artifact = disposition === "ignore" ? undefined : await this.stageArtifact(directory, draft, candidate, candidateIndex, disposition, id, skillName);
+        stagingDirectory = artifact ? path.dirname(artifact.stagingPath) : undefined;
+        const body = { schemaVersion: 1 as const, id, createdAt: new Date().toISOString(), sourceRoot: root, draftId,
+          draftSha256, candidateIndex, candidateSha256, disposition, ...(skillName ? { skillName } : {}), ...(artifact ? { artifact } : {}) };
+        const decision: LearningPromotion = { ...body, sha256: digest(body) };
+        await this.savePromotions(directory, root, [...decisions, decision]);
+        committed = true;
+        await this.finishArtifact(decision);
+        stagingDirectory = undefined;
+        return { status: disposition === "ignore" ? "ignored" as const : "promoted" as const, decision, guidance: PROMOTION_GUIDANCE };
+      } finally {
+        // Retain committed staging for exact-command recovery if activation failed.
+        if (stagingDirectory && !committed) await rm(stagingDirectory, { recursive: true, force: true });
+        await rm(lock, { recursive: true, force: true });
+      }
     });
   }
 
@@ -251,21 +359,133 @@ export class CandidateLibrary {
     }
   }
 
-  private async save(directory: string, root: string, draft: LearningDraft, signal: AbortSignal): Promise<void> {
-    signal.throwIfAborted();
-    await this.directory(root);
-    await mkdir(directory, { recursive: true, mode: 0o700 });
-    const lock = path.join(directory, "learning-candidates.lock");
-    let acquired = false;
+  private async readPromotions(directory: string, root: string, drafts: LearningDraft[]): Promise<LearningPromotion[]> {
+    try {
+      const bytes = await readReferenceFile(path.join(directory, "learning-promotions.jsonl"), STORE_BYTES);
+      const lines = referenceText(bytes).split("\n").filter((line) => line.trim());
+      if (lines.length > MAX_PROMOTIONS) throw new Error("Promotion limit exceeded");
+      const decisions = lines.map((line) => storedPromotion(JSON.parse(line), root));
+      const keys = decisions.map((entry) => `${entry.draftId}:${entry.candidateIndex}`);
+      if (new Set(keys).size !== keys.length || new Set(decisions.map((entry) => entry.id)).size !== decisions.length) throw new Error("Duplicate learning promotion decisions");
+      const home = await realpath(this.home);
+      for (const decision of decisions) {
+        const draft = drafts.find((entry) => entry.id === decision.draftId);
+        const candidate = draft?.candidates[decision.candidateIndex - 1];
+        if (!draft || draft.sha256 !== decision.draftSha256 || !candidate || digest(candidate) !== decision.candidateSha256) {
+          throw new Error("Promotion is not bound to a current immutable draft candidate");
+        }
+        if (decision.artifact) {
+          const parent = decision.disposition === "reference" ? path.join(home, ".casper", "promoted-references")
+            : decision.disposition === "global-skill" ? path.join(home, ".casper", "skills") : path.join(directory, "skills");
+          const targetName = decision.disposition === "reference" ? `${decision.draftId}-${decision.candidateIndex}` : decision.skillName!;
+          const filename = decision.disposition === "reference" ? "REFERENCE.md" : "SKILL.md";
+          if (decision.artifact.path !== path.join(parent, targetName, filename)
+            || decision.artifact.stagingPath !== path.join(parent, `.promote-${decision.id}`, filename)) {
+            throw new Error("Promotion artifact path does not match its disposition");
+          }
+        }
+      }
+      return decisions;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+      throw new Error("Cannot read valid learning promotion state; preserve the file and repair it manually");
+    }
+  }
+
+  private async acquire(lock: string, signal: AbortSignal): Promise<void> {
     for (let attempt = 0; attempt < 100; attempt++) {
       signal.throwIfAborted();
-      try { await mkdir(lock, { mode: 0o700 }); acquired = true; break; }
+      try { await mkdir(lock, { mode: 0o700 }); return; }
       catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
         await new Promise((resolve) => setTimeout(resolve, 20));
       }
     }
-    if (!acquired) throw new Error("Learning state is locked; no draft saved");
+    throw new Error("Learning state is locked; preserve it before retrying");
+  }
+
+  private artifactText(candidate: LearningCandidate, skillName?: string): string {
+    const evidence = candidate.evidence.map((entry) => `### ${entry.file}:${entry.startLine}-${entry.endLine}\nObserved SHA-256: \`${entry.sha256}\`\n\n${entry.quote.split("\n").map((line) => `> ${line}`).join("\n")}`).join("\n\n");
+    const body = `# ${candidate.name}\n\n> ${PROMOTION_GUIDANCE}\n\n## Problem\n${candidate.problem}\n\n## Context\n${candidate.context}\n\n## Pattern\n${candidate.pattern}\n\n## Why it might help\n${candidate.whyItMightHelp}\n\n## Tradeoffs\n${candidate.tradeoffs.map((entry) => `- ${entry}`).join("\n")}\n\n## Use when\n${candidate.useWhen.map((entry) => `- ${entry}`).join("\n")}\n\n## Avoid when\n${candidate.avoidWhen.map((entry) => `- ${entry}`).join("\n")}\n\n## Historical evidence\n${evidence}\n`;
+    return skillName ? `---\nname: ${skillName}\ndescription: ${JSON.stringify(candidate.problem.trim())}\ntags: [learned]\n---\n\n${body}` : body;
+  }
+
+  private async stageArtifact(directory: string, draft: LearningDraft, candidate: LearningCandidate, candidateIndex: number,
+    disposition: Exclude<LearningDisposition, "ignore">, id: string, skillName?: string): Promise<NonNullable<LearningPromotion["artifact"]>> {
+    const home = await realpath(this.home);
+    const parent = disposition === "reference" ? path.join(home, ".casper", "promoted-references")
+      : disposition === "global-skill" ? path.join(home, ".casper", "skills") : path.join(directory, "skills");
+    await this.safeDirectory(parent);
+    await mkdir(parent, { recursive: true, mode: 0o700 });
+    const targetName = disposition === "reference" ? `${draft.id}-${candidateIndex}` : skillName!;
+    const targetDirectory = path.join(parent, targetName);
+    if (await this.exists(targetDirectory)) throw new Error("Promotion destination already exists; choose another skill name or inspect the existing artifact");
+    const stagingDirectory = path.join(parent, `.promote-${id}`);
+    await mkdir(stagingDirectory, { mode: 0o700 });
+    const filename = disposition === "reference" ? "REFERENCE.md" : "SKILL.md";
+    const source = this.artifactText(candidate, disposition === "reference" ? undefined : skillName);
+    const stagingPath = path.join(stagingDirectory, filename);
+    await writeFile(stagingPath, source, { flag: "wx", mode: 0o600 });
+    return { path: path.join(targetDirectory, filename), stagingPath, sha256: contentDigest(source) };
+  }
+
+  private async exists(filePath: string): Promise<boolean> {
+    try { await lstat(filePath); return true; }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+      throw error;
+    }
+  }
+
+  private async safeDirectory(directory: string): Promise<void> {
+    const home = await realpath(this.home);
+    if (!inside(home, directory)) throw new Error("Promotion destination must stay inside Casper's user state");
+    let current = home;
+    for (const part of path.relative(home, directory).split(path.sep)) {
+      current = path.join(current, part);
+      const info = await lstat(current).catch((error: NodeJS.ErrnoException) => { if (error.code !== "ENOENT") throw error; });
+      if (info && (!info.isDirectory() || info.isSymbolicLink())) throw new Error("Promotion destination directories must be real directories, not symlinks");
+    }
+  }
+
+  private async finishArtifact(decision: LearningPromotion): Promise<void> {
+    if (!decision.artifact) return;
+    const targetDirectory = path.dirname(decision.artifact.path);
+    const stagingDirectory = path.dirname(decision.artifact.stagingPath);
+    await this.safeDirectory(targetDirectory);
+    await this.safeDirectory(stagingDirectory);
+    const target = await readReferenceFile(decision.artifact.path, MAX_SKILL_BYTES).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== "ENOENT") throw error; return undefined;
+    });
+    if (target) {
+      if (contentDigest(target) !== decision.artifact.sha256) throw new Error("Promoted artifact changed; refusing recovery or replacement");
+      await rm(stagingDirectory, { recursive: true, force: true });
+      return;
+    }
+    const staged = await readReferenceFile(decision.artifact.stagingPath, MAX_SKILL_BYTES).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== "ENOENT") throw error; return undefined;
+    });
+    if (!staged || contentDigest(staged) !== decision.artifact.sha256) throw new Error("Promotion decision was recorded but its exact staged artifact is unavailable; preserve state and repair manually");
+    if (await this.exists(targetDirectory)) throw new Error("Promotion destination appeared concurrently; preserve state and inspect it manually");
+    await rename(stagingDirectory, targetDirectory);
+  }
+
+  private async savePromotions(directory: string, root: string, decisions: LearningPromotion[]): Promise<void> {
+    await this.directory(root);
+    await mkdir(directory, { recursive: true, mode: 0o700 });
+    const source = decisions.map((entry) => JSON.stringify(entry) + "\n").join("");
+    if (decisions.length > MAX_PROMOTIONS || Buffer.byteLength(source) > STORE_BYTES) throw new Error("Learning promotion store is full; archive it manually before continuing");
+    const temporary = path.join(directory, `.promotions-${randomUUID()}.tmp`);
+    try { await writeFile(temporary, source, { flag: "wx", mode: 0o600 }); await rename(temporary, path.join(directory, "learning-promotions.jsonl")); }
+    finally { await rm(temporary, { force: true }); }
+  }
+
+  private async save(directory: string, root: string, draft: LearningDraft, signal: AbortSignal): Promise<void> {
+    signal.throwIfAborted();
+    await this.directory(root);
+    await mkdir(directory, { recursive: true, mode: 0o700 });
+    const lock = path.join(directory, "learning-candidates.lock");
+    await this.acquire(lock, signal);
     let temporary: string | undefined;
     try {
       signal.throwIfAborted();

@@ -5,6 +5,7 @@ import { CandidateLibrary, formatLearningResult } from "./learn/candidates";
 import { taskExitCode } from "./task/result";
 
 import { HELP_TEXT } from "./tui/help";
+import { CASPER_VERSION } from "./version";
 
 export function installShutdownHandlers(app: { close(): Promise<void>; interrupt?(): boolean }): () => void {
   const shutdown = (exitCode: number) => {
@@ -24,11 +25,25 @@ export function installShutdownHandlers(app: { close(): Promise<void>; interrupt
   };
 }
 
+/** Only a *leading* argument is a flag: `casper explain the -v flag` is a prompt, not
+ * a version request. Exported as the argv policy's test seam. */
+export function leadingFlag(args: readonly string[]): "help" | "version" | undefined {
+  const first = args[0];
+  if (first === "--help" || first === "-h") return "help";
+  if (first === "--version" || first === "-v") return "version";
+  return undefined;
+}
+
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
 
-  if (args.includes("--help") || args.includes("-h")) {
+  const flag = leadingFlag(args);
+  if (flag === "help") {
     process.stdout.write(HELP_TEXT);
+    return;
+  }
+  if (flag === "version") {
+    process.stdout.write(`casper ${CASPER_VERSION}\n`);
     return;
   }
 
@@ -55,8 +70,12 @@ async function main(): Promise<void> {
       let result;
       if (args[1] === "list" && args.length === 3) result = await learning.list(args[2]!);
       else if (args[1] === "inspect" && args.length === 4) result = await learning.inspect(args[2]!, args[3]!);
-      else if (args.length === 2 && !["list", "inspect"].includes(args[1]!)) result = await learning.generate(args[1]!);
-      else throw new Error("Usage: casper learn <local-repo> | learn list <local-repo> | learn inspect <local-repo> <draft-id>");
+      else if (args[1] === "promote" && (args.length === 7 || args.length === 8)) {
+        const index = Number(args[5]);
+        result = await learning.promote(args[2]!, args[3]!, args[4]!, index, args[6]! as "reference" | "project-skill" | "global-skill" | "ignore", args[7]);
+      }
+      else if (args.length === 2 && !["list", "inspect", "promote"].includes(args[1]!)) result = await learning.generate(args[1]!);
+      else throw new Error("Usage: casper learn <local-repo> | learn list <local-repo> | learn inspect <local-repo> <draft-id> | learn promote <local-repo> <draft-id> <draft-sha256> <candidate-number> <reference|project-skill|global-skill|ignore> [skill-name]");
       console.log(formatLearningResult(result));
     } catch (error) {
       console.error(formatLearningResult({ status: "failed", error: error instanceof Error ? error.message : "Learning failed" }));

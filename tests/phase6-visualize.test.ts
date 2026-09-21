@@ -9,6 +9,7 @@ import { resolveVisualizationSettings, VisualizationRouter } from "../src/visual
 import { describeVisualization, visualizationTools } from "../src/visualize/tools";
 import { GRAPH_LIMITS, parseVisualizationGraph, spanningTree, type VisualizationGraph, type VisualizationProvider } from "../src/visualize/types";
 import { classifyTask } from "../src/task/classify";
+import { needsSymlinks } from "./support/platform";
 
 const cleanup: (() => Promise<unknown>)[] = [];
 afterEach(async () => { for (const fn of cleanup.splice(0).reverse()) await fn(); });
@@ -263,7 +264,7 @@ test("visualization settings: defaults outside the workspace, tilde expansion, p
   expect(() => resolveVisualizationSettings({ ...base, layers: [{ document: { visualize: "yes" }, source: "global" }] })).toThrow("must be a mapping");
 });
 
-test("repo graph resolves relative imports, groups by directory, ignores vendored/symlinked trees, and collapses large graphs", async () => {
+needsSymlinks("repo graph resolves relative imports, groups by directory, ignores vendored/symlinked trees, and collapses large graphs", async () => {
   const root = await tempDir("casper-viz-repo-");
   await mkdir(path.join(root, "src/util"), { recursive: true });
   await mkdir(path.join(root, "node_modules/dep"), { recursive: true });
