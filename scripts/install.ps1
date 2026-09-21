@@ -19,6 +19,8 @@
 # NOT VALIDATED ON WINDOWS: written to the same contract as scripts/install.sh, but no
 # Windows host has run it. Treat the first Windows run as a test (see docs/RELEASE.md).
 $ErrorActionPreference = 'Stop'
+# Windows PowerShell 5.1 may otherwise negotiate an obsolete TLS version.
+[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
 # GitHub's latest/download excludes prereleases; this preview pins an explicit tag.
 $BaseUrl = if ($env:CASPER_BASE_URL) { $env:CASPER_BASE_URL } else { 'https://github.com/Choaterboater/casper/releases/download/v0.1.0' }
@@ -83,10 +85,14 @@ try {
     throw "Could not replace $Target (is casper.exe still running?): $($_.Exception.Message)"
   }
 
-  $UserPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+  $UserPath = [string][Environment]::GetEnvironmentVariable('Path', 'User')
   if (($UserPath -split ';') -notcontains $InstallDir) {
     [Environment]::SetEnvironmentVariable('Path', (($UserPath.TrimEnd(';') + ';' + $InstallDir).TrimStart(';')), 'User')
     Write-Host "Added $InstallDir to your user PATH; open a new terminal to use it."
+  }
+  # When invoked directly with irm | iex, make casper usable in this terminal too.
+  if (($env:Path -split ';') -notcontains $InstallDir) {
+    $env:Path = ($env:Path.TrimEnd(';') + ';' + $InstallDir).TrimStart(';')
   }
   Write-Host "Installed $Reported to $Target"
 } finally {

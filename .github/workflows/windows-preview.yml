@@ -1,0 +1,31 @@
+name: Windows preview
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['src/**', 'scripts/**', 'tests/release-compile.test.ts', 'tests/fixtures/compiled-image.ts', 'package.json', 'bun.lock', 'THIRD_PARTY_NOTICES.txt', '.github/workflows/windows-preview.yml']
+permissions:
+  contents: read
+jobs:
+  standalone:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.0'
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun test tests/release-compile.test.ts
+      - run: bun run build:release
+      - name: Windows PowerShell 5.1 installer
+        shell: powershell
+        run: ./scripts/test-install-windows.ps1
+      - name: PowerShell 7 installer
+        shell: pwsh
+        run: ./scripts/test-install-windows.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-preview
+          path: dist/release/

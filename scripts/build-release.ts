@@ -15,6 +15,7 @@
 import { chmod, copyFile, mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { CASPER_VERSION } from "../src/version";
+import { compileExecutable } from "./compile";
 
 const repoRoot = path.resolve(import.meta.dir, "..");
 const outputDir = path.join(repoRoot, "dist/release");
@@ -86,17 +87,16 @@ async function main(): Promise<void> {
   for (const target of targets) {
     const name = artifactName(target);
     const outfile = path.join(outputDir, name);
-    const build = Bun.spawnSync([
-      process.execPath, "build", path.join(repoRoot, "src/cli.ts"),
-      "--compile", "--minify", `--target=${target}`, `--outfile=${outfile}`,
-    ], { cwd: repoRoot, stdout: "inherit", stderr: "inherit" });
-    if (build.exitCode !== 0) throw new Error(`Compile failed for ${target}`);
+    await compileExecutable(path.join(repoRoot, "src/cli.ts"), outfile, target as Bun.Build.CompileTarget);
     const digest = new Bun.CryptoHasher("sha256").update(await Bun.file(outfile).arrayBuffer()).digest("hex");
     checksums.push(`${digest}  ${name}`);
     const size = (await Bun.file(outfile).size / (1024 * 1024)).toFixed(1);
     process.stdout.write(`${name}  ${size} MB  sha256 ${digest.slice(0, 16)}…\n`);
   }
 
+  for (const file of ["LICENSE", "THIRD_PARTY_NOTICES.txt"]) {
+    await copyFile(path.join(repoRoot, file), path.join(outputDir, file));
+  }
   // `sha256sum -c` compatible, so a downloader can verify with standard tools too.
   await writeFile(path.join(outputDir, "SHA256SUMS"), `${checksums.join("\n")}\n`);
   await writeFile(path.join(outputDir, "VERSION"), `${CASPER_VERSION}\n`);

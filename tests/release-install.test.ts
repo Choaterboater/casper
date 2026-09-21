@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { CASPER_VERSION } from "../src/version";
+import { compileExecutable } from "../scripts/compile";
 import { chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -162,13 +163,12 @@ posixOnly("a failing version probe preserves the previous installation even when
 posixOnly("the compiled CLI renders artifact files outside the checkout without Bun on PATH", async () => {
   const root = await tempDir("casper-binary-test-");
   const binary = path.join(root, "casper");
-  const build = Bun.spawn([process.execPath, "build", path.join(repoRoot, "src/cli.ts"), "--compile", "--minify", `--outfile=${binary}`], {
-    cwd: repoRoot, stdout: "pipe", stderr: "pipe",
-  });
-  const [buildLog, buildErrors, buildExit] = await Promise.all([
-    new Response(build.stdout).text(), new Response(build.stderr).text(), build.exited,
-  ]);
-  expect({ exit: buildExit, error: buildExit ? buildLog + buildErrors : "" }).toEqual({ exit: 0, error: "" });
+  await compileExecutable(path.join(repoRoot, "src/cli.ts"), binary);
+  const notices = Bun.spawn([binary, "--licenses"], { cwd: root, env: { PATH: "/usr/bin:/bin" }, stdout: "pipe", stderr: "pipe" });
+  const [noticeText, noticeError, noticeExit] = await Promise.all([new Response(notices.stdout).text(), new Response(notices.stderr).text(), notices.exited]);
+  expect({ exit: noticeExit, error: noticeError }).toEqual({ exit: 0, error: "" });
+  expect(noticeText).toContain("CASPER — THIRD-PARTY NOTICES");
+  expect(noticeText).toContain("@earendil-works/pi-coding-agent@0.85.1");
   const home = path.join(root, "home"), project = path.join(root, "project");
   await mkdir(home); await mkdir(project);
   await writeFile(path.join(project, "index.ts"), "export const answer = 42;\n");

@@ -43,6 +43,7 @@ Usage:
   casper               Start interactive mode
   casper <prompt>      Run one prompt and exit
   casper --version, -v Print the installed version
+  casper --licenses    Show bundled third-party license notices
   casper learn <repo>  Propose inert learning drafts using a read-only model run
   casper learn list <repo>          List saved drafts locally (no model)
   casper learn inspect <repo> <id>  Inspect a draft and its decisions locally
