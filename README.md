@@ -389,16 +389,16 @@ Fresh consent discloses replacement of the selected provider in the resolved Pi/
 macOS and Linux — one line:
 
 ```bash
-curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.1.2/install.sh | sh
+curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.1.3/install.sh | sh
 ```
 
 Windows (PowerShell):
 
 ```powershell
-powershell -ExecutionPolicy Bypass -c "irm https://github.com/Choaterboater/casper/releases/download/v0.1.2/install.ps1 | iex"
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/Choaterboater/casper/releases/download/v0.1.3/install.ps1 | iex"
 ```
 
-These commands target the planned **v0.1.2 preview** and will resolve only after it
+These commands target the planned **v0.1.3 preview** and will resolve only after it
 is published. Re-running reinstalls that version in place; a later preview needs
 its own release URL. GitHub's `latest/download` route excludes prereleases. It downloads one self-contained executable for your platform, verifies its
 SHA-256 against the release's `SHA256SUMS`, installs it to `~/.local/bin/casper`
@@ -407,7 +407,7 @@ runs the staged executable's `--version` successfully before replacing an existi
 and no checkout are required on the target machine** — Bun and every dependency are
 embedded in the binary.
 
-Installer defaults now target `Choaterboater/casper` at tag `v0.1.2`; the repository
+Installer defaults now target `Choaterboater/casper` at tag `v0.1.3`; the repository
 and release have not yet been published. Build with `bun run build:release -- --all`
 and upload **every file** in `dist/release/`: all binaries, `SHA256SUMS`, `VERSION`
 and both installers. Binaries belong in release assets, not the Git source history.
@@ -421,7 +421,7 @@ Useful installer options (`sh scripts/install.sh --help`):
 
 ```bash
 --dir <path>            # install somewhere else
---version 0.1.2         # require this exact installed version
+--version 0.1.3         # require this exact installed version
 --sha256 <hex>          # verify out of band when SHA256SUMS is unreachable
 --force                 # replace a symlink that leaves the install dir (a development link)
 ```
@@ -462,7 +462,7 @@ Help and the running location:
 
 ```bash
 casper --help
-casper --version     # casper 0.1.2 (/absolute/path/to/src/cli.ts or the binary)
+casper --version     # casper 0.1.3 (/absolute/path/to/src/cli.ts or the binary)
 ```
 
 You can still launch directly from this checkout with `bun run dev` if you do not want a PATH link.
@@ -474,7 +474,7 @@ You can still launch directly from this checkout with `bun run dev` if you do no
 - Assistant messages render as Markdown (headings, lists, emphasis, inline code, fenced code, quotes, tables) through Pi's renderer; the in-progress message is re-rendered whole while it streams and committed once when it ends, so lists and fences stay correct across chunk boundaries. Links print their URL in parentheses rather than as hidden hyperlinks. `NO_COLOR` disables color; redirected output and `TERM=dumb` stay plain.
 - Streamed output stays above the editable draft. Enter during active work retains the draft rather than queuing another request. Press Enter again once idle to submit it.
 - Ctrl-C cancels active work while retaining the session and existing changes. At idle it clears a draft, or exits if empty. Editable-terminal confirmations use a fresh input field and restore the previous draft afterward; Ctrl-C/EOF deny approval. Piped line input discards unfinished fragments at approval transitions. With actual terminal input but `TERM=dumb` or redirected output, exact approval is denied because fresh keystrokes cannot be established safely. `NO_COLOR` alone does not disable approvals.
-- Tool activity includes file/command targets, running/completed/failed states and elapsed time, plus bounded error previews. Common credentials are redacted from previews; this is not a general secret detector. Tool completion is not a verification pass.
+- Tool activity includes file/command targets, running/completed/failed states and elapsed time, plus bounded error previews. On a rich terminal the `• … — running` line is redrawn in place as `✓`/`✗` when that call finishes, so each tool call occupies one transcript line; any other output in between (assistant text, another tool, a prompt) commits the running line first. Common credentials are redacted from previews; this is not a general secret detector. Tool completion is not a verification pass.
 - Interactive sessions offer the model a `casper_check` tool for the project's configured checks (typecheck, lint, test, build). Nothing runs until the model selects a check, and a selected check executes that repository's command, so this is execution consent rather than sandboxing; start with `casper --no-verify` in a repository whose commands you do not trust. One-shot prompts get the tool only with `--verify`. The task receipt says when no Casper verification was recorded.
 - The `/` command popup, pickers and the login notice are drawn over the bottom of the transcript, never appended: opening or closing them does not scroll the terminal or leave blank rows. Only a width change or Ctrl+L repaints from the top.
 - `/status` shows integration/storage information and host-reported selected provider/model, reasoning level, local credential availability, selection source, and Casper default. Before lazy runtime startup it explicitly says model/auth are not initialized/checked. Credentials configured is **not** a connection test. No defaults or credentials are changed by status.

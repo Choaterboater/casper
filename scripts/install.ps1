@@ -1,6 +1,6 @@
 # Casper installer for Windows.
 #
-#   powershell -ExecutionPolicy Bypass -c "irm https://github.com/Choaterboater/casper/releases/download/v0.1.2/install.ps1 | iex"
+#   powershell -ExecutionPolicy Bypass -c "irm https://github.com/Choaterboater/casper/releases/download/v0.1.3/install.ps1 | iex"
 #
 # Downloads the self-contained casper-windows-x64.exe, verifies its SHA-256 against the
 # release's SHA256SUMS, installs it under %LOCALAPPDATA%\Programs\casper and adds that
@@ -23,7 +23,7 @@
 $ErrorActionPreference = 'Stop'
 
 # GitHub's latest/download excludes prereleases; this preview pins an explicit tag.
-$BaseUrl = if ($env:CASPER_BASE_URL) { $env:CASPER_BASE_URL } else { 'https://github.com/Choaterboater/casper/releases/download/v0.1.2' }
+$BaseUrl = if ($env:CASPER_BASE_URL) { $env:CASPER_BASE_URL } else { 'https://github.com/Choaterboater/casper/releases/download/v0.1.3' }
 $InstallDir = if ($env:CASPER_INSTALL_DIR) { $env:CASPER_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA 'Programs\casper' }
 $Version = $env:CASPER_VERSION
 $ExpectedSha = $env:CASPER_SHA256

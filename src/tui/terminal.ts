@@ -55,13 +55,15 @@ export class InteractiveTerminal {
     if (this.surface) this.surface.write(text); else this.output.write(text);
   }
 
-  write(text: string): void {
+  write(text: string, options: { rewriteLine?: boolean } = {}): void {
     const styled = terminalText(text).split("\n").map(line => {
       const code = /^(?:\[error\]|✗)/.test(line) ? "31" : /^✓/.test(line) ? "32"
         : /^(?:•|\[skills\]|\[cancel)/.test(line) ? "33" : /^CASPER/.test(line) ? "1;36" : /^ \/help · /.test(line) ? "2" : undefined;
       return code ? paint(line, code, this.color) : line;
     }).join("\n");
-    if (this.surface) this.surface.write(styled); else this.output.write(styled);
+    // `rewriteLine` restarts the transcript's open tail line (a "running" status) instead of
+    // appending; the sanitizer above would otherwise escape a caller's `\r`. Rich surface only.
+    if (this.surface) this.surface.write(options.rewriteLine ? `\r${styled}` : styled); else this.output.write(styled);
   }
 
   assistant(delta: string): void {
