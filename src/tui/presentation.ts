@@ -1,6 +1,9 @@
 import { Container, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { paint, terminalText } from "./format";
 
+/** Code and tool output are read line by line; a box wider than this only adds empty border. */
+export const PANEL_MAX_COLUMNS = 120;
+
 export type PanelTone = "accent" | "assistant" | "success" | "warning" | "error" | "muted";
 
 const colors: Record<PanelTone, string> = {
