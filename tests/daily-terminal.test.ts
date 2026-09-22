@@ -162,3 +162,24 @@ test("interactive input shows persistent status and slash discovery without subm
     expect(output).toContain("Background observation");
   } finally { terminal.close(); input.destroy(); }
 });
+
+test("Ctrl-C on an idle, empty editor arms exit; a second Ctrl-C exits and other keys disarm it", async () => {
+  const input = Object.assign(new PassThrough(), { isTTY: true, setRawMode() {} });
+  let output = ""; let eofs = 0;
+  const terminal = new InteractiveTerminal(input, { isTTY: true, columns: 100, rows: 30, write: text => { output += text; } }, () => {}, () => { eofs++; });
+  try {
+    terminal.setStatus("fixture"); terminal.start();
+    const command = terminal.readCommand();
+    await tick();
+    input.write("\x03"); await tick();
+    expect(output).toContain("Ctrl-C again to exit");
+    expect(eofs).toBe(0);
+    input.write("x"); await tick(); // Any other key disarms; the draft is now "x".
+    input.write("\x03"); await tick(); // Clears the draft, does not exit.
+    expect(eofs).toBe(0);
+    input.write("\x03"); await tick(); // Arms again.
+    input.write("\x03"); await tick(); // Exits.
+    expect(eofs).toBe(1);
+    expect(await command).toBeUndefined();
+  } finally { terminal.close(); input.destroy(); }
+});

@@ -16,7 +16,7 @@ No Bun installation or source checkout is required.
 **Windows x64 — PowerShell:**
 
 ```powershell
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.8/install.ps1 | iex
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.9/install.ps1 | iex
 ```
 
 Then run `casper` from your project folder. If an existing terminal does not find it,
@@ -26,15 +26,15 @@ Windows ARM64 does not have a release artifact yet.
 **macOS / Linux:**
 
 ```sh
-curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.8/install.sh | sh
+curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.9/install.sh | sh
 ```
 
 The installer verifies the executable's SHA-256 and runs the staged executable's
 `--version` successfully before replacing an existing installation; a rejected
 download leaves the previous installation untouched. It needs no administrator
-access. These commands pin **v0.2.8**: re-running reinstalls that preview. For a
+access. These commands pin **v0.2.9**: re-running reinstalls that preview. For a
 newer preview, use its release URL; GitHub's `latest/download` route excludes
-prereleases. Useful `install.sh` options: `--dir <path>`, `--version 0.2.8`,
+prereleases. Useful `install.sh` options: `--dir <path>`, `--version 0.2.9`,
 `--sha256 <hex>` and `--force` (replace a development symlink that leaves the
 install directory). [Installer details](docs/RELEASE.md).
 
@@ -61,7 +61,7 @@ callback codes only in the dedicated private login prompt, never in chat.
 ```sh
 casper "Explain this project"
 casper --verify "Fix the failing tests"
-casper --version     # casper 0.2.8 (/absolute/path/of/the/binary/or/cli.ts)
+casper --version     # casper 0.2.9 (/absolute/path/of/the/binary/or/cli.ts)
 ```
 
 An interactive session offers the model a `casper_check` tool for the project's
@@ -93,7 +93,9 @@ A model saying “done” is not a passing test or human acceptance.
 
 The editor supports multiline input, command/path completion, scrollback and a
 persistent status footer. Ctrl+C cancels active work without undoing existing
-changes. Model selection normally remembers your choice; `--session` opts out.
+changes; when idle it clears the draft, and on an empty editor a second Ctrl+C
+within two seconds exits (Ctrl+D exits at once). Model selection normally
+remembers your choice; `--session` opts out.
 `/effort auto` classifies each request with one bounded extra model call and shows
 the effort actually used; a fixed level turns it off.
 

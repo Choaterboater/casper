@@ -23,7 +23,7 @@ export const HELP_TEXT = `Casper — your coding companion
 Type a request to work with the model. Native tools can execute code and edit files.
 Type / for fuzzy command discovery; Tab completes commands and file paths (@).
 Shift+Enter (when supported) or Ctrl+J inserts a newline; Up/Down recalls history.
-Esc stops active work. Ctrl-C cancels work; idle, it clears a draft or exits if empty.
+Esc stops active work. Ctrl-C cancels work; idle, it clears a draft; twice on empty exits.
 Ctrl+L redraws the screen. See docs/TERMINAL_UX.md for limits.
 Enter during work retains your draft; it does not queue a request.
 Approvals require a fresh yes. Task completion is not verification.
