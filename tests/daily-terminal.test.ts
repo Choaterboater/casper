@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { afterAll, expect, test } from "bun:test";
 import { PassThrough } from "node:stream";
 import { EventEmitter } from "node:events";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -6,6 +6,12 @@ import os from "node:os";
 import path from "node:path";
 import { InteractiveTerminal } from "../src/tui/terminal";
 import { posixOnly } from "./support/platform";
+
+// The rich-surface path is gated on `TERM !== "dumb"`; a harness or CI shell that
+// exports TERM=dumb must not silently downgrade these fixtures to readline input.
+const ambientTerm = process.env.TERM;
+process.env.TERM = "xterm-256color";
+afterAll(() => { if (ambientTerm === undefined) delete process.env.TERM; else process.env.TERM = ambientTerm; });
 
 const tick = () => new Promise(resolve => setTimeout(resolve, 90));
 

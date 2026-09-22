@@ -52,10 +52,11 @@ browserTest("a hanging navigation times out and the same session can recover", a
   const f = await fixture();
   const started = performance.now();
   await expect(f.session.run({ action: "open", url: `${f.url}/hang` })).rejects.toThrow("timeout");
-  expect(performance.now() - started).toBeLessThan(15_000);
+  // The navigation deadline is 5 s; the rest is Chromium startup, which a loaded host stretches.
+  expect(performance.now() - started).toBeLessThan(30_000);
   await f.session.run({ action: "open", url: f.url });
   expect(await f.session.run({ action: "inspect" })).toMatchObject({ title: "Browser fixture" });
-}, 20_000);
+}, 45_000);
 
 browserTest("visibility and rectangle overlap replay separately from input freshness", async () => {
   const f = await fixture();

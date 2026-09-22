@@ -125,7 +125,8 @@ export class TerminalSurface {
       const resolve = this.command; this.command = undefined; this.busy = true;
       this.configureAutocomplete();
       this.editor.addToHistory(value); this.editor.setText("");
-      this.write(this.accent(`${PROMPT_GLYPH} ${terminalText(value)}`) + "\n");
+      // Continuation lines of a multiline prompt sit under the text, not under the gutter glyph.
+      this.write(terminalText(value).split("\n").map((line, index) => this.accent(`${index ? "  " : `${PROMPT_GLYPH} `}${line}`)).join("\n") + "\n");
       resolve(value);
     };
     // The bottom block (editor, suggestion popup, mounted picker or lending notice)
