@@ -210,6 +210,12 @@ export class TerminalSurface {
     this.transcript.append(text);
     this.render();
   }
+  /** A block that renders itself per width (a bordered panel) commits after any open tail line. */
+  writeBlock(block: Component): void {
+    if (!this.started) { this.io.output.write(block.render(this.io.output.columns ?? 80).join("\n") + "\n"); return; }
+    this.transcript.commit(block);
+    this.render();
+  }
   assistant(delta: string): void {
     if (!this.started) {
       const text = terminalText(delta); this.io.output.write(text);

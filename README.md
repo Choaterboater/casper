@@ -16,7 +16,7 @@ No Bun installation or source checkout is required.
 **Windows x64 — PowerShell:**
 
 ```powershell
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.1/install.ps1 | iex
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.2/install.ps1 | iex
 ```
 
 Then run `casper` from your project folder. If an existing terminal does not find it,
@@ -26,15 +26,15 @@ Windows ARM64 does not have a release artifact yet.
 **macOS / Linux:**
 
 ```sh
-curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.1/install.sh | sh
+curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.2/install.sh | sh
 ```
 
 The installer verifies the executable's SHA-256 and runs the staged executable's
 `--version` successfully before replacing an existing installation; a rejected
 download leaves the previous installation untouched. It needs no administrator
-access. These commands pin **v0.2.1**: re-running reinstalls that preview. For a
+access. These commands pin **v0.2.2**: re-running reinstalls that preview. For a
 newer preview, use its release URL; GitHub's `latest/download` route excludes
-prereleases. Useful `install.sh` options: `--dir <path>`, `--version 0.2.1`,
+prereleases. Useful `install.sh` options: `--dir <path>`, `--version 0.2.2`,
 `--sha256 <hex>` and `--force` (replace a development symlink that leaves the
 install directory). [Installer details](docs/RELEASE.md).
 
@@ -61,7 +61,7 @@ callback codes only in the dedicated private login prompt, never in chat.
 ```sh
 casper "Explain this project"
 casper --verify "Fix the failing tests"
-casper --version     # casper 0.2.1 (/absolute/path/of/the/binary/or/cli.ts)
+casper --version     # casper 0.2.2 (/absolute/path/of/the/binary/or/cli.ts)
 ```
 
 An interactive session offers the model a `casper_check` tool for the project's
@@ -99,7 +99,8 @@ the effort actually used; a fixed level turns it off.
 
 Assistant messages render as Markdown through Pi's renderer, re-rendered whole while
 they stream so lists and fences stay correct; fenced code blocks are boxed in a
-bordered panel titled with their language, prose stays inline. Each tool call occupies one transcript
+bordered panel titled with their language, as are `/output` replays and the `/diff` status and
+colored diff; prose stays inline. Each tool call occupies one transcript
 line: `• … — running` is redrawn in place as `✓`/`✗` when it finishes, and a dim
 `… thinking · 1.5k chars` line keeps the screen live while the model produces output
 that is not yet visible. The `/` popup, pickers and the login notice are drawn over
