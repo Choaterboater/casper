@@ -1,6 +1,6 @@
 # Casper installer for Windows.
 #
-#   powershell -ExecutionPolicy Bypass -c "irm https://github.com/Choaterboater/casper/releases/download/v0.1.7/install.ps1 | iex"
+#   [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.0/install.ps1 | iex
 #
 # Downloads the self-contained casper-windows-x64.exe, verifies its SHA-256 against the
 # release's SHA256SUMS, installs it under %LOCALAPPDATA%\Programs\casper and adds that
@@ -18,12 +18,17 @@
 #   CASPER_VERSION      Required installed version; the installer fails on any other.
 #   CASPER_SHA256       Expected digest, when SHA256SUMS cannot be fetched.
 #
-# NOT VALIDATED ON WINDOWS: written to the same contract as scripts/install.sh, but no
-# Windows host has run it. Treat the first Windows run as a test (see docs/RELEASE.md).
+# Installer and startup smoke checks run on Windows CI with PowerShell 5.1 and 7.
+# This does not certify all interactive/optional features (see docs/RELEASE.md).
 $ErrorActionPreference = 'Stop'
+if ($PSVersionTable.PSVersion -lt [version]'5.1') {
+  throw 'Windows PowerShell 5.1 or newer is required.'
+}
+# Windows PowerShell 5.1 may otherwise negotiate an obsolete TLS version.
+[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
 # GitHub's latest/download excludes prereleases; this preview pins an explicit tag.
-$BaseUrl = if ($env:CASPER_BASE_URL) { $env:CASPER_BASE_URL } else { 'https://github.com/Choaterboater/casper/releases/download/v0.1.7' }
+$BaseUrl = if ($env:CASPER_BASE_URL) { $env:CASPER_BASE_URL } else { 'https://github.com/Choaterboater/casper/releases/download/v0.2.0' }
 $InstallDir = if ($env:CASPER_INSTALL_DIR) { $env:CASPER_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA 'Programs\casper' }
 $Version = $env:CASPER_VERSION
 $ExpectedSha = $env:CASPER_SHA256
@@ -42,7 +47,10 @@ $Artifact = 'casper-windows-x64.exe'
 $Tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("casper-install-" + [guid]::NewGuid().ToString('N'))
 # An interrupted update must not leave the staged download behind.
 $Staged = $null
+$PreviousProgressPreference = $ProgressPreference
 try {
+  # Rendering per-chunk progress makes large downloads extremely slow in PS 5.1.
+  $ProgressPreference = 'SilentlyContinue'
   New-Item -ItemType Directory -Path $Tmp | Out-Null
   Write-Host "Downloading $Artifact from $BaseUrl"
   $ArtifactPath = Join-Path $Tmp $Artifact
@@ -105,13 +113,18 @@ try {
     throw "Could not replace $Target (is casper.exe still running?): $($_.Exception.Message)"
   }
 
-  $UserPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+  $UserPath = [string][Environment]::GetEnvironmentVariable('Path', 'User')
   if (($UserPath -split ';') -notcontains $InstallDir) {
     [Environment]::SetEnvironmentVariable('Path', (($UserPath.TrimEnd(';') + ';' + $InstallDir).TrimStart(';')), 'User')
     Write-Host "Added $InstallDir to your user PATH; open a new terminal to use it."
   }
+  # When invoked directly with irm | iex, make casper usable in this terminal too.
+  if (($env:Path -split ';') -notcontains $InstallDir) {
+    $env:Path = ($env:Path.TrimEnd(';') + ';' + $InstallDir).TrimStart(';')
+  }
   Write-Host "Installed casper $ReportedVersion to $Target"
 } finally {
+  $ProgressPreference = $PreviousProgressPreference
   Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $Tmp
   if ($Staged) { Remove-Item -Force -ErrorAction SilentlyContinue $Staged }
 }

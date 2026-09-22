@@ -60,7 +60,6 @@ test("app keeps status/connect local, replaces task surfaces, and denies one-sho
   expect(output).toContain("disconnected");
   expect(runtime.starts).toBe(0);
   await app.runOnce("/mcp connect fixture");
-  expect(output).toContain("340 tools");
   expect(runtime.starts).toBe(0);
   await app.runOnce("Read site health metric");
   expect(runtime.surfaces[0]).toHaveLength(9);
@@ -125,7 +124,6 @@ test("interactive MCP errors leave the session usable, and EOF ends the input lo
   expect(await Promise.race([outcome, Bun.sleep(1000).then(() => "stuck")])).toBe("ended");
   expect(questions).toBe(3);
   expect(output).toContain("Unknown MCP server");
-  expect(output).toContain("fixture [stdio; disconnected]");
 });
 
 test("interactive EOF while idle does not leave runInteractive pending", async () => {

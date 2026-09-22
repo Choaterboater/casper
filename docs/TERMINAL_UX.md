@@ -19,6 +19,42 @@ art and drops the color. The wordmark is constant text written past the untruste
 line classifier (`InteractiveTerminal.writeTrusted`), which is never used for
 model or tool output.
 
+Transcript lines are inline, not boxed: `✓`/`✗`/`•` tool lines, `[model]`,
+`[approval]`, `[task]` and similar bracketed notices, and the `❯ …` echo of each
+prompt. Green marks success, red an error, amber a notice or decision, cyan the
+accent (banner, prompt echo, Markdown structure), dim the muted status lines.
+Bordered panels (`src/tui/presentation.ts`) are reserved for exclusive input
+flows such as `/login`. Color always accompanies a readable label; tool completion
+does not mean a check passed. `NO_COLOR` keeps the structure without color, while
+redirected output and `TERM=dumb` use plain text.
+
+Assistant text streams through Pi's Markdown renderer, including code and tables.
+The in-progress message is re-rendered whole through Pi's `Markdown` component on
+every delta (so lists, fences and wrapped emphasis are correct across chunk
+boundaries) and shown as the transcript's uncommitted tail; when the message ends
+its rendered lines are committed once. The source Markdown is kept per message so
+a width change re-renders it rather than re-wrapping old output. Text still passes
+`terminalText()` before rendering. Links show their destination as inert text —
+the URL in parentheses instead of an OSC 8 hyperlink. Login URLs and device codes
+stay on standalone lines so frames do not become part of a copied value. Captured
+tool errors and verifier stdout/stderr remain available with display-only
+redaction; this is not a general secret detector, and recorded evidence is unchanged.
+
+Tool activity shows file/command targets (grep/find show their pattern), state and
+elapsed time. On a rich terminal the `• … — running` line is redrawn in place as
+`✓`/`✗` when that call finishes, so each tool call occupies one transcript line;
+any other output in between (assistant text, another tool, a prompt) commits the
+running line first. While the model is producing something not yet visible —
+reasoning, or the arguments of a large `write` — a dim `… thinking · 1.5k chars` /
+`… write · composing arguments · 4.0k chars` line keeps the screen live and is
+erased when the visible output arrives.
+
+Help and results group related facts instead of one long paragraph. Assistant
+instructions favor the answer or action first, numbered human steps when needed,
+and one concrete next action when work remains. Unknown checks, estimates and
+remaining uncertainty stay explicit. This is guidance, not a guarantee of any
+provider's responses.
+
 The prompt box keeps a fixed two-column gutter: `❯` while idle, `…` while a
 command is working, `?` while an exact approval is pending. The box never shifts
 horizontally between states, so a draft keeps its wrapping. The footer shows a
@@ -27,9 +63,9 @@ estimated context occupancy, runtime-reported session tokens, a positive cost
 estimate when available, and idle/working state. `—` means unavailable, `~`
 means estimated. Branch is the project inspection snapshot; `/status` refreshes
 it after external Git changes. Narrow terminals truncate the footer rather than
-wrapping over input. Cost is not an invoice or subscription charge. No green
-permission/verification badge is invented, and no unimplemented ASK/PLAN/BUILD
-mode is implied.
+wrapping over input. Cost is not an invoice or subscription charge.
+No green permission/verification badge is invented, and no unimplemented
+ASK/PLAN/BUILD mode is implied.
 
 ### Layout stability
 
@@ -42,17 +78,6 @@ surface: the transcript and footer stay visible, the terminal is not stopped,
 and no screen clear happens when they finish. Finished transcript entries are
 rendered once per width and cached; only the open tail line and the assistant
 message still streaming re-render per frame.
-
-Assistant messages are Markdown. The in-progress message is re-rendered whole
-through Pi's `Markdown` component on every delta (so lists, fences and wrapped
-emphasis are correct across chunk boundaries) and shown as the transcript's
-uncommitted tail; when the message ends its rendered lines are committed once.
-The source Markdown is kept per message so a width change re-renders it rather
-than re-wrapping old output. Headings, links, inline/fenced code and list bullets
-use the accent color, fence borders/quotes/rules are dim; with `NO_COLOR` every
-theme function is identity. Text still passes `terminalText()` before rendering,
-and links print their URL in parentheses instead of hiding it behind an OSC 8
-hyperlink.
 
 Ctrl+L and a width change still repaint from the top, matching Pi's renderer:
 both clear the visible screen and the terminal's scrollback and reprint the whole
@@ -73,22 +98,28 @@ popups/pickers, or a duplicated prompt box (`bun test tests/terminal-layout.test
   settings; **Ctrl+S selects for this session only**. Escape/Ctrl+C cancel.
 - `/model provider/id`: exact selection, remembered globally.
 - `/model --session [provider/id]`: explicitly temporary selection/picker.
-- `/effort`: supported-level picker in an interactive terminal, otherwise a list.
+- `/effort`: automatic or supported fixed-effort picker in an interactive terminal, otherwise a list.
 - `/effort high`: apply and remember for that model. Unsupported levels fail.
 - `/effort high --session`: do not change the saved preference. Effort also survives
   switching away from a model and back within the current conversation.
-- `/effort auto`: Casper picks a level per request from the model's supported set —
-  low for reading, explaining and diagrams; medium for tests and configuration; high
-  for fixes, features and refactors (the lightest supported level at or above that
-  target, else the heaviest). The footer shows `auto→<level>`. The choice is
-  remembered in `~/.casper/effort.json` (not in Pi's typed thinking levels) unless
-  `--session`; any explicit `/effort <level>` turns auto off again.
+- `/effort auto`: classify each raw request before generation; actual effort and
+  classified/fallback/unavailable status remain visible. Fixed effort disables it.
+- `/model roles`: inspect optional `fast`, `build`, `reason`, `review` mappings.
+- `/model role review provider/id:high`: save a shortcut without selecting it.
+- `/model --session @review:auto`: resolve that shortcut with an explicit effort
+  override for this conversation. `@default` resolves the saved concrete model.
 
 Restored conversations retain their recorded model/effort. Missing credentials or
 an unavailable model still block sending rather than silently choosing another
 provider. Shared Pi defaults are not rewritten. Selecting a model generates no
 model response; subsequent requests send context to the selected provider.
-Delegation/learning retain their separately documented model-default policy.
+Explorer/reviewer children use Casper roles or its startup default. Auto effort
+makes one extra bounded current-request-only classifier call using `fast`, or
+the selected model if unset; no history or skills are sent to the classifier.
+This can cross providers when `fast` is configured. See [CONFIGURATION.md](CONFIGURATION.md)
+for precedence, cancellation, persistence and the four-second fallback policy.
+Classifier usage is shown separately in `/usage` for the loaded session instance;
+unreported failed-request cost is unknown, not zero.
 
 ### Provider login
 
@@ -99,10 +130,20 @@ credential replacement; login does not select a model. Browser opening is manual
 Keys and callback codes/URLs use a separate hidden prompt, never chat/history.
 Escape/Ctrl-C cancel; EOF and shutdown drain the login lifecycle.
 
+Provider and method choices reuse Pi's selection list: Up/Down moves the visible
+highlight in place, Enter confirms that item, and Cancel exits without contacting
+the provider. Navigation accepts Pi's decoded arrow/Enter sequences, including
+fragmented or batched terminal input. Trailing keys cannot answer the next prompt;
+pasted text cannot grant consent or submit a private credential.
+
+This picker correction is in source, not the published v0.1.0 binaries. macOS PTY
+coverage exercises rendering and complete synthetic login flows; Windows-host
+verification of this correction is still pending.
+
 Copilot login may enable account model policies. Pi documents Claude subscription
 auth as billed extra usage; OpenRouter browser sign-in mints a permanent key billed
 from credits. Callback listeners are loopback-only. Plain terminals remain guidance
-only. See [multi-provider review](MULTI_PROVIDER_LOGIN_REVIEW.md) for evidence/limits.
+only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
 
 ### Input and commands
 
@@ -162,128 +203,24 @@ See [DEBUGGER.md](DEBUGGER.md). No adapter installation, remote attach or evalua
 bun tools/terminal-demo.ts
 ```
 
-This throwaway demo uses synthetic model/effort choices and fake activity. It makes
-no model calls, edits no source files and saves no preferences. Try typing, history,
-multiline input, `/model`, `/effort`, resizing and cancellation. It exercises the
-same terminal surface; it is not a live-model usefulness trial or human visual sign-off.
+This offline demo uses synthetic model/effort choices and activity. It makes
+no model calls, edits no source files and saves no preferences. Send a message for
+streaming Markdown/code/tables; try `/approve`, `/error`, `/status`, `/model` and
+`/effort`, then resize while editing a draft. It exercises the production terminal
+surface, not live-model usefulness or human visual sign-off.
 
-### Validation and remaining scope
+## Compatibility
 
-Latest full isolated serial gate: **518 tests passed / 5,345 assertions**, 45 files,
-TypeScript clean. See [Phase 10 release review](PHASE10_DEBUGGER_REVIEW.md),
-[login review](MULTI_PROVIDER_LOGIN_REVIEW.md) and
-[daily-use review](DAILY_TERMINAL_REVIEW.md) for evidence and corrections. Real POSIX PTYs cover model/effort pickers, login input ownership,
-fresh approvals, cancellation, color/NO_COLOR and the demo's resize. Public editor
-stream tests cover multiline/history and narrow widths. Windows, exhaustive
-terminal compatibility and pathological pastes/very long transcript performance
-are not certified. Conversation/token data is not automatically redacted storage.
+macOS terminal behavior is exercised with real PTYs. Windows and Linux need host
+runs; exhaustive terminal compatibility is not claimed. Conversation/token storage
+is not automatically redacted. There is no workspace rollback, automatic shell
+shortcut, queued prompt execution or enforced permission-mode selector.
 
-Deferred: new permission presets, enforced ASK/PLAN/BUILD modes, `/undo`, automatic
-`!` shell execution, symbol-reference indexing, external-editor integration,
-queued prompts, animations/themes and additional clients. These are not hidden
-behind decorative controls. Existing native tools and explicit checks remain usable.
+## Design references and reuse
 
-## Historical readline checkpoint
-
-The remainder records the earlier implementation and its then-current limits.
-Its old keybindings/counts do not override the current interface above.
-
-Scope: quiet opt-in skill discovery and a usable readline-based CLI. This is not
-Phase 9 acceptance, a full TUI rewrite, or a live-model usefulness trial.
-
-This is the historical first-slice report. The subsequent
-[Casper-owned model selection slice](MODEL_SELECTION.md) adds a temporarily hosted
-Pi picker; the “no model picker” limit below describes this earlier checkpoint.
-
-## Shipped behavior
-
-See [README Skills](../README.md#skills) for import configuration and trust policy,
-and [Interactive terminal](../README.md#interactive-terminal) for controls.
-
-- Casper-only discovery by default. User/profile `skills.imports` explicitly
-  enables compatible roots. Ordinary Markdown is ignored; malformed declared
-  skills retain diagnostics behind one startup summary and `/skills diagnostics`.
-- `src/tui/terminal.ts` owns transcript rendering, draft/cursor state, busy Enter,
-  cancellation and exclusive confirmation input. App output goes through this
-  module; the execution, consent and evidence owners remain unchanged.
-- Markdown assistant messages, target-bearing tool activity with elapsed time and bounded
-  redacted errors, concise help/startup, `/help all`, `/status` and `/login` guidance.
-- Runtime identity comes from the active Pi session and its local auth snapshot.
-  Startup remains lazy: status before a model session explicitly says unchecked.
-  Status does not resolve credentials, refresh OAuth, or test provider connectivity.
-- Ctrl-C retains the session and existing changes. Cancellation at auth preflight
-  is checked again before provider execution. A pretyped draft is never an answer
-  to a later approval. Ctrl-C/EOF deny pending confirmations. Plain piped-input
-  fragments are discarded at approval transitions; actual cooked TTY input with
-  `TERM=dumb` or redirected output cannot grant exact approval (fails closed).
-- General successful conversation without observed effects/checks omits only the
-  terminal task receipt. Structured task results and outcomes remain; coding,
-  mutation, verification, failure and cancellation receipts remain visible.
-
-## Regression loops
-
-```sh
-bun test tests/terminal-discovery.test.ts tests/phase2-skills.test.ts
-bun test tests/terminal-ux.test.ts tests/terminal-review.test.ts
-bun test tests/phase8-pi.integration.test.ts -t 'parent cancellation'
-bun run check
-```
-
-The discovery fixture includes AionUi/paperclip-like ordinary docs, title-only
-frontmatter, legacy standalone skills (including flow mappings), malformed
-`SKILL.md`, malformed declared standalone skills and oversized descriptions.
-Assertions cover warning counts/details as well as discovery and configuration.
-It reproduced the old startup noise before the fix (3 failing tests).
-
-The PTY exercise launches `CasperApp` with a scripted runtime and an isolated local
-MCP fixture. It checks the rendered screen and received requests, not just process
-exit: typing during streaming, busy Enter, wrapped drafts with a middle cursor,
-Ctrl-C during work and immediately after Enter, fresh deny/approve/cancel, EOF at
-approval, local status/login, color/NO_COLOR, and fail-closed `TERM=dumb` approval. Python 3's standard-library PTY
-support is required on POSIX; Windows is not validated. No provider credentials or
-live-model calls are used. The test exposed and locked down wrapped-input redraw
-and EOF-confirmation cleanup defects during implementation.
-
-The Pi preflight test uses an isolated localhost protocol provider. It proves a
-cancelled preflight makes no request and a subsequent prompt still works. Existing
-Pi integration also asserts the displayed identity comes from the host session.
-
-## Limits
-
-- Markdown rendering is Pi's component: no syntax highlighting; a partial fence or
-  emphasis marker looks literal until its closer streams in.
-- Single-line readline editing/history; no multiline editor, queue/steering,
-  themes, animations, model picker or embedded OAuth. Very large pastes and terminal
-  resize/reflow are not covered by the PTY acceptance exercise.
-- Redaction is conservative display-only pattern matching, not a secret detector.
-  It does not rewrite tool arguments, stored evidence or exact approval previews.
-  Tool completion is diagnostic status, never an authoritative shell exit or test pass.
-- A cancelled operation still drains its existing cleanup. This slice introduces
-  no forced per-task deadline; the existing CLI SIGTERM shutdown deadline remains.
-- Existing unrelated SIGTERM verifier cleanup flakiness remains a separate finding;
-  a passing gate does not diagnose it.
-
-## Validation
-
-Post-implementation checkpoint: TypeScript clean; **407 tests passed, 0 failed,
-4,615 assertions** across 32 files (test portion 120.24 s).
-
-The subsequent [session review](TERMINAL_UX_REVIEW.md) reproduced and corrected
-plain-input fresh-consent handling and redirected-output streaming. Its final
-`bun run check` passed **411 tests / 4,624 assertions**, TypeScript clean, with
-three extra terminal/PTY regression repeats. See that report for current readiness
-and next-phase scope. This includes the website's
-five existing game tests; no browser/UI acceptance is claimed. `git diff --check`
-also passed.
-
-The first gate reached 404 passing tests and two obsolete startup presentation
-assertions; those assertions were updated to inspect `/visualize` without weakening
-graph, artifact or workspace-preservation checks. The final gate is separate from
-the historical baseline and unapplied trial candidate.
-
-A pre-edit file hash/mode manifest confirmed all seven `web/` files and all twenty
-saved `docs/acceptance/` files unchanged. Existing files outside the intended UX
-source/test/docs set were unchanged; no files were removed or modes changed.
-`src/project/inspect.ts`, dependency manifests/pins, the installed CLI link and
-executable mode were preserved; `tests/project-inspect.test.ts` remains absent.
-The saved trial patch was not applied. No live-model trial, commit or push occurred.
+The layout is inspired by [OMP](https://github.com/can1357/oh-my-pi) and uses the
+installed Pi renderer, editor, Markdown and selectors. Wording guidance is informed
+by [i-have-adhd](https://github.com/ayghri/i-have-adhd), without assuming a diagnosis
+or installing its plugin. Both references publish MIT licenses; attribution and
+license notices are retained in `THIRD_PARTY_NOTICES.txt`. Casper keeps its own
+identity and does not bundle OMP as another runtime.

@@ -21,7 +21,7 @@ def run_case(bun, repo, root, provider, browser=False, action="save", no_color=F
         s.until("│ idle")
         # Navigate the chooser rather than only testing direct commands.
         s.send("/login\n")
-        s.until("Choose provider"); s.until("Up/Down selects; Enter confirms")
+        s.until("Choose provider"); s.until("Up/Down: choose")
         index = ["openai-codex", "github-copilot", "anthropic", "openrouter"].index(provider)
         for _ in range(index): s.send("\x1b[B"); s.pump(0.03)
         s.send("\n")

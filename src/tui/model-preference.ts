@@ -18,7 +18,10 @@ export async function modelPreference(home: string): Promise<string | undefined>
       if (bytesRead > 16 * 1024) return;
       const value = JSON.parse(buffer.subarray(0, bytesRead).toString("utf8"));
       if (typeof value?.defaultProvider !== "string" || typeof value?.defaultModel !== "string") return;
-      return `default ${value.defaultProvider}/${value.defaultModel} · ${typeof value.defaultThinkingLevel === "string" ? value.defaultThinkingLevel : "effort default"}`;
+      const identity = `${value.defaultProvider}/${value.defaultModel}`;
+      const effort = Array.isArray(value.autoEffortModels) && value.autoEffortModels.includes(identity)
+        ? "auto (pending)" : typeof value.defaultThinkingLevel === "string" ? value.defaultThinkingLevel : "effort default";
+      return `default ${identity} · ${effort}`;
     } finally { await file.close(); }
   } catch { return undefined; }
 }

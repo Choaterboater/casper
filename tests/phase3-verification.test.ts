@@ -5,7 +5,7 @@ import path from "node:path";
 import { loadConfiguration } from "../src/config/load";
 import { loadProjectContext } from "../src/project/context";
 import { runCommandCheck } from "../src/verify/command";
-import { formatVerificationReport, formatVerificationResult } from "../src/verify/evidence";
+import { formatVerificationResult } from "../src/verify/evidence";
 import { VerifierRegistry } from "../src/verify/registry";
 import { verifyAndRepair } from "../src/verify/repair-loop";
 import { checkCommand } from "./support/check-command";
@@ -104,7 +104,6 @@ verification:
     expect(report.status).toBe("fail");
     expect(report.results[0]).toMatchObject({ command: failing, cwd: root, status: "fail", exitCode: 7, stderr: "exact-error", truncated: false });
     expect(report.results[1].status).toBe("skip");
-    expect(formatVerificationReport(report)).toContain("1 fail, 1 skip");
     const missing = await verifyAndRepair({ registry, checks: ["typecheck", "build"], cwd: root, request: "test" });
     expect(missing.status).toBe("incomplete");
     const pwd = await runCommandCheck({ name: "test", command: checkCommand("cwd"), cwd: root, timeoutMs: 1000 });

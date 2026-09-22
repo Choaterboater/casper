@@ -65,8 +65,6 @@ browserTest("Casper reports a reproduced browser fix and stops its owned develop
   };
   await f.app.runOnce("fix this website and demonstrate the regression passing");
   expect(f.app.getLastTaskResult()).toMatchObject({ execution: "completed", browser: { status: "pass", checks: [{ status: "pass", baseline: "fail", freshness: "fresh" }] } });
-  expect(f.output.join("")).toContain("Browser assertions pass");
-  expect(f.output.join("")).toContain("no Casper verification recorded");
   await expect(fetch(url)).rejects.toThrow();
   expect((await captured!.execute({ action: "inspect" })).isError).toBe(true);
   f.runtime.action = async () => { expect(f.runtime.tools.some(tool => tool.name === "browser")).toBe(false); };

@@ -1,5 +1,0 @@
-repair:
-  maxAttempts: 0
-verify:
-  typecheck: bun run typecheck
-  test: env -u PI_CODING_AGENT_DIR -u CASPER_PROFILE bun test

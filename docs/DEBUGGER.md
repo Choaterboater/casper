@@ -1,10 +1,7 @@
-# Local debugger — Phase 10 completion scope
+# Local DAP debugger
 
-Status: implemented and validated. Together with browser-first Phase 10A, this
-completes the scoped Phase 10 debugging work. CasperCloud is reference material,
-not an integration deliverable. Generic RPC, remote collaboration and additional
-clients remain optional future work. See [release review](PHASE10_DEBUGGER_REVIEW.md)
-for the **518-test** gate, real-adapter evidence and limitations.
+Validated locally with installed debugpy on macOS. Other adapters and Windows/Linux
+require host validation; no adapter is installed automatically.
 
 ## User contract
 
@@ -98,40 +95,3 @@ unusable the session reports **unknown** cleanup and blocks further work instead
 guessing. Windows has not been validated on a real host; Linux shares the POSIX path
 and has no recorded host run. Casper exposes no remote listener; an adapter such as
 debugpy may use its own local sockets behind its stdio interface.
-
-## Test interfaces and evidence
-
-Tests use the Phase 10 plan's public debugger interface plus Casper app/CLI seam,
-real subprocess framing and a deterministic synthetic adapter. Installed debugpy
-1.8.20 also passes real breakpoint/variable/exit/stop/crash tests. No external
-model/account trial was used. Coverage includes denial, changed config, malformed
-and oversized frames, failed requests, timeouts, late replies, stale handles,
-reverse-request rejection, bounds, terminal controls and positive owned/unrelated
-process controls. Real PTYs cover fresh consent, EOF and SIGTERM; a real worktree
-fixture covers capability revocation. See the review for the cancellation race,
-160-launch correction loop and isolated cleanup fault probe.
-
-For real-adapter tests outside this host, set `CASPER_TEST_DEBUGPY` to an already
-installed debugpy adapter directory and `CASPER_TEST_PYTHON` to its Python executable.
-Tests otherwise look for an installed VS Code debugpy extension; absence is an
-explicit skip. No automatic installation or universal adapter support is claimed.
-
-## Primary-source inspection
-
-- [DAP overview](https://microsoft.github.io/debug-adapter-protocol/overview): stdio
-  framing, asynchronous launch/configuration, stop-scoped references and disconnect.
-- [DAP specification](https://microsoft.github.io/debug-adapter-protocol/specification):
-  request/response/event types, capabilities, `configurationDone`, `setBreakpoints`,
-  `threads`, `stackTrace`, `scopes`, `variables`, `continue`, `disconnect`.
-- [OMP DAP client](https://github.com/can1357/oh-my-pi/blob/d716bcf60ab0a2e7ece1fdf382c0d143fef1f307/packages/coding-agent/src/dap/client.ts)
-  and [session](https://github.com/can1357/oh-my-pi/blob/d716bcf60ab0a2e7ece1fdf382c0d143fef1f307/packages/coding-agent/src/dap/session.ts):
-  useful launch-order, request-lifetime and cleanup patterns; no OMP dependency or
-  wholesale copy. OMP's attach/evaluate/reverse requests are not this contract.
-- Installed debugpy launcher source: `debugpy/launcher/debuggee.py` creates a
-  separate process group. Killing only the adapter's group is insufficient evidence
-  of debuggee cleanup; test the real process lifetime.
-
-Throwaway probe evidence: `/tmp/casper-dap-research/`. Installed LLDB answered
-initialize but did not complete launch within the probe's 12-second bound; it is
-not accepted as validated support. Installed debugpy completed a real breakpoint,
-threads/stack and disconnect, and the fixture debuggee was gone afterward.

@@ -43,8 +43,8 @@ descendant was observed.
 _Avoid_: Kill list, process registry
 
 **Evaluation task**:
-One prompt over a fixture repository with an independent acceptance command and
-declared behavioral expectations. Its success is measured, never self-reported.
+A bounded piece of work over a prepared repository with independent behavioral checks
+and declared expectations. A workflow scenario also requires host-observed lifecycle evidence.
 _Avoid_: Benchmark, score, grade
 
 **Fixture baseline**:
@@ -58,3 +58,18 @@ Execution completed, the independent verification command passed, and every decl
 acceptance predicate held. Casper's own verification report is recorded separately
 and never counts as acceptance.
 _Avoid_: Pass, green, working
+
+**Required interaction**:
+Human participation expected by an evaluation scenario, such as approval, requested
+clarification or a planned cancellation and resume. It is recorded separately from rescue.
+_Avoid_: Rescue, failure
+
+**Rescue intervention**:
+Human assistance that redirects or repairs an evaluation attempt, such as an unsolicited
+hint, corrective prompt, manual edit or unplanned supervisor restart.
+_Avoid_: Required interaction, automatic repair
+
+**Acceptance outcome**:
+An evaluation attempt's independently checked result: accepted without rescue, accepted
+with rescue or not accepted. A later repair does not replace an earlier attempt's result.
+_Avoid_: Self-reported completion, test-suite pass

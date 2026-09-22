@@ -45,7 +45,7 @@ workspace:
     experimentalBranch: true
 ```
 
-The settings use normal safe-default → global → profile → project precedence. Phase 7 consumes `experimentalBranch`; the other two settings establish policy for later bounded-agent/risky-refactor orchestration. Setting `experimentalBranch: false` keeps named Pi branches but shares the main workspace.
+The settings use normal safe-default → global → profile → project precedence. Named workspaces consume `experimentalBranch`; the other two settings establish policy for later bounded-agent/risky-refactor orchestration. Setting `experimentalBranch: false` keeps named Pi branches but shares the main workspace.
 
 Worktrees are not created for ordinary edits. They are created only for an explicitly requested experimental session branch when policy says to isolate it.
 
@@ -62,3 +62,5 @@ Worktrees are not created for ordinary edits. They are created only for an expli
 - Pi's native shell/filesystem tools are not sandboxed. Worktrees isolate file state; they are not a security boundary.
 
 State files are mode `0600` and atomically replaced. A malformed manifest fails closed rather than being silently reset.
+
+POSIX permission modes are not Windows ACL guarantees; see [platform support](PLATFORM_SUPPORT.md).

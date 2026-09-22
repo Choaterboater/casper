@@ -5,3 +5,9 @@ coverage/
 *.bun-build
 .scratch/
 __pycache__/
+
+# Local credentials and generated state
+.env
+.env.*
+/.casper/
+/.pi/

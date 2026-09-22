@@ -6,6 +6,7 @@ import { taskExitCode } from "./task/result";
 
 import { HELP_TEXT } from "./tui/help";
 import { CASPER_VERSION } from "./version";
+import licenseNotices from "../THIRD_PARTY_NOTICES.txt" with { type: "text" };
 
 export function installShutdownHandlers(app: { close(): Promise<void>; interrupt?(): boolean }): () => void {
   const shutdown = (exitCode: number) => {
@@ -27,10 +28,11 @@ export function installShutdownHandlers(app: { close(): Promise<void>; interrupt
 
 /** Only a *leading* argument is a flag: `casper explain the -v flag` is a prompt, not
  * a version request. Exported as the argv policy's test seam. */
-export function leadingFlag(args: readonly string[]): "help" | "version" | undefined {
+export function leadingFlag(args: readonly string[]): "help" | "version" | "licenses" | undefined {
   const first = args[0];
   if (first === "--help" || first === "-h") return "help";
   if (first === "--version" || first === "-v") return "version";
+  if (first === "--licenses") return "licenses";
   return undefined;
 }
 
@@ -44,10 +46,14 @@ export function resolveAutoVerify(options: { verify: boolean; noVerify: boolean;
   return options.interactive;
 }
 
-async function main(): Promise<void> {
+export async function runCli(): Promise<void> {
   const args = process.argv.slice(2);
 
   const flag = leadingFlag(args);
+  if (flag === "licenses") {
+    process.stdout.write(licenseNotices);
+    return;
+  }
   if (flag === "help") {
     process.stdout.write(HELP_TEXT);
     return;
@@ -124,7 +130,7 @@ async function main(): Promise<void> {
 }
 
 if (import.meta.main) {
-  main().catch((error) => {
+  runCli().catch((error) => {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
   });

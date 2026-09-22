@@ -1,6 +1,6 @@
 # Local reference search
 
-Phase 9 now supports read-only search of explicitly configured local source paths.
+Casper supports read-only search of explicitly configured local source paths.
 It retrieves examples; it does not generate learning candidates, choose
 promotions, rewrite rules, or certify that a pattern fits the current project.
 The separate [`casper learn` command](LEARNING.md) produces inert drafts and
@@ -128,5 +128,3 @@ the deadline are cooperative, not hard preemption of filesystem calls. Lookups
 are non-atomic and do not protect against a hostile same-user process replacing
 paths during a read. This is not an OS sandbox; native runtime tools are unchanged.
 Windows behavior is not independently validated.
-
-Implementation and local validation: [Phase 9](PHASE9_IMPLEMENTATION.md#local-reference-search-slice).
