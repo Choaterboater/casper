@@ -1,6 +1,10 @@
 # Casper
 
-Casper is a standalone coding companion CLI built as its own project.
+[MIT licensed](LICENSE). Third-party dependencies retain their own licenses.
+
+Casper is a terminal coding companion built on Pi, with its own interface, project context, and verification controls.
+
+**Release status:** source checkout available locally; no public binary release yet. macOS is validated here. Linux and Windows still need real-host validation.
 
 After [local installation](#install), run `casper` from the project directory you want to work in. Use `casper --help` or `casper /project` without making a model call.
 
@@ -77,8 +81,10 @@ Casper targets macOS, Linux and Windows with the same control plane. One shared 
   groups; Windows has no groups, so it lists the process table through PowerShell
   `Get-CimInstance Win32_Process` (legacy `wmic` fallback) and terminates only
   verified descendants, children first. A PID whose OS identity stamp changed is
-  never treated as owned, and an unusable process listing fails closed: cleanup is
-  reported **unknown** and blocks new debugger/model/workspace work.
+  never treated as owned. Cleanup results are awaited; an unusable listing is
+  reported **unknown**, not success. Affected integrations refuse replacement, and
+  Casper blocks subsequent execution while keeping status/help available. POSIX
+  callers retain best-effort group signalling; that is not proof every descendant exited.
 - **Environment isolation** (`environment.ts`) — spawned adapters, browsers and
   development servers get an allowlisted environment with a temporary user
   directory (`HOME`/`TMPDIR` on POSIX; `USERPROFILE`, `APPDATA`, `LOCALAPPDATA`,
@@ -94,7 +100,7 @@ Casper targets macOS, Linux and Windows with the same control plane. One shared 
 | Browser sessions and owned dev servers | validated against installed Chrome | discovery list implemented; no host run recorded | implemented (Chrome/Edge discovery); real-host validation pending |
 | Local DAP debugger | validated with installed debugpy 1.8.20 | shared POSIX paths; no host run recorded | implemented; real-host validation pending |
 | Diagram artifact files | validated | implemented via `openat`; no host run recorded | unavailable: diagrams stay in-conversation (fails closed) |
-| POSIX-only test fixtures (PTY, symlink, FIFO, mode bits, process groups, native shell commands) | run | run | explicit skips with stated reasons; no Windows coverage |
+| POSIX-only test fixtures (PTY, symlink, FIFO, mode bits, process groups, native shell commands) | run | no host run recorded | explicit skips with stated reasons; no Windows coverage |
 
 "Implemented; real-host validation pending" means the code path exists and is
 covered by simulated-platform tests plus the shared POSIX suite, but no gate has run
@@ -298,11 +304,15 @@ bun run src/cli.ts "/verify"                      # all four check kinds
 bun run src/cli.ts "/verify typecheck test"       # selected checks, in this order
 bun run src/cli.ts "/verify repair test"          # start Pi only if a check fails
 bun run src/cli.ts --verify "Fix the login flow"  # model-selected managed checks + repair
+bun run src/cli.ts                                # interactive: casper_check offered by default
+bun run src/cli.ts --no-verify                    # interactive without the managed check tool
 ```
 
-The same `/verify` commands work interactively. `--verify` (or `CasperApp({ autoVerify: true })`) offers the model a `casper_check` tool for normal requests, including vague requests such as “Continue”. With no prompt, the flag enables it for the interactive session. The model selects relevant configured checks based on actual work, for example `casper_check({ check: "test" })`; request keywords no longer choose checks. Docs-only/no-change work may need none. No selection means **no Casper verification recorded**, not a pass or a mandatory four-check pipeline. Use `/verify` to explicitly select checks yourself.
+The same `/verify` commands work interactively. An interactive session (`casper` with no prompt) offers the model a `casper_check` tool for normal requests, including vague requests such as “Continue”; `--no-verify` withholds it. One-shot prompts get the tool only with `--verify` (`CasperApp({ autoVerify: true })` is the programmatic equivalent). Offering the tool runs nothing: the model selects relevant configured checks based on actual work, for example `casper_check({ check: "test" })`; request keywords do not choose checks. Docs-only/no-change work may need none. No selection means **no Casper verification recorded**, not a pass or a mandatory four-check pipeline. Use `/verify` to explicitly select checks yourself.
 
-Without the flag, normal prompts have no managed check tool or automatic verifier commands. **Native bash is unchanged.** This is a managed-check subset, not transparent native-shell reuse: Casper uses its own existing command runner, not Pi's bash prefixes or session environment injection. The flag and `/verify` are **explicit execution consent, not sandboxing or persisted repository trust**. Use them only in repositories whose commands you trust. Repair also authorizes model edits.
+Without the tool (`--no-verify`, or a one-shot prompt without `--verify`), normal prompts have no managed check tool or automatic verifier commands. **Native bash remains independent of managed verification.** Casper supplies a **120-second default timeout** when a model-issued bash call omits `timeout`; an explicit timeout in seconds is honored for intentionally longer commands. Timeouts use Pi's native process-tree cleanup and return a tool error so the conversation can continue. Esc/Ctrl+C can still cancel active work before the deadline. Repository-search guidance asks the model to stay within the workspace and narrow timed-out searches; this is guidance, not a filesystem sandbox.
+
+This is a managed-check subset, not transparent native-shell reuse: Casper uses its own existing command runner, not Pi's bash prefixes or session environment injection. The interactive default, `--verify` and `/verify` are **explicit execution consent, not sandboxing or persisted repository trust**: a selected check runs that repository's configured command. Use Casper in repositories whose commands you trust, or start with `--no-verify`. Repair also authorizes model edits.
 
 Project `.casper/project.yaml` can specify canonical checks:
 
@@ -330,7 +340,7 @@ Tool calls and post-task verification share one task-local evidence store. Concu
 
 A tool returns execution evidence to Pi's ordinary edit/check loop; it never starts a nested repair prompt. Unresolved actual failures reach the existing bounded repair owner after the main prompt settles, carrying the exact command, bounded output, exit status, available Git changed-file context, original request, and constraints. Post-task repair preserves that task's request; explicit `/verify repair` uses the objective of making the selected checks pass, not an unrelated earlier prompt. Failed checks rerun first; after they pass, multi-check selections revisit the full selection to catch regressions, reusing only passing results with matching **declared-input** evidence. A valid managed pass obtained during repair also avoids a duplicate command. New requests and explicit `/verify` calls always start fresh; captured old check tools are revoked. The model saying “done” is not a passing result. Up to three repair prompts run by default. Passing selected checks does not imply unselected checks passed.
 
-The terminal shows concise results, not full logs. Programmatic `CasperApp.runOnce()` returns a `VerificationReport` for verification runs, including all rounds. `getLastTaskResult()` returns a detached result for the last normal request, separating execution (`completed`, `failed`, `cancelled`) from optional verification; local commands clear this result. Coding requests print a factual execution/verification receipt, including bounded observed native edit paths, possible tool writes (including failed/partial writes), and exact-command shell observations. Successful general conversation without observed effects or verification omits that terminal receipt; the structured task result and local outcome are still retained. Failures/cancellation always remain visible. **Shell tool status is diagnostic data, not process-exit evidence:** native shell checks are not reused or counted as verifier passes. Terminal model error/abort stops skip further checks and repair, retain already-executed managed evidence as blocked, and produce CLI exit codes 1/130 rather than success; an intermediate provider error recovered by Pi is not a terminal failure. Otherwise verification exit codes remain 0 for pass, 2 for incomplete, and 1 for failure/blocked; completion without verification exits 0 without claiming verified behavior. Evidence includes cwd, command, status, exit code/signal, duration, stdout/stderr, failure reason, and truncation. Each stream retains at most 8 KiB of original bytes (head/tail plus a truncation marker); this bounded evidence is what repair receives. No evidence database or unbounded raw-log artifact is created.
+The terminal shows concise results, not full logs. Programmatic `CasperApp.runOnce()` returns a `VerificationReport` for verification runs, including all rounds. `getLastTaskResult()` returns a detached result for the last normal request, separating execution (`completed`, `failed`, `cancelled`) from optional verification; local commands clear this result. Coding requests print a factual execution/verification receipt, including bounded observed native edit paths, the workspace files that actually changed during the model turn (before/after tree digest; `no files changed` when nothing did), files that changed afterwards `during checks/repair` (check-script output, repair edits — attributed to the verification round, not the request), plus a bounded `git diff --stat`, and exact-command shell observations. Successful general conversation without observed effects or verification omits that terminal receipt; the structured task result and local outcome are still retained. Failures/cancellation always remain visible. **Shell tool status is diagnostic data, not process-exit evidence:** native shell checks are not reused or counted as verifier passes. Terminal model error/abort stops skip further checks and repair, retain already-executed managed evidence as blocked, and produce CLI exit codes 1/130 rather than success; an intermediate provider error recovered by Pi is not a terminal failure. Otherwise verification exit codes remain 0 for pass, 2 for incomplete, and 1 for failure/blocked; completion without verification exits 0 without claiming verified behavior. Evidence includes cwd, command, status, exit code/signal, duration, stdout/stderr, failure reason, and truncation. Each stream retains at most 8 KiB of original bytes (head/tail plus a truncation marker); this bounded evidence is what repair receives. No evidence database or unbounded raw-log artifact is created.
 
 **Command success, input freshness, declared scope, and behavioral coverage are separate facts.** Reports and receipts say `Checks pass (command execution)`, not that the current files or requested behavior are verified. Stale or unavailable inputs remain explicitly unverified and cannot support reuse; they do not rewrite successful command exits or trigger a new repair/approval loop. Only actual check failures enter the existing bounded repair loop. Saved task outcomes and `/memory outcomes` retain exit codes, scope, freshness and a bounded freshness reason, without storing output or fingerprints. Human acceptance still starts unknown. Legacy outcomes remain readable, are labeled as legacy, and missing freshness stays unavailable.
 
@@ -364,7 +374,7 @@ See [MCP configuration, usage, safety, and limits](docs/MCP.md) and [Phase 4 val
 
 ## Requirements
 
-Casper requires Bun on your PATH and the dependencies installed in this checkout. Model tasks use Pi's SDK package and whatever model/provider auth Pi can access; local help and project inspection need no model credentials.
+**From source:** Bun on your PATH and this checkout's dependencies are required. **Compiled releases:** Bun and dependencies are embedded; neither a Bun installation nor a checkout is required. Model tasks need supported provider authentication; local help and project inspection do not.
 
 In practice, that means you need working model authentication available to Pi, for example through:
 - supported environment variables such as `ANTHROPIC_API_KEY`, or
@@ -379,34 +389,33 @@ Fresh consent discloses replacement of the selected provider in the resolved Pi/
 macOS and Linux — one line:
 
 ```bash
-curl -fsSL https://<release-host>/install.sh | sh
+curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.1.0/install.sh | sh
 ```
 
 Windows (PowerShell):
 
 ```powershell
-powershell -ExecutionPolicy ByPass -c "irm https://<release-host>/install.ps1 | iex"
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/Choaterboater/casper/releases/download/v0.1.0/install.ps1 | iex"
 ```
 
-Update Casper by running the same command again; the installer replaces the binary in
-place. It downloads one self-contained executable for your platform, verifies its
+These commands target the planned **v0.1.0 preview** and will resolve only after it
+is published. Re-running reinstalls that version in place; a later preview needs
+its own release URL. GitHub's `latest/download` route excludes prereleases. It downloads one self-contained executable for your platform, verifies its
 SHA-256 against the release's `SHA256SUMS`, installs it to `~/.local/bin/casper`
 (`%LOCALAPPDATA%\Programs\casper` on Windows), clears the macOS quarantine flag, and
-then runs `casper --version` to prove the installed binary works. **No sudo, no Bun
+runs the staged executable's `--version` successfully before replacing an existing installation. **No sudo, no Bun
 and no checkout are required on the target machine** — Bun and every dependency are
 embedded in the binary.
 
-`<release-host>` is the one value that has to exist: the artifacts and installers are
-built and verified locally, but no release host is configured yet. Build them with
-`bun run build:release` (host platform) or `bun run build:release -- --all`, upload
-**every file** in `dist/release/` — that directory holds the per-platform binaries,
-`SHA256SUMS`, `VERSION` and copies of both installers, so the URLs above resolve — and
-point `CASPER_BASE_URL` in `scripts/install.sh` / `scripts/install.ps1` at it. See
-[release process](docs/RELEASE.md).
+Installer defaults now target `Choaterboater/casper` at tag `v0.1.0`; the repository
+and release have not yet been published. Build with `bun run build:release -- --all`
+and upload **every file** in `dist/release/`: all binaries, `SHA256SUMS`, `VERSION`
+and both installers. Binaries belong in release assets, not the Git source history.
+See [release process](docs/RELEASE.md).
 
 Verification is not optional: if no digest can be obtained, or the digest does not
-match, the installer refuses to install and deletes the download. Nothing is written
-outside the install directory.
+match, the installer refuses to install and deletes the download. Downloads use a
+temporary directory that is cleaned afterward; installation needs no administrator access.
 
 Useful installer options (`sh scripts/install.sh --help`):
 
@@ -414,7 +423,7 @@ Useful installer options (`sh scripts/install.sh --help`):
 --dir <path>            # install somewhere else
 --version 0.1.0         # require this exact installed version
 --sha256 <hex>          # verify out of band when SHA256SUMS is unreachable
---force                 # replace an existing symlink (for example a development link)
+--force                 # replace a symlink that leaves the install dir (a development link)
 ```
 
 Offline or internal installs work by pointing at a directory instead of a URL:
@@ -432,14 +441,15 @@ mkdir -p "$HOME/.local/bin"
 ln -s "$PWD/src/cli.ts" "$HOME/.local/bin/casper"
 ```
 
-Ensure `~/.local/bin` is on your PATH. The link follows this checkout, so code updates take effect immediately; moving or deleting the checkout breaks the link. This is a local development installation, not a bundled release. The installer refuses to overwrite such a link unless you pass `--force`.
+Ensure `~/.local/bin` is on your PATH. The link follows this checkout, so code updates take effect immediately; moving or deleting the checkout breaks the link. This is a local development installation, not a bundled release. `casper --version` prints `casper <version> (<path>)`, where the path is the `cli.ts` (or compiled binary) that actually ran, so a stale link is visible in one command. The installer refuses to overwrite a link that leaves the install directory unless you pass `--force`; a link into a `.scratch/` checkout is reported and never replaced.
 
 ## Run
 
-Interactive:
+Interactive (offers `casper_check`; see [Verification and repair](#verification-and-repair)):
 
 ```bash
 casper
+casper --no-verify   # without the managed check tool
 ```
 
 One-shot prompt:
@@ -448,10 +458,11 @@ One-shot prompt:
 casper "Summarize this repository"
 ```
 
-Help:
+Help and the running location:
 
 ```bash
 casper --help
+casper --version     # casper 0.1.0 (/absolute/path/to/src/cli.ts or the binary)
 ```
 
 You can still launch directly from this checkout with `bun run dev` if you do not want a PATH link.
@@ -460,17 +471,20 @@ You can still launch directly from this checkout with `bun run dev` if you do no
 
 ### Interactive terminal
 
-- Color and basic Markdown styling for headings, emphasis, inline code and code fences. `NO_COLOR` disables color; redirected output and `TERM=dumb` stay plain.
+- Assistant messages render as Markdown (headings, lists, emphasis, inline code, fenced code, quotes, tables) through Pi's renderer; the in-progress message is re-rendered whole while it streams and committed once when it ends, so lists and fences stay correct across chunk boundaries. Links print their URL in parentheses rather than as hidden hyperlinks. `NO_COLOR` disables color; redirected output and `TERM=dumb` stay plain.
 - Streamed output stays above the editable draft. Enter during active work retains the draft rather than queuing another request. Press Enter again once idle to submit it.
 - Ctrl-C cancels active work while retaining the session and existing changes. At idle it clears a draft, or exits if empty. Editable-terminal confirmations use a fresh input field and restore the previous draft afterward; Ctrl-C/EOF deny approval. Piped line input discards unfinished fragments at approval transitions. With actual terminal input but `TERM=dumb` or redirected output, exact approval is denied because fresh keystrokes cannot be established safely. `NO_COLOR` alone does not disable approvals.
 - Tool activity includes file/command targets, running/completed/failed states and elapsed time, plus bounded error previews. Common credentials are redacted from previews; this is not a general secret detector. Tool completion is not a verification pass.
+- Interactive sessions offer the model a `casper_check` tool for the project's configured checks (typecheck, lint, test, build). Nothing runs until the model selects a check, and a selected check executes that repository's command, so this is execution consent rather than sandboxing; start with `casper --no-verify` in a repository whose commands you do not trust. One-shot prompts get the tool only with `--verify`. The task receipt says when no Casper verification was recorded.
+- The `/` command popup, pickers and the login notice are drawn over the bottom of the transcript, never appended: opening or closing them does not scroll the terminal or leave blank rows. Only a width change or Ctrl+L repaints from the top.
 - `/status` shows integration/storage information and host-reported selected provider/model, reasoning level, local credential availability, selection source, and Casper default. Before lazy runtime startup it explicitly says model/auth are not initialized/checked. Credentials configured is **not** a connection test. No defaults or credentials are changed by status.
 - `/model` opens Pi's searchable picker inside Casper. **Enter remembers globally** in `~/.casper/settings.json`; **Ctrl+S is session-only**. Escape/Ctrl-C cancel. `/model <id or provider/id>` remembers an exact unique selection; `/model --session [model]` opts out. Plain/redirected terminals and `TERM=dumb` list models; use an exact ID to select.
 - `/effort` opens supported reasoning levels; `/effort high [--session]` is the shortcut. Type `/` for fuzzy command discovery, use Tab for completion and `@` for file-path suggestions. Shift+Enter where supported or Ctrl+J inserts a newline.
 - `/context` and `/usage` show runtime estimates without inventing billing. `/compact` explicitly invokes model-assisted summarization. `/clear` starts a new conversation, not a file rollback; `/resume [exact-id]` lists/restores conversations in this workspace. `/diff` shows bounded Git changes; `/permissions` explains actual boundaries.
+- `/output [n]` prints the full retained output of the last model task's n-th most recent tool call (default 1: tool name, target, status, and the runtime-bounded text). At most 20 calls are retained per task; out-of-range `n` is a usage error.
 - Restored conversations retain their recorded model; fresh ones use the Casper default. Without either, choose with `/model`. Missing auth or an unavailable recorded model blocks sending—there is no implicit Pi-default or provider fallback. Selection itself generates no model response; the next request sends conversation context to the selected provider. The picker refreshes local catalogs only, although provider-defined credential checks can run configured key-resolution programs.
 
-The main-screen Pi renderer retains normal terminal scrollback and exclusively lends input to pickers. The persistent footer shows the startup-default snapshot or active model, effort, context, runtime tokens and activity; `/status` refreshes the branch snapshot. Unknown usage/cost stays unknown. No permission/verification guarantee is implied by the footer. Plain output remains line-oriented. Delegation and learning retain their separately documented global Pi defaults. See [the terminal guide and offline demo](docs/TERMINAL_UX.md) and [validation](docs/DAILY_TERMINAL_REVIEW.md).
+The main-screen Pi renderer retains normal terminal scrollback. The prompt box keeps a fixed gutter (`❯` idle, `…` working, `?` awaiting approval) so it never shifts between states. The `/` command popup, the `/model` and `/effort` pickers and the login notice are composited over the bottom of the transcript rather than appended, so opening and closing them never scrolls the terminal or leaves blank rows; pickers and login run inside the live surface without a screen clear. Only a width change and Ctrl+L repaint from the top (clearing the visible screen and scrollback); a rows-only resize keeps scrollback and just realigns the viewport. The persistent footer shows a state dot, the startup-default snapshot or active model, effort, context, runtime tokens and activity; `/status` refreshes the branch snapshot. Unknown usage/cost stays unknown. No permission/verification guarantee is implied by the footer. Plain output remains line-oriented. Delegation and learning retain their separately documented global Pi defaults. See [the terminal guide and offline demo](docs/TERMINAL_UX.md) and [validation](docs/DAILY_TERMINAL_REVIEW.md).
 
 ## Checks
 
@@ -495,14 +509,13 @@ bun run test:fast
 The runner prints each file's diagnostics together and a file-level summary;
 any failed file makes the command fail. `bunfig.toml` scopes discovery to `tests/`
 so evaluation fixtures under `evals/fixtures/` keep their own test files without
-joining this suite. The same scope means the website suite is not swept in either:
-run `bun test ./web/tic-tac-toe/game.test.js` explicitly for it. POSIX-only
-fixtures (Python 3 PTY drivers, symlinks, FIFOs, POSIX mode bits, process groups and
+joining this suite. POSIX-only fixtures (Python 3 PTY drivers, symlinks, FIFOs, POSIX mode bits, process groups and
 signals, native shell commands the product parses) declare an explicit skip through
 `tests/support/platform.ts` instead of failing on a host that cannot run them, and a
 fixture's configured check runs the runtime against
-`tests/fixtures/check-script.ts` rather than a POSIX shell pipeline, so those suites
-run anywhere. POSIX assertions are unchanged. See
+`tests/fixtures/check-script.ts` rather than a POSIX shell pipeline. These rewritten
+fixtures still need Windows/Linux host runs; portability by construction is not validation.
+POSIX assertions are unchanged. See
 [platform verification](docs/PLATFORM_VERIFICATION.md) for the per-suite list and
 what a Windows run still does not cover.
 
@@ -521,7 +534,7 @@ bun run check
 
 ## Evaluation suite
 
-Casper's own tests for agent behavior (master plan §48): nine tasks over six
+Casper's own tests for agent behavior (master plan §48): twelve tasks over nine
 dependency-free fixture repositories, measured by task success, independent
 verification success, model responses, files touched, repair attempts, tokens and
 wall clock. Fixtures are the solved baseline; a per-task setup overlay creates the
@@ -529,8 +542,10 @@ unsolved state, and `tests/eval-suite.test.ts` asserts both directions without a
 model.
 
 ```bash
-bun tools/eval.ts --list          # task ids
-bun tools/eval.ts                 # every task (uses the configured model)
+bun tools/eval.ts --list                                   # task ids
+bun tools/eval.ts                                          # every task (uses the configured model)
+bun tools/eval.ts --repeat 3 --json /tmp/eval.json         # each task 3x on fresh work directories; pass rate, median/min/max wall clock
+bun tools/eval.ts --model github-copilot/claude-fable-5.1  # select the model for this run only (never writes ~/.casper/settings.json)
 ```
 
 A real run uses the configured provider, so provider billing is the user's; Casper

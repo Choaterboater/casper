@@ -34,6 +34,16 @@ export function leadingFlag(args: readonly string[]): "help" | "version" | undef
   return undefined;
 }
 
+/** Interactive sessions offer `casper_check` unless `--no-verify`; one-shot prompts opt in
+ * with `--verify`. The tool is offered, never run: the model selects checks and nothing
+ * executes without a selection. */
+export function resolveAutoVerify(options: { verify: boolean; noVerify: boolean; interactive: boolean }): boolean {
+  if (options.verify && options.noVerify) throw new Error("--verify and --no-verify cannot be combined");
+  if (options.verify) return true;
+  if (options.noVerify) return false;
+  return options.interactive;
+}
+
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
 
@@ -43,16 +53,22 @@ async function main(): Promise<void> {
     return;
   }
   if (flag === "version") {
-    process.stdout.write(`casper ${CASPER_VERSION}\n`);
+    // A compiled binary runs from Bun's embedded filesystem (`/$bunfs/…`, `B:\~BUN\…`); its
+    // real location is the executable. From source, import.meta.path already resolved any
+    // PATH symlink, so the printed path is the checkout that actually runs.
+    const embedded = /(^|[\\/])(\$bunfs|~BUN)[\\/]/.test(import.meta.path);
+    process.stdout.write(`casper ${CASPER_VERSION} (${embedded ? process.execPath : import.meta.path})\n`);
     return;
   }
 
-  let autoVerify = false;
+  let verify = false;
+  let noVerify = false;
   const servers: string[] = [];
   const languageServers: string[] = [];
-  while (args[0] === "--verify" || args[0] === "--mcp" || args[0] === "--lsp") {
+  while (args[0] === "--verify" || args[0] === "--no-verify" || args[0] === "--mcp" || args[0] === "--lsp") {
     const flag = args.shift();
-    if (flag === "--verify") autoVerify = true;
+    if (flag === "--verify") verify = true;
+    else if (flag === "--no-verify") noVerify = true;
     else {
       const name = args.shift();
       if (!name || !/^[a-zA-Z0-9_.-]{1,64}$/.test(name)) throw new Error(`${flag} requires a configured server name`);
@@ -60,7 +76,7 @@ async function main(): Promise<void> {
     }
   }
   if (args[0] === "learn") {
-    if (autoVerify || servers.length || languageServers.length) throw new Error("learn cannot be combined with --verify, --mcp or --lsp");
+    if (verify || noVerify || servers.length || languageServers.length) throw new Error("learn cannot be combined with --verify, --no-verify, --mcp or --lsp");
     const learning = new CandidateLibrary({ runtimeFactory: async () => {
       const { PiRuntime } = await import("./runtime/pi");
       return new PiRuntime();
@@ -87,7 +103,7 @@ async function main(): Promise<void> {
     return;
   }
   const prompt = args.join(" ").trim();
-  const app = new CasperApp({ autoVerify });
+  const app = new CasperApp({ autoVerify: resolveAutoVerify({ verify, noVerify, interactive: !prompt }) });
   const removeShutdownHandlers = installShutdownHandlers(app);
 
   try {

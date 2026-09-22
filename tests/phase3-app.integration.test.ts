@@ -165,7 +165,8 @@ posixOnly("task observations retain bounded latest shell diagnostics, detached r
   try {
     await app.runOnce("hey", root);
     const result = app.getLastTaskResult()!;
-    expect(result).toMatchObject({ execution: "completed", observedEdits: ["changed.ts"], possibleMutations: true });
+    // The simulated edit never touched the tree: the receipt reports the observation, not a write.
+    expect(result).toMatchObject({ execution: "completed", observedEdits: ["changed.ts"], changedPaths: [], possibleMutations: false });
     expect(result.verification).toBeUndefined();
     expect(result.observedChecks).toHaveLength(1);
     const check = result.observedChecks![0]!;
@@ -258,7 +259,8 @@ test("review: failed writes and late shell success cannot certify changed files"
     try {
       expect((await app.runOnce("/verify test", root))?.status).toBe("pass");
       expect((await app.runOnce("Fix addition"))?.status).toBe("fail");
-      expect(app.getLastTaskResult()?.possibleMutations).toBe(true);
+      // The tree snapshot, not the failed write event, is what reports the removal.
+      expect(app.getLastTaskResult()).toMatchObject({ changedPaths: ["fixed"], possibleMutations: false });
       expect(app.getLastTaskResult()?.observedEdits).toEqual([]);
     } finally { await app.close(); }
   }

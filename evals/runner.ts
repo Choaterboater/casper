@@ -1,7 +1,9 @@
 import { createHash } from "node:crypto";
 import { copyFile, lstat, mkdir, mkdtemp, readdir, readFile, readlink, rm } from "node:fs/promises";
+import { openNoFollow } from "../src/platform/files";
 import os from "node:os";
 import path from "node:path";
+import { getAgentDir, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { CasperApp } from "../src/app";
 import { isolatedEnvironment } from "../src/platform/environment";
 import { loadProjectContext } from "../src/project/context";
@@ -38,10 +40,20 @@ export interface EvalTask {
   /** Overlay that turns the solved fixture into this task's starting state. */
   readonly setup?: string;
   readonly prompt: string;
-  readonly verify: EvalVerification;
+  /** Every command must pass for the verification to pass; all of them run, in order. */
+  readonly verify: readonly EvalVerification[];
   /** Independent-verification status expected on the untouched starting state. */
   readonly initialVerification: "pass" | "fail";
+  /** Status the verification must have after the task for it to count as success. Default `pass`;
+   * `fail` is for tasks whose correct outcome is to leave a red check red and say so. */
+  readonly expectedVerification?: "pass" | "fail";
   readonly acceptance: EvalAcceptance;
+}
+
+/** Casper model reference, `provider/id`. */
+export interface EvalModel {
+  readonly provider: string;
+  readonly id: string;
 }
 
 interface EvalMetrics {
@@ -52,11 +64,21 @@ interface EvalMetrics {
   readonly sessions: RuntimeSession[];
 }
 
+export interface EvalCheckResult {
+  name: string;
+  status: "pass" | "fail";
+  exitCode: number | null;
+  durationMs: number;
+  output: string;
+}
+
 export interface EvalRunResult {
   taskId: string;
   fixture: string;
   startedAt: string;
   wallClockMs: number;
+  /** `provider/id` the runtime reported for the session; null when the runtime reports no status. */
+  model: string | null;
   execution: TaskResult["execution"] | "error";
   error?: string;
   /** Runtime-reported errors (provider, startup, abort), bounded and never treated as acceptance. */
@@ -72,8 +94,23 @@ export interface EvalRunResult {
   filesRemoved: string[];
   repairAttempts: number | null;
   selfVerification: VerificationReport["status"] | null;
-  verification: { name: string; status: "pass" | "fail"; exitCode: number | null; durationMs: number; output: string };
+  /** `status` is pass only when every check passed; `expected` is what the task needs. */
+  verification: { status: "pass" | "fail"; expected: "pass" | "fail"; checks: EvalCheckResult[] };
   acceptance: { passed: boolean; failures: string[] };
+  success: boolean;
+}
+
+/** Repeated runs of one task plus the numbers a single run cannot give. */
+export interface EvalTaskSummary {
+  taskId: string;
+  fixture: string;
+  runs: EvalRunResult[];
+  passed: number;
+  total: number;
+  wallClockMs: { median: number; min: number; max: number };
+  /** Median total tokens over the runs that reported usage; null when none did. */
+  tokensMedian: number | null;
+  /** Every run succeeded. One failing run out of n is a finding, not noise to average away. */
   success: boolean;
 }
 
@@ -84,6 +121,8 @@ export interface EvalRunOptions {
   runtimeFactory?: () => AgentRuntime | Promise<AgentRuntime>;
   /** Casper state root for the run. Defaults to a fresh temporary directory, never the real home. */
   homeDir?: string;
+  /** Select this model for the run's conversation only; the user's saved default is never written. */
+  model?: EvalModel;
   /** Exercise Casper's own verification and repair loop. */
   autoVerify?: boolean;
   verifyTimeoutMs?: number;
@@ -200,12 +239,20 @@ function instrumentSession(session: RuntimeSession, metrics: EvalMetrics): Runti
   });
 }
 
-/** Counts model responses and captures the final answer without changing runtime behavior. */
-function instrumentRuntime(runtime: AgentRuntime, metrics: EvalMetrics): AgentRuntime {
+/** Counts model responses and captures the final answer without changing runtime behavior. With a
+ * model, selects it for the conversation only (`persist: false`): the user's saved default stays. */
+function instrumentRuntime(runtime: AgentRuntime, metrics: EvalMetrics, model?: EvalModel): AgentRuntime {
   return new Proxy(runtime, {
     get(target, property) {
       if (property === "start") {
-        return async (options: RuntimeStartOptions) => instrumentSession(await target.start(options), metrics);
+        return async (options: RuntimeStartOptions) => {
+          const session = await target.start(options);
+          if (model) {
+            if (!session.selectModel) throw new Error("This runtime does not support model selection; drop --model.");
+            await session.selectModel({ query: `${model.provider}/${model.id}`, persist: false });
+          }
+          return instrumentSession(session, metrics);
+        };
       }
       const value = Reflect.get(target, property);
       return typeof value === "function" ? value.bind(target) : value;
@@ -216,13 +263,32 @@ function instrumentRuntime(runtime: AgentRuntime, metrics: EvalMetrics): AgentRu
 /** The measured runtime: Casper's own Pi runtime unless a caller injects one. Instrumentation is
  * unconditional, so a real-provider run reports the same numbers as a scripted test. */
 async function createInstrumentedRuntime(options: EvalRunOptions, metrics: EvalMetrics): Promise<AgentRuntime> {
-  return instrumentRuntime(options.runtimeFactory ? await options.runtimeFactory() : new PiRuntime(), metrics);
+  return instrumentRuntime(options.runtimeFactory ? await options.runtimeFactory() : new PiRuntime(), metrics, options.model);
 }
 
-export async function runVerification(
+/** Resolve `provider/id` against Casper's own model catalog before any task runs, so an unknown
+ * model or missing credentials fail the whole run up front instead of burning a fixture per task. */
+export async function resolveEvalModel(reference: string): Promise<EvalModel> {
+  const separator = reference.indexOf("/");
+  const provider = reference.slice(0, separator).trim();
+  const id = reference.slice(separator + 1).trim();
+  if (separator < 0 || !provider || !id) throw new Error(`--model needs provider/model-id, got ${JSON.stringify(reference)}`);
+  const agentDir = getAgentDir();
+  const catalog = await ModelRuntime.create({ authPath: `${agentDir}/auth.json`, modelsPath: `${agentDir}/models.json` });
+  if (!catalog.getModel(provider, id)) {
+    const known = catalog.getModels(provider).map((model) => `${model.provider}/${model.id}`);
+    throw new Error(`Unknown model ${provider}/${id}. ${known.length
+      ? `Known for ${provider}: ${known.slice(0, 12).join(", ")}${known.length > 12 ? ", …" : ""}`
+      : `No provider ${JSON.stringify(provider)}; known providers: ${catalog.getProviders().map((entry) => entry.id).join(", ")}`}`);
+  }
+  if (!catalog.hasConfiguredAuth(provider)) throw new Error(`Credentials missing for ${provider}; configure them (casper /login) before evaluating ${provider}/${id}.`);
+  return { provider, id };
+}
+
+async function runCheck(
   verification: EvalVerification,
   options: { workdir: string; repoRoot: string; homeDir: string; timeoutMs: number },
-) {
+): Promise<EvalCheckResult> {
   const argv = verification.argv.map((argument) => resolveTools(argument, options.repoRoot));
   const started = performance.now();
   const child = Bun.spawn([...argv], {
@@ -234,30 +300,52 @@ export async function runVerification(
       new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited,
     ]);
     return {
-      name: verification.name, status: exitCode === 0 ? "pass" as const : "fail" as const,
+      name: verification.name, status: exitCode === 0 ? "pass" : "fail",
       exitCode, durationMs: Math.round(performance.now() - started),
       output: `${stdout}${stderr}`.slice(-4096),
     };
   } finally { clearTimeout(timer); }
 }
 
+/** Run every check in order; the verification passes only when all of them do. */
+export async function runVerification(
+  verification: readonly EvalVerification[],
+  options: { workdir: string; repoRoot: string; homeDir: string; timeoutMs: number },
+): Promise<{ status: "pass" | "fail"; checks: EvalCheckResult[] }> {
+  const checks: EvalCheckResult[] = [];
+  for (const check of verification) checks.push(await runCheck(check, options));
+  return { status: checks.every((check) => check.status === "pass") ? "pass" : "fail", checks };
+}
+
 async function fileContains(root: string, relative: string, text: string): Promise<boolean> {
   return (await readFile(path.join(root, relative), "utf8").catch(() => "")).includes(text);
 }
 
-async function matchesAnywhere(root: string, under: string, text: string): Promise<string[]> {
-  const hits: string[] = [];
+async function matchesAnywhere(root: string, under: string, text: string): Promise<{ hits: string[]; unavailable: string[] }> {
+  const hits: string[] = [], unavailable: string[] = [];
   for (const relative of await walk(root)) {
     if (under !== "." && relative !== under && !relative.startsWith(`${under}/`)) continue;
     if (!TEXT_EXTENSIONS[path.extname(relative)]) continue;
     const target = path.join(root, relative);
-    // Only regular files are scanned: a symlink could point outside the work directory.
-    if (!(await lstat(target)).isFile()) continue;
-    const contents = await readFile(target).catch(() => Buffer.alloc(0));
-    if (contents.byteLength > MAX_SCAN_BYTES) continue;
-    if (contents.includes(text)) hits.push(relative);
+    // Absence must be established, not inferred from skipped/unreadable files. Read
+    // at most the limit plus one byte, including when a file grows after stat().
+    try {
+      const file = await openNoFollow(target);
+      try {
+        if (!(await file.stat()).isFile()) throw new Error("Not a regular file");
+        const contents = Buffer.alloc(MAX_SCAN_BYTES + 1);
+        let size = 0;
+        while (size < contents.length) {
+          const { bytesRead } = await file.read(contents, size, contents.length - size, size);
+          if (!bytesRead) break;
+          size += bytesRead;
+        }
+        if (size > MAX_SCAN_BYTES) unavailable.push(relative);
+        else if (contents.subarray(0, size).includes(text)) hits.push(relative);
+      } finally { await file.close(); }
+    } catch { unavailable.push(relative); }
   }
-  return hits;
+  return { hits, unavailable };
 }
 
 /** Evaluate the declared acceptance predicates against the final tree. */
@@ -271,8 +359,9 @@ export async function evaluateAcceptance(
   for (const prefix of acceptance.unchanged ?? []) if (under(prefix)) failures.push(`changed under ${prefix}: ${touched.filter((entry) => entry.startsWith(prefix)).join(", ")}`);
   for (const rule of acceptance.contains ?? []) if (!await fileContains(context.workdir, rule.path, rule.text)) failures.push(`${rule.path} does not contain ${JSON.stringify(rule.text)}`);
   for (const rule of acceptance.noMatch ?? []) {
-    const hits = await matchesAnywhere(context.workdir, rule.under, rule.text);
+    const { hits, unavailable } = await matchesAnywhere(context.workdir, rule.under, rule.text);
     if (hits.length) failures.push(`${JSON.stringify(rule.text)} still present in ${hits.join(", ")}`);
+    if (unavailable.length) failures.push(`${JSON.stringify(rule.text)} absence scan unavailable for ${unavailable.join(", ")} (symlink, unreadable, non-regular or over 1 MiB)`);
   }
   if (acceptance.noEdits && touched.length) failures.push(`edited ${touched.join(", ")}`);
   for (const keyword of acceptance.answerContains ?? []) {
@@ -314,8 +403,13 @@ export async function runEvalTask(task: EvalTask, options: EvalRunOptions): Prom
     error = failure instanceof Error ? failure.message : String(failure);
   }
   const taskResult = app?.getLastTaskResult();
+  let model: string | null = null;
   for (const session of metrics.sessions) {
-    try { const usage = session.getUsage?.(); if (usage) metrics.usage = usage; } catch { /* disposed runtime */ }
+    try {
+      const usage = session.getUsage?.(); if (usage) metrics.usage = usage;
+      const status = session.getStatus?.();
+      if (status?.provider && status.model) model = `${status.provider}/${status.model}`;
+    } catch { /* disposed runtime */ }
   }
   await app?.close();
 
@@ -324,11 +418,12 @@ export async function runEvalTask(task: EvalTask, options: EvalRunOptions): Prom
   const touched = [...diff.added, ...diff.modified, ...diff.removed];
   // Grade the model's end state before the grader's own command can touch the tree.
   const acceptance = await evaluateAcceptance(task.acceptance, { workdir, touched, answer: metrics.answer });
+  const expected = task.expectedVerification ?? "pass";
   let verification: EvalRunResult["verification"];
   try {
-    verification = await runVerification(task.verify, {
+    verification = { ...await runVerification(task.verify, {
       workdir, repoRoot: options.repoRoot, homeDir, timeoutMs: options.verifyTimeoutMs ?? 120_000,
-    });
+    }), expected };
   } finally {
     // A misconfigured verification command must not leak the work directory or the temporary home.
     if (!options.keepWorkdir) await rm(workdir, { recursive: true, force: true });
@@ -339,6 +434,7 @@ export async function runEvalTask(task: EvalTask, options: EvalRunOptions): Prom
   return {
     taskId: task.id, fixture: task.fixture, startedAt,
     wallClockMs: Math.round(performance.now() - started),
+    model,
     execution, error, runtimeErrors: metrics.errors, outputTail: output,
     modelCalls: metrics.modelCalls,
     messages: usage?.messages ?? null,
@@ -353,6 +449,26 @@ export async function runEvalTask(task: EvalTask, options: EvalRunOptions): Prom
     verification,
     acceptance,
     // A task that never received a model response did no work, whatever the tree looks like.
-    success: execution === "completed" && metrics.modelCalls > 0 && verification.status === "pass" && acceptance.passed,
+    success: execution === "completed" && metrics.modelCalls > 0 && verification.status === expected && acceptance.passed,
+  };
+}
+
+function median(values: readonly number[]): number {
+  const sorted = [...values].sort((left, right) => left - right);
+  const middle = sorted.length >> 1;
+  return sorted.length % 2 ? sorted[middle]! : Math.round((sorted[middle - 1]! + sorted[middle]!) / 2);
+}
+
+/** Aggregate repeated runs of one task. Requires at least one run. */
+export function summarizeEvalRuns(task: EvalTask, runs: readonly EvalRunResult[]): EvalTaskSummary {
+  if (!runs.length) throw new Error(`No runs recorded for ${task.id}`);
+  const wall = runs.map((run) => run.wallClockMs);
+  const tokens = runs.flatMap((run) => run.tokens ? [run.tokens.total] : []);
+  const passed = runs.filter((run) => run.success).length;
+  return {
+    taskId: task.id, fixture: task.fixture, runs: [...runs], passed, total: runs.length,
+    wallClockMs: { median: median(wall), min: Math.min(...wall), max: Math.max(...wall) },
+    tokensMedian: tokens.length ? median(tokens) : null,
+    success: passed === runs.length,
   };
 }

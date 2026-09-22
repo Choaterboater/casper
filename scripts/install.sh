@@ -1,7 +1,7 @@
 #!/bin/sh
 # Casper installer for macOS and Linux.
 #
-#   curl -fsSL <release-host>/install.sh | sh
+#   curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.1.0/install.sh | sh
 #
 # Downloads the self-contained binary for this platform, verifies its SHA-256 against
 # the release's SHA256SUMS, installs it into CASPER_INSTALL_DIR (default ~/.local/bin)
@@ -21,8 +21,8 @@
 # neither this checkout nor Bun. Nothing is installed with sudo.
 set -eu
 
-# The one line to change when the release host exists.
-BASE_URL="${CASPER_BASE_URL:-https://github.com/OWNER/casper/releases/latest/download}"
+# Preview releases need an explicit tag: GitHub's latest/download excludes prereleases.
+BASE_URL="${CASPER_BASE_URL:-https://github.com/Choaterboater/casper/releases/download/v0.1.0}"
 INSTALL_DIR="${CASPER_INSTALL_DIR:-$HOME/.local/bin}"
 VERSION="${CASPER_VERSION:-}"
 EXPECTED_SHA="${CASPER_SHA256:-}"
@@ -36,7 +36,8 @@ Usage: install.sh [options]
   --dir <path>     Install directory (default: $HOME/.local/bin)
   --version <v>    Require this exact installed version
   --sha256 <hex>   Expected SHA-256, when SHA256SUMS cannot be fetched
-  --force          Replace an existing symlink (for example a development link)
+  --force          Replace an existing symlink that leaves this directory (for example a
+                   development link); a link into a .scratch checkout is never replaced
   --print-target   Print the resolved artifact name and exit
   -h, --help       Show this text
 USAGE
@@ -74,12 +75,35 @@ if [ "$PRINT_TARGET" = 1 ]; then
   exit 0
 fi
 
-# A development link points at a checkout; replacing it silently would be surprising.
+# An existing `casper` symlink is inspected before anything is downloaded. A link that
+# stays inside the install directory (a versioned binary alias) is replaced like a file.
+# A link into a `.scratch` checkout is a stale development link: it is reported and never
+# replaced, so the actual target is diagnosable before it disappears. Any other link that
+# leaves the install directory points at a checkout; replacing it silently would be
+# surprising, so that needs --force.
 target="$INSTALL_DIR/casper"
-if [ -L "$target" ] && [ "$FORCE" != 1 ]; then
-  echo "$target is a symlink to $(readlink "$target")." >&2
-  echo "That looks like a development link; remove it or re-run with --force to replace it." >&2
-  exit 1
+if [ -L "$target" ]; then
+  link="$(readlink "$target")"
+  # Relative links resolve against the install directory; `pwd -P` canonicalizes the
+  # parent so a dangling link still names the path it points at.
+  resolved_dir="$(cd "$INSTALL_DIR" 2>/dev/null && cd "$(dirname "$link")" 2>/dev/null && pwd -P)" || resolved_dir="$(dirname "$link")"
+  resolved="$resolved_dir/$(basename "$link")"
+  install_dir_canonical="$(cd "$INSTALL_DIR" 2>/dev/null && pwd -P)" || install_dir_canonical="$INSTALL_DIR"
+  case "$resolved" in
+    "$install_dir_canonical"/*) ;;
+    */.scratch/*)
+      echo "$target is a symlink to $resolved, which is inside a .scratch checkout." >&2
+      echo "Refusing to replace it (even with --force): remove or repoint that link, then re-run." >&2
+      exit 1
+      ;;
+    *)
+      if [ "$FORCE" != 1 ]; then
+        echo "$target is a symlink to $resolved." >&2
+        echo "That looks like a development link; remove it or re-run with --force to replace it." >&2
+        exit 1
+      fi
+      ;;
+  esac
 fi
 
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/casper-install.XXXXXX")"
@@ -144,13 +168,28 @@ if [ "$os" = darwin ] && command -v xattr >/dev/null 2>&1; then
   xattr -d com.apple.quarantine "$staged" 2>/dev/null || true
 fi
 
-reported="$("$staged" --version 2>/dev/null || true)"
+if ! reported="$("$staged" --version 2>/dev/null)"; then
+  echo "The downloaded ${artifact} failed its version probe; nothing was installed." >&2
+  exit 1
+fi
 if [ -z "$reported" ]; then
   echo "The downloaded ${artifact} did not run on this host; nothing was installed." >&2
   echo "Check that the artifact matches this platform (${os}-${arch})." >&2
   exit 1
 fi
-if [ -n "$VERSION" ] && [ "$reported" != "casper $VERSION" ]; then
+# `casper --version` prints `casper <version> (<running path>)`; the path names the staged
+# probe, so only the version is compared and reported.
+case "$reported" in
+  "casper "*) ;;
+  *)
+    echo "The downloaded ${artifact} did not identify itself as casper: $reported" >&2
+    echo "Nothing was installed." >&2
+    exit 1
+    ;;
+esac
+reported_version="${reported#casper }"
+reported_version="${reported_version%% *}"
+if [ -n "$VERSION" ] && [ "$reported_version" != "$VERSION" ]; then
   echo "Expected version $VERSION but the artifact reports: $reported" >&2
   echo "Nothing was installed; point CASPER_BASE_URL at the release you want." >&2
   exit 1
@@ -159,7 +198,7 @@ fi
 mv -f "$staged" "$target"
 staged=
 
-echo "Installed $reported to $target"
+echo "Installed casper $reported_version to $target"
 case ":${PATH}:" in
   *":${INSTALL_DIR}:"*) ;;
   *)
