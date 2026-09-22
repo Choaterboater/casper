@@ -41,7 +41,7 @@ import { TaskObservations } from "./task/observations";
 import { diffSnapshots, snapshotTree, type TreeChanges } from "./task/changes";
 import { WORDMARK_COLUMNS, renderBanner, renderProjectSummary, renderWordmark } from "./tui/banner";
 import type { ProjectCommand } from "./project/model";
-import { CHECK_NAMES, formatVerificationReport, formatVerificationResult, type VerificationReport } from "./verify/evidence";
+import { CHECK_NAMES, formatVerificationReport, formatVerificationResult, type VerificationReport, type VerificationResult } from "./verify/evidence";
 import { ProcessCleanupError } from "./platform/processes";
 import { VerifierRegistry } from "./verify/registry";
 import { verifyAndRepair } from "./verify/repair-loop";
@@ -745,7 +745,7 @@ export class CasperApp {
     if (this.closing || this.commandAbort?.signal.aborted) return;
     if (this.autoVerify) this.checkTask = new VerificationTask(
       VerifierRegistry.forProject(context.model, context.verification.timeoutMs, this.blockOnCleanupFailure), this.activeWorkspaceRoot(),
-      (result) => { this.ensureLineBreak(); this.output.write(`${formatVerificationResult(result)}\n`); },
+      (result) => this.writeCheckResult(result),
     );
     await this.prepareCapabilities(prompt, classification.intent === "visualize");
     if (this.closing || this.commandAbort?.signal.aborted) return;
@@ -857,7 +857,7 @@ export class CasperApp {
     const controller = new AbortController();
     const evidence = task ?? new VerificationTask(
       VerifierRegistry.forProject(context.model, context.verification.timeoutMs, this.blockOnCleanupFailure), this.activeWorkspaceRoot(),
-      (result) => { this.ensureLineBreak(); this.output.write(`${formatVerificationResult(result)}\n`); },
+      (result) => this.writeCheckResult(result),
     );
     const cancel = () => controller.abort();
     this.commandAbort?.signal.addEventListener("abort", cancel, { once: true });
@@ -1176,6 +1176,20 @@ export class CasperApp {
     if (Buffer.byteLength(text) > 16_384) return false;
     return this.confirmExact(`LSP rename confirmation (exact edits; zero-based UTF-16):\n${text}\n`, "Apply this exact rename? Type yes: ", signal);
   };
+
+  /** One inline result line per check; a failed check also boxes the tail of its output, since that is
+   * what a person reads next. Passing checks stay quiet (their output remains in the evidence). */
+  private writeCheckResult(result: VerificationResult): void {
+    this.ensureLineBreak();
+    this.output.write(`${formatVerificationResult(result)}\n`);
+    if (result.status !== "fail") return;
+    for (const [stream, text] of [["stderr", result.stderr], ["stdout", result.stdout]] as const) {
+      if (!text.trim()) continue;
+      const lines = text.replace(/\n$/, "").split("\n");
+      const shown = lines.length > 40 ? [`… ${lines.length - 40} earlier line(s) omitted; the full output stays in the check evidence`, ...lines.slice(-40)] : lines;
+      this.terminal.writePanel(`${result.name}: ${stream}`, redactPreview(shown.join("\n")), { tone: "error" });
+    }
+  }
 
   private async handleMCPCommand(prompt: string): Promise<void> {
     const [, action, name, ...extra] = prompt.trim().split(/\s+/);

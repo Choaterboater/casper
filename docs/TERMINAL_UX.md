@@ -26,7 +26,8 @@ accent (banner, prompt echo, Markdown structure), dim the muted status lines.
 Bordered panels (`src/tui/presentation.ts`) are reserved for code and code-like
 output: every fenced block in an assistant message is boxed and titled with its
 language, `/output` replays a tool result in a box, `/diff` boxes `git status` and
-the colored unified diff, and exclusive input flows such as `/login` use them.
+the colored unified diff, a failed check boxes the tail of its stderr and stdout
+(last 40 lines; the full output stays in the evidence), and exclusive input flows such as `/login` use them.
 Prose, notices and tool lines stay inline. Color always accompanies a readable label; tool completion
 does not mean a check passed. `NO_COLOR` keeps the structure without color, while
 redirected output and `TERM=dumb` use plain text.
