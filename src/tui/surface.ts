@@ -96,6 +96,9 @@ export class TerminalSurface {
   private lending = false;
   private command?: (text?: string) => void;
   private confirmation?: (approved: boolean) => void;
+  private pendingAsk?: (answer: string[] | undefined) => void;
+  private askOptions?: { label: string; description?: string }[];
+  private askMulti = false;
   private message?: MarkdownMessage;
   private source = "";
   private plainAssistantOpen = false;
@@ -111,9 +114,10 @@ export class TerminalSurface {
     this.editor = new PromptEditor(this.tui, { borderColor: this.muted, selectList: {
       selectedPrefix: this.accent, selectedText: this.accent, description: this.muted, scrollInfo: this.muted, noMatch: this.muted,
     } }, { autocompleteMaxVisible: 7 });
-    this.editor.glyph = () => this.confirmation ? "?" : this.busy ? BUSY_GLYPH : PROMPT_GLYPH;
-    this.editor.paintGutter = text => this.busy && !this.confirmation ? this.muted(text) : this.accent(text);
+    this.editor.glyph = () => this.confirmation || this.pendingAsk ? "?" : this.busy ? BUSY_GLYPH : PROMPT_GLYPH;
+    this.editor.paintGutter = text => this.busy && !this.confirmation && !this.pendingAsk ? this.muted(text) : this.accent(text);
     this.editor.onSubmit = value => {
+      if (this.pendingAsk) { this.answerAsk(value); return; }
       if (this.confirmation) { this.confirmation(value.trim() === "yes"); return; }
       if (!this.command) {
         this.editor.setText(value);
@@ -161,8 +165,10 @@ export class TerminalSurface {
       }
       if (matchesKey(data, "ctrl+c")) { this.interrupt(); return { consume: true }; }
       if (matchesKey(data, "ctrl+d") && !this.editor.getText()) { this.close(); return { consume: true }; }
-      if (matchesKey(data, "escape") && (this.busy || this.confirmation)) {
-        if (this.confirmation) this.confirmation(false); else this.cancel();
+      if (matchesKey(data, "escape") && (this.busy || this.confirmation || this.pendingAsk)) {
+        if (this.confirmation) this.confirmation(false);
+        else if (this.pendingAsk) this.pendingAsk(undefined);
+        else this.cancel();
         return { consume: true };
       }
       if (matchesKey(data, "ctrl+l")) { this.tui.requestRender(true); return { consume: true }; }
@@ -267,6 +273,54 @@ export class TerminalSurface {
     if (signal?.aborted) cancel();
     return promise;
   }
+
+  /** One structured clarification: numbered options plus free text, editor-input like confirm.
+   * Resolves the chosen labels (or the typed answer); undefined means skipped, aborted or unavailable. */
+  ask(question: string, options: { label: string; description?: string }[], multi: boolean, signal?: AbortSignal): Promise<string[] | undefined> {
+    if (this.closed || this.slot || this.lending || this.confirmation || this.pendingAsk || signal?.aborted) return Promise.resolve(undefined);
+    this.endAssistant();
+    const draft = this.editor.getExpandedText();
+    this.editor.setText(""); // Pretyped drafts never answer a question.
+    const listed = options.map((option, index) => [
+      this.accent(`${index + 1}. `) + terminalText(option.label),
+      ...(option.description ? [this.muted(`   ${terminalText(option.description)}`)] : []),
+    ]).flat();
+    const hint = this.muted(multi ? "Reply with one or more numbers, or your own answer · Esc skips" : "Reply with a number or your own answer · Esc skips");
+    this.write([this.accent(terminalText(question)), ...listed, hint].join("\n") + "\n");
+    const { promise, resolve } = Promise.withResolvers<string[] | undefined>();
+    let settled = false;
+    const finish = (answer: string[] | undefined) => {
+      if (settled) return; settled = true;
+      signal?.removeEventListener("abort", cancel);
+      this.pendingAsk = undefined; this.askOptions = undefined; this.askMulti = false;
+      this.editor.setText(draft); this.configureAutocomplete(); this.render(); resolve(answer);
+    };
+    const cancel = () => finish(undefined);
+    this.pendingAsk = finish; this.askOptions = options; this.askMulti = multi;
+    this.configureAutocomplete(); this.render();
+    signal?.addEventListener("abort", cancel, { once: true });
+    if (signal?.aborted) cancel();
+    return promise;
+  }
+
+  /** Numbers pick listed options (comma/space separated; several only when multi); any other
+   * nonempty line is a free-text answer. Out-of-range or malformed replies keep the question open. */
+  private answerAsk(value: string): void {
+    const finish = this.pendingAsk;
+    if (!finish) return;
+    const text = value.trim();
+    if (!text) return; // Enter on an empty box is not an answer.
+    const parts = text.split(/[\s,,]+/);
+    if (parts.every(part => /^\d+$/.test(part))) {
+      const picked = parts.map(part => this.askOptions?.[Number(part) - 1]);
+      if (picked.some(option => !option)) return;
+      if (!this.askMulti && picked.length > 1) return;
+      finish(picked.map(option => option!.label));
+      return;
+    }
+    finish([text]);
+  }
+
   exclusiveHost(): RuntimeModelPickerHost | undefined {
     if (this.closed || this.slot || this.lending || this.confirmation || !this.started) return undefined;
     const claim = () => {
@@ -300,6 +354,7 @@ export class TerminalSurface {
   interrupt(): void {
     if (this.closed) return;
     if (this.confirmation) this.confirmation(false);
+    if (this.pendingAsk) this.pendingAsk(undefined);
     if (this.busy) { this.cancel(); return; }
     if (this.editor.getText()) { this.editor.setText(""); this.render(); return; }
     // An idle, empty editor: the first Ctrl-C only arms exit, so a reflexive Ctrl-C after a task
@@ -318,7 +373,7 @@ export class TerminalSurface {
     if (this.closed) return;
     if (this.exitArmed) clearTimeout(this.exitArmed);
     this.endAssistant(); this.closed = true;
-    this.confirmation?.(false); this.command?.(); this.command = undefined;
+    this.confirmation?.(false); this.pendingAsk?.(undefined); this.command?.(); this.command = undefined;
     if (this.started) this.tui.stop();
     this.eof();
   }

@@ -8,6 +8,7 @@ import { BrowserSession } from "./browser/session";
 import { browserTool } from "./browser/tools";
 import { formatTerminalJSON } from "./tui/json";
 import { InteractiveTerminal } from "./tui/terminal";
+import { askTool } from "./tui/ask";
 import { pickEffort } from "./tui/effort-picker";
 import { formatEffort, formatRuntimeStartLine, formatRuntimeStatus, formatToolActivity, redactPreview, terminalText } from "./tui/format";
 import { ProjectMemory, type TaskOutcome } from "./memory/store";
@@ -35,7 +36,7 @@ import type {
   RuntimeTool,
 } from "./runtime/types";
 import { SkillRegistry, formatSelectedSkills } from "./skills/registry";
-import { classifyTask, formatTaskPrompt } from "./task/classify";
+import { classifyTask, formatTaskPrompt, underSpecifiedTarget } from "./task/classify";
 import { formatTaskResult, type TaskResult } from "./task/result";
 import { TaskObservations } from "./task/observations";
 import { diffSnapshots, snapshotTree, type TreeChanges } from "./task/changes";
@@ -86,6 +87,7 @@ const DEFAULT_SYSTEM_PROMPT_APPEND = [
   "Describe errors plainly: what failed, what is known, and what remains uncertain. Separate completed work from verification and acceptance.",
   "When work remains, give one useful next action. When finished, stop without a forced next step, filler, or invented time estimate.",
   "Use available tools when needed to inspect, edit, and run code in the current repository.",
+  "When requirements are ambiguous, ask before building with the ask tool: offer 2–5 concrete options, never ask what the repository already answers, and state assumptions plainly when clarification is unavailable.",
 ].join("\n");
 
 export class CasperApp {
@@ -116,6 +118,9 @@ export class CasperApp {
   private mcpClose?: Promise<void>;
   private readonly terminal: InteractiveTerminal;
   private interactive = false;
+  /** beforeChanges gate state for the current task; a recorded ask attempt satisfies it. */
+  private editGateActive = false;
+  private asksThisTask = 0;
   private cancelBeforeCommand = false;
   private commandAbort?: AbortController;
   private readonly toolStarted = new Map<string, number>();
@@ -399,6 +404,7 @@ export class CasperApp {
             return reports.length ? `LSP diagnostics after edit: ${JSON.stringify(boundCapabilityResult(reports))}\nRepair new errors before continuing; unavailable or unversioned reports are not proof of a clean file.` : undefined;
           },
           systemPromptAppend: [DEFAULT_SYSTEM_PROMPT_APPEND, formatProjectContext(context)].join("\n\n"),
+          beforeToolGate: toolName => this.editGateReason(toolName),
         });
         await (await this.ensureSessionWorkspace()).resumeActive(this.session);
         this.unsubscribe = this.session.subscribe((event) => this.handleRuntimeEvent(event));
@@ -721,12 +727,20 @@ export class CasperApp {
   private async runModelTask(prompt: string): Promise<VerificationReport | undefined> {
     if (this.closing) return;
     this.observations = new TaskObservations();
+    const context = this.projectContext!;
+    const classification = classifyTask(prompt);
+    // beforeChanges policy: under-specified implement/configure work must see one recorded
+    // ask attempt before the first edit. Interactive sessions only — one-shot cannot ask,
+    // so denying edits there would only deadlock the task.
+    this.asksThisTask = 0;
+    this.editGateActive = this.interactive && this.terminal.rich
+      && context.policy.behavior.askQuestions === "beforeChanges"
+      && (classification.intent === "implement" || classification.intent === "configure")
+      && underSpecifiedTarget(prompt);
     // Debug values and active debuggees do not silently become model-task context.
     await this.stopDebugger();
     // A finished task's immutable evidence belongs to its receipt, not the next prompt.
     if (this.browser?.status().state === "closed") this.browser = undefined;
-    const context = this.projectContext!;
-    const classification = classifyTask(prompt);
     this.lastTaskRequest = prompt;
     const selected = await this.skillRegistry!.loadForTask(prompt, context.model, classification);
     this.reportSkillWarnings();
@@ -1036,6 +1050,7 @@ export class CasperApp {
     const nextTools = [
       ...await this.broker!.prepare(task),
       this.delegateTool(),
+      this.askTool(),
       ...(this.checkTask ? [this.checkTask.tool()] : []),
       ...lspTools(this.lsp!, this.confirmRename),
       ...this.references!.tools(),
@@ -1215,6 +1230,27 @@ export class CasperApp {
     if (Buffer.byteLength(args) > 4096) return false;
     return this.confirmExact(`MCP confirmation: ${JSON.stringify(call.capability.id)} [${call.capability.safety}]\nArguments: ${args}\n`, "Allow this exact external call? Type yes: ", signal);
   };
+
+  /** beforeChanges gate: deny native edit/write until one ask attempt is recorded. */
+  private editGateReason(toolName: string): string | undefined {
+    if (!this.editGateActive || this.asksThisTask > 0) return undefined;
+    return `askQuestions is set to beforeChanges and this request looks under-specified: call the ask tool once (concrete options plus Other) before using ${toolName}. If the human skips the question, state your assumptions in the reply and continue.`;
+  }
+
+  /** Structured clarification channel: rich surface required, command abort raced, receipt recorded. */
+  private askTool(): RuntimeTool {
+    return askTool({
+      available: () => this.interactive && this.terminal.rich && !this.closing,
+      ask: (question, options, multi, signal) => {
+        const signals = [signal, this.commandAbort?.signal].filter((value): value is AbortSignal => Boolean(value));
+        return this.terminal.ask(question, options, multi, signals.length ? AbortSignal.any(signals) : undefined);
+      },
+      record: answer => {
+        this.asksThisTask++;
+        if (!this.closing) this.output.write(`[ask] ${answer}\n`);
+      },
+    });
+  }
 
   private async confirmExact(preview: string, question: string, signal?: AbortSignal): Promise<boolean> {
     if (!this.interactive || this.closing || signal?.aborted || this.commandAbort?.signal.aborted) return false;

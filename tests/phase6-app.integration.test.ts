@@ -89,7 +89,7 @@ test("acceptance: 'map out the authentication flow' yields a visual, saves artif
   const before = await snapshot(project);
 
   await app.runOnce("map out the authentication flow");
-  expect(runtime.surfaces).toEqual([["delegate", "visualize"]]);
+  expect(runtime.surfaces).toEqual([["delegate", "ask", "visualize"]]);
   expect(runtime.prompts[0]).toContain("- intent: visualize");
   expect(runtime.prompts[0]).toContain("- mode: read");
   const result = JSON.parse(runtime.results[0]!.text);
@@ -116,7 +116,7 @@ test("acceptance: 'map out the authentication flow' yields a visual, saves artif
 
   // Ordinary prompts do not carry the visualization tool.
   await app.runOnce("explain how login works");
-  expect(runtime.surfaces[1]).toEqual(["delegate"]);
+  expect(runtime.surfaces[1]).toEqual(["delegate", "ask"]);
   expect(runtime.results).toHaveLength(1);
 });
 

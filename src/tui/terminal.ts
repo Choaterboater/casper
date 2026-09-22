@@ -76,7 +76,7 @@ export class InteractiveTerminal {
   write(text: string, options: { rewriteLine?: boolean } = {}): void {
     const styled = terminalText(text).split("\n").map(line => {
       const code = /^(?:\[error\]|✗)/.test(line) ? "31" : /^✓/.test(line) ? "32"
-        : /^(?:•|\[skills\]|\[cancel|\[approval\]|\[effort\])/.test(line) ? "33" : /^CASPER/.test(line) ? "1;36" : /^(?: \/help · |…)/.test(line) ? "2" : undefined;
+        : /^(?:•|\[skills\]|\[cancel|\[approval\]|\[ask\]|\[effort\])/.test(line) ? "33" : /^CASPER/.test(line) ? "1;36" : /^(?: \/help · |…)/.test(line) ? "2" : undefined;
       return code ? paint(line, code, this.color) : line;
     }).join("\n");
     // `rewriteLine` restarts the transcript's open tail line (a "running" status) instead of
@@ -136,6 +136,11 @@ export class InteractiveTerminal {
 
   modelPickerHost(): RuntimeModelPickerHost | undefined { return this.exclusiveHost(); }
   exclusiveHost(): RuntimeModelPickerHost | undefined { return this.surface?.exclusiveHost(); }
+
+  /** Structured clarification on the rich surface; undefined when skipped or unavailable. */
+  ask(question: string, options: { label: string; description?: string }[], multi: boolean, signal?: AbortSignal): Promise<string[] | undefined> {
+    return this.surface ? this.surface.ask(question, options, multi, signal) : Promise.resolve(undefined);
+  }
 
   interrupt(): void {
     if (this.surface) { this.surface.interrupt(); return; }

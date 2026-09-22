@@ -24,7 +24,7 @@ evals/
 ├── fixtures/     solved baseline repositories (one per project shape)
 ├── setups/       overlays that turn a baseline into one task's unsolved state
 ├── tasks.ts      the task catalog (prompt, verification, acceptance)
-├── scenarios.ts  cancellation/restart/resume and delegation protocols
+├── scenarios.ts  cancellation/restart/resume, delegation and clarify-loop protocols
 ├── runner.ts     prepare → run → measure → verify → grade
 └── report.ts     per-attempt outcomes (one per run, one per task under --repeat) and summary
 tools/eval.ts     CLI
@@ -215,6 +215,7 @@ bun tools/eval.ts --prepare --task repair-order-reservations
 bun tools/eval.ts --prepare --task add-order-cancellation
 bun tools/eval.ts --prepare --scenario cancel-resume
 bun tools/eval.ts --prepare --scenario delegate-investigation
+bun tools/eval.ts --prepare --scenario clarify-ambiguous-build
 bun tools/eval.ts --grade /path/to/prepared-root --observation /path/to/host-observation.json
 ```
 
