@@ -113,6 +113,8 @@ only. See [multi-provider review](MULTI_PROVIDER_LOGIN_REVIEW.md) for evidence/l
   Pickers borrow exclusive input ownership; pretyped text cannot answer a later
   exact approval. NO_COLOR keeps input controls, while TERM=dumb/redirected output
   uses plain line input and retains existing fail-closed cooked-terminal approval.
+  Plain lines that arrive before the first prompt (a fast typist, or a pipe) are
+  read in order once Casper starts reading; lines typed during work are dropped.
 
 Daily commands include `/help`, `/status`, `/project`, `/diff`, `/verify`, `/skills`,
 `/mcp`, `/lsp`, `/browser`, `/permissions`, `/model`, `/effort` and:
