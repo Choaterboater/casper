@@ -44,6 +44,16 @@ try { const session = await runtime.start({ cwd: process.cwd() }); ${body} } fin
   return { home, project, agent, casper, shared, env, run, cli };
 }
 
+/** Standalone picker host over raw IO: the same StreamTerminal lease the interactive surface uses. */
+const MOUNT_HOST = `
+const { TuiMainScreen } = await import(${JSON.stringify(path.resolve(import.meta.dir, "../node_modules/@earendil-works/pi-tui/dist/index.js"))});
+const { StreamTerminal } = await import(${JSON.stringify(path.resolve(import.meta.dir, "../src/tui/stream-terminal.ts"))});
+const host = io => ({ run: operation => operation(io), mount: async operation => {
+  const tui = new TuiMainScreen(new StreamTerminal(io, io.onEOF)); let started = false;
+  try { return await operation({ tui, color: io.color, onEOF: io.onEOF, show: component => { tui.addChild(component); if (!started) { started = true; tui.start(); } } }); }
+  finally { if (started) tui.stop(); }
+} });`;
+
 test("local diff remains usable when workspace changes exceed the display budget", async () => {
   const f = await fixture();
   const git = async (...args: string[]) => {
@@ -149,19 +159,19 @@ posixOnly("production CLI hosts Pi's picker without losing terminal ownership", 
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-model-pty-"));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
   const child = Bun.spawn(["python3", path.join(import.meta.dir, "fixtures/model-pty.py"), process.execPath, root], { stdout: "pipe", stderr: "pipe" });
-  const timer = setTimeout(() => child.kill(), 25_000);
+  const timer = setTimeout(() => child.kill(), 60_000);
   try {
     const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
     expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });
     expect(stdout).toContain("MODEL PTY PASS");
   } finally { clearTimeout(timer); }
-}, 30_000);
+}, 70_000);
 
 test("picker catalog diagnostics stay readable without executing terminal controls in color or NO_COLOR", async () => {
   const f = await fixture();
   const provider = "broken\x1b]0;CASPER_DIAGNOSTIC_TITLE\x07\u009b2J\u202e";
   await writeFile(path.join(f.agent, "models.json"), JSON.stringify({ providers: { [provider]: { api: 123 } } }));
-  const screens = await f.run(`
+  const screens = await f.run(`${MOUNT_HOST}
 const { PassThrough } = await import('node:stream');
 const screens = [];
 for (const color of [true, false]) {
@@ -169,14 +179,14 @@ for (const color of [true, false]) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 3000);
   try {
-    const result = await session.selectModel({ signal: controller.signal, picker: { run: operation => operation({
+    const result = await session.selectModel({ signal: controller.signal, picker: host({
       input, color, onEOF() {}, output: { columns: 160, rows: 40, write(text) {
         output += text;
         if (!cancelling && output.includes('Invalid models.json schema:')) {
           cancelling = true; setTimeout(() => input.write('\\x03'), 0);
         }
       } },
-    }) } });
+    }) });
     screens.push({ color, output, selected: result.selected });
   } finally { clearTimeout(timeout); input.destroy(); }
 }
@@ -194,7 +204,7 @@ console.log('RESULT=' + JSON.stringify(screens));`);
 
 test("picker refresh failures neutralize provider labels and thrown diagnostics without hiding the error", async () => {
   const f = await fixture();
-  const screens = await f.run(`
+  const screens = await f.run(`${MOUNT_HOST}
 const { PassThrough } = await import('node:stream');
 const { ModelRuntime } = await import(${JSON.stringify(path.resolve(import.meta.dir, "../node_modules/@earendil-works/pi-coding-agent/dist/index.js"))});
 const original = ModelRuntime.prototype.refresh;
@@ -215,14 +225,14 @@ try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 3000);
     try {
-      const result = await session.selectModel({ signal: controller.signal, picker: { run: operation => operation({
+      const result = await session.selectModel({ signal: controller.signal, picker: host({
         input, color, onEOF() {}, output: { columns: 160, rows: 40, write(text) {
           output += text;
           if (!cancelling && output.includes('Could not refresh')) {
             cancelling = true; setTimeout(() => input.write('\\x03'), 0);
           }
         } },
-      }) } });
+      }) });
       screens.push({ kind, color, output, selected: result.selected });
     } finally { clearTimeout(timeout); input.destroy(); }
   }

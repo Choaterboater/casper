@@ -1,64 +1,135 @@
-import { CombinedAutocompleteProvider, type AutocompleteProvider, Editor, matchesKey, Text, TuiMainScreen, truncateToWidth } from "@earendil-works/pi-tui";
-import type { RuntimeModelPickerHost, RuntimePickerIO } from "../runtime/types";
+import { CombinedAutocompleteProvider, type AutocompleteProvider, type Component, Editor, Markdown, type MarkdownTheme, matchesKey, setCapabilityOverrides, TuiMainScreen, truncateToWidth } from "@earendil-works/pi-tui";
+import type { RuntimeModelPickerHost, RuntimePickerIO, RuntimePickerView } from "../runtime/types";
 import { COMMANDS } from "./commands";
-import { MarkdownFormatter, paint, terminalText } from "./format";
+import { BUSY_GLYPH, markdownTheme, paint, PROMPT_GLYPH, terminalText } from "./format";
 import { StreamTerminal } from "./stream-terminal";
+import { Transcript } from "./transcript";
 
+const GUTTER = 2;
+
+/** pi-tui's main screen clears scrollback and reprints on any height change. Wrapping does not depend
+ * on height, so a rows-only resize is absorbed by moving the remembered viewport instead of repainting.
+ * The field names below are private in pi-tui's typings; verified against @earendil-works/pi-tui 0.85.1
+ * (`doRender` in dist/tui-main-screen.js, the same adjustment its Termux branch computes). */
+class StableMainScreen extends TuiMainScreen {
+  protected override doRender(): void {
+    const frame = this as unknown as { previousWidth: number; previousHeight: number; previousViewportTop: number };
+    const rows = this.terminal.rows;
+    if (frame.previousHeight > 0 && frame.previousHeight !== rows && frame.previousWidth === this.terminal.columns) {
+      frame.previousViewportTop = Math.max(0, frame.previousViewportTop + frame.previousHeight - rows);
+      frame.previousHeight = rows;
+    }
+    super.doRender();
+  }
+}
+
+/** One assistant message rendered whole from its Markdown source, so lists, fences and wrapped emphasis
+ * come out right while streaming and re-render correctly at a new width. pi-tui pads every line to the
+ * width; the transcript keeps content only so scrollback copies cleanly. */
+class MarkdownMessage extends Markdown {
+  override render(width: number): string[] { return super.render(width).map(line => line.replace(/ +$/, "")); }
+}
+
+/** Prompt editor with a fixed two-column gutter: the glyph changes with state, the box never moves. */
 class PromptEditor extends Editor {
-  prompt = () => "> ";
+  glyph: () => string = () => PROMPT_GLYPH;
+  paintGutter: (text: string) => string = text => text;
+  /** Suggestion rows are lifted out of the box; the surface composites them over the transcript. */
+  popup: string[] = [];
+  private bottom = "";
+
+  protected override renderBottomBorder(width: number, hidden: number): string {
+    return this.bottom = super.renderBottomBorder(width, hidden);
+  }
+
   override render(width: number): string[] {
-    const prefix = this.prompt();
-    return super.render(Math.max(1, width - prefix.length)).map((line, index) =>
-      truncateToWidth((index === 1 ? prefix : " ".repeat(prefix.length)) + line, width));
+    const lines = super.render(Math.max(1, width - GUTTER));
+    const end = lines.lastIndexOf(this.bottom);
+    const rule = this.borderColor("─".repeat(GUTTER));
+    const gutter = " ".repeat(GUTTER);
+    this.popup = end === -1 ? [] : lines.slice(end + 1).map(line => truncateToWidth(gutter + line, width));
+    return lines.slice(0, end === -1 ? lines.length : end + 1).map((line, index) =>
+      truncateToWidth((index === 0 || index === end ? rule : index === 1 ? this.paintGutter(this.glyph()) + " " : gutter) + line, width));
   }
 }
 
 /** Main-screen renderer: terminal scrollback, one editor, no autonomous input queue. */
 export class TerminalSurface {
   private readonly tui: TuiMainScreen;
+  private readonly terminal: StreamTerminal;
   private readonly editor: PromptEditor;
-  private readonly transcript = new Text("", 0, 0);
-  private text = "";
+  private readonly transcript = new Transcript();
+  private readonly theme: MarkdownTheme;
+  private readonly accent: (text: string) => string;
+  private readonly muted: (text: string) => string;
   private status = "";
+  private note = "";
   private cwd = "";
   private autocomplete?: AutocompleteProvider;
   private started = false;
   private closed = false;
-  private suspended = false;
   private busy = false;
+  /** Component shown in place of the editor while a picker is mounted. */
+  private slot?: Component;
+  /** Raw input is on loan to a line-oriented flow; the surface keeps rendering. */
+  private lending = false;
   private command?: (text?: string) => void;
   private confirmation?: (approved: boolean) => void;
-  private assistantPending = "";
+  private message?: MarkdownMessage;
+  private source = "";
   private plainAssistantOpen = false;
-  private readonly markdown: MarkdownFormatter;
 
   constructor(private readonly io: RuntimePickerIO, private readonly cancel: () => void, private readonly eof: () => void) {
-    this.markdown = new MarkdownFormatter(io.color);
-    this.tui = new TuiMainScreen(new StreamTerminal(io, () => this.close()));
-    const accent = (text: string) => paint(text, "36", io.color);
-    const muted = (text: string) => paint(text, "2", io.color);
-    this.editor = new PromptEditor(this.tui, { borderColor: accent, selectList: {
-      selectedPrefix: accent, selectedText: accent, description: muted, scrollInfo: muted, noMatch: muted,
+    this.theme = markdownTheme(io.color);
+    this.accent = text => paint(text, "36", io.color);
+    this.muted = text => paint(text, "2", io.color);
+    // Model-written links show their URL in parentheses instead of hiding it behind an OSC 8 hyperlink.
+    setCapabilityOverrides({ hyperlinks: false });
+    this.terminal = new StreamTerminal(io, () => this.close());
+    this.tui = new StableMainScreen(this.terminal);
+    this.editor = new PromptEditor(this.tui, { borderColor: this.muted, selectList: {
+      selectedPrefix: this.accent, selectedText: this.accent, description: this.muted, scrollInfo: this.muted, noMatch: this.muted,
     } }, { autocompleteMaxVisible: 7 });
-    this.editor.prompt = () => this.busy && !this.confirmation ? "working › " : "> ";
+    this.editor.glyph = () => this.confirmation ? "?" : this.busy ? BUSY_GLYPH : PROMPT_GLYPH;
+    this.editor.paintGutter = text => this.busy && !this.confirmation ? this.muted(text) : this.accent(text);
     this.editor.onSubmit = value => {
       if (this.confirmation) { this.confirmation(value.trim() === "yes"); return; }
       if (!this.command) {
         this.editor.setText(value);
-        this.write("[input] Still working; draft retained. Press Enter again when ready.\n");
+        this.note = "draft retained · Enter again when idle";
+        this.render();
         return;
       }
       const resolve = this.command; this.command = undefined; this.busy = true;
       this.configureAutocomplete();
       this.editor.addToHistory(value); this.editor.setText("");
-      this.write(paint(`> ${terminalText(value)}\n`, "36", io.color));
+      this.write(this.accent(`${PROMPT_GLYPH} ${terminalText(value)}`) + "\n");
       resolve(value);
     };
-    this.tui.addChild(this.transcript);
-    this.tui.addChild(this.editor);
-    this.tui.addChild({ render: width => [truncateToWidth((this.busy ? "working › " : "") + (this.status || "Casper · / for commands"), width)], invalidate() {} });
+    // The bottom block (editor, suggestion popup, mounted picker or lending notice)
+    // always occupies the editor's height in the line count. Anything taller is
+    // composited over the transcript tail instead of appended, so opening and
+    // closing it never scrolls the terminal or leaves blank rows behind.
+    this.tui.addChild({
+      render: width => {
+        const editorLines = this.editor.render(width);
+        const rule = this.muted("─".repeat(width));
+        const block = this.slot ? this.slot.render(width).map(line => truncateToWidth(line, width))
+          : this.lending ? [rule, this.muted(truncateToWidth("  exclusive input in progress · Esc or Ctrl+C cancels", width)), rule]
+          : this.editor.popup.length ? [rule, ...this.editor.popup, ...editorLines] : editorLines;
+        while (block.length < editorLines.length) block.push("");
+        const body = this.transcript.render(width);
+        const overflow = Math.max(0, block.length - editorLines.length);
+        return [...body.slice(0, Math.max(0, body.length - overflow)), ...block, this.footer(width)];
+      },
+      invalidate: () => { this.transcript.invalidate(); this.editor.invalidate(); this.slot?.invalidate(); },
+    });
     this.tui.setFocus(this.editor);
     this.tui.addInputListener(data => {
+      if (this.slot || this.lending) {
+        if (matchesKey(data, "ctrl+c")) { this.interrupt(); return { consume: true }; }
+        return undefined;
+      }
       if (matchesKey(data, "enter") && this.editor.isShowingAutocomplete()) {
         if (COMMANDS.some(command => this.editor.getText().trim().split(/\s+/)[0] === `/${command.name}`)) {
           this.editor.handleInput("\x1b"); // Submit exact commands literally, not a stale completion.
@@ -73,6 +144,13 @@ export class TerminalSurface {
       if (matchesKey(data, "ctrl+l")) { this.tui.requestRender(true); return { consume: true }; }
       return undefined;
     });
+  }
+
+  private footer(width: number): string {
+    const state = this.busy ? this.accent("●") : this.muted("○");
+    // A transient note replaces the status line so it is never truncated away.
+    const text = this.note ? this.accent(this.note) : this.muted(this.status || "Casper · / for commands");
+    return truncateToWidth(`${state} ${text}`, width);
   }
 
   start(): void { if (!this.started && !this.closed) { this.started = true; this.tui.start(); } }
@@ -107,11 +185,10 @@ export class TerminalSurface {
     this.editor.setAutocompleteProvider(this.busy || this.confirmation
       ? { ...provider, triggerCharacters: [], getSuggestions: async () => null } : provider);
   }
-  private render(): void { if (this.started && !this.suspended && !this.closed) this.tui.requestRender(); }
+  private render(): void { if (this.started && !this.closed) this.tui.requestRender(); }
   write(text: string): void {
     if (!this.started) { this.io.output.write(text); return; }
-    this.text += text;
-    this.transcript.setText(this.text.replace(/\n$/, ""));
+    this.transcript.append(text);
     this.render();
   }
   assistant(delta: string): void {
@@ -120,54 +197,75 @@ export class TerminalSurface {
       if (text) this.plainAssistantOpen = !text.endsWith("\n");
       return;
     }
-    this.assistantPending += terminalText(delta);
-    const lines = this.assistantPending.split("\n");
-    this.assistantPending = lines.pop()!;
-    for (const line of lines) this.text += this.markdown.line(line) + "\n";
-    this.transcript.setText(this.text + this.markdown.line(this.assistantPending, false));
+    this.source += terminalText(delta);
+    if (!this.message) this.transcript.preview = this.message = new MarkdownMessage("", 0, 0, this.theme);
+    this.message.setText(this.source);
     this.render();
   }
   endAssistant(): void {
     if (this.plainAssistantOpen) { this.io.output.write("\n"); this.plainAssistantOpen = false; }
-    if (this.assistantPending) this.write(this.markdown.line(this.assistantPending) + "\n");
-    this.assistantPending = ""; this.markdown.reset();
+    if (!this.message) return;
+    this.transcript.preview = undefined;
+    this.transcript.commit(this.message);
+    this.message = undefined; this.source = "";
+    this.render();
   }
   readCommand(): Promise<string | undefined> {
-    this.endAssistant(); this.busy = false; this.configureAutocomplete();
+    this.endAssistant(); this.busy = false; this.note = ""; this.configureAutocomplete();
     if (this.closed) return Promise.resolve(undefined);
-    return new Promise(resolve => { this.command = resolve; this.render(); });
+    const { promise, resolve } = Promise.withResolvers<string | undefined>();
+    this.command = resolve; this.render();
+    return promise;
   }
   confirm(preview: string, question: string, signal?: AbortSignal): Promise<boolean> {
-    if (this.closed || this.suspended || this.confirmation || signal?.aborted) return Promise.resolve(false);
+    if (this.closed || this.slot || this.lending || this.confirmation || signal?.aborted) return Promise.resolve(false);
     this.endAssistant();
     const draft = this.editor.getExpandedText();
     this.editor.setText(""); // Pretyped drafts never answer approval.
     this.write(terminalText(preview + question) + "\n");
-    return new Promise(resolve => {
-      let settled = false;
-      const finish = (approved: boolean) => {
-        if (settled) return; settled = true;
-        signal?.removeEventListener("abort", cancel);
-        this.confirmation = undefined;
-        this.editor.setText(draft); this.render(); resolve(approved);
-      };
-      const cancel = () => finish(false);
-      this.confirmation = finish; this.configureAutocomplete();
-      signal?.addEventListener("abort", cancel, { once: true });
-      if (signal?.aborted) cancel();
-    });
+    const { promise, resolve } = Promise.withResolvers<boolean>();
+    let settled = false;
+    const finish = (approved: boolean) => {
+      if (settled) return; settled = true;
+      signal?.removeEventListener("abort", cancel);
+      this.confirmation = undefined;
+      this.editor.setText(draft); this.configureAutocomplete(); this.render(); resolve(approved);
+    };
+    const cancel = () => finish(false);
+    this.confirmation = finish; this.configureAutocomplete(); this.render();
+    signal?.addEventListener("abort", cancel, { once: true });
+    if (signal?.aborted) cancel();
+    return promise;
   }
   exclusiveHost(): RuntimeModelPickerHost | undefined {
-    if (this.closed || this.suspended || this.confirmation || !this.started) return undefined;
-    return { run: async operation => {
-      if (this.closed || this.suspended || this.confirmation) throw new Error("Terminal input is unavailable.");
-      this.endAssistant(); this.suspended = true; this.tui.stop();
-      try { return await operation({ ...this.io, onEOF: () => this.close() }); }
-      finally {
-        this.suspended = false;
-        if (!this.closed) { this.tui.start(); this.tui.requestRender(true); }
-      }
-    } };
+    if (this.closed || this.slot || this.lending || this.confirmation || !this.started) return undefined;
+    const claim = () => {
+      if (this.closed || this.slot || this.lending || this.confirmation) throw new Error("Terminal input is unavailable.");
+      this.endAssistant();
+    };
+    return {
+      run: async operation => {
+        claim();
+        this.lending = true; this.terminal.suspendInput(); this.render();
+        try {
+          return await operation({ input: this.io.input, color: this.io.color, onEOF: () => this.close(),
+            output: { write: text => this.write(terminalText(text)) } });
+        } finally {
+          this.lending = false;
+          if (!this.closed) { this.terminal.resumeInput(); this.tui.setFocus(this.editor); this.render(); }
+        }
+      },
+      mount: async operation => {
+        claim();
+        const view: RuntimePickerView = { tui: this.tui, color: this.io.color, onEOF: () => this.close(),
+          show: component => { this.slot = component; this.render(); } };
+        try { return await operation(view); }
+        finally {
+          this.slot = undefined;
+          if (!this.closed) { this.tui.setFocus(this.editor); this.render(); }
+        }
+      },
+    };
   }
   interrupt(): void {
     if (this.closed) return;
@@ -180,7 +278,7 @@ export class TerminalSurface {
     if (this.closed) return;
     this.endAssistant(); this.closed = true;
     this.confirmation?.(false); this.command?.(); this.command = undefined;
-    if (this.started && !this.suspended) this.tui.stop();
+    if (this.started) this.tui.stop();
     this.eof();
   }
 }

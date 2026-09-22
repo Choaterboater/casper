@@ -65,7 +65,7 @@ def run_case(bun, repo, root, provider, browser=False, action="save", no_color=F
             if not browser and provider != "github-copilot": assert saved[provider]["key"] == secret
         assert not (s.root / "home/.pi/agent/sessions").exists()
         s.send("\x1b[A"); s.pump(0.08)
-        assert re.search(r"> /login\s*\n\s*─", s.screen.text()), s.screen.text()
+        assert re.search(r"❯ /login\s*\n\s*─", s.screen.text()), s.screen.text()
         assert secret.encode() not in s.raw
         assert b"synthetic-openrouter-private-access" not in s.raw
         assert b"synthetic-anthropic-private-access" not in s.raw

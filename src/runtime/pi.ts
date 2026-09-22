@@ -406,6 +406,10 @@ export class PiRuntime implements AgentRuntime {
     const createRuntime: CreateAgentSessionRuntimeFactory = async ({ cwd, sessionManager, sessionStartEvent }) => {
       readOnly?.signal.throwIfAborted();
       const extensionFactory = (pi: ExtensionAPI) => {
+        if (!readOnly) pi.on("tool_call", (event) => {
+          // Keep Pi's native execution, output handling, and process-tree cleanup.
+          if (event.toolName === "bash" && event.input.timeout === undefined) event.input.timeout = 120;
+        });
         if (readOnly) pi.on("tool_call", () => {
           if (readOnly.signal.aborted || ++toolCalls > readOnly.maxToolCalls) {
             limitReason = readOnly.signal.aborted ? "Subagent cancelled" : "Subagent tool-call budget exhausted";
@@ -473,6 +477,11 @@ export class PiRuntime implements AgentRuntime {
             systemPromptOverride: (basePrompt) => readOnly ? options.systemPromptAppend : options.systemPromptAppend
               ? `${basePrompt ?? ""}\n\n${options.systemPromptAppend}`
               : basePrompt,
+            appendSystemPromptOverride: (base) => readOnly ? base : [
+              ...base,
+              "Casper applies a 120-second timeout to bash commands when timeout is omitted. Supply an explicit finite timeout in seconds for intentionally longer commands. After a search times out, narrow its scope rather than retrying the same broad search.",
+              "Keep repository searches rooted in the current workspace. Prefer the find, grep, and ls tools with explicit paths. Do not scan the filesystem root or unrelated directories to locate a missing project file; treat stale documentation as possible and inspect the current tree. Search outside the workspace only when the user's task requires it.",
+            ],
           },
         });
         readOnly?.signal.throwIfAborted();

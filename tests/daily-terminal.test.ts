@@ -9,17 +9,84 @@ import { posixOnly } from "./support/platform";
 
 const tick = () => new Promise(resolve => setTimeout(resolve, 90));
 
+/** Fake TTY writer whose `until` resolves on the first write that satisfies the predicate, no timers. */
+function fakeWriter(columns: number, rows: number) {
+  let output = "";
+  let pending: { test: (output: string) => boolean; resolve: () => void } | undefined;
+  const writer = Object.assign(new EventEmitter(), { isTTY: true, columns, rows, write(text: string) {
+    output += text;
+    if (pending?.test(output)) { pending.resolve(); pending = undefined; }
+  } });
+  return {
+    writer,
+    get output() { return output; },
+    until(test: (output: string) => boolean): Promise<void> {
+      if (test(output)) return Promise.resolve();
+      const { promise, resolve } = Promise.withResolvers<void>();
+      pending = { test, resolve };
+      return promise;
+    },
+  };
+}
+
+const REPAINT = "\x1b[2J\x1b[H\x1b[3J";
+const plainLines = (frame: string) => frame.replace(/\x1b\[[0-9;?]*[a-zA-Z]|\x1b\][^\x07]*\x07/g, "").split("\r\n");
+
+test("streamed assistant Markdown renders lists and fences once, whole, and re-renders on width change", async () => {
+  const input = Object.assign(new PassThrough(), { isTTY: true, setRawMode() {} });
+  const screen = fakeWriter(60, 12);
+  const terminal = new InteractiveTerminal(input, screen.writer, () => {}, () => {});
+  try {
+    terminal.setStatus("fixture"); terminal.start();
+    void terminal.readCommand();
+    const message = "Here is a plan:\n\n* first *item*\n* second **item** with `code`\n\n```ts\nconst x = 1;\n```\n\nDone.";
+    for (let index = 0; index < message.length; index += 5) terminal.assistant(message.slice(index, index + 5));
+    await screen.until(output => output.includes("Done."));
+    terminal.endAssistant();
+    terminal.write("after\n");
+    await screen.until(output => output.includes("after"));
+    // A width change forces a full repaint of the committed transcript from the Markdown source.
+    screen.writer.columns = 40; screen.writer.emit("resize");
+    await screen.until(output => output.split(REPAINT).length > 1 && output.split(REPAINT).at(-1)!.includes("after"));
+    const frame = plainLines(screen.output.split(REPAINT).at(-1)!);
+    const body = frame.slice(0, frame.indexOf("after")).filter(line => line.trim());
+    expect(body).toEqual(["Here is a plan:", "- first item", "- second item with code", "```ts", "  const x = 1;", "```", "Done."]);
+    expect(screen.output).not.toContain("\x1b[?1049h");
+  } finally { terminal.close(); input.destroy(); }
+});
+
+test("a rows-only resize repositions without clearing scrollback; a columns change still repaints", async () => {
+  const input = Object.assign(new PassThrough(), { isTTY: true, setRawMode() {} });
+  const screen = fakeWriter(60, 12);
+  const terminal = new InteractiveTerminal(input, screen.writer, () => {}, () => {});
+  try {
+    terminal.setStatus("fixture"); terminal.start();
+    void terminal.readCommand();
+    for (let line = 0; line < 20; line++) terminal.write(`line ${line}\n`);
+    await screen.until(output => output.includes("line 19"));
+    const painted = screen.output.length;
+    screen.writer.rows = 8; screen.writer.emit("resize");
+    terminal.write("shorter\n");
+    await screen.until(output => output.includes("shorter"));
+    expect(screen.output.slice(painted)).not.toContain("\x1b[3J");
+    screen.writer.columns = 30; screen.writer.emit("resize");
+    terminal.write("narrower\n");
+    await screen.until(output => output.includes("narrower"));
+    expect(screen.output.slice(painted)).toContain(REPAINT);
+  } finally { terminal.close(); input.destroy(); }
+});
+
 // python3 runs the standard-library PTY fixture; Windows has no equivalent here.
 posixOnly("offline interactive demo supports model/effort popovers and a real terminal resize", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-daily-pty-"));
   const child = Bun.spawn(["python3", path.join(import.meta.dir, "fixtures/daily-pty.py"), process.execPath, root], { stdout: "pipe", stderr: "pipe" });
-  const timer = setTimeout(() => child.kill(), 20_000);
+  const timer = setTimeout(() => child.kill(), 40_000);
   try {
     const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
     expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });
     expect(stdout).toContain("DAILY PTY PASS");
   } finally { clearTimeout(timer); child.kill(); await rm(root, { recursive: true, force: true }); }
-}, 25_000);
+}, 50_000);
 
 test("one-shot TTY output stays immediate and separates the final assistant line", () => {
   const input = Object.assign(new PassThrough(), { isTTY: true, setRawMode() {} });

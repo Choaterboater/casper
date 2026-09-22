@@ -4,3 +4,4 @@ coverage/
 .DS_Store
 *.bun-build
 .scratch/
+__pycache__/

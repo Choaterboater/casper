@@ -59,7 +59,7 @@ def success(bun, repo, root, no_color):
         assert "d" * 93 + "Qdd" in re.sub(r"\n {2}", "", s.screen.text()), s.screen.text()
         s.send("\x01\x0b\x1b[A")
         s.pump(0.1)
-        assert re.search(r"> /login\s*\n\s*─", s.screen.text()), s.screen.text()
+        assert re.search(r"❯ /login\s*\n\s*─", s.screen.text()), s.screen.text()
         s.send("\x01\x0b/exit\n")
         wait_exit(s)
         urls = (s.root / "login-fetches.txt").read_text().splitlines()

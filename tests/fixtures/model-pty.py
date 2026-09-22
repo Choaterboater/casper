@@ -42,7 +42,7 @@ def exercise(bun, repo, root, no_color=False):
         # The exclusive handoff must retain editor history as well as its draft.
         s.send("\x01\x0b\x1b[A")
         s.pump(0.1)
-        assert re.search(r"> /model\s*\n\s*─", s.screen.text()), s.screen.text()
+        assert re.search(r"❯ /model\s*\n\s*─", s.screen.text()), s.screen.text()
         # Direct exact match, then search-prefilled picker and explicit save.
         s.send("\x01\x0b/model fixture/first\n")
         s.until("fixture / first")
