@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
 import { chmod, link, mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { posixOnly } from "./support/platform";
 import { isolatedEnvironment } from "../src/platform/environment";
@@ -8,6 +8,9 @@ import path from "node:path";
 const roots: string[] = [];
 afterEach(async () => { for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
 const repo = path.resolve(import.meta.dir, "..");
+// Every test spawns a fresh Bun child running the real login flow; the 5 s default has
+// tripped on the Windows CI runner.
+setDefaultTimeout(15_000);
 
 async function fixture() {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-login-"))); roots.push(root);
