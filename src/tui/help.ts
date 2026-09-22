@@ -59,49 +59,49 @@ Usage:
 
 Local commands:
   /help, /help all                  Short help or this full reference (no model)
-  /status                          Runtime model/auth and integration status
+  /status                           Runtime model/auth and integration status
   /model [id or provider/id]        Pi picker; select and remember globally
   /model --session [model]          Select without changing the startup default
   /effort [level] [--session]       Supported reasoning levels; interactive chooser
-  /context                         Estimated context and capability counts
-  /usage                           Session tokens and optional catalog cost estimate
-  /compact [instructions]          Summarize context using the model (not a local-only command)
-  /clear                           New conversation; no file rollback
-  /resume [exact-session-id]       List/resume conversations in the current workspace
-  /diff                            Git status plus tracked diff against HEAD
-  /output [n]                      Full bounded output of a recent tool call (1 = latest; last 20 retained per task)
-  /permissions                     Explain enforcement, not change permission presets
-  /login [provider]                Codex, Copilot, Anthropic or OpenRouter (shared auth store)
-  /project                         Show project context
-  /memory                          List human-entered project facts
-  /memory remember <fact>          Save an explicit project fact (no model)
-  /memory forget <id>              Remove a fact
-  /memory outcomes                 Show the latest 20 task outcomes
+  /context                          Estimated context and capability counts
+  /usage                            Session tokens and optional catalog cost estimate
+  /compact [instructions]           Summarize context using the model (not a local-only command)
+  /clear                            New conversation; no file rollback
+  /resume [exact-session-id]        List/resume conversations in the current workspace
+  /diff                             Git status plus tracked diff against HEAD
+  /output [n]                       Full bounded output of a recent tool call (1 = latest; last 20 retained per task)
+  /permissions                      Explain enforcement, not change permission presets
+  /login [provider]                 Codex, Copilot, Anthropic or OpenRouter (shared auth store)
+  /project                          Show project context
+  /memory                           List human-entered project facts
+  /memory remember <fact>           Save an explicit project fact (no model)
+  /memory forget <id>               Remove a fact
+  /memory outcomes                  Show the latest 20 task outcomes
   /memory accept <id> <yes|no>      Record human acceptance, not test evidence
-  /references                      List configured local reference sources
+  /references                       List configured local reference sources
   /references search <id|*> <query> Search reference text locally (no model)
-  /tree                            Show named session/workspace branches
-  /branch <name>                   Clone this Pi session (isolated by policy)
-  /switch <branch>                 Switch session and workspace (confirmation required)
-  /switch main apply               Verify/review/apply candidate, then clean up
-  /switch main discard             Review/discard candidate, then clean up
+  /tree                             Show named session/workspace branches
+  /branch <name>                    Clone this Pi session (isolated by policy)
+  /switch <branch>                  Switch session and workspace (confirmation required)
+  /switch main apply                Verify/review/apply candidate, then clean up
+  /switch main discard              Review/discard candidate, then clean up
   /delegate <explorer|reviewer> <goal>  Run a bounded read-only subagent (uses a model)
-  /skills                          List skill metadata and trust
-  /skills diagnostics              Inspect discovery/activation warnings
-  /skills inspect <id>             Inspect a skill and its content digest
+  /skills                           List skill metadata and trust
+  /skills diagnostics               Inspect discovery/activation warnings
+  /skills inspect <id>              Inspect a skill and its content digest
   /skills trust <id> <sha256>       Approve the exact reviewed skill content
-  /skills block <id>               Prevent future skill injection
-  /mcp                             Show redacted MCP status (no connection)
+  /skills block <id>                Prevent future skill injection
+  /mcp                              Show redacted MCP status (no connection)
   /mcp connect <name>               Authorize this server for this process
   /mcp disconnect <name>            Disconnect and revoke process-local consent
-  /lsp                             Show language-server status (no startup)
+  /lsp                              Show language-server status (no startup)
   /lsp connect <name>               Authorize this language server for this process
   /lsp disconnect <name>            Stop this language server
-  /browser                         Local browser status (no model or browser startup)
+  /browser                          Local browser status (no model or browser startup)
   /browser open <url>               Open an HTTP(S) page in a disposable browser
   /browser inspect|diagnostics      Bounded observations, not verification
   /browser screenshot|close         Save a viewport PNG or close owned resources
-  /debug                           Local DAP state and .casper/debug.json targets
+  /debug                            Local DAP state and .casper/debug.json targets
   /debug start <target>             Fresh approval for adapter + debuggee execution
   /debug breakpoints <path> <lines|clear>  Replace one file's one-based line list
   /debug threads|stack <thread>     Explicit bounded thread/stack inspection
@@ -111,7 +111,7 @@ Local commands:
   /visualize repo [dir]             Render repository dependencies locally (no model)
   /verify [checks ...]              Run project checks without a model
   /verify repair [checks ...]       Run checks and authorize bounded repair
-  /exit, /quit                     Exit interactive mode; no-op in one-shot mode
+  /exit, /quit                      Exit interactive mode; no-op in one-shot mode
 
 Unknown slash commands are rejected locally, never sent to a model.
 /model: Enter selects and saves ~/.casper/settings.json; Ctrl+S selects for this session only.
