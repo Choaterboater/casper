@@ -54,8 +54,13 @@ export async function pickPiModel(view: RuntimePickerView, catalog: ModelRuntime
       (model) => finish({ provider: model.provider, id: model.id, persist: true }), cancel, query === undefined ? undefined : terminalText(query).replace(/[\r\n\t]/g, " "),
       (model) => finish({ provider: model.provider, id: model.id, persist: false }), defaultModel);
     const selector = picker;
-    view.show({ render: width => selector.render(width).map(line => line.includes("Enter to select")
-      ? truncateToWidth(sessionOnly ? "Enter: session only · Esc: cancel · /effort after selecting" : "Enter: remember globally · Ctrl+S: session only · Esc: cancel · /effort after selecting", width) : line),
+    // Pi 0.85.1 renders no "Enter to select" footer (hints are keybinding/scope driven), so a
+    // string match on its wording silently matched nothing and hid Casper's Ctrl+S documentation.
+    // Appending our own line is wording-independent; the surface composites taller slots fine.
+    const hint = sessionOnly
+      ? "Enter: session only · Esc: cancel · /effort after selecting"
+      : "Enter: remember globally · Ctrl+S: session only · Esc: cancel · /effort after selecting";
+    view.show({ render: width => [...selector.render(width), truncateToWidth(hint, width)],
       invalidate: () => selector.invalidate() });
     view.tui.setFocus(picker);
     signal?.addEventListener("abort", cancel, { once: true });
