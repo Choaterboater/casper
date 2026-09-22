@@ -116,6 +116,8 @@ export class CasperApp {
   private cancelBeforeCommand = false;
   private commandAbort?: AbortController;
   private readonly toolStarted = new Map<string, number>();
+  private openToolLine = false;
+  private openToolCallId?: string;
   private readonly output: OutputWriter;
   private readonly input: Readable;
   private runtime?: AgentRuntime;
@@ -187,7 +189,12 @@ export class CasperApp {
     this.input = options.input ?? process.stdin;
     this.terminal = new InteractiveTerminal(this.input, options.output ?? process.stdout,
       () => this.cancelCurrent(), () => { if (this.commandActive && !this.closing) void this.close().catch(() => {}); });
-    this.output = { write: (text) => this.terminal.write(text) };
+    // A tool's "running" line is left open on a rich surface so its completion can redraw it in
+    // place (`\r`); any other output first commits that line, so nothing appends to it.
+    this.output = { write: (text) => {
+      if (this.openToolLine) { this.openToolLine = false; if (!text.startsWith("\r")) this.terminal.write("\n"); }
+      this.terminal.write(text);
+    } };
     this.autoVerify = options.autoVerify ?? false;
     this.visualizationProviders = options.visualizationProviders ?? [new MermaidProvider(), new MindMeshProvider()];
     this.sessionHomeDir = options.sessionHomeDir;
@@ -1159,6 +1166,7 @@ export class CasperApp {
   private async confirmExact(preview: string, question: string, signal?: AbortSignal): Promise<boolean> {
     if (!this.interactive || this.closing || signal?.aborted || this.commandAbort?.signal.aborted) return false;
     const signals = [signal, this.commandAbort?.signal].filter((value): value is AbortSignal => Boolean(value));
+    this.output.write("");
     return this.terminal.confirm(preview, question, signals.length ? AbortSignal.any(signals) : undefined);
   }
 
@@ -1247,16 +1255,20 @@ export class CasperApp {
         this.taskRuntimeFailed = !["stop", "toolUse"].includes(event.stopReason);
         break;
       case "assistant_text_delta":
+        this.openToolLine = false; // The streaming block commits any open tool line inside the transcript.
         this.terminal.assistant(event.delta);
         this.endedWithNewline = true;
         break;
-      case "tool_start":
+      case "tool_start": {
         this.terminal.endAssistant();
         this.ensureLineBreak();
         if (event.toolCallId) this.toolStarted.set(event.toolCallId, performance.now());
-        this.output.write(`${formatToolActivity(event)}\n`);
+        const inPlace = this.terminal.rich && event.toolCallId !== undefined;
+        this.output.write(`${formatToolActivity(event)}${inPlace ? "" : "\n"}`);
+        if (inPlace) { this.openToolLine = true; this.openToolCallId = event.toolCallId; }
         this.endedWithNewline = true;
         break;
+      }
       case "tool_end":
         this.observations.observeToolEnd(event, this.projectContext?.model.commands);
         if (["bash", "edit", "write"].includes(event.toolName)) this.browser?.invalidate();
@@ -1266,7 +1278,9 @@ export class CasperApp {
         this.terminal.endAssistant();
         const started = event.toolCallId ? this.toolStarted.get(event.toolCallId) : undefined;
         if (event.toolCallId) this.toolStarted.delete(event.toolCallId);
-        this.output.write(`${formatToolActivity(event, started === undefined ? undefined : performance.now() - started)}\n`);
+        const line = `${formatToolActivity(event, started === undefined ? undefined : performance.now() - started)}\n`;
+        if (this.openToolLine && event.toolCallId === this.openToolCallId) { this.openToolLine = false; this.terminal.write(line, { rewriteLine: true }); }
+        else this.output.write(line);
         this.endedWithNewline = true;
         break;
       case "message_end":
