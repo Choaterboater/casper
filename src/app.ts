@@ -580,6 +580,7 @@ export class CasperApp {
       return;
     }
     if (prompt === "/diff") {
+      if (!this.projectContext!.info.isGit) { this.output.write("[diff] Not a Git repository; nothing to compare.\n"); return; }
       this.output.write(await this.git(["status", "--short"]));
       this.output.write(await this.git(["diff", "--no-ext-diff", "--no-textconv", "HEAD", "--"]));
       this.output.write("[diff] Tracked changes against HEAD; untracked files listed above, contents not included. Output limited to 64 KiB per command.\n");
@@ -782,7 +783,11 @@ export class CasperApp {
     const memory = new ProjectMemory(this.projectContext!.stateDirectory);
     const [, action, ...args] = prompt.trim().split(/\s+/);
     let result: unknown;
-    if (!action) result = await memory.facts();
+    if (!action) {
+      const facts = await memory.facts();
+      if (!facts.length) { this.output.write("[memory] No remembered facts. /memory remember <fact> adds one; /memory outcomes lists task summaries.\n"); return; }
+      result = facts;
+    }
     else if (action === "remember" && args.length) result = await memory.remember(prompt.replace(/^\/memory\s+remember\s+/, ""));
     else if (action === "forget" && args.length === 1) { await memory.forget(args[0]!); result = "Fact forgotten"; }
     else if (action === "outcomes" && !args.length) result = (await memory.outcomes()).map((entry) => ({
@@ -799,7 +804,9 @@ export class CasperApp {
 
   private async handleReferencesCommand(prompt: string): Promise<void> {
     if (prompt.trim() === "/references") {
-      this.output.write(`[references] ${formatReferenceResult(this.references!.list())}\n`);
+      const listing = this.references!.list();
+      if (!listing.sources.length && !listing.diagnostics.length) { this.output.write("[references] No reference sources configured (~/.casper/references.yaml or the profile's references.yaml).\n"); return; }
+      this.output.write(`[references] ${formatReferenceResult(listing)}\n`);
       return;
     }
     const match = prompt.match(/^\/references\s+search\s+(\S+)\s+([\s\S]+)$/);
