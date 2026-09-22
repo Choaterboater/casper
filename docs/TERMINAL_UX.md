@@ -2,19 +2,61 @@
 
 ## Current interface
 
-Run `casper` in your project. The interactive terminal now uses Pi's main-screen
+Run `casper` in your project. The interactive terminal uses Pi's main-screen
 renderer/editor: ordinary scrollback above an anchored multiline prompt and a
-persistent footer, with no alternate-screen takeover. A model is not started just
-to paint the footer. A saved default is shown as an advisory startup snapshot;
-after runtime initialization the footer uses the active conversation's model.
+persistent footer, with no alternate-screen takeover. Casper owns the terminal
+before it prints the startup banner, so the banner, model status and diagnostics
+are transcript lines like everything else. A model is not started just to paint
+the footer. A saved default is shown as an advisory startup snapshot; after
+runtime initialization the footer uses the active conversation's model.
 
-The footer shows project/branch, provider/model, effort, estimated context occupancy,
-runtime-reported session tokens, a positive cost estimate when available, and
-idle/working state. `—` means unavailable, `~` means estimated. Branch is the
-project inspection snapshot; `/status` refreshes it after external Git changes.
-Narrow terminals truncate the footer rather than wrapping over input. Cost is not
-an invoice or subscription charge. No green permission/verification badge is
-invented, and no unimplemented ASK/PLAN/BUILD mode is implied.
+The prompt box keeps a fixed two-column gutter: `❯` while idle, `…` while a
+command is working, `?` while an exact approval is pending. The box never shifts
+horizontally between states, so a draft keeps its wrapping. The footer shows a
+state dot (`●` working, `○` idle), then project/branch, provider/model, effort,
+estimated context occupancy, runtime-reported session tokens, a positive cost
+estimate when available, and idle/working state. `—` means unavailable, `~`
+means estimated. Branch is the project inspection snapshot; `/status` refreshes
+it after external Git changes. Narrow terminals truncate the footer rather than
+wrapping over input. Cost is not an invoice or subscription charge. No green
+permission/verification badge is invented, and no unimplemented ASK/PLAN/BUILD
+mode is implied.
+
+### Layout stability
+
+Anything that is taller than the prompt box — the `/` command popup, the
+`/model` and `/effort` pickers, the login notice — is composited over the
+bottom of the transcript instead of appended below it. Opening and closing it
+never scrolls the terminal and never leaves blank rows under the footer; the
+covered transcript rows return unchanged. Pickers and login run inside the live
+surface: the transcript and footer stay visible, the terminal is not stopped,
+and no screen clear happens when they finish. Finished transcript entries are
+rendered once per width and cached; only the open tail line and the assistant
+message still streaming re-render per frame.
+
+Assistant messages are Markdown. The in-progress message is re-rendered whole
+through Pi's `Markdown` component on every delta (so lists, fences and wrapped
+emphasis are correct across chunk boundaries) and shown as the transcript's
+uncommitted tail; when the message ends its rendered lines are committed once.
+The source Markdown is kept per message so a width change re-renders it rather
+than re-wrapping old output. Headings, links, inline/fenced code and list bullets
+use the accent color, fence borders/quotes/rules are dim; with `NO_COLOR` every
+theme function is identity. Text still passes `terminalText()` before rendering,
+and links print their URL in parentheses instead of hiding it behind an OSC 8
+hyperlink.
+
+Ctrl+L and a width change still repaint from the top, matching Pi's renderer:
+both clear the visible screen and the terminal's scrollback and reprint the whole
+transcript at the new width. A rows-only resize does not: `StableMainScreen`
+(`src/tui/surface.ts`) shifts Pi's remembered viewport by the height delta before
+delegating, the same adjustment Pi's Termux branch makes, so shrinking or growing
+the window keeps scrollback intact (`tests/daily-terminal.test.ts` asserts no
+`ESC[3J` for a rows change and a repaint for a columns change; the field access is
+pinned to `@earendil-works/pi-tui` 0.85.1).
+`tests/fixtures/layout-pty.py` drives the offline demo through a bounded 24x80
+VT emulator that scrolls, and fails on footer creep, scrollback wipes from
+popups/pickers, or a duplicated prompt box (`bun test tests/terminal-layout.test.ts`;
+`SHOW=1 python3 tests/fixtures/layout-pty.py $(which bun)` prints every screen).
 
 ### Model and effort
 
@@ -75,10 +117,13 @@ Daily commands include `/help`, `/status`, `/project`, `/diff`, `/verify`, `/ski
 | `/resume` | List saved conversation IDs in this workspace |
 | `/resume <exact-id>` | Restore one of those conversations, keeping named workspace linkage consistent |
 | `/tree`, `/switch <name>` | Existing named-workspace navigation and its approval policy |
+| `/output [n]` | Full retained output of the last task's n-th most recent tool call (1 = latest; 20 retained per task); out-of-range n is a usage error |
 
 `/diff` shows Git status and tracked changes against HEAD, without external diff or
 textconv drivers. Untracked names are listed, not file contents. Each Git command
 has a five-second deadline and 64 KiB output limit; large output is marked truncated.
+After a task that changed files, the receipt names the changed paths (from a before/after
+tree digest) and a git workspace appends a bounded `git diff --stat` under the same limits.
 `/permissions` explains actual boundaries: native coding tools are not sandboxed
 and there is no universal shell confirmation gate. Existing integration-specific
 approvals remain in force. Verification is still separate from tool completion.
@@ -144,7 +189,7 @@ and [Interactive terminal](../README.md#interactive-terminal) for controls.
 - `src/tui/terminal.ts` owns transcript rendering, draft/cursor state, busy Enter,
   cancellation and exclusive confirmation input. App output goes through this
   module; the execution, consent and evidence owners remain unchanged.
-- Basic Markdown/color, target-bearing tool activity with elapsed time and bounded
+- Markdown assistant messages, target-bearing tool activity with elapsed time and bounded
   redacted errors, concise help/startup, `/help all`, `/status` and `/login` guidance.
 - Runtime identity comes from the active Pi session and its local auth snapshot.
   Startup remains lazy: status before a model session explicitly says unchecked.
@@ -188,8 +233,8 @@ Pi integration also asserts the displayed identity comes from the host session.
 
 ## Limits
 
-- Basic line-oriented Markdown, not a complete Markdown renderer. Incomplete
-  streamed lines have a one-row preview; complete lines enter scrollback in full.
+- Markdown rendering is Pi's component: no syntax highlighting; a partial fence or
+  emphasis marker looks literal until its closer streams in.
 - Single-line readline editing/history; no multiline editor, queue/steering,
   themes, animations, model picker or embedded OAuth. Very large pastes and terminal
   resize/reflow are not covered by the PTY acceptance exercise.

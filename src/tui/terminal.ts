@@ -49,7 +49,7 @@ export class InteractiveTerminal {
   write(text: string): void {
     const styled = terminalText(text).split("\n").map(line => {
       const code = /^(?:\[error\]|✗)/.test(line) ? "31" : /^✓/.test(line) ? "32"
-        : /^(?:•|\[skills\]|\[cancel)/.test(line) ? "33" : /^CASPER/.test(line) ? "1;36" : undefined;
+        : /^(?:•|\[skills\]|\[cancel)/.test(line) ? "33" : /^CASPER/.test(line) ? "1;36" : /^ \/help · /.test(line) ? "2" : undefined;
       return code ? paint(line, code, this.color) : line;
     }).join("\n");
     if (this.surface) this.surface.write(styled); else this.output.write(styled);

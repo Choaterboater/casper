@@ -1,7 +1,7 @@
 export const HELP_TEXT = `Casper — your coding companion
 
-  casper                 Start interactive mode
-  casper <prompt>        Run one prompt and exit
+  casper                 Start interactive mode (offers casper_check; --no-verify opts out)
+  casper <prompt>        Run one prompt and exit (--verify offers casper_check)
   /help all              All commands, options and safety details
   /status                Model/auth, integrations and local storage
   /model [model]         Pick a model; Enter remembers globally, Ctrl+S is session-only
@@ -10,6 +10,7 @@ export const HELP_TEXT = `Casper — your coding companion
   /compact               Summarize context (sends a model request)
   /clear, /resume        Fresh conversation or list/resume a saved conversation
   /diff                  Current tracked changes and untracked file names
+  /output [n]            Full retained output of the last task's n-th most recent tool call
   /permissions           Explain actual tool/approval boundaries
   /login                 Provider sign-in or private API-key setup (interactive only)
   /project               Project context and check commands
@@ -26,6 +27,8 @@ Esc stops active work. Ctrl-C cancels work; while idle it clears a draft, or exi
 Ctrl+L redraws the screen. See docs/TERMINAL_UX.md for limits.
 Enter during work retains your draft; it does not queue a request.
 Approvals require a fresh yes. Task completion is not verification.
+Interactive sessions offer the model a casper_check tool for trusted project checks;
+nothing runs unless the model selects a check. One-shot prompts need --verify.
 `;
 
 export const LOGIN_HELP = `Provider login requires an interactive Casper terminal.
@@ -42,13 +45,14 @@ export const FULL_HELP_TEXT = `Casper — your coding companion
 Usage:
   casper               Start interactive mode
   casper <prompt>      Run one prompt and exit
-  casper --version, -v Print the installed version
+  casper --version, -v Print the installed version and the path that is running
   casper learn <repo>  Propose inert learning drafts using a read-only model run
   casper learn list <repo>          List saved drafts locally (no model)
   casper learn inspect <repo> <id>  Inspect a draft and its decisions locally
   casper learn promote <repo> <id> <sha256> <number> <disposition> [skill-name]
                                   Record one exact human promotion/ignore decision
-  casper --verify ...  Authorize post-task checks and bounded repair
+  casper --verify ...  Offer casper_check and bounded repair to a one-shot prompt
+  casper --no-verify   Start interactive mode without casper_check
   casper --mcp <name>  Authorize and connect a configured MCP (repeatable)
   casper --lsp <name>  Authorize and start a configured language server (repeatable)
   casper --help        Show help
@@ -65,6 +69,7 @@ Local commands:
   /clear                           New conversation; no file rollback
   /resume [exact-session-id]       List/resume conversations in the current workspace
   /diff                            Git status plus tracked diff against HEAD
+  /output [n]                      Full bounded output of a recent tool call (1 = latest; last 20 retained per task)
   /permissions                     Explain enforcement, not change permission presets
   /login [provider]                Codex, Copilot, Anthropic or OpenRouter (shared auth store)
   /project                         Show project context
@@ -121,6 +126,9 @@ Switching provider sends subsequent conversation context to that provider.
 The picker refreshes local catalogs only; selection does not generate a model response.
 Provider-defined credential checks may execute configured key-resolution commands.
 Checks: typecheck lint test build (all by default).
+Interactive sessions offer casper_check by default: the model may select trusted project
+checks; nothing runs automatically and no selection means no Casper verification recorded.
+--no-verify withholds the tool; one-shot prompts get it only with --verify.
 Verification executes repository shell commands; use only in trusted projects.
 One-shot checks exit 0 on command success, 1 on failure/blocked, 2 on skips/no commands.
 Exit 0 does not certify current inputs or behavior; see scoped freshness in the receipt.

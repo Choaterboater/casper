@@ -8,8 +8,8 @@ let running = true, cancelled = false, model = "fixture/alpha", effort = "medium
 const terminal = new InteractiveTerminal(process.stdin, process.stdout,
   () => { cancelled = true; terminal.write("[cancel] Synthetic work cancelled.\n"); },
   () => { running = false; });
-terminal.write("CASPER · OFFLINE INTERFACE DEMO (all state synthetic)\nTry /, /model, /effort, multiline input, history, resize and cancellation.\n");
 terminal.start();
+terminal.write("CASPER · OFFLINE INTERFACE DEMO (all state synthetic)\nTry /, /model, /effort, multiline input, history, resize and cancellation.\n");
 try {
   while (running) {
     terminal.setStatus(`demo/main │ ${model} · ${effort} │ ctx 28% (fixture) │ idle`);
@@ -20,7 +20,7 @@ try {
       const choosingModel = input.trim() === "/model";
       const host = terminal.exclusiveHost();
       if (host) {
-        const picked = await host.run(io => pickEffort(io,
+        const picked = await host.mount(view => pickEffort(view,
           choosingModel ? ["fixture/alpha", "fixture/beta"] : ["off", "low", "medium", "high"],
           choosingModel ? model : effort, undefined, choosingModel ? "Model · offline synthetic choices" : "Effort · offline synthetic choices"));
         if (picked) { if (choosingModel) model = picked.level; else effort = picked.level; }

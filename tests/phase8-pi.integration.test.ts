@@ -171,6 +171,53 @@ try {
   expect(await readFile(path.join(f.project, "changed.txt"), "utf8")).toBe("EDIT_BODY_NOT_AN_OBSERVATION");
 }, 15_000);
 
+for (const mode of ["default", "explicit", "cancel"]) posixOnly(`real Pi releases a stuck shell and remains usable (${mode})`, async () => {
+  let step = 0;
+  const f = await fixture(() => {
+    if (step++ === 0) return calls([{ name: "bash", args: {
+      command: "printf BEFORE_WAIT; sleep 5; printf SHOULD_NOT_FINISH",
+      ...(mode === "explicit" ? { timeout: 0.1 } : {}),
+    } }]);
+    return answer("Recovered");
+  });
+  const harness = path.join(f.agent, "shell-deadline.ts");
+  await writeFile(harness, `import { PiRuntime } from ${JSON.stringify(path.join(import.meta.dir, "../src/runtime/pi.ts"))};
+const runtime = new PiRuntime();
+const events = [];
+const schedule = globalThis.setTimeout;
+// Accelerate the production deadline only in this isolated process. The actual
+// native shell, descendant termination, streaming, and provider loop still run.
+globalThis.setTimeout = (callback, ms, ...args) => schedule(callback, ${JSON.stringify(mode)} === "default" && ms === 120_000 ? 100 : ms, ...args);
+try {
+  const session = await runtime.start({ cwd: process.cwd() });
+  const controller = new AbortController();
+  session.subscribe(event => {
+    events.push(event);
+    if (${JSON.stringify(mode)} === "cancel" && event.type === "tool_start") {
+      schedule(() => controller.abort(), 100);
+    }
+  });
+  await session.prompt('Run the fixture command.', controller.signal).catch(error => {
+    if (!controller.signal.aborted) throw error;
+  });
+  await session.prompt('Confirm recovery.');
+  console.log('SHELL_RESULT=' + JSON.stringify({ events, busy: session.busy }));
+} finally { globalThis.setTimeout = schedule; await runtime.dispose(); }
+`);
+  const result = await f.run([harness]);
+  expect({ exit: result.exit, stderr: result.stderr }).toEqual({ exit: 0, stderr: "" });
+  const { events, busy }: { events: RuntimeEvent[]; busy: boolean } = JSON.parse(result.stdout.split("SHELL_RESULT=")[1]!);
+  const shell = events.find(event => event.type === "tool_end" && event.toolName === "bash");
+  expect(shell).toMatchObject({ isError: true });
+  if (shell?.type !== "tool_end") throw new Error("Missing shell result");
+  expect(shell.output?.text).not.toContain("SHOULD_NOT_FINISH");
+  if (mode !== "cancel") {
+    expect(shell.output?.text).toContain("timed out");
+  }
+  expect(events.some(event => event.type === "assistant_text_delta" && event.delta.includes("Recovered"))).toBe(true);
+  expect(busy).toBe(false);
+}, 15_000);
+
 posixOnly("pinned Pi uses managed checks in its native edit loop, reuses scoped passes, and hands real failure to one repair owner", async () => {
   const native = "printf native > native-proof; kill -TERM $$";
   const command = checkCommand("append:test-runs", "require-line:src/value=good");
@@ -388,7 +435,7 @@ try {
   const { report, task }: { report: VerificationReport; task: TaskResult } = JSON.parse(result.stdout.split("CHECK_RESULT=")[1]!);
   expect(report).toMatchObject({ status: "pass", repairAttempts: 0 });
   expect(report.rounds.flat().map((check) => Boolean(check.reused))).toEqual([false, false, true]);
-  expect(task).toMatchObject({ observedEdits: [], possibleMutations: true });
+  expect(task).toMatchObject({ observedEdits: [], possibleMutations: false, changedPaths: expect.arrayContaining(["test-runs"]) });
   expect(await readFile(path.join(f.project, "test-runs"), "utf8")).toBe("xx");
 }, 15_000);
 
@@ -470,7 +517,7 @@ try {
   const { report, task }: { report: VerificationReport; task: TaskResult } = JSON.parse(result.stdout.split("CHECK_RESULT=")[1]!);
   expect(report).toMatchObject({ status: "pass", repairAttempts: 0 });
   expect(report.rounds.flat().map((check) => Boolean(check.reused))).toEqual([false, false]);
-  expect(task).toMatchObject({ observedEdits: [], possibleMutations: true });
+  expect(task).toMatchObject({ observedEdits: [], possibleMutations: false, changedPaths: expect.arrayContaining(["test-runs"]) });
   expect(await readFile(path.join(f.project, "test-runs"), "utf8")).toBe("xx");
 }, 15_000);
 
@@ -502,7 +549,7 @@ try {
   const { report, task }: { report: VerificationReport; task: TaskResult } = JSON.parse(result.stdout.split("CHECK_RESULT=")[1]!);
   expect(report).toMatchObject({ status: "pass", repairAttempts: 0 });
   expect(report.rounds.flat().map((check) => Boolean(check.reused))).toEqual([false, false, true]);
-  expect(task).toMatchObject({ observedEdits: [], possibleMutations: true });
+  expect(task).toMatchObject({ observedEdits: [], possibleMutations: false, changedPaths: expect.arrayContaining(["test-runs"]) });
   expect(await readFile(path.join(f.project, "test-runs"), "utf8")).toBe("xx");
 }, 15_000);
 

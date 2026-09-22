@@ -12,6 +12,7 @@ export const COMMANDS: SlashCommand[] = [
   { name: "clear", description: "Start a fresh conversation; keep workspace files" },
   { name: "resume", description: "List or resume a named conversation" },
   { name: "diff", description: "Inspect current workspace changes" },
+  { name: "output", description: "Full retained output of a recent tool call (/output [n])" },
   { name: "verify", description: "Run repository verification checks" },
   { name: "project", description: "Detected project stack and configuration" },
   { name: "skills", description: "Available, loaded and imported skills" },

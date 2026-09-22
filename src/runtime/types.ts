@@ -1,4 +1,5 @@
 import type { Readable } from "node:stream";
+import type { Component, TUI } from "@earendil-works/pi-tui";
 import type { ToolObservationInput, ToolObservationOutput } from "./observation";
 
 export interface RuntimeToolContext {
@@ -54,9 +55,21 @@ export interface RuntimePickerIO {
   onEOF(): void;
 }
 
-/** A host grants exclusive terminal ownership only for this operation. No Pi UI types escape. */
+/** Interactive pickers render inside the host's live surface, in place of the prompt editor. */
+export interface RuntimePickerView {
+  readonly tui: TUI;
+  readonly color: boolean;
+  /** Show this component in the editor slot until the operation settles. */
+  show(component: Component): void;
+  onEOF(): void;
+}
+
+/** A host lends its terminal for one operation at a time. No Pi UI types escape. */
 export interface RuntimeModelPickerHost {
+  /** Exclusive raw input for line-oriented flows such as login. Output still lands in the transcript. */
   run<T>(operation: (io: RuntimePickerIO) => Promise<T>): Promise<T>;
+  /** Mount a focusable component where the prompt editor sits; transcript and footer stay live. */
+  mount<T>(operation: (view: RuntimePickerView) => Promise<T>): Promise<T>;
 }
 
 export type RuntimeAuthProvider = "openai-codex" | "github-copilot" | "anthropic" | "openrouter";

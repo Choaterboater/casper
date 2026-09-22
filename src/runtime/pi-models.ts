@@ -175,7 +175,7 @@ export class PiModels {
       if (!model && options.picker) {
         const { pickPiModel } = await import("./pi-model-picker");
         options.signal?.throwIfAborted();
-        const picked = await options.picker.run((io) => pickPiModel(io, this.catalog,
+        const picked = await options.picker.mount((view) => pickPiModel(view, this.catalog,
           this.status(session).blocked ? undefined : session.model, this.defaultReference(), options.query, options.signal, options.persist === false));
         options.signal?.throwIfAborted();
         if (!picked) return { status: this.status(session), selected: false, savedDefault: false };

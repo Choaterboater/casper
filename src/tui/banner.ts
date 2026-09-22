@@ -1,11 +1,8 @@
 import type { ProjectContext } from "../project/context";
+import { CASPER_VERSION } from "../version";
 
 function displayList(values: string[]): string {
   return values.length ? values.join(" · ") : "(not detected)";
-}
-
-function displayCommand(command: string | undefined): string {
-  return command ?? "(not detected)";
 }
 
 export function renderProjectSummary(context: ProjectContext): string {
@@ -14,8 +11,8 @@ export function renderProjectSummary(context: ProjectContext): string {
     ` project   ${model.project.name}`,
     ` stack     ${displayList([...model.languages, ...model.frameworks])}`,
     ` package   ${model.packageManager ?? "(not detected)"}`,
-    ` build     ${displayCommand(model.commands.build)}`,
-    ` test      ${displayCommand(model.commands.test)}`,
+    ` build     ${model.commands.build ?? "(not detected)"}`,
+    ` test      ${model.commands.test ?? "(not detected)"}`,
     ` profile   ${context.profileName}`,
     ` branch    ${info.gitBranch ?? "(no git branch)"}`,
   ].join("\n");
@@ -23,7 +20,7 @@ export function renderProjectSummary(context: ProjectContext): string {
 
 export function renderBanner(context: ProjectContext): string {
   return [
-    "CASPER · your coding companion",
+    `CASPER ${CASPER_VERSION} · your coding companion`,
     ` project   ${context.model.project.name} · branch ${context.info.gitBranch ?? "(no git branch)"} · profile ${context.profileName}`,
     " /help · /status · /login · /model",
     "",

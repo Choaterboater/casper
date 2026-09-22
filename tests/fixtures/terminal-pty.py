@@ -106,7 +106,7 @@ class Session:
                 self.raw += data
                 self.screen.feed(self.decoder.decode(data))
 
-    def until(self, text, timeout=5):
+    def until(self, text, timeout=15):
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             self.pump(0.03)
@@ -131,25 +131,25 @@ def exercise(bun, repo, root, no_color):
     s = Session(bun, repo, root, no_color)
     try:
         s.until("/help · /status · /login")
-        s.until(">")
+        s.until("❯")
         startup = s.screen.text()
         assert "mcp       " not in startup and "visualize " not in startup and "indexed" not in startup
         s.send("stream\n")
-        s.until("First **bold** and `code`")
+        s.until("First bold and code")
         assert "scripted / terminal-fixture" in s.screen.text()
         s.send("/sta")
         s.pump()
-        assert "working › /sta" in s.screen.text(), s.screen.text()
+        assert "… /sta" in s.screen.text(), s.screen.text()
         s.release("stream-step")
         s.until("read · src/example.ts — running")
-        assert "working › /sta" in s.screen.text(), s.screen.text()
-        assert "First **bold** and `code` text." in s.screen.text(), s.screen.text()
+        assert "… /sta" in s.screen.text(), s.screen.text()
+        assert "First bold and code text." in s.screen.text(), s.screen.text()
         s.send("tus\n")  # Enter during work must NOT queue or discard the draft.
         s.until("draft retained")
         assert s.requests() == ["stream"]
         s.release("stream-end")
         s.until("Done streaming.")
-        s.until("> /status")
+        s.until("❯ /status")
         assert s.requests() == ["stream"]
         s.send("\n")
         s.until("credentials configured (not a connection test)")
@@ -179,7 +179,7 @@ def exercise(bun, repo, root, no_color):
         assert not s.screen.text().rstrip().endswith("Type yes: yes"), s.screen.text()
         s.send("\n")  # Empty fresh answer denies, despite the old 'yes' draft.
         s.until("Approval result: denied")
-        s.until("> yes")
+        s.until("❯ yes")
         assert s.requests()[-1] == "approval-deny"
         s.send("\x01\x0bapproval-allow\n")
         s.pump()

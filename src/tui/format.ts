@@ -1,5 +1,10 @@
 import { stripVTControlCharacters } from "node:util";
+import type { MarkdownTheme } from "@earendil-works/pi-tui";
 import type { RuntimeEvent, RuntimeStatus } from "../runtime/types";
+
+/** Prompt gutter glyphs. Idle accepts input; busy keeps the same width so the box never shifts. */
+export const PROMPT_GLYPH = "❯";
+export const BUSY_GLYPH = "…";
 
 /** Untrusted output cannot move the cursor, set a title, or conceal text with bidi controls. */
 export function terminalText(text: string): string {
@@ -20,22 +25,16 @@ export function paint(text: string, code: string, color: boolean): string {
   return color ? `\x1b[${code}m${text}\x1b[0m` : text;
 }
 
-/** Line-oriented Markdown; fenced code stays literal. No links/escape codes are executed. */
-export class MarkdownFormatter {
-  private fence = false;
-  constructor(private readonly color: boolean) {}
-  reset(): void { this.fence = false; }
-  line(source: string, commit = true): string {
-    const text = terminalText(source);
-    if (/^\s*```/.test(text)) {
-      if (commit) this.fence = !this.fence;
-      return paint(text, "2", this.color);
-    }
-    if (this.fence) return paint(text, "36", this.color);
-    if (/^#{1,6}\s/.test(text)) return paint(text, "1;36", this.color);
-    return text.replace(/(`[^`\n]+`|\*\*[^*\n]+\*\*)/g,
-      (span) => paint(span, span.startsWith("`") ? "36" : "1", this.color));
-  }
+/** Assistant Markdown theme: accent for structure, dim for borders. With color off every function is identity. */
+export function markdownTheme(color: boolean): MarkdownTheme {
+  const style = (code: string) => (text: string) => paint(text, code, color);
+  const accent = style("36");
+  const dim = style("2");
+  return {
+    heading: style("1;36"), link: accent, linkUrl: dim, code: accent, codeBlock: accent, codeBlockBorder: dim,
+    quote: dim, quoteBorder: dim, hr: dim, listBullet: accent,
+    bold: style("1"), italic: style("3"), strikethrough: style("9"), underline: style("4"),
+  };
 }
 
 type ToolEvent = Extract<RuntimeEvent, { type: "tool_start" | "tool_end" }>;
@@ -53,7 +52,7 @@ export function formatToolActivity(event: ToolEvent, elapsedMs?: number): string
 }
 
 export function formatRuntimeStatus(status?: RuntimeStatus): string {
-  if (!status) return " model     not initialized · auth not checked (starts on /model or your first prompt; /login for setup)";
+  if (!status) return " model     not initialized (starts on your first prompt or /model)\n auth      not checked (/login to set up a provider)";
   const identity = status.provider && status.model ? `${status.provider} / ${status.model}` : "none selected";
   return ` model     ${terminalText(identity)}${status.thinkingLevel ? ` · reasoning ${terminalText(status.thinkingLevel)}` : ""}\n auth      ${status.auth === "configured" ? "credentials configured (not a connection test)" : status.auth === "missing" ? "credentials missing; use /login" : "unknown; use /login"}${status.selectionSource ? `\n selection ${status.selectionSource}${status.defaultModel ? ` · Casper default ${terminalText(status.defaultModel.provider)}/${terminalText(status.defaultModel.id)}` : " · no Casper default"}` : ""}${status.blocked ? `\n [model]   ${terminalText(status.blocked)}` : ""}`;
 }

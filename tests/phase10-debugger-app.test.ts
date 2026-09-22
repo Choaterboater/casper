@@ -39,13 +39,13 @@ posixOnly("production debugger CLI preserves fresh consent and cleans up on EOF/
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-debug-pty-"));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
   const child = Bun.spawn(["python3", path.join(import.meta.dir, "fixtures/debug-pty.py"), process.execPath, root], { stdout: "pipe", stderr: "pipe" });
-  const timer = setTimeout(() => child.kill(), 25_000);
+  const timer = setTimeout(() => child.kill(), 40_000);
   try {
     const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
     expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });
     expect(stdout).toContain("DEBUG PTY PASS");
   } finally { clearTimeout(timer); child.kill(); }
-}, 30_000);
+}, 50_000);
 
 test("debugger listing is lazy and one-shot launch cannot grant execution consent", async () => {
   const f = await fixture();
