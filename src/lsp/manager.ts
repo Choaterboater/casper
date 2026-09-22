@@ -3,6 +3,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import type { LSPConfiguration, LSPServerDefinition } from "./config";
 import { LSPConnection, record } from "./protocol";
+import { ProcessCleanupError } from "../platform/processes";
 import { applyTextEdits, type Position } from "./edits";
 import { commitPlan, planWorkspaceEdit, snapshot, validatePlan, workspaceSnapshots, type PlannedFile, type Snapshot } from "./workspace";
 
@@ -36,14 +37,28 @@ export class LSPManager {
   private queue: Promise<unknown> = Promise.resolve();
   private closeWork?: Promise<void>;
   private root?: string;
+  private cleanupError?: ProcessCleanupError;
   constructor(readonly projectRoot: string, readonly configuration: LSPConfiguration, private readonly timeoutMs = 10_000) {}
+
+  assertCleanup(): void {
+    if (this.cleanupError) throw this.cleanupError;
+    try { for (const server of this.servers.values()) server.connection.assertCleanup(); }
+    catch (error) { if (error instanceof ProcessCleanupError) this.cleanupError = error; throw error; }
+  }
+
+  private async closeConnection(connection?: LSPConnection): Promise<void> {
+    try { await connection?.close(); }
+    catch (error) { if (error instanceof ProcessCleanupError) this.cleanupError = error; throw error; }
+  }
 
   status() {
     return this.configuration.servers.map((definition) => ({ name: definition.name, source: definition.source,
+      cleanup: this.cleanupError ? "unknown" : undefined,
       state: this.stopping.has(definition.name) ? "disconnecting" : this.starting.has(definition.name) ? "connecting" : this.servers.get(definition.name)?.connection.alive ? "ready" : "disconnected" }));
   }
 
   connect(name: string): Promise<void> {
+    if (this.cleanupError) return Promise.reject(this.cleanupError);
     if (this.lifetime.signal.aborted) return Promise.reject(new Error("LSP manager closed"));
     const pending = this.starting.get(name);
     if (pending) return pending.work;
@@ -57,6 +72,8 @@ export class LSPManager {
 
   private async start(name: string, controller: AbortController, signal: AbortSignal): Promise<void> {
     await this.stopping.get(name);
+    await this.closeConnection(this.servers.get(name)?.connection);
+    this.assertCleanup();
     signal.throwIfAborted();
     const definition = this.configuration.servers.find((entry) => entry.name === name);
     if (!definition) throw new Error("Unknown LSP server");
@@ -89,7 +106,7 @@ export class LSPManager {
       connection.notify("initialized", {});
     } catch (error) {
       if (this.servers.get(name) === server) this.servers.delete(name);
-      await connection.close();
+      await this.closeConnection(connection);
       throw error;
     }
   }
@@ -103,11 +120,11 @@ export class LSPManager {
     server?.lifetime.abort();
     this.servers.delete(name); // immediately revokes pending rename approval
     const work = (async () => {
-      await server?.connection.close();
+      await this.closeConnection(server?.connection);
       await starting?.work.catch(() => {});
       const late = this.servers.get(name);
       this.servers.delete(name);
-      await late?.connection.close();
+      await this.closeConnection(late?.connection);
     })().finally(() => this.stopping.delete(name));
     this.stopping.set(name, work);
     return work;
@@ -119,6 +136,7 @@ export class LSPManager {
     this.closeWork = (async () => {
       await Promise.all(this.configuration.servers.map((server) => this.disconnect(server.name)));
       await this.queue.catch(() => {});
+      this.assertCleanup();
     })();
     return this.closeWork;
   }
@@ -143,6 +161,7 @@ export class LSPManager {
   }
 
   private server(name: string): Server {
+    this.assertCleanup();
     const server = this.servers.get(name);
     if (!server?.connection.alive || this.starting.has(name)) throw new Error("LSP server is not connected; use /lsp connect");
     return server;
@@ -176,7 +195,7 @@ export class LSPManager {
       } catch {
         // didChange may have been delivered even if didSave fails. Never retry
         // using an uncertain server version or an old incremental-edit range.
-        await server.connection.close();
+        await this.closeConnection(server.connection);
         throw new Error("LSP synchronization failed; reconnect required");
       }
     }

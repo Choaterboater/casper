@@ -9,16 +9,134 @@ Windows through one Casper-owned platform layer, and the test suite declares
 explicit skips for POSIX-only fixtures instead of failing off POSIX. The evaluation
 suite (master plan §48) is implemented and measured: nine tasks over six fixture
 repositories, with a recorded baseline of 9/9 tasks, 42 model responses, 174,760
-tokens and 152.1 s wall clock (`docs/EVALUATION.md`). The latest isolated gate passes
-TypeScript and **535 tests / 3,528 assertions** across 47 files, 0 skips
-(`bunfig.toml` scopes `bun test` to `tests/`, which also keeps the website suite
-`web/tic-tac-toe/game.test.js` out — run it explicitly). See
+tokens and 152.1 s wall clock; a second sample also passed 9/9 with 239.2 s wall
+clock (`docs/EVALUATION.md`). Current gate results and release-review corrections
+are recorded at the top of `docs/HANDOFF.md`, rather than duplicating changing
+counts here. `bunfig.toml` scopes `bun test` to `tests/`, excluding evaluation
+fixtures' own test files. See
 `docs/TERMINAL_UX.md`, `docs/MULTI_PROVIDER_LOGIN_REVIEW.md`, `docs/BROWSER.md`,
 `docs/DEBUGGER.md`, `docs/PHASE10_DEBUGGER_REVIEW.md`, `docs/PLATFORM_SUPPORT.md`,
 `docs/PLATFORM_VERIFICATION.md`, `docs/EVALUATION.md` and `docs/HANDOFF.md` for
 current contracts/evidence. Generic SDK/RPC and collaboration remain optional future
 work; LLDB and real Windows/Linux host runs are not yet validated.
 CasperCloud is a reference project, not a required integration or client.
+
+## Full phase map and continuation
+
+The implementation checkpoint above closes the **scoped versions of phases
+0–10**, not every idea in the complete product plan. The Windows/Linux workers
+are workstreams inside platform acceptance, not the whole remaining roadmap.
+Implementation, host verification, deployment acceptance and publication are
+separate states.
+
+Paths below refer to the authoritative public checkout
+`.scratch/github-preview/source/`. This planning document remains outside it.
+
+| Original phase | Delivered scope | Outstanding qualification |
+| --- | --- | --- |
+| 0 — Runtime shell | Pi adapter, Casper CLI and event-driven conversation | Published v0.1.0 does not contain the latest terminal changes |
+| 1 — Project/profile layer | Deterministic manifest detection, cache, rules and policy | Structural/model-assisted architecture discovery from master-plan §12 is not delivered by this scope |
+| 2 — Skills | Discovery, ranking, progressive loading and digest-bound trust | Skill quality evaluation and remote distribution are not implied |
+| 3 — Verification/repair | Scoped command evidence, freshness, cancellation and bounded repair | Command success is not behavioral or human acceptance |
+| 4 — MCP broker | Explicit connections, bounded catalog exposure, discovery and invocation | Personal/deployment HPE acceptance remains separate from fixture coverage |
+| 5 — LSP | Diagnostics, symbols, definitions, references and rename | Installed-server/platform combinations need their own evidence |
+| 6 — Visualization | Graph representation, Mermaid/MindMesh and local repo graphs | Windows artifact-file output remains unsupported; inline output is distinct |
+| 7 — Sessions/worktrees | Named branches, isolated experiments and reviewed return workflow | Conversation switching does not restore arbitrary workspace files |
+| 8 — Bounded subagents | Read-only explorer/reviewer, independent lifetimes and budgets; phase 13 adds explicit Casper role/default dispatch | Not a general writing-agent swarm or arbitrary task-keyword model switching |
+| 9 — Memory/reference learning | Explicit facts/outcomes, local search, inert drafts and human promotion | Remote retrieval, autonomous promotion and skill-quality evaluation are not delivered |
+| 10 — Browser/local DAP | Disposable browser workflows and bounded local debugging | Broader adapter/host coverage remains unvalidated; richer clients are optional |
+
+### Continuation phases
+
+The numbers below extend the planning map; they are **not claims that these
+features were previously approved or implemented**. Start with concrete evidence
+gaps, preserve existing ownership, and do not turn optional ideas into release
+prerequisites.
+
+| Phase | Scope and completion criterion | State / dependency |
+| --- | --- | --- |
+| 11 — Cross-platform acceptance | Native Windows/Linux platform probe, source regressions, terminal acceptance and retained host identity/results; source CI and published-binary acceptance stay distinct | Active preparation: independent Windows and Linux gates; host runs still pending |
+| 12 — Project intelligence/context | Extend deterministic project knowledge with a bounded structural map and task-relevant context; prove freshness/invalidation and no startup model call before considering model-assisted summaries | Planned follow-on to phase 1; `src/project/model.ts` currently takes architecture/conventions from overrides |
+| 13 — Casper model routing and automatic effort | Adapt OMP mechanics through Casper's Pi owner: explicit fast/build/reason/review aliases, per-request model-backed effort, preserved concrete conversations, visible fallback/cancellation/accounting | Implemented in the public working checkout; local fixture/terminal verification, not live quality/cost or native Windows/Linux acceptance |
+| 14 — Inspectable task traces | Reuse runtime observations and verification receipts for a bounded, redacted local trace with retention and a no-model inspection command; preserve the distinction between observations, checks and acceptance | Planned; current `TaskResult` and memory outcomes are not a complete persisted task trace |
+| 15 — Extension registration | Add only concrete registration seams required by real consumers; reuse Pi extensions, preserve consent/lifecycle ownership, and prove replacement/disposal behavior | Conditional design work; `src/index.ts` exports are not the master-plan extension registration interface |
+| 16 — Knowledge and skill evaluation | Extend local learning with independently measured candidate quality; treat remote reference retrieval as a separate consent/cache/provenance decision | Planned; existing evaluation suite measures coding tasks, not a skill-quality matrix |
+| 17 — Broader behavioral acceptance | Measure representative repository-scale tasks, multiple provider/model configurations and optional adapter combinations; record independent acceptance and cost separately | Existing nine-task evaluation is a baseline; new live runs require explicit provider/spending authorization |
+| 18 — Distribution readiness | Complete host acceptance, select a new version, rebuild and inspect artifacts, then validate the exact published installers | Gated on evidence and explicit commit/push/release authorization; never replace v0.1.0 assets |
+
+### Priority: quality, not phase count
+
+The user explicitly invited challenges to the plan: the goal is to make Casper
+great, not to maximize features. Phase numbering is an inventory, not an execution
+queue. Prefer this order:
+
+1. **Close phase 11 evidence gaps and define representative phase 17 acceptance.**
+   Native-terminal usability, correct edits, cancellation, saved-state behavior
+   and truthful receipts matter more than another subsystem. Broader live trials
+   still require a provider/spending agreement.
+2. **Choose the next change from observed failures.** Phase 12 is a candidate,
+   not an automatic commitment: compare task-relevant context against the current
+   baseline and keep it only if it improves independent acceptance or measured
+   effort without worsening privacy, startup or freshness.
+3. **Add phase 14 tracing only for a concrete diagnostic need.** Reuse evidence
+   already recorded before storing more source text or tool output.
+4. **Reuse OMP's routing and automatic effort implementation patterns.** The user
+   identified both as existing OMP features; the earlier blanket deferral treated
+   them incorrectly as greenfield infrastructure. Inspect the actual implementation
+   and adapt the smallest useful module through Casper's existing Pi seam. Model
+   routing and effort adjustment are distinct decisions: account for explicit
+   overrides, supported effort levels, conversation persistence, effective-state
+   display and provider/context transfer without inventing a second session owner.
+   Keep Pi pinned; OMP remains reference code, not a new runtime dependency.
+   **Generic extension infrastructure remains deferred:** phase 15 needs a real
+   consumer; hypothetical plugins do not justify a registration framework.
+5. **Evaluate learning before expanding it.** Human promotion remains explicit;
+   do not turn candidate generation into autonomous instruction changes.
+
+Do not reopen the completed UI redesign without specific feedback. Do not add
+writing-agent orchestration simply because development used multiple agents.
+Do not treat a 545-test baseline, two small evaluation samples or prepared CI as
+proof of daily-driver quality across hosts.
+
+### Product identity: opinionated defaults, user-owned policy
+
+The user requires Casper to stand on its own, not imitate another harness's
+feature list. Product hypothesis: **complete repository changes with less
+supervision, and make the evidence and remaining uncertainty inspectable**.
+That is an acceptance target, not a proven superiority claim.
+
+Omarchy is a useful design reference: its [welcome](https://github.com/omacom/omarchy/blob/master/manual/01-welcome-to-omarchy.md)
+describes a complete designed experience rather than a grab bag of packages;
+its [doctrine](https://omarchy.org/doctrine/) emphasizes coordinated presentation,
+opinionated decisions, user ownership and attention to small defects.
+Adopt that product discipline, not its assets, installer or unrelated positions.
+
+For Casper: one normal path (`/model` → describe work), coherent terminal
+language, reusable upstream mechanics behind Casper-owned choices, optional
+advanced controls, and no hidden provider changes. Phase 13 therefore keeps
+role setup optional, uses the selected model as the auto classifier when `fast`
+is unset, and shows the real effort/fallback. Future phases must justify
+themselves by accepted changes, fewer interventions or fewer failures—not parity.
+
+### Optional product branches, not automatic phases
+
+Master-plan §41 also lists desktop integration, voice, visual diff, GitHub workflow
+integration, remote/shared sessions and a plugin marketplace. SDK/RPC needs a
+concrete caller. CasperCloud remains reference material, not a required client.
+These need individual product contracts rather than empty implementation stubs.
+
+### Design assessment
+
+The current design keeps the useful seams: `AgentRuntime` isolates Pi;
+`CasperApp` owns task and workspace lifetimes; `VerificationTask` owns managed
+check evidence; terminal code owns input handoffs; and `src/platform/` centralizes
+OS behavior. `runModelTask()` selects skills, explicit facts and capabilities
+before invoking the runtime, then records observations separately from checks.
+
+Preserve these owners. In particular, task-context selection, model routing and
+traces must not become competing task runners, alternate confirmation paths or
+second verification authorities. The large app is a locality concern, not by
+itself evidence that a router framework or whole-app rewrite is needed.
 
 ### Historical Phase 9 checkpoint
 

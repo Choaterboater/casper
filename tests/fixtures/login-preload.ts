@@ -34,4 +34,3 @@ Object.defineProperty(globalThis, "fetch", { configurable: true, writable: true,
   }
   throw new Error("Unexpected network destination");
 } });
-

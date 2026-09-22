@@ -106,7 +106,7 @@ async function main(): Promise<void> {
     await chmod(destination, installer.mode);
   }
   process.stdout.write(`\n${targets.length} artifact(s) plus install.sh and install.ps1 in dist/release for casper ${CASPER_VERSION}\n`);
-  process.stdout.write("Upload the whole directory, then point CASPER_BASE_URL (scripts/install.sh, scripts/install.ps1) at it.\n");
+  process.stdout.write("Set the release-host default in scripts/install.sh and scripts/install.ps1 BEFORE building; upload the whole resulting directory.\n");
 }
 
 if (import.meta.main) {

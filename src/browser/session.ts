@@ -10,7 +10,7 @@ import type { Browser, Page } from "puppeteer-core";
 import type { ArtifactDirectory } from "../visualize/artifacts";
 import { isolatedEnvironment } from "../platform/environment";
 import { discoverBrowser } from "./discovery";
-import { ownSpawnedTree, type OwnedProcesses, terminateTree } from "../platform/processes";
+import { ownSpawnedTree, type OwnedProcesses, ProcessCleanupError, terminateTree } from "../platform/processes";
 
 export interface BrowserSessionOptions {
   projectRoot: string;
@@ -49,6 +49,7 @@ export class BrowserSession {
   private profile?: string;
   private work?: Promise<Record<string, unknown>>;
   private closeWork?: Promise<void>;
+  private cleanupError?: ProcessCleanupError;
   private artifacts?: ArtifactDirectory;
   private server?: BrowserServer;
   private readonly runId = randomUUID();
@@ -61,7 +62,10 @@ export class BrowserSession {
   private readonly scenarios = new Map<string, { scenario: BrowserScenario; check: BrowserCheck; fingerprint?: string; revision: number }>();
   constructor(private readonly options: BrowserSessionOptions) {}
 
-  status() { return { state: this.controller.signal.aborted ? "closed" : this.page ? "ready" : this.startup ? "starting" : "idle",
+  assertCleanup(): void { if (this.cleanupError) throw this.cleanupError; }
+
+  status() { return { state: this.cleanupError ? "failed" : this.controller.signal.aborted ? "closed" : this.page ? "ready" : this.startup ? "starting" : "idle",
+    ownedProcessCleanup: this.cleanupError ? "unknown" : undefined,
     runId: this.runId, screenshots: this.screenshotCount, ownedBrowserPid: this.browser?.process()?.pid }; }
 
   run(input: unknown, signal?: AbortSignal): Promise<Record<string, unknown>> {
@@ -84,7 +88,7 @@ export class BrowserSession {
     const url = input.action === "open" ? webURL(input.url) : undefined;
     const combined = signal ? AbortSignal.any([signal, this.controller.signal]) : this.controller.signal;
     combined.throwIfAborted();
-    const stop = () => { void this.close(); };
+    const stop = () => { void this.close().catch(() => {}); };
     combined.addEventListener("abort", stop, { once: true });
     const timer = setTimeout(stop, input.action === "check" || input.action === "replay" ? 30_000 : 15_000);
     try {
@@ -319,22 +323,43 @@ export class BrowserSession {
 
   close(): Promise<void> {
     if (this.closeWork) return this.closeWork;
-    this.closeWork = Promise.resolve().then(() => this.finishClose());
+    this.closeWork = Promise.resolve().then(() => this.finishClose()).catch(error => {
+      if (error instanceof ProcessCleanupError) this.cleanupError = error;
+      throw error;
+    });
+    // Disconnect/crash/abort can initiate cleanup outside an awaited command.
+    // Keep the rejected result for close() callers without an unhandled rejection.
+    void this.closeWork.catch(() => {});
     this.controller.abort();
     return this.closeWork;
   }
   private async finishClose(): Promise<void> {
     const serverClose = this.server?.close();
+    void serverClose?.catch(() => {});
     // launch's lifetime signal closes partially started browsers too.
     await this.startup?.catch(() => {});
     const child = this.browser?.process();
-    const kill = () => { if (child) terminateTree(this.chromeOwner, child.pid, "SIGKILL"); };
-    const timer = setTimeout(kill, 200);
-    try { await this.browser?.close().catch(() => {}); }
-    finally { clearTimeout(timer); kill(); }
+    // Capture while the root still retains parentage, before graceful close can
+    // orphan its descendants. Cleanup runs even when browser.close succeeds fast.
+    await this.chromeOwner?.captureCurrent();
+    const kill = () => terminateTree(this.chromeOwner, child?.pid, "SIGKILL");
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        this.browser?.close().catch(() => {}),
+        new Promise<void>(resolve => { timer = setTimeout(resolve, 200); }),
+      ]);
+    } finally { clearTimeout(timer); }
+    const outcome = await kill();
     await this.work?.catch(() => {});
-    await serverClose;
+    if (outcome === "unknown") {
+      await this.browser?.disconnect().catch(() => {});
+      for (const stream of child?.stdio ?? []) stream?.destroy();
+      child?.unref();
+    }
     await this.artifacts?.close();
+    await serverClose;
+    if (outcome === "unknown") throw new ProcessCleanupError();
     if (this.profile) await rm(this.profile, { recursive: true, force: true });
   }
 }

@@ -4,6 +4,11 @@ import { promisify } from "node:util";
 const exec = promisify(execFile);
 
 export interface ProcessRecord { pid: number; parent: number; group: number; stamp: string }
+export type CleanupOutcome = "stopped" | "unknown";
+
+export class ProcessCleanupError extends Error {
+  constructor() { super("Owned process cleanup is unconfirmed. Inspect the owned processes before starting more work; restarting does not prove cleanup."); }
+}
 
 /** OS observations behind one seam, so non-host platform behavior stays testable. */
 export interface ProcessPlatform {
@@ -120,17 +125,21 @@ export function ownSpawnedTree(pid: number | null | undefined, alive: () => bool
  * One termination policy for every spawned tree: the POSIX process group when
  * the OS has groups, otherwise verified OS descendants (never reported PIDs).
  */
-export function terminateTree(owner: OwnedProcesses | undefined, group: number | null | undefined, signal: NodeJS.Signals): void {
+export function terminateTree(owner: OwnedProcesses | undefined, group: number | null | undefined, signal: NodeJS.Signals): Promise<CleanupOutcome> {
+  // The owner decides the platform. This is also the simulated-Windows test seam.
+  if (owner) return owner.stop();
+  if (group === null || group === undefined) return Promise.resolve("stopped");
   if (osSupportsProcessGroups) {
-    if (group === null || group === undefined) return;
     try { process.kill(-group, signal); }
     catch (error) {
       // A root that is not a group leader has no group to signal; target it directly.
       if ((error as NodeJS.ErrnoException).code === "ESRCH") { try { process.kill(group, signal); } catch { /* already exited */ } }
     }
-    return;
+    // POSIX retains its existing best-effort exact-group signal policy. This is
+    // not an OS-parentage verification of every descendant's exit.
+    return Promise.resolve("stopped");
   }
-  void owner?.stop();
+  return Promise.resolve("unknown");
 }
 
 /**
@@ -144,6 +153,7 @@ export class OwnedProcesses {
   private readonly groups = new Set<number>();
   private scanning?: Promise<Map<number, ProcessRecord>>;
   private uncertain = false;
+  private stopping?: Promise<CleanupOutcome>;
   constructor(
     private readonly root: number,
     private readonly rootAlive: () => boolean,
@@ -214,7 +224,13 @@ export class OwnedProcesses {
     }
   }
 
-  async stop(): Promise<"stopped" | "unknown"> {
+  stop(): Promise<CleanupOutcome> {
+    // TERM, escalation and close callbacks all drain the same cleanup, including
+    // its unknown result. Repeated calls must not launch competing OS scans.
+    return this.stopping ??= this.finishStop();
+  }
+
+  private async finishStop(): Promise<CleanupOutcome> {
     for (const signal of ["SIGTERM", "SIGKILL"] as const) {
       if (this.platform.groups) {
         const all = await this.capture();

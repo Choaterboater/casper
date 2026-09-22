@@ -1,6 +1,737 @@
 # Casper — next-session handoff
 
-## Resume here — release path fixed, eval variance sample, platform-neutral fixtures
+## Resume here — reviewed source committed and pushed
+
+The user explicitly requested **“push to github.”** Committed and pushed all 86
+reviewed changed/new regular files from `.scratch/github-preview/source/` to
+`Choaterboater/casper` `main`:
+
+- Commit: `f155a1abcabf6d7edf7c3f62b8ba80fc26e2d027`
+  (`feat: improve terminal, model routing, and evaluation safety`).
+- Remote `refs/heads/main` was verified to equal that exact SHA after the push.
+- All 254 source/documentation files matched the retained final review manifest
+  before staging; the exact 86 staged blobs were checked again. Whitespace and
+  heuristic token/private-key/personal-path scans passed (not a security audit).
+- The public checkout has no tracked changes. Its pre-existing local `node_modules`
+  symlink remains untracked and was deliberately excluded. Scratch evidence,
+  private development history and the original checkout were not published.
+- No version bump, tag or binary release: version remains 0.1.0 and existing
+  published v0.1.0 assets remain unchanged. This was a source push, not distribution.
+
+Push-triggered native CI is **in progress**, not accepted evidence yet:
+- [Linux preview](https://github.com/Choaterboater/casper/actions/runs/35676355731)
+- [Windows preview](https://github.com/Choaterboater/casper/actions/runs/35676355737)
+
+Next: inspect both runs and retain logs/results for this SHA. Diagnose failures
+rather than suppressing them; green CI still does not replace native manual terminal
+acceptance. The prior review's live-run isolation, reserved cleanup-pilot and new
+release-version/asset gates remain. Original development work is still local.
+
+## Prior checkpoint — team review completed, four bugs corrected
+
+The user requested a team review of **all uncommitted public-checkout changes**,
+debugging/fixes before a later GitHub version update, and documentation. Optional
+agent-skill setup was set aside; no `AGENTS.md`, issue tracker or labels were written.
+No commit, push, version bump or release publication occurred. Version remains 0.1.0.
+
+Three parallel read-only reviewers examined a preserved 253-file snapshot against
+`d4cb041` (working-tree diff plus regular new files, not an empty HEAD-only diff):
+Standards, runtime/terminal Spec, and evaluation/platform Spec. Two independent
+follow-up reviewers checked the corrections. Full report and separate axis findings:
+[public checkout review](../.scratch/github-preview/source/docs/PRE_RELEASE_REVIEW.md).
+
+**Four confirmed bugs fixed in `.scratch/github-preview/source/`:**
+
+1. Model-selection cancellation after Pi activation now retains the actual selected
+   model/effort and resumable metadata, without saving startup defaults after abort.
+2. Classifier responses retain reported tokens/cost even when malformed or truncated
+   answers force effort fallback. Late cancelled responses remain inert.
+3. Grading canonicalizes candidate/observation locations, rejecting candidate-owned
+   evidence reached through path aliases before writing any attempt results.
+4. Both fulfillment tasks enforce production-only changes, rejecting unrelated
+   root files/scripts even if independent behavioral verification passes.
+
+Six targeted regressions were observed red before the fixes, then **6 pass / 45
+assertions**. Restored removed user-facing freshness/scope assertions in receipt and
+actual CLI tests. Focused gate: **110 pass / 0 fail / 644 assertions / five files**.
+Final external serial `bun run check`: **TypeScript clean; 588 pass / 3 optional
+debugpy skips / 0 fail / 3,624 assertions / 50 files**, 294.46 seconds test time.
+macOS platform probe: **8 pass / 0 fail / 1 optional adapter-hint skip**. Evaluation
+CLI help/list smokes passed without a provider. Independent correction reviews
+found no new actionable defects; they are not runtime/host acceptance.
+
+Evidence and before/after source archives are retained locally in
+`.scratch/team-review/review-izde9waz/`. Broad gates ran in external snapshots; all
+test homes/temp roots were outside Git. Original-development source/test bytes
+match their pre-review preservation copy. Existing unrelated changes and both Git
+histories remain intact. Shared dependencies were reused, not installed/upgraded.
+Review agents used the configured review model; no Casper live-provider trial,
+personal credential reconfiguration or remote native-host workflow ran.
+
+**Remaining boundaries:** Native Windows/Linux acceptance is still open. Legacy
+one-shot evaluation redirects Casper-owned state but can still load ambient Pi
+resources/persist Pi transcripts; docs/CLI now disclose this. Explicit isolated
+launch configuration and authorized credentials/model/allowance remain required
+before live evaluation. Pi's pinned selector-layout adaptation remains an upgrade
+revalidation point, not an established runtime defect.
+
+The reserved preparation-cleanup defect and both frozen pilot roots remain
+unchanged. Active source now differs from the last pilot snapshot. Choose/record
+the intended trial revision or refreeze and recalibrate before any live attempt;
+do not silently mix those trees. Publication still needs a selected new version,
+rebuilt/validated assets, native-host evidence and explicit authorization. Do not
+replace v0.1.0 assets or rewrite its tag.
+
+## Prior checkpoint — evaluation workspace guard and refreshed pilot
+
+Continued the documented offline work; live provider and native-host gates remain
+blocked on the explicit choices/prerequisites below. No provider call, credential
+operation, install, commit, push or remote workflow ran.
+
+A recheck uncovered a safety gap: the assistant incorrectly put test HOME/TMPDIR
+inside the original Git checkout. Casper discovered the enclosing repository and
+synthetic tests deleted its tests and wrote fixture files there. Stopped and
+recovered all **65 test files** from public initial commit `8740031`, checking every
+hash against `.scratch/github-preview/inventory.json`, including the original
+uncommitted test changes. Only identified test-generated artifacts were moved
+aside. The Git path-status list returned to its pre-command state. No pre-command
+content backup existed; retained inventory and initial status corroborate recovery.
+The active checkout and frozen pilot were untouched by those scripts.
+
+In `.scratch/github-preview/source/`, the runner now rejects a discovered project
+root outside the canonical candidate before loading enclosing configuration or
+constructing a runtime. A harmless subprocess regression was observed red, then
+green. **TypeScript clean; focused suite 15 pass / 0 fail / 109 assertions.** The
+initial 8-pass/6-fail run remains in the evidence; no new full-suite gate is claimed.
+The separate reserved cleanup defect remains unfixed. Keep future gate HOME and
+TMPDIR outside Git repositories, copying logs back afterward.
+
+A new frozen pilot includes this guard: `/private/tmp/casper-cleanup-pilot-F7f5Eu`,
+253 regular files, manifest SHA-256
+`78fa1374a915c7ae941eebd13ec7c781fae858923415d580f7c4825bcf50a9e6`.
+Calibration again correctly rejected the baseline: **4 pass / 7 fail**, all seven
+failures the reserved leaks, no infrastructure error/timeout, probe resources
+removed. Original freeze/evidence retained unchanged. These temporary roots are
+not durable backups.
+
+Full incident, recovery, commands/results and refreshed-pilot records:
+[local recheck](../.scratch/daily-driver/recheck-mqg5dV/README.md) and
+[plan](../.scratch/daily-driver/PLAN.md). Both local Docker sockets remain absent;
+no Windows environment found. The Linux SSH host was not rechecked or modified.
+
+**Next:** obtain provider/account, exact model/effort, one-attempt allowance and
+credential-isolation agreement before the live trial. Native Windows/Linux runs
+still need an available, authorized execution environment. Preserve both checkout
+histories and uncommitted work; do not publish or start new subsystems by default.
+
+## Prior checkpoint — daily-driver acceptance preparation
+
+The user agreed to a **Casper-only baseline first**, separating required interaction
+from human rescue and preserving each attempt's original outcome. They accepted
+the existing evaluation runner/reports as test boundaries and cancellation followed
+by clean exit, a new Casper process and exact-conversation resume. No live-provider
+or native-host run was authorized.
+
+Implemented in `.scratch/github-preview/source/`:
+
+- Frozen external evaluators grade candidate production paths against host-owned
+  tests/configuration. Candidate test weakening can no longer manufacture a pass.
+- Outcomes distinguish accepted without rescue, accepted with rescue and not
+  accepted. Ordered intervention logs, unique attempt IDs, reported usage and
+  unavailable-verifier diagnostics survive in JSON/text reports.
+- `tools/eval.ts --prepare` and `--grade` support credential-free preparation and
+  host-observed workflow grading. Every grade saves a new result; existing JSON
+  evidence is not overwritten. The CLI now participates in typechecking.
+- Two multi-module fulfillment tasks plus explicit cancel/restart/resume and
+  delegation protocols. Synthetic fixture success is not real-world acceptance.
+
+**Verification:** full serial gate **585 pass, 0 fail, 3,584 assertions / 50 files**;
+final focused gate **14 pass, 0 fail, 100 assertions**, TypeScript clean. Real CLI
+smokes covered offline preparation and rejection paths, not live interaction.
+
+The real cleanup repair pilot is frozen with a host-owned evaluator. Calibration
+correctly rejected seven invalid-preparation leak cases while four successful-run
+preservation cases passed; no provider runtime ran. **Do not fix that reserved
+defect during preparation.** Frozen paths, manifest hash, report, reviewer
+disposition and commands are in [.scratch/daily-driver/PLAN.md](../.scratch/daily-driver/PLAN.md).
+Product usage and the observation schema are in the active checkout's
+`docs/EVALUATION.md`. Temporary smoke roots were removed; the frozen pilot is retained.
+
+**Next:** agree provider/account, exact model/effort, allowance and credential
+isolation for one live repair attempt. Native Windows/Linux prerequisites remain
+blocked as previously recorded. No new subsystem is selected by this offline
+evidence. No installs, credential operations, commits, pushes or publication.
+
+## Prior checkpoint — Casper routing, automatic effort and product direction
+
+The user said to continue with OMP's existing routing/automatic-effort mechanics,
+then clarified that Casper must be its own compelling application. They suggested
+Omarchy's philosophy as a product reference. **Borrow mechanisms, not an identity
+or a feature checklist.** The plan now records a product hypothesis: completed
+repository changes with less supervision and inspectable evidence/uncertainty.
+Omarchy's coherent defaults, attention to small defects and user ownership are
+the relevant lessons; no Omarchy installation or assets were introduced.
+
+Phase 13 is implemented in `.scratch/github-preview/source/`:
+
+- Pure exact-selector resolver: `fast`, `build`, `reason`, `review`, `@default`,
+  aliases, effort suffixes, literal-colon precedence, ambiguity/cycle rejection.
+  Explicit supported `max` works; automatic effort deliberately never selects it.
+- `/model roles`, `/model role <role> <selector|clear>`, `/model @role[:effort]`,
+  and `/effort auto [--session]`. Ordinary model selection needs no role setup.
+  Parent provider/model never changes because of task keywords.
+- Casper-owned settings and Pi-owned session entries preserve configured auto
+  separately from resolved effort. Restores/forks retain concrete selections
+  even when aliases change. Selection, effort and classifier work are excluded
+  from conflicting session transitions.
+- The classifier uses `fast` if configured, else the selected model; one tool-free
+  call with only the raw current request (8 KiB), 128 output tokens, four-second
+  deadline, no retries. Auto is opt-in. Fixed effort disables it. Failure keeps
+  prior/provisional supported effort visibly; cancellation prevents late generation.
+- Status/footer expose auto versus actual effort; `/usage` separates observed
+  classifier tokens/cost. Classifier counters cover the loaded session instance,
+  not restored historical billing; failed-request cost remains unknown.
+- Explorers now use `fast`, reviewers `review`, unset roles the Casper startup
+  default. Shared Pi defaults no longer select child models. In-memory child
+  transcripts, read/grep/find/ls authority and ambient-hook isolation remain.
+- Configuration, delegation, learning consent, terminal/release docs and OMP MIT
+  notices updated. OMP reference pinned to
+  `7f3541d24379e64921a1420ad906ec3343e4f3e8`; Pi remains 0.85.1,
+  with no new dependency/runtime or second session owner.
+- Windows/Linux prepared CI gates now include resolver and classifier tests.
+  Both workflow YAML files parsed locally; neither native host gate was run.
+
+**Final full gate:** `bun run check` in the public checkout — TypeScript clean;
+**581 pass, 0 fail, 3,573 assertions across 50 files**, 288.37 seconds test time.
+This supersedes the intermediate fixture-migration failures, not native-host or
+live-provider acceptance. All source/test changes were in place for this gate.
+No dependency link was created by this implementation turn; the pre-existing
+checkout dependency path was preserved.
+
+**Focused evidence:** final effort/cancellation/persistence gate **22 pass,
+0 fail, 91 assertions**; includes a fresh automatic default fork/resume before
+its first prompt. Production Casper CLI PTY smoke exercised saved selection,
+role assignment/selection, configured auto with actual high, session-only fixed
+effort, separate usage and clean exit. The final rendered screen/transcript are
+in the temporary `casper-routing-smoke-EX9Uf1/case3` directory; the throwaway
+script was removed.
+
+Learning fixtures were migrated to explicit Casper defaults. Their draft-store
+tests now locate the candidate artifact rather than corrupting whichever state
+file happens to enumerate first; six affected boundary regressions passed
+(**44 assertions**) after migration. Existing state must remain unchanged.
+
+**Acceptance limits:** Local synthetic-provider behavior does not establish
+classification quality, lower cost, superior coding outcomes or user visual
+acceptance. Native Windows/Linux evidence remains blocked as described below.
+No credentials, paid calls, package installs, commits, pushes or releases.
+
+**Next:** address user feedback and observed task failures; close native-host
+acceptance and representative behavioral evidence before distribution. Do not
+treat the remaining phase inventory as an instruction to add every subsystem.
+Publication and live-provider spending still require explicit authorization.
+
+## Prior checkpoint — full phase map and platform gate preparation
+
+The user requested an overall design assessment and agents on different phases,
+then clarified that there should be more phases than the initial three
+continuation workstreams. **Do not equate platform verification with the whole
+remaining product roadmap.**
+
+- `docs/IMPLEMENTATION_PLAN.md` now maps all original phases **0–10**, their
+  delivered scope and acceptance limits, plus proposed continuation phases
+  **11–18**: cross-platform acceptance; project intelligence/context; OMP-style
+  model routing and automatic effort; inspectable task traces; extension registration; knowledge/skill
+  evaluation; broader behavioral acceptance; distribution readiness.
+- Phases 12–18 are planning, not implemented features or blanket authorization
+  for provider spending, remote integrations or publication. Optional desktop,
+  voice, shared sessions, marketplace and SDK/RPC ideas remain separate product
+  decisions. CasperCloud is still reference material only.
+- Two concurrent implementation agents prepared platform gates in the public
+  checkout: expanded `.github/workflows/windows-preview.yml` and new
+  `.github/workflows/linux-preview.yml`. They retain host/check logs and exercise
+  existing source regressions; Windows build and PS5.1/PS7 installer checks remain.
+  Linux additionally runs the full serial suite. Neither workflow was dispatched.
+- Existing `docs/WINDOWS.md` and `docs/PLATFORM_VERIFICATION.md` describe exact
+  automated scope and separate credential-free native-terminal acceptance.
+  Login/model-selection subprocess fixtures now use the existing
+  `isolatedEnvironment` helper instead of HOME-only environments.
+- The design scout could not start because its model was unconfigured. Main
+  assessed the design directly; no independent architecture sign-off is claimed.
+  Preserve the runtime, app-lifetime, verification, terminal-input and shared
+  platform ownership seams rather than introducing a second task runner.
+
+**New local evidence:** TypeScript clean; focused integration gate **80 pass,
+0 fail, 447 assertions, 10 files**, 74.28 seconds test time. Covered platform
+processes, login picker/login, model selection, daily terminal, terminal review/
+UX/discovery, debugger CLI and release compilation. This is **not a new full-suite
+run**; the previous 545-test full gate remains historical evidence. macOS platform
+probe: **8 pass / 0 fail / 1 optional adapter-hint skip**. Production `/project`
+smoke detected an isolated fixture's configured test without initializing auth.
+Both workflow YAML files parsed; all six Linux shell blocks passed syntax checks;
+a failing piped command retained exit 1. PowerShell execution remains unverified.
+
+**Host blockers:** Both local Docker endpoints are unavailable. The system SSH
+alias `ugreen` is reachable and reports Linux 6.18.15, but Bun was absent from its
+PATH (`node`, `python3`, `git` were found). Only read-only prerequisite discovery
+ran there: no source transfer, installation or Casper host validation. No Windows
+execution environment is available. Native Windows/Linux acceptance is still open.
+
+Changes remain uncommitted/unpushed; no version bump, release, dependency install,
+provider credential operation or paid model request. The installed launcher still
+points at the public checkout. Temporary checkout dependency link removed after
+verification. Supplemental workflow/CLI proof lives in the temporary
+`casper-phase-continuation-ecdfwD` directory.
+
+### Next-session order
+
+1. The user explicitly invited challenges: the goal is to make Casper great, not
+   maximize phase count. Use the expanded phase map as an inventory, not a queue.
+   Prioritize native-host acceptance and representative behavioral evidence, then
+   select changes from observed failures. Phase 12 is a candidate, not an automatic
+   commitment. The user corrected the blanket routing deferral: OMP already does
+   model routing and automatic effort adjustment. Phase 13 is reuse-first: inspect
+   and adapt those existing patterns through the Pi seam rather than inventing a
+   new router or deferring it on that premise. Generic extension infrastructure
+   still needs a concrete consumer. See the plan's quality-priority section.
+2. Run phase 11 gates on prepared native hosts or an explicitly authorized pushed
+   revision; do not dispatch old remote code and call it validation of this tree.
+3. Keep publication and live-provider spending behind explicit authorization.
+
+## Prior checkpoint — login/UI handoff and launcher update
+
+**Current state:** the login repair and three-agent terminal redesign are complete
+in the public working checkout. The local `casper` launcher now points there and
+was verified interactively. The user has not yet reported visual acceptance or a
+new problem after the update. Do not restart installer work or redo the redesign.
+
+### Working location and guardrails
+
+- Make implementation changes in `.scratch/github-preview/source/`, which has the
+  public repository's own Git history. The original development tree is preserved;
+  this handoff lives in its `docs/HANDOFF.md`, outside the public checkout.
+- The session's source/test/doc changes were not committed or pushed. Preserve
+  them. No new release or tag was created. Published v0.1.0 is still the old UI.
+- `~/.local/bin/casper` is a Bun source symlink, not a downloaded binary. It now
+  targets `.scratch/github-preview/source/src/cli.ts`; keep that checkout in place.
+  Existing Casper sessions need restarting. The version label remains 0.1.0.
+- No dependency installation, real credential operation or paid model call was
+  performed. Temporary dependency links were removed after verification; existing
+  dependencies resolve from the enclosing development checkout. Some integration
+  fixtures require a checkout-local `node_modules` path; the verified run used a
+  temporary `node_modules -> ../../../node_modules` symlink, then removed it.
+
+### Next-session priorities
+
+1. Address the user's feedback from running `casper`, if any. For a no-account
+   preview, run `bun tools/terminal-demo.ts` from the public checkout.
+2. Before distribution, verify the revised interface on Windows/Linux hosts.
+   macOS PTY coverage is not proof of those platforms; wiring Windows CI is not
+   a completed host run. Pi 0.85.1 editor/picker hooks are intentionally pinned.
+3. Commit/push or publish only when explicitly authorized. Any release containing
+   these changes needs a new version; do not replace v0.1.0 assets or rewrite its tag.
+
+**Last full gate:** `bun run check` in the public checkout — **545 pass, 0 fail,
+3,433 assertions, 48 files**, TypeScript clean. Local installed-launcher smoke
+subsequently rendered the new input and `/status` panels and exited 0. No source
+changes followed that gate; later changes only switched the local launcher and
+updated this handoff. Detailed implementation and visual evidence follow.
+
+## Latest — local Casper launcher updated
+
+The user said “update it” after asking how to preview the new interface. Updated
+the local `~/.local/bin/casper` symlink atomically from the original `src/cli.ts`
+to this repository's `.scratch/github-preview/source/src/cli.ts`. The installation
+was already a Bun source launcher, not a standalone binary; no build was needed.
+Keep the public checkout in place while using this launcher. Original source is
+unchanged, and the old target was retained as `casper.previous` in the temporary
+`casper-local-update-murkvxtp` directory.
+
+Verified the staged launcher's version/help and then the installed command in a
+real PTY: new boxed input and `/status` screens rendered. Used an isolated home
+and project, no real credentials or model requests. Existing running sessions
+must be restarted to use the update. Version still reports 0.1.0; no version bump,
+commit, GitHub push or release publication occurred. The plain `casper` command on
+this Mac now uses the new UI; published downloads remain unchanged.
+
+## Latest — team terminal redesign in public source; not released
+
+The user requested a team pass over terminal visuals and output, using Pi/OMP-style
+boxes/colors and easier action-first wording inspired by `ayghri/i-have-adhd`.
+Three concurrent workers handled the terminal surface, command/response wording,
+and exclusive pickers. Main integrated shared panel geometry, fixtures and checks.
+Implementation remains in `.scratch/github-preview/source/`; the original source
+tree is preserved. No commit, push, dependency installation or release publication.
+
+- `src/tui/presentation.ts` supplies width-aware semantic-color frames and correct
+  nested mouse coordinates. Surface output uses separate You/Casper/result panels,
+  native Pi Markdown, an anchored editor and wrapping footer. Busy drafts are not
+  queued; a separate approval editor restores the original draft/cursor/history.
+- Login, model and effort pickers share frames. Private input is never rendered;
+  login URLs/codes stay outside frames for copying. Existing fresh-consent and
+  decoded navigation protections remain. Pi 0.85.1 editor/picker adapters are pinned
+  layout integrations: recheck their hooks when upgrading Pi.
+- Commands, help, errors, tool activity and check receipts are grouped and clearer;
+  assistant instructions now favor action/answer first. Execution, checks, freshness
+  and human acceptance remain distinct. Captured diagnostics are display-redacted,
+  not silently cut again; raw evidence is unchanged. Diagram source stays intact.
+- MIT licenses for OMP, Pi and the wording reference were checked; attribution and
+  notices are retained. No reference plugin/runtime/assets were installed/copied.
+- Visual proof: 51 production-terminal captures at 100/40/24 columns; NO_COLOR,
+  local command screens, login redraw/cancel and streaming draft after resize.
+  Offline demo also exercised approval/error plus Markdown/code/tables/Unicode at
+  32/16 columns. A throwaway panel probe passed 1/2/7/8/16/24/40/100 columns and mouse
+  selection after correcting the one-column wide-grapheme fallback.
+- Final `bun run check` from the public checkout passed: **545 tests / 0 failures /
+  3,433 assertions / 48 files / 269.89 s**, with TypeScript clean (273.91 s total).
+  Existing wording-only test pins were removed; PTY drivers still check interaction,
+  secret isolation, selection, cancellation and actual persisted state. Rich-terminal
+  fixtures explicitly set/restore TERM so a dumb parent shell cannot select plain mode.
+- Real `/visualize repo` also produced the expected two-node graph and both artifact
+  files in an isolated synthetic workspace. Preview processes exited; the temporary
+  dependency link and throwaway smoke script/bytecode were removed. Local captures
+  remain in the `casper-visual-review-ltm__9uy` temporary directory as evidence.
+
+Published v0.1.0 is unchanged. Windows/Linux host validation of this UI update is
+still pending; no paid model calls or real credential operations occurred. Preview
+from the public checkout with `bun tools/terminal-demo.ts`. Release only as a new
+version after host verification and approval. Prior checkpoints below are historical.
+
+## Latest — login picker repaired in public source; not released
+
+Continued in `.scratch/github-preview/source/`, preserving the original development
+tree. No commit, push, tag change or release upload has been performed for this fix.
+Published v0.1.0 binaries still have the reported login issue.
+
+- Confirmed causes: `choose()` printed `Selected:` instead of redrawing; a raw-chunk
+  regex rejected application-mode arrows and batched navigation/Enter before Pi's
+  parsed keys reached the selector. A production-CLI PTY regression caught the
+  unchanged Codex marker after Down; cross-platform keyboard regressions failed
+  before the repair.
+- `src/tui/login.ts` now uses Pi `SelectList`, `Text`, `TuiMainScreen` and Casper's
+  existing terminal output adapter. A rendering-only subclass owns resize events,
+  not stdin: login retains its single raw-input lease and secret/paste guards.
+  Navigation accepts decoded keys and ignores key-release events. Completion
+  detaches immediately so trailing input cannot answer the next prompt.
+- Added `tests/login-picker.test.ts`; strengthened both existing login PTY fixtures
+  for visible highlighting, no appended navigation rows, correct provider/method
+  flow, Cancel and EOF. The Windows workflow now includes the keyboard regression.
+- Final gate: TypeScript clean; **58 pass / 0 fail / 402 assertions / 6 files**
+  in 62.11 s. Command: `bun run typecheck && bun test tests/login-picker.test.ts
+  tests/login.test.ts tests/terminal-review.test.ts tests/terminal-ux.test.ts
+  tests/terminal-discovery.test.ts tests/model-selection.test.ts` from the public
+  checkout. Includes real macOS CLI PTYs, synthetic provider flows, cancellation,
+  EOF, shutdown, secret non-echo and fresh-consent/submission boundaries. This is
+  a focused gate, not a rerun of the full project suite.
+- Updated public terminal, Windows and release docs to distinguish the source fix
+  from unchanged published binaries. No Windows-host run of this correction yet;
+  wiring a CI test is not host validation. No real credentials or paid model calls.
+
+Release under a new version only after Windows verification and release approval;
+do not replace v0.1.0 assets or rewrite its tag. The section below is the prior
+checkpoint and its “not fixed” statements are historical.
+
+## Resume here — installer confirmed by user; login selection broken; handoff requested
+
+**Latest user messages:** “installed did work”, then “select login doesnt work”,
+then “handoff please”. The installer task is complete on the user's Windows machine.
+The next task is login selection, not more installer work. Treat this as potentially
+functional failure as well as bad rendering: Enter/selection completion has not yet
+been diagnosed. Do not dismiss the report as cosmetic.
+
+The user previously reported the picker on both Windows and macOS, with the original
+`> OpenAI Codex` marker staying put while many `Selected: GitHub Copilot`,
+`Selected: OpenAI Codex`, `Selected: Cancel`, etc. lines accumulate. They asked to
+reuse Pi/OMP implementations rather than reinvent existing components.
+
+**No login implementation changes or new regressions have been written yet.** The
+public checkout was last checked clean on `main` at `d4cb041`. Work stopped at
+inspection when the user requested this handoff. No new login tests were run.
+
+**Release is now live:** https://github.com/Choaterboater/casper/releases/tag/v0.1.0
+- Public prerelease, 11 assets, tag at `4fa09726abe0a4f187895bce19f75b7cc71e54f3`.
+- Public working repository: `.scratch/github-preview/source/`; clean `main` is
+  `d4cb041` (post-tag workflow-only correction). Original development tree/history
+  is preserved and is NOT the current public working checkout. Work there next.
+- One-liner (PowerShell, no admin/Bun/checkout):
+  `[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.1.0/install.ps1 | iex`
+  Then `casper`. Installer updates both current-process and user PATH; a child-shell
+  invocation still requires reopening the parent terminal.
+- All 11 uploaded asset SHA-256 digests/sizes match local release files. Anonymous
+  installer download matches source. Windows asset is the EXACT Windows CI-built
+  executable, not the macOS cross-build; combined SHA256SUMS was regenerated.
+
+### Release corrections and proof
+
+- `scripts/compile.ts` is the shared Bun compiler. An in-memory pinned-layout Photon
+  loader rewrite embeds WASM with the file loader; dependencies on disk are untouched.
+  Regression invokes Pi's real image read tool, denies nonembedded WASM reads, and
+  resizes a generated PNG. Pi ships WASM beside its executable; OMP uses shared
+  programmatic compilation/plugins. Their build patterns informed baseline x64
+  targets and disabled project Bun configuration/preload autoloading.
+- `src/standalone.ts` explicitly invokes exported `runCli`. Real Windows CI caught
+  the previous guarded compiled CLI exiting 0 with no output. Direct/staged/redirected
+  launches were blank while source startup worked; the explicit entrypoint fixes it.
+  A cross-platform compiled-version regression now prevents recurrence.
+- PowerShell installer enables TLS 1.2, handles empty user PATH, updates current PATH,
+  requires PS >=5.1, and temporarily suppresses painfully slow download progress.
+- LICENSE/THIRD_PARTY_NOTICES.txt ship as release assets; the executable embeds notices
+  available with `--licenses`. The assembled notice inventory covers installed package
+  notices plus upstream/runtime sources. Raw fetch/audit helpers remain ignored local
+  material, not public scratch clutter. This is not a legal compliance certification.
+- Final isolated full gate: **543 pass / 0 fail / 3,556 assertions / 47 files /
+  354.01 s**, typecheck clean. `/tmp/casper-release-publish.MkGZDU/final-check.log`.
+- Final build/served checks: same directory's `final-build.log` and
+  `final-served-release-results.json`. All five digests checked, personal-path scan
+  clean, macOS ARM64/Intel-through-Rosetta installs and diagram files pass.
+- Windows CI at release commit passed:
+  https://github.com/Choaterboater/casper/actions/runs/35658714780
+  Checks locked install/typecheck, compiled startup/image handling, served installer
+  under PS5.1/PS7, PATH, version/help/licenses/project/inline diagram, and rejected
+  checksum/version preservation. These are not full interactive Windows coverage.
+- ACTUAL PUBLISHED anonymous one-line verification passed, without source checkout or
+  Bun on PATH, in PowerShell **5.1.26100.33296** and **7.6.5**:
+  https://github.com/Choaterboater/casper/actions/runs/35659311403
+  Logs: `/tmp/casper-published-windows-full.log`.
+- The first published-smoke workflow had an unsupported matrix expression in its
+  shell field; corrected on main with explicit PowerShell executables. Tag is NOT
+  rewritten. The published program/assets were unaffected. Two earlier failed Windows
+  CI runs exposed the startup bug before publication; subsequent gates are green.
+
+### Next: login picker (user-reported, not fixed)
+
+`src/tui/login.ts` deliberately prints `Selected: ...` for each arrow and never
+redraws its original `>` marker. That explains the user's scrolling log. Its manual
+single-key regex may also reject some terminal arrow encodings/chunks; reproduce
+before expanding input acceptance, preserving paste/consent/secret protections.
+Reuse Pi/OMP's TUI selection/rendering patterns rather than inventing another widget.
+Keep private credentials out of shared editor/history/echo, retain cancellation and
+explicit consent. User says both Windows and macOS are affected. Existing tests
+prove key flow but missed the visibly broken menu. Add visual/redraw regressions
+AND verify Enter selects the visibly highlighted provider and advances to the
+correct next step. Reproduce the actual input/render path before changing it.
+
+Useful existing Casper reuse points (paths relative to the PUBLIC checkout):
+- `src/tui/login.ts`: fully read; `choose()` at lines 69–81 prints selection logs.
+  `data()` gates input with a regex accepting only printable single characters and
+  CSI Up/Down. `StdinBuffer` owns parsing, fresh-step resets, paste and input limits.
+- `src/runtime/pi-model-picker.ts`: fully read. Already integrates Pi's native model
+  selector with `TuiMainScreen` + Casper `StreamTerminal`, including cancellation,
+  EOF and input detachment before another key in the same chunk can be consumed.
+- `src/tui/effort-picker.ts`: found but not read yet; ALREADY uses Pi `SelectList`,
+  `Text`, `TuiMainScreen`. This is likely the closest reusable picker pattern.
+- `src/tui/stream-terminal.ts`, `src/tui/terminal.ts`, `src/tui/surface.ts`, and
+  `RuntimePickerIO` in `src/runtime/types.ts`: inspect ownership/terminal handoff.
+  Do not attach competing input readers during login or weaken secret/paste guards.
+- `tests/login.test.ts`: first 200 lines read (485 total). Uses synthetic provider
+  transports, PassThrough input and isolated subprocesses. Finish reading it before
+  broad edits. Some fixtures react to title strings on output writes; redraws must
+  not accidentally retrigger fixture-driven key submission.
+- Existing PTY login fixtures: `tests/fixtures/login-pty.py`, `multi-login-pty.py`,
+  and `login-preload.ts`; inspect before designing visible-screen coverage.
+
+Suggested next sequence: load diagnosing-bugs skill; inspect the existing effort
+picker and terminal adapter; reproduce provider selection/rendering in a real or
+emulated terminal with no live credentials; add failing regression; reuse Pi's
+SelectList/renderer while retaining isolated private input and explicit consent;
+run login/security/PTY tests and Windows-host navigation coverage. Release any fix
+as a new version rather than replacing v0.1.0 assets or rewriting its tag.
+
+Prior art already downloaded/read in `.scratch/github-preview/prior-art/`:
+Pi v0.85.1 build-binaries.sh and login-dialog.ts, OMP current build/compile/install
+scripts and login overlay. Pi's provider selector is
+`packages/coding-agent/src/modes/interactive/components/oauth-selector.ts` has now
+been fetched to `.scratch/github-preview/prior-art/pi-oauth-selector.ts` but NOT
+read yet. Pi docs README/windows/development and the FULL TUI guide were read:
+`/opt/homebrew/lib/node_modules/@earendil-works/pi-coding-agent/docs/tui.md`.
+Its “Pattern 1: Selection Dialog (SelectList)” explicitly recommends reusing
+SelectList and requesting rerender after input. Follow the linked selection example
+`/opt/homebrew/lib/node_modules/@earendil-works/pi-coding-agent/examples/extensions/preset.ts`
+and inspect the installed pinned Pi 0.85.1 API/types rather than assuming globally
+installed Pi docs perfectly match that version. No login fix yet.
+
+The release notes explicitly disclose this UI issue and other preview limitations.
+Linux remains unvalidated on a real host; Windows POSIX screenshot/artifact output
+is unsupported. No paid model calls, credential copying, local dependency installation
+or unrelated process termination occurred. CI installed locked dependencies on its
+own disposable Windows runner. Optional agent-skill setup remains parked.
+
+## Resume here — public source committed and pushed
+
+The user explicitly said **“commit and push”** after approving public visibility,
+fresh history and MIT. Completed:
+
+- Public repository: https://github.com/Choaterboater/casper
+- `main`: `874003154b5bc653a92c93d0288b5342176ff46f` (one root commit,
+  “Initial public source preview”; 221 files / 1,625,497 source bytes).
+- Public working checkout: `.scratch/github-preview/source/`, with its own `.git`
+  and origin. It is clean and tracks `origin/main`.
+- Author/committer use `Choaterboater` and GitHub noreply
+  `280862039+Choaterboater@users.noreply.github.com`; old history was not published.
+- Verified remote SHA equals local HEAD, anonymous GitHub API can read the root
+  commit, repository is PUBLIC, and GitHub recognizes the MIT license.
+- **No binary release or tags published.** GitHub release list is empty. README and
+  Windows guide explicitly say installer URLs are not live. Release docs disclose
+  missing image-resource packaging and incomplete third-party notices.
+
+The original development repository remains on its original history, with review
+work uncommitted and no remote. Preserve it. Future public changes must be made or
+synchronized into the separate public checkout deliberately, not pushed from this
+original history. Publication preparation templates are not a replacement for the
+now-authoritative public Git checkout. A single extra EOF blank line was removed
+from the login fixture in both trees to pass initial-commit whitespace checks;
+otherwise production/test code is unchanged from the previously validated snapshot.
+
+Before a binary release: fix/test standalone Photon WASM loading and complete
+third-party notices, then rebuild/revalidate and obtain release approval. See the
+packaging probe evidence in the earlier checkpoint below. Source publication is
+complete; do not recreate the repository or overwrite history.
+
+## Resume here — public/fresh-history/MIT approved; packaging blockers found
+
+The user answered **yes** to public visibility, fresh history and MIT. LICENSE now
+exists in the original tree and public snapshot (copyright 2026 Choaterboater),
+package.json declares MIT, and README links it. No commit/repository creation/push
+or publication was authorized by the assistant's final-approval checkpoint or done.
+
+Snapshot inventory refreshed: **221 files / 1,624,093 bytes**. Read
+`.scratch/github-preview/INVENTORY.md` for exact paths and remaining gates.
+Typecheck and the 10 installer tests (37 assertions) pass after metadata changes.
+
+**Do not publish the current binaries:** image resource portability is now a proven
+bug, not just a question. `/tmp/casper-public-preview.D9rYix/image-portability-probe.ts`
+compiles the real Pi resize path with no model/provider. A generated 2x2 PNG resizes
+to 1x1 while the copied build-time Photon WASM is present; hiding only that resource
+makes the standalone binary return null. Pi processImage then omits the image.
+A `--asset=node_modules/@silvia-odwyer/photon-node/photon_rs_bg.wasm` compile alone
+also fails: Photon uses a baked absolute dirname. Only the isolated copied resource
+was temporarily renamed; it was restored in finally. Original dependencies untouched.
+Evidence: `image-portability-results.json` and `image-probe*-build.log` in that folder.
+No production fix or permanent regression yet. Next: fix standalone resource loading,
+test with build resources inaccessible, and rebuild all assets.
+
+Third-party audit: `.scratch/github-preview/dependency-license-audit.json` covers 248
+installed packages, including nested and dev packages. Eighteen lack root notice
+files (including Pi packages). Metadata declarations are not substitute notices.
+Finalize upstream license texts and bundled Bun/native notices before distribution;
+no external licenses downloaded or licensing compliance claimed yet.
+
+## Earlier checkpoint — clean GitHub preview staged, not published
+
+The user authorized continuing preparation. A separate fresh-history public snapshot
+is staged at `.scratch/github-preview/source/`; the original tree/history remains.
+Review `.scratch/github-preview/INVENTORY.md` before any publication work. It links
+exact included/excluded paths and hashes: 220 files / 1.55 MiB, excluding 95 tracked
+or nonignored development paths plus ignored scratch/build/dependency/history data.
+All legitimate tests and eval fixtures remain. Public docs are curated separately.
+
+Installer defaults, README and release instructions now pin the proposed
+`Choaterboater/casper` GitHub prerelease `v0.1.0`; these are not live URLs yet.
+A new permanent test checks both installer defaults against `CASPER_VERSION`.
+
+Latest isolated gate: **541 pass / 0 fail / 3,552 assertions / 46 files / 280.27 s**,
+typecheck clean, at `/tmp/casper-public-preview.D9rYix/check.log`. All five artifacts
+rebuilt there; SHA-256 and installer-copy checks pass. Final locally served installs,
+version/help/visualization and rejected-pin preservation pass on macOS ARM64 and
+Intel through Rosetta. Evidence is in `.scratch/github-preview/` and that temporary
+build directory. **Do not upload the original checkout's stale `dist/release/`.**
+
+A privacy check caught a personal absolute path in the first binaries: the linked
+node_modules caused Photon module dirname metadata to point into this checkout.
+Copying dependencies into the neutral temporary build directory and rebuilding
+removed known personal path/email strings from all five binaries. No dependency
+installation/upgrade occurred. The source scan found only reviewed synthetic/example
+or explanatory-text candidates; it is heuristic, not security certification.
+
+A follow-up portability question remains: Photon expects a WASM resource and Pi has
+image worker/resource loading. Check compiled image resizing outside the build tree
+before claiming every optional capability is self-contained. No fix attempted yet.
+Also finalize third-party license notices before distributing compiled dependencies.
+
+Still needed: user approval of public/fresh-history strategy, own license and public
+commit identity, then explicit authorization before commit/create/push/publish.
+No Git init/commit/remote change, GitHub creation/release, credential operation or
+paid model call occurred. Windows/Linux host validation remains pending. Optional
+agent-skills setup remains parked. The earlier sections below are historical.
+
+## Resume here — release-readiness corrections, binaries revalidated
+
+The user asked to review/challenge the completed work before GitHub, then authorized
+fixing the findings. Optional agent-skill/issue-tracker setup was parked; no
+`AGENTS.md`, `CLAUDE.md` or `docs/agents/` configuration was created.
+
+**Current checkpoint remains `7231442` on `main`; these corrections are uncommitted.**
+No remote was added, no repository/release created, no push/publish, no dependency
+installation, no credentials operation and no paid model call occurred.
+
+### Corrected and verified
+
+1. **Compiled visualization failed:** `artifacts.c` was absent from the binary.
+   Bun now embeds it, and the fixed bridge is materialized in a private temporary
+   directory for TinyCC (which cannot open Bun's virtual filesystem), then removed.
+   A permanent regression compiles the actual CLI and asserts Mermaid/MindMesh
+   files outside the checkout with no Bun on PATH.
+2. **Installer accepted exit 42 as success:** matching version output with a failing
+   exit replaced the previous installation. Shell now requires exit 0; the new test
+   asserts previous bytes survive and staging is removed. PowerShell also checks
+   `$LASTEXITCODE`, but remains unvalidated on Windows.
+3. **Evaluation false positive:** oversized files and symlinks were skipped by the
+   symbol-absence predicate. Supported paths that cannot be scanned now fail as
+   unavailable; reads are bounded before allocating/retaining arbitrary file data.
+4. **Windows cleanup results were discarded:** the shared wrapper now returns an
+   awaitable result, owners deduplicate cleanup, and browser/verifier/LSP/MCP
+   callers retain failures instead of claiming completion. Affected integrations
+   refuse replacement; Casper blocks subsequent execution and verifier repair while
+   retaining local status/help. Five real caller lifecycles are exercised with an
+   unavailable simulated non-group table, in isolated subprocesses. Unknown is not
+   stopped; POSIX retains best-effort group signalling.
+5. **Current-facing docs corrected:** source-vs-binary requirements, release status,
+   Linux host claims, deleted website references, obsolete gate counts, removed eval
+   predicate and installer staging/publishing wording. Historical sections below
+   remain history; do not use their "current" instructions as the new resume point.
+
+Review details, limitations and exact validation:
+[RELEASE_READINESS_REVIEW.md](RELEASE_READINESS_REVIEW.md).
+
+### Final evidence
+
+- **540 pass / 0 fail / 3,550 assertions / 46 files / 277.19 s / exit 0**, TypeScript
+  clean, isolated serial `bun run check`, installed Chrome/debugpy enabled.
+  `/tmp/casper-review-release-final.0IoMhi/check.log`.
+- A previous green gate had identical counts (283.25 s). The first gate was 539/1:
+  a shell cancellation fixture returned 0 where it expected null. Twenty focused
+  repeats and 300 runner probes on **each** tree did not recur. The fixture now
+  remains alive through TERM to exercise existing KILL escalation deterministically;
+  all cleanup assertions/deadlines remain. Production exit-code evidence was not
+  changed. This is not a claim to have diagnosed every historical timing failure.
+- **All five artifacts rebuilt** with `bun run build:release -- --all`; all digests
+  match and both installer copies match `scripts/`.
+- **Served-directory installs verified on macOS ARM64 and Intel via Rosetta:** no
+  Bun on PATH, `--version`, `--help`, `/visualize repo`, actual diagram files and
+  rejected-version preservation. Temporary C source and staging are cleaned.
+  `/tmp/casper-review-served-release-final.json`.
+- macOS platform probe: **8 pass / 0 fail / 1 informational skip**; diff whitespace
+  check clean for the corrections. No Windows/Linux host run.
+
+### Next — finish publication preparation, not new features
+
+1. Review/checkpoint these uncommitted corrections if authorized. Do not push without
+   explicit permission. The release artifacts already contain the corrected code.
+2. Validate on Windows/Linux hosts using [PLATFORM_VERIFICATION.md](PLATFORM_VERIFICATION.md).
+   In particular, run the real PowerShell installer; simulated cleanup tests are not
+   a Windows gate.
+3. Confirm/create the GitHub repository and release host. `Choaterboater/casper` was
+   discussed, but no remote exists and installer defaults still contain `OWNER`.
+   Set the host **before** rebuilding/uploading every file in `dist/release/`.
+4. Resolve the license choice and perform a publication privacy/secret review,
+   including history and committed diagnostic evidence. Neither is certified done.
+   CI remains advisable, not implemented in this correction.
+
+Preserve `.scratch/`, archived acceptance/benchmark evidence and unrelated running
+processes. No scratch deletion or cleanup of the old unrelated server was performed.
+The optional skill setup is not a prerequisite for review or publication.
+
+## Prior checkpoint — release path fixed, eval variance sample, platform-neutral fixtures
 
 ### What this increment did
 

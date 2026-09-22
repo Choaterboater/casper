@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { isolatedEnvironment } from "../platform/environment";
-import { osSupportsProcessGroups, ownSpawnedTree, OwnedProcesses, terminateTree } from "../platform/processes";
+import { osSupportsProcessGroups, ownSpawnedTree, OwnedProcesses, ProcessCleanupError, terminateTree } from "../platform/processes";
 
 async function unusedPort(url: URL): Promise<void> {
   await new Promise<void>((resolve, reject) => {
@@ -51,7 +51,7 @@ export class BrowserServer {
     let failed = false;
     this.child.on("error", () => { failed = true; });
     this.exited = new Promise(resolve => this.child!.once("close", () => resolve()));
-    const stop = () => { void this.close(); };
+    const stop = () => { void this.close().catch(() => {}); };
     signal.addEventListener("abort", stop, { once: true });
     try {
       const deadline = performance.now() + 10_000;
@@ -76,9 +76,14 @@ export class BrowserServer {
     this.stopped = true;
     return this.stopWork = (async () => {
       const kill = (signal: NodeJS.Signals) => terminateTree(this.owner, this.child?.pid, signal);
-      kill("SIGTERM");
-      // Always finish group cleanup, even if the shell exited before a descendant.
-      await new Promise(resolve => setTimeout(resolve, 100)); kill("SIGKILL");
+      const first = kill("SIGTERM");
+      // Always finish tree cleanup, even if the shell exited before a descendant.
+      await new Promise(resolve => setTimeout(resolve, 100));
+      const last = kill("SIGKILL");
+      if ((await first) === "unknown" || (await last) === "unknown") {
+        this.child?.stdout?.destroy(); this.child?.stderr?.destroy(); this.child?.unref();
+        throw new ProcessCleanupError();
+      }
       if (this.exited) await Promise.race([this.exited, new Promise(resolve => setTimeout(resolve, 150))]);
       if (this.home) await rm(this.home, { recursive: true, force: true });
     })();

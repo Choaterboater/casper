@@ -106,6 +106,41 @@ test("grouped ownership signals only groups backed by a proven descendant, root 
   expect(signals.some((entry) => entry.id === 3000)).toBe(false);
 });
 
+test("the shared termination path returns unknown and drains a single owned cleanup", async () => {
+  let listings = 0;
+  const platform: ProcessPlatform = {
+    groups: false,
+    list: async () => { listings++; throw new Error("Process listing is unavailable"); },
+    signalProcess: () => { throw new Error("An unverified process must not be signalled"); },
+    signalGroup: () => { throw new Error("Groups unavailable"); },
+  };
+  const owner = new OwnedProcesses(1000, () => true, platform);
+  // Use the same wrapper as browser/LSP/MCP/verifier callers, not owner.stop directly.
+  const first = terminateTree(owner, undefined, "SIGTERM");
+  const second = terminateTree(owner, undefined, "SIGKILL");
+  expect(await first).toBe("unknown");
+  expect(await second).toBe("unknown");
+  expect(listings).toBe(3);
+});
+
+for (const mode of ["verifier", "app-verifier", "lsp", "mcp", "browser"]) {
+  posixOnly(`${mode} caller retains and reports simulated Windows cleanup failure`, async () => {
+    // Actual caller lifecycle with a failing non-group ownership adapter. Isolate
+    // module substitution and use POSIX teardown for the intentionally surviving trees.
+    const child = Bun.spawn([process.execPath, path.join(import.meta.dir, "fixtures/cleanup-failure.ts"), mode], {
+      stdout: "pipe", stderr: "pipe", env: { PATH: process.env.PATH, TERM: "xterm-256color" },
+    });
+    const timer = setTimeout(() => child.kill("SIGKILL"), 15_000);
+    try {
+      const [stdout, stderr, exitCode] = await Promise.all([
+        new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited,
+      ]);
+      expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
+      expect(stdout).toContain(`${mode}: cleanup failure propagated`);
+    } finally { clearTimeout(timer); }
+  }, 20_000);
+}
+
 test("tree termination never throws for a root that no longer exists", () => {
   // A pid beyond any real allocation cannot name a live process or group.
   expect(() => terminateTree(undefined, 2_147_483_647, "SIGKILL")).not.toThrow();

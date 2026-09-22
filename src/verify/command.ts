@@ -34,6 +34,8 @@ export interface CommandCheckOptions {
   cwd: string;
   timeoutMs: number;
   signal?: AbortSignal;
+  /** The host must block further repair/work when an owned tree cannot be stopped. */
+  onCleanupFailure?: () => void;
 }
 
 export async function runCommandCheck(options: CommandCheckOptions): Promise<VerificationResult> {
@@ -68,17 +70,31 @@ export async function runCommandCheck(options: CommandCheckOptions): Promise<Ver
       return;
     }
     let killTimer: ReturnType<typeof setTimeout> | undefined;
-    const kill = (terminationSignal: NodeJS.Signals) => {
-      try {
-        if (owner || osSupportsProcessGroups) terminateTree(owner, child.pid, terminationSignal);
-        else child.kill(terminationSignal);
-      } catch { /* The process may already have exited. */ }
+    let settled = false;
+    const kill = async (terminationSignal: NodeJS.Signals) => {
+      const outcome = await terminateTree(owner, child.pid, terminationSignal);
+      if (outcome === "unknown" && !settled) {
+        reason = "Owned process cleanup is unconfirmed; further checks and repair must be blocked";
+        options.onCleanupFailure?.();
+        // An unverified root may still own open pipes. Do not wait forever for
+        // close after cleanup has already reported that it cannot terminate it.
+        finish(null, null);
+      }
+    };
+    const finish = (exitCode: number | null, exitSignal: NodeJS.Signals | null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer); clearTimeout(killTimer);
+      signal?.removeEventListener("abort", abort);
+      child.stdout.destroy(); child.stderr.destroy();
+      child.unref(); // Unknown cleanup must not turn a reported failure into an exit hang.
+      resolve({ ...base(), status: !reason && exitCode === 0 ? "pass" : "fail", exitCode, signal: exitSignal, reason });
     };
     const stop = (message: string) => {
       if (reason) return;
       reason = message;
-      kill("SIGTERM");
-      killTimer = setTimeout(() => kill("SIGKILL"), 100);
+      void kill("SIGTERM");
+      killTimer = setTimeout(() => { void kill("SIGKILL"); }, 100);
     };
     const abort = () => stop("Verification cancelled");
     const timer = setTimeout(() => stop(`Timed out after ${timeoutMs}ms`), timeoutMs);
@@ -86,13 +102,12 @@ export async function runCommandCheck(options: CommandCheckOptions): Promise<Ver
     child.stdout.on("data", (chunk: Buffer) => stdout.add(chunk));
     child.stderr.on("data", (chunk: Buffer) => stderr.add(chunk));
     child.on("error", (error) => { reason = `Could not execute: ${error.message}`; });
-    child.on("close", (exitCode, exitSignal) => {
-      clearTimeout(timer);
-      clearTimeout(killTimer);
-      signal?.removeEventListener("abort", abort);
-      // Even when the shell closes first, finish cleanup of its timed-out group.
-      if (reason) kill("SIGKILL");
-      resolve({ ...base(), status: !reason && exitCode === 0 ? "pass" : "fail", exitCode, signal: exitSignal, reason });
+    child.on("close", async (exitCode, exitSignal) => {
+      clearTimeout(timer); clearTimeout(killTimer);
+      // On Windows also drain cleanup after a normal root exit: its observed
+      // descendants may still be alive. Never discard an unknown outcome.
+      if (reason || owner) await kill("SIGKILL");
+      finish(exitCode, exitSignal);
     });
     if (signal?.aborted) abort();
   });

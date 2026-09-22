@@ -25,16 +25,27 @@ server, verifier command, LSP server, MCP stdio server):
 - **Identity** — records are keyed by PID plus an OS identity stamp (`lstart` on
   POSIX, `ToFileTimeUtc()` on Windows). A reused PID is a different process and is
   never signalled. A pid reported by an adapter is never kill authority.
-- **Fail closed** — an unusable or empty listing marks cleanup **unknown**; the
-  debugger then blocks new debugger/model/workspace work instead of claiming
-  success. Budgets (1,024 live / 4,096 tracked identities, 64 parentage levels) are
-  unchanged.
+- **Fail closed** — an unusable or empty listing marks cleanup **unknown**. The
+  debugger blocks new debugger/model/workspace work. The other managed callers now
+  await cleanup too: browser/LSP/MCP retain a cleanup error and refuse replacement;
+  verifier cleanup failure blocks further checks and aborts repair. Casper retains
+  these failures before subsequent execution, while local status/help remains
+  available. Budgets (1,024 live / 4,096 tracked identities, 64 parentage levels)
+  are unchanged.
 
 Termination policy for spawned trees is one shared function: POSIX signals the
 process group (falling back to the direct process when the root is not a group
 leader), Windows terminates verified descendants. POSIX consumers therefore keep
 their previous exact and cheap behavior, while Windows no longer degrades to
-killing only the direct child.
+killing only the direct child. An owner's repeated TERM/escalation/close requests
+share one cleanup promise and its result. The POSIX wrapper remains best-effort
+signalling, not an independent observation that every descendant has exited.
+
+Regression coverage includes the actual browser-server, verifier, app, LSP and MCP
+caller lifecycles with an unavailable simulated non-group process table. Those
+cases run in isolated Bun processes; their POSIX-only teardown cleans up the
+fixture processes deliberately left alive by the simulated failed listing. This
+is not a Windows host run.
 
 ## Environment isolation — `src/platform/environment.ts`
 
@@ -73,7 +84,8 @@ startup model preference.
 
 ## Test-suite hygiene
 
-The suite now fails only for product reasons on a non-POSIX host. POSIX-only
+The suite explicitly gates known POSIX-only fixtures; remaining fixture portability
+problems can still appear on a host that has not run it. POSIX-only
 fixtures (Python 3 PTY drivers, symlinks, FIFOs, POSIX mode bits, `/bin/sh` hooks,
 process groups and signals) declare an explicit skip through
 `tests/support/platform.ts` instead of failing, and the whole-test `return` guards

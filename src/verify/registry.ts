@@ -41,17 +41,20 @@ export class VerifierRegistry {
     return results;
   }
 
-  static forProject(model: ProjectModel, timeoutMs = 120_000): VerifierRegistry {
+  static forProject(model: ProjectModel, timeoutMs = 120_000, onCleanupFailure?: () => void): VerifierRegistry {
     const registry = new VerifierRegistry();
     const cwd = model.project.root;
+    let cleanupFailed = false;
     for (const name of CHECK_NAMES) {
       // Freeze the command contract for this task, including throughout repairs.
       const command = model.commands[name];
       registry.register({
         name,
         scope: model.verificationScopes?.[name],
-        run: async (signal) => command?.trim()
-          ? runCommandCheck({ name, command, cwd, timeoutMs, signal })
+        run: async (signal) => cleanupFailed
+          ? { name, cwd, status: "fail", exitCode: null, signal: null, stdout: "", stderr: "", truncated: false, durationMs: 0, reason: "Owned process cleanup is unconfirmed; no further checks started" }
+          : command?.trim()
+          ? runCommandCheck({ name, command, cwd, timeoutMs, signal, onCleanupFailure: () => { cleanupFailed = true; onCleanupFailure?.(); } })
           : { name, cwd, status: "skip", exitCode: null, signal: null, stdout: "", stderr: "", truncated: false, durationMs: 0, reason: "No command configured or detected" },
       });
     }
