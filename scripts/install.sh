@@ -1,7 +1,7 @@
 #!/bin/sh
 # Casper installer for macOS and Linux.
 #
-#   curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.1.5/install.sh | sh
+#   curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.1.6/install.sh | sh
 #
 # Downloads the self-contained binary for this platform, verifies its SHA-256 against
 # the release's SHA256SUMS, installs it into CASPER_INSTALL_DIR (default ~/.local/bin)
@@ -22,7 +22,7 @@
 set -eu
 
 # Preview releases need an explicit tag: GitHub's latest/download excludes prereleases.
-BASE_URL="${CASPER_BASE_URL:-https://github.com/Choaterboater/casper/releases/download/v0.1.5}"
+BASE_URL="${CASPER_BASE_URL:-https://github.com/Choaterboater/casper/releases/download/v0.1.6}"
 INSTALL_DIR="${CASPER_INSTALL_DIR:-$HOME/.local/bin}"
 VERSION="${CASPER_VERSION:-}"
 EXPECTED_SHA="${CASPER_SHA256:-}"
