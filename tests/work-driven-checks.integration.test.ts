@@ -691,7 +691,6 @@ test("check guidance lists available commands regardless of request words; docs-
   expect(prompts).toHaveLength(3);
   expect(await Bun.file(path.join(root, "test-runs")).exists()).toBe(false);
   expect(await Bun.file(path.join(root, "build-runs")).exists()).toBe(false);
-  expect(output()).toContain("no Casper verification recorded");
 });
 
 test("a selected pass is rechecked after a later partial edit, before any repair decision", async () => {

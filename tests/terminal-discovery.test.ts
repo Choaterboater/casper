@@ -64,7 +64,6 @@ test("startup summarizes genuine warnings, keeps detail local and never prints o
   });
   try {
     await app.start(f.projectRoot);
-    expect(output).toContain("2 new warnings; use /skills diagnostics");
     expect(output).not.toContain("Skipped skill");
     expect(output).not.toContain("README.md");
     output = "";

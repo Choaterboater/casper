@@ -13,7 +13,8 @@ function failures(result: EvalRunResult): string {
   if (result.modelCalls === 0) reasons.unshift("no model response was recorded");
   if (result.runtimeErrors.length) reasons.unshift(`runtime error: ${result.runtimeErrors.join(" | ")}`);
   const { verification } = result;
-  if (verification.status !== verification.expected) {
+  if (verification.status === "unavailable") reasons.unshift(verification.unavailable ?? "verification unavailable");
+  else if (verification.status !== verification.expected) {
     reasons.unshift(verification.expected === "fail"
       ? "verification passed, but this task expects it to stay failing (a rule was broken to make it pass)"
       : `verification ${verification.checks.filter((check) => check.status === "fail").map((check) => `${check.name} (exit ${check.exitCode})`).join(", ")} failed`);
@@ -22,15 +23,19 @@ function failures(result: EvalRunResult): string {
   return reasons.join("; ") || "none";
 }
 
-/** One line per run; every number comes from the run, never from a self-report. */
+/** One line per attempt; every number comes from the run, never from a self-report, and host
+ * observations are labelled separately from runtime metrics. */
 export function formatEvalResult(result: EvalRunResult): string {
   const touched = result.filesAdded.length + result.filesModified.length + result.filesRemoved.length;
   const tokens = result.tokens ? `${result.tokens.total}` : "n/a";
+  const required = result.interventions.filter(entry => entry.kind === "required").length;
+  const rescue = result.interventions.filter(entry => entry.kind === "rescue").length;
   const verify = result.verification.expected === "fail" ? `${result.verification.status}*` : result.verification.status;
-  return `${result.success ? "PASS" : "FAIL"} ${pad(result.taskId, 28)} ${pad(seconds(result.wallClockMs), 7)}`
+  return `${result.outcome} ${pad(result.taskId, 28)} ${pad(seconds(result.wallClockMs), 7)}`
     + ` calls ${pad(String(result.modelCalls), 3)} tokens ${pad(tokens, 7)} files ${pad(String(touched), 3)}`
-    + ` repairs ${pad(String(result.repairAttempts ?? 0), 2)} self ${pad(result.selfVerification ?? "none", 10)}`
-    + ` verify ${pad(verify, 5)} :: ${failures(result)}`;
+    + ` repairs ${pad(String(result.repairAttempts ?? "n/a"), 3)} self ${pad(result.selfVerification ?? "none", 10)}`
+    + ` required ${required} rescue ${rescue} source ${result.evidenceSource}`
+    + ` verify ${pad(verify, 5)} attempt ${result.attemptId} :: ${failures(result)}`;
 }
 
 /** One line per task over its repeated runs: pass rate, wall-clock spread, median tokens. */
@@ -49,11 +54,14 @@ export function formatEvalReport(summaries: readonly EvalTaskSummary[]): string 
   const runs = summaries.flatMap((summary) => summary.runs);
   const passedTasks = summaries.filter((summary) => summary.success).length;
   const passedRuns = runs.filter((run) => run.success).length;
+  const unassisted = runs.filter((run) => run.outcome === "accepted-without-rescue").length;
+  const rescued = runs.filter((run) => run.outcome === "accepted-with-rescue").length;
   const calls = runs.reduce((sum, run) => sum + run.modelCalls, 0);
   const wall = runs.reduce((sum, run) => sum + run.wallClockMs, 0);
   const expectedFail = runs.some((run) => run.verification.expected === "fail");
   return `${lines.join("\n")}\n\n${passedTasks}/${summaries.length} tasks succeeded`
-    + `${repeated ? ` (${passedRuns}/${runs.length} runs; a task succeeds only when every run does)` : ""}; ${calls} model responses; ${seconds(wall)} wall clock.\n`
+    + `${repeated ? ` (${passedRuns}/${runs.length} runs; a task succeeds only when every run does)` : ""}`
+    + `; ${passedRuns} attempts accepted (${unassisted} without rescue, ${rescued} with rescue); ${calls} model responses; ${seconds(wall)} task wall clock.\n`
     + "Task success requires the independent verification command and every declared acceptance predicate; "
     + "self-reported verification is recorded separately and is not acceptance.\n"
     + (expectedFail ? "verify fail*: the task expects its check to stay red; a green check there means a rule was broken.\n" : "");

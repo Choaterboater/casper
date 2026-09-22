@@ -18,8 +18,9 @@ casper learn promote ~/Projects/example <draft-id> <draft-sha256> <candidate-num
 casper learn promote ~/Projects/example <draft-id> <draft-sha256> <candidate-number> ignore
 ```
 
-Generation uses **one bounded read-only explorer** with the existing global Pi
-model/provider defaults and credentials. Running it authorizes that model run:
+Generation uses **one bounded read-only explorer** with Casper's `fast` model
+role when configured, otherwise its saved startup model; credentials remain Pi-owned.
+Running it authorizes that model run and any configured automatic-effort classifier:
 source text read by the explorer can reach the configured provider. Casper does
 not detect secrets or establish a spending cap. Use only sources appropriate for
 that provider. No live-model usefulness or billing trial has been performed for
@@ -208,5 +209,3 @@ terminal controls escaped. Exit 0 means a local command completed (`saved`,
 `already-decided`), not pattern correctness, repository-wide
 coverage, verification or human acceptance. Failures exit 1 and publish no partial
 batch; prior drafts are preserved.
-
-Implementation and validation: [Phase 9](PHASE9_IMPLEMENTATION.md).

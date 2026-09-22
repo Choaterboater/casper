@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { chmod, link, mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { posixOnly } from "./support/platform";
+import { isolatedEnvironment } from "../src/platform/environment";
 import os from "node:os";
 import path from "node:path";
 
@@ -12,7 +13,7 @@ async function fixture() {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-login-"))); roots.push(root);
   const home = path.join(root, "home"); const project = path.join(root, "project");
   await mkdir(home); await mkdir(project);
-  const env = { PATH: process.env.PATH!, HOME: home, TMPDIR: root, PI_CODING_AGENT_DIR: path.join(home, ".pi/agent"), PI_OFFLINE: "1", PI_TELEMETRY: "0" };
+  const env = { ...isolatedEnvironment(home), TMPDIR: root, PI_CODING_AGENT_DIR: path.join(home, ".pi/agent"), PI_OFFLINE: "1", PI_TELEMETRY: "0" };
   async function run(body: string, args: string[] = []) {
     const child = Bun.spawn([process.execPath, "-e", body, ...args], { cwd: project, env, stdout: "pipe", stderr: "pipe" });
     const timer = setTimeout(() => child.kill(), 15_000);
@@ -115,7 +116,7 @@ test("browser sign-in completes through private manual input or real loopback ca
           screen += text;
           if (text.includes('Choose sign-in method')) setImmediate(() => { input.write('\\x1b[B'); setTimeout(() => input.write('\\r'), 20); });
           if (text.includes('Press Y')) setImmediate(() => input.write('Y'));
-          if (text.startsWith('Open this URL yourself:')) {
+          if (text.startsWith('1. Open this URL in your browser:')) {
             authUrl = new URL(text.split('\\n')[1]);
             callbackUrl = new URL(authUrl.searchParams.get(provider === 'anthropic' ? 'redirect_uri' : 'callback_url'));
           }
@@ -275,8 +276,8 @@ test("runtime login cancellation before consent never creates auth or starts a s
   `);
   const result = JSON.parse(output);
   expect(result.result).toEqual({ status: "cancelled", effect: "none" });
-  expect(result.screen).toContain(f.env.PI_CODING_AGENT_DIR + "/auth.json");
-  expect(result.screen).toContain("shared");
+  const consent = Bun.stripANSI(result.screen).split(/\r?\n/).map(line => line.replace(/^│\s?|\s?│$/g, "").trim()).join("");
+  expect(consent).toContain(f.env.PI_CODING_AGENT_DIR + "/auth.json");
   expect(await Bun.file(path.join(f.env.PI_CODING_AGENT_DIR, "auth.json")).exists()).toBe(false);
 });
 

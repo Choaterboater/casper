@@ -10,6 +10,6 @@
     "allowSyntheticDefaultImports": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["src", "tests", "evals", "scripts/build-release.ts"],
+  "include": ["src", "tests", "evals", "tools/eval.ts", "scripts/build-release.ts"],
   "exclude": ["evals/fixtures", "evals/setups"]
 }

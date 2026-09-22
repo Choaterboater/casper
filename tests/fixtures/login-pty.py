@@ -31,7 +31,7 @@ def success(bun, repo, root, no_color):
         draft = "d" * 95
         s.send("/login\n" + draft + "\x1b[D\x1b[D")
         s.until("Choose provider")
-        s.until("Up/Down selects; Enter confirms")
+        s.until("Up/Down: choose")
         s.send("\n")
         s.until("Press Y to consent")
         auth = s.root / "home/.pi/agent/auth.json"

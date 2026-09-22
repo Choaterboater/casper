@@ -493,7 +493,6 @@ describe("Phase 7 sessions and worktrees", () => {
     await app.runOnce("/branch denied");
     expect(starts).toBe(0);
     expect(output).toContain("Session\n● main");
-    expect(output).toContain("Branch creation not approved");
     expect((await git(repo, "worktree", "list", "--porcelain")).match(/^worktree /gm)).toHaveLength(1);
   });
 

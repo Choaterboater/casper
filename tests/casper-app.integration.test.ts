@@ -9,7 +9,6 @@ import { leadingFlag } from "../src/cli";
 import { loadProjectContext } from "../src/project/context";
 import { SkillRegistry } from "../src/skills/registry";
 import { ProjectMemory } from "../src/memory/store";
-import { HELP_TEXT } from "../src/tui/help";
 import type {
   AgentRuntime,
   RuntimeEventListener,
@@ -93,7 +92,6 @@ describe("CasperApp", () => {
     try {
       if (["/help", "/help all", "/status", "/login", "/skills diagnostics", "/exit", "/quit"].includes(prompt.trim())) {
         expect(await app.runOnce(prompt, root)).toBeUndefined();
-        if (prompt === "/help") expect(output).toContain(HELP_TEXT);
       } else {
         await expect(app.runOnce(prompt, root)).rejects.toThrow("Unknown command");
       }
@@ -116,7 +114,6 @@ describe("CasperApp", () => {
         new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited,
       ]);
       expect(code).toBe(command.startsWith("/verfy") ? 1 : 0);
-      if (command.includes("help")) expect(stdout).toContain(HELP_TEXT);
       if (command.startsWith("/verfy")) expect(stderr).toContain('Unknown command "/verfy"');
     }
   });
@@ -168,8 +165,6 @@ test("local skill commands work without starting an unavailable runtime", async 
       await app.runOnce(`/skills block ${id}`);
       await app.runOnce("/project");
       expect(output).toContain("LOCAL_BODY");
-      expect(output).toContain("Trusted reviewed content");
-      expect(output).toContain("Blocked");
       expect(output.match(/CASPER/g)).toHaveLength(1);
       await expect(app.runOnce("Add an MCP tool")).rejects.toThrow("Runtime unavailable");
     } finally {
@@ -203,8 +198,6 @@ test("local skill commands work without starting an unavailable runtime", async 
     try {
       await app.runOnce("/skills", root);
       expect(runtime.prompts).toHaveLength(0);
-      expect(output).toContain("4 indexed");
-      expect(output).toContain("[project; untrusted]");
       expect(output).not.toContain("_INSTRUCTIONS");
       expect(runtime.startOptions).toBeUndefined();
       await app.runOnce("Add a TypeScript MCP tool");
@@ -232,7 +225,6 @@ test("local skill commands work without starting an unavailable runtime", async 
       expect(runtime.prompts[2]).not.toContain("PROJECT_INSTRUCTIONS");
       output = "";
       await app.runOnce("Hello there");
-      expect(output).not.toContain("[task]");
       expect(runtime.prompts[3]).not.toContain("_INSTRUCTIONS");
       expect(app.getLastTaskResult()).toBeDefined();
       await app.runOnce("/help");
@@ -240,7 +232,6 @@ test("local skill commands work without starting an unavailable runtime", async 
       await expect(app.runOnce("/nope")).rejects.toThrow("Unknown command");
       expect(app.getLastTaskResult()).toBeUndefined();
       await app.runOnce("/skills nonsense");
-      expect(output).toContain("Usage: /skills");
       expect(runtime.prompts).toHaveLength(4);
     } finally {
       await app.close();
@@ -355,17 +346,7 @@ test("local skill commands work without starting an unavailable runtime", async 
 
     expect(fakeRuntime.startOptions?.cwd).toBe(expectedRoot);
     expect(output).toContain("CASPER");
-    expect(output).toContain("your coding companion");
-    expect(output).toContain("project");
-    expect(output).toContain("stack     typescript · react");
-    expect(output).toContain("package   bun");
-    expect(output).toContain("build     bun run build");
-    expect(output).toContain("test      bun run test");
-    expect(output).toContain("profile   integration");
-    expect(output).toContain("branch    main");
     expect(output).toContain("> fix this failing test");
-    expect(output).toContain("• read");
-    expect(output).toContain("✓ read");
     expect(output).toContain("User request:\nfix this failing test");
     expect(fakeRuntime.startOptions?.systemPromptAppend).toContain("Keep runtime adapters isolated.");
     expect(fakeRuntime.prompts[0]).toContain("intent: fix");

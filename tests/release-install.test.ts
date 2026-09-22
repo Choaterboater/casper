@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { CASPER_VERSION } from "../src/version";
+import { compileExecutable } from "../scripts/compile";
 import { chmod, mkdir, mkdtemp, readdir, readFile, readlink, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -23,7 +24,7 @@ async function fakeRelease(root: string, artifact: string, digestOverride?: stri
   const release = path.join(root, "release");
   await mkdir(release, { recursive: true });
   const binary = path.join(release, artifact);
-  await writeFile(binary, `#!/bin/sh\n[ "$1" = "--version" ] && echo "casper 0.1.0 ($0)"\nexit 0\n`);
+  await writeFile(binary, `#!/bin/sh\n[ "$1" = "--version" ] && echo "casper 0.2.0 ($0)"\nexit 0\n`);
   await chmod(binary, 0o755);
   const digest = digestOverride ?? new Bun.CryptoHasher("sha256").update(await Bun.file(binary).arrayBuffer()).digest("hex");
   await writeFile(path.join(release, "SHA256SUMS"), `${digest}  ${artifact}\n`);
@@ -69,12 +70,12 @@ posixOnly("a verified artifact is installed, runs, and reports its version", asy
 
   const result = await install(release, installDir);
   expect({ exitCode: result.exitCode, stderr: result.stderr }).toEqual({ exitCode: 0, stderr: "" });
-  expect(result.stdout).toContain(`Installed casper 0.1.0 to ${installDir}/casper`);
+  expect(result.stdout).toContain(`Installed casper 0.2.0 to ${installDir}/casper`);
   expect(result.stdout).toContain("Add it to your PATH");
   expect((await stat(path.join(installDir, "casper"))).mode & 0o111).not.toBe(0);
 
   const run = Bun.spawn([path.join(installDir, "casper"), "--version"], { stdout: "pipe" });
-  expect((await new Response(run.stdout).text()).trim()).toBe(`casper 0.1.0 (${installDir}/casper)`);
+  expect((await new Response(run.stdout).text()).trim()).toBe(`casper 0.2.0 (${installDir}/casper)`);
   expect(await run.exited).toBe(0);
 });
 
@@ -117,9 +118,9 @@ posixOnly("an out-of-band digest installs, and a required version mismatch is re
   expect(await stat(path.join(installDir, "casper")).then(() => true, () => false)).toBe(false);
   expect((await readdir(installDir)).filter((name) => name.startsWith(".casper-download"))).toEqual([]);
 
-  const pinned = await install(release, installDir, ["--sha256", digest, "--version", "0.1.0"]);
+  const pinned = await install(release, installDir, ["--sha256", digest, "--version", "0.2.0"]);
   expect(pinned.exitCode).toBe(0);
-  expect(pinned.stdout).toContain("Installed casper 0.1.0");
+  expect(pinned.stdout).toContain("Installed casper 0.2.0");
 });
 
 posixOnly("a development symlink is preserved unless replacement is forced", async () => {
@@ -160,13 +161,12 @@ posixOnly("a link into a .scratch checkout is reported and never replaced, even 
   expect(await readlink(target)).toBe(relative);
   expect((await readdir(installDir)).filter((name) => name.startsWith(".casper-download"))).toEqual([]);
 });
-
 posixOnly("a failing version probe preserves the previous installation even when its output matches", async () => {
   const root = await tempDir("casper-install-test-");
   const artifact = artifactName(hostTarget());
   const release = await fakeRelease(root, artifact);
   const binary = path.join(release, artifact);
-  await writeFile(binary, '#!/bin/sh\necho "casper 0.1.0"\nexit 42\n');
+  await writeFile(binary, '#!/bin/sh\necho "casper 0.2.0"\nexit 42\n');
   const digest = new Bun.CryptoHasher("sha256").update(await Bun.file(binary).arrayBuffer()).digest("hex");
   await writeFile(path.join(release, "SHA256SUMS"), `${digest}  ${artifact}\n`);
   const installDir = path.join(root, "bin");
@@ -174,7 +174,7 @@ posixOnly("a failing version probe preserves the previous installation even when
   const target = path.join(installDir, "casper");
   await writeFile(target, "previous installation\n");
 
-  const result = await install(release, installDir, ["--version", "0.1.0"]);
+  const result = await install(release, installDir, ["--version", "0.2.0"]);
   expect(result.exitCode).toBe(1);
   expect(await readFile(target, "utf8")).toBe("previous installation\n");
   expect((await readdir(installDir)).filter(name => name.startsWith(".casper-download"))).toEqual([]);
@@ -183,13 +183,12 @@ posixOnly("a failing version probe preserves the previous installation even when
 posixOnly("the compiled CLI renders artifact files outside the checkout without Bun on PATH", async () => {
   const root = await tempDir("casper-binary-test-");
   const binary = path.join(root, "casper");
-  const build = Bun.spawn([process.execPath, "build", path.join(repoRoot, "src/cli.ts"), "--compile", "--minify", `--outfile=${binary}`], {
-    cwd: repoRoot, stdout: "pipe", stderr: "pipe",
-  });
-  const [buildLog, buildErrors, buildExit] = await Promise.all([
-    new Response(build.stdout).text(), new Response(build.stderr).text(), build.exited,
-  ]);
-  expect({ exit: buildExit, error: buildExit ? buildLog + buildErrors : "" }).toEqual({ exit: 0, error: "" });
+  await compileExecutable(path.join(repoRoot, "src/standalone.ts"), binary);
+  const notices = Bun.spawn([binary, "--licenses"], { cwd: root, env: { PATH: "/usr/bin:/bin" }, stdout: "pipe", stderr: "pipe" });
+  const [noticeText, noticeError, noticeExit] = await Promise.all([new Response(notices.stdout).text(), new Response(notices.stderr).text(), notices.exited]);
+  expect({ exit: noticeExit, error: noticeError }).toEqual({ exit: 0, error: "" });
+  expect(noticeText).toContain("CASPER — THIRD-PARTY NOTICES");
+  expect(noticeText).toContain("@earendil-works/pi-coding-agent@0.85.1");
   const home = path.join(root, "home"), project = path.join(root, "project");
   await mkdir(home); await mkdir(project);
   await writeFile(path.join(project, "index.ts"), "export const answer = 42;\n");

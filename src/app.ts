@@ -9,7 +9,6 @@ import { browserTool } from "./browser/tools";
 import { formatTerminalJSON } from "./tui/json";
 import { InteractiveTerminal } from "./tui/terminal";
 import { pickEffort } from "./tui/effort-picker";
-import { AUTO_EFFORT, autoEffortLevel, readAutoEffort, writeAutoEffort } from "./tui/auto-effort";
 import { formatRuntimeStartLine, formatRuntimeStatus, formatToolActivity, redactPreview, terminalText } from "./tui/format";
 import { ProjectMemory, type TaskOutcome } from "./memory/store";
 import { discoverReferenceConfiguration, type ReferenceConfiguration } from "./references/config";
@@ -82,7 +81,10 @@ export interface CasperAppOptions {
 
 const DEFAULT_SYSTEM_PROMPT_APPEND = [
   "You are Casper, a coding companion running through a thin runtime adapter.",
-  "Be concise.",
+  "Lead with the answer, actual result, or next action. Use short labeled sections and numbered steps only when order matters.",
+  "Keep commands and identifiers exact and copyable. Group long lists without dropping relevant options or evidence.",
+  "Describe errors plainly: what failed, what is known, and what remains uncertain. Separate completed work from verification and acceptance.",
+  "When work remains, give one useful next action. When finished, stop without a forced next step, filler, or invented time estimate.",
   "Use available tools when needed to inspect, edit, and run code in the current repository.",
 ].join("\n");
 
@@ -156,8 +158,6 @@ export class CasperApp {
     void this.session?.abort().catch(() => {});
   };
   private savedModelDisplay?: string;
-  /** `/effort auto`: Casper picks a supported level per request from the task classification. */
-  private autoEffort = false;
   private taskRuntimeCancelled = false;
   private lastTaskResult?: TaskResult;
   private observations = new TaskObservations();
@@ -233,7 +233,6 @@ export class CasperApp {
     if (this.projectContext) return this.projectContext.info;
     const { project, context, mcp, visualization, lspConfiguration, referenceConfiguration } = await this.loadWorkspace(cwd);
     if (this.closing) throw new Error("Casper is closing");
-    this.autoEffort = await readAutoEffort(this.sessionHomeDir ?? os.homedir());
     // The wordmark is for a person at a rich terminal; one-shot and piped output keep the text banner.
     const wordmark = this.interactive && this.terminal.rich && (this.terminal.columns ?? 0) >= WORDMARK_COLUMNS;
     if (wordmark) this.terminal.writeTrusted(`\n${renderWordmark(this.terminal.color)}\n`);
@@ -500,8 +499,21 @@ export class CasperApp {
       if (this.subagents.isBusy) throw new Error("Wait for active subagents before changing models.");
       const session = await this.ensureRuntime();
       this.commandAbort?.signal.throwIfAborted();
-      if (!session.selectModel) throw new Error("This runtime does not support model selection.");
       const argument = prompt.slice(6).trim();
+      if (/^(?:roles|role)(?:\s|$)/.test(argument)) {
+        const args = argument.split(/\s+/);
+        let roles: Record<string, string>;
+        if (args[0] === "roles" && args.length === 1) {
+          if (!session.getModelRoles) throw new Error("This runtime does not support model roles.");
+          roles = session.getModelRoles();
+        } else if (args[0] === "role" && args.length === 3 && ["fast", "build", "reason", "review"].includes(args[1]!)) {
+          if (!session.setModelRole) throw new Error("This runtime does not support model roles.");
+          roles = await session.setModelRole(args[1]!, args[2] === "clear" ? undefined : args[2]);
+        } else throw new Error("Usage: /model roles or /model role <fast|build|reason|review> <selector|clear>");
+        this.output.write(`${["fast", "build", "reason", "review"].map(role => ` ${role.padEnd(9)} ${roles[role] ?? "not configured"}`).join("\n")}\n[model] Role mappings are saved globally; the current model is unchanged. Use /model @role[:effort] to select a configured role.\n`);
+        return;
+      }
+      if (!session.selectModel) throw new Error("This runtime does not support model selection.");
       const sessionOnly = /^--session(?:\s|$)/.test(argument);
       const result = await session.selectModel({ query: (sessionOnly ? argument.slice(9).trim() : argument) || undefined,
         persist: !sessionOnly, signal: this.commandAbort?.signal,
@@ -523,31 +535,23 @@ export class CasperApp {
       if (this.subagents.isBusy) throw new Error("Wait for active subagents before changing effort.");
       const session = await this.ensureRuntime();
       const args = prompt.split(/\s+/).slice(1);
-      if (args.length > 2 || (args.length === 2 && args[1] !== "--session") || args[0]?.startsWith("-")) throw new Error("Usage: /effort <level|auto> [--session]");
+      if (args.length > 2 || (args.length === 2 && args[1] !== "--session") || args[0]?.startsWith("-")) throw new Error("Usage: /effort <auto|level> [--session]");
       let choice = args[0] ? { level: args[0], persist: args[1] !== "--session" } : undefined;
       const status = session.getStatus?.();
       if (!choice) {
         const host = this.interactive ? this.terminal.exclusiveHost() : undefined;
-        if (host && session.setEffort && status?.availableThinkingLevels?.length) {
-          choice = await host.mount(view => pickEffort(view, [AUTO_EFFORT, ...status.availableThinkingLevels!], this.autoEffort ? AUTO_EFFORT : status.thinkingLevel, this.commandAbort?.signal));
+        if (host && session.setEffort && status?.model) {
+          const levels = ["auto", ...(status.availableThinkingLevels ?? []).filter(level => level !== "auto")];
+          choice = await host.mount(view => pickEffort(view, levels, status.configuredEffort ?? status.thinkingLevel, this.commandAbort?.signal, "Reasoning effort · auto or a supported fixed level"));
           if (!choice) return;
         } else if (!status?.model) { this.output.write("Effort: no model selected. Use /model first; levels depend on the model.\n"); return; }
         else {
-          this.output.write(`Effort: ${this.autoEffort ? `auto (currently ${status.thinkingLevel ?? "unset"})` : status.thinkingLevel ?? "unavailable"}. Supported: auto, ${status.availableThinkingLevels?.join(", ") || "unavailable"}\nUse /effort <level|auto> [--session].\n`);
+          this.output.write(`Effort: ${status.configuredEffort === "auto" ? `auto (currently ${status.thinkingLevel ?? "unset"})` : status.thinkingLevel ?? "unavailable"}. Choices: auto${status.availableThinkingLevels?.length ? `, ${status.availableThinkingLevels.join(", ")}` : " (fixed levels unavailable)"}\nUse /effort <auto|level> [--session]. A fixed level disables automatic classification.\n`);
           return;
         }
       }
       if (!session.setEffort) throw new Error("This runtime does not support effort controls.");
-      if (choice.level === AUTO_EFFORT) {
-        if (!status?.model) throw new Error("Select a model first (/model); auto effort chooses among its supported levels.");
-        this.autoEffort = true;
-        if (choice.persist) await writeAutoEffort(this.sessionHomeDir ?? os.homedir(), true);
-        this.output.write(`Effort: auto${choice.persist ? " (remembered)" : " (this conversation)"} — light for reading, explaining and diagrams; medium for tests and configuration; high for fixes, features and refactors. Applied per request from the model's supported levels.\n`);
-      } else {
-        const result = await session.setEffort(choice.level, choice.persist);
-        if (this.autoEffort) { this.autoEffort = false; if (choice.persist) await writeAutoEffort(this.sessionHomeDir ?? os.homedir(), false); }
-        this.output.write(`${formatRuntimeStatus(result)}\n`);
-      }
+      this.output.write(`${formatRuntimeStatus(await session.setEffort(choice.level, choice.persist))}\n`);
       this.updateFooter();
       return;
     }
@@ -562,7 +566,11 @@ export class CasperApp {
       if (prompt === "/context") {
         this.output.write(`Context: ${context?.tokens == null ? "unavailable" : `${context.tokens} / ${context.contextWindow} tokens (estimate; ${context.percent?.toFixed(1) ?? "?"}%)`}\n`);
         this.output.write(`Messages: ${usage?.messages ?? "unavailable"}; indexed skills: ${this.skillRegistry!.list().length}; Casper custom tools: ${this.runtimeTools.length}.\nPer-file/skill/tool token attribution is unavailable. /compact sends a model request.\n`);
-      } else this.output.write(`Usage: ${usage ? formatTerminalJSON(usage.tokens) : "unavailable"}\nCost: ${usage?.estimatedCost === undefined ? "unavailable" : `$${usage.estimatedCost.toFixed(4)} SDK/catalog estimate`}; not a bill or a subscription charge.\n`);
+      } else {
+        this.output.write(`Usage: ${usage ? formatTerminalJSON(usage.tokens) : "unavailable"}\nCost: ${usage?.estimatedCost === undefined ? "unavailable" : `$${usage.estimatedCost.toFixed(4)} SDK/catalog estimate`}; not a bill or a subscription charge.\n`);
+        const classifier = usage?.effortClassification;
+        if (classifier) this.output.write(`Auto-effort classifier (separate, since session load): ${classifier.requests} request(s); tokens ${formatTerminalJSON(classifier.tokens)}; cost ${classifier.estimatedCost === undefined ? "unknown" : `$${classifier.estimatedCost.toFixed(4)} estimate`}. Failed requests may consume unreported tokens; not included in conversation totals.\n`);
+      }
       return;
     }
     if (/^\/compact(?:\s|$)/.test(prompt)) {
@@ -740,11 +748,6 @@ export class CasperApp {
     if (this.closing || this.commandAbort?.signal.aborted) return;
     const session = await this.ensureRuntime();
     if (this.closing || this.commandAbort?.signal.aborted) return;
-    if (this.autoEffort && session.setEffort) {
-      const status = session.getStatus?.();
-      const level = autoEffortLevel(classification.intent, status?.availableThinkingLevels ?? []);
-      if (level && level !== status?.thinkingLevel) { await session.setEffort(level, false); this.updateFooter(); }
-    }
     const workspaceRoot = this.activeWorkspaceRoot();
     // Receipts describe the tree, not tool names: a read-only shell run is not a write.
     const before = await this.snapshotWorkspace(workspaceRoot, this.commandAbort?.signal);
@@ -755,7 +758,7 @@ export class CasperApp {
         memoryContext,
         skillContext,
         formatTaskPrompt(prompt, classification, context.model),
-      ].filter(Boolean).join("\n\n"), this.commandAbort?.signal);
+      ].filter(Boolean).join("\n\n"), this.commandAbort?.signal, { request: prompt });
       afterModel = before && !this.closing ? await this.snapshotWorkspace(workspaceRoot) : undefined;
       if (!this.closing && !this.commandAbort?.signal.aborted && !this.taskRuntimeFailed && !this.checkTask?.signal.aborted && this.checkTask?.checks.length) {
         verification = await this.runVerification(this.checkTask.checks, true, prompt, this.checkTask);
@@ -872,7 +875,7 @@ export class CasperApp {
           await this.prepareCapabilities(request);
           const session = await this.ensureRuntime();
           if (!controller.signal.aborted) {
-            await session.prompt(prompt, controller.signal);
+            await session.prompt(prompt, controller.signal, { request });
             if (this.taskRuntimeFailed && !this.taskRuntimeCancelled) throw new Error("Repair model stopped unsuccessfully; changes retained.");
           }
         } : undefined,
@@ -1274,7 +1277,8 @@ export class CasperApp {
       const status = this.session?.getStatus?.();
       const usage = this.session?.getUsage?.();
       const percent = usage?.context?.percent;
-      const model = status?.model ? `${status.provider}/${status.model} · ${this.autoEffort ? `auto→${status.thinkingLevel ?? "—"}` : status.thinkingLevel ?? "effort —"}`
+      const effort = status?.configuredEffort === "auto" ? `auto→${status.thinkingLevel ?? "—"}${status.autoEffort && status.autoEffort.state !== "classified" ? ` (${status.autoEffort.state})` : ""}` : status?.thinkingLevel ?? "effort —";
+      const model = status?.model ? `${status.provider}/${status.model} · ${effort}`
         : this.session ? "no model selected · /model" : this.savedModelDisplay ?? "model not initialized · /model";
       this.terminal.setStatus(`${project.name}/${project.gitBranch ?? "no git"} │ ${model} │ ctx ${percent == null ? "—" : `${percent.toFixed(0)}%~`}${usage ? ` │ ${usage.tokens.total} tok` : ""}${usage?.estimatedCost === undefined ? "" : ` │ $${usage.estimatedCost.toFixed(3)} est`} │ ${this.commandActive ? "working" : "idle"}`, project.root);
     } catch { this.terminal.setStatus("Session status unavailable · /status", this.projectContext.info.root); }
@@ -1283,6 +1287,15 @@ export class CasperApp {
   private handleRuntimeEvent(event: RuntimeEvent): void {
     if (event.type !== "assistant_text_delta" && event.type !== "assistant_progress") this.updateFooter();
     switch (event.type) {
+      case "model_controls_changed":
+        // Auto effort classified (or fell back) for this request; the footer carries the level.
+        this.terminal.endAssistant();
+        if (event.status.autoEffort?.state === "fallback" || event.status.autoEffort?.state === "unavailable") {
+          this.ensureLineBreak();
+          this.output.write(`[effort] automatic classification ${event.status.autoEffort.state}; using ${event.status.thinkingLevel ?? "the previous level"}.\n`);
+          this.endedWithNewline = true;
+        }
+        break;
       case "assistant_progress": {
         if (!this.terminal.rich) break;
         if (this.openToolLine) { this.openToolLine = false; this.terminal.write("\n"); }

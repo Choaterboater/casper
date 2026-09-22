@@ -32,6 +32,8 @@ export interface RuntimeReadOnlyStartOptions {
   signal: AbortSignal;
   maxTurns: number;
   maxToolCalls: number;
+  /** Casper role for this child; unset roles use the Casper startup default. */
+  modelRole?: "fast" | "review";
 }
 
 export interface RuntimeStatus {
@@ -39,6 +41,9 @@ export interface RuntimeStatus {
   model?: string;
   thinkingLevel?: string;
   availableThinkingLevels?: string[];
+  configuredEffort?: string;
+  modelRole?: string;
+  autoEffort?: { state: "pending" | "classified" | "fallback" | "unavailable"; classifier?: string };
   /** Local credential snapshot only; never a provider connectivity claim. */
   auth: "configured" | "missing" | "unknown";
   selectionSource?: "conversation" | "default" | "none";
@@ -109,6 +114,8 @@ export interface RuntimeUsage {
   tokens: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number };
   /** SDK/catalog estimate, never an invoice or subscription charge. */
   estimatedCost?: number;
+  /** Separate classifier usage; not included in conversation token totals. */
+  effortClassification?: { requests: number; tokens: RuntimeUsage["tokens"]; estimatedCost?: number };
   messages: number;
 }
 
@@ -139,6 +146,7 @@ export interface RuntimeSwitchOptions {
 }
 
 export type RuntimeEvent =
+  | { type: "model_controls_changed"; status: RuntimeStatus }
   | { type: "assistant_response_start" }
   | { type: "assistant_response_end"; stopReason: string; errorMessage?: string }
   | { type: "assistant_text_delta"; delta: string }
@@ -165,13 +173,15 @@ export interface RuntimeSession {
   appendContext?(text: string): Promise<void>;
   getStatus?(): RuntimeStatus;
   selectModel?(options: RuntimeModelSelectionOptions): Promise<RuntimeModelSelection>;
+  getModelRoles?(): Record<string, string>;
+  setModelRole?(role: string, selector?: string): Promise<Record<string, string>>;
   setEffort?(level: string, persist: boolean): Promise<RuntimeStatus>;
   getUsage?(): RuntimeUsage;
   listConversations?(): Promise<RuntimeConversation[]>;
   clearConversation?(): Promise<void>;
   resumeConversation?(id: string): Promise<void>;
   compact?(instructions?: string, signal?: AbortSignal): Promise<void>;
-  prompt(text: string, signal?: AbortSignal): Promise<void>;
+  prompt(text: string, signal?: AbortSignal, options?: { request: string }): Promise<void>;
   abort(): Promise<void>;
   subscribe(listener: RuntimeEventListener): () => void;
   getState(): RuntimeState;

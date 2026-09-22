@@ -1,4 +1,4 @@
-# Browser-assisted debugging (Phase 10A)
+# Browser-assisted debugging
 
 Casper uses pinned `puppeteer-core@25.11.0` and an **already installed** Chrome,
 Chromium or Edge. No browser download, personal profile or remote attachment is
@@ -122,8 +122,8 @@ commands and uncertain effects require approval; no dependency installer is
 provided. Scripts must respect PORT/HOST or already specify the requested port.
 
 Existing listeners are never replaced or killed. Readiness means an HTTP response,
-not application correctness or an atomic proof of port ownership. Only the spawned
-process group is terminated. One server is allowed per session. Model-task end,
+not application correctness or an atomic proof of port ownership. Only Casper-owned processes are targeted: POSIX uses best-effort group signalling,
+Windows uses verified descendants. Unconfirmed cleanup blocks replacement. One server is allowed per session. Model-task end,
 cancellation, workspace revocation and shutdown close owned resources; manually
 opened browsers remain until closed, adopted by a model task or application exit.
 Forced host SIGKILL/power loss is not a cleanup guarantee.
@@ -150,5 +150,7 @@ vision-capable model. Tests verify actual image content in the Pi provider reque
 not merely a path. A text-only model or saved screenshot alone does not establish
 that the model viewed/understood it. Model/provider retention policy still applies.
 
-See [PHASE10_REVIEW.md](PHASE10_REVIEW.md) for validation and coverage limitations,
-and [the tooling comparison](benchmarks/BROWSER_COMPARISON.md) for provider choice.
+
+Screenshot file output currently requires macOS/Linux. Windows screenshot capture
+cannot use the POSIX artifact bridge; inline diagram fallback does not provide
+screenshot files. See [platform support](PLATFORM_SUPPORT.md).

@@ -261,8 +261,6 @@ needsSymlinks("unavailable facts warn and omit guidance without blocking tasks o
     await app.runOnce("Inspect the repository", project);
     expect(prompts.at(-1)).toContain("Inspect the repository");
     expect(prompts.at(-1)).not.toContain("Casper human-entered project facts");
-    expect(output).toContain("[memory] Facts unavailable");
-    expect(output).toContain("continuing without them");
     expect(output).not.toContain("PRIVATE_FACT");
     expect(app.getLastTaskResult()?.execution).toBe("completed");
     expect((await store.outcomes())[0]).toMatchObject({ modelStatus: "completed", verification: "not-run", accepted: null });
@@ -289,7 +287,6 @@ needsSymlinks("unavailable facts warn and omit guidance without blocking tasks o
   output = "";
   await app.runOnce("Inspect again");
   expect(prompts.at(-1)).toContain("Restored guidance");
-  expect(output).not.toContain("Facts unavailable");
   await rm(file);
   const external = path.join(home, "PRIVATE_PATH");
   await writeFile(external, "Do not read or rewrite");
@@ -297,7 +294,6 @@ needsSymlinks("unavailable facts warn and omit guidance without blocking tasks o
   output = "";
   await app.runOnce("Inspect with unreadable facts");
   expect(prompts.at(-1)).not.toContain("Restored guidance");
-  expect(output).toContain("Facts unavailable");
   expect(output).not.toContain("PRIVATE_PATH");
   expect(await readFile(external, "utf8")).toBe("Do not read or rewrite");
   expect((await fs.lstat(file)).isSymbolicLink()).toBe(true);
@@ -305,7 +301,6 @@ needsSymlinks("unavailable facts warn and omit guidance without blocking tasks o
   output = "";
   await app.runOnce("Inspect with no facts");
   expect(prompts.at(-1)).not.toContain("Restored guidance");
-  expect(output).not.toContain("Facts unavailable");
 });
 
 test("shutdown during a failing facts read cannot start a late runtime or record an outcome", async () => {

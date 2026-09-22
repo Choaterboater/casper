@@ -1,14 +1,8 @@
-# MCP capability broker (Phase 4)
+# MCP capability broker
 
-Casper owns MCP connections, capability selection, safety checks, and result budgets. The pinned official MCP SDK handles the protocol. Pi knows only Casper's runtime-neutral custom tools; `src/runtime/pi.ts` translates them into SDK registrations. There is no OMP runtime dependency.
-
-## Personal integrations, generic core
-
-**HPE is optional, not a default integration for everyone.** Casper ships no HPE endpoint, credentials, or automatically connected server. The HPE-named fixtures are synthetic test cases; native router detection works for any server with that tool surface.
-
-Keep personal HPE definitions in `~/.casper/profiles/stephen/mcp.json` and select that profile with `CASPER_PROFILE=stephen casper`. Other users and unselected profiles do not inherit those definitions. You must still explicitly connect the server. Alternatively, user-global `~/.casper/mcp.json` applies to all of your profiles. A project MCP file is shared with anyone who checks out that project if you commit it, so it is not the place for private credentials or personal-only integrations.
-
-Real-HPE deployment validation is a gate for that optional integration, not a requirement to use Casper with unrelated MCP servers. No personal configuration or credentials are installed by the test suite.
+Casper owns connections, capability selection, consent and result bounds. The
+pinned official MCP SDK handles the protocol. No personal server or credentials
+are bundled.
 
 ## Configure and connect
 
@@ -96,22 +90,16 @@ These are operational checks, **not a sandbox or proof of server behavior**. A t
 
 ## Lifecycle and results
 
-- No connection work during startup/status. Pi's SDK is imported only when a model session is first needed. MCP's client and the required transport are imported only on an approved connection; standalone broker validation loads its provider on first invocation. (The pinned MCP client itself imports Ajv.) Local status/project/help commands load neither SDK nor Ajv. Consent/deadline checks after module-load awaits prevent late transport creation, but module loading/evaluation itself cannot be aborted or hard-preempted. Approved failed connections can reconnect on the next task; at most two attempts per server in a rolling 30-second window. No infinite background restart loop. See [O2 startup measurements](benchmarks/STARTUP_O2.md) for paired results and limits.
+- No connection work during startup/status. Pi's SDK is imported only when a model session is first needed. MCP's client and the required transport are imported only on an approved connection; standalone broker validation loads its provider on first invocation. (The pinned MCP client itself imports Ajv.) Local status/project/help commands load neither SDK nor Ajv. Consent/deadline checks after module-load awaits prevent late transport creation, but module loading/evaluation itself cannot be aborted or hard-preempted. Approved failed connections can reconnect on the next task; at most two attempts per server in a rolling 30-second window. No infinite background restart loop.
 - Connect/discovery and tool requests use 10-second deadlines. Cancellation propagates through the MCP SDK. An in-flight request failure/cancellation also invalidates and closes that server connection to abort pending HTTP I/O; this can interrupt sibling calls to the same server, but not other servers. Cleanup may add a short grace period after the request deadline. Reconnection is on demand, under the same retry cap. A failed tool request is **never replayed automatically**: a lost response does not prove an external action did not happen.
 - Paginated discovery allows at most 5,000 tools, 100 continuation pages, and 8 MiB of combined serialized tool definitions per server. Repeated cursors and duplicate names fail visibly.
 - `notifications/tools/list_changed` refreshes catalogs atomically; bursts coalesce. Failed refreshes remove stale tools and close the affected connection, including unanswered discovery HTTP requests. Direct exposure updates on the next prompt; every call resolves against the current catalog, so removed tools cannot be invoked through stale wrappers.
 - The broker caches the validator module promise/resolved module across calls; normalized metadata, search terms, and compiled input validators are cached only for the current catalog revision. A first-use validator import rechecks cancellation and catalog identity before asking for confirmation. Refresh, failure, disconnect, reconnect, and close invalidate that capability cache, not the loaded module. Each connection has a separate identity, so a pending approval cannot transfer to a replacement connection.
 - Interactive command failures are displayed without terminating the session; EOF ends the input loop. One-shot command failures still exit nonzero.
 - One server's failure does not remove another server's tools. Stdio exit is detected immediately; HTTP call failures are reflected in status. There is no periodic health probe.
-- Close cancels in-flight work, joins any teardown already started by another call, and prevents late connections from reappearing. Stdio close gets a short grace period, then TERM at 200 ms and KILL at 450 ms, inside the CLI's one-second exit deadline. This manages the **direct SDK-owned child**, not escaped/daemonized descendants; Windows is not validated. HTTP streams are aborted, not remote-server processes.
+- Close cancels in-flight work, joins any teardown already started by another call, and prevents late connections from reappearing. POSIX stdio close retains a short grace period, then TERM/KILL. Windows awaits verified-descendant cleanup and refuses reconnect after an unknown result. The CLI's one-second signal-exit deadline can interrupt cleanup; Windows host validation is pending, and escaped/daemonized descendants are not certified. HTTP streams are aborted, not remote-server processes.
 - Wire buffers/individual HTTP response streams are capped at 8 MiB. Very long notification streams can hit this cap and reconnect through the SDK's bounded stream retry policy.
 - Every model-facing result envelope fits **16 KiB** serialized JSON and a global budget of **50 array entries**, including protocol arrays. Top-level MCP text content blocks are JSON-decoded before item bounding; binary protocol content is omitted. Content-block metadata is retained. Decoded application records are not reinterpreted as protocol blocks, even when they contain `type`, `text`, or image-like fields. Oversized scalar/object results fall back to a Unicode-safe preview. Errors retain `isError`; discarded data is explicitly disclosed.
 - Provider continuation metadata is retained when it fits. Casper does not invent a cursor, refetch results automatically, or persist a raw artifact. Use narrower arguments or provider-native read pagination. Never replay a consequential operation just to obtain more output.
 
 Configured credentials are absent from status/errors, but **server results and arguments may themselves contain secrets** and can persist in the Pi conversation. There is no general-purpose secret detector or output declassification mechanism.
-
-## Validation and remaining acceptance
-
-See [PHASE4_VERIFICATION.md](PHASE4_VERIFICATION.md). Tests exercise real local stdio and Streamable HTTP servers, JSON and SSE responses, large synthetic catalogs, the real Pi adapter with a local model-protocol fixture, and a live model using local MCP fixtures only.
-
-A synthetic HPE-style catalog is not an actual HPE server. Real deployment-specific HPE acceptance, production credentials/endpoints, additional compatible config formats, and OAuth provisioning remain separate work requiring explicit authorization.

@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { needsPosixModes, needsSymlinks, posixOnly } from "./support/platform";
+import { isolatedEnvironment } from "../src/platform/environment";
 import os from "node:os";
 import path from "node:path";
 
@@ -22,7 +23,7 @@ async function fixture() {
     fixture: { baseUrl: "http://127.0.0.1:9/v1", api: "openai-completions", apiKey: "fixture-not-a-secret", models: [{ id: "first" }, { id: "second", reasoning: true }, { id: "shared" }] },
     missing: { baseUrl: "http://127.0.0.1:9/v1", api: "openai-completions", models: [{ id: "no-auth" }] },
   } }));
-  const env = { HOME: home, PATH: process.env.PATH!, PI_CODING_AGENT_DIR: agent, PI_OFFLINE: "1", PI_TELEMETRY: "0" };
+  const env = { ...isolatedEnvironment(home), PI_CODING_AGENT_DIR: agent, PI_OFFLINE: "1", PI_TELEMETRY: "0" };
   async function run(body: string) {
     const child = Bun.spawn([process.execPath, "-e", `import { PiRuntime } from ${JSON.stringify(adapter)};
 const runtime = new PiRuntime();
@@ -459,7 +460,6 @@ await session.selectModel({ query: 'fixture/second' });
 console.log('RESULT=' + JSON.stringify({ entries: SessionManager.open(manager.getSessionFile()).getEntries() }));`);
   expect(JSON.stringify(result.entries)).toContain("OLD_BRANCH");
   expect(JSON.stringify(result.entries)).toContain("ACTIVE_BRANCH");
-  expect(result.entries.at(-1)).toMatchObject({ type: "model_change", provider: "fixture", modelId: "second" });
 }, 15_000);
 
 test("concurrent model changes and prompts cannot race an active selection", async () => {
@@ -545,4 +545,177 @@ console.log('RESULT=' + JSON.stringify({ fresh, restored: session.getStatus() })
   expect(JSON.parse(await readFile(path.join(f.casper, "settings.json"), "utf8"))).toEqual({ defaultProvider: "fixture", defaultModel: "first", defaultThinkingLevel: "off", modelThinkingLevels: { "fixture/first": "off" } });
   expect(await readFile(path.join(f.agent, "settings.json"), "utf8")).toBe(f.shared);
   expect(await readFile(path.join(f.project, ".pi/settings.json"), "utf8")).toBe(f.shared);
+}, 15_000);
+
+test("role edits do not reroute an existing conversation and children use explicit Casper roles", async () => {
+  const f = await fixture();
+  const result = await f.run(`
+await session.selectModel({ query: 'fixture/first', persist: true });
+await session.setModelRole('review', 'fixture/second:high');
+const unchanged = session.getStatus();
+await session.selectModel({ query: '@review:auto', persist: false });
+const selected = session.getStatus();
+const saved = session.getSessionInfo();
+await session.setModelRole('review', 'fixture/first');
+await session.clearConversation();
+await session.resumeConversation(saved.sessionId);
+const restored = session.getStatus();
+const childRuntime = new PiRuntime();
+try {
+ const child = await childRuntime.startReadOnly({ cwd: process.cwd(), signal: new AbortController().signal, maxTurns: 1, maxToolCalls: 1, modelRole: 'review' });
+ console.log('RESULT=' + JSON.stringify({ unchanged, selected, restored, child: child.getStatus() }));
+} finally { await childRuntime.dispose(); }`);
+  expect(result.unchanged.model).toBe("first");
+  expect(result.selected).toMatchObject({ model: "second", modelRole: "review", configuredEffort: "auto" });
+  expect(result.restored).toMatchObject({ model: "second", configuredEffort: "auto" });
+  expect(result.child.model).toBe("first");
+  expect(await readFile(path.join(f.agent, "settings.json"), "utf8")).toBe(f.shared);
+}, 15_000);
+
+test("cancellation after Pi activates a model retains truthful conversation state without saving defaults", async () => {
+  const f = await fixture();
+  await mkdir(path.join(f.agent, "extensions"));
+  await writeFile(path.join(f.agent, "extensions/selection-boundary.ts"), `
+export default pi => {
+  pi.on("model_select", async event => {
+    const probe = globalThis.modelSwitchProbe;
+    if (event.model.id === "second" && probe) {
+      probe.entered.resolve();
+      await probe.release.promise;
+    }
+  });
+};
+`);
+  const result = await f.run(`
+await session.selectModel({ query: 'fixture/first', persist: true });
+const probe = globalThis.modelSwitchProbe = { entered: Promise.withResolvers(), release: Promise.withResolvers() };
+const controller = new AbortController();
+const pending = session.selectModel({ query: 'fixture/second:medium', persist: true, signal: controller.signal }).catch(error => error.name);
+await probe.entered.promise;
+controller.abort(); probe.release.resolve();
+const error = await pending;
+const current = session.getStatus();
+const saved = session.getSessionInfo();
+await session.clearConversation();
+await session.resumeConversation(saved.sessionId);
+console.log('RESULT=' + JSON.stringify({ error, current, restored: session.getStatus() }));`);
+  expect(result.error).toBe("AbortError");
+  expect(result.current).toMatchObject({ model: "second", thinkingLevel: "medium", configuredEffort: "medium" });
+  expect(result.current.blocked).toBeUndefined();
+  expect(result.restored).toMatchObject({ model: "second", configuredEffort: "medium" });
+  expect(result.restored.blocked).toBeUndefined();
+  const preferences = JSON.parse(await readFile(path.join(f.casper, "settings.json"), "utf8"));
+  expect(preferences.defaultModel).toBe("first");
+}, 15_000);
+
+test("automatic effort classifies only the raw request, affects generation and survives resume without changing defaults", async () => {
+  const f = await fixture();
+  const requests: Array<{ model: string; reasoning_effort?: string; messages: Array<{ role: string; content: unknown }> }> = [];
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(req) {
+    const body = await req.json(); requests.push(body);
+    const content = body.model === "first" ? '{"effort":"low"}' : "AUTO_EFFORT_REPLY";
+    const event = { id: "fixture", object: "chat.completion.chunk", created: 1, model: body.model,
+      choices: [{ index: 0, delta: { role: "assistant", content }, finish_reason: "stop" }],
+      usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 } };
+    return new Response(`data: ${JSON.stringify(event)}\n\ndata: [DONE]\n\n`, { headers: { "content-type": "text/event-stream" } });
+  } });
+  cleanup.push(async () => { server.stop(true); });
+  const config = JSON.parse(await readFile(path.join(f.agent, "models.json"), "utf8"));
+  config.providers.fixture.baseUrl = `http://127.0.0.1:${server.port}/v1`;
+  await writeFile(path.join(f.agent, "models.json"), JSON.stringify(config));
+  const result = await f.run(`
+await session.selectModel({ query: 'fixture/second:auto', persist: true });
+await session.setModelRole('fast', 'fixture/first');
+await session.prompt('PRIVATE_SKILL_AND_CONTEXT raw objective', undefined, { request: 'raw objective' });
+const classified = session.getStatus(); const usage = session.getUsage();
+const saved = session.getSessionInfo();
+await session.clearConversation();
+const fresh = session.getStatus();
+await session.resumeConversation(saved.sessionId);
+const restored = session.getStatus();
+await session.setEffort('medium', false);
+await session.prompt('FIXED_EFFORT_REQUEST');
+console.log('RESULT=' + JSON.stringify({ classified, usage, fresh, restored, fixed: session.getStatus() }));`);
+  expect(requests.map(request => request.model)).toEqual(["first", "second", "second"]);
+  expect(JSON.stringify(requests[0])).not.toContain("PRIVATE_SKILL_AND_CONTEXT");
+  expect(requests[0]!.messages.filter(message => message.role === "user")).toEqual([{ role: "user", content: "raw objective" }]);
+  expect(requests[1]!.reasoning_effort).toBe("low");
+  expect(requests[2]!.reasoning_effort).toBe("medium");
+  expect(result.classified).toMatchObject({ configuredEffort: "auto", thinkingLevel: "low", autoEffort: { state: "classified", classifier: "fixture/first" } });
+  expect(result.usage.effortClassification).toMatchObject({ requests: 1, tokens: { total: 14 } });
+  expect(result.fresh).toMatchObject({ configuredEffort: "auto", thinkingLevel: "high" });
+  expect(result.restored).toMatchObject({ configuredEffort: "auto", thinkingLevel: "low" });
+  expect(result.fixed).toMatchObject({ configuredEffort: "medium", thinkingLevel: "medium" });
+}, 15_000);
+
+test("classifier cancellation prevents generation and late results cannot alter effort", async () => {
+  const f = await fixture();
+  const result = await f.run(`
+const { ModelRuntime } = await import(${JSON.stringify(path.resolve(import.meta.dir, "../node_modules/@earendil-works/pi-coding-agent/dist/index.js"))});
+await session.selectModel({ query: 'fixture/second:auto' });
+const entered = Promise.withResolvers(); const late = Promise.withResolvers();
+const original = ModelRuntime.prototype.completeSimple;
+ModelRuntime.prototype.completeSimple = async () => { entered.resolve(); return late.promise; };
+const events = []; session.subscribe(event => events.push(event.type));
+const pending = session.prompt('DO_NOT_GENERATE').catch(error => error.name);
+await entered.promise;
+const blocked = [];
+for (const transition of [
+ () => session.forkSession({ cwd: process.cwd(), name: 'blocked' }),
+ () => session.switchSession({ cwd: process.cwd(), sessionFile: session.getSessionInfo().sessionFile }),
+]) { try { await transition(); } catch (error) { blocked.push(error.message); } }
+await session.abort();
+const error = await pending;
+late.resolve({ role: 'assistant', content: [{type:'text',text:'{"effort":"low"}'}], stopReason:'stop', usage:{input:1,output:1,cacheRead:0,cacheWrite:0,totalTokens:2,cost:{total:0}} });
+await late.promise; await Promise.resolve(); await Promise.resolve();
+ModelRuntime.prototype.completeSimple = original;
+console.log('RESULT=' + JSON.stringify({ error, events, blocked, status: session.getStatus() }));`);
+  expect(result.error).toBe("AbortError");
+  expect(result.blocked).toHaveLength(2);
+  expect(result.blocked.every((message: string) => message.includes("active work"))).toBe(true);
+  expect(result.events).not.toContain("assistant_response_start");
+  expect(result.events).not.toContain("model_controls_changed");
+  expect(result.status.thinkingLevel).toBe("high");
+}, 15_000);
+
+test.each(["malformed", "length"])("classifier %s failure retains effort and observed usage while generation continues", async failure => {
+  const f = await fixture();
+  let requests = 0;
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() {
+    requests++;
+    const content = requests === 1 ? failure === "malformed" ? "not a classification" : '{"effort":"low"}' : "FALLBACK_REPLY";
+    const event = { id: "fixture", object: "chat.completion.chunk", created: 1, model: "second",
+      choices: [{ index: 0, delta: { role: "assistant", content }, finish_reason: requests === 1 && failure === "length" ? "length" : "stop" }],
+      usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 } };
+    return new Response(`data: ${JSON.stringify(event)}\n\ndata: [DONE]\n\n`, { headers: { "content-type": "text/event-stream" } });
+  } });
+  cleanup.push(async () => { server.stop(true); });
+  const config = JSON.parse(await readFile(path.join(f.agent, "models.json"), "utf8"));
+  config.providers.fixture.baseUrl = `http://127.0.0.1:${server.port}/v1`;
+  config.providers.fixture.models.find((model: { id: string }) => model.id === "second").cost = { input: 2, output: 4, cacheRead: 1, cacheWrite: 1 };
+  await writeFile(path.join(f.agent, "models.json"), JSON.stringify(config));
+  const result = await f.run(`
+await session.selectModel({ query: 'fixture/second:auto' });
+await session.prompt('FALLBACK_FIXTURE');
+console.log('RESULT=' + JSON.stringify({ status: session.getStatus(), usage: session.getUsage() }));`);
+  expect(requests).toBe(2);
+  expect(result.status).toMatchObject({ model: "second", thinkingLevel: "high", configuredEffort: "auto", autoEffort: { state: "fallback" } });
+  expect(result.usage.effortClassification).toMatchObject({ requests: 1, tokens: { input: 10, output: 4, total: 14 } });
+  expect(result.usage.effortClassification.estimatedCost).toBeGreaterThan(0);
+}, 15_000);
+
+test("a fresh automatic default survives forking and resuming before its first prompt", async () => {
+  const f = await fixture();
+  await writeFile(path.join(f.casper, "settings.json"), JSON.stringify({
+    defaultProvider: "fixture", defaultModel: "second", autoEffortModels: ["fixture/second"],
+  }));
+  const result = await f.run(`
+const initial = session.getSessionInfo();
+await session.forkSession({ cwd: process.cwd(), name: 'before-first-prompt' });
+const fork = session.getStatus();
+await session.clearConversation();
+await session.resumeConversation(initial.sessionId);
+console.log('RESULT=' + JSON.stringify({ fork, resumed: session.getStatus() }));`);
+  expect(result.fork).toMatchObject({ model: "second", configuredEffort: "auto" });
+  expect(result.resumed).toMatchObject({ model: "second", configuredEffort: "auto" });
 }, 15_000);

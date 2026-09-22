@@ -1,0 +1,48 @@
+name: Verify published Windows installer
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Published release tag
+        required: true
+        default: v0.1.0
+permissions:
+  contents: read
+jobs:
+  install:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - name: Verify anonymous installation under Windows PowerShell and PowerShell 7
+        shell: powershell
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $smoke = @'
+          $ErrorActionPreference = 'Stop'
+          Write-Host "Testing PowerShell $($PSVersionTable.PSVersion)"
+          if ($env:RELEASE_TAG -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+$') { throw 'Invalid release tag' }
+          $env:Path = "$env:SystemRoot\System32;$env:SystemRoot;$env:SystemRoot\System32\WindowsPowerShell\v1.0"
+          $env:CASPER_INSTALL_DIR = Join-Path $env:RUNNER_TEMP "published casper $($PSVersionTable.PSVersion.Major)"
+          [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+          Invoke-RestMethod "https://github.com/Choaterboater/casper/releases/download/$env:RELEASE_TAG/install.ps1" | Invoke-Expression
+          $version = casper --version
+          if ($LASTEXITCODE -ne 0 -or $version -ne "casper $($env:RELEASE_TAG.Substring(1))") { throw 'Published version failed' }
+          $null = casper --help
+          if ($LASTEXITCODE -ne 0) { throw 'Published help failed' }
+          $notices = casper --licenses
+          if ($LASTEXITCODE -ne 0 -or ($notices -join "`n") -notmatch 'THIRD.PARTY') { throw 'Missing license notices' }
+          Set-Content index.ts 'export const answer = 42;'
+          $null = casper /project
+          if ($LASTEXITCODE -ne 0) { throw 'Published project inspection failed' }
+          $diagram = casper '/visualize repo'
+          if ($LASTEXITCODE -ne 0 -or ($diagram -join "`n") -notmatch 'flowchart LR') { throw 'Published inline diagram failed' }
+          Write-Host 'PASS: anonymous GitHub one-line install and startup without Bun or source checkout'
+          '@
+          $file = Join-Path $env:RUNNER_TEMP 'verify-casper.ps1'
+          [IO.File]::WriteAllText($file, $smoke)
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $file
+          if ($LASTEXITCODE -ne 0) { throw 'Windows PowerShell release verification failed' }
+          & "$env:ProgramFiles\PowerShell\7\pwsh.exe" -NoProfile -ExecutionPolicy Bypass -File $file
+          if ($LASTEXITCODE -ne 0) { throw 'PowerShell 7 release verification failed' }

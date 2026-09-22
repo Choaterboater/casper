@@ -1,0 +1,63 @@
+name: Linux preview
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['src/**', 'scripts/**', 'tools/**', 'tests/**', 'evals/**', 'package.json', 'bun.lock', 'bunfig.toml', 'tsconfig.json', 'THIRD_PARTY_NOTICES.txt', '.github/workflows/linux-preview.yml']
+  pull_request:
+    paths: ['src/**', 'scripts/**', 'tools/**', 'tests/**', 'evals/**', 'package.json', 'bun.lock', 'bunfig.toml', 'tsconfig.json', 'THIRD_PARTY_NOTICES.txt', '.github/workflows/linux-preview.yml']
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    env:
+      PI_OFFLINE: '1'
+      PI_TELEMETRY: '0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.0'
+      - name: Record host and PTY prerequisites
+        run: |
+          mkdir -p "$RUNNER_TEMP/linux-preview"
+          {
+            printf 'Commit: %s\nRunner image: %s %s\n' "$GITHUB_SHA" "$ImageOS" "$ImageVersion"
+            uname -a
+            cat /etc/os-release
+            bun --version
+            command -v python3
+            python3 --version
+            python3 -c 'import fcntl, pty, sys, termios; print("POSIX PTY modules available:", sys.executable)'
+          } 2>&1 | tee "$RUNNER_TEMP/linux-preview/host.log"
+      - name: Install locked dependencies
+        id: install
+        run: bun install --frozen-lockfile 2>&1 | tee "$RUNNER_TEMP/linux-preview/install.log"
+      - name: Probe Linux platform ownership
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun tools/platform-report.ts 2>&1 | tee "$RUNNER_TEMP/linux-preview/platform-report.log"
+      - name: Typecheck
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun run typecheck 2>&1 | tee "$RUNNER_TEMP/linux-preview/typecheck.log"
+      - name: Focused platform and terminal regressions
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: |
+          bun test tests/platform-processes.test.ts tests/login-picker.test.ts tests/login.test.ts tests/terminal-review.test.ts tests/terminal-ux.test.ts tests/terminal-discovery.test.ts tests/daily-terminal.test.ts tests/model-routing.test.ts tests/auto-effort.test.ts tests/model-selection.test.ts tests/phase10-debugger-app.test.ts 2>&1 | tee "$RUNNER_TEMP/linux-preview/platform-terminal.log"
+      - name: Full serial regression suite
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun test 2>&1 | tee "$RUNNER_TEMP/linux-preview/full-suite.log"
+      - name: Retain host verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-preview-evidence
+          path: ${{ runner.temp }}/linux-preview/
+          if-no-files-found: warn
+          retention-days: 14
