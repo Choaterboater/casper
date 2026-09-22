@@ -1304,21 +1304,28 @@ export class CasperApp {
   private handleRuntimeEvent(event: RuntimeEvent): void {
     if (event.type !== "assistant_text_delta" && event.type !== "assistant_progress") this.updateFooter();
     switch (event.type) {
-      case "model_controls_changed":
-        // Auto effort classified (or fell back) for this request; the footer carries the level.
+      case "model_controls_changed": {
+        // Auto effort classified (or fell back) for this request. The footer carries the level on a
+        // rich terminal; one-shot and plain output get one line so the choice is still on record.
         this.terminal.endAssistant();
-        if (event.status.autoEffort?.state === "fallback" || event.status.autoEffort?.state === "unavailable") {
+        const state = event.status.autoEffort?.state;
+        const degraded = state === "fallback" || state === "unavailable";
+        if (degraded || (!this.terminal.rich && event.status.configuredEffort === "auto" && state === "classified")) {
           this.ensureLineBreak();
-          this.output.write(`[effort] automatic classification ${event.status.autoEffort.state}; using ${event.status.thinkingLevel ?? "the previous level"}.\n`);
+          this.output.write(degraded
+            ? `[effort] automatic classification ${state}; using ${event.status.thinkingLevel ?? "the previous level"}.\n`
+            : `[effort] auto → ${event.status.thinkingLevel ?? "—"}\n`);
           this.endedWithNewline = true;
         }
         break;
+      }
       case "assistant_progress": {
         if (!this.terminal.rich) break;
         if (this.openToolLine) { this.openToolLine = false; this.terminal.write("\n"); }
-        const size = event.chars >= 1024 ? `${(event.chars / 1024).toFixed(1)}k` : String(event.chars);
+        // Some providers deliver tool arguments whole; the line then just says what is being prepared.
+        const size = event.chars === 0 ? "" : event.chars >= 1024 ? ` · ${(event.chars / 1024).toFixed(1)}k chars` : ` · ${event.chars} chars`;
         const what = event.kind === "thinking" ? "thinking" : `${terminalText(event.toolName ?? "tool call")} · composing arguments`;
-        this.terminal.write(`… ${what} · ${size} chars`, { rewriteLine: true });
+        this.terminal.write(`… ${what}${size}`, { rewriteLine: true });
         this.progressLine = true;
         break;
       }
