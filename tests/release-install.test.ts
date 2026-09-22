@@ -1,5 +1,6 @@
-import { afterEach, expect } from "bun:test";
-import { chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { afterEach, expect, test } from "bun:test";
+import { CASPER_VERSION } from "../src/version";
+import { chmod, mkdir, mkdtemp, readdir, readFile, readlink, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { artifactName, hostTarget, TARGETS } from "../scripts/build-release";
@@ -16,12 +17,13 @@ async function tempDir(prefix: string): Promise<string> {
   return root;
 }
 
-/** A stand-in artifact: the installer never inspects the binary, it runs `--version`. */
+/** A stand-in artifact: the installer never inspects the binary, it runs `--version`, which
+ * prints `casper <version> (<running path>)` like the real CLI. */
 async function fakeRelease(root: string, artifact: string, digestOverride?: string) {
   const release = path.join(root, "release");
   await mkdir(release, { recursive: true });
   const binary = path.join(release, artifact);
-  await writeFile(binary, `#!/bin/sh\n[ "$1" = "--version" ] && echo "casper 0.1.0"\nexit 0\n`);
+  await writeFile(binary, `#!/bin/sh\n[ "$1" = "--version" ] && echo "casper 0.1.0 ($0)"\nexit 0\n`);
   await chmod(binary, 0o755);
   const digest = digestOverride ?? new Bun.CryptoHasher("sha256").update(await Bun.file(binary).arrayBuffer()).digest("hex");
   await writeFile(path.join(release, "SHA256SUMS"), `${digest}  ${artifact}\n`);
@@ -39,10 +41,18 @@ async function install(release: string, installDir: string, extra: string[] = []
   return { stdout, stderr, exitCode };
 }
 
+test("preview installers agree on the versioned GitHub asset directory", async () => {
+  const base = `https://github.com/Choaterboater/casper/releases/download/v${CASPER_VERSION}`;
+  const shell = await readFile(installer, "utf8");
+  const powershell = await readFile(path.join(repoRoot, "scripts/install.ps1"), "utf8");
+  expect(shell).toContain('BASE_URL="${CASPER_BASE_URL:-' + base + '}"');
+  expect(powershell).toContain(`else { '${base}' }`);
+});
+
 // The POSIX installer and the `#!/bin/sh` stand-in artifact it installs only run on a
 // POSIX host, so every case here is POSIX-gated: on Windows these skip with a stated
 // reason instead of failing. `install.ps1` — the Windows half, which needs PowerShell —
-// has no test at all; see docs/RELEASE.md.
+// has no execution test on this host; URL agreement above is static only.
 posixOnly("the installer resolves the same artifact name the release build publishes", async () => {
   const child = Bun.spawn(["sh", installer, "--print-target"], { stdout: "pipe", stderr: "pipe" });
   const [stdout, exitCode] = await Promise.all([new Response(child.stdout).text(), child.exited]);
@@ -64,7 +74,7 @@ posixOnly("a verified artifact is installed, runs, and reports its version", asy
   expect((await stat(path.join(installDir, "casper"))).mode & 0o111).not.toBe(0);
 
   const run = Bun.spawn([path.join(installDir, "casper"), "--version"], { stdout: "pipe" });
-  expect((await new Response(run.stdout).text()).trim()).toBe("casper 0.1.0");
+  expect((await new Response(run.stdout).text()).trim()).toBe(`casper 0.1.0 (${installDir}/casper)`);
   expect(await run.exited).toBe(0);
 });
 
@@ -130,6 +140,71 @@ posixOnly("a development symlink is preserved unless replacement is forced", asy
   expect(forced.exitCode).toBe(0);
   expect((await stat(path.join(installDir, "casper"))).isFile()).toBe(true);
 });
+
+posixOnly("a link into a .scratch checkout is reported and never replaced, even when forced", async () => {
+  const root = await tempDir("casper-install-test-");
+  const artifact = artifactName(hostTarget());
+  const release = await fakeRelease(root, artifact);
+  const installDir = path.join(root, "bin");
+  await mkdir(installDir, { recursive: true });
+  const checkout = path.join(root, ".scratch/preview/src/cli.ts");
+  await mkdir(path.dirname(checkout), { recursive: true });
+  await writeFile(checkout, "#!/usr/bin/env bun\n");
+  const target = path.join(installDir, "casper");
+  const relative = path.relative(installDir, checkout);
+  await symlink(relative, target);
+
+  const forced = await install(release, installDir, ["--force"]);
+  expect(forced.exitCode).toBe(1);
+  expect(forced.stderr).toContain(`${target} is a symlink to ${await realpath(checkout)}, which is inside a .scratch checkout`);
+  expect(await readlink(target)).toBe(relative);
+  expect((await readdir(installDir)).filter((name) => name.startsWith(".casper-download"))).toEqual([]);
+});
+
+posixOnly("a failing version probe preserves the previous installation even when its output matches", async () => {
+  const root = await tempDir("casper-install-test-");
+  const artifact = artifactName(hostTarget());
+  const release = await fakeRelease(root, artifact);
+  const binary = path.join(release, artifact);
+  await writeFile(binary, '#!/bin/sh\necho "casper 0.1.0"\nexit 42\n');
+  const digest = new Bun.CryptoHasher("sha256").update(await Bun.file(binary).arrayBuffer()).digest("hex");
+  await writeFile(path.join(release, "SHA256SUMS"), `${digest}  ${artifact}\n`);
+  const installDir = path.join(root, "bin");
+  await mkdir(installDir);
+  const target = path.join(installDir, "casper");
+  await writeFile(target, "previous installation\n");
+
+  const result = await install(release, installDir, ["--version", "0.1.0"]);
+  expect(result.exitCode).toBe(1);
+  expect(await readFile(target, "utf8")).toBe("previous installation\n");
+  expect((await readdir(installDir)).filter(name => name.startsWith(".casper-download"))).toEqual([]);
+});
+
+posixOnly("the compiled CLI renders artifact files outside the checkout without Bun on PATH", async () => {
+  const root = await tempDir("casper-binary-test-");
+  const binary = path.join(root, "casper");
+  const build = Bun.spawn([process.execPath, "build", path.join(repoRoot, "src/cli.ts"), "--compile", "--minify", `--outfile=${binary}`], {
+    cwd: repoRoot, stdout: "pipe", stderr: "pipe",
+  });
+  const [buildLog, buildErrors, buildExit] = await Promise.all([
+    new Response(build.stdout).text(), new Response(build.stderr).text(), build.exited,
+  ]);
+  expect({ exit: buildExit, error: buildExit ? buildLog + buildErrors : "" }).toEqual({ exit: 0, error: "" });
+  const home = path.join(root, "home"), project = path.join(root, "project");
+  await mkdir(home); await mkdir(project);
+  await writeFile(path.join(project, "index.ts"), "export const answer = 42;\n");
+  const child = Bun.spawn([binary, "/visualize repo"], {
+    cwd: project, env: { HOME: home, TMPDIR: root, PATH: "/usr/bin:/bin", TERM: "dumb" }, stdout: "pipe", stderr: "pipe",
+  });
+  const [stdout, stderr, exitCode] = await Promise.all([
+    new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited,
+  ]);
+  expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
+  expect(stdout).toContain("flowchart LR");
+  const artifacts = await readdir(path.join(home, ".casper/visualizations/project"));
+  expect(artifacts.some(name => name.endsWith(".mermaid.mmd"))).toBe(true);
+  expect(artifacts.some(name => name.endsWith(".mindmesh.json"))).toBe(true);
+}, 120_000);
 
 posixOnly("an unsupported platform is reported instead of guessed", async () => {
   const child = Bun.spawn(["sh", installer], {

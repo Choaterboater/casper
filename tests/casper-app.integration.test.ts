@@ -247,6 +247,70 @@ test("local skill commands work without starting an unavailable runtime", async 
     }
   });
 
+  test("receipts report the workspace diff, not tool names, and /output replays retained tool output", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "casper-receipt-"));
+    const homeDir = await mkdtemp(path.join(os.tmpdir(), "casper-receipt-home-"));
+    tempDirs.push(root, homeDir);
+    await execFileAsync("git", ["init", "-b", "main"], { cwd: root });
+    await writeFile(path.join(root, "notes.txt"), "before\n");
+    await execFileAsync("git", ["-c", "user.email=t@t", "-c", "user.name=t", "add", "."], { cwd: root });
+    await execFileAsync("git", ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init"], { cwd: root });
+    let respond: (emit: (event: Parameters<RuntimeEventListener>[0]) => void) => Promise<void> = async () => {};
+    let listener: RuntimeEventListener | undefined;
+    const runtime: AgentRuntime = {
+      async start(options: RuntimeStartOptions): Promise<RuntimeSession> {
+        return {
+          async prompt() { await respond((event) => listener?.(event)); },
+          setTools() {}, async abort() {},
+          subscribe(next) { listener = next; return () => { listener = undefined; }; },
+          getState: () => ({ cwd: options.cwd, isStreaming: false }),
+        };
+      },
+      async dispose() {},
+    };
+    let output = "";
+    const app = new CasperApp({
+      runtimeFactory: () => runtime,
+      loadProjectContext: (project) => loadProjectContext(project, { homeDir }),
+      loadSkillRegistry: (context) => SkillRegistry.discover({ projectRoot: context.info.root, homeDir }),
+      output: { write: (text) => { output += text; } },
+    });
+    try {
+      respond = async (emit) => {
+        emit({ type: "tool_start", toolName: "bash", toolCallId: "1", input: { command: "cat notes.txt" } });
+        emit({ type: "tool_end", toolName: "bash", toolCallId: "1", input: { command: "cat notes.txt" }, output: { text: "before\n", truncated: false }, isError: false });
+        emit({ type: "message_end" });
+      };
+      await app.runOnce("Fix the bug in notes.txt", root);
+      expect(output).toContain("[task] Execution completed; no files changed; no Casper verification recorded.");
+      expect(output).not.toContain("possible tool writes");
+      expect(app.getLastTaskResult()).toMatchObject({ changedPaths: [], possibleMutations: false });
+
+      output = "";
+      respond = async (emit) => {
+        emit({ type: "tool_start", toolName: "bash", toolCallId: "2", input: { command: "echo after > notes.txt" } });
+        await writeFile(path.join(root, "notes.txt"), "after\n");
+        emit({ type: "tool_end", toolName: "bash", toolCallId: "2", input: { command: "echo after > notes.txt" }, output: { text: "", truncated: false }, isError: false });
+        emit({ type: "tool_start", toolName: "bash", toolCallId: "3", input: { command: "wc -l notes.txt" } });
+        emit({ type: "tool_end", toolName: "bash", toolCallId: "3", input: { command: "wc -l notes.txt" }, output: { text: "1 notes.txt\n", truncated: false }, isError: false });
+        emit({ type: "message_end" });
+      };
+      await app.runOnce("hey");
+      expect(output).toContain("[task] Execution completed; 1 file(s) changed: notes.txt; no Casper verification recorded.");
+      expect(output).toMatch(/notes\.txt \| 2 \+-/);
+      expect(app.getLastTaskResult()).toMatchObject({ changedPaths: ["notes.txt"], possibleMutations: false });
+
+      output = "";
+      await app.runOnce("/output");
+      expect(output).toContain("[output] bash · wc -l notes.txt · success\n1 notes.txt\n");
+      output = "";
+      await app.runOnce("/output 2");
+      expect(output).toContain("[output] bash · echo after > notes.txt · success\n(no output text)\n");
+      await expect(app.runOnce("/output 3")).rejects.toThrow("Usage: /output [n] with n from 1 (most recent) to 2");
+      await expect(app.runOnce("/output zero")).rejects.toThrow("Usage: /output");
+    } finally { await app.close(); }
+  });
+
   test("starts with a Casper banner, detects git branch, and streams runtime output", async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "casper-phase1-project-"));
     const homeDir = await mkdtemp(path.join(os.tmpdir(), "casper-phase1-home-"));

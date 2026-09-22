@@ -292,7 +292,7 @@ test.skipIf(!filesystemAliases.caseInsensitive)("a missing named alias observed 
     expect((await check(tool)).reused).toBe(true);
   });
   expect(await app.runOnce("Continue", root)).toMatchObject({ status: "pass", repairAttempts: 0 });
-  expect(app.getLastTaskResult()).toMatchObject({ observedEdits: [], possibleMutations: true });
+  expect(app.getLastTaskResult()).toMatchObject({ observedEdits: [], possibleMutations: false, changedPaths: expect.arrayContaining(["test-runs"]) });
   expect(await readFile(path.join(root, "test-runs"), "utf8")).toBe("xx");
 });
 
@@ -308,7 +308,7 @@ test("a failed native write with possible partial edits invalidates matching evi
     expect((await check(tool)).reused).not.toBe(true);
   });
   expect((await app.runOnce("Continue", root))?.status).toBe("pass");
-  expect(app.getLastTaskResult()).toMatchObject({ possibleMutations: true, observedEdits: [] });
+  expect(app.getLastTaskResult()).toMatchObject({ possibleMutations: false, changedPaths: ["test-runs"], observedEdits: [] });
   expect(await readFile(path.join(root, "test-runs"), "utf8")).toBe("xx");
 });
 
@@ -327,7 +327,7 @@ needsSymlinks("a failed partial native write remains invalidating after its alia
     expect((await check(tool)).reused).not.toBe(true);
   });
   expect((await app.runOnce("Continue", root))?.status).toBe("pass");
-  expect(app.getLastTaskResult()).toMatchObject({ possibleMutations: true, observedEdits: [] });
+  expect(app.getLastTaskResult()).toMatchObject({ possibleMutations: false, changedPaths: ["test-runs"], observedEdits: [] });
   expect(await readFile(path.join(root, "test-runs"), "utf8")).toBe("xx");
 });
 
@@ -354,7 +354,7 @@ for (const form of ["case", "unicode", "unicode-case", "missing-parent"]) test.s
     expect((await check(tool, "build")).reused).toBe(true);
   });
   expect(await app.runOnce("Continue", root)).toMatchObject({ status: "pass", repairAttempts: 0 });
-  expect(app.getLastTaskResult()).toMatchObject({ observedEdits: [], possibleMutations: true });
+  expect(app.getLastTaskResult()).toMatchObject({ observedEdits: [], possibleMutations: false, changedPaths: ["build-runs", "test-runs"] });
   expect(await readFile(path.join(root, "test-runs"), "utf8")).toBe("xx");
   expect(await readFile(path.join(root, "build-runs"), "utf8")).toBe("x");
 });
@@ -377,7 +377,7 @@ test.skipIf(!filesystemAliases.caseInsensitive)("a removed case-aliased parent c
     expect((await check(tool, "build")).reused).toBe(true);
   });
   expect(await app.runOnce("Continue", root)).toMatchObject({ status: "pass", repairAttempts: 0 });
-  expect(app.getLastTaskResult()).toMatchObject({ observedEdits: [], possibleMutations: true });
+  expect(app.getLastTaskResult()).toMatchObject({ observedEdits: [], possibleMutations: false, changedPaths: ["build-runs", "test-runs"] });
   expect(await readFile(path.join(root, "test-runs"), "utf8")).toBe("xx");
   expect(await readFile(path.join(root, "build-runs"), "utf8")).toBe("x");
 });
@@ -480,7 +480,7 @@ for (const destination of ["excluded", "outside"]) for (const outcome of ["succe
   });
   expect(await app.runOnce("Continue", root)).toMatchObject({ status: "pass", repairAttempts: 0 });
   expect(app.getLastTaskResult()?.observedEdits).toEqual(outcome === "success" ? ["src/link/transient"] : []);
-  if (outcome === "partial-failure") expect(app.getLastTaskResult()?.possibleMutations).toBe(true);
+  expect(app.getLastTaskResult()).toMatchObject({ possibleMutations: false, changedPaths: ["build-runs", "test-runs"] });
   expect(await readFile(path.join(root, "test-runs"), "utf8")).toBe("xx");
   expect(await readFile(path.join(root, "build-runs"), "utf8")).toBe("x");
 });
@@ -632,7 +632,11 @@ test("another managed check invalidates scoped evidence even if an input directo
 });
 
 posixOnly("tool cancellation kills real commands and queued checks without starting repair", async () => {
-  const root = await fixture({ verify: { test: "touch started; (sleep 0.5 && touch leaked) & wait", build: checkCommand("touch:queued-ran") }, verification: { timeoutMs: 2000 } });
+  // Keep the shell and its children alive through TERM so the existing KILL
+  // escalation deterministically supplies the asserted signal exit. Bare `wait`
+  // can return 0 as children terminate; cancellation must retain that real exit
+  // code rather than fabricating null to satisfy this fixture.
+  const root = await fixture({ verify: { test: "trap '' TERM; touch started; (sleep 0.5 && touch leaked) & wait", build: checkCommand("touch:queued-ran") }, verification: { timeoutMs: 2000 } });
   const controller = new AbortController();
   const { app, prompts } = createApp(root, async (_prompt, tools) => {
     const tool = checkTool(tools);
@@ -702,7 +706,7 @@ test("a selected pass is rechecked after a later partial edit, before any repair
   expect(report).toMatchObject({ status: "fail", repairAttempts: 0 });
   expect(report?.results[0]).toMatchObject({ status: "fail", exitCode: 1, freshness: "fresh" });
   expect(await readFile(path.join(root, "test-runs"), "utf8")).toBe("xx");
-  expect(app.getLastTaskResult()?.possibleMutations).toBe(true);
+  expect(app.getLastTaskResult()).toMatchObject({ possibleMutations: false, changedPaths: ["src/value", "test-runs"] });
 });
 
 test("a vague request follows edit → selected check → scoped reuse → invalidation → failure → one repair owner", async () => {
@@ -738,4 +742,7 @@ test("a vague request follows edit → selected check → scoped reuse → inval
   expect(await readFile(path.join(root, "test-runs"), "utf8")).toBe("xxx");
   expect(await Bun.file(path.join(root, "build-runs")).exists()).toBe(false);
   expect(app.getLastTaskResult()?.observedEdits).toEqual(["src/value"]);
+  // The model turn left src/value at its starting content and only ran checks; the repair
+  // round's edit and rerun are reported separately, never as the request's own changes.
+  expect(app.getLastTaskResult()).toMatchObject({ changedPaths: ["test-runs"], changedDuringChecks: ["src/value", "test-runs"] });
 });

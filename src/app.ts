@@ -9,7 +9,7 @@ import { browserTool } from "./browser/tools";
 import { formatTerminalJSON } from "./tui/json";
 import { InteractiveTerminal } from "./tui/terminal";
 import { pickEffort } from "./tui/effort-picker";
-import { formatRuntimeStatus, formatToolActivity } from "./tui/format";
+import { formatRuntimeStatus, formatToolActivity, redactPreview, terminalText } from "./tui/format";
 import { ProjectMemory, type TaskOutcome } from "./memory/store";
 import { discoverReferenceConfiguration, type ReferenceConfiguration } from "./references/config";
 import { formatReferenceResult, ReferenceLibrary } from "./references/library";
@@ -38,9 +38,11 @@ import { SkillRegistry, formatSelectedSkills } from "./skills/registry";
 import { classifyTask, formatTaskPrompt } from "./task/classify";
 import { formatTaskResult, type TaskResult } from "./task/result";
 import { TaskObservations } from "./task/observations";
+import { diffSnapshots, snapshotTree, type TreeChanges } from "./task/changes";
 import { renderBanner, renderProjectSummary } from "./tui/banner";
 import type { ProjectCommand } from "./project/model";
 import { CHECK_NAMES, formatVerificationReport, formatVerificationResult, type VerificationReport } from "./verify/evidence";
+import { ProcessCleanupError } from "./platform/processes";
 import { VerifierRegistry } from "./verify/registry";
 import { verifyAndRepair } from "./verify/repair-loop";
 import { VerificationTask } from "./verify/task";
@@ -142,6 +144,12 @@ export class CasperApp {
   private workspaceNeedsRebind = false;
   private taskRuntimeFailed = false;
   private displayedError?: string;
+  private cleanupError?: ProcessCleanupError;
+  private readonly blockOnCleanupFailure = () => {
+    this.cleanupError = new ProcessCleanupError();
+    this.commandAbort?.abort(); this.verificationAbort?.abort(); this.checkTask?.abort();
+    void this.session?.abort().catch(() => {});
+  };
   private savedModelDisplay?: string;
   private taskRuntimeCancelled = false;
   private lastTaskResult?: TaskResult;
@@ -236,14 +244,16 @@ export class CasperApp {
   }
 
   async runInteractive(cwd = process.cwd()): Promise<void> {
+    // Own the terminal before the banner so startup output is transcript, not
+    // loose text a later redraw would drop.
+    this.interactive = true;
+    this.terminal.start();
     if (!this.projectContext) {
       await this.start(cwd);
     }
 
     this.savedModelDisplay = await modelPreference(this.sessionHomeDir ?? os.homedir());
-    this.interactive = true;
     this.updateFooter();
-    this.terminal.start();
     while (!this.closing) {
       this.cancelBeforeCommand = false;
       this.updateFooter();
@@ -310,6 +320,9 @@ export class CasperApp {
     this.referencesClose = this.references?.close();
     this.debugClose = this.debugSession?.close();
     this.browserClose = this.browser?.close();
+    // These close concurrently while runtime/verification drain. Observe early
+    // rejections now; finishClose still awaits and propagates their results.
+    for (const work of [this.mcpClose, this.lspClose, this.referencesClose, this.debugClose, this.browserClose]) void work?.catch(() => {});
     this.terminal.close();
     this.closeWork = this.finishClose();
     return this.closeWork;
@@ -394,10 +407,16 @@ export class CasperApp {
   private async handlePrompt(prompt: string): Promise<VerificationReport | undefined> {
     if (this.closing) return;
     if (this.commandActive) throw new Error("Another command is active; wait for active subagents or workspace transition");
+    // Keep local status/help and cleanup available, but never forget an uncertain
+    // tree just because its originating command or model tool has finished.
+    if (!/^\/(?:help(?: all)?|status|project|permissions|mcp|lsp|browser|debug|exit|quit|browser close|debug stop)$/.test(prompt)
+      && !/^\/(?:mcp|lsp) disconnect\s/.test(prompt)) {
+      if (this.cleanupError) throw this.cleanupError;
+      this.browser?.assertCleanup(); this.mcp?.assertCleanup(); this.lsp?.assertCleanup();
+    }
     const transition = /^\/(?:branch|switch)(?:\s|$)/.test(prompt);
     if (transition && this.subagents.isBusy) throw new Error("Wait for active subagents before changing workspaces");
     this.lastTaskResult = undefined;
-    this.observations = new TaskObservations();
     this.taskRuntimeFailed = false;
     this.displayedError = undefined;
     this.taskRuntimeCancelled = false;
@@ -408,13 +427,22 @@ export class CasperApp {
     try {
       if (this.workspaceNeedsRebind) await this.rebindWorkspace(this.activeWorkspaceRoot());
       return await (prompt.startsWith("/") ? this.handleSlashCommand(prompt) : this.runModelTask(prompt));
+    } catch (error) {
+      if (error instanceof ProcessCleanupError) this.cleanupError = error;
+      throw error;
     } finally {
-      await this.checkTask?.close();
-      if (!prompt.startsWith("/")) await this.browser?.close();
-      this.checkTask = undefined;
-      this.commandActive = false;
-      this.workspaceTransition = false;
-      this.updateFooter();
+      try {
+        await this.checkTask?.close();
+        if (!prompt.startsWith("/")) await this.browser?.close();
+      } catch (error) {
+        if (error instanceof ProcessCleanupError) this.cleanupError = error;
+        throw error;
+      } finally {
+        this.checkTask = undefined;
+        this.commandActive = false;
+        this.workspaceTransition = false;
+        this.updateFooter();
+      }
     }
   }
 
@@ -459,6 +487,8 @@ export class CasperApp {
       const result = await session.selectModel({ query: (sessionOnly ? argument.slice(9).trim() : argument) || undefined,
         persist: !sessionOnly, signal: this.commandAbort?.signal,
         picker: this.interactive ? this.terminal.modelPickerHost() : undefined });
+      // A cancelled picker changes nothing; the status block was already shown at startup.
+      if (!result.selected && !result.models) { this.output.write("[model] Selection cancelled; model unchanged.\n"); return; }
       this.output.write(`${formatRuntimeStatus(result.status)}\n`);
       if (result.selected) this.output.write(result.savedDefault
         ? "[model] Selected and saved as the Casper default for new conversations. Shared Pi settings unchanged.\n"
@@ -478,7 +508,7 @@ export class CasperApp {
         const status = session.getStatus?.();
         const host = this.interactive ? this.terminal.exclusiveHost() : undefined;
         if (host && session.setEffort && status?.availableThinkingLevels?.length) {
-          const selected = await host.run(io => pickEffort(io, status.availableThinkingLevels!, status.thinkingLevel, this.commandAbort?.signal));
+          const selected = await host.mount(view => pickEffort(view, status.availableThinkingLevels!, status.thinkingLevel, this.commandAbort?.signal));
           if (selected) this.output.write(`${formatRuntimeStatus(await session.setEffort(selected.level, selected.persist))}\n`);
         } else this.output.write(`Effort: ${status?.thinkingLevel ?? "unavailable"}. Supported: ${status?.availableThinkingLevels?.join(", ") || "unavailable"}\nUse /effort <level> [--session].\n`);
       } else {
@@ -538,19 +568,21 @@ export class CasperApp {
       return;
     }
     if (prompt === "/diff") {
-      const git = async (args: string[]) => {
-        try { return (await promisify(execFile)("git", ["--no-pager", ...args], {
-          cwd: this.activeWorkspaceRoot(), timeout: 5000, maxBuffer: 64 * 1024,
-        })).stdout; }
-        catch (error) {
-          if (error && typeof error === "object" && "code" in error && error.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER" && "stdout" in error && typeof error.stdout === "string")
-            return error.stdout.slice(0, 64 * 1024) + "\n[diff truncated at display limit]\n";
-          throw error;
-        }
-      };
-      this.output.write(await git(["status", "--short"]));
-      this.output.write(await git(["diff", "--no-ext-diff", "--no-textconv", "HEAD", "--"]));
+      this.output.write(await this.git(["status", "--short"]));
+      this.output.write(await this.git(["diff", "--no-ext-diff", "--no-textconv", "HEAD", "--"]));
       this.output.write("[diff] Tracked changes against HEAD; untracked files listed above, contents not included. Output limited to 64 KiB per command.\n");
+      return;
+    }
+    if (/^\/output(?:\s|$)/.test(prompt)) {
+      const argument = prompt.slice(7).trim();
+      const recency = argument ? Number(argument) : 1;
+      const retained = this.observations.retainedOutputs;
+      if (!retained) throw new Error("No tool output retained; /output shows tool calls from the last model task.");
+      const entry = Number.isInteger(recency) ? this.observations.toolOutput(recency) : undefined;
+      if (!entry) throw new Error(`Usage: /output [n] with n from 1 (most recent) to ${retained} (retained tool call${retained === 1 ? "" : "s"}).`);
+      const target = entry.target === undefined ? "" : ` · ${redactPreview(entry.target).replace(/\s+/g, " ").slice(0, 180)}`;
+      this.output.write(`[output] ${terminalText(entry.toolName).slice(0, 80)}${target} · ${entry.status}${entry.truncated ? " · truncated by runtime" : ""}\n`);
+      this.output.write(entry.text ? `${terminalText(entry.text)}\n` : "(no output text)\n");
       return;
     }
     if (prompt === "/status") {
@@ -643,6 +675,7 @@ export class CasperApp {
 
   private async runModelTask(prompt: string): Promise<VerificationReport | undefined> {
     if (this.closing) return;
+    this.observations = new TaskObservations();
     // Debug values and active debuggees do not silently become model-task context.
     await this.stopDebugger();
     // A finished task's immutable evidence belongs to its receipt, not the next prompt.
@@ -666,13 +699,17 @@ export class CasperApp {
     }
     if (this.closing || this.commandAbort?.signal.aborted) return;
     if (this.autoVerify) this.checkTask = new VerificationTask(
-      VerifierRegistry.forProject(context.model, context.verification.timeoutMs), this.activeWorkspaceRoot(),
+      VerifierRegistry.forProject(context.model, context.verification.timeoutMs, this.blockOnCleanupFailure), this.activeWorkspaceRoot(),
       (result) => { this.ensureLineBreak(); this.output.write(`${formatVerificationResult(result)}\n`); },
     );
     await this.prepareCapabilities(prompt, classification.intent === "visualize");
     if (this.closing || this.commandAbort?.signal.aborted) return;
     const session = await this.ensureRuntime();
     if (this.closing || this.commandAbort?.signal.aborted) return;
+    const workspaceRoot = this.activeWorkspaceRoot();
+    // Receipts describe the tree, not tool names: a read-only shell run is not a write.
+    const before = await this.snapshotWorkspace(workspaceRoot, this.commandAbort?.signal);
+    let afterModel: Map<string, string> | undefined;
     let verification: VerificationReport | undefined;
     try {
       await session.prompt([
@@ -680,6 +717,7 @@ export class CasperApp {
         skillContext,
         formatTaskPrompt(prompt, classification, context.model),
       ].filter(Boolean).join("\n\n"), this.commandAbort?.signal);
+      afterModel = before && !this.closing ? await this.snapshotWorkspace(workspaceRoot) : undefined;
       if (!this.closing && !this.commandAbort?.signal.aborted && !this.taskRuntimeFailed && !this.checkTask?.signal.aborted && this.checkTask?.checks.length) {
         verification = await this.runVerification(this.checkTask.checks, true, prompt, this.checkTask);
       }
@@ -694,14 +732,22 @@ export class CasperApp {
         status: "blocked", reason: `Task ${execution}; no further checks or repair.`, repairAttempts: 0,
         results: await this.checkTask.refresh(), rounds: this.checkTask.rounds,
       };
-      const observations = this.observations.snapshot();
+      // The model turn and the verification/repair round are measured separately so check
+      // scripts and repair edits are never attributed to the request itself.
+      afterModel ??= before && !this.closing ? await this.snapshotWorkspace(workspaceRoot) : undefined;
+      const afterChecks = verification && afterModel && !this.closing ? await this.snapshotWorkspace(workspaceRoot) : afterModel;
+      const flatten = (changes: TreeChanges) => [...changes.added, ...changes.modified, ...changes.removed].sort();
+      const changedPaths = before && afterModel ? flatten(diffSnapshots(before, afterModel)) : undefined;
+      const changedDuringChecks = afterModel && afterChecks && afterChecks !== afterModel ? flatten(diffSnapshots(afterModel, afterChecks)) : [];
+      const observations = this.observations.snapshot(changedPaths, changedDuringChecks);
       const browser = !this.closing && this.browser ? await this.browser.report() : undefined;
       this.lastTaskResult = { execution, verification, ...observations, ...(browser?.checks.length ? { browser } : {}) };
       if (!this.closing) {
         this.terminal.endAssistant();
         this.ensureLineBreak();
-        if (classification.intent !== "general" || execution !== "completed" || verification || browser?.checks.length || observations.possibleMutations || observations.observedEdits.length || observations.observedChecks.length) {
+        if (classification.intent !== "general" || execution !== "completed" || verification || browser?.checks.length || observations.possibleMutations || observations.changedPaths?.length || observations.changedDuringChecks?.length || observations.observedEdits.length || observations.observedChecks.length) {
           this.output.write(`${formatTaskResult(this.lastTaskResult)}\n`);
+          if (observations.changedPaths?.length || observations.changedDuringChecks?.length) this.output.write(await this.diffStat());
         }
       }
       await this.recordTaskOutcome({ task: prompt, skills: selected.map(({ skill }) => skill.id),
@@ -759,7 +805,7 @@ export class CasperApp {
     const context = this.projectContext!;
     const controller = new AbortController();
     const evidence = task ?? new VerificationTask(
-      VerifierRegistry.forProject(context.model, context.verification.timeoutMs), this.activeWorkspaceRoot(),
+      VerifierRegistry.forProject(context.model, context.verification.timeoutMs, this.blockOnCleanupFailure), this.activeWorkspaceRoot(),
       (result) => { this.ensureLineBreak(); this.output.write(`${formatVerificationResult(result)}\n`); },
     );
     const cancel = () => controller.abort();
@@ -909,6 +955,30 @@ export class CasperApp {
 
   private activeWorkspaceRoot(): string {
     return this.session?.getState().cwd ?? this.projectContext!.info.root;
+  }
+
+  /** Bounded read-only git query in the active workspace; oversized output is marked, not silently cut. */
+  private async git(args: string[]): Promise<string> {
+    try { return (await promisify(execFile)("git", ["--no-pager", ...args], {
+      cwd: this.activeWorkspaceRoot(), timeout: 5000, maxBuffer: 64 * 1024,
+    })).stdout; }
+    catch (error) {
+      if (error && typeof error === "object" && "code" in error && error.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER" && "stdout" in error && typeof error.stdout === "string")
+        return error.stdout.slice(0, 64 * 1024) + "\n[diff truncated at display limit]\n";
+      throw error;
+    }
+  }
+
+  /** Tracked changes against HEAD after a task that changed files; silent outside a git history. */
+  private async diffStat(): Promise<string> {
+    try { return await this.git(["diff", "--stat", "--no-ext-diff", "--no-textconv", "HEAD", "--"]); }
+    catch { return ""; }
+  }
+
+  /** Undefined when the tree is too large, unreadable or the task was cancelled mid-walk. */
+  private async snapshotWorkspace(root: string, signal?: AbortSignal): Promise<Map<string, string> | undefined> {
+    try { return await snapshotTree(root, signal); }
+    catch { return undefined; }
   }
 
   private async prepareCapabilities(task: string, includeVisualization = false): Promise<void> {
@@ -1156,7 +1226,7 @@ export class CasperApp {
       const usage = this.session?.getUsage?.();
       const percent = usage?.context?.percent;
       const model = status?.model ? `${status.provider}/${status.model} · ${status.thinkingLevel ?? "effort —"}` : this.savedModelDisplay ?? "model not initialized · /model";
-      this.terminal.setStatus(`${project.name}/${project.gitBranch ?? "no git"} │ ${model} │ ctx ${percent == null ? "—" : `${percent.toFixed(0)}%~`} │ ${usage ? `${usage.tokens.total} tok │ ` : ""}${usage?.estimatedCost === undefined ? "" : `$${usage.estimatedCost.toFixed(3)} est │ `}${this.commandActive ? "working" : "idle"}`, project.root);
+      this.terminal.setStatus(`${project.name}/${project.gitBranch ?? "no git"} │ ${model} │ ctx ${percent == null ? "—" : `${percent.toFixed(0)}%~`}${usage ? ` │ ${usage.tokens.total} tok` : ""}${usage?.estimatedCost === undefined ? "" : ` │ $${usage.estimatedCost.toFixed(3)} est`} │ ${this.commandActive ? "working" : "idle"}`, project.root);
     } catch { this.terminal.setStatus("Session status unavailable · /status", this.projectContext.info.root); }
   }
 

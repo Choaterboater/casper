@@ -3,7 +3,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { formatEvalReport, formatEvalResult } from "../evals/report";
-import { runEvalTask, type EvalRunResult } from "../evals/runner";
+import { resolveEvalModel, runEvalTask, summarizeEvalRuns, type EvalModel, type EvalRunResult, type EvalTaskSummary } from "../evals/runner";
 import { EVAL_TASKS, findEvalTask } from "../evals/tasks";
 
 const USAGE = `Usage: bun tools/eval.ts [options]
@@ -14,8 +14,15 @@ repair attempts, tokens, wall clock).
 
 Options:
   --task <id>        Run one task (repeatable). Default: every task.
-  --json <path>      Write the raw results as JSON.
-  --timeout <sec>    Independent verification timeout per task. Default: 120.
+  --repeat <n>       Run each selected task n times (1..20) on fresh work directories
+                     and temporary homes; report pass rate, median/min/max wall clock
+                     and median tokens per task. Default: 1.
+  --model <ref>      provider/model-id to use for this run's conversations only. Resolved
+                     against Casper's model catalog before any task runs; the user's
+                     saved default (~/.casper/settings.json) is never written.
+  --json <path>      Write the raw results as JSON ({ ranAt, model, repeat, results[] },
+                     each result carrying runs[] and the per-task aggregate).
+  --timeout <sec>    Independent verification timeout per check. Default: 120.
   --keep             Keep each prepared work directory for inspection.
   --no-auto-verify   Do not exercise Casper's own verification/repair loop.
   --list             List task ids and exit.
@@ -26,33 +33,53 @@ credentials and any provider billing are the user's. Casper state (sessions,
 memory, skills, MCP/LSP/reference configuration) is isolated to a temporary home
 so runs are comparable and ambient configuration cannot join them.`;
 
-function parseArguments(args: readonly string[]) {
-  const selected: string[] = [];
-  let json: string | undefined;
-  let timeoutSeconds = 120;
-  let keep = false;
-  let autoVerify = true;
+interface EvalOptions {
+  help: boolean;
+  list: boolean;
+  selected: string[];
+  json?: string;
+  model?: string;
+  repeat: number;
+  timeoutSeconds: number;
+  keep: boolean;
+  autoVerify: boolean;
+}
+
+function parseArguments(args: readonly string[]): EvalOptions {
+  const options: EvalOptions = { help: false, list: false, selected: [], repeat: 1, timeoutSeconds: 120, keep: false, autoVerify: true };
   for (let index = 0; index < args.length; index++) {
     const argument = args[index]!;
-    if (argument === "--help" || argument === "-h") return { help: true, selected, json, timeoutSeconds, keep, autoVerify, list: false };
-    if (argument === "--list") return { list: true, help: false, selected, json, timeoutSeconds, keep, autoVerify };
-    if (argument === "--keep") { keep = true; continue; }
-    if (argument === "--no-auto-verify") { autoVerify = false; continue; }
-    if (argument === "--task" || argument === "--json" || argument === "--timeout") {
+    if (argument === "--help" || argument === "-h") return { ...options, help: true };
+    if (argument === "--list") return { ...options, list: true };
+    if (argument === "--keep") { options.keep = true; continue; }
+    if (argument === "--no-auto-verify") { options.autoVerify = false; continue; }
+    if (argument === "--task" || argument === "--json" || argument === "--timeout" || argument === "--repeat" || argument === "--model") {
       const value = args[++index];
       if (!value) throw new Error(`${argument} needs a value`);
-      if (argument === "--task") selected.push(value);
-      else if (argument === "--json") json = value;
-      else {
+      if (argument === "--task") options.selected.push(value);
+      else if (argument === "--json") options.json = value;
+      else if (argument === "--model") options.model = value;
+      else if (argument === "--repeat") {
+        const count = Number(value);
+        if (!Number.isInteger(count) || count < 1 || count > 20) throw new Error("--repeat must be an integer between 1 and 20");
+        options.repeat = count;
+      } else {
         const seconds = Number(value);
         if (!Number.isFinite(seconds) || seconds < 1 || seconds > 3600) throw new Error("--timeout must be between 1 and 3600 seconds");
-        timeoutSeconds = seconds;
+        options.timeoutSeconds = seconds;
       }
       continue;
     }
     throw new Error(`Unknown argument: ${argument}`);
   }
-  return { help: false, list: false, selected, json, timeoutSeconds, keep, autoVerify };
+  return options;
+}
+
+/** The requested model, or the one every run agreed on; null when runs disagree or reported none. */
+function observedModel(requested: EvalModel | undefined, summaries: readonly EvalTaskSummary[]): string | null {
+  if (requested) return `${requested.provider}/${requested.id}`;
+  const models = new Set(summaries.flatMap((summary) => summary.runs.map((run) => run.model)));
+  return models.size === 1 ? [...models][0]! : null;
 }
 
 async function main(): Promise<void> {
@@ -70,23 +97,31 @@ async function main(): Promise<void> {
       return task;
     })
     : EVAL_TASKS;
+  // Fail on an unknown model or missing credentials before a single fixture is prepared.
+  const model = options.model ? await resolveEvalModel(options.model) : undefined;
 
-  process.stdout.write(`${tasks.length} task(s); Casper state isolated to a temporary home; provider billing applies to model calls.\n\n`);
-  const results: EvalRunResult[] = [];
+  process.stdout.write(`${tasks.length} task(s)${options.repeat > 1 ? ` x ${options.repeat} runs` : ""}; model ${model ? `${model.provider}/${model.id} (--model, this run only)` : "Casper default"}; `
+    + "Casper state isolated to a temporary home; provider billing applies to model calls.\n\n");
+  const summaries: EvalTaskSummary[] = [];
   for (const task of tasks) {
-    const result = await runEvalTask(task, {
-      repoRoot, keepWorkdir: options.keep, autoVerify: options.autoVerify, verifyTimeoutMs: options.timeoutSeconds * 1000,
-    });
-    results.push(result);
-    process.stdout.write(`${formatEvalResult(result)}\n`);
+    const runs: EvalRunResult[] = [];
+    for (let run = 1; run <= options.repeat; run++) {
+      const result = await runEvalTask(task, {
+        repoRoot, model, keepWorkdir: options.keep, autoVerify: options.autoVerify, verifyTimeoutMs: options.timeoutSeconds * 1000,
+      });
+      runs.push(result);
+      process.stdout.write(`${options.repeat > 1 ? `[${run}/${options.repeat}] ` : ""}${formatEvalResult(result)}\n`);
+    }
+    summaries.push(summarizeEvalRuns(task, runs));
   }
-  process.stdout.write(`\n${formatEvalReport(results)}`);
+  process.stdout.write(`\n${formatEvalReport(summaries)}`);
   if (options.json) {
     await mkdir(path.dirname(path.resolve(options.json)), { recursive: true });
-    await writeFile(path.resolve(options.json), `${JSON.stringify({ ranAt: new Date().toISOString(), results }, null, 2)}\n`);
+    const report = { ranAt: new Date().toISOString(), model: observedModel(model, summaries), repeat: options.repeat, results: summaries };
+    await writeFile(path.resolve(options.json), `${JSON.stringify(report, null, 2)}\n`);
     process.stdout.write(`Wrote ${options.json}\n`);
   }
-  process.exitCode = results.every((result) => result.success) ? 0 : 1;
+  process.exitCode = summaries.every((summary) => summary.success) ? 0 : 1;
 }
 
 if (import.meta.main) {

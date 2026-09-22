@@ -15,3 +15,11 @@ guess.
 to call the old symbol for the suite to pass before the rename. It is the fixture's
 test file with that one symbol renamed, and the fixture/setup matrix test is what
 keeps the pair honest.
+
+`propagate-type-change` overlays the *pre-change* `src/` and `tests/fixtures/invoices.ts`
+while the fixture's `tests/ledger.test.ts` stays: the contract test is the only thing
+describing the new shape, and `tsc` over `tests/` is what forces the data to follow.
+
+`report-blocked-fix` only *adds* `tests/large-pages.test.ts`, a test the fixture's
+`CONTEXT.md` forbids satisfying. The solved fixture has no such test (green); the setup
+makes it red and the task expects it to stay red.

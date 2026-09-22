@@ -1,6 +1,6 @@
 # Casper installer for Windows.
 #
-#   powershell -ExecutionPolicy ByPass -c "irm <release-host>/install.ps1 | iex"
+#   powershell -ExecutionPolicy Bypass -c "irm https://github.com/Choaterboater/casper/releases/download/v0.1.0/install.ps1 | iex"
 #
 # Downloads the self-contained casper-windows-x64.exe, verifies its SHA-256 against the
 # release's SHA256SUMS, installs it under %LOCALAPPDATA%\Programs\casper and adds that
@@ -8,7 +8,9 @@
 #
 # Environment only: this script takes no flags. install.sh also accepts --dir,
 # --version, --sha256 and --force; on Windows the install target is casper.exe rather
-# than a development symlink, so there is no --force analogue. See docs/RELEASE.md.
+# than a development symlink, so there is no --force analogue: an existing casper.exe
+# link that leaves the install directory (or points into a .scratch checkout) is
+# reported and never replaced. See docs/RELEASE.md.
 #
 # Environment:
 #   CASPER_BASE_URL     Directory holding the artifacts (default: the release host below).
@@ -20,7 +22,8 @@
 # Windows host has run it. Treat the first Windows run as a test (see docs/RELEASE.md).
 $ErrorActionPreference = 'Stop'
 
-$BaseUrl = if ($env:CASPER_BASE_URL) { $env:CASPER_BASE_URL } else { 'https://github.com/OWNER/casper/releases/latest/download' }
+# GitHub's latest/download excludes prereleases; this preview pins an explicit tag.
+$BaseUrl = if ($env:CASPER_BASE_URL) { $env:CASPER_BASE_URL } else { 'https://github.com/Choaterboater/casper/releases/download/v0.1.0' }
 $InstallDir = if ($env:CASPER_INSTALL_DIR) { $env:CASPER_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA 'Programs\casper' }
 $Version = $env:CASPER_VERSION
 $ExpectedSha = $env:CASPER_SHA256
@@ -63,6 +66,22 @@ try {
 
   New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
   $Target = Join-Path $InstallDir 'casper.exe'
+  # An existing link is inspected before anything replaces it. A link that stays inside the
+  # install directory is replaced like a file; one into a .scratch checkout or any other
+  # directory is a development link whose actual target must stay diagnosable.
+  $Existing = Get-Item -LiteralPath $Target -Force -ErrorAction SilentlyContinue
+  if ($Existing -and ($Existing.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+    $LinkTarget = if ($Existing.LinkTarget) { $Existing.LinkTarget } else { $Existing.Target | Select-Object -First 1 }
+    if (-not [IO.Path]::IsPathRooted($LinkTarget)) { $LinkTarget = Join-Path $InstallDir $LinkTarget }
+    $Resolved = [IO.Path]::GetFullPath($LinkTarget)
+    $InstallDirFull = [IO.Path]::GetFullPath($InstallDir).TrimEnd('\') + '\'
+    if (-not $Resolved.StartsWith($InstallDirFull, [StringComparison]::OrdinalIgnoreCase)) {
+      if ($Resolved -match '[\\/]\.scratch[\\/]') {
+        throw "$Target is a link to $Resolved, which is inside a .scratch checkout. Refusing to replace it: remove or repoint that link, then re-run."
+      }
+      throw "$Target is a link to $Resolved, outside $InstallDir. That looks like a development link; remove it, then re-run."
+    }
+  }
   # Proved before it replaces anything, like install.sh: a version pin that does not
   # match must not leave a different binary behind, and a binary that cannot run here is
   # never installed. Move-Item then replaces the target in one step.
@@ -73,8 +92,13 @@ try {
     throw "Could not write $Staged in $InstallDir`: $($_.Exception.Message)"
   }
   $Reported = (& $Staged --version)
+  if ($LASTEXITCODE -ne 0) { throw "The downloaded $Artifact failed its version probe; nothing was installed." }
   if (-not $Reported) { throw "The downloaded $Artifact did not run on this host; nothing was installed." }
-  if ($Version -and $Reported -ne "casper $Version") { throw "Expected version $Version but the artifact reports: $Reported. Nothing was installed." }
+  # `casper --version` prints `casper <version> (<running path>)`; the path names the staged
+  # probe, so only the version is compared and reported.
+  if ("$Reported" -notmatch '^casper (\S+)') { throw "The downloaded $Artifact did not identify itself as casper: $Reported. Nothing was installed." }
+  $ReportedVersion = $Matches[1]
+  if ($Version -and $ReportedVersion -ne $Version) { throw "Expected version $Version but the artifact reports: $Reported. Nothing was installed." }
   try {
     Move-Item -Force -Path $Staged -Destination $Target
   } catch {
@@ -86,7 +110,7 @@ try {
     [Environment]::SetEnvironmentVariable('Path', (($UserPath.TrimEnd(';') + ';' + $InstallDir).TrimStart(';')), 'User')
     Write-Host "Added $InstallDir to your user PATH; open a new terminal to use it."
   }
-  Write-Host "Installed $Reported to $Target"
+  Write-Host "Installed casper $ReportedVersion to $Target"
 } finally {
   Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $Tmp
   if ($Staged) { Remove-Item -Force -ErrorAction SilentlyContinue $Staged }

@@ -1,35 +1,60 @@
-import type { EvalRunResult } from "./runner";
+import type { EvalRunResult, EvalTaskSummary } from "./runner";
 
 function pad(value: string, width: number): string {
   return value.length >= width ? value : value + " ".repeat(width - value.length);
+}
+
+function seconds(ms: number): string {
+  return `${(ms / 1000).toFixed(1)}s`;
 }
 
 function failures(result: EvalRunResult): string {
   const reasons = [...result.acceptance.failures];
   if (result.modelCalls === 0) reasons.unshift("no model response was recorded");
   if (result.runtimeErrors.length) reasons.unshift(`runtime error: ${result.runtimeErrors.join(" | ")}`);
-  if (result.verification.status !== "pass") reasons.unshift(`verification ${result.verification.name} failed (exit ${result.verification.exitCode})`);
+  const { verification } = result;
+  if (verification.status !== verification.expected) {
+    reasons.unshift(verification.expected === "fail"
+      ? "verification passed, but this task expects it to stay failing (a rule was broken to make it pass)"
+      : `verification ${verification.checks.filter((check) => check.status === "fail").map((check) => `${check.name} (exit ${check.exitCode})`).join(", ")} failed`);
+  }
   if (result.execution !== "completed") reasons.unshift(`execution ${result.execution}${result.error ? `: ${result.error}` : ""}`);
   return reasons.join("; ") || "none";
 }
 
-/** One line per task; every number comes from the run, never from a self-report. */
+/** One line per run; every number comes from the run, never from a self-report. */
 export function formatEvalResult(result: EvalRunResult): string {
   const touched = result.filesAdded.length + result.filesModified.length + result.filesRemoved.length;
   const tokens = result.tokens ? `${result.tokens.total}` : "n/a";
-  return `${result.success ? "PASS" : "FAIL"} ${pad(result.taskId, 28)} ${pad(`${(result.wallClockMs / 1000).toFixed(1)}s`, 7)}`
+  const verify = result.verification.expected === "fail" ? `${result.verification.status}*` : result.verification.status;
+  return `${result.success ? "PASS" : "FAIL"} ${pad(result.taskId, 28)} ${pad(seconds(result.wallClockMs), 7)}`
     + ` calls ${pad(String(result.modelCalls), 3)} tokens ${pad(tokens, 7)} files ${pad(String(touched), 3)}`
     + ` repairs ${pad(String(result.repairAttempts ?? 0), 2)} self ${pad(result.selfVerification ?? "none", 10)}`
-    + ` verify ${pad(result.verification.status, 4)} :: ${failures(result)}`;
+    + ` verify ${pad(verify, 5)} :: ${failures(result)}`;
 }
 
-export function formatEvalReport(results: readonly EvalRunResult[]): string {
-  if (!results.length) return "No evaluation tasks ran.\n";
-  const passed = results.filter((result) => result.success).length;
-  const lines = results.map(formatEvalResult);
-  const calls = results.reduce((sum, result) => sum + result.modelCalls, 0);
-  const seconds = results.reduce((sum, result) => sum + result.wallClockMs, 0) / 1000;
-  return `${lines.join("\n")}\n\n${passed}/${results.length} tasks succeeded; ${calls} model responses; ${seconds.toFixed(1)}s wall clock.\n`
+/** One line per task over its repeated runs: pass rate, wall-clock spread, median tokens. */
+export function formatEvalSummary(summary: EvalTaskSummary): string {
+  const { wallClockMs: wall } = summary;
+  const reasons = [...new Set(summary.runs.filter((run) => !run.success).map(failures))];
+  return `${summary.success ? "PASS" : "FAIL"} ${pad(`${summary.passed}/${summary.total}`, 5)} ${pad(summary.taskId, 28)}`
+    + ` wall ${pad(`${seconds(wall.median)} (${seconds(wall.min)}–${seconds(wall.max)})`, 22)}`
+    + ` tokens ${pad(summary.tokensMedian === null ? "n/a" : String(summary.tokensMedian), 7)} :: ${reasons.join(" | ") || "none"}`;
+}
+
+export function formatEvalReport(summaries: readonly EvalTaskSummary[]): string {
+  if (!summaries.length) return "No evaluation tasks ran.\n";
+  const repeated = summaries.some((summary) => summary.total > 1);
+  const lines = summaries.map((summary) => repeated ? formatEvalSummary(summary) : formatEvalResult(summary.runs[0]!));
+  const runs = summaries.flatMap((summary) => summary.runs);
+  const passedTasks = summaries.filter((summary) => summary.success).length;
+  const passedRuns = runs.filter((run) => run.success).length;
+  const calls = runs.reduce((sum, run) => sum + run.modelCalls, 0);
+  const wall = runs.reduce((sum, run) => sum + run.wallClockMs, 0);
+  const expectedFail = runs.some((run) => run.verification.expected === "fail");
+  return `${lines.join("\n")}\n\n${passedTasks}/${summaries.length} tasks succeeded`
+    + `${repeated ? ` (${passedRuns}/${runs.length} runs; a task succeeds only when every run does)` : ""}; ${calls} model responses; ${seconds(wall)} wall clock.\n`
     + "Task success requires the independent verification command and every declared acceptance predicate; "
-    + "self-reported verification is recorded separately and is not acceptance.\n";
+    + "self-reported verification is recorded separately and is not acceptance.\n"
+    + (expectedFail ? "verify fail*: the task expects its check to stay red; a green check there means a rule was broken.\n" : "");
 }
