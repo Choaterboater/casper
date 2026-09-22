@@ -44,12 +44,13 @@ export function renderProjectSummary(context: ProjectContext): string {
   ].join("\n");
 }
 
-/** With the wordmark above, the name is already on screen and the version joins the label column. */
-export function renderBanner(context: ProjectContext, options: { wordmark?: boolean } = {}): string {
+/** With the wordmark above, the name is already on screen and the version joins the label column.
+ * The slash-command hint is only meaningful where someone can type one. */
+export function renderBanner(context: ProjectContext, options: { wordmark?: boolean; interactive?: boolean } = {}): string {
   return [
     options.wordmark ? ` version   ${CASPER_VERSION} · your coding companion` : `CASPER ${CASPER_VERSION} · your coding companion`,
     ` project   ${context.model.project.name} · branch ${context.info.gitBranch ?? "(no git branch)"} · profile ${context.profileName}`,
-    " /help · /status · /login · /model",
+    ...(options.interactive ? [" /help · /status · /login · /model"] : []),
     "",
   ].join("\n");
 }

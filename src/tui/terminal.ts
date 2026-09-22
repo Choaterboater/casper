@@ -7,7 +7,8 @@ import { TerminalSurface } from "./surface";
 export type TerminalOutput = RuntimePickerIO["output"] & { isTTY?: boolean };
 
 /** Terminal ownership boundary. Rich raw editor on a TTY; line input otherwise.
- * Neither path queues early submissions or treats a stale draft as consent. */
+ * Neither path queues submissions made during work or treats a stale draft as consent; plain
+ * input typed before the first prompt is read (a person or a pipe may be ahead of startup). */
 export class InteractiveTerminal {
   readonly color: boolean;
   private readonly surface?: TerminalSurface;
@@ -18,6 +19,9 @@ export class InteractiveTerminal {
   private assistantOpen = false;
   private command?: (line?: string) => void;
   private confirmation?: (approved: boolean) => void;
+  /** Plain line input that arrived while idle but not yet reading (startup, before the first
+   * prompt). Lines typed during work are still dropped, and approvals never read this. */
+  private readonly earlyLines: string[] = [];
 
   constructor(private readonly input: Readable, private readonly output: TerminalOutput,
     private readonly onInterrupt: () => void, private readonly onEOF: () => void) {
@@ -35,7 +39,7 @@ export class InteractiveTerminal {
       if (this.confirmation) { this.confirmation(line.trim() === "yes"); return; }
       if (this.command) {
         const resolve = this.command; this.command = undefined; this.busy = true; resolve(line);
-      }
+      } else if (!this.busy) this.earlyLines.push(line);
     });
     this.rl.on("SIGINT", () => this.interrupt());
     this.rl.once("close", () => {
@@ -58,7 +62,7 @@ export class InteractiveTerminal {
   write(text: string, options: { rewriteLine?: boolean } = {}): void {
     const styled = terminalText(text).split("\n").map(line => {
       const code = /^(?:\[error\]|✗)/.test(line) ? "31" : /^✓/.test(line) ? "32"
-        : /^(?:•|\[skills\]|\[cancel)/.test(line) ? "33" : /^CASPER/.test(line) ? "1;36" : /^ \/help · /.test(line) ? "2" : undefined;
+        : /^(?:•|\[skills\]|\[cancel|\[approval\])/.test(line) ? "33" : /^CASPER/.test(line) ? "1;36" : /^ \/help · /.test(line) ? "2" : undefined;
       return code ? paint(line, code, this.color) : line;
     }).join("\n");
     // `rewriteLine` restarts the transcript's open tail line (a "running" status) instead of
@@ -82,6 +86,7 @@ export class InteractiveTerminal {
     if (this.surface) return this.surface.readCommand();
     this.endAssistant(); this.busy = false;
     if (this.closed || !this.rl) return Promise.resolve(undefined);
+    if (this.earlyLines.length) { this.busy = true; return Promise.resolve(this.earlyLines.shift()!); }
     return new Promise(resolve => { this.command = resolve; this.rl!.setPrompt("> "); this.rl!.prompt(); });
   }
 

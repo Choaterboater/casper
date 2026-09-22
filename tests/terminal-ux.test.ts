@@ -2,8 +2,13 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { PassThrough } from "node:stream";
 import { formatRuntimeStatus, formatToolActivity, markdownTheme, redactPreview, terminalText } from "../src/tui/format";
+import { InteractiveTerminal } from "../src/tui/terminal";
 import { posixOnly } from "./support/platform";
+
+// readline delivers a written line on a later turn of the event loop; no wall-clock wait involved.
+const delivered = () => new Promise(resolve => setImmediate(resolve));
 
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
@@ -34,6 +39,22 @@ test("model and auth display distinguishes uninitialized, missing, configured an
   expect(formatRuntimeStatus({ provider: "fixture", model: "test", auth: "configured" })).toContain("not a connection test");
   expect(formatRuntimeStatus({ provider: "fixture", model: "test", auth: "missing" })).toContain("credentials missing");
   expect(formatRuntimeStatus({ auth: "unknown" })).toContain("none selected");
+});
+
+test("plain line input typed before the first prompt is kept; lines typed during work are dropped", async () => {
+  const input = new PassThrough();
+  const terminal = new InteractiveTerminal(input, { write() {} }, () => {}, () => {});
+  terminal.start();
+  input.write("/status\n/help\n");
+  await delivered();
+  expect(await terminal.readCommand()).toBe("/status");
+  input.write("typed during work\n"); // No readCommand pending: not queued.
+  await delivered();
+  expect(await terminal.readCommand()).toBe("/help");
+  const next = terminal.readCommand();
+  input.write("after\n");
+  expect(await next).toBe("after");
+  terminal.close();
 });
 
 // python3 runs the standard-library PTY fixture; Windows has no equivalent here.

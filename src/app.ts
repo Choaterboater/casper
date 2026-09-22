@@ -229,7 +229,7 @@ export class CasperApp {
     // The wordmark is for a person at a rich terminal; one-shot and piped output keep the text banner.
     const wordmark = this.interactive && this.terminal.rich && (this.terminal.columns ?? 0) >= WORDMARK_COLUMNS;
     if (wordmark) this.terminal.writeTrusted(`\n${renderWordmark(this.terminal.color)}\n`);
-    this.output.write(renderBanner(context, { wordmark }));
+    this.output.write(renderBanner(context, { wordmark, interactive: this.interactive }));
     this.output.write(`${formatRuntimeStatus(this.session?.getStatus?.())}\n`);
     for (const diagnostic of referenceConfiguration.diagnostics) this.output.write(`[references] ${formatReferenceResult(diagnostic)}\n`);
     this.reportSkillWarnings();
@@ -1167,7 +1167,10 @@ export class CasperApp {
     if (!this.interactive || this.closing || signal?.aborted || this.commandAbort?.signal.aborted) return false;
     const signals = [signal, this.commandAbort?.signal].filter((value): value is AbortSignal => Boolean(value));
     this.output.write("");
-    return this.terminal.confirm(preview, question, signals.length ? AbortSignal.any(signals) : undefined);
+    const approved = await this.terminal.confirm(preview, question, signals.length ? AbortSignal.any(signals) : undefined);
+    // The answer itself is never echoed (it is a fresh keystroke, not a draft); record the outcome.
+    if (!this.closing) this.output.write(`[approval] ${approved ? "allowed" : "denied"}\n`);
+    return approved;
   }
 
   private async handleSkillsCommand(prompt: string): Promise<void> {
