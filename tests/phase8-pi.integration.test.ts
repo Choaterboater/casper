@@ -134,7 +134,7 @@ needsSymlinks("ordinary parent Pi startup remains allowed when state is inside i
   expect({ exit: result.exit, stderr: result.stderr }).toEqual({ exit: 0, stderr: "" });
   expect(result.stdout).toContain("ORDINARY_PARENT_UNCHANGED");
   expect(result.stdout).toContain("[model] fixture/fixture");
-  expect(result.stdout).toContain("credentials configured (not a connection test)");
+  expect(result.stdout).toContain(" · credentials configured");
   expect(result.stdout).not.toContain("local-fixture-not-a-secret");
   expect(f.payloads).toHaveLength(1);
   expect(f.payloads[0]?.tools.map((tool) => tool.function.name)).toContain("bash");

@@ -1,0 +1,194 @@
+{
+  "ranAt": "2026-09-22T14:24:26.196Z",
+  "model": "github-copilot/claude-fable-5.1",
+  "repeat": 1,
+  "results": [
+    {
+      "taskId": "fix-failing-test",
+      "fixture": "typescript-service",
+      "runs": [
+        {
+          "attemptId": "c06623bc-e3a3-4c25-9bac-ea7b3e795afb",
+          "evidenceSource": "runtime",
+          "outcome": "accepted-without-rescue",
+          "interventions": [],
+          "workflowChecks": [],
+          "reportedUsage": {
+            "context": {
+              "tokens": 6693,
+              "contextWindow": 1000000,
+              "percent": 0.6693
+            },
+            "tokens": {
+              "input": 12,
+              "output": 1147,
+              "cacheRead": 19302,
+              "cacheWrite": 6254,
+              "total": 26715
+            },
+            "messages": 11,
+            "estimatedCost": 0.1404705,
+            "effortClassification": {
+              "requests": 1,
+              "tokens": {
+                "input": 359,
+                "output": 12,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 371
+              },
+              "estimatedCost": 0.00419
+            }
+          },
+          "taskId": "fix-failing-test",
+          "fixture": "typescript-service",
+          "startedAt": "2026-09-22T14:23:05.059Z",
+          "wallClockMs": 30381,
+          "model": "github-copilot/claude-fable-5.1",
+          "execution": "completed",
+          "runtimeErrors": [],
+          "outputTail": "CASPER 0.2.6 · your coding companion\n project   casper-eval-mbSJEv · branch (no git branch) · profile default\n model     not initialized (starts on your first prompt or /model)\n auth      not checked (/login to set up a provider)\n> The test suite fails. Find the cause and make `bun test` pass with the smallest production-code change.\n[model] github-copilot/claude-fable-5.1 · auto → high (pending) · credentials configured (not a connection test)\n[effort] auto → medium\nI'll start by looking at the repo layout and running the tests to see the failure.\n• ls · . — running\n• bash · bun test 2>&1 | tail -40 — running\n✓ ls · . — completed · 0.0s\n✓ bash · bun test 2>&1 | tail -40 — completed · 0.1s\n• bash · cat CONTEXT.md; find src tests -type f | xargs -I{} sh -c 'echo \"=== {}\"; cat {}' — running\n✓ bash · cat CONTEXT.md; find src tests -type f | xargs -I{} sh -c 'echo \"=== {}\"; cat {}' — completed · 0.6s\nCause: `slugify` neither folds accents (NFD decomposition + strip combining marks) nor trims leading/trailing dashes. Fixing `src/slug.ts` only.\n• edit · src/slug.ts — running\n✓ edit · src/slug.ts — completed · 0.0s\n• casper_check · test — running\n✓ test  bun run test  (exit 0; 149ms; inputs fresh; scope {\"inputs\":[\"src\",\"tests\"]}; declared local scope only)\n✓ casper_check · test — completed · 0.2s\nFixed — `bun test` now passes (6 pass, 0 fail).\n\n**Cause**\n`src/slug.ts` only lowercased and replaced non-alphanumeric runs with `-`. Two behaviors the tests require were missing:\n- Accent folding: `\"Ünïcode\"` → `\"-n-code\"` because `Ü`/`ï` were treated as separators.\n- Edge trimming: `\"  a -- b  \"` → `\"-a-b-\"` because leading/trailing dashes were kept.\n\n**Change** (only `src/slug.ts`, export shape unchanged, no dependencies):\n```ts\nexport function slugify(input: string): string {\n  return input\n    .normalize(\"NFD\")\n    .replace(/[\\u0300-\\u036f]/g, \"\")   // strip combining marks → ASCII base\n    .toLowerCase()\n    .replace(/[^a-z0-9]+/g, \"-\")\n    .replace(/^-+|-+$/g, \"\");          // trim edge dashes\n}\n```\n\n**Verification**\n- `bun run test`: 6 pass, 0 fail across 3 files. Tests were not modified.\n- Note: NFD folding covers Latin diacritics; ligatures like `ß`/`æ` would still be dropped — outside what the tests specify, so left alone to keep the change minimal.\nChecks pass (command execution): 1 pass, 0 fail, 0 skip; 0 repair attempt(s). test: inputs fresh; scope {\"inputs\":[\"src\",\"tests\"]}; declared local scope only. Requested behavior is not independently certified.\n[task] Execution completed; observed edits: src/slug.ts; 1 file(s) changed: src/slug.ts; Checks pass (command execution): 1 pass, 0 fail, 0 skip; 0 repair attempt(s). test: inputs fresh; scope {\"inputs\":[\"src\",\"tests\"]}; declared local scope only. Requested behavior is not independently certified.\n",
+          "modelCalls": 5,
+          "messages": 11,
+          "tokens": {
+            "input": 12,
+            "output": 1147,
+            "cacheRead": 19302,
+            "cacheWrite": 6254,
+            "total": 26715
+          },
+          "contextTokens": 6693,
+          "filesAdded": [],
+          "filesModified": [
+            "src/slug.ts"
+          ],
+          "filesRemoved": [],
+          "repairAttempts": 0,
+          "selfVerification": "pass",
+          "verification": {
+            "status": "pass",
+            "checks": [
+              {
+                "name": "bun test",
+                "status": "pass",
+                "exitCode": 0,
+                "durationMs": 25,
+                "output": "bun test v1.4.0 (1381054db)\n\ntests/router.test.ts:\n(pass) an unknown route is a 404 with an error body [0.07ms]\n(pass) the router matches on method and path together [0.02ms]\n\ntests/slug.test.ts:\n(pass) plain words are lowercased and dash-joined [0.14ms]\n(pass) accents fold to their ASCII base [0.05ms]\n(pass) runs of separators collapse and edges are trimmed [0.01ms]\n\ntests/health.test.ts:\n(pass) GET /health reports ok [0.02ms]\n\n 6 pass\n 0 fail\n 7 expect() calls\nRan 6 tests across 3 files. [13.00ms]\n"
+              }
+            ],
+            "expected": "pass",
+            "unavailable": null
+          },
+          "acceptance": {
+            "passed": true,
+            "failures": []
+          },
+          "success": true
+        }
+      ],
+      "passed": 1,
+      "total": 1,
+      "wallClockMs": {
+        "median": 30381,
+        "min": 30381,
+        "max": 30381
+      },
+      "tokensMedian": 26715,
+      "success": true
+    },
+    {
+      "taskId": "repair-order-reservations",
+      "fixture": "fulfillment-service",
+      "runs": [
+        {
+          "attemptId": "ce583790-421e-499f-920f-8e862c956fa0",
+          "evidenceSource": "runtime",
+          "outcome": "accepted-without-rescue",
+          "interventions": [],
+          "workflowChecks": [],
+          "reportedUsage": {
+            "context": {
+              "tokens": 18685,
+              "contextWindow": 1000000,
+              "percent": 1.8685
+            },
+            "tokens": {
+              "input": 18,
+              "output": 2218,
+              "cacheRead": 91209,
+              "cacheWrite": 15317,
+              "total": 108762
+            },
+            "messages": 16,
+            "estimatedCost": 0.32534475,
+            "effortClassification": {
+              "requests": 1,
+              "tokens": {
+                "input": 499,
+                "output": 11,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 510
+              },
+              "estimatedCost": 0.005540000000000001
+            }
+          },
+          "taskId": "repair-order-reservations",
+          "fixture": "fulfillment-service",
+          "startedAt": "2026-09-22T14:23:35.447Z",
+          "wallClockMs": 50740,
+          "model": "github-copilot/claude-fable-5.1",
+          "execution": "completed",
+          "runtimeErrors": [],
+          "outputTail": "der's units [0.17ms]\n\n 7 pass\n 7 fail\n 36 expect() calls\nRan 14 tests across 2 files. [14.00ms]\nerror: script \"test\" exited with code 1\ntest: stdout\nbun test v1.4.0 (1381054db)\n✗ casper_check · test — failed · 0.1s\nBaseline: 7 of 14 tests fail, matching the two defects. Applying the fixes.\n• edit · src/order-service.ts — running\n✓ edit · src/order-service.ts — completed · 0.0s\n• edit · src/inventory.ts — running\n✓ edit · src/inventory.ts — completed · 0.0s\n• casper_check · test — running\n✓ test  bun run test  (exit 0; 109ms; inputs fresh; scope {\"inputs\":[\"src\",\"tests\"]}; declared local scope only)\n✓ casper_check · test — completed · 0.1s\nAll 14 tests pass now. Let me also confirm the code still typechecks (no typecheck command is configured, so I'll use whatever `tsc` is already available without adding anything).\n• bash · command -v tsc >/dev/null && tsc -p tsconfig.json && echo \"tsc ok\" || echo \"tsc not available locally; skipped\"; git status --short 2>/dev/null — running\n✗ bash · command -v tsc >/dev/null && tsc -p tsconfig.json && echo \"tsc ok\" || echo \"tsc not available locally; skipped\"; git status --short 2>/dev/null — failed · 0.1s\n  tsc not available locally; skipped Command exited with code 128\nFixed. The regression came from two production defects, one at each service boundary; both are repaired with minimal changes and the full behavior suite now passes (14/14, up from 7/14).\n\n## Root cause\n\n1. **`src/order-service.ts` — `place()` discarded the normalized lines.** It called `normalizeLines(input)` for validation but then did `const lines = input;`, so the raw, un-combined lines were reserved and saved on the order. Duplicate SKUs stayed as separate lines, and `ship`/`cancel` later replayed those raw lines.\n2. **`src/inventory.ts` — `reserve()` checked the wrong figure and mutated mid-loop.** It compared each line against `item.onHand` rather than `onHand - reserved`, so stock already promised to an earlier order was reservable again. It also incremented `reserved` inside the validation loop, so a later `unknown-sku` / `insufficient-stock` failure left earlier lines partially reserved even though the order was rejected — violating its own \"validate the entire reservation before mutating stock\" comment.\n\n## Changes (production code only)\n\n- `src/order-service.ts`: `const lines = normalized.value;`\n- `src/inventory.ts` `reserve()`: first pass validates every line against `onHand - reserved` (available); only after all pass does a second pass apply `reserved += quantity`. All-or-nothing, no partial consumption.\n\nUntouched: tests, `package.json`, `tsconfig.json`, `.casper/`. No dependencies added.\n\n## Boundary consistency\n\n`ship()` and `cancel()` were already correct — they operate on `order.lines` and the `Inventory` methods trust canonical lines per the existing contract. Since `place()` now stores the normalized lines, shipment decrements and cancellation releases use the same combined quantities that were reserved, keeping `onHand`/`reserved` consistent across the lifecycle (verified by the `lifecycle.test.ts` cases, which were failing before only because of the un-normalized stored order).\n\n## Verification\n\n- `bun run test`: **14 pass, 0 fail** (baseline was 7 fail: 5 reservation, 2 lifecycle).\n- Typecheck: not run — no typecheck command is configured and `tsc` isn't installed locally; I didn't add one. The edits are type-simple (`normalized.value` is `readonly Line[]` after the `!normalized.ok` guard), but strict-mode compilation is unverified by a tool.\nChecks pass (command execution): 1 pass, 0 fail, 0 skip; 0 repair attempt(s). test: inputs fresh; scope {\"inputs\":[\"src\",\"tests\"]}; declared local scope only. Requested behavior is not independently certified.\n[task] Execution completed; observed edits: src/order-service.ts, src/inventory.ts; 2 file(s) changed: src/inventory.ts, src/order-service.ts; Checks pass (command execution): 1 pass, 0 fail, 0 skip; 0 repair attempt(s). test: inputs fresh; scope {\"inputs\":[\"src\",\"tests\"]}; declared local scope only. Requested behavior is not independently certified.\n",
+          "modelCalls": 8,
+          "messages": 16,
+          "tokens": {
+            "input": 18,
+            "output": 2218,
+            "cacheRead": 91209,
+            "cacheWrite": 15317,
+            "total": 108762
+          },
+          "contextTokens": 18685,
+          "filesAdded": [],
+          "filesModified": [
+            "src/inventory.ts",
+            "src/order-service.ts"
+          ],
+          "filesRemoved": [],
+          "repairAttempts": 0,
+          "selfVerification": "pass",
+          "verification": {
+            "status": "pass",
+            "checks": [
+              {
+                "name": "bun test",
+                "status": "pass",
+                "exitCode": 0,
+                "durationMs": 35,
+                "output": "bun test v1.4.0 (1381054db)\n\ntests/reservations.test.ts:\n(pass) placing an order combines repeated SKUs in first-seen order and reserves the exact total [0.62ms]\n(pass) a second order cannot reserve stock already promised to the first [0.06ms]\n(pass) a late shortage leaves earlier SKUs untouched and the rejected order ID can be retried [0.05ms]\n(pass) an unknown SKU after a valid line rejects the whole order without creating inventory [0.03ms]\n(pass) repeated SKU quantities cannot each pass a check against the same available units [0.02ms]\n(pass) invalid individual quantities cannot be hidden by combining repeated SKUs [0.02ms]\n(pass) combining individually safe quantities must not overflow the domain's integer range [0.02ms]\n(pass) an order needs an identity and at least one line [0.03ms]\n(pass) duplicate order identity does not reserve twice or replace the original order [0.03ms]\n\ntests/lifecycle.test.ts:\n(pass) shipment consumes the normalized order once and preserves other orders' reservations [0.12ms]\n(pass) cancellation releases every line without consuming stock or releasing another order's units [0.09ms]\n(pass) repeated cancellation is idempotent even after released stock has been reserved again [0.08ms]\n(pass) a shipped order cannot be cancelled and a cancelled order cannot ship or reuse its identity [0.05ms]\n(pass) unknown orders return missing-order for both lifecycle commands without touching stock [0.03ms]\n\n 14 pass\n 0 fail\n 55 expect() calls\nRan 14 tests across 2 files. [19.00ms]\n"
+              }
+            ],
+            "expected": "pass",
+            "unavailable": null
+          },
+          "acceptance": {
+            "passed": true,
+            "failures": []
+          },
+          "success": true
+        }
+      ],
+      "passed": 1,
+      "total": 1,
+      "wallClockMs": {
+        "median": 50740,
+        "min": 50740,
+        "max": 50740
+      },
+      "tokensMedian": 108762,
+      "success": true
+    }
+  ]
+}

@@ -472,3 +472,12 @@ says the disciplines hold there; it does not predict behavior on a real reposito
   non-atomic, not a defense against concurrent malicious filesystem changes.
 - The suite does not measure subjective quality, and `files touched` counts
   changes, not correctness of each change.
+
+## Merged-tree smoke (2026-09-22)
+
+After merging the public-preview line (0.2.x), `fix-failing-test` and
+`repair-order-reservations` — one task from each line — ran once on
+`github-copilot/claude-fable-5.1` through the merged runner:
+2/2 accepted without rescue, 5 and 8 model calls, 81 s total
+(`docs/evals/2026-09-22-merged-smoke-claude-fable-5.1.json`). A smoke, not a
+distribution; the five-run figures above remain the reference.
