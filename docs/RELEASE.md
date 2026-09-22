@@ -1,7 +1,7 @@
 # Release process and installers
 
-Casper distributes an unsigned **v0.2.11 preview**, not a stable release. Installers
-default to `https://github.com/Choaterboater/casper/releases/download/v0.2.11` because
+Casper distributes an unsigned **v0.2.12 preview**, not a stable release. Installers
+default to `https://github.com/Choaterboater/casper/releases/download/v0.2.12` because
 GitHub's `latest/download` route excludes prereleases. The first published preview
 was **v0.1.0**; its assets and tag stay as published, and every fix ships under a new
 version.
@@ -182,6 +182,32 @@ The suite also compiles the real CLI, runs it outside the checkout with no Bun o
 and asserts Mermaid and MindMesh artifact files are created. This catches missing runtime
 assets that `--version` and `--help` cannot exercise.
 
+## Pi upgrade revalidation
+
+Casper pins `@earendil-works/pi-coding-agent` exactly. The interactive model picker
+(`src/runtime/pi-model-picker.ts`) and the tui adapters couple to Pi internals beyond the
+public typings, and a Pi bump can degrade them silently. After changing the pin, run:
+
+```bash
+bun run typecheck && bun test tests/pi-picker-coupling.test.ts tests/ask.test.ts tests/daily-terminal.test.ts && bun run check
+```
+
+and confirm, in a real interactive session against a configured provider:
+
+1. `/model` opens the picker listing the provider's models; the footer ends with
+   Casper's hint line (`Enter: remember globally · Ctrl+S: session only · …`), appended by
+   the adapter — wording-independent by design, so it survives Pi footer changes.
+2. Filtering to one model and pressing Enter selects it; Esc cancels; Ctrl+S selects for
+   the session only.
+3. `/effort` opens the effort picker (plain `SelectList`; no Pi internals beyond
+   `Container`/`Text`/`matchesKey`).
+4. The transcript, editor gutter and the browser/debug/MCP approval prompts still render
+   (surface compositing over Pi's `TuiMainScreen`).
+
+`tests/pi-picker-coupling.test.ts` fails on constructor-signature, keybinding
+(`app.models.save`) or render-output changes; if it fails, update the adapter and the test
+together, and re-verify steps 1–4 by hand before publishing.
+
 ## Validation
 
 The v0.1.0 macOS serial gate passed **543 tests / 0 failures / 3,556 assertions**, with
@@ -228,7 +254,7 @@ Linux artifacts are cross-compiled but still require real-host verification.
 - Binaries are unsigned/unnotarized. SmartScreen or Gatekeeper may warn; the
   installers clear the quarantine attribute but do not sign or notarize.
 - Published v0.1.0 appends login selection messages instead of moving the highlight,
-  and lacks every change listed above. Those corrections ship in v0.2.11.
+  and lacks every change listed above. Those corrections ship in v0.2.12.
 - Windows diagram output is inline; screenshot/diagram artifact files require the
   POSIX bridge. Optional browser/debugger/LSP/MCP behavior is not fully host-tested.
 - There is no npm/Homebrew distribution channel, automatic updater or rollback.
