@@ -77,6 +77,12 @@ popups/pickers, or a duplicated prompt box (`bun test tests/terminal-layout.test
 - `/effort high`: apply and remember for that model. Unsupported levels fail.
 - `/effort high --session`: do not change the saved preference. Effort also survives
   switching away from a model and back within the current conversation.
+- `/effort auto`: Casper picks a level per request from the model's supported set —
+  low for reading, explaining and diagrams; medium for tests and configuration; high
+  for fixes, features and refactors (the lightest supported level at or above that
+  target, else the heaviest). The footer shows `auto→<level>`. The choice is
+  remembered in `~/.casper/effort.json` (not in Pi's typed thinking levels) unless
+  `--session`; any explicit `/effort <level>` turns auto off again.
 
 Restored conversations retain their recorded model/effort. Missing credentials or
 an unavailable model still block sending rather than silently choosing another

@@ -5,7 +5,7 @@ export const HELP_TEXT = `Casper — your coding companion
   /help all              All commands, options and safety details
   /status                Model/auth, integrations and local storage
   /model [model]         Pick a model; Enter remembers globally, Ctrl+S is session-only
-  /effort [level]        Pick supported reasoning effort; --session for temporary
+  /effort [level|auto]   Pick reasoning effort, or auto per request; --session for temporary
   /context, /usage       Context estimate, session tokens and cost availability
   /compact               Summarize context (sends a model request)
   /clear, /resume        Fresh conversation or list/resume a saved conversation
@@ -62,7 +62,7 @@ Local commands:
   /status                           Runtime model/auth and integration status
   /model [id or provider/id]        Pi picker; select and remember globally
   /model --session [model]          Select without changing the startup default
-  /effort [level] [--session]       Supported reasoning levels; interactive chooser
+  /effort [level|auto] [--session]  Supported levels or auto (Casper picks per request); chooser
   /context                          Estimated context and capability counts
   /usage                            Session tokens and optional catalog cost estimate
   /compact [instructions]           Summarize context using the model (not a local-only command)
@@ -117,6 +117,8 @@ Unknown slash commands are rejected locally, never sent to a model.
 /model: Enter selects and saves ~/.casper/settings.json; Ctrl+S selects for this session only.
 Exact IDs are remembered too; /model --session <id> opts out. Shared Pi defaults are unchanged.
 /effort remembers supported levels per model; /effort <level> --session opts out.
+/effort auto lets Casper pick per request: low for reading/explaining/diagrams, medium for tests and
+configuration, high for fixes, features and refactors, from the model's supported levels.
 Context is estimated and may be unavailable; cost estimates are not subscription billing.
 /clear preserves saved conversations and workspace files. /resume uses exact IDs; /switch uses workspace names.
 Esc/Ctrl-C cancel the picker. Plain/redirected terminals list models; use an exact ID to select.

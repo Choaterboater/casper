@@ -142,6 +142,10 @@ export type RuntimeEvent =
   | { type: "assistant_response_start" }
   | { type: "assistant_response_end"; stopReason: string; errorMessage?: string }
   | { type: "assistant_text_delta"; delta: string }
+  /** The model is producing something not yet visible: reasoning, or a tool call's arguments
+   * (a large `write` body streams for seconds before `tool_start`). `chars` is cumulative for
+   * the current block; this is liveness for the person watching, never transcript content. */
+  | { type: "assistant_progress"; kind: "thinking" | "tool_call"; toolName?: string; chars: number }
   | { type: "tool_start"; toolName: string; toolCallId?: string; input?: ToolObservationInput }
   /** Diagnostic tool status only: isError=false is not process-exit evidence. */
   | { type: "tool_end"; toolName: string; toolCallId?: string; input?: ToolObservationInput; output?: ToolObservationOutput; isError: boolean }

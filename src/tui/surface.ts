@@ -100,6 +100,7 @@ export class TerminalSurface {
         this.render();
         return;
       }
+      if (!value.trim()) { this.editor.setText(""); return; } // Enter on an empty box is not a transcript event.
       const resolve = this.command; this.command = undefined; this.busy = true;
       this.configureAutocomplete();
       this.editor.addToHistory(value); this.editor.setText("");
