@@ -2,7 +2,7 @@ import type { EvalTask, EvalVerification } from "./runner";
 
 /** `{{bun}}` is the running Bun executable; `{{tsc}}` is this repository's TypeScript compiler.
  * Both are absolute paths, so a fixture's verification never depends on the child PATH. */
-const BUN_TEST: EvalVerification = { name: "bun test", argv: ["{{bun}}", "test"] };
+const BUN_TEST: EvalVerification = { name: "bun test", argv: ["{{bun}}", "test"], candidatePaths: ["src"] };
 
 /** The evaluation catalog. Fixtures are the solved baseline; `setup` overlays the unsolved state. */
 export const EVAL_TASKS: readonly EvalTask[] = [
@@ -56,7 +56,7 @@ export const EVAL_TASKS: readonly EvalTask[] = [
     setup: "repair-type-error",
     prompt: "This project does not compile under its own `tsconfig.json` (strict mode). Repair the type errors with the "
       + "smallest correct change. Keep `tsconfig.json` as it is, and keep every exported function and its behavior.",
-    verify: { name: "tsc --noEmit", argv: ["{{bun}}", "{{tsc}}", "--noEmit", "-p", "tsconfig.json"] },
+    verify: { name: "tsc --noEmit", argv: ["{{bun}}", "{{tsc}}", "--noEmit", "-p", "tsconfig.json"], candidatePaths: ["src"] },
     initialVerification: "fail",
     acceptance: {
       changed: ["src/"], unchanged: ["tsconfig.json"],
@@ -106,6 +106,34 @@ export const EVAL_TASKS: readonly EvalTask[] = [
     verify: BUN_TEST,
     initialVerification: "pass",
     acceptance: { noEdits: true, answerContains: ["pagination.ts", "size - 1"] },
+  },
+  {
+    id: "repair-order-reservations",
+    fixture: "fulfillment-service",
+    setup: "repair-order-reservations",
+    prompt: "Repair the order reservation regression in this fulfillment repository. Duplicate SKU lines must become "
+      + "one order line with their combined quantity; reservations must use available stock and commit all lines or none. "
+      + "A rejected order must neither be saved nor consume inventory. Trace the existing domain, inventory and order "
+      + "service boundaries so later shipment and cancellation remain consistent. Read the local conventions and "
+      + "behavior tests. Change production code only; keep tests, package.json, tsconfig.json and .casper configuration unchanged. "
+      + "Do not add dependencies.",
+    verify: BUN_TEST,
+    initialVerification: "fail",
+    acceptance: { changed: ["src/"], allowedChanges: ["src/"] },
+  },
+  {
+    id: "add-order-cancellation",
+    fixture: "fulfillment-service",
+    setup: "add-order-cancellation",
+    prompt: "Orient yourself in this fulfillment repository and add the cancel-order command using its existing "
+      + "command/result and service conventions. Cancelling a reserved order must release its reservation without "
+      + "changing on-hand stock, retain its normalized lines and mark it cancelled. Repeating cancellation must succeed "
+      + "without releasing stock twice; shipped orders cannot be cancelled, cancelled orders cannot ship, and unknown "
+      + "orders return the established missing-order error. The behavior tests define the public contract. Change "
+      + "production code only; keep tests, package.json, tsconfig.json and .casper configuration unchanged. Do not add dependencies.",
+    verify: BUN_TEST,
+    initialVerification: "fail",
+    acceptance: { changed: ["src/"], allowedChanges: ["src/"] },
   },
 ];
 

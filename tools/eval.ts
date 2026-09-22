@@ -1,58 +1,77 @@
 #!/usr/bin/env bun
 
-import { mkdir, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { formatEvalReport, formatEvalResult } from "../evals/report";
-import { runEvalTask, type EvalRunResult } from "../evals/runner";
+import { gradePreparedEval, prepareEvalTask, runEvalTask } from "../evals/runner";
+import type { EvalRunResult } from "../evals/runner";
 import { EVAL_TASKS, findEvalTask } from "../evals/tasks";
+import { EVAL_SCENARIOS, prepareScenario } from "../evals/scenarios";
 
 const USAGE = `Usage: bun tools/eval.ts [options]
 
-Runs Casper's evaluation tasks against fixture repositories and records measured
-results (task success, verification success, model responses, files touched,
-repair attempts, tokens, wall clock).
+Default mode runs Casper through its configured provider; model billing applies.
+Only Casper-owned state is redirected automatically. Isolate HOME/XDG/Pi resources
+and transcript paths explicitly before a live run; ambient Pi extensions can load.
+--prepare and --grade are credential-free and never start a model runtime.
 
 Options:
-  --task <id>        Run one task (repeatable). Default: every task.
-  --json <path>      Write the raw results as JSON.
-  --timeout <sec>    Independent verification timeout per task. Default: 120.
-  --keep             Keep each prepared work directory for inspection.
-  --no-auto-verify   Do not exercise Casper's own verification/repair loop.
-  --list             List task ids and exit.
-  --help             Show this text.
+  --task <id>           Select a task (repeatable). Default: every catalog task.
+  --prepare             Freeze candidate, evaluator, prompt and manifest for later use.
+  --scenario <id>       Prepare a human-driven workflow; requires --prepare, no --task.
+  --grade <root>        Grade a previously prepared candidate; requires --observation.
+  --observation <path>  Host-recorded attempt JSON outside the candidate workspace.
+  --json <path>         Save output to a NEW JSON file; existing reports are never replaced.
+  --timeout <sec>       Independent verification timeout. Default: 120.
+  --keep                Keep one-shot work directories for inspection.
+  --no-auto-verify      Skip Casper's own verification/repair loop in one-shot mode.
+  --list                List catalog tasks and human-driven scenarios.
+  --help                Show this text.
 
-The run uses Casper's configured provider through its own runtime, so model
-credentials and any provider billing are the user's. Casper state (sessions,
-memory, skills, MCP/LSP/reference configuration) is isolated to a temporary home
-so runs are comparable and ambient configuration cannot join them.`;
+Prepared roots contain candidate/, evaluator/, home/, prompt.txt and manifest.json.
+Workflow preparations also contain instructions.txt. Keep host artifacts outside
+candidate/. Authorize provider/account, model/effort and allowance before execution.
+Use docs/EVALUATION.md for the observation schema and isolation limits.
+Every --grade saves results/<attempt-id>.json, including failed attempts. Unknown
+usage remains unavailable. Reported usage and cost estimates are not billing.`;
 
 function parseArguments(args: readonly string[]) {
-  const selected: string[] = [];
-  let json: string | undefined;
-  let timeoutSeconds = 120;
-  let keep = false;
-  let autoVerify = true;
+  const options = {
+    selected: [] as string[], json: undefined as string | undefined,
+    timeoutSeconds: 120, keep: false, autoVerify: true, prepare: false,
+    scenario: undefined as string | undefined, grade: undefined as string | undefined,
+    observation: undefined as string | undefined, help: false, list: false,
+  };
   for (let index = 0; index < args.length; index++) {
     const argument = args[index]!;
-    if (argument === "--help" || argument === "-h") return { help: true, selected, json, timeoutSeconds, keep, autoVerify, list: false };
-    if (argument === "--list") return { list: true, help: false, selected, json, timeoutSeconds, keep, autoVerify };
-    if (argument === "--keep") { keep = true; continue; }
-    if (argument === "--no-auto-verify") { autoVerify = false; continue; }
-    if (argument === "--task" || argument === "--json" || argument === "--timeout") {
+    if (argument === "--help" || argument === "-h") { options.help = true; continue; }
+    if (argument === "--list") { options.list = true; continue; }
+    if (argument === "--keep") { options.keep = true; continue; }
+    if (argument === "--prepare") { options.prepare = true; continue; }
+    if (argument === "--no-auto-verify") { options.autoVerify = false; continue; }
+    if (["--task", "--json", "--timeout", "--scenario", "--grade", "--observation"].includes(argument)) {
       const value = args[++index];
-      if (!value) throw new Error(`${argument} needs a value`);
-      if (argument === "--task") selected.push(value);
-      else if (argument === "--json") json = value;
+      if (!value || value.startsWith("--")) throw new Error(`${argument} needs a value`);
+      if (argument === "--task") options.selected.push(value);
+      else if (argument === "--json") options.json = value;
+      else if (argument === "--scenario") options.scenario = value;
+      else if (argument === "--grade") options.grade = value;
+      else if (argument === "--observation") options.observation = value;
       else {
         const seconds = Number(value);
         if (!Number.isFinite(seconds) || seconds < 1 || seconds > 3600) throw new Error("--timeout must be between 1 and 3600 seconds");
-        timeoutSeconds = seconds;
+        options.timeoutSeconds = seconds;
       }
       continue;
     }
     throw new Error(`Unknown argument: ${argument}`);
   }
-  return { help: false, list: false, selected, json, timeoutSeconds, keep, autoVerify };
+  if (options.help || options.list) return options;
+  if (options.scenario && (!options.prepare || options.selected.length)) throw new Error("--scenario requires --prepare and cannot use --task");
+  if (Boolean(options.grade) !== Boolean(options.observation)) throw new Error("--grade and --observation must be used together");
+  if (options.grade && (options.prepare || options.selected.length || options.scenario)) throw new Error("--grade cannot select or prepare tasks");
+  if ((options.prepare || options.grade) && (options.keep || !options.autoVerify)) throw new Error("--keep and --no-auto-verify apply only to one-shot runs");
+  return options;
 }
 
 async function main(): Promise<void> {
@@ -60,37 +79,70 @@ async function main(): Promise<void> {
   if (options.help) { process.stdout.write(`${USAGE}\n`); return; }
   if (options.list) {
     for (const task of EVAL_TASKS) process.stdout.write(`${task.id}  (${task.fixture}${task.setup ? ` + ${task.setup}` : ""})\n`);
+    for (const id of EVAL_SCENARIOS) process.stdout.write(`${id}  (human-driven; --prepare --scenario ${id})\n`);
     return;
   }
+  if (options.json) {
+    const existing = await lstat(options.json).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return undefined;
+      throw error;
+    });
+    if (existing) throw new Error(`Refusing to replace existing evidence: ${options.json}`);
+  }
   const repoRoot = path.resolve(import.meta.dir, "..");
-  const tasks = options.selected.length
-    ? options.selected.map((id) => {
+  const results: EvalRunResult[] = [];
+  let document: unknown;
+  if (options.grade) {
+    const observationPath = await realpath(options.observation!);
+    const candidatePath = await realpath(path.join(options.grade, "candidate"));
+    const relative = path.relative(candidatePath, observationPath);
+    if (relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative))) {
+      throw new Error("Host observations must live outside candidate/");
+    }
+    const observation: unknown = JSON.parse(await readFile(observationPath, "utf8"));
+    results.push(await gradePreparedEval(path.resolve(options.grade), observation, options.timeoutSeconds * 1000));
+    process.stdout.write(formatEvalReport(results));
+    document = { results };
+  } else {
+    const scenario = options.scenario ? prepareScenario(options.scenario) : undefined;
+    const tasks = scenario ? [scenario.task] : options.selected.length ? options.selected.map(id => {
       const task = findEvalTask(id);
       if (!task) throw new Error(`Unknown task: ${id}`);
       return task;
-    })
-    : EVAL_TASKS;
-
-  process.stdout.write(`${tasks.length} task(s); Casper state isolated to a temporary home; provider billing applies to model calls.\n\n`);
-  const results: EvalRunResult[] = [];
-  for (const task of tasks) {
-    const result = await runEvalTask(task, {
-      repoRoot, keepWorkdir: options.keep, autoVerify: options.autoVerify, verifyTimeoutMs: options.timeoutSeconds * 1000,
-    });
-    results.push(result);
-    process.stdout.write(`${formatEvalResult(result)}\n`);
+    }) : EVAL_TASKS;
+    if (options.prepare) {
+      const prepared = [];
+      for (const task of tasks) {
+        const paths = await prepareEvalTask(task, repoRoot);
+        if (scenario) await writeFile(path.join(paths.root, "instructions.txt"), `${scenario.instructions}\n`, { flag: "wx" });
+        prepared.push({ taskId: task.id, ...paths });
+        process.stdout.write(`Prepared ${task.id}\n  root: ${paths.root}\n  candidate: ${paths.workdir}\n`);
+      }
+      process.stdout.write("Preparation only; no model runtime or acceptance run. Retain the roots for execution; remove them after retaining needed evidence.\n");
+      document = { prepared };
+    } else {
+      process.stdout.write(`${tasks.length} task(s); Casper-owned state redirected to a temporary home; Pi resources and transcripts require explicit launch isolation; provider billing applies to model calls.\n\n`);
+      for (const task of tasks) {
+        const result = await runEvalTask(task, {
+          repoRoot, keepWorkdir: options.keep, autoVerify: options.autoVerify, verifyTimeoutMs: options.timeoutSeconds * 1000,
+        });
+        results.push(result);
+        process.stdout.write(`${formatEvalResult(result)}\n`);
+      }
+      process.stdout.write(`\n${formatEvalReport(results)}`);
+      document = { ranAt: new Date().toISOString(), results };
+    }
   }
-  process.stdout.write(`\n${formatEvalReport(results)}`);
   if (options.json) {
     await mkdir(path.dirname(path.resolve(options.json)), { recursive: true });
-    await writeFile(path.resolve(options.json), `${JSON.stringify({ ranAt: new Date().toISOString(), results }, null, 2)}\n`);
+    await writeFile(path.resolve(options.json), `${JSON.stringify(document, null, 2)}\n`, { flag: "wx" });
     process.stdout.write(`Wrote ${options.json}\n`);
   }
-  process.exitCode = results.every((result) => result.success) ? 0 : 1;
+  process.exitCode = results.every(result => result.success) ? 0 : 1;
 }
 
 if (import.meta.main) {
-  main().catch((error) => {
+  main().catch(error => {
     process.stderr.write(`[eval] ${error instanceof Error ? error.message : String(error)}\n`);
     process.exitCode = 1;
   });

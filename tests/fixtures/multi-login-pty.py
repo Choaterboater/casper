@@ -14,6 +14,12 @@ spec.loader.exec_module(module)
 Session = module.Session
 
 
+def highlighted(s, label):
+    rows = s.screen.text().rsplit("Login ·", 1)[-1].splitlines()
+    selected = [match.group(1) for row in rows if (match := re.match(r"\s*(?:│\s*)?[>→]\s+(.+)", row))]
+    assert len(selected) == 1 and selected[0].startswith(label), s.screen.text()
+
+
 def run_case(bun, repo, root, provider, browser=False, action="save", no_color=False):
     s = Session(bun, repo, str(root), no_color, app="src/cli.ts", preload="tests/fixtures/login-preload.ts",
                 extra_env={"PI_OFFLINE": "1", "PI_TELEMETRY": "0"})
@@ -21,15 +27,24 @@ def run_case(bun, repo, root, provider, browser=False, action="save", no_color=F
         s.until("│ idle")
         # Navigate the chooser rather than only testing direct commands.
         s.send("/login\n")
-        s.until("Choose provider"); s.until("Up/Down selects; Enter confirms")
+        s.until("Choose provider"); s.until("Up/Down: choose")
         index = ["openai-codex", "github-copilot", "anthropic", "openrouter"].index(provider)
-        for _ in range(index): s.send("\x1b[B"); s.pump(0.03)
+        highlighted(s, "OpenAI Codex")
+        menu_rows = len(s.screen.rows)
+        labels = ["OpenAI Codex", "GitHub Copilot", "Anthropic / Claude", "OpenRouter"]
+        for step in range(index):
+            s.send("\x1b[B"); s.pump(0.08)
+            highlighted(s, labels[step + 1])
+            assert len(s.screen.rows) == menu_rows, "navigation appended output instead of redrawing"
         s.send("\n")
         if provider in ("anthropic", "openrouter"):
             s.until("Choose sign-in method")
+            highlighted(s, "API key")
             if browser: s.send("\x1b[B"); s.pump(0.03)
+            highlighted(s, "Browser sign-in" if browser else "API key")
             s.send("\n")
         s.until("Press Y to consent")
+        assert f"Sign in to {provider} using " in s.screen.text(), s.screen.text()
         auth = s.root / "home/.pi/agent/auth.json"
         assert not auth.exists()
         s.send("\x1b[200~Y\x1b[201~"); s.pump(0.05)
@@ -55,17 +70,17 @@ def run_case(bun, repo, root, provider, browser=False, action="save", no_color=F
             assert json.loads(auth.read_text()) == {}
             return
         if action == "cancel":
-            s.until("credential save outcome unknown")
+            s.until("save outcome unknown")
             assert json.loads(auth.read_text()) == {}
         else:
-            s.until("Credential saved. Local auth refreshed")
+            s.until("Local auth refreshed")
             saved = json.loads(auth.read_text())
             assert list(saved) == [provider], saved.keys()
             assert saved[provider]["type"] == ("oauth" if browser or provider == "github-copilot" else "api_key")
             if not browser and provider != "github-copilot": assert saved[provider]["key"] == secret
         assert not (s.root / "home/.pi/agent/sessions").exists()
         s.send("\x1b[A"); s.pump(0.08)
-        assert re.search(r"> /login\s*\n\s*─", s.screen.text()), s.screen.text()
+        assert s.screen.last_panel_text() == "/login", s.screen.text()
         assert secret.encode() not in s.raw
         assert b"synthetic-openrouter-private-access" not in s.raw
         assert b"synthetic-anthropic-private-access" not in s.raw

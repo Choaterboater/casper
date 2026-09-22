@@ -18,8 +18,9 @@ casper learn promote ~/Projects/example <draft-id> <draft-sha256> <candidate-num
 casper learn promote ~/Projects/example <draft-id> <draft-sha256> <candidate-number> ignore
 ```
 
-Generation uses **one bounded read-only explorer** with the existing global Pi
-model/provider defaults and credentials. Running it authorizes that model run:
+Generation uses **one bounded read-only explorer** with Casper's `fast` model
+role when configured, otherwise its saved startup model; credentials remain Pi-owned.
+Running it authorizes that model run and any configured automatic-effort classifier:
 source text read by the explorer can reach the configured provider. Casper does
 not detect secrets or establish a spending cap. Use only sources appropriate for
 that provider. No live-model usefulness or billing trial has been performed for

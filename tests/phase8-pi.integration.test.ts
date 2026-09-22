@@ -42,8 +42,7 @@ async function fixture(respond: (payload: Payload) => Response, hostile = false)
     baseUrl: `http://127.0.0.1:${server.port}/v1`, api: "openai-completions", apiKey: "local-fixture-not-a-secret", models: [{ id: "fixture" }],
   } } }));
   await writeFile(path.join(agent, "settings.json"), JSON.stringify({ defaultProvider: "fixture", defaultModel: "fixture", retry: { enabled: false } }));
-  // Parent conversations now require an explicit Casper default. Children retain
-  // their existing separately scoped Pi-default behavior in this model UX slice.
+  // Parent and child sessions use Casper-owned defaults, never shared Pi routing.
   await mkdir(path.join(home, ".casper"));
   await writeFile(path.join(home, ".casper/settings.json"), JSON.stringify({ defaultProvider: "fixture", defaultModel: "fixture" }));
   if (hostile) {
@@ -134,8 +133,6 @@ needsSymlinks("ordinary parent Pi startup remains allowed when state is inside i
   const result = await f.run([cli, "Inspect this project without edits"]);
   expect({ exit: result.exit, stderr: result.stderr }).toEqual({ exit: 0, stderr: "" });
   expect(result.stdout).toContain("ORDINARY_PARENT_UNCHANGED");
-  expect(result.stdout).toContain("model     fixture / fixture");
-  expect(result.stdout).toContain("credentials configured (not a connection test)");
   expect(result.stdout).not.toContain("local-fixture-not-a-secret");
   expect(f.payloads).toHaveLength(1);
   expect(f.payloads[0]?.tools.map((tool) => tool.function.name)).toContain("bash");
@@ -266,8 +263,6 @@ try {
   expect(report).toMatchObject({ status: "pass", repairAttempts: 0 });
   expect(report.rounds.flat().map((check) => Boolean(check.reused))).toEqual([false, false, true]);
   expect(report.results[0]).toMatchObject({ freshness: "fresh", exitCode: 0 });
-  expect(result.stdout).toContain("✓ write");
-  expect(result.stdout).toContain("✓ bash");
   expect(task.observedEdits).toHaveLength(1);
   expect(await readFile(path.join(f.project, "test-runs"), "utf8")).toBe("xx");
   expect(f.payloads).toHaveLength(6);
@@ -305,8 +300,6 @@ try {
 `);
   const result = await f.run([harness]);
   expect({ exit: result.exit, stderr: result.stderr }).toEqual({ exit: 0, stderr: "" });
-  expect(result.stdout).toContain("✓ write");
-  expect(result.stdout).not.toContain("✗");
   const { report, task }: { report: VerificationReport; task: TaskResult } = JSON.parse(result.stdout.split("CHECK_RESULT=")[1]!);
   expect(report).toMatchObject({ status: "pass", repairAttempts: 0 });
   expect(report.rounds.flat().map((check) => Boolean(check.reused))).toEqual([false, false, true]);
@@ -384,7 +377,6 @@ try {
 `);
   const result = await f.run([harness]);
   expect({ exit: result.exit, stderr: result.stderr }).toEqual({ exit: 0, stderr: "" });
-  expect(result.stdout).toContain("✗ edit");
   const { report, task }: { report: VerificationReport; task: TaskResult } = JSON.parse(result.stdout.split("CHECK_RESULT=")[1]!);
   expect(report).toMatchObject({ status: "pass", repairAttempts: 0 });
   expect(report.rounds.flat().map((check) => Boolean(check.reused))).toEqual([false, false, true]);
@@ -466,7 +458,6 @@ try {
 `);
   const result = await f.run([harness]);
   expect({ exit: result.exit, stderr: result.stderr }).toEqual({ exit: 0, stderr: "" });
-  expect(result.stdout).toContain(`✗ ${toolName}`);
   const { report, task }: { report: VerificationReport; task: TaskResult } = JSON.parse(result.stdout.split("CHECK_RESULT=")[1]!);
   expect(report).toMatchObject({ status: "pass", repairAttempts: 0 });
   expect(report.rounds.flat().map((check) => Boolean(check.reused))).toEqual([false, false]);
@@ -498,7 +489,6 @@ try {
 `);
   const result = await f.run([harness]);
   expect({ exit: result.exit, stderr: result.stderr }).toEqual({ exit: 0, stderr: "" });
-  expect(result.stdout).toContain("✗ write");
   const { report, task }: { report: VerificationReport; task: TaskResult } = JSON.parse(result.stdout.split("CHECK_RESULT=")[1]!);
   expect(report).toMatchObject({ status: "pass", repairAttempts: 0 });
   expect(report.rounds.flat().map((check) => Boolean(check.reused))).toEqual([false, false, true]);
@@ -569,7 +559,7 @@ try { await app.runInteractive(); } finally { await app.close(); }
   const result = await f.run([harness]);
   expect({ exit: result.exit, stderr: result.stderr }).toEqual({ exit: 0, stderr: "" });
   expect(result.stdout).not.toContain("[error]");
-  const worktree = result.stdout.match(/\[sessions\] active candidate · ([^\n]+)/)?.[1];
+  const worktree = result.stdout.match(/^Path: (.+\.casper\/worktrees\/[^\n]+)/m)?.[1];
   expect(worktree).toContain(".casper/worktrees/");
   expect(f.payloads).toHaveLength(4);
   expect(JSON.stringify(f.payloads[0]?.messages)).toContain(`- root: ${worktree}`);

@@ -20,40 +20,53 @@ export function paint(text: string, code: string, color: boolean): string {
   return color ? `\x1b[${code}m${text}\x1b[0m` : text;
 }
 
-/** Line-oriented Markdown; fenced code stays literal. No links/escape codes are executed. */
-export class MarkdownFormatter {
-  private fence = false;
-  constructor(private readonly color: boolean) {}
-  reset(): void { this.fence = false; }
-  line(source: string, commit = true): string {
-    const text = terminalText(source);
-    if (/^\s*```/.test(text)) {
-      if (commit) this.fence = !this.fence;
-      return paint(text, "2", this.color);
-    }
-    if (this.fence) return paint(text, "36", this.color);
-    if (/^#{1,6}\s/.test(text)) return paint(text, "1;36", this.color);
-    return text.replace(/(`[^`\n]+`|\*\*[^*\n]+\*\*)/g,
-      (span) => paint(span, span.startsWith("`") ? "36" : "1", this.color));
-  }
+/** Style status labels, never infer verification from a tool's completion. */
+export function styleOutput(text: string, color: boolean): string {
+  return terminalText(text).split("\n").map(line => {
+    const code = /^(?:\[error\]|Tool failed:)/.test(line) ? "31"
+      : /^(?:Tool running:|\[(?:warning|cancel[^\]]*|input|skills)\])/.test(line) ? "33"
+      : /^Tool completed:/.test(line) ? "36"
+      : /^CASPER/.test(line) ? "1;36" : undefined;
+    return code ? paint(line, code, color) : line;
+  }).join("\n");
 }
 
 type ToolEvent = Extract<RuntimeEvent, { type: "tool_start" | "tool_end" }>;
+  const actions: Record<string, string> = {
+    read: "Read file", write: "Write file", edit: "Edit file", bash: "Run command",
+    grep: "Search file contents", find: "Find files", ls: "List directory",
+    list_capabilities: "List available capabilities", call_capability: "Call capability",
+  };
 export function formatToolActivity(event: ToolEvent, elapsedMs?: number): string {
+  const action = Object.hasOwn(actions, event.toolName) ? actions[event.toolName] : `Run tool ${terminalText(event.toolName)}`;
   const target = event.input?.path ?? event.input?.command ?? event.input?.operation;
-  const preview = target ? ` · ${redactPreview(target).replace(/\s+/g, " ").slice(0, 180)}` : "";
-  const name = terminalText(event.toolName).slice(0, 80);
-  if (event.type === "tool_start") return `• ${name}${preview} — running`;
   const elapsed = elapsedMs === undefined ? "" : ` · ${(elapsedMs / 1000).toFixed(1)}s`;
-  // Native tool success is not a verifier pass or authoritative shell exit code.
-  const status = event.isError ? "failed" : "completed";
-  const detail = event.isError && event.output?.text
-    ? `\n  ${redactPreview(event.output.text).replace(/\s+/g, " ").slice(0, 240)}${event.output.truncated ? " [truncated]" : ""}` : "";
-  return `${event.isError ? "✗" : "✓"} ${name}${preview} — ${status}${elapsed}${detail}`;
+  // Native tool completion is neither a verifier pass nor a shell exit code.
+  const state = event.type === "tool_start" ? "running" : event.isError ? "failed" : "completed";
+  const lines = [`Tool ${state}: ${action}${event.type === "tool_end" ? elapsed : ""}`];
+  if (target) lines.push(`  Target: ${redactPreview(target)}`);
+  if (event.type === "tool_end" && event.isError && event.output) {
+    if (event.output.text) lines.push(`  Error: ${redactPreview(event.output.text)}`);
+    if (event.output.truncated) lines.push("  [truncated] Tool output is incomplete.");
+  }
+  return lines.join("\n");
 }
 
 export function formatRuntimeStatus(status?: RuntimeStatus): string {
-  if (!status) return " model     not initialized · auth not checked (starts on /model or your first prompt; /login for setup)";
+  if (!status) return "Model: not initialized · choose /model or send a message\nAuth: not checked · /login to set up credentials";
   const identity = status.provider && status.model ? `${status.provider} / ${status.model}` : "none selected";
-  return ` model     ${terminalText(identity)}${status.thinkingLevel ? ` · reasoning ${terminalText(status.thinkingLevel)}` : ""}\n auth      ${status.auth === "configured" ? "credentials configured (not a connection test)" : status.auth === "missing" ? "credentials missing; use /login" : "unknown; use /login"}${status.selectionSource ? `\n selection ${status.selectionSource}${status.defaultModel ? ` · Casper default ${terminalText(status.defaultModel.provider)}/${terminalText(status.defaultModel.id)}` : " · no Casper default"}` : ""}${status.blocked ? `\n [model]   ${terminalText(status.blocked)}` : ""}`;
+  return [
+    `Model: ${terminalText(identity)}${status.thinkingLevel && status.configuredEffort !== "auto" ? ` · reasoning ${terminalText(status.thinkingLevel)}` : ""}`,
+    ...(status.modelRole ? [`Role: ${terminalText(status.modelRole)}`] : []),
+    ...(status.configuredEffort === "auto" ? [
+      `Effort: auto · actual ${terminalText(status.thinkingLevel ?? "unavailable")}`,
+      `Auto classification: ${status.autoEffort?.state === "classified" ? "classified for the current request"
+        : status.autoEffort?.state === "fallback" ? "fallback · classification failed or timed out; retained supported effort"
+        : status.autoEffort?.state === "unavailable" ? "unavailable · automatic effort cannot be applied"
+        : "pending · awaiting the next request"}${status.autoEffort?.classifier ? ` · classifier ${terminalText(status.autoEffort.classifier)}` : ""}`,
+    ] : []),
+    `Auth: ${status.auth === "configured" ? "credentials configured (not a connection test)" : status.auth === "missing" ? "credentials missing · use /login" : "unknown · use /login"}`,
+    ...(status.selectionSource ? [`Selection: ${terminalText(status.selectionSource)}${status.defaultModel ? ` · Casper default ${terminalText(status.defaultModel.provider)}/${terminalText(status.defaultModel.id)}` : " · no Casper default"}`] : []),
+    ...(status.blocked ? [`Unavailable: ${terminalText(status.blocked)}`] : []),
+  ].join("\n");
 }

@@ -26,12 +26,12 @@ def success(bun, repo, root, no_color):
     s = Session(bun, repo, root, no_color, app="src/cli.ts", preload="tests/fixtures/login-preload.ts",
                 extra_env={"PI_OFFLINE": "1", "PI_TELEMETRY": "0"})
     try:
-        s.until("/help · /status · /login")
+        s.until("CASPER")
         s.until("│ idle")
         draft = "d" * 95
         s.send("/login\n" + draft + "\x1b[D\x1b[D")
         s.until("Choose provider")
-        s.until("Up/Down selects; Enter confirms")
+        s.until("Up/Down: choose")
         s.send("\n")
         s.until("Press Y to consent")
         auth = s.root / "home/.pi/agent/auth.json"
@@ -46,7 +46,7 @@ def success(bun, repo, root, no_color):
         s.until("ABCD-EFGH")
         s.send("discard-me")
         (s.root / "authorize").touch()
-        s.until("Credential saved. Local auth refreshed")
+        s.until("Local auth refreshed")
         saved = json.loads(auth.read_text())
         assert not (s.root / "home/.pi/agent/sessions").exists(), "login created an agent session"
         assert set(saved) == {"openai-codex"}, saved.keys()
@@ -56,10 +56,10 @@ def success(bun, repo, root, no_color):
         assert "synthetic-refresh" not in screen and "synthetic-code" not in screen
         s.send("Q")
         s.pump(0.1)
-        assert "d" * 93 + "Qdd" in re.sub(r"\n {2}", "", s.screen.text()), s.screen.text()
+        assert s.screen.last_panel_text() == "d" * 93 + "Qdd", s.screen.text()
         s.send("\x01\x0b\x1b[A")
         s.pump(0.1)
-        assert re.search(r"> /login\s*\n\s*─", s.screen.text()), s.screen.text()
+        assert s.screen.last_panel_text() == "/login", s.screen.text()
         s.send("\x01\x0b/exit\n")
         wait_exit(s)
         urls = (s.root / "login-fetches.txt").read_text().splitlines()
@@ -77,7 +77,7 @@ def success(bun, repo, root, no_color):
 def cancel_and_eof(bun, repo, root, eof=False):
     s = Session(bun, repo, root, app="src/cli.ts", preload="tests/fixtures/login-preload.ts", extra_env={"PI_OFFLINE": "1", "PI_TELEMETRY": "0"})
     try:
-        s.until("/help · /status · /login")
+        s.until("CASPER")
         s.until("│ idle")
         s.send("/login openai-codex\n")
         s.until("Press Y to consent")
@@ -85,7 +85,23 @@ def cancel_and_eof(bun, repo, root, eof=False):
         if eof:
             wait_exit(s)
         else:
-            s.until("Cancelled; no credential saved")
+            s.until("Login cancelled")
+            s.send("/exit\n"); wait_exit(s)
+        assert not (s.root / "home/.pi/agent/auth.json").exists()
+        assert not (s.root / "login-fetches.txt").exists()
+    finally: s.close()
+
+
+def cancel_picker(bun, repo, root, eof=False):
+    s = Session(bun, repo, root, app="src/cli.ts", preload="tests/fixtures/login-preload.ts", extra_env={"PI_OFFLINE": "1", "PI_TELEMETRY": "0"})
+    try:
+        s.until("│ idle")
+        s.send("/login\n"); s.until("Choose provider")
+        if eof:
+            s.send("\x04"); wait_exit(s)
+        else:
+            s.send("\x1b[A"); s.until("→ Cancel")
+            s.send("\n"); s.until("Login cancelled")
             s.send("/exit\n"); wait_exit(s)
         assert not (s.root / "home/.pi/agent/auth.json").exists()
         assert not (s.root / "login-fetches.txt").exists()
@@ -95,7 +111,7 @@ def cancel_and_eof(bun, repo, root, eof=False):
 def sigterm(bun, repo, root):
     s = Session(bun, repo, root, app="src/cli.ts", extra_env={"PI_OFFLINE": "1", "PI_TELEMETRY": "0"})
     try:
-        s.until("/help · /status · /login")
+        s.until("CASPER")
         s.until("│ idle")
         s.send("/login openai-codex\n"); s.until("Press Y to consent")
         s.process.terminate()
@@ -112,9 +128,9 @@ def sigterm(bun, repo, root):
 def dumb(bun, repo, root):
     s = Session(bun, repo, root, term="dumb", app="src/cli.ts", preload="tests/fixtures/login-preload.ts", extra_env={"PI_OFFLINE": "1", "PI_TELEMETRY": "0"})
     try:
-        s.until("/help · /status · /login")
+        s.until("CASPER")
         s.send("/login\n")
-        s.until("requires an interactive Casper terminal")
+        s.until("Open an interactive terminal to log in")
         assert not (s.root / "home/.pi/agent/auth.json").exists()
         assert not (s.root / "login-fetches.txt").exists()
         assert b"\x1b[" not in s.raw
@@ -130,6 +146,8 @@ if __name__ == "__main__":
         case = pathlib.Path(root) / ("plain" if no_color else "color"); case.mkdir(); success(bun, repo, str(case), no_color)
     for name, eof in (("cancel", False), ("eof", True)):
         case = pathlib.Path(root) / name; case.mkdir(); cancel_and_eof(bun, repo, str(case), eof)
+    for name, eof in (("picker-cancel", False), ("picker-eof", True)):
+        case = pathlib.Path(root) / name; case.mkdir(); cancel_picker(bun, repo, str(case), eof)
     case = pathlib.Path(root) / "sigterm"; case.mkdir(); sigterm(bun, repo, str(case))
     case = pathlib.Path(root) / "dumb"; case.mkdir(); dumb(bun, repo, str(case))
     print("LOGIN PTY PASS: consent, device display, paste disposal, save, draft/history, cancel, EOF, SIGTERM, NO_COLOR and TERM=dumb")

@@ -9,7 +9,7 @@ import { browserTool } from "./browser/tools";
 import { formatTerminalJSON } from "./tui/json";
 import { InteractiveTerminal } from "./tui/terminal";
 import { pickEffort } from "./tui/effort-picker";
-import { formatRuntimeStatus, formatToolActivity } from "./tui/format";
+import { formatRuntimeStatus, formatToolActivity, redactPreview } from "./tui/format";
 import { ProjectMemory, type TaskOutcome } from "./memory/store";
 import { discoverReferenceConfiguration, type ReferenceConfiguration } from "./references/config";
 import { formatReferenceResult, ReferenceLibrary } from "./references/library";
@@ -40,7 +40,7 @@ import { formatTaskResult, type TaskResult } from "./task/result";
 import { TaskObservations } from "./task/observations";
 import { renderBanner, renderProjectSummary } from "./tui/banner";
 import type { ProjectCommand } from "./project/model";
-import { CHECK_NAMES, formatVerificationReport, formatVerificationResult, type VerificationReport } from "./verify/evidence";
+import { CHECK_NAMES, formatVerificationReport, formatVerificationResult, type VerificationReport, type VerificationResult } from "./verify/evidence";
 import { ProcessCleanupError } from "./platform/processes";
 import { VerifierRegistry } from "./verify/registry";
 import { verifyAndRepair } from "./verify/repair-loop";
@@ -80,7 +80,10 @@ export interface CasperAppOptions {
 
 const DEFAULT_SYSTEM_PROMPT_APPEND = [
   "You are Casper, a coding companion running through a thin runtime adapter.",
-  "Be concise.",
+  "Lead with the answer, actual result, or next action. Use short labeled sections and numbered steps only when order matters.",
+  "Keep commands and identifiers exact and copyable. Group long lists without dropping relevant options or evidence.",
+  "Describe errors plainly: what failed, what is known, and what remains uncertain. Separate completed work from verification and acceptance.",
+  "When work remains, give one useful next action. When finished, stop without a forced next step, filler, or invented time estimate.",
   "Use available tools when needed to inspect, edit, and run code in the current repository.",
 ].join("\n");
 
@@ -219,12 +222,12 @@ export class CasperApp {
     const { project, context, mcp, visualization, lspConfiguration, referenceConfiguration } = await this.loadWorkspace(cwd);
     if (this.closing) throw new Error("Casper is closing");
     this.output.write(renderBanner(context));
-    this.output.write(`${formatRuntimeStatus(this.session?.getStatus?.())}\n`);
-    for (const diagnostic of referenceConfiguration.diagnostics) this.output.write(`[references] ${formatReferenceResult(diagnostic)}\n`);
+    this.terminal.writePanel("Model and credentials", formatRuntimeStatus(this.session?.getStatus?.()));
+    if (referenceConfiguration.diagnostics.length) this.terminal.writePanel("Reference warnings", referenceConfiguration.diagnostics.map(formatReferenceResult).join("\n"), "warning");
     this.reportSkillWarnings();
-    for (const diagnostic of mcp.diagnostics) this.output.write(`[mcp] ${diagnostic}\n`);
-    for (const diagnostic of lspConfiguration.diagnostics) this.output.write(`[lsp] ${diagnostic}\n`);
-    for (const diagnostic of visualization.diagnostics) this.output.write(`[visualize] ${diagnostic}\n`);
+    if (mcp.diagnostics.length) this.terminal.writePanel("MCP warnings", mcp.diagnostics.join("\n"), "warning");
+    if (lspConfiguration.diagnostics.length) this.terminal.writePanel("Language server warnings", lspConfiguration.diagnostics.join("\n"), "warning");
+    if (visualization.diagnostics.length) this.terminal.writePanel("Visualization warnings", visualization.diagnostics.join("\n"), "warning");
     return project;
   }
 
@@ -257,7 +260,7 @@ export class CasperApp {
       const line = await this.terminal.readCommand();
       if (line === undefined) break;
       if (this.cancelBeforeCommand) {
-        this.output.write("[cancel] Request cancelled before startup.\n");
+        this.terminal.writePanel("Request cancelled", "Cancelled before startup.", "warning");
         continue;
       }
       const prompt = line.trim();
@@ -275,7 +278,7 @@ export class CasperApp {
         if (this.closing) break;
         this.ensureLineBreak();
         const message = error instanceof Error ? error.message : String(error);
-        if (!this.commandAbort?.signal.aborted && this.displayedError !== message) this.output.write(`[error] ${message}\n`);
+        if (!this.commandAbort?.signal.aborted && this.displayedError !== message) this.terminal.writePanel("Request failed", message, "error");
       }
     }
     this.terminal.close();
@@ -301,7 +304,7 @@ export class CasperApp {
     this.verificationAbort?.abort(); this.checkTask?.abort(); this.visualizationAbort?.abort();
     void this.session?.abort().catch(() => {});
     this.terminal.endAssistant();
-    this.output.write("[cancel] Cancelling active work; changes already made are retained.\n");
+    this.terminal.writePanel("Cancelling active work", "Changes already made are retained.", "warning");
   }
 
   close(): Promise<void> {
@@ -382,7 +385,7 @@ export class CasperApp {
         await (await this.ensureSessionWorkspace()).resumeActive(this.session);
         this.unsubscribe = this.session.subscribe((event) => this.handleRuntimeEvent(event));
         const status = this.session.getStatus?.() ?? { auth: "unknown" as const };
-        if (!status.blocked) this.output.write(`${formatRuntimeStatus(status)}\n`);
+        if (!status.blocked) this.terminal.writePanel("Model and credentials", formatRuntimeStatus(status));
         this.updateFooter();
         return this.session;
       }).catch(async (error) => {
@@ -447,52 +450,73 @@ export class CasperApp {
   private async handleSlashCommand(prompt: string): Promise<VerificationReport | undefined> {
     if (this.closing) return;
     if (prompt === "/help" || prompt === "/help all") {
-      this.output.write(prompt === "/help" ? HELP_TEXT : FULL_HELP_TEXT);
+      this.terminal.writePanel(prompt === "/help" ? "Quick help" : "Command reference", prompt === "/help" ? HELP_TEXT : FULL_HELP_TEXT);
       return;
     }
     if (/^\/login(?:\s|$)/.test(prompt)) {
       const argument = prompt.slice(6).trim();
       const provider = (["openai-codex", "github-copilot", "anthropic", "openrouter"] as const).find(id => id === argument);
       if (argument && !provider) {
-        this.output.write("Usage: /login [openai-codex|github-copilot|anthropic|openrouter]\n"); return;
+        this.terminal.writePanel("Choose a login provider", "Usage: /login [openai-codex|github-copilot|anthropic|openrouter]", "warning"); return;
       }
       const host = this.interactive ? this.terminal.exclusiveHost() : undefined;
-      if (!host) { this.output.write(LOGIN_HELP); return; }
+      if (!host) { this.terminal.writePanel("Open an interactive terminal to log in", LOGIN_HELP, "warning"); return; }
       if (this.subagents.isBusy) throw new Error("Wait for active subagents before login.");
       try {
         const runtime = await this.acquireRuntime();
         this.commandAbort?.signal.throwIfAborted();
-        if (!runtime.authenticate) { this.output.write("[login] This runtime does not support login.\n"); return; }
+        if (!runtime.authenticate) { this.terminal.writePanel("Login unavailable", "This runtime does not support login.", "warning"); return; }
         const result = await runtime.authenticate({ provider,
           terminalHost: host, signal: this.commandAbort?.signal });
-        if (result.status === "saved") this.output.write("[login] Credential saved. Local auth refreshed; not a connection test. Model and defaults unchanged. Use /model to choose a model.\n");
-        else if (result.status === "saved-needs-refresh") this.output.write("[login] Credential saved, but local auth needs refresh. Restart Casper; do not repeat login blindly.\n");
-        else if ("effect" in result && result.effect === "unknown") this.output.write("[login] Login ended; credential save outcome unknown. Restart and inspect local auth before retrying.\n");
-        else if (result.status === "cancelled") this.output.write("[login] Cancelled; no credential saved.\n");
-        else this.output.write(result.reason === "destination"
-          ? "[login] Unsafe credential destination. Requires a private, owner-held regular file in real directories; no permissions were repaired.\n"
-          : "[login] Login unavailable or failed. No credential saved. Disable PI_TUI_WRITE_LOG if set. Check provider eligibility and loopback callback availability; no automatic method fallback.\n");
-      } catch { this.output.write("[login] Login could not complete. No provider diagnostics are displayed.\n"); }
+        if (result.status === "saved") this.terminal.writePanel("Credential saved", "Local auth refreshed; this is not a connection test.\nModel and defaults unchanged.\nChoose a model with /model.", "success");
+        else if (result.status === "saved-needs-refresh") this.terminal.writePanel("Credential saved; refresh needed", "Restart Casper to refresh local auth.\nDo not repeat login blindly.", "warning");
+        else if ("effect" in result && result.effect === "unknown") this.terminal.writePanel("Login ended; save outcome unknown", "Restart and inspect local auth before retrying.", "warning");
+        else if (result.status === "cancelled") this.terminal.writePanel("Login cancelled", "No credential saved.", "muted");
+        else this.terminal.writePanel("Login unavailable or failed", result.reason === "destination"
+          ? "Unsafe credential destination.\nRequires a private, owner-held regular file in real directories.\nNo permissions were repaired."
+          : "No credential saved.\nDisable PI_TUI_WRITE_LOG if set.\nCheck provider eligibility and loopback callback availability.\nNo automatic method fallback.", "error");
+      } catch { this.terminal.writePanel("Login could not complete", "No provider diagnostics are displayed.", "error"); }
       return;
     }
     if (/^\/model(?:\s|$)/.test(prompt)) {
       if (this.subagents.isBusy) throw new Error("Wait for active subagents before changing models.");
       const session = await this.ensureRuntime();
       this.commandAbort?.signal.throwIfAborted();
-      if (!session.selectModel) throw new Error("This runtime does not support model selection.");
       const argument = prompt.slice(6).trim();
+      if (/^(?:roles|role)(?:\s|$)/.test(argument)) {
+        const args = argument.split(/\s+/);
+        let roles: Record<string, string>;
+        if (args[0] === "roles" && args.length === 1) {
+          if (!session.getModelRoles) throw new Error("This runtime does not support model roles.");
+          roles = session.getModelRoles();
+        } else if (args[0] === "role" && args.length === 3 && ["fast", "build", "reason", "review"].includes(args[1]!)) {
+          if (!session.setModelRole) throw new Error("This runtime does not support model roles.");
+          roles = await session.setModelRole(args[1]!, args[2] === "clear" ? undefined : args[2]);
+        } else throw new Error("Usage: /model roles or /model role <fast|build|reason|review> <selector|clear>");
+        this.terminal.writePanel("Optional model roles", [
+          ...["fast", "build", "reason", "review"].map(role => `${role}: ${roles[role] ?? "not configured"}`),
+          "Role mappings are saved globally; the current model is unchanged.",
+          "Use /model @role[:effort] to select a configured role. Ordinary model selection needs no roles.",
+        ].join("\n"));
+        return;
+      }
+      if (!session.selectModel) throw new Error("This runtime does not support model selection.");
       const sessionOnly = /^--session(?:\s|$)/.test(argument);
       const result = await session.selectModel({ query: (sessionOnly ? argument.slice(9).trim() : argument) || undefined,
         persist: !sessionOnly, signal: this.commandAbort?.signal,
         picker: this.interactive ? this.terminal.modelPickerHost() : undefined });
-      this.output.write(`${formatRuntimeStatus(result.status)}\n`);
-      if (result.selected) this.output.write(result.savedDefault
-        ? "[model] Selected and saved as the Casper default for new conversations. Shared Pi settings unchanged.\n"
-        : "[model] Selected for this conversation only; startup default unchanged.\n");
-      if (result.selected) this.output.write(`[model] The next request sends this conversation's context to ${result.status.provider}.\n`);
+      this.terminal.writePanel("Model and credentials", formatRuntimeStatus(result.status));
+      if (result.selected) this.terminal.writePanel("Model selected", [
+        result.savedDefault
+          ? "Saved as the Casper default for new conversations. Shared Pi settings unchanged."
+          : "Selected for this conversation only. Startup default unchanged.",
+        `The next request sends this conversation's context to ${result.status.provider}.`,
+      ].join("\n"));
       if (result.models) {
-        this.output.write(result.models.length ? result.models.map((model) => `  ${model.provider}/${model.id}`).join("\n") + "\n" : "No models with configured credentials. Use /login to configure a supported provider.\n");
-        this.output.write("Use /model <provider/model-id> to select. Selection does not send a prompt.\n");
+        this.terminal.writePanel("Available models", result.models.length
+          ? result.models.map((model) => `${model.provider}/${model.id}`).join("\n")
+          : "No models with configured credentials. Use /login to configure a supported provider.");
+        this.terminal.writePanel("Select a model", "Use /model <provider/model-id>.\nSelection does not send a prompt.");
       }
       return;
     }
@@ -503,19 +527,21 @@ export class CasperApp {
       if (!args.length) {
         const status = session.getStatus?.();
         const host = this.interactive ? this.terminal.exclusiveHost() : undefined;
-        if (host && session.setEffort && status?.availableThinkingLevels?.length) {
-          const selected = await host.run(io => pickEffort(io, status.availableThinkingLevels!, status.thinkingLevel, this.commandAbort?.signal));
-          if (selected) this.output.write(`${formatRuntimeStatus(await session.setEffort(selected.level, selected.persist))}\n`);
-        } else this.output.write(`Effort: ${status?.thinkingLevel ?? "unavailable"}. Supported: ${status?.availableThinkingLevels?.join(", ") || "unavailable"}\nUse /effort <level> [--session].\n`);
+        if (host && session.setEffort && status?.model) {
+          const levels = ["auto", ...(status.availableThinkingLevels ?? []).filter(level => level !== "auto")];
+          const selected = await host.run(io => pickEffort(io, levels, status.configuredEffort ?? status.thinkingLevel, this.commandAbort?.signal, "Reasoning effort · auto or a supported fixed level"));
+          if (selected) this.terminal.writePanel("Reasoning effort updated", formatRuntimeStatus(await session.setEffort(selected.level, selected.persist)));
+        } else this.terminal.writePanel("Reasoning effort", `${formatRuntimeStatus(status)}\nChoices: auto${status?.availableThinkingLevels?.length ? `, ${status.availableThinkingLevels.join(", ")}` : " (fixed levels unavailable)"}\nUse /effort <auto|level> [--session]. Fixed effort disables automatic classification.`);
       } else {
-        if (args.length > 2 || (args.length === 2 && args[1] !== "--session")) throw new Error("Usage: /effort <level> [--session]");
+        if (args.length > 2 || (args.length === 2 && args[1] !== "--session")) throw new Error("Usage: /effort <auto|level> [--session]");
         if (!session.setEffort) throw new Error("This runtime does not support effort controls.");
-        this.output.write(`${formatRuntimeStatus(await session.setEffort(args[0]!, args[1] !== "--session"))}\n`);
+        this.terminal.writePanel("Reasoning effort updated", formatRuntimeStatus(await session.setEffort(args[0]!, args[1] !== "--session")));
       }
       return;
     }
     if (prompt === "/permissions") {
-      this.output.write("Permissions: native read/edit/write/bash tools execute within the requested coding task; no OS sandbox or universal shell approval gate.\nMCP, workspace transitions, debugger launch and consequential browser operations have their own exact approvals.\nNo SAFE/YOLO or read-only mode is implied. /verify may execute project scripts.\n");
+      this.terminal.writePanel("Native tools are not sandboxed", "Native read/edit/write/bash tools execute within the requested coding task.\nThere is no OS sandbox or universal shell approval gate.\nNo SAFE/YOLO or read-only mode is implied. /verify may execute project scripts.", "warning");
+      this.terminal.writePanel("Separate approval boundaries", "MCP calls, workspace transitions, debugger launch and consequential browser operations have their own exact approvals.\nApprovals require fresh input; submitting a task is not blanket consent.");
       return;
     }
     if (prompt === "/context" || prompt === "/usage") {
@@ -523,18 +549,27 @@ export class CasperApp {
       const usage = session.getUsage?.();
       const context = usage?.context;
       if (prompt === "/context") {
-        this.output.write(`Context: ${context?.tokens == null ? "unavailable" : `${context.tokens} / ${context.contextWindow} tokens (estimate; ${context.percent?.toFixed(1) ?? "?"}%)`}\n`);
-        this.output.write(`Messages: ${usage?.messages ?? "unavailable"}; indexed skills: ${this.skillRegistry!.list().length}; Casper custom tools: ${this.runtimeTools.length}.\nPer-file/skill/tool token attribution is unavailable. /compact sends a model request.\n`);
-      } else this.output.write(`Usage: ${usage ? formatTerminalJSON(usage.tokens) : "unavailable"}\nCost: ${usage?.estimatedCost === undefined ? "unavailable" : `$${usage.estimatedCost.toFixed(4)} SDK/catalog estimate`}; not a bill or a subscription charge.\n`);
+        this.terminal.writePanel("Context estimate", `Tokens: ${context?.tokens == null ? "unavailable" : `${context.tokens} / ${context.contextWindow} (${context.percent?.toFixed(1) ?? "?"}%)`}\nMessages: ${usage?.messages ?? "unavailable"}\nIndexed skills: ${this.skillRegistry!.list().length}\nCasper custom tools: ${this.runtimeTools.length}\nPer-file/skill/tool token attribution is unavailable.\n/compact summarizes context and sends a model request.`);
+      } else {
+        this.terminal.writePanel("Conversation usage", `Tokens: ${usage ? formatTerminalJSON(usage.tokens) : "unavailable"}\nCost: ${usage?.estimatedCost === undefined ? "unavailable" : `$${usage.estimatedCost.toFixed(4)} SDK/catalog estimate`}\nAutomatic effort classification is excluded.\nCost estimates are not a bill or a subscription charge.`);
+        const classifier = usage?.effortClassification;
+        this.terminal.writePanel("Automatic effort classifier usage (separate, since session load)", [
+          `Requests: ${classifier?.requests ?? "unavailable"}`,
+          `Reported tokens: ${classifier ? formatTerminalJSON(classifier.tokens) : "unavailable"}`,
+          `Cost: ${classifier?.estimatedCost === undefined ? "unknown / unavailable" : `$${classifier.estimatedCost.toFixed(4)} SDK/catalog estimate`}`,
+          "Failed requests may consume unreported tokens; their cost is unknown, not zero.",
+          "Not included in conversation totals. Estimates are not a bill or a subscription charge.",
+        ].join("\n"));
+      }
       return;
     }
     if (/^\/compact(?:\s|$)/.test(prompt)) {
       if (this.subagents.isBusy) throw new Error("Wait for active subagents before compacting.");
       const session = await this.ensureRuntime();
       if (!session.compact) throw new Error("This runtime does not support compaction.");
-      this.output.write("[context] Compacting with the selected model; workspace files unchanged.\n");
+      this.terminal.writePanel("Summarizing conversation", "Sending a request to the selected model. Workspace files unchanged.");
       await session.compact(prompt.slice(8).trim() || undefined, this.commandAbort?.signal);
-      this.output.write("[context] Conversation compacted; context usage may remain unavailable until the next response.\n");
+      this.terminal.writePanel("Conversation compacted", "Context usage may remain unavailable until the next response.");
       return;
     }
     if (prompt === "/clear" || /^\/resume(?:\s|$)/.test(prompt)) {
@@ -544,8 +579,8 @@ export class CasperApp {
       if (prompt === "/resume") {
         if (!session.listConversations) throw new Error("This runtime does not support conversation listing. Use /tree and /switch for named workspaces.");
         const saved = await session.listConversations();
-        this.output.write(saved.length ? saved.map(item => `${item.id}  ${item.name ?? "(unnamed)"}  ${item.modified}`).join("\n") + "\n" : "No saved conversations in this workspace.\n");
-        this.output.write("Use /resume <exact-id>; /tree and /switch manage named workspaces.\n");
+        this.terminal.writePanel("Saved conversations", saved.length ? saved.map(item => `${item.id}  ${item.name ?? "(unnamed)"}  ${item.modified}`).join("\n") : "No saved conversations in this workspace.");
+        this.terminal.writePanel("Resume a conversation", "Use /resume <exact-id>.\n/tree and /switch manage named workspaces.");
         return;
       }
       await this.browser?.close(); this.browser = undefined;
@@ -559,8 +594,8 @@ export class CasperApp {
       }
       this.lastTaskRequest = undefined;
       await (await this.ensureSessionWorkspace()).rememberConversation(session);
-      this.output.write(`[session] ${prompt === "/clear" ? "Fresh conversation started" : "Conversation resumed"}; workspace files unchanged. Previous conversations remain available through /resume.\n`);
-      this.output.write(`${formatRuntimeStatus(session.getStatus?.())}\n`);
+      this.terminal.writePanel(prompt === "/clear" ? "Fresh conversation started" : "Conversation resumed", "Workspace files unchanged.\nPrevious conversations remain available through /resume.");
+      this.terminal.writePanel("Model and credentials", formatRuntimeStatus(session.getStatus?.()));
       return;
     }
     if (prompt === "/diff") {
@@ -574,26 +609,32 @@ export class CasperApp {
           throw error;
         }
       };
-      this.output.write(await git(["status", "--short"]));
-      this.output.write(await git(["diff", "--no-ext-diff", "--no-textconv", "HEAD", "--"]));
-      this.output.write("[diff] Tracked changes against HEAD; untracked files listed above, contents not included. Output limited to 64 KiB per command.\n");
+      this.terminal.writePanel("Workspace status", await git(["status", "--short"]));
+      this.terminal.writePanel("Tracked changes against HEAD", await git(["diff", "--no-ext-diff", "--no-textconv", "HEAD", "--"]));
+      this.terminal.writePanel("Diff scope", "Untracked file names are listed above; their contents are not included.\nOutput is limited to 64 KiB per command.", "muted");
       return;
     }
     if (prompt === "/status") {
       const info = await this.inspectProjectFn(this.activeWorkspaceRoot());
       this.projectContext!.info.gitBranch = info.gitBranch;
-      this.output.write(`${renderProjectSummary(this.projectContext!)}\n`);
-      this.output.write(`${formatRuntimeStatus(this.session ? this.session.getStatus?.() ?? { auth: "unknown" } : undefined)}\n`);
-      this.output.write(` skills    ${this.skillRegistry!.list().length} indexed; imports: ${this.projectContext!.skills.imports?.join(", ") || "none"} (/skills diagnostics)\n`);
-      this.output.write(` mcp       ${this.mcp!.status().length} configured (/mcp for connection status)\n`);
-      this.output.write(` lsp       ${this.lsp!.status().length} configured (/lsp for connection status)\n`);
-      this.output.write(` browser   ${this.browser?.status().state ?? "idle"}; disposable local browser (/browser)\n`);
-      this.output.write(` debugger  ${this.debugSession?.status().state ?? "idle"}; explicit local DAP (/debug)\n`);
+      this.terminal.writePanel("Project", renderProjectSummary(this.projectContext!));
+      this.terminal.writePanel("Model and credentials", formatRuntimeStatus(this.session ? this.session.getStatus?.() ?? { auth: "unknown" } : undefined));
       const usage = this.session?.getUsage?.();
-      this.output.write(` context   ${usage?.context?.percent == null ? "unavailable" : `${usage.context.percent.toFixed(1)}% (estimate)`}; ${usage?.tokens.total ?? "unavailable"} session tokens (/context, /usage)\n`);
-      this.output.write(" policy    native coding tools enabled; not sandboxed (/permissions). Verification requires explicit scoped checks (/verify).\n");
-      this.output.write(` visualize ${this.visualization!.providerNames().join(", ")} (/visualize)\n`);
-      this.output.write(" memory    explicit facts and local task summaries; acceptance unknown until recorded (/memory)\n references read-only local sources (/references)\n");
+      this.terminal.writePanel("Session", [
+        `Context: ${usage?.context?.percent == null ? "unavailable" : `${usage.context.percent.toFixed(1)}% (estimate)`} (/context)`,
+        `Tokens: ${usage?.tokens.total ?? "unavailable"} (/usage)`,
+        "Memory: explicit facts and local task summaries; acceptance unknown until recorded (/memory)",
+      ].join("\n"));
+      this.terminal.writePanel("Integrations", [
+        `Skills: ${this.skillRegistry!.list().length} indexed; imports: ${this.projectContext!.skills.imports?.join(", ") || "none"} (/skills diagnostics)`,
+        `MCP: ${this.mcp!.status().length} configured; inspect connections with /mcp`,
+        `LSP: ${this.lsp!.status().length} configured; inspect connections with /lsp`,
+        `Browser: ${this.browser?.status().state ?? "idle"}; disposable local browser (/browser)`,
+        `Debugger: ${this.debugSession?.status().state ?? "idle"}; explicit local DAP (/debug)`,
+        `Visualization: ${this.visualization!.providerNames().join(", ")} (/visualize)`,
+        "References: read-only local sources (/references)",
+      ].join("\n"));
+      this.terminal.writePanel("Safety and verification", "Native coding tools are enabled, not sandboxed (/permissions).\nVerification requires explicit scoped checks (/verify).", "warning");
       return;
     }
     if (prompt === "/exit" || prompt === "/quit") return;
@@ -616,12 +657,12 @@ export class CasperApp {
       return;
     }
     if (prompt === "/project") {
-      this.output.write(`${renderProjectSummary(this.projectContext!)}\n`);
+      this.terminal.writePanel("Project", renderProjectSummary(this.projectContext!));
       return;
     }
     if (/^\/tree(?:\s|$)/.test(prompt)) {
       if (prompt !== "/tree") throw new Error("Usage: /tree");
-      this.output.write((await this.ensureSessionWorkspace()).renderTree());
+      this.terminal.writePanel("Session and workspace tree", (await this.ensureSessionWorkspace()).renderTree());
       return;
     }
     if (/^\/branch(?:\s|$)/.test(prompt)) {
@@ -679,7 +720,7 @@ export class CasperApp {
     const selected = await this.skillRegistry!.loadForTask(prompt, context.model, classification);
     this.reportSkillWarnings();
     if (selected.length) {
-      this.output.write(` skills selected: ${selected.map(({ skill }) => skill.name).join(", ")}\n`);
+      this.terminal.writePanel("Skills selected for this task", selected.map(({ skill }) => skill.name).join("\n"));
     }
     const skillContext = formatSelectedSkills(selected);
     let memoryContext = "";
@@ -688,12 +729,12 @@ export class CasperApp {
     } catch {
       // Facts are optional guidance. Keep explicit memory operations fail-closed,
       // and never echo possibly sensitive file contents or paths from read errors.
-      if (!this.closing) this.output.write("[memory] Facts unavailable (invalid or unreadable state); continuing without them. Preserve and inspect memory.jsonl before manual repair.\n");
+      if (!this.closing) this.terminal.writePanel("Project facts unavailable", "Invalid or unreadable memory state; continuing without those facts.\nPreserve and inspect memory.jsonl before manual repair.", "warning");
     }
     if (this.closing || this.commandAbort?.signal.aborted) return;
     if (this.autoVerify) this.checkTask = new VerificationTask(
       VerifierRegistry.forProject(context.model, context.verification.timeoutMs, this.blockOnCleanupFailure), this.activeWorkspaceRoot(),
-      (result) => { this.ensureLineBreak(); this.output.write(`${formatVerificationResult(result)}\n`); },
+      (result) => this.writeVerificationCheck(result),
     );
     await this.prepareCapabilities(prompt, classification.intent === "visualize");
     if (this.closing || this.commandAbort?.signal.aborted) return;
@@ -705,7 +746,7 @@ export class CasperApp {
         memoryContext,
         skillContext,
         formatTaskPrompt(prompt, classification, context.model),
-      ].filter(Boolean).join("\n\n"), this.commandAbort?.signal);
+      ].filter(Boolean).join("\n\n"), this.commandAbort?.signal, { request: prompt });
       if (!this.closing && !this.commandAbort?.signal.aborted && !this.taskRuntimeFailed && !this.checkTask?.signal.aborted && this.checkTask?.checks.length) {
         verification = await this.runVerification(this.checkTask.checks, true, prompt, this.checkTask);
       }
@@ -727,7 +768,8 @@ export class CasperApp {
         this.terminal.endAssistant();
         this.ensureLineBreak();
         if (classification.intent !== "general" || execution !== "completed" || verification || browser?.checks.length || observations.possibleMutations || observations.observedEdits.length || observations.observedChecks.length) {
-          this.output.write(`${formatTaskResult(this.lastTaskResult)}\n`);
+          this.terminal.writePanel("Task receipt", redactPreview(formatTaskResult(this.lastTaskResult)), execution === "failed" ? "error" : execution === "cancelled" ? "warning" : "muted");
+          for (const check of observations.observedChecks) if (check.output) this.terminal.writePanel(`${check.name}: shell diagnostics, not verification`, redactPreview(check.output) + (check.truncated ? "\n[Output truncated at capture]" : ""), "muted");
         }
       }
       await this.recordTaskOutcome({ task: prompt, skills: selected.map(({ skill }) => skill.id),
@@ -740,7 +782,7 @@ export class CasperApp {
     // Shutdown is not a completed task. Never launch a late persistence operation.
     if (this.closing) return;
     this.memoryWork = new ProjectMemory(this.projectContext!.stateDirectory).recordOutcome(input).then(() => {}, () => {
-      this.output.write("[memory] Task outcome was not recorded (invalid, locked, full, or unavailable state); no acceptance inferred.\n");
+      this.terminal.writePanel("Task outcome not recorded", "Memory state is invalid, locked, full, or unavailable.\nNo acceptance was inferred.", "warning");
     });
     try { await this.memoryWork; }
     finally { this.memoryWork = undefined; }
@@ -762,18 +804,26 @@ export class CasperApp {
       await memory.acceptOutcome(args[0]!, args[1] === "yes"); result = "Human acceptance recorded (not verification evidence)";
     } else throw new Error("Usage: /memory | /memory remember <fact> | /memory forget <id> | /memory outcomes | /memory accept <outcome-id> <yes|no>");
     const serialized = JSON.stringify(result, null, 2).replace(/[\u202a-\u202e\u2066-\u2069]/gu, (char) => `\\u${char.codePointAt(0)!.toString(16)}`);
-    this.output.write(`[memory] ${serialized}\n`);
+    this.terminal.writePanel(action === "outcomes" ? "Recorded task outcomes" : action === "accept" ? "Human acceptance recorded" : "Project memory", serialized);
   }
 
   private async handleReferencesCommand(prompt: string): Promise<void> {
     if (prompt.trim() === "/references") {
-      this.output.write(`[references] ${formatReferenceResult(this.references!.list())}\n`);
+      this.terminal.writePanel("Local reference sources", formatReferenceResult(this.references!.list()));
       return;
     }
     const match = prompt.match(/^\/references\s+search\s+(\S+)\s+([\s\S]+)$/);
     if (!match) throw new Error("Usage: /references | /references search <source-id|*> <literal query>");
     const result = await this.references!.search({ query: match[2]!, ...(match[1] === "*" ? {} : { source: match[1]! }) });
-    if (!this.closing) this.output.write(`[references] ${formatReferenceResult(result)}\n`);
+    if (!this.closing) this.terminal.writePanel("Reference search results", formatReferenceResult(result));
+  }
+
+  private writeVerificationCheck(result: VerificationResult): void {
+    this.ensureLineBreak();
+    const tone = result.status === "fail" ? "error" : result.status === "skip" || result.freshness !== "fresh" || !result.scope ? "warning" : "success";
+    this.terminal.writePanel("Check execution", redactPreview(formatVerificationResult(result)), tone);
+    if (result.stdout) this.terminal.writePanel(`${result.name}: stdout`, redactPreview(result.stdout), "muted");
+    if (result.stderr) this.terminal.writePanel(`${result.name}: stderr`, redactPreview(result.stderr), result.status === "fail" ? "error" : "muted");
   }
 
   private async runVerification(
@@ -786,7 +836,7 @@ export class CasperApp {
     const controller = new AbortController();
     const evidence = task ?? new VerificationTask(
       VerifierRegistry.forProject(context.model, context.verification.timeoutMs, this.blockOnCleanupFailure), this.activeWorkspaceRoot(),
-      (result) => { this.ensureLineBreak(); this.output.write(`${formatVerificationResult(result)}\n`); },
+      (result) => this.writeVerificationCheck(result),
     );
     const cancel = () => controller.abort();
     this.commandAbort?.signal.addEventListener("abort", cancel, { once: true });
@@ -807,14 +857,14 @@ export class CasperApp {
           await this.prepareCapabilities(request);
           const session = await this.ensureRuntime();
           if (!controller.signal.aborted) {
-            await session.prompt(prompt, controller.signal);
+            await session.prompt(prompt, controller.signal, { request });
             if (this.taskRuntimeFailed) throw new Error("Repair model stopped unsuccessfully; changes retained.");
           }
         } : undefined,
-        onRepair: (attempt, max) => { this.output.write(`↻ repair ${attempt}/${max}\n`); },
+        onRepair: (attempt, max) => { this.terminal.writePanel("Repair in progress", `Attempt ${attempt}/${max}\nThe model may edit files; checks will run again.`, "warning"); },
       });
       const report = await this.verificationWork;
-      this.output.write(`${formatVerificationReport(report)}\n`);
+      this.terminal.writePanel("Verification receipt", formatVerificationReport(report), report.status === "fail" ? "error" : report.status !== "pass" || report.results.some(result => result.freshness !== "fresh" || !result.scope) ? "warning" : "success");
       return report;
     } finally {
       if (!task) await evidence.close();
@@ -859,11 +909,11 @@ export class CasperApp {
       context,
     });
     if (!transition) {
-      this.output.write("[sessions] Branch creation not approved.\n");
+      this.terminal.writePanel("Branch not created", "Branch creation was not approved.", "muted");
       return;
     }
     await this.rebindWorkspace(transition.workspacePath);
-    this.output.write(`[sessions] active ${transition.name} · ${transition.workspacePath}\n`);
+    this.terminal.writePanel("Workspace active", `Name: ${transition.name}\nPath: ${transition.workspacePath}`);
   }
 
   private async handleSwitchCommand(prompt: string): Promise<void> {
@@ -892,14 +942,14 @@ export class CasperApp {
       });
     }
     if (!transition) {
-      this.output.write("[sessions] Switch not approved.\n");
+      this.terminal.writePanel("Workspace not switched", "The switch was not approved.", "muted");
       return;
     }
     await this.rebindWorkspace(transition.workspacePath);
-    this.output.write(`[sessions] active ${transition.name} · ${transition.workspacePath}\n`);
-    if (transition.preservedPath) this.output.write(`[sessions] Candidate files retained for recovery: ${JSON.stringify(transition.preservedPath)}\n`);
+    this.terminal.writePanel("Workspace active", `Name: ${transition.name}\nPath: ${transition.workspacePath}`);
+    if (transition.preservedPath) this.terminal.writePanel("Candidate files retained for recovery", JSON.stringify(transition.preservedPath));
     if (transition.cleanupWarning) {
-      this.output.write(`[sessions] Return did not complete cleanly; review the session tree and repository state: ${transition.cleanupWarning}\n`);
+      this.terminal.writePanel("Workspace return needs review", `Return did not complete cleanly.\n${transition.cleanupWarning}\nReview /tree and the repository state.`, "warning");
     }
   }
 
@@ -930,7 +980,7 @@ export class CasperApp {
       formatProjectContext(context),
     ].join("\n\n"));
     this.workspaceNeedsRebind = false;
-    this.output.write(`[sessions] workspace context rebound to ${context.info.root}; MCP/LSP connections require fresh explicit consent.\n`);
+    this.terminal.writePanel("Workspace context updated", `Root: ${context.info.root}\nMCP/LSP connections require fresh explicit consent.`);
   }
 
   private activeWorkspaceRoot(): string {
@@ -968,7 +1018,7 @@ export class CasperApp {
     const [action, ...args] = argument.split(/\s+/);
     if (action === "stop" && !args.length) {
       await this.debugSession?.close();
-      this.output.write(`${formatTerminalJSON(this.debugSession?.status() ?? { state: "idle" })}\n`); return;
+      this.terminal.writePanel("Debugger status", formatTerminalJSON(this.debugSession?.status() ?? { state: "idle" })); return;
     }
     let request: DebugRequest | undefined;
     if (action === "start" && args.length === 1 && /^[\w-]{1,64}$/.test(args[0])) request = { action: "start", target: args[0] };
@@ -993,7 +1043,7 @@ export class CasperApp {
     }
     const result = request ? await this.debugSession.run(request, this.commandAbort?.signal)
       : { ...this.debugSession.status(), targets: await this.debugSession.targets() };
-    this.output.write(`${formatTerminalJSON(result)}\n`);
+    this.terminal.writePanel(request ? `Debugger: ${request.action}` : "Debugger status and targets", formatTerminalJSON(result));
   }
 
   private browserSession(): BrowserSession {
@@ -1006,14 +1056,14 @@ export class CasperApp {
 
   private async handleBrowserCommand(prompt: string): Promise<void> {
     const [, action, ...args] = prompt.split(/\s+/);
-    if (!action) { this.output.write(`${formatTerminalJSON(this.browser?.status() ?? { state: "idle" })}\n`); return; }
-    if (action === "close" && !args.length) { await this.browser?.close(); this.output.write("[browser] Closed owned browser; saved screenshots retained.\n"); return; }
+    if (!action) { this.terminal.writePanel("Browser status", formatTerminalJSON(this.browser?.status() ?? { state: "idle" })); return; }
+    if (action === "close" && !args.length) { await this.browser?.close(); this.terminal.writePanel("Owned browser closed", "Saved screenshots are retained."); return; }
     if (action === "open" && args.length === 1) {
       const result = await this.browserSession().run({ action, url: args[0] }, this.commandAbort?.signal);
-      this.output.write(`${formatTerminalJSON(result)}\n`); return;
+      this.terminal.writePanel("Browser open result", formatTerminalJSON(result)); return;
     }
     if (["inspect", "diagnostics", "screenshot"].includes(action) && !args.length) {
-      this.output.write(`${formatTerminalJSON(await this.browserSession().run({ action }, this.commandAbort?.signal))}\n`); return;
+      this.terminal.writePanel(`Browser: ${action}`, formatTerminalJSON(await this.browserSession().run({ action }, this.commandAbort?.signal))); return;
     }
     throw new Error("Usage: /browser | /browser open <url> | /browser inspect|diagnostics|screenshot|close");
   }
@@ -1026,7 +1076,8 @@ export class CasperApp {
     if (action === "connect") await this.lsp!.connect(name!);
     if (action === "disconnect") await this.lsp!.disconnect(name!);
     const statuses = this.lsp!.status();
-    this.output.write(statuses.length ? statuses.map((entry) => `${entry.name} [${entry.state}]\n  source: ${entry.source}`).join("\n") + "\n" : "No LSP servers configured.\n");
+    if (!statuses.length) this.terminal.writePanel("Language servers", "No LSP servers configured.");
+    for (const entry of statuses) this.terminal.writePanel(`LSP: ${entry.name}`, `State: ${entry.state}\nSource: ${entry.source}`);
   }
 
   private async handleVisualizeCommand(prompt: string): Promise<void> {
@@ -1034,11 +1085,11 @@ export class CasperApp {
     if (action && (action !== "repo" || extra.length)) throw new Error("Usage: /visualize | /visualize repo [directory]");
     const router = this.visualization!;
     if (!action) {
-      this.output.write([
-        `providers: ${router.providerNames().join(", ")}`,
-        `artifacts: ${!router.settings.outputDir ? "disabled (in-conversation only)" : artifactFilesystemSupported ? router.settings.outputDir : "in-conversation only (artifact files need macOS or Linux)"}`,
+      this.terminal.writePanel("Visualization", [
+        `Providers: ${router.providerNames().join(", ")}`,
+        `Artifacts: ${!router.settings.outputDir ? "disabled (in-conversation only)" : artifactFilesystemSupported ? router.settings.outputDir : "in-conversation only (artifact files need macOS or Linux)"}`,
         "Visualization is read-only and never modifies the workspace.",
-        "",
+        "Render repository dependencies with /visualize repo [directory].",
       ].join("\n"));
       return;
     }
@@ -1049,8 +1100,9 @@ export class CasperApp {
       const rendered = await router.render(repo.graph, controller.signal);
       const description = describeVisualization(rendered, [`Scanned ${repo.filesScanned} files at ${repo.granularity} granularity.`, ...repo.notes]);
       this.output.write(`${rendered.primary.content}\n`);
-      for (const note of [...(description.notes as string[]), ...rendered.primary.lossiness]) this.output.write(`[visualize] ${note}\n`);
-      for (const artifact of rendered.artifacts) this.output.write(`[visualize] wrote ${artifact.path} (${artifact.bytes} bytes)\n`);
+      const notes = [...(description.notes as string[]), ...rendered.primary.lossiness];
+      if (notes.length) this.terminal.writePanel("Diagram scope and limits", notes.join("\n"), "muted");
+      if (rendered.artifacts.length) this.terminal.writePanel("Diagram files written", rendered.artifacts.map(artifact => `${artifact.path} (${artifact.bytes} bytes)`).join("\n"));
     } finally { this.visualizationAbort = undefined; }
   }
 
@@ -1072,7 +1124,7 @@ export class CasperApp {
       cwd: this.activeWorkspaceRoot(),
       projectContext: formatProjectContext(this.projectContext!),
     });
-    if (!this.closing) this.output.write(formatSubagentReport(result));
+    if (!this.closing) this.terminal.writePanel("Subagent report — advisory", formatSubagentReport(result), result.status === "completed" ? "muted" : "warning");
     if (result.status !== "completed") throw new Error(`Delegation ${result.status}; see the bounded report above`);
   }
 
@@ -1090,11 +1142,14 @@ export class CasperApp {
     if (action === "connect") await this.mcp!.connect(name!);
     if (action === "disconnect") await this.mcp!.disconnect(name!);
     const statuses = this.mcp!.status();
-    this.output.write(statuses.length ? statuses.map((status) => [
-      `${status.name} [${status.transport}; ${status.state}] ${status.toolCount} tools`,
-      `  source: ${status.source}`,
-      ...(status.error ? [`  ${status.error}`] : []),
-    ].join("\n")).join("\n") + "\n" : "No MCP servers configured.\n");
+    if (!statuses.length) this.terminal.writePanel("MCP servers", "No MCP servers configured.");
+    for (const status of statuses) this.terminal.writePanel(`MCP: ${status.name}`, [
+      `State: ${status.state}`,
+      `Transport: ${status.transport}`,
+      `Tools: ${status.toolCount}`,
+      `Source: ${status.source}`,
+      ...(status.error ? [`Error: ${status.error}`] : []),
+    ].join("\n"), status.error ? "error" : "accent");
     if (action === "connect" && statuses.find((status) => status.name === name)?.state !== "ready") {
       throw new Error("MCP connection failed; no tools exposed");
     }
@@ -1119,42 +1174,42 @@ export class CasperApp {
     try {
       if (!action) {
         const skills = registry.list();
-        this.output.write(`${skills.length} indexed; imports: ${this.projectContext!.skills.imports?.join(", ") || "none"}\n`);
-        this.output.write(skills.length ? skills.map((skill) => [
-          `${skill.id} [${skill.source}; ${skill.trust}${skill.disableModelInvocation ? "; manual-only" : ""}]`,
-          `  ${JSON.stringify(skill.description)}`,
-          `  ${skill.filePath}`,
-        ].join("\n")).join("\n\n") + "\n" : "No skills discovered.\n");
+        this.terminal.writePanel("Skill index", `Indexed: ${skills.length}\nImports: ${this.projectContext!.skills.imports?.join(", ") || "none"}`);
+        if (!skills.length) this.terminal.writePanel("Skills", "No skills discovered.");
+        for (const skill of skills) this.terminal.writePanel(`Skill: ${skill.id}`, [
+          `Source: ${skill.source}`,
+          `Trust: ${skill.trust}${skill.disableModelInvocation ? "; manual-only" : ""}`,
+          `Description: ${JSON.stringify(skill.description)}`,
+          `File: ${skill.filePath}`,
+        ].join("\n"));
       } else if (action === "diagnostics" && !id) {
-        this.output.write(registry.diagnostics.length ? registry.diagnostics.join("\n") + "\n" : "No skill warnings.\n");
+        this.terminal.writePanel("Skill diagnostics", registry.diagnostics.length ? registry.diagnostics.join("\n") : "No skill warnings.", registry.diagnostics.length ? "warning" : "muted");
       } else if (action === "inspect" && id && !sha256) {
         const inspected = await registry.inspect(id);
-        this.output.write([
-          `Skill: ${inspected.skill.id}`,
+        this.terminal.writePanel(`Skill: ${inspected.skill.id}`, [
           `File: ${inspected.skill.filePath}`,
-          `Source: ${inspected.skill.source}; trust: ${inspected.skill.trust}`,
+          `Source: ${inspected.skill.source}`,
+          `Trust: ${inspected.skill.trust}`,
           `Metadata: ${JSON.stringify({
             ...inspected.skill.extra,
             tags: inspected.skill.tags,
             stacks: inspected.skill.stacks,
             intents: inspected.skill.intents,
           })}`,
-          inspected.body,
-          `SHA256: ${inspected.sha256}`,
-          `After reviewing: /skills trust ${id} ${inspected.sha256}`,
-          "",
         ].join("\n"));
+        this.terminal.writePanel("Skill content to review", inspected.body);
+        this.terminal.writePanel("Trust only the reviewed content", `SHA256: ${inspected.sha256}\nAfter reviewing: /skills trust ${id} ${inspected.sha256}`, "warning");
       } else if (action === "trust" && id && sha256 && !extra.length) {
         await registry.trust(id, sha256);
-        this.output.write(`Trusted reviewed content for ${id}.\n`);
+        this.terminal.writePanel("Skill content trusted", `Trusted the reviewed content for ${id}.`);
       } else if (action === "block" && id && !sha256) {
         await registry.block(id);
-        this.output.write(`Blocked ${id} for future prompts.\n`);
+        this.terminal.writePanel("Skill blocked", `${id} will not be injected into future prompts.`);
       } else {
-        this.output.write("Usage: /skills | /skills inspect <id> | /skills trust <id> <sha256> | /skills block <id>\n");
+        this.terminal.writePanel("Skill commands", "/skills\n/skills diagnostics\n/skills inspect <id>\n/skills trust <id> <sha256>\n/skills block <id>");
       }
     } catch (error) {
-      this.output.write(`[skills] ${error instanceof Error ? error.message : String(error)}\n`);
+      this.terminal.writePanel("Skill command failed", error instanceof Error ? error.message : String(error), "error");
     }
   }
 
@@ -1162,7 +1217,7 @@ export class CasperApp {
     const warnings = this.skillRegistry!.diagnostics.filter((warning) => !this.reportedSkillWarnings.has(warning));
     if (!warnings.length) return;
     for (const warning of warnings) this.reportedSkillWarnings.add(warning);
-    this.output.write(`[skills] ${warnings.length} new warning${warnings.length === 1 ? "" : "s"}; use /skills diagnostics\n`);
+    this.terminal.writePanel("Skill warnings", `${warnings.length} new warning${warnings.length === 1 ? "" : "s"}.\nInspect details with /skills diagnostics.`, "warning");
   }
 
   private writePrompt(prompt: string): void {
@@ -1181,7 +1236,10 @@ export class CasperApp {
       const status = this.session?.getStatus?.();
       const usage = this.session?.getUsage?.();
       const percent = usage?.context?.percent;
-      const model = status?.model ? `${status.provider}/${status.model} · ${status.thinkingLevel ?? "effort —"}` : this.savedModelDisplay ?? "model not initialized · /model";
+      const effort = status?.configuredEffort === "auto"
+        ? `auto (${status.thinkingLevel ?? "unavailable"}) · ${status.autoEffort?.state ?? "pending"}`
+        : status?.thinkingLevel ?? "effort —";
+      const model = status?.model ? `${status.provider}/${status.model} · ${effort}` : this.savedModelDisplay ?? "model not initialized · /model";
       this.terminal.setStatus(`${project.name}/${project.gitBranch ?? "no git"} │ ${model} │ ctx ${percent == null ? "—" : `${percent.toFixed(0)}%~`} │ ${usage ? `${usage.tokens.total} tok │ ` : ""}${usage?.estimatedCost === undefined ? "" : `$${usage.estimatedCost.toFixed(3)} est │ `}${this.commandActive ? "working" : "idle"}`, project.root);
     } catch { this.terminal.setStatus("Session status unavailable · /status", this.projectContext.info.root); }
   }
@@ -1189,6 +1247,12 @@ export class CasperApp {
   private handleRuntimeEvent(event: RuntimeEvent): void {
     if (event.type !== "assistant_text_delta") this.updateFooter();
     switch (event.type) {
+      case "model_controls_changed":
+        this.terminal.endAssistant();
+        this.terminal.writePanel("Model and effort", formatRuntimeStatus(event.status),
+          event.status.autoEffort?.state === "fallback" || event.status.autoEffort?.state === "unavailable" ? "warning" : "muted");
+        this.endedWithNewline = true;
+        break;
       case "assistant_response_end":
         this.terminal.endAssistant();
         // Pi may retry a provider error inside prompt(); only the final response
@@ -1204,7 +1268,7 @@ export class CasperApp {
         this.terminal.endAssistant();
         this.ensureLineBreak();
         if (event.toolCallId) this.toolStarted.set(event.toolCallId, performance.now());
-        this.output.write(`${formatToolActivity(event)}\n`);
+        this.terminal.writePanel("Tool running", formatToolActivity(event), "muted");
         this.endedWithNewline = true;
         break;
       case "tool_end":
@@ -1216,7 +1280,7 @@ export class CasperApp {
         this.terminal.endAssistant();
         const started = event.toolCallId ? this.toolStarted.get(event.toolCallId) : undefined;
         if (event.toolCallId) this.toolStarted.delete(event.toolCallId);
-        this.output.write(`${formatToolActivity(event, started === undefined ? undefined : performance.now() - started)}\n`);
+        this.terminal.writePanel(event.isError ? "Tool failed" : "Tool completed — not verification", formatToolActivity(event, started === undefined ? undefined : performance.now() - started), event.isError ? "error" : "muted");
         this.endedWithNewline = true;
         break;
       case "message_end":
@@ -1228,7 +1292,7 @@ export class CasperApp {
         this.taskRuntimeFailed = true;
         this.terminal.endAssistant();
         this.ensureLineBreak();
-        if (this.displayedError !== event.message) this.output.write(`[error] ${event.message}\n`);
+        if (this.displayedError !== event.message) this.terminal.writePanel("Request failed", event.message, "error");
         this.displayedError = event.message;
         this.endedWithNewline = true;
         break;

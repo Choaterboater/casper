@@ -26,7 +26,7 @@ def exercise(bun, repo, root, no_color=False):
     (agent / "settings.json").write_text(shared)
     (agent / "auth.json").write_text("{}\n")
     try:
-        s.until("/help · /status · /login")
+        s.until("CASPER")
         s.until("│ idle")  # Wait for the raw editor, not just the startup banner.
         draft = "x" * 95
         s.send("/model\n" + draft + "\x1b[D\x1b[D")
@@ -38,18 +38,18 @@ def exercise(bun, repo, root, no_color=False):
         assert not (s.root / "home/.casper/settings.json").exists()
         s.send("Q")
         s.pump(0.1)
-        assert "x" * 93 + "Qxx" in re.sub(r"\n {2}", "", s.screen.text()), s.screen.text()
+        assert s.screen.last_panel_text() == "x" * 93 + "Qxx", s.screen.text()
         # The exclusive handoff must retain editor history as well as its draft.
         s.send("\x01\x0b\x1b[A")
         s.pump(0.1)
-        assert re.search(r"> /model\s*\n\s*─", s.screen.text()), s.screen.text()
+        assert s.screen.last_panel_text() == "/model", s.screen.text()
         # Direct exact match, then search-prefilled picker and explicit save.
         s.send("\x01\x0b/model fixture/first\n")
         s.until("fixture / first")
         s.send("/model sec\n")
         s.until("Model Name: second")
         s.send("\n")  # Normal selection now remembers the default.
-        s.until("Selected and saved as the Casper default")
+        s.until("Saved as the Casper default")
         saved = json.loads((s.root / "home/.casper/settings.json").read_text())
         assert saved == {"defaultProvider": "fixture", "defaultModel": "second", "defaultThinkingLevel": "off", "modelThinkingLevels": {"fixture/first": "off", "fixture/second": "off"}}, saved
         s.send("/effort\n")
@@ -64,7 +64,7 @@ def exercise(bun, repo, root, no_color=False):
             s.send(cancel)
             s.pump(0.3)
             s.send("/status\n")
-            s.until("selection conversation · Casper default fixture/second")
+            s.until("Selection: conversation · Casper default fixture/second")
             s.pump(0.1)
         assert (agent / "settings.json").read_text() == shared
         assert (agent / "auth.json").read_text() == "{}\n"
@@ -99,12 +99,12 @@ def exercise_saved_snapshot(bun, repo, root):
 def exercise_empty_eof(bun, repo, root):
     s = Session(bun, repo, root, app="src/cli.ts", extra_env={"PI_OFFLINE": "1", "PI_TELEMETRY": "0"})
     try:
-        s.until("/help · /status · /login")
+        s.until("CASPER")
         s.until("│ idle")
         s.send("hello\n")
         s.until("Execution failed")
         s.pump(0.2)
-        assert s.screen.text().count("[error] No Casper model selected") == 1, s.screen.text()
+        assert s.screen.text().count("No Casper model selected") == 1, s.screen.text()
         s.send("/model\n")
         s.until("No matching models")
         s.send("\x04")
@@ -118,7 +118,7 @@ def exercise_empty_eof(bun, repo, root):
 def exercise_dumb(bun, repo, root):
     s = Session(bun, repo, root, term="dumb", app="src/cli.ts", extra_env={"PI_OFFLINE": "1", "PI_TELEMETRY": "0"})
     try:
-        s.until("/help · /status · /login")
+        s.until("CASPER")
         s.send("/model\n")
         s.until("No models with configured credentials")
         assert "to set as default" not in s.screen.text(), s.screen.text()

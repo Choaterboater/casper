@@ -70,6 +70,15 @@ class Screen:
 
     def text(self): return "\n".join("".join(row).rstrip() for row in self.rows)
 
+    def last_panel_text(self):
+        rows = self.text().splitlines()
+        start = max((i for i, row in enumerate(rows) if row.startswith("╭")), default=-1)
+        content = []
+        for row in rows[start + 1:]:
+            if row.startswith("╰"): break
+            if row.startswith("│ ") and row.endswith(" │"): content.append(row[2:-2].rstrip())
+        return "".join(content)
+
 class Session:
     def __init__(self, bun, repo, root, no_color=False, term="xterm-256color", app=None, extra_env=None, preload=None, setup=None):
         self.root = pathlib.Path(root)
@@ -130,30 +139,31 @@ class Session:
 def exercise(bun, repo, root, no_color):
     s = Session(bun, repo, root, no_color)
     try:
-        s.until("/help · /status · /login")
-        s.until(">")
+        s.until("CASPER")
+        s.until("Your message")
         startup = s.screen.text()
         assert "mcp       " not in startup and "visualize " not in startup and "indexed" not in startup
         s.send("stream\n")
-        s.until("First **bold** and `code`")
+        s.until("First bold and code")
         assert "scripted / terminal-fixture" in s.screen.text()
         s.send("/sta")
         s.pump()
-        assert "working › /sta" in s.screen.text(), s.screen.text()
+        assert s.screen.last_panel_text() == "/sta", s.screen.text()
         s.release("stream-step")
-        s.until("read · src/example.ts — running")
-        assert "working › /sta" in s.screen.text(), s.screen.text()
-        assert "First **bold** and `code` text." in s.screen.text(), s.screen.text()
+        s.until("src/example.ts")
+        assert s.screen.last_panel_text() == "/sta", s.screen.text()
+        assert "First bold and code text." in s.screen.text(), s.screen.text()
         s.send("tus\n")  # Enter during work must NOT queue or discard the draft.
-        s.until("draft retained")
+        s.until("Draft retained")
         assert s.requests() == ["stream"]
         s.release("stream-end")
         s.until("Done streaming.")
-        s.until("> /status")
+        s.until("Your message")
+        assert s.screen.last_panel_text() == "/status", s.screen.text()
         assert s.requests() == ["stream"]
         s.send("\n")
         s.until("credentials configured (not a connection test)")
-        s.until("mcp       1 configured")
+        s.until("MCP: 1 configured")
         assert s.requests() == ["stream"]
         # A wrapped draft with the cursor in its middle must survive activity.
         s.send("hold\n")
@@ -169,7 +179,7 @@ def exercise(bun, repo, root, no_color):
         assert s.requests()[-1] == "x" * 93 + "Qxx", s.requests()
         # Clear separation between a pretyped draft and an exact confirmation.
         s.send("/mcp connect fixture\n")
-        s.until("340 tools")
+        s.until("Tools: 340")
         s.send("approval-deny\n")
         s.until("Preparing approval.")
         s.send("yes")
@@ -179,7 +189,8 @@ def exercise(bun, repo, root, no_color):
         assert not s.screen.text().rstrip().endswith("Type yes: yes"), s.screen.text()
         s.send("\n")  # Empty fresh answer denies, despite the old 'yes' draft.
         s.until("Approval result: denied")
-        s.until("> yes")
+        s.until("Your message")
+        assert s.screen.last_panel_text() == "yes", s.screen.text()
         assert s.requests()[-1] == "approval-deny"
         s.send("\x01\x0bapproval-allow\n")
         s.pump()
@@ -200,7 +211,7 @@ def exercise(bun, repo, root, no_color):
         assert not any(request.startswith("/") for request in s.requests())
         before = s.requests()
         s.send("hold\n\x03")
-        s.until("Request cancelled before startup")
+        s.until("Cancelled before startup")
         assert s.requests() == before
         s.send("/exit\n")
         deadline = time.monotonic() + 5
@@ -215,10 +226,10 @@ def exercise(bun, repo, root, no_color):
 def exercise_eof(bun, repo, root):
     s = Session(bun, repo, root)
     try:
-        s.until("/help · /status · /login")
+        s.until("CASPER")
         s.until("│ idle")  # Banner output precedes raw editor ownership.
         s.send("/mcp connect fixture\n")
-        s.until("340 tools")
+        s.until("Tools: 340")
         s.send("approval-eof\n")
         s.pump()
         s.release("approval-eof")
@@ -234,15 +245,15 @@ def exercise_eof(bun, repo, root):
 def exercise_dumb(bun, repo, root):
     s = Session(bun, repo, root, term="dumb")
     try:
-        s.until("/help · /status · /login")
+        s.until("CASPER")
         s.send("/mcp connect fixture\n")
-        s.until("340 tools")
+        s.until("Tools: 340")
         s.send("approval-dumb\n")
         s.until("Preparing approval.")
         s.send("yes")  # Still held in the OS's cooked-input buffer, not readline.
         s.pump()
         s.release("approval-dumb")
-        s.until("approval denied")
+        s.until("Approval denied")
         s.until("Approval result: denied")
         s.send("\x15/exit\n")  # Clear the cooked draft before submitting exit.
         deadline = time.monotonic() + 5

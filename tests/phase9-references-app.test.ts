@@ -206,8 +206,9 @@ test("reference CLI and model output escape terminal controls without altering e
   expect({ exit: result.exit, stderr: result.stderr }).toEqual({ exit: 0, stderr: "" });
   const unsafe = (text: string) => [...text].filter((char) => /[\u001b\u007f-\u009f\u202a-\u202e\u2066-\u2069]/u.test(char)).map((char) => char.codePointAt(0));
   expect(unsafe(result.stdout)).toEqual([]);
-  const line = result.stdout.split("\n").find((line) => line.startsWith("[references] "))!;
-  expect(JSON.parse(line.slice("[references] ".length)).matches[0].excerpt).toBe(excerpt);
+  const searchResult = result.stdout.split("\n").filter(line => line.startsWith("{")).map(line => JSON.parse(line))
+    .find(value => Array.isArray(value.matches));
+  expect(searchResult.matches[0].excerpt).toBe(excerpt);
   const runtime = new ReferenceRuntime();
   const app = appFor(home, runtime, () => {});
   await app.runOnce("Find the configured routing example", project);

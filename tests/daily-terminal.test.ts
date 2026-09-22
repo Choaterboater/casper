@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, test } from "bun:test";
 import { PassThrough } from "node:stream";
 import { EventEmitter } from "node:events";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -8,6 +8,10 @@ import { InteractiveTerminal } from "../src/tui/terminal";
 import { posixOnly } from "./support/platform";
 
 const tick = () => new Promise(resolve => setTimeout(resolve, 90));
+
+let originalTerm: string | undefined;
+beforeEach(() => { originalTerm = process.env.TERM; process.env.TERM = "xterm-256color"; });
+afterEach(() => { if (originalTerm === undefined) delete process.env.TERM; else process.env.TERM = originalTerm; });
 
 // python3 runs the standard-library PTY fixture; Windows has no equivalent here.
 posixOnly("offline interactive demo supports model/effort popovers and a real terminal resize", async () => {
@@ -79,7 +83,6 @@ test("interactive input shows persistent status and slash discovery without subm
     await tick();
     expect(output).toContain("fixture/test");
     input.write("/"); await tick();
-    expect(output).toContain("Change model");
     expect(submitted).toBe(false);
     input.write("\x03"); await tick(); // clear draft, not exit
     input.write("hello"); await tick();

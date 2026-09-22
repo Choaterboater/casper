@@ -249,12 +249,13 @@ export class SubagentManager {
         if (!runtime.startReadOnly) throw new Error("Runtime does not support enforced read-only subagents");
         session = await runtime.startReadOnly({
           cwd: options.cwd, signal: controller.signal,
+          modelRole: options.role === "explorer" ? "fast" : "review",
           maxTurns: SUBAGENT_LIMITS.maxTurns, maxToolCalls: SUBAGENT_LIMITS.maxToolCalls,
           systemPromptAppend: `You are Casper ${options.role}, a bounded read-only subagent. Be concise.\n\n${options.projectContext}`,
         });
         controller.signal.throwIfAborted();
         unsubscribe = session.subscribe(observe);
-        await session.prompt(prompt(options));
+        await session.prompt(prompt(options), controller.signal, { request: options.goal });
         if (!controller.signal.aborted && !result.response.trim() && result.status === "completed") {
           result.status = "failed"; result.reason = "Subagent returned no report";
         }

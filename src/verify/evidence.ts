@@ -63,33 +63,53 @@ export function summarizeVerification(report: VerificationReport) {
     repairAttempts: report.repairAttempts, coverage: "not-certified" as const };
 }
 
-function formatQualification(check: VerificationCheckSummary): string {
-  return `inputs ${check.freshness}; scope ${check.scope ? terminalText(JSON.stringify(check.scope)) : "undeclared"}`
-    + (check.freshnessReason ? `; ${terminalText(check.freshnessReason).replace(/\.$/, "")}` : "")
-    + (check.freshness === "fresh" ? "; declared local scope only" : "; current files unverified; reuse disabled");
+function formatQualification(check: VerificationCheckSummary, freshnessReason = check.freshnessReason): string {
+  return [
+    `Inputs: ${check.freshness}`,
+    `Scope: ${check.scope ? terminalText(JSON.stringify(check.scope)) : "undeclared"}`,
+    ...(freshnessReason ? [`Freshness detail: ${terminalText(freshnessReason)}`] : []),
+    check.freshness === "fresh" ? "Declared local scope only." : "Current files unverified; reuse disabled.",
+  ].join("\n");
 }
 
 // Repository output may contain terminal escape sequences. Evidence stays raw;
-// only the compact terminal presentation is sanitized.
+// only the terminal presentation is sanitized.
 function terminalText(value: string): string {
   return value.replace(/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g, " ");
 }
 
 export function formatVerificationResult(result: VerificationResult): string {
-  const mark = { pass: "✓", fail: "✗", skip: "–" }[result.status];
-  const detail = result.reason ?? (result.exitCode === null ? result.signal : `exit ${result.exitCode}`);
-  const source = result.reused ? "reused declared-input evidence; " : "";
-  return `${mark} ${result.name}${result.command ? `  ${terminalText(result.command)}` : ""}  (${source}${detail ? terminalText(detail) + "; " : ""}${result.durationMs}ms${result.truncated ? "; output truncated" : ""}; ${formatQualification(summarizeVerificationCheck(result))})`;
+  const status = { pass: "passed", fail: "failed", skip: "skipped" }[result.status];
+  return [
+    `${result.name}: ${status} (command execution)`,
+    ...(result.command ? [`Command: ${terminalText(result.command)}`] : []),
+    `Directory: ${terminalText(result.cwd)}`,
+    `Exit: ${result.exitCode ?? "unavailable"}${result.signal ? `; signal ${terminalText(result.signal)}` : ""}`,
+    ...(result.reason ? [`Reason: ${terminalText(result.reason)}`] : []),
+    `Duration: ${result.durationMs}ms`,
+    ...(result.reused ? ["Evidence: reused matching declared-input evidence"] : []),
+    ...(result.truncated ? ["Diagnostic output was truncated at capture."] : []),
+    "",
+    "Freshness and scope",
+    formatQualification(summarizeVerificationCheck(result), result.freshnessReason),
+  ].join("\n");
 }
 
 export function formatVerificationReport(report: VerificationReport): string {
   const summary = summarizeVerification(report);
+  const status = { pass: "Selected commands passed", fail: "Selected commands failed", incomplete: "Checks incomplete", blocked: "Checks blocked" }[summary.status];
   const counts = ["pass", "fail", "skip"].map((status) =>
     `${summary.checks.filter((check) => check.status === status).length} ${status}`,
   ).join(", ");
-  const qualifications = summary.checks.map((check) => `${check.name}: ${formatQualification(check)}`).join(" | ");
-  return `Checks ${summary.status} (command execution): ${counts}; ${summary.repairAttempts} repair attempt(s).`
-    + (report.reason ? ` ${terminalText(report.reason)}` : "")
-    + (qualifications ? ` ${qualifications}.` : "")
-    + " requested behavior is not independently certified.";
+  return [
+    `${status} (command execution)`,
+    `Results: ${counts}`,
+    `Repair attempts: ${summary.repairAttempts}`,
+    ...(report.reason ? [`Reason: ${terminalText(report.reason)}`] : []),
+    ...(summary.checks.length ? ["", "Freshness and scope", ...summary.checks.map((check, index) =>
+      `${check.name} — ${check.status}; exit ${check.exitCode ?? "unavailable"}\n${formatQualification(check, report.results[index]?.freshnessReason)}`)] : []),
+    "",
+    "Remaining uncertainty",
+    "Requested behavior is not independently certified. Human acceptance is not inferred.",
+  ].join("\n");
 }

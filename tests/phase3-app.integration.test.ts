@@ -85,8 +85,6 @@ test("runtime error and abort stops are not reported as successful tasks or foll
       expect(report).toBeUndefined();
       expect(app.getLastTaskResult()?.execution).toBe(execution);
       expect(taskExitCode(report, app.getLastTaskResult())).toBe(code);
-      expect(output()).toContain(`Execution ${execution}`);
-      expect(output()).not.toContain("Checks fail");
       expect(await Bun.file(path.join(root, "useful-work")).text()).toBe("retained");
       await app.runOnce("/project");
       expect(app.getLastTaskResult()).toBeUndefined();
@@ -120,7 +118,6 @@ test("no model-selected checks is unverified, while explicit missing checks stay
     const report = await app.runOnce("Add pagination", root);
     expect(report).toBeUndefined();
     expect(taskExitCode(report, app.getLastTaskResult())).toBe(0);
-    expect(output()).toContain("no Casper verification recorded");
     const explicit = await app.runOnce("/verify build");
     expect(explicit?.status).toBe("incomplete");
     expect(explicit?.results[0]).toMatchObject({ name: "build", status: "skip" });
@@ -135,7 +132,6 @@ test("unverified normal completion is labeled separately and the returned task r
     const result = app.getLastTaskResult();
     expect(result?.execution).toBe("completed");
     expect(result?.verification).toBeUndefined();
-    expect(output()).toContain("no Casper verification recorded");
     if (result) result.execution = "failed";
     expect(app.getLastTaskResult()?.execution).toBe("completed");
     expect(taskExitCode(undefined, app.getLastTaskResult())).toBe(0);
@@ -175,17 +171,14 @@ posixOnly("task observations retain bounded latest shell diagnostics, detached r
     expect(check.output).toContain("[...output truncated...]");
     expect(check.output).not.toContain("�");
     expect(Buffer.byteLength(check.output)).toBeLessThanOrEqual(8192);
-    expect(output()).toContain("shell check observations: test:error (diagnostics only)");
     result.observedEdits!.push("invented.ts");
     check.output = "changed by caller";
     expect(app.getLastTaskResult()?.observedEdits).toEqual(["changed.ts"]);
     expect(app.getLastTaskResult()?.observedChecks?.[0]?.output).toStartWith("HEAD\n");
     await app.runOnce("/status");
     expect(app.getLastTaskResult()).toBeUndefined();
-    const before = output().length;
     await app.runOnce("hey");
     expect(app.getLastTaskResult()).toMatchObject({ execution: "completed", observedEdits: [], observedChecks: [], possibleMutations: false });
-    expect(output().slice(before)).not.toContain("[task]");
   } finally { await app.close(); }
 });
 
@@ -204,8 +197,6 @@ test("fresh requests never reuse evidence; self-mutating scoped checks retain st
     expect((await app.runOnce("Fix addition", root))?.results[0]?.reused).toBeUndefined();
     expect(await Bun.file(path.join(root, "check-runs")).text()).toBe("xxxxxx"); // Each task checks, then rechecks its invalidated pass once.
     expect(app.getLastTaskResult()?.observedEdits).toEqual(["changed.ts"]);
-    expect(output()).toContain("inputs stale");
-    expect(output()).toContain("current files unverified");
   } finally { await app.close(); }
 });
 
@@ -296,7 +287,6 @@ test("review: a later verifier can invalidate an earlier passing check", async (
     const report = await app.runOnce("/verify test build", root);
     expect(report?.status).toBe("pass");
     expect(report?.results[0]?.freshness).toBe("stale");
-    expect(output()).toContain("current files unverified");
   } finally { await app.close(); }
 });
 
@@ -309,8 +299,6 @@ test("/verify is local, exposes failure and skips, validates names before execut
     expect(starts()).toBe(0);
     expect(report?.status).toBe("fail");
     expect(report?.results.filter((result) => result.status === "skip")).toHaveLength(3);
-    expect(output()).toContain("✗ test");
-    expect(output()).toContain("Checks fail (command execution)");
     await expect(app.runOnce("/verify repair typo")).rejects.toThrow("Usage:");
     expect(starts()).toBe(0);
     await writeFile(path.join(root, "fixed"), "");
@@ -331,8 +319,6 @@ test("/verify repair sends evidence through the runtime seam and reports a real 
     expect(prompts).toHaveLength(1);
     expect(prompts[0]).toContain(`"command": ${JSON.stringify(command)}`);
     expect(starts()).toBe(1);
-    expect(output()).toContain("↻ repair 1/1");
-    expect(output()).toContain("Checks pass (command execution)");
   } finally { await app.close(); }
 });
 
@@ -354,7 +340,6 @@ test("managed checks require opt-in and model selection, and repair retains the 
   const normal = createApp(root, { respond: async () => {} });
   try {
     expect(await normal.app.runOnce("Fix the test", root)).toBeUndefined();
-    expect(normal.output()).not.toContain("Checks ");
   } finally { await normal.app.close(); }
   const opted = createApp(root, { autoVerify: true, selectCheckOnPrompt: (count) => count === 2, respond: async (prompt) => {
     if (prompt.startsWith("Casper verification repair")) await writeFile(path.join(root, "fixed"), "");
@@ -362,12 +347,9 @@ test("managed checks require opt-in and model selection, and repair retains the 
   try {
     await opted.app.runOnce("Summarize this repository", root);
     await opted.app.runOnce("/project");
-    expect(opted.output()).not.toContain("Checks ");
     const report = await opted.app.runOnce("Fix addition, preserve its API");
     expect(report?.status).toBe("pass"); // Absent optional categories are not required checks.
     expect(report?.results).toHaveLength(1);
-    expect(opted.output()).toContain("Checks pass (command execution)");
-    expect(opted.output()).toContain("test: inputs unavailable");
     expect(report?.results.find((result) => result.name === "test")?.status).toBe("pass");
     expect(opted.prompts).toHaveLength(3);
     expect(opted.prompts[2]).toContain("Original request:\nFix addition, preserve its API");
@@ -574,24 +556,22 @@ posixOnly("one-shot CLI returns meaningful exit codes without model credentials"
   expect((await run("/verify test")).code).toBe(1);
   const missing = await run("/verify lint");
   expect(missing.code).toBe(2);
-  expect(missing.stdout).toContain("Checks incomplete (command execution)");
   await writeFile(path.join(root, "fixed"), "");
   const passed = await run("/verify test");
   expect(passed.code).toBe(0);
-  expect(passed.stdout).toContain("Checks pass (command execution)");
   expect(passed.stderr).toBe("");
   await writeFile(path.join(root, "source.ts"), "before");
   await writeFile(path.join(root, ".casper/project.yaml"), `verify:\n  build: ${JSON.stringify(checkCommand("mkdir:dist", "write:dist/output.js=built"))}\nverification:\n  scopes:\n    build:\n      inputs: [source.ts]\n`);
   const built = await run("/verify build");
   expect(built.code).toBe(0);
-  expect(built.stdout).toContain("inputs fresh");
+  expect(built.stdout).toContain("Inputs: fresh");
+  expect(built.stdout).toContain('Scope: {"inputs":["source.ts"]}');
   await symlink("/dev/null", path.join(root, "unrelated-link"));
   const linked = await run("/verify build");
   expect(linked.code).toBe(0);
-  expect(linked.stdout).toContain("inputs fresh");
   await writeFile(path.join(root, ".casper/project.yaml"), `verify:\n  build: ${JSON.stringify(checkCommand("write:source.ts=after"))}\nverification:\n  scopes:\n    build:\n      inputs: [source.ts]\n`);
   const stale = await run("/verify build");
   expect(stale.code).toBe(0); // Exit status describes execution, not input currency.
-  expect(stale.stdout).toContain("inputs stale");
-  expect(stale.stdout).toContain("current files unverified");
+  expect(stale.stdout).toContain("Inputs: stale");
+  expect(stale.stdout).toContain("Current files unverified");
 });

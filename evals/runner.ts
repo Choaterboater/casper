@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto";
-import { copyFile, lstat, mkdir, mkdtemp, readdir, readFile, readlink, rm } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { copyFile, lstat, mkdir, mkdtemp, readdir, readFile, readlink, realpath, rm, writeFile } from "node:fs/promises";
 import { openNoFollow } from "../src/platform/files";
 import os from "node:os";
 import path from "node:path";
@@ -16,6 +16,8 @@ import type { VerificationReport } from "../src/verify/evidence";
 export interface EvalVerification {
   readonly name: string;
   readonly argv: readonly string[];
+  /** Top-level production paths copied into a host-owned solved fixture for grading. */
+  readonly candidatePaths: readonly string[];
 }
 
 /** Behavioral expectations checked against the resulting tree and the final answer. */
@@ -24,6 +26,8 @@ export interface EvalAcceptance {
   readonly changed?: readonly string[];
   /** No touched path may live under any prefix. */
   readonly unchanged?: readonly string[];
+  /** Only these exact paths or directory prefixes (ending in /) may change. */
+  readonly allowedChanges?: readonly string[];
   readonly contains?: readonly { readonly path: string; readonly text: string }[];
   /** Literal text that must appear nowhere under `under`. */
   readonly noMatch?: readonly { readonly text: string; readonly under: string }[];
@@ -43,6 +47,8 @@ export interface EvalTask {
   /** Independent-verification status expected on the untouched starting state. */
   readonly initialVerification: "pass" | "fail";
   readonly acceptance: EvalAcceptance;
+  /** Host-observed workflow checks, in addition to behavioral verification. */
+  readonly requiredEvidence?: readonly string[];
 }
 
 interface EvalMetrics {
@@ -53,7 +59,36 @@ interface EvalMetrics {
   readonly sessions: RuntimeSession[];
 }
 
+export interface EvalIntervention {
+  readonly kind: "required" | "rescue";
+  readonly atMs: number;
+  readonly reason: string;
+}
+
+export interface EvalObservation {
+  startedAt: string;
+  wallClockMs: number;
+  execution: TaskResult["execution"] | "error";
+  modelCalls: number;
+  answer: string;
+  interventions: readonly EvalIntervention[];
+  usage?: RuntimeUsage;
+  workflowChecks?: readonly { id: string; passed: boolean; evidence: string }[];
+  error?: string;
+  runtimeErrors?: string[];
+  outputTail?: string;
+  repairAttempts?: number;
+  selfVerification?: VerificationReport["status"];
+}
+
 export interface EvalRunResult {
+  attemptId: string;
+  evidenceSource: "runtime" | "host-observation";
+  outcome: "accepted-without-rescue" | "accepted-with-rescue" | "not-accepted";
+  interventions: readonly EvalIntervention[];
+  workflowChecks: NonNullable<EvalObservation["workflowChecks"]>;
+  /** Adapter/host-reported estimates, not billing; missing values remain unknown. */
+  reportedUsage: RuntimeUsage | null;
   taskId: string;
   fixture: string;
   startedAt: string;
@@ -73,7 +108,7 @@ export interface EvalRunResult {
   filesRemoved: string[];
   repairAttempts: number | null;
   selfVerification: VerificationReport["status"] | null;
-  verification: { name: string; status: "pass" | "fail"; exitCode: number | null; durationMs: number; output: string };
+  verification: { name: string; status: "pass" | "fail" | "unavailable"; exitCode: number | null; durationMs: number; output: string };
   acceptance: { passed: boolean; failures: string[] };
   success: boolean;
 }
@@ -90,6 +125,8 @@ export interface EvalRunOptions {
   verifyTimeoutMs?: number;
   /** Keep the prepared work directory for inspection. */
   keepWorkdir?: boolean;
+  /** Host-recorded interactions; no rescue is inferred from Casper's automatic repair loop. */
+  interventions?: readonly EvalIntervention[];
 }
 
 const TEXT_EXTENSIONS: Record<string, true> = {
@@ -134,8 +171,9 @@ function resolveTools(text: string, repoRoot: string): string {
 }
 
 /** Copy the fixture and apply the task's setup overlay. */
-export async function prepareWorkdir(task: EvalTask, repoRoot: string): Promise<string> {
-  const workdir = await mkdtemp(path.join(os.tmpdir(), "casper-eval-"));
+export async function prepareWorkdir(task: EvalTask, repoRoot: string, destination?: string): Promise<string> {
+  const workdir = destination ?? await mkdtemp(path.join(os.tmpdir(), "casper-eval-"));
+  if (destination) await mkdir(workdir, { recursive: true });
   await copyTree(path.join(repoRoot, "evals/fixtures", task.fixture), workdir);
   if (task.setup) {
     const setup = path.join(repoRoot, "evals/setups", task.setup);
@@ -242,6 +280,46 @@ export async function runVerification(
   } finally { clearTimeout(timer); }
 }
 
+/** Only production paths enter the evaluator; its tests and configuration stay frozen. */
+async function runIndependentVerification(
+  verification: EvalVerification,
+  options: { workdir: string; evaluator: string; repoRoot: string; homeDir: string; timeoutMs: number },
+) {
+  const started = performance.now();
+  try {
+    for (const relative of verification.candidatePaths) {
+      if (!/^[\w.-]+$/.test(relative) || relative === "." || relative === "..") {
+        throw new Error(`Candidate path must be a top-level name: ${relative}`);
+      }
+      const source = path.join(options.workdir, relative);
+      const destination = path.join(options.evaluator, relative);
+      await rm(destination, { recursive: true, force: true });
+      const info = await lstat(source).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT") return undefined;
+        throw error;
+      });
+      // A deleted source must stay deleted, never fall back to the solved fixture.
+      if (!info) continue;
+      if (info.isSymbolicLink()) throw new Error(`Candidate source is a symlink: ${relative}`);
+      if (info.isDirectory()) {
+        await mkdir(destination, { recursive: true });
+        await copyTree(source, destination);
+      } else if (info.isFile()) {
+        await copyFile(source, destination);
+      } else {
+        throw new Error(`Candidate source is not a plain file or directory: ${relative}`);
+      }
+    }
+    return await runVerification(verification, { ...options, workdir: options.evaluator });
+  } catch (error) {
+    return {
+      name: verification.name, status: "unavailable" as const, exitCode: null,
+      durationMs: Math.round(performance.now() - started),
+      output: `Independent verification unavailable: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
 async function fileContains(root: string, relative: string, text: string): Promise<boolean> {
   return (await readFile(path.join(root, relative), "utf8").catch(() => "")).includes(text);
 }
@@ -288,6 +366,13 @@ export async function evaluateAcceptance(
     if (hits.length) failures.push(`${JSON.stringify(rule.text)} still present in ${hits.join(", ")}`);
     if (unavailable.length) failures.push(`${JSON.stringify(rule.text)} absence scan unavailable for ${unavailable.join(", ")} (symlink, unreadable, non-regular or over 1 MiB)`);
   }
+  if (acceptance.allowedChanges) {
+    for (const entry of touched) {
+      if (!acceptance.allowedChanges.some(allowed => entry === allowed || (allowed.endsWith("/") && entry.startsWith(allowed)))) {
+        failures.push(`changed outside allowed scope: ${entry}`);
+      }
+    }
+  }
   if (acceptance.noEdits && touched.length) failures.push(`edited ${touched.join(", ")}`);
   for (const keyword of acceptance.answerContains ?? []) {
     if (!context.answer.toLowerCase().includes(keyword.toLowerCase())) failures.push(`answer does not mention ${JSON.stringify(keyword)}`);
@@ -302,6 +387,8 @@ export async function runEvalTask(task: EvalTask, options: EvalRunOptions): Prom
   const homeDir = options.homeDir ?? await mkdtemp(path.join(os.tmpdir(), "casper-eval-home-"));
   const workdir = await prepareWorkdir(task, options.repoRoot);
   const before = await digestTree(workdir);
+  // Freeze grading inputs before the candidate runs, outside its editable workspace.
+  const evaluator = await prepareWorkdir({ ...task, setup: undefined }, options.repoRoot);
   const metrics: EvalMetrics = { modelCalls: 0, answer: "", errors: [], sessions: [] };
 
   let app: CasperApp | undefined;
@@ -313,7 +400,14 @@ export async function runEvalTask(task: EvalTask, options: EvalRunOptions): Prom
       runtimeFactory: () => createInstrumentedRuntime(options, metrics),
       autoVerify: options.autoVerify ?? true,
       sessionHomeDir: homeDir,
-      loadProjectContext: (project) => loadProjectContext(project, { homeDir }),
+      loadProjectContext: async (project) => {
+        // Git discovery can escape a fixture when TMPDIR is inside another repo.
+        // Reject before loading that repo's configuration or constructing a runtime.
+        if (await realpath(project.root) !== await realpath(workdir)) {
+          throw new Error("Evaluation project resolved outside the prepared candidate workspace; use a temporary directory outside any enclosing Git repository");
+        }
+        return loadProjectContext(project, { homeDir });
+      },
       loadSkillRegistry: (context) => SkillRegistry.discover({ projectRoot: context.info.root, homeDir, imports: context.skills.imports, maxActive: context.skills.maxActive }),
       loadMCPConfiguration: async () => ({ servers: [], diagnostics: [] }),
       loadLSPConfiguration: async () => ({ servers: [], diagnostics: [] }),
@@ -333,40 +427,160 @@ export async function runEvalTask(task: EvalTask, options: EvalRunOptions): Prom
   }
   await app?.close();
 
-  const after = await digestTree(workdir);
-  const diff = diffTrees(before, after);
-  const touched = [...diff.added, ...diff.modified, ...diff.removed];
-  // Grade the model's end state before the grader's own command can touch the tree.
-  const acceptance = await evaluateAcceptance(task.acceptance, { workdir, touched, answer: metrics.answer });
-  let verification: EvalRunResult["verification"];
+  let result: EvalRunResult;
   try {
-    verification = await runVerification(task.verify, {
-      workdir, repoRoot: options.repoRoot, homeDir, timeoutMs: options.verifyTimeoutMs ?? 120_000,
-    });
+    result = await gradeCandidate(task, { workdir, evaluator, repoRoot: options.repoRoot, homeDir, timeoutMs: options.verifyTimeoutMs ?? 120_000 }, before, {
+      startedAt, wallClockMs: Math.round(performance.now() - started), execution, modelCalls: metrics.modelCalls,
+      answer: metrics.answer, interventions: options.interventions ?? [], usage: metrics.usage,
+      error, runtimeErrors: metrics.errors, outputTail: output,
+      repairAttempts: taskResult?.verification?.repairAttempts, selfVerification: taskResult?.verification?.status,
+    }, "runtime");
   } finally {
-    // A misconfigured verification command must not leak the work directory or the temporary home.
     if (!options.keepWorkdir) await rm(workdir, { recursive: true, force: true });
     if (!options.homeDir) await rm(homeDir, { recursive: true, force: true });
+    await rm(evaluator, { recursive: true, force: true });
   }
+  result.wallClockMs = Math.round(performance.now() - started);
+  return result;
+}
 
-  const usage = metrics.usage;
+async function gradeCandidate(
+  task: EvalTask,
+  options: { workdir: string; evaluator: string; repoRoot: string; homeDir: string; timeoutMs: number },
+  before: Map<string, string>,
+  observation: EvalObservation,
+  evidenceSource: EvalRunResult["evidenceSource"],
+): Promise<EvalRunResult> {
+  const after = await digestTree(options.workdir);
+  const diff = diffTrees(before, after);
+  const touched = [...diff.added, ...diff.modified, ...diff.removed];
+  const acceptance = await evaluateAcceptance(task.acceptance, { workdir: options.workdir, touched, answer: observation.answer });
+  for (const id of task.requiredEvidence ?? []) {
+    const checks = observation.workflowChecks?.filter(check => check.id === id) ?? [];
+    if (checks.length !== 1 || !checks[0]!.passed || !checks[0]!.evidence.trim()) {
+      acceptance.failures.push(`workflow evidence missing or failed: ${id}`);
+    }
+  }
+  acceptance.passed = acceptance.failures.length === 0;
+  const verification = await runIndependentVerification(task.verify, options);
+  const success = observation.execution === "completed" && observation.modelCalls > 0 && verification.status === "pass" && acceptance.passed;
+  const interventions = structuredClone(observation.interventions);
+  const usage = observation.usage;
   return {
-    taskId: task.id, fixture: task.fixture, startedAt,
-    wallClockMs: Math.round(performance.now() - started),
-    execution, error, runtimeErrors: metrics.errors, outputTail: output,
-    modelCalls: metrics.modelCalls,
-    messages: usage?.messages ?? null,
-    tokens: usage ? {
-      input: usage.tokens.input, output: usage.tokens.output, cacheRead: usage.tokens.cacheRead,
-      cacheWrite: usage.tokens.cacheWrite, total: usage.tokens.total,
-    } : null,
+    attemptId: randomUUID(), evidenceSource,
+    outcome: !success ? "not-accepted" : interventions.some(entry => entry.kind === "rescue") ? "accepted-with-rescue" : "accepted-without-rescue",
+    interventions, workflowChecks: structuredClone(observation.workflowChecks ?? []), reportedUsage: usage ? structuredClone(usage) : null,
+    taskId: task.id, fixture: task.fixture, startedAt: observation.startedAt, wallClockMs: observation.wallClockMs,
+    execution: observation.execution, error: observation.error, runtimeErrors: observation.runtimeErrors ?? [], outputTail: observation.outputTail ?? "",
+    modelCalls: observation.modelCalls, messages: usage?.messages ?? null, tokens: usage ? { ...usage.tokens } : null,
     contextTokens: usage?.context?.tokens ?? null,
     filesAdded: diff.added, filesModified: diff.modified, filesRemoved: diff.removed,
-    repairAttempts: taskResult?.verification?.repairAttempts ?? null,
-    selfVerification: taskResult?.verification?.status ?? null,
-    verification,
-    acceptance,
-    // A task that never received a model response did no work, whatever the tree looks like.
-    success: execution === "completed" && metrics.modelCalls > 0 && verification.status === "pass" && acceptance.passed,
+    repairAttempts: observation.repairAttempts ?? null, selfVerification: observation.selfVerification ?? null,
+    verification, acceptance, success,
   };
+}
+
+interface PreparedEvalManifest {
+  version: 1;
+  task: EvalTask;
+  repoRoot: string;
+  before: [string, string][];
+  evaluatorDigests: [string, string][];
+}
+
+/** Credential-free preparation; all owned files live beneath the returned root. */
+export async function prepareEvalTask(task: EvalTask, repoRoot: string): Promise<{ root: string; workdir: string }> {
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-eval-prepared-"));
+  const workdir = path.join(root, "candidate");
+  try {
+    await prepareWorkdir(task, repoRoot, workdir);
+    const evaluator = await prepareWorkdir({ ...task, setup: undefined }, repoRoot, path.join(root, "evaluator"));
+    const manifest: PreparedEvalManifest = {
+      version: 1, task, repoRoot: path.resolve(repoRoot),
+      before: [...await digestTree(workdir)], evaluatorDigests: [...await digestTree(evaluator)],
+    };
+    await writeFile(path.join(root, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`, { flag: "wx" });
+    await writeFile(path.join(root, "prompt.txt"), `${task.prompt}\n`, { flag: "wx" });
+    await mkdir(path.join(root, "home"));
+    await mkdir(path.join(root, "results"));
+    return { root, workdir };
+  } catch (error) {
+    await rm(root, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+function requireObservation(value: unknown): asserts value is EvalObservation {
+  if (!value || typeof value !== "object") throw new Error("Observation must be an object");
+  const entry = value as EvalObservation;
+  if (!["completed", "failed", "cancelled", "error"].includes(entry.execution)
+    || typeof entry.startedAt !== "string" || !Number.isFinite(Date.parse(entry.startedAt))
+    || !Number.isFinite(entry.wallClockMs) || entry.wallClockMs < 0
+    || !Number.isSafeInteger(entry.modelCalls) || entry.modelCalls < 0
+    || typeof entry.answer !== "string" || !Array.isArray(entry.interventions)) {
+    throw new Error("Observation needs execution, startedAt, wallClockMs, modelCalls, answer and interventions");
+  }
+  let previous = 0;
+  for (const intervention of entry.interventions) {
+    if (!intervention || !["required", "rescue"].includes(intervention.kind)
+      || !Number.isFinite(intervention.atMs) || intervention.atMs < previous || intervention.atMs > entry.wallClockMs
+      || typeof intervention.reason !== "string" || !intervention.reason.trim()) {
+      throw new Error("Interventions need a required/rescue kind, ordered elapsed time within the attempt and a reason");
+    }
+    previous = intervention.atMs;
+  }
+  if (entry.workflowChecks !== undefined && (!Array.isArray(entry.workflowChecks) || entry.workflowChecks.some(check =>
+    !check || typeof check.id !== "string" || typeof check.passed !== "boolean" || typeof check.evidence !== "string"))) {
+    throw new Error("Workflow checks need id, passed and host evidence");
+  }
+  if (entry.usage !== undefined) {
+    const usage = entry.usage;
+    if (!usage || !Number.isSafeInteger(usage.messages) || usage.messages < 0) throw new Error("Invalid reported usage");
+    for (const tokens of [usage.tokens, ...(usage.effortClassification ? [usage.effortClassification.tokens] : [])]) {
+      if (!tokens || [tokens.input, tokens.output, tokens.cacheRead, tokens.cacheWrite, tokens.total].some(count => !Number.isSafeInteger(count) || count < 0)) {
+        throw new Error("Reported token counts must be nonnegative integers");
+      }
+    }
+    for (const cost of [usage.estimatedCost, usage.effortClassification?.estimatedCost]) {
+      if (cost !== undefined && (!Number.isFinite(cost) || cost < 0)) throw new Error("Invalid reported cost estimate");
+    }
+    if (usage.context && ((usage.context.tokens !== null && (!Number.isFinite(usage.context.tokens) || usage.context.tokens < 0))
+      || !Number.isFinite(usage.context.contextWindow) || usage.context.contextWindow <= 0
+      || (usage.context.percent !== null && (!Number.isFinite(usage.context.percent) || usage.context.percent < 0)))) {
+      throw new Error("Invalid reported context usage");
+    }
+    if (usage.effortClassification && (!Number.isSafeInteger(usage.effortClassification.requests) || usage.effortClassification.requests < 0)) {
+      throw new Error("Invalid reported classifier usage");
+    }
+  }
+  if (entry.repairAttempts !== undefined && (!Number.isSafeInteger(entry.repairAttempts) || entry.repairAttempts < 0)) throw new Error("Invalid repair count");
+  if (entry.selfVerification !== undefined && !["pass", "fail", "incomplete", "blocked"].includes(entry.selfVerification)) throw new Error("Invalid self-verification status");
+  if (entry.runtimeErrors !== undefined && (!Array.isArray(entry.runtimeErrors) || entry.runtimeErrors.some(error => typeof error !== "string"))) throw new Error("Invalid runtime errors");
+  if ((entry.error !== undefined && typeof entry.error !== "string") || (entry.outputTail !== undefined && typeof entry.outputTail !== "string")) throw new Error("Invalid diagnostic text");
+}
+
+/** Grade a human-driven run without starting a runtime. Every call saves a new attempt. */
+export async function gradePreparedEval(root: string, observation: unknown, timeoutMs = 120_000): Promise<EvalRunResult> {
+  requireObservation(observation);
+  if (!Number.isFinite(timeoutMs) || timeoutMs < 1) throw new Error("Invalid verification timeout");
+  const manifest: PreparedEvalManifest = JSON.parse(await readFile(path.join(root, "manifest.json"), "utf8"));
+  if (manifest.version !== 1) throw new Error("Unsupported prepared evaluation version");
+  const frozen = path.join(root, "evaluator");
+  const changes = diffTrees(new Map(manifest.evaluatorDigests), await digestTree(frozen));
+  if (changes.added.length || changes.modified.length || changes.removed.length) throw new Error("Frozen evaluator changed; prepare a new baseline");
+  const scratch = await mkdtemp(path.join(os.tmpdir(), "casper-eval-grade-"));
+  try {
+    const evaluator = path.join(scratch, "evaluator");
+    const homeDir = path.join(scratch, "home");
+    await mkdir(evaluator);
+    await mkdir(homeDir);
+    await copyTree(frozen, evaluator);
+    const result = await gradeCandidate(manifest.task, {
+      workdir: path.join(root, "candidate"), evaluator, repoRoot: manifest.repoRoot, homeDir, timeoutMs,
+    }, new Map(manifest.before), observation, "host-observation");
+    await writeFile(path.join(root, "results", `${result.attemptId}.json`), `${JSON.stringify({ ...result, observation }, null, 2)}\n`, { flag: "wx" });
+    return result;
+  } finally {
+    await rm(scratch, { recursive: true, force: true });
+  }
 }

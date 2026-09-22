@@ -3,29 +3,81 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ['src/**', 'scripts/**', 'tests/release-compile.test.ts', 'tests/fixtures/compiled-image.ts', 'package.json', 'bun.lock', 'THIRD_PARTY_NOTICES.txt', '.github/workflows/windows-preview.yml']
+    paths: ['src/**', 'scripts/**', 'tools/**', 'tests/**', 'docs/WINDOWS.md', 'docs/PLATFORM_VERIFICATION.md', 'package.json', 'bun.lock', 'tsconfig.json', 'bunfig.toml', 'THIRD_PARTY_NOTICES.txt', '.github/workflows/windows-preview.yml']
 permissions:
   contents: read
 jobs:
   standalone:
     runs-on: windows-latest
     timeout-minutes: 20
+    defaults:
+      run:
+        shell: pwsh
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: '1.4.0'
-      - run: bun install --frozen-lockfile
-      - run: bun run typecheck
-      - run: bun test tests/release-compile.test.ts
-      - run: bun run build:release
+      - name: Record Windows host
+        run: |
+          New-Item -ItemType Directory -Force .artifacts/windows-verification | Out-Null
+          Start-Transcript -Path .artifacts/windows-verification/host.log
+          try {
+            Get-CimInstance Win32_OperatingSystem | Select-Object Caption, Version, BuildNumber, OSArchitecture | Format-List
+            $PSVersionTable | Format-Table
+            bun --version
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            "Source revision: $env:GITHUB_SHA"
+          } finally { Stop-Transcript }
+      - name: Install locked dependencies
+        run: |
+          bun install --frozen-lockfile 2>&1 | Tee-Object -FilePath .artifacts/windows-verification/install.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Typecheck
+        run: |
+          bun run typecheck 2>&1 | Tee-Object -FilePath .artifacts/windows-verification/typecheck.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Required native platform probe
+        run: |
+          bun tools/platform-report.ts 2>&1 | Tee-Object -FilePath .artifacts/windows-verification/platform-report.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Offline platform and terminal contracts
+        run: |
+          bun test tests/platform-processes.test.ts tests/login-picker.test.ts tests/login.test.ts tests/model-routing.test.ts tests/auto-effort.test.ts tests/model-selection.test.ts tests/daily-terminal.test.ts tests/terminal-review.test.ts tests/terminal-ux.test.ts tests/terminal-discovery.test.ts 2>&1 | Tee-Object -FilePath .artifacts/windows-verification/source-tests.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Standalone compilation regressions
+        run: |
+          bun test tests/release-compile.test.ts 2>&1 | Tee-Object -FilePath .artifacts/windows-verification/release-compile.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build release candidates without publishing
+        run: |
+          bun run build:release 2>&1 | Tee-Object -FilePath .artifacts/windows-verification/build-release.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Windows PowerShell 5.1 installer
         shell: powershell
-        run: ./scripts/test-install-windows.ps1
+        run: |
+          Start-Transcript -Path .artifacts/windows-verification/installer-powershell-5.log
+          try {
+            $PSVersionTable | Format-Table
+            ./scripts/test-install-windows.ps1
+          } finally { Stop-Transcript }
       - name: PowerShell 7 installer
         shell: pwsh
-        run: ./scripts/test-install-windows.ps1
+        run: |
+          Start-Transcript -Path .artifacts/windows-verification/installer-pwsh-7.log
+          try {
+            $PSVersionTable | Format-Table
+            ./scripts/test-install-windows.ps1
+          } finally { Stop-Transcript }
       - uses: actions/upload-artifact@v4
         with:
           name: windows-preview
           path: dist/release/
+      - name: Upload verification evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-verification
+          path: .artifacts/windows-verification/
+          include-hidden-files: true
+          if-no-files-found: warn

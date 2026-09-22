@@ -1,7 +1,8 @@
 import { initTheme, ModelSelectorComponent, type AgentSession, type ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { getKeybindings, KeybindingsManager, setKeybindings, TUI_KEYBINDINGS, TuiMainScreen, truncateToWidth } from "@earendil-works/pi-tui";
+import { getKeybindings, KeybindingsManager, setKeybindings, Text, TUI_KEYBINDINGS, TuiMainScreen } from "@earendil-works/pi-tui";
 import { StreamTerminal } from "../tui/stream-terminal";
 import { terminalText } from "../tui/format";
+import { Panel, panelColor } from "../tui/presentation";
 import type { RuntimePickerIO } from "./types";
 
 type Pick = { provider: string; id: string; persist: boolean };
@@ -59,9 +60,18 @@ export async function pickPiModel(io: RuntimePickerIO, catalog: ModelRuntime, cu
       picker = new ModelSelectorComponent(tui, current, view, [],
         (model) => finish({ provider: model.provider, id: model.id, persist: true }), cancel, query === undefined ? undefined : terminalText(query).replace(/[\r\n\t]/g, " "),
         (model) => finish({ provider: model.provider, id: model.id, persist: false }), defaultModel);
-      tui.addChild({ render: width => picker!.render(width).map(line => line.includes("Enter to select")
-        ? truncateToWidth(sessionOnly ? "Enter: session only · Esc: cancel · /effort after selecting" : "Enter: remember globally · Ctrl+S: session only · Esc: cancel · /effort after selecting", width) : line),
-        invalidate: () => picker!.invalidate() });
+      // Pi 0.85.1 exposes Container.children: replace only its framing and footer,
+      // before wrapping, so narrow terminals cannot retain a misleading wrapped hint.
+      picker.children.shift();
+      picker.children.splice(-2, 2, new Text([
+        panelColor(sessionOnly ? "Enter: session only" : "Enter: remember globally", "accent", io.color),
+        "Ctrl+S: session only · Esc / Ctrl+C: cancel",
+        panelColor("/effort: adjust reasoning after selecting", "muted", io.color),
+      ].join("\n"), 0, 0));
+      const panel = new Panel("Choose model", io.color);
+      panel.addChild(new Text(panelColor("Type to filter · Up/Down: choose", "muted", io.color), 0, 0));
+      panel.addChild(picker);
+      tui.addChild(panel);
       tui.setFocus(picker);
       signal?.addEventListener("abort", cancel, { once: true });
       if (signal?.aborted) finish(); else tui.start();

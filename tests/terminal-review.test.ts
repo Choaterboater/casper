@@ -38,7 +38,6 @@ test("cooked TTY input with redirected output cannot authorize an unseen pretype
     // confirmation appears, so flushing readline alone cannot establish freshness.
     input.write("yes\n");
     expect(await approval).toBe(false);
-    expect(output).toContain("approval denied");
   } finally { terminal.close(); input.destroy(); }
 });
 

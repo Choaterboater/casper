@@ -45,6 +45,8 @@ async function fixture(respond?: (payload: Payload, index: number) => Response |
     baseUrl: `http://127.0.0.1:${server.port}/v1`, api: "openai-completions", apiKey: "local-fixture-not-a-secret", models: [{ id: "fixture" }],
   } } }));
   await writeFile(path.join(agent, "settings.json"), JSON.stringify({ defaultProvider: "fixture", defaultModel: "fixture", retry: { enabled: false } }));
+  await mkdir(path.join(home, ".casper"), { recursive: true });
+  await writeFile(path.join(home, ".casper/settings.json"), JSON.stringify({ defaultProvider: "fixture", defaultModel: "fixture" }));
   const env: NodeJS.ProcessEnv = { ...process.env, HOME: home, PI_CODING_AGENT_DIR: agent, PI_OFFLINE: "1", PI_TELEMETRY: "0" };
   function spawn(args: string[]) {
     return Bun.spawn([process.execPath, path.join(import.meta.dir, "../src/cli.ts"), ...args], { cwd, env, stdout: "pipe", stderr: "pipe" });
@@ -73,6 +75,7 @@ async function snapshot(root: string): Promise<Record<string, string>> {
 test("learn produces an unpromoted draft with host-checked provenance, inspectable locally after restart", async () => {
   const f = await fixture();
   const before = await snapshot(f.project);
+  const stateBefore = await snapshot(path.join(f.home, ".casper"));
   const result = await f.run(["learn", f.project]);
   expect({ exit: result.exit, stderr: result.stderr }).toEqual({ exit: 0, stderr: "" });
   const generated = JSON.parse(result.stdout);
@@ -99,7 +102,9 @@ test("learn produces an unpromoted draft with host-checked provenance, inspectab
   expect(f.payloads).toHaveLength(2);
   expect(await snapshot(f.project)).toEqual(before);
   expect(await snapshot(f.cwd)).toEqual({});
-  const state = await snapshot(path.join(f.home, ".casper"));
+  const stateAfter = await snapshot(path.join(f.home, ".casper"));
+  for (const [file, content] of Object.entries(stateBefore)) expect(stateAfter[file]).toBe(content);
+  const state = Object.fromEntries(Object.entries(stateAfter).filter(([file]) => !(file in stateBefore)));
   expect(Object.keys(state)).toHaveLength(1);
   expect(Object.keys(state)[0]).toEndWith("/learning-candidates.jsonl");
   // Mode bits are a POSIX guarantee; Windows synthesizes them (tests/support/platform.ts).
@@ -392,11 +397,12 @@ test("source changes after model reading cannot supply a matching evidence quote
 
 test("no supported patterns is a qualified empty result, not a fabricated candidate", async () => {
   const f = await fixture(() => answer('{"candidates":[]}'));
+  const before = await snapshot(path.join(f.home, ".casper"));
   const result = await f.run(["learn", f.project]);
   expect(result.exit).toBe(0);
   expect(JSON.parse(result.stdout)).toMatchObject({ status: "no-candidates" });
   expect(JSON.parse((await f.run(["learn", "list", f.project])).stdout).drafts).toEqual([]);
-  expect(await readdir(path.join(f.home, ".casper")).catch(() => [])).toEqual([]);
+  expect(await snapshot(path.join(f.home, ".casper"))).toEqual(before);
 });
 
 test("invalid learning commands stay local and never fall through to an unrestricted prompt", async () => {
@@ -480,7 +486,7 @@ test("inspection retains observed provenance after source edits or removal, neve
 test("corrupted draft state fails closed before model startup and stays untouched", async () => {
   const f = await fixture(() => answer(JSON.stringify({ candidates: [candidate] })));
   const draft = JSON.parse((await f.run(["learn", f.project])).stdout).draft;
-  const state = Object.keys(await snapshot(path.join(f.home, ".casper")))[0]!;
+  const state = Object.keys(await snapshot(path.join(f.home, ".casper"))).find(file => file.endsWith("/learning-candidates.jsonl"))!;
   const file = path.join(f.home, ".casper", state);
   draft.candidates[0].pattern = "tampered content";
   const corrupt = JSON.stringify(draft) + "\n";
@@ -519,6 +525,7 @@ needsSymlinks("symlinked evidence parents, binary text and oversized files canno
 
 needsSymlinks("learning refuses a state directory redirected into source files before model startup", async () => {
   const f = await fixture();
+  await rm(path.join(f.home, ".casper"), { recursive: true });
   await symlink(f.project, path.join(f.home, ".casper"));
   const before = await snapshot(f.project);
   const result = await f.run(["learn", f.project]);
@@ -569,7 +576,7 @@ needsFifos("FIFO evidence and stored drafts fail without waiting for a writer", 
   expect((await f.run(["learn", f.project])).exit).toBe(1);
   await rm(file); await writeFile(file, "hello\n");
   expect((await f.run(["learn", f.project])).exit).toBe(0);
-  const state = path.join(f.home, ".casper", Object.keys(await snapshot(path.join(f.home, ".casper")))[0]!);
+  const state = path.join(f.home, ".casper", Object.keys(await snapshot(path.join(f.home, ".casper"))).find(file => file.endsWith("/learning-candidates.jsonl"))!);
   await rm(state);
   expect(await Bun.spawn(["mkfifo", state], { stdout: "ignore", stderr: "ignore" }).exited).toBe(0);
   expect((await f.run(["learn", f.project])).exit).toBe(1);
@@ -614,7 +621,7 @@ test("Unicode and CRLF citations retain exact quoted lines and a digest of raw f
 needsSymlinks("invalid, duplicated and oversized draft stores are never reset or sent to a model", async () => {
   const f = await fixture(() => answer(JSON.stringify({ candidates: [candidate] })));
   const draft = JSON.parse((await f.run(["learn", f.project])).stdout).draft;
-  const file = path.join(f.home, ".casper", Object.keys(await snapshot(path.join(f.home, ".casper")))[0]!);
+  const file = path.join(f.home, ".casper", Object.keys(await snapshot(path.join(f.home, ".casper"))).find(file => file.endsWith("/learning-candidates.jsonl"))!);
   for (const bytes of [Buffer.from("not JSON"), Buffer.from([0xff]), Buffer.alloc(1_048_577, 120),
     Buffer.from(JSON.stringify(draft) + "\n" + JSON.stringify(draft) + "\n")]) {
     await writeFile(file, bytes);
@@ -634,7 +641,7 @@ needsSymlinks("invalid, duplicated and oversized draft stores are never reset or
 test("a full draft store refuses further generation rather than pruning earlier drafts", async () => {
   const f = await fixture(() => answer(JSON.stringify({ candidates: [candidate] })));
   const { sha256: _digest, ...body } = JSON.parse((await f.run(["learn", f.project])).stdout).draft;
-  const file = path.join(f.home, ".casper", Object.keys(await snapshot(path.join(f.home, ".casper")))[0]!);
+  const file = path.join(f.home, ".casper", Object.keys(await snapshot(path.join(f.home, ".casper"))).find(file => file.endsWith("/learning-candidates.jsonl"))!);
   // Construct public-format artifacts, not model calls, to reach the documented storage cap.
   const full = Array.from({ length: 100 }, (_, index) => {
     const record = { ...body, id: `${index.toString(16).padStart(8, "0")}-0000-4000-8000-000000000000` };

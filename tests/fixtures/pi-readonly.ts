@@ -23,10 +23,12 @@ try {
   const checkAuth = ModelRuntime.prototype.checkAuth;
   const hasConfiguredAuth = ModelRuntime.prototype.hasConfiguredAuth;
   if (mode === "preflight-cancel") {
-    ModelRuntime.prototype.hasConfiguredAuth = () => false;
+    // Casper checks its local snapshot synchronously; expire it before Pi's
+    // asynchronous auth preflight, not before Casper authorizes the request.
+    queueMicrotask(() => { ModelRuntime.prototype.hasConfiguredAuth = () => false; });
     ModelRuntime.prototype.checkAuth = async function (...args) {
       controller.abort();
-      await Bun.sleep(20);
+      await Promise.resolve();
       return checkAuth.apply(this, args);
     };
   }

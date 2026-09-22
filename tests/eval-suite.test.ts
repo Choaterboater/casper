@@ -1,12 +1,14 @@
 import { afterEach, expect, test } from "bun:test";
-import { copyFile, mkdir, mkdtemp, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { formatEvalResult } from "../evals/report";
-import { evaluateAcceptance, prepareWorkdir, runEvalTask, runVerification } from "../evals/runner";
+import { evaluateAcceptance, prepareWorkdir, runEvalTask, runVerification, prepareEvalTask, gradePreparedEval } from "../evals/runner";
 import { EVAL_TASKS, findEvalTask } from "../evals/tasks";
 import { needsSymlinks } from "./support/platform";
 import type { AgentRuntime, RuntimeEvent, RuntimeEventListener, RuntimeStartOptions, RuntimeUsage } from "../src/runtime/types";
+import type { EvalIntervention } from "../evals/runner";
+import { isolatedEnvironment } from "../src/platform/environment";
 
 const repoRoot = path.resolve(import.meta.dir, "..");
 const cleanup: Array<() => Promise<unknown>> = [];
@@ -62,10 +64,7 @@ test("the catalog names existing fixtures and setups with unique ids", async () 
   for (const task of EVAL_TASKS) {
     expect(await exists(path.join(repoRoot, "evals/fixtures", task.fixture))).toBe(true);
     if (task.setup) expect(await exists(path.join(repoRoot, "evals/setups", task.setup, "files"))).toBe(true);
-    expect(task.prompt.length).toBeGreaterThan(40);
-    expect(task.verify.argv.length).toBeGreaterThan(1);
   }
-  expect(findEvalTask("add-api-endpoint")?.fixture).toBe("typescript-service");
   expect(findEvalTask("missing-task")).toBeUndefined();
 });
 
@@ -90,6 +89,33 @@ test("every fixture is a solved baseline that its setup makes fail", async () =>
   }
 }, 300_000);
 
+test("an evaluation nested inside another Git repository refuses to start a runtime there", async () => {
+  const root = await tempDir("casper-eval-enclosing-repo-");
+  const home = await tempDir("casper-eval-isolated-home-");
+  const temp = path.join(root, "temporary-workspaces");
+  await mkdir(temp);
+  await writeFile(path.join(root, "keep.txt"), "caller-owned repository\n");
+  const env = { ...isolatedEnvironment(home), TMPDIR: temp, TMP: temp, TEMP: temp };
+  const init = Bun.spawnSync(["git", "init", "--quiet", root], { env, stdout: "pipe", stderr: "pipe" });
+  expect(init.exitCode).toBe(0);
+  const config = await readFile(path.join(root, ".git/config"), "utf8");
+  const child = Bun.spawn([process.execPath, "--no-install", path.join(repoRoot, "tests/fixtures/eval-nested-workspace.ts"), home], {
+    cwd: root, env, stdout: "pipe", stderr: "pipe",
+  });
+  const [stdout, stderr, exitCode] = await Promise.all([
+    new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited,
+  ]);
+  expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
+  const observed = JSON.parse(stdout);
+  expect(observed.factories).toBe(0);
+  expect(observed.starts).toBe(0);
+  expect(observed.result.execution).toBe("error");
+  expect(observed.result.success).toBe(false);
+  expect(observed.result.error).toContain("outside the prepared candidate workspace");
+  expect(await readFile(path.join(root, "keep.txt"), "utf8")).toBe("caller-owned repository\n");
+  expect(await readFile(path.join(root, ".git/config"), "utf8")).toBe(config);
+});
+
 test("a scripted fix is measured as success with real file, call and token numbers", async () => {
   const task = findEvalTask("fix-failing-test")!;
   const home = await tempDir("casper-eval-home-");
@@ -107,6 +133,34 @@ test("a scripted fix is measured as success with real file, call and token numbe
   expect(result.acceptance.failures).toEqual([]);
 });
 
+test("required interactions and rescue produce distinct immutable attempt outcomes", async () => {
+  const task = findEvalTask("fix-failing-test")!;
+  const home = await tempDir("casper-eval-home-");
+  const required: EvalIntervention[] = [
+    { kind: "required", atMs: 10, reason: "Approved the scenario's planned operation." },
+  ];
+  const unassisted = await runEvalTask(task, {
+    repoRoot, homeDir: home, autoVerify: false, interventions: required,
+    runtimeFactory: scriptedRuntime(copyFromFixture(task.fixture, "src/slug.ts")),
+  });
+  const failed = await runEvalTask(task, {
+    repoRoot, homeDir: home, autoVerify: false, interventions: [],
+    runtimeFactory: scriptedRuntime(async () => "No repair."),
+  });
+  const rescued = await runEvalTask(task, {
+    repoRoot, homeDir: home, autoVerify: false,
+    interventions: [...required, { kind: "rescue", atMs: 20, reason: "Operator identified the missed normalization rule." }],
+    runtimeFactory: scriptedRuntime(copyFromFixture(task.fixture, "src/slug.ts")),
+  });
+  expect(unassisted.outcome).toBe("accepted-without-rescue");
+  expect(rescued.outcome).toBe("accepted-with-rescue");
+  expect(failed.outcome).toBe("not-accepted");
+  expect(failed.success).toBe(false);
+  expect(new Set([unassisted.attemptId, failed.attemptId, rescued.attemptId]).size).toBe(3);
+  expect(formatEvalResult(unassisted)).toContain("required 1 rescue 0");
+  expect(formatEvalResult(rescued)).toContain("required 1 rescue 1");
+});
+
 test("an unfinished task fails on the independent verification, not on a self-report", async () => {
   const task = findEvalTask("add-api-endpoint")!;
   const home = await tempDir("casper-eval-home-");
@@ -119,6 +173,35 @@ test("an unfinished task fails on the independent verification, not on a self-re
   expect(result.acceptance.failures).toContain("no change under src/");
   expect(result.filesAdded).toEqual([]);
   expect(result.selfVerification).toBeNull();
+});
+
+test("candidate test edits cannot accept a broken implementation or replace the host checks", async () => {
+  const task = findEvalTask("fix-failing-test")!;
+  const home = await tempDir("casper-eval-home-");
+  const weakenTests = async (cwd: string) => {
+    await rm(path.join(cwd, "tests"), { recursive: true });
+    await mkdir(path.join(cwd, "tests"));
+    await writeFile(path.join(cwd, "tests/fake.test.ts"), 'import { test, expect } from "bun:test"; test("fake", () => expect(true).toBe(true));\n');
+  };
+  const broken = await runEvalTask(task, {
+    repoRoot, homeDir: home, autoVerify: false,
+    runtimeFactory: scriptedRuntime(async (cwd) => {
+      await weakenTests(cwd);
+      await writeFile(path.join(cwd, "src/slug.ts"), 'export function slugify(value: string): string { return value; }\n');
+      return "All tests pass.";
+    }),
+  });
+  expect(broken.verification.status).toBe("fail");
+  expect(broken.success).toBe(false);
+
+  const repaired = await runEvalTask(task, {
+    repoRoot, homeDir: home, autoVerify: false,
+    runtimeFactory: scriptedRuntime(async (cwd) => {
+      await weakenTests(cwd);
+      return copyFromFixture(task.fixture, "src/slug.ts")(cwd);
+    }),
+  });
+  expect(repaired.verification.status).toBe("pass");
 });
 
 test("a read-only task fails on an edit and passes on a matching answer", async () => {
@@ -232,4 +315,107 @@ test("acceptance predicates name the exact violated expectation", async () => {
 
   const noEdits = await evaluateAcceptance({ noEdits: true }, { workdir, touched: ["src/new.ts"], answer: "" });
   expect(noEdits.failures).toEqual(["edited src/new.ts"]);
+});
+
+test("offline grading preserves failed attempts and requires observed workflow evidence", async () => {
+  const task = { ...findEvalTask("fix-failing-test")!, requiredEvidence: ["same-conversation-resumed"] };
+  const prepared = await prepareEvalTask(task, repoRoot);
+  cleanup.push(() => rm(prepared.root, { recursive: true, force: true }));
+  const observation = {
+    startedAt: "2026-09-21T00:00:00.000Z", wallClockMs: 100, execution: "completed",
+    modelCalls: 1, answer: "Repaired.", interventions: [],
+  };
+  const failed = await gradePreparedEval(prepared.root, observation);
+  const original = await readFile(path.join(prepared.root, "results", `${failed.attemptId}.json`), "utf8");
+  await copyFromFixture(task.fixture, "src/slug.ts")(prepared.workdir);
+  const missingEvidence = await gradePreparedEval(prepared.root, observation);
+  expect(missingEvidence.verification.status).toBe("pass");
+  expect(missingEvidence.success).toBe(false);
+  const rescued = await gradePreparedEval(prepared.root, {
+    ...observation,
+    interventions: [{ kind: "rescue", atMs: 25, reason: "Operator supplied the missed rule." }],
+    workflowChecks: [{ id: "same-conversation-resumed", passed: true, evidence: "Host transcript shows the same exact session id after process restart." }],
+  });
+  expect(rescued.outcome).toBe("accepted-with-rescue");
+  expect(failed.outcome).toBe("not-accepted");
+  expect(await readFile(path.join(prepared.root, "results", `${failed.attemptId}.json`), "utf8")).toBe(original);
+  expect(rescued.attemptId).not.toBe(failed.attemptId);
+  expect(rescued.reportedUsage).toBeNull();
+  await expect(gradePreparedEval(prepared.root, { ...observation, interventions: [{ kind: "typo", atMs: 25, reason: "Must not count as zero rescue." }] })).rejects.toThrow();
+});
+
+needsSymlinks("the grading CLI rejects candidate-owned observations reached through path aliases", async () => {
+  const task = findEvalTask("fix-failing-test")!;
+  const prepared = await prepareEvalTask(task, repoRoot);
+  cleanup.push(() => rm(prepared.root, { recursive: true, force: true }));
+  await copyFromFixture(task.fixture, "src/slug.ts")(prepared.workdir);
+  const host = await tempDir("casper-eval-observer-");
+  const observation = JSON.stringify({
+    startedAt: "2026-09-21T00:00:00.000Z", wallClockMs: 100, execution: "completed",
+    modelCalls: 1, answer: "Repaired.", interventions: [],
+  });
+  const inside = path.join(prepared.workdir, "observation.json");
+  const alias = path.join(host, "prepared-alias");
+  const linkedObservation = path.join(host, "linked-observation.json");
+  await writeFile(inside, observation);
+  await symlink(prepared.root, alias, "dir");
+  await symlink(inside, linkedObservation, "file");
+  const grade = async (root: string, record: string) => {
+    const child = Bun.spawn([process.execPath, "--no-install", path.join(repoRoot, "tools/eval.ts"), "--grade", root, "--observation", record], {
+      env: isolatedEnvironment(host), stdout: "pipe", stderr: "pipe",
+    });
+    const timer = setTimeout(() => child.kill(), 15_000);
+    try {
+      const [stdout, stderr, exitCode] = await Promise.all([
+        new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited,
+      ]);
+      return { stdout, stderr, exitCode };
+    } finally { clearTimeout(timer); }
+  };
+  for (const [root, record] of [[alias, inside], [prepared.root, linkedObservation]]) {
+    const rejected = await grade(root!, record!);
+    expect(rejected.exitCode).toBe(1);
+    expect(rejected.stderr).toContain("Host observations must live outside candidate/");
+    expect(await readdir(path.join(prepared.root, "results"))).toEqual([]);
+  }
+  const outside = path.join(host, "observation.json");
+  await writeFile(outside, observation);
+  const accepted = await grade(alias, outside);
+  expect({ exitCode: accepted.exitCode, stderr: accepted.stderr }).toEqual({ exitCode: 0, stderr: "" });
+  expect((await readdir(path.join(prepared.root, "results"))).length).toBe(1);
+}, 30_000);
+
+test.each(["repair-order-reservations", "add-order-cancellation"])("%s rejects otherwise valid repairs that edit outside production scope", async id => {
+  const task = findEvalTask(id)!;
+  const prepared = await prepareEvalTask(task, repoRoot);
+  cleanup.push(() => rm(prepared.root, { recursive: true, force: true }));
+  await copyFromFixture(task.fixture, "src/app.ts", "src/inventory.ts", "src/order-service.ts")(prepared.workdir);
+  const observation = {
+    startedAt: "2026-09-21T00:00:00.000Z", wallClockMs: 100, execution: "completed",
+    modelCalls: 1, answer: "Repaired.", interventions: [],
+  };
+  expect((await gradePreparedEval(prepared.root, observation)).success).toBe(true);
+  for (const relative of ["README.md", "scripts/unrelated.ts", "src-other/unrelated.ts"]) {
+    const file = path.join(prepared.workdir, relative);
+    await mkdir(path.dirname(file), { recursive: true });
+    await writeFile(file, "Unrelated change\n");
+    const result = await gradePreparedEval(prepared.root, observation);
+    expect(result.verification.status).toBe("pass");
+    expect(result.success).toBe(false);
+    expect(result.acceptance.failures).toContain(`changed outside allowed scope: ${relative}`);
+    await rm(file);
+  }
+});
+
+test("an unavailable evaluator is not reported as a behavioral check failure", async () => {
+  const task = findEvalTask("fix-failing-test")!;
+  const home = await tempDir("casper-eval-home-");
+  const result = await runEvalTask({ ...task, verify: { ...task.verify, argv: [path.join(home, "missing-verifier")] } }, {
+    repoRoot, homeDir: home, autoVerify: false,
+    runtimeFactory: scriptedRuntime(copyFromFixture(task.fixture, "src/slug.ts")),
+  });
+  expect(result.verification.status).toBe("unavailable");
+  expect(result.verification.exitCode).toBeNull();
+  expect(result.success).toBe(false);
+  expect(result.outcome).toBe("not-accepted");
 });

@@ -34,6 +34,67 @@ policy:
       experimentalBranch: true
 ```
 
+## Model roles and automatic effort
+
+The normal path remains `/model` → describe the task. Roles are optional shortcuts,
+not required profiles or an automatic keyword-based model switcher.
+
+```text
+/model role fast provider/small-model
+/model role review provider/reasoning-model:high
+/model roles
+/model --session @review
+/model @review:auto
+/effort auto
+/effort high --session
+/model role review clear
+```
+
+`fast`, `build`, `reason`, and `review` accept exact catalog IDs, `provider/id`,
+`@default`, or another configured role, optionally suffixed with effort. Qualified
+IDs win over bare IDs; literal IDs containing colons win over suffix parsing.
+Ambiguous IDs, missing aliases, cycles and unsupported fixed effort fail.
+An outer explicit suffix overrides a role's suffix. `max` is available only when
+the selected model supports it; automatic effort never selects `off` or `max`.
+
+Casper owns `~/.casper/settings.json`: concrete startup defaults and per-model
+effort, optional `modelRoles`, and `autoEffortModels` (qualified model IDs).
+Role changes do not select a model or send a request. `/model` saves a concrete
+default unless `--session` precedes the selector; `/effort` saves its preference
+unless `--session` follows the level. Explicit suffixes take precedence, then
+the current branch's remembered per-model preference, then the saved per-model
+preference. Existing conversations and forks retain their concrete model and
+configured effort even after role mappings change. Shared Pi and project-local
+Pi model preferences are neither inherited nor rewritten.
+
+Cancelling model selection before activation leaves the prior choice intact. If
+Pi has already activated the model while a selection extension is finishing,
+Casper retains that actual model/effort in the conversation and on resume; late
+cancellation still prevents the pending save to startup defaults.
+
+**Automatic effort is opt-in and makes an extra provider request per prompt.**
+It uses the configured `fast` role, otherwise the selected model, to classify
+only the current raw request (up to 8 KiB UTF-8); no history, injected skills,
+project context or tools are included in that classification. A user request may
+itself contain sensitive text. Configuring `fast` may send this bounded request
+to a different provider. The selected generation model does not change.
+
+The classifier has a four-second deadline, a 128-output-token limit and no
+retries. It chooses low/medium/high/xhigh, constrained to supported levels.
+Failure visibly retains the last resolved level (initially supported high);
+models without controllable reasoning skip classification. Cancellation prevents
+generation and late classification results cannot change effort. The automatic
+result never replaces the saved preference. Selecting fixed effort disables
+automatic classification for that model/conversation.
+
+Status/footer distinguish configured `auto` from actual effort and show pending,
+classified, fallback or unavailable. `/usage` reports classifier usage separately
+for the currently loaded session instance; reloading does not restore those
+counters. Received usage is retained even when a malformed or truncated classifier
+answer causes fallback. Transport failures may consume unreported tokens; that
+missing usage stays unknown. Estimates are not bills. Explorer children use `fast`, reviewers use `review`, and unset roles use
+the Casper startup default; see [DELEGATION.md](DELEGATION.md).
+
 ## Skills
 
 Casper owns skill selection; Pi's independent skill discovery is disabled inside the Casper adapter.

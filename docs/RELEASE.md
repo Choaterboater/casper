@@ -4,6 +4,35 @@ Casper distributes an unsigned **v0.1.0 preview**, not a stable release. Install
 use `https://github.com/Choaterboater/casper/releases/download/v0.1.0` because
 GitHub's `latest/download` route excludes prereleases.
 
+## Unreleased terminal and login improvements
+
+Source replaces the login selection log with Pi's `SelectList` and renderer.
+Provider/method highlights redraw in place; parsed application arrows, fragmented
+and batched navigation, and encoded Enter are handled without carrying keys into
+consent or private submission. macOS production-CLI PTY and login/security tests
+cover the correction. Windows CI includes keyboard regressions, but a Windows-host
+run of this change is still pending. Publish any fix under a new version; do not
+replace v0.1.0 assets or rewrite its tag.
+
+Source also includes a coordinated terminal presentation update: width-aware
+message/result/approval panels, semantic colors, Pi Markdown streaming, grouped
+help/status/verification output and action-first assistant instructions. Exact
+approval uses a separate input editor and restores the original draft/cursor.
+The offline demo covers streaming, tables, Unicode, resize, approval and errors.
+These changes are not in published v0.1.0; Windows/Linux host validation remains
+pending. See [TERMINAL_UX.md](TERMINAL_UX.md) and the bundled reference notices.
+
+## Unreleased model routing and effort
+
+Source adds optional fast/build/reason/review aliases, explicit effort suffixes,
+and model-backed automatic effort through the existing Pi session owner.
+Automatic effort is opt-in, exposes its effective level/fallback, preserves
+conversation preferences, and reports classifier usage separately. Read-only
+children now route through Casper roles/defaults instead of shared Pi defaults.
+See [CONFIGURATION.md](CONFIGURATION.md) for request-sharing and precedence.
+Local fixture/terminal checks do not establish live-model classification quality
+or lower cost. These changes are not in v0.1.0; publication needs a new version.
+
 ## Build
 
 Build with Bun **1.4.0**, the runtime used for this preview:
@@ -104,8 +133,8 @@ Linux artifacts are cross-compiled but still require real-host verification.
 ## Known preview limits
 
 - Binaries are unsigned/unnotarized. SmartScreen or Gatekeeper may warn.
-- The login picker currently appends selection messages instead of visibly moving
-  the highlight. This UI issue is separate from installation and remains queued.
+- Published v0.1.0 appends login selection messages instead of moving the highlight.
+  The source correction above is not yet included in the distributed binaries.
 - Windows diagram output is inline; screenshot/diagram artifact files require the
   POSIX bridge. Optional browser/debugger/LSP/MCP behavior is not fully host-tested.
 - There is no npm/Homebrew distribution channel, automatic updater or rollback.

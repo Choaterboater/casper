@@ -1,7 +1,8 @@
 import readline from "node:readline";
 import type { Readable, Writable } from "node:stream";
 import type { RuntimeModelPickerHost, RuntimePickerIO } from "../runtime/types";
-import { paint, terminalText } from "./format";
+import { terminalText } from "./format";
+import type { PanelTone } from "./presentation";
 import { TerminalSurface } from "./surface";
 
 export type TerminalOutput = RuntimePickerIO["output"] & { isTTY?: boolean };
@@ -22,7 +23,7 @@ export class InteractiveTerminal {
   constructor(private readonly input: Readable, private readonly output: TerminalOutput,
     private readonly onInterrupt: () => void, private readonly onEOF: () => void) {
     const tty = Boolean((input as NodeJS.ReadStream).isTTY && output.isTTY && process.env.TERM !== "dumb");
-    this.color = Boolean(output.isTTY && process.env.TERM !== "dumb" && process.env.NO_COLOR === undefined);
+    this.color = tty && process.env.NO_COLOR === undefined;
     if (tty) this.surface = new TerminalSurface({ input, output, color: this.color, onEOF }, onInterrupt, onEOF);
   }
 
@@ -47,12 +48,15 @@ export class InteractiveTerminal {
   setStatus(status: string, cwd = process.cwd()): void { this.surface?.setStatus(status, cwd); }
 
   write(text: string): void {
-    const styled = terminalText(text).split("\n").map(line => {
-      const code = /^(?:\[error\]|✗)/.test(line) ? "31" : /^✓/.test(line) ? "32"
-        : /^(?:•|\[skills\]|\[cancel)/.test(line) ? "33" : /^CASPER/.test(line) ? "1;36" : undefined;
-      return code ? paint(line, code, this.color) : line;
-    }).join("\n");
-    if (this.surface) this.surface.write(styled); else this.output.write(styled);
+    if (this.surface) { this.surface.write(text); return; }
+    this.endAssistant();
+    this.output.write(terminalText(text));
+  }
+
+  writePanel(title: string, body: string, tone: PanelTone = "accent"): void {
+    if (this.surface) { this.surface.writePanel(title, body, tone); return; }
+    const heading = terminalText(title).replace(/\s+/g, " ").trim();
+    this.write(`${heading}\n${body}${body.endsWith("\n") ? "" : "\n"}`);
   }
 
   assistant(delta: string): void {
@@ -85,10 +89,10 @@ export class InteractiveTerminal {
     if (this.surface) return this.surface.confirm(preview, question, signal);
     if (!this.rl || this.closed || this.confirmation || signal?.aborted) return Promise.resolve(false);
     if ((this.input as NodeJS.ReadStream).isTTY) {
-      this.write("[input] Exact approval denied: use an interactive terminal with TERM other than dumb and output not redirected.\n");
+      this.writePanel("Approval denied", "Use an interactive terminal with TERM other than dumb and output not redirected. Cooked input cannot prove that an answer is fresh.", "warning");
       return Promise.resolve(false);
     }
-    this.endAssistant(); this.discardPartialLine(); this.write(preview);
+    this.endAssistant(); this.discardPartialLine(); this.writePanel("Approval required · exact operation", preview, "warning");
     return new Promise(resolve => {
       let settled = false;
       const finish = (approved: boolean) => {
@@ -100,7 +104,7 @@ export class InteractiveTerminal {
       this.confirmation = finish;
       signal?.addEventListener("abort", cancel, { once: true });
       if (signal?.aborted) { cancel(); return; }
-      this.rl!.setPrompt(question); this.rl!.prompt();
+      this.rl!.setPrompt(terminalText(question)); this.rl!.prompt();
     });
   }
 
