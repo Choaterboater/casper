@@ -114,7 +114,7 @@ test("an edit overlapping a verifier cannot be stamped as fresh at completion", 
     expect(text).toContain('scope {"inputs":["."]}');
   }
   expect(formatVerificationReport(report)).toContain("Checks pass (command execution)");
-  expect(formatTaskResult({ execution: "completed", verification: report })).toContain("requested behavior is not independently certified");
+  expect(formatTaskResult({ execution: "completed", verification: report })).toContain("Requested behavior is not independently certified");
 });
 
 // `/dev/null` as a link target is POSIX-only; Windows has no equivalent device path.

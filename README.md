@@ -389,16 +389,16 @@ Fresh consent discloses replacement of the selected provider in the resolved Pi/
 macOS and Linux — one line:
 
 ```bash
-curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.1.4/install.sh | sh
+curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.1.5/install.sh | sh
 ```
 
 Windows (PowerShell):
 
 ```powershell
-powershell -ExecutionPolicy Bypass -c "irm https://github.com/Choaterboater/casper/releases/download/v0.1.4/install.ps1 | iex"
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/Choaterboater/casper/releases/download/v0.1.5/install.ps1 | iex"
 ```
 
-These commands target the planned **v0.1.4 preview** and will resolve only after it
+These commands target the planned **v0.1.5 preview** and will resolve only after it
 is published. Re-running reinstalls that version in place; a later preview needs
 its own release URL. GitHub's `latest/download` route excludes prereleases. It downloads one self-contained executable for your platform, verifies its
 SHA-256 against the release's `SHA256SUMS`, installs it to `~/.local/bin/casper`
@@ -407,7 +407,7 @@ runs the staged executable's `--version` successfully before replacing an existi
 and no checkout are required on the target machine** — Bun and every dependency are
 embedded in the binary.
 
-Installer defaults now target `Choaterboater/casper` at tag `v0.1.4`; the repository
+Installer defaults now target `Choaterboater/casper` at tag `v0.1.5`; the repository
 and release have not yet been published. Build with `bun run build:release -- --all`
 and upload **every file** in `dist/release/`: all binaries, `SHA256SUMS`, `VERSION`
 and both installers. Binaries belong in release assets, not the Git source history.
@@ -421,7 +421,7 @@ Useful installer options (`sh scripts/install.sh --help`):
 
 ```bash
 --dir <path>            # install somewhere else
---version 0.1.4         # require this exact installed version
+--version 0.1.5         # require this exact installed version
 --sha256 <hex>          # verify out of band when SHA256SUMS is unreachable
 --force                 # replace a symlink that leaves the install dir (a development link)
 ```
@@ -462,7 +462,7 @@ Help and the running location:
 
 ```bash
 casper --help
-casper --version     # casper 0.1.4 (/absolute/path/to/src/cli.ts or the binary)
+casper --version     # casper 0.1.5 (/absolute/path/to/src/cli.ts or the binary)
 ```
 
 You can still launch directly from this checkout with `bun run dev` if you do not want a PATH link.

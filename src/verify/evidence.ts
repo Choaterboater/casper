@@ -76,7 +76,9 @@ function terminalText(value: string): string {
 }
 
 export function formatVerificationResult(result: VerificationResult): string {
-  const mark = { pass: "✓", fail: "✗", skip: "–" }[result.status];
+  // Nothing ran for a skip, so input freshness and scope carry no information.
+  if (result.status === "skip") return `– ${result.name}  skipped${result.reason ? `: ${terminalText(result.reason)}` : ""}`;
+  const mark = result.status === "pass" ? "✓" : "✗";
   const detail = result.reason ?? (result.exitCode === null ? result.signal : `exit ${result.exitCode}`);
   const source = result.reused ? "reused declared-input evidence; " : "";
   return `${mark} ${result.name}${result.command ? `  ${terminalText(result.command)}` : ""}  (${source}${detail ? terminalText(detail) + "; " : ""}${result.durationMs}ms${result.truncated ? "; output truncated" : ""}; ${formatQualification(summarizeVerificationCheck(result))})`;
@@ -87,9 +89,13 @@ export function formatVerificationReport(report: VerificationReport): string {
   const counts = ["pass", "fail", "skip"].map((status) =>
     `${summary.checks.filter((check) => check.status === status).length} ${status}`,
   ).join(", ");
-  const qualifications = summary.checks.map((check) => `${check.name}: ${formatQualification(check)}`).join(" | ");
+  const qualifications = summary.checks.filter((check) => check.status !== "skip").map((check) => `${check.name}: ${formatQualification(check)}`).join(" | ");
+  const skipped = new Map<string, ProjectCommand[]>();
+  for (const result of report.results) if (result.status === "skip") skipped.set(result.reason ?? "skipped", [...(skipped.get(result.reason ?? "skipped") ?? []), result.name]);
+  const skips = [...skipped].map(([reason, names]) => `Skipped ${names.join(", ")}: ${terminalText(reason).replace(/\.$/, "")}.`).join(" ");
   return `Checks ${summary.status} (command execution): ${counts}; ${summary.repairAttempts} repair attempt(s).`
     + (report.reason ? ` ${terminalText(report.reason)}` : "")
     + (qualifications ? ` ${qualifications}.` : "")
-    + " requested behavior is not independently certified.";
+    + (skips ? ` ${skips}` : "")
+    + " Requested behavior is not independently certified.";
 }
