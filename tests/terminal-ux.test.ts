@@ -25,6 +25,7 @@ test("tool display gives targets/status, redacts common credentials and never in
   expect(failure).toContain("src/missing.ts — failed"); expect(failure).toContain("ENOENT");
   expect(failure).not.toContain("secret"); expect(failure).toContain("[truncated]");
   expect(redactPreview("sk-abcdefghijk ghp_abcdefghijk")).toBe("<redacted> <redacted>");
+  expect(formatToolActivity({ type: "tool_start", toolName: "grep", input: { pattern: "TODO", path: "src" } })).toBe("• grep · TODO · src — running");
 });
 
 test("Markdown theme stays plain without color and terminal controls are neutralized", () => {

@@ -9,7 +9,8 @@ import { browserTool } from "./browser/tools";
 import { formatTerminalJSON } from "./tui/json";
 import { InteractiveTerminal } from "./tui/terminal";
 import { pickEffort } from "./tui/effort-picker";
-import { formatRuntimeStatus, formatToolActivity, redactPreview, terminalText } from "./tui/format";
+import { AUTO_EFFORT, autoEffortLevel, readAutoEffort, writeAutoEffort } from "./tui/auto-effort";
+import { formatRuntimeStartLine, formatRuntimeStatus, formatToolActivity, redactPreview, terminalText } from "./tui/format";
 import { ProjectMemory, type TaskOutcome } from "./memory/store";
 import { discoverReferenceConfiguration, type ReferenceConfiguration } from "./references/config";
 import { formatReferenceResult, ReferenceLibrary } from "./references/library";
@@ -117,6 +118,8 @@ export class CasperApp {
   private commandAbort?: AbortController;
   private readonly toolStarted = new Map<string, number>();
   private openToolLine = false;
+  /** An ephemeral "… thinking / composing arguments" tail line is currently shown. */
+  private progressLine = false;
   private openToolCallId?: string;
   private readonly output: OutputWriter;
   private readonly input: Readable;
@@ -153,6 +156,8 @@ export class CasperApp {
     void this.session?.abort().catch(() => {});
   };
   private savedModelDisplay?: string;
+  /** `/effort auto`: Casper picks a supported level per request from the task classification. */
+  private autoEffort = false;
   private taskRuntimeCancelled = false;
   private lastTaskResult?: TaskResult;
   private observations = new TaskObservations();
@@ -190,8 +195,10 @@ export class CasperApp {
     this.terminal = new InteractiveTerminal(this.input, options.output ?? process.stdout,
       () => this.cancelCurrent(), () => { if (this.commandActive && !this.closing) void this.close().catch(() => {}); });
     // A tool's "running" line is left open on a rich surface so its completion can redraw it in
-    // place (`\r`); any other output first commits that line, so nothing appends to it.
+    // place (`\r`); any other output first commits that line, so nothing appends to it. A progress
+    // line (reasoning / tool arguments still streaming) is ephemeral: it is erased, not committed.
     this.output = { write: (text) => {
+      if (this.progressLine) { this.progressLine = false; this.terminal.write("", { rewriteLine: true }); }
       if (this.openToolLine) { this.openToolLine = false; if (!text.startsWith("\r")) this.terminal.write("\n"); }
       this.terminal.write(text);
     } };
@@ -226,6 +233,7 @@ export class CasperApp {
     if (this.projectContext) return this.projectContext.info;
     const { project, context, mcp, visualization, lspConfiguration, referenceConfiguration } = await this.loadWorkspace(cwd);
     if (this.closing) throw new Error("Casper is closing");
+    this.autoEffort = await readAutoEffort(this.sessionHomeDir ?? os.homedir());
     // The wordmark is for a person at a rich terminal; one-shot and piped output keep the text banner.
     const wordmark = this.interactive && this.terminal.rich && (this.terminal.columns ?? 0) >= WORDMARK_COLUMNS;
     if (wordmark) this.terminal.writeTrusted(`\n${renderWordmark(this.terminal.color)}\n`);
@@ -396,7 +404,7 @@ export class CasperApp {
         await (await this.ensureSessionWorkspace()).resumeActive(this.session);
         this.unsubscribe = this.session.subscribe((event) => this.handleRuntimeEvent(event));
         const status = this.session.getStatus?.() ?? { auth: "unknown" as const };
-        if (!status.blocked) this.output.write(`${formatRuntimeStatus(status)}\n`);
+        if (!status.blocked) this.output.write(`${formatRuntimeStartLine(status)}\n`);
         this.updateFooter();
         return this.session;
       }).catch(async (error) => {
@@ -515,19 +523,32 @@ export class CasperApp {
       if (this.subagents.isBusy) throw new Error("Wait for active subagents before changing effort.");
       const session = await this.ensureRuntime();
       const args = prompt.split(/\s+/).slice(1);
-      if (!args.length) {
-        const status = session.getStatus?.();
+      if (args.length > 2 || (args.length === 2 && args[1] !== "--session") || args[0]?.startsWith("-")) throw new Error("Usage: /effort <level|auto> [--session]");
+      let choice = args[0] ? { level: args[0], persist: args[1] !== "--session" } : undefined;
+      const status = session.getStatus?.();
+      if (!choice) {
         const host = this.interactive ? this.terminal.exclusiveHost() : undefined;
         if (host && session.setEffort && status?.availableThinkingLevels?.length) {
-          const selected = await host.mount(view => pickEffort(view, status.availableThinkingLevels!, status.thinkingLevel, this.commandAbort?.signal));
-          if (selected) this.output.write(`${formatRuntimeStatus(await session.setEffort(selected.level, selected.persist))}\n`);
-        } else if (!status?.model) this.output.write("Effort: no model selected. Use /model first; levels depend on the model.\n");
-        else this.output.write(`Effort: ${status.thinkingLevel ?? "unavailable"}. Supported: ${status.availableThinkingLevels?.join(", ") || "unavailable"}\nUse /effort <level> [--session].\n`);
-      } else {
-        if (args.length > 2 || (args.length === 2 && args[1] !== "--session") || args[0]!.startsWith("-")) throw new Error("Usage: /effort <level> [--session]");
-        if (!session.setEffort) throw new Error("This runtime does not support effort controls.");
-        this.output.write(`${formatRuntimeStatus(await session.setEffort(args[0]!, args[1] !== "--session"))}\n`);
+          choice = await host.mount(view => pickEffort(view, [AUTO_EFFORT, ...status.availableThinkingLevels!], this.autoEffort ? AUTO_EFFORT : status.thinkingLevel, this.commandAbort?.signal));
+          if (!choice) return;
+        } else if (!status?.model) { this.output.write("Effort: no model selected. Use /model first; levels depend on the model.\n"); return; }
+        else {
+          this.output.write(`Effort: ${this.autoEffort ? `auto (currently ${status.thinkingLevel ?? "unset"})` : status.thinkingLevel ?? "unavailable"}. Supported: auto, ${status.availableThinkingLevels?.join(", ") || "unavailable"}\nUse /effort <level|auto> [--session].\n`);
+          return;
+        }
       }
+      if (!session.setEffort) throw new Error("This runtime does not support effort controls.");
+      if (choice.level === AUTO_EFFORT) {
+        if (!status?.model) throw new Error("Select a model first (/model); auto effort chooses among its supported levels.");
+        this.autoEffort = true;
+        if (choice.persist) await writeAutoEffort(this.sessionHomeDir ?? os.homedir(), true);
+        this.output.write(`Effort: auto${choice.persist ? " (remembered)" : " (this conversation)"} — light for reading, explaining and diagrams; medium for tests and configuration; high for fixes, features and refactors. Applied per request from the model's supported levels.\n`);
+      } else {
+        const result = await session.setEffort(choice.level, choice.persist);
+        if (this.autoEffort) { this.autoEffort = false; if (choice.persist) await writeAutoEffort(this.sessionHomeDir ?? os.homedir(), false); }
+        this.output.write(`${formatRuntimeStatus(result)}\n`);
+      }
+      this.updateFooter();
       return;
     }
     if (prompt === "/permissions") {
@@ -719,6 +740,11 @@ export class CasperApp {
     if (this.closing || this.commandAbort?.signal.aborted) return;
     const session = await this.ensureRuntime();
     if (this.closing || this.commandAbort?.signal.aborted) return;
+    if (this.autoEffort && session.setEffort) {
+      const status = session.getStatus?.();
+      const level = autoEffortLevel(classification.intent, status?.availableThinkingLevels ?? []);
+      if (level && level !== status?.thinkingLevel) { await session.setEffort(level, false); this.updateFooter(); }
+    }
     const workspaceRoot = this.activeWorkspaceRoot();
     // Receipts describe the tree, not tool names: a read-only shell run is not a write.
     const before = await this.snapshotWorkspace(workspaceRoot, this.commandAbort?.signal);
@@ -1248,15 +1274,24 @@ export class CasperApp {
       const status = this.session?.getStatus?.();
       const usage = this.session?.getUsage?.();
       const percent = usage?.context?.percent;
-      const model = status?.model ? `${status.provider}/${status.model} · ${status.thinkingLevel ?? "effort —"}`
+      const model = status?.model ? `${status.provider}/${status.model} · ${this.autoEffort ? `auto→${status.thinkingLevel ?? "—"}` : status.thinkingLevel ?? "effort —"}`
         : this.session ? "no model selected · /model" : this.savedModelDisplay ?? "model not initialized · /model";
       this.terminal.setStatus(`${project.name}/${project.gitBranch ?? "no git"} │ ${model} │ ctx ${percent == null ? "—" : `${percent.toFixed(0)}%~`}${usage ? ` │ ${usage.tokens.total} tok` : ""}${usage?.estimatedCost === undefined ? "" : ` │ $${usage.estimatedCost.toFixed(3)} est`} │ ${this.commandActive ? "working" : "idle"}`, project.root);
     } catch { this.terminal.setStatus("Session status unavailable · /status", this.projectContext.info.root); }
   }
 
   private handleRuntimeEvent(event: RuntimeEvent): void {
-    if (event.type !== "assistant_text_delta") this.updateFooter();
+    if (event.type !== "assistant_text_delta" && event.type !== "assistant_progress") this.updateFooter();
     switch (event.type) {
+      case "assistant_progress": {
+        if (!this.terminal.rich) break;
+        if (this.openToolLine) { this.openToolLine = false; this.terminal.write("\n"); }
+        const size = event.chars >= 1024 ? `${(event.chars / 1024).toFixed(1)}k` : String(event.chars);
+        const what = event.kind === "thinking" ? "thinking" : `${terminalText(event.toolName ?? "tool call")} · composing arguments`;
+        this.terminal.write(`… ${what} · ${size} chars`, { rewriteLine: true });
+        this.progressLine = true;
+        break;
+      }
       case "assistant_response_end":
         this.terminal.endAssistant();
         // Pi may retry a provider error inside prompt(); only the final response
@@ -1265,6 +1300,7 @@ export class CasperApp {
         this.taskRuntimeFailed = !["stop", "toolUse"].includes(event.stopReason);
         break;
       case "assistant_text_delta":
+        if (this.progressLine) { this.progressLine = false; this.terminal.write("", { rewriteLine: true }); }
         this.openToolLine = false; // The streaming block commits any open tool line inside the transcript.
         this.terminal.assistant(event.delta);
         this.endedWithNewline = true;
@@ -1288,7 +1324,9 @@ export class CasperApp {
         this.terminal.endAssistant();
         const started = event.toolCallId ? this.toolStarted.get(event.toolCallId) : undefined;
         if (event.toolCallId) this.toolStarted.delete(event.toolCallId);
-        const line = `${formatToolActivity(event, started === undefined ? undefined : performance.now() - started)}\n`;
+        // A failed casper_check already printed its formatted result line; its JSON payload is for the model.
+        const shown = event.toolName === "casper_check" ? { ...event, output: undefined } : event;
+        const line = `${formatToolActivity(shown, started === undefined ? undefined : performance.now() - started)}\n`;
         if (this.openToolLine && event.toolCallId === this.openToolCallId) { this.openToolLine = false; this.terminal.write(line, { rewriteLine: true }); }
         else this.output.write(line);
         this.endedWithNewline = true;

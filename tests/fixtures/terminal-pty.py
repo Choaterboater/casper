@@ -136,7 +136,7 @@ def exercise(bun, repo, root, no_color):
         assert "mcp       " not in startup and "visualize " not in startup and "indexed" not in startup
         s.send("stream\n")
         s.until("First bold and code")
-        assert "scripted / terminal-fixture" in s.screen.text()
+        assert "[model] scripted/terminal-fixture" in s.screen.text()
         s.send("/sta")
         s.pump()
         assert "… /sta" in s.screen.text(), s.screen.text()
@@ -155,6 +155,16 @@ def exercise(bun, repo, root, no_color):
         s.until("credentials configured (not a connection test)")
         s.until("mcp       1 configured")
         assert s.requests() == ["stream"]
+        # Hidden streaming (reasoning, tool arguments) shows a live line that leaves no trace.
+        s.send("progress\n")
+        s.until("… thinking · 1.5k chars")
+        s.release("progress-step")
+        s.until("… write · composing arguments · 4.0k chars")
+        assert "thinking · 1.5k" not in s.screen.text(), s.screen.text()
+        s.release("progress-end")
+        s.until("Written.")
+        assert "composing arguments" not in s.screen.text(), s.screen.text()
+        assert "✓ write · site/index.html — completed" in s.screen.text(), s.screen.text()
         # A wrapped draft with the cursor in its middle must survive activity.
         s.send("hold\n")
         s.until("Waiting for cancellation.")

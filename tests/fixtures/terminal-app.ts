@@ -38,6 +38,15 @@ const runtime: AgentRuntime = {
           await wait("stream-end", signal);
           emit({ type: "tool_end", toolName: "read", toolCallId: "read-1", input: { path: "src/example.ts" }, isError: false });
           emit({ type: "assistant_text_delta", delta: "Done streaming.\n" });
+        } else if (request === "progress") {
+          emit({ type: "assistant_progress", kind: "thinking", chars: 0 });
+          emit({ type: "assistant_progress", kind: "thinking", chars: 1536 });
+          await wait("progress-step", signal);
+          emit({ type: "assistant_progress", kind: "tool_call", toolName: "write", chars: 4096 });
+          await wait("progress-end", signal);
+          emit({ type: "tool_start", toolName: "write", toolCallId: "write-1", input: { path: "site/index.html" } });
+          emit({ type: "tool_end", toolName: "write", toolCallId: "write-1", input: { path: "site/index.html" }, isError: false });
+          emit({ type: "assistant_text_delta", delta: "Written.\n" });
         } else if (request.startsWith("approval")) {
           emit({ type: "assistant_text_delta", delta: "Preparing approval.\n" });
           await wait(request, signal);

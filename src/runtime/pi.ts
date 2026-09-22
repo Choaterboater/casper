@@ -69,6 +69,8 @@ class PiRuntimeSession implements RuntimeSession {
   private readonly toolInputs = new Map<string, ToolObservationInput>();
   private unsubscribePi?: () => void;
   private promptActive = false;
+  private progressChars = 0;
+  private progressReported = 0;
 
   constructor(
     private readonly runtime: AgentSessionRuntime,
@@ -274,11 +276,20 @@ class PiRuntimeSession implements RuntimeSession {
             type: "assistant_response_end", stopReason: event.message.stopReason, errorMessage: event.message.errorMessage,
           });
           break;
-        case "message_update":
-          if (event.assistantMessageEvent.type === "text_delta") {
-            this.emit({ type: "assistant_text_delta", delta: event.assistantMessageEvent.delta });
-          }
+        case "message_update": {
+          const update = event.assistantMessageEvent;
+          if (update.type === "text_delta") { this.emit({ type: "assistant_text_delta", delta: update.delta }); break; }
+          if (update.type === "thinking_start" || update.type === "toolcall_start") this.progressChars = 0;
+          else if (update.type === "thinking_delta" || update.type === "toolcall_delta") this.progressChars += update.delta.length;
+          else break;
+          // Coalesce: the first event of a block and then every 256 characters.
+          if (this.progressChars !== 0 && this.progressChars - this.progressReported < 256) break;
+          this.progressReported = this.progressChars;
+          const block = update.partial.content[update.contentIndex];
+          this.emit({ type: "assistant_progress", kind: update.type.startsWith("thinking") ? "thinking" : "tool_call",
+            toolName: block?.type === "toolCall" ? block.name : undefined, chars: this.progressChars });
           break;
+        }
         case "tool_execution_start": {
           const input = observationInput(event.args);
           if (["edit", "write"].includes(event.toolName) && input.path !== undefined) input.path = nativeEditPath(input.path);
