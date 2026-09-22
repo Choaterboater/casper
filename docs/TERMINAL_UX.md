@@ -162,8 +162,10 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   completion labels are omitted.
 - Up/Down recalls current-process prompt history. Shift+Enter where the terminal
   supports it, or Ctrl+J, inserts a newline. Bracketed paste stays in the draft.
-- Escape stops active work. Ctrl+C cancels work; when idle it clears a draft, then
-  exits when empty. Ctrl+D exits an empty editor. Ctrl+L forces a redraw.
+- Escape stops active work. Ctrl+C cancels work; when idle it clears a draft. On an
+  empty editor the first Ctrl+C only shows `Ctrl-C again to exit`; a second within two
+  seconds exits, any other key disarms it. Ctrl+D exits an empty editor at once.
+  Ctrl+L forces a redraw.
 - Enter during work retains the draft, never queues an automatic next request.
   Pickers borrow exclusive input ownership; pretyped text cannot answer a later
   exact approval. NO_COLOR keeps input controls, while TERM=dumb/redirected output

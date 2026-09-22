@@ -48,6 +48,8 @@ class MarkdownMessage extends Markdown {
   }
 }
 
+const EXIT_NOTE = "Ctrl-C again to exit · Ctrl-D exits too";
+
 /** Prompt editor with a fixed two-column gutter: the glyph changes with state, the box never moves. */
 class PromptEditor extends Editor {
   glyph: () => string = () => PROMPT_GLYPH;
@@ -82,6 +84,7 @@ export class TerminalSurface {
   private readonly muted: (text: string) => string;
   private status = "";
   private note = "";
+  private exitArmed?: NodeJS.Timeout;
   private cwd = "";
   private autocomplete?: AutocompleteProvider;
   private started = false;
@@ -145,6 +148,7 @@ export class TerminalSurface {
     });
     this.tui.setFocus(this.editor);
     this.tui.addInputListener(data => {
+      if (this.exitArmed && !matchesKey(data, "ctrl+c")) this.disarmExit();
       if (this.slot || this.lending) {
         if (matchesKey(data, "ctrl+c")) { this.interrupt(); return { consume: true }; }
         return undefined;
@@ -296,11 +300,22 @@ export class TerminalSurface {
     if (this.closed) return;
     if (this.confirmation) this.confirmation(false);
     if (this.busy) { this.cancel(); return; }
-    if (this.editor.getText()) { this.editor.setText(""); this.render(); }
-    else this.close();
+    if (this.editor.getText()) { this.editor.setText(""); this.render(); return; }
+    // An idle, empty editor: the first Ctrl-C only arms exit, so a reflexive Ctrl-C after a task
+    // does not end the session; a second within two seconds (or Ctrl-D) exits.
+    if (this.exitArmed) { this.close(); return; }
+    this.note = EXIT_NOTE;
+    this.exitArmed = setTimeout(() => this.disarmExit(), 2000);
+    this.render();
+  }
+  private disarmExit(): void {
+    if (!this.exitArmed) return;
+    clearTimeout(this.exitArmed); this.exitArmed = undefined;
+    if (this.note === EXIT_NOTE) { this.note = ""; this.render(); }
   }
   close(): void {
     if (this.closed) return;
+    if (this.exitArmed) clearTimeout(this.exitArmed);
     this.endAssistant(); this.closed = true;
     this.confirmation?.(false); this.command?.(); this.command = undefined;
     if (this.started) this.tui.stop();
