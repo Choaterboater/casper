@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -10,6 +10,9 @@ import { SkillRegistry } from "../src/skills/registry";
 import { checkCommand } from "./support/check-command";
 import { posixOnly } from "./support/platform";
 
+// Nearly every test here runs two or more fixture checks, each a fresh Bun process; under a
+// full parallel suite their startup alone has crossed Bun's 5 s default once.
+setDefaultTimeout(15_000);
 const dirs: string[] = [];
 /** The default fixture check passes once the `fixed` marker exists. */
 const defaultCheck = checkCommand("require:fixed");

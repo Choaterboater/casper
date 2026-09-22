@@ -46,6 +46,15 @@ export class InteractiveTerminal {
 
   setStatus(status: string, cwd = process.cwd()): void { this.surface?.setStatus(status, cwd); }
 
+  /** Rich surface present (TTY input and output, TERM not dumb) and its current width. */
+  get rich(): boolean { return this.surface !== undefined; }
+  get columns(): number | undefined { return this.output.columns; }
+
+  /** Constant, already-styled text such as the startup wordmark. Never for model or tool output. */
+  writeTrusted(text: string): void {
+    if (this.surface) this.surface.write(text); else this.output.write(text);
+  }
+
   write(text: string): void {
     const styled = terminalText(text).split("\n").map(line => {
       const code = /^(?:\[error\]|✗)/.test(line) ? "31" : /^✓/.test(line) ? "32"
