@@ -47,6 +47,8 @@ const runtime: AgentRuntime = {
           emit({ type: "tool_start", toolName: "write", toolCallId: "write-1", input: { path: "site/index.html" } });
           emit({ type: "tool_end", toolName: "write", toolCallId: "write-1", input: { path: "site/index.html" }, isError: false });
           emit({ type: "assistant_text_delta", delta: "Written.\n" });
+        } else if (request === "code") {
+          emit({ type: "assistant_text_delta", delta: "Here is the fix:\n\n```ts\nexport function add(a: number, b: number): number {\n  return a + b;\n}\n```\n\nAnd a shell step:\n\n```sh\nbun test\n```\n" });
         } else if (request.startsWith("approval")) {
           emit({ type: "assistant_text_delta", delta: "Preparing approval.\n" });
           await wait(request, signal);

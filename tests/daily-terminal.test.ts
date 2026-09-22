@@ -50,7 +50,13 @@ test("streamed assistant Markdown renders lists and fences once, whole, and re-r
     await screen.until(output => output.split(REPAINT).length > 1 && output.split(REPAINT).at(-1)!.includes("after"));
     const frame = plainLines(screen.output.split(REPAINT).at(-1)!);
     const body = frame.slice(0, frame.indexOf("after")).filter(line => line.trim());
-    expect(body).toEqual(["Here is a plan:", "- first item", "- second item with code", "```ts", "  const x = 1;", "```", "Done."]);
+    // The fenced block is boxed with its language at the new width; no fence markers remain.
+    expect(body.slice(0, 3)).toEqual(["Here is a plan:", "- first item", "- second item with code"]);
+    expect(body[3]).toMatch(/^╭─ ts ─+╮$/);
+    expect(body[4]).toMatch(/^│ const x = 1; +│$/);
+    expect(body[5]).toMatch(/^╰─+╯$/);
+    expect(body[6]).toBe("Done.");
+    expect(body[3]!.length).toBe(40);
     expect(screen.output).not.toContain("\x1b[?1049h");
   } finally { terminal.close(); input.destroy(); }
 });

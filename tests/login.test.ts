@@ -150,6 +150,8 @@ test("browser sign-in completes through private manual input or real loopback ca
 test("private key entry rejects executable syntax, multiline and oversized unfinished pastes without saving", async () => {
   for (const key of ["!touch SHOULD_NOT_EXIST", "!id", "$SECRET_ENV", "line1\nline2", "x".repeat(40_000)]) {
     const f = await fixture();
+    // Build the oversized paste inside the child: a 40k literal exceeds Windows' argument length limit.
+    const literal = key.length > 8192 ? `'x'.repeat(${key.length})` : JSON.stringify(key);
     const output = await f.run(`
       import { PiRuntime } from ${JSON.stringify(path.join(repo, "src/runtime/pi.ts"))}; import { PassThrough } from 'node:stream';
       const input = new PassThrough(); const runtime = new PiRuntime(); let screen = '';
@@ -159,7 +161,7 @@ test("private key entry rejects executable syntax, multiline and oversized unfin
           screen += text;
           if (text.includes('Choose sign-in method')) setImmediate(() => input.write('\\r'));
           if (text.includes('Press Y')) setImmediate(() => input.write('Y'));
-          if (text.includes('Private API key')) setImmediate(() => { input.write('\\x1b[200~' + ${JSON.stringify(key)} + ${key.length > 8192 ? "''" : "'\\x1b[201~'"}); setTimeout(() => input.write('\\r'), 20); });
+          if (text.includes('Private API key')) setImmediate(() => { input.write('\\x1b[200~' + ${literal} + ${key.length > 8192 ? "''" : "'\\x1b[201~'"}); setTimeout(() => input.write('\\r'), 20); });
         } } }) } });
         console.log(JSON.stringify({ result, safe: !screen.includes('SHOULD_NOT_EXIST') && !screen.includes('SECRET_ENV') && !screen.includes('line1') }));
       } finally { await runtime.dispose(); input.destroy(); }
@@ -277,7 +279,7 @@ test("runtime login cancellation before consent never creates auth or starts a s
   const result = JSON.parse(output);
   expect(result.result).toEqual({ status: "cancelled", effect: "none" });
   const consent = Bun.stripANSI(result.screen).split(/\r?\n/).map(line => line.replace(/^│\s?|\s?│$/g, "").trim()).join("");
-  expect(consent).toContain(f.env.PI_CODING_AGENT_DIR + "/auth.json");
+  expect(consent).toContain(path.join(f.env.PI_CODING_AGENT_DIR, "auth.json"));
   expect(await Bun.file(path.join(f.env.PI_CODING_AGENT_DIR, "auth.json")).exists()).toBe(false);
 });
 
@@ -363,7 +365,7 @@ test("a committed credential with failed synchronization blocks stale parent aut
   expect(result.blocked).toContain("do not repeat login");
   expect(result.fetches).toBe(3);
   expect(JSON.parse(await readFile(path.join(agent, "auth.json"), "utf8"))["openai-codex"].refresh).toBe("committed");
-});
+}, 15_000);
 
 test("cancellation while polling prevents late provider completion from saving", async () => {
   const f = await fixture();

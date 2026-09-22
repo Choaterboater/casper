@@ -29,16 +29,19 @@ function validAuthorizationUrl(provider: RuntimeAuthProvider, value: string): bo
   } catch { return false; }
 }
 
-/** Non-atomic preflight only; Pi retains lock/write ownership. Never repair modes silently. */
+/** Non-atomic preflight only; Pi retains lock/write ownership. Never repair modes silently.
+ * Windows has no POSIX mode bits or uid: a regular, non-linked file under the profile is accepted;
+ * its ACL is the operating system's per-user default, not something Casper can inspect here. */
 async function checkDestination(file: string, signal: AbortSignal): Promise<void> {
   if (Buffer.byteLength(file) > 4096) throw new Error("destination");
+  const posix = process.platform !== "win32";
   let current = file;
   for (let depth = 0; depth < 128; depth++) {
     signal.throwIfAborted();
     const stat = await lstat(current).catch((error: NodeJS.ErrnoException) => { if (error.code !== "ENOENT") throw error; });
     if (stat) {
       if (stat.isSymbolicLink() || (current === file
-        ? !stat.isFile() || stat.nlink !== 1 || (stat.mode & 0o077) !== 0 || (process.getuid && stat.uid !== process.getuid())
+        ? !stat.isFile() || stat.nlink !== 1 || (posix && ((stat.mode & 0o077) !== 0 || (process.getuid && stat.uid !== process.getuid())))
         : !stat.isDirectory())) throw new Error("destination");
     }
     const parent = path.dirname(current);
