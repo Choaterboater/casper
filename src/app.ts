@@ -610,9 +610,12 @@ export class CasperApp {
     }
     if (prompt === "/diff") {
       if (!this.projectContext!.info.isGit) { this.output.write("[diff] Not a Git repository; nothing to compare.\n"); return; }
-      this.output.write(await this.git(["status", "--short"]));
-      this.output.write(await this.git(["diff", "--no-ext-diff", "--no-textconv", "HEAD", "--"]));
-      this.output.write("[diff] Tracked changes against HEAD; untracked files listed above, contents not included. Output limited to 64 KiB per command.\n");
+      const status = await this.git(["status", "--short"]);
+      const diff = await this.git(["diff", "--no-ext-diff", "--no-textconv", "HEAD", "--"]);
+      this.output.write("");
+      this.terminal.writePanel("git status --short", status.trim() ? status : "(clean)");
+      if (diff.trim()) this.terminal.writePanel("git diff HEAD", diff, { diff: true });
+      this.output.write(`[diff] Tracked changes against HEAD${diff.trim() ? "" : ": none"}; untracked files are listed by name only. Output limited to 64 KiB per command.\n`);
       return;
     }
     if (/^\/output(?:\s|$)/.test(prompt)) {
@@ -623,13 +626,13 @@ export class CasperApp {
       const entry = Number.isInteger(recency) ? this.observations.toolOutput(recency) : undefined;
       if (!entry) throw new Error(`Usage: /output [n] with n from 1 (most recent) to ${retained} (retained tool call${retained === 1 ? "" : "s"}).`);
       const target = entry.target === undefined ? "" : ` · ${redactPreview(entry.target).replace(/\s+/g, " ").slice(0, 180)}`;
-      this.output.write(`[output] ${terminalText(entry.toolName).slice(0, 80)}${target} · ${entry.status}${entry.truncated ? " · truncated by runtime" : ""}\n`);
-      this.output.write(entry.text ? `${terminalText(entry.text)}\n` : "(no output text)\n");
+      this.output.write("");
+      this.terminal.writePanel(`[output] ${terminalText(entry.toolName).slice(0, 80)}${target} · ${entry.status}${entry.truncated ? " · truncated by runtime" : ""}`, entry.text || "(no output text)", { tone: entry.status === "error" ? "error" : "muted" });
       return;
     }
     if (prompt === "/status") {
       const info = await this.inspectProjectFn(this.activeWorkspaceRoot());
-      this.projectContext!.info.gitBranch = info.gitBranch;
+      this.projectContext!.info.gitBranch = info.gitBranch; this.projectContext!.info.isGit = info.isGit;
       this.output.write(`${renderProjectSummary(this.projectContext!)}\n`);
       this.output.write(`${formatRuntimeStatus(this.session ? this.session.getStatus?.() ?? { auth: "unknown" } : undefined)}\n`);
       this.output.write(` skills    ${this.skillRegistry!.list().length} indexed; imports: ${this.projectContext!.skills.imports?.join(", ") || "none"} (/skills diagnostics)\n`);

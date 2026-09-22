@@ -2,6 +2,8 @@
 $ErrorActionPreference = 'Stop'
 $Root = Split-Path $PSScriptRoot -Parent
 $Release = Join-Path $Root 'dist\release'
+# The version under test is whatever this checkout builds; never hardcode it here.
+$Expected = (Get-Content (Join-Path $Root 'package.json') -Raw | ConvertFrom-Json).version
 $Temp = Join-Path ([IO.Path]::GetTempPath()) ('casper-install-test-' + [guid]::NewGuid().ToString('N'))
 $OldUserPath = [Environment]::GetEnvironmentVariable('Path', 'User')
 $OldPath = $env:Path
@@ -20,11 +22,11 @@ try {
   if (-not $Ready) { throw 'Local release server did not start' }
   # Fresh account case: no existing per-user PATH.
   [Environment]::SetEnvironmentVariable('Path', $null, 'User')
-  $env:CASPER_VERSION = '0.2.1'
+  $env:CASPER_VERSION = $Expected
   Invoke-RestMethod "$env:CASPER_BASE_URL/install.ps1" | Invoke-Expression
   $Binary = Join-Path $env:CASPER_INSTALL_DIR 'casper.exe'
   $Version = & $Binary --version
-  if ($LASTEXITCODE -ne 0 -or ($Version -join ' ') -notmatch '^casper 0\.2\.0 ') { throw 'Installed binary version failed' }
+  if ($LASTEXITCODE -ne 0 -or ($Version -join ' ') -notmatch ('^casper ' + [regex]::Escape($Expected) + ' ')) { throw 'Installed binary version failed' }
   if ((Get-Command casper).Source -ne $Binary) { throw 'Current-session PATH was not updated' }
   $UserPath = [Environment]::GetEnvironmentVariable('Path', 'User')
   if (($UserPath -split ';') -notcontains $env:CASPER_INSTALL_DIR) { throw 'Persistent PATH missing install directory' }
@@ -43,7 +45,7 @@ try {
   } finally { Pop-Location }
   $Before = (Get-FileHash $Binary).Hash
   foreach ($Failure in @('version', 'checksum')) {
-    $env:CASPER_VERSION = if ($Failure -eq 'version') { '9.9.9' } else { '0.2.1' }
+    $env:CASPER_VERSION = if ($Failure -eq 'version') { '9.9.9' } else { $Expected }
     $env:CASPER_SHA256 = if ($Failure -eq 'checksum') { '0' * 64 } else { $null }
     $Rejected = $false
     try { Invoke-RestMethod "$env:CASPER_BASE_URL/install.ps1" | Invoke-Expression } catch { $Rejected = $true }

@@ -2,6 +2,7 @@ import readline from "node:readline";
 import type { Readable, Writable } from "node:stream";
 import type { RuntimeModelPickerHost, RuntimePickerIO } from "../runtime/types";
 import { paint, terminalText } from "./format";
+import { renderPanel, type PanelTone } from "./presentation";
 import { TerminalSurface } from "./surface";
 
 export type TerminalOutput = RuntimePickerIO["output"] & { isTTY?: boolean };
@@ -57,6 +58,19 @@ export class InteractiveTerminal {
   /** Constant, already-styled text such as the startup wordmark. Never for model or tool output. */
   writeTrusted(text: string): void {
     if (this.surface) this.surface.write(text); else this.output.write(text);
+  }
+
+  /** Code-like output (a replayed tool result, a diff) boxed under a title on the rich surface; a
+   * titled plain block otherwise. Both title and body are sanitized as untrusted text. `diff`
+   * colors unified-diff lines (added green, removed red, hunk headers cyan). */
+  writePanel(title: string, body: string, options: { tone?: PanelTone; diff?: boolean } = {}): void {
+    const heading = terminalText(title).replace(/\s+/g, " ").trim();
+    const plain = terminalText(body).replace(/\n$/, "").split("\n");
+    if (!this.surface) { this.write(`${heading}\n${plain.join("\n")}\n`); return; }
+    const lines = options.diff ? plain.map(line =>
+      /^\+(?!\+\+ )/.test(line) ? paint(line, "32", this.color) : /^-(?!-- )/.test(line) ? paint(line, "31", this.color)
+        : line.startsWith("@@") ? paint(line, "36", this.color) : line) : plain;
+    this.surface.writeBlock({ render: width => renderPanel(heading, lines, width, this.color, options.tone ?? "muted"), invalidate() {} });
   }
 
   write(text: string, options: { rewriteLine?: boolean } = {}): void {

@@ -171,7 +171,7 @@ verification:
     expect(prompts[0]).toContain("Fix addition without changing its API");
     expect(prompts[0]).toContain("Do not remove tests.");
     expect(prompts[0]).toContain("Git changed-file context unavailable");
-  });
+  }, 15_000); // Several real check subprocesses; the 5 s default has tripped under a parallel suite.
 
   test("detects a regression in a previously passing gate and preserves the original command contract", async () => {
     const contract = checkCommand("forbid:regressed");
