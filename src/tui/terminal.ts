@@ -2,7 +2,7 @@ import readline from "node:readline";
 import type { Readable, Writable } from "node:stream";
 import type { RuntimeModelPickerHost, RuntimePickerIO } from "../runtime/types";
 import { paint, terminalText } from "./format";
-import { renderPanel, type PanelTone } from "./presentation";
+import { PANEL_MAX_COLUMNS, renderPanel, type PanelTone } from "./presentation";
 import { TerminalSurface } from "./surface";
 
 export type TerminalOutput = RuntimePickerIO["output"] & { isTTY?: boolean };
@@ -70,7 +70,7 @@ export class InteractiveTerminal {
     const lines = options.diff ? plain.map(line =>
       /^\+(?!\+\+ )/.test(line) ? paint(line, "32", this.color) : /^-(?!-- )/.test(line) ? paint(line, "31", this.color)
         : line.startsWith("@@") ? paint(line, "36", this.color) : line) : plain;
-    this.surface.writeBlock({ render: width => renderPanel(heading, lines, width, this.color, options.tone ?? "muted"), invalidate() {} });
+    this.surface.writeBlock({ render: width => renderPanel(heading, lines, Math.min(width, PANEL_MAX_COLUMNS), this.color, options.tone ?? "muted"), invalidate() {} });
   }
 
   write(text: string, options: { rewriteLine?: boolean } = {}): void {

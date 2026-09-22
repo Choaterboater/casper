@@ -3,7 +3,7 @@ import { stripVTControlCharacters } from "node:util";
 import type { RuntimeModelPickerHost, RuntimePickerIO, RuntimePickerView } from "../runtime/types";
 import { COMMANDS } from "./commands";
 import { BUSY_GLYPH, markdownTheme, paint, PROMPT_GLYPH, terminalText } from "./format";
-import { renderPanel } from "./presentation";
+import { PANEL_MAX_COLUMNS, renderPanel } from "./presentation";
 import { StreamTerminal } from "./stream-terminal";
 import { Transcript } from "./transcript";
 
@@ -41,7 +41,7 @@ class MarkdownMessage extends Markdown {
       const body: string[] = [];
       let end = index + 1;
       for (; end < lines.length && !stripVTControlCharacters(lines[end]!).startsWith("```"); end++) body.push(lines[end]!);
-      out.push(...renderPanel(plain.slice(3).trim() || "code", body, width, this.color, "muted"));
+      out.push(...renderPanel(plain.slice(3).trim() || "code", body, Math.min(width, PANEL_MAX_COLUMNS), this.color, "muted"));
       index = end; // The closing fence (or, while streaming, the end of the text so far).
     }
     return out;
