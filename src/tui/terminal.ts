@@ -76,7 +76,7 @@ export class InteractiveTerminal {
   write(text: string, options: { rewriteLine?: boolean } = {}): void {
     const styled = terminalText(text).split("\n").map(line => {
       const code = /^(?:\[error\]|✗)/.test(line) ? "31" : /^✓/.test(line) ? "32"
-        : /^(?:•|\[skills\]|\[cancel|\[approval\])/.test(line) ? "33" : /^CASPER/.test(line) ? "1;36" : /^(?: \/help · |…)/.test(line) ? "2" : undefined;
+        : /^(?:•|\[skills\]|\[cancel|\[approval\]|\[effort\])/.test(line) ? "33" : /^CASPER/.test(line) ? "1;36" : /^(?: \/help · |…)/.test(line) ? "2" : undefined;
       return code ? paint(line, code, this.color) : line;
     }).join("\n");
     // `rewriteLine` restarts the transcript's open tail line (a "running" status) instead of
