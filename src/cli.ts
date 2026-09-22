@@ -71,7 +71,8 @@ async function main(): Promise<void> {
     else if (flag === "--no-verify") noVerify = true;
     else {
       const name = args.shift();
-      if (!name || !/^[a-zA-Z0-9_.-]{1,64}$/.test(name)) throw new Error(`${flag} requires a configured server name`);
+      // A following flag is not a name: `--mcp --verify` must fail, not connect to "--verify".
+      if (!name || !/^[a-zA-Z0-9_.][a-zA-Z0-9_.-]{0,63}$/.test(name)) throw new Error(`${flag} requires a configured server name`);
       (flag === "--lsp" ? languageServers : servers).push(name);
     }
   }
@@ -90,7 +91,7 @@ async function main(): Promise<void> {
         const index = Number(args[5]);
         result = await learning.promote(args[2]!, args[3]!, args[4]!, index, args[6]! as "reference" | "project-skill" | "global-skill" | "ignore", args[7]);
       }
-      else if (args.length === 2 && !["list", "inspect", "promote"].includes(args[1]!)) result = await learning.generate(args[1]!);
+      else if (args.length === 2 && !["list", "inspect", "promote"].includes(args[1]!) && !args[1]!.startsWith("-")) result = await learning.generate(args[1]!);
       else throw new Error("Usage: casper learn <local-repo> | learn list <local-repo> | learn inspect <local-repo> <draft-id> | learn promote <local-repo> <draft-id> <draft-sha256> <candidate-number> <reference|project-skill|global-skill|ignore> [skill-name]");
       console.log(formatLearningResult(result));
     } catch (error) {

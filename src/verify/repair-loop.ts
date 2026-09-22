@@ -54,7 +54,9 @@ export async function verifyAndRepair(options: VerificationOptions): Promise<Ver
     // freshness: self-mutating/unknown inputs still get an honest qualification.
     const invalidated = results.filter((result) => result.status !== "skip"
       && (result.freshness === "stale" || (result.status === "pass" && result.freshness !== "fresh")));
-    if (invalidated.length) await run(invalidated.map((result) => result.name));
+    // Requested checks the shared task has never run have no evidence at all yet.
+    const unrun = options.checks.filter((name) => !results.some((result) => result.name === name));
+    if (invalidated.length || unrun.length) await run([...new Set([...invalidated.map((result) => result.name), ...unrun])]);
   }
   while (true) {
     await refresh();

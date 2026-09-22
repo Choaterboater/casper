@@ -18,7 +18,7 @@ export const HELP_TEXT = `Casper — your coding companion
   /verify [checks ...]   Run repository checks (trusted projects only)
   /browser               Disposable browser status; website tasks can reproduce bugs
   /debug                 Local debugger targets/status; explicit launch approval
-  /exit                  Exit
+  /exit, /quit           Exit
 
 Type a request to work with the model. Native tools can execute code and edit files.
 Type / for fuzzy command discovery; Tab completes commands and file paths (@).

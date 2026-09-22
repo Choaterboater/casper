@@ -1,7 +1,7 @@
 #!/bin/sh
 # Casper installer for macOS and Linux.
 #
-#   curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.1.1/install.sh | sh
+#   curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.1.2/install.sh | sh
 #
 # Downloads the self-contained binary for this platform, verifies its SHA-256 against
 # the release's SHA256SUMS, installs it into CASPER_INSTALL_DIR (default ~/.local/bin)
@@ -22,7 +22,7 @@
 set -eu
 
 # Preview releases need an explicit tag: GitHub's latest/download excludes prereleases.
-BASE_URL="${CASPER_BASE_URL:-https://github.com/Choaterboater/casper/releases/download/v0.1.1}"
+BASE_URL="${CASPER_BASE_URL:-https://github.com/Choaterboater/casper/releases/download/v0.1.2}"
 INSTALL_DIR="${CASPER_INSTALL_DIR:-$HOME/.local/bin}"
 VERSION="${CASPER_VERSION:-}"
 EXPECTED_SHA="${CASPER_SHA256:-}"
@@ -159,7 +159,10 @@ fi
 # version pin that does not match must not leave a different binary behind, and a
 # binary that cannot run here is never installed. The final `mv` replaces the target in
 # one step, so an interrupted update cannot leave a half-written `casper`.
-mkdir -p "$INSTALL_DIR"
+if ! mkdir -p "$INSTALL_DIR" 2>/dev/null || [ ! -w "$INSTALL_DIR" ]; then
+  echo "Cannot write to ${INSTALL_DIR}; choose another directory with --dir or CASPER_INSTALL_DIR." >&2
+  exit 1
+fi
 staged="$INSTALL_DIR/.casper-download.$$"
 install -m 755 "$tmp/$artifact" "$staged"
 # A downloaded macOS binary carries the quarantine flag; clear it so the first run is

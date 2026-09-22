@@ -7,7 +7,7 @@ Status: **build and installers are implemented and verified locally (macOS); the
 published directory shape — artifacts, sums and both installers in one place — is
 verified over a local HTTP server, so `curl … | sh` works against it, and `--all`
 cross-compiles all five artifacts. Defaults target the planned `Choaterboater/casper`
-`v0.1.1` preview. Nothing is published, and no Windows host has run `install.ps1`.**
+`v0.1.2` preview. Nothing is published, and no Windows host has run `install.ps1`.**
 
 ## Artifacts
 
@@ -46,13 +46,13 @@ apart — a compiled binary cannot read `package.json`, so the version lives in 
 
 1. Choose the release host and set the default `CASPER_BASE_URL` in both
    `scripts/install.sh` and `scripts/install.ps1`. This preview uses
-   `https://github.com/Choaterboater/casper/releases/download/v0.1.1`.
+   `https://github.com/Choaterboater/casper/releases/download/v0.1.2`.
    **Do not use `latest/download` for a prerelease:** GitHub excludes prereleases
    from that route. Re-running a versioned installer reinstalls that version;
    update the documented URL/defaults together when publishing a new preview.
 2. `bun run build:release -- --all`.
 3. Upload **every file** in `dist/release/` to one directory of a release host
-   (for this preview, the GitHub Release tagged `v0.1.1`). The
+   (for this preview, the GitHub Release tagged `v0.1.2`). The
    directory is self-contained: the artifacts, `SHA256SUMS`, `VERSION` and both
    installers go to the same place, so `<base>/install.sh` and `<base>/install.ps1`
    resolve next to the binaries they download.
@@ -64,7 +64,7 @@ apart — a compiled binary cannot read `package.json`, so the version lives in 
    PowerShell installer and inline visualization separately on that host.
 
 The build does not publish anything. Commit the approved source snapshot, push it,
-then create `v0.1.1` against that exact commit as a GitHub prerelease. Upload binaries
+then create `v0.1.2` against that exact commit as a GitHub prerelease. Upload binaries
 as release assets, never as Git source files. Publishing needs explicit maintainer
 approval; a draft/private release cannot serve the anonymous one-liner.
 
@@ -158,13 +158,13 @@ directory for compilation, then removes it. No system headers or compiler are ne
   installers clear the quarantine attribute but do not notarize or sign. Signing and
   notarization are separate work with their own credentials.
 - **No npm or Homebrew channel.** `npm i -g casper` is not available: the name `casper`
-  is taken on npm (v0.1.1), and a Bun-native CLI would still require Bun on the target
+  is taken on npm (v0.1.2), and a Bun-native CLI would still require Bun on the target
   machine, which the compiled binary avoids. A scoped npm package or a Homebrew cask
   are options, not implemented.
 - **Artifacts are per-platform builds, not universal binaries.** Each platform gets
   its own file; the installer picks by `uname`/`PROCESSOR_ARCHITECTURE`.
 - **Nothing is published.** `dist/release/` is built and locally verified; installer
-  defaults target `https://github.com/Choaterboater/casper/releases/download/v0.1.1`.
+  defaults target `https://github.com/Choaterboater/casper/releases/download/v0.1.2`.
   That is a planned address, not a live release. The binaries have run outside the
   checkout on macOS but not on a separate Windows/Linux machine.
 - **Cross-compilation is verified on macOS, the artifacts are not.** `--all` produced

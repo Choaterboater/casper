@@ -186,7 +186,7 @@ export class CasperApp {
     }));
     this.input = options.input ?? process.stdin;
     this.terminal = new InteractiveTerminal(this.input, options.output ?? process.stdout,
-      () => this.cancelCurrent(), () => { if (this.commandActive && !this.closing) void this.close(); });
+      () => this.cancelCurrent(), () => { if (this.commandActive && !this.closing) void this.close().catch(() => {}); });
     this.output = { write: (text) => this.terminal.write(text) };
     this.autoVerify = options.autoVerify ?? false;
     this.visualizationProviders = options.visualizationProviders ?? [new MermaidProvider(), new MindMeshProvider()];
@@ -221,7 +221,7 @@ export class CasperApp {
     if (this.closing) throw new Error("Casper is closing");
     // The wordmark is for a person at a rich terminal; one-shot and piped output keep the text banner.
     const wordmark = this.interactive && this.terminal.rich && (this.terminal.columns ?? 0) >= WORDMARK_COLUMNS;
-    if (wordmark) this.terminal.writeTrusted(renderWordmark(this.terminal.color));
+    if (wordmark) this.terminal.writeTrusted(`\n${renderWordmark(this.terminal.color)}\n`);
     this.output.write(renderBanner(context, { wordmark }));
     this.output.write(`${formatRuntimeStatus(this.session?.getStatus?.())}\n`);
     for (const diagnostic of referenceConfiguration.diagnostics) this.output.write(`[references] ${formatReferenceResult(diagnostic)}\n`);
@@ -229,6 +229,7 @@ export class CasperApp {
     for (const diagnostic of mcp.diagnostics) this.output.write(`[mcp] ${diagnostic}\n`);
     for (const diagnostic of lspConfiguration.diagnostics) this.output.write(`[lsp] ${diagnostic}\n`);
     for (const diagnostic of visualization.diagnostics) this.output.write(`[visualize] ${diagnostic}\n`);
+    if (this.interactive) this.output.write("\n");
     return project;
   }
 
@@ -325,7 +326,7 @@ export class CasperApp {
     this.browserClose = this.browser?.close();
     // These close concurrently while runtime/verification drain. Observe early
     // rejections now; finishClose still awaits and propagates their results.
-    for (const work of [this.mcpClose, this.lspClose, this.referencesClose, this.debugClose, this.browserClose]) void work?.catch(() => {});
+    for (const work of [this.subagentsClose, this.mcpClose, this.lspClose, this.referencesClose, this.debugClose, this.browserClose]) void work?.catch(() => {});
     this.terminal.close();
     this.closeWork = this.finishClose();
     return this.closeWork;
@@ -516,7 +517,7 @@ export class CasperApp {
         } else if (!status?.model) this.output.write("Effort: no model selected. Use /model first; levels depend on the model.\n");
         else this.output.write(`Effort: ${status.thinkingLevel ?? "unavailable"}. Supported: ${status.availableThinkingLevels?.join(", ") || "unavailable"}\nUse /effort <level> [--session].\n`);
       } else {
-        if (args.length > 2 || (args.length === 2 && args[1] !== "--session")) throw new Error("Usage: /effort <level> [--session]");
+        if (args.length > 2 || (args.length === 2 && args[1] !== "--session") || args[0]!.startsWith("-")) throw new Error("Usage: /effort <level> [--session]");
         if (!session.setEffort) throw new Error("This runtime does not support effort controls.");
         this.output.write(`${formatRuntimeStatus(await session.setEffort(args[0]!, args[1] !== "--session"))}\n`);
       }
@@ -832,7 +833,7 @@ export class CasperApp {
           const session = await this.ensureRuntime();
           if (!controller.signal.aborted) {
             await session.prompt(prompt, controller.signal);
-            if (this.taskRuntimeFailed) throw new Error("Repair model stopped unsuccessfully; changes retained.");
+            if (this.taskRuntimeFailed && !this.taskRuntimeCancelled) throw new Error("Repair model stopped unsuccessfully; changes retained.");
           }
         } : undefined,
         onRepair: (attempt, max) => { this.output.write(`↻ repair ${attempt}/${max}\n`); },
@@ -1277,7 +1278,7 @@ export class CasperApp {
         this.taskRuntimeFailed = true;
         this.terminal.endAssistant();
         this.ensureLineBreak();
-        if (this.displayedError !== event.message) this.output.write(`[error] ${event.message}\n`);
+        if (this.displayedError !== event.message) this.output.write(`[error] ${redactPreview(event.message)}\n`);
         this.displayedError = event.message;
         this.endedWithNewline = true;
         break;
