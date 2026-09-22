@@ -165,6 +165,11 @@ def exercise(bun, repo, root, no_color):
         s.until("Written.")
         assert "composing arguments" not in s.screen.text(), s.screen.text()
         assert "✓ write · site/index.html — completed" in s.screen.text(), s.screen.text()
+        # Fenced code is boxed with its language; fence markers never reach the screen.
+        s.send("code\n")
+        s.until("╭─ sh ")
+        assert "╭─ ts " in s.screen.text() and "return a + b;" in s.screen.text(), s.screen.text()
+        assert "```" not in s.screen.text(), s.screen.text()
         # A wrapped draft with the cursor in its middle must survive activity.
         s.send("hold\n")
         s.until("Waiting for cancellation.")

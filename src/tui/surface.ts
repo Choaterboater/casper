@@ -1,7 +1,9 @@
 import { CombinedAutocompleteProvider, type AutocompleteProvider, type Component, Editor, Markdown, type MarkdownTheme, matchesKey, setCapabilityOverrides, TuiMainScreen, truncateToWidth } from "@earendil-works/pi-tui";
+import { stripVTControlCharacters } from "node:util";
 import type { RuntimeModelPickerHost, RuntimePickerIO, RuntimePickerView } from "../runtime/types";
 import { COMMANDS } from "./commands";
 import { BUSY_GLYPH, markdownTheme, paint, PROMPT_GLYPH, terminalText } from "./format";
+import { renderPanel } from "./presentation";
 import { StreamTerminal } from "./stream-terminal";
 import { Transcript } from "./transcript";
 
@@ -25,9 +27,25 @@ class StableMainScreen extends TuiMainScreen {
 
 /** One assistant message rendered whole from its Markdown source, so lists, fences and wrapped emphasis
  * come out right while streaming and re-render correctly at a new width. pi-tui pads every line to the
- * width; the transcript keeps content only so scrollback copies cleanly. */
+ * width; the transcript keeps content only so scrollback copies cleanly. Fenced code is the one thing
+ * boxed: each block becomes a bordered panel titled with its language, so code stands apart from prose
+ * and copies without fence markers. */
 class MarkdownMessage extends Markdown {
-  override render(width: number): string[] { return super.render(width).map(line => line.replace(/ +$/, "")); }
+  constructor(private readonly color: boolean, theme: MarkdownTheme) { super("", 0, 0, theme); }
+  override render(width: number): string[] {
+    const lines = super.render(width).map(line => line.replace(/ +$/, ""));
+    const out: string[] = [];
+    for (let index = 0; index < lines.length; index++) {
+      const plain = stripVTControlCharacters(lines[index]!);
+      if (!plain.startsWith("```")) { out.push(lines[index]!); continue; }
+      const body: string[] = [];
+      let end = index + 1;
+      for (; end < lines.length && !stripVTControlCharacters(lines[end]!).startsWith("```"); end++) body.push(lines[end]!);
+      out.push(...renderPanel(plain.slice(3).trim() || "code", body, width, this.color, "muted"));
+      index = end; // The closing fence (or, while streaming, the end of the text so far).
+    }
+    return out;
+  }
 }
 
 /** Prompt editor with a fixed two-column gutter: the glyph changes with state, the box never moves. */
@@ -199,7 +217,7 @@ export class TerminalSurface {
       return;
     }
     this.source += terminalText(delta);
-    if (!this.message) this.transcript.preview = this.message = new MarkdownMessage("", 0, 0, this.theme);
+    if (!this.message) this.transcript.preview = this.message = new MarkdownMessage(this.io.color, this.theme);
     this.message.setText(this.source);
     this.render();
   }

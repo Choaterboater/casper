@@ -31,7 +31,7 @@ export function markdownTheme(color: boolean): MarkdownTheme {
   const accent = style("36");
   const dim = style("2");
   return {
-    heading: style("1;36"), link: accent, linkUrl: dim, code: accent, codeBlock: accent, codeBlockBorder: dim,
+    heading: style("1;36"), link: accent, linkUrl: dim, code: accent, codeBlock: accent, codeBlockBorder: dim, codeBlockIndent: "",
     quote: dim, quoteBorder: dim, hr: dim, listBullet: accent,
     bold: style("1"), italic: style("3"), strikethrough: style("9"), underline: style("4"),
   };

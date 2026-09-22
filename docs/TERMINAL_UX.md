@@ -23,8 +23,10 @@ Transcript lines are inline, not boxed: `✓`/`✗`/`•` tool lines, `[model]`,
 `[approval]`, `[task]` and similar bracketed notices, and the `❯ …` echo of each
 prompt. Green marks success, red an error, amber a notice or decision, cyan the
 accent (banner, prompt echo, Markdown structure), dim the muted status lines.
-Bordered panels (`src/tui/presentation.ts`) are reserved for exclusive input
-flows such as `/login`. Color always accompanies a readable label; tool completion
+Bordered panels (`src/tui/presentation.ts`) are reserved for code: every fenced
+block in an assistant message is boxed and titled with its language, so code
+stands apart from prose and copies without fence markers; and for exclusive
+input flows such as `/login`. Color always accompanies a readable label; tool completion
 does not mean a check passed. `NO_COLOR` keeps the structure without color, while
 redirected output and `TERM=dumb` use plain text.
 

@@ -20,7 +20,7 @@ try {
   if (-not $Ready) { throw 'Local release server did not start' }
   # Fresh account case: no existing per-user PATH.
   [Environment]::SetEnvironmentVariable('Path', $null, 'User')
-  $env:CASPER_VERSION = '0.2.0'
+  $env:CASPER_VERSION = '0.2.1'
   Invoke-RestMethod "$env:CASPER_BASE_URL/install.ps1" | Invoke-Expression
   $Binary = Join-Path $env:CASPER_INSTALL_DIR 'casper.exe'
   $Version = & $Binary --version
@@ -43,7 +43,7 @@ try {
   } finally { Pop-Location }
   $Before = (Get-FileHash $Binary).Hash
   foreach ($Failure in @('version', 'checksum')) {
-    $env:CASPER_VERSION = if ($Failure -eq 'version') { '9.9.9' } else { '0.2.0' }
+    $env:CASPER_VERSION = if ($Failure -eq 'version') { '9.9.9' } else { '0.2.1' }
     $env:CASPER_SHA256 = if ($Failure -eq 'checksum') { '0' * 64 } else { $null }
     $Rejected = $false
     try { Invoke-RestMethod "$env:CASPER_BASE_URL/install.ps1" | Invoke-Expression } catch { $Rejected = $true }
