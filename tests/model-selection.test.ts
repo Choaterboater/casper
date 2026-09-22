@@ -29,7 +29,7 @@ async function fixture() {
 const runtime = new PiRuntime();
 try { const session = await runtime.start({ cwd: process.cwd() }); ${body} } finally { await runtime.dispose(); }`],
       { cwd: project, env, stdout: "pipe", stderr: "pipe" });
-    const timer = setTimeout(() => child.kill(), 10_000);
+    const timer = setTimeout(() => child.kill(), 25_000); // A real Pi runtime in a fresh Bun child; the Windows CI runner has needed more than 10 s.
     try {
       const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
       expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });
@@ -69,7 +69,7 @@ test("local diff remains usable when workspace changes exceed the display budget
   expect(result.stdout).toContain("+after");
   expect(result.stdout).toContain("truncated");
   expect(await readFile(path.join(f.project, "tracked.txt"), "utf8")).toBe("after\n".repeat(15000));
-}, 15_000);
+}, 30_000);
 
 test("context and usage are local; fresh conversations retain saved sessions without touching source files", async () => {
   const f = await fixture();
@@ -96,7 +96,7 @@ console.log('RESULT=' + JSON.stringify({ before: before.sessionId, after: after.
   expect(result.resumed).toBe(result.before);
   expect(result.saved.length).toBeGreaterThanOrEqual(2);
   expect(await readFile(path.join(f.project, ".pi/settings.json"), "utf8")).toBe(f.shared);
-}, 15_000);
+}, 30_000);
 
 test("remembered effort survives switching away and back within the same conversation", async () => {
   const f = await fixture();
@@ -107,7 +107,7 @@ await session.selectModel({ query: 'fixture/first', persist: false });
 await session.selectModel({ query: 'fixture/second', persist: false });
 console.log('RESULT=' + JSON.stringify(session.getStatus()));`);
   expect(status.thinkingLevel).toBe("high");
-}, 15_000);
+}, 30_000);
 
 test("effort is validated, remembered for the default, and session-only changes stay local", async () => {
   const f = await fixture();
@@ -121,7 +121,7 @@ test("effort is validated, remembered for the default, and session-only changes 
   await f.cli("/effort", "low", "--session");
   expect(await f.run(`console.log('RESULT=' + JSON.stringify(session.getStatus()));`)).toMatchObject({ thinkingLevel: "high" });
   expect(await readFile(path.join(f.agent, "settings.json"), "utf8")).toBe(f.shared);
-}, 15_000);
+}, 30_000);
 
 test("model selection changes the conversation without adopting or rewriting shared Pi defaults", async () => {
   const f = await fixture();
@@ -136,7 +136,7 @@ console.log('RESULT=' + JSON.stringify({ initial, selected, status: session.getS
   expect(await readFile(path.join(f.project, ".pi/settings.json"), "utf8")).toBe(f.shared);
   expect(await readFile(path.join(f.agent, "auth.json"), "utf8")).toBe("{}\n");
   expect(await readFile(path.join(f.casper, "settings.json"), "utf8").catch(() => "absent")).toBe("absent");
-}, 15_000);
+}, 30_000);
 
 test("plain /model lists locally; an exact selection is remembered across fresh conversations", async () => {
   const f = await fixture();
@@ -153,7 +153,7 @@ test("plain /model lists locally; an exact selection is remembered across fresh 
   expect(restored.stdout).not.toContain("\u001b[");
   expect((await f.cli("/model", "--session", "fixture/first")).exit).toBe(0);
   expect((await f.cli("/model")).stdout).toContain("fixture / second");
-}, 15_000);
+}, 30_000);
 
 // python3 runs the standard-library PTY fixture; Windows has no equivalent here.
 posixOnly("production CLI hosts Pi's picker without losing terminal ownership", async () => {
@@ -201,7 +201,7 @@ console.log('RESULT=' + JSON.stringify(screens));`);
     expect(screen.output).toContain("\x1b[?2004h"); // Pi's own renderer controls must still work.
     expect(/\x1b\[[0-9;:]*m/.test(screen.output)).toBe(screen.color);
   }
-}, 15_000);
+}, 30_000);
 
 test("picker refresh failures neutralize provider labels and thrown diagnostics without hiding the error", async () => {
   const f = await fixture();
@@ -247,7 +247,7 @@ console.log('RESULT=' + JSON.stringify(screens));`);
     expect(screen.output).not.toMatch(/[\u009b\u202e]/u);
     expect(/\x1b\[[0-9;:]*m/.test(screen.output)).toBe(screen.color);
   }
-}, 15_000);
+}, 30_000);
 
 test("unavailable defaults and restored models block generation without choosing another provider", async () => {
   const f = await fixture();
@@ -259,7 +259,7 @@ console.log('RESULT=' + JSON.stringify({ before, failure }));`);
   expect(result.before).toMatchObject({ provider: "fixture", model: "removed", selectionSource: "default" });
   expect(result.before.blocked).toContain("unavailable");
   expect(result.failure).toContain("no fallback");
-}, 15_000);
+}, 30_000);
 
 test("restoring an unavailable conversation never falls back to the usable Casper default", async () => {
   const f = await fixture();
@@ -277,7 +277,7 @@ console.log('RESULT=' + JSON.stringify({ status: session.getStatus(), failure })
   expect(restored.status).toMatchObject({ provider: "fixture", model: "second", selectionSource: "conversation", defaultModel: { provider: "fixture", id: "first" } });
   expect(restored.status.blocked).toContain("unavailable");
   expect(restored.failure).toContain("no fallback");
-}, 15_000);
+}, 30_000);
 
 test("a restored model with missing auth stays identifiable and cannot send a prompt", async () => {
   const f = await fixture();
@@ -293,7 +293,7 @@ let failure; try { await session.prompt('MUST_NOT_SEND'); } catch (error) { fail
 console.log('RESULT=' + JSON.stringify({ status: session.getStatus(), failure }));`);
   expect(restored.status).toMatchObject({ provider: "fixture", model: "second", auth: "missing", selectionSource: "conversation" });
   expect(restored.failure).toContain("/login");
-}, 15_000);
+}, 30_000);
 
 test("missing auth, unknown models and cancelled selection leave the active model and default unchanged", async () => {
   const f = await fixture();
@@ -310,7 +310,7 @@ console.log('RESULT=' + JSON.stringify({ failures, status: session.getStatus() }
   expect(result.failures[1]).toContain("Unknown model");
   expect(result.failures[2]).toBe("AbortError");
   expect(result.status).toMatchObject({ model: "first", defaultModel: { provider: "fixture", id: "first" } });
-}, 15_000);
+}, 30_000);
 
 test("ambiguous bare model IDs require a provider instead of silently choosing one", async () => {
   const f = await fixture();
@@ -326,7 +326,7 @@ console.log('RESULT=' + JSON.stringify({ failure, unchanged, selected: session.g
   expect(result.failure).toContain("Ambiguous");
   expect(result.unchanged).toMatchObject({ provider: "fixture", model: "second" });
   expect(result.selected).toMatchObject({ provider: "other", model: "first" });
-}, 15_000);
+}, 30_000);
 
 needsPosixModes("failed default persistence reports failure while retaining the explicitly selected conversation model", async () => {
   const f = await fixture();
@@ -342,7 +342,7 @@ console.log('RESULT=' + JSON.stringify({ failure, status: session.getStatus() })
   expect(result.status.model).toBe("second");
   expect(result.status.defaultModel).toBeUndefined();
   expect(await readFile(path.join(f.agent, "settings.json"), "utf8")).toBe(f.shared);
-}, 15_000);
+}, 30_000);
 
 test("cancelling a pending Pi auth check cannot later select or persist a model", async () => {
   const f = await fixture();
@@ -362,7 +362,7 @@ console.log('RESULT=' + JSON.stringify({ failure, status: session.getStatus() })
   expect(result.failure).toBe("AbortError");
   expect(result.status.model).toBe("first");
   expect(result.status.defaultModel).toBeUndefined();
-}, 15_000);
+}, 30_000);
 
 test("disposing during model auth prevents a late selection or default write", async () => {
   const f = await fixture();
@@ -379,7 +379,7 @@ ModelRuntime.prototype.checkAuth = original;
 console.log('RESULT=' + JSON.stringify({ outcome }));`);
   expect(result.outcome).toBe("AbortError");
   expect(await readFile(path.join(f.casper, "settings.json"), "utf8").catch(() => "absent")).toBe("absent");
-}, 15_000);
+}, 30_000);
 
 test("explicit compaction uses the local provider, cancels active work, and pre-aborted compact sends nothing", async () => {
   const f = await fixture();
@@ -421,7 +421,7 @@ console.log('RESULT=' + JSON.stringify({ aborted, activeAborted, file: session.g
   const transcript = await readFile(result.file, "utf8");
   expect(transcript).toContain('"type":"compaction"');
   expect(transcript).toContain("LOCAL_COMPACTION_SUMMARY");
-}, 15_000);
+}, 30_000);
 
 test("selection before the first response keeps Pi persistence writable for the next prompt", async () => {
   const f = await fixture();
@@ -443,7 +443,7 @@ console.log('RESULT=' + JSON.stringify({ errors, file: session.getSessionInfo().
   expect(requests).toBe(1);
   expect(result.errors).toEqual([]);
   expect(await readFile(result.file, "utf8")).toContain("MODEL_SELECTION_REPLY");
-}, 15_000);
+}, 30_000);
 
 test("selecting in a persisted session preserves inactive transcript branches", async () => {
   const f = await fixture();
@@ -460,7 +460,7 @@ await session.selectModel({ query: 'fixture/second' });
 console.log('RESULT=' + JSON.stringify({ entries: SessionManager.open(manager.getSessionFile()).getEntries() }));`);
   expect(JSON.stringify(result.entries)).toContain("OLD_BRANCH");
   expect(JSON.stringify(result.entries)).toContain("ACTIVE_BRANCH");
-}, 15_000);
+}, 30_000);
 
 test("concurrent model changes and prompts cannot race an active selection", async () => {
   const f = await fixture();
@@ -481,7 +481,7 @@ console.log('RESULT=' + JSON.stringify({ failures, status: session.getStatus() }
   expect(result.failures[1]).toContain("selection is in progress");
   expect(result.status).toMatchObject({ model: "second", selectionSource: "conversation" });
   expect(result.status.defaultModel).toBeUndefined();
-}, 15_000);
+}, 30_000);
 
 test("a prompt in auth preflight excludes model switching until cancellation settles", async () => {
   const f = await fixture();
@@ -500,7 +500,7 @@ ModelRuntime.prototype.checkAuth = original; ModelRuntime.prototype.hasConfigure
 console.log('RESULT=' + JSON.stringify({ failure, status: session.getStatus() }));`);
   expect(result.failure).toContain("active work");
   expect(result.status.model).toBe("first");
-}, 15_000);
+}, 30_000);
 
 test("corrupt Casper defaults fail visibly without resetting the file or adopting Pi preferences", async () => {
   const f = await fixture();
@@ -510,7 +510,7 @@ test("corrupt Casper defaults fail visibly without resetting the file or adoptin
   expect(result.stderr).toContain("Cannot read Casper model defaults");
   expect(await readFile(path.join(f.casper, "settings.json"), "utf8")).toBe('{"defaultProvider":');
   expect(await readFile(path.join(f.agent, "settings.json"), "utf8")).toBe(f.shared);
-}, 15_000);
+}, 30_000);
 
 needsSymlinks("a Casper settings alias cannot rewrite shared Pi settings", async () => {
   const f = await fixture();
@@ -519,7 +519,7 @@ needsSymlinks("a Casper settings alias cannot rewrite shared Pi settings", async
   expect(result.exit).toBe(1);
   expect(result.stderr).toContain("unshared");
   expect(await readFile(path.join(f.agent, "settings.json"), "utf8")).toBe(f.shared);
-}, 15_000);
+}, 30_000);
 
 test("explicit default save is Casper-owned; restored conversations and forks retain their own model", async () => {
   const f = await fixture();
@@ -545,7 +545,7 @@ console.log('RESULT=' + JSON.stringify({ fresh, restored: session.getStatus() })
   expect(JSON.parse(await readFile(path.join(f.casper, "settings.json"), "utf8"))).toEqual({ defaultProvider: "fixture", defaultModel: "first", defaultThinkingLevel: "off", modelThinkingLevels: { "fixture/first": "off" } });
   expect(await readFile(path.join(f.agent, "settings.json"), "utf8")).toBe(f.shared);
   expect(await readFile(path.join(f.project, ".pi/settings.json"), "utf8")).toBe(f.shared);
-}, 15_000);
+}, 30_000);
 
 test("role edits do not reroute an existing conversation and children use explicit Casper roles", async () => {
   const f = await fixture();
@@ -570,7 +570,7 @@ try {
   expect(result.restored).toMatchObject({ model: "second", configuredEffort: "auto" });
   expect(result.child.model).toBe("first");
   expect(await readFile(path.join(f.agent, "settings.json"), "utf8")).toBe(f.shared);
-}, 15_000);
+}, 30_000);
 
 test("cancellation after Pi activates a model retains truthful conversation state without saving defaults", async () => {
   const f = await fixture();
@@ -606,7 +606,7 @@ console.log('RESULT=' + JSON.stringify({ error, current, restored: session.getSt
   expect(result.restored.blocked).toBeUndefined();
   const preferences = JSON.parse(await readFile(path.join(f.casper, "settings.json"), "utf8"));
   expect(preferences.defaultModel).toBe("first");
-}, 15_000);
+}, 30_000);
 
 test("automatic effort classifies only the raw request, affects generation and survives resume without changing defaults", async () => {
   const f = await fixture();
@@ -646,7 +646,7 @@ console.log('RESULT=' + JSON.stringify({ classified, usage, fresh, restored, fix
   expect(result.fresh).toMatchObject({ configuredEffort: "auto", thinkingLevel: "high" });
   expect(result.restored).toMatchObject({ configuredEffort: "auto", thinkingLevel: "low" });
   expect(result.fixed).toMatchObject({ configuredEffort: "medium", thinkingLevel: "medium" });
-}, 15_000);
+}, 30_000);
 
 test("classifier cancellation prevents generation and late results cannot alter effort", async () => {
   const f = await fixture();
@@ -676,7 +676,7 @@ console.log('RESULT=' + JSON.stringify({ error, events, blocked, status: session
   expect(result.events).not.toContain("assistant_response_start");
   expect(result.events).not.toContain("model_controls_changed");
   expect(result.status.thinkingLevel).toBe("high");
-}, 15_000);
+}, 30_000);
 
 test.each(["malformed", "length"])("classifier %s failure retains effort and observed usage while generation continues", async failure => {
   const f = await fixture();
@@ -702,7 +702,7 @@ console.log('RESULT=' + JSON.stringify({ status: session.getStatus(), usage: ses
   expect(result.status).toMatchObject({ model: "second", thinkingLevel: "high", configuredEffort: "auto", autoEffort: { state: "fallback" } });
   expect(result.usage.effortClassification).toMatchObject({ requests: 1, tokens: { input: 10, output: 4, total: 14 } });
   expect(result.usage.effortClassification.estimatedCost).toBeGreaterThan(0);
-}, 15_000);
+}, 30_000);
 
 test("a fresh automatic default survives forking and resuming before its first prompt", async () => {
   const f = await fixture();
@@ -718,4 +718,4 @@ await session.resumeConversation(initial.sessionId);
 console.log('RESULT=' + JSON.stringify({ fork, resumed: session.getStatus() }));`);
   expect(result.fork).toMatchObject({ model: "second", configuredEffort: "auto" });
   expect(result.resumed).toMatchObject({ model: "second", configuredEffort: "auto" });
-}, 15_000);
+}, 30_000);
