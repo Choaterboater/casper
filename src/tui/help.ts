@@ -1,7 +1,7 @@
 export const HELP_TEXT = `Casper — your coding companion
 
-  casper                 Start interactive mode (offers casper_check; --no-verify opts out)
-  casper <prompt>        Run one prompt and exit (--verify offers casper_check)
+  casper                 Start interactive mode; offers casper_check unless --no-verify
+  casper <prompt>        Run one prompt and exit; --verify offers casper_check
   /help all              All commands, options and safety details
   /status                Model/auth, integrations and local storage
   /model [model]         Pick a model; Enter remembers globally, Ctrl+S is session-only
@@ -16,19 +16,19 @@ export const HELP_TEXT = `Casper — your coding companion
   /project               Project context and check commands
   /skills                Skills and trust; /skills diagnostics for warnings
   /verify [checks ...]   Run repository checks (trusted projects only)
-  /browser              Disposable browser status; website tasks can reproduce bugs
-  /debug                Local debugger targets/status; explicit launch approval
+  /browser               Disposable browser status; website tasks can reproduce bugs
+  /debug                 Local debugger targets/status; explicit launch approval
   /exit                  Exit
 
 Type a request to work with the model. Native tools can execute code and edit files.
 Type / for fuzzy command discovery; Tab completes commands and file paths (@).
 Shift+Enter (when supported) or Ctrl+J inserts a newline; Up/Down recalls history.
-Esc stops active work. Ctrl-C cancels work; while idle it clears a draft, or exits if empty.
+Esc stops active work. Ctrl-C cancels work; idle, it clears a draft or exits if empty.
 Ctrl+L redraws the screen. See docs/TERMINAL_UX.md for limits.
 Enter during work retains your draft; it does not queue a request.
 Approvals require a fresh yes. Task completion is not verification.
 Interactive sessions offer the model a casper_check tool for trusted project checks;
-nothing runs unless the model selects a check. One-shot prompts need --verify.
+nothing runs unless the model selects one. One-shot prompts need --verify.
 `;
 
 export const LOGIN_HELP = `Provider login requires an interactive Casper terminal.

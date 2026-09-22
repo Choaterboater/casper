@@ -3,6 +3,7 @@ import type { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdi
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { resolveEnvironment, type MCPConfiguration, type MCPServerDefinition } from "./config";
 import { ownSpawnedTree, type OwnedProcesses, ProcessCleanupError, terminateTree } from "../platform/processes";
+import { CASPER_VERSION } from "../version";
 
 export interface MCPTool {
   name: string;
@@ -213,7 +214,7 @@ export class MCPManager {
       // Module loading cannot be aborted. Recheck consent/deadline before any
       // client or transport is created, including after the transport import.
       if (!current()) throw new Error("stale connection");
-      const connectedClient = new Client({ name: "casper", version: "0.1.0" }, { capabilities: {} });
+      const connectedClient = new Client({ name: "casper", version: CASPER_VERSION }, { capabilities: {} });
       client = connectedClient;
       entry.client = connectedClient;
       connectedClient.onerror = () => { /* Raw transport errors can contain headers/URLs. */ };

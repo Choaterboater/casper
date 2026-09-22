@@ -39,7 +39,7 @@ import { classifyTask, formatTaskPrompt } from "./task/classify";
 import { formatTaskResult, type TaskResult } from "./task/result";
 import { TaskObservations } from "./task/observations";
 import { diffSnapshots, snapshotTree, type TreeChanges } from "./task/changes";
-import { renderBanner, renderProjectSummary } from "./tui/banner";
+import { WORDMARK_COLUMNS, renderBanner, renderProjectSummary, renderWordmark } from "./tui/banner";
 import type { ProjectCommand } from "./project/model";
 import { CHECK_NAMES, formatVerificationReport, formatVerificationResult, type VerificationReport } from "./verify/evidence";
 import { ProcessCleanupError } from "./platform/processes";
@@ -219,7 +219,10 @@ export class CasperApp {
     if (this.projectContext) return this.projectContext.info;
     const { project, context, mcp, visualization, lspConfiguration, referenceConfiguration } = await this.loadWorkspace(cwd);
     if (this.closing) throw new Error("Casper is closing");
-    this.output.write(renderBanner(context));
+    // The wordmark is for a person at a rich terminal; one-shot and piped output keep the text banner.
+    const wordmark = this.interactive && this.terminal.rich && (this.terminal.columns ?? 0) >= WORDMARK_COLUMNS;
+    if (wordmark) this.terminal.writeTrusted(renderWordmark(this.terminal.color));
+    this.output.write(renderBanner(context, { wordmark }));
     this.output.write(`${formatRuntimeStatus(this.session?.getStatus?.())}\n`);
     for (const diagnostic of referenceConfiguration.diagnostics) this.output.write(`[references] ${formatReferenceResult(diagnostic)}\n`);
     this.reportSkillWarnings();
@@ -510,7 +513,8 @@ export class CasperApp {
         if (host && session.setEffort && status?.availableThinkingLevels?.length) {
           const selected = await host.mount(view => pickEffort(view, status.availableThinkingLevels!, status.thinkingLevel, this.commandAbort?.signal));
           if (selected) this.output.write(`${formatRuntimeStatus(await session.setEffort(selected.level, selected.persist))}\n`);
-        } else this.output.write(`Effort: ${status?.thinkingLevel ?? "unavailable"}. Supported: ${status?.availableThinkingLevels?.join(", ") || "unavailable"}\nUse /effort <level> [--session].\n`);
+        } else if (!status?.model) this.output.write("Effort: no model selected. Use /model first; levels depend on the model.\n");
+        else this.output.write(`Effort: ${status.thinkingLevel ?? "unavailable"}. Supported: ${status.availableThinkingLevels?.join(", ") || "unavailable"}\nUse /effort <level> [--session].\n`);
       } else {
         if (args.length > 2 || (args.length === 2 && args[1] !== "--session")) throw new Error("Usage: /effort <level> [--session]");
         if (!session.setEffort) throw new Error("This runtime does not support effort controls.");
@@ -596,10 +600,10 @@ export class CasperApp {
       this.output.write(` browser   ${this.browser?.status().state ?? "idle"}; disposable local browser (/browser)\n`);
       this.output.write(` debugger  ${this.debugSession?.status().state ?? "idle"}; explicit local DAP (/debug)\n`);
       const usage = this.session?.getUsage?.();
-      this.output.write(` context   ${usage?.context?.percent == null ? "unavailable" : `${usage.context.percent.toFixed(1)}% (estimate)`}; ${usage?.tokens.total ?? "unavailable"} session tokens (/context, /usage)\n`);
-      this.output.write(" policy    native coding tools enabled; not sandboxed (/permissions). Verification requires explicit scoped checks (/verify).\n");
+      this.output.write(` context   ${usage?.context?.percent == null ? "—" : `${usage.context.percent.toFixed(1)}%~`} · ${usage?.tokens.total ?? "—"} session tokens (/context, /usage)\n`);
+      this.output.write(" policy    native coding tools enabled; not sandboxed (/permissions)\n verify    explicit scoped checks only; completion is not verification (/verify)\n");
       this.output.write(` visualize ${this.visualization!.providerNames().join(", ")} (/visualize)\n`);
-      this.output.write(" memory    explicit facts and local task summaries; acceptance unknown until recorded (/memory)\n references read-only local sources (/references)\n");
+      this.output.write(" memory    explicit facts and local task summaries (/memory)\n references read-only local sources (/references)\n");
       return;
     }
     if (prompt === "/exit" || prompt === "/quit") return;
@@ -1225,7 +1229,8 @@ export class CasperApp {
       const status = this.session?.getStatus?.();
       const usage = this.session?.getUsage?.();
       const percent = usage?.context?.percent;
-      const model = status?.model ? `${status.provider}/${status.model} · ${status.thinkingLevel ?? "effort —"}` : this.savedModelDisplay ?? "model not initialized · /model";
+      const model = status?.model ? `${status.provider}/${status.model} · ${status.thinkingLevel ?? "effort —"}`
+        : this.session ? "no model selected · /model" : this.savedModelDisplay ?? "model not initialized · /model";
       this.terminal.setStatus(`${project.name}/${project.gitBranch ?? "no git"} │ ${model} │ ctx ${percent == null ? "—" : `${percent.toFixed(0)}%~`}${usage ? ` │ ${usage.tokens.total} tok` : ""}${usage?.estimatedCost === undefined ? "" : ` │ $${usage.estimatedCost.toFixed(3)} est`} │ ${this.commandActive ? "working" : "idle"}`, project.root);
     } catch { this.terminal.setStatus("Session status unavailable · /status", this.projectContext.info.root); }
   }
