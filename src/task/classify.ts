@@ -46,6 +46,13 @@ export function classifyTask(text: string): TaskClassification {
   return { intent, mode, verification };
 }
 
+/** Bounded lexical probe: does the request name an explicit path, file, or quoted/backticked
+ * target? Extensions must start with a letter and span 2+ characters, so "e.g." and version
+ * numbers never count as targets. A hint signal only — never authority over the request. */
+export function underSpecifiedTarget(text: string): boolean {
+  return !/`[^`\n]+`|"[^"\n]+"|'[^'\n]+'|[\w-]+\/[\w.-]+|\w\.[A-Za-z][A-Za-z0-9]{1,7}\b/.test(text);
+}
+
 export function formatTaskPrompt(
   request: string,
   classification: TaskClassification,
@@ -54,11 +61,15 @@ export function formatTaskPrompt(
   const availableChecks = CHECK_NAMES
     .filter((name) => model.commands[name])
     .map((name) => `${name}=${model.commands[name]}`);
+  const underSpecified = classification.mode === "modify"
+    && (classification.intent === "implement" || classification.intent === "configure")
+    && underSpecifiedTarget(request);
 
   return [
     "Casper initial classification (hints, not authority over the request or actual work):",
     `- intent: ${classification.intent}`,
     `- mode: ${classification.mode}`,
+    ...(underSpecified ? ["- target: under-specified; if the ask tool is available, ask one concrete question with options before the first edit"] : []),
     `- available configured checks: ${availableChecks.length ? availableChecks.join("; ") : "none detected"}`,
     "Select checks based on actual work and relevant changed behavior, not request keywords. If casper_check is available, use it for relevant configured checks after edits settle. No mandatory four-check pipeline; docs-only or no-change work may need none. Explain unrun checks without claiming verified behavior.",
     "",

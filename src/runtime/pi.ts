@@ -446,6 +446,10 @@ export class PiRuntime implements AgentRuntime {
         if (!readOnly) pi.on("tool_call", (event) => {
           // Keep Pi's native execution, output handling, and process-tree cleanup.
           if (event.toolName === "bash" && event.input.timeout === undefined) event.input.timeout = 120;
+          if (options.beforeToolGate && ["edit", "write"].includes(event.toolName)) {
+            const reason = options.beforeToolGate(event.toolName, event.input);
+            if (reason) return { block: true, reason };
+          }
         });
         pi.on("tool_result", async (event, ctx) => {
           if (event.isError || !["edit", "write"].includes(event.toolName) || typeof event.input.path !== "string" || !options.afterFileEdit) return;

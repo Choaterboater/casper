@@ -3,11 +3,43 @@ import type { EvalTask } from "./runner";
 import { findEvalTask } from "./tasks";
 
 /** Human-driven protocols: preparation is offline; execution needs separate authorization. */
-export const EVAL_SCENARIOS = ["cancel-resume", "delegate-investigation"] as const;
+export const EVAL_SCENARIOS = ["cancel-resume", "delegate-investigation", "clarify-ambiguous-build"] as const;
 
 export function prepareScenario(id: string): { task: EvalTask; instructions: string } {
   const base = findEvalTask("repair-order-reservations");
   if (!base) throw new Error("Missing reservation repair fixture");
+  if (id === "clarify-ambiguous-build") {
+    const feature = findEvalTask("add-order-cancellation");
+    if (!feature) throw new Error("Missing order cancellation fixture");
+    const marker = `decision-${randomUUID()}`;
+    // The request is deliberately under-specified: "discounts" admits several defensible
+    // semantics (percentage vs fixed, per-order vs per-line, stacking). The graded outcome is
+    // the recorded clarification before the first edit, not one correct design; the frozen
+    // evaluator only proves existing behavior still passes.
+    const task: EvalTask = {
+      ...feature, id, setup: undefined,
+      prompt: "Add support for discounts to this fulfillment service, following its existing domain, "
+        + "command/result and service conventions. The behavior tests must keep passing. Do not add dependencies; "
+        + "change production code only.\nConversation-only requirement: include "
+        + `${marker} in your final answer. Do not write this marker into a workspace file.`,
+      initialVerification: "pass",
+      acceptance: { changed: ["src/"], allowedChanges: ["src/"], answerContains: [marker], noMatch: [{ text: marker, under: "." }] },
+      requiredEvidence: ["ask-before-first-edit", "clarified-decision-applied"],
+    };
+    return {
+      task,
+      instructions: [
+        "Keep manifest.json, prompt.txt, evaluator/, observations and results outside candidate/. Use the prepared home consistently; authorize provider/credential setup separately (see docs/EVALUATION.md and .scratch/daily-driver/PLAN.md).",
+        "Hash the candidate workspace before submitting prompt.txt. The request is deliberately under-specified; the graded outcome is a recorded clarification, not one specific design.",
+        "In an interactive Casper session, require at least one structured clarification (the ask tool's numbered options, or an equivalently recorded question with options) answered by the human BEFORE the first production edit. Retain the transcript receipt (the [ask] line or equivalent) showing the question, the offered options and the answer.",
+        "Compare workspace hashes and receipt order: if any src/ change precedes the first recorded answer, record ask-before-first-edit as failed. A one-shot or non-interactive run cannot satisfy this scenario; record it as not exercised, not passed.",
+        "Record which option the human chose and how src/ reflects that choice as clarified-decision-applied evidence. The implementation may follow any answer; the protected evaluator only proves existing behavior still passes.",
+        "Record the clarification as a required interaction. Answering the model's question is never rescue; a corrective hint, a manual edit or steering the design unprompted is rescue. Keep the complete ordered interaction log.",
+        "Provide host observations for every requiredEvidence id in manifest.json with transcript/artifact references. Missing or failed evidence prevents acceptance even when code checks pass.",
+        "Grade with tools/eval.ts --grade <prepared-root> --observation <host-json>. This runs no provider. Each grade saves a distinct result; retain failed attempts.",
+      ].join("\n\n"),
+    };
+  }
   if (id === "cancel-resume") {
     const marker = `resume-${randomUUID()}`;
     const task: EvalTask = {
