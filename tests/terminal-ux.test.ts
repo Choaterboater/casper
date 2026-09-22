@@ -40,6 +40,9 @@ test("model and auth display distinguishes uninitialized, missing, configured an
   expect(formatRuntimeStatus({ provider: "fixture", model: "test", auth: "configured" })).toContain("not a connection test");
   expect(formatRuntimeStatus({ provider: "fixture", model: "test", auth: "missing" })).toContain("credentials missing");
   expect(formatRuntimeStatus({ auth: "unknown" })).toContain("none selected");
+  expect(formatRuntimeStatus({ provider: "fixture", model: "test", auth: "configured", thinkingLevel: "high", configuredEffort: "auto", autoEffort: { state: "pending" }, modelRole: "fast" }))
+    .toContain("reasoning auto → high (pending) · role fast");
+  expect(formatRuntimeStatus({ provider: "fixture", model: "test", auth: "configured", thinkingLevel: "low", configuredEffort: "auto", autoEffort: { state: "classified" } })).toContain("reasoning auto → low\n");
 });
 
 test("plain line input typed before the first prompt is kept; lines typed during work are dropped", async () => {

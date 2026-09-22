@@ -54,15 +54,28 @@ export function formatToolActivity(event: ToolEvent, elapsedMs?: number): string
   return `${event.isError ? "✗" : "✓"} ${name}${preview} — ${status}${elapsed}${detail}`;
 }
 
+/** `auto` effort is Casper's setting; the level after the arrow is what the classifier chose (or the
+ * provisional level before the first request). A role tells where the model came from. */
+export function formatEffort(status: RuntimeStatus): string | undefined {
+  if (status.configuredEffort === "auto") {
+    const state = status.autoEffort?.state;
+    return `auto → ${status.thinkingLevel ? terminalText(status.thinkingLevel) : "—"}${state && state !== "classified" ? ` (${state})` : ""}`;
+  }
+  return status.thinkingLevel ? terminalText(status.thinkingLevel) : undefined;
+}
+
 export function formatRuntimeStatus(status?: RuntimeStatus): string {
   if (!status) return " model     not initialized (starts on your first prompt or /model)\n auth      not checked (/login to set up a provider)";
   const identity = status.provider && status.model ? `${status.provider} / ${status.model}` : "none selected";
-  return ` model     ${terminalText(identity)}${status.thinkingLevel ? ` · reasoning ${terminalText(status.thinkingLevel)}` : ""}\n auth      ${status.auth === "configured" ? "credentials configured (not a connection test)" : status.auth === "missing" ? "credentials missing; use /login" : "unknown; use /login"}${status.selectionSource ? `\n selection ${status.selectionSource}${status.defaultModel ? ` · Casper default ${terminalText(status.defaultModel.provider)}/${terminalText(status.defaultModel.id)}` : " · no Casper default"}` : ""}${status.blocked ? `\n [model]   ${terminalText(status.blocked)}` : ""}`;
+  const effort = formatEffort(status);
+  const role = status.modelRole ? ` · role ${terminalText(status.modelRole)}` : "";
+  return ` model     ${terminalText(identity)}${effort ? ` · reasoning ${effort}` : ""}${role}\n auth      ${status.auth === "configured" ? "credentials configured (not a connection test)" : status.auth === "missing" ? "credentials missing; use /login" : "unknown; use /login"}${status.selectionSource ? `\n selection ${status.selectionSource}${status.defaultModel ? ` · Casper default ${terminalText(status.defaultModel.provider)}/${terminalText(status.defaultModel.id)}` : " · no Casper default"}` : ""}${status.blocked ? `\n [model]   ${terminalText(status.blocked)}` : ""}`;
 }
 
 /** One transcript line when the runtime starts on first use; /status keeps the labeled block. */
 export function formatRuntimeStartLine(status: RuntimeStatus): string {
   const identity = status.provider && status.model ? `${terminalText(status.provider)}/${terminalText(status.model)}` : "no model selected (/model)";
   const auth = status.auth === "configured" ? "credentials configured (not a connection test)" : status.auth === "missing" ? "credentials missing (/login)" : "credentials unknown (/login)";
-  return `[model] ${identity}${status.thinkingLevel ? ` · ${terminalText(status.thinkingLevel)}` : ""} · ${auth}`;
+  const effort = formatEffort(status);
+  return `[model] ${identity}${effort ? ` · ${effort}` : ""} · ${auth}`;
 }

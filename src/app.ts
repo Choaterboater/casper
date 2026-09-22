@@ -9,7 +9,7 @@ import { browserTool } from "./browser/tools";
 import { formatTerminalJSON } from "./tui/json";
 import { InteractiveTerminal } from "./tui/terminal";
 import { pickEffort } from "./tui/effort-picker";
-import { formatRuntimeStartLine, formatRuntimeStatus, formatToolActivity, redactPreview, terminalText } from "./tui/format";
+import { formatEffort, formatRuntimeStartLine, formatRuntimeStatus, formatToolActivity, redactPreview, terminalText } from "./tui/format";
 import { ProjectMemory, type TaskOutcome } from "./memory/store";
 import { discoverReferenceConfiguration, type ReferenceConfiguration } from "./references/config";
 import { formatReferenceResult, ReferenceLibrary } from "./references/library";
@@ -1294,7 +1294,7 @@ export class CasperApp {
       const status = this.session?.getStatus?.();
       const usage = this.session?.getUsage?.();
       const percent = usage?.context?.percent;
-      const effort = status?.configuredEffort === "auto" ? `auto→${status.thinkingLevel ?? "—"}${status.autoEffort && status.autoEffort.state !== "classified" ? ` (${status.autoEffort.state})` : ""}` : status?.thinkingLevel ?? "effort —";
+      const effort = (status && formatEffort(status)) ?? "effort —";
       const model = status?.model ? `${status.provider}/${status.model} · ${effort}`
         : this.session ? "no model selected · /model" : this.savedModelDisplay ?? "model not initialized · /model";
       this.terminal.setStatus(`${project.name}/${project.gitBranch ?? "no git"} │ ${model} │ ctx ${percent == null ? "—" : `${percent.toFixed(0)}%~`}${usage ? ` │ ${usage.tokens.total} tok` : ""}${usage?.estimatedCost === undefined ? "" : ` │ $${usage.estimatedCost.toFixed(3)} est`} │ ${this.commandActive ? "working" : "idle"}`, project.root);
