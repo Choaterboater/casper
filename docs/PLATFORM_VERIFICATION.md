@@ -46,8 +46,11 @@ bun run typecheck
 bun test tests/platform-processes.test.ts
 ```
 
-Expected: typecheck clean, and 7 passes (or 6 on Windows without symlink privilege,
-where one test skips with a stated reason).
+Expected: typecheck clean and no failures. The suite includes live POSIX ownership,
+shared-wrapper result propagation, simulated non-group ownership, environment and
+file checks. Five isolated caller-lifecycle regressions use POSIX teardown and skip
+on Windows; the live POSIX group test also skips there. The symlink test skips on
+hosts without symlink privilege. Record actual pass/skip counts with the OS build.
 
 ## Step 3 — optional deeper checks
 

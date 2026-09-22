@@ -1,5 +1,6 @@
 import { cc, ptr } from "bun:ffi";
-import { closeSync, constants } from "node:fs";
+import artifactSource from "./artifacts.c" with { type: "file" };
+import { closeSync, constants, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import fs, { type FileHandle } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -12,15 +13,23 @@ export const artifactFilesystemSupported = process.platform === "darwin" || proc
 
 function loadOperations() {
   if (!artifactFilesystemSupported) throw new Error("Secure artifact creation requires macOS or Linux; set visualize.outputDir: false for inline output");
-  return cc({
-    source: new URL("./artifacts.c", import.meta.url),
-    define: { CASPER_DARWIN: process.platform === "darwin" ? "1" : "0" },
-    symbols: {
-      casper_openat: { args: ["i32", "ptr", "i32"], returns: "i32" },
-      casper_unlinkat: { args: ["i32", "ptr"], returns: "i32" },
-      casper_mkdirat: { args: ["i32", "ptr"], returns: "i32" },
-    },
-  });
+  // Bun can read embedded assets, but TinyCC opens source through libc and cannot
+  // resolve /$bunfs paths. Materialize only this fixed bridge in a private temporary
+  // directory for compilation; the loaded library no longer needs the source file.
+  const temporary = mkdtempSync(path.join(os.tmpdir(), "casper-artifact-cc-"));
+  try {
+    const source = path.join(temporary, "artifacts.c");
+    writeFileSync(source, readFileSync(artifactSource), { mode: 0o600, flag: "wx" });
+    return cc({
+      source,
+      define: { CASPER_DARWIN: process.platform === "darwin" ? "1" : "0" },
+      symbols: {
+        casper_openat: { args: ["i32", "ptr", "i32"], returns: "i32" },
+        casper_unlinkat: { args: ["i32", "ptr"], returns: "i32" },
+        casper_mkdirat: { args: ["i32", "ptr"], returns: "i32" },
+      },
+    });
+  } finally { rmSync(temporary, { recursive: true, force: true }); }
 }
 let operations: ReturnType<typeof loadOperations> | undefined;
 function nativeOperations() { return operations ??= loadOperations(); }

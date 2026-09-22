@@ -1,6 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { MessageReader } from "../protocol/framing";
-import { osSupportsProcessGroups, ownSpawnedTree, type OwnedProcesses, terminateTree } from "../platform/processes";
+import { osSupportsProcessGroups, ownSpawnedTree, type OwnedProcesses, type CleanupOutcome, ProcessCleanupError, terminateTree } from "../platform/processes";
 export { MessageReader } from "../protocol/framing";
 
 export function record(value: unknown): value is Record<string, unknown> {
@@ -16,6 +16,8 @@ export class LSPConnection {
   private nextId = 0;
   private ended = false;
   private closing?: Promise<void>;
+  private termination?: Promise<CleanupOutcome>;
+  private cleanupError?: ProcessCleanupError;
   private readonly exited: Promise<void>;
   onNotification?: (method: string, params: unknown) => void;
   onClose?: () => void;
@@ -36,6 +38,7 @@ export class LSPConnection {
   }
 
   get alive(): boolean { return !this.ended; }
+  assertCleanup(): void { if (this.cleanupError) throw this.cleanupError; }
 
   private send(message: unknown): void {
     if (this.ended) throw new Error("LSP connection closed");
@@ -100,10 +103,10 @@ export class LSPConnection {
     this.onClose?.();
     for (const pending of this.pending.values()) { pending.cleanup(); pending.reject(new Error(message)); }
     this.pending.clear();
-    try {
-      if (this.owner || osSupportsProcessGroups) terminateTree(this.owner, this.child.pid, "SIGKILL");
-      else this.child.kill("SIGKILL");
-    } catch { /* process group already exited */ }
+    this.termination = terminateTree(this.owner, this.child.pid, "SIGKILL").then(outcome => {
+      if (outcome === "unknown") this.cleanupError = new ProcessCleanupError();
+      return outcome;
+    });
   }
 
   close(): Promise<void> {
@@ -112,8 +115,15 @@ export class LSPConnection {
     const shutdown = this.ended ? Promise.resolve() : this.request("shutdown", null, undefined, 150).catch(() => {});
     this.closing = (async () => {
       await shutdown;
+      await this.owner?.captureCurrent();
       try { this.notify("exit"); } catch { /* already closed */ }
       this.fail("LSP connection closed");
+      await this.termination;
+      if (this.cleanupError) {
+        this.child.stdin.destroy(); this.child.stdout.destroy(); this.child.stderr.destroy();
+        this.child.unref();
+        throw this.cleanupError;
+      }
       await this.exited;
     })();
     return this.closing;

@@ -2,7 +2,7 @@ import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import type { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { resolveEnvironment, type MCPConfiguration, type MCPServerDefinition } from "./config";
-import { ownSpawnedTree, type OwnedProcesses, terminateTree } from "../platform/processes";
+import { ownSpawnedTree, type OwnedProcesses, ProcessCleanupError, terminateTree } from "../platform/processes";
 
 export interface MCPTool {
   name: string;
@@ -50,6 +50,7 @@ export class MCPManager {
   private closeWork?: Promise<void>;
   private readonly timeoutMs: number;
   private catalogVersion = 0;
+  private cleanupError?: ProcessCleanupError;
 
   constructor(configuration: MCPConfiguration, options: { timeoutMs?: number } = {}) {
     this.diagnostics = configuration.diagnostics;
@@ -62,6 +63,8 @@ export class MCPManager {
       });
     }
   }
+
+  assertCleanup(): void { if (this.cleanupError) throw this.cleanupError; }
 
   status(): MCPStatus[] {
     return [...this.entries.values()].map((entry) => ({
@@ -85,6 +88,7 @@ export class MCPManager {
 
   /** Explicit process-local consent to execute/contact this loaded definition. */
   async connect(name: string): Promise<void> {
+    this.assertCleanup();
     const entry = this.entry(name);
     if (entry.state === "disabled") throw new Error("MCP server is disabled; edit configuration and restart");
     entry.approved = true;
@@ -93,12 +97,14 @@ export class MCPManager {
 
   /** Reconnect only previously approved servers, on demand, with a burst cap. */
   async prepare(): Promise<void> {
+    this.assertCleanup();
     if (this.closed) return;
     await Promise.all([...this.entries.values()].filter((e) => e.approved).map(async (entry) => {
       try { await this.ensureConnected(entry); } catch { /* status retains failure */ }
       if (entry.dirty && entry.state === "ready" && entry.client) this.scheduleRefresh(entry, entry.client);
       await entry.refresh;
     }));
+    this.assertCleanup();
   }
 
   async disconnect(name: string): Promise<void> {
@@ -114,6 +120,7 @@ export class MCPManager {
   }
 
   async call(server: string, name: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
+    this.assertCleanup();
     const entry = this.entry(server);
     signal?.throwIfAborted();
     if (entry.state !== "ready" || !entry.client || !entry.tools.some((tool) => tool.name === name)) {
@@ -155,7 +162,7 @@ export class MCPManager {
       await this.release(entry);
       await entry.work;
       await entry.refresh;
-    })).then(() => {});
+    })).then(() => { this.assertCleanup(); });
     return this.closeWork;
   }
 
@@ -256,9 +263,18 @@ export class MCPManager {
         });
       }
       entry.transport = transport;
+      if (entry.stdio) {
+        const stdio = entry.stdio;
+        const start = stdio.start.bind(stdio);
+        stdio.start = async () => {
+          await start();
+          const pid = stdio.pid;
+          // Own the child before the protocol handshake, which can fail or stall.
+          entry.owner = ownSpawnedTree(pid, () => stdio.pid === pid);
+          await entry.owner?.capture();
+        };
+      }
       await client.connect(transport, this.requestOptions(entry));
-      // Windows has no process groups: own the stdio server's descendants while it is alive.
-      entry.owner = ownSpawnedTree(entry.stdio?.pid, () => true);
       const tools = await this.listTools(entry, client);
       if (!current()) throw new Error("stale connection");
       entry.state = "ready";
@@ -321,6 +337,9 @@ export class MCPManager {
         }
       }
     })().finally(() => { entry.refresh = undefined; });
+    // A list-change notification can start this work without a waiting caller.
+    // Cleanup errors remain latched on the manager for status/prepare/reconnect.
+    void entry.refresh.catch(() => {});
   }
 
   private release(entry: Entry): Promise<void> {
@@ -337,12 +356,20 @@ export class MCPManager {
     if (client) client.onclose = undefined;
     // The SDK allows 4s before KILL, longer than Casper's 1s CLI exit deadline.
     // Accelerate cleanup of this exact tree; close() still owns stdin and reaping.
-    const kill = (signal: NodeJS.Signals) => { terminateTree(owner, pid, signal); };
-    const term = pid ? setTimeout(() => kill("SIGTERM"), 200) : undefined;
-    const force = pid ? setTimeout(() => kill("SIGKILL"), 450) : undefined;
     entry.releaseWork = (async () => {
+      await owner?.captureCurrent();
+      const ownedStop = owner ? terminateTree(owner, pid, "SIGTERM") : undefined;
+      const kill = (signal: NodeJS.Signals) => { void terminateTree(owner, pid, signal); };
+      const term = pid ? setTimeout(() => kill("SIGTERM"), 200) : undefined;
+      const force = pid ? setTimeout(() => kill("SIGKILL"), 450) : undefined;
       try { await (client ? client.close() : transport?.close())?.catch(() => {}); }
       finally { clearTimeout(term); clearTimeout(force); }
+      if (await ownedStop === "unknown") {
+        this.cleanupError = new ProcessCleanupError();
+        entry.error = this.cleanupError.message;
+        entry.state = "failed"; entry.approved = false;
+        throw this.cleanupError;
+      }
     })().finally(() => { entry.releaseWork = undefined; });
     return entry.releaseWork;
   }
