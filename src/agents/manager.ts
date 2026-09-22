@@ -254,7 +254,7 @@ export class SubagentManager {
         });
         controller.signal.throwIfAborted();
         unsubscribe = session.subscribe(observe);
-        await session.prompt(prompt(options));
+        await session.prompt(prompt(options), controller.signal);
         if (!controller.signal.aborted && !result.response.trim() && result.status === "completed") {
           result.status = "failed"; result.reason = "Subagent returned no report";
         }

@@ -36,6 +36,14 @@ test("--verify --no-verify is rejected before any work starts", async () => {
   expect(result.stderr).toContain("--verify and --no-verify cannot be combined");
 });
 
+test("a flag following --mcp or --lsp is not taken as a server name", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-cli-flags-"));
+  tempDirs.push(root);
+  const result = await run([cli, "--mcp", "--verify", "Summarize"], root);
+  expect({ code: result.code, stdout: result.stdout }).toEqual({ code: 1, stdout: "" });
+  expect(result.stderr).toContain("--mcp requires a configured server name");
+});
+
 posixOnly("--version names the cli.ts that actually runs, through a PATH-style symlink", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-cli-flags-"));
   tempDirs.push(root);
