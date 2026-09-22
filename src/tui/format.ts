@@ -75,7 +75,8 @@ export function formatRuntimeStatus(status?: RuntimeStatus): string {
 /** One transcript line when the runtime starts on first use; /status keeps the labeled block. */
 export function formatRuntimeStartLine(status: RuntimeStatus): string {
   const identity = status.provider && status.model ? `${terminalText(status.provider)}/${terminalText(status.model)}` : "no model selected (/model)";
-  const auth = status.auth === "configured" ? "credentials configured (not a connection test)" : status.auth === "missing" ? "credentials missing (/login)" : "credentials unknown (/login)";
+  // /status carries the "not a connection test" qualifier; this line stays short enough for one row.
+  const auth = status.auth === "configured" ? "credentials configured" : status.auth === "missing" ? "credentials missing (/login)" : "credentials unknown (/login)";
   const effort = formatEffort(status);
   return `[model] ${identity}${effort ? ` · ${effort}` : ""} · ${auth}`;
 }

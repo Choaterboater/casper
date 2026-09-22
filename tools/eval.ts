@@ -175,7 +175,10 @@ async function main(): Promise<void> {
         }
         summaries.push(summarizeEvalRuns(task, runs));
       }
-      process.stdout.write(`\n${formatEvalReport(summaries)}`);
+      // Single runs were already streamed line by line above; repeat the totals only. Repeated
+      // runs get the per-task summary lines (pass rate, spread), which are new information.
+      const report = formatEvalReport(summaries);
+      process.stdout.write(`\n${options.repeat > 1 ? report : report.slice(report.indexOf("\n\n") + 2)}`);
       document = { ranAt: new Date().toISOString(), model: observedModel(model, summaries), repeat: options.repeat, results: summaries };
     }
   }
