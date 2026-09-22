@@ -52,7 +52,7 @@ export function formatTaskResult(task: TaskResult): string {
   const changes = task.changedPaths ? `; ${formatChangedPaths(task.changedPaths, safe)}` : task.possibleMutations ? "; changes unknown (workspace snapshot failed)" : "";
   const during = task.changedDuringChecks?.length ? `; during checks/repair: ${formatChangedPaths(task.changedDuringChecks, safe)}` : "";
   const checks = task.observedChecks?.length ? `; shell check observations: ${task.observedChecks.map(({ name, toolStatus }) => `${name}:${toolStatus}`).join(", ")} (diagnostics only)` : "";
-  const evidence = report ? formatVerificationReport(report) : "no Casper verification recorded.";
+  const evidence = report ? formatVerificationReport(report, { compact: true }) : "no Casper verification recorded.";
   const browser = task.browser ? ` Browser assertions ${task.browser.status}: ${task.browser.checks.map(check => `${safe(check.name)}:${check.status}, inputs ${check.freshness}, baseline ${check.baseline}`).join("; ")}. Declared local scope only; server build/external state and overall acceptance not certified.` : "";
   return `[task] Execution ${task.execution}${edits}${changes}${during}${checks}; ${evidence}${browser}`;
 }

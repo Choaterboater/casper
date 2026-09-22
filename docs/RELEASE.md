@@ -1,7 +1,7 @@
 # Release process and installers
 
-Casper distributes an unsigned **v0.2.7 preview**, not a stable release. Installers
-default to `https://github.com/Choaterboater/casper/releases/download/v0.2.7` because
+Casper distributes an unsigned **v0.2.8 preview**, not a stable release. Installers
+default to `https://github.com/Choaterboater/casper/releases/download/v0.2.8` because
 GitHub's `latest/download` route excludes prereleases. The first published preview
 was **v0.1.0**; its assets and tag stay as published, and every fix ships under a new
 version.
@@ -228,7 +228,7 @@ Linux artifacts are cross-compiled but still require real-host verification.
 - Binaries are unsigned/unnotarized. SmartScreen or Gatekeeper may warn; the
   installers clear the quarantine attribute but do not sign or notarize.
 - Published v0.1.0 appends login selection messages instead of moving the highlight,
-  and lacks every change listed above. Those corrections ship in v0.2.7.
+  and lacks every change listed above. Those corrections ship in v0.2.8.
 - Windows diagram output is inline; screenshot/diagram artifact files require the
   POSIX bridge. Optional browser/debugger/LSP/MCP behavior is not fully host-tested.
 - There is no npm/Homebrew distribution channel, automatic updater or rollback.
