@@ -149,20 +149,24 @@ def exercise(bun, repo, root, no_color):
         assert s.requests() == ["stream"]
         s.release("stream-end")
         s.until("Done streaming.")
+        s.until("│ idle")
         s.until("❯ /status")
         assert s.requests() == ["stream"]
         s.send("\n")
         s.until("credentials configured (not a connection test)")
         s.until("mcp       1 configured")
         assert s.requests() == ["stream"]
-        # Hidden streaming (reasoning, tool arguments) shows a live line that leaves no trace.
+        # Hidden streaming (reasoning, tool arguments) shows a boxed live status that leaves no trace.
         s.send("progress\n")
-        s.until("… thinking · 1.5k chars")
+        s.until("Working")
+        s.until("Thinking · 1.5k chars")
         s.release("progress-step")
-        s.until("… write · composing arguments · 4.0k chars")
-        assert "thinking · 1.5k" not in s.screen.text(), s.screen.text()
+        s.until("Preparing write · 4.0k chars")
+        assert "Thinking · 1.5k" not in s.screen.text(), s.screen.text()
         s.release("progress-end")
         s.until("Written.")
+        s.until("│ idle")
+        s.pump(0.05)
         assert "composing arguments" not in s.screen.text(), s.screen.text()
         assert "✓ write · site/index.html — completed" in s.screen.text(), s.screen.text()
         # Fenced code is boxed with its language; fence markers never reach the screen.
@@ -208,8 +212,11 @@ def exercise(bun, repo, root, no_color):
         s.until("Allow this exact external call? Type yes:")
         s.send("\x03")
         s.until("Execution cancelled")
-        s.pump()
-        assert len((s.root / "approvals.jsonl").read_text().splitlines()) == 3
+        approval_lines = (s.root / "approvals.jsonl").read_text().splitlines()
+        results = [json.loads(line) for line in approval_lines]
+        # Cancellation may abort the runtime before its result is appended; it must never execute.
+        assert len(results) in (2, 3), results
+        assert sum(not result["isError"] for result in results) == 1, results
         s.send("/login\n")
         s.until("This runtime does not support login")
         assert not any(request.startswith("/") for request in s.requests())

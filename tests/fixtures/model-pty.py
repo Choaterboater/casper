@@ -65,6 +65,7 @@ def exercise(bun, repo, root, no_color=False):
             s.pump(0.3)
             s.send("/status\n")
             s.until("selection conversation · Casper default fixture/second")
+            s.until("│ idle")
             s.pump(0.1)
         assert (agent / "settings.json").read_text() == shared
         assert (agent / "auth.json").read_text() == "{}\n"

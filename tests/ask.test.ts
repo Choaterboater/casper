@@ -40,14 +40,18 @@ function interactiveTerminal() {
   return { input, terminal, screen, close: () => { terminal.close(); input.destroy(); } };
 }
 
-test("an ask renders numbered options and a numeric reply resolves the labels", async () => {
+test("an ask shows a standalone question and Up/Down selects an option", async () => {
   const session = interactiveTerminal();
   try {
     session.terminal.setStatus("fixture"); session.terminal.start();
     const answer = session.terminal.ask("Which database?", OPTIONS, false);
-    await session.screen.until(output => output.includes("1. SQLite") && output.includes("file-based") && output.includes("2. Postgres"));
-    session.input.write("2\r");
-    expect(await answer).toEqual(["Postgres"]);
+    await session.screen.until(output => output.includes("Which database?") && output.includes("SQLite") && output.includes("Postgres"));
+    const visible = Bun.stripANSI(session.screen.output);
+    expect(visible).toMatch(/Which database\?[^\r\n]*\r?\n→ SQLite/);
+    expect(visible).not.toContain("1. SQLite");
+    session.input.write("\x1b[B\r");
+    const result = await Promise.race([answer, new Promise<"timeout">(resolve => setTimeout(() => resolve("timeout"), 250))]);
+    expect(result).toEqual(["Postgres"]);
   } finally { session.close(); }
 });
 
@@ -56,38 +60,38 @@ test("a non-numeric reply is a free-text answer", async () => {
   try {
     session.terminal.setStatus("fixture"); session.terminal.start();
     const answer = session.terminal.ask("Which database?", OPTIONS, false);
-    await session.screen.until(output => output.includes("1. SQLite"));
+    await session.screen.until(output => output.includes("SQLite"));
     session.input.write("SQLite with litestream\r");
     expect(await answer).toEqual(["SQLite with litestream"]);
   } finally { session.close(); }
 });
 
-test("multi allows several numbers; a single-choice question rejects them", async () => {
+test("Up/Down and Enter select one option; Space toggles multiple options", async () => {
   const session = interactiveTerminal();
   try {
     session.terminal.setStatus("fixture"); session.terminal.start();
     const multi = session.terminal.ask("Pick layers?", OPTIONS, true);
-    await session.screen.until(output => output.includes("Pick layers?"));
-    session.input.write("1, 2\r");
+    await session.screen.until(output => output.includes("Pick layers?") && output.includes("[ ] SQLite"));
+    session.input.write(" ");
+    await session.screen.until(output => output.includes("[x] SQLite"));
+    session.input.write("\x1b[B");
+    session.input.write(" \r");
     expect(await multi).toEqual(["SQLite", "Postgres"]);
     const single = session.terminal.ask("Pick one layer?", OPTIONS, false);
     await session.screen.until(output => output.includes("Pick one layer?"));
-    session.input.write("1 2\r"); // Several numbers on a single-choice question keep it open.
-    session.input.write("1\r");
-    expect(await single).toEqual(["SQLite"]);
+    session.input.write("\x1b[B\r");
+    expect(await single).toEqual(["Postgres"]);
   } finally { session.close(); }
 });
 
-test("out-of-range, empty and malformed replies keep the question open", async () => {
+test("arrow navigation wraps and Enter chooses the highlighted option", async () => {
   const session = interactiveTerminal();
   try {
     session.terminal.setStatus("fixture"); session.terminal.start();
     const answer = session.terminal.ask("Which database?", OPTIONS, false);
-    await session.screen.until(output => output.includes("1. SQLite"));
-    session.input.write("9\r");
-    session.input.write("0\r");
-    session.input.write("\r");
-    session.input.write("1\r");
+    await session.screen.until(output => output.includes("Which database?") && output.includes("SQLite"));
+    session.input.write("\x1b[B");
+    session.input.write("\x1b[B\r");
     expect(await answer).toEqual(["SQLite"]);
   } finally { session.close(); }
 });
@@ -97,7 +101,7 @@ test("Escape skips the question", async () => {
   try {
     session.terminal.setStatus("fixture"); session.terminal.start();
     const answer = session.terminal.ask("Which database?", OPTIONS, false);
-    await session.screen.until(output => output.includes("1. SQLite"));
+    await session.screen.until(output => output.includes("SQLite"));
     session.input.write("\x1b");
     expect(await answer).toBeUndefined();
   } finally { session.close(); }
@@ -109,7 +113,7 @@ test("abort resolves the pending question as skipped", async () => {
     session.terminal.setStatus("fixture"); session.terminal.start();
     const controller = new AbortController();
     const answer = session.terminal.ask("Which database?", OPTIONS, false, controller.signal);
-    await session.screen.until(output => output.includes("1. SQLite"));
+    await session.screen.until(output => output.includes("SQLite"));
     controller.abort();
     expect(await answer).toBeUndefined();
   } finally { session.close(); }
@@ -120,7 +124,7 @@ test("Ctrl-C during a question skips it without ending the session", async () =>
   try {
     session.terminal.setStatus("fixture"); session.terminal.start();
     const answer = session.terminal.ask("Which database?", OPTIONS, false);
-    await session.screen.until(output => output.includes("1. SQLite"));
+    await session.screen.until(output => output.includes("SQLite"));
     session.input.write("\x03");
     expect(await answer).toBeUndefined();
     const command = session.terminal.readCommand();
@@ -137,9 +141,8 @@ test("a pretyped draft is never consumed as an answer and survives the question"
     session.input.write("partial");
     await session.screen.until(output => output.includes("partial"));
     const answer = session.terminal.ask("Which database?", OPTIONS, false);
-    await session.screen.until(output => output.includes("1. SQLite"));
-    session.input.write("\r"); // Empty Enter inside the question is not an answer.
-    session.input.write("2\r");
+    await session.screen.until(output => output.includes("SQLite"));
+    session.input.write("\x1b[B\r");
     expect(await answer).toEqual(["Postgres"]);
     session.input.write("\r");
     expect(await command).toBe("partial");
@@ -153,7 +156,7 @@ test("closing the terminal resolves a pending question as skipped", async () => 
   try {
     terminal.setStatus("fixture"); terminal.start();
     const answer = terminal.ask("Which database?", OPTIONS, false);
-    await screen.until(output => output.includes("1. SQLite"));
+    await screen.until(output => output.includes("SQLite"));
     terminal.close();
     expect(await answer).toBeUndefined();
   } finally { input.destroy(); }

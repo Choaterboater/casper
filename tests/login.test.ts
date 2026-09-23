@@ -53,6 +53,11 @@ test("API-key login keeps secrets off screen and preserves unrelated credentials
     const result = JSON.parse(output);
     expect(result.result).toEqual({ status: "saved" });
     expect(result.screen).not.toContain("synthetic-private-key");
+    if (provider === "openrouter") {
+      expect(result.screen).not.toContain("Choose sign-in method");
+      expect(result.screen).not.toContain("Browser sign-in");
+      expect(result.screen).toContain("Use an API key from OpenRouter.");
+    }
     expect(JSON.parse(await readFile(path.join(agent, "auth.json"), "utf8"))).toEqual({ unrelated: { type: "api_key", key: "keep" }, [provider]: { type: "api_key", key: "synthetic-private-key" } });
     expect(await Bun.file(path.join(agent, "sessions")).exists()).toBe(false);
   }
@@ -99,8 +104,9 @@ test("Copilot device login discloses account policy changes and saves only Copil
   expect(auth["github-copilot"].availableModelIds).toContain("claude-haiku-4.5");
 });
 
-test("browser sign-in completes through private manual input or real loopback callback and releases listeners", async () => {
-  for (const provider of ["anthropic", "openrouter"]) for (const mode of ["manual", "callback", "cancel"]) {
+test("Anthropic browser sign-in completes through private manual input or real loopback callback and releases listeners", async () => {
+  for (const mode of ["manual", "callback", "cancel"]) {
+    const provider = "anthropic";
     const f = await fixture();
     const output = await f.run(`
       import { PiRuntime } from ${JSON.stringify(path.join(repo, "src/runtime/pi.ts"))};
@@ -109,10 +115,10 @@ test("browser sign-in completes through private manual input or real loopback ca
       let screen = ''; let authUrl; let callbackUrl; let exchanges = 0; let callbackWork;
       globalThis.fetch = async (input, init) => {
         const url = String(input); const body = JSON.parse(init.body);
-        if (url !== (provider === 'anthropic' ? 'https://platform.claude.com/v1/oauth/token' : 'https://openrouter.ai/api/v1/auth/keys')) throw new Error('UNEXPECTED_NETWORK');
+        if (url !== 'https://platform.claude.com/v1/oauth/token') throw new Error('UNEXPECTED_NETWORK');
         if (body.code !== 'synthetic-private-code' || !body.code_verifier) throw new Error('INVALID_EXCHANGE');
         exchanges++;
-        return Response.json(provider === 'anthropic' ? { access_token: 'synthetic-private-access', refresh_token: 'synthetic-private-refresh', expires_in: 3600 } : { key: 'synthetic-private-access' });
+        return Response.json({ access_token: 'synthetic-private-access', refresh_token: 'synthetic-private-refresh', expires_in: 3600 });
       };
       const runtime = new PiRuntime(); const input = new PassThrough();
       try {
@@ -124,13 +130,13 @@ test("browser sign-in completes through private manual input or real loopback ca
           const url = displayed.match(/https:\\/\\/[^ ╭]+/)?.[0];
           if (url && !authUrl) {
             authUrl = new URL(url);
-            callbackUrl = new URL(authUrl.searchParams.get(provider === 'anthropic' ? 'redirect_uri' : 'callback_url'));
+            callbackUrl = new URL(authUrl.searchParams.get('redirect_uri'));
           }
           if (text.includes('Private authorization code')) setImmediate(() => {
             if (mode === 'cancel') { input.write('\\x1b'); return; }
             if (mode === 'manual') { input.write('\\x1b[200~synthetic-private-code\\x1b[201~'); setTimeout(() => input.write('\\r'), 20); return; }
             const url = new URL(callbackUrl); url.hostname = '127.0.0.1'; url.searchParams.set('code', 'synthetic-private-code');
-            if (provider === 'anthropic') url.searchParams.set('state', authUrl.searchParams.get('state'));
+            url.searchParams.set('state', authUrl.searchParams.get('state'));
             callbackWork = new Promise((resolve, reject) => { get(url, response => { response.resume(); response.on('end', () => resolve(response.statusCode)); }).on('error', reject); });
           });
         } } }, operation) } });
@@ -179,24 +185,6 @@ test("private key entry rejects executable syntax, multiline and oversized unfin
     expect(await Bun.file(path.join(f.project, "SHOULD_NOT_EXIST")).exists()).toBe(false);
   }
 }, 25_000);
-
-test("unsafe browser callback overrides fail before storage or provider transport", async () => {
-  const f = await fixture();
-  const output = await f.run(`
-    import { PiRuntime } from ${JSON.stringify(path.join(repo, "src/runtime/pi.ts"))}; import { PassThrough } from 'node:stream';
-    process.env.PI_OAUTH_CALLBACK_HOST = '0.0.0.0';
-    globalThis.fetch = () => { throw new Error('NETWORK_FORBIDDEN'); };
-    const runtime = new PiRuntime(); const input = new PassThrough();
-    try {
-      const result = await runtime.authenticate({ provider: 'openrouter', terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
-        if (text.includes('Choose sign-in method')) setImmediate(() => { input.write('\\x1b[B'); setTimeout(() => input.write('\\r'), 20); });
-        if (text.includes('Press Y')) setImmediate(() => input.write('Y'));
-      } } }, operation) } }); console.log(JSON.stringify(result));
-    } finally { await runtime.dispose(); input.destroy(); }
-  `);
-  expect(JSON.parse(output)).toEqual({ status: "failed", effect: "none", reason: "unavailable" });
-  expect(await Bun.file(path.join(f.env.PI_CODING_AGENT_DIR, "auth.json")).exists()).toBe(false);
-});
 
 test("API-key replacement refreshes the selected non-Codex parent without changing its conversation selection", async () => {
   const f = await fixture(); const agent = f.env.PI_CODING_AGENT_DIR;
