@@ -2,6 +2,7 @@
 
 import { lstat, mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { useCasperAgentStore } from "../src/runtime/agent-store";
 import { formatEvalReport, formatEvalResult } from "../evals/report";
 import { gradePreparedEval, prepareEvalTask, resolveEvalModel, runEvalTask, summarizeEvalRuns } from "../evals/runner";
 import type { EvalModel, EvalRunResult, EvalTaskSummary } from "../evals/runner";
@@ -111,6 +112,7 @@ function observedModel(requested: EvalModel | undefined, summaries: readonly Eva
 }
 
 async function main(): Promise<void> {
+  useCasperAgentStore(); // Eval runs keep the user's real credentials (Casper's own store).
   const options = parseArguments(process.argv.slice(2));
   if (options.help) { process.stdout.write(`${USAGE}\n`); return; }
   if (options.list) {

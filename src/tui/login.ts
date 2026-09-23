@@ -128,7 +128,7 @@ export async function withLoginDisplay<T>(io: RuntimeLoginIO, parentSignal: Abor
         const panel = new Panel("Review sign-in consent", io.color, "warning");
         panel.addChild(new Text(`Sign in to ${terminalText(provider)} using ${terminalText(method)}?`, 0, 1));
         panel.addChild(new Text(`${accent("Credential change")}\nOn success, save or replace only the ${terminalText(provider)} credential.\nDestination:\n${terminalText(destination)}`, 0, 0));
-        panel.addChild(new Text(`${accent("Shared access")}\nCasper's parent/child/learning runtimes share this store with the bundled engine.`, 0, 1));
+        panel.addChild(new Text(`${accent("Shared access")}\nCasper's parent/child/learning runtimes share this store.`, 0, 1));
         panel.addChild(new Text(`${accent("Account impact")}\n${terminalText(disclosure)}`, 0, 0));
         panel.addChild(new Text(`${accent("Unchanged")}\nModel choices and defaults will not change.\n${method === "browser authorization" ? "Your browser opens automatically for sign-in." : "No browser opens automatically."}`, 0, 1));
         panel.addChild(new Text("Press Y to consent\nEsc / Ctrl+C: cancel", 0, 0));

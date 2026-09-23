@@ -34,6 +34,16 @@ policy:
       experimentalBranch: true
 ```
 
+## Provider credentials
+
+Engine state — provider credentials (`auth.json`) and the provider catalog
+(`models.json`) — lives in Casper's own store, `~/.casper/agent/`, mode 0700.
+No Pi installation is required or consulted. On first run, an existing Pi CLI
+installation's `auth.json` and `models.json` are imported once by copy (the
+originals stay untouched); a `PI_CODING_AGENT_DIR` set in the environment
+always overrides Casper's store. Login writes only the consented provider's
+credential into that store.
+
 ## Model roles and automatic effort
 
 The normal path remains `/model` → describe the task. Roles are optional shortcuts,
