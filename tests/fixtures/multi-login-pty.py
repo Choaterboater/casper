@@ -30,7 +30,7 @@ def run_case(bun, repo, root, provider, browser=False, action="save", no_color=F
             if browser: s.send("\x1b[B"); s.pump(0.03)
             s.send("\n")
         s.until("Press Y to consent")
-        auth = s.root / "home/.pi/agent/auth.json"
+        auth = s.root / "home/.casper/agent/auth.json"
         assert not auth.exists()
         s.send("\x1b[200~Y\x1b[201~"); s.pump(0.05)
         assert not auth.exists(), "paste granted consent"
@@ -63,7 +63,7 @@ def run_case(bun, repo, root, provider, browser=False, action="save", no_color=F
             assert list(saved) == [provider], saved.keys()
             assert saved[provider]["type"] == ("oauth" if browser or provider == "github-copilot" else "api_key")
             if not browser and provider != "github-copilot": assert saved[provider]["key"] == secret
-        assert not (s.root / "home/.pi/agent/sessions").exists()
+        assert not (s.root / "home/.casper/agent/sessions").exists()
         s.send("\x1b[A"); s.pump(0.08)
         assert re.search(r"❯ /login\s*\n\s*─", s.screen.text()), s.screen.text()
         assert secret.encode() not in s.raw

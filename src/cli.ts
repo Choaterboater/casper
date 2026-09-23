@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 
 import { CasperApp } from "./app";
+import { importLegacyEngineState, useCasperAgentStore } from "./runtime/agent-store";
 import { CandidateLibrary, formatLearningResult } from "./learn/candidates";
 import { taskExitCode } from "./task/result";
 
@@ -47,6 +48,13 @@ export function resolveAutoVerify(options: { verify: boolean; noVerify: boolean;
 }
 
 export async function runCli(): Promise<void> {
+  // Casper owns its engine state under ~/.casper/agent; an existing Pi installation's
+  // credentials are imported once (only when the store defaulted — an explicit
+  // PI_CODING_AGENT_DIR is managed by its owner). Never surfaces engine internals on failure.
+  const casperStore = useCasperAgentStore();
+  if (casperStore && await importLegacyEngineState()) {
+    process.stdout.write("[auth] Imported existing credentials into ~/.casper/agent.\n");
+  }
   const args = process.argv.slice(2);
 
   const flag = leadingFlag(args);
@@ -66,7 +74,6 @@ export async function runCli(): Promise<void> {
     process.stdout.write(`casper ${CASPER_VERSION} (${embedded ? process.execPath : import.meta.path})\n`);
     return;
   }
-
   let verify = false;
   let noVerify = false;
   const servers: string[] = [];

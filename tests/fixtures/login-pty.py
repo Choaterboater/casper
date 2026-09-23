@@ -42,7 +42,7 @@ def success(bun, repo, root, no_color):
         s.send("\n")
         s.until("Press Y to consent")
         assert "Choose provider" not in s.screen.text(), s.screen.text()
-        auth = s.root / "home/.pi/agent/auth.json"
+        auth = s.root / "home/.casper/agent/auth.json"
         assert not auth.exists(), "consent screen created auth storage"
         # Bracketed paste and unrelated text are ignored, not echoed or reused as consent.
         s.send("\x1b[200~PASTED_SYNTHETIC_SECRET\x1b[201~")
@@ -56,7 +56,7 @@ def success(bun, repo, root, no_color):
         (s.root / "authorize").touch()
         s.until("Credential saved. Local auth refreshed")
         saved = json.loads(auth.read_text())
-        assert not (s.root / "home/.pi/agent/sessions").exists(), "login created an agent session"
+        assert not (s.root / "home/.casper/agent/sessions").exists(), "login created an agent session"
         assert set(saved) == {"openai-codex"}, saved.keys()
         assert saved["openai-codex"]["type"] == "oauth"
         assert stat.S_IMODE(auth.stat().st_mode) == 0o600, oct(auth.stat().st_mode)
@@ -95,7 +95,7 @@ def cancel_and_eof(bun, repo, root, eof=False):
         else:
             s.until("Cancelled; no credential saved")
             s.send("/exit\n"); wait_exit(s)
-        assert not (s.root / "home/.pi/agent/auth.json").exists()
+        assert not (s.root / "home/.casper/agent/auth.json").exists()
         assert not (s.root / "login-fetches.txt").exists()
     finally: s.close()
 
@@ -112,7 +112,7 @@ def sigterm(bun, repo, root):
         # Python reports direct POSIX termination as -SIGTERM; Bun's own spawn
         # harness separately asserts Casper's graceful shutdown exit code 143.
         assert s.process.poll() in (-signal.SIGTERM, 143), (s.process.poll(), s.screen.text()[-4000:])
-        auth = s.root / "home/.pi/agent/auth.json"
+        auth = s.root / "home/.casper/agent/auth.json"
         assert not auth.exists(), "SIGTERM before consent created auth state"
     finally: s.close()
 
@@ -123,7 +123,7 @@ def dumb(bun, repo, root):
         s.until("/help · /status · /login")
         s.send("/login\n")
         s.until("requires an interactive Casper terminal")
-        assert not (s.root / "home/.pi/agent/auth.json").exists()
+        assert not (s.root / "home/.casper/agent/auth.json").exists()
         assert not (s.root / "login-fetches.txt").exists()
         assert b"\x1b[" not in s.raw
         s.send("/exit\n"); wait_exit(s)

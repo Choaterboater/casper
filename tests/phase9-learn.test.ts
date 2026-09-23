@@ -291,7 +291,12 @@ for (const layout of ["default-root", "state-alias", "missing-state"]) needsSyml
   let requested = source;
   if (layout === "default-root") {
     delete f.env.PI_CODING_AGENT_DIR;
-    source = f.agent; requested = source;
+    // The default store is ~/.casper/agent; pre-seed the two files the one-time import
+    // would copy so the preflight exercise never mutates the source.
+    source = path.join(f.home, ".casper/agent"); requested = source;
+    await mkdir(source, { recursive: true, mode: 0o700 });
+    await writeFile(path.join(source, "auth.json"), "{}\n", { mode: 0o600 });
+    await writeFile(path.join(source, "models.json"), "{}\n", { mode: 0o600 });
   } else if (layout === "state-alias") {
     const state = path.join(f.project, "state");
     await rename(f.agent, state);

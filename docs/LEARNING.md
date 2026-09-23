@@ -104,7 +104,7 @@ Pi auth/model bookkeeping and runtime caches still involve disk I/O;
 disabling child conversation persistence is not zero disk I/O.
 
 Before Pi model/auth initialization, read-only startup checks its active agent
-state directory (`PI_CODING_AGENT_DIR`, otherwise `~/.pi/agent`) plus `auth.json`
+state directory (`PI_CODING_AGENT_DIR`, otherwise `~/.casper/agent`) plus `auth.json`
 and `models-store.json` against the canonical source. Overlap is refused before
 provider requests or Pi state creation: choose another source or move that state
 outside it yourself. Existing directory/file aliases and missing ordinary path
