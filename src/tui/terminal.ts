@@ -51,6 +51,9 @@ export class InteractiveTerminal {
 
   setStatus(status: string, cwd = process.cwd()): void { this.surface?.setStatus(status, cwd); }
   setActivity(status?: string): void { this.surface?.setActivity(status); }
+  /** Rich terminal only. Shift+Tab cycles effort; plain line input has no equivalent key. */
+  setEffortCycle(handler: (() => void) | undefined): void { this.surface?.setEffortCycle(handler); }
+  flashNote(text: string): void { this.surface?.flashNote(text); }
 
   /** Rich surface present (TTY input and output, TERM not dumb) and its current width. */
   get rich(): boolean { return this.surface !== undefined; }

@@ -3,7 +3,7 @@ import type { SlashCommand } from "@earendil-works/pi-tui";
 /** Discoverability only: command dispatch and authorization remain in CasperApp. */
 export const COMMANDS: SlashCommand[] = [
   { name: "model", description: "Change model (remembered globally; --session for temporary)" },
-  { name: "effort", description: "Choose reasoning effort; auto classifies each request" },
+  { name: "effort", description: "Reasoning effort, including auto; Shift+Tab cycles this conversation" },
   { name: "status", description: "Inspect project, model, auth and integrations" },
   { name: "help", description: "Find a command; /help all shows the full reference" },
   { name: "context", description: "Inspect context estimates and capability counts" },

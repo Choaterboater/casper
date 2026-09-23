@@ -33,6 +33,8 @@ test("Markdown theme stays plain without color and terminal controls are neutral
   expect(plain.heading("# Heading") + plain.code("code") + plain.codeBlockBorder("```")).toBe("# Headingcode```");
   expect(markdownTheme(true).heading("# Heading")).toBe("\x1b[1;36m# Heading\x1b[0m");
   expect(terminalText("hi\x1b[2J\x1b]0;title\x07\u202efake")).toBe("hi\\u{202e}fake");
+  const clean = "hello\n\tworld";
+  expect(terminalText(clean)).toBe(clean);
 });
 
 test("model and auth display distinguishes uninitialized, missing, configured and unknown", () => {

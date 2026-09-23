@@ -22,6 +22,7 @@ export const HELP_TEXT = `Casper — your coding companion
 
 Type a request to work with the model. Native tools can execute code and edit files.
 Type / for fuzzy command discovery; Tab completes commands and file paths (@).
+Shift+Tab cycles reasoning effort for this conversation, including auto. /effort remembers a level.
 Shift+Enter (when supported) or Ctrl+J inserts a newline; Up/Down recalls history.
 Esc stops active work. Ctrl-C cancels work; idle, it clears a draft; twice on empty exits.
 Ctrl+L redraws the screen. See docs/TERMINAL_UX.md for limits.
@@ -62,7 +63,7 @@ Local commands:
   /status                           Runtime model/auth and integration status
   /model [id or provider/id]        Pi picker; select and remember globally
   /model --session [model]          Select without changing the startup default
-  /effort [level|auto] [--session]  Supported levels or auto (Casper picks per request); chooser
+  /effort [level|auto] [--session]  Supported levels or auto (Casper picks per request); Shift+Tab cycles
   /context                          Estimated context and capability counts
   /usage                            Session tokens and optional catalog cost estimate
   /compact [instructions]           Summarize context using the model (not a local-only command)
@@ -117,6 +118,7 @@ Unknown slash commands are rejected locally, never sent to a model.
 /model: Enter selects and saves ~/.casper/settings.json; Ctrl+S selects for this session only.
 Exact IDs are remembered too; /model --session <id> opts out. Shared Pi defaults are unchanged.
 /effort remembers supported levels per model; /effort <level> --session opts out.
+Shift+Tab cycles auto and the model's supported levels for this conversation only; it does not save.
 /effort auto lets Casper pick per request: low for reading/explaining/diagrams, medium for tests and
 configuration, high for fixes, features and refactors, from the model's supported levels.
 Context is estimated and may be unavailable; cost estimates are not subscription billing.

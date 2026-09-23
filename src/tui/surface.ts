@@ -1,11 +1,11 @@
 import {
-  CombinedAutocompleteProvider, Container, type AutocompleteProvider, type Component, Editor, Markdown, type MarkdownTheme,
+  CombinedAutocompleteProvider, Container, type AutocompleteProvider, type Component, Editor, type MarkdownTheme,
   matchesKey, SelectList, setCapabilityOverrides, Text, TuiMainScreen, truncateToWidth,
 } from "@earendil-works/pi-tui";
-import { stripVTControlCharacters } from "node:util";
 import type { RuntimeModelPickerHost, RuntimePickerIO, RuntimePickerView } from "../runtime/types";
 import { COMMANDS } from "./commands";
 import { BUSY_GLYPH, markdownTheme, paint, PROMPT_GLYPH, terminalText } from "./format";
+import { StreamingMarkdown } from "./markdown-stream";
 import { PANEL_MAX_COLUMNS, renderPanel } from "./presentation";
 import { StreamTerminal } from "./stream-terminal";
 import { Transcript } from "./transcript";
@@ -25,29 +25,6 @@ class StableMainScreen extends TuiMainScreen {
       frame.previousHeight = rows;
     }
     super.doRender();
-  }
-}
-
-/** One assistant message rendered whole from its Markdown source, so lists, fences and wrapped emphasis
- * come out right while streaming and re-render correctly at a new width. pi-tui pads every line to the
- * width; the transcript keeps content only so scrollback copies cleanly. Fenced code is the one thing
- * boxed: each block becomes a bordered panel titled with its language, so code stands apart from prose
- * and copies without fence markers. */
-class MarkdownMessage extends Markdown {
-  constructor(private readonly color: boolean, theme: MarkdownTheme) { super("", 0, 0, theme); }
-  override render(width: number): string[] {
-    const lines = super.render(width).map(line => line.replace(/ +$/, ""));
-    const out: string[] = [];
-    for (let index = 0; index < lines.length; index++) {
-      const plain = stripVTControlCharacters(lines[index]!);
-      if (!plain.startsWith("```")) { out.push(lines[index]!); continue; }
-      const body: string[] = [];
-      let end = index + 1;
-      for (; end < lines.length && !stripVTControlCharacters(lines[end]!).startsWith("```"); end++) body.push(lines[end]!);
-      out.push(...renderPanel(plain.slice(3).trim() || "code", body, Math.min(width, PANEL_MAX_COLUMNS), this.color, "muted"));
-      index = end; // The closing fence (or, while streaming, the end of the text so far).
-    }
-    return out;
   }
 }
 
@@ -88,7 +65,9 @@ export class TerminalSurface {
   private status = "";
   private activity?: string;
   private note = "";
+  private noteTimer?: NodeJS.Timeout;
   private exitArmed?: NodeJS.Timeout;
+  private onCycleEffort?: () => void;
   private cwd = "";
   private autocomplete?: AutocompleteProvider;
   private started = false;
@@ -108,7 +87,7 @@ export class TerminalSurface {
   private askList?: SelectList;
   private askSelections = new Set<number>();
   private askActiveIndex = 0;
-  private message?: MarkdownMessage;
+  private message?: StreamingMarkdown;
   private source = "";
   private plainAssistantOpen = false;
 
@@ -202,6 +181,12 @@ export class TerminalSurface {
         }
       }
       if (matchesKey(data, "ctrl+l")) { this.tui.requestRender(true); return { consume: true }; }
+      // Pi's thinking-cycle key. Consumed even while busy so the sequence never lands in the draft.
+      if (matchesKey(data, "shift+tab")) {
+        if (this.busy || this.confirmation || this.pendingAsk) this.flashNote("effort unchanged · wait until idle");
+        else this.onCycleEffort?.();
+        return { consume: true };
+      }
       return undefined;
     });
   }
@@ -214,9 +199,28 @@ export class TerminalSurface {
   }
 
   start(): void { if (!this.started && !this.closed) { this.started = true; this.tui.start(); } }
+  /** Shift+Tab. Absent on the plain-line terminal; the key is still consumed so it cannot edit the draft. */
+  setEffortCycle(handler: (() => void) | undefined): void { this.onCycleEffort = handler; }
+  /** Footer note that expires on its own and never clears a newer note (including the exit arm). */
+  flashNote(text: string, ms = 1600): void {
+    if (this.closed) return;
+    const note = terminalText(text).replace(/[\r\n\t]/g, " ").slice(0, 120);
+    if (!note) return;
+    this.note = note;
+    if (this.noteTimer) clearTimeout(this.noteTimer);
+    this.noteTimer = setTimeout(() => {
+      this.noteTimer = undefined;
+      if (this.note === note) { this.note = ""; this.render(); }
+    }, ms);
+    this.noteTimer.unref?.();
+    this.render();
+  }
   setStatus(status: string, cwd: string): void {
-    this.status = terminalText(status).replace(/[\r\n\t]/g, " ");
-    if (cwd !== this.cwd) {
+    const next = terminalText(status).replace(/[\r\n\t]/g, " ");
+    const cwdChanged = cwd !== this.cwd;
+    if (!cwdChanged && next === this.status) return;
+    this.status = next;
+    if (cwdChanged) {
       this.cwd = cwd;
       const provider = new CombinedAutocompleteProvider(COMMANDS, cwd);
       this.autocomplete = {
@@ -237,11 +241,14 @@ export class TerminalSurface {
       };
       this.configureAutocomplete();
     }
-    this.render();
+    // A note already covers the footer; the stored status appears when it expires.
+    if (cwdChanged || !this.note) this.render();
   }
   setActivity(status?: string): void {
     const activity = status ? terminalText(status).replace(/\s+/g, " ").trim() : "";
-    this.activity = activity || undefined;
+    const next = activity || undefined;
+    if (next === this.activity) return;
+    this.activity = next;
     this.render();
   }
   private configureAutocomplete(): void {
@@ -269,7 +276,7 @@ export class TerminalSurface {
       return;
     }
     this.source += terminalText(delta);
-    if (!this.message) this.transcript.preview = this.message = new MarkdownMessage(this.io.color, this.theme);
+    if (!this.message) this.transcript.preview = this.message = new StreamingMarkdown(this.io.color, this.theme);
     this.message.setText(this.source);
     this.render();
   }
@@ -417,6 +424,7 @@ export class TerminalSurface {
     // An idle, empty editor: the first Ctrl-C only arms exit, so a reflexive Ctrl-C after a task
     // does not end the session; a second within two seconds (or Ctrl-D) exits.
     if (this.exitArmed) { this.close(); return; }
+    if (this.noteTimer) { clearTimeout(this.noteTimer); this.noteTimer = undefined; }
     this.note = EXIT_NOTE;
     this.exitArmed = setTimeout(() => this.disarmExit(), 2000);
     this.render();
@@ -429,6 +437,7 @@ export class TerminalSurface {
   close(): void {
     if (this.closed) return;
     if (this.exitArmed) clearTimeout(this.exitArmed);
+    if (this.noteTimer) clearTimeout(this.noteTimer);
     this.endAssistant(); this.closed = true;
     this.confirmation?.(false); this.pendingAsk?.(undefined); this.command?.(); this.command = undefined;
     if (this.started) this.tui.stop();

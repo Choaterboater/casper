@@ -97,10 +97,12 @@ changes; when idle it clears the draft, and on an empty editor a second Ctrl+C
 within two seconds exits (Ctrl+D exits at once). Model selection normally
 remembers your choice; `--session` opts out.
 `/effort auto` classifies each request with one bounded extra model call and shows
-the effort actually used; a fixed level turns it off.
+the effort actually used; a fixed level turns it off. On a rich terminal, Shift+Tab
+cycles effort for this conversation, including auto, without changing the saved preference.
 
-Assistant messages render as Markdown through Pi's renderer, re-rendered whole while
-they stream so lists and fences stay correct; fenced code blocks are boxed in a
+Assistant messages render as Markdown through Pi's renderer. Completed blocks are
+reused while they stream, and the open tail is re-parsed so lists and fences stay
+correct; fenced code blocks are boxed in a
 bordered panel titled with their language, as are `/output` replays and the `/diff` status and
 colored diff; prose stays inline. Each tool call occupies one transcript
 line: `• … — running` is redrawn in place as `✓`/`✗` when it finishes, and a dim

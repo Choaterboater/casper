@@ -34,11 +34,11 @@ does not mean a check passed. `NO_COLOR` keeps the structure without color, whil
 redirected output and `TERM=dumb` use plain text.
 
 Assistant text streams through Pi's Markdown renderer, including code and tables.
-The in-progress message is re-rendered whole through Pi's `Markdown` component on
-every delta (so lists, fences and wrapped emphasis are correct across chunk
-boundaries) and shown as the transcript's uncommitted tail; when the message ends
-its rendered lines are committed once. The source Markdown is kept per message so
-a width change re-renders it rather than re-wrapping old output. Text still passes
+The in-progress message is shown as the transcript's uncommitted tail. Completed
+blocks are reused; only the open tail is re-parsed, and the result matches a full
+render (lists, fences and wrapped emphasis stay correct across chunk boundaries).
+When the message ends, its rendered lines are committed once. The source Markdown
+is kept per message so a width change re-renders it rather than re-wrapping old output. Text still passes
 `terminalText()` before rendering. Links show their destination as inert text —
 the URL in parentheses instead of an OSC 8 hyperlink. Login URLs and device codes
 stay on standalone lines so frames do not become part of a copied value. Captured
@@ -83,8 +83,8 @@ and device codes visible above the current panel. They are transient components,
 not transcript entries: navigation replaces rows and completed panels disappear.
 Pickers and login share the live surface's renderer and footer; login borrows raw
 input without starting a second terminal renderer. Finished transcript entries
-are rendered once per width and cached; only the open tail line and the assistant
-message still streaming re-render per frame.
+are rendered once per width and cached; only the open tail line and the unfinished
+tail of a streaming assistant message re-render per frame.
 
 Ctrl+L and a width change still repaint from the top, matching Pi's renderer:
 both clear the visible screen and the terminal's scrollback and reprint the whole
@@ -106,6 +106,8 @@ popups/pickers, or a duplicated prompt box (`bun test tests/terminal-layout.test
 - `/model provider/id`: exact selection, remembered globally.
 - `/model --session [provider/id]`: explicitly temporary selection/picker.
 - `/effort`: automatic or supported fixed-effort picker in an interactive terminal, otherwise a list.
+  `auto` is always a choice. On a rich terminal, **Shift+Tab** cycles that same list for this
+  conversation only (it does not save). `/effort <level>` remembers; `--session` opts out.
 - `/effort high`: apply and remember for that model. Unsupported levels fail.
 - `/effort high --session`: do not change the saved preference. Effort also survives
   switching away from a model and back within the current conversation.
@@ -169,6 +171,9 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   answer, and Esc skips.
 - Up/Down recalls current-process prompt history. Shift+Enter where the terminal
   supports it, or Ctrl+J, inserts a newline. Bracketed paste stays in the draft.
+- Shift+Tab cycles reasoning effort (`auto`, then the model's supported levels) without
+  opening `/effort` and without changing the saved preference. It does nothing while work,
+  an approval, or a clarification is in progress, and it is unavailable on a plain terminal.
 - Escape stops active work. Ctrl+C cancels work; when idle it clears a draft. On an
   empty editor the first Ctrl+C only shows `Ctrl-C again to exit`; a second within two
   seconds exits, any other key disarms it. Ctrl+D exits an empty editor at once.

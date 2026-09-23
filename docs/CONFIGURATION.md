@@ -47,6 +47,7 @@ not required profiles or an automatic keyword-based model switcher.
 /model @review:auto
 /effort auto
 /effort high --session
+Shift+Tab          # cycle auto and supported levels; this conversation only
 /model role review clear
 ```
 
@@ -61,7 +62,8 @@ Casper owns `~/.casper/settings.json`: concrete startup defaults and per-model
 effort, optional `modelRoles`, and `autoEffortModels` (qualified model IDs).
 Role changes do not select a model or send a request. `/model` saves a concrete
 default unless `--session` precedes the selector; `/effort` saves its preference
-unless `--session` follows the level. Explicit suffixes take precedence, then
+unless `--session` follows the level. Shift+Tab cycles the same choices, including
+`auto`, for the current conversation only and does not save. Explicit suffixes take precedence, then
 the current branch's remembered per-model preference, then the saved per-model
 preference. Existing conversations and forks retain their concrete model and
 configured effort even after role mappings change. Shared Pi and project-local
