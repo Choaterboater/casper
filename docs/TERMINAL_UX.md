@@ -74,14 +74,15 @@ ASK/PLAN/BUILD mode is implied.
 
 ### Layout stability
 
-Anything that is taller than the prompt box — the `/` command popup, the
-`/model` and `/effort` pickers, the login notice — is composited over the
-bottom of the transcript instead of appended below it. Opening and closing it
-never scrolls the terminal and never leaves blank rows under the footer; the
-covered transcript rows return unchanged. Pickers and login run inside the live
-surface: the transcript and footer stay visible, the terminal is not stopped,
-and no screen clear happens when they finish. Finished transcript entries are
-rendered once per width and cached; only the open tail line and the assistant
+The `/` command popup and `/model` and `/effort` pickers are composited over the
+bottom of the transcript instead of appended below it. Opening and closing them
+does not scroll the terminal; covered transcript rows return unchanged.
+Login panels instead follow the transcript, keeping standalone authorization URLs
+and device codes visible above the current panel. They are transient components,
+not transcript entries: navigation replaces rows and completed panels disappear.
+Pickers and login share the live surface's renderer and footer; login borrows raw
+input without starting a second terminal renderer. Finished transcript entries
+are rendered once per width and cached; only the open tail line and the assistant
 message still streaming re-render per frame.
 
 Ctrl+L and a width change still repaint from the top, matching Pi's renderer:
@@ -143,6 +144,8 @@ highlight in place, Enter confirms that item, and Cancel exits without contactin
 the provider. Navigation accepts Pi's decoded arrow/Enter sequences, including
 fragmented or batched terminal input. Trailing keys cannot answer the next prompt;
 pasted text cannot grant consent or submit a private credential.
+All login panels render through the host surface; terminal-control bytes never
+pass through the untrusted-text sanitizer or get appended as transcript text.
 
 This picker correction is in source, not the published v0.1.0 binaries. macOS PTY
 coverage exercises rendering and complete synthetic login flows; Windows-host

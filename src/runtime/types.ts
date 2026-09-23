@@ -63,6 +63,12 @@ export interface RuntimePickerIO {
   onEOF(): void;
 }
 
+/** Private raw input with panels rendered by the host, never as transcript control bytes. */
+export interface RuntimeLoginIO extends RuntimePickerIO {
+  show(component?: Component): void;
+  requestRender(): void;
+}
+
 /** Interactive pickers render inside the host's live surface, in place of the prompt editor. */
 export interface RuntimePickerView {
   readonly tui: TUI;
@@ -74,8 +80,8 @@ export interface RuntimePickerView {
 
 /** A host lends its terminal for one operation at a time. No Pi UI types escape. */
 export interface RuntimeModelPickerHost {
-  /** Exclusive raw input for line-oriented flows such as login. Output still lands in the transcript. */
-  run<T>(operation: (io: RuntimePickerIO) => Promise<T>): Promise<T>;
+  /** Exclusive raw input; panels share the host renderer and text output lands in the transcript. */
+  run<T>(operation: (io: RuntimeLoginIO) => Promise<T>): Promise<T>;
   /** Mount a focusable component where the prompt editor sits; transcript and footer stay live. */
   mount<T>(operation: (view: RuntimePickerView) => Promise<T>): Promise<T>;
 }

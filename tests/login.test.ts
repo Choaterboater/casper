@@ -18,6 +18,7 @@ async function fixture() {
   await mkdir(home); await mkdir(project);
   const env = { ...isolatedEnvironment(home), TMPDIR: root, PI_CODING_AGENT_DIR: path.join(home, ".pi/agent"), PI_OFFLINE: "1", PI_TELEMETRY: "0" };
   async function run(body: string, args: string[] = []) {
+    body = `import { withLoginSurface } from ${JSON.stringify(path.join(repo, "tests/support/login-surface.ts"))};\n${body}`;
     const child = Bun.spawn([process.execPath, "-e", body, ...args], { cwd: project, env, stdout: "pipe", stderr: "pipe" });
     const timer = setTimeout(() => child.kill(), 15_000);
     try {
@@ -40,12 +41,12 @@ test("API-key login keeps secrets off screen and preserves unrelated credentials
       globalThis.fetch = () => { throw new Error('NETWORK_FORBIDDEN'); };
       const runtime = new PiRuntime(); const input = new PassThrough(); let screen = '';
       try {
-        const result = await runtime.authenticate({ provider: ${JSON.stringify(provider)}, terminalHost: { run: operation => operation({ input, color: false, onEOF() {}, output: { write(text) {
+        const result = await runtime.authenticate({ provider: ${JSON.stringify(provider)}, terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
           screen += text;
           if (text.includes('Choose sign-in method')) setImmediate(() => input.write('\\r'));
           if (text.includes('Press Y')) setImmediate(() => input.write('Y'));
           if (text.includes('Private API key')) setImmediate(() => { input.write('\\x1b[200~synthetic-private-key\\x1b[201~'); setTimeout(() => input.write('\\r'), 20); });
-        } } }) } });
+        } } }, operation) } });
         console.log(JSON.stringify({ result, screen }));
       } finally { await runtime.dispose(); input.destroy(); }
     `);
@@ -75,9 +76,9 @@ test("Copilot device login discloses account policy changes and saves only Copil
     };
     const runtime = new PiRuntime(); const input = new PassThrough();
     try {
-      const result = await runtime.authenticate({ provider: 'github-copilot', terminalHost: { run: operation => operation({ input, color: false, onEOF() {}, output: { write(text) {
+      const result = await runtime.authenticate({ provider: 'github-copilot', terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
         screen += text; if (text.includes('Press Y')) setImmediate(() => { consent = true; input.write('Y'); });
-      } } }) } });
+      } } }, operation) } });
       console.log(JSON.stringify({ result, screen, calls }));
     } finally { await runtime.dispose(); input.destroy(); }
   `);
@@ -115,12 +116,14 @@ test("browser sign-in completes through private manual input or real loopback ca
       };
       const runtime = new PiRuntime(); const input = new PassThrough();
       try {
-        const result = await runtime.authenticate({ provider, terminalHost: { run: operation => operation({ input, color: false, onEOF() {}, output: { write(text) {
+        const result = await runtime.authenticate({ provider, terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
           screen += text;
           if (text.includes('Choose sign-in method')) setImmediate(() => { input.write('\\x1b[B'); setTimeout(() => input.write('\\r'), 20); });
           if (text.includes('Press Y')) setImmediate(() => input.write('Y'));
-          if (text.startsWith('1. Open this URL in your browser:')) {
-            authUrl = new URL(text.split('\\n')[1]);
+          const displayed = Bun.stripANSI(text).replace(/[\\r\\n]/g, '');
+          const url = displayed.match(/https:\\/\\/[^ ╭]+/)?.[0];
+          if (url && !authUrl) {
+            authUrl = new URL(url);
             callbackUrl = new URL(authUrl.searchParams.get(provider === 'anthropic' ? 'redirect_uri' : 'callback_url'));
           }
           if (text.includes('Private authorization code')) setImmediate(() => {
@@ -130,7 +133,7 @@ test("browser sign-in completes through private manual input or real loopback ca
             if (provider === 'anthropic') url.searchParams.set('state', authUrl.searchParams.get('state'));
             callbackWork = new Promise((resolve, reject) => { get(url, response => { response.resume(); response.on('end', () => resolve(response.statusCode)); }).on('error', reject); });
           });
-        } } }) } });
+        } } }, operation) } });
         const callbackStatus = await callbackWork;
         const server = createServer();
         await new Promise((resolve, reject) => { server.once('error', reject); server.listen(Number(callbackUrl.port), '127.0.0.1', resolve); });
@@ -160,12 +163,12 @@ test("private key entry rejects executable syntax, multiline and oversized unfin
       const input = new PassThrough(); const runtime = new PiRuntime(); let screen = '';
       globalThis.fetch = () => { throw new Error('NETWORK_FORBIDDEN'); };
       try {
-        const result = await runtime.authenticate({ provider: 'anthropic', terminalHost: { run: operation => operation({ input, color: false, onEOF() {}, output: { write(text) {
+        const result = await runtime.authenticate({ provider: 'anthropic', terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
           screen += text;
           if (text.includes('Choose sign-in method')) setImmediate(() => input.write('\\r'));
           if (text.includes('Press Y')) setImmediate(() => input.write('Y'));
           if (text.includes('Private API key')) setImmediate(() => { input.write('\\x1b[200~' + ${literal} + ${key.length > 8192 ? "''" : "'\\x1b[201~'"}); setTimeout(() => input.write('\\r'), 20); });
-        } } }) } });
+        } } }, operation) } });
         console.log(JSON.stringify({ result, safe: !screen.includes('SHOULD_NOT_EXIST') && !screen.includes('SECRET_ENV') && !screen.includes('line1') }));
       } finally { await runtime.dispose(); input.destroy(); }
     `);
@@ -185,10 +188,10 @@ test("unsafe browser callback overrides fail before storage or provider transpor
     globalThis.fetch = () => { throw new Error('NETWORK_FORBIDDEN'); };
     const runtime = new PiRuntime(); const input = new PassThrough();
     try {
-      const result = await runtime.authenticate({ provider: 'openrouter', terminalHost: { run: operation => operation({ input, color: false, onEOF() {}, output: { write(text) {
+      const result = await runtime.authenticate({ provider: 'openrouter', terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
         if (text.includes('Choose sign-in method')) setImmediate(() => { input.write('\\x1b[B'); setTimeout(() => input.write('\\r'), 20); });
         if (text.includes('Press Y')) setImmediate(() => input.write('Y'));
-      } } }) } }); console.log(JSON.stringify(result));
+      } } }, operation) } }); console.log(JSON.stringify(result));
     } finally { await runtime.dispose(); input.destroy(); }
   `);
   expect(JSON.parse(output)).toEqual({ status: "failed", effect: "none", reason: "unavailable" });
@@ -207,11 +210,11 @@ test("API-key replacement refreshes the selected non-Codex parent without changi
     await session.selectModel({ query: model.provider + '/' + model.id });
     const before = session.getStatus(); const input = new PassThrough();
     try {
-      const result = await runtime.authenticate({ provider: 'anthropic', terminalHost: { run: operation => operation({ input, color: false, onEOF() {}, output: { write(text) {
+      const result = await runtime.authenticate({ provider: 'anthropic', terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
         if (text.includes('Choose sign-in method')) setImmediate(() => input.write('\\r'));
         if (text.includes('Press Y')) setImmediate(() => input.write('Y'));
         if (text.includes('Private API key')) setImmediate(() => { input.write('synthetic-new'); setTimeout(() => input.write('\\r'), 20); });
-      } } }) } }); console.log(JSON.stringify({ result, before, after: session.getStatus() }));
+      } } }, operation) } }); console.log(JSON.stringify({ result, before, after: session.getStatus() }));
     } finally { await runtime.dispose(); input.destroy(); }
   `);
   const result = JSON.parse(output);
@@ -234,12 +237,12 @@ test("provider refusal and occupied browser port expose no diagnostics and prese
       globalThis.fetch = () => { calls++; return Response.json({ error: 'PRIVATE_PROVIDER_DIAGNOSTIC' }, { status: 403 }); };
       const runtime = new PiRuntime(); const input = new PassThrough();
       try {
-        const result = await runtime.authenticate({ provider: 'anthropic', terminalHost: { run: operation => operation({ input, color: false, onEOF() {}, output: { write(text) {
+        const result = await runtime.authenticate({ provider: 'anthropic', terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
           screen += text;
           if (text.includes('Choose sign-in method')) setImmediate(() => { input.write('\\x1b[B'); setTimeout(() => input.write('\\r'), 20); });
           if (text.includes('Press Y')) setImmediate(() => input.write('Y'));
           if (text.includes('Private authorization code')) setImmediate(() => { input.write('private-code'); setTimeout(() => input.write('\\r'), 20); });
-        } } }) } }); console.log(JSON.stringify({ result, calls, safe: !screen.includes('PRIVATE_PROVIDER_DIAGNOSTIC') && !screen.includes('private-code') }));
+        } } }, operation) } }); console.log(JSON.stringify({ result, calls, safe: !screen.includes('PRIVATE_PROVIDER_DIAGNOSTIC') && !screen.includes('private-code') }));
       } finally { await runtime.dispose(); input.destroy(); if (occupied) await new Promise(resolve => server.close(resolve)); }
     `);
     const result = JSON.parse(output);
@@ -256,9 +259,9 @@ test("cancelling between provider selection and consent is cancellation, not log
     import { PiRuntime } from ${JSON.stringify(path.join(repo, "src/runtime/pi.ts"))}; import { PassThrough } from 'node:stream';
     const runtime = new PiRuntime(); const input = new PassThrough();
     try {
-      const result = await runtime.authenticate({ terminalHost: { run: operation => operation({ input, color: false, onEOF() {}, output: { write(text) {
+      const result = await runtime.authenticate({ terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
         if (text.includes('Choose provider')) setImmediate(() => { input.write('\\r'); queueMicrotask(() => input.write('\\x03')); });
-      } } }) } }); console.log(JSON.stringify(result));
+      } } }, operation) } }); console.log(JSON.stringify(result));
     } finally { await runtime.dispose(); input.destroy(); }
   `);
   expect(JSON.parse(output)).toEqual({ status: "cancelled", effect: "none" });
@@ -273,9 +276,9 @@ test("runtime login cancellation before consent never creates auth or starts a s
     const runtime = new PiRuntime(); const input = new PassThrough(); let screen = '';
     globalThis.fetch = () => { throw new Error('NETWORK_FORBIDDEN'); };
     try {
-      const result = await runtime.authenticate({ provider: 'openai-codex', terminalHost: { run: operation => operation({ input, color: false, onEOF() {}, output: { write(text) {
+      const result = await runtime.authenticate({ provider: 'openai-codex', terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
         screen += text; if (text.includes('Press Y')) setTimeout(() => input.write('\\x1b'), 0);
-      } } }) } });
+      } } }, operation) } });
       console.log(JSON.stringify({ result, screen }));
     } finally { await runtime.dispose(); input.destroy(); }
   `);
@@ -313,10 +316,10 @@ test("pinned Codex device flow saves provider-scoped credentials and refreshes a
     await session.selectModel({ query: chosen.provider + '/' + chosen.id });
     const before = session.getStatus(); const input = new PassThrough(); let screen = '';
     try {
-      const result = await runtime.authenticate({ provider: 'openai-codex', terminalHost: { run: operation => operation({ input, color: false, onEOF() {}, output: { write(text) {
+      const result = await runtime.authenticate({ provider: 'openai-codex', terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
         screen += text;
         if (text.includes('Press Y')) setImmediate(() => input.write('Y'));
-      } } }) } });
+      } } }, operation) } });
       const after = session.getStatus();
       console.log(JSON.stringify({ result, before, after, calls, safeScreen: !screen.includes('synthetic-new') && !screen.includes('synthetic-code') }));
     } finally { await runtime.dispose(); input.destroy(); }
@@ -356,7 +359,7 @@ test("a committed credential with failed synchronization blocks stale parent aut
     const original = ModelRuntime.prototype.refresh; ModelRuntime.prototype.refresh = async () => { throw new Error('synthetic sync failure'); };
     const input = new PassThrough();
     try {
-      const result = await runtime.authenticate({ provider: 'openai-codex', terminalHost: { run: operation => operation({ input, color: false, onEOF() {}, output: { write(text) { if (text.includes('Press Y')) setImmediate(() => input.write('Y')); } } }) } });
+      const result = await runtime.authenticate({ provider: 'openai-codex', terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) { if (text.includes('Press Y')) setImmediate(() => input.write('Y')); } } }, operation) } });
       let blocked; try { await session.prompt('MUST_NOT_SEND'); } catch (error) { blocked = error.message; }
       console.log(JSON.stringify({ result, before, after: session.getStatus(), blocked, fetches }));
     } finally { ModelRuntime.prototype.refresh = original; await runtime.dispose(); input.destroy(); }
@@ -383,10 +386,10 @@ test("cancellation while polling prevents late provider completion from saving",
       return Response.json({ access_token: 'x.' + payload + '.x', refresh_token: 'LATE_SECRET', expires_in: 3600 }); };
     const runtime = new PiRuntime(); const input = new PassThrough(); let screen = '';
     try {
-      const pending = runtime.authenticate({ provider: 'openai-codex', terminalHost: { run: operation => operation({ input, color: false, onEOF() {}, output: { write(text) {
+      const pending = runtime.authenticate({ provider: 'openai-codex', terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
         screen += text; if (text.includes('Press Y')) setImmediate(() => input.write('Y'));
         if (text.includes('Waiting for authorization')) setImmediate(() => input.write('\\x1b'));
-      } } }) } });
+      } } }, operation) } });
       const result = await pending;
       release(Response.json({ authorization_code: 'late', code_verifier: 'late' })); await Bun.sleep(50);
       console.log(JSON.stringify({ result, safe: !screen.includes('LATE_SECRET') }));
@@ -406,9 +409,9 @@ test("hostile device fields fail closed without saving or rendering controls", a
     globalThis.fetch = async input => Response.json({ device_auth_id: 'synthetic-device', user_code: 'BAD\\x1b]0;TITLE\\x07', interval: 0 });
     const runtime = new PiRuntime(); const input = new PassThrough(); let screen = '';
     try {
-      const result = await runtime.authenticate({ provider: 'openai-codex', terminalHost: { run: operation => operation({ input, color: false, onEOF() {}, output: { write(text) {
+      const result = await runtime.authenticate({ provider: 'openai-codex', terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
         screen += text; if (text.includes('Press Y')) setImmediate(() => input.write('Y'));
-      } } }) } });
+      } } }, operation) } });
       console.log(JSON.stringify({ result, screen }));
     } finally { await runtime.dispose(); input.destroy(); }
   `);
@@ -431,7 +434,7 @@ posixOnly("unsafe auth files fail before network without repairing modes or foll
       import { PiRuntime } from ${JSON.stringify(path.join(repo, "src/runtime/pi.ts"))}; import { PassThrough } from 'node:stream';
       let fetches = 0; globalThis.fetch = async () => { fetches++; throw new Error('NETWORK_FORBIDDEN'); };
       const runtime = new PiRuntime(); const input = new PassThrough();
-      try { const result = await runtime.authenticate({ provider: 'openai-codex', terminalHost: { run: operation => operation({ input, color: false, onEOF() {}, output: { write(text) { if (text.includes('Press Y')) setImmediate(() => input.write('Y')); } } }) } });
+      try { const result = await runtime.authenticate({ provider: 'openai-codex', terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) { if (text.includes('Press Y')) setImmediate(() => input.write('Y')); } } }, operation) } });
         console.log(JSON.stringify({ result, fetches })); } finally { await runtime.dispose(); input.destroy(); }
     `);
     expect(JSON.parse(output)).toEqual({ result: { status: "failed", effect: "none", reason: "destination" }, fetches: 0 });
