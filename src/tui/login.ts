@@ -12,7 +12,23 @@ interface LoginDisplay {
   browser(url: string): void;
 }
 
-/** Exclusive auth input: no shared editor, history, undo/yank, raw secret echo or browser launch. */
+/** Open the system browser for a validated authorization URL. Suppressed in offline mode
+ * (PI_OFFLINE=1), where the URL stays printed for manual opening. The URL itself was already
+ * validated (https + known provider origin) before display. */
+function launchBrowser(url: string): boolean {
+  if (process.env.PI_OFFLINE === "1") return false;
+  try {
+    const command = process.platform === "darwin" ? "open"
+      : process.platform === "win32" ? "cmd" : "xdg-open";
+    const args = process.platform === "win32" ? ["/c", "start", "", url] : [url];
+    const child = Bun.spawn([command, ...args], { stdin: "ignore", stdout: "ignore", stderr: "ignore" });
+    child.unref();
+    return true;
+  } catch { return false; }
+}
+
+/** Exclusive auth input: no shared editor, history, undo/yank or raw secret echo. The system
+ * browser opens only validated authorization URLs. */
 export async function withLoginDisplay<T>(io: RuntimeLoginIO, parentSignal: AbortSignal,
   work: (display: LoginDisplay) => Promise<T>): Promise<T> {
   const controller = new AbortController();
@@ -112,9 +128,9 @@ export async function withLoginDisplay<T>(io: RuntimeLoginIO, parentSignal: Abor
         const panel = new Panel("Review sign-in consent", io.color, "warning");
         panel.addChild(new Text(`Sign in to ${terminalText(provider)} using ${terminalText(method)}?`, 0, 1));
         panel.addChild(new Text(`${accent("Credential change")}\nOn success, save or replace only the ${terminalText(provider)} credential.\nDestination:\n${terminalText(destination)}`, 0, 0));
-        panel.addChild(new Text(`${accent("Shared access")}\nPi and Casper parent/child/learning runtimes use this store.`, 0, 1));
+        panel.addChild(new Text(`${accent("Shared access")}\nCasper's parent/child/learning runtimes share this store with the bundled engine.`, 0, 1));
         panel.addChild(new Text(`${accent("Account impact")}\n${terminalText(disclosure)}`, 0, 0));
-        panel.addChild(new Text(`${accent("Unchanged")}\nModel choices and defaults will not change.\nNo browser opens automatically.`, 0, 1));
+        panel.addChild(new Text(`${accent("Unchanged")}\nModel choices and defaults will not change.\n${method === "browser authorization" ? "Your browser opens automatically for sign-in." : "No browser opens automatically."}`, 0, 1));
         panel.addChild(new Text("Press Y to consent\nEsc / Ctrl+C: cancel", 0, 0));
         return (await ask(panel, key => key === "y" || key === "Y" ? true : undefined)) === true;
       },
@@ -139,7 +155,7 @@ export async function withLoginDisplay<T>(io: RuntimeLoginIO, parentSignal: Abor
               cleanup(); reject(new Error("Invalid private input")); return;
             }
             value += text;
-            status.setText(muted(value ? "Private input: [hidden]" : "Private input: [empty]"));
+            status.setText(muted(value ? `Private input: ${value.length} characters (hidden)` : "Private input: [empty]"));
             io.requestRender();
           };
           inputSignal.addEventListener("abort", abort, { once: true });
@@ -170,9 +186,12 @@ export async function withLoginDisplay<T>(io: RuntimeLoginIO, parentSignal: Abor
         if (signal.aborted) return;
         clearPanel();
         write(`${accent("1. Open this URL in your browser:")}\n${terminalText(url)}\n`);
+        const launched = launchBrowser(url);
         const panel = new Panel("Complete browser sign-in", io.color);
-        panel.addChild(new Text("2. Complete the provider's authorization steps.\nWaiting for browser authorization.", 0, 1));
-        panel.addChild(new Text("No browser opens automatically.\nCodes and redirect URLs belong only in the private login prompt.\nEsc / Ctrl+C: cancel", 0, 0));
+        panel.addChild(new Text(launched
+          ? "2. Your browser is opening the sign-in page. Complete the provider's authorization steps.\nWaiting for browser authorization."
+          : "2. Automatic launch is unavailable; open the URL above in your browser.\nWaiting for browser authorization.", 0, 1));
+        panel.addChild(new Text("If the browser is on another machine, paste the final redirect URL in the private prompt.\nCodes and redirect URLs belong only in the private login prompt.\nEsc / Ctrl+C: cancel", 0, 0));
         mount(panel);
       },
     });
