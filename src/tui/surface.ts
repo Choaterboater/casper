@@ -133,10 +133,8 @@ export class TerminalSurface {
       this.write(terminalText(value).split("\n").map((line, index) => this.accent(`${index ? "  " : `${PROMPT_GLYPH} `}${line}`)).join("\n") + "\n");
       resolve(value);
     };
-    // The bottom block (editor, suggestion popup, mounted picker or lending notice)
-    // always occupies the editor's height in the line count. Anything taller is
-    // composited over the transcript tail instead of appended, so opening and
-    // closing it never scrolls the terminal or leaves blank rows behind.
+    // Popovers cover the transcript tail without scrolling. Private login panels
+    // instead follow it, keeping copyable authorization URLs and device codes visible.
     this.tui.addChild({
       render: width => {
         const editorLines = this.editor.render(width);
@@ -146,7 +144,7 @@ export class TerminalSurface {
           : this.editor.popup.length ? [rule, ...this.editor.popup, ...editorLines] : editorLines;
         while (block.length < editorLines.length) block.push("");
         const body = this.transcript.render(width);
-        const overflow = Math.max(0, block.length - editorLines.length);
+        const overflow = this.lending ? 0 : Math.max(0, block.length - editorLines.length);
         return [...body.slice(0, Math.max(0, body.length - overflow)), ...block, this.footer(width)];
       },
       invalidate: () => { this.transcript.invalidate(); this.editor.invalidate(); this.slot?.invalidate(); },
@@ -333,9 +331,11 @@ export class TerminalSurface {
         this.lending = true; this.terminal.suspendInput(); this.render();
         try {
           return await operation({ input: this.io.input, color: this.io.color, onEOF: () => this.close(),
-            output: { write: text => this.write(terminalText(text)) } });
+            output: { write: text => this.write(terminalText(text)) },
+            show: component => { this.slot = component; this.render(); },
+            requestRender: () => this.render() });
         } finally {
-          this.lending = false;
+          this.slot = undefined; this.lending = false;
           if (!this.closed) { this.terminal.resumeInput(); this.tui.setFocus(this.editor); this.render(); }
         }
       },

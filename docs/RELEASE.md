@@ -8,6 +8,12 @@ version.
 
 ## Changes since v0.1.0
 
+Unreleased source correction: `/login` now mounts every provider/method, consent
+and private-input panel in Casper's existing renderer. Previously a second
+renderer sent cursor controls through the transcript sanitizer, printing literal
+`\u{d}` and appending navigation updates. Login panels no longer become transcript
+entries; standalone authorization URLs/device codes remain visible above them.
+
 Source replaces the login selection log with Pi's `SelectList` and renderer.
 Provider/method highlights redraw in place; parsed application arrows, fragmented
 and batched navigation, and encoded Enter are handled without carrying keys into
@@ -21,7 +27,7 @@ help/status/verification output and action-first assistant instructions. Exact
 approval uses a separate input editor and restores the original draft/cursor.
 The offline demo covers streaming, tables, Unicode, resize, approval and errors.
 
-Terminal layout is stabilized: the `/` popup, pickers and the login notice are
+Terminal layout is stabilized: the `/` popup and model/effort pickers are
 composited over the transcript instead of appended, a rows-only resize keeps
 scrollback, the prompt gutter and footer state dot never shift, tool lines are
 redrawn in place with a live progress line, and `/output [n]` recalls a tool

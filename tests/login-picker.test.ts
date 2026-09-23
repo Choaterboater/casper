@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { PassThrough } from "node:stream";
 import { withLoginDisplay } from "../src/tui/login";
+import { withLoginSurface } from "./support/login-surface";
 
 const items = [{ id: "codex", label: "OpenAI Codex" }, { id: "copilot", label: "GitHub Copilot" }] as const;
 
@@ -10,12 +11,12 @@ test("login picker accepts application arrows and batched navigation without car
   let screen = "";
   let choice: string | undefined;
   let completed = false;
-  const pending = withLoginDisplay({ input, output: { write(text) { screen += text; } }, color: false, onEOF() {} }, controller.signal, async display => {
+  const pending = withLoginSurface({ input, output: { write(text) { screen += text; } }, color: false, onEOF() {} }, io => withLoginDisplay(io, controller.signal, async display => {
     choice = await display.choose("Choose provider", items);
     const consent = await display.consent("/synthetic/auth.json", choice ?? "none", "a device code", "Synthetic provider.");
     completed = true;
     return consent;
-  });
+  }));
   try {
     await waitFor(() => screen.includes("Choose provider"));
     input.write("\x1bOB");
@@ -37,8 +38,8 @@ test("login picker handles fragmented and batched arrows, wraparound, encoded En
   const controller = new AbortController();
   let screen = "";
   let completed = false;
-  const pending = withLoginDisplay({ input, output: { write(text) { screen += text; } }, color: false, onEOF() {} }, controller.signal,
-    display => display.choose("Choose provider", items)).then(choice => { completed = true; return choice; });
+  const pending = withLoginSurface({ input, output: { write(text) { screen += text; } }, color: false, onEOF() {} }, io => withLoginDisplay(io, controller.signal,
+    display => display.choose("Choose provider", items))).then(choice => { completed = true; return choice; });
   try {
     await waitFor(() => screen.includes("Choose provider"));
     input.write("\x1b[200~\x1b[B\r\x1b[201~");
@@ -59,8 +60,8 @@ test("private login input never echoes or submits a secret with its pasted Enter
   let screen = "";
   let completed = false;
   const secret = "synthetic-private-key";
-  const pending = withLoginDisplay({ input, output: { write(text) { screen += text; } }, color: false, onEOF() {} }, controller.signal,
-    display => display.privateInput("Private API key")).then(value => { completed = true; return value; });
+  const pending = withLoginSurface({ input, output: { write(text) { screen += text; } }, color: false, onEOF() {} }, io => withLoginDisplay(io, controller.signal,
+    display => display.privateInput("Private API key"))).then(value => { completed = true; return value; });
   try {
     await waitFor(() => screen.includes("Private API key"));
     input.write(`\x1b[200~${secret}\x1b[201~\r`);

@@ -5,6 +5,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { InteractiveTerminal } from "../src/tui/terminal";
+import { withLoginDisplay } from "../src/tui/login";
 import { posixOnly } from "./support/platform";
 
 // The rich-surface path is gated on `TERM !== "dumb"`; a harness or CI shell that
@@ -86,6 +87,40 @@ test("a rows-only resize repositions without clearing scrollback; a columns chan
     await screen.until(output => output.includes("narrower"));
     expect(screen.output.slice(painted)).toContain(REPAINT);
   } finally { terminal.close(); input.destroy(); }
+});
+
+test("login navigation on the live surface replaces rows without escaped controls or retained panels", async () => {
+  const input = Object.assign(new PassThrough(), { isTTY: true, setRawMode() {} });
+  const screen = fakeWriter(60, 30);
+  const terminal = new InteractiveTerminal(input, screen.writer, () => {}, () => {});
+  const controller = new AbortController();
+  let pending: Promise<string | undefined> | undefined;
+  try {
+    terminal.start();
+    const command = terminal.readCommand();
+    input.write("retained draft"); await tick();
+    pending = terminal.exclusiveHost()!.run(io => withLoginDisplay(io, controller.signal,
+      display => display.choose("Choose provider", [
+        { id: "first", label: "First provider" }, { id: "second", label: "Second provider" },
+      ])));
+    await screen.until(output => output.includes("Choose provider"));
+    input.write("\x1b[B"); await tick();
+    expect(screen.output).not.toContain("\\u{d}");
+    input.write("\r");
+    expect(await pending).toBe("second");
+    // Force a repaint to observe the current surface, not historical terminal bytes.
+    screen.writer.columns = 50; screen.writer.emit("resize"); await tick();
+    const frame = plainLines(screen.output.split(REPAINT).at(-1)!).join("\n");
+    expect(frame).toContain("retained draft");
+    expect(frame).not.toContain("Choose provider");
+    expect(frame).not.toContain("First provider");
+    expect(frame).not.toContain("Second provider");
+    input.write("\r");
+    expect(await command).toBe("retained draft");
+  } finally {
+    controller.abort(); await pending;
+    terminal.close(); input.destroy();
+  }
 });
 
 // python3 runs the standard-library PTY fixture; Windows has no equivalent here.

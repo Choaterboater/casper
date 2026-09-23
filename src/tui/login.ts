@@ -1,8 +1,7 @@
-import { isKeyRelease, StdinBuffer, matchesKey, SelectList, Text, TuiMainScreen } from "@earendil-works/pi-tui";
-import type { RuntimePickerIO } from "../runtime/types";
+import { isKeyRelease, StdinBuffer, matchesKey, SelectList, Text } from "@earendil-works/pi-tui";
+import type { RuntimeLoginIO } from "../runtime/types";
 import { terminalText } from "./format";
 import { Panel, panelColor } from "./presentation";
-import { StreamTerminal } from "./stream-terminal";
 
 interface LoginDisplay {
   signal: AbortSignal;
@@ -14,7 +13,7 @@ interface LoginDisplay {
 }
 
 /** Exclusive auth input: no shared editor, history, undo/yank, raw secret echo or browser launch. */
-export async function withLoginDisplay<T>(io: RuntimePickerIO, parentSignal: AbortSignal,
+export async function withLoginDisplay<T>(io: RuntimeLoginIO, parentSignal: AbortSignal,
   work: (display: LoginDisplay) => Promise<T>): Promise<T> {
   const controller = new AbortController();
   const signal = AbortSignal.any([parentSignal, controller.signal]);
@@ -26,16 +25,10 @@ export async function withLoginDisplay<T>(io: RuntimePickerIO, parentSignal: Abo
   let singleKey = true;
   let selecting = false;
   let inputBytes = 0;
-  let screen: TuiMainScreen | undefined;
   const accent = (text: string) => panelColor(text, "accent", io.color);
   const muted = (text: string) => panelColor(text, "muted", io.color);
-  const stopScreen = () => { screen?.stop(); screen = undefined; };
-  const mount = (panel: Panel) => {
-    stopScreen();
-    const tui = new TuiMainScreen(new LoginPickerTerminal(io));
-    tui.addChild(panel); screen = tui;
-    return tui;
-  };
+  const clearPanel = () => io.show();
+  const mount = (panel: Panel) => io.show(panel);
   const write = (text: string) => { if (!closed && !signal.aborted) io.output.write(text); };
   const cancel = () => { controller.abort(); answer?.(""); };
   const eof = () => { cancel(); io.onEOF(); };
@@ -58,7 +51,7 @@ export async function withLoginDisplay<T>(io: RuntimePickerIO, parentSignal: Abo
     buffer.process(chunk);
   };
   const fresh = async () => {
-    stopScreen();
+    clearPanel();
     answer = undefined; paste = undefined; selecting = false; inputBytes = 0;
     buffer.destroy(); buffer = new StdinBuffer(); bind();
     // Never reuse keys or partial escape/paste state from the preceding step.
@@ -67,21 +60,20 @@ export async function withLoginDisplay<T>(io: RuntimePickerIO, parentSignal: Abo
   const ask = async <V>(panel: Panel, accept: (key: string) => V | undefined): Promise<V | undefined> => {
     await fresh();
     if (signal.aborted) return undefined;
-    const tui = mount(panel);
+    mount(panel);
     return new Promise((resolve) => {
       answer = (key) => {
         const result = signal.aborted ? undefined : accept(key);
         if (result === undefined && !signal.aborted) return;
-        answer = undefined; stopScreen(); resolve(result);
+        answer = undefined; clearPanel(); resolve(result);
       };
-      tui.start(); tui.renderNow();
+      io.requestRender();
     });
   };
   signal.addEventListener("abort", cancel, { once: true });
   io.input.on("data", data); io.input.once("end", eof); io.input.once("close", eof);
   io.input.setRawMode?.(true); io.input.resume();
   try {
-    write("\x1b[?2004h");
     return await work({ signal,
       choose: async (title, items) => {
         await fresh();
@@ -93,13 +85,13 @@ export async function withLoginDisplay<T>(io: RuntimePickerIO, parentSignal: Abo
         panel.addChild(new Text(muted("Up/Down: choose · Enter: continue"), 0, 1));
         panel.addChild(list);
         panel.addChild(new Text("Esc / Ctrl+C: cancel login", 0, 1));
-        const tui = mount(panel);
+        mount(panel);
         try {
           const choice = await new Promise<number | undefined>(resolve => {
             const finish = (index?: number) => {
               // Detach before StdinBuffer can dispatch another key from this chunk.
               answer = undefined; selecting = false;
-              stopScreen(); resolve(index);
+              clearPanel(); resolve(index);
             };
             list.onSelect = item => finish(Number(item.value));
             list.onCancel = () => finish();
@@ -108,13 +100,13 @@ export async function withLoginDisplay<T>(io: RuntimePickerIO, parentSignal: Abo
               if (signal.aborted) { finish(); return; }
               if (matchesKey(key, "up") || matchesKey(key, "down") || matchesKey(key, "enter")) {
                 list.handleInput(key);
-                if (selecting) tui.requestRender();
+                if (selecting) io.requestRender();
               }
             };
-            tui.start(); tui.renderNow();
+            io.requestRender();
           });
           return choice === undefined ? undefined : items[choice]?.id;
-        } finally { stopScreen(); answer = undefined; selecting = false; }
+        } finally { clearPanel(); answer = undefined; selecting = false; }
       },
       consent: async (destination, provider, method, disclosure) => {
         const panel = new Panel("Review sign-in consent", io.color, "warning");
@@ -136,10 +128,10 @@ export async function withLoginDisplay<T>(io: RuntimePickerIO, parentSignal: Abo
         panel.addChild(new Text("Never enter keys, codes or redirect URLs in chat.\nEsc / Ctrl+C: cancel", 0, 1));
         const status = new Text(muted("Private input: [empty]"), 0, 0);
         panel.addChild(status);
-        const tui = mount(panel);
+        mount(panel);
         return new Promise<string>((resolve, reject) => {
           let value = "";
-          const cleanup = () => { value = ""; answer = undefined; paste = undefined; inputSignal.removeEventListener("abort", abort); stopScreen(); };
+          const cleanup = () => { value = ""; answer = undefined; paste = undefined; inputSignal.removeEventListener("abort", abort); clearPanel(); };
           const abort = () => { cleanup(); reject(new Error("Login input cancelled")); };
           const append = (text: string) => {
             // Keys and redirects are printable ASCII. Reject rather than strip controls/newlines.
@@ -148,7 +140,7 @@ export async function withLoginDisplay<T>(io: RuntimePickerIO, parentSignal: Abo
             }
             value += text;
             status.setText(muted(value ? "Private input: [hidden]" : "Private input: [empty]"));
-            tui.requestRender();
+            io.requestRender();
           };
           inputSignal.addEventListener("abort", abort, { once: true });
           paste = append;
@@ -161,53 +153,37 @@ export async function withLoginDisplay<T>(io: RuntimePickerIO, parentSignal: Abo
             else if (/^[\x20-\x7e]+$/.test(key)) append(key);
             // Navigation, history, undo, clipboard and editor commands have no meaning here.
           };
-          tui.start(); tui.renderNow();
+          io.requestRender();
         });
       },
       device: (url, code) => {
         if (signal.aborted) return;
-        stopScreen();
+        clearPanel();
         // Keep copyable values outside frames: terminal soft-wrap adds no separators.
         write(`${accent("1. Open this URL in your browser:")}\n${terminalText(url)}\n${accent("2. Enter this one-time code:")}\n${terminalText(code)}\n`);
         const panel = new Panel("Approve sign-in in your browser", io.color);
         panel.addChild(new Text("3. Complete the provider's authorization steps.\nWaiting for authorization.", 0, 1));
         panel.addChild(new Text("No browser opens automatically.\nDo not paste credentials here.\nEsc / Ctrl+C: cancel", 0, 0));
-        const tui = mount(panel);
-        tui.start(); tui.renderNow();
+        mount(panel);
       },
       browser: (url) => {
         if (signal.aborted) return;
-        stopScreen();
+        clearPanel();
         write(`${accent("1. Open this URL in your browser:")}\n${terminalText(url)}\n`);
         const panel = new Panel("Complete browser sign-in", io.color);
         panel.addChild(new Text("2. Complete the provider's authorization steps.\nWaiting for browser authorization.", 0, 1));
         panel.addChild(new Text("No browser opens automatically.\nCodes and redirect URLs belong only in the private login prompt.\nEsc / Ctrl+C: cancel", 0, 0));
-        const tui = mount(panel);
-        tui.start(); tui.renderNow();
+        mount(panel);
       },
     });
   } finally {
-    stopScreen();
+    clearPanel();
     closed = true;
     signal.removeEventListener("abort", cancel);
     controller.abort(); answer = undefined; paste = undefined; buffer.destroy();
     await new Promise<void>((resolve) => setImmediate(resolve));
     io.input.off("data", data); io.input.off("end", eof); io.input.off("close", eof);
     io.input.pause();
-    io.output.write("\x1b[?2004l"); io.input.setRawMode?.(wasRaw);
-  }
-}
-
-/** Borrow login's raw-input lease: only rendering and resize belong to the picker. */
-class LoginPickerTerminal extends StreamTerminal {
-  private redraw?: () => void;
-  constructor(private readonly pickerIO: RuntimePickerIO) { super(pickerIO, pickerIO.onEOF); }
-  override start(_onInput: (data: string) => void, onResize: () => void): void {
-    this.redraw = onResize;
-    this.pickerIO.output.on?.("resize", onResize);
-  }
-  override stop(): void {
-    if (this.redraw) this.pickerIO.output.off?.("resize", this.redraw);
-    this.redraw = undefined;
+    io.input.setRawMode?.(wasRaw);
   }
 }
