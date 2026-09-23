@@ -25,7 +25,7 @@ def run_case(bun, repo, root, provider, browser=False, action="save", no_color=F
         index = ["openai-codex", "github-copilot", "anthropic", "openrouter"].index(provider)
         for _ in range(index): s.send("\x1b[B"); s.pump(0.03)
         s.send("\n")
-        if provider == "anthropic":
+        if provider in ("anthropic", "openrouter"):
             s.until("Choose sign-in method")
             if browser: s.send("\x1b[B"); s.pump(0.03)
             s.send("\n")
@@ -69,6 +69,7 @@ def run_case(bun, repo, root, provider, browser=False, action="save", no_color=F
         assert secret.encode() not in s.raw
         assert b"synthetic-anthropic-private-access" not in s.raw
         assert b"synthetic-copilot-private-access" not in s.raw
+        assert b"synthetic-openrouter-oauth-key" not in s.raw
         if no_color: assert not re.search(rb"\x1b\[[0-9;:]*m", s.raw)
         s.send("\x01\x0b/exit\n"); module.wait_exit(s)
     finally:
@@ -82,7 +83,7 @@ if __name__ == "__main__":
     repo = pathlib.Path(__file__).resolve().parents[2]
     cases = [("github-copilot", False, "save", False)]
     cases += [("anthropic", browser, "save", browser) for browser in (False, True)]
-    cases += [("openrouter", False, "save", False)]
+    cases += [("openrouter", browser, "save", False) for browser in (False, True)]
     for i, (provider, browser, action, no_color) in enumerate(cases):
         case = pathlib.Path(root) / str(i); case.mkdir()
         run_case(bun, repo, case, provider, browser, action, no_color)

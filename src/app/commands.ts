@@ -96,7 +96,7 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
         if (!runtime.authenticate) { host.output.write("[login] This runtime does not support login.\n"); return; }
         const result = await runtime.authenticate({ provider,
           terminalHost: picker, signal: host.commandAbort?.signal });
-        if (result.status === "saved") host.output.write("[login] Credential saved. Local auth refreshed; not a connection test. Model and defaults unchanged. Use /model to choose a model.\n");
+        if (result.status === "saved") host.output.write("[login] Credential saved. Local auth refreshed; typed API keys were verified with the provider; no model call was made. Model and defaults unchanged. Use /model to choose a model.\n");
         else if (result.status === "saved-needs-refresh") host.output.write("[login] Credential saved, but local auth needs refresh. Restart Casper; do not repeat login blindly.\n");
         else if ("effect" in result && result.effect === "unknown") host.output.write("[login] Login ended; credential save outcome unknown. Restart and inspect local auth before retrying.\n");
         else if (result.status === "cancelled") host.output.write("[login] Cancelled; no credential saved.\n");

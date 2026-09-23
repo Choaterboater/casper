@@ -13,6 +13,9 @@ const record = async (url: string) => appendFile(path.join(control, "login-fetch
 Object.defineProperty(globalThis, "fetch", { configurable: true, writable: true, value: async (input: RequestInfo | URL, init?: RequestInit) => {
   const url = String(input); await record(url);
   if (url === "https://platform.claude.com/v1/oauth/token") return Response.json({ access_token: "synthetic-anthropic-private-access", refresh_token: "synthetic-anthropic-private-refresh", expires_in: 3600 });
+  if (url === "https://api.anthropic.com/v1/models") return Response.json({ data: [] });
+  if (url === "https://openrouter.ai/api/v1/auth/key") return Response.json({ data: {} });
+  if (url === "https://openrouter.ai/api/v1/auth/keys") return Response.json({ key: "synthetic-openrouter-oauth-key" });
   if (url === "https://github.com/login/device/code") return Response.json({ device_code: "synthetic-device", user_code: "GHUB-CODE", verification_uri: "https://github.com/login/device", interval: 0, expires_in: 60 });
   if (url === "https://github.com/login/oauth/access_token") return Response.json({ access_token: "synthetic-github-private-access" });
   if (url === "https://api.github.com/copilot_internal/v2/token") return Response.json({ token: "synthetic-copilot-private-access", expires_at: Math.floor(Date.now() / 1000) + 3600 });
