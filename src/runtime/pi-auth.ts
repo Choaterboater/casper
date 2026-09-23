@@ -97,8 +97,8 @@ export async function authenticatePi(options: RuntimeAuthenticationOptions, dest
       // Browser sign-in (loopback listener + authorization page) vs device-code oauth.
       const browser = method === "oauth" && (selected === "anthropic" || selected === "openrouter");
       const disclosure = selected === "github-copilot"
-        ? "Pi may enable model policies on your GitHub account. Cancellation cannot undo remote changes."
-        : selected === "anthropic" ? "API use is billed separately. Pi documents Claude subscription sign-in as per-token extra usage, not plan limits."
+        ? "Sign-in may enable model policies on your GitHub account. Cancellation cannot undo remote changes."
+        : selected === "anthropic" ? "API use is billed separately. Claude subscription sign-in is documented as per-token extra usage, not plan limits."
         : selected === "openrouter"
           ? method === "api_key" ? "Usage is billed from OpenRouter credits. Use an API key from OpenRouter."
             : "Usage is billed from OpenRouter credits. Browser sign-in exchanges an authorization code for a user-controlled OpenRouter API key."

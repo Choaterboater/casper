@@ -138,11 +138,13 @@ unreported failed-request cost is unknown, not zero.
 `/login` offers Codex and GitHub Copilot device-code login, Anthropic/Claude and
 OpenRouter API-key or browser sign-in. `/login <provider-id>` skips only the
 provider chooser. Every method requires fresh consent to provider-scoped shared
-credential replacement; login does not select a model. Browser opening is manual.
+credential replacement; login does not select a model. Browser sign-in opens the system
+browser automatically; offline mode (PI_OFFLINE=1) suppresses the launch and keeps the URL
+printed for manual opening.
 Typed API keys are verified with the provider before they are stored; a rejected
 key is never saved, and a key that cannot be verified (network or provider error)
 can be retried, saved explicitly, or cancelled. Keys and callback codes/URLs use a
-separate hidden prompt, never chat/history.
+separate hidden prompt (live character count, contents never rendered), never chat/history.
 Escape/Ctrl-C cancel; EOF and shutdown drain the login lifecycle.
 
 Provider and method choices reuse Pi's selection list: Up/Down moves the visible
