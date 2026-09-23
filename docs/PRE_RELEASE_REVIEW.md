@@ -3,6 +3,10 @@
 Status: four implementation bugs corrected; focused/full gates and independent
 follow-up reviews complete. **Not a release approval.**
 
+The reserved preparation-cleanup pilot described below was later scrapped. A
+missing fixture now removes harness-owned temporary directories. Do not refreeze
+that pilot or treat phases 12–18 as a queue.
+
 ## Scope and method
 
 Reviewed all uncommitted work in the public checkout against
@@ -126,10 +130,8 @@ Raw diagnostic evidence remains local rather than entering release assets.
   Prepared workflows and macOS results do not close those gates.
 - Representative live Casper acceptance still needs provider/account, exact model
   and effort, allowance, credential/configuration isolation and authorization.
-- The evaluation preparation-cleanup leak remains deliberately reserved for the
-  frozen repair pilot; it was not silently repaired or reported as acceptance.
-  The active source now differs from that pilot. Choose and record a trial revision,
-  or refreeze and recalibrate, rather than mixing revisions unnoticed.
+- The evaluation preparation-cleanup leak was reserved for a frozen repair pilot
+  at the time of this review. That reservation is closed; do not refreeze it.
 - Pi's version-specific picker integration remains an upgrade revalidation point.
 - Select a new version and validate its rebuilt assets before any release. Published
   v0.1.0 binaries/tags remain unchanged; there was no commit, push or publication.

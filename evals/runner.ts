@@ -212,18 +212,24 @@ function resolveTools(text: string, repoRoot: string): string {
   return text.replaceAll("{{bun}}", bun).replaceAll("{{tsc}}", tsc);
 }
 
-/** Copy the fixture and apply the task's setup overlay. */
+/** Copy the fixture and apply the task's setup overlay. A directory this function creates is removed if preparation fails. */
 export async function prepareWorkdir(task: EvalTask, repoRoot: string, destination?: string): Promise<string> {
+  const owned = destination === undefined;
   const workdir = destination ?? await mkdtemp(path.join(os.tmpdir(), "casper-eval-"));
-  if (destination) await mkdir(workdir, { recursive: true });
-  await copyTree(path.join(repoRoot, "evals/fixtures", task.fixture), workdir);
-  if (task.setup) {
-    const setup = path.join(repoRoot, "evals/setups", task.setup);
-    await copyTree(path.join(setup, "files"), workdir);
-    const removals = await readFile(path.join(setup, "remove.json"), "utf8").catch(() => "[]");
-    for (const relative of JSON.parse(removals) as string[]) await rm(path.join(workdir, relative), { force: true });
+  try {
+    if (destination) await mkdir(workdir, { recursive: true });
+    await copyTree(path.join(repoRoot, "evals/fixtures", task.fixture), workdir);
+    if (task.setup) {
+      const setup = path.join(repoRoot, "evals/setups", task.setup);
+      await copyTree(path.join(setup, "files"), workdir);
+      const removals = await readFile(path.join(setup, "remove.json"), "utf8").catch(() => "[]");
+      for (const relative of JSON.parse(removals) as string[]) await rm(path.join(workdir, relative), { force: true });
+    }
+    return workdir;
+  } catch (error) {
+    if (owned) await rm(workdir, { recursive: true, force: true });
+    throw error;
   }
-  return workdir;
 }
 
 async function digestTree(root: string): Promise<Map<string, string>> {
@@ -462,11 +468,22 @@ export async function evaluateAcceptance(
 export async function runEvalTask(task: EvalTask, options: EvalRunOptions): Promise<EvalRunResult> {
   const startedAt = new Date().toISOString();
   const started = performance.now();
-  const homeDir = options.homeDir ?? await mkdtemp(path.join(os.tmpdir(), "casper-eval-home-"));
-  const workdir = await prepareWorkdir(task, options.repoRoot);
+  const ownsHome = options.homeDir === undefined;
+  let homeDir = options.homeDir;
+  let workdir: string | undefined;
+  let evaluator: string | undefined;
+  let prepared = false;
+  try {
+  homeDir ??= await mkdtemp(path.join(os.tmpdir(), "casper-eval-home-"));
+  workdir = await prepareWorkdir(task, options.repoRoot);
   const before = await digestTree(workdir);
   // Freeze grading inputs before the candidate runs, outside its editable workspace.
-  const evaluator = await prepareWorkdir({ ...task, setup: undefined }, options.repoRoot);
+  evaluator = await prepareWorkdir({ ...task, setup: undefined }, options.repoRoot);
+  prepared = true;
+  if (!homeDir || !workdir || !evaluator) throw new Error("Evaluation preparation did not create its workspaces");
+  const sessionHome = homeDir;
+  const candidate = workdir;
+  const frozen = evaluator;
   const metrics: EvalMetrics = { modelCalls: 0, answer: "", errors: [], sessions: [] };
 
   let app: CasperApp | undefined;
@@ -477,22 +494,22 @@ export async function runEvalTask(task: EvalTask, options: EvalRunOptions): Prom
     app = new CasperApp({
       runtimeFactory: () => createInstrumentedRuntime(options, metrics),
       autoVerify: options.autoVerify ?? true,
-      sessionHomeDir: homeDir,
+      sessionHomeDir: sessionHome,
       loadProjectContext: async (project) => {
         // Git discovery can escape a fixture when TMPDIR is inside another repo.
         // Reject before loading that repo's configuration or constructing a runtime.
-        if (await realpath(project.root) !== await realpath(workdir)) {
+        if (await realpath(project.root) !== await realpath(candidate)) {
           throw new Error("Evaluation project resolved outside the prepared candidate workspace; use a temporary directory outside any enclosing Git repository");
         }
-        return loadProjectContext(project, { homeDir });
+        return loadProjectContext(project, { homeDir: sessionHome });
       },
-      loadSkillRegistry: (context) => SkillRegistry.discover({ projectRoot: context.info.root, homeDir, imports: context.skills.imports, maxActive: context.skills.maxActive }),
+      loadSkillRegistry: (context) => SkillRegistry.discover({ projectRoot: context.info.root, homeDir: sessionHome, imports: context.skills.imports, maxActive: context.skills.maxActive }),
       loadMCPConfiguration: async () => ({ servers: [], diagnostics: [] }),
       loadLSPConfiguration: async () => ({ servers: [], diagnostics: [] }),
       loadReferenceConfiguration: async () => ({ sources: [], diagnostics: [] }),
       output: { write: (text) => { output = (output + text).slice(-4096); } },
     });
-    await app.runOnce(task.prompt, workdir);
+    await app.runOnce(task.prompt, candidate);
     const taskResult = app.getLastTaskResult();
     execution = taskResult?.execution ?? "error";
     if (!taskResult) metrics.errors.push("Casper recorded no task result for this prompt");
@@ -510,22 +527,21 @@ export async function runEvalTask(task: EvalTask, options: EvalRunOptions): Prom
   }
   await app?.close();
 
-  let result: EvalRunResult;
-  try {
-    result = await gradeCandidate(task, { workdir, evaluator, repoRoot: options.repoRoot, homeDir, timeoutMs: options.verifyTimeoutMs ?? 120_000 }, before, {
+  const result = await gradeCandidate(task, { workdir: candidate, evaluator: frozen, repoRoot: options.repoRoot, homeDir: sessionHome, timeoutMs: options.verifyTimeoutMs ?? 120_000 }, before, {
       startedAt, wallClockMs: Math.round(performance.now() - started), execution, modelCalls: metrics.modelCalls,
       answer: metrics.answer, interventions: options.interventions ?? [], model, usage: metrics.usage,
       error, runtimeErrors: metrics.errors, outputTail: output,
       repairAttempts: taskResult?.verification?.repairAttempts, selfVerification: taskResult?.verification?.status,
     }, "runtime");
-  } finally {
-    // A misconfigured verification command must not leak the work directory or the temporary home.
-    if (!options.keepWorkdir) await rm(workdir, { recursive: true, force: true });
-    if (!options.homeDir) await rm(homeDir, { recursive: true, force: true });
-    await rm(evaluator, { recursive: true, force: true });
-  }
   result.wallClockMs = Math.round(performance.now() - started);
   return result;
+  } finally {
+    // Preparation failure and a misconfigured verification command must not leak harness-owned directories.
+    // keepWorkdir applies only after both workspaces were prepared. Caller-supplied homes stay untouched.
+    if (workdir && !(options.keepWorkdir && prepared)) await rm(workdir, { recursive: true, force: true });
+    if (ownsHome && homeDir) await rm(homeDir, { recursive: true, force: true });
+    if (evaluator) await rm(evaluator, { recursive: true, force: true });
+  }
 }
 
 async function gradeCandidate(

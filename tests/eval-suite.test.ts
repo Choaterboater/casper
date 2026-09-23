@@ -105,6 +105,28 @@ test("every fixture is a solved baseline that its setup makes fail", async () =>
   }
 }, 300_000);
 
+test("a missing fixture leaves no harness-owned temporary directories and preserves a caller home", async () => {
+  const tmp = await tempDir("casper-eval-missing-tmp-");
+  const home = await tempDir("casper-eval-missing-home-");
+  await writeFile(path.join(home, "keep.txt"), "caller-owned\n");
+  const child = Bun.spawn([
+    process.execPath, "--no-install", path.join(repoRoot, "tests/fixtures/eval-missing-fixture.ts"), home,
+  ], {
+    env: { ...isolatedEnvironment(home), TMPDIR: tmp, TMP: tmp, TEMP: tmp },
+    stdout: "pipe", stderr: "pipe",
+  });
+  const [stdout, stderr, exitCode] = await Promise.all([
+    new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited,
+  ]);
+  expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
+  const observed = JSON.parse(stdout);
+  expect(observed.thrown).toContain("does-not-exist");
+  expect(observed.callerThrown).toContain("does-not-exist");
+  expect(observed.left).toEqual([]);
+  expect(observed.factories).toBe(0);
+  expect(observed.keep).toBe("caller-owned\n");
+});
+
 test("an evaluation nested inside another Git repository refuses to start a runtime there", async () => {
   const root = await tempDir("casper-eval-enclosing-repo-");
   const home = await tempDir("casper-eval-isolated-home-");

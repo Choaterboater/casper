@@ -100,6 +100,12 @@ export function formatProjectContext(context: ProjectContext): string {
   if (rules.project) {
     sections.push("Project rules (higher precedence than profile rules):", rules.project);
   }
+  const structure = Object.entries(model.architecture);
+  if (structure.length || model.conventions.length) {
+    sections.push("Repository structure (from the tree, not a skill):");
+    for (const [name, value] of structure) sections.push(`- ${name}: ${value}`);
+    for (const convention of model.conventions) sections.push(`- ${convention}`);
+  }
 
   return sections.join("\n");
 }

@@ -8,6 +8,7 @@ export const DEFAULT_SYSTEM_PROMPT_APPEND = [
   "When work remains, give one useful next action. When finished, stop without a forced next step, filler, or invented time estimate.",
   "Use available tools when needed to inspect, edit, and run code in the current repository.",
   "When requirements are ambiguous, ask before building with the ask tool: offer 2–5 concrete options, never ask what the repository already answers, and state assumptions plainly when clarification is unavailable.",
+  "Frontend, design, and other domain work come from the repository. Do not ask for or invent a skill when the project already shows the pattern.",
 ].join("\n");
 
 /** The runtime's persistent system prompt: Casper's discipline plus deterministic project context. */

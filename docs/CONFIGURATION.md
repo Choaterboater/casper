@@ -143,7 +143,7 @@ skills:
   maxActive: 6 # default; 0 disables automatic loading, maximum 32
 ```
 
-Only selected bodies are read and injected, with their source and base directory. Duplicate names remain inspectable with distinct IDs; selection includes only one per name. Higher relevance wins, then project → user → external, then stable ID. Limits: 16 KiB frontmatter, 256 KiB per skill file, and 64 KiB combined bodies per prompt. Invalid/oversized skills produce diagnostics rather than blocking startup.
+Skills are optional procedures, not a substitute for the repository. Frontend, design, and other domain work use the detected tree (`ui`, `styles`, `design` in the project context) instead of a skill pack. Only selected bodies are read and injected, with their source and base directory. Duplicate names remain inspectable with distinct IDs; selection includes only one per name. Higher relevance wins, then project → user → external, then stable ID. Limits: 16 KiB frontmatter, 256 KiB per skill file, and 64 KiB combined bodies per prompt. Invalid/oversized skills produce diagnostics rather than blocking startup.
 
 ### Inspect and review
 
