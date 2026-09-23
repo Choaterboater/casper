@@ -159,10 +159,10 @@ def exercise(bun, repo, root, no_color):
         # Hidden streaming (reasoning, tool arguments) shows a boxed live status that leaves no trace.
         s.send("progress\n")
         s.until("Working")
-        s.until("Thinking · 1.5k chars")
+        s.until("Reasoning · 1.5k chars")
         s.release("progress-step")
         s.until("Preparing write · 4.0k chars")
-        assert "Thinking · 1.5k" not in s.screen.text(), s.screen.text()
+        assert "Reasoning · 1.5k" not in s.screen.text(), s.screen.text()
         s.release("progress-end")
         s.until("Written.")
         s.until("│ idle")

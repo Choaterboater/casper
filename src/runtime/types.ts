@@ -156,7 +156,7 @@ export interface RuntimeSwitchOptions {
 
 export type RuntimeEvent =
   | { type: "model_controls_changed"; status: RuntimeStatus }
-  | { type: "assistant_response_start" }
+  | { type: "assistant_response_start"; provider?: string; model?: string }
   | { type: "assistant_response_end"; stopReason: string; errorMessage?: string }
   | { type: "assistant_text_delta"; delta: string }
   /** The model is producing something not yet visible: reasoning, or a tool call's arguments
