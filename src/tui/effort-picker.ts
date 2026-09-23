@@ -1,12 +1,15 @@
 import { Container, matchesKey, SelectList, Text } from "@earendil-works/pi-tui";
 import type { RuntimePickerView } from "../runtime/types";
+import { effortHint } from "./effort";
 import { paint, terminalText } from "./format";
 
-export async function pickEffort(view: RuntimePickerView, levels: string[], current?: string, signal?: AbortSignal, title = "Reasoning effort · supported by this model"): Promise<{ level: string; persist: boolean } | undefined> {
+export async function pickEffort(view: RuntimePickerView, levels: string[], current?: string, signal?: AbortSignal, title = "Reasoning effort · auto or a supported fixed level"): Promise<{ level: string; persist: boolean } | undefined> {
   signal?.throwIfAborted();
   const accent = (text: string) => paint(text, "36", view.color);
   const muted = (text: string) => paint(text, "2", view.color);
-  const list = new SelectList(levels.map(level => ({ value: level, label: terminalText(level) })), 8,
+  const list = new SelectList(levels.map(level => ({
+    value: level, label: terminalText(level), description: effortHint(level),
+  })), 8,
     { selectedPrefix: accent, selectedText: accent, description: muted, scrollInfo: muted, noMatch: muted });
   list.setSelectedIndex(Math.max(0, levels.indexOf(current ?? "")));
   const rule = { render: (width: number) => [muted("─".repeat(width))], invalidate() {} };

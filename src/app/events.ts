@@ -75,6 +75,8 @@ export class RuntimeEventView {
   }
 
   private setStaticActivity(activity?: string): void {
+    // Text deltas call this on every chunk. Skip once the waiting box is already gone.
+    if (activity === undefined && !this.responseActivity && !this.activityTimer) return;
     this.clearResponseActivity();
     this.terminal.setActivity(activity);
   }

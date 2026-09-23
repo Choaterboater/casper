@@ -6,6 +6,7 @@ import { ProjectMemory } from "../memory/store";
 import { modelPreference } from "../tui/model-preference";
 import { HELP_TEXT, FULL_HELP_TEXT, LOGIN_HELP } from "../tui/help";
 import { formatTerminalJSON } from "../tui/json";
+import { effortChoices } from "../tui/effort";
 import { pickEffort } from "../tui/effort-picker";
 import { formatEffort, formatRuntimeStatus, redactPreview, terminalText } from "../tui/format";
 import type { InteractiveTerminal } from "../tui/terminal";
@@ -151,12 +152,12 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       if (!choice) {
         const picker = host.interactive ? host.terminal.exclusiveHost() : undefined;
         if (picker && session.setEffort && status?.model) {
-          const levels = ["auto", ...(status.availableThinkingLevels ?? []).filter(level => level !== "auto")];
-          choice = await picker.mount(view => pickEffort(view, levels, status.configuredEffort ?? status.thinkingLevel, host.commandAbort?.signal, "Reasoning effort · auto or a supported fixed level"));
+          const levels = effortChoices(status.availableThinkingLevels);
+          choice = await picker.mount(view => pickEffort(view, levels, status.configuredEffort ?? status.thinkingLevel, host.commandAbort?.signal));
           if (!choice) return;
         } else if (!status?.model) { host.output.write("Effort: no model selected. Use /model first; levels depend on the model.\n"); return; }
         else {
-          host.output.write(`Effort: ${status.configuredEffort === "auto" ? `auto (currently ${status.thinkingLevel ?? "unset"})` : status.thinkingLevel ?? "unavailable"}. Choices: auto${status.availableThinkingLevels?.length ? `, ${status.availableThinkingLevels.join(", ")}` : " (fixed levels unavailable)"}\nUse /effort <auto|level> [--session]. A fixed level disables automatic classification.\n`);
+          host.output.write(`Effort: ${status.configuredEffort === "auto" ? `auto (currently ${status.thinkingLevel ?? "unset"})` : status.thinkingLevel ?? "unavailable"}. Choices: ${effortChoices(status.availableThinkingLevels).join(", ")}\nUse /effort <auto|level> [--session]. Shift+Tab cycles on a rich terminal (this conversation only). A fixed level disables automatic classification.\n`);
           return;
         }
       }

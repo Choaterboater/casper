@@ -221,10 +221,15 @@ export class PiModels {
   async setEffort(session: AgentSession, level: string, persist: boolean): Promise<RuntimeStatus> {
     this.assertReady(session);
     if (this.busy || !session.isIdle) throw new Error("Wait for active work before changing effort.");
-    this.applyEffort(session, level);
+    const selection = this.selections.get(session)!;
     const model = session.model!;
-    session.settingsManager.setModelThinkingLevel(model.provider, model.id, session.thinkingLevel);
-    this.record(session);
+    // A repeat of the current level (a wrapped Shift+Tab, or /effort of the same value) must not
+    // append another session entry or clone settings. Persisting still writes the preference.
+    if (selection.effort !== level) {
+      this.applyEffort(session, level);
+      session.settingsManager.setModelThinkingLevel(model.provider, model.id, session.thinkingLevel);
+      this.record(session);
+    } else if (!persist) return this.status(session);
     if (persist) {
       const preferences = this.preferences();
       preferences.setModelThinkingLevel(model.provider, model.id, session.thinkingLevel);

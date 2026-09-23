@@ -9,6 +9,7 @@ import { formatTerminalJSON } from "./tui/json";
 import { InteractiveTerminal } from "./tui/terminal";
 import { askTool } from "./tui/ask";
 import { pickEffort } from "./tui/effort-picker";
+import { nextEffort } from "./tui/effort";
 import { formatEffort, formatRuntimeStartLine, formatRuntimeStatus, formatToolActivity, redactPreview, terminalText } from "./tui/format";
 import { ProjectMemory, type TaskOutcome } from "./memory/store";
 import { discoverReferenceConfiguration, type ReferenceConfiguration } from "./references/config";
@@ -134,6 +135,9 @@ export class CasperApp {
   private sessionWorkspaceStart?: Promise<SessionWorkspaceManager>;
   lastTaskRequest?: string;
   private commandActive = false;
+  /** Shift+Tab steps already accepted. The prompt loop drains this before a request starts. */
+  private effortSteps = 0;
+  private effortCycle: Promise<void> = Promise.resolve();
   private workspaceTransition = false;
   private workspaceNeedsRebind = false;
   private taskRuntimeFailed = false;
@@ -181,6 +185,7 @@ export class CasperApp {
     this.input = options.input ?? process.stdin;
     this.terminal = new InteractiveTerminal(this.input, options.output ?? process.stdout,
       () => this.cancelCurrent(), () => { if (this.commandActive && !this.closing) void this.close().catch(() => {}); });
+    this.terminal.setEffortCycle(() => this.cycleEffort());
     // A tool's "running" line is left open on a rich surface so its completion can redraw it in
     // place (`\r`); any other output first commits that line, so nothing appends to it. The boxed
     // activity status stays out of the transcript and is cleared as streamed text arrives.
@@ -438,6 +443,9 @@ export class CasperApp {
     this.updateFooter();
     this.workspaceTransition = transition;
     try {
+      // A Shift+Tab that arrived with this submit still applies; new presses see commandActive and wait.
+      while (this.effortSteps > 0) await this.effortCycle;
+      if (this.closing) return;
       if (this.workspaceNeedsRebind) await this.rebindWorkspace(this.activeWorkspaceRoot());
       return await (prompt.startsWith("/") ? this.handleSlashCommand(prompt) : this.runModelTask(prompt));
     } catch (error) {
@@ -867,6 +875,47 @@ export class CasperApp {
 
   private writePrompt(prompt: string): void {
     this.events.writePrompt(prompt);
+  }
+
+  /** Shift+Tab. Session-only: a held key walks the ring, and saving stays on `/effort`. */
+  private cycleEffort(): void {
+    if (this.closing) return;
+    if (this.commandActive || this.subagents.isBusy) {
+      this.terminal.flashNote("effort unchanged · wait until idle");
+      return;
+    }
+    if (this.effortSteps >= 12) return;
+    this.effortSteps++;
+    this.effortCycle = this.effortCycle.then(async () => {
+      try { if (!this.closing) await this.applyEffortCycle(); }
+      catch (error) {
+        if (!this.closing) this.terminal.flashNote(error instanceof Error ? error.message : String(error));
+      } finally { this.effortSteps--; }
+    });
+  }
+
+  private async applyEffortCycle(): Promise<void> {
+    const session = await this.ensureRuntime();
+    if (this.closing) return;
+    if (!session.setEffort || !session.getStatus) {
+      this.terminal.flashNote("effort controls unavailable");
+      return;
+    }
+    const status = session.getStatus();
+    if (!status.model) {
+      this.terminal.flashNote("no model · use /model");
+      return;
+    }
+    const current = status.configuredEffort ?? status.thinkingLevel;
+    const next = nextEffort(current, status.availableThinkingLevels);
+    if (!next || next === current) {
+      this.terminal.flashNote("no other effort on this model");
+      return;
+    }
+    const updated = await session.setEffort(next, false);
+    const shown = formatEffort(updated) ?? next;
+    this.terminal.flashNote(`effort ${shown} · session`);
+    this.updateFooter();
   }
 
   updateFooter(): void {

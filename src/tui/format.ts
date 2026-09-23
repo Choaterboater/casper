@@ -6,9 +6,15 @@ import type { RuntimeEvent, RuntimeStatus } from "../runtime/types";
 export const PROMPT_GLYPH = "❯";
 export const BUSY_GLYPH = "…";
 
+/** Controls, escapes and bidi overrides. Newlines and tabs are kept; a clean delta skips the sanitizer. */
+const UNSAFE_TERMINAL = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/u;
+const UNSAFE_TERMINAL_G = new RegExp(UNSAFE_TERMINAL.source, "gu");
+
 /** Untrusted output cannot move the cursor, set a title, or conceal text with bidi controls. */
 export function terminalText(text: string): string {
-  return stripVTControlCharacters(text).replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/gu,
+  if (!UNSAFE_TERMINAL.test(text)) return text;
+  UNSAFE_TERMINAL_G.lastIndex = 0;
+  return stripVTControlCharacters(text).replace(UNSAFE_TERMINAL_G,
     (char) => `\\u{${char.codePointAt(0)!.toString(16)}}`);
 }
 
