@@ -49,9 +49,11 @@ Tool activity shows file/command targets (grep/find show their pattern), state a
 elapsed time. On a rich terminal the `• … — running` line is redrawn in place as
 `✓`/`✗` when that call finishes, so each tool call occupies one transcript line;
 any other output in between commits the running line first. A transient `Working`
-box appears as soon as a model response starts, then updates while it thinks,
-prepares tool arguments, or runs a tool. It shows activity and safe tool targets,
-not hidden reasoning or generated arguments, and clears when assistant text streams.
+box starts with `Waiting for <provider/model> · 0s` and ticks elapsed time even
+when the provider sends no intermediate progress events. Progress updates change it
+to reasoning or tool preparation; tool events show their safe target and state.
+It never displays hidden reasoning or generated arguments, and clears when
+assistant text streams.
 
 Help and results group related facts instead of one long paragraph. Assistant
 instructions favor the answer or action first, numbered human steps when needed,

@@ -51,9 +51,10 @@ test("live work status appears in a box before response text and clears when it 
   });
   try {
     terminal.setStatus("fixture"); terminal.start();
-    events.handle({ type: "assistant_response_start" });
-    await screen.until(output => Bun.stripANSI(output).includes("Thinking…"));
-    expect(Bun.stripANSI(screen.output)).toContain("╭─ Working ");
+    events.handle({ type: "assistant_response_start", provider: "openai-codex", model: "gpt-6-luna" });
+    await screen.until(output => Bun.stripANSI(output).includes("╭─ Working "));
+    expect(Bun.stripANSI(screen.output)).toContain("Waiting for openai-codex/gpt-6-luna · 0s");
+    await screen.until(output => Bun.stripANSI(output).includes("Waiting for openai-codex/gpt-6-luna · 1s"));
     events.handle({ type: "tool_start", toolName: "write", toolCallId: "write-1", input: { path: "src/app.ts" } });
     await screen.until(output => Bun.stripANSI(output).includes("src/app.ts — running"));
     expect(Bun.stripANSI(screen.output)).toContain("Working");
@@ -63,7 +64,7 @@ test("live work status appears in a box before response text and clears when it 
     await screen.until(output => output.split(REPAINT).length > 1 && output.split(REPAINT).at(-1)!.includes("Working on it."));
     const frame = plainLines(screen.output.split(REPAINT).at(-1)!).join("\n");
     expect(frame).toContain("Working on it.");
-    expect(frame).not.toContain("Thinking…");
+    expect(frame).not.toContain("Waiting for openai-codex/gpt-6-luna");
   } finally { terminal.close(); input.destroy(); }
 });
 

@@ -20,6 +20,9 @@ export class RuntimeEventView {
   private readonly toolStarted = new Map<string, number>();
   private openToolLine = false;
   private openToolCallId?: string;
+  private responseActivity?: string;
+  private responseStartedAt?: number;
+  private activityTimer?: NodeJS.Timeout;
   private endedWithNewline = true;
   private displayedError?: string;
 
@@ -45,6 +48,35 @@ export class RuntimeEventView {
 
     this.output.write(`> ${prompt}\n`);
     this.endedWithNewline = true;
+  }
+
+  private setResponseActivity(activity: string): void {
+    if (!this.terminal.rich) return;
+    this.responseActivity = activity;
+    this.responseStartedAt ??= performance.now();
+    this.renderResponseActivity();
+    if (!this.activityTimer) {
+      this.activityTimer = setInterval(() => this.renderResponseActivity(), 1000);
+      this.activityTimer.unref();
+    }
+  }
+
+  private renderResponseActivity(): void {
+    if (!this.responseActivity || this.responseStartedAt === undefined) return;
+    const seconds = Math.floor((performance.now() - this.responseStartedAt) / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const elapsed = minutes ? `${minutes}m${String(seconds % 60).padStart(2, "0")}s` : `${seconds}s`;
+    this.terminal.setActivity(`${this.responseActivity} · ${elapsed}`);
+  }
+
+  private clearResponseActivity(): void {
+    if (this.activityTimer) clearInterval(this.activityTimer);
+    this.activityTimer = undefined; this.responseActivity = undefined; this.responseStartedAt = undefined;
+  }
+
+  private setStaticActivity(activity?: string): void {
+    this.clearResponseActivity();
+    this.terminal.setActivity(activity);
   }
 
   get lastError(): string | undefined {
@@ -73,33 +105,36 @@ export class RuntimeEventView {
         }
         break;
       }
-      case "assistant_response_start":
-        this.terminal.setActivity("Thinking…");
+      case "assistant_response_start": {
+        this.clearResponseActivity();
+        const model = [event.provider, event.model].filter((part): part is string => Boolean(part)).map(terminalText).join("/");
+        this.setResponseActivity(`Waiting for ${model || "model response"}`);
         break;
+      }
       case "assistant_progress": {
         if (!this.terminal.rich) break;
         if (this.openToolLine) { this.openToolLine = false; this.terminal.write("\n"); }
         // Some providers deliver tool arguments whole; the box then says what is being prepared.
         const size = event.chars === 0 ? "" : event.chars >= 1024 ? ` · ${(event.chars / 1024).toFixed(1)}k chars` : ` · ${event.chars} chars`;
-        const what = event.kind === "thinking" ? "Thinking" : `Preparing ${terminalText(event.toolName ?? "tool call")}`;
-        this.terminal.setActivity(`${what}${size}`);
+        const what = event.kind === "thinking" ? "Reasoning" : `Preparing ${terminalText(event.toolName ?? "tool call")}`;
+        this.setResponseActivity(`${what}${size}`);
         break;
       }
       case "assistant_response_end":
-        this.terminal.setActivity(event.stopReason === "toolUse" ? "Starting tools…" : undefined);
+        this.setStaticActivity(event.stopReason === "toolUse" ? "Starting tools…" : undefined);
         this.terminal.endAssistant();
         // Pi may retry a provider error inside prompt(); only the final response
         // determines the stop outcome. Thrown prompt errors are handled separately.
         this.callbacks.setTaskStop(event.stopReason === "aborted", !["stop", "toolUse"].includes(event.stopReason));
         break;
       case "assistant_text_delta":
-        this.terminal.setActivity();
+        this.setStaticActivity();
         this.openToolLine = false; // The streaming block commits any open tool line inside the transcript.
         this.terminal.assistant(event.delta);
         this.endedWithNewline = true;
         break;
       case "tool_start": {
-        this.terminal.setActivity(formatToolActivity(event));
+        this.setStaticActivity(formatToolActivity(event));
         this.terminal.endAssistant();
         this.ensureLineBreak();
         if (event.toolCallId) this.toolStarted.set(event.toolCallId, performance.now());
@@ -111,7 +146,7 @@ export class RuntimeEventView {
       }
       case "tool_end":
         this.callbacks.onToolEnd(event);
-        this.terminal.setActivity(`${event.isError ? "Tool failed" : "Tool finished"} · ${terminalText(event.toolName)}`);
+        this.setStaticActivity(`${event.isError ? "Tool failed" : "Tool finished"} · ${terminalText(event.toolName)}`);
         this.terminal.endAssistant();
         const started = event.toolCallId ? this.toolStarted.get(event.toolCallId) : undefined;
         if (event.toolCallId) this.toolStarted.delete(event.toolCallId);
@@ -123,14 +158,14 @@ export class RuntimeEventView {
         this.endedWithNewline = true;
         break;
       case "message_end":
-        this.terminal.setActivity();
+        this.setStaticActivity();
         this.terminal.endAssistant();
         this.toolStarted.clear();
         this.ensureLineBreak();
         break;
       case "error":
         this.callbacks.markRuntimeFailed();
-        this.terminal.setActivity();
+        this.setStaticActivity();
         this.terminal.endAssistant();
         this.ensureLineBreak();
         if (this.displayedError !== event.message) this.output.write(`[error] ${redactPreview(event.message)}\n`);

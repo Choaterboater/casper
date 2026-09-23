@@ -152,7 +152,7 @@ const runtime = new PiRuntime();
 const events = [];
 try {
   const session = await runtime.start({ cwd: process.cwd() });
-  session.subscribe(event => { if (event.type === 'tool_start' || event.type === 'tool_end') events.push(event); });
+  session.subscribe(event => { if (event.type === 'assistant_response_start' || event.type === 'tool_start' || event.type === 'tool_end') events.push(event); });
   await session.prompt('Run the fixture commands.');
   console.log('OBSERVATIONS=' + JSON.stringify(events));
 } finally { await runtime.dispose(); }
@@ -160,6 +160,8 @@ try {
   const result = await f.run([harness]);
   expect({ exit: result.exit, stderr: result.stderr }).toEqual({ exit: 0, stderr: "" });
   const events: RuntimeEvent[] = JSON.parse(result.stdout.split("OBSERVATIONS=")[1]!);
+  const response = events.find((event) => event.type === "assistant_response_start");
+  expect(response).toMatchObject({ provider: "fixture", model: "fixture" });
   const shell = events.find((event) => event.type === "tool_end" && event.toolName === "bash");
   expect(shell).toMatchObject({ toolCallId: "call_0", input: { command: "printf SHELL_DIAGNOSTIC; exit 7" }, isError: true });
   if (shell?.type !== "tool_end") throw new Error("Missing shell observation");
