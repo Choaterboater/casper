@@ -19,13 +19,13 @@ function fakeWriter() {
   let pending: { test: (output: string) => boolean; resolve: () => void } | undefined;
   const writer = Object.assign(new EventEmitter(), { isTTY: true, columns: 100, rows: 30, write(text: string) {
     output += text;
-    if (pending?.test(output)) { pending.resolve(); pending = undefined; }
+    if (pending?.test(Bun.stripANSI(output))) { pending.resolve(); pending = undefined; }
   } });
   return {
     writer,
     get output() { return output; },
     until(test: (output: string) => boolean): Promise<void> {
-      if (test(output)) return Promise.resolve();
+      if (test(Bun.stripANSI(output))) return Promise.resolve();
       const { promise, resolve } = Promise.withResolvers<void>();
       pending = { test, resolve };
       return promise;
