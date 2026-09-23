@@ -481,6 +481,8 @@ export class CasperApp {
     // ask attempt before the first edit. Interactive sessions only — one-shot cannot ask,
     // so denying edits there would only deadlock the task.
     this.asksThisTask = 0;
+    // A new request gets a fresh delegation budget (the budget belongs to the parent task).
+    this.delegateToolForTask = undefined;
     this.editGateActive = this.interactive && this.terminal.rich
       && context.policy.behavior.askQuestions === "beforeChanges"
       && (classification.intent === "implement" || classification.intent === "configure")
@@ -583,6 +585,9 @@ export class CasperApp {
   ): Promise<VerificationReport> {
     const context = this.projectContext!;
     const controller = new AbortController();
+    // A standalone verification task (/verify, branch checks) owns its objective; post-task
+    // verification passes `task` and continues the parent request's delegation budget.
+    if (!task) this.delegateToolForTask = undefined;
     const evidence = task ?? new VerificationTask(
       VerifierRegistry.forProject(context.model, context.verification.timeoutMs, this.blockOnCleanupFailure), this.activeWorkspaceRoot(),
       (result) => this.writeCheckResult(result),
@@ -799,11 +804,17 @@ export class CasperApp {
 
 
 
+  /** The delegate tool carries the per-task dispatch budget, so it is rebuilt only at task
+   * boundaries (a new request, or an explicit /verify repair task) — never for repair rounds
+   * of the current task. */
+  private delegateToolForTask?: RuntimeTool;
+
   private delegateTool(): RuntimeTool {
-    return this.subagents.createTool(() => ({
+    this.delegateToolForTask ??= this.subagents.createTool(() => ({
       cwd: this.activeWorkspaceRoot(),
       projectContext: formatProjectContext(this.projectContext!),
     }));
+    return this.delegateToolForTask;
   }
 
 

@@ -109,6 +109,21 @@ console.log('RESULT=' + JSON.stringify(session.getStatus()));`);
   expect(status.thinkingLevel).toBe("high");
 }, 30_000);
 
+test("effort on a case-variant saved default still updates defaultThinkingLevel", async () => {
+  const f = await fixture();
+  // Every saved-default consumer resolves case-insensitively (model-routing @default, startup);
+  // persisted effort must agree even when settings.json spells the default with other casing.
+  await writeFile(path.join(f.casper, "settings.json"), JSON.stringify({ defaultProvider: "Fixture", defaultModel: "SECOND", defaultThinkingLevel: "high" }));
+  const status = await f.run(`
+await session.selectModel({ query: '@default', persist: false });
+await session.setEffort('low', true);
+console.log('RESULT=' + JSON.stringify(session.getStatus()));`);
+  expect(status.thinkingLevel).toBe("low");
+  const saved = JSON.parse(await readFile(path.join(f.casper, "settings.json"), "utf8"));
+  expect(saved.modelThinkingLevels).toMatchObject({ "fixture/second": "low" });
+  expect(saved.defaultThinkingLevel).toBe("low");
+}, 30_000);
+
 test("effort is validated, remembered for the default, and session-only changes stay local", async () => {
   const f = await fixture();
   await f.cli("/model", "fixture/second");

@@ -54,7 +54,7 @@ It does not publish a release. Its required checks are:
 Run the same focused source suites from a prepared checkout:
 
 ```powershell
-bun test tests/platform-processes.test.ts tests/login-picker.test.ts tests/login.test.ts tests/model-selection.test.ts tests/daily-terminal.test.ts tests/terminal-review.test.ts tests/terminal-ux.test.ts tests/terminal-discovery.test.ts
+bun test tests/platform-processes.test.ts tests/login-picker.test.ts tests/login.test.ts tests/model-selection.test.ts tests/model-routing.test.ts tests/auto-effort.test.ts tests/daily-terminal.test.ts tests/terminal-review.test.ts tests/terminal-ux.test.ts tests/terminal-discovery.test.ts
 ```
 
 These suites use synthetic inputs/providers, temporary state and loopback services;

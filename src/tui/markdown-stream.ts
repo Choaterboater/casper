@@ -4,6 +4,8 @@ import { PANEL_MAX_COLUMNS, renderPanel } from "./presentation";
 
 const INDENTED_CODE = /^(?: {4}|\t)/;
 const FENCE_OPEN = /^( {0,3})(`{3,}|~{3,})/;
+/** Marks rendered code-block border lines (appended by StreamingMarkdown's theme wrapper). */
+const FENCE_BORDER_TAG = "\u0000fence\u0000";
 
 /**
  * Index after the last `\n\n` whose following block cannot change how the prefix renders.
@@ -28,7 +30,7 @@ export function stablePrefixEnd(text: string): number {
       if (closesMath(line, math)) math = undefined;
     } else if (!singleLineMath(line)) {
       const opened = FENCE_OPEN.exec(line);
-      if (opened) fence = opened[2]![0];
+      if (opened) fence = opened[2]!;
       else if (/^ {0,3}\$\$/.test(line)) math = "dollar";
       else if (/^ {0,3}\\\[/.test(line)) math = "bracket";
     }
@@ -44,8 +46,10 @@ export function stablePrefixEnd(text: string): number {
   return last > 0 && !hasUnresolvedRef(text.slice(0, last)) ? last : 0;
 }
 
+/** CommonMark: a closing fence is a run of the opening character at least as long as the opener. */
 function closesFence(line: string, marker: string): boolean {
-  return new RegExp(`^ {0,3}${marker}{3,}\\s*$`).test(line);
+  const length = marker.length;
+  return new RegExp(`^ {0,3}\\${marker[0]}{${length},}\\s*$`).test(line);
 }
 
 function singleLineMath(line: string): boolean {
@@ -82,7 +86,7 @@ function proseOutsideFences(prefix: string): string {
   for (const line of prefix.split("\n")) {
     if (fence) { if (closesFence(line, fence)) fence = undefined; continue; }
     const opened = FENCE_OPEN.exec(line);
-    if (opened) { fence = opened[2]![0]; continue; }
+    if (opened) { fence = opened[2]!; continue; }
     kept.push(line);
   }
   return kept.join("\n");
@@ -111,8 +115,12 @@ export class StreamingMarkdown implements Component {
   private readonly scratch: Markdown;
 
   constructor(private readonly color: boolean, theme: MarkdownTheme) {
-    this.full = new Markdown("", 0, 0, theme);
-    this.scratch = new Markdown("", 0, 0, theme);
+    // Pi-tui renders code content verbatim, so rendered lines cannot distinguish a content
+    // line starting with ``` from a real border (nested fences). Tag border lines; the tag
+    // is consumed by boxFences and never reaches rendered output.
+    const tagged: MarkdownTheme = { ...theme, codeBlockBorder: (text) => theme.codeBlockBorder(`${text}${FENCE_BORDER_TAG}`) };
+    this.full = new Markdown("", 0, 0, tagged);
+    this.scratch = new Markdown("", 0, 0, tagged);
   }
 
   setText(text: string): void { this.source = text; }
@@ -153,14 +161,31 @@ export class StreamingMarkdown implements Component {
 
 function boxFences(lines: string[], width: number, color: boolean): string[] {
   const out: string[] = [];
-  for (let index = 0; index < lines.length; index++) {
-    const plain = stripVTControlCharacters(lines[index]!);
-    if (!plain.startsWith("```")) { out.push(lines[index]!); continue; }
-    const body: string[] = [];
-    let end = index + 1;
-    for (; end < lines.length && !stripVTControlCharacters(lines[end]!).startsWith("```"); end++) body.push(lines[end]!);
-    out.push(...renderPanel(plain.slice(3).trim() || "code", body, Math.min(width, PANEL_MAX_COLUMNS), color, "muted"));
-    index = end;
+  // Border lines carry FENCE_BORDER_TAG (StreamingMarkdown's theme wrapper); rendered content
+  // never does, so a content line starting with ``` cannot be mistaken for a border.
+  let body: string[] = [];
+  let title: string | undefined;
+  const flush = () => {
+    if (!body.length && title === undefined) return;
+    out.push(...renderPanel(title || "code", body, Math.min(width, PANEL_MAX_COLUMNS), color, "muted"));
+    body = [];
+    title = undefined;
+  };
+  for (const line of lines) {
+    const plain = stripVTControlCharacters(line);
+    if (plain.endsWith(FENCE_BORDER_TAG)) {
+      const border = plain.slice(0, -FENCE_BORDER_TAG.length);
+      if (title === undefined) {
+        // Opening border; the info string follows the leading fence run.
+        title = border.replace(/^`+/, "").trim();
+        continue;
+      }
+      flush();
+      continue;
+    }
+    if (title === undefined) { out.push(line); continue; }
+    body.push(line);
   }
+  flush();
   return out;
 }

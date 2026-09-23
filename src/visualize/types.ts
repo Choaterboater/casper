@@ -116,8 +116,9 @@ export interface SpanningTree {
 
 /**
  * Deterministic tree projection of a general graph for tree-only formats.
- * Root: the zero-in-degree node with the most outgoing edges (first in input order on ties).
- * Multiple candidates or unreachable nodes are attached under a synthetic root.
+ * Root: the zero-in-degree node; a fully cyclic graph roots at the highest fan-out node
+ * (first in input order on ties). Multiple zero-in-degree candidates or unreachable
+ * nodes are attached under a synthetic root.
  */
 export function spanningTree(graph: VisualizationGraph, syntheticRootId = "__root__"): SpanningTree {
   const ids = new Set(graph.nodes.map((node) => node.id));

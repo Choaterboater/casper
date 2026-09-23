@@ -116,7 +116,8 @@ apart — a compiled binary cannot read `package.json`, so the version lives in 
 
 - **No administrator access.** Installation goes to `~/.local/bin` on macOS/Linux, or
   `%LOCALAPPDATA%\Programs\casper` on Windows; `CASPER_INSTALL_DIR` overrides it.
-  `install.sh` fails early when that directory cannot be created or written.
+  `install.sh` aborts before staging anything when that directory cannot be created
+  or written.
 - **Verify or refuse.** Downloads must match `SHA256SUMS` (or an explicit
   `--sha256`/`CASPER_SHA256` override for out-of-band verification); a missing or
   mismatched digest aborts and nothing is installed. The shell installer's

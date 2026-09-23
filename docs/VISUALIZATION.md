@@ -33,8 +33,8 @@ Providers implement `VisualizationProvider` (`supports(type)`, `render(graph)`);
 
 Mindmaps and MindMesh documents are trees; the IR is a graph. `spanningTree` projects deterministically:
 
-1. Root = the zero-in-degree node with the most outgoing edges (input order breaks ties).
-2. Multiple candidates, unreachable islands, or fully cyclic graphs attach under a **synthetic root** titled with the graph title.
+1. Root = the zero-in-degree node. A fully cyclic graph (no zero-in-degree node) roots at the node with the most outgoing edges; input order breaks ties.
+2. Multiple zero-in-degree candidates or unreachable islands attach under a **synthetic root** titled with the graph title.
 3. Edges not used by the tree are **cross edges**. Mermaid mindmaps list them as `%%` comments; MindMesh records them in node notes (`→`/`←` lines) and `extensions.casper` (`crossEdgesOut`/`crossEdgesIn`), along with `graphId`, `group`, `edgeLabel`, and `graphType`.
 
 Every result carries a `lossiness` list stating what the format could not draw. Mermaid strips shape/comment characters from mindmap labels and encodes `"`, `#`, and `|` in flowchart labels.

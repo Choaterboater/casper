@@ -322,6 +322,39 @@ needsSymlinks("a rename cannot certify absence through a symlink", async () => {
   expect(result.failures.join("\n")).toContain("scan unavailable");
 });
 
+test("a runtime disposal failure during close is recorded, not thrown out of the harness", async () => {
+  const task = findEvalTask("find-bug-without-editing")!;
+  const home = await tempDir("casper-eval-close-fail-");
+  const result = await runEvalTask(task, {
+    repoRoot, homeDir: home, autoVerify: false,
+    runtimeFactory: () => ({
+      async start() {
+        return {
+          async prompt() {},
+          async abort() {},
+          subscribe: () => () => {},
+          getState: () => ({ cwd: "", isStreaming: false }),
+        };
+      },
+      async dispose() { throw new Error("dispose failed"); },
+    }),
+  });
+  // The observation is still graded on its merits; the close failure stays visible.
+  expect(result.execution).toBe("completed");
+  expect(result.runtimeErrors.join("\n")).toContain("dispose failed");
+});
+
+test("changed/unchanged prefixes match path boundaries, not raw string prefixes", async () => {
+  const workdir = await tempDir("casper-eval-boundary-");
+  // package.json.bak is not under package.json; src-backup/ is not under src.
+  const result = await evaluateAcceptance(
+    { changed: ["src"], unchanged: ["package.json"] },
+    { workdir, touched: ["src/new.ts", "package.json.bak", "src-backup/old.ts"], answer: "" },
+  );
+  expect(result.passed).toBe(true);
+  expect(result.failures).toEqual([]);
+});
+
 test("acceptance predicates name the exact violated expectation", async () => {
   const workdir = await tempDir("casper-eval-acceptance-");
   await mkdir(path.join(workdir, "tests"));

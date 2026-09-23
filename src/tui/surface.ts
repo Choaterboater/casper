@@ -147,7 +147,9 @@ export class TerminalSurface {
     this.tui.addInputListener(data => {
       if (this.exitArmed && !matchesKey(data, "ctrl+c")) this.disarmExit();
       if (this.slot || this.lending) {
-        if (matchesKey(data, "ctrl+c")) { this.interrupt(); return { consume: true }; }
+        // A slot-mounted picker cancels itself on Ctrl+C (its own listener below);
+        // interrupting here would clear an editor that is not even visible.
+        if (this.lending && matchesKey(data, "ctrl+c")) { this.interrupt(); return { consume: true }; }
         return undefined;
       }
       if (matchesKey(data, "enter") && this.editor.isShowingAutocomplete()) {
