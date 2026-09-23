@@ -23,9 +23,9 @@ Transcript lines are inline, not boxed: `✓`/`✗`/`•` tool lines, `[model]`,
 `[approval]`, `[task]` and similar bracketed notices, and the `❯ …` echo of each
 prompt. Green marks success, red an error, amber a notice or decision, cyan the
 accent (banner, prompt echo, Markdown structure), dim the muted status lines.
-Bordered panels (`src/tui/presentation.ts`) are reserved for code and code-like
-output: every fenced block in an assistant message is boxed and titled with its
-language, `/output` replays a tool result in a box, `/diff` boxes `git status` and
+Bordered panels (`src/tui/presentation.ts`) are used for code-like output and
+live work status: every fenced block in an assistant message is boxed and titled
+with its language, `/output` replays a tool result in a box, `/diff` boxes `git status` and
 the colored unified diff, a failed check boxes the tail of its stderr and stdout
 (last 40 lines; the full output stays in the evidence), and exclusive input flows such as `/login` use them.
 Prose, notices and tool lines stay inline. Panels never exceed 120 columns: code is
@@ -48,11 +48,10 @@ redaction; this is not a general secret detector, and recorded evidence is uncha
 Tool activity shows file/command targets (grep/find show their pattern), state and
 elapsed time. On a rich terminal the `• … — running` line is redrawn in place as
 `✓`/`✗` when that call finishes, so each tool call occupies one transcript line;
-any other output in between (assistant text, another tool, a prompt) commits the
-running line first. While the model is producing something not yet visible —
-reasoning, or the arguments of a large `write` — a dim `… thinking · 1.5k chars` /
-`… write · composing arguments · 4.0k chars` line keeps the screen live and is
-erased when the visible output arrives.
+any other output in between commits the running line first. A transient `Working`
+box appears as soon as a model response starts, then updates while it thinks,
+prepares tool arguments, or runs a tool. It shows activity and safe tool targets,
+not hidden reasoning or generated arguments, and clears when assistant text streams.
 
 Help and results group related facts instead of one long paragraph. Assistant
 instructions favor the answer or action first, numbered human steps when needed,
@@ -132,8 +131,8 @@ unreported failed-request cost is unknown, not zero.
 
 ### Provider login
 
-`/login` offers Codex and GitHub Copilot device-code login, plus Anthropic/Claude
-and OpenRouter API-key or browser sign-in. `/login <provider-id>` skips only the
+`/login` offers Codex and GitHub Copilot device-code login, Anthropic/Claude API-key
+or browser sign-in, and OpenRouter API-key login. `/login <provider-id>` skips only the
 provider chooser. Every method requires fresh consent to provider-scoped shared
 credential replacement; login does not select a model. Browser opening is manual.
 Keys and callback codes/URLs use a separate hidden prompt, never chat/history.
@@ -152,8 +151,8 @@ coverage exercises rendering and complete synthetic login flows; Windows-host
 verification of this correction is still pending.
 
 Copilot login may enable account model policies. Pi documents Claude subscription
-auth as billed extra usage; OpenRouter browser sign-in mints a permanent key billed
-from credits. Callback listeners are loopback-only. Plain terminals remain guidance
+auth as billed extra usage. OpenRouter API usage is billed from credits. Callback
+listeners are loopback-only for Claude browser sign-in. Plain terminals remain guidance
 only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
 
 ### Input and commands
@@ -163,6 +162,9 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
 - `@`/Tab offers file-path completion. This inserts a reference; it does **not**
   attach/read the file or grant additional permissions. Unsafe control-bearing
   completion labels are omitted.
+- Clarification questions keep the question on its own line. Use Up/Down and Enter
+  to choose; Space toggles multi-select choices. Typing still accepts a custom
+  answer, and Esc skips.
 - Up/Down recalls current-process prompt history. Shift+Enter where the terminal
   supports it, or Ctrl+J, inserts a newline. Bracketed paste stays in the draft.
 - Escape stops active work. Ctrl+C cancels work; when idle it clears a draft. On an

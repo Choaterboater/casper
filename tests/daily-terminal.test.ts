@@ -4,6 +4,7 @@ import { EventEmitter } from "node:events";
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { RuntimeEventView } from "../src/app/events";
 import { InteractiveTerminal } from "../src/tui/terminal";
 import { withLoginDisplay } from "../src/tui/login";
 import { posixOnly } from "./support/platform";
@@ -38,6 +39,33 @@ function fakeWriter(columns: number, rows: number) {
 
 const REPAINT = "\x1b[2J\x1b[H\x1b[3J";
 const plainLines = (frame: string) => frame.replace(/\x1b\[[0-9;?]*[a-zA-Z]|\x1b\][^\x07]*\x07/g, "").split("\r\n");
+
+test("live work status appears in a box before response text and clears when it streams", async () => {
+  const input = Object.assign(new PassThrough(), { isTTY: true, setRawMode() {} });
+  const screen = fakeWriter(80, 24);
+  const terminal = new InteractiveTerminal(input, screen.writer, () => {}, () => {});
+  let events!: RuntimeEventView;
+  const output = { write: (text: string) => { events.beforeWrite(text); terminal.write(text); } };
+  events = new RuntimeEventView(terminal, output, {
+    updateFooter() {}, onToolEnd() {}, setTaskStop() {}, markRuntimeFailed() {},
+  });
+  try {
+    terminal.setStatus("fixture"); terminal.start();
+    events.handle({ type: "assistant_response_start" });
+    await screen.until(output => Bun.stripANSI(output).includes("Thinking…"));
+    expect(Bun.stripANSI(screen.output)).toContain("╭─ Working ");
+    events.handle({ type: "tool_start", toolName: "write", toolCallId: "write-1", input: { path: "src/app.ts" } });
+    await screen.until(output => Bun.stripANSI(output).includes("src/app.ts — running"));
+    expect(Bun.stripANSI(screen.output)).toContain("Working");
+    events.handle({ type: "tool_end", toolName: "write", toolCallId: "write-1", input: { path: "src/app.ts" }, isError: false });
+    events.handle({ type: "assistant_text_delta", delta: "Working on it.\n" });
+    screen.writer.columns = 79; screen.writer.emit("resize");
+    await screen.until(output => output.split(REPAINT).length > 1 && output.split(REPAINT).at(-1)!.includes("Working on it."));
+    const frame = plainLines(screen.output.split(REPAINT).at(-1)!).join("\n");
+    expect(frame).toContain("Working on it.");
+    expect(frame).not.toContain("Thinking…");
+  } finally { terminal.close(); input.destroy(); }
+});
 
 test("streamed assistant Markdown renders lists and fences once, whole, and re-renders on width change", async () => {
   const input = Object.assign(new PassThrough(), { isTTY: true, setRawMode() {} });

@@ -182,8 +182,8 @@ export class CasperApp {
     this.terminal = new InteractiveTerminal(this.input, options.output ?? process.stdout,
       () => this.cancelCurrent(), () => { if (this.commandActive && !this.closing) void this.close().catch(() => {}); });
     // A tool's "running" line is left open on a rich surface so its completion can redraw it in
-    // place (`\r`); any other output first commits that line, so nothing appends to it. A progress
-    // line (reasoning / tool arguments still streaming) is ephemeral: it is erased, not committed.
+    // place (`\r`); any other output first commits that line, so nothing appends to it. The boxed
+    // activity status stays out of the transcript and is cleared as streamed text arrives.
     // The open-line state lives in the event view; every write consults it first.
     this.output = { write: (text) => {
       this.events.beforeWrite(text);

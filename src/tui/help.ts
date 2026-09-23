@@ -33,7 +33,7 @@ nothing runs unless the model selects one. One-shot prompts need --verify.
 
 export const LOGIN_HELP = `Provider login requires an interactive Casper terminal.
 Run casper, then /login [openai-codex|github-copilot|anthropic|openrouter].
-Codex/Copilot use device-code login; Claude/OpenRouter offer API key or browser sign-in.
+Codex/Copilot use device-code login; Claude offers API key or browser sign-in; OpenRouter uses an API key.
 Use TERM other than dumb and output not redirected.
 This guidance changes no credentials. Never paste passwords, tokens or API keys into chat.
 Login requires consent to the shared Pi/Casper auth store; it does not select a model.

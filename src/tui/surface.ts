@@ -1,4 +1,7 @@
-import { CombinedAutocompleteProvider, type AutocompleteProvider, type Component, Editor, Markdown, type MarkdownTheme, matchesKey, setCapabilityOverrides, TuiMainScreen, truncateToWidth } from "@earendil-works/pi-tui";
+import {
+  CombinedAutocompleteProvider, Container, type AutocompleteProvider, type Component, Editor, Markdown, type MarkdownTheme,
+  matchesKey, SelectList, setCapabilityOverrides, Text, TuiMainScreen, truncateToWidth,
+} from "@earendil-works/pi-tui";
 import { stripVTControlCharacters } from "node:util";
 import type { RuntimeModelPickerHost, RuntimePickerIO, RuntimePickerView } from "../runtime/types";
 import { COMMANDS } from "./commands";
@@ -83,6 +86,7 @@ export class TerminalSurface {
   private readonly accent: (text: string) => string;
   private readonly muted: (text: string) => string;
   private status = "";
+  private activity?: string;
   private note = "";
   private exitArmed?: NodeJS.Timeout;
   private cwd = "";
@@ -99,6 +103,11 @@ export class TerminalSurface {
   private pendingAsk?: (answer: string[] | undefined) => void;
   private askOptions?: { label: string; description?: string }[];
   private askMulti = false;
+  private askPanel?: Container;
+  private askQuestion?: string;
+  private askList?: SelectList;
+  private askSelections = new Set<number>();
+  private askActiveIndex = 0;
   private message?: MarkdownMessage;
   private source = "";
   private plainAssistantOpen = false;
@@ -139,12 +148,18 @@ export class TerminalSurface {
       render: width => {
         const editorLines = this.editor.render(width);
         const rule = this.muted("─".repeat(width));
+        const activity = this.activity ? renderPanel("Working", [this.activity], Math.min(width, PANEL_MAX_COLUMNS), this.io.color, "accent") : [];
+        const askLines = this.askPanel?.render(width) ?? [];
         const block = this.slot ? this.slot.render(width).map(line => truncateToWidth(line, width))
           : this.lending ? [rule, this.muted(truncateToWidth("  exclusive input in progress · Esc or Ctrl+C cancels", width)), rule]
-          : this.editor.popup.length ? [rule, ...this.editor.popup, ...editorLines] : editorLines;
+          : this.askPanel ? [rule, ...askLines, rule, ...editorLines]
+          : this.editor.popup.length ? [rule, ...this.editor.popup, ...activity, ...editorLines] : [...activity, ...editorLines];
         while (block.length < editorLines.length) block.push("");
         const body = this.transcript.render(width);
-        const overflow = this.lending ? 0 : Math.max(0, block.length - editorLines.length);
+        const overlayLines = this.slot ? block.length - editorLines.length
+          : this.askPanel ? askLines.length + 2
+          : this.editor.popup.length ? this.editor.popup.length + 1 : 0;
+        const overflow = this.lending ? 0 : Math.max(0, overlayLines);
         return [...body.slice(0, Math.max(0, body.length - overflow)), ...block, this.footer(width)];
       },
       invalidate: () => { this.transcript.invalidate(); this.editor.invalidate(); this.slot?.invalidate(); },
@@ -168,6 +183,23 @@ export class TerminalSurface {
         else if (this.pendingAsk) this.pendingAsk(undefined);
         else this.cancel();
         return { consume: true };
+      }
+      if (this.askList && this.pendingAsk) {
+        if ((matchesKey(data, "up") || matchesKey(data, "down")) && !this.editor.getText()) {
+          this.askList.handleInput(data); this.render(); return { consume: true };
+        }
+        if (matchesKey(data, "enter") && !this.editor.getText()) {
+          this.askList.handleInput(data); return { consume: true };
+        }
+        if (this.askMulti && matchesKey(data, "space") && !this.editor.getText()) {
+          const selected = this.askList.getSelectedItem();
+          if (selected) {
+            const index = Number(selected.value);
+            if (this.askSelections.has(index)) this.askSelections.delete(index); else this.askSelections.add(index);
+            this.buildAskList(); this.render();
+          }
+          return { consume: true };
+        }
       }
       if (matchesKey(data, "ctrl+l")) { this.tui.requestRender(true); return { consume: true }; }
       return undefined;
@@ -207,10 +239,15 @@ export class TerminalSurface {
     }
     this.render();
   }
+  setActivity(status?: string): void {
+    const activity = status ? terminalText(status).replace(/\s+/g, " ").trim() : "";
+    this.activity = activity || undefined;
+    this.render();
+  }
   private configureAutocomplete(): void {
     const provider = this.autocomplete;
     if (!provider) return;
-    this.editor.setAutocompleteProvider(this.busy || this.confirmation
+    this.editor.setAutocompleteProvider(this.busy || this.confirmation || this.pendingAsk
       ? { ...provider, triggerCharacters: [], getSuggestions: async () => null } : provider);
   }
   private render(): void { if (this.started && !this.closed) this.tui.requestRender(); }
@@ -272,51 +309,71 @@ export class TerminalSurface {
     return promise;
   }
 
-  /** One structured clarification: numbered options plus free text, editor-input like confirm.
-   * Resolves the chosen labels (or the typed answer); undefined means skipped, aborted or unavailable. */
+  /** One structured clarification with a standalone question, navigable choices and free-text input. */
   ask(question: string, options: { label: string; description?: string }[], multi: boolean, signal?: AbortSignal): Promise<string[] | undefined> {
     if (this.closed || this.slot || this.lending || this.confirmation || this.pendingAsk || signal?.aborted) return Promise.resolve(undefined);
-    this.endAssistant();
+    this.endAssistant(); this.activity = undefined;
     const draft = this.editor.getExpandedText();
     this.editor.setText(""); // Pretyped drafts never answer a question.
-    const listed = options.map((option, index) => [
-      this.accent(`${index + 1}. `) + terminalText(option.label),
-      ...(option.description ? [this.muted(`   ${terminalText(option.description)}`)] : []),
-    ]).flat();
-    const hint = this.muted(multi ? "Reply with one or more numbers, or your own answer · Esc skips" : "Reply with a number or your own answer · Esc skips");
-    this.write([this.accent(terminalText(question)), ...listed, hint].join("\n") + "\n");
+    const safeQuestion = terminalText(question);
+    const transcriptEntry = [this.accent(safeQuestion), ...options.flatMap(option => [
+      `• ${terminalText(option.label)}`,
+      ...(option.description ? [`  ${terminalText(option.description)}`] : []),
+    ])].join("\n") + "\n";
+    this.askQuestion = safeQuestion;
     const { promise, resolve } = Promise.withResolvers<string[] | undefined>();
     let settled = false;
     const finish = (answer: string[] | undefined) => {
       if (settled) return; settled = true;
       signal?.removeEventListener("abort", cancel);
       this.pendingAsk = undefined; this.askOptions = undefined; this.askMulti = false;
+      this.askPanel = undefined; this.askList = undefined; this.askSelections.clear(); this.askActiveIndex = 0;
+      this.write(transcriptEntry); this.askQuestion = undefined;
       this.editor.setText(draft); this.configureAutocomplete(); this.render(); resolve(answer);
     };
     const cancel = () => finish(undefined);
-    this.pendingAsk = finish; this.askOptions = options; this.askMulti = multi;
-    this.configureAutocomplete(); this.render();
+    this.pendingAsk = finish; this.askOptions = options; this.askMulti = multi; this.askSelections.clear(); this.askActiveIndex = 0;
+    this.buildAskList(); this.configureAutocomplete(); this.render();
     signal?.addEventListener("abort", cancel, { once: true });
     if (signal?.aborted) cancel();
     return promise;
   }
 
-  /** Numbers pick listed options (comma/space separated; several only when multi); any other
-   * nonempty line is a free-text answer. Out-of-range or malformed replies keep the question open. */
+  private buildAskList(): void {
+    const options = this.askOptions ?? [];
+    const items = options.map((option, index) => {
+      const marker = this.askMulti ? (this.askSelections.has(index) ? "[x] " : "[ ] ") : "";
+      return {
+        value: String(index), label: `${marker}${terminalText(option.label)}`,
+        description: option.description ? terminalText(option.description) : undefined,
+      };
+    });
+    const list = new SelectList(items, Math.max(1, items.length), {
+      selectedPrefix: this.accent, selectedText: this.accent, description: this.muted,
+      scrollInfo: this.muted, noMatch: this.muted,
+    });
+    list.setSelectedIndex(this.askActiveIndex);
+    list.onSelectionChange = item => { this.askActiveIndex = Number(item.value); };
+    list.onSelect = item => {
+      const index = Number(item.value);
+      if (!this.askMulti) { this.pendingAsk?.([options[index]!.label]); return; }
+      if (!this.askSelections.size) this.askSelections.add(index);
+      this.pendingAsk?.([...this.askSelections].sort((a, b) => a - b).map(selected => options[selected]!.label));
+    };
+    list.onCancel = () => this.pendingAsk?.(undefined);
+    const panel = new Container();
+    panel.addChild(new Text(this.accent(this.askQuestion ?? ""), 0, 0));
+    panel.addChild(list);
+    panel.addChild(new Text(this.muted(this.askMulti
+      ? "Up/Down: move · Space: toggle · Enter: answer · type: custom answer · Esc: skip"
+      : "Up/Down: move · Enter: choose · type: custom answer · Esc: skip"), 0, 0));
+    this.askList = list; this.askPanel = panel;
+  }
+
+  /** A nonempty editor submission is always free text; listed choices are selected with arrow keys. */
   private answerAsk(value: string): void {
-    const finish = this.pendingAsk;
-    if (!finish) return;
     const text = value.trim();
-    if (!text) return; // Enter on an empty box is not an answer.
-    const parts = text.split(/[\s,,]+/);
-    if (parts.every(part => /^\d+$/.test(part))) {
-      const picked = parts.map(part => this.askOptions?.[Number(part) - 1]);
-      if (picked.some(option => !option)) return;
-      if (!this.askMulti && picked.length > 1) return;
-      finish(picked.map(option => option!.label));
-      return;
-    }
-    finish([text]);
+    if (text) this.pendingAsk?.([text]);
   }
 
   exclusiveHost(): RuntimeModelPickerHost | undefined {

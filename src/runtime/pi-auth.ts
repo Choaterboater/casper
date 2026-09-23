@@ -8,10 +8,10 @@ const providers: readonly { id: RuntimeAuthProvider; label: string }[] = [
   { id: "openai-codex", label: "OpenAI Codex — device code" },
   { id: "github-copilot", label: "GitHub Copilot — device code (github.com)" },
   { id: "anthropic", label: "Anthropic / Claude — API key or browser sign-in" },
-  { id: "openrouter", label: "OpenRouter — API key or browser sign-in" },
+  { id: "openrouter", label: "OpenRouter — API key" },
 ];
 
-/** Accept only the pinned providers' HTTPS authorization pages and loopback redirects. */
+/** Accept only Anthropic's HTTPS authorization page and loopback callback. */
 function validAuthorizationUrl(provider: RuntimeAuthProvider, value: string): boolean {
   if (typeof value !== "string" || value.length > 8192 || !/^[\x21-\x7e]+$/.test(value)) return false;
   try {
@@ -21,11 +21,7 @@ function validAuthorizationUrl(provider: RuntimeAuthProvider, value: string): bo
       return url.origin === "https://claude.ai" && url.pathname === "/oauth/authorize" &&
         url.searchParams.get("redirect_uri") === "http://localhost:53692/callback";
     }
-    if (provider !== "openrouter" || url.origin !== "https://openrouter.ai" || url.pathname !== "/auth") return false;
-    const callback = new URL(url.searchParams.get("callback_url") ?? "");
-    return callback.protocol === "http:" && callback.hostname === "127.0.0.1" && !!callback.port &&
-      !callback.username && !callback.password && !callback.search && !callback.hash &&
-      /^\/oauth\/callback\/[a-f0-9-]{36}$/.test(callback.pathname);
+    return false;
   } catch { return false; }
 }
 
@@ -66,15 +62,15 @@ export async function authenticatePi(options: RuntimeAuthenticationOptions, dest
       provider ??= await display.choose("Choose provider", providers);
       if (!provider) return { status: "cancelled", effect: "none" };
       const selected = provider;
-      const method = selected === "anthropic" || selected === "openrouter"
+      const method = selected === "anthropic"
         ? await display.choose("Choose sign-in method", [{ id: "api_key", label: "API key" }, { id: "oauth", label: "Browser sign-in" }] as const)
-        : "oauth";
+        : selected === "openrouter" ? "api_key" : "oauth";
       if (!method) return { status: "cancelled", effect: "none" };
-      const browser = method === "oauth" && (selected === "anthropic" || selected === "openrouter");
+      const browser = method === "oauth" && selected === "anthropic";
       const disclosure = selected === "github-copilot"
         ? "Pi may enable model policies on your GitHub account. Cancellation cannot undo remote changes."
         : selected === "anthropic" ? "API use is billed separately. Pi documents Claude subscription sign-in as per-token extra usage, not plan limits."
-        : selected === "openrouter" ? "Usage is billed from OpenRouter credits. Browser sign-in creates a permanent API key."
+        : selected === "openrouter" ? "Usage is billed from OpenRouter credits. Use an API key from OpenRouter."
         : "Device-code access must be enabled by the provider.";
       if (!await display.consent(destination, selected, method === "api_key" ? "an API key" : browser ? "browser authorization" : "a device code",
         disclosure + (browser ? "\nStarts a temporary loopback callback listener. Redirect URLs/codes belong only in the private login prompt." : "")) || display.signal.aborted) {
