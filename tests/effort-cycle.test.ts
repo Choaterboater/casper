@@ -73,6 +73,66 @@ test("Shift+Tab while a command is in flight does not cycle and does not answer 
   } finally { terminal.close(); input.destroy(); }
 });
 
+test("Ctrl+C cancels the effort picker instead of arming exit behind it", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-effort-cancel-"));
+  const home = path.join(root, "home");
+  const project = path.join(root, "project");
+  await mkdir(home, { recursive: true });
+  await mkdir(project, { recursive: true });
+  const runtime: AgentRuntime = {
+    async start() {
+      return {
+        getStatus: (): RuntimeStatus => ({ provider: "fixture", model: "demo", auth: "configured", thinkingLevel: "high", configuredEffort: "high", availableThinkingLevels: ["off", "low", "medium", "high"] }),
+        setEffort: async (level: string, persist: boolean) => ({ provider: "fixture", model: "demo", auth: "configured", thinkingLevel: level === "auto" ? "high" : level, configuredEffort: level, availableThinkingLevels: ["off", "low", "medium", "high"] }),
+        getState: () => ({ cwd: project, isStreaming: false }),
+        subscribe: () => () => {},
+        abort: async () => {},
+        prompt: async () => {},
+      };
+    },
+    async dispose() {},
+  };
+  const input = Object.assign(new PassThrough(), { isTTY: true, setRawMode() {} });
+  let output = "";
+  let pending: { test: (output: string) => boolean; resolve: () => void } | undefined;
+  const writer = Object.assign(new EventEmitter(), { isTTY: true, columns: 100, rows: 30, write(text: string) {
+    output += text;
+    if (pending?.test(output)) { pending.resolve(); pending = undefined; }
+  } });
+  const until = (test: (output: string) => boolean) => {
+    if (test(output)) return Promise.resolve();
+    const { promise, resolve } = Promise.withResolvers<void>();
+    pending = { test, resolve };
+    return promise;
+  };
+  const app = new CasperApp({
+    input, output: writer, runtimeFactory: () => runtime, sessionHomeDir: home,
+    loadProjectContext: info => loadProjectContext(info, { homeDir: home }),
+    loadSkillRegistry: context => SkillRegistry.discover({ projectRoot: context.info.root, homeDir: home }),
+    loadMCPConfiguration: async () => ({ servers: [], diagnostics: [] }),
+    loadLSPConfiguration: async () => ({ servers: [], diagnostics: [] }),
+    loadReferenceConfiguration: async () => ({ sources: [], diagnostics: [] }),
+  });
+  const interactive = app.runInteractive(project);
+  try {
+    await until(text => Bun.stripANSI(text).includes("idle"));
+    const beforePicker = output.length;
+    input.write("/effort\r");
+    await until(text => Bun.stripANSI(text).includes("Reasoning effort"));
+    input.write("\x03");
+    await until((text) => Bun.stripANSI(text).slice(beforePicker).includes("idle"));
+    // The picker dismissed without the exit-arming note and without ending the session.
+    expect(Bun.stripANSI(output).slice(beforePicker)).not.toContain("Ctrl-C again to exit");
+    // Liveness race: no deterministic signal exists for "still interactive", so a short real
+    // wait guards that the session did not end (same pattern as the Shift+Tab test below).
+    expect(await Promise.race([interactive.then(() => "ended"), Bun.sleep(500).then(() => "alive")])).toBe("alive");
+  } finally {
+    await app.close();
+    input.destroy();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("interactive Shift+Tab selects auto then the next fixed level without saving", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-effort-cycle-"));
   const home = path.join(root, "home");

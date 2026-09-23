@@ -20,6 +20,7 @@ const DOCS = [
   "See [link](http://x).\n\nNext paragraph.",
   "<div>\n\nhello\n\n</div>\n\nAfter.",
   "Before.\n\n```ts\nconst xs = [1];\n```\n\nAfter the fence.",
+  "Nested:\n\n````md\ncode\n```\n\nmore code\n````\n\nDone.",
   "Open fence stays one block:\n\n```ts\nconst x = 1;\n",
   "No break yet, just a growing paragraph with **bold**.",
 ];

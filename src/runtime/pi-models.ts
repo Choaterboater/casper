@@ -233,7 +233,10 @@ export class PiModels {
     if (persist) {
       const preferences = this.preferences();
       preferences.setModelThinkingLevel(model.provider, model.id, session.thinkingLevel);
-      if (this.defaultReference(preferences)?.id === model.id && this.defaultReference(preferences)?.provider === model.provider)
+      // The saved default is resolved case-insensitively everywhere else (model-routing
+      // @default, startup); this comparison must agree or defaultThinkingLevel diverges.
+      const reference = this.defaultReference(preferences);
+      if (reference?.id.toLowerCase() === model.id.toLowerCase() && reference?.provider.toLowerCase() === model.provider.toLowerCase())
         preferences.setDefaultThinkingLevel(session.thinkingLevel);
       await preferences.flush();
       if (preferences.drainErrors().length) throw new Error("Effort applied to this conversation, but could not be saved.");

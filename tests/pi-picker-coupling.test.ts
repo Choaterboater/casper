@@ -26,8 +26,8 @@ const stripAnsi = (line: string) => line.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, "");
 /** The adapter's slot render, mirrored from pickPiModel: the selector's lines plus Casper's hint. */
 function withCasperHint(lines: string[], sessionOnly: boolean): string[] {
   const hint = sessionOnly
-    ? "Enter: session only · Esc: cancel · /effort after selecting"
-    : "Enter: remember globally · Ctrl+S: session only · Esc: cancel · /effort after selecting";
+    ? "Enter: session only · Esc/Ctrl+C: cancel · /effort after selecting"
+    : "Enter: remember globally · Ctrl+S: session only · Esc/Ctrl+C: cancel · /effort after selecting";
   return [...lines, truncateToWidth(hint, 100)];
 }
 

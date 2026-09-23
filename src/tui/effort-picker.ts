@@ -17,7 +17,7 @@ export async function pickEffort(view: RuntimePickerView, levels: string[], curr
   panel.addChild(rule);
   panel.addChild(new Text(accent(terminalText(title)), 0, 0));
   panel.addChild(list);
-  panel.addChild(new Text(muted("Enter: remember · Ctrl+S: session only · Esc: cancel"), 0, 0));
+  panel.addChild(new Text(muted("Enter: remember · Ctrl+S: session only · Esc/Ctrl+C: cancel"), 0, 0));
   panel.addChild(rule);
   const { promise, resolve } = Promise.withResolvers<{ level: string; persist: boolean } | undefined>();
   let settled = false;
@@ -26,6 +26,7 @@ export async function pickEffort(view: RuntimePickerView, levels: string[], curr
   const removeListener = view.tui.addInputListener(data => {
     if (matchesKey(data, "ctrl+s")) { const item = list.getSelectedItem(); if (item) finish({ level: item.value, persist: false }); return { consume: true }; }
     if (matchesKey(data, "ctrl+d")) { finish(); view.onEOF(); return { consume: true }; }
+    if (matchesKey(data, "ctrl+c")) { finish(); return { consume: true }; }
     return undefined;
   });
   list.onSelect = item => finish({ level: item.value, persist: true });

@@ -165,7 +165,7 @@ so a newly observed host-only failure can still be a fixture defect.
 
 | POSIX-only because | Suites |
 | --- | --- |
-| Python 3 PTY fixtures | `daily-terminal`, `terminal-ux`, `login`, `model-selection`, `phase10-debugger-app` |
+| Python 3 PTY fixtures | `daily-terminal`, `terminal-ux`, `terminal-layout`, `login`, `model-selection`, `phase10-debugger-app` |
 | Native (model-issued) shell commands the pinned Pi executes, whose text the product parses for paths — `rm`, `ln -s`, `test -f … && rm …`, `kill -TERM $$` | `phase8-pi.integration` (4 gates + 2 `!caseInsensitiveFilesystem \|\| !POSIX`), `work-driven-checks` (signal termination, cancellation with `& wait`), `phase3-app` (process group, TERM-resistant descendant, observation tests that match the configured command against model-reported text) |
 | The POSIX installer and its `#!/bin/sh` stand-in artifact | `release-install` |
 | Symlink creation | `phase2-skills`, `phase5-lsp`, `phase6-review`, `phase6-visualize`, `phase9-learn`, `phase9-memory`, `phase9-references`, `phase10-browser`, `phase10-debugger`, `phase8-pi.integration`, `work-driven-checks`, `model-selection`, `eval-suite` |

@@ -237,7 +237,8 @@ automatic launch environment**: launching Casper manually still requires approve
 HOME/XDG/runtime configuration isolation. Neither preparation nor grading reads
 personal credentials or starts a provider runtime.
 
-Host observation JSON has required fields:
+Host observation JSON has required fields (`workflowChecks` is optional unless the
+task declares required evidence):
 
 ```json
 {

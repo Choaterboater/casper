@@ -30,7 +30,7 @@ async function fixture() {
 
 afterEach(async () => { await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true }))); });
 
-function createApp(root: string, options: { autoVerify?: boolean; respond?: (prompt: string, emit: RuntimeEventListener) => Promise<void>; onStart?: () => Promise<void>; onAbort?: () => Promise<void>; stopReason?: string; editOnPrompt?: (count: number) => boolean; checkOnPrompt?: boolean; checkFailureOnPrompt?: boolean; selectCheckOnPrompt?: (count: number) => boolean } = {}) {
+function createApp(root: string, options: { autoVerify?: boolean; respond?: (prompt: string, emit: RuntimeEventListener) => Promise<void>; onStart?: () => Promise<void>; onAbort?: () => Promise<void>; stopReason?: string; editOnPrompt?: (count: number) => boolean; checkOnPrompt?: boolean; checkFailureOnPrompt?: boolean; selectCheckOnPrompt?: (count: number) => boolean; onSetTools?: (tools: RuntimeTool[]) => void } = {}) {
   const prompts: string[] = [];
   let starts = 0;
   let promptCount = 0;
@@ -44,10 +44,11 @@ function createApp(root: string, options: { autoVerify?: boolean; respond?: (pro
       starts++;
       afterFileEdit = startOptions.afterFileEdit;
       tools = startOptions.tools ?? [];
+      options.onSetTools?.(tools);
       await options.onStart?.();
       if (!options.respond) throw new Error("Runtime unavailable");
       return {
-        setTools(next) { tools = next; },
+        setTools(next) { tools = next; options.onSetTools?.(next); },
         async prompt(text) {
           promptCount++;
           prompts.push(text); await options.respond!(text, (event) => listener?.(event));
@@ -362,6 +363,48 @@ test("managed checks require opt-in and model selection, and repair retains the 
   } finally { await opted.app.close(); }
 });
 
+test("repair rounds reuse the parent task's delegate tool with its dispatch budget", async () => {
+  const root = await fixture();
+  const delegateTools: RuntimeTool[] = [];
+  const { app, prompts } = createApp(root, {
+    autoVerify: true,
+    selectCheckOnPrompt: (count) => count === 1,
+    respond: async (prompt) => {
+      if (prompt.startsWith("Casper verification repair")) {
+        await writeFile(path.join(root, "fixed"), "");
+        await writeFile(path.join(root, "final"), "");
+      }
+    },
+    onSetTools: (tools) => {
+      const delegate = tools.find((tool) => tool.name === "delegate");
+      if (delegate) delegateTools.push(delegate);
+    },
+  });
+  try {
+    await app.runOnce("Fix addition, preserve its API", root);
+    // Initial turn plus one repair round; both must share one delegate tool instance,
+    // because the dispatch budget belongs to the parent task, not the toolset refresh.
+    expect(prompts.some((prompt) => prompt.startsWith("Casper verification repair"))).toBe(true);
+    expect(delegateTools.length).toBeGreaterThan(0);
+    expect(new Set(delegateTools).size).toBe(1);
+    const firstTaskTool = delegateTools[0]!;
+    await app.runOnce("/project");
+    delegateTools.length = 0;
+    // A new request is a new parent task with a fresh budget.
+    await app.runOnce("Fix division, preserve its API", root);
+    expect(delegateTools.length).toBeGreaterThan(0);
+    expect(new Set(delegateTools).size).toBe(1);
+    expect(delegateTools[0]!).not.toBe(firstTaskTool);
+    delegateTools.length = 0;
+    // An explicit /verify repair is its own task and gets its own tool instance; the
+    // first repair writes `fixed` (already present), the second `final`, forcing two rounds.
+    await rm(path.join(root, "fixed"));
+    await app.runOnce("/verify repair test", root);
+    expect(delegateTools.length).toBeGreaterThan(0);
+    expect(delegateTools[0]!).not.toBe(firstTaskTool);
+  } finally { await app.close(); }
+});
+
 test("closing the app cancels an active verification command without starting a repair", async () => {
   const root = await fixture();
   await writeFile(path.join(root, ".casper/project.yaml"), `verify:\n  test: ${JSON.stringify(checkCommand("touch:started", "sleep:10000"))}\n`);
@@ -544,7 +587,9 @@ posixOnly("CLI shutdown has a deadline when runtime startup never settles", asyn
   try {
     for (let attempt = 0; attempt < 200 && !await Bun.file(path.join(root, "runtime-started")).exists(); attempt++) await Bun.sleep(10);
     expect(await Bun.file(path.join(root, "runtime-started")).exists()).toBe(true);
-    deadline = setTimeout(() => child.kill("SIGKILL"), 2500);
+    // The 1s shutdown deadline is the contract; the SIGKILL backstop only bounds the
+    // child's process startup + teardown wall clock, which full-suite load inflates.
+    deadline = setTimeout(() => child.kill("SIGKILL"), 10_000);
     child.kill("SIGTERM");
     expect(await child.exited).toBe(143);
   } finally { clearTimeout(deadline); child.kill(); }

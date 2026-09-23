@@ -13,7 +13,11 @@ export async function pickPiModel(view: RuntimePickerView, catalog: ModelRuntime
     "app.models.save": { defaultKeys: "ctrl+s", description: "Select for this session only" },
   }));
   let settled = false;
-  const removeListener = view.tui.addInputListener(data => { if (data === "\x04") { finish(); view.onEOF(); return { consume: true }; } return undefined; });
+  const removeListener = view.tui.addInputListener(data => {
+    if (data === "\x04") { finish(); view.onEOF(); return { consume: true }; }
+    if (data === "\x03") { finish(); return { consume: true }; } // Ctrl+C cancels like Esc.
+    return undefined;
+  });
   let picker: ModelSelectorComponent | undefined;
   const cancel = () => finish();
   const { promise, resolve } = Promise.withResolvers<Pick | undefined>();
@@ -58,8 +62,8 @@ export async function pickPiModel(view: RuntimePickerView, catalog: ModelRuntime
     // string match on its wording silently matched nothing and hid Casper's Ctrl+S documentation.
     // Appending our own line is wording-independent; the surface composites taller slots fine.
     const hint = sessionOnly
-      ? "Enter: session only · Esc: cancel · /effort after selecting"
-      : "Enter: remember globally · Ctrl+S: session only · Esc: cancel · /effort after selecting";
+      ? "Enter: session only · Esc/Ctrl+C: cancel · /effort after selecting"
+      : "Enter: remember globally · Ctrl+S: session only · Esc/Ctrl+C: cancel · /effort after selecting";
     view.show({ render: width => [...selector.render(width), truncateToWidth(hint, width)],
       invalidate: () => selector.invalidate() });
     view.tui.setFocus(picker);

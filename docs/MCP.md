@@ -53,7 +53,7 @@ casper --mcp local-docs --mcp another-server
 
 **Discovery is not permission.** All servers, including user/profile servers, start disconnected. Neither a `trusted` flag in project JSON nor a skill can authorize connection. Only the user's local connect command/CLI option does so. Consent lasts for this process; it is not persisted and is separate from skill trust. `/mcp` lists name, source file, transport, state, tool count, and controlled error messages, never command arguments, URLs, header values, or environment values. Server stderr is discarded rather than rendered.
 
-Malformed entries produce diagnostics without taking down other entries. An invalid overriding entry removes that name rather than falling back to the lower-precedence executable. Files are limited to 1 MiB and the merged configuration to 64 servers. Unsupported configuration shapes are not silently imported. Restart to reload configuration changes.
+Malformed entries produce diagnostics without taking down other entries. An invalid overriding entry removes that name rather than falling back to the lower-precedence executable. Files are limited to 1 MiB and the merged configuration to 64 servers. Structurally invalid entries are rejected; unknown per-server keys are ignored. Restart to reload configuration changes.
 
 ## Small model-facing surface
 

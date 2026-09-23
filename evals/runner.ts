@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { copyFile, lstat, mkdir, mkdtemp, readdir, readFile, readlink, realpath, rm, writeFile } from "node:fs/promises";
 import { openNoFollow } from "../src/platform/files";
+import { osSupportsProcessGroups, ownSpawnedTree, terminateTree } from "../src/platform/processes";
 import os from "node:os";
 import path from "node:path";
 import { getAgentDir, ModelRuntime } from "@earendil-works/pi-coding-agent";
@@ -339,14 +340,31 @@ async function runCheck(
 ): Promise<EvalCheckResult> {
   const argv = verification.argv.map((argument) => resolveTools(argument, options.repoRoot));
   const started = performance.now();
+  // A process group lets the timeout terminate background children as well as the check
+  // process itself; without it a check that forks a daemon leaks it past the workdir rm.
   const child = Bun.spawn([...argv], {
     cwd: options.workdir, env: isolatedEnvironment(options.homeDir), stdout: "pipe", stderr: "pipe",
+    // detached puts the child in its own process group on POSIX.
+    detached: osSupportsProcessGroups,
   });
-  const timer = setTimeout(() => child.kill("SIGKILL"), options.timeoutMs);
+  const owner = ownSpawnedTree(child.pid, () => child.signalCode === null);
+  const stop = async (term: "SIGTERM" | "SIGKILL") => {
+    await terminateTree(owner, child.pid, term).catch(() => {});
+  };
+  let stopping = false;
+  const timer = setTimeout(() => {
+    stopping = true;
+    void (async () => {
+      await stop("SIGTERM");
+      setTimeout(() => { void stop("SIGKILL"); }, 100);
+    })();
+  }, options.timeoutMs);
   try {
     const [stdout, stderr, exitCode] = await Promise.all([
       new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited,
     ]);
+    // Normal exit still drains the group: background children may outlive the root.
+    if (!stopping) await stop("SIGKILL");
     return {
       name: verification.name, status: exitCode === 0 ? "pass" : "fail",
       exitCode, durationMs: Math.round(performance.now() - started),
@@ -441,9 +459,13 @@ export async function evaluateAcceptance(
 ): Promise<{ passed: boolean; failures: string[] }> {
   const failures: string[] = [];
   const touched = context.touched;
-  const under = (prefix: string) => touched.some((entry) => entry === prefix || entry.startsWith(prefix));
+  // Path-boundary matching: "src" must not claim "src-backup/x", "package.json" must not
+  // claim "package.json.bak" — a prefix without a separator boundary matches sibling names.
+  const underPaths = (prefix: string) => touched.filter((entry) => entry === prefix
+    || (prefix.endsWith("/") ? entry.startsWith(prefix) : entry.startsWith(`${prefix}/`)));
+  const under = (prefix: string) => underPaths(prefix).length > 0;
   for (const prefix of acceptance.changed ?? []) if (!under(prefix)) failures.push(`no change under ${prefix}`);
-  for (const prefix of acceptance.unchanged ?? []) if (under(prefix)) failures.push(`changed under ${prefix}: ${touched.filter((entry) => entry.startsWith(prefix)).join(", ")}`);
+  for (const prefix of acceptance.unchanged ?? []) if (under(prefix)) failures.push(`changed under ${prefix}: ${underPaths(prefix).join(", ")}`);
   for (const rule of acceptance.contains ?? []) if (!await fileContains(context.workdir, rule.path, rule.text)) failures.push(`${rule.path} does not contain ${JSON.stringify(rule.text)}`);
   for (const rule of acceptance.noMatch ?? []) {
     const { hits, unavailable } = await matchesAnywhere(context.workdir, rule.under, rule.text);
@@ -525,7 +547,10 @@ export async function runEvalTask(task: EvalTask, options: EvalRunOptions): Prom
       if (status?.provider && status.model) model = `${status.provider}/${status.model}`;
     } catch { /* disposed runtime */ }
   }
-  await app?.close();
+  // A failed close (e.g. ProcessCleanupError from an unkillable owned tree) is diagnostic,
+  // not a reason to discard the graded observation or kill the remaining runs.
+  try { await app?.close(); }
+  catch (failure) { metrics.errors.push(`close failed: ${failure instanceof Error ? failure.message : String(failure)}`); }
 
   const result = await gradeCandidate(task, { workdir: candidate, evaluator: frozen, repoRoot: options.repoRoot, homeDir: sessionHome, timeoutMs: options.verifyTimeoutMs ?? 120_000 }, before, {
       startedAt, wallClockMs: Math.round(performance.now() - started), execution, modelCalls: metrics.modelCalls,
