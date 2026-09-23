@@ -8,7 +8,7 @@ const providers: readonly { id: RuntimeAuthProvider; label: string }[] = [
   { id: "openai-codex", label: "OpenAI Codex — device code" },
   { id: "github-copilot", label: "GitHub Copilot — device code (github.com)" },
   { id: "anthropic", label: "Anthropic / Claude — API key or browser sign-in" },
-  { id: "openrouter", label: "OpenRouter — API key" },
+  { id: "openrouter", label: "OpenRouter — API key or browser sign-in" },
 ];
 
 /** Accept only Anthropic's HTTPS authorization page and loopback callback. */
@@ -20,6 +20,9 @@ function validAuthorizationUrl(provider: RuntimeAuthProvider, value: string): bo
     if (provider === "anthropic") {
       return url.origin === "https://claude.ai" && url.pathname === "/oauth/authorize" &&
         url.searchParams.get("redirect_uri") === "http://localhost:53692/callback";
+    }
+    if (provider === "openrouter") {
+      return url.origin === "https://openrouter.ai" && url.pathname === "/auth";
     }
     return false;
   } catch { return false; }
@@ -47,6 +50,31 @@ async function checkDestination(file: string, signal: AbortSignal): Promise<void
   throw new Error("destination");
 }
 
+/** Typed API keys are verified with the provider before they are stored. Verification never
+ * echoes the key or provider response bodies — only a status taxonomy reaches the screen. */
+const KEY_VERIFICATION_TIMEOUT_MS = 10_000;
+
+type KeyVerification = { ok: true } | { ok: false; rejected: true; status: number } | { ok: false; rejected: false; reason: string };
+
+async function verifyProviderKey(provider: "anthropic" | "openrouter", key: string, signal: AbortSignal): Promise<KeyVerification> {
+  const url = provider === "openrouter" ? "https://openrouter.ai/api/v1/auth/key" : "https://api.anthropic.com/v1/models";
+  const headers: Record<string, string> = provider === "openrouter"
+    ? { authorization: `Bearer ${key}` }
+    : { "x-api-key": key, "anthropic-version": "2023-06-01" };
+  try {
+    const response = await fetch(url, {
+      headers,
+      signal: AbortSignal.any([signal, AbortSignal.timeout(KEY_VERIFICATION_TIMEOUT_MS)]),
+    });
+    if (response.ok) return { ok: true };
+    if (response.status === 401 || response.status === 403) return { ok: false, rejected: true, status: response.status };
+    return { ok: false, rejected: false, reason: `provider error (HTTP ${response.status})` };
+  } catch (error) {
+    if (signal.aborted) throw error; // Cancellation maps to the login result, not a retry note.
+    return { ok: false, rejected: false, reason: "network error" };
+  }
+}
+
 /** Dedicated builtin-only runtime: no sessions, extensions, model config or network catalog refresh. */
 export async function authenticatePi(options: RuntimeAuthenticationOptions, destination: string,
   lifetime: AbortSignal): Promise<RuntimeAuthenticationResult & { provider?: RuntimeAuthProvider }> {
@@ -62,16 +90,19 @@ export async function authenticatePi(options: RuntimeAuthenticationOptions, dest
       provider ??= await display.choose("Choose provider", providers);
       if (!provider) return { status: "cancelled", effect: "none" };
       const selected = provider;
-      const method = selected === "anthropic"
+      const method = selected === "anthropic" || selected === "openrouter"
         ? await display.choose("Choose sign-in method", [{ id: "api_key", label: "API key" }, { id: "oauth", label: "Browser sign-in" }] as const)
-        : selected === "openrouter" ? "api_key" : "oauth";
+        : "oauth";
       if (!method) return { status: "cancelled", effect: "none" };
-      const browser = method === "oauth" && selected === "anthropic";
+      // Browser sign-in (loopback listener + authorization page) vs device-code oauth.
+      const browser = method === "oauth" && (selected === "anthropic" || selected === "openrouter");
       const disclosure = selected === "github-copilot"
         ? "Pi may enable model policies on your GitHub account. Cancellation cannot undo remote changes."
         : selected === "anthropic" ? "API use is billed separately. Pi documents Claude subscription sign-in as per-token extra usage, not plan limits."
-        : selected === "openrouter" ? "Usage is billed from OpenRouter credits. Use an API key from OpenRouter."
-        : "Device-code access must be enabled by the provider.";
+        : selected === "openrouter"
+          ? method === "api_key" ? "Usage is billed from OpenRouter credits. Use an API key from OpenRouter."
+            : "Usage is billed from OpenRouter credits. Browser sign-in exchanges an authorization code for a user-controlled OpenRouter API key."
+          : "Device-code access must be enabled by the provider.";
       if (!await display.consent(destination, selected, method === "api_key" ? "an API key" : browser ? "browser authorization" : "a device code",
         disclosure + (browser ? "\nStarts a temporary loopback callback listener. Redirect URLs/codes belong only in the private login prompt." : "")) || display.signal.aborted) {
         return { status: "cancelled", effect: "none" };
@@ -88,6 +119,7 @@ export async function authenticatePi(options: RuntimeAuthenticationOptions, dest
       let active = true;
       let promptHandled = false;
       let authorizationShown = false;
+      let verificationCancelled = false;
       try {
         flow.throwIfAborted();
         const runtime = await ModelRuntime.create({ authPath: destination, modelsPath: null, refreshOnCreate: false, allowModelNetwork: false, signal: flow });
@@ -100,11 +132,26 @@ export async function authenticatePi(options: RuntimeAuthenticationOptions, dest
             if (!active || promptHandled) throw new Error("unsupported interaction");
             promptHandled = true;
             if (method === "api_key" && prompt.type === "secret") {
-              const key = await display.privateInput("Private API key (never enter keys in chat)", flow);
-              // Stored Pi keys are configuration expressions; accept only literal keys here.
-              if (key.startsWith("!") || key.includes("$") || !/^[\x21-\x7e]{1,4096}$/.test(key)) throw new Error("invalid key");
               flow.throwIfAborted();
-              return key;
+              let note = "";
+              for (;;) {
+                const key = await display.privateInput(note === ""
+                  ? "Private API key (never enter keys in chat)"
+                  : `Private API key — ${note} Paste again, or Esc to cancel.`, flow);
+                // Stored Pi keys are configuration expressions; accept only literal keys here.
+                if (key.startsWith("!") || key.includes("$") || !/^[\x21-\x7e]{1,4096}$/.test(key)) throw new Error("invalid key");
+                flow.throwIfAborted();
+                const verification = await verifyProviderKey(selected as "anthropic" | "openrouter", key, flow);
+                if (verification.ok) return key;
+                if (verification.rejected) { note = `rejected by ${provider} (HTTP ${verification.status}).`; continue; }
+                const choice = await display.choose(`Key could not be verified (${verification.reason}).`, [
+                  { id: "retry", label: "Paste the key again" },
+                  { id: "save", label: "Save without verification" },
+                  { id: "cancel", label: "Cancel sign-in" },
+                ] as const);
+                if (choice === "save") return key;
+                if (choice !== "retry") { verificationCancelled = true; deadline.abort(); throw new Error("verification cancelled"); }
+              }
             }
             if (selected === "openai-codex" && prompt.type === "select" && prompt.message === "Select OpenAI Codex login method:" &&
               prompt.options.length === 2 && prompt.options[0]?.id === "browser" && prompt.options[1]?.id === "device_code") return "device_code";
@@ -132,6 +179,7 @@ export async function authenticatePi(options: RuntimeAuthenticationOptions, dest
         return { status: "saved" };
       } catch (error) {
         if (error instanceof CredentialSynchronizationError) return { status: "saved-needs-refresh" };
+        if (verificationCancelled) return { status: "cancelled", effect: invoked ? "unknown" : "none" };
         return display.signal.aborted
           ? { status: "cancelled", effect: invoked ? "unknown" : "none" }
           : { status: "failed", effect: invoked ? "unknown" : "none", reason: "provider" };

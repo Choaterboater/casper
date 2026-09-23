@@ -30,15 +30,21 @@ async function fixture() {
   return { root, home, project, env, run };
 }
 
-test("API-key login keeps secrets off screen and preserves unrelated credentials", async () => {
+test("API-key login verifies with the provider, keeps secrets off screen, and preserves unrelated credentials", async () => {
   for (const provider of ["anthropic", "openrouter"]) {
     const f = await fixture(); const agent = f.env.PI_CODING_AGENT_DIR;
     await mkdir(agent, { recursive: true });
     await writeFile(path.join(agent, "auth.json"), JSON.stringify({ unrelated: { type: "api_key", key: "keep" } }), { mode: 0o600 });
+    const verificationUrl = provider === "anthropic" ? "https://api.anthropic.com/v1/models" : "https://openrouter.ai/api/v1/auth/key";
     const output = await f.run(`
       import { PiRuntime } from ${JSON.stringify(path.join(repo, "src/runtime/pi.ts"))};
       import { PassThrough } from 'node:stream';
-      globalThis.fetch = () => { throw new Error('NETWORK_FORBIDDEN'); };
+      const calls = [];
+      globalThis.fetch = async (input) => {
+        const url = String(input);
+        if (url === ${JSON.stringify(verificationUrl)}) { calls.push(url); return Response.json({}, { status: 200 }); }
+        throw new Error('NETWORK_FORBIDDEN');
+      };
       const runtime = new PiRuntime(); const input = new PassThrough(); let screen = '';
       try {
         const result = await runtime.authenticate({ provider: ${JSON.stringify(provider)}, terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
@@ -47,20 +53,131 @@ test("API-key login keeps secrets off screen and preserves unrelated credentials
           if (text.includes('Press Y')) setImmediate(() => input.write('Y'));
           if (text.includes('Private API key')) setImmediate(() => { input.write('\\x1b[200~synthetic-private-key\\x1b[201~'); setTimeout(() => input.write('\\r'), 20); });
         } } }, operation) } });
-        console.log(JSON.stringify({ result, screen }));
+        console.log(JSON.stringify({ result, screen, calls }));
       } finally { await runtime.dispose(); input.destroy(); }
     `);
     const result = JSON.parse(output);
     expect(result.result).toEqual({ status: "saved" });
+    expect(result.calls).toEqual([verificationUrl]);
     expect(result.screen).not.toContain("synthetic-private-key");
     if (provider === "openrouter") {
-      expect(result.screen).not.toContain("Choose sign-in method");
-      expect(result.screen).not.toContain("Browser sign-in");
+      expect(result.screen).toContain("Choose sign-in method");
+      expect(result.screen).toContain("Browser sign-in");
       expect(result.screen).toContain("Use an API key from OpenRouter.");
     }
     expect(JSON.parse(await readFile(path.join(agent, "auth.json"), "utf8"))).toEqual({ unrelated: { type: "api_key", key: "keep" }, [provider]: { type: "api_key", key: "synthetic-private-key" } });
     expect(await Bun.file(path.join(agent, "sessions")).exists()).toBe(false);
   }
+});
+
+test("a provider-rejected API key is never saved and prompts again", async () => {
+  const f = await fixture(); const agent = f.env.PI_CODING_AGENT_DIR;
+  await mkdir(agent, { recursive: true });
+  const output = await f.run(`
+    import { PiRuntime } from ${JSON.stringify(path.join(repo, "src/runtime/pi.ts"))};
+    import { PassThrough } from 'node:stream';
+    const calls = [];
+    globalThis.fetch = async (input, init) => {
+      const url = String(input);
+      if (url === 'https://openrouter.ai/api/v1/auth/key') {
+        if (init?.headers?.authorization === 'Bearer synthetic-bad-key') { calls.push(401); return Response.json({}, { status: 401 }); }
+        calls.push(200); return Response.json({}, { status: 200 });
+      }
+      throw new Error('NETWORK_FORBIDDEN');
+    };
+    const runtime = new PiRuntime(); const input = new PassThrough(); let screen = '';
+    const keys = ['synthetic-bad-key', 'synthetic-good-key']; let sent = 0;
+    try {
+      const result = await runtime.authenticate({ provider: 'openrouter', terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
+        screen += text;
+        if (text.includes('Choose sign-in method')) setImmediate(() => input.write('\\r'));
+        if (text.includes('Press Y')) setImmediate(() => input.write('Y'));
+        if (text.includes('Private API key') && sent < keys.length) {
+          const key = keys[sent++];
+          setImmediate(() => { input.write(key); setTimeout(() => input.write('\\r'), 20); });
+        }
+      } } }, operation) } });
+      console.log(JSON.stringify({ result, screen, calls }));
+    } finally { await runtime.dispose(); input.destroy(); }
+  `);
+  const result = JSON.parse(output);
+  expect(result.result).toEqual({ status: "saved" });
+  expect(result.calls).toEqual([401, 200]);
+  expect(result.screen).toContain("rejected by openrouter (HTTP 401)");
+  expect(result.screen).not.toContain("synthetic-bad-key");
+  expect(result.screen).not.toContain("synthetic-good-key");
+  expect(JSON.parse(await readFile(path.join(agent, "auth.json"), "utf8")).openrouter.key).toBe("synthetic-good-key");
+});
+
+test("an unverifiable API key can be saved explicitly after the network-choice prompt", async () => {
+  const f = await fixture(); const agent = f.env.PI_CODING_AGENT_DIR;
+  await mkdir(agent, { recursive: true });
+  const output = await f.run(`
+    import { PiRuntime } from ${JSON.stringify(path.join(repo, "src/runtime/pi.ts"))};
+    import { PassThrough } from 'node:stream';
+    let attempts = 0;
+    globalThis.fetch = async () => { attempts++; throw new Error('NETWORK_DOWN'); };
+    const runtime = new PiRuntime(); const input = new PassThrough(); let screen = '';
+    try {
+      const result = await runtime.authenticate({ provider: 'openrouter', terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
+        screen += text;
+        if (text.includes('Choose sign-in method')) setImmediate(() => input.write('\\r'));
+        if (text.includes('Press Y')) setImmediate(() => input.write('Y'));
+        if (text.includes('Private API key') && !screen.includes('Key could not be verified')) setImmediate(() => { input.write('synthetic-unverified-key'); setTimeout(() => input.write('\\r'), 20); });
+        if (text.includes('Key could not be verified')) setImmediate(() => { input.write('\\x1b[B'); setTimeout(() => input.write('\\r'), 20); });
+      } } }, operation) } });
+      console.log(JSON.stringify({ result, screen, attempts }));
+    } finally { await runtime.dispose(); input.destroy(); }
+  `);
+  const result = JSON.parse(output);
+  expect(result.result).toEqual({ status: "saved" });
+  expect(result.attempts).toBe(1);
+  expect(result.screen).toContain("Key could not be verified (network error)");
+  expect(result.screen).toContain("Save without verification");
+  expect(result.screen).not.toContain("synthetic-unverified-key");
+  expect(JSON.parse(await readFile(path.join(agent, "auth.json"), "utf8")).openrouter.key).toBe("synthetic-unverified-key");
+});
+
+test("OpenRouter browser sign-in exchanges the pasted authorization code and saves an oauth credential", async () => {
+  const f = await fixture(); const agent = f.env.PI_CODING_AGENT_DIR;
+  await mkdir(agent, { recursive: true });
+  const output = await f.run(`
+    import { PiRuntime } from ${JSON.stringify(path.join(repo, "src/runtime/pi.ts"))};
+    import { PassThrough } from 'node:stream';
+    const calls = [];
+    globalThis.fetch = async (input, init) => {
+      const url = String(input);
+      if (url === 'https://openrouter.ai/api/v1/auth/keys' && init?.method === 'POST') {
+        const body = JSON.parse(init.body); calls.push(url);
+        if (body.code !== 'synthetic-private-code' || !body.code_verifier) throw new Error('INVALID_EXCHANGE');
+        return Response.json({ key: 'sk-or-synthetic-key' });
+      }
+      throw new Error('UNEXPECTED_NETWORK');
+    };
+    const runtime = new PiRuntime(); const input = new PassThrough(); let screen = ''; let authorized = false;
+    try {
+      const result = await runtime.authenticate({ provider: 'openrouter', terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
+        screen += text;
+        if (text.includes('Choose sign-in method')) setImmediate(() => { input.write('\\x1b[B'); setTimeout(() => input.write('\\r'), 20); });
+        if (text.includes('Press Y')) setImmediate(() => input.write('Y'));
+        const displayed = Bun.stripANSI(text).replace(/[\\r\\n]/g, '');
+        if (!authorized && displayed.includes('https://openrouter.ai/auth')) authorized = true;
+        if (authorized && text.includes('Private authorization code')) setImmediate(() => { input.write('synthetic-private-code'); setTimeout(() => input.write('\\r'), 20); });
+      } } }, operation) } });
+      console.log(JSON.stringify({ result, screen, calls, authorized }));
+    } finally { await runtime.dispose(); input.destroy(); }
+  `);
+  const result = JSON.parse(output);
+  expect(result.result).toEqual({ status: "saved" });
+  expect(result.authorized).toBe(true);
+  expect(result.calls).toEqual(["https://openrouter.ai/api/v1/auth/keys"]);
+  expect(result.screen).toContain("Browser sign-in");
+  expect(result.screen).toContain("https://openrouter.ai/auth");
+  expect(result.screen).not.toContain("sk-or-synthetic-key");
+  expect(result.screen).not.toContain("synthetic-private-code");
+  const saved = JSON.parse(await readFile(path.join(agent, "auth.json"), "utf8")).openrouter;
+  expect(saved.type).toBe("oauth");
+  expect(saved.access).toBe("sk-or-synthetic-key");
 });
 
 test("Copilot device login discloses account policy changes and saves only Copilot", async () => {
@@ -192,7 +309,12 @@ test("API-key replacement refreshes the selected non-Codex parent without changi
   await writeFile(path.join(agent, "auth.json"), JSON.stringify({ anthropic: { type: "api_key", key: "synthetic-old" } }), { mode: 0o600 });
   const output = await f.run(`
     import { PiRuntime } from ${JSON.stringify(path.join(repo, "src/runtime/pi.ts"))}; import { PassThrough } from 'node:stream';
-    globalThis.fetch = () => { throw new Error('NETWORK_FORBIDDEN'); };
+    const calls = [];
+    globalThis.fetch = async (input) => {
+      const url = String(input);
+      if (url === 'https://api.anthropic.com/v1/models') { calls.push(url); return Response.json({}, { status: 200 }); }
+      throw new Error('NETWORK_FORBIDDEN');
+    };
     const runtime = new PiRuntime(); const session = await runtime.start({ cwd: process.cwd() });
     const model = (await session.selectModel({})).models.find(item => item.provider === 'anthropic');
     await session.selectModel({ query: model.provider + '/' + model.id });

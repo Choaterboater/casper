@@ -135,11 +135,14 @@ unreported failed-request cost is unknown, not zero.
 
 ### Provider login
 
-`/login` offers Codex and GitHub Copilot device-code login, Anthropic/Claude API-key
-or browser sign-in, and OpenRouter API-key login. `/login <provider-id>` skips only the
+`/login` offers Codex and GitHub Copilot device-code login, Anthropic/Claude and
+OpenRouter API-key or browser sign-in. `/login <provider-id>` skips only the
 provider chooser. Every method requires fresh consent to provider-scoped shared
 credential replacement; login does not select a model. Browser opening is manual.
-Keys and callback codes/URLs use a separate hidden prompt, never chat/history.
+Typed API keys are verified with the provider before they are stored; a rejected
+key is never saved, and a key that cannot be verified (network or provider error)
+can be retried, saved explicitly, or cancelled. Keys and callback codes/URLs use a
+separate hidden prompt, never chat/history.
 Escape/Ctrl-C cancel; EOF and shutdown drain the login lifecycle.
 
 Provider and method choices reuse Pi's selection list: Up/Down moves the visible
@@ -155,8 +158,9 @@ coverage exercises rendering and complete synthetic login flows; Windows-host
 verification of this correction is still pending.
 
 Copilot login may enable account model policies. Pi documents Claude subscription
-auth as billed extra usage. OpenRouter API usage is billed from credits. Callback
-listeners are loopback-only for Claude browser sign-in. Plain terminals remain guidance
+auth as billed extra usage. OpenRouter API usage is billed from credits, and its
+browser sign-in exchanges an authorization code for a user-controlled API key.
+Callback listeners are loopback-only for browser sign-in. Plain terminals remain guidance
 only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
 
 ### Input and commands
