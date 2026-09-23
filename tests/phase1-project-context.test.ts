@@ -152,6 +152,43 @@ describe("Phase 1 project context", () => {
     );
     const refreshed = await loadProjectModel(project, { homeDir });
     expect(refreshed.commands.lint).toBe("pnpm run lint");
+    expect(refreshed.architecture).toEqual({});
+    expect(refreshed.conventions).toEqual([]);
+  });
+
+  test("detects UI and styles from the repository and does not require a frontend or design skill", async () => {
+    const root = await temporaryDirectory("casper-structure-project-");
+    const homeDir = await temporaryDirectory("casper-structure-home-");
+    const project: ProjectInfo = { cwd: root, root, name: "ui", gitBranch: null, isGit: false };
+    await writeFile(path.join(root, "package.json"), JSON.stringify({
+      packageManager: "bun@1.4.0",
+      dependencies: { react: "latest", tailwindcss: "latest" },
+    }));
+    const before = await loadProjectModel(project, { homeDir });
+    expect(before.architecture).toEqual({});
+    expect(before.frameworks).toContain("tailwind");
+
+    await mkdir(path.join(root, "src/components"), { recursive: true });
+    await writeFile(path.join(root, "tailwind.config.ts"), "export default {};\n");
+    await mkdir(path.join(root, "design-system"));
+    const detected = await loadProjectModel(project, { homeDir });
+    expect(detected.architecture).toEqual({
+      ui: "src/components",
+      styles: "tailwind.config.ts",
+      design: "design-system",
+    });
+    expect(detected.conventions.join(" ")).toContain("Do not add a frontend skill");
+    const context = await loadProjectContext(project, { homeDir });
+    const rendered = formatProjectContext(context);
+    expect(rendered).toContain("Repository structure (from the tree, not a skill):");
+    expect(rendered).toContain("ui: src/components");
+    expect(rendered).not.toContain("SKILL.md");
+
+    await mkdir(path.join(root, ".casper"));
+    await writeFile(path.join(root, ".casper/project.yaml"), "architecture:\n  ui: src/custom\nconventions:\n  - Use the project override.\n");
+    const overridden = await loadProjectContext(project, { homeDir });
+    expect(overridden.model.architecture).toEqual({ ui: "src/custom" });
+    expect(overridden.model.conventions).toEqual(["Use the project override."]);
   });
 
   test("classifies a task and supplies only detected relevant commands", () => {

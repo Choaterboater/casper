@@ -54,7 +54,8 @@ Inside Casper:
 ```
 
 Sign in with a supported provider, choose a model, then describe the work you want
-done. Login supports OpenAI Codex, GitHub Copilot, Anthropic/Claude, and OpenRouter.
+done. Frontend, design, and other domain work come from the repository. Casper does
+not need a skill pack for patterns the project already shows. Login supports OpenAI Codex, GitHub Copilot, Anthropic/Claude, and OpenRouter.
 Provider eligibility, subscriptions and usage charges still apply. Enter keys or
 callback codes only in the dedicated private login prompt, never in chat.
 

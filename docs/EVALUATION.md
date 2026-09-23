@@ -287,11 +287,11 @@ behavioral pass/fail result; required interaction alone does not count as rescue
   total for separately billed children; keep child usage evidence separately and
   label unavailable totals.
 
-The first real repair pilot is prepared outside the public checkout by
-`.scratch/daily-driver/prepare-pilot.ts` in the development workspace. Its host-owned
-`cleanup-evaluator.ts` covers invalid-preparation cleanup, caller-owned state and
-successful-run preservation. The known cleanup defect is intentionally retained
-for that authorized trial, not fixed as part of harness preparation.
+The reserved cleanup-repair pilot is closed. It is not the next experiment, and
+the defect is no longer kept open for a trial. `runEvalTask` and `prepareWorkdir`
+remove harness-owned temporary directories when preparation fails, including a
+missing fixture. A caller-supplied home is left untouched. `keepWorkdir` still
+retains a work directory only after preparation succeeds.
 
 ## Deliberate deviations from §48
 

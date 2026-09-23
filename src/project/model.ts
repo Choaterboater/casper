@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto";
-import { mkdir, readFile, readdir, rename, stat, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, readdir, rename, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { ProjectInfo } from "./inspect";
 import type { VerificationScope } from "../verify/scope";
+import { detectRepositoryStructure, STRUCTURE_PROBES } from "./structure";
 
 export type ProjectCommand = "build" | "test" | "lint" | "typecheck";
 
@@ -92,6 +93,9 @@ const FRAMEWORK_PACKAGES: Record<string, string> = {
   electron: "electron",
   "@tauri-apps/api": "tauri",
   vite: "vite",
+  tailwindcss: "tailwind",
+  "styled-components": "styled-components",
+  "@emotion/react": "emotion",
 };
 
 function sortedUnique(values: Iterable<string>): string[] {
@@ -123,6 +127,15 @@ async function fingerprint(
       hash.update(`${name}:${details.size}:${details.mtimeMs}\n`);
     } catch {
       hash.update(`${name}:missing\n`);
+    }
+  }
+  for (const relative of STRUCTURE_PROBES) {
+    try {
+      const details = await lstat(path.join(root, relative));
+      const kind = details.isSymbolicLink() ? "link" : details.isDirectory() ? "dir" : "file";
+      hash.update(`${relative}:${kind}:${details.size}:${details.mtimeMs}\n`);
+    } catch {
+      hash.update(`${relative}:missing\n`);
     }
   }
 
@@ -316,6 +329,7 @@ async function detectModel(
   if (names.has("go.mod")) {
     commands = { test: "go test ./...", build: "go build ./...", ...commands };
   }
+  const structure = await detectRepositoryStructure(project.root);
 
   return {
     schemaVersion: 1,
@@ -325,8 +339,8 @@ async function detectModel(
     packageManager,
     commands: { ...commands, ...(overrides.commands ?? {}) },
     verificationScopes: overrides.verificationScopes,
-    architecture: overrides.architecture ?? {},
-    conventions: overrides.conventions ?? [],
+    architecture: overrides.architecture ?? structure.architecture,
+    conventions: overrides.conventions ?? structure.conventions,
     detectedAt: new Date().toISOString(),
   };
 }
