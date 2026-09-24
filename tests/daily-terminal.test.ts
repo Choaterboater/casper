@@ -68,6 +68,41 @@ test("live work status appears in a box before response text and clears when it 
   } finally { terminal.close(); input.destroy(); }
 });
 
+test("a provider failure ends the response with its cause instead of a bare failed receipt", async () => {
+  const input = Object.assign(new PassThrough(), { isTTY: true, setRawMode() {} });
+  const screen = fakeWriter(80, 24);
+  const terminal = new InteractiveTerminal(input, screen.writer, () => {}, () => {});
+  let events!: RuntimeEventView;
+  const output = { write: (text: string) => { events.beforeWrite(text); terminal.write(text); } };
+  const stops: Array<[boolean, boolean]> = [];
+  /** Rich output hard-wraps at the terminal width; compare against the flattened transcript. */
+  const flat = () => Bun.stripANSI(screen.output).replace(/\s+/g, " ");
+  events = new RuntimeEventView(terminal, output, {
+    updateFooter() {}, onToolEnd() {}, setTaskStop(cancelled, failed) { stops.push([cancelled, failed]); }, markRuntimeFailed() {},
+  });
+  try {
+    terminal.setStatus("fixture"); terminal.start();
+    const reason = '404: {"message":"This model is unavailable for free; use inclusionai/ling-3.0-flash-vl","code":404}';
+    events.handle({ type: "assistant_response_start", provider: "openrouter", model: "inclusionai/ling-3.0-flash-vl:free" });
+    events.handle({ type: "assistant_response_end", stopReason: "error", errorMessage: reason });
+    await screen.until(text => Bun.stripANSI(text).includes("[error]"));
+    expect(flat()).toContain(`[error] ${reason}`);
+    expect(stops).toEqual([[false, true]]);
+
+    // The same failure arriving again as a thrown prompt error stays one line.
+    events.handle({ type: "error", message: reason });
+    expect(Bun.stripANSI(screen.output).split("[error]").length).toBe(2);
+
+    // A completed turn prints nothing; provider text is redacted like every other preview.
+    events.handle({ type: "assistant_response_end", stopReason: "stop" });
+    events.handle({ type: "assistant_response_end", stopReason: "error", errorMessage: "401: rejected key sk-or-v1-0000000000000000" });
+    await screen.until(text => Bun.stripANSI(text).includes("401: rejected key"));
+    expect(flat()).toContain("[error] 401: rejected key <redacted>");
+    expect(flat()).not.toContain("sk-or-v1-0000000000000000");
+    expect(stops).toEqual([[false, true], [false, false], [false, true]]);
+  } finally { terminal.close(); input.destroy(); }
+});
+
 test("streamed assistant Markdown renders lists and fences once, whole, and re-renders on width change", async () => {
   const input = Object.assign(new PassThrough(), { isTTY: true, setRawMode() {} });
   const screen = fakeWriter(60, 12);

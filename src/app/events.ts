@@ -122,13 +122,23 @@ export class RuntimeEventView {
         this.setResponseActivity(`${what}${size}`);
         break;
       }
-      case "assistant_response_end":
+      case "assistant_response_end": {
         this.setStaticActivity(event.stopReason === "toolUse" ? "Starting tools…" : undefined);
         this.terminal.endAssistant();
         // Pi may retry a provider error inside prompt(); only the final response
         // determines the stop outcome. Thrown prompt errors are handled separately.
-        this.callbacks.setTaskStop(event.stopReason === "aborted", !["stop", "toolUse"].includes(event.stopReason));
+        const failed = !["stop", "toolUse"].includes(event.stopReason);
+        this.callbacks.setTaskStop(event.stopReason === "aborted", failed);
+        // A provider failure (retired model slug, quota, rejected credential) otherwise reaches
+        // the receipt as a bare "Execution failed" with no cause the person can act on.
+        if (failed && event.errorMessage && this.displayedError !== event.errorMessage) {
+          this.ensureLineBreak();
+          this.output.write(`[error] ${redactPreview(event.errorMessage)}\n`);
+          this.displayedError = event.errorMessage;
+          this.endedWithNewline = true;
+        }
         break;
+      }
       case "assistant_text_delta":
         this.setStaticActivity();
         this.openToolLine = false; // The streaming block commits any open tool line inside the transcript.
