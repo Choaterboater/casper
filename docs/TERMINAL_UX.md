@@ -108,6 +108,8 @@ popups/pickers, or a duplicated prompt box (`bun test tests/terminal-layout.test
   only**. Escape/Ctrl+C cancel.
 - A fresh interactive session clears the viewport at startup: the new session renders from
   the top of the screen and the previous run's transcript stays in scrollback.
+- While a prompt runs or tool activity is on screen, the footer state dot and the Working
+  panel title animate (braille spinner) so background work is visibly moving; idle shows ○.
 - `/model provider/id`: exact selection, remembered globally.
 - `/model --session [provider/id]`: explicitly temporary selection/picker.
 - `/effort`: automatic or supported fixed-effort picker in an interactive terminal, otherwise a list.

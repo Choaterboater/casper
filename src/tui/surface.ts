@@ -30,6 +30,11 @@ class StableMainScreen extends TuiMainScreen {
 
 const EXIT_NOTE = "Ctrl-C again to exit · Ctrl-D exits too";
 
+/** Braille spinner frames; the footer dot and Working panel title cycle through them while
+ * background work runs, so activity is visible even between transcript updates. */
+const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+const SPINNER_INTERVAL_MS = 120;
+
 /** Prompt editor with a fixed two-column gutter: the glyph changes with state, the box never moves. */
 class PromptEditor extends Editor {
   glyph: () => string = () => PROMPT_GLYPH;
@@ -73,6 +78,8 @@ export class TerminalSurface {
   private started = false;
   private closed = false;
   private busy = false;
+  private spinnerFrame = 0;
+  private spinnerTimer?: NodeJS.Timeout;
   /** Component shown in place of the editor while a picker is mounted. */
   private slot?: Component;
   /** Raw input is on loan to a line-oriented flow; the surface keeps rendering. */
@@ -115,6 +122,7 @@ export class TerminalSurface {
       }
       if (!value.trim()) { this.editor.setText(""); return; } // Enter on an empty box is not a transcript event.
       const resolve = this.command; this.command = undefined; this.busy = true;
+      this.updateSpinner();
       this.configureAutocomplete();
       this.editor.addToHistory(value); this.editor.setText("");
       // Continuation lines of a multiline prompt sit under the text, not under the gutter glyph.
@@ -127,7 +135,7 @@ export class TerminalSurface {
       render: width => {
         const editorLines = this.editor.render(width);
         const rule = this.muted("─".repeat(width));
-        const activity = this.activity ? renderPanel("Working", [this.activity], Math.min(width, PANEL_MAX_COLUMNS), this.io.color, "accent") : [];
+        const activity = this.activity ? renderPanel(`${SPINNER_FRAMES[this.spinnerFrame]} Working`, [this.activity], Math.min(width, PANEL_MAX_COLUMNS), this.io.color, "accent") : [];
         const askLines = this.askPanel?.render(width) ?? [];
         const block = this.slot ? this.slot.render(width).map(line => truncateToWidth(line, width))
           : this.lending ? [rule, this.muted(truncateToWidth("  exclusive input in progress · Esc or Ctrl+C cancels", width)), rule]
@@ -194,10 +202,27 @@ export class TerminalSurface {
   }
 
   private footer(width: number): string {
-    const state = this.busy ? this.accent("●") : this.muted("○");
+    const state = this.busy || this.activity ? this.accent(SPINNER_FRAMES[this.spinnerFrame]) : this.muted("○");
     // A transient note replaces the status line so it is never truncated away.
     const text = this.note ? this.accent(this.note) : this.muted(this.status || "Casper · / for commands");
     return truncateToWidth(`${state} ${text}`, width);
+  }
+
+  /** While work runs (a prompt in flight or tool activity), the footer dot and Working panel
+ * title cycle through braille frames; idle returns to the static ○. */
+private updateSpinner(): void {
+    const active = (this.busy || this.activity !== undefined) && !this.closed;
+    if (active && this.spinnerTimer === undefined) {
+      this.spinnerTimer = setInterval(() => {
+        this.spinnerFrame = (this.spinnerFrame + 1) % SPINNER_FRAMES.length;
+        this.render();
+      }, SPINNER_INTERVAL_MS);
+      this.spinnerTimer.unref?.();
+    } else if (!active && this.spinnerTimer !== undefined) {
+      clearInterval(this.spinnerTimer);
+      this.spinnerTimer = undefined;
+      this.spinnerFrame = 0;
+    }
   }
 
   start(): void {
@@ -259,6 +284,7 @@ export class TerminalSurface {
     const next = activity || undefined;
     if (next === this.activity) return;
     this.activity = next;
+    this.updateSpinner();
     this.render();
   }
   private configureAutocomplete(): void {
@@ -300,6 +326,7 @@ export class TerminalSurface {
   }
   readCommand(): Promise<string | undefined> {
     this.endAssistant(); this.busy = false; this.note = ""; this.configureAutocomplete();
+    this.updateSpinner();
     if (this.closed) return Promise.resolve(undefined);
     const { promise, resolve } = Promise.withResolvers<string | undefined>();
     this.command = resolve; this.render();
@@ -448,6 +475,8 @@ export class TerminalSurface {
     if (this.closed) return;
     if (this.exitArmed) clearTimeout(this.exitArmed);
     if (this.noteTimer) clearTimeout(this.noteTimer);
+    clearInterval(this.spinnerTimer);
+    this.spinnerTimer = undefined;
     this.endAssistant(); this.closed = true;
     this.confirmation?.(false); this.pendingAsk?.(undefined); this.command?.(); this.command = undefined;
     if (this.started) this.tui.stop();
