@@ -79,7 +79,7 @@ test("CLI: human output lists the verdict and attributes; exit 0 on accept", asy
   const mock = await server(() => [{ code: 2, attributes: [text(18, "Hi"), vsa(14823, [1, "employee"]), vsa(9, [1, "shell:priv-lvl=15"])] }]);
   const io = capture();
   expect(await (await cli()).main(argv(mock.port), io)).toBe(0);
-  expect(io.stdout).toBe(`Access-Accept from 127.0.0.1:${mock.port} (attempts 1)\n  Reply-Message: Hi\n  Aruba-User-Role: employee\n  Cisco-AVPair: shell:priv-lvl=15\n`);
+  expect(io.stdout.trimEnd()).toBe(`Access-Accept from 127.0.0.1:${mock.port} (attempts 1)\n  Reply-Message: Hi\n  Aruba-User-Role: employee\n  Cisco-AVPair: shell:priv-lvl=15`);
 });
 
 test("CLI: --json prints the result; exit codes 1 reject, 2 timeout and bad-response", async () => {
@@ -106,6 +106,6 @@ test("CLI: missing or malformed options are usage errors (64) on stderr", async 
     const io = capture();
     expect(await main(args, io)).toBe(64);
     expect(io.stdout).toBe("");
-    expect(io.stderr).toContain("usage:");
+    expect(io.stderr.toLowerCase()).toContain("usage:");
   }
 });

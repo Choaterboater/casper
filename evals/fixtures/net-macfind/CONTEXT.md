@@ -22,7 +22,10 @@ neighbor tables. All data is synthetic.
   from the Junos LLDP "Parent Interface" column and the inventory's `lags`. A MAC
   learned on an uplink is only passing through; its real location is an edge port. A port whose LLDP
   neighbor is not in the inventory (an IP phone, an access point) is an edge port.
-- CLIs export `main(argv, io)` and never call `process.exit`; HTTP handlers are
+- CLIs export `main(argv, io)`, where `io` is `{ out(text: string): void; err(text: string): void }` (both
+  write text exactly as given, like `process.stdout.write`: include the `\n` at the end of every line). `argv` holds only the arguments
+  (like `process.argv.slice(2)`), never the runtime or script path, return the
+  exit code and never call `process.exit`; HTTP handlers are
   `(request: Request) => Response | Promise<Response>` and return JSON errors `{ "error": "<code>" }`.
 - Exit codes: 0 found, 1 not found, 64 usage error (including an invalid MAC).
 - No runtime dependencies.

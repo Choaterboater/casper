@@ -93,14 +93,17 @@ export const CORE_PACK: readonly EvalTask[] = [
       + "`PersonName` type) everywhere: src/ and the test data in tests/. Add `displayName(user)` (\"Given Family\", "
       + "skipping an empty part) and `sortName(user)` (\"Family, Given\", skipping an empty part) to src/user.ts and use "
       + "them instead of building name strings elsewhere. Search matches the display name or email, case-insensitively; "
-      + "sorting is by family, then given (ignoring case and accents), then id; greetings use the given name (the family "
-      + "name when there is none); `fromLegacy` splits the last word off as the family name. No `fullName` may remain. "
-      + "Read CONTEXT.md first. Both `bun test` and `tsc --noEmit -p tsconfig.json` must pass; hidden acceptance tests "
+      + "sorting is by family, then given (ignoring case and accents), then id; greetings use the whole given name "
+      + "(`Hi Mary Ann,`), or the family name when there is no given name; `fromLegacy` splits the last word off as the "
+      + "family name and keeps the rest as the given name, and a single-word name is a given name with an empty family "
+      + "name. No `fullName` may remain. "
+      + "Read CONTEXT.md first. Both `bun test` and `bun run typecheck` (strict `tsc` over src and tests) must pass; hidden acceptance tests "
       + "will also check this behavior. Keep tsconfig.json and bun-test.d.ts unchanged. Do not add dependencies.",
     verify: [VISIBLE, HIDDEN, TSC],
+    tools: ["typescript"],
     candidatePaths: ["src", "tests"],
     acceptance: {
-      unchanged: ["package.json", "tsconfig.json", "bun-test.d.ts", "CONTEXT.md", ".casper/"],
+      unchanged: ["package.json", "tsconfig.json", "bun-test.d.ts", "CONTEXT.md", ".casper/", "node_modules/"],
       noMatch: [{ text: "fullName", under: "src" }, { text: "fullName", under: "tests" }],
     },
     conventions: [
@@ -164,7 +167,8 @@ export const NETWORK_PACK: readonly EvalTask[] = [
       + "`findMac(devices, mac)` must accept any MAC format in CONTEXT.md (throwing `InvalidMacError` otherwise) and "
       + "return `{ mac, device, port, vlan }` for the edge port where the MAC was learned, ignoring uplinks (including "
       + "LAG uplinks, as CONTEXT.md defines them), or null when it is only seen on uplinks or not at all. Add a CLI "
-      + "`main(argv, io)` in src/cli.ts: `macfind --data <dir> [--json] <mac>` prints "
+      + "`main(argv, io)` in src/cli.ts (`io` is `{ out(text), err(text) }` as in CONTEXT.md: both write text exactly as given, like `process.stdout.write`, so "
+      + "every line you print must end with `\n`; `argv` is the arguments only; return the exit code): `macfind --data <dir> [--json] <mac>` prints "
       + "`<mac> is on <device> <port> (vlan <vlan>)` (exit 0) or `<mac> not found on any edge port` (exit 1), with the "
       + "MAC normalized; `--json` prints the location object or `null`; an invalid MAC, missing `--data`, a wrong number "
       + "of MACs or an unknown flag is a usage error (exit 64, stderr only). Add `createHandler(devices)` in "
@@ -206,7 +210,9 @@ export const NETWORK_PACK: readonly EvalTask[] = [
       + "CONTEXT.md: accept only replies with the request's Identifier and a valid Response Authenticator, retransmit the "
       + "identical packet after each `timeoutMs` up to `retries` times, report `bad-response` versus `timeout`, map "
       + "Accept/Reject/Challenge, and decode every Reply-Message, every Cisco-AVPair and the first Aruba-User-Role. It "
-      + "resolves `{ status, attempts, replyMessages, arubaUserRole, ciscoAvPairs }`. Add `main(argv, io)` in src/cli.ts: "
+      + "resolves `{ status, attempts, replyMessages, arubaUserRole, ciscoAvPairs }`. Add `main(argv, io)` in src/cli.ts (`io` is "
+      + "`{ out(text), err(text) }` as in CONTEXT.md: both write text exactly as given, like `process.stdout.write`, so every "
+      + "printed line must end with `\n`; `argv` is the arguments only; return the exit code): "
       + "`radtest --host <h> [--port 1812] --secret <s> --user <u> --password <p> [--timeout ms] [--retries n] [--json]`. "
       + "Human output is a first line `<Access-Accept|Access-Reject|Access-Challenge> from <host>:<port> (attempts <n>)` "
       + "(for timeout or bad-response, a first line that says so; bad-response must mention the shared secret), then "
@@ -239,7 +245,8 @@ export const NETWORK_PACK: readonly EvalTask[] = [
       + "(optional boolean filter); each has a description and no others are allowed. Annotations: read-only, not "
       + "destructive, idempotent, closed-world. It returns JSON text `{ device, total, truncated, interfaces }` where each "
       + "interface is `{ name, adminUp, operUp, description, speedMbps }` in inventory order, `total` counts every match, "
-      + "and at most 50 are listed. An unknown device is a tool error naming the known devices. It must stay out of the "
+      + "and at most 50 are listed; the JSON text stays within 4000 characters (list fewer interfaces with `truncated: true` "
+      + "rather than adding anything outside the JSON). An unknown device is a tool error naming the known devices. It must stay out of the "
       + "direct tool list, be found first by `find_tool` for the queries `interfaces` and `interface status`, and run "
       + "through `invoke_read_tool`." + RULES,
     conventions: [
