@@ -23,7 +23,7 @@ async function fixture() {
     fixture: { baseUrl: "http://127.0.0.1:9/v1", api: "openai-completions", apiKey: "fixture-not-a-secret", models: [{ id: "first" }, { id: "second", reasoning: true }, { id: "shared" }] },
     missing: { baseUrl: "http://127.0.0.1:9/v1", api: "openai-completions", models: [{ id: "no-auth" }] },
   } }));
-  const env = { ...isolatedEnvironment(home), PI_CODING_AGENT_DIR: agent, PI_OFFLINE: "1", PI_TELEMETRY: "0" };
+  const env = { ...isolatedEnvironment(home), CASPER_AGENT_DIR: agent, PI_CODING_AGENT_DIR: agent, CASPER_OFFLINE: "1", PI_OFFLINE: "1", PI_TELEMETRY: "0" };
   async function run(body: string) {
     const child = Bun.spawn([process.execPath, "-e", `import { PiRuntime } from ${JSON.stringify(adapter)};
 const runtime = new PiRuntime();

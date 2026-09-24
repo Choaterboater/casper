@@ -13,10 +13,10 @@ interface LoginDisplay {
 }
 
 /** Open the system browser for a validated authorization URL. Suppressed in offline mode
- * (PI_OFFLINE=1), where the URL stays printed for manual opening. The URL itself was already
+ * (CASPER_OFFLINE=1), where the URL stays printed for manual opening. The URL itself was already
  * validated (https + known provider origin) before display. */
 function launchBrowser(url: string): boolean {
-  if (process.env.PI_OFFLINE === "1") return false;
+  if (process.env.CASPER_OFFLINE === "1") return false;
   try {
     const command = process.platform === "darwin" ? "open"
       : process.platform === "win32" ? "cmd" : "xdg-open";

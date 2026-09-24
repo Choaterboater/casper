@@ -24,7 +24,7 @@ def case(bun, repo, root, ending):
             "command": bun, "args": [str(repo / "tests/fixtures/dap-adapter.ts")], "adapterID": "fixture", "program": "program.py"
         }}}))
     s = module.Session(bun, repo, str(root), no_color=True, app="src/cli.ts", setup=setup,
-                       extra_env={"PI_OFFLINE": "1", "PI_TELEMETRY": "0"})
+                       extra_env={"CASPER_OFFLINE": "1", "PI_TELEMETRY": "0"})
     debuggee = None
     try:
         s.until("│ idle")

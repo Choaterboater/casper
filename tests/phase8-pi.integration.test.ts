@@ -60,7 +60,7 @@ export default function(pi) {
     await writeFile(path.join(agent, "APPEND_SYSTEM.md"), "AMBIENT_APPEND_MUST_NOT_APPEAR");
     await writeFile(path.join(project, "AGENTS.md"), "AMBIENT_AGENTS_MUST_NOT_APPEAR");
   }
-  const env = { ...process.env, HOME: home, PI_CODING_AGENT_DIR: agent, PI_OFFLINE: "1", PI_TELEMETRY: "0" };
+  const env = { ...process.env, HOME: home, CASPER_AGENT_DIR: agent, PI_CODING_AGENT_DIR: agent, CASPER_OFFLINE: "1", PI_OFFLINE: "1", PI_TELEMETRY: "0" };
   async function run(args: string[]) {
     const child = Bun.spawn([process.execPath, ...args], { cwd: project, env, stdout: "pipe", stderr: "pipe" });
     const timer = setTimeout(() => child.kill(), 10_000);

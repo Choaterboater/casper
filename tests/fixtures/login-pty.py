@@ -24,7 +24,7 @@ def wait_exit(s, timeout=5):
 
 def success(bun, repo, root, no_color):
     s = Session(bun, repo, root, no_color, app="src/cli.ts", preload="tests/fixtures/login-preload.ts",
-                extra_env={"PI_OFFLINE": "1", "PI_TELEMETRY": "0"})
+                extra_env={"CASPER_OFFLINE": "1", "PI_TELEMETRY": "0"})
     try:
         s.until("/help · /status · /login")
         s.until("│ idle")
@@ -83,7 +83,7 @@ def success(bun, repo, root, no_color):
 
 
 def cancel_and_eof(bun, repo, root, eof=False):
-    s = Session(bun, repo, root, app="src/cli.ts", preload="tests/fixtures/login-preload.ts", extra_env={"PI_OFFLINE": "1", "PI_TELEMETRY": "0"})
+    s = Session(bun, repo, root, app="src/cli.ts", preload="tests/fixtures/login-preload.ts", extra_env={"CASPER_OFFLINE": "1", "PI_TELEMETRY": "0"})
     try:
         s.until("/help · /status · /login")
         s.until("│ idle")
@@ -101,7 +101,7 @@ def cancel_and_eof(bun, repo, root, eof=False):
 
 
 def sigterm(bun, repo, root):
-    s = Session(bun, repo, root, app="src/cli.ts", extra_env={"PI_OFFLINE": "1", "PI_TELEMETRY": "0"})
+    s = Session(bun, repo, root, app="src/cli.ts", extra_env={"CASPER_OFFLINE": "1", "PI_TELEMETRY": "0"})
     try:
         s.until("/help · /status · /login")
         s.until("│ idle")
@@ -118,7 +118,7 @@ def sigterm(bun, repo, root):
 
 
 def dumb(bun, repo, root):
-    s = Session(bun, repo, root, term="dumb", app="src/cli.ts", preload="tests/fixtures/login-preload.ts", extra_env={"PI_OFFLINE": "1", "PI_TELEMETRY": "0"})
+    s = Session(bun, repo, root, term="dumb", app="src/cli.ts", preload="tests/fixtures/login-preload.ts", extra_env={"CASPER_OFFLINE": "1", "PI_TELEMETRY": "0"})
     try:
         s.until("/help · /status · /login")
         s.send("/login\n")

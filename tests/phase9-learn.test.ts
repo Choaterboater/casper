@@ -47,7 +47,8 @@ async function fixture(respond?: (payload: Payload, index: number) => Response |
   await writeFile(path.join(agent, "settings.json"), JSON.stringify({ defaultProvider: "fixture", defaultModel: "fixture", retry: { enabled: false } }));
   await mkdir(path.join(home, ".casper"), { recursive: true });
   await writeFile(path.join(home, ".casper/settings.json"), JSON.stringify({ defaultProvider: "fixture", defaultModel: "fixture" }));
-  const env: NodeJS.ProcessEnv = { ...process.env, HOME: home, PI_CODING_AGENT_DIR: agent, PI_OFFLINE: "1", PI_TELEMETRY: "0" };
+  const { PI_CODING_AGENT_DIR: _inherited, ...inherited } = process.env;
+  const env: NodeJS.ProcessEnv = { ...inherited, HOME: home, CASPER_AGENT_DIR: agent, CASPER_OFFLINE: "1", PI_TELEMETRY: "0" };
   function spawn(args: string[]) {
     return Bun.spawn([process.execPath, path.join(import.meta.dir, "../src/cli.ts"), ...args], { cwd, env, stdout: "pipe", stderr: "pipe" });
   }
@@ -273,7 +274,7 @@ test("learning rejects source overlap with Pi state before creating files or cal
   const agent = path.join(f.project, ".pi/agent");
   await mkdir(path.dirname(agent), { recursive: true });
   await rename(f.agent, agent);
-  f.env.PI_CODING_AGENT_DIR = agent;
+  f.env.CASPER_AGENT_DIR = agent;
   const before = await snapshot(f.project);
   const result = await f.run(["learn", f.project]);
   const after = await snapshot(f.project);
@@ -290,7 +291,7 @@ for (const layout of ["default-root", "state-alias", "missing-state"]) needsSyml
   let source = f.project;
   let requested = source;
   if (layout === "default-root") {
-    delete f.env.PI_CODING_AGENT_DIR;
+    delete f.env.CASPER_AGENT_DIR;
     // The default store is ~/.casper/agent; pre-seed the two files the one-time import
     // would copy so the preflight exercise never mutates the source.
     source = path.join(f.home, ".casper/agent"); requested = source;
@@ -302,10 +303,10 @@ for (const layout of ["default-root", "state-alias", "missing-state"]) needsSyml
     await rename(f.agent, state);
     const alias = path.join(f.root, "state-alias");
     await symlink(state, alias);
-    f.env.PI_CODING_AGENT_DIR = alias;
+    f.env.CASPER_AGENT_DIR = alias;
     requested = path.join(f.root, "source-alias");
     await symlink(source, requested);
-  } else f.env.PI_CODING_AGENT_DIR = path.join(f.project, "missing/.pi/agent");
+  } else f.env.CASPER_AGENT_DIR = path.join(f.project, "missing/.pi/agent");
   const before = await snapshot(source);
   const entries = await readdir(source, { recursive: true });
   const result = await f.run(["learn", requested]);
@@ -333,7 +334,7 @@ test("learning still permits sibling Pi state without changing source or model d
   const f = await fixture(() => answer('{"candidates":[]}'));
   const state = f.project + "-state";
   await rename(f.agent, state);
-  f.env.PI_CODING_AGENT_DIR = path.relative(f.cwd, state);
+  f.env.CASPER_AGENT_DIR = path.relative(f.cwd, state);
   const before = await snapshot(f.project);
   const settings = await readFile(path.join(state, "settings.json"), "utf8");
   const result = await f.run(["learn", f.project]);

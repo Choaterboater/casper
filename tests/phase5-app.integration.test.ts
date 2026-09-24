@@ -120,7 +120,7 @@ test("real CLI/Pi tool surface appends LSP diagnostics to native writes before t
   await mkdir(path.join(home, ".casper"), { recursive: true });
   await writeFile(path.join(home, ".casper/settings.json"), JSON.stringify({ defaultProvider: "fixture", defaultModel: "fixture" }));
   const proc = Bun.spawn([process.execPath, path.join(import.meta.dir, "../src/cli.ts"), "--lsp", "fixture", "Inspect and modify a.ts"], {
-    cwd: project, env: { ...process.env, HOME: home, PI_CODING_AGENT_DIR: agentDir, PI_OFFLINE: "1", PI_TELEMETRY: "0" }, stdout: "pipe", stderr: "pipe",
+    cwd: project, env: { ...process.env, HOME: home, CASPER_AGENT_DIR: agentDir, PI_CODING_AGENT_DIR: agentDir, CASPER_OFFLINE: "1", PI_TELEMETRY: "0" }, stdout: "pipe", stderr: "pipe",
   });
   const timer = setTimeout(() => proc.kill(), 20_000);
   const [stdout, stderr, exit] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
@@ -137,7 +137,7 @@ test("real CLI/Pi tool surface appends LSP diagnostics to native writes before t
   // and exact human confirmation, not just an injected runtime seam.
   payloads.splice(0);
   const interactive = Bun.spawn([process.execPath, path.join(import.meta.dir, "../src/cli.ts"), "--lsp", "fixture"], {
-    cwd: project, env: { ...process.env, HOME: home, PI_CODING_AGENT_DIR: agentDir, PI_OFFLINE: "1", PI_TELEMETRY: "0" }, stdin: "pipe", stdout: "pipe", stderr: "pipe",
+    cwd: project, env: { ...process.env, HOME: home, CASPER_AGENT_DIR: agentDir, PI_CODING_AGENT_DIR: agentDir, CASPER_OFFLINE: "1", PI_TELEMETRY: "0" }, stdin: "pipe", stdout: "pipe", stderr: "pipe",
   });
   const interactiveTimer = setTimeout(() => interactive.kill(), 20_000);
   let transcript = "";

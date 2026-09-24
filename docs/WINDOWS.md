@@ -124,8 +124,8 @@ $env:HOME = $ProbeHome
 $env:USERPROFILE = $ProbeHome
 $env:APPDATA = $ProbeHome
 $env:LOCALAPPDATA = $ProbeHome
-$env:PI_CODING_AGENT_DIR = Join-Path $ProbeHome '.pi\agent'
-$env:PI_OFFLINE = '1'
+$env:CASPER_AGENT_DIR = Join-Path $ProbeHome '.casper\agent'
+$env:CASPER_OFFLINE = '1'
 $env:PI_TELEMETRY = '0'
 Remove-Item Env:CASPER_PROFILE -ErrorAction SilentlyContinue
 Set-Location $Project

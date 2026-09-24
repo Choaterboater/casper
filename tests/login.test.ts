@@ -16,7 +16,7 @@ async function fixture() {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-login-"))); roots.push(root);
   const home = path.join(root, "home"); const project = path.join(root, "project");
   await mkdir(home); await mkdir(project);
-  const env = { ...isolatedEnvironment(home), TMPDIR: root, PI_CODING_AGENT_DIR: path.join(home, ".pi/agent"), PI_OFFLINE: "1", PI_TELEMETRY: "0" };
+  const env = { ...isolatedEnvironment(home), TMPDIR: root, PI_CODING_AGENT_DIR: path.join(home, ".pi/agent"), CASPER_OFFLINE: "1", PI_OFFLINE: "1", PI_TELEMETRY: "0" };
   async function run(body: string, args: string[] = []) {
     body = `import { withLoginSurface } from ${JSON.stringify(path.join(repo, "tests/support/login-surface.ts"))};\n${body}`;
     const child = Bun.spawn([process.execPath, "-e", body, ...args], { cwd: project, env, stdout: "pipe", stderr: "pipe" });
@@ -601,15 +601,36 @@ posixOnly("an unsafe credential directory is refused before provider choice with
   expect(await Bun.file(path.join(f.root, "elsewhere", "auth.json")).exists()).toBe(false);
 });
 
-test("raw TUI logging refuses login before terminal or auth ownership", async () => {
+test("CASPER_TUI_WRITE_LOG refuses login before terminal or auth ownership", async () => {
   const f = await fixture();
   const output = await f.run(`
     import { PiRuntime } from ${JSON.stringify(path.join(repo, "src/runtime/pi.ts"))};
-    process.env.PI_TUI_WRITE_LOG = '/tmp/must-not-log-device-code'; let runs = 0;
+    process.env.CASPER_TUI_WRITE_LOG = '/tmp/must-not-log-device-code'; let runs = 0;
     const runtime = new PiRuntime(); try { const result = await runtime.authenticate({ provider: 'openai-codex', terminalHost: { async run() { runs++; throw new Error('MUST_NOT_RUN'); } } }); console.log(JSON.stringify({ result, runs })); } finally { await runtime.dispose(); }
   `);
   expect(JSON.parse(output)).toEqual({ result: { status: "failed", effect: "none", reason: "unavailable" }, runs: 0 });
   expect(await Bun.file(path.join(f.env.PI_CODING_AGENT_DIR, "auth.json")).exists()).toBe(false);
+});
+
+test("CASPER_OAUTH_CALLBACK_HOST cannot expose browser sign-in on a public listener", async () => {
+  const f = await fixture();
+  const output = await f.run(`
+    import { PiRuntime } from ${JSON.stringify(path.join(repo, "src/runtime/pi.ts"))};
+    import { PassThrough } from 'node:stream';
+    process.env.CASPER_OAUTH_CALLBACK_HOST = '0.0.0.0';
+    let requests = 0;
+    globalThis.fetch = async () => { requests++; throw new Error('NETWORK_FORBIDDEN'); };
+    const runtime = new PiRuntime(); const input = new PassThrough(); let chosen = false; let consented = false;
+    try {
+      const result = await runtime.authenticate({ provider: 'anthropic', terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
+        if (!chosen && text.includes('Choose sign-in method')) { chosen = true; setImmediate(() => input.write('\\x1b[B\\r')); }
+        if (!consented && text.includes('Press Y')) { consented = true; setImmediate(() => input.write('Y')); }
+        if (text.includes('Private authorization')) setImmediate(() => input.write('\\x1b'));
+      } } }, operation) } });
+      console.log(JSON.stringify({ result, requests }));
+    } finally { await runtime.dispose(); input.destroy(); }
+  `);
+  expect(JSON.parse(output)).toEqual({ result: { status: "failed", effect: "none", reason: "unavailable" }, requests: 0 });
 });
 
 // python3 runs the standard-library PTY fixture; Windows has no equivalent here.
