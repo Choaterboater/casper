@@ -148,3 +148,103 @@ export const CORE_PACK: readonly EvalTask[] = [
     ],
   }),
 ];
+
+export const NETWORK_PACK: readonly EvalTask[] = [
+  task({
+    id: "net-interface-parser", pack: "network", fixture: "net-interfaces", setup: "add-junos-aoscx-parsers",
+    prompt: "Only the IOS-XE `show interfaces` parser exists. Implement the Junos and AOS-CX parsers so all three vendors "
+      + "produce the same model, following every rule and the vendor table in CONTEXT.md: sub-interfaces and logical units, "
+      + "LAG membership in both directions, abbreviated member names, speeds in Mb/s, MAC normalization, and truncated "
+      + "captures (pager prompts). The samples in tests/samples/ show the expected output for each vendor." + RULES,
+    conventions: [onlyEdits("src/", "tests/"), convention("vendor-modules", { changed: ["src/vendors/junos.ts", "src/vendors/aoscx.ts"] })],
+  }),
+  task({
+    id: "net-mac-port-finder", pack: "network", fixture: "net-macfind", setup: "add-macfind-cli-endpoint",
+    prompt: "`findMac` returns the first table entry it sees, often an uplink. Fix it and expose it two ways. "
+      + "`findMac(devices, mac)` must accept any MAC format in CONTEXT.md (throwing `InvalidMacError` otherwise) and "
+      + "return `{ mac, device, port, vlan }` for the edge port where the MAC was learned, ignoring uplinks (including "
+      + "LAG uplinks, as CONTEXT.md defines them), or null when it is only seen on uplinks or not at all. Add a CLI "
+      + "`main(argv, io)` in src/cli.ts: `macfind --data <dir> [--json] <mac>` prints "
+      + "`<mac> is on <device> <port> (vlan <vlan>)` (exit 0) or `<mac> not found on any edge port` (exit 1), with the "
+      + "MAC normalized; `--json` prints the location object or `null`; an invalid MAC, missing `--data`, a wrong number "
+      + "of MACs or an unknown flag is a usage error (exit 64, stderr only). Add `createHandler(devices)` in "
+      + "src/server.ts: `GET /mac/<mac>` (URL-decoded) answers 200 with the location, 404 `{\"error\":\"not_found\"}` or "
+      + "400 `{\"error\":\"invalid_mac\"}`, all JSON." + RULES,
+    conventions: [onlyEdits("src/", "tests/"), convention("entry-points", { contains: [{ path: "src/cli.ts", text: "export async function main" }, { path: "src/server.ts", text: "createHandler" }] })],
+  }),
+  task({
+    id: "net-meraki-inventory", pack: "network", fixture: "net-meraki-export", setup: "fix-meraki-export",
+    prompt: "`exportInventory` only reads the first page and writes broken CSV. Make it export the whole organization as "
+      + "CONTEXT.md describes: follow `Link` rel=next pagination, retry 429 after Retry-After through an injectable "
+      + "`sleep(ms)` option (giving up after 5 retries for one URL), fail on other HTTP errors with the status in the "
+      + "message, and write RFC 4180 CSV sorted by serial with the documented columns and empty fields for missing values."
+      + RULES,
+    conventions: [onlyEdits("src/", "tests/"), convention("csv-module", { contains: [{ path: "src/csv.ts", text: "export" }] })],
+  }),
+  task({
+    id: "net-aoscx-session", pack: "network", fixture: "net-aoscx-session", setup: "fix-aoscx-session-leak",
+    prompt: "This AOS-CX REST client leaks sessions: when a request or the caller's work fails, it never logs out, and the "
+      + "switch soon refuses new logins. Fix `withSession` so every successful login is followed by exactly one logout on "
+      + "every path, following the error rules in CONTEXT.md: a failed login throws `LoginError` and sends nothing else; "
+      + "a non-2xx response throws `HttpError` with its status and path; the work's own error is rethrown unchanged; "
+      + "if work succeeds but logout fails, reject with `LogoutError`; if both fail, the work's error wins." + RULES,
+    conventions: [onlyEdits("src/", "tests/"), convention("errors-module", { unchanged: ["src/errors.ts"] })],
+  }),
+  task({
+    id: "net-netbox-dry-run", pack: "network", fixture: "net-netbox-plan", setup: "fix-netbox-plan",
+    prompt: "`planSync` is a dry run against a NetBox-style API, but it reads only the first page, compares only serials "
+      + "and ignores NetBox-only devices. Make it follow CONTEXT.md exactly: follow `next` pages, compare serial, site, "
+      + "role (including servers that send `device_role`) and primary IPv4, treat missing/null/empty as no value, fill "
+      + "every plan list sorted by name, reject duplicate source names before any request, and fail on HTTP errors with "
+      + "the status in the message. It must only ever send GET requests with the token header. The printed format in "
+      + "src/format.ts is already right." + RULES,
+    conventions: [onlyEdits("src/", "tests/"), convention("format-untouched", { unchanged: ["src/format.ts", "src/types.ts"] })],
+  }),
+  task({
+    id: "net-radius-test", pack: "network", fixture: "net-radius-test", setup: "finish-radius-test",
+    prompt: "Finish the RADIUS test tool. `radiusTest(options)` in src/client.ts must follow the protocol rules in "
+      + "CONTEXT.md: accept only replies with the request's Identifier and a valid Response Authenticator, retransmit the "
+      + "identical packet after each `timeoutMs` up to `retries` times, report `bad-response` versus `timeout`, map "
+      + "Accept/Reject/Challenge, and decode every Reply-Message, every Cisco-AVPair and the first Aruba-User-Role. It "
+      + "resolves `{ status, attempts, replyMessages, arubaUserRole, ciscoAvPairs }`. Add `main(argv, io)` in src/cli.ts: "
+      + "`radtest --host <h> [--port 1812] --secret <s> --user <u> --password <p> [--timeout ms] [--retries n] [--json]`. "
+      + "Human output is a first line `<Access-Accept|Access-Reject|Access-Challenge> from <host>:<port> (attempts <n>)` "
+      + "(for timeout or bad-response, a first line that says so; bad-response must mention the shared secret), then "
+      + "indented `  Reply-Message: …`, `  Aruba-User-Role: …` and `  Cisco-AVPair: …` lines in that order. `--json` "
+      + "prints the result object. Exit codes are in CONTEXT.md; missing or malformed options print usage to stderr and "
+      + "exit 64." + RULES,
+    conventions: [onlyEdits("src/", "tests/"), convention("packet-module-kept", { unchanged: ["src/packet.ts"] })],
+  }),
+  task({
+    id: "net-tacacs-accounting", pack: "network", fixture: "net-tacacs-acct", setup: "add-tacacs-history",
+    prompt: "Implement `commandHistory(text, { year })` in src/history.ts: per-user TACACS+ command history built from a "
+      + "tac_plus-style accounting log, following the history rules in CONTEXT.md (start/stop pairing by NAS and task id, "
+      + "stop-only and never-stopped commands, ISO times in the given year, problems for invalid lines). Use the existing "
+      + "record parser." + RULES,
+    conventions: [onlyEdits("src/", "tests/"), convention("uses-record-parser", { contains: [{ path: "src/history.ts", text: "parseRecord" }], unchanged: ["src/record.ts"] })],
+  }),
+  task({
+    id: "net-config-compliance", pack: "network", fixture: "net-config-audit", setup: "add-config-audit",
+    prompt: "Config backup diffs are full of noise and there is no compliance check. Implement normalization in "
+      + "src/normalize.ts exactly as CONTEXT.md describes for Junos (comments, `$9$` secrets) and AOS-CX (comments, the "
+      + "header, `exit`, parent > child hierarchy), so `diffConfigs` reports only real changes. Add `checkCompliance(vendor, "
+      + "text)` in src/compliance.ts returning the `ntp`, `aaa` and `snmpv2-off` results defined in CONTEXT.md, each "
+      + "`{ rule, passed, detail }`; a failing `snmpv2-off` detail names every community." + RULES,
+    conventions: [onlyEdits("src/", "tests/"), convention("module-layout", { contains: [{ path: "src/compliance.ts", text: "checkCompliance" }], changed: ["src/normalize.ts"] })],
+  }),
+  task({
+    id: "net-mcp-show-interfaces", pack: "network", fixture: "net-mcp-router", setup: "add-show-interfaces-tool",
+    prompt: "Add a read-only `show_interfaces` device tool to this router-style MCP server. Arguments: `device` "
+      + "(required, non-empty string), `prefix` (optional string: only interface names starting with it) and `operUp` "
+      + "(optional boolean filter); each has a description and no others are allowed. Annotations: read-only, not "
+      + "destructive, idempotent, closed-world. It returns JSON text `{ device, total, truncated, interfaces }` where each "
+      + "interface is `{ name, adminUp, operUp, description, speedMbps }` in inventory order, `total` counts every match, "
+      + "and at most 50 are listed. An unknown device is a tool error naming the known devices. It must stay out of the "
+      + "direct tool list, be found first by `find_tool` for the queries `interfaces` and `interface status`, and run "
+      + "through `invoke_read_tool`." + RULES,
+    conventions: [
+      onlyEdits("src/", "tests/"),
+      convention("device-tool-file", { changed: ["src/tools/"], contains: [{ path: "src/tools/index.ts", text: "show" }], unchanged: ["src/router.ts"] }),
+    ],
+  }),
+];

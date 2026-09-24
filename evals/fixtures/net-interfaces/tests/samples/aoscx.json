@@ -1,0 +1,75 @@
+{
+  "interfaces": [
+    {
+      "name": "1/1/1",
+      "adminUp": true,
+      "operUp": true,
+      "description": "ap-lobby",
+      "mac": "02:00:5e:00:03:01",
+      "mtu": 1500,
+      "speedMbps": 1000,
+      "ipv4": [],
+      "parent": null,
+      "lagMembers": [],
+      "lag": null
+    },
+    {
+      "name": "1/1/2",
+      "adminUp": false,
+      "operUp": false,
+      "description": null,
+      "mac": "02:00:5e:00:03:02",
+      "mtu": 1500,
+      "speedMbps": null,
+      "ipv4": [],
+      "parent": null,
+      "lagMembers": [],
+      "lag": null
+    },
+    {
+      "name": "1/1/49",
+      "adminUp": true,
+      "operUp": true,
+      "description": null,
+      "mac": "02:00:5e:00:03:31",
+      "mtu": 1500,
+      "speedMbps": 10000,
+      "ipv4": [],
+      "parent": null,
+      "lagMembers": [],
+      "lag": "lag1"
+    },
+    {
+      "name": "lag1",
+      "adminUp": true,
+      "operUp": true,
+      "description": "to-core",
+      "mac": "02:00:5e:00:03:40",
+      "mtu": null,
+      "speedMbps": 10000,
+      "ipv4": [],
+      "parent": null,
+      "lagMembers": [
+        "1/1/49"
+      ],
+      "lag": null
+    },
+    {
+      "name": "vlan20",
+      "adminUp": true,
+      "operUp": true,
+      "description": "servers",
+      "mac": "02:00:5e:00:03:50",
+      "mtu": 1500,
+      "speedMbps": null,
+      "ipv4": [
+        "192.0.2.129/25",
+        "198.51.100.129/25"
+      ],
+      "parent": null,
+      "lagMembers": [],
+      "lag": null
+    }
+  ],
+  "truncated": false
+}

@@ -1,0 +1,11 @@
+LLDP Neighbor Information
+=========================
+
+Total Neighbor Entries          : 1
+Total Neighbor Entries Deleted  : 0
+Total Neighbor Entries Dropped  : 0
+Total Neighbor Entries Aged-Out : 0
+
+LOCAL-PORT  CHASSIS-ID         PORT-ID      PORT-DESC    TTL      SYS-NAME
+---------------------------------------------------------------------------
+1/1/1       02:00:5e:00:00:01  Gi1/0/48     uplink       120      access-1

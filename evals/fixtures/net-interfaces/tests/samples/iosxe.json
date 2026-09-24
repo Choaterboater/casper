@@ -1,0 +1,61 @@
+{
+  "interfaces": [
+    {
+      "name": "GigabitEthernet1/0/1",
+      "adminUp": true,
+      "operUp": true,
+      "description": "member of Po1",
+      "mac": "02:00:5e:00:01:01",
+      "mtu": 1500,
+      "speedMbps": 1000,
+      "ipv4": [],
+      "parent": null,
+      "lagMembers": [],
+      "lag": "Port-channel1"
+    },
+    {
+      "name": "GigabitEthernet1/0/2",
+      "adminUp": false,
+      "operUp": false,
+      "description": null,
+      "mac": "02:00:5e:00:01:02",
+      "mtu": 1500,
+      "speedMbps": null,
+      "ipv4": [],
+      "parent": null,
+      "lagMembers": [],
+      "lag": null
+    },
+    {
+      "name": "Port-channel1",
+      "adminUp": true,
+      "operUp": true,
+      "description": "uplink to dist-1",
+      "mac": "02:00:5e:00:01:10",
+      "mtu": 1500,
+      "speedMbps": 1000,
+      "ipv4": [],
+      "parent": null,
+      "lagMembers": [
+        "GigabitEthernet1/0/1"
+      ],
+      "lag": null
+    },
+    {
+      "name": "Vlan10",
+      "adminUp": true,
+      "operUp": true,
+      "description": "users",
+      "mac": "02:00:5e:00:01:20",
+      "mtu": 1500,
+      "speedMbps": null,
+      "ipv4": [
+        "192.0.2.1/24"
+      ],
+      "parent": null,
+      "lagMembers": [],
+      "lag": null
+    }
+  ],
+  "truncated": false
+}

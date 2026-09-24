@@ -1,0 +1,89 @@
+{
+  "interfaces": [
+    {
+      "name": "xe-0/0/0",
+      "adminUp": true,
+      "operUp": true,
+      "description": null,
+      "mac": "02:00:5e:00:b0:01",
+      "mtu": 9192,
+      "speedMbps": 10000,
+      "ipv4": [],
+      "parent": null,
+      "lagMembers": [],
+      "lag": "ae1"
+    },
+    {
+      "name": "xe-0/0/1",
+      "adminUp": false,
+      "operUp": false,
+      "description": "spare",
+      "mac": "02:00:5e:00:b0:02",
+      "mtu": 1514,
+      "speedMbps": 10000,
+      "ipv4": [],
+      "parent": null,
+      "lagMembers": [],
+      "lag": null
+    },
+    {
+      "name": "xe-0/0/2",
+      "adminUp": true,
+      "operUp": true,
+      "description": null,
+      "mac": "02:00:5e:00:b0:03",
+      "mtu": 9192,
+      "speedMbps": 10000,
+      "ipv4": [],
+      "parent": null,
+      "lagMembers": [],
+      "lag": "ae1"
+    },
+    {
+      "name": "ae1",
+      "adminUp": true,
+      "operUp": true,
+      "description": "core-bundle",
+      "mac": "02:00:5e:00:b0:10",
+      "mtu": 9192,
+      "speedMbps": 20000,
+      "ipv4": [],
+      "parent": null,
+      "lagMembers": [
+        "xe-0/0/0",
+        "xe-0/0/2"
+      ],
+      "lag": null
+    },
+    {
+      "name": "ae1.100",
+      "adminUp": true,
+      "operUp": true,
+      "description": "mgmt",
+      "mac": null,
+      "mtu": 9170,
+      "speedMbps": null,
+      "ipv4": [
+        "192.0.2.65/26",
+        "198.51.100.7/24"
+      ],
+      "parent": "ae1",
+      "lagMembers": [],
+      "lag": null
+    },
+    {
+      "name": "ae1.200",
+      "adminUp": false,
+      "operUp": false,
+      "description": null,
+      "mac": null,
+      "mtu": 9170,
+      "speedMbps": null,
+      "ipv4": [],
+      "parent": "ae1",
+      "lagMembers": [],
+      "lag": null
+    }
+  ],
+  "truncated": true
+}

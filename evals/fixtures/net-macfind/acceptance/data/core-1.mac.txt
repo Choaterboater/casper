@@ -1,0 +1,13 @@
+MAC flags (S - static MAC, D - dynamic MAC, L - locally learned, P - Persistent static
+           SE - statistics enabled, NM - non configured MAC, R - remote PE MAC, O - ovsdb MAC)
+
+
+Ethernet switching table : 5 entries, 5 learned
+Routing instance : default-switch
+   Vlan                MAC                 MAC         Age    Logical                NH        RTR
+   name                address             flags              interface              Index     ID
+   users               02:00:5e:20:00:01   D             -   ae1.0                  0         0
+   users               02:00:5e:20:00:02   D             -   ae2.0                  0         0
+   servers             02:00:5e:20:00:10   D             -   ge-0/0/10.0            0         0
+   users               02:00:5e:20:00:30   D             -   ae2.0                  0         0
+   users               02:00:5e:20:00:40   D             -   ge-0/0/20.0            0         0

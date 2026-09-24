@@ -1,0 +1,44 @@
+Physical interface: ge-0/0/0, Enabled, Physical link is Up
+  Interface index: 148, SNMP ifIndex: 526
+  Description: wan-transit
+  Link-level type: Ethernet, MTU: 1514, Speed: 1000mbps, BPDU Error: None, Loop Detect PDU Error: None
+  Current address: 02:00:5e:00:02:01, Hardware address: 02:00:5e:00:02:01
+  Last flapped   : 2026-01-05 10:00:00 UTC (2d 01:00 ago)
+
+  Logical interface ge-0/0/0.0 (Index 70) (SNMP ifIndex 527)
+    Flags: Up SNMP-Traps 0x4000 Encapsulation: ENET2
+    Protocol inet, MTU: 1500
+      Flags: Sendbcast-pkt-to-re
+      Addresses, Flags: Is-Preferred Is-Primary
+        Destination: 198.51.100.0/30, Local: 198.51.100.2, Broadcast: 198.51.100.3
+
+Physical interface: ge-0/0/1, Enabled, Physical link is Up
+  Interface index: 149, SNMP ifIndex: 528
+  Link-level type: Ethernet, MTU: 1514, Speed: 1000mbps, BPDU Error: None
+  Current address: 02:00:5e:00:02:02, Hardware address: 02:00:5e:00:02:02
+
+  Logical interface ge-0/0/1.0 (Index 71) (SNMP ifIndex 529)
+    Flags: Up SNMP-Traps 0x4000 Encapsulation: ENET2
+    Protocol aenet, AE bundle: ae0.0
+
+Physical interface: ae0, Enabled, Physical link is Up
+  Interface index: 128, SNMP ifIndex: 540
+  Description: to-core
+  Link-level type: Ethernet, MTU: 1514, Speed: 1Gbps, BPDU Error: None
+  Current address: 02:00:5e:00:02:10, Hardware address: 02:00:5e:00:02:10
+
+  Logical interface ae0.0 (Index 72) (SNMP ifIndex 541)
+    Flags: Up SNMP-Traps 0x4004000 Encapsulation: ENET2
+    Protocol inet, MTU: 1500
+      Addresses, Flags: Is-Preferred Is-Primary
+        Destination: 192.0.2.0/24, Local: 192.0.2.10, Broadcast: 192.0.2.255
+
+Physical interface: lo0, Enabled, Physical link is Up
+  Interface index: 6, SNMP ifIndex: 6
+  Link-level type: Unspecified, MTU: Unlimited, Speed: Unspecified
+
+  Logical interface lo0.0 (Index 16) (SNMP ifIndex 16)
+    Flags: Up SNMP-Traps Encapsulation: Unspecified
+    Protocol inet, MTU: Unlimited
+      Addresses
+        Local: 203.0.113.1

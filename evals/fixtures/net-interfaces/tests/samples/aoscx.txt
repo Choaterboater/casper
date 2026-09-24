@@ -1,0 +1,46 @@
+Interface 1/1/1 is up
+ Admin state is up
+ Link state: up for 2 days (since Mon Jan 05 10:00:00 UTC 2026)
+ Link transitions: 1
+ Description: ap-lobby
+ Hardware: Ethernet, MAC Address: 02:00:5e:00:03:01
+ MTU 1500
+ Type 1GbT
+ Full-duplex
+ qos trust none
+ Speed 1000 Mb/s
+ Auto-negotiation is on
+
+Interface 1/1/2 is down
+ Admin state is down
+ State information: Administratively down
+ Link transitions: 0
+ Description:
+ Hardware: Ethernet, MAC Address: 02:00:5e:00:03:02
+ MTU 1500
+ Type 1GbT
+ Speed 0 Mb/s
+
+Interface 1/1/49 is up
+ Admin state is up
+ Link state: up for 2 days (since Mon Jan 05 10:00:00 UTC 2026)
+ Hardware: Ethernet, MAC Address: 02:00:5e:00:03:31
+ MTU 1500
+ Type 10GbT
+ Speed 10000 Mb/s
+
+Aggregate lag1 is up
+ Admin state is up
+ Description : to-core
+ MAC Address         : 02:00:5e:00:03:40
+ Aggregated-interfaces : 1/1/49
+ Aggregation-key : 1
+ Speed 10000 Mb/s
+
+Interface vlan20 is up
+ Admin state is up
+ Description: servers
+ Hardware: Ethernet, MAC Address: 02:00:5e:00:03:50
+ IPv4 address 192.0.2.129/25
+ IPv4 address 198.51.100.129/25 secondary
+ MTU 1500
