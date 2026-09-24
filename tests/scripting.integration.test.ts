@@ -144,6 +144,9 @@ test("--continue picks up the latest conversation and --resume the one whose ID 
   // One-shot flags change nothing for later runs: a plain prompt still starts a new conversation.
   expect((await f.run(["a fresh question"])).exit).toBe(0);
   expect(userText(f.payloads.at(-1)!)).not.toMatch(/remember (ALPHA|BRAVO)/);
+  // Continuing left no empty conversations behind: ALPHA, BRAVO and the fresh question.
+  const all = await savedConversations(f);
+  expect(all).toHaveLength(3);
 
   const requests = f.payloads.length;
   let shared = 0;
@@ -151,7 +154,8 @@ test("--continue picks up the latest conversation and --resume the one whose ID 
   if (shared) {
     const ambiguous = await f.run(["--resume", alpha!.slice(0, shared), "hi"]);
     expect({ exit: ambiguous.exit, stderr: ambiguous.stderr }).toMatchObject({ exit: 64 });
-    expect(ambiguous.stderr).toContain("matches 2 conversations; give more of the ID");
+    const matching = all.filter((id) => id.startsWith(alpha!.slice(0, shared))).length;
+    expect(ambiguous.stderr).toContain(`matches ${matching} conversations; give more of the ID`);
   }
   for (const [args, message] of [
     [["--resume", "ffffffffffff", "hi"], "no saved conversation in this workspace starts with"],

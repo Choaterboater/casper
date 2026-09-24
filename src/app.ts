@@ -558,7 +558,7 @@ export class CasperApp {
     let current: string | undefined;
     try { current = session.getSessionInfo?.().sessionId; } catch { /* no persistence */ }
     if (target !== current) {
-      await session.resumeConversation(target);
+      await session.resumeConversation(target, { keepUnwritten: false });
       if (this.interactive && session.getSessionInfo) await (await this.ensureSessionWorkspace()).rememberConversation(session);
     }
     this.output.write(`[session] Continuing conversation ${target}.\n`);

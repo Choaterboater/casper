@@ -194,7 +194,9 @@ export interface RuntimeSession {
   getUsage?(): RuntimeUsage;
   listConversations?(): Promise<RuntimeConversation[]>;
   clearConversation?(): Promise<void>;
-  resumeConversation?(id: string): Promise<void>;
+  /** `keepUnwritten: false` drops a new conversation that has no saved response yet instead of
+   * saving it for /resume (a startup `--resume` has nothing worth keeping). */
+  resumeConversation?(id: string, options?: { keepUnwritten?: boolean }): Promise<void>;
   compact?(instructions?: string, signal?: AbortSignal): Promise<void>;
   /** `maxTurns` stops the request gracefully after that many model turns (tools of the last turn
    * still finish) and emits turn_limit; unset means no Casper turn limit. */
