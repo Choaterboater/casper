@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -62,6 +62,47 @@ test("plain line input typed before the first prompt is kept; lines typed during
   expect(await next).toBe("after");
   terminal.close();
 });
+
+test("plain line input that reaches EOF before or with the first prompt is still read in order", async () => {
+  const ended = new PassThrough();
+  let eof = 0;
+  const early = new InteractiveTerminal(ended, { write() {} }, () => {}, () => { eof++; });
+  early.start();
+  ended.end("/status\n/help\n");
+  await delivered();
+  expect(await early.readCommand()).toBe("/status");
+  expect(await early.readCommand()).toBe("/help");
+  expect(await early.readCommand()).toBeUndefined();
+  // EOF with lines still queued is not a hang-up of the running command; the loop drains them.
+  expect(eof).toBe(0);
+  early.close();
+
+  const chunked = new PassThrough();
+  const pending = new InteractiveTerminal(chunked, { write() {} }, () => {}, () => {});
+  pending.start();
+  const first = pending.readCommand();
+  chunked.end("/status\n/foo\n"); // One chunk: /foo arrived with /status, not during its work.
+  expect(await first).toBe("/status");
+  await delivered();
+  expect(await pending.readCommand()).toBe("/foo");
+  expect(await pending.readCommand()).toBeUndefined();
+  pending.close();
+});
+
+test("piped stdin runs every line through the real CLI", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-piped-")); roots.push(root);
+  const home = path.join(root, "home"); const project = path.join(root, "project");
+  await Promise.all([mkdir(home), mkdir(project)]);
+  const env = { ...process.env, HOME: home, CASPER_PROFILE: "default" } as Record<string, string | undefined>;
+  for (const key of ["PI_CODING_AGENT_DIR", "PI_MODEL", "PI_PROVIDER", "NO_COLOR"]) delete env[key];
+  const child = Bun.spawn([process.execPath, path.resolve(import.meta.dir, "../src/cli.ts")], {
+    cwd: project, env, stdin: new Blob(["/status\n/help\n/nope\n"]), stdout: "pipe", stderr: "pipe",
+  });
+  const [stdout, code] = await Promise.all([new Response(child.stdout).text(), child.exited]);
+  // Plain mode does not echo input; each command's own output marks that it ran.
+  const status = stdout.indexOf(" policy "), help = stdout.indexOf("/help all"), unknown = stdout.indexOf('Unknown command "/nope"');
+  expect({ code, status: status >= 0, help: help > status, unknown: unknown > help }).toEqual({ code: 0, status: true, help: true, unknown: true });
+}, 30_000);
 
 // python3 runs the standard-library PTY fixture; Windows has no equivalent here.
 posixOnly("real PTY: input survives streamed output, cancellation and exact confirmations", async () => {
