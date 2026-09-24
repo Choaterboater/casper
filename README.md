@@ -106,11 +106,11 @@ reused while they stream, and the open tail is re-parsed so lists and fences sta
 correct; fenced code blocks are boxed in a
 bordered panel titled with their language, as are `/output` replays and the `/diff` status and
 colored diff; prose stays inline. Each tool call occupies one transcript
-line: `• … — running` is redrawn in place as `✓`/`✗` when it finishes, and a dim
-`… thinking · 1.5k chars` line keeps the screen live while the model produces output
-that is not yet visible. The `/` popup, pickers and the login notice are drawn over
-the bottom of the transcript, never appended, so opening them does not scroll the
-terminal. After a coding request the receipt names the files that actually changed
+line: `• … — running` is redrawn in place as `✓`/`✗` when it finishes, and the
+Working panel (`Reasoning · 1.5k chars`) keeps the screen live while the model produces
+output that is not yet visible. The `/` popup and pickers are drawn over the bottom of
+the transcript, never appended, so opening them does not scroll the terminal; login
+panels follow the transcript so authorization URLs and device codes stay visible. After a coding request the receipt names the files that actually changed
 (before/after tree digest), files changed later during checks/repair, and a bounded
 `git diff --stat`. See the [terminal guide](docs/TERMINAL_UX.md).
 

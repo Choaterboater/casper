@@ -34,10 +34,10 @@ nothing runs unless the model selects one. One-shot prompts need --verify.
 
 export const LOGIN_HELP = `Provider login requires an interactive Casper terminal.
 Run casper, then /login [openai-codex|github-copilot|anthropic|openrouter].
-Codex/Copilot use device-code login; Claude offers API key or browser sign-in; OpenRouter uses an API key.
+Codex/Copilot use device-code login; Claude and OpenRouter offer API key or browser sign-in.
 Use TERM other than dumb and output not redirected.
 This guidance changes no credentials. Never paste passwords, tokens or API keys into chat.
-Login requires consent to the shared Pi/Casper auth store; it does not select a model.
+Login writes to Casper's credential store (~/.casper/agent) after consent; it does not select a model.
 Use /model afterward. Local credential availability is not a connection test.
 `;
 
@@ -56,13 +56,17 @@ Usage:
   casper --no-verify   Start interactive mode without casper_check
   casper --mcp <name>  Authorize and connect a configured MCP (repeatable)
   casper --lsp <name>  Authorize and start a configured language server (repeatable)
-  casper --help        Show help
+  casper --help, -h    Show help
+  casper --licenses    Print third-party license notices
 
 Local commands:
   /help, /help all                  Short help or this full reference (no model)
   /status                           Runtime model/auth and integration status
   /model [id or provider/id]        Model browser; select and remember globally
   /model --session [model]          Select without changing the startup default
+  /model @role[:effort]             Select the model a configured role points to
+  /model roles                      Show fast/build/reason/review role mappings
+  /model role <fast|build|reason|review> <selector|clear>  Save or clear a role mapping
   /effort [level|auto] [--session]  Supported levels or auto (Casper picks per request); Shift+Tab cycles
   /context                          Estimated context and capability counts
   /usage                            Session tokens and optional catalog cost estimate
@@ -72,7 +76,7 @@ Local commands:
   /diff                             Git status plus tracked diff against HEAD
   /output [n]                       Full bounded output of a recent tool call (1 = latest; last 20 retained per task)
   /permissions                      Explain enforcement, not change permission presets
-  /login [provider]                 Codex, Copilot, Anthropic or OpenRouter (shared auth store)
+  /login [provider]                 Codex, Copilot, Anthropic or OpenRouter (Casper's credential store)
   /project                          Show project context
   /memory                           List human-entered project facts
   /memory remember <fact>           Save an explicit project fact (no model)
@@ -82,7 +86,7 @@ Local commands:
   /references                       List configured local reference sources
   /references search <id|*> <query> Search reference text locally (no model)
   /tree                             Show named session/workspace branches
-  /branch <name>                    Clone this Pi session (isolated by policy)
+  /branch <name>                    Clone this conversation (isolated by policy)
   /switch <branch>                  Switch session and workspace (confirmation required)
   /switch main apply                Verify/review/apply candidate, then clean up
   /switch main discard              Review/discard candidate, then clean up
@@ -117,7 +121,7 @@ Local commands:
 
 Unknown slash commands are rejected locally, never sent to a model.
 /model: Enter selects and saves ~/.casper/settings.json; Ctrl+S selects for this session only.
-Exact IDs are remembered too; /model --session <id> opts out. Shared Pi defaults are unchanged.
+Exact IDs are remembered too; /model --session <id> opts out.
 /effort remembers supported levels per model; /effort <level> --session opts out.
 Shift+Tab cycles auto and the model's supported levels for this conversation only; it does not save.
 /effort auto lets Casper pick per request: low for reading/explaining/diagrams, medium for tests and
@@ -126,7 +130,7 @@ Context is estimated and may be unavailable; cost estimates are not subscription
 /clear preserves saved conversations and workspace files. /resume uses exact IDs; /switch uses workspace names.
 Esc/Ctrl-C cancel the picker. Plain/redirected terminals list models; use an exact ID to select.
 Restored conversations retain their model; missing/unavailable selections block sending.
-Without a restored selection or Casper default, choose with /model; no Pi-default fallback.
+Without a restored selection or Casper default, choose with /model; there is no other fallback.
 Switching provider sends subsequent conversation context to that provider.
 The picker refreshes local catalogs only; selection does not generate a model response.
 Provider-defined credential checks may execute configured key-resolution commands.
@@ -154,8 +158,9 @@ See docs/BROWSER.md for limits, input freshness, supported assertions and remain
 Session branching/switching and worktree creation/removal require exact interactive approval.
 Subagents get read/grep/find/ls only; no edit/write/bash/MCP/LSP or recursive delegation.
 Limits: 2 concurrent, 4 delegations per parent prompt; 180 seconds/12 turns/48 tool calls per child.
-Children use global Pi model defaults. Reports are advisory; read-only tools are not an OS sandbox.
-Learning also uses those defaults; source text may reach the configured provider. No secret detector.
+Children use Casper roles (explorer→fast, reviewer→review) or the startup default.
+Reports are advisory; read-only tools are not an OS sandbox.
+Learning uses the startup default; source text may reach the configured provider. No secret detector.
 Learning drafts are owner-only plaintext and inert. Promotion is a separate local,
 digest-bound human command; it never asks the model to choose or approve.
 Use local directories only; learn cannot be combined with --verify, --mcp or --lsp.
