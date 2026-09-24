@@ -1,3 +1,4 @@
+import type { ChildProcess } from "node:child_process";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import type { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
@@ -48,6 +49,15 @@ function sameDefinition(a: MCPServerDefinition, b: MCPServerDefinition): boolean
   const { source: _a, ...restA } = a;
   const { source: _b, ...restB } = b;
   return JSON.stringify(restA) === JSON.stringify(restB);
+}
+
+/** Liveness of the spawned child itself. The SDK's `pid` getter reads `_process`, which
+ * `close()` clears synchronously before the child exits, so it cannot prove an exit. The
+ * private field is pinned by the simulated-Windows cleanup test. */
+function stdioChildAlive(stdio: StdioClientTransport): () => boolean {
+  const child = (stdio as unknown as { _process?: ChildProcess })._process;
+  if (!child) { const pid = stdio.pid; return () => stdio.pid === pid; }
+  return () => child.exitCode === null && child.signalCode === null;
 }
 
 /** Credentials never enter status, error strings, or the capability index. */
@@ -327,7 +337,7 @@ export class MCPManager {
           await start();
           const pid = stdio.pid;
           // Own the child before the protocol handshake, which can fail or stall.
-          entry.owner = ownSpawnedTree(pid, () => stdio.pid === pid);
+          entry.owner = ownSpawnedTree(pid, stdioChildAlive(stdio));
           await entry.owner?.capture();
         };
       }

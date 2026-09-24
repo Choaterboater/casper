@@ -141,6 +141,21 @@ for (const mode of ["verifier", "app-verifier", "lsp", "mcp", "browser"]) {
   }, 20_000);
 }
 
+// Real POSIX process table behind a simulated no-groups (Windows) platform; ps is POSIX-only.
+posixOnly("simulated Windows MCP cleanup still signals the stdio root after the SDK clears its pid", async () => {
+  const child = Bun.spawn([process.execPath, path.join(import.meta.dir, "fixtures/simulated-windows-mcp.ts")], {
+    stdout: "pipe", stderr: "pipe", env: { PATH: process.env.PATH, TERM: "xterm-256color" },
+  });
+  const timer = setTimeout(() => child.kill("SIGKILL"), 15_000);
+  try {
+    const [stdout, stderr, exitCode] = await Promise.all([
+      new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited,
+    ]);
+    expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
+    expect(stdout).toContain("simulated windows mcp: root stopped");
+  } finally { clearTimeout(timer); }
+}, 20_000);
+
 test("tree termination never throws for a root that no longer exists", () => {
   // A pid beyond any real allocation cannot name a live process or group.
   expect(() => terminateTree(undefined, 2_147_483_647, "SIGKILL")).not.toThrow();
