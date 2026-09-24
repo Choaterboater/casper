@@ -1,16 +1,22 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { deflateSync } from "node:zlib";
 import { compileExecutable } from "../scripts/compile";
 import { CASPER_VERSION } from "../src/version";
 
+// Bun 1.4 copies a read-only runtime (Homebrew's 0555 bun) into the build's cwd as
+// `.<hash>-00000000.bun-build` and never unlinks it; the compile must not leave one here.
+const bunBuildLeaks = async () => (await readdir(process.cwd())).filter((name) => name.endsWith(".bun-build"));
+
 test("the standalone CLI starts and reports its version on every host", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-compiled-start-"));
   try {
     const binary = path.join(root, process.platform === "win32" ? "casper.exe" : "casper");
+    const before = new Set(await bunBuildLeaks());
     await compileExecutable(path.join(import.meta.dir, "../src/standalone.ts"), binary);
+    expect((await bunBuildLeaks()).filter((name) => !before.has(name))).toEqual([]);
     const child = Bun.spawn([binary, "--version"], { cwd: root, stdout: "pipe", stderr: "pipe" });
     const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
     // A compiled binary names its own executable path (the installer compares only the version token).
