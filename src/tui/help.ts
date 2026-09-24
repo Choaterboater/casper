@@ -1,7 +1,8 @@
 export const HELP_TEXT = `Casper — your coding companion
 
-  casper                 Start interactive mode; offers casper_check unless --no-verify
-  casper <prompt>        Run one prompt and exit; --verify offers casper_check
+  casper                 Start interactive mode
+  casper <prompt>        Run one prompt and exit; --verify has Casper check the changes
+  casper --verbose ...   Detailed evidence receipts instead of the plain receipt
   /help all              All commands, options and safety details
   /status                Model/auth, integrations and local storage
   /model [model]         Pick a model; Enter remembers globally, Ctrl+S is session-only
@@ -11,11 +12,12 @@ export const HELP_TEXT = `Casper — your coding companion
   /clear, /resume        Fresh conversation or list/resume a saved conversation
   /diff                  Current tracked changes and untracked file names
   /output [n]            Full retained output of the last task's n-th most recent tool call
+  /receipt               Detailed evidence behind the last task's receipt
   /permissions           Explain actual tool/approval boundaries
   /login                 Provider sign-in or private API-key setup (interactive only)
   /project               Project context and check commands
   /skills                Skills and trust; /skills diagnostics for warnings
-  /verify [checks ...]   Run repository checks (trusted projects only)
+  /verify [checks ...]   Run repository checks (trusted projects only); /verify repair fixes failures
   /browser               Disposable browser status; website tasks can reproduce bugs
   /debug                 Local debugger targets/status; explicit launch approval
   /exit, /quit           Exit
@@ -28,8 +30,9 @@ Esc stops active work. Ctrl-C cancels work; idle, it clears a draft; twice on em
 Ctrl+L redraws the screen. See docs/TERMINAL_UX.md for limits.
 Enter during work retains your draft; it does not queue a request.
 Approvals require a fresh yes. Task completion is not verification.
-Interactive sessions offer the model a casper_check tool for trusted project checks;
-nothing runs unless the model selects one. One-shot prompts need --verify.
+After the model edits files, Casper runs the project's checks itself (auto mode) once they are
+known to take under a minute; until then the receipt suggests /verify. --verify runs them for a
+one-shot prompt. See docs/VERIFICATION.md for verification.mode.
 `;
 
 export const LOGIN_HELP = `Provider login requires an interactive Casper terminal.
@@ -52,8 +55,9 @@ Usage:
   casper learn inspect <repo> <id>  Inspect a draft and its decisions locally
   casper learn promote <repo> <id> <sha256> <number> <disposition> [skill-name]
                                   Record one exact human promotion/ignore decision
-  casper --verify ...  Offer casper_check and bounded repair to a one-shot prompt
-  casper --no-verify   Start interactive mode without casper_check
+  casper --verify ...  Casper runs the checks after this run's edits, with bounded repair (auto)
+  casper --no-verify   No Casper checks during tasks for this run (off)
+  casper --verbose ... Detailed evidence receipts and per-check lines
   casper --mcp <name>  Authorize and connect your own (user/profile) MCP server (repeatable)
   casper --lsp <name>  Authorize and start your own (user/profile) language server (repeatable)
                        Project-defined servers need interactive /mcp or /lsp connect review
@@ -76,6 +80,7 @@ Local commands:
   /resume [exact-session-id]        List/resume conversations in the current workspace
   /diff                             Git status plus tracked diff against HEAD
   /output [n]                       Full bounded output of a recent tool call (1 = latest; last 20 retained per task)
+  /receipt                          Detailed evidence receipt of the last model task (freshness, scope)
   /permissions                      Explain enforcement, not change permission presets
   /login [provider]                 Codex, Copilot, Anthropic or OpenRouter (Casper's credential store)
   /project                          Show project context
@@ -135,13 +140,16 @@ Without a restored selection or Casper default, choose with /model; there is no 
 Switching provider sends subsequent conversation context to that provider.
 The picker refreshes provider catalogs over the network when CASPER_OFFLINE=1 is not set; selection does not generate a model response.
 Provider-defined credential checks may execute configured key-resolution commands.
-Checks: typecheck lint test build (all by default).
-Interactive sessions offer casper_check by default: the model may select trusted project
-checks; nothing runs automatically and no selection means no Casper verification recorded.
---no-verify withholds the tool; one-shot prompts get it only with --verify.
+Checks: typecheck lint test build (all configured by default; verification.checks selects).
+verification.mode: auto (Casper runs the checks after edits, repairs failures within repair.maxAttempts),
+offer (the model may use casper_check; the receipt suggests /verify) or off. Unset, interactive
+sessions use auto once the checks are measured under 60 s, else offer; one-shot prompts use off.
+--verify selects auto and --no-verify selects off for one run. Auto skips checks when no files
+changed, and checks whose declared scope misses every changed file. The receipt says why.
 Verification executes repository shell commands; use only in trusted projects.
-One-shot checks exit 0 on command success, 1 on failure/blocked, 2 on skips/no commands.
-Exit 0 does not certify current inputs or behavior; see scoped freshness in the receipt.
+One-shot exit codes: 0 pass (or nothing to verify), 1 check failed or blocked, 2 incomplete
+(skipped checks, or --verify with changes and no checks configured), 130 cancelled.
+Exit 0 does not certify behavior beyond the checks; /receipt shows scope and freshness.
 MCP connection executes a configured program or contacts its URL. Review its source first.
 Non-read MCP calls require exact interactive confirmation; denied in one-shot mode.
 Cooked terminal input (TERM=dumb or redirected output) cannot grant exact approval.

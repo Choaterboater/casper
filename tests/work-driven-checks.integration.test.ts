@@ -837,3 +837,26 @@ test("unconfigured interactive sessions offer checks until Casper has timed them
   expect(app.getLastTaskResult()?.verificationMode).toBe("auto");
   expect(await readFile(path.join(root, "test-runs"), "utf8")).toBe("xx");
 });
+
+test("the task ends with the plain receipt; /receipt and verbose output keep the detailed evidence", async () => {
+  const root = await fixture({ verify: { test: command } });
+  const { app, output } = createApp(root, async () => { await writeFile(path.join(root, "src/value"), "good\n"); }, "auto");
+  await app.runOnce("Fix the value", root);
+  expect(output()).toContain("✓ Changed 1 file: src/value\n✓ Verified by Casper: test passed (");
+  expect(output()).not.toMatch(/scope undeclared|reuse disabled|not independently certified|\[task\]/);
+  await app.runOnce("/receipt", root);
+  expect(output()).toContain("[task] Execution completed");
+  expect(output()).toContain("Requested behavior is not independently certified");
+
+  const verbose = await fixture({ verify: { test: command } });
+  let text = "";
+  const detailed = new CasperApp({ verificationMode: "auto", verbose: true, output: { write(chunk) { text += chunk; } },
+    runtimeFactory: () => ({ async start() { return { async prompt() { await writeFile(path.join(verbose, "src/value"), "good\n"); },
+      async abort() {}, subscribe: () => () => {}, getState: () => ({ cwd: verbose, isStreaming: false }) }; }, async dispose() {} }),
+    loadProjectContext: (project) => loadProjectContext(project, { homeDir: path.join(verbose, "home") }),
+    loadSkillRegistry: (context) => SkillRegistry.discover({ projectRoot: context.info.root, homeDir: path.join(verbose, "home") }) });
+  cleanup.push(() => detailed.close());
+  await detailed.runOnce("Fix the value", verbose);
+  expect(text).toContain("[task] Execution completed");
+  expect(text).toContain("scope undeclared");
+});

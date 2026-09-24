@@ -42,7 +42,7 @@ test("a user cancel prints one cancel notice and the receipt, with no [error] li
   let output = "";
   const receipt = Promise.withResolvers<void>();
   const app = new CasperApp({
-    input, output: { write: (text: string) => { output += text; if (output.includes("[task]")) receipt.resolve(); } },
+    input, output: { write: (text: string) => { output += text; if (output.includes("✗ Stopped")) receipt.resolve(); } },
     runtimeFactory: () => runtime, sessionHomeDir: home,
     loadProjectContext: info => loadProjectContext(info, { homeDir: home }),
     loadSkillRegistry: context => SkillRegistry.discover({ projectRoot: context.info.root, homeDir: home }),
@@ -57,7 +57,7 @@ test("a user cancel prints one cancel notice and the receipt, with no [error] li
     expect(app.interrupt()).toBe(true);
     await receipt.promise;
     expect(output.match(/\[cancel\]/g)).toHaveLength(1);
-    expect(output).toContain("[task] Execution cancelled");
+    expect(output).toContain("✗ Stopped: cancelled — changes already made are kept");
     expect(output).not.toContain("[error]");
     input.end();
     await interactive;

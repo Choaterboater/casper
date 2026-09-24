@@ -598,8 +598,8 @@ posixOnly("CLI shutdown has a deadline when runtime startup never settles", asyn
 posixOnly("one-shot CLI returns meaningful exit codes without model credentials", async () => {
   const root = await fixture();
   const cli = path.resolve("src/cli.ts");
-  const run = async (prompt: string) => {
-    const child = Bun.spawn([process.execPath, cli, prompt], { cwd: root, env: { ...process.env, HOME: path.join(root, "home"), CASPER_PROFILE: "default" }, stdout: "pipe", stderr: "pipe" });
+  const run = async (prompt: string, ...flags: string[]) => {
+    const child = Bun.spawn([process.execPath, cli, ...flags, prompt], { cwd: root, env: { ...process.env, HOME: path.join(root, "home"), CASPER_PROFILE: "default" }, stdout: "pipe", stderr: "pipe" });
     const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
     return { stdout, stderr, code };
   };
@@ -614,14 +614,18 @@ posixOnly("one-shot CLI returns meaningful exit codes without model credentials"
   await writeFile(path.join(root, ".casper/project.yaml"), `verify:\n  build: ${JSON.stringify(checkCommand("mkdir:dist", "write:dist/output.js=built"))}\nverification:\n  scopes:\n    build:\n      inputs: [source.ts]\n`);
   const built = await run("/verify build");
   expect(built.code).toBe(0);
-  expect(built.stdout).toContain("inputs fresh");
-  expect(built.stdout).toContain('scope {"inputs":["source.ts"]}');
+  expect(built.stdout).toContain("✓ Verified by Casper: build passed (");
+  const detailed = await run("/verify build", "--verbose");
+  expect(detailed.stdout).toContain("inputs fresh");
+  expect(detailed.stdout).toContain('scope {"inputs":["source.ts"]}');
   await symlink("/dev/null", path.join(root, "unrelated-link"));
   const linked = await run("/verify build");
   expect(linked.code).toBe(0);
   await writeFile(path.join(root, ".casper/project.yaml"), `verify:\n  build: ${JSON.stringify(checkCommand("write:source.ts=after"))}\nverification:\n  scopes:\n    build:\n      inputs: [source.ts]\n`);
   const stale = await run("/verify build");
   expect(stale.code).toBe(0); // Exit status describes execution, not input currency.
-  expect(stale.stdout).toContain("inputs stale");
-  expect(stale.stdout).toContain("current files unverified");
+  expect(stale.stdout).toContain("• Not verified — stale: files changed after the last passing build. Run casper \"/verify build\".");
+  const staleDetail = await run("/verify build", "--verbose");
+  expect(staleDetail.stdout).toContain("inputs stale");
+  expect(staleDetail.stdout).toContain("current files unverified");
 });

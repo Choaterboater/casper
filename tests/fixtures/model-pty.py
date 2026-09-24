@@ -103,7 +103,7 @@ def exercise_empty_eof(bun, repo, root):
         s.until("/help · /status · /login")
         s.until("│ idle")
         s.send("hello\n")
-        s.until("Execution failed")
+        s.until("Stopped: the model run failed")
         s.pump(0.2)
         assert s.screen.text().count("[error] No Casper model selected") == 1, s.screen.text()
         s.send("/model\n")

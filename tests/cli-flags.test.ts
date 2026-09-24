@@ -173,9 +173,10 @@ test("informational flags are honored after the verify/integration options", asy
   const version = await run([cli, "--no-verify", "--version"], root);
   expect({ code: version.code, stderr: version.stderr }).toEqual({ code: 0, stderr: "" });
   expect(version.stdout).toMatch(/^casper \S+ \([^\n]*\)\n$/);
-  const help = await run([cli, "--verify", "--help"], root);
+  const help = await run([cli, "--verify", "--verbose", "--help"], root);
   expect(help.code).toBe(0);
   expect(help.stdout).toContain("casper <prompt>");
+  expect(help.stdout).toContain("--verbose");
 });
 
 test("-- ends option parsing, so a prompt may start with a dash", async () => {

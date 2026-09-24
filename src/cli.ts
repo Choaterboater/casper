@@ -60,11 +60,13 @@ export async function runCli(): Promise<void> {
   // Options are parsed before anything touches state; they have no side effects.
   let verify = false;
   let noVerify = false;
+  let verbose = false;
   const servers: string[] = [];
   const languageServers: string[] = [];
-  while (args[0] === "--verify" || args[0] === "--no-verify" || args[0] === "--mcp" || args[0] === "--lsp") {
+  while (args[0] === "--verify" || args[0] === "--no-verify" || args[0] === "--verbose" || args[0] === "--mcp" || args[0] === "--lsp") {
     const flag = args.shift();
     if (flag === "--verify") verify = true;
+    else if (flag === "--verbose") verbose = true;
     else if (flag === "--no-verify") noVerify = true;
     else {
       const name = args.shift();
@@ -139,7 +141,7 @@ export async function runCli(): Promise<void> {
     return;
   }
   const prompt = args.join(" ").trim();
-  const app = new CasperApp({ verificationMode: verificationFlag({ verify, noVerify }) });
+  const app = new CasperApp({ verificationMode: verificationFlag({ verify, noVerify }), verbose });
   const removeShutdownHandlers = installShutdownHandlers(app);
 
   try {
