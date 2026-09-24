@@ -83,7 +83,7 @@ def exercise(bun, repo, root, no_color=False):
 
 def exercise_saved_snapshot(bun, repo, root):
     def setup(home, project):
-        (home / ".casper").mkdir()
+        (home / ".casper").mkdir(exist_ok=True)
         (home / ".casper/settings.json").write_text(json.dumps({"defaultProvider": "fixture", "defaultModel": "second", "defaultThinkingLevel": "high"}))
     s = Session(bun, repo, root, app="src/cli.ts", setup=setup, extra_env={"PI_OFFLINE": "1", "PI_TELEMETRY": "0"})
     try:
