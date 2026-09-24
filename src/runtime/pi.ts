@@ -506,7 +506,10 @@ export class PiRuntime implements AgentRuntime {
             noSkills: true,
             skillsOverride: () => ({ skills: [], diagnostics: [] }),
             systemPromptOverride: (basePrompt) => readOnly ? options.systemPromptAppend : options.systemPromptAppend
-              ? `${basePrompt ?? ""}\n\n${options.systemPromptAppend}`
+              // Lead with Casper's identity: Pi's base prompt opens "operating inside pi", and
+              // models otherwise introduce themselves as pi instead of Casper.
+              ? ["You are Casper, a coding companion running through a thin runtime adapter.",
+                basePrompt ?? "", options.systemPromptAppend].filter(Boolean).join("\n\n")
               : basePrompt,
             appendSystemPromptOverride: (base) => readOnly ? base : [
               ...base,

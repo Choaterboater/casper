@@ -2,6 +2,8 @@ import { execFile } from "node:child_process";
 import type { DebugRequest, DebugSession } from "./debug/session";
 import { promisify } from "node:util";
 import os from "node:os";
+import path from "node:path";
+import { stat } from "node:fs/promises";
 import { modelPreference } from "./tui/model-preference";
 import { HELP_TEXT, FULL_HELP_TEXT, LOGIN_HELP } from "./tui/help";
 import { BrowserSession } from "./browser/session";
@@ -27,7 +29,7 @@ import {
   loadProjectContext,
   type ProjectContext,
 } from "./project/context";
-import { inspectProject, type ProjectInfo } from "./project/inspect";
+import { findProjectCandidates, inspectProject, type ProjectInfo } from "./project/inspect";
 import type {
   AgentRuntime,
   RuntimeSession,
@@ -268,13 +270,53 @@ export class CasperApp {
     return this.handlePrompt(prompt.trim());
   }
 
+  /** Interactive startup from the home directory asks which project folder to open — a launch
+   * from ~ silently made the whole home directory the workspace (banner "project <user>"), and
+   * tasks then scanned all of it. A typed path is validated; Esc/empty keeps the home folder.
+   * Without a rich surface the question cannot render, so the launch folder is stated plainly. */
+  private async openProjectFolder(cwd: string): Promise<string> {
+    const home = this.sessionHomeDir ?? os.homedir();
+    if (path.resolve(cwd) !== path.resolve(home)) return cwd;
+    if (!this.terminal.rich) {
+      this.output.write(`[folder] Opened in your home directory; cd to a project and restart, or pass a path: casper ~/Projects/myapp\n`);
+      return cwd;
+    }
+    const candidates = await findProjectCandidates(cwd, { homeDir: home });
+    const folderLabel = (folder: string) => folder === home ? "~" : `~${folder.slice(home.length)}`;
+    const byLabel = new Map<string, string>(candidates.map(candidate => [folderLabel(candidate), candidate]));
+    const answer = await this.terminal.ask(
+      "Opened from your home folder. Work in which project?",
+      [
+        { label: folderLabel(cwd), description: "stay in the home folder" },
+        ...candidates.slice(0, 6).map(candidate => ({ label: folderLabel(candidate) })),
+      ],
+      false,
+    );
+    const choice = answer?.[0]?.trim();
+    if (!choice) return cwd; // Esc, empty, or the plain-line fallback keeps the launch folder.
+    const resolved = byLabel.get(choice) ?? path.resolve(cwd, choice.replace(/^~(?=\/|$)/, home));
+    if (!path.resolve(resolved).startsWith(path.resolve(home)) && path.resolve(resolved) !== path.resolve(home)) {
+      this.output.write(`[folder] ${terminalText(choice)} is outside your home directory; staying in ${folderLabel(cwd)}.\n`);
+      return cwd;
+    }
+    try {
+      if (!(await stat(resolved)).isDirectory()) throw new Error("not a directory");
+    } catch {
+      this.output.write(`[folder] ${terminalText(choice)} is not a directory; staying in ${folderLabel(cwd)}.\n`);
+      return cwd;
+    }
+    return resolved;
+  }
+
   async runInteractive(cwd = process.cwd()): Promise<void> {
     // Own the terminal before the banner so startup output is transcript, not
     // loose text a later redraw would drop.
     this.interactive = true;
     this.terminal.start();
+    let workspace = cwd;
+    if (!this.projectContext) workspace = await this.openProjectFolder(cwd);
     if (!this.projectContext) {
-      await this.start(cwd);
+      await this.start(workspace);
     }
 
     this.savedModelDisplay = await modelPreference(this.sessionHomeDir ?? os.homedir());
