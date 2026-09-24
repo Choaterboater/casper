@@ -70,7 +70,10 @@ export function formatEffort(status: RuntimeStatus): string | undefined {
   return status.thinkingLevel ? terminalText(status.thinkingLevel) : undefined;
 }
 
-export function formatRuntimeStatus(status?: RuntimeStatus): string {
+/** Before the runtime starts, `saved` is the advisory saved-default display (modelPreference);
+ * credentials are not read then, so auth is only promised for startup. */
+export function formatRuntimeStatus(status?: RuntimeStatus, saved?: string): string {
+  if (!status && saved) return ` model     ${terminalText(saved)} (starts on your first prompt; /model to change)\n auth      checked when the model starts`;
   if (!status) return " model     not initialized (starts on your first prompt or /model)\n auth      not checked (/login to set up a provider)";
   const identity = status.provider && status.model ? `${status.provider} / ${status.model}` : "none selected";
   const effort = formatEffort(status);
