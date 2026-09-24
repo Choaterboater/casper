@@ -39,9 +39,12 @@ policy:
 Engine state — provider credentials (`auth.json`) and the provider catalog
 (`models.json`) — lives in Casper's own store, `~/.casper/agent/`, mode 0700.
 No Pi installation is required or consulted. On first run, an existing Pi CLI
-installation's `auth.json` and `models.json` are imported once by copy (the
-originals stay untouched); a `PI_CODING_AGENT_DIR` set in the environment
-always overrides Casper's store. Login writes only the consented provider's
+installation's API keys (from `auth.json`) and `models.json` are imported once by
+copy (the originals stay untouched). OAuth sign-ins are not copied: their refresh
+tokens rotate, so a shared copy would let Pi and Casper sign each other out.
+Casper names those providers once on stderr; run `/login <provider>` to give
+Casper its own sign-in. The two stores are separate after the import. A
+`PI_CODING_AGENT_DIR` set in the environment always overrides Casper's store. Login writes only the consented provider's
 credential into that store.
 
 A repository's own Pi project directory is never trusted: `<project>/.pi/`

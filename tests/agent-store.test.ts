@@ -37,20 +37,27 @@ test("legacy engine state is imported once by copy, and symlinks are refused", a
   const home = await tempHome();
   const legacy = path.join(home, ".pi/agent");
   await mkdir(legacy, { recursive: true, mode: 0o700 });
-  await writeFile(path.join(legacy, "auth.json"), JSON.stringify({ anthropic: { type: "api_key", key: "synthetic-legacy" } }), { mode: 0o600 });
+  const legacyAuth = JSON.stringify({
+    anthropic: { type: "api_key", key: "synthetic-legacy" },
+    "openai-codex": { type: "oauth", access: "synthetic-access", refresh: "synthetic-refresh", expires: 1 },
+  });
+  await writeFile(path.join(legacy, "auth.json"), legacyAuth, { mode: 0o600 });
   await writeFile(path.join(legacy, "models.json"), JSON.stringify({ providers: {} }), { mode: 0o600 });
   process.env.HOME = home;
   delete env[AGENT_DIR_ENV];
   expect(useCasperAgentStore()).toBe(true);
-  expect(await importLegacyEngineState()).toBe(true);
+  // A rotating OAuth refresh token must have one owner: copying it would let Pi and Casper
+  // log each other out. Only API keys are imported; OAuth providers are named for /login.
+  expect(await importLegacyEngineState()).toEqual({ imported: true, signIn: ["openai-codex"] });
   const imported = path.join(home, ".casper/agent/auth.json");
   expect(await Bun.file(imported).json()).toEqual({ anthropic: { type: "api_key", key: "synthetic-legacy" } });
+  expect(await Bun.file(imported).text()).not.toContain("synthetic-refresh");
   expect(((await stat(imported)).mode & 0o777)).toBe(0o600);
   expect(((await stat(path.join(home, ".casper/agent"))).mode & 0o777)).toBe(0o700);
   // A second run imports nothing: the target already exists.
-  expect(await importLegacyEngineState()).toBe(false);
+  expect(await importLegacyEngineState()).toEqual({ imported: false, signIn: [] });
   // Existing Pi installations keep their originals.
-  expect(await Bun.file(path.join(legacy, "auth.json")).text()).toContain("synthetic-legacy");
+  expect(await Bun.file(path.join(legacy, "auth.json")).text()).toBe(legacyAuth);
 
   // A symlinked legacy credential is never followed into the store.
   const home2 = await tempHome();
@@ -62,7 +69,7 @@ test("legacy engine state is imported once by copy, and symlinks are refused", a
   process.env.HOME = home2;
   delete env[AGENT_DIR_ENV];
   useCasperAgentStore();
-  expect(await importLegacyEngineState()).toBe(false);
+  expect(await importLegacyEngineState()).toEqual({ imported: false, signIn: [] });
   expect(await Bun.file(path.join(home2, ".casper/agent/auth.json")).exists()).toBe(false);
 });
 
@@ -74,6 +81,21 @@ test("a malformed legacy state is skipped without blocking startup", async () =>
   process.env.HOME = home;
   delete env[AGENT_DIR_ENV];
   useCasperAgentStore();
-  expect(await importLegacyEngineState()).toBe(false);
+  expect(await importLegacyEngineState()).toEqual({ imported: false, signIn: [] });
   expect(await stat(path.join(home, ".casper/agent")).then(() => true, () => false)).toBe(true);
+});
+
+test("OAuth-only legacy credentials import nothing but are named once for /login", async () => {
+  const home = await tempHome();
+  const legacy = path.join(home, ".pi/agent");
+  await mkdir(legacy, { recursive: true, mode: 0o700 });
+  await writeFile(path.join(legacy, "auth.json"), JSON.stringify({
+    anthropic: { type: "oauth", access: "a", refresh: "r", expires: 1 }, "bad\u001b[2Jname": { type: "oauth" },
+  }), { mode: 0o600 });
+  process.env.HOME = home;
+  delete env[AGENT_DIR_ENV];
+  useCasperAgentStore();
+  expect(await importLegacyEngineState()).toEqual({ imported: false, signIn: ["anthropic"] });
+  expect(await Bun.file(path.join(home, ".casper/agent/auth.json")).json()).toEqual({});
+  expect(await importLegacyEngineState()).toEqual({ imported: false, signIn: [] });
 });

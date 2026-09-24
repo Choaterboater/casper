@@ -72,9 +72,12 @@ export async function runCli(): Promise<void> {
   // Casper owns its engine state under ~/.casper/agent; an existing Pi installation's
   // credentials are imported once (only when the store defaulted — an explicit
   // PI_CODING_AGENT_DIR is managed by its owner). Never surfaces engine internals on failure.
-  const casperStore = useCasperAgentStore();
-  if (casperStore && await importLegacyEngineState()) {
-    process.stderr.write("[auth] Imported existing credentials into ~/.casper/agent.\n");
+  if (useCasperAgentStore()) {
+    const legacy = await importLegacyEngineState();
+    if (legacy.imported) process.stderr.write("[auth] Imported existing credentials into ~/.casper/agent.\n");
+    for (const provider of legacy.signIn) {
+      process.stderr.write(`[auth] Pi's ${provider} sign-in is not shared; run /login ${provider} to sign in Casper (Pi stays signed in).\n`);
+    }
   }
   let verify = false;
   let noVerify = false;
