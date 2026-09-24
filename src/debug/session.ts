@@ -21,6 +21,15 @@ export interface DebugResult { items?: Record<string, unknown>[]; truncated?: bo
 type State = "idle" | "starting" | "running" | "stopped" | "closing" | "closed" | "failed";
 const id = (value: unknown): value is number => Number.isInteger(value) && Number(value) >= 0 && Number(value) < 2 ** 31;
 const text = (value: unknown, length = 256) => typeof value === "string" ? value.slice(0, length) : "";
+const sameJSON = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right);
+
+function targetChangeReason(before: DebugTarget, after: DebugTarget): string | undefined {
+  const changed = (["name", "command", "args", "adapterID", "program", "cwd", "programArgs", "breakpoints"] as const)
+    .filter((key) => !sameJSON(before[key], after[key]));
+  if (changed.length) return `target field changed: ${changed.join(", ")}`;
+  if (before.identity !== after.identity) return "configuration, adapter, program, or breakpoint file identity changed";
+  return undefined;
+}
 
 /** Owns launch consent, stop-scoped inspection, protocol lifetime and subprocess cleanup. */
 export class DebugSession {
@@ -184,7 +193,9 @@ export class DebugSession {
     });
     if (!allowed) throw new Error("Debugger launch denied");
     signal.throwIfAborted();
-    if (JSON.stringify(await resolveTarget(this.root, name)) !== JSON.stringify(target)) throw new Error("Debugger configuration or launch files changed during approval");
+    const latestTarget = await resolveTarget(this.root, name);
+    const targetChange = targetChangeReason(target, latestTarget);
+    if (targetChange) throw new Error(`Debugger configuration or launch files changed during approval: ${targetChange}`);
     signal.throwIfAborted(); this.target = target; this.state = "starting";
     try {
       this.home = await mkdtemp(path.join(os.tmpdir(), "casper-debug-home-"));

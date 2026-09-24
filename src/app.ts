@@ -299,7 +299,10 @@ export class CasperApp {
     const choice = answer?.[0]?.trim();
     if (!choice) return cwd; // Esc, empty, or the plain-line fallback keeps the launch folder.
     const resolved = byLabel.get(choice) ?? path.resolve(cwd, choice.replace(/^~(?=\/|$)/, home));
-    if (!path.resolve(resolved).startsWith(path.resolve(home)) && path.resolve(resolved) !== path.resolve(home)) {
+    const resolvedHome = path.resolve(home);
+    const resolvedChoice = path.resolve(resolved);
+    const homeRelative = path.relative(resolvedHome, resolvedChoice);
+    if (homeRelative === ".." || homeRelative.startsWith(`..${path.sep}`) || path.isAbsolute(homeRelative)) {
       this.output.write(`[folder] ${terminalText(choice)} is outside your home directory; staying in ${folderLabel(cwd)}.\n`);
       return cwd;
     }
