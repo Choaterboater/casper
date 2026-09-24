@@ -147,7 +147,7 @@ unreported failed-request cost is unknown, not zero.
 OpenRouter API-key or browser sign-in. `/login <provider-id>` skips only the
 provider chooser. Every method requires fresh consent to provider-scoped
 credential replacement in Casper's store (`~/.casper/agent/auth.json`); login does not select a model. Browser sign-in opens the system
-browser automatically; offline mode (PI_OFFLINE=1) suppresses the launch and keeps the URL
+browser automatically; offline mode (CASPER_OFFLINE=1) suppresses the launch and keeps the URL
 printed for manual opening.
 Typed API keys are verified with the provider before they are stored; a rejected
 key is never saved, and a key that cannot be verified (network or provider error)

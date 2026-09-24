@@ -41,7 +41,7 @@ for (const termination of ["normal", "SIGTERM"] as const) browserTest(`native sc
   await writeFile(path.join(home, ".casper", "settings.json"), JSON.stringify({ defaultProvider: "fixture", defaultModel: "fixture", retry: { enabled: false } }));
   const child = Bun.spawn([process.execPath, path.resolve(import.meta.dir, "../src/cli.ts"), "inspect this website and read its screenshot"], {
     cwd: project, env: { HOME: home, CASPER_HOME: path.join(home, ".casper"), PATH: process.env.PATH ?? "", TMPDIR: tmp,
-      CASPER_BROWSER_EXECUTABLE: executable, PI_CODING_AGENT_DIR: agent, PI_OFFLINE: "1", PI_TELEMETRY: "0" }, stdin: "ignore", stdout: "pipe", stderr: "pipe",
+      CASPER_BROWSER_EXECUTABLE: executable, CASPER_AGENT_DIR: agent, CASPER_OFFLINE: "1", PI_TELEMETRY: "0" }, stdin: "ignore", stdout: "pipe", stderr: "pipe",
   });
   cleanup.push(async () => { if (child.exitCode === null) child.kill("SIGTERM"); await child.exited; });
   const ownedProcesses = async () => {

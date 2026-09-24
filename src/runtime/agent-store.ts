@@ -2,7 +2,7 @@ import { chmod, copyFile, lstat, mkdir, readFile, stat, writeFile } from "node:f
 import { homedir } from "node:os";
 import path from "node:path";
 
-/** Env var the bundled engine reads for its state dir; an explicit value always wins. */
+/** Internal bridge: the bundled engine still reads this name for its state directory. */
 export const AGENT_DIR_ENV = "PI_CODING_AGENT_DIR";
 
 /** Bun resolves os.homedir() once at startup; tests and wrappers change HOME later. */
@@ -11,22 +11,40 @@ function resolveHome(): string {
   return env.HOME ?? env.USERPROFILE ?? homedir();
 }
 
-/** Casper-owned engine state: credentials and the provider catalog live under ~/.casper/agent. */
-export function casperAgentDir(): string {
-  return path.join(resolveHome(), ".casper", "agent");
+function agentDirOverride(): string | undefined {
+  const value = process.env.CASPER_AGENT_DIR;
+  return value && value !== "undefined" ? value : undefined;
 }
 
-/** Default the engine's state dir to Casper's own store. Returns true when this call set the
- * default; a pre-set PI_CODING_AGENT_DIR (any Pi-compatible directory) is respected untouched.
- * Call once at CLI entry, before the engine resolves paths. */
+/** Casper-owned engine state; explicit directories are managed by their owner, not imported into. */
+export function casperAgentDir(): string {
+  const override = agentDirOverride();
+  if (!override) return path.join(resolveHome(), ".casper", "agent");
+  return path.resolve(override === "~" ? resolveHome() : override.startsWith("~/") || override.startsWith("~\\")
+    ? path.join(resolveHome(), override.slice(2)) : override);
+}
+
+/** Select Casper's state before the engine resolves paths. Inherited engine state is never used.
+ * Returns true when legacy credentials may be imported into the default store. */
 export function useCasperAgentStore(): boolean {
   const env = process.env as Record<string, string | undefined>;
   // Bun stores `env.X = undefined` as the string "undefined"; it names no real directory
   // and would otherwise put the store in `<cwd>/undefined/`.
   const preset = env[AGENT_DIR_ENV];
-  if (preset && preset !== "undefined") return false;
+  if (preset && preset !== "undefined" && preset !== casperAgentDir()) {
+    process.stderr.write("[config] Ignoring PI_CODING_AGENT_DIR; use CASPER_AGENT_DIR to choose Casper's state directory.\n");
+  }
   env[AGENT_DIR_ENV] = casperAgentDir();
-  return true;
+  if (env.CASPER_OFFLINE === "1") env.PI_OFFLINE = "1";
+  else delete env.PI_OFFLINE;
+  for (const [source, target] of [
+    ["CASPER_OAUTH_CALLBACK_HOST", "PI_OAUTH_CALLBACK_HOST"],
+    ["CASPER_TUI_WRITE_LOG", "PI_TUI_WRITE_LOG"],
+  ] as const) {
+    if (env[source]) env[target] = env[source];
+    else delete env[target];
+  }
+  return !agentDirOverride();
 }
 
 /** Result of the one-time legacy import. `signIn` names the OAuth providers left behind. */
@@ -53,10 +71,9 @@ function apiKeysOnly(text: string): { auth: Record<string, unknown>; signIn: str
  * working. Symlinked or non-regular legacy files are refused; failures are best-effort and
  * silent (login can always recreate credentials). */
 export async function importLegacyEngineState(): Promise<LegacyImport> {
-  const env = process.env as Record<string, string | undefined>;
-  const agentDir = env[AGENT_DIR_ENV];
   const result: LegacyImport = { imported: false, signIn: [] };
-  if (!agentDir) return result;
+  if (agentDirOverride()) return result;
+  const agentDir = casperAgentDir();
   const legacyDir = path.join(resolveHome(), ".pi", "agent");
   try { await mkdir(agentDir, { recursive: true, mode: 0o700 }); }
   catch { return result; } // best-effort: an unwritable HOME surfaces where state is actually needed

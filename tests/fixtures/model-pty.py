@@ -15,7 +15,7 @@ Session = module.Session
 
 
 def exercise(bun, repo, root, no_color=False):
-    s = Session(bun, repo, root, no_color, app="src/cli.ts", extra_env={"PI_OFFLINE": "1", "PI_TELEMETRY": "0"})
+    s = Session(bun, repo, root, no_color, app="src/cli.ts", extra_env={"CASPER_OFFLINE": "1", "PI_TELEMETRY": "0"})
     agent = s.root / "home/.pi/agent"
     agent.mkdir(parents=True)
     (agent / "models.json").write_text(json.dumps({"providers": {"fixture": {
@@ -85,7 +85,7 @@ def exercise_saved_snapshot(bun, repo, root):
     def setup(home, project):
         (home / ".casper").mkdir(exist_ok=True)
         (home / ".casper/settings.json").write_text(json.dumps({"defaultProvider": "fixture", "defaultModel": "second", "defaultThinkingLevel": "high"}))
-    s = Session(bun, repo, root, app="src/cli.ts", setup=setup, extra_env={"PI_OFFLINE": "1", "PI_TELEMETRY": "0"})
+    s = Session(bun, repo, root, app="src/cli.ts", setup=setup, extra_env={"CASPER_OFFLINE": "1", "PI_TELEMETRY": "0"})
     try:
         s.until("default fixture/second")
         assert "high" in s.screen.text(), s.screen.text()
@@ -98,7 +98,7 @@ def exercise_saved_snapshot(bun, repo, root):
 
 
 def exercise_empty_eof(bun, repo, root):
-    s = Session(bun, repo, root, app="src/cli.ts", extra_env={"PI_OFFLINE": "1", "PI_TELEMETRY": "0"})
+    s = Session(bun, repo, root, app="src/cli.ts", extra_env={"CASPER_OFFLINE": "1", "PI_TELEMETRY": "0"})
     try:
         s.until("/help · /status · /login")
         s.until("│ idle")
@@ -117,7 +117,7 @@ def exercise_empty_eof(bun, repo, root):
 
 
 def exercise_dumb(bun, repo, root):
-    s = Session(bun, repo, root, term="dumb", app="src/cli.ts", extra_env={"PI_OFFLINE": "1", "PI_TELEMETRY": "0"})
+    s = Session(bun, repo, root, term="dumb", app="src/cli.ts", extra_env={"CASPER_OFFLINE": "1", "PI_TELEMETRY": "0"})
     try:
         s.until("/help · /status · /login")
         s.send("/model\n")

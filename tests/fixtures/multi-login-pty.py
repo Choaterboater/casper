@@ -16,7 +16,7 @@ Session = module.Session
 
 def run_case(bun, repo, root, provider, browser=False, action="save", no_color=False):
     s = Session(bun, repo, str(root), no_color, app="src/cli.ts", preload="tests/fixtures/login-preload.ts",
-                extra_env={"PI_OFFLINE": "1", "PI_TELEMETRY": "0"})
+                extra_env={"CASPER_OFFLINE": "1", "PI_TELEMETRY": "0"})
     try:
         s.until("│ idle")
         # Navigate the chooser rather than only testing direct commands.

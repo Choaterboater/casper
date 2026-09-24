@@ -105,7 +105,7 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
         else if (result.status === "cancelled") host.output.write("[login] Cancelled; no credential saved.\n");
         else host.output.write(result.reason === "destination"
           ? `[login] Unsafe credential destination${result.detail ? `: ${terminalText(result.detail)}` : ""}. Requires a private, owner-held regular file in a real directory; no permissions were repaired.\n`
-          : "[login] Login unavailable or failed. No credential saved. Disable PI_TUI_WRITE_LOG if set. Check provider eligibility and loopback callback availability; no automatic method fallback.\n");
+          : "[login] Login unavailable or failed. No credential saved. Disable CASPER_TUI_WRITE_LOG if set. Check provider eligibility and loopback callback availability; no automatic method fallback.\n");
       } catch { host.output.write("[login] Login could not complete. No provider diagnostics are displayed.\n"); }
       return;
     }

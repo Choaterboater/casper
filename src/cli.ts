@@ -103,14 +103,14 @@ export async function runCli(): Promise<void> {
   }
   // Only after the informational flags: they write nothing and must work on a read-only HOME,
   // and installers identify the binary by `--version`'s single stdout line.
-  // Casper owns its engine state under ~/.casper/agent; an existing Pi installation's
-  // credentials are imported once (only when the store defaulted — an explicit
-  // PI_CODING_AGENT_DIR is managed by its owner). Never surfaces engine internals on failure.
+  // Casper owns its state; explicit CASPER_AGENT_DIR stores are managed by their owner.
+  // Forward Casper's environment settings before loading the engine or creating a terminal.
+  // Only the default store gets a best-effort, one-time legacy API-key/catalog import.
   if (useCasperAgentStore()) {
     const legacy = await importLegacyEngineState();
     if (legacy.imported) process.stderr.write("[auth] Imported existing credentials into ~/.casper/agent.\n");
     for (const provider of legacy.signIn) {
-      process.stderr.write(`[auth] Pi's ${provider} sign-in is not shared; run /login ${provider} to sign in Casper (Pi stays signed in).\n`);
+      process.stderr.write(`[auth] Existing ${provider} sign-in is not shared; run /login ${provider} to sign in Casper. The original sign-in is unchanged.\n`);
     }
   }
   if (args[0] === "learn") {

@@ -180,7 +180,7 @@ test("named-session rebinding reloads source metadata and revokes the old captur
 
 async function cli(project: string, home: string, prompt: string) {
   const child = Bun.spawn([process.execPath, path.join(import.meta.dir, "../src/cli.ts"), prompt], {
-    cwd: project, env: { ...process.env, HOME: home, CASPER_PROFILE: "default", PI_CODING_AGENT_DIR: path.join(home, ".pi/agent"), PI_OFFLINE: "1", PI_TELEMETRY: "0" },
+    cwd: project, env: { ...process.env, HOME: home, CASPER_PROFILE: "default", CASPER_AGENT_DIR: path.join(home, ".pi/agent"), PI_CODING_AGENT_DIR: path.join(home, ".pi/agent"), CASPER_OFFLINE: "1", PI_TELEMETRY: "0" },
     stdout: "pipe", stderr: "pipe",
   });
   const timer = setTimeout(() => child.kill("SIGKILL"), 10_000);

@@ -11,8 +11,8 @@ const tempDirs: string[] = [];
 afterEach(async () => { for (const dir of tempDirs.splice(0)) await rm(dir, { recursive: true, force: true }); });
 
 async function run(args: string[], cwd: string, home = cwd) {
-  // The CLI defaults its engine store only when PI_CODING_AGENT_DIR is unset.
-  const { PI_CODING_AGENT_DIR: _inherited, ...inherited } = process.env;
+  // Exercise default Casper state without inheriting the caller's override.
+  const { PI_CODING_AGENT_DIR: _engine, CASPER_AGENT_DIR: _casper, ...inherited } = process.env;
   const child = Bun.spawn([process.execPath, ...args], {
     cwd, env: { ...inherited, HOME: home, CASPER_PROFILE: "default" }, stdout: "pipe", stderr: "pipe",
   });
@@ -133,7 +133,7 @@ posixOnly("the source CLI run through its shebang ignores the opened directory's
   // A repository .env could otherwise redirect the credential store or the profile.
   await writeFile(path.join(root, ".env"), "CASPER_PROFILE=../evil\n");
   for (const args of [["--version"], ["/project"]]) {
-    const { CASPER_PROFILE: _profile, PI_CODING_AGENT_DIR: _dir, ...inherited } = process.env;
+    const { CASPER_PROFILE: _profile, PI_CODING_AGENT_DIR: _dir, CASPER_AGENT_DIR: _casper, ...inherited } = process.env;
     const child = Bun.spawn([cli, ...args], { cwd: root, env: { ...inherited, HOME: root }, stdout: "pipe", stderr: "pipe" });
     const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
     expect({ args, code, stderr }).toEqual({ args, code: 0, stderr: "" });

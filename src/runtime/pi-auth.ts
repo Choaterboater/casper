@@ -110,7 +110,7 @@ export async function authenticatePi(options: RuntimeAuthenticationOptions, dest
   lifetime: AbortSignal): Promise<RuntimeAuthenticationResult & { provider?: RuntimeAuthProvider }> {
   const signal = AbortSignal.any([lifetime, ...(options.signal ? [options.signal] : [])]);
   if (signal.aborted) return { status: "cancelled", effect: "none" };
-  if ((options.provider !== undefined && !providers.some(item => item.id === options.provider)) || process.env.PI_TUI_WRITE_LOG) {
+  if ((options.provider !== undefined && !providers.some(item => item.id === options.provider)) || process.env.CASPER_TUI_WRITE_LOG || process.env.PI_TUI_WRITE_LOG) {
     return { status: "failed", effect: "none", reason: "unavailable" };
   }
   let invoked = false;
@@ -141,7 +141,8 @@ export async function authenticatePi(options: RuntimeAuthenticationOptions, dest
         return { status: "cancelled", effect: "none" };
       }
       // The SDK reads this override when its lazy OAuth module loads. Never allow a public listener.
-      if (browser && process.env.PI_OAUTH_CALLBACK_HOST && process.env.PI_OAUTH_CALLBACK_HOST !== "127.0.0.1") {
+      if (browser && [process.env.CASPER_OAUTH_CALLBACK_HOST, process.env.PI_OAUTH_CALLBACK_HOST]
+        .some(host => host && host !== "127.0.0.1")) {
         return { status: "failed", effect: "none", reason: "unavailable" };
       }
       // Re-check after consent: the preflight above is not atomic.

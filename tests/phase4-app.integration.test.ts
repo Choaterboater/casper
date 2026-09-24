@@ -201,7 +201,7 @@ test("real CLI and Pi adapter send a small surface and complete search/schema/ca
   await mkdir(path.join(home, ".casper"), { recursive: true });
   await writeFile(path.join(home, ".casper/settings.json"), JSON.stringify({ defaultProvider: "fixture", defaultModel: "fixture" }));
   const processFixture = Bun.spawn([process.execPath, path.join(import.meta.dir, "../src/cli.ts"), "--mcp", "fixture", "Read site health metric"], {
-    cwd: project, env: { ...process.env, HOME: home, PI_CODING_AGENT_DIR: agentDir, PI_OFFLINE: "1", PI_TELEMETRY: "0" }, stdout: "pipe", stderr: "pipe",
+    cwd: project, env: { ...process.env, HOME: home, CASPER_AGENT_DIR: agentDir, PI_CODING_AGENT_DIR: agentDir, CASPER_OFFLINE: "1", PI_TELEMETRY: "0" }, stdout: "pipe", stderr: "pipe",
   });
   const timer = setTimeout(() => processFixture.kill(), 15_000);
   const [stdout, stderr, exit] = await Promise.all([new Response(processFixture.stdout).text(), new Response(processFixture.stderr).text(), processFixture.exited]);
