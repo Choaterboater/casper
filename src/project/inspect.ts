@@ -58,15 +58,18 @@ const CANDIDATE_SKIP = new Set([
 ]);
 const CANDIDATE_SCAN_BUDGET = 4000;
 const CANDIDATE_CAP = 8;
+/** Home subfolders people keep repositories in; from home each is searched one level down. */
+const CODE_CONTAINERS = new Set(["code", "projects", "src", "dev", "repos", "workspace"]);
 
 /** Shallow scan for openable projects: directories (up to two levels below `from`, skipping
  * hidden and heavyweight dirs) that carry a project marker themselves or one level below.
- * Bounded so a launch from the home folder stays fast. */
+ * From home: ~/Documents, then the common code folders (~/code, ~/Projects, …), then direct
+ * children of home. Bounded so a launch from the home folder stays fast. */
 export async function findProjectCandidates(cwd: string, options: { homeDir?: string; limit?: number } = {}): Promise<string[]> {
   const limit = options.limit ?? CANDIDATE_CAP;
   const homeDir = options.homeDir ?? os.homedir();
   const found: string[] = [];
-  let budget = 4000;
+  let budget = CANDIDATE_SCAN_BUDGET;
   async function probe(dir: string, depth: number): Promise<void> {
     if (budget <= 0 || found.length >= limit) return;
     budget -= 1;
@@ -95,6 +98,12 @@ export async function findProjectCandidates(cwd: string, options: { homeDir?: st
     }
   }
   await probe(cwd === homeDir ? path.join(homeDir, "Documents") : cwd, 0);
-  if (cwd === homeDir && found.length < limit && budget > 0) await probe(homeDir, 1);
-  return found.sort((a, b) => a.localeCompare(b));
+  if (cwd === homeDir) {
+    // Case-insensitive match on the real names, so ~/Projects and ~/projects are one folder.
+    const containers = await readdir(homeDir, { withFileTypes: true })
+      .then(entries => entries.filter(entry => entry.isDirectory() && CODE_CONTAINERS.has(entry.name.toLowerCase())), () => []);
+    for (const container of containers) if (found.length < limit && budget > 0) await probe(path.join(homeDir, container.name), 1);
+    if (found.length < limit && budget > 0) await probe(homeDir, 1);
+  }
+  return [...new Set(found)].sort((a, b) => a.localeCompare(b));
 }

@@ -58,6 +58,27 @@ test("findProjectCandidates finds marked dirs two levels down and skips heavy di
   } finally { await rm(home, { recursive: true, force: true }); }
 });
 
+test("findProjectCandidates also looks one level into common code folders under home", async () => {
+  const home = await mkdtemp(path.join(os.tmpdir(), "casper-candidates-"));
+  try {
+    const expected: string[] = [];
+    for (const [container, name, marker] of [["Projects", "app1", ".git"], ["code", "app2", ".git"], ["src", "app3", "package.json"],
+      ["dev", "app4", "Cargo.toml"], ["repos", "app5", ".git"], ["workspace", "app6", "go.mod"]] as const) {
+      const dir = path.join(home, container, name);
+      await mkdir(dir, { recursive: true });
+      if (marker === ".git") await mkdir(path.join(dir, marker)); else await writeFile(path.join(dir, marker), "");
+      expected.push(dir);
+    }
+    await mkdir(path.join(home, "Documents", "docapp"), { recursive: true });
+    await writeFile(path.join(home, "Documents", "docapp", "package.json"), "{}");
+    await mkdir(path.join(home, "direct", ".git"), { recursive: true });
+    // Only named code folders are opened; any other home subfolder is still checked just for itself.
+    await mkdir(path.join(home, "Downloads", "unpacked", ".git"), { recursive: true });
+    const candidates = await findProjectCandidates(home, { homeDir: home, limit: 20 });
+    expect(candidates).toEqual([...expected, path.join(home, "Documents", "docapp"), path.join(home, "direct")].sort((a, b) => a.localeCompare(b)));
+  } finally { await rm(home, { recursive: true, force: true }); }
+});
+
 function interactiveHarness(home: string, project: string) {
   const runtime: AgentRuntime = {
     async start(): Promise<RuntimeSession> {
