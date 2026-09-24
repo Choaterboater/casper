@@ -6,6 +6,24 @@ GitHub's `latest/download` route excludes prereleases. The first published previ
 was **v0.1.0**; its assets and tag stay as published, and every fix ships under a new
 version.
 
+## Unreleased: independence and review fixes
+
+Phase 0 lands the full review fixes, including untrusted project-resource isolation,
+side-effect-free informational flags, terminal sanitization, explicit project-server
+consent, bounded cleanup, and release builds without stray `.bun-build` files.
+
+**Environment migration:** use `CASPER_AGENT_DIR`, `CASPER_OFFLINE`,
+`CASPER_OAUTH_CALLBACK_HOST` and `CASPER_TUI_WRITE_LOG`. Inherited matching `PI_*`
+settings are no longer fallbacks. A conflicting `PI_CODING_AGENT_DIR` is ignored
+with a stderr notice, so Casper does not silently use another agent's credentials
+or conversations. Explicit Casper stores receive no legacy import. See
+[CONFIGURATION.md](CONFIGURATION.md#environment-variables).
+
+Runtime copy now uses Casper/conversation terminology. Synthetic MCP fixtures use
+neutral vendor/router-catalog names. Saved evaluation reports redact home and temp
+prefixes; the committed historical reports are scrubbed too. This is unreleased
+source work: the version remains **0.2.12**, with no new tag or published assets.
+
 ## Changes since v0.1.0
 
 Unreleased source correction: `/login` now mounts every provider/method, consent
