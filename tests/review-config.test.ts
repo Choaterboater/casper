@@ -165,3 +165,65 @@ needsFifos("a project.yaml FIFO fails visibly without blocking startup", async (
     } finally { clearTimeout(timer); }
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test("a mistyped policy value fails naming the file, the key and the allowed values", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-config-review-"));
+  try {
+    const home = path.join(root, "home");
+    await mkdir(path.join(home, ".casper"), { recursive: true });
+    await mkdir(path.join(root, ".casper"));
+    const load = () => loadConfiguration({ projectRoot: root, homeDir: home });
+    const cases: Array<[string, string, string]> = [
+      ["global", "git:\n  push: nevr\n", "Invalid ~/.casper/config.yaml: git.push must be never or neverUnlessRequested"],
+      ["global", "policy:\n  behavior:\n    autonomy: lwo\n", "Invalid ~/.casper/config.yaml: behavior.autonomy must be low, medium or high"],
+      ["global", "behavior:\n  askQuestions: always\n", "behavior.askQuestions must be beforeChanges or onlyWhenBlocked"],
+      ["global", "git:\n  confirmDestructive: \"false\"\n", "git.confirmDestructive must be true or false"],
+      ["project", "code:\n  preferSmallChanges: yes please\n", "Invalid .casper/project.yaml: code.preferSmallChanges must be true or false"],
+      ["project", "workspace:\n  isolateWhen:\n    riskyRefactor: 1\n", "workspace.isolateWhen.riskyRefactor must be true or false"],
+      ["project", "behavior: high\n", "Invalid .casper/project.yaml: behavior must be a mapping"],
+    ];
+    for (const [layer, yaml, message] of cases) {
+      const file = layer === "global" ? path.join(home, ".casper/config.yaml") : path.join(root, ".casper/project.yaml");
+      await writeFile(file, yaml);
+      await expect(load()).rejects.toThrow(message);
+      await rm(file);
+    }
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("unknown top-level and policy-section keys are reported as warnings, not silently dropped", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-config-review-"));
+  try {
+    const home = path.join(root, "home");
+    await mkdir(path.join(home, ".casper/profiles/work"), { recursive: true });
+    await mkdir(path.join(root, ".casper"));
+    await writeFile(path.join(home, ".casper/config.yaml"), "profile: work\npolicy:\n  behaviour:\n    askQuestions: beforeChanges\n");
+    await writeFile(path.join(home, ".casper/profiles/work/config.yaml"), "git:\n  pushh: never\n");
+    await writeFile(path.join(root, ".casper/project.yaml"), "skils:\n  maxActive: 2\nbehavior:\n  autonomy: low\n  inspectFirst: true\n");
+    const configuration = await loadConfiguration({ projectRoot: root, homeDir: home });
+    expect(configuration.warnings).toEqual([
+      "~/.casper/config.yaml: unknown key policy.behaviour (ignored)",
+      "profile work config.yaml: unknown key git.pushh (ignored)",
+      ".casper/project.yaml: unknown key skils (ignored)",
+      ".casper/project.yaml: unknown key behavior.inspectFirst (ignored)",
+    ]);
+    expect(configuration.policy.behavior.autonomy).toBe("low");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("Casper shows configuration warnings at startup", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-config-review-"));
+  try {
+    await mkdir(path.join(root, ".casper"));
+    await writeFile(path.join(root, ".casper/project.yaml"), "skils:\n  maxActive: 2\n\"x\\e]0;T\\a\": 1\n");
+    const { PI_CODING_AGENT_DIR: _dir, ...inherited } = process.env;
+    const child = Bun.spawn([process.execPath, path.resolve(import.meta.dir, "../src/cli.ts"), "/project"], {
+      cwd: root, env: { ...inherited, HOME: root, CASPER_PROFILE: "default" }, stdout: "pipe", stderr: "pipe",
+    });
+    const [stdout, code] = await Promise.all([new Response(child.stdout).text(), child.exited]);
+    expect(code).toBe(0);
+    expect(stdout).toContain("[config] .casper/project.yaml: unknown key skils (ignored)");
+    expect(stdout).toContain("[config] .casper/project.yaml: unknown key x");
+    expect(stdout).not.toContain("\x1b]");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});

@@ -18,6 +18,8 @@ export interface ProjectContext {
     profile: string | null;
     project: string | null;
   };
+  /** Configuration keys that were ignored, by file (see LoadedConfiguration.warnings). */
+  warnings?: string[];
 }
 
 export interface LoadProjectContextOptions {
@@ -54,6 +56,7 @@ export async function loadProjectContext(
       profile: configuration.profileRules,
       project: configuration.projectRules,
     },
+    warnings: configuration.warnings,
   };
 }
 

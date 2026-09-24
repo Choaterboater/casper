@@ -251,6 +251,7 @@ export class CasperApp {
     if (wordmark) this.terminal.writeTrusted(`\n${renderWordmark(this.terminal.color)}\n`);
     this.output.write(renderBanner(context, { wordmark, interactive: this.interactive }));
     this.output.write(`${formatRuntimeStatus(this.session?.getStatus?.())}\n`);
+    for (const warning of context.warnings ?? []) this.output.write(`[config] ${terminalText(warning)}\n`);
     for (const diagnostic of referenceConfiguration.diagnostics) this.output.write(`[references] ${formatReferenceResult(diagnostic)}\n`);
     this.reportSkillWarnings();
     for (const diagnostic of mcp.diagnostics) this.output.write(`[mcp] ${diagnostic}\n`);
