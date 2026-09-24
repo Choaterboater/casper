@@ -16,6 +16,11 @@ task with a plain receipt ("✓ Verified by Casper: test passed"). `--verify` no
 receipt moved to `/receipt` and `--verbose`. `verification.checks` selects the checks, and
 the default per-check timeout is now 600 seconds. See [VERIFICATION.md](VERIFICATION.md).
 
+**Compiled-binary sign-in fix:** the v0.2.12 release binary could not use any stored OAuth sign-in
+(OpenAI Codex, GitHub Copilot, Anthropic, OpenRouter): model requests failed with
+`OAuth auth derivation failed … Cannot find module './github-copilot.js'`. The OAuth flows are now
+embedded in the binary. The source CLI was unaffected.
+
 ## Unreleased: independence and review fixes
 
 Phase 0 lands the full review fixes, including untrusted project-resource isolation,
