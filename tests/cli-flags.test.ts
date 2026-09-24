@@ -61,7 +61,10 @@ async function piUserHome(): Promise<string> {
   const home = await mkdtemp(path.join(os.tmpdir(), "casper-cli-flags-home-"));
   tempDirs.push(home);
   await mkdir(path.join(home, ".pi/agent"), { recursive: true, mode: 0o700 });
-  await writeFile(path.join(home, ".pi/agent/auth.json"), JSON.stringify({ fixture: { type: "api_key", key: "synthetic-legacy" } }), { mode: 0o600 });
+  await writeFile(path.join(home, ".pi/agent/auth.json"), JSON.stringify({
+    fixture: { type: "api_key", key: "synthetic-legacy" },
+    "openai-codex": { type: "oauth", access: "synthetic-access", refresh: "synthetic-refresh", expires: 1 },
+  }), { mode: 0o600 });
   return home;
 }
 
@@ -85,7 +88,8 @@ test("a real session reports the one-time credential import on stderr, not stdou
   expect(result.code).toBe(0);
   expect(result.stdout).not.toContain("[auth]");
   expect(result.stderr).toContain("[auth] Imported existing credentials into ~/.casper/agent.");
-  expect(await Bun.file(path.join(home, ".casper/agent/auth.json")).exists()).toBe(true);
+  expect(result.stderr).toContain("run /login openai-codex to sign in Casper");
+  expect(await Bun.file(path.join(home, ".casper/agent/auth.json")).json()).toEqual({ fixture: { type: "api_key", key: "synthetic-legacy" } });
 });
 
 needsPosixModes("a read-only HOME still prints the version and help", async () => {
