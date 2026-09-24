@@ -76,7 +76,7 @@ def success(bun, repo, root, no_color):
             "https://auth.openai.com/api/accounts/deviceauth/token",
             "https://auth.openai.com/oauth/token",
         ], urls
-        if no_color: assert not re.search(rb"\x1b\[[0-9;:]*m", s.raw), "NO_COLOR emitted SGR"
+        if no_color: assert not re.search(rb"\x1b\[(?:[0-9:]*;)*(?:3[0-9]|4[0-9]|9[0-7]|10[0-7])(?:[;:][0-9;:]*)?m", s.raw), "NO_COLOR emitted colour SGR"
     finally:
         (s.root / "transcript.txt").write_bytes(s.raw)
         s.close()

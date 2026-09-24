@@ -51,7 +51,7 @@ export class StreamTerminal implements Terminal {
     this.write("\x1b[?2004l");
   }
   async drainInput(): Promise<void> {}
-  write(data: string): void { this.io.output.write(this.io.color ? data : data.replace(/\x1b\[[0-9;:]*m/g, "")); }
+  write(data: string): void { this.io.output.write(this.io.color ? data : withoutColour(data)); }
   moveBy(lines: number): void { if (lines) this.write(`\x1b[${Math.abs(lines)}${lines > 0 ? "B" : "A"}`); }
   hideCursor(): void { this.write("\x1b[?25l"); }
   showCursor(): void { this.write("\x1b[?25h"); }
@@ -60,4 +60,26 @@ export class StreamTerminal implements Terminal {
   clearScreen(): void { this.write("\x1b[2J\x1b[H"); }
   setTitle(): void {}
   setProgress(): void {}
+}
+
+/** NO_COLOR removes colour only. Reverse video, bold and dim stay: reverse video is the editor's
+ * only cursor marker (the hardware cursor stays hidden), so stripping every SGR hid the cursor. */
+function withoutColour(data: string): string {
+  return data.replace(/\x1b\[([0-9;:]*)m/g, (sequence, params: string) => {
+    if (!params) return sequence;
+    const parts = params.split(";");
+    const kept: string[] = [];
+    for (let index = 0; index < parts.length; index++) {
+      const part = parts[index]!;
+      const code = Number(part.split(":")[0]);
+      // 38/48/58 take `5;n` or `2;r;g;b` as further parameters unless written with colons.
+      if ((code === 38 || code === 48 || code === 58) && !part.includes(":")) {
+        index += parts[index + 1] === "5" ? 2 : parts[index + 1] === "2" ? 4 : 0;
+        continue;
+      }
+      if ((code >= 30 && code <= 49) || (code >= 90 && code <= 107) || code === 58 || code === 59) continue;
+      kept.push(part);
+    }
+    return kept.length ? `\x1b[${kept.join(";")}m` : "";
+  });
 }
