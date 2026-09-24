@@ -43,7 +43,7 @@ install directory). [Installer details](docs/RELEASE.md).
 ```sh
 cd your-project
 casper
-casper --no-verify   # without the managed check tool
+casper --no-verify   # without Casper-run checks
 ```
 
 Inside Casper:
@@ -65,13 +65,22 @@ casper --verify "Fix the failing tests"
 casper --version     # casper 0.2.12 (/absolute/path/of/the/binary/or/cli.ts)
 ```
 
-An interactive session offers the model a `casper_check` tool for the project's
-configured checks (typecheck, lint, test, build); `--no-verify` withholds it, and
-one-shot prompts get it only with `--verify`. Offering the tool runs nothing: the
-model selects relevant checks based on actual work, and a selected check executes
-that repository's configured command. This is execution consent, not sandboxing —
-use it only in trusted projects, or start with `--no-verify`. No selection means
-**no Casper verification recorded**, not a pass. Native bash stays independent of
+After the model edits files, Casper itself runs the project's configured checks
+(typecheck, lint, test, build) and repairs failures within a bounded budget, whatever
+tool the model used. Interactive sessions do this once the checks are known to take
+under a minute (until then the receipt suggests `/verify`); `--verify` does it for a
+one-shot prompt and `--no-verify` turns it off. `verification.mode` in
+`.casper/project.yaml` sets `auto`, `offer` or `off` explicitly. A check executes that
+repository's configured command. This is execution consent, not sandboxing — use it
+only in trusted projects, or start with `--no-verify`. Each task ends with a plain receipt:
+
+```text
+✓ Changed 1 file: sum.js
+✓ Verified by Casper: test passed (npm run test, 0.3s)
+```
+
+A bash run of a check is reported but never counted as verification. `/receipt` shows
+the detailed evidence (scope, freshness). Native bash stays independent of
 managed verification: a model-issued bash call without `timeout` gets a 120-second
 default and returns a tool error on expiry so the conversation can continue.
 A model saying “done” is not a passing test or human acceptance.
@@ -86,6 +95,7 @@ A model saying “done” is not a passing test or human acceptance.
 | `/model roles` | Inspect optional `fast`, `build`, `reason`, `review` model shortcuts |
 | `/verify` | Run configured checks without a model |
 | `/verify repair test` | Authorize bounded repair of a failing test check |
+| `/receipt` | Detailed evidence behind the last task's receipt |
 | `/diff` | Inspect Git changes |
 | `/output [n]` | Full retained output of the last task's n-th most recent tool call (20 retained) |
 | `/clear`, `/resume` | Start fresh or restore a conversation; not a file rollback |
