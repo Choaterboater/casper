@@ -199,6 +199,26 @@ needsSymlinks("a project context file that links outside the project is never se
   expect(JSON.stringify(f.payloads[1])).toContain("IN_REPO_CONTEXT_LOADS");
 }, 30_000);
 
+test("the parent system prompt states Casper's identity exactly once, first, with or without a user SYSTEM.md", async () => {
+  const f = await fixture(() => answer("IDENTITY_FIXTURE"));
+  const system = (index: number) => {
+    const message = f.payloads[index]?.messages.find((entry) => entry.role === "system");
+    return typeof message?.content === "string" ? message.content : JSON.stringify(message?.content);
+  };
+  expect((await f.run([cli, "Answer without tools"])).exit).toBe(0);
+  // The engine store's own SYSTEM.md is the user's; it follows Casper's text instead of leading.
+  await writeFile(path.join(f.agent, "SYSTEM.md"), "USER_SYSTEM_PROMPT_LOADS");
+  expect((await f.run([cli, "Answer without tools"])).exit).toBe(0);
+  expect(f.payloads).toHaveLength(2);
+  for (const index of [0, 1]) {
+    expect(system(index)).toStartWith("You are Casper, ");
+    expect(system(index).split("You are Casper")).toHaveLength(2);
+    expect(system(index)).not.toContain("operating inside pi");
+  }
+  expect(system(0)).not.toContain("USER_SYSTEM_PROMPT_LOADS");
+  expect(system(1)).toContain("USER_SYSTEM_PROMPT_LOADS");
+}, 30_000);
+
 test("read-only Pi refuses a source containing its active state before initialization", async () => {
   const f = await fixture(() => answer("must not be requested"));
   const before = await snapshot(f.agent);
