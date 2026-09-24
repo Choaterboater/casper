@@ -4,6 +4,7 @@ import path from "node:path";
 import { READ_ONLY_STATE_CONFLICT } from "./types";
 import { PiModels } from "./pi-models";
 import { authenticatePi } from "./pi-auth";
+import { isOpenRouterModel, OPENROUTER_ATTRIBUTION } from "./openrouter-attribution";
 import {
   createAgentSessionFromServices,
   createAgentSessionRuntime,
@@ -439,6 +440,10 @@ export class PiRuntime implements AgentRuntime {
     const createRuntime: CreateAgentSessionRuntimeFactory = async ({ cwd, sessionManager, sessionStartEvent }) => {
       readOnly?.signal.throwIfAborted();
       const extensionFactory = (pi: ExtensionAPI) => {
+        // Runs after the runtime's own attribution, so Casper's identity replaces Pi's.
+        pi.on("before_provider_headers", (event, ctx) => {
+          if (isOpenRouterModel(ctx.model)) Object.assign(event.headers, OPENROUTER_ATTRIBUTION);
+        });
         if (readOnly) pi.on("tool_call", () => {
           if (readOnly.signal.aborted || ++toolCalls > readOnly.maxToolCalls) {
             limitReason = readOnly.signal.aborted ? "Subagent cancelled" : "Subagent tool-call budget exhausted";
