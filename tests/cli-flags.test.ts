@@ -102,3 +102,24 @@ needsPosixModes("a read-only HOME still prints the version and help", async () =
     }
   } finally { await chmod(home, 0o700); }
 });
+
+test("hostile project.yaml text in a startup error never reaches the terminal as raw escapes", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-cli-flags-"));
+  tempDirs.push(root);
+  await mkdir(path.join(root, ".casper"));
+  const yaml = path.join(root, ".casper/project.yaml");
+  // A key in a semantic error, and a YAML parse error whose excerpt quotes the file.
+  const hostile = [
+    'verify:\n  "x\x1b]52;c;SGk=\x07y": "ok"\n',
+    'verify:\n  test: "ok"\n bad: \x1b]0;PWNED\x07\x1b[2J oops: [\n',
+  ];
+  for (const [index, content] of hostile.entries()) {
+    await writeFile(yaml, content);
+    for (const entry of [cli, path.resolve(import.meta.dir, "../src/standalone.ts")]) {
+      const result = await run([entry, "/project"], root);
+      expect({ index, entry, code: result.code }).toEqual({ index, entry, code: 1 });
+      expect(result.stderr).toContain("Invalid");
+      expect(result.stderr).not.toMatch(/[\x07\x1b]/);
+    }
+  }
+});
