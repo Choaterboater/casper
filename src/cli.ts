@@ -141,7 +141,7 @@ export async function runCli(): Promise<void> {
     return;
   }
   const prompt = args.join(" ").trim();
-  const app = new CasperApp({ autoVerify: resolveAutoVerify({ verify, noVerify, interactive: !prompt }) });
+  const app = new CasperApp({ autoVerify: resolveAutoVerify({ verify, noVerify, interactive: !prompt }), verificationRequested: verify });
   const removeShutdownHandlers = installShutdownHandlers(app);
 
   try {
