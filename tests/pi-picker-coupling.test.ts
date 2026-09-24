@@ -199,3 +199,38 @@ test("typing from the sidebar lands in the search field", () => {
     expect(text).not.toContain("alpha/a-model");
   } finally { picker.dispose(); }
 });
+
+test("rows within a provider sort newest-version first using numeric-aware ids", () => {
+  const models = [fakeModel("fixture", "v9"), fakeModel("fixture", "v24"), fakeModel("fixture", "v10")];
+  const picker = new ModelBrowser({
+    tui: fakeTui(), catalog: fakeCatalog(models), color: false, sessionOnly: false,
+    onSelect: () => {}, onCancel: () => {},
+  });
+  try {
+    const text = rendered(picker);
+    expect(text.indexOf("fixture/v24")).toBeLessThan(text.indexOf("fixture/v10"));
+    expect(text.indexOf("fixture/v10")).toBeLessThan(text.indexOf("fixture/v9"));
+  } finally { picker.dispose(); }
+});
+
+test("rows missing capability tags keep the same ctx and price columns", () => {
+  const models = [
+    fakeModel("fixture", "tagged", { reasoning: true, input: ["text", "image"], cost: { input: 3, output: 15, cacheRead: 0, cacheWrite: 0 }, contextWindow: 131_072 }),
+    fakeModel("fixture", "plain", { cost: { input: 1, output: 5, cacheRead: 0, cacheWrite: 0 }, contextWindow: 131_072 }),
+  ];
+  const picker = new ModelBrowser({
+    tui: fakeTui(), catalog: fakeCatalog(models), color: false, sessionOnly: false,
+    onSelect: () => {}, onCancel: () => {},
+  });
+  try {
+    const lines = rendered(picker).split("\n");
+    const tagged = lines.find(line => line.includes("fixture/tagged") && line.includes("vision"));
+    const plain = lines.find(line => line.includes("fixture/plain") && !line.includes("vision"));
+    expect(tagged).toBeDefined();
+    expect(plain).toBeDefined();
+    // Prices are right-aligned: different token lengths start at different columns but the
+    // right edges match, which is what keeps the columns visually straight.
+    expect(plain!.indexOf("$1/5") + "$1/5".length).toBe(tagged!.indexOf("$3/15") + "$3/15".length);
+    expect(plain!.indexOf("131k ctx")).toBe(tagged!.indexOf("131k ctx"));
+  } finally { picker.dispose(); }
+});
