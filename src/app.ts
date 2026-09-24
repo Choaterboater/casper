@@ -614,7 +614,12 @@ export class CasperApp {
           changedPaths: before && afterModel ? flatten(diffSnapshots(before, afterModel)) : undefined,
         });
         // Fresh passes the model already recorded are reused, not rerun (VerificationTask).
-        if (autoChecks.run.length || this.checkTask.checks.length) verification = await this.runVerification(autoChecks.run, true, prompt, this.checkTask);
+        if (autoChecks.run.length || this.checkTask.checks.length) {
+          const pending = [...new Set([...autoChecks.run, ...this.checkTask.checks])];
+          this.events.ensureLineBreak();
+          this.output.write(`… Casper checking: ${pending.join(", ")}\n`);
+          verification = await this.runVerification(autoChecks.run, true, prompt, this.checkTask);
+        }
       } else if (!stopped && this.checkTask?.checks.length) {
         verification = await this.runVerification(this.checkTask.checks, true, prompt, this.checkTask);
       }
