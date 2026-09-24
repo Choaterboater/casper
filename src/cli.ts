@@ -8,6 +8,7 @@ import { CasperApp } from "./app";
 import { importLegacyEngineState, useCasperAgentStore } from "./runtime/agent-store";
 import { CandidateLibrary, formatLearningResult } from "./learn/candidates";
 import { taskExitCode } from "./task/result";
+import { parseCliArgs, parseLearnArgs, UsageError } from "./cli-args";
 import type { VerificationMode } from "./verify/mode";
 
 import { terminalText } from "./tui/format";
@@ -36,59 +37,36 @@ export function installShutdownHandlers(app: { close(): Promise<void>; interrupt
 /** Only a *leading* argument is a flag: `casper explain the -v flag` is a prompt, not
  * a version request. Exported as the argv policy's test seam. */
 export function leadingFlag(args: readonly string[]): "help" | "version" | "licenses" | undefined {
-  const first = args[0];
-  if (first === "--help" || first === "-h") return "help";
-  if (first === "--version" || first === "-v") return "version";
-  if (first === "--licenses") return "licenses";
-  return undefined;
+  try { return parseCliArgs(args).info; } catch { return undefined; }
 }
 
 /** `--verify` runs Casper's checks after this run's edits; `--no-verify` turns managed
  * checks off. Without either, configuration and the surface default decide. */
 export function verificationFlag(options: { verify: boolean; noVerify: boolean }): VerificationMode | undefined {
-  if (options.verify && options.noVerify) throw new Error("--verify and --no-verify cannot be combined");
+  if (options.verify && options.noVerify) throw new UsageError("--verify and --no-verify cannot be combined");
   return options.verify ? "auto" : options.noVerify ? "off" : undefined;
 }
 
 /** The last-resort error sink. Messages can quote untrusted repository text (a YAML excerpt,
- * a config key), so controls are escaped like every other terminal path. */
+ * a config key), so controls are escaped like every other terminal path. A usage mistake
+ * exits 64, so scripts can tell it apart from a failed (1) or incomplete (2) task. */
 export function reportFatal(error: unknown): void {
   console.error(terminalText(error instanceof Error ? error.message : String(error)));
-  process.exitCode = 1;
+  process.exitCode = error instanceof UsageError ? 64 : 1;
 }
 
 export async function runCli(): Promise<void> {
-  const args = process.argv.slice(2);
   // Options are parsed before anything touches state; they have no side effects.
-  let verify = false;
-  let noVerify = false;
-  let verbose = false;
-  const servers: string[] = [];
-  const languageServers: string[] = [];
-  while (args[0] === "--verify" || args[0] === "--no-verify" || args[0] === "--verbose" || args[0] === "--mcp" || args[0] === "--lsp") {
-    const flag = args.shift();
-    if (flag === "--verify") verify = true;
-    else if (flag === "--verbose") verbose = true;
-    else if (flag === "--no-verify") noVerify = true;
-    else {
-      const name = args.shift();
-      // A following flag is not a name: `--mcp --verify` must fail, not connect to "--verify".
-      if (!name || !/^[a-zA-Z0-9_.][a-zA-Z0-9_.-]{0,63}$/.test(name)) throw new Error(`${flag} requires a configured server name`);
-      (flag === "--lsp" ? languageServers : servers).push(name);
-    }
-  }
-
-  // After the options, so `casper --no-verify --version` prints the version.
-  const flag = leadingFlag(args);
-  if (flag === "licenses") {
+  const options = parseCliArgs(process.argv.slice(2));
+  if (options.info === "licenses") {
     process.stdout.write(licenseNotices);
     return;
   }
-  if (flag === "help") {
+  if (options.info === "help") {
     process.stdout.write(HELP_TEXT);
     return;
   }
-  if (flag === "version") {
+  if (options.info === "version") {
     // A compiled binary runs from Bun's embedded filesystem (`/$bunfs/…`, `B:\~BUN\…`); its
     // real location is the executable. From source, import.meta.path already resolved any
     // PATH symlink, so the printed path is the checkout that actually runs.
@@ -96,13 +74,7 @@ export async function runCli(): Promise<void> {
     process.stdout.write(`casper ${CASPER_VERSION} (${embedded ? process.execPath : import.meta.path})\n`);
     return;
   }
-  if (args[0] === "--") args.shift();
-  else if (args[0]?.startsWith("-")) {
-    // An unknown or misspelled option would otherwise become a (paid) model prompt.
-    process.stderr.write(`Unknown option ${terminalText(args[0])}. Run casper --help for usage; put -- before a prompt that starts with "-".\n`);
-    process.exitCode = 2;
-    return;
-  }
+  const learn = options.command === "learn" ? parseLearnArgs(options.rest) : undefined;
   // Only after the informational flags: they write nothing and must work on a read-only HOME,
   // and installers identify the binary by `--version`'s single stdout line.
   // Casper owns its state; explicit CASPER_AGENT_DIR stores are managed by their owner.
@@ -115,23 +87,17 @@ export async function runCli(): Promise<void> {
       process.stderr.write(`[auth] Existing ${provider} sign-in is not shared; run /login ${provider} to sign in Casper. The original sign-in is unchanged.\n`);
     }
   }
-  if (args[0] === "learn") {
-    if (verify || noVerify || servers.length || languageServers.length) throw new Error("learn cannot be combined with --verify, --no-verify, --mcp or --lsp");
+  if (learn) {
     const learning = new CandidateLibrary({ runtimeFactory: async () => {
       const { PiRuntime } = await import("./runtime/pi");
       return new PiRuntime();
     } });
     const removeShutdownHandlers = installShutdownHandlers(learning);
     try {
-      let result;
-      if (args[1] === "list" && args.length === 3) result = await learning.list(args[2]!);
-      else if (args[1] === "inspect" && args.length === 4) result = await learning.inspect(args[2]!, args[3]!);
-      else if (args[1] === "promote" && (args.length === 7 || args.length === 8)) {
-        const index = Number(args[5]);
-        result = await learning.promote(args[2]!, args[3]!, args[4]!, index, args[6]! as "reference" | "project-skill" | "global-skill" | "ignore", args[7]);
-      }
-      else if (args.length === 2 && !["list", "inspect", "promote"].includes(args[1]!) && !args[1]!.startsWith("-")) result = await learning.generate(args[1]!);
-      else throw new Error("Usage: casper learn <local-repo> | learn list <local-repo> | learn inspect <local-repo> <draft-id> | learn promote <local-repo> <draft-id> <draft-sha256> <candidate-number> <reference|project-skill|global-skill|ignore> [skill-name]");
+      const result = learn.action === "generate" ? await learning.generate(learn.repo)
+        : learn.action === "list" ? await learning.list(learn.repo)
+        : learn.action === "inspect" ? await learning.inspect(learn.repo, learn.draftId)
+        : await learning.promote(learn.repo, learn.draftId, learn.draftSha256, learn.candidate, learn.target, learn.skillName);
       console.log(formatLearningResult(result));
     } catch (error) {
       console.error(formatLearningResult({ status: "failed", error: error instanceof Error ? error.message : "Learning failed" }));
@@ -142,13 +108,13 @@ export async function runCli(): Promise<void> {
     }
     return;
   }
-  const prompt = args.join(" ").trim();
-  const app = new CasperApp({ verificationMode: verificationFlag({ verify, noVerify }), verbose });
+  const prompt = options.rest.join(" ").trim();
+  const app = new CasperApp({ verificationMode: verificationFlag(options), verbose: options.verbose });
   const removeShutdownHandlers = installShutdownHandlers(app);
 
   try {
-    for (const server of [...new Set(servers)]) await app.runOnce(`/mcp connect ${server}`);
-    for (const server of [...new Set(languageServers)]) await app.runOnce(`/lsp connect ${server}`);
+    for (const server of options.servers) await app.runOnce(`/mcp connect ${server}`);
+    for (const server of options.languageServers) await app.runOnce(`/lsp connect ${server}`);
     if (prompt) {
       const report = await app.runOnce(prompt);
       process.exitCode = taskExitCode(report, app.getLastTaskResult());
