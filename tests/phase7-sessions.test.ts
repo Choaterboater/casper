@@ -233,6 +233,34 @@ describe("Phase 7 sessions and worktrees", () => {
     await expect((await SessionWorkspaceManager.open(options)).resumeActive(mismatched)).rejects.toThrow("does not match");
   });
 
+  test("review regression: a missing or detached experiment worktree can be left for main without deleting anything", async () => {
+    for (const breakage of ["missing", "detached"] as const) {
+      const { home, repo } = await repository();
+      const sessions = path.join(home, "fake-sessions"); await mkdir(sessions);
+      const mainFile = path.join(sessions, "main.jsonl"); await writeFile(mainFile, "main session");
+      const runtime = new BranchRuntimeSession(sessions, repo, mainFile);
+      const manager = await SessionWorkspaceManager.open({ projectRoot: repo, gitBranch: "main", policy: SAFE_DEFAULT_POLICY.workspace, homeDir: home });
+      const child = await manager.branch("exp", { getRuntime: async () => runtime, confirm: async () => true });
+      // A healthy experiment still has to be applied or discarded through review.
+      await expect(manager.switch("main", { getRuntime: async () => runtime, confirm: async () => true })).rejects.toThrow("must return with");
+      if (breakage === "missing") await rm(child!.workspacePath, { recursive: true, force: true });
+      else await git(child!.workspacePath, "checkout", "--detach");
+      const options = { getRuntime: async () => runtime, confirm: async () => true, verify: async () => "pass" as const };
+      if (breakage === "missing") {
+        await expect(manager.returnToMain("discard", options)).rejects.toThrow(`Experiment worktree is missing: ${child!.workspacePath}`);
+      }
+      const previews: string[] = [];
+      const left = await manager.switch("main", { getRuntime: async () => runtime, confirm: async (preview) => { previews.push(preview); return true; } });
+      expect(left?.name).toBe("main");
+      expect(previews[0]).toContain("without applying, discarding, or deleting anything");
+      expect(manager.activeName).toBe("main");
+      expect(runtime.getSessionInfo().sessionFile).toBe(mainFile);
+      expect(manager.renderTree()).toMatch(/exp .* · cleanup pending/);
+      expect((await git(repo, "branch", "--list", "casper/exp")).trim()).not.toBe("");
+      if (breakage === "detached") await access(child!.workspacePath);
+    }
+  });
+
   test("workspace isolation policy is layered and defaults to all three guarded reasons", async () => {
     const { home, repo } = await repository();
     await mkdir(path.join(home, ".casper"), { recursive: true });

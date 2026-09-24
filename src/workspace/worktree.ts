@@ -252,6 +252,12 @@ export class GitWorktreeManager {
 
   async validate(relation: WorktreeRelation): Promise<void> {
     this.assertManagedRelation(relation);
+    // Git run with a vanished cwd reports `posix_spawn 'git'`, which reads as "git is missing".
+    if (relation.path !== relation.mainWorkspace) {
+      await access(relation.path).catch((error: NodeJS.ErrnoException) => {
+        throw error.code === "ENOENT" ? new Error(`Experiment worktree is missing: ${relation.path}`) : error;
+      });
+    }
     await this.assertRegistered(relation);
   }
 

@@ -29,6 +29,8 @@ An isolated branch cannot use plain `/switch main`; choose a reviewed outcome:
 - `apply`: run configured checks in the candidate, capture the resulting complete diff, show its files/stat/content/SHA-256, require exact approval, apply that exact patch to main **without committing**, and clean up the worktree/branch.
 - `discard`: capture and show the complete diff, require exact approval, then remove the worktree/branch without applying it.
 
+If the experiment's worktree was deleted or its branch relation changed (for example a detached HEAD), no reviewed diff can be captured, so apply/discard refuse. Plain `/switch main` is then allowed after exact approval: it switches the conversation only, deletes nothing, and marks the experiment `cleanup pending` in `/tree` for manual inspection of its worktree and `casper/<name>` Git branch.
+
 If verification fails or is blocked, apply stops before approval. Missing checks remain visibly `incomplete` and require the subsequent explicit apply approval. Changes detected during post-approval revalidation keep the candidate open.
 
 Cleanup now **unregisters** the Git worktree/branch while retaining candidate bytes by atomic rename under `~/.casper/worktrees/recovery/<project-key>/`. The recovery path is printed and recorded in `/tree`. These are ordinary recovery directories, not resumable Git worktrees; their `.git` pointer is no longer usable. This also preserves files written after the final snapshot (including ignored files and writes through already-open handles). No automatic recovery-directory deletion is provided; review and remove them manually when no longer needed. Discard means “do not apply,” not secure erasure.

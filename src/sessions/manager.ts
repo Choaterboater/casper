@@ -274,7 +274,9 @@ export class SessionWorkspaceManager {
     if (name === this.currentName) throw new Error(`Already on session branch ${JSON.stringify(name)}`);
     const current = this.store.get(this.currentName);
     if (current?.worktree && name === "main") {
-      throw new Error("An isolated experiment must return with `/switch main apply` or `/switch main discard`");
+      const problem = await this.worktreeProblem(current.worktree);
+      if (!problem) throw new Error("An isolated experiment must return with `/switch main apply` or `/switch main discard`");
+      return this.leaveBrokenExperiment(current, problem, options);
     }
     const target = this.store.get(name);
     if (!target || target.status !== "open" || target.cleanupPending) throw new Error(`Open session branch not found: ${name}`);
@@ -374,6 +376,46 @@ export class SessionWorkspaceManager {
     };
     await this.store.upsertMany([updatedMain, completed]);
     return { name: "main", workspacePath: main.workspacePath, session: switched, cleanupWarning, preservedPath };
+  }
+
+  /** Why an experiment's worktree can no longer be reviewed, applied, or discarded; undefined when healthy. */
+  private async worktreeProblem(relation: WorktreeRelation): Promise<string | undefined> {
+    if (!this.worktrees) return "Git worktree support is unavailable";
+    return this.worktrees.validate(relation).then(() => undefined, (error: unknown) => error instanceof Error ? error.message : String(error));
+  }
+
+  /**
+   * A deleted or re-pointed worktree cannot produce a reviewed diff, so apply/discard are
+   * refused. Leaving is still allowed: switch the conversation only, touch no files or refs,
+   * and mark the experiment cleanup pending for manual inspection.
+   */
+  private async leaveBrokenExperiment(branch: NamedSessionBranch, problem: string, options: SwitchOptions): Promise<SessionTransition | undefined> {
+    const main = this.store.get("main");
+    if (!main || main.status !== "open") throw new Error("Main session metadata is unavailable");
+    const approved = await options.confirm([
+      "Leave broken experiment confirmation",
+      `session branch: ${JSON.stringify(branch.name)}`,
+      `problem: ${terminalSafe(problem)}`,
+      `candidate workspace: ${branch.workspacePath}`,
+      `main workspace: ${main.workspacePath}`,
+      "Casper will switch the conversation to main without applying, discarding, or deleting anything. The experiment is marked cleanup pending; its worktree and Git branch are left for manual inspection.",
+      "",
+    ].join("\n"), "Leave this experiment and switch to main? Type yes: ");
+    if (!approved) return undefined;
+    const runtime = await options.getRuntime();
+    requireBranchingRuntime(runtime);
+    // No resumeActive here: it would re-validate the broken worktree and refuse.
+    const candidateSession = runtime.getSessionInfo();
+    const switched = await runtime.switchSession({ cwd: main.workspacePath, sessionFile: main.sessionFile, context: options.context });
+    this.boundRuntime = runtime;
+    this.currentName = "main";
+    const timestamp = now();
+    await this.store.upsertMany([
+      { ...main, sessionId: switched.sessionId, sessionFile: switched.sessionFile, updatedAt: timestamp },
+      { ...branch, sessionId: candidateSession.sessionId, sessionFile: candidateSession.sessionFile, cleanupPending: true, updatedAt: timestamp },
+    ]);
+    return { name: "main", workspacePath: main.workspacePath, session: switched,
+      cleanupWarning: `experiment ${JSON.stringify(branch.name)} left without cleanup (${problem}); its worktree and Git branch need manual inspection` };
   }
 
   private async workspaceStillExists(workspacePath: string): Promise<boolean> {
