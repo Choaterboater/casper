@@ -273,7 +273,8 @@ test("local skill commands work without starting an unavailable runtime", async 
         emit({ type: "message_end" });
       };
       await app.runOnce("Fix the bug in notes.txt", root);
-      expect(output).toContain("[task] Execution completed\n       changes      no files changed\n       verification no Casper verification recorded.");
+      expect(output).toContain("• No files changed\n");
+      expect(output).not.toContain("Not verified");
       expect(output).not.toContain("possible tool writes");
       expect(app.getLastTaskResult()).toMatchObject({ changedPaths: [], possibleMutations: false });
 
@@ -287,7 +288,7 @@ test("local skill commands work without starting an unavailable runtime", async 
         emit({ type: "message_end" });
       };
       await app.runOnce("hey");
-      expect(output).toContain("[task] Execution completed\n       changes      1 file changed: notes.txt\n       verification no Casper verification recorded.");
+      expect(output).toContain("✓ Changed 1 file: notes.txt\n• Not verified — checks are off for this run. Run casper --verify to have Casper check.\n");
       expect(output).toMatch(/notes\.txt \| 2 \+-/);
       expect(app.getLastTaskResult()).toMatchObject({ changedPaths: ["notes.txt"], possibleMutations: false });
 

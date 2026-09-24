@@ -37,7 +37,7 @@ import type {
 } from "./runtime/types";
 import { SkillRegistry, formatSelectedSkills } from "./skills/registry";
 import { classifyTask, formatTaskPrompt, underSpecifiedTarget } from "./task/classify";
-import { formatTaskResult, type TaskResult } from "./task/result";
+import { formatReceipt, formatTaskResult, type TaskResult } from "./task/result";
 import { TaskObservations } from "./task/observations";
 import { LifecycleRegistry } from "./app/lifecycle";
 import { RuntimeEventView } from "./app/events";
@@ -85,6 +85,8 @@ export interface CasperAppOptions {
   /** This run's verification mode (`--verify` = auto, `--no-verify` = off), over configuration.
    * Unset: configuration, then the surface default (see resolveVerificationMode). */
   verificationMode?: VerificationMode;
+  /** Show the detailed evidence receipt and per-check lines instead of the plain receipt. */
+  verbose?: boolean;
   /** Embedder shorthand: true = "offer" (model-selected casper_check plus bounded repair),
    * false = "off". Ignored when verificationMode is set. */
   autoVerify?: boolean;
@@ -136,6 +138,7 @@ export class CasperApp {
   skillRegistry?: SkillRegistry;
   private readonly reportedSkillWarnings = new Set<string>();
   private readonly verificationFlag?: VerificationMode;
+  private readonly verbose: boolean;
   private verificationAbort?: AbortController;
   private verificationWork?: Promise<VerificationReport>;
   /** Active repair evidence; sharing it does not grant managed-tool consent. */
@@ -218,6 +221,7 @@ export class CasperApp {
       markRuntimeFailed: () => { this.taskRuntimeFailed = true; },
       cancelled: () => this.commandAbort?.signal.aborted === true,
     });
+    this.verbose = options.verbose ?? false;
     this.verificationFlag = options.verificationMode
       ?? (options.autoVerify === undefined ? undefined : options.autoVerify ? "offer" : "off");
     this.visualizationProviders = options.visualizationProviders ?? [new MermaidProvider(), new MindMeshProvider()];
@@ -272,7 +276,12 @@ export class CasperApp {
     return project;
   }
 
-  /** Last normal coding/chat request; local commands clear it. Not acceptance evidence. */
+  /** Next commands in a receipt are slash commands in a session, casper invocations otherwise. */
+  private receiptSurface(): "interactive" | "one-shot" {
+    return this.interactive ? "interactive" : "one-shot";
+  }
+
+  /** Last normal coding/chat request; local commands other than /receipt clear it. Not acceptance evidence. */
   getLastTaskResult(): TaskResult | undefined {
     return this.lastTaskResult ? structuredClone(this.lastTaskResult) : undefined;
   }
@@ -497,7 +506,8 @@ export class CasperApp {
     }
     const transition = /^\/(?:branch|switch)(?:\s|$)/.test(prompt);
     if (transition && this.subagents.isBusy) throw new Error("Wait for active subagents before changing workspaces");
-    this.lastTaskResult = undefined;
+    // /receipt reads the last task's receipt; every other command starts without one.
+    if (prompt !== "/receipt") this.lastTaskResult = undefined;
     this.taskRuntimeFailed = false;
     this.events.clearError();
     this.taskRuntimeCancelled = false;
@@ -633,7 +643,7 @@ export class CasperApp {
         this.terminal.endAssistant();
         this.events.ensureLineBreak();
         if (classification.intent !== "general" || execution !== "completed" || verification || browser?.checks.length || observations.possibleMutations || observations.changedPaths?.length || observations.changedDuringChecks?.length || observations.observedEdits.length || observations.observedChecks.length) {
-          this.output.write(`${formatTaskResult(this.lastTaskResult)}\n`);
+          this.output.write(`${this.verbose ? formatTaskResult(this.lastTaskResult) : formatReceipt(this.lastTaskResult, { surface: this.receiptSurface() })}\n`);
           if (observations.changedPaths?.length || observations.changedDuringChecks?.length) this.output.write(await this.diffStat());
         }
       }
@@ -697,7 +707,9 @@ export class CasperApp {
       });
       const report = await this.verificationWork;
       await recordCheckTimings(context.stateDirectory, report.rounds.flat());
-      this.output.write(`${formatVerificationReport(report)}\n`);
+      // A model task's receipt summarizes its checks; a standalone run gets its own summary.
+      if (this.verbose) this.output.write(`${formatVerificationReport(report)}\n`);
+      else if (!task) this.output.write(`${formatReceipt({ execution: "completed", verification: report }, { surface: this.receiptSurface() })}\n`);
       return report;
     } finally {
       if (!task) await evidence.close();
@@ -907,7 +919,8 @@ export class CasperApp {
    * what a person reads next. Passing checks stay quiet (their output remains in the evidence). */
   private writeCheckResult(result: VerificationResult): void {
     this.events.ensureLineBreak();
-    this.output.write(`${formatVerificationResult(result)}\n`);
+    // The receipt states each outcome plainly; verbose output keeps the per-run evidence line.
+    if (this.verbose) this.output.write(`${formatVerificationResult(result)}\n`);
     if (result.status !== "fail") return;
     for (const [stream, text] of [["stderr", result.stderr], ["stdout", result.stdout]] as const) {
       if (!text.trim()) continue;

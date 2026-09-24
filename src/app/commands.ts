@@ -28,6 +28,7 @@ import { LifecycleRegistry } from "./lifecycle";
 import type { VisualizationRouter } from "../visualize/router";
 import type { RuntimeSession, RuntimeTool, AgentRuntime } from "../runtime/types";
 import type { TaskObservations } from "../task/observations";
+import { formatTaskResult, type TaskResult } from "../task/result";
 import type { SessionWorkspaceManager } from "../sessions/manager";
 import { formatProjectContext } from "../project/context";
 
@@ -76,6 +77,7 @@ export interface CommandHost {
   updateFooter(): void;
   handleBranchCommand(prompt: string): Promise<void>;
   handleSwitchCommand(prompt: string): Promise<void>;
+  getLastTaskResult(): TaskResult | undefined;
 }
 
 export async function runSlashCommand(host: CommandHost, prompt: string): Promise<VerificationReport | undefined> {
@@ -230,6 +232,12 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       host.terminal.writePanel("git status --short", status.trim() ? status : "(clean)");
       if (diff.trim()) host.terminal.writePanel("git diff HEAD", diff, { diff: true });
       host.output.write(`[diff] Tracked changes against HEAD${diff.trim() ? "" : ": none"}; untracked files are listed by name only. Output limited to 64 KiB per command.\n`);
+      return;
+    }
+    if (prompt === "/receipt") {
+      const task = host.getLastTaskResult();
+      if (!task) throw new Error("No task receipt yet; /receipt shows the detailed receipt of the last model task.");
+      host.output.write(`${formatTaskResult(task)}\n`);
       return;
     }
     if (/^\/output(?:\s|$)/.test(prompt)) {
