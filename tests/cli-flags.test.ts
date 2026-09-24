@@ -141,3 +141,38 @@ posixOnly("the source CLI run through its shebang ignores the opened directory's
   }
   expect(await Bun.file(marker).exists()).toBe(false);
 });
+
+test("an unrecognized leading option is a usage error, never a model prompt", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-cli-flags-"));
+  tempDirs.push(root);
+  for (const args of [["--bogus"], ["--no-verfy"], ["--model", "foo", "hi"], ["--no-verify", "--session", "x", "hi"], ["-x"]]) {
+    const result = await run([cli, ...args], root);
+    expect({ args, code: result.code, stdout: result.stdout }).toEqual({ args, code: 2, stdout: "" });
+    expect(result.stderr).toContain(`Unknown option ${args.find((arg) => arg.startsWith("-") && arg !== "--no-verify")}`);
+    expect(result.stderr).toContain("casper --help");
+  }
+  // Nothing started: no engine store, no transcript.
+  expect(await Bun.file(path.join(root, ".casper")).exists()).toBe(false);
+  expect(await readdir(root).then((names) => names.includes(".casper"))).toBe(false);
+});
+
+test("informational flags are honored after the verify/integration options", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-cli-flags-"));
+  tempDirs.push(root);
+  const version = await run([cli, "--no-verify", "--version"], root);
+  expect({ code: version.code, stderr: version.stderr }).toEqual({ code: 0, stderr: "" });
+  expect(version.stdout).toMatch(/^casper \S+ \([^\n]*\)\n$/);
+  const help = await run([cli, "--verify", "--help"], root);
+  expect(help.code).toBe(0);
+  expect(help.stdout).toContain("casper <prompt>");
+});
+
+test("-- ends option parsing, so a prompt may start with a dash", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-cli-flags-"));
+  tempDirs.push(root);
+  // From source, Bun's own parser consumes the first `--` after the script; the compiled
+  // binary passes it through. Either way Casper receives exactly one.
+  const result = await run([cli, "--", "--", "--bogus", "is", "a", "prompt"], root);
+  expect(result.stderr).not.toContain("Unknown option");
+  expect(result.stdout).toContain("> --bogus is a prompt");
+});

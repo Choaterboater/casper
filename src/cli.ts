@@ -59,7 +59,24 @@ export function reportFatal(error: unknown): void {
 
 export async function runCli(): Promise<void> {
   const args = process.argv.slice(2);
+  // Options are parsed before anything touches state; they have no side effects.
+  let verify = false;
+  let noVerify = false;
+  const servers: string[] = [];
+  const languageServers: string[] = [];
+  while (args[0] === "--verify" || args[0] === "--no-verify" || args[0] === "--mcp" || args[0] === "--lsp") {
+    const flag = args.shift();
+    if (flag === "--verify") verify = true;
+    else if (flag === "--no-verify") noVerify = true;
+    else {
+      const name = args.shift();
+      // A following flag is not a name: `--mcp --verify` must fail, not connect to "--verify".
+      if (!name || !/^[a-zA-Z0-9_.][a-zA-Z0-9_.-]{0,63}$/.test(name)) throw new Error(`${flag} requires a configured server name`);
+      (flag === "--lsp" ? languageServers : servers).push(name);
+    }
+  }
 
+  // After the options, so `casper --no-verify --version` prints the version.
   const flag = leadingFlag(args);
   if (flag === "licenses") {
     process.stdout.write(licenseNotices);
@@ -77,6 +94,13 @@ export async function runCli(): Promise<void> {
     process.stdout.write(`casper ${CASPER_VERSION} (${embedded ? process.execPath : import.meta.path})\n`);
     return;
   }
+  if (args[0] === "--") args.shift();
+  else if (args[0]?.startsWith("-")) {
+    // An unknown or misspelled option would otherwise become a (paid) model prompt.
+    process.stderr.write(`Unknown option ${terminalText(args[0])}. Run casper --help for usage; put -- before a prompt that starts with "-".\n`);
+    process.exitCode = 2;
+    return;
+  }
   // Only after the informational flags: they write nothing and must work on a read-only HOME,
   // and installers identify the binary by `--version`'s single stdout line.
   // Casper owns its engine state under ~/.casper/agent; an existing Pi installation's
@@ -87,21 +111,6 @@ export async function runCli(): Promise<void> {
     if (legacy.imported) process.stderr.write("[auth] Imported existing credentials into ~/.casper/agent.\n");
     for (const provider of legacy.signIn) {
       process.stderr.write(`[auth] Pi's ${provider} sign-in is not shared; run /login ${provider} to sign in Casper (Pi stays signed in).\n`);
-    }
-  }
-  let verify = false;
-  let noVerify = false;
-  const servers: string[] = [];
-  const languageServers: string[] = [];
-  while (args[0] === "--verify" || args[0] === "--no-verify" || args[0] === "--mcp" || args[0] === "--lsp") {
-    const flag = args.shift();
-    if (flag === "--verify") verify = true;
-    else if (flag === "--no-verify") noVerify = true;
-    else {
-      const name = args.shift();
-      // A following flag is not a name: `--mcp --verify` must fail, not connect to "--verify".
-      if (!name || !/^[a-zA-Z0-9_.][a-zA-Z0-9_.-]{0,63}$/.test(name)) throw new Error(`${flag} requires a configured server name`);
-      (flag === "--lsp" ? languageServers : servers).push(name);
     }
   }
   if (args[0] === "learn") {
