@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { copyFile, lstat, mkdir, mkdtemp, readdir, readFile, readlink, realpath, rm, writeFile } from "node:fs/promises";
+import { copyFile, lstat, mkdir, mkdtemp, readdir, readFile, readlink, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { openNoFollow } from "../src/platform/files";
 import { osSupportsProcessGroups, ownSpawnedTree, terminateTree } from "../src/platform/processes";
 import os from "node:os";
@@ -51,6 +51,9 @@ export interface EvalTask {
   readonly fixture: string;
   /** Quality-benchmark pack. Tasks without one are Casper's own regression catalog. */
   readonly pack?: EvalPack;
+  /** Developer tools installed in the workspace, as a real checkout would have them after install.
+   * `typescript` links this repository's compiler at `node_modules/typescript` and `.bin/tsc`. */
+  readonly tools?: readonly "typescript"[];
   /** Project conventions (file placement, exports, naming) for the Conventional score. */
   readonly conventions?: readonly EvalConvention[];
   /** Overlay that turns the solved fixture into this task's starting state. */
@@ -241,6 +244,11 @@ export async function prepareWorkdir(task: EvalTask, repoRoot: string, destinati
         await rm(path.join(workdir, relative), { force: true, recursive: relative.endsWith("/") });
       }
     }
+    if (task.tools?.includes("typescript")) {
+      await mkdir(path.join(workdir, "node_modules/.bin"), { recursive: true });
+      await symlink(path.join(repoRoot, "node_modules/typescript"), path.join(workdir, "node_modules/typescript"), "dir");
+      await symlink("../typescript/bin/tsc", path.join(workdir, "node_modules/.bin/tsc"));
+    }
     return workdir;
   } catch (error) {
     if (owned) await rm(workdir, { recursive: true, force: true });
@@ -258,6 +266,12 @@ async function setupRemovals(task: EvalTask, repoRoot: string): Promise<string[]
   return removals as string[];
 }
 
+/** The solved fixture as the frozen evaluator sees it: no setup overlay and no linked tools
+ * (checks call tools by absolute path, and the evaluator copy must stay plain files). */
+function solvedFixture(task: EvalTask): EvalTask {
+  return { ...task, setup: undefined, tools: undefined };
+}
+
 /** Directories the solved fixture has but the candidate never sees (hidden acceptance tests). */
 export async function hiddenPaths(task: EvalTask, repoRoot: string): Promise<string[]> {
   return (await setupRemovals(task, repoRoot)).filter((entry) => entry.endsWith("/"));
@@ -266,8 +280,8 @@ export async function hiddenPaths(task: EvalTask, repoRoot: string): Promise<str
 /** What the reference solution (the solved fixture) changes relative to the task's starting state,
  * excluding hidden grading files: the baseline for the Focused score. */
 export async function referenceChanges(task: EvalTask, repoRoot: string): Promise<{ added: string[]; modified: string[]; removed: string[] }> {
-  const start = await prepareWorkdir(task, repoRoot);
-  const solved = await prepareWorkdir({ ...task, setup: undefined }, repoRoot);
+  const start = await prepareWorkdir({ ...task, tools: undefined }, repoRoot);
+  const solved = await prepareWorkdir(solvedFixture(task), repoRoot);
   try {
     const hidden = await hiddenPaths(task, repoRoot);
     const visible = (entry: string) => !hidden.some((prefix) => entry.startsWith(prefix));
@@ -546,7 +560,7 @@ export async function runEvalTask(task: EvalTask, options: EvalRunOptions): Prom
   workdir = await prepareWorkdir(task, options.repoRoot);
   const before = await digestTree(workdir);
   // Freeze grading inputs before the candidate runs, outside its editable workspace.
-  evaluator = await prepareWorkdir({ ...task, setup: undefined }, options.repoRoot);
+  evaluator = await prepareWorkdir(solvedFixture(task), options.repoRoot);
   prepared = true;
   if (!homeDir || !workdir || !evaluator) throw new Error("Evaluation preparation did not create its workspaces");
   const sessionHome = homeDir;
@@ -688,7 +702,7 @@ export async function prepareEvalTask(task: EvalTask, repoRoot: string): Promise
   const workdir = path.join(root, "candidate");
   try {
     await prepareWorkdir(task, repoRoot, workdir);
-    const evaluator = await prepareWorkdir({ ...task, setup: undefined }, repoRoot, path.join(root, "evaluator"));
+    const evaluator = await prepareWorkdir(solvedFixture(task), repoRoot, path.join(root, "evaluator"));
     const manifest: PreparedEvalManifest = {
       version: 1, task, repoRoot: path.resolve(repoRoot),
       before: [...await digestTree(workdir)], evaluatorDigests: [...await digestTree(evaluator)],

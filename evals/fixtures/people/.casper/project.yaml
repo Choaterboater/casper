@@ -1,4 +1,4 @@
 {
-  "verify": { "test": "bun run test" },
-  "verification": { "scopes": { "test": { "inputs": ["src", "tests"] } } }
+  "verify": { "test": "bun run test", "typecheck": "bun run typecheck" },
+  "verification": { "scopes": { "test": { "inputs": ["src", "tests"] }, "typecheck": { "inputs": ["src", "tests"] } } }
 }
