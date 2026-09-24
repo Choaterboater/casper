@@ -1,11 +1,15 @@
-import { type Component, Markdown, type MarkdownTheme } from "@earendil-works/pi-tui";
+import { type Component, Markdown, type MarkdownTheme, visibleWidth } from "@earendil-works/pi-tui";
 import { stripVTControlCharacters } from "node:util";
 import { PANEL_MAX_COLUMNS, renderPanel } from "./presentation";
 
 const INDENTED_CODE = /^(?: {4}|\t)/;
 const FENCE_OPEN = /^( {0,3})(`{3,}|~{3,})/;
-/** Marks rendered code-block border lines (appended by StreamingMarkdown's theme wrapper). */
-const FENCE_BORDER_TAG = "\u0000fence\u0000";
+const LIST_ITEM = /^[ \t]*(?:[-+*]|\d{1,9}[.)])(?:[ \t]|$)/;
+/** Zero-width markers from StreamingMarkdown's theme wrapper: a border line's fence text follows
+ * FENCE_BORDER_TAG, and each code line is CODE_LINE_TAG alone (its text is kept aside). Whatever
+ * precedes a marker is the container prefix (list indent, quote border). */
+const FENCE_BORDER_TAG = "\u0000\u0001\u0000";
+const CODE_LINE_TAG = "\u0000\u0002\u0000";
 
 /**
  * Index after the last `\n\n` whose following block cannot change how the prefix renders.
@@ -21,9 +25,14 @@ export function stablePrefixEnd(text: string): number {
   let fence: string | undefined;
   let math: "dollar" | "bracket" | undefined;
   let last = 0;
+  let list = false;
   for (let index = 0; index < lines.length; index++) {
     const line = lines[index]!;
     const nextReal = index + 1 < realEnd;
+    if (!fence && !math) {
+      if (LIST_ITEM.test(line)) list = true;
+      else if (/^[^\s]/.test(line) && index > 0 && lines[index - 1] === "") list = false;
+    }
     if (fence) {
       if (closesFence(line, fence)) fence = undefined;
     } else if (math) {
@@ -39,7 +48,10 @@ export function stablePrefixEnd(text: string): number {
       const previous = previousContent(lines, index);
       // A blank line between two indented lines is inside one code block. Splitting it
       // renders two fences. Any other completed break is stable once the next line is known.
-      if (!(previous !== undefined && INDENTED_CODE.test(previous) && INDENTED_CODE.test(next))) last = offset + 1;
+      // An indented line after a break inside a list continues the open item (a nested fence or
+      // paragraph), so the list is not complete yet.
+      const continuesItem = list && /^[ \t]/.test(next);
+      if (!continuesItem && !(previous !== undefined && INDENTED_CODE.test(previous) && INDENTED_CODE.test(next))) last = offset + 1;
     }
     if (index + 1 < lines.length) offset += line.length + 1;
   }
@@ -113,12 +125,20 @@ export class StreamingMarkdown implements Component {
   private cache?: Cache;
   private readonly full: Markdown;
   private readonly scratch: Markdown;
+  /** Styled code lines of the current render, in the order Pi emitted their CODE_LINE_TAGs. */
+  private codeLines: string[] = [];
 
   constructor(private readonly color: boolean, theme: MarkdownTheme) {
     // Pi-tui renders code content verbatim, so rendered lines cannot distinguish a content
     // line starting with ``` from a real border (nested fences). Tag border lines; the tag
-    // is consumed by boxFences and never reaches rendered output.
-    const tagged: MarkdownTheme = { ...theme, codeBlockBorder: (text) => theme.codeBlockBorder(`${text}${FENCE_BORDER_TAG}`) };
+    // is consumed by boxFences and never reaches rendered output. Code lines become a
+    // zero-width tag so Pi never wraps them; boxFences wraps the kept text once, at the
+    // panel's inner width.
+    const tagged: MarkdownTheme = {
+      ...theme,
+      codeBlockBorder: (text) => `${FENCE_BORDER_TAG}${theme.codeBlockBorder(text)}`,
+      codeBlock: (text) => { this.codeLines.push(theme.codeBlock(text)); return CODE_LINE_TAG; },
+    };
     this.full = new Markdown("", 0, 0, tagged);
     this.scratch = new Markdown("", 0, 0, tagged);
   }
@@ -155,37 +175,52 @@ export class StreamingMarkdown implements Component {
     if (!text) return [];
     const markdown = text === this.source ? this.full : this.scratch;
     markdown.setText(text);
-    return boxFences(markdown.render(width).map(line => line.replace(/ +$/, "")), width, this.color);
+    this.codeLines = [];
+    const rendered = markdown.render(width).map(line => line.replace(/ +$/, ""));
+    return boxFences(rendered, this.codeLines, width, this.color);
   }
 }
 
-function boxFences(lines: string[], width: number, color: boolean): string[] {
+/** Replaces each tagged fence with a panel. The panel sits after the container prefix Pi put in
+ * front of the fence (list indent, `│ ` quote border), so the title is the bare info string and
+ * the body is the source code, wrapped once. */
+function boxFences(lines: string[], code: readonly string[], width: number, color: boolean): string[] {
   const out: string[] = [];
-  // Border lines carry FENCE_BORDER_TAG (StreamingMarkdown's theme wrapper); rendered content
-  // never does, so a content line starting with ``` cannot be mistaken for a border.
+  let next = 0;
   let body: string[] = [];
   let title: string | undefined;
-  const flush = () => {
-    if (!body.length && title === undefined) return;
-    out.push(...renderPanel(title || "code", body, Math.min(width, PANEL_MAX_COLUMNS), color, "muted"));
+  let head = "";
+  let margin: string | undefined;
+  const prefix = (raw: string, at: number) => {
+    const text = raw.slice(0, at);
+    // A container style opened before the marker (quote italics) must not tint the border.
+    return color && text.includes("\x1b") ? `${text}\x1b[0m` : text;
+  };
+  const flush = (closing: string) => {
+    const rest = margin ?? closing;
+    const panel = renderPanel(title || "code", body, Math.min(width - visibleWidth(head), PANEL_MAX_COLUMNS), color, "muted");
+    out.push(...panel.map((row, index) => `${index ? rest : head}${row}`));
     body = [];
     title = undefined;
+    margin = undefined;
   };
   for (const line of lines) {
-    const plain = stripVTControlCharacters(line);
-    if (plain.endsWith(FENCE_BORDER_TAG)) {
-      const border = plain.slice(0, -FENCE_BORDER_TAG.length);
+    const border = line.indexOf(FENCE_BORDER_TAG);
+    if (border >= 0) {
       if (title === undefined) {
-        // Opening border; the info string follows the leading fence run.
-        title = border.replace(/^`+/, "").trim();
-        continue;
-      }
-      flush();
+        // Opening border: Pi writes ``` plus the language, whatever the source fence was.
+        title = stripVTControlCharacters(line.slice(border + FENCE_BORDER_TAG.length)).replace(/^`+/, "").trim();
+        head = prefix(line, border);
+      } else flush(prefix(line, border));
       continue;
     }
-    if (title === undefined) { out.push(line); continue; }
-    body.push(line);
+    const tagged = line.indexOf(CODE_LINE_TAG);
+    if (title === undefined) { if (tagged < 0) out.push(line); continue; }
+    // Untagged rows inside a fence are Pi wrap artefacts of a prefix wider than the column.
+    if (tagged < 0) continue;
+    margin ??= prefix(line, tagged);
+    body.push(code[next++] ?? "");
   }
-  flush();
+  if (title !== undefined) flush(margin ?? head);
   return out;
 }
