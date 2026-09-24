@@ -72,6 +72,22 @@ verification:
     }
   });
 
+  test("verification mode and check selection layer like other settings, with a 600-second default timeout", async () => {
+    const { root, homeDir } = await fixture();
+    const defaults = await loadConfiguration({ projectRoot: root, homeDir });
+    expect(defaults.verification).toEqual({ timeoutMs: 600_000 });
+    await mkdir(path.join(homeDir, ".casper"), { recursive: true });
+    await writeFile(path.join(homeDir, ".casper/config.yaml"), "verification:\n  mode: offer\n  checks: [lint]\n");
+    await writeFile(path.join(root, ".casper/project.yaml"), "verification:\n  mode: auto\n  checks: [test, typecheck, test]\n");
+    expect((await loadConfiguration({ projectRoot: root, homeDir })).verification).toEqual({ timeoutMs: 600_000, mode: "auto", checks: ["test", "typecheck"] });
+    await writeFile(path.join(root, ".casper/project.yaml"), "verification:\n  timeoutMs: 5000\n");
+    expect((await loadConfiguration({ projectRoot: root, homeDir })).verification).toEqual({ timeoutMs: 5000, mode: "offer", checks: ["lint"] });
+    for (const invalid of ["verification:\n  mode: always", "verification:\n  mode: true", "verification:\n  checks: test", "verification:\n  checks: [deploy]", "verification:\n  checks: []"]) {
+      await writeFile(path.join(root, ".casper/project.yaml"), invalid);
+      await expect(loadConfiguration({ projectRoot: root, homeDir })).rejects.toThrow(/verification\.(mode|checks)/);
+    }
+  });
+
   test("scope declarations reject ambiguous paths and stay frozen with the check command", async () => {
     const { root, homeDir, context } = await fixture(`verify:
   test: ${JSON.stringify(checkCommand())}

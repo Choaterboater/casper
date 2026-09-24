@@ -8,6 +8,7 @@ import type { ProjectCommand, ProjectModelOverrides } from "../project/model";
 import { CHECK_NAMES } from "../verify/evidence";
 import { SKILL_IMPORTS, type SkillImport } from "../skills/registry";
 import { isVerificationScope, type VerificationScope } from "../verify/scope";
+import { VERIFICATION_MODES, type VerificationMode, type VerificationSettings } from "../verify/mode";
 import { resolveVisualizationSettings, type VisualizationSettings } from "../visualize/router";
 
 export type Autonomy = "low" | "medium" | "high";
@@ -48,7 +49,7 @@ export interface LoadedConfiguration {
   projectRules: string | null;
   projectOverrides: ProjectModelOverrides;
   skills: { maxActive: number; imports: SkillImport[] };
-  verification: { timeoutMs: number };
+  verification: VerificationSettings;
   repair: { maxAttempts: number };
   visualize: VisualizationSettings;
   /** Unknown keys, by file; shown at startup and otherwise ignored. */
@@ -318,6 +319,24 @@ function boundedSetting(document: Mapping, section: string, key: string, fallbac
   return value;
 }
 
+/** verification.mode / verification.checks from one layer; undefined when the layer is silent. */
+function verificationSelection(document: Mapping): { mode?: VerificationMode; checks?: ProjectCommand[] } {
+  const settings = document.verification;
+  if (!isMapping(settings)) return {};
+  const { mode, checks } = settings;
+  if (mode !== undefined && mode !== null && !VERIFICATION_MODES.some((allowed) => allowed === mode)) {
+    throw new Error(`verification.mode must be ${alternatives(VERIFICATION_MODES)}`);
+  }
+  if (checks !== undefined && checks !== null && (!Array.isArray(checks) || !checks.length
+    || !checks.every((name) => CHECK_NAMES.some((check) => check === name)))) {
+    throw new Error(`verification.checks must be a nonempty list of ${alternatives(CHECK_NAMES)}`);
+  }
+  return {
+    mode: mode ?? undefined,
+    checks: checks ? [...new Set(checks as ProjectCommand[])] : undefined,
+  } as { mode?: VerificationMode; checks?: ProjectCommand[] };
+}
+
 function verificationCommands(document: Mapping): Record<string, string> {
   if (document.verify === undefined) return {};
   if (!isMapping(document.verify)) throw new Error("verify must be a mapping of check names to commands");
@@ -405,10 +424,15 @@ export async function loadConfiguration(
     imports = [...new Set<SkillImport>(value)];
   }
   let maxActive = 6;
-  let timeoutMs = 120_000;
+  let timeoutMs = 600_000;
   let maxAttempts = 3;
+  let mode: VerificationMode | undefined;
+  let checks: ProjectCommand[] | undefined;
   for (const document of [globalDocument, profileDocument, projectDocument]) {
     timeoutMs = boundedSetting(document, "verification", "timeoutMs", timeoutMs, 1, 3_600_000);
+    const selection = verificationSelection(document);
+    mode = selection.mode ?? mode;
+    checks = selection.checks ?? checks;
     maxAttempts = boundedSetting(document, "repair", "maxAttempts", maxAttempts, 0, 10);
     const value = isMapping(document.skills) ? document.skills.maxActive : undefined;
     if (value === undefined) continue;
@@ -420,7 +444,7 @@ export async function loadConfiguration(
 
   return {
     skills: { maxActive, imports },
-    verification: { timeoutMs },
+    verification: { timeoutMs, ...(mode ? { mode } : {}), ...(checks ? { checks } : {}) },
     repair: { maxAttempts },
     visualize: resolveVisualizationSettings({
       projectName: path.basename(options.projectRoot),
