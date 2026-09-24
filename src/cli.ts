@@ -5,6 +5,7 @@ import { importLegacyEngineState, useCasperAgentStore } from "./runtime/agent-st
 import { CandidateLibrary, formatLearningResult } from "./learn/candidates";
 import { taskExitCode } from "./task/result";
 
+import { terminalText } from "./tui/format";
 import { HELP_TEXT } from "./tui/help";
 import { CASPER_VERSION } from "./version";
 import licenseNotices from "../THIRD_PARTY_NOTICES.txt" with { type: "text" };
@@ -45,6 +46,13 @@ export function resolveAutoVerify(options: { verify: boolean; noVerify: boolean;
   if (options.verify) return true;
   if (options.noVerify) return false;
   return options.interactive;
+}
+
+/** The last-resort error sink. Messages can quote untrusted repository text (a YAML excerpt,
+ * a config key), so controls are escaped like every other terminal path. */
+export function reportFatal(error: unknown): void {
+  console.error(terminalText(error instanceof Error ? error.message : String(error)));
+  process.exitCode = 1;
 }
 
 export async function runCli(): Promise<void> {
@@ -142,8 +150,5 @@ export async function runCli(): Promise<void> {
 }
 
 if (import.meta.main) {
-  runCli().catch((error) => {
-    console.error(error instanceof Error ? error.message : String(error));
-    process.exitCode = 1;
-  });
+  runCli().catch(reportFatal);
 }
