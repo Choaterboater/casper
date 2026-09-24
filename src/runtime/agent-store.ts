@@ -21,7 +21,10 @@ export function casperAgentDir(): string {
  * Call once at CLI entry, before the engine resolves paths. */
 export function useCasperAgentStore(): boolean {
   const env = process.env as Record<string, string | undefined>;
-  if (env[AGENT_DIR_ENV]) return false;
+  // Bun stores `env.X = undefined` as the string "undefined"; it names no real directory
+  // and would otherwise put the store in `<cwd>/undefined/`.
+  const preset = env[AGENT_DIR_ENV];
+  if (preset && preset !== "undefined") return false;
   env[AGENT_DIR_ENV] = casperAgentDir();
   return true;
 }
