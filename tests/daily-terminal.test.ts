@@ -48,7 +48,7 @@ test("live work status appears in a box before response text and clears when it 
   let events!: RuntimeEventView;
   const output = { write: (text: string) => { events.beforeWrite(text); terminal.write(text); } };
   events = new RuntimeEventView(terminal, output, {
-    updateFooter() {}, onToolEnd() {}, setTaskStop() {}, markRuntimeFailed() {}, cancelled: () => false,
+    updateFooter() {}, onToolEnd() {}, setTaskStop() {}, markRuntimeFailed() {}, turnLimitReached() {}, cancelled: () => false,
   });
   try {
     terminal.setStatus("fixture"); terminal.start();
@@ -79,7 +79,7 @@ test("a provider failure ends the response with its cause instead of a bare fail
   /** Rich output hard-wraps at the terminal width; compare against the flattened transcript. */
   const flat = () => Bun.stripANSI(screen.output).replace(/\s+/g, " ");
   events = new RuntimeEventView(terminal, output, {
-    updateFooter() {}, onToolEnd() {}, setTaskStop(cancelled, failed) { stops.push([cancelled, failed]); }, markRuntimeFailed() {}, cancelled: () => false,
+    updateFooter() {}, onToolEnd() {}, setTaskStop(cancelled, failed) { stops.push([cancelled, failed]); }, markRuntimeFailed() {}, turnLimitReached() {}, cancelled: () => false,
   });
   try {
     terminal.setStatus("fixture"); terminal.start();

@@ -213,7 +213,7 @@ class PiRuntimeSession implements RuntimeSession {
     return this.models.status(this.runtime.session);
   }
 
-  async prompt(text: string, signal?: AbortSignal, options?: { request: string }): Promise<void> {
+  async prompt(text: string, signal?: AbortSignal, options?: { request: string; maxTurns?: number }): Promise<void> {
     if (this.promptActive) throw new Error("A prompt is already active.");
     this.promptActive = true;
     const controller = this.promptController = new AbortController();
@@ -226,6 +226,17 @@ class PiRuntimeSession implements RuntimeSession {
     const cancel = () => { void session.abort().catch(() => {}); };
     const agent = session.agent;
     const stream = agent.streamFunction;
+    // A read-only child already owns its budget; a main-session limit applies to this prompt only.
+    const previousStop = agent.shouldStopAfterTurn;
+    const maxTurns = this.readOnly ? undefined : options?.maxTurns;
+    let turns = 0;
+    let limited = false;
+    if (maxTurns !== undefined) agent.shouldStopAfterTurn = async (context, stopSignal) => {
+      if (await previousStop?.(context, stopSignal)) return true;
+      turns++;
+      limited = turns >= maxTurns && context.message.content.some((part) => part.type === "toolCall");
+      return limited;
+    };
     // Pi can resolve auth before its agent has an AbortController. Keep the
     // preparation signal linked at the last seam before provider execution.
     agent.streamFunction = (model, context, streamOptions) => {
@@ -246,6 +257,7 @@ class PiRuntimeSession implements RuntimeSession {
       promptSignal.throwIfAborted();
       const limitReason = this.readOnly?.limitReason();
       if (limitReason) this.emit({ type: "assistant_response_end", stopReason: "limit", errorMessage: limitReason });
+      if (limited) this.emit({ type: "turn_limit", turns });
     } catch (error) {
       this.emit({
         type: "error",
@@ -254,6 +266,7 @@ class PiRuntimeSession implements RuntimeSession {
       throw error;
     } finally {
       agent.streamFunction = stream;
+      if (maxTurns !== undefined) agent.shouldStopAfterTurn = previousStop;
       promptSignal.removeEventListener("abort", cancel);
       this.promptController = undefined;
       this.promptActive = false;

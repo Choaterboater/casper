@@ -88,3 +88,12 @@ test("the default receipt never uses internal terms and escapes terminal control
   expect(text).not.toMatch(/scope|reuse|freshness|fingerprint|undeclared|certified|\u001b/);
   expect(text.split("\n")).toHaveLength(3);
 });
+
+test("a request stopped by --max-turns says so and how to go on, per surface", () => {
+  const task = done({ changedPaths: ["a.ts"], turnLimit: 3, verificationMode: "auto" });
+  expect(formatReceipt(task, { surface: "one-shot" })).toBe([
+    "✗ Stopped after 3 turns (--max-turns) — changes so far are kept; casper --continue to go on",
+    "✓ Changed 1 file: a.ts",
+  ].join("\n"));
+  expect(formatReceipt({ ...task, turnLimit: 1 })).toStartWith("✗ Stopped after 1 turn (--max-turns) — changes so far are kept; send another request to go on");
+});

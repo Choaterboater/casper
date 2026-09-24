@@ -33,6 +33,8 @@ export interface TaskResult {
   verificationMode?: VerificationMode;
   /** Why auto mode ran no check after the model turn. */
   autoSkipped?: AutoCheckSkip;
+  /** `--max-turns` stopped the model after this many turns, before it finished. */
+  turnLimit?: number;
 }
 
 /** What a run proved, in the words scripts match on. */
@@ -42,6 +44,8 @@ export type TaskOutcome = "verified" | "failed" | "incomplete" | "not_verified" 
 export function taskOutcome(report?: VerificationReport, task?: TaskResult): TaskOutcome {
   if (task?.execution === "cancelled") return "cancelled";
   if (task?.execution === "failed") return "failed";
+  // Cut short by --max-turns: whatever was checked covers unfinished work.
+  if (task?.turnLimit !== undefined) return "incomplete";
   const verification = task?.verification ?? report;
   const status = verification?.status;
   if (status === "fail" || status === "blocked" || task?.browser?.status === "fail") return "failed";
@@ -119,6 +123,8 @@ export function formatReceipt(task: TaskResult, options: ReceiptOptions = {}): s
   const lines: string[] = [];
   if (task.execution !== "completed") {
     lines.push(`✗ Stopped: ${task.execution === "cancelled" ? "cancelled" : "the model run failed"} — changes already made are kept`);
+  } else if (task.turnLimit !== undefined) {
+    lines.push(`✗ Stopped after ${task.turnLimit} ${task.turnLimit === 1 ? "turn" : "turns"} (--max-turns) — changes so far are kept; ${options.surface === "one-shot" ? "casper --continue" : "send another request"} to go on`);
   }
 
   if (task.changedPaths?.length) lines.push(`✓ Changed ${pathList(task.changedPaths, safe)}`);

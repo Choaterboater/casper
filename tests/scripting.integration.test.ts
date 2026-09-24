@@ -160,3 +160,15 @@ test("--continue picks up the latest conversation and --resume the one whose ID 
   }
   expect(f.payloads.length).toBe(requests);
 }, 90_000);
+
+test("--max-turns stops a model that keeps working, runs no checks and exits 2", async () => {
+  const f = await fixture((request) => ({ tools: [{ name: "write", args: { path: `turn-${request}.txt`, content: "x\n" } }] }));
+  await mkdir(path.join(f.project, ".casper"));
+  await writeFile(path.join(f.project, ".casper/project.yaml"), "verify:\n  test: \"true\"\n");
+  const result = await f.run(["--max-turns", "2", "--verify", "keep writing files"]);
+  expect({ exit: result.exit, stderr: result.stderr }).toEqual({ exit: 2, stderr: "" });
+  expect(f.payloads).toHaveLength(2);
+  expect(result.stdout).toContain("✗ Stopped after 2 turns (--max-turns) — changes so far are kept; casper --continue to go on");
+  expect(result.stdout).toContain("✓ Changed 2 files: turn-0.txt, turn-1.txt");
+  expect(result.stdout).not.toContain("Casper checking");
+}, 30_000);

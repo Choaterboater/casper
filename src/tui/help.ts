@@ -61,6 +61,7 @@ Usage:
   casper --model <provider/model-id[:effort]> ...
                        Use this model for this run only; the saved default is unchanged
   casper --effort <level|auto> ...  Reasoning effort for this run only; not remembered
+  casper --max-turns <n> ...  Stop each request after n model turns; the run is incomplete (exit 2)
   casper --verify ...  Casper runs the checks after this run's edits, with bounded repair (auto)
   casper --no-verify   No Casper checks during tasks for this run (off)
   casper --verbose ... Detailed evidence receipts and per-check lines

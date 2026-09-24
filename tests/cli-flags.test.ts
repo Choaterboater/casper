@@ -255,3 +255,8 @@ test("--continue and --resume parse for prompts and interactive sessions alike",
   expect(parseCliArgs(["--resume=01a0d1", "go", "on"])).toMatchObject({ resume: "01a0d1", command: "prompt" });
   expect(() => parseCliArgs(["--resume"])).toThrow("--resume needs the start of a conversation ID");
 });
+
+test("--max-turns takes a whole number of turns", () => {
+  expect(parseCliArgs(["--max-turns", "5", "hi"]).maxTurns).toBe(5);
+  for (const value of ["0", "-1", "2.5", "many", "10000"]) expect(() => parseCliArgs(["--max-turns", value, "hi"])).toThrow("--max-turns needs a whole number");
+});
