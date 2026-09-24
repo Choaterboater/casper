@@ -34,8 +34,9 @@ async function fixture(respond: (payload: Payload) => Response, hostile = false)
   await mkdir(agent, { recursive: true }); await mkdir(project);
   await writeFile(path.join(project, "fixture.txt"), "LOCAL_EVIDENCE_8\n");
   const payloads: Payload[] = [];
+  const headers: Headers[] = [];
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: async (request) => {
-    const payload: Payload = await request.json(); payloads.push(payload); return respond(payload);
+    const payload: Payload = await request.json(); payloads.push(payload); headers.push(request.headers); return respond(payload);
   } });
   cleanup.push(async () => { server.stop(true); });
   await writeFile(path.join(agent, "models.json"), JSON.stringify({ providers: { fixture: {
@@ -68,7 +69,7 @@ export default function(pi) {
       return { stdout, stderr, exit };
     } finally { clearTimeout(timer); }
   }
-  return { project, agent, payloads, run };
+  return { project, agent, payloads, headers, run };
 }
 async function snapshot(root: string): Promise<Record<string, string>> {
   const result: Record<string, string> = {};
@@ -82,6 +83,33 @@ async function snapshot(root: string): Promise<Record<string, string>> {
 }
 const cli = path.join(import.meta.dir, "../src/cli.ts");
 const adapter = path.join(import.meta.dir, "fixtures/pi-readonly.ts");
+
+test("OpenRouter traffic carries Casper's app attribution while other providers stay unattributed", async () => {
+  const f = await fixture(() => answer("ATTRIBUTION_FIXTURE"));
+  const unattributed = await f.run([cli, "Answer without tools"]);
+  expect({ exit: unattributed.exit, stderr: unattributed.stderr }).toEqual({ exit: 0, stderr: "" });
+  expect(unattributed.stdout).toContain("[model] fixture/fixture");
+  expect(f.headers).toHaveLength(1);
+  expect([f.headers[0]!.get("http-referer"), f.headers[0]!.get("x-openrouter-title")]).toEqual([null, null]);
+
+  // The same local endpoint under OpenRouter's provider id; the id is what the runtime classifies by.
+  const models = path.join(f.agent, "models.json");
+  const configured = JSON.parse(await readFile(models, "utf8"));
+  configured.providers.openrouter = configured.providers.fixture;
+  delete configured.providers.fixture;
+  await writeFile(models, JSON.stringify(configured));
+  const routing = { defaultProvider: "openrouter", defaultModel: "fixture" };
+  await writeFile(path.join(f.agent, "settings.json"), JSON.stringify({ ...routing, retry: { enabled: false } }));
+  await writeFile(path.join(path.dirname(path.dirname(f.agent)), ".casper/settings.json"), JSON.stringify(routing));
+
+  const attributed = await f.run([cli, "Answer without tools"]);
+  expect({ exit: attributed.exit, stderr: attributed.stderr }).toEqual({ exit: 0, stderr: "" });
+  expect(attributed.stdout).toContain("[model] openrouter/fixture");
+  expect(f.headers).toHaveLength(2);
+  const sent = f.headers[1]!;
+  expect([sent.get("http-referer"), sent.get("x-openrouter-title"), sent.get("x-openrouter-categories"), sent.get("x-openrouter-app-visibility")])
+    .toEqual(["https://github.com/Choaterboater/casper", "Casper", "cli-agent", "hidden"]);
+}, 20_000);
 
 test("real /delegate reads evidence but cannot write, shell, recurse, or load ambient extensions/settings", async () => {
   let step = 0;

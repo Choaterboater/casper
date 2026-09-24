@@ -40,9 +40,10 @@ test("API-key login verifies with the provider, keeps secrets off screen, and pr
       import { PiRuntime } from ${JSON.stringify(path.join(repo, "src/runtime/pi.ts"))};
       import { PassThrough } from 'node:stream';
       const calls = [];
-      globalThis.fetch = async (input) => {
+      const headers = [];
+      globalThis.fetch = async (input, init) => {
         const url = String(input);
-        if (url === ${JSON.stringify(verificationUrl)}) { calls.push(url); return Response.json({}, { status: 200 }); }
+        if (url === ${JSON.stringify(verificationUrl)}) { calls.push(url); headers.push(init?.headers ?? {}); return Response.json({}, { status: 200 }); }
         throw new Error('NETWORK_FORBIDDEN');
       };
       const runtime = new PiRuntime(); const input = new PassThrough(); let screen = '';
@@ -53,12 +54,20 @@ test("API-key login verifies with the provider, keeps secrets off screen, and pr
           if (text.includes('Press Y')) setImmediate(() => input.write('Y'));
           if (text.includes('Private API key')) setImmediate(() => { input.write('\\x1b[200~synthetic-private-key\\x1b[201~'); setTimeout(() => input.write('\\r'), 20); });
         } } }, operation) } });
-        console.log(JSON.stringify({ result, screen, calls }));
+        console.log(JSON.stringify({ result, screen, calls, headers }));
       } finally { await runtime.dispose(); input.destroy(); }
     `);
     const result = JSON.parse(output);
     expect(result.result).toEqual({ status: "saved" });
     expect(result.calls).toEqual([verificationUrl]);
+    // OpenRouter verification carries Casper's app identity; other providers get none of it.
+    const sent = result.headers[0] as Record<string, string>;
+    if (provider === "openrouter") {
+      expect([sent["HTTP-Referer"], sent["X-OpenRouter-Title"], sent["X-OpenRouter-Categories"], sent["X-OpenRouter-App-Visibility"], sent.authorization])
+        .toEqual(["https://github.com/Choaterboater/casper", "Casper", "cli-agent", "hidden", "Bearer synthetic-private-key"]);
+    } else {
+      expect(Object.keys(sent).map((name) => name.toLowerCase())).not.toContain("http-referer");
+    }
     expect(result.screen).not.toContain("synthetic-private-key");
     if (provider === "openrouter") {
       expect(result.screen).toContain("Choose sign-in method");

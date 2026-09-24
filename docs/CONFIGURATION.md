@@ -44,6 +44,18 @@ originals stay untouched); a `PI_CODING_AGENT_DIR` set in the environment
 always overrides Casper's store. Login writes only the consented provider's
 credential into that store.
 
+Requests Casper itself sends to OpenRouter — model traffic and API-key
+verification — carry app-attribution headers (`HTTP-Referer`,
+`X-OpenRouter-Title: Casper`, `X-OpenRouter-Categories: cli-agent`, and
+`X-OpenRouter-App-Visibility: hidden`), so the usage is filed under Casper's own
+OpenRouter app and analytics instead of under the runtime Casper is built on.
+`hidden` keeps an early-preview app out of the public rankings, marketplace, and app
+pages; it does not disable attribution. OpenRouter honors that header only when the
+request creates a brand-new app. This is static app identity only: it adds no prompt,
+file, workspace, user, or credential data to a request, and no other provider
+receives it. `PI_TELEMETRY` governs the runtime's own attribution; Casper's identity
+headers are sent regardless.
+
 ## Model roles and automatic effort
 
 The normal path remains `/model` → describe the task. Roles are optional shortcuts,
