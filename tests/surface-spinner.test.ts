@@ -19,7 +19,7 @@ function makeSurface() {
   return { surface, chunks };
 }
 
-test("the footer spinner animates while activity is present and rests when idle", async () => {
+test("the footer spinner animates while activity is present", async () => {
   vi.useFakeTimers();
   try {
     const { surface, chunks } = makeSurface();
@@ -31,18 +31,31 @@ test("the footer spinner animates while activity is present and rests when idle"
     await Promise.resolve();
     const moving = SPINNER.filter(frame => chunks.some(text => text.includes(` ${frame} `)));
     expect(moving.length).toBeGreaterThan(1);
+    // Elapsed time rides the same footer. Bun's fake timers freeze Date, so the segment renders
+    // as "· 0s" here; the assertion proves the wiring, not clock arithmetic.
+    expect(chunks.some(text => /· \d+(s|m\ds)/.test(text))).toBe(true);
     const panelFrames = chunks
       .filter(text => text.includes("Working"))
       .map(text => SPINNER.find(frame => text.includes(`${frame} Working`)))
       .filter(frame => frame !== undefined);
     expect(new Set(panelFrames).size).toBeGreaterThan(1);
+    surface.close();
+  } finally { vi.useRealTimers(); }
+});
+
+test("the footer returns to the static ○ after activity clears", async () => {
+  // Bun's fake timers do not flush the renderer's nextTick/setTimeout chain reliably, so the
+  // idle transition is exercised against the platform clock; 300ms is bounded and rare.
+  const { surface, chunks } = makeSurface();
+  try {
+    surface.start();
+    surface.setActivity("• bash · find — running");
+    await new Promise(resolve => setTimeout(resolve, 200));
+    chunks.length = 0;
     surface.setActivity(undefined);
-    vi.advanceTimersByTime(600);
-    await Promise.resolve();
-    await Promise.resolve();
+    await new Promise(resolve => setTimeout(resolve, 300));
     const idle = chunks.filter(text => text.includes("○"));
     expect(idle.length).toBeGreaterThan(0);
     expect(SPINNER.some(frame => idle.at(-1)!.includes(frame))).toBe(false);
-    surface.close();
-  } finally { vi.useRealTimers(); }
+  } finally { surface.close(); }
 });
