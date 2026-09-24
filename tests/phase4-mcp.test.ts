@@ -321,10 +321,35 @@ test("dead servers do not poison healthy ones; reconnect is bounded and does not
   expect(JSON.stringify(await broker.invoke("mcp:good:status", {}))).toContain('"identity":"good"');
   await expect(broker.invoke("mcp:good:crash_read", {})).rejects.toThrow("not retried");
   await mcp.prepare();
-  expect(mcp.status().find((status) => status.name === "good")?.error).toContain("retry limit");
+  // Only failed opens spend the burst budget: good reconnects again, the stalled server is capped.
+  expect(mcp.status().find((status) => status.name === "good")?.state).toBe("ready");
+  expect(mcp.status().find((status) => status.name === "bad")?.error).toContain("retry limit");
   await mcp.disconnect("good");
   await mcp.prepare();
   expect(mcp.status().find((status) => status.name === "good")?.state).toBe("disconnected");
+});
+
+test("cancelled calls and successful reconnects spend no retry budget, and an explicit connect resets it", async () => {
+  const mcp = manager([definition(), definition("stall", "stall")], 300);
+  await mcp.connect("generic");
+  const broker = new CapabilityBroker(mcp);
+  const status = (name: string) => mcp.status().find((entry) => entry.name === name);
+  for (let round = 0; round < 3; round++) {
+    const abort = new AbortController();
+    const work = broker.invoke("mcp:generic:slow_read", {}, abort.signal);
+    setTimeout(() => abort.abort(), 25);
+    await expect(work).rejects.toThrow("cancelled");
+    await mcp.prepare();
+    expect(status("generic")).toMatchObject({ state: "ready", error: undefined });
+  }
+  // Two failed opens exhaust the automatic budget; the user's explicit connect still tries again.
+  await mcp.connect("stall").catch(() => {});
+  await mcp.prepare();
+  await mcp.prepare();
+  expect(status("stall")?.error).toContain("retry limit");
+  await mcp.connect("stall").catch(() => {});
+  expect(status("stall")?.error).not.toContain("retry limit");
+  expect(status("stall")?.state).toBe("failed");
 });
 
 test("timeouts, caller cancellation, and close during handshake settle without late resurrection", async () => {
