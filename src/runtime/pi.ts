@@ -339,14 +339,22 @@ class PiRuntimeSession implements RuntimeSession {
   }
 }
 
-/** The workspace's own context file (AGENTS.md, CLAUDE.md) is repository-controlled: a committed
- * symlink must not send `~/.aws/credentials` to the provider. It loads only when its realpath
- * stays under the workspace. Ancestor and engine-store files are the user's own. */
-export function containedContextFile(file: string, cwd: string): boolean {
-  if (path.dirname(path.resolve(file)) !== path.resolve(cwd)) return true;
-  try {
-    const inside = path.relative(realpathSync(cwd), realpathSync(file));
+/** Context files (AGENTS.md, CLAUDE.md) may be repository-controlled: a committed symlink must
+ * not send `~/.aws/credentials` to the provider. The workspace's own file loads only when its
+ * realpath stays under the workspace. Ancestor files (a parent of a nested checkout can be just as
+ * hostile) load only when they resolve inside their own directory or to another context file, so a
+ * dotfiles link still works. The engine store's own file is the user's. */
+export function containedContextFile(file: string, cwd: string, agentDir?: string): boolean {
+  const resolved = path.resolve(file);
+  const within = (root: string, target: string) => {
+    const inside = path.relative(root, target);
     return Boolean(inside) && inside !== ".." && !inside.startsWith(`..${path.sep}`) && !path.isAbsolute(inside);
+  };
+  try {
+    if (agentDir && path.dirname(resolved) === path.resolve(agentDir)) return true;
+    const real = realpathSync(resolved);
+    if (path.dirname(resolved) === path.resolve(cwd)) return within(realpathSync(cwd), real);
+    return within(realpathSync(path.dirname(resolved)), real) || /^(agents|claude)\.md$/i.test(path.basename(real));
   } catch { return false; }
 }
 
@@ -528,7 +536,7 @@ export class PiRuntime implements AgentRuntime {
               systemPrompt: options.systemPromptAppend ?? "Read-only Casper subagent.",
               appendSystemPrompt: [],
             } : {}),
-            agentsFilesOverride: ({ agentsFiles }) => ({ agentsFiles: agentsFiles.filter((file) => containedContextFile(file.path, cwd)) }),
+            agentsFilesOverride: ({ agentsFiles }) => ({ agentsFiles: agentsFiles.filter((file) => containedContextFile(file.path, cwd, agentDir)) }),
             // Casper owns discovery, trust checks, and per-task skill selection.
             noSkills: true,
             skillsOverride: () => ({ skills: [], diagnostics: [] }),
