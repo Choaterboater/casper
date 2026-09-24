@@ -101,8 +101,13 @@ popups/pickers, or a duplicated prompt box (`bun test tests/terminal-layout.test
 
 ### Model and effort
 
-- `/model`: Pi's searchable model picker. **Enter remembers globally** in Casper's
-  settings; **Ctrl+S selects for this session only**. Escape/Ctrl+C cancel.
+- `/model`: Casper's full-screen model browser — a provider sidebar (Tab focuses it;
+  Up/Down switch login groups like github-copilot/openrouter), search-backed model rows
+  with context, price and capability columns, and a selected-model summary footer.
+  **Enter remembers globally** in Casper's settings; **Ctrl+S selects for this session
+  only**. Escape/Ctrl+C cancel.
+- A fresh interactive session clears the viewport at startup: the new session renders from
+  the top of the screen and the previous run's transcript stays in scrollback.
 - `/model provider/id`: exact selection, remembered globally.
 - `/model --session [provider/id]`: explicitly temporary selection/picker.
 - `/effort`: automatic or supported fixed-effort picker in an interactive terminal, otherwise a list.

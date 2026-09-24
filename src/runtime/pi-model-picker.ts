@@ -1,7 +1,8 @@
-import { initTheme, ModelSelectorComponent, type AgentSession, type ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { getKeybindings, KeybindingsManager, setKeybindings, TUI_KEYBINDINGS, truncateToWidth } from "@earendil-works/pi-tui";
+import type { AgentSession, ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { getKeybindings, KeybindingsManager, setKeybindings, TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
 import { terminalText } from "../tui/format";
 import type { RuntimePickerView } from "./types";
+import { ModelBrowser } from "./pi-model-browser";
 
 type Pick = { provider: string; id: string; persist: boolean };
 
@@ -18,7 +19,7 @@ export async function pickPiModel(view: RuntimePickerView, catalog: ModelRuntime
     if (data === "\x03") { finish(); return { consume: true }; } // Ctrl+C cancels like Esc.
     return undefined;
   });
-  let picker: ModelSelectorComponent | undefined;
+  let picker: ModelBrowser | undefined;
   const cancel = () => finish();
   const { promise, resolve } = Promise.withResolvers<Pick | undefined>();
   const finish = (pick?: Pick) => {
@@ -28,8 +29,8 @@ export async function pickPiModel(view: RuntimePickerView, catalog: ModelRuntime
     removeListener(); // Detach now, not after more keys in the same chunk.
     resolve(pick);
   };
-  // Preserve the actual Pi picker. Its refresh is explicitly local-only here,
-  // and catalog text is sanitized before Pi adds its own renderer controls.
+  // The catalog is sanitized before the browser renders it: provider/id/name values must be
+  // control-character safe, and refresh stays explicitly local-only in this slot.
   const catalogView = new Proxy(catalog, {
     get(target, key) {
       if (key === "getError") return () => {
@@ -53,19 +54,19 @@ export async function pickPiModel(view: RuntimePickerView, catalog: ModelRuntime
     },
   });
   try {
-    initTheme("dark", false);
-    picker = new ModelSelectorComponent(view.tui, current, catalogView, [],
-      (model) => finish({ provider: model.provider, id: model.id, persist: true }), cancel, query === undefined ? undefined : terminalText(query).replace(/[\r\n\t]/g, " "),
-      (model) => finish({ provider: model.provider, id: model.id, persist: false }), defaultModel);
-    const selector = picker;
-    // Pi 0.85.1 renders no "Enter to select" footer (hints are keybinding/scope driven), so a
-    // string match on its wording silently matched nothing and hid Casper's Ctrl+S documentation.
-    // Appending our own line is wording-independent; the surface composites taller slots fine.
-    const hint = sessionOnly
-      ? "Enter: session only · Esc/Ctrl+C: cancel · /effort after selecting"
-      : "Enter: remember globally · Ctrl+S: session only · Esc/Ctrl+C: cancel · /effort after selecting";
-    view.show({ render: width => [...selector.render(width), truncateToWidth(hint, width)],
-      invalidate: () => selector.invalidate() });
+    picker = new ModelBrowser({
+      tui: view.tui,
+      catalog: catalogView,
+      color: view.color,
+      current: current ? { provider: current.provider, id: current.id } : undefined,
+      defaultModel,
+      initialQuery: query === undefined ? undefined : terminalText(query).replace(/[\r\n\t]/g, " "),
+      sessionOnly,
+      onSelect: model => finish({ provider: model.provider, id: model.id, persist: true }),
+      onSelectAsDefault: model => finish({ provider: model.provider, id: model.id, persist: false }),
+      onCancel: cancel,
+    });
+    view.show(picker);
     view.tui.setFocus(picker);
     signal?.addEventListener("abort", cancel, { once: true });
     if (signal?.aborted) finish();

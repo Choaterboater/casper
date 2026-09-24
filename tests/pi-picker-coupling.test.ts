@@ -1,73 +1,201 @@
 import { expect, test } from "bun:test";
-import { initTheme, ModelSelectorComponent } from "@earendil-works/pi-coding-agent";
-import { getKeybindings, KeybindingsManager, setKeybindings, TUI_KEYBINDINGS, truncateToWidth } from "@earendil-works/pi-tui";
+import type { Api, Model } from "@earendil-works/pi-ai";
+import { getKeybindings, KeybindingsManager, setKeybindings, TUI_KEYBINDINGS, type TUI } from "@earendil-works/pi-tui";
+import { ModelBrowser, type ModelBrowserCatalog } from "../src/runtime/pi-model-browser";
 
-/** These tests pin the exact Pi internals `src/runtime/pi-model-picker.ts` leans on, so a
- * dependency bump that changes them fails loudly here instead of silently degrading the
- * interactive model picker (PRE_RELEASE_REVIEW P3). Verified against 0.85.1. */
+/** These tests pin the contract `src/runtime/pi-model-picker.ts` leans on: Casper's ModelBrowser
+ * rows/footer/keys, the `app.models.save` session-only keybinding registration, and the
+ * ModelsRefreshResult shape the adapter sanitizes. A dependency bump that breaks any of these
+ * fails loudly here instead of silently degrading the interactive model picker. */
 
-interface SnapshotModel { provider: string; id: string; name: string }
+function fakeModel(provider: string, id: string, overrides: Partial<Model<Api>> = {}): Model<Api> {
+  return {
+    id, name: id, api: "openai-completions", provider, baseUrl: "http://127.0.0.1:9/v1",
+    reasoning: false, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 128_000, maxTokens: 4_000, ...overrides,
+  } as Model<Api>;
+}
 
-function fakeCatalog(models: SnapshotModel[]) {
+function fakeCatalog(models: Model<Api>[], refresh?: () => Promise<{ aborted: boolean; errors: ReadonlyMap<string, Error> }>): ModelBrowserCatalog {
   return {
     getAvailableSnapshot: () => models,
     getError: () => undefined,
-    getModel: (provider: string, id: string) => models.find(model => model.provider === provider && model.id === id),
-    refresh: async () => ({ errors: new Map() }),
+    refresh: refresh ?? (async () => ({ aborted: false, errors: new Map() })),
   };
 }
 
-function fakeTui() {
-  return { requestRender: () => {} };
+function fakeTui(): TUI {
+  return { requestRender() {}, terminal: { rows: 24, columns: 120 } } as unknown as TUI;
 }
 
 const stripAnsi = (line: string) => line.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, "");
+const rendered = (picker: ModelBrowser, width = 120) => picker.render(width).map(line => line.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, "")).join("\n");
 
-/** The adapter's slot render, mirrored from pickPiModel: the selector's lines plus Casper's hint. */
-function withCasperHint(lines: string[], sessionOnly: boolean): string[] {
-  const hint = sessionOnly
-    ? "Enter: session only · Esc/Ctrl+C: cancel · /effort after selecting"
-    : "Enter: remember globally · Ctrl+S: session only · Esc/Ctrl+C: cancel · /effort after selecting";
-  return [...lines, truncateToWidth(hint, 100)];
+/** Controllable refresh result; resolving it deterministically completes the browser's refresh path. */
+function pendingRefresh() {
+  const { promise, resolve } = Promise.withResolvers<{ aborted: boolean; errors: ReadonlyMap<string, Error> }>();
+  return { promise, settle: resolve };
 }
 
-test("the pinned ModelSelectorComponent lists models; the slot appends Casper's hint", () => {
-  initTheme("dark", false);
-  const picker = new ModelSelectorComponent(fakeTui() as never, undefined, fakeCatalog([
-    { provider: "fixture", id: "fixture-model", name: "Fixture Model" },
-  ]) as never, [], () => {}, () => {}, undefined, undefined, undefined);
+test("the browser lists provider-prefixed rows with metadata and Casper's footer hint", () => {
+  const models = [
+    fakeModel("fixture", "first", { reasoning: true, input: ["text", "image"], cost: { input: 3, output: 15, cacheRead: 0, cacheWrite: 0 }, contextWindow: 131_072 }),
+    fakeModel("other", "second"),
+  ];
+  const picker = new ModelBrowser({
+    tui: fakeTui(), catalog: fakeCatalog(models), color: false, sessionOnly: false,
+    onSelect: () => {}, onCancel: () => {},
+  });
   try {
-    const lines = picker.render(100);
-    // The selector itself renders no "Enter to select" footer in 0.85.1; the adapter must not
-    // depend on Pi's footer wording (that match was silently dead before this pin).
-    expect(lines.some(line => line.includes("Enter to select"))).toBe(false);
-    expect(lines.some(line => stripAnsi(line).includes("fixture-model"))).toBe(true);
-    const rendered = withCasperHint(lines, false);
-    expect(rendered.at(-1)).toContain("Ctrl+S: session only");
+    const text = rendered(picker);
+    expect(text).toContain("All models (2)");
+    expect(text).toContain("fixture/first");
+    expect(text).toContain("131k ctx");
+    expect(text).toContain("$3/15");
+    expect(text).toContain("reasoning · vision");
+    expect(text).toContain("other/second");
+    expect(text).toContain("free");
+    expect(text).toContain("first · fixture/first · 131k ctx · 4k out · $3/15 per M · reasoning · vision");
+    expect(text).toContain("Enter: remember globally · Ctrl+S: session only · Esc/Ctrl+C: cancel · /effort after selecting");
   } finally { picker.dispose(); }
 });
 
 test("Enter selects the single search match with the model's provider and id", () => {
-  initTheme("dark", false);
   const models = [
-    { provider: "fixture", id: "fixture-model", name: "Fixture Model" },
-    { provider: "other", id: "other-model", name: "Other Model" },
+    fakeModel("fixture", "fixture-model"),
+    fakeModel("other", "other-model"),
   ];
   let selected: { provider: string; id: string } | undefined;
-  const picker = new ModelSelectorComponent(fakeTui() as never, undefined, fakeCatalog(models) as never, [],
-    model => { selected = { provider: model.provider, id: model.id }; }, () => {}, "fixture-model", undefined, undefined);
+  const picker = new ModelBrowser({
+    tui: fakeTui(), catalog: fakeCatalog(models), color: false, sessionOnly: false,
+    initialQuery: "fixture-model",
+    onSelect: model => { selected = { provider: model.provider, id: model.id }; },
+    onCancel: () => {},
+  });
   try {
     picker.handleInput("\r");
     expect(selected).toEqual({ provider: "fixture", id: "fixture-model" });
   } finally { picker.dispose(); }
 });
 
-test("the app.models.save session-only keybinding registers and restores", () => {
+test("Esc cancels and Ctrl+S selects session-only through app.models.save", () => {
   const previous = getKeybindings();
   setKeybindings(new KeybindingsManager({ ...TUI_KEYBINDINGS,
     "app.models.save": { defaultKeys: "ctrl+s", description: "Select for this session only" },
   }));
   try {
     expect(getKeybindings()).not.toBe(previous);
+    const models = [fakeModel("fixture", "first")];
+    let cancelled = 0;
+    let sessionPick: { provider: string; id: string } | undefined;
+    const picker = new ModelBrowser({
+      tui: fakeTui(), catalog: fakeCatalog(models), color: false, sessionOnly: true,
+      onSelect: () => {}, onSelectAsDefault: model => { sessionPick = { provider: model.provider, id: model.id }; },
+      onCancel: () => { cancelled += 1; },
+    });
+    try {
+      picker.handleInput("\x13"); // Ctrl+S
+      expect(sessionPick).toEqual({ provider: "fixture", id: "first" });
+      picker.handleInput("\x1b"); // Esc
+      expect(cancelled).toBe(1);
+    } finally { picker.dispose(); }
   } finally { setKeybindings(previous); }
+});
+
+test("the default query boosts the configured default ahead of fuzzy matches", () => {
+  const models = [fakeModel("alpha", "a-model"), fakeModel("beta", "b-model")];
+  const picker = new ModelBrowser({
+    tui: fakeTui(), catalog: fakeCatalog(models), color: false, sessionOnly: false,
+    defaultModel: { provider: "beta", id: "b-model" },
+    initialQuery: "def", onSelect: () => {}, onCancel: () => {},
+  });
+  try {
+    const text = rendered(picker);
+    // "def" resolves the default selector: beta matches via the "default" alias, alpha does not,
+    // and the boost is what surfaces beta as the (only) match.
+    expect(text).toContain("beta/b-model");
+    expect(text).toContain("· default");
+    expect(text).not.toContain("alpha/a-model");
+  } finally { picker.dispose(); }
+});
+
+test("refresh failures and success surface in the header while cached rows stay listed", async () => {
+  const failingRefresh = pendingRefresh();
+  const failing = new ModelBrowser({
+    tui: fakeTui(), catalog: fakeCatalog([fakeModel("fixture", "first")], () => failingRefresh.promise),
+    color: false, sessionOnly: false, onSelect: () => {}, onCancel: () => {},
+  });
+  try {
+    failingRefresh.settle({ aborted: false, errors: new Map([["fixture", new Error("boom")]]) });
+    await failingRefresh.promise;
+    expect(rendered(failing)).toContain("Could not refresh fixture; showing cached models.");
+    expect(rendered(failing)).toContain("fixture/first");
+  } finally { failing.dispose(); }
+  const succeedingRefresh = pendingRefresh();
+  const succeeding = new ModelBrowser({
+    tui: fakeTui(), catalog: fakeCatalog([fakeModel("fixture", "first")], () => succeedingRefresh.promise),
+    color: false, sessionOnly: false, onSelect: () => {}, onCancel: () => {},
+  });
+  try {
+    succeedingRefresh.settle({ aborted: false, errors: new Map() });
+    await succeedingRefresh.promise;
+    expect(rendered(succeeding)).toContain("Model catalogs refreshed.");
+  } finally { succeeding.dispose(); }
+});
+
+test("the scroll cue reports the visible window position in long catalogs", () => {
+  const models = Array.from({ length: 30 }, (_, index) => fakeModel("fixture", `model-${index}`));
+  const picker = new ModelBrowser({
+    tui: fakeTui(), catalog: fakeCatalog(models), color: false, sessionOnly: false,
+    onSelect: () => {}, onCancel: () => {},
+  });
+  try {
+    const text = rendered(picker);
+    expect(text).toContain("(1/30)");
+    picker.handleInput("\x1b[B"); // Down past the window edge.
+    picker.handleInput("\x1b[B");
+    expect(rendered(picker)).toContain("(3/30)");
+  } finally { picker.dispose(); }
+});
+
+test("Tab focuses the provider sidebar and Up/Down switch login groups", () => {
+  const models = [fakeModel("alpha", "a-model"), fakeModel("beta", "b-model"), fakeModel("beta", "b-model-2")];
+  const picker = new ModelBrowser({
+    tui: fakeTui(), catalog: fakeCatalog(models), color: false, sessionOnly: false,
+    onSelect: () => {}, onCancel: () => {},
+  });
+  try {
+    const sidebar = rendered(picker);
+    expect(sidebar).toContain("Models");
+    expect(sidebar).toContain("All models");
+    expect(sidebar).toContain("alpha");
+    expect(sidebar).toContain("beta");
+    picker.handleInput("\t"); // Tab → sidebar focus.
+    expect(rendered(picker)).toContain("> All models");
+    picker.handleInput("\x1b[B"); // Down → scope to alpha.
+    expect(rendered(picker)).toContain("alpha (1)");
+    expect(rendered(picker)).toContain("alpha/a-model");
+    expect(rendered(picker)).not.toContain("beta/b-model");
+    picker.handleInput("\x1b[B"); // Down → scope to beta.
+    expect(rendered(picker)).toContain("beta (2)");
+    expect(rendered(picker)).toContain("beta/b-model");
+    picker.handleInput("\r"); // Enter → back to the model list.
+    expect(rendered(picker)).not.toContain("> All models");
+  } finally { picker.dispose(); }
+});
+
+test("typing from the sidebar lands in the search field", () => {
+  const models = [fakeModel("alpha", "a-model"), fakeModel("beta", "b-model")];
+  const picker = new ModelBrowser({
+    tui: fakeTui(), catalog: fakeCatalog(models), color: false, sessionOnly: false,
+    onSelect: () => {}, onCancel: () => {},
+  });
+  try {
+    picker.handleInput("\t"); // Tab → sidebar focus.
+    picker.handleInput("b"); // Unbound key → search input, focus returns to the list.
+    const text = rendered(picker);
+    expect(text).toContain("> b");
+    expect(text).toContain("beta/b-model");
+    expect(text).not.toContain("alpha/a-model");
+  } finally { picker.dispose(); }
 });

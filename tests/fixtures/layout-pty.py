@@ -176,6 +176,8 @@ def main():
     try:
         s.until("ctx 28% (fixture)")
         ok &= check("startup", s, [one_prompt_box(s), ("CASPER · OFFLINE" in s.vt.everything(), "banner visible")])
+        # The startup viewport clear is Casper's own; every later phase must emit none.
+        startup_clears = s.vt.clear_screen_count
         # Fill past the screen height so every later interaction happens at the bottom edge.
         for i in range(4):
             s.send(f"prompt {i}\n"); s.until_count("Demo complete. No real tools ran.", i + 1); s.pump(0.4)
@@ -194,7 +196,8 @@ def main():
         ok &= check("picker open", s, [
             ("Effort · offline synthetic choices" in s.vt.screen(), "picker visible"),
             ("prompt 0" in s.vt.everything(), "transcript retained while picker is open"),
-            (s.vt.clear_screen_count == 0, "opening a picker must not clear the screen")])
+            # Casper clears the viewport once at startup; pickers must never clear mid-session.
+            (s.vt.clear_screen_count == startup_clears, "opening a picker must not clear the screen")])
         s.send("\x1b[B\n"); s.until("effort=high"); s.pump(0.3)
         ok &= check("picker closed", s, [one_prompt_box(s),
             (s.footer_row() == footer, f"footer moved {footer} -> {s.footer_row()} after picker"),
