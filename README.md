@@ -165,7 +165,9 @@ For a PATH command that follows the checkout, link `src/cli.ts` to
 `casper <version> (<path>)`, where the path is the `cli.ts` or compiled binary that
 actually ran, so a stale link is visible in one command; the release installer
 refuses to replace such a link without `--force`, and never replaces a link into a
-`.scratch/` checkout.
+`.scratch/` checkout. Its shebang (`env -S bun --no-env-file --config=/dev/null`)
+keeps the opened repository's `bunfig.toml` preloads and `.env` out of Casper, as
+the compiled binary does; it needs an `env` with `-S` (macOS, GNU coreutils 8.30+).
 
 Tests use isolated fixtures; no paid model is needed for `bun run check`. Browser
 and real-debugger tests need already installed tools and explicitly skip when
