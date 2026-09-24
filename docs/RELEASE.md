@@ -191,7 +191,9 @@ assets that `--version` and `--help` cannot exercise.
 
 ## Pi upgrade revalidation
 
-Casper pins `@earendil-works/pi-coding-agent` exactly. The interactive model browser
+Casper pins `@earendil-works/pi-coding-agent` exactly, and the engine packages it imports
+directly (`pi-ai`, `pi-agent-core`, `pi-tui`) at the same version;
+`tests/package-dependencies.test.ts` fails when an imported one is undeclared or drifts. The interactive model browser
 (`src/runtime/pi-model-browser.ts`) is Casper-owned, but the adapter
 (`src/runtime/pi-model-picker.ts`) still couples to Pi: the `ModelRuntime` snapshot and
 `ModelsRefreshResult` shapes, the `app.models.save` keybinding id, `AgentSession["model"]`
