@@ -30,7 +30,7 @@ export async function pickPiModel(view: RuntimePickerView, catalog: ModelRuntime
     resolve(pick);
   };
   // The catalog is sanitized before the browser renders it: provider/id/name values must be
-  // control-character safe, and refresh stays explicitly local-only in this slot.
+  // control-character safe, and so are refresh errors.
   const catalogView = new Proxy(catalog, {
     get(target, key) {
       if (key === "getError") return () => {
@@ -40,8 +40,9 @@ export async function pickPiModel(view: RuntimePickerView, catalog: ModelRuntime
       if (key === "refresh") return async (options: Parameters<ModelRuntime["refresh"]>[0]) => {
         try {
           // The browser shows freshness status and keeps cached rows on failure, so live
-          // catalog refresh (new provider models) is safe here, unlike startup paths.
-          const result = await target.refresh({ ...options, allowNetwork: true });
+          // catalog refresh (new provider models) is safe here, unlike startup paths. No
+          // allowNetwork override: Pi's default fetches unless PI_OFFLINE is set.
+          const result = await target.refresh(options);
           return { ...result, errors: new Map([...result.errors].map(([provider, error]) =>
             [terminalText(provider), new Error(terminalText(error.message))])) };
         } catch (error) {

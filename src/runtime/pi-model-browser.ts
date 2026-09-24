@@ -375,7 +375,8 @@ export class ModelBrowser {
     this.options.onSelect(model);
   }
 
-  /** Background catalog refresh; the adapter's catalog view pins this to local-only sources. */
+  /** Background catalog refresh: live provider catalogs unless PI_OFFLINE is set (the adapter's
+   * catalog view keeps Pi's network default). Cached rows stay listed on failure. */
   private async refreshModels(): Promise<void> {
     const timeoutMs = 15_000;
     let timedOut = false;

@@ -1,7 +1,13 @@
 import { expect, test } from "bun:test";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { getKeybindings, KeybindingsManager, setKeybindings, TUI_KEYBINDINGS, type TUI } from "@earendil-works/pi-tui";
+import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { ModelBrowser, type ModelBrowserCatalog } from "../src/runtime/pi-model-browser";
+import { pickPiModel } from "../src/runtime/pi-model-picker";
+import type { RuntimePickerView } from "../src/runtime/types";
 
 /** These tests pin the contract `src/runtime/pi-model-picker.ts` leans on: Casper's ModelBrowser
  * rows/footer/keys, the `app.models.save` session-only keybinding registration, and the
@@ -252,5 +258,40 @@ test("a catalog refresh keeps the highlighted model by provider and id, with or 
       picker.handleInput("\r");
       expect({ query, selected }).toEqual({ query, selected: "a/m2" });
     } finally { picker.dispose(); }
+  }
+});
+
+test("the /model live catalog refresh goes to the network only when PI_OFFLINE is unset", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "casper-picker-offline-"));
+  const savedOffline = process.env.PI_OFFLINE;
+  const savedFetch = globalThis.fetch;
+  const fetched: string[] = [];
+  globalThis.fetch = (async (url: string | URL | Request) => {
+    fetched.push(String(url instanceof Request ? url.url : url));
+    return new Response("{}", { status: 503 });
+  }) as typeof fetch;
+  try {
+    await writeFile(path.join(dir, "auth.json"), JSON.stringify({ anthropic: { type: "api_key", key: "synthetic" } }), { mode: 0o600 });
+    const run = async (offline: boolean) => {
+      if (offline) process.env.PI_OFFLINE = "1"; else delete process.env.PI_OFFLINE;
+      const runtime = await ModelRuntime.create({ authPath: path.join(dir, "auth.json"), modelsPath: path.join(dir, "models.json") });
+      const before = fetched.length;
+      const refreshed = Promise.withResolvers<void>();
+      const refresh = runtime.refresh.bind(runtime);
+      runtime.refresh = (options) => refresh(options).finally(() => refreshed.resolve());
+      const abort = new AbortController();
+      const tui = { addInputListener: () => () => {}, requestRender() {}, setFocus() {}, terminal: { rows: 24, columns: 100 } };
+      const picked = pickPiModel({ tui, color: false, show() {}, onEOF() {} } as unknown as RuntimePickerView, runtime, undefined, undefined, undefined, abort.signal);
+      await refreshed.promise;
+      abort.abort();
+      expect(await picked).toBeUndefined();
+      return fetched.length - before;
+    };
+    expect(await run(false)).toBeGreaterThan(0);
+    expect(await run(true)).toBe(0);
+  } finally {
+    globalThis.fetch = savedFetch;
+    if (savedOffline === undefined) delete process.env.PI_OFFLINE; else process.env.PI_OFFLINE = savedOffline;
+    await rm(dir, { recursive: true, force: true });
   }
 });
