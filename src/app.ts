@@ -517,25 +517,31 @@ export class CasperApp {
   }
 
   /** `--continue`/`--resume` pick a saved conversation of this workspace before the first request.
-   * Applied once: a later runtime restart keeps whatever conversation is active by then. */
+   * Applied once: a later runtime restart keeps whatever conversation is active by then. Like
+   * /resume, an interactive session binds its named session to the conversation; a one-shot run
+   * does not, so it never changes what later runs open. */
   private async applyRunConversation(session: RuntimeSession): Promise<void> {
     const request = this.runConversation;
     if (!request) return;
     const flag = "resume" in request ? "--resume" : "--continue";
     if (!session.listConversations || !session.resumeConversation) throw new UsageError(`${flag}: this runtime does not support saved conversations.`);
-    const current = session.getSessionInfo?.().sessionId;
-    const saved = (await session.listConversations()).filter((conversation) => conversation.id !== current);
+    // A new conversation is not listed until its first response is saved; a restored one is.
+    const saved = await session.listConversations();
     let target: string | undefined;
     if ("resume" in request) {
       const matches = saved.filter((conversation) => conversation.id.startsWith(request.resume));
       if (!matches.length) throw new UsageError(`--resume: no saved conversation in this workspace starts with "${request.resume}". Run casper /resume to list them.`);
       if (matches.length > 1) throw new UsageError(`--resume: "${request.resume}" matches ${matches.length} conversations; give more of the ID.`);
       target = matches[0]!.id;
-    } else target = saved.sort((a, b) => b.modified.localeCompare(a.modified))[0]?.id;
+    } else target = [...saved].sort((a, b) => b.modified.localeCompare(a.modified))[0]?.id;
     this.runConversation = undefined;
     if (!target) { this.output.write("[session] No earlier conversation in this workspace; starting a new one.\n"); return; }
-    await session.resumeConversation(target);
-    if (session.getSessionInfo) await (await this.ensureSessionWorkspace()).rememberConversation(session);
+    let current: string | undefined;
+    try { current = session.getSessionInfo?.().sessionId; } catch { /* no persistence */ }
+    if (target !== current) {
+      await session.resumeConversation(target);
+      if (this.interactive && session.getSessionInfo) await (await this.ensureSessionWorkspace()).rememberConversation(session);
+    }
     this.output.write(`[session] Continuing conversation ${target}.\n`);
   }
 
