@@ -56,6 +56,8 @@ Usage:
   casper learn promote <repo> <id> <sha256> <number> <disposition> [skill-name]
                                   Record one exact human promotion/ignore decision
   casper --cd <path> ...  Work in that folder instead of the current directory
+  casper --continue ...  Continue this folder's most recent conversation
+  casper --resume <id-prefix> ...  Continue the saved conversation whose ID starts with this
   casper --model <provider/model-id[:effort]> ...
                        Use this model for this run only; the saved default is unchanged
   casper --effort <level|auto> ...  Reasoning effort for this run only; not remembered
