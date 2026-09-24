@@ -81,6 +81,8 @@ export interface CasperAppOptions {
   input?: Readable;
   /** Opt in to model-selected casper_check calls and bounded post-task repair. */
   autoVerify?: boolean;
+  /** The user explicitly asked for verification (`--verify`), not just the interactive default. */
+  verificationRequested?: boolean;
 }
 
 export class CasperApp {
@@ -129,6 +131,7 @@ export class CasperApp {
   skillRegistry?: SkillRegistry;
   private readonly reportedSkillWarnings = new Set<string>();
   private readonly autoVerify: boolean;
+  private readonly verificationRequested: boolean;
   private verificationAbort?: AbortController;
   private verificationWork?: Promise<VerificationReport>;
   /** Active repair evidence; sharing it does not grant managed-tool consent. */
@@ -211,6 +214,7 @@ export class CasperApp {
       markRuntimeFailed: () => { this.taskRuntimeFailed = true; },
     });
     this.autoVerify = options.autoVerify ?? false;
+    this.verificationRequested = this.autoVerify && (options.verificationRequested ?? false);
     this.visualizationProviders = options.visualizationProviders ?? [new MermaidProvider(), new MindMeshProvider()];
     this.sessionHomeDir = options.sessionHomeDir;
   }
@@ -575,7 +579,7 @@ export class CasperApp {
       await session.prompt([
         memoryContext,
         skillContext,
-        formatTaskPrompt(prompt, classification, context.model),
+        formatTaskPrompt(prompt, classification, context.model, { verificationRequested: this.verificationRequested }),
       ].filter(Boolean).join("\n\n"), this.commandAbort?.signal, { request: prompt });
       afterModel = before && !this.closing ? await this.snapshotWorkspace(workspaceRoot) : undefined;
       if (!this.closing && !this.commandAbort?.signal.aborted && !this.taskRuntimeFailed && !this.checkTask?.signal.aborted && this.checkTask?.checks.length) {

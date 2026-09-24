@@ -18,6 +18,20 @@ export interface RetainedToolOutput {
 /** Retained per task for `/output`; older calls are dropped. */
 export const TOOL_OUTPUT_LIMIT = 20;
 
+/** Canonical spelling of a shell command for matching a configured check. Only aliases that
+ * run the very same package script collapse: `npm|pnpm|yarn test` is `<pm> run test` and
+ * `npm run-script X` is `npm run X`. `bun test` stays distinct (Bun's own runner, not the
+ * script), as do any extra arguments, which may select a subset of the check. Blanks collapse
+ * only without quotes, escapes or newlines, where they are pure word separators. */
+function scriptInvocation(command: string): string {
+  const trimmed = command.trim();
+  if (/['"\\\r\n]/.test(trimmed)) return trimmed;
+  const words = trimmed.split(/[ \t]+/);
+  if (words.length === 2 && words[1] === "test" && ["npm", "pnpm", "yarn"].includes(words[0]!)) return `${words[0]} run test`;
+  if (words.length === 3 && words[0] === "npm" && words[1] === "run-script") return `npm run ${words[2]}`;
+  return words.join(" ");
+}
+
 /** Passive, command-scoped diagnostics. Never verifier evidence or tool authority.
  * The app owns edit invalidation independently of these bounded receipt fields. */
 export class TaskObservations {
@@ -41,7 +55,8 @@ export class TaskObservations {
     if (event.toolName !== "bash") return;
     const command = event.input?.command;
     if (!command || Buffer.byteLength(command) > 8192) return;
-    const name = CHECK_NAMES.find((candidate) => commands?.[candidate]?.trim() === command.trim());
+    const invoked = scriptInvocation(command);
+    const name = CHECK_NAMES.find((candidate) => commands?.[candidate] !== undefined && scriptInvocation(commands[candidate]!) === invoked);
     if (!name) return;
     const output = boundObservationText(event.output?.text ?? "");
     this.checks.set(name, { name, command, toolStatus: event.isError ? "error" : "success",
