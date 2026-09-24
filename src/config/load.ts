@@ -51,6 +51,8 @@ export interface LoadedConfiguration {
   verification: { timeoutMs: number };
   repair: { maxAttempts: number };
   visualize: VisualizationSettings;
+  /** Unknown keys, by file; shown at startup and otherwise ignored. */
+  warnings: string[];
 }
 
 export interface LoadConfigurationOptions {
@@ -175,56 +177,94 @@ function stringValue(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
-function booleanValue(value: unknown): boolean | undefined {
-  return typeof value === "boolean" ? value : undefined;
+/** Policy sections and their keys; anything else in a config file is reported, not applied. */
+const POLICY_KEYS = {
+  behavior: ["autonomy", "askQuestions", "inspectBeforeEditing"],
+  code: ["reuseExistingPatterns", "preserveArchitecture", "avoidOverengineering", "avoidUnnecessaryDependencies", "preferSmallChanges"],
+  git: ["commit", "push", "confirmDestructive"],
+  workspace: ["isolateWhen"],
+} as const;
+const ISOLATE_KEYS = ["parallelAgents", "riskyRefactor", "experimentalBranch"];
+const TOP_LEVEL_KEYS = new Set(["profile", "project", "languages", "frameworks", "packageManager", "commands", "architecture",
+  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", ...Object.keys(POLICY_KEYS)]);
+
+/** Typos used to fall back silently to the defaults; the loader names them instead. */
+function unknownKeys(document: Mapping, label: string): string[] {
+  const unknown: string[] = [];
+  const check = (value: unknown, prefix: string, known: readonly string[]) => {
+    if (isMapping(value)) for (const key of Object.keys(value)) if (!known.includes(key)) unknown.push(`${prefix}${key}`);
+  };
+  check(document, "", [...TOP_LEVEL_KEYS]);
+  check(document.policy, "policy.", Object.keys(POLICY_KEYS));
+  for (const [name, keys] of Object.entries(POLICY_KEYS)) {
+    check(document[name], `${name}.`, keys);
+    if (isMapping(document.policy)) check(document.policy[name], `policy.${name}.`, keys);
+  }
+  const workspaces = [document.workspace, isMapping(document.policy) ? document.policy.workspace : undefined];
+  for (const workspace of workspaces) if (isMapping(workspace)) check(workspace.isolateWhen, "workspace.isolateWhen.", ISOLATE_KEYS);
+  return unknown.map((key) => `${label}: unknown key ${key} (ignored)`);
 }
 
-function policyLayer(document: Mapping): PolicyLayer {
-  const nested = isMapping(document.policy) ? document.policy : {};
-  const section = (name: string): Mapping => {
-    const directValue = document[name];
-    const nestedValue = nested[name];
-    return {
-      ...(isMapping(directValue) ? directValue : {}),
-      ...(isMapping(nestedValue) ? nestedValue : {}),
-    };
+function alternatives(values: readonly string[]): string {
+  return values.length > 1 ? `${values.slice(0, -1).join(", ")} or ${values.at(-1)}` : values.join("");
+}
+
+function policyLayer(document: Mapping, label: string): PolicyLayer {
+  // YAML `key:` with no value is null: treated as unset, like an absent key.
+  const mapping = (value: unknown, name: string): Mapping => {
+    if (value === undefined || value === null) return {};
+    if (!isMapping(value)) throw new Error(`Invalid ${label}: ${name} must be a mapping`);
+    return value;
   };
-  const behavior = section("behavior");
-  const code = section("code");
-  const git = section("git");
+  const nested = mapping(document.policy, "policy");
+  const section = (name: string): Mapping => ({
+    ...mapping(document[name], name),
+    ...mapping(nested[name], `policy.${name}`),
+  });
+  // Reads one section; an invalid value fails with its dotted name and the allowed values.
+  const read = (prefix: string, values: Mapping) => ({
+    choice: <T extends string>(key: string, allowed: readonly T[]): T | undefined => {
+      const value = values[key];
+      if (value === undefined || value === null) return undefined;
+      if (typeof value === "string" && (allowed as readonly string[]).includes(value)) return value as T;
+      throw new Error(`Invalid ${label}: ${prefix}.${key} must be ${alternatives(allowed)}`);
+    },
+    flag: (key: string): boolean | undefined => {
+      const value = values[key];
+      if (value === undefined || value === null) return undefined;
+      if (typeof value === "boolean") return value;
+      throw new Error(`Invalid ${label}: ${prefix}.${key} must be true or false`);
+    },
+  });
+  const behavior = read("behavior", section("behavior"));
+  const code = read("code", section("code"));
+  const git = read("git", section("git"));
   const workspace = section("workspace");
-  const isolateWhen = isMapping(workspace.isolateWhen) ? workspace.isolateWhen : {};
+  const isolateWhen = read("workspace.isolateWhen", mapping(workspace.isolateWhen, "workspace.isolateWhen"));
 
   return {
     behavior: {
-      autonomy:
-        behavior.autonomy === "low" || behavior.autonomy === "medium" || behavior.autonomy === "high"
-          ? behavior.autonomy
-          : undefined,
-      askQuestions:
-        behavior.askQuestions === "beforeChanges" || behavior.askQuestions === "onlyWhenBlocked"
-          ? behavior.askQuestions
-          : undefined,
-      inspectBeforeEditing: booleanValue(behavior.inspectBeforeEditing),
+      autonomy: behavior.choice("autonomy", ["low", "medium", "high"] as const),
+      askQuestions: behavior.choice("askQuestions", ["beforeChanges", "onlyWhenBlocked"] as const),
+      inspectBeforeEditing: behavior.flag("inspectBeforeEditing"),
     },
     code: {
-      reuseExistingPatterns: booleanValue(code.reuseExistingPatterns),
-      preserveArchitecture: booleanValue(code.preserveArchitecture),
-      avoidOverengineering: booleanValue(code.avoidOverengineering),
-      avoidUnnecessaryDependencies: booleanValue(code.avoidUnnecessaryDependencies),
-      preferSmallChanges: booleanValue(code.preferSmallChanges),
+      reuseExistingPatterns: code.flag("reuseExistingPatterns"),
+      preserveArchitecture: code.flag("preserveArchitecture"),
+      avoidOverengineering: code.flag("avoidOverengineering"),
+      avoidUnnecessaryDependencies: code.flag("avoidUnnecessaryDependencies"),
+      preferSmallChanges: code.flag("preferSmallChanges"),
     },
     git: {
-      commit:
-        git.commit === "never" || git.commit === "neverUnlessRequested" ? git.commit : undefined,
-      push: git.push === "never" || git.push === "neverUnlessRequested" ? git.push : undefined,
-      confirmDestructive: booleanValue(git.confirmDestructive),
+      commit: git.choice("commit", ["never", "neverUnlessRequested"] as const),
+      push: git.choice("push", ["never", "neverUnlessRequested"] as const),
+      confirmDestructive: git.flag("confirmDestructive"),
     },
     workspace: {
       isolateWhen: {
-        parallelAgents: booleanValue(isolateWhen.parallelAgents),
-        riskyRefactor: booleanValue(isolateWhen.riskyRefactor),
-        experimentalBranch: booleanValue(isolateWhen.experimentalBranch),
+        parallelAgents: isolateWhen.flag("parallelAgents"),
+        riskyRefactor: isolateWhen.flag("riskyRefactor"),
+        experimentalBranch: isolateWhen.flag("experimentalBranch"),
       },
     },
   };
@@ -352,6 +392,7 @@ export async function loadConfiguration(
   selectedProfile ??= "default";
   const profileDir = path.join(casperHome, "profiles", selectedProfile);
   const profileDocument = await readYaml(path.join(profileDir, "config.yaml"));
+  const labels = { global: "~/.casper/config.yaml", profile: `profile ${selectedProfile} config.yaml`, project: ".casper/project.yaml" };
   let imports: SkillImport[] = [];
   for (const document of [globalDocument, profileDocument, projectDocument]) {
     if (document.skills !== undefined && !isMapping(document.skills)) throw new Error("skills must be a mapping");
@@ -392,10 +433,15 @@ export async function loadConfiguration(
     }),
     profileName: selectedProfile,
     policy: mergePolicy(
-      policyLayer(globalDocument),
-      policyLayer(profileDocument),
-      policyLayer(projectDocument),
+      policyLayer(globalDocument, labels.global),
+      policyLayer(profileDocument, labels.profile),
+      policyLayer(projectDocument, labels.project),
     ),
+    warnings: [
+      ...unknownKeys(globalDocument, labels.global),
+      ...unknownKeys(profileDocument, labels.profile),
+      ...unknownKeys(projectDocument, labels.project),
+    ],
     profileRules: await readOptionalText(path.join(profileDir, "rules.md")),
     projectRules: (await readProjectFile(options.projectRoot, ".casper/rules.md", MAX_PROJECT_RULES_BYTES))?.trim() || null,
     projectOverrides: projectOverrides(projectDocument),

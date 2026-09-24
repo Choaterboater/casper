@@ -39,6 +39,12 @@ policy:
       experimentalBranch: true
 ```
 
+Policy values are checked in every file: a value outside its allowed set (for example
+`git.push: nevr`, or the string `"false"` for a boolean) stops configuration loading
+with an error naming the file, the key and the allowed values. Unknown top-level keys
+and unknown keys in the policy sections (`behavior`, `code`, `git`, `workspace`) are
+shown as `[config]` warnings at startup and otherwise ignored.
+
 ## Provider credentials
 
 Engine state — provider credentials (`auth.json`) and the provider catalog
