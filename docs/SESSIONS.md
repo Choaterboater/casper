@@ -22,6 +22,8 @@ Interactive commands:
 
 `/branch <name>` clones the active Pi conversation, records the current task/project context, and—when policy enables it and the project is Git-backed—creates a clean worktree from the primary workspace's current commit. Creation requires an exact `yes` after Casper shows the session, branch, commit, and path. It fails closed in one-shot mode.
 
+From the command line, `casper --continue` continues the folder's most recent conversation and `casper --resume <id-prefix>` the saved one whose ID starts with that prefix (both before the first request; see [SCRIPTING.md](SCRIPTING.md)). They switch the conversation of the active named session the same way `/resume` does.
+
 `/switch <branch>` resumes the associated Pi session and changes the runtime cwd. Switching also requires exact interactive approval. Casper revokes old MCP/LSP connections and tools before moving the runtime, rediscovers project context for the target workspace, and requires fresh connection consent. A failed rebind blocks subsequent commands until the destination configuration can be loaded. On restart, saved named-session history is resumed before any outgoing manifest link is updated; shared-workspace startup selects main.
 
 An isolated branch cannot use plain `/switch main`; choose a reviewed outcome:
