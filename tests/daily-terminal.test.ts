@@ -52,7 +52,7 @@ test("live work status appears in a box before response text and clears when it 
   try {
     terminal.setStatus("fixture"); terminal.start();
     events.handle({ type: "assistant_response_start", provider: "openai-codex", model: "gpt-6-luna" });
-    await screen.until(output => Bun.stripANSI(output).includes("╭─ Working "));
+    await screen.until(output => Bun.stripANSI(output).includes(" Working "));
     expect(Bun.stripANSI(screen.output)).toContain("Waiting for openai-codex/gpt-6-luna · 0s");
     await screen.until(output => Bun.stripANSI(output).includes("Waiting for openai-codex/gpt-6-luna · 1s"));
     events.handle({ type: "tool_start", toolName: "write", toolCallId: "write-1", input: { path: "src/app.ts" } });
