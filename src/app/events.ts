@@ -11,6 +11,8 @@ export interface RuntimeEventCallbacks {
   /** Final provider stop outcome of the current model turn. */
   setTaskStop(cancelled: boolean, failed: boolean): void;
   markRuntimeFailed(): void;
+  /** The person cancelled the current command; its abort errors are not news to them. */
+  cancelled(): boolean;
 }
 
 /** Renders runtime events onto the terminal and owns the transcript-flow state that makes
@@ -131,7 +133,8 @@ export class RuntimeEventView {
         this.callbacks.setTaskStop(event.stopReason === "aborted", failed);
         // A provider failure (retired model slug, quota, rejected credential) otherwise reaches
         // the receipt as a bare "Execution failed" with no cause the person can act on.
-        if (failed && event.errorMessage && this.displayedError !== event.errorMessage) {
+        // A cancel already printed its own notice, so its aborted stop is not an error.
+        if (failed && !this.callbacks.cancelled() && event.errorMessage && this.displayedError !== event.errorMessage) {
           this.ensureLineBreak();
           this.output.write(`[error] ${redactPreview(event.errorMessage)}\n`);
           this.displayedError = event.errorMessage;
@@ -180,7 +183,7 @@ export class RuntimeEventView {
         this.setStaticActivity();
         this.terminal.endAssistant();
         this.ensureLineBreak();
-        if (this.displayedError !== event.message) this.output.write(`[error] ${redactPreview(event.message)}\n`);
+        if (this.displayedError !== event.message && !this.callbacks.cancelled()) this.output.write(`[error] ${redactPreview(event.message)}\n`);
         this.displayedError = event.message;
         this.endedWithNewline = true;
         break;
