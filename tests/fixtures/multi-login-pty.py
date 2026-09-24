@@ -70,7 +70,7 @@ def run_case(bun, repo, root, provider, browser=False, action="save", no_color=F
         assert b"synthetic-anthropic-private-access" not in s.raw
         assert b"synthetic-copilot-private-access" not in s.raw
         assert b"synthetic-openrouter-oauth-key" not in s.raw
-        if no_color: assert not re.search(rb"\x1b\[[0-9;:]*m", s.raw)
+        if no_color: assert not re.search(rb"\x1b\[(?:[0-9:]*;)*(?:3[0-9]|4[0-9]|9[0-7]|10[0-7])(?:[;:][0-9;:]*)?m", s.raw)
         s.send("\x01\x0b/exit\n"); module.wait_exit(s)
     finally:
         (s.root / "transcript.txt").write_bytes(s.raw)

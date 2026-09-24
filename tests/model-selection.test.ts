@@ -233,7 +233,7 @@ console.log('RESULT=' + JSON.stringify(screens));`);
     expect(screen.output).not.toContain("\x1b]0;");
     expect(screen.output).not.toMatch(/[\u009b\u202e]/u);
     expect(screen.output).toContain("\x1b[?2004h"); // Pi's own renderer controls must still work.
-    expect(/\x1b\[[0-9;:]*m/.test(screen.output)).toBe(screen.color);
+    expect(/\x1b\[(?:[0-9:]*;)*(?:3[0-9]|4[0-9]|9[0-7]|10[0-7])(?:[;:][0-9;:]*)?m/.test(screen.output)).toBe(screen.color); // NO_COLOR: no colour SGR.
   }
 }, 30_000);
 
@@ -279,7 +279,7 @@ console.log('RESULT=' + JSON.stringify(screens));`);
     expect(screen.output).toContain(screen.kind === "single" ? "provider-one" : screen.kind === "multiple" ? "2 model catalogs" : "REFRESH_FAILED");
     expect(screen.output).not.toContain("\x1b]0;");
     expect(screen.output).not.toMatch(/[\u009b\u202e]/u);
-    expect(/\x1b\[[0-9;:]*m/.test(screen.output)).toBe(screen.color);
+    expect(/\x1b\[(?:[0-9:]*;)*(?:3[0-9]|4[0-9]|9[0-7]|10[0-7])(?:[;:][0-9;:]*)?m/.test(screen.output)).toBe(screen.color); // NO_COLOR: no colour SGR.
   }
 }, 30_000);
 

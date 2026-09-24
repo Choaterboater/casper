@@ -245,6 +245,25 @@ test("partial slash selection inserts a command without executing it", async () 
   } finally { terminal.close(); input.destroy(); }
 });
 
+test("NO_COLOR removes colour but keeps the editor's reverse-video cursor visible", async () => {
+  const ambient = process.env.NO_COLOR;
+  process.env.NO_COLOR = "1";
+  const input = Object.assign(new PassThrough(), { isTTY: true, setRawMode() {} });
+  let output = "";
+  let terminal: InteractiveTerminal;
+  try { terminal = new InteractiveTerminal(input, { isTTY: true, columns: 80, rows: 24, write: text => { output += text; } }, () => {}, () => {}); }
+  finally { if (ambient === undefined) delete process.env.NO_COLOR; else process.env.NO_COLOR = ambient; }
+  try {
+    expect(terminal.color).toBe(false);
+    terminal.setStatus("fixture"); terminal.start();
+    void terminal.readCommand();
+    input.write("abc"); await tick();
+    input.write("\x1b[D"); await tick(); // Left: the cursor sits on "c".
+    expect(output).toContain("\x1b[7mc");
+    expect(output).not.toMatch(/\x1b\[(?:[0-9:]*;)*(?:3[0-9]|4[0-9]|9[0-7]|10[0-7])(?:[;:][0-9;:]*)?m/);
+  } finally { terminal.close(); input.destroy(); }
+});
+
 test("Enter on a partial slash command repaints the completed command at once", async () => {
   const input = Object.assign(new PassThrough(), { isTTY: true, setRawMode() {} });
   let output = "";

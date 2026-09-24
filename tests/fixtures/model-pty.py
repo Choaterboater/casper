@@ -75,7 +75,7 @@ def exercise(bun, repo, root, no_color=False):
         while s.process.poll() is None and time.monotonic() < deadline: s.pump(0.05)
         assert s.process.poll() == 0, s.screen.text()[-4000:]
         if no_color:
-            assert not re.search(rb"\x1b\[[0-9;:]*m", s.raw), "NO_COLOR emitted SGR"
+            assert not re.search(rb"\x1b\[(?:[0-9:]*;)*(?:3[0-9]|4[0-9]|9[0-7]|10[0-7])(?:[;:][0-9;:]*)?m", s.raw), "NO_COLOR emitted colour SGR"
     finally:
         (s.root / "transcript.txt").write_bytes(s.raw)
         s.close()
