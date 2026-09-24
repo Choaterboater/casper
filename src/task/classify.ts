@@ -1,5 +1,6 @@
 import type { ProjectCommand, ProjectModel } from "../project/model";
 import { CHECK_NAMES } from "../verify/evidence";
+import type { VerificationMode } from "../verify/mode";
 
 export type TaskIntent =
   | "fix"
@@ -57,7 +58,7 @@ export function formatTaskPrompt(
   request: string,
   classification: TaskClassification,
   model: ProjectModel,
-  options: { verificationRequested?: boolean } = {},
+  options: { verificationMode?: VerificationMode } = {},
 ): string {
   const availableChecks = CHECK_NAMES
     .filter((name) => model.commands[name])
@@ -73,8 +74,8 @@ export function formatTaskPrompt(
     ...(underSpecified ? ["- target: under-specified; if the ask tool is available, ask one concrete question with options before the first edit"] : []),
     `- available configured checks: ${availableChecks.length ? availableChecks.join("; ") : "none detected"}`,
     "Select checks based on actual work and relevant changed behavior, not request keywords. If casper_check is available, use it for relevant configured checks after edits settle. No mandatory four-check pipeline; docs-only or no-change work may need none. Explain unrun checks without claiming verified behavior.",
-    // Only an explicit request: offering casper_check by default must not make every chat edit run checks.
-    ...(options.verificationRequested ? ["The user asked for verification: after your final edit, run the relevant configured checks with casper_check, not bash; only casper_check results are recorded as verification. Bash is fine for exploring and reproducing."] : []),
+    // Auto mode only: Casper owns the final run, so the model need not select checks to record them.
+    ...(options.verificationMode === "auto" ? ["Casper runs the final checks itself after your last edit and records them; you do not need to. Use casper_check while iterating if it helps. Bash runs of checks are diagnostics only."] : []),
     "",
     "User request:",
     request,

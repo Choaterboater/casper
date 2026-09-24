@@ -2,7 +2,8 @@ import { afterEach, expect, test } from "bun:test";
 import { chmod, mkdir, mkdtemp, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { resolveAutoVerify } from "../src/cli";
+import { verificationFlag } from "../src/cli";
+import { resolveVerificationMode } from "../src/verify/mode";
 import { CASPER_VERSION } from "../src/version";
 import { needsPosixModes, posixOnly } from "./support/platform";
 
@@ -22,12 +23,22 @@ async function run(args: string[], cwd: string, home = cwd) {
   return { stdout, stderr, code };
 }
 
-test("interactive sessions offer casper_check unless --no-verify; one-shot prompts need --verify", () => {
-  expect(resolveAutoVerify({ verify: false, noVerify: false, interactive: true })).toBe(true);
-  expect(resolveAutoVerify({ verify: false, noVerify: true, interactive: true })).toBe(false);
-  expect(resolveAutoVerify({ verify: false, noVerify: false, interactive: false })).toBe(false);
-  expect(resolveAutoVerify({ verify: true, noVerify: false, interactive: false })).toBe(true);
-  expect(() => resolveAutoVerify({ verify: true, noVerify: true, interactive: true })).toThrow("--verify and --no-verify cannot be combined");
+test("--verify selects auto and --no-verify selects off for the run, over configuration", () => {
+  expect(verificationFlag({ verify: false, noVerify: false })).toBeUndefined();
+  expect(verificationFlag({ verify: true, noVerify: false })).toBe("auto");
+  expect(verificationFlag({ verify: false, noVerify: true })).toBe("off");
+  expect(() => verificationFlag({ verify: true, noVerify: true })).toThrow("--verify and --no-verify cannot be combined");
+  expect(resolveVerificationMode({ flag: "off", configured: "auto", interactive: true, measuredMs: 1 })).toBe("off");
+  expect(resolveVerificationMode({ flag: "auto", configured: "off", interactive: false })).toBe("auto");
+  expect(resolveVerificationMode({ configured: "auto", interactive: false })).toBe("auto");
+  expect(resolveVerificationMode({ configured: "offer", interactive: true, measuredMs: 1 })).toBe("offer");
+});
+
+test("unconfigured: interactive runs checks automatically only once they are measured under 60 s; one-shot needs --verify", () => {
+  expect(resolveVerificationMode({ interactive: true })).toBe("offer");
+  expect(resolveVerificationMode({ interactive: true, measuredMs: 59_999 })).toBe("auto");
+  expect(resolveVerificationMode({ interactive: true, measuredMs: 60_000 })).toBe("offer");
+  expect(resolveVerificationMode({ interactive: false, measuredMs: 1 })).toBe("off");
 });
 
 test("--verify --no-verify is rejected before any work starts", async () => {

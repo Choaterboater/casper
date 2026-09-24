@@ -50,6 +50,8 @@ import { safeGitArgs } from "./platform/git";
 import { VerifierRegistry } from "./verify/registry";
 import { verifyAndRepair } from "./verify/repair-loop";
 import { VerificationTask } from "./verify/task";
+import { planAutoChecks, resolveVerificationMode, selectedChecks, type VerificationMode } from "./verify/mode";
+import { measuredCheckTime, recordCheckTimings } from "./verify/timings";
 import { MermaidProvider } from "./visualize/mermaid";
 import { MindMeshProvider } from "./visualize/mindmesh";
 import { buildRepoGraph } from "./visualize/repo";
@@ -80,10 +82,12 @@ export interface CasperAppOptions {
   sessionHomeDir?: string;
   output?: OutputWriter;
   input?: Readable;
-  /** Opt in to model-selected casper_check calls and bounded post-task repair. */
+  /** This run's verification mode (`--verify` = auto, `--no-verify` = off), over configuration.
+   * Unset: configuration, then the surface default (see resolveVerificationMode). */
+  verificationMode?: VerificationMode;
+  /** Embedder shorthand: true = "offer" (model-selected casper_check plus bounded repair),
+   * false = "off". Ignored when verificationMode is set. */
   autoVerify?: boolean;
-  /** The user explicitly asked for verification (`--verify`), not just the interactive default. */
-  verificationRequested?: boolean;
 }
 
 export class CasperApp {
@@ -131,8 +135,7 @@ export class CasperApp {
   projectContext?: ProjectContext;
   skillRegistry?: SkillRegistry;
   private readonly reportedSkillWarnings = new Set<string>();
-  private readonly autoVerify: boolean;
-  private readonly verificationRequested: boolean;
+  private readonly verificationFlag?: VerificationMode;
   private verificationAbort?: AbortController;
   private verificationWork?: Promise<VerificationReport>;
   /** Active repair evidence; sharing it does not grant managed-tool consent. */
@@ -215,8 +218,8 @@ export class CasperApp {
       markRuntimeFailed: () => { this.taskRuntimeFailed = true; },
       cancelled: () => this.commandAbort?.signal.aborted === true,
     });
-    this.autoVerify = options.autoVerify ?? false;
-    this.verificationRequested = this.autoVerify && (options.verificationRequested ?? false);
+    this.verificationFlag = options.verificationMode
+      ?? (options.autoVerify === undefined ? undefined : options.autoVerify ? "offer" : "off");
     this.visualizationProviders = options.visualizationProviders ?? [new MermaidProvider(), new MindMeshProvider()];
     this.sessionHomeDir = options.sessionHomeDir;
   }
@@ -567,7 +570,12 @@ export class CasperApp {
       if (!this.closing) this.output.write("[memory] Facts unavailable (invalid or unreadable state); continuing without them. Preserve and inspect memory.jsonl before manual repair.\n");
     }
     if (this.closing || this.commandAbort?.signal.aborted) return;
-    if (this.autoVerify) this.checkTask = new VerificationTask(
+    const flag = this.verificationFlag;
+    const configured = context.verification.mode;
+    const verificationMode = resolveVerificationMode({ flag, configured, interactive: this.interactive,
+      measuredMs: flag || configured || !this.interactive ? undefined : await measuredCheckTime(context.stateDirectory,
+        selectedChecks(context.verification.checks, context.model.commands), context.model.commands) });
+    if (verificationMode !== "off") this.checkTask = new VerificationTask(
       VerifierRegistry.forProject(context.model, context.verification.timeoutMs, this.blockOnCleanupFailure), this.activeWorkspaceRoot(),
       (result) => this.writeCheckResult(result),
     );
@@ -580,14 +588,24 @@ export class CasperApp {
     const before = await this.snapshotWorkspace(workspaceRoot, this.commandAbort?.signal);
     let afterModel: Map<string, string> | undefined;
     let verification: VerificationReport | undefined;
+    let autoChecks: ReturnType<typeof planAutoChecks> | undefined;
+    const flatten = (changes: TreeChanges) => [...changes.added, ...changes.modified, ...changes.removed].sort();
     try {
       await session.prompt([
         memoryContext,
         skillContext,
-        formatTaskPrompt(prompt, classification, context.model, { verificationRequested: this.verificationRequested }),
+        formatTaskPrompt(prompt, classification, context.model, { verificationMode }),
       ].filter(Boolean).join("\n\n"), this.commandAbort?.signal, { request: prompt });
       afterModel = before && !this.closing ? await this.snapshotWorkspace(workspaceRoot) : undefined;
-      if (!this.closing && !this.commandAbort?.signal.aborted && !this.taskRuntimeFailed && !this.checkTask?.signal.aborted && this.checkTask?.checks.length) {
+      const stopped = this.closing || this.commandAbort?.signal.aborted || this.taskRuntimeFailed || this.checkTask?.signal.aborted;
+      if (!stopped && this.checkTask && verificationMode === "auto") {
+        autoChecks = planAutoChecks({
+          selected: context.verification.checks, commands: context.model.commands, scopes: context.model.verificationScopes,
+          changedPaths: before && afterModel ? flatten(diffSnapshots(before, afterModel)) : undefined,
+        });
+        // Fresh passes the model already recorded are reused, not rerun (VerificationTask).
+        if (autoChecks.run.length || this.checkTask.checks.length) verification = await this.runVerification(autoChecks.run, true, prompt, this.checkTask);
+      } else if (!stopped && this.checkTask?.checks.length) {
         verification = await this.runVerification(this.checkTask.checks, true, prompt, this.checkTask);
       }
     } catch (error) {
@@ -605,12 +623,12 @@ export class CasperApp {
       // scripts and repair edits are never attributed to the request itself.
       afterModel ??= before && !this.closing ? await this.snapshotWorkspace(workspaceRoot) : undefined;
       const afterChecks = verification && afterModel && !this.closing ? await this.snapshotWorkspace(workspaceRoot) : afterModel;
-      const flatten = (changes: TreeChanges) => [...changes.added, ...changes.modified, ...changes.removed].sort();
       const changedPaths = before && afterModel ? flatten(diffSnapshots(before, afterModel)) : undefined;
       const changedDuringChecks = afterModel && afterChecks && afterChecks !== afterModel ? flatten(diffSnapshots(afterModel, afterChecks)) : [];
       const observations = this.observations.snapshot(changedPaths, changedDuringChecks);
       const browser = !this.closing && this.browser ? await this.browser.report() : undefined;
-      this.lastTaskResult = { execution, verification, ...observations, ...(browser?.checks.length ? { browser } : {}) };
+      this.lastTaskResult = { execution, verification, ...observations, ...(browser?.checks.length ? { browser } : {}),
+        verificationMode, ...(autoChecks?.skipped ? { autoSkipped: autoChecks.skipped } : {}) };
       if (!this.closing) {
         this.terminal.endAssistant();
         this.events.ensureLineBreak();
@@ -678,6 +696,7 @@ export class CasperApp {
         onRepair: (attempt, max) => { this.output.write(`↻ repair ${attempt}/${max}\n`); },
       });
       const report = await this.verificationWork;
+      await recordCheckTimings(context.stateDirectory, report.rounds.flat());
       this.output.write(`${formatVerificationReport(report)}\n`);
       return report;
     } finally {

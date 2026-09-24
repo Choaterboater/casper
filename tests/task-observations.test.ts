@@ -55,16 +55,16 @@ const model: ProjectModel = {
   packageManager: "npm", commands: { test: "npm run test" }, architecture: {}, conventions: [], detectedAt: "2026-01-01T00:00:00.000Z",
 };
 
-test("an explicit --verify tells the model that only casper_check records the final verification", () => {
+test("in auto mode the model is told Casper runs the final checks; casper_check stays for iteration", () => {
   const classification = classifyTask("fix the failing test");
-  const requested = formatTaskPrompt("fix the failing test", classification, model, { verificationRequested: true });
-  const offered = formatTaskPrompt("fix the failing test", classification, model);
-  expect(offered).not.toContain("The user asked for verification");
-  expect(requested).toContain("The user asked for verification: after your final edit, run the relevant configured checks with casper_check, not bash; only casper_check results are recorded as verification. Bash is fine for exploring and reproducing.");
-  expect(requested.endsWith("User request:\nfix the failing test")).toBe(true);
+  const auto = formatTaskPrompt("fix the failing test", classification, model, { verificationMode: "auto" });
+  const offered = formatTaskPrompt("fix the failing test", classification, model, { verificationMode: "offer" });
+  expect(offered).not.toContain("Casper runs the final checks");
+  expect(auto).toContain("Casper runs the final checks itself after your last edit and records them; you do not need to. Use casper_check while iterating if it helps. Bash runs of checks are diagnostics only.");
+  expect(auto.endsWith("User request:\nfix the failing test")).toBe(true);
 });
 
-test("the app forwards an explicit --verify into the task prompt", async () => {
+test("the app forwards --verify (auto mode) into the task prompt", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-verify-requested-"));
   try {
     await mkdir(path.join(root, "home"));
@@ -79,15 +79,15 @@ test("the app forwards an explicit --verify into the task prompt", async () => {
       },
       async dispose() {},
     };
-    const run = async (verificationRequested: boolean) => {
+    const run = async (auto: boolean) => {
       const app = new CasperApp({
-        autoVerify: true, verificationRequested, runtimeFactory: () => runtime, output: { write: () => {} },
+        verificationMode: auto ? "auto" : "offer", runtimeFactory: () => runtime, output: { write: () => {} },
         loadProjectContext: (project) => loadProjectContext(project, { homeDir: path.join(root, "home") }),
         loadSkillRegistry: (context) => SkillRegistry.discover({ projectRoot: context.info.root, homeDir: path.join(root, "home") }),
       });
       await app.runOnce("fix the failing test", root);
     };
     await run(false); await run(true);
-    expect(prompts.map((prompt) => prompt.includes("The user asked for verification"))).toEqual([false, true]);
+    expect(prompts.map((prompt) => prompt.includes("Casper runs the final checks"))).toEqual([false, true]);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
