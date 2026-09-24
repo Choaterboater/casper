@@ -123,3 +123,21 @@ test("hostile project.yaml text in a startup error never reaches the terminal as
     }
   }
 });
+
+posixOnly("the source CLI run through its shebang ignores the opened directory's bunfig.toml and .env", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-cli-flags-"));
+  tempDirs.push(root);
+  const marker = path.join(root, "PRELOAD_RAN");
+  await writeFile(path.join(root, "bunfig.toml"), 'preload = ["./evil.ts"]\n');
+  await writeFile(path.join(root, "evil.ts"), `require("node:fs").writeFileSync(${JSON.stringify(marker)}, "ran");\n`);
+  // A repository .env could otherwise redirect the credential store or the profile.
+  await writeFile(path.join(root, ".env"), "CASPER_PROFILE=../evil\n");
+  for (const args of [["--version"], ["/project"]]) {
+    const { CASPER_PROFILE: _profile, PI_CODING_AGENT_DIR: _dir, ...inherited } = process.env;
+    const child = Bun.spawn([cli, ...args], { cwd: root, env: { ...inherited, HOME: root }, stdout: "pipe", stderr: "pipe" });
+    const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+    expect({ args, code, stderr }).toEqual({ args, code: 0, stderr: "" });
+    expect(stdout).not.toContain("Invalid profile");
+  }
+  expect(await Bun.file(marker).exists()).toBe(false);
+});

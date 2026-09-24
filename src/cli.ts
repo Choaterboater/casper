@@ -1,4 +1,6 @@
-#!/usr/bin/env bun
+#!/usr/bin/env -S bun --no-env-file --config=/dev/null
+// The source CLI runs from inside untrusted repositories: like the compiled build, it never
+// loads the opened directory's bunfig.toml (preload code) or .env (engine store, profile).
 
 import { CasperApp } from "./app";
 import { importLegacyEngineState, useCasperAgentStore } from "./runtime/agent-store";
