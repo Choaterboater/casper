@@ -120,6 +120,8 @@ export class MCPManager {
     const entry = this.entry(name);
     if (entry.state === "disabled") throw new Error("MCP server is disabled; edit configuration and restart");
     entry.approved = true;
+    // The burst cap limits automatic reconnects; an explicit connect is fresh consent to try.
+    entry.attempts = [];
     await this.ensureConnected(entry);
   }
 
@@ -280,7 +282,6 @@ export class MCPManager {
     const deadline = setTimeout(() => controller.abort(), this.timeoutMs);
     entry.state = "connecting";
     entry.error = undefined;
-    entry.attempts.push(Date.now());
     entry.generation++;
     let client: Client | undefined;
     const current = () => !this.closed && entry.approved && entry.client === client && !controller.signal.aborted && entry.state !== "failed";
@@ -368,6 +369,9 @@ export class MCPManager {
         entry.state = "failed";
         entry.error ??= "Connection or tool discovery timed out";
       }
+      // Only failed opens spend the burst budget: a successful reconnect after a
+      // cancelled call, or an open abandoned by disconnect/close, is not a loop.
+      if (!this.closed && entry.approved) entry.attempts.push(Date.now());
       this.publish(entry, []);
       controller.abort();
       await this.release(entry);
