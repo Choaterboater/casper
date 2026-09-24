@@ -4,6 +4,7 @@ import { access, mkdir, mkdtemp, readFile, realpath, rename, rm, writeFile } fro
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
+import { safeGitArgs } from "../platform/git";
 
 const execFileAsync = promisify(execFile);
 
@@ -48,10 +49,6 @@ function errorText(error: unknown): string {
   const stderr = (error as Error & { stderr?: string | Buffer }).stderr;
   const detail = typeof stderr === "string" ? stderr : stderr?.toString("utf8");
   return detail?.trim() || error.message;
-}
-
-function safeGitArgs(args: string[]): string[] {
-  return ["-c", "core.fsmonitor=false", "-c", `core.hooksPath=${os.devNull}`, ...args];
 }
 
 async function git(

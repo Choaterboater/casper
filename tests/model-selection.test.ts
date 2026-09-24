@@ -71,6 +71,25 @@ test("local diff remains usable when workspace changes exceed the display budget
   expect(await readFile(path.join(f.project, "tracked.txt"), "utf8")).toBe("after\n".repeat(15000));
 }, 30_000);
 
+// A shell fsmonitor hook; Windows has no /bin/sh fixture here.
+posixOnly("local diff never runs a repository-configured fsmonitor command", async () => {
+  const f = await fixture();
+  const git = async (...args: string[]) => {
+    const child = Bun.spawn(["git", "-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", ...args], { cwd: f.project, env: f.env, stdout: "ignore", stderr: "pipe" });
+    expect(await child.exited).toBe(0);
+  };
+  await writeFile(path.join(f.project, "tracked.txt"), "before\n");
+  await git("init", "-b", "main"); await git("add", "tracked.txt"); await git("commit", "-m", "Temporary fixture baseline");
+  const marker = path.join(f.home, "fsmonitor-ran"); const hook = path.join(f.home, "fsmonitor.sh");
+  await writeFile(hook, `#!/bin/sh\necho ran >> ${JSON.stringify(marker)}\nexit 1\n`, { mode: 0o755 });
+  await git("config", "core.fsmonitor", hook);
+  await writeFile(path.join(f.project, "tracked.txt"), "after\n");
+  const result = await f.cli("/diff");
+  expect(result.exit).toBe(0);
+  expect(result.stdout).toContain("+after");
+  expect(await Bun.file(marker).exists()).toBe(false);
+}, 30_000);
+
 test("context and usage are local; fresh conversations retain saved sessions without touching source files", async () => {
   const f = await fixture();
   await f.cli("/model", "fixture/second");
