@@ -11,6 +11,8 @@ export interface RuntimeEventCallbacks {
   /** Final provider stop outcome of the current model turn. */
   setTaskStop(cancelled: boolean, failed: boolean): void;
   markRuntimeFailed(): void;
+  /** The request's --max-turns limit stopped the model after this many turns. */
+  turnLimitReached(turns: number): void;
   /** The person cancelled the current command; its abort errors are not news to them. */
   cancelled(): boolean;
 }
@@ -177,6 +179,9 @@ export class RuntimeEventView {
         this.terminal.endAssistant();
         this.toolStarted.clear();
         this.ensureLineBreak();
+        break;
+      case "turn_limit":
+        this.callbacks.turnLimitReached(event.turns);
         break;
       case "error":
         this.callbacks.markRuntimeFailed();

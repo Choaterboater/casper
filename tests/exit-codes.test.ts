@@ -28,6 +28,8 @@ const table: Array<[string, TaskResult | undefined, TaskOutcome, number, number]
   ["unknown changes", done({ possibleMutations: true }), "not_verified", 0, 3],
   ["browser checks failed", done({ changedPaths: ["a.ts"], verification: report("pass"), browser: { status: "fail", checks: [], guidance: "" } }), "failed", 1, 1],
   ["browser checks incomplete", done({ changedPaths: ["a.ts"], verification: report("pass"), browser: { status: "incomplete", checks: [], guidance: "" } }), "incomplete", 2, 2],
+  ["stopped by --max-turns", done({ changedPaths: ["a.ts"], turnLimit: 3 }), "incomplete", 2, 2],
+  ["stopped by --max-turns after the model's own failing check", done({ changedPaths: ["a.ts"], turnLimit: 3, verification: report("blocked") }), "incomplete", 2, 2],
   ["the model run failed", { execution: "failed", changedPaths: ["a.ts"] }, "failed", 1, 1],
   ["cancelled", { execution: "cancelled", changedPaths: ["a.ts"], verification: report("pass") }, "cancelled", 130, 130],
 ];

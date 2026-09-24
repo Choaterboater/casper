@@ -21,6 +21,8 @@ export interface CliOptions {
   effort?: string;
   /** Work in this folder instead of the current directory. */
   cd?: string;
+  /** Stop each model request after this many turns; the run is then incomplete (exit 2). */
+  maxTurns?: number;
   /** Pick up the workspace's most recent conversation. */
   continueConversation: boolean;
   /** Pick up the saved conversation whose ID starts with this prefix. */
@@ -34,11 +36,11 @@ export interface CliOptions {
 }
 
 /** Every leading option the parser accepts; /help all must document each one. */
-export const CLI_OPTIONS = ["--cd", "--continue", "--resume", "--model", "--effort", "--verify", "--no-verify", "--verbose", "--require-verification", "--mcp", "--lsp",
+export const CLI_OPTIONS = ["--max-turns", "--cd", "--continue", "--resume", "--model", "--effort", "--verify", "--no-verify", "--verbose", "--require-verification", "--mcp", "--lsp",
   "--help", "--version", "--licenses"] as const;
 
 /** Options that take a value, as `--name value` or `--name=value`. */
-const VALUE_OPTIONS = new Set(["--cd", "--resume", "--model", "--effort", "--mcp", "--lsp"]);
+const VALUE_OPTIONS = new Set(["--max-turns", "--cd", "--resume", "--model", "--effort", "--mcp", "--lsp"]);
 
 const SERVER_NAME = /^[a-zA-Z0-9_.][a-zA-Z0-9_.-]{0,63}$/;
 
@@ -71,6 +73,9 @@ export function parseCliArgs(argv: readonly string[]): CliOptions {
       if (!value || !SERVER_NAME.test(value)) throw new UsageError(`${flag} requires a configured server name`);
       const list = flag === "--lsp" ? options.languageServers : options.servers;
       if (!list.includes(value)) list.push(value);
+    } else if (flag === "--max-turns") {
+      if (!value || !/^[1-9]\d{0,3}$/.test(value)) throw new UsageError("--max-turns needs a whole number from 1 to 9999");
+      options.maxTurns = Number(value);
     } else if (flag === "--cd") {
       if (!value || value.startsWith("-")) throw new UsageError("--cd needs a folder: --cd <path>");
       options.cd = value;

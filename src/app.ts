@@ -92,6 +92,8 @@ export interface CasperAppOptions {
   model?: string;
   /** This run's reasoning effort (`--effort`); never remembered. */
   effort?: string;
+  /** Stop each model request after this many turns (`--max-turns`); the task is then incomplete. */
+  maxTurns?: number;
   /** Continue the workspace's latest conversation, or the saved one whose ID starts with `resume`. */
   conversation?: { continue: true } | { resume: string };
   /** Embedder shorthand: true = "offer" (model-selected casper_check plus bounded repair),
@@ -149,6 +151,9 @@ export class CasperApp {
   private readonly runModel?: string;
   private readonly runEffort?: string;
   private runConversation?: CasperAppOptions["conversation"];
+  private readonly maxTurns?: number;
+  /** Turns after which --max-turns stopped the current task's model request. */
+  private taskTurnLimit?: number;
   private verificationAbort?: AbortController;
   private verificationWork?: Promise<VerificationReport>;
   /** Active repair evidence; sharing it does not grant managed-tool consent. */
@@ -229,12 +234,14 @@ export class CasperApp {
       },
       setTaskStop: (cancelled, failed) => { this.taskRuntimeCancelled = cancelled; this.taskRuntimeFailed = failed; },
       markRuntimeFailed: () => { this.taskRuntimeFailed = true; },
+      turnLimitReached: turns => { this.taskTurnLimit = turns; },
       cancelled: () => this.commandAbort?.signal.aborted === true,
     });
     this.verbose = options.verbose ?? false;
     this.runModel = options.model;
     this.runEffort = options.effort;
     this.runConversation = options.conversation;
+    this.maxTurns = options.maxTurns;
     this.verificationFlag = options.verificationMode
       ?? (options.autoVerify === undefined ? undefined : options.autoVerify ? "offer" : "off");
     this.visualizationProviders = options.visualizationProviders ?? [new MermaidProvider(), new MindMeshProvider()];
@@ -568,6 +575,7 @@ export class CasperApp {
     // /receipt reads the last task's receipt; every other command starts without one.
     if (prompt !== "/receipt") this.lastTaskResult = undefined;
     this.taskRuntimeFailed = false;
+    this.taskTurnLimit = undefined;
     this.events.clearError();
     this.taskRuntimeCancelled = false;
     this.commandActive = true;
@@ -664,9 +672,10 @@ export class CasperApp {
         memoryContext,
         skillContext,
         formatTaskPrompt(prompt, classification, context.model, { verificationMode }),
-      ].filter(Boolean).join("\n\n"), this.commandAbort?.signal, { request: prompt });
+      ].filter(Boolean).join("\n\n"), this.commandAbort?.signal, { request: prompt, maxTurns: this.maxTurns });
       afterModel = before && !this.closing ? await this.snapshotWorkspace(workspaceRoot) : undefined;
-      const stopped = this.closing || this.commandAbort?.signal.aborted || this.taskRuntimeFailed || this.checkTask?.signal.aborted;
+      // A request cut short by --max-turns is unfinished work: checking it would only start repairs.
+      const stopped = this.closing || this.commandAbort?.signal.aborted || this.taskRuntimeFailed || this.checkTask?.signal.aborted || this.taskTurnLimit !== undefined;
       if (!stopped && this.checkTask && verificationMode === "auto") {
         autoChecks = planAutoChecks({
           selected: context.verification.checks, commands: context.model.commands, scopes: context.model.verificationScopes,
@@ -702,7 +711,8 @@ export class CasperApp {
       const observations = this.observations.snapshot(changedPaths, changedDuringChecks);
       const browser = !this.closing && this.browser ? await this.browser.report() : undefined;
       this.lastTaskResult = { execution, verification, ...observations, ...(browser?.checks.length ? { browser } : {}),
-        verificationMode, ...(autoChecks?.skipped ? { autoSkipped: autoChecks.skipped } : {}) };
+        verificationMode, ...(autoChecks?.skipped ? { autoSkipped: autoChecks.skipped } : {}),
+        ...(this.taskTurnLimit !== undefined ? { turnLimit: this.taskTurnLimit } : {}) };
       if (!this.closing) {
         this.terminal.endAssistant();
         this.events.ensureLineBreak();
@@ -763,7 +773,7 @@ export class CasperApp {
           await this.prepareCapabilities(request);
           const session = await this.ensureRuntime();
           if (!controller.signal.aborted) {
-            await session.prompt(prompt, controller.signal, { request });
+            await session.prompt(prompt, controller.signal, { request, maxTurns: this.maxTurns });
             if (this.taskRuntimeFailed && !this.taskRuntimeCancelled) throw new Error("Repair model stopped unsuccessfully; changes retained.");
           }
         } : undefined,

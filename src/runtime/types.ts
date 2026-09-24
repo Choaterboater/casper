@@ -171,6 +171,8 @@ export type RuntimeEvent =
   /** Diagnostic tool status only: isError=false is not process-exit evidence. */
   | { type: "tool_end"; toolName: string; toolCallId?: string; input?: ToolObservationInput; output?: ToolObservationOutput; isError: boolean }
   | { type: "message_end" }
+  /** The prompt's `maxTurns` ended it after that many model turns, with the model still working. */
+  | { type: "turn_limit"; turns: number }
   | { type: "error"; message: string };
 
 export type RuntimeEventListener = (event: RuntimeEvent) => void;
@@ -194,7 +196,9 @@ export interface RuntimeSession {
   clearConversation?(): Promise<void>;
   resumeConversation?(id: string): Promise<void>;
   compact?(instructions?: string, signal?: AbortSignal): Promise<void>;
-  prompt(text: string, signal?: AbortSignal, options?: { request: string }): Promise<void>;
+  /** `maxTurns` stops the request gracefully after that many model turns (tools of the last turn
+   * still finish) and emits turn_limit; unset means no Casper turn limit. */
+  prompt(text: string, signal?: AbortSignal, options?: { request: string; maxTurns?: number }): Promise<void>;
   abort(): Promise<void>;
   subscribe(listener: RuntimeEventListener): () => void;
   getState(): RuntimeState;
