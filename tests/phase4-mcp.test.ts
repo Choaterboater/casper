@@ -321,8 +321,8 @@ test("dead servers do not poison healthy ones; reconnect is bounded and does not
   expect(JSON.stringify(await broker.invoke("mcp:good:status", {}))).toContain('"identity":"good"');
   await expect(broker.invoke("mcp:good:crash_read", {})).rejects.toThrow("not retried");
   await mcp.prepare();
-  // Only failed opens spend the burst budget: good reconnects again, the stalled server is capped.
-  expect(mcp.status().find((status) => status.name === "good")?.state).toBe("ready");
+  // Each crash spends the burst budget, so a server that dies after its handshake is capped too.
+  expect(mcp.status().find((status) => status.name === "good")?.error).toContain("retry limit");
   expect(mcp.status().find((status) => status.name === "bad")?.error).toContain("retry limit");
   await mcp.disconnect("good");
   await mcp.prepare();

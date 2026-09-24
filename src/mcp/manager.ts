@@ -64,7 +64,8 @@ function sameDefinition(a: MCPServerDefinition, b: MCPServerDefinition): boolean
  * private field is pinned by the simulated-Windows cleanup test. */
 function stdioChildAlive(stdio: StdioClientTransport): () => boolean {
   const child = (stdio as unknown as { _process?: ChildProcess })._process;
-  if (!child) { const pid = stdio.pid; return () => stdio.pid === pid; }
+  // Without the child handle nothing proves the process is still ours: fail closed (no bare-PID kill).
+  if (!child) return () => false;
   return () => child.exitCode === null && child.signalCode === null;
 }
 
@@ -225,6 +226,9 @@ export class MCPManager {
       const cancelled = signal?.aborted || entry.abort.signal.aborted;
       if (entry.client === client) {
         if (entry.state === "ready") {
+          // A failing call spends the automatic-reconnect budget once (onclose already counted a
+          // server-side close, which leaves the state "failed"); a caller's cancellation does not.
+          if (!cancelled && !this.closed && entry.approved) entry.attempts.push(Date.now());
           entry.state = "failed";
           this.publish(entry, []);
           entry.error = "Call failed or cancelled; connection will be re-established on demand, without replay";
@@ -309,6 +313,8 @@ export class MCPManager {
       connectedClient.onerror = () => { /* Raw transport errors can contain headers/URLs. */ };
       connectedClient.onclose = () => {
         if (!current()) return;
+        // A server that handshakes and then dies must not respawn on every task.
+        if (!this.closed && entry.approved) entry.attempts.push(Date.now());
         this.publish(entry, []);
         entry.state = "failed";
         entry.error = "Connection closed; next task may reconnect (bounded)";
@@ -379,8 +385,8 @@ export class MCPManager {
         entry.state = "failed";
         entry.error ??= "Connection or tool discovery timed out";
       }
-      // Only failed opens spend the burst budget: a successful reconnect after a
-      // cancelled call, or an open abandoned by disconnect/close, is not a loop.
+      // Failed opens, server-side closes and failed calls spend the burst budget; a
+      // reconnect after a cancelled call, or an open abandoned by disconnect/close, does not.
       if (!this.closed && entry.approved) entry.attempts.push(Date.now());
       this.publish(entry, []);
       controller.abort();
