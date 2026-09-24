@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { cp, mkdir, mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { evaluateAcceptance, hiddenPaths, prepareWorkdir, referenceChanges, runEvalTask, type EvalTask } from "../evals/runner";
+import { evaluateAcceptance, gradePreparedEval, hiddenPaths, prepareEvalTask, prepareWorkdir, referenceChanges, runEvalTask, type EvalTask } from "../evals/runner";
 import type { AgentRuntime, RuntimeEvent, RuntimeEventListener, RuntimeStartOptions } from "../src/runtime/types";
 import { BENCHMARK_PACKS, EVAL_TASKS, packTasks } from "../evals/tasks";
 
@@ -120,3 +120,28 @@ test("through the real grader, the reference solution is accepted and an untouch
       .toEqual({ task: task.id, success: false, hidden: "fail" });
   }
 }, 300_000);
+
+test("a task that needs TypeScript gets a working `bun run typecheck` in the candidate, for every harness", async () => {
+  const typed = benchmark.filter((task) => task.tools?.includes("typescript"));
+  expect(typed.map((task) => task.id)).toEqual(["core-refactor-across-files"]);
+  for (const task of typed) {
+    const workdir = await prepareWorkdir(task, repoRoot);
+    cleanup.push(() => rm(workdir, { recursive: true, force: true }));
+    const run = Bun.spawnSync([process.execPath, "run", "typecheck"], { cwd: workdir, stdout: "pipe", stderr: "pipe" });
+    expect({ task: task.id, exit: run.exitCode, output: `${run.stdout}${run.stderr}`.slice(-300) }).toMatchObject({ task: task.id, exit: 0 });
+  }
+});
+
+test("a prepared task with linked tools can still be graded offline; only the candidate gets the tools", async () => {
+  const task = benchmark.find((entry) => entry.tools?.includes("typescript"))!;
+  const { root, workdir } = await prepareEvalTask(task, repoRoot);
+  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  expect(await exists(path.join(workdir, "node_modules/.bin/tsc"))).toBe(true);
+  expect(await exists(path.join(root, "evaluator/node_modules"))).toBe(false);
+  for (const top of task.candidatePaths) {
+    await rm(path.join(workdir, top), { recursive: true, force: true });
+    await cp(path.join(repoRoot, "evals/fixtures", task.fixture, top), path.join(workdir, top), { recursive: true });
+  }
+  const result = await gradePreparedEval(root, { startedAt: new Date().toISOString(), wallClockMs: 1, execution: "completed", modelCalls: 1, answer: "Done.", interventions: [] });
+  expect({ success: result.success, failures: result.acceptance.failures }).toEqual({ success: true, failures: [] });
+});
