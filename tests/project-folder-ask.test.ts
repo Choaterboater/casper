@@ -1,6 +1,6 @@
 import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
 import { EventEmitter } from "node:events";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -159,4 +159,20 @@ test("folder selection rejects sibling paths that only share the home prefix", a
     harness.input.destroy();
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test("without a rich terminal the home-folder hint gives a command that actually works", async () => {
+  // Real path: the launch folder is compared with HOME as given (macOS tmp is a symlink).
+  const home = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-folder-plain-")));
+  try {
+    const { PI_CODING_AGENT_DIR: _dir, ...inherited } = process.env;
+    const child = Bun.spawn([process.execPath, path.resolve(import.meta.dir, "../src/cli.ts")], {
+      cwd: home, env: { ...inherited, HOME: home, CASPER_PROFILE: "default" }, stdin: "ignore", stdout: "pipe", stderr: "pipe",
+    });
+    const [stdout, code] = await Promise.all([new Response(child.stdout).text(), child.exited]);
+    expect(code).toBe(0);
+    // `casper <path>` is a prompt (or an unknown /command), never a folder to open.
+    expect(stdout).toContain("[folder] Opened in your home directory; restart from a project folder: cd ~/Projects/myapp && casper");
+    expect(stdout).not.toContain("pass a path");
+  } finally { await rm(home, { recursive: true, force: true }); }
 });

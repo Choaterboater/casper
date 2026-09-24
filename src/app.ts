@@ -282,7 +282,8 @@ export class CasperApp {
     const home = this.sessionHomeDir ?? os.homedir();
     if (path.resolve(cwd) !== path.resolve(home)) return cwd;
     if (!this.terminal.rich) {
-      this.output.write(`[folder] Opened in your home directory; cd to a project and restart, or pass a path: casper ~/Projects/myapp\n`);
+      // The CLI takes no folder argument (`casper <path>` is a prompt), so only restarting works.
+      this.output.write(`[folder] Opened in your home directory; restart from a project folder: cd ~/Projects/myapp && casper\n`);
       return cwd;
     }
     const candidates = await findProjectCandidates(cwd, { homeDir: home });
