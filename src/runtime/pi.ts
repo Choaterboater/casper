@@ -339,8 +339,6 @@ class PiRuntimeSession implements RuntimeSession {
   }
 }
 
-/** Resolve existing state aliases and prospective missing suffixes without creating anything.
- * This is a bounded, non-atomic preflight, not protection against concurrent path replacement. */
 /** The workspace's own context file (AGENTS.md, CLAUDE.md) is repository-controlled: a committed
  * symlink must not send `~/.aws/credentials` to the provider. It loads only when its realpath
  * stays under the workspace. Ancestor and engine-store files are the user's own. */
@@ -352,6 +350,8 @@ export function containedContextFile(file: string, cwd: string): boolean {
   } catch { return false; }
 }
 
+/** Resolve existing state aliases and prospective missing suffixes without creating anything.
+ * This is a bounded, non-atomic preflight, not protection against concurrent path replacement. */
 async function canonicalStatePath(file: string, signal: AbortSignal): Promise<string> {
   if (Buffer.byteLength(file) > 4096) throw new Error("Writable runtime state path exceeds the preflight limit");
   let prefix = file;

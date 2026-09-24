@@ -132,7 +132,7 @@ Esc/Ctrl-C cancel the picker. Plain/redirected terminals list models; use an exa
 Restored conversations retain their model; missing/unavailable selections block sending.
 Without a restored selection or Casper default, choose with /model; there is no other fallback.
 Switching provider sends subsequent conversation context to that provider.
-The picker refreshes local catalogs only; selection does not generate a model response.
+The picker refreshes provider catalogs over the network unless PI_OFFLINE is set; selection does not generate a model response.
 Provider-defined credential checks may execute configured key-resolution commands.
 Checks: typecheck lint test build (all by default).
 Interactive sessions offer casper_check by default: the model may select trusted project
