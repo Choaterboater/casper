@@ -189,11 +189,11 @@ class PiRuntimeSession implements RuntimeSession {
     this.persistUnwrittenConversation();
   }
 
-  async resumeConversation(id: string): Promise<void> {
+  async resumeConversation(id: string, options: { keepUnwritten?: boolean } = {}): Promise<void> {
     if (this.busy || this.readOnly || this.models.busy) throw new Error("Wait for active work before resuming.");
     const saved = (await SessionManager.list(this.runtime.cwd)).filter(info => info.id === id);
     if (saved.length !== 1) throw new Error("Unknown or ambiguous conversation ID in this workspace. Use /resume to list IDs.");
-    this.persistUnwrittenConversation();
+    if (options.keepUnwritten !== false) this.persistUnwrittenConversation();
     const result = await this.runtime.switchSession(saved[0]!.path, { cwdOverride: this.runtime.cwd });
     if (result.cancelled) throw new Error("Resume cancelled.");
   }
