@@ -413,21 +413,26 @@ test("no supported patterns is a qualified empty result, not a fabricated candid
 
 test("invalid learning commands stay local and never fall through to an unrestricted prompt", async () => {
   const f = await fixture();
-  for (const args of [
+  // A malformed command line is a usage error (64); a well-formed one naming bad input fails (1).
+  const usage = [
     ["learn"], ["learn", "inspect", f.project], ["learn", f.project, "--promote"],
     ["learn", "promote", f.project],
+    ["learn", "promote", f.project, "00000000-0000-0000-0000-000000000000", "0".repeat(64), "1", "automatic"],
+    ["--verify", "learn", f.project], ["--mcp", "fixture", "learn", f.project], ["--lsp", "fixture", "learn", f.project],
+  ];
+  const invalid = [
     ["learn", "promote", f.project, "bad-id", "0".repeat(64), "1", "reference"],
     ["learn", "promote", f.project, "00000000-0000-0000-0000-000000000000", "0".repeat(64), "zero", "reference"],
-    ["learn", "promote", f.project, "00000000-0000-0000-0000-000000000000", "0".repeat(64), "1", "automatic"],
     ["learn", "promote", f.project, "00000000-0000-0000-0000-000000000000", "0".repeat(64), "1", "global-skill"],
     ["learn", "promote", f.project, "00000000-0000-0000-0000-000000000000", "0".repeat(64), "1", "reference", "extra-name"],
     ["learn", "https://example.com/repo"], ["learn", "git@example.com:repo"],
     ["learn", path.join(f.root, "missing")], ["learn", path.join(f.project, "pattern.txt")], ["learn", f.home],
-    ["--verify", "learn", f.project], ["--mcp", "fixture", "learn", f.project], ["--lsp", "fixture", "learn", f.project],
-  ]) {
-    const result = await f.run(args);
-    expect(result.exit).toBe(1);
-    expect(result.stdout).toBe("");
+  ];
+  for (const [expected, list] of [[64, usage], [1, invalid]] as const) {
+    for (const args of list) {
+      const result = await f.run(args);
+      expect({ args, exit: result.exit, stdout: result.stdout }).toEqual({ args, exit: expected, stdout: "" });
+    }
   }
   expect(f.payloads).toEqual([]);
   expect(JSON.parse((await f.run(["learn", "list", f.project])).stdout).drafts).toEqual([]);

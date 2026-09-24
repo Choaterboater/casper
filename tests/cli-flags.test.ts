@@ -3,6 +3,7 @@ import { chmod, mkdir, mkdtemp, readdir, realpath, rm, symlink, writeFile } from
 import os from "node:os";
 import path from "node:path";
 import { verificationFlag } from "../src/cli";
+import { parseCliArgs, UsageError } from "../src/cli-args";
 import { resolveVerificationMode } from "../src/verify/mode";
 import { CASPER_VERSION } from "../src/version";
 import { needsPosixModes, posixOnly } from "./support/platform";
@@ -45,7 +46,7 @@ test("--verify --no-verify is rejected before any work starts", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-cli-flags-"));
   tempDirs.push(root);
   const result = await run([cli, "--verify", "--no-verify", "Summarize"], root);
-  expect({ code: result.code, stdout: result.stdout }).toEqual({ code: 1, stdout: "" });
+  expect({ code: result.code, stdout: result.stdout }).toEqual({ code: 64, stdout: "" });
   expect(result.stderr).toContain("--verify and --no-verify cannot be combined");
 });
 
@@ -53,7 +54,7 @@ test("a flag following --mcp or --lsp is not taken as a server name", async () =
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-cli-flags-"));
   tempDirs.push(root);
   const result = await run([cli, "--mcp", "--verify", "Summarize"], root);
-  expect({ code: result.code, stdout: result.stdout }).toEqual({ code: 1, stdout: "" });
+  expect({ code: result.code, stdout: result.stdout }).toEqual({ code: 64, stdout: "" });
   expect(result.stderr).toContain("--mcp requires a configured server name");
 });
 
@@ -153,12 +154,12 @@ posixOnly("the source CLI run through its shebang ignores the opened directory's
   expect(await Bun.file(marker).exists()).toBe(false);
 });
 
-test("an unrecognized leading option is a usage error, never a model prompt", async () => {
+test("an unrecognized leading option is a usage error (exit 64), never a model prompt", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-cli-flags-"));
   tempDirs.push(root);
-  for (const args of [["--bogus"], ["--no-verfy"], ["--model", "foo", "hi"], ["--no-verify", "--session", "x", "hi"], ["-x"]]) {
+  for (const args of [["--bogus"], ["--no-verfy"], ["--no-verify", "--session", "x", "hi"], ["-x"]]) {
     const result = await run([cli, ...args], root);
-    expect({ args, code: result.code, stdout: result.stdout }).toEqual({ args, code: 2, stdout: "" });
+    expect({ args, code: result.code, stdout: result.stdout }).toEqual({ args, code: 64, stdout: "" });
     expect(result.stderr).toContain(`Unknown option ${args.find((arg) => arg.startsWith("-") && arg !== "--no-verify")}`);
     expect(result.stderr).toContain("casper --help");
   }
@@ -187,4 +188,43 @@ test("-- ends option parsing, so a prompt may start with a dash", async () => {
   const result = await run([cli, "--", "--", "--bogus", "is", "a", "prompt"], root);
   expect(result.stderr).not.toContain("Unknown option");
   expect(result.stdout).toContain("> --bogus is a prompt");
+});
+
+test("parseCliArgs reads leading options only; the rest is the prompt", () => {
+  expect(parseCliArgs(["--verify", "--verbose", "fix", "the", "-v", "flag"])).toMatchObject({
+    verify: true, verbose: true, noVerify: false, command: "prompt", rest: ["fix", "the", "-v", "flag"],
+  });
+  expect(parseCliArgs(["--mcp", "docs", "--lsp", "ts", "--mcp", "docs"])).toMatchObject({ servers: ["docs"], languageServers: ["ts"], command: "interactive", rest: [] });
+  expect(parseCliArgs(["--", "--bogus", "prompt"])).toMatchObject({ command: "prompt", rest: ["--bogus", "prompt"] });
+  expect(parseCliArgs(["--no-verify", "--version"])).toMatchObject({ info: "version" });
+  // An informational flag wins over option conflicts: it runs nothing.
+  expect(parseCliArgs(["--verify", "--no-verify", "--help"])).toMatchObject({ info: "help" });
+  expect(parseCliArgs(["learn", "list", "/repo"])).toMatchObject({ command: "learn", rest: ["learn", "list", "/repo"] });
+});
+
+test("parseCliArgs rejects every usage mistake with a UsageError", () => {
+  const cases: Array<[string[], string]> = [
+    [["--bogus"], "Unknown option --bogus"],
+    [["-x", "hi"], "Unknown option -x"],
+    [["--verify", "--no-verify", "hi"], "--verify and --no-verify cannot be combined"],
+    [["--mcp", "--verify", "hi"], "--mcp requires a configured server name"],
+    [["--lsp"], "--lsp requires a configured server name"],
+    [["--verify", "learn", "/repo"], "learn cannot be combined with options"],
+  ];
+  for (const [args, message] of cases) {
+    let error: unknown;
+    try { parseCliArgs(args); } catch (caught) { error = caught; }
+    expect({ args, usage: error instanceof UsageError }).toEqual({ args, usage: true });
+    expect((error as Error).message).toContain(message);
+  }
+});
+
+test("learn usage mistakes exit 64 before any learning starts", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-cli-flags-"));
+  tempDirs.push(root);
+  for (const args of [["learn"], ["learn", "promote", "/repo"], ["--verify", "learn", "/repo"]]) {
+    const result = await run([cli, ...args], root);
+    expect({ args, code: result.code, stdout: result.stdout }).toEqual({ args, code: 64, stdout: "" });
+    expect(result.stderr).toMatch(/Usage: casper learn|learn cannot be combined/);
+  }
 });
