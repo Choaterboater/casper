@@ -152,11 +152,14 @@ export class PiModels {
     create: (options: { settingsManager: SettingsManager; modelRuntime: ModelRuntime; model: AgentSession["model"] }) => Promise<T>,
     readOnly?: RuntimeReadOnlyStartOptions): Promise<T> {
     const preferences = this.preferences();
-    const shared = readOnly ? undefined : SettingsManager.create(cwd, this.agentDir);
+    // A repository is never trusted implicitly: projectTrusted:false is Pi's single gate for
+    // `.pi/` extensions (in-process code), SYSTEM.md/APPEND_SYSTEM.md, prompts, themes and
+    // settings. The loader reads it from the session's settings, so both managers carry it.
+    const shared = readOnly ? undefined : SettingsManager.create(cwd, this.agentDir, { projectTrusted: false });
     const settingsManager = SettingsManager.inMemory({
       ...(shared ? withoutModels(shared.getGlobalSettings()) : { compaction: { enabled: false }, retry: { enabled: false } }),
       defaultThinkingLevel: preferences.getDefaultThinkingLevel(), modelThinkingLevels: preferences.getAllModelThinkingLevels(),
-    });
+    }, { projectTrusted: false });
     if (shared) settingsManager.applyOverrides(withoutModels(shared.getProjectSettings()));
     const recorded = manager.buildSessionContext().model;
     const roles = this.getRoles();
