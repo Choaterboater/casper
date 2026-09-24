@@ -11,7 +11,7 @@ export interface ProjectContext {
   profileName: string;
   policy: CasperPolicy;
   skills: LoadedConfiguration["skills"];
-  verification: { timeoutMs: number };
+  verification: LoadedConfiguration["verification"];
   repair: { maxAttempts: number };
   visualize: VisualizationSettings;
   rules: {
