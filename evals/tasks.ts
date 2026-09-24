@@ -1,11 +1,13 @@
-import type { EvalTask, EvalVerification } from "./runner";
+import { CORE_PACK } from "./packs";
+import type { EvalPack, EvalTask, EvalVerification } from "./runner";
 
 /** `{{bun}}` is the running Bun executable; `{{tsc}}` is this repository's TypeScript compiler.
  * Both are absolute paths, so a fixture's verification never depends on the child PATH. */
 const BUN_TEST: EvalVerification = { name: "bun test", argv: ["{{bun}}", "test"] };
 const TSC: EvalVerification = { name: "tsc --noEmit", argv: ["{{bun}}", "{{tsc}}", "--noEmit", "-p", "tsconfig.json"] };
 
-/** The evaluation catalog. Fixtures are the solved baseline; `setup` overlays the unsolved state. */
+/** The evaluation catalog. Fixtures are the solved baseline; `setup` overlays the unsolved state.
+ * The quality-benchmark packs (evals/packs.ts) follow Casper's own regression tasks. */
 export const EVAL_TASKS: readonly EvalTask[] = [
   {
     id: "add-api-endpoint",
@@ -205,7 +207,15 @@ export const EVAL_TASKS: readonly EvalTask[] = [
     initialVerification: "fail",
     acceptance: { changed: ["src/"], allowedChanges: ["src/"] },
   },
+  ...CORE_PACK,
 ];
+
+/** Quality-benchmark packs, reported separately; only `core` gates every phase. */
+export const BENCHMARK_PACKS: readonly EvalPack[] = ["core"];
+
+export function packTasks(pack: EvalPack): EvalTask[] {
+  return EVAL_TASKS.filter((task) => task.pack === pack);
+}
 
 export function findEvalTask(id: string): EvalTask | undefined {
   return EVAL_TASKS.find((task) => task.id === id);

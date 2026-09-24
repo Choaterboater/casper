@@ -23,3 +23,8 @@ describing the new shape, and `tsc` over `tests/` is what forces the data to fol
 `report-blocked-fix` only *adds* `tests/large-pages.test.ts`, a test the fixture's
 `CONTEXT.md` forbids satisfying. The solved fixture has no such test (green); the setup
 makes it red and the task expects it to stay red.
+
+Quality-benchmark setups (`evals/packs.ts`) list `"acceptance/"` in `remove.json`. An entry
+ending in `/` removes a whole directory, so the solved fixture's hidden acceptance tests
+never reach the candidate; the frozen evaluator still runs them. Several of these setups
+also remove reference-only source files (for example `src/cli.ts`) that the task must create.
