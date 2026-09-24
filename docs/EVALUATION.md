@@ -24,6 +24,9 @@ evals/
 ├── fixtures/     solved baseline repositories (one per project shape)
 ├── setups/       overlays that turn a baseline into one task's unsolved state
 ├── tasks.ts      the task catalog (prompt, verification, acceptance)
+├── packs.ts      quality-benchmark packs: core (8 tasks)
+├── harness.ts    runs the Casper or Pi CLI with identical inputs and an isolated home
+├── quality.ts    rubric scores from host evidence only
 ├── scenarios.ts  cancellation/restart/resume, delegation and clarify-loop protocols
 ├── runner.ts     prepare → run → measure → verify → grade
 └── report.ts     per-attempt outcomes (one per run, one per task under --repeat) and summary
@@ -129,6 +132,50 @@ What the three harder single-module tasks measure:
 
 The two fulfillment tasks are multi-module feature/repair work in a new repository,
 prepared for the credential-free protocol below.
+
+## Quality-benchmark packs
+
+The Phase 3 benchmark compares Casper and Pi on the same model, effort, prompt and
+time limit. Its tasks live in `evals/packs.ts` and are reported per pack: **core**
+(domain-neutral, gates every phase); domain packs are reported separately so no single
+domain skews the headline. Each task has its own fixture;
+none reuses a fixture from the tasks above.
+
+**Hidden acceptance tests.** Every pack fixture is the reference solution plus an
+`acceptance/` directory of tests the model never sees: the setup's `remove.json`
+lists `acceptance/` (an entry ending in `/` removes a directory), and the frozen
+evaluator runs `bun test ./tests` (the visible tests) and `bun test ./acceptance`
+(the hidden ones) as separate checks. Prompts say that hidden acceptance tests exist
+but never where they are. The contract is in the prompt and in the fixture's
+`CONTEXT.md`. Neither harness loads `CONTEXT.md` on its own (both read `AGENTS.md`),
+so every prompt says to read it first.
+
+**Predicates.** `acceptance` holds only rules the prompt states (no dependency or
+project-configuration changes; for the refactor, no `fullName` left; for the flaky
+test, no sleeps, skips or deleted tests). `conventions` are named predicates for the
+Conventional score (file placement, exports, edits limited to `src/` and `tests/`).
+They never decide success. `referenceChanges(task)` gives the reference solution's
+changed paths, which is the baseline for the Focused score.
+
+| Pack | Task | Fixture | What the hidden tests pin down |
+| --- | --- | --- | --- |
+| core | `core-rest-validation` | notes-api | `POST /notes`: 201 + Location, 400/415/422 with every offending field, no write on reject |
+| core | `core-ui-tabs` | ui-kit | WAI-ARIA tabs markup (order-independent), roving tabindex, keys, escaping, errors |
+| core | `core-portcheck-cli` | portcheck | `--json` rows, `--tls` expiry from a loopback TLS server, tls-error vs timeout, usage 64 |
+| core | `core-resilient-client` | api-client | cursor pagination, 429 Retry-After, 5xx backoff, loop detection, `TimeoutError` via abort |
+| core | `core-log-parser` | log-parser | quoting and escapes, continuations, CRLF, impossible dates, problems with line numbers |
+| core | `core-refactor-across-files` | people | `fullName` → structured name across modules; `bun test` **and** `tsc` over src, tests and acceptance |
+| core | `core-flaky-test` | ttl-cache | injected clock, exact TTL boundary, the candidate's own tests rerun 20 times |
+| core | `core-mcp-tool` | mcp-server-kit | schema, annotations, literal matching, `limit` and 4000-character bound, tool errors |
+
+All fixture data is synthetic. The TLS key in `portcheck/acceptance/certs` is a throwaway
+self-signed test key for `portcheck.example.com`.
+
+`tests/eval-packs.test.ts` checks, with no model: the hidden tests never reach the
+candidate, the reference solution satisfies every acceptance and convention
+predicate, and through the real grader the reference solution is accepted while an
+untouched workspace is not. The fixture/setup matrix in `tests/eval-suite.test.ts`
+covers the packs too.
 
 ## Metrics and their sources
 
