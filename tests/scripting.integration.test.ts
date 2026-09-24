@@ -128,7 +128,7 @@ test("--continue picks up the latest conversation and --resume the one whose ID 
   await Bun.sleep(20);
   expect((await f.run(["remember BRAVO"])).exit).toBe(0);
   const [bravo, alpha] = await savedConversations(f);
-  expect(alpha && bravo).toBeTruthy();
+  expect(alpha && bravo && alpha !== bravo).toBeTruthy();
 
   const continued = await f.run(["--continue", "which word?"]);
   expect({ exit: continued.exit, stderr: continued.stderr }).toEqual({ exit: 0, stderr: "" });
@@ -140,6 +140,10 @@ test("--continue picks up the latest conversation and --resume the one whose ID 
   expect({ exit: resumed.exit, stderr: resumed.stderr }).toEqual({ exit: 0, stderr: "" });
   expect(userText(f.payloads.at(-1)!)).toContain("remember ALPHA");
   expect(userText(f.payloads.at(-1)!)).not.toContain("remember BRAVO");
+
+  // One-shot flags change nothing for later runs: a plain prompt still starts a new conversation.
+  expect((await f.run(["a fresh question"])).exit).toBe(0);
+  expect(userText(f.payloads.at(-1)!)).not.toMatch(/remember (ALPHA|BRAVO)/);
 
   const requests = f.payloads.length;
   let shared = 0;
