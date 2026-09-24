@@ -109,7 +109,7 @@ unless `--session` follows the level. Shift+Tab cycles the same choices, includi
 `auto`, for the current conversation only and does not save. Explicit suffixes take precedence, then
 the current branch's remembered per-model preference, then the saved per-model
 preference. Existing conversations and forks retain their concrete model and
-configured effort even after role mappings change. Shared Pi and project-local
+configured effort even after role mappings change. Pi CLI and project-local
 Pi model preferences are neither inherited nor rewritten.
 
 Cancelling model selection before activation leaves the prior choice intact. If

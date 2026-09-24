@@ -64,7 +64,7 @@ provider's responses.
 The prompt box keeps a fixed two-column gutter: `❯` while idle, `…` while a
 command is working, `?` while an exact approval is pending. The box never shifts
 horizontally between states, so a draft keeps its wrapping. The footer shows a
-state dot (`●` working, `○` idle), then project/branch, provider/model, effort,
+state glyph (braille spinner while working, `○` idle), then project/branch, provider/model, effort,
 estimated context occupancy, runtime-reported session tokens, a positive cost
 estimate when available, and idle/working state. `—` means unavailable, `~`
 means estimated. Branch is the project inspection snapshot; `/status` refreshes
@@ -131,7 +131,7 @@ popups/pickers, or a duplicated prompt box (`bun test tests/terminal-layout.test
 
 Restored conversations retain their recorded model/effort. Missing credentials or
 an unavailable model still block sending rather than silently choosing another
-provider. Shared Pi defaults are not rewritten. Selecting a model generates no
+provider. Pi CLI defaults are neither read nor rewritten. Selecting a model generates no
 model response; subsequent requests send context to the selected provider.
 Explorer/reviewer children use Casper roles or its startup default. Auto effort
 makes one extra bounded current-request-only classifier call using `fast`, or
@@ -145,8 +145,8 @@ unreported failed-request cost is unknown, not zero.
 
 `/login` offers Codex and GitHub Copilot device-code login, Anthropic/Claude and
 OpenRouter API-key or browser sign-in. `/login <provider-id>` skips only the
-provider chooser. Every method requires fresh consent to provider-scoped shared
-credential replacement; login does not select a model. Browser sign-in opens the system
+provider chooser. Every method requires fresh consent to provider-scoped
+credential replacement in Casper's store (`~/.casper/agent/auth.json`); login does not select a model. Browser sign-in opens the system
 browser automatically; offline mode (PI_OFFLINE=1) suppresses the launch and keeps the URL
 printed for manual opening.
 Typed API keys are verified with the provider before they are stored; a rejected
