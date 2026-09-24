@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import type { Dirent } from "node:fs";
+import { safeGitArgs } from "../platform/git";
 import { PROJECT_SIGNAL_NAMES } from "./model";
 
 const execFileAsync = promisify(execFile);
@@ -18,7 +19,7 @@ export interface ProjectInfo {
 
 async function git(args: string[], cwd: string): Promise<string | null> {
   try {
-    const { stdout } = await execFileAsync("git", args, { cwd });
+    const { stdout } = await execFileAsync("git", safeGitArgs(args), { cwd });
     return stdout.trim() || null;
   } catch {
     return null;

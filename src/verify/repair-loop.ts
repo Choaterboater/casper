@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { safeGitArgs } from "../platform/git";
 import type { ProjectCommand } from "../project/model";
 import { verificationStatus, type VerificationReport, type VerificationResult } from "./evidence";
 import type { VerifierRegistry } from "./registry";
@@ -9,7 +10,7 @@ const execFileAsync = promisify(execFile);
 
 async function changedFiles(cwd: string, signal?: AbortSignal): Promise<string> {
   try {
-    const { stdout } = await execFileAsync("git", ["status", "--short", "--untracked-files=normal"], { cwd, timeout: 2000, maxBuffer: 16_384, signal });
+    const { stdout } = await execFileAsync("git", safeGitArgs(["status", "--short", "--untracked-files=normal"]), { cwd, timeout: 2000, maxBuffer: 16_384, signal });
     return stdout.trim() || "No Git changes reported.";
   } catch {
     return "Git changed-file context unavailable (not a repository or output limit exceeded).";

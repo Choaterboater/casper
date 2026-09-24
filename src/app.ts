@@ -46,6 +46,7 @@ import { WORDMARK_COLUMNS, renderBanner, renderProjectSummary, renderWordmark } 
 import type { ProjectCommand } from "./project/model";
 import { CHECK_NAMES, formatVerificationReport, formatVerificationResult, type VerificationReport, type VerificationResult } from "./verify/evidence";
 import { ProcessCleanupError } from "./platform/processes";
+import { safeGitArgs } from "./platform/git";
 import { VerifierRegistry } from "./verify/registry";
 import { verifyAndRepair } from "./verify/repair-loop";
 import { VerificationTask } from "./verify/task";
@@ -799,7 +800,7 @@ export class CasperApp {
 
   /** Bounded read-only git query in the active workspace; oversized output is marked, not silently cut. */
   async git(args: string[]): Promise<string> {
-    try { return (await promisify(execFile)("git", ["--no-pager", ...args], {
+    try { return (await promisify(execFile)("git", safeGitArgs(["--no-pager", ...args]), {
       cwd: this.activeWorkspaceRoot(), timeout: 5000, maxBuffer: 64 * 1024,
     })).stdout; }
     catch (error) {
