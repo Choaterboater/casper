@@ -1,18 +1,20 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, realpath, rm, symlink } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { resolveAutoVerify } from "../src/cli";
 import { CASPER_VERSION } from "../src/version";
-import { posixOnly } from "./support/platform";
+import { needsPosixModes, posixOnly } from "./support/platform";
 
 const cli = path.resolve(import.meta.dir, "../src/cli.ts");
 const tempDirs: string[] = [];
 afterEach(async () => { for (const dir of tempDirs.splice(0)) await rm(dir, { recursive: true, force: true }); });
 
-async function run(args: string[], cwd: string) {
+async function run(args: string[], cwd: string, home = cwd) {
+  // The CLI defaults its engine store only when PI_CODING_AGENT_DIR is unset.
+  const { PI_CODING_AGENT_DIR: _inherited, ...inherited } = process.env;
   const child = Bun.spawn([process.execPath, ...args], {
-    cwd, env: { ...process.env, HOME: cwd, CASPER_PROFILE: "default" }, stdout: "pipe", stderr: "pipe",
+    cwd, env: { ...inherited, HOME: home, CASPER_PROFILE: "default" }, stdout: "pipe", stderr: "pipe",
   });
   const [stdout, stderr, code] = await Promise.all([
     new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited,
@@ -52,4 +54,47 @@ posixOnly("--version names the cli.ts that actually runs, through a PATH-style s
   const result = await run([link, "--version"], root);
   expect({ code: result.code, stderr: result.stderr }).toEqual({ code: 0, stderr: "" });
   expect(result.stdout).toBe(`casper ${CASPER_VERSION} (${await realpath(cli)})\n`);
+});
+
+/** A Pi CLI user's home: the first Casper run would import these credentials. */
+async function piUserHome(): Promise<string> {
+  const home = await mkdtemp(path.join(os.tmpdir(), "casper-cli-flags-home-"));
+  tempDirs.push(home);
+  await mkdir(path.join(home, ".pi/agent"), { recursive: true, mode: 0o700 });
+  await writeFile(path.join(home, ".pi/agent/auth.json"), JSON.stringify({ fixture: { type: "api_key", key: "synthetic-legacy" } }), { mode: 0o600 });
+  return home;
+}
+
+test("--version, --help and --licenses have no side effects: one version line, no store, no import", async () => {
+  const home = await piUserHome();
+  const version = await run([cli, "--version"], home);
+  expect({ code: version.code, stderr: version.stderr }).toEqual({ code: 0, stderr: "" });
+  // The installers identify the binary by this exact single line.
+  expect(version.stdout).toMatch(/^casper \S+ \([^\n]*\)\n$/);
+  for (const flag of ["--help", "--licenses"]) {
+    const result = await run([cli, flag], home);
+    expect({ flag, code: result.code, imported: result.stdout.includes("[auth]") }).toEqual({ flag, code: 0, imported: false });
+  }
+  // Bun's own transpiler cache may appear under HOME; Casper's store must not.
+  expect((await readdir(home)).filter((name) => name !== "Library" && name !== ".cache")).toEqual([".pi"]);
+});
+
+test("a real session reports the one-time credential import on stderr, not stdout", async () => {
+  const home = await piUserHome();
+  const result = await run([cli, "/help"], home);
+  expect(result.code).toBe(0);
+  expect(result.stdout).not.toContain("[auth]");
+  expect(result.stderr).toContain("[auth] Imported existing credentials into ~/.casper/agent.");
+  expect(await Bun.file(path.join(home, ".casper/agent/auth.json")).exists()).toBe(true);
+});
+
+needsPosixModes("a read-only HOME still prints the version and help", async () => {
+  const home = await piUserHome();
+  await chmod(home, 0o500);
+  try {
+    for (const flag of ["--version", "--help"]) {
+      const result = await run([cli, flag], home);
+      expect({ flag, code: result.code, stderr: result.stderr }).toEqual({ flag, code: 0, stderr: "" });
+    }
+  } finally { await chmod(home, 0o700); }
 });
