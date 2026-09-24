@@ -245,6 +245,21 @@ test("partial slash selection inserts a command without executing it", async () 
   } finally { terminal.close(); input.destroy(); }
 });
 
+test("Enter on a partial slash command repaints the completed command at once", async () => {
+  const input = Object.assign(new PassThrough(), { isTTY: true, setRawMode() {} });
+  let output = "";
+  const terminal = new InteractiveTerminal(input, { isTTY: true, columns: 100, rows: 24, write: text => { output += text; } }, () => {}, () => {});
+  try {
+    terminal.setStatus("fixture"); terminal.start();
+    void terminal.readCommand();
+    input.write("/sta"); await tick();
+    const before = output.length;
+    input.write("\r"); await tick();
+    // The completion is on screen after Enter, before any other key forces a redraw.
+    expect(Bun.stripANSI(output.slice(before))).toContain("/status");
+  } finally { terminal.close(); input.destroy(); }
+});
+
 test("interactive input shows persistent status and slash discovery without submitting or losing drafts", async () => {
   const input = Object.assign(new PassThrough(), { isTTY: true, setRawMode() {} });
   let output = "";

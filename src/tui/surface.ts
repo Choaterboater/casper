@@ -175,7 +175,10 @@ export class TerminalSurface {
       if (matchesKey(data, "enter") && this.editor.isShowingAutocomplete()) {
         if (COMMANDS.some(command => this.editor.getText().trim().split(/\s+/)[0] === `/${command.name}`)) {
           this.editor.handleInput("\x1b"); // Submit exact commands literally, not a stale completion.
-        } else { this.editor.handleInput("\t"); return { consume: true }; }
+        } else {
+          // Consuming skips pi-tui's own post-input render, so paint the completion now.
+          this.editor.handleInput("\t"); this.render(); return { consume: true };
+        }
       }
       if (matchesKey(data, "ctrl+c")) { this.interrupt(); return { consume: true }; }
       if (matchesKey(data, "ctrl+d") && !this.editor.getText()) { this.close(); return { consume: true }; }
