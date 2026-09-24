@@ -8,7 +8,10 @@ Tests use a local UDP mock server; no real RADIUS server or secret is involved.
 - `src/packet.ts`: encoding/decoding. `encodeAccessRequest` (User-Name, hidden User-Password,
   NAS-Identifier) and `decodePacket` are done and tested.
 - `src/client.ts`: `radiusTest(options)` sends the request over UDP and interprets the reply.
-- `src/cli.ts`: `main(argv, io)` for the command line; never calls `process.exit`.
+- `src/cli.ts`: `main(argv, io)` for the command line, where `io` is `{ out(text: string): void; err(text: string): void }` (both
+  write text exactly as given, like `process.stdout.write`: include the `\n` at the end of every line). `argv` holds only the arguments
+  (like `process.argv.slice(2)`), never the runtime or script path;
+  it returns the exit code and never calls `process.exit`.
 
 ## Protocol rules the client must follow
 

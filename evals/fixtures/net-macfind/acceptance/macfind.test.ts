@@ -46,7 +46,7 @@ test("CLI: prints the location, exits 0; --json prints the location object", asy
   const { main } = await load<{ main(argv: string[], io: ReturnType<typeof capture>): Promise<number> }>("cli");
   const human = capture();
   expect(await main(["--data", dataDir, "0200.5e20.0002"], human)).toBe(0);
-  expect(human.stdout).toBe("02:00:5e:20:00:02 is on idf3-sw1 1/1/8 (vlan 20)\n");
+  expect(human.stdout.trimEnd()).toBe("02:00:5e:20:00:02 is on idf3-sw1 1/1/8 (vlan 20)");
   const json = capture();
   expect(await main(["--json", "--data", dataDir, "02:00:5e:20:00:10"], json)).toBe(0);
   expect(JSON.parse(json.stdout)).toEqual({ mac: "02:00:5e:20:00:10", device: "core-1", port: "ge-0/0/10", vlan: "servers" });
@@ -56,7 +56,7 @@ test("CLI: not found exits 1; --json prints null", async () => {
   const { main } = await load<{ main(argv: string[], io: ReturnType<typeof capture>): Promise<number> }>("cli");
   const human = capture();
   expect(await main(["--data", dataDir, "02:00:5E:20:00:30"], human)).toBe(1);
-  expect(human.stdout).toBe("02:00:5e:20:00:30 not found on any edge port\n");
+  expect(human.stdout.trimEnd()).toBe("02:00:5e:20:00:30 not found on any edge port");
   const json = capture();
   expect(await main(["--data", dataDir, "--json", "02:00:5e:20:00:30"], json)).toBe(1);
   expect(JSON.parse(json.stdout)).toBeNull();

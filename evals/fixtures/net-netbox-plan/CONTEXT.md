@@ -12,7 +12,8 @@ change. It is a dry run: it must never send anything but `GET`. Tests use a loca
 
 ## Plan rules
 
-- Match source and NetBox devices by exact `name`. Source names must be unique (else throw).
+- Match source and NetBox devices by exact `name`. Source names must be unique (else throw). NetBox
+  devices without a name (null or empty) cannot match anything and are ignored entirely.
 - Compared fields, in this order: `serial`, `site` (slug), `role` (slug), `primaryIp4` (address with prefix).
   Missing, null and empty-string values are all "no value".
 - `create`: source devices missing from NetBox. `update`: matched devices with differences, listing
