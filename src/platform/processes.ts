@@ -124,16 +124,21 @@ export function ownSpawnedTree(pid: number | null | undefined, alive: () => bool
 /**
  * One termination policy for every spawned tree: the POSIX process group when
  * the OS has groups, otherwise verified OS descendants (never reported PIDs).
+ * `alive` is the caller's own view of the root (exitCode/signalCode). Only a root
+ * that is not a group leader (the MCP SDK spawns without `detached`) needs the
+ * bare-PID fallback, and only while it provably has not been reaped: a reaped
+ * PID may already belong to an unrelated process.
  */
-export function terminateTree(owner: OwnedProcesses | undefined, group: number | null | undefined, signal: NodeJS.Signals): Promise<CleanupOutcome> {
+export function terminateTree(owner: OwnedProcesses | undefined, group: number | null | undefined, signal: NodeJS.Signals,
+  alive?: () => boolean): Promise<CleanupOutcome> {
   // The owner decides the platform. This is also the simulated-Windows test seam.
   if (owner) return owner.stop();
   if (group === null || group === undefined) return Promise.resolve("stopped");
   if (osSupportsProcessGroups) {
     try { process.kill(-group, signal); }
     catch (error) {
-      // A root that is not a group leader has no group to signal; target it directly.
-      if ((error as NodeJS.ErrnoException).code === "ESRCH") { try { process.kill(group, signal); } catch { /* already exited */ } }
+      // A root that is not a group leader has no group to signal; target it directly while alive.
+      if ((error as NodeJS.ErrnoException).code === "ESRCH" && alive?.()) { try { process.kill(group, signal); } catch { /* already exited */ } }
     }
     // POSIX retains its existing best-effort exact-group signal policy. This is
     // not an OS-parentage verification of every descendant's exit.

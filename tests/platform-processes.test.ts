@@ -156,6 +156,34 @@ posixOnly("simulated Windows MCP cleanup still signals the stdio root after the 
   } finally { clearTimeout(timer); }
 }, 20_000);
 
+// POSIX groups: a non-leader PID has no group, so only the liveness-gated bare-PID path can reach it.
+posixOnly("the bare-PID fallback signals only a child its caller still sees alive", async () => {
+  const calls: string[] = [];
+  const kill = process.kill;
+  process.kill = ((pid: number, signal?: NodeJS.Signals | number) => { calls.push(`${pid} ${signal}`); return kill.call(process, pid, signal); }) as typeof process.kill;
+  cleanups.push(() => { process.kill = kill; });
+  // Reaped non-detached child: its PID may already be reused, so nothing may target it.
+  const reaped = spawn(process.execPath, ["-e", ""], { stdio: "ignore" });
+  await new Promise(resolve => reaped.once("close", resolve));
+  expect(await terminateTree(undefined, reaped.pid, "SIGKILL", () => reaped.exitCode === null && reaped.signalCode === null)).toBe("stopped");
+  expect(calls).toEqual([`-${reaped.pid} SIGKILL`]);
+  // An unrelated live non-leader without a caller predicate is never signalled by PID.
+  const unrelated = spawn(process.execPath, ["-e", "setTimeout(() => {}, 30000)"], { stdio: "ignore" });
+  cleanups.push(() => { unrelated.kill("SIGKILL"); });
+  calls.length = 0;
+  await terminateTree(undefined, unrelated.pid, "SIGKILL");
+  expect(calls).toEqual([`-${unrelated.pid} SIGKILL`]);
+  expect(unrelated.exitCode === null && unrelated.signalCode === null).toBe(true);
+  // A live non-detached child (the MCP SDK spawn shape) is still terminated.
+  calls.length = 0;
+  const live = spawn(process.execPath, ["-e", "setTimeout(() => {}, 30000)"], { stdio: "ignore" });
+  const closed = new Promise(resolve => live.once("close", resolve));
+  await terminateTree(undefined, live.pid, "SIGKILL", () => live.exitCode === null && live.signalCode === null);
+  expect(calls).toEqual([`-${live.pid} SIGKILL`, `${live.pid} SIGKILL`]);
+  await closed;
+  expect(live.signalCode).toBe("SIGKILL");
+});
+
 test("tree termination never throws for a root that no longer exists", () => {
   // A pid beyond any real allocation cannot name a live process or group.
   expect(() => terminateTree(undefined, 2_147_483_647, "SIGKILL")).not.toThrow();
