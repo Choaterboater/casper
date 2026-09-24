@@ -118,12 +118,20 @@ export class InteractiveTerminal {
   private discardPartialLine(): void {
     // Plain readline has a separate unfinished-line buffer. Flush it while
     // discarding so stale fragments cannot answer approval or become commands.
+    // A closed interface has no buffer left, and writing to it throws (EOF during an approval).
+    if (this.closed) return;
     this.discardingInput = true;
     try { this.rl?.write("\n"); } finally { this.discardingInput = false; }
   }
 
   confirm(preview: string, question: string, signal?: AbortSignal): Promise<boolean> {
     if (this.surface) return this.surface.confirm(preview, question, signal);
+    // Lines queued ahead of an approval were written before its preview existed: they can neither
+    // answer it nor, once it settles, silently become later commands or paid prompts.
+    if (this.earlyLines.length) {
+      this.write(`[input] Discarded ${this.earlyLines.length} line(s) entered before this approval appeared.\n`);
+      this.earlyLines.length = 0;
+    }
     if (!this.rl || this.closed || this.confirmation || signal?.aborted) return Promise.resolve(false);
     if ((this.input as NodeJS.ReadStream).isTTY) {
       this.write("[input] Exact approval denied: use an interactive terminal with TERM other than dumb and output not redirected.\n");

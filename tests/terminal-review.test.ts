@@ -64,3 +64,17 @@ test("plain redirected output still streams incomplete assistant text before com
     expect(output()).toBe("Hello world\n");
   } finally { terminal.close(); input.destroy(); }
 });
+
+test("lines piped ahead of an approval are discarded, never answering it or becoming later prompts", async () => {
+  const { input, terminal } = terminalFixture();
+  try {
+    const command = terminal.readCommand();
+    input.write("/branch x\nyes\nsecond prompt\n");
+    expect(await command).toBe("/branch x");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const approval = terminal.confirm("Exact operation\n", "Type yes: ");
+    input.end();
+    expect(await approval).toBe(false);
+    expect(await terminal.readCommand()).toBeUndefined();
+  } finally { terminal.close(); input.destroy(); }
+});
