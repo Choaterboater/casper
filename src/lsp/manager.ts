@@ -1,7 +1,7 @@
 import { realpath } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import type { LSPConfiguration, LSPServerDefinition } from "./config";
+import { projectLSPDefinitionReview, type LSPConfiguration, type LSPServerDefinition } from "./config";
 import { LSPConnection, record } from "./protocol";
 import { ProcessCleanupError } from "../platform/processes";
 import { applyTextEdits, type Position } from "./edits";
@@ -55,6 +55,14 @@ export class LSPManager {
     return this.configuration.servers.map((definition) => ({ name: definition.name, source: definition.source,
       cleanup: this.cleanupError ? "unknown" : undefined,
       state: this.stopping.has(definition.name) ? "disconnecting" : this.starting.has(definition.name) ? "connecting" : this.servers.get(definition.name)?.connection.alive ? "ready" : "disconnected" }));
+  }
+
+  /** Review needed before consenting to a project-scope definition; undefined for user/profile ones. */
+  review(name: string): { source: string; shadows?: string; preview: string } | undefined {
+    const definition = this.configuration.servers.find((entry) => entry.name === name);
+    if (!definition) throw new Error("Unknown LSP server");
+    const preview = this.servers.get(name)?.connection.alive ? undefined : projectLSPDefinitionReview(definition);
+    return preview ? { source: definition.source, shadows: definition.shadows, preview } : undefined;
   }
 
   connect(name: string): Promise<void> {
