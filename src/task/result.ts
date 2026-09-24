@@ -99,7 +99,7 @@ export function formatReceipt(task: TaskResult, options: ReceiptOptions = {}): s
   }
 
   if (task.changedPaths?.length) lines.push(`✓ Changed ${pathList(task.changedPaths, safe)}`);
-  else if (task.changedPaths && task.autoSkipped === "no-changes") lines.push("• No files changed, so Casper ran no checks");
+  else if (task.changedPaths && task.autoSkipped === "no-changes" && !task.verification) lines.push("• No files changed, so Casper ran no checks");
   else if (task.changedPaths) lines.push("• No files changed");
   else if (task.possibleMutations) lines.push("• Changes unknown — Casper could not compare the workspace");
 
