@@ -1,0 +1,8 @@
+LLDP Neighbor Information
+=========================
+
+Total Neighbor Entries          : 1
+
+LOCAL-PORT  CHASSIS-ID         PORT-ID      PORT-DESC    TTL      SYS-NAME
+---------------------------------------------------------------------------
+1/1/49      02:00:5e:00:00:01  ge-0/0/1     core         120      core-1

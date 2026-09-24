@@ -1,0 +1,77 @@
+{
+  "interfaces": [
+    {
+      "name": "TenGigabitEthernet1/1/1",
+      "adminUp": true,
+      "operUp": true,
+      "description": null,
+      "mac": "02:00:5e:00:a1:01",
+      "mtu": 9198,
+      "speedMbps": 10000,
+      "ipv4": [],
+      "parent": null,
+      "lagMembers": [],
+      "lag": "Port-channel20"
+    },
+    {
+      "name": "GigabitEthernet0/0/0",
+      "adminUp": true,
+      "operUp": false,
+      "description": null,
+      "mac": "02:00:5e:00:a1:02",
+      "mtu": 1500,
+      "speedMbps": null,
+      "ipv4": [],
+      "parent": null,
+      "lagMembers": [],
+      "lag": null
+    },
+    {
+      "name": "GigabitEthernet0/0/0.100",
+      "adminUp": true,
+      "operUp": true,
+      "description": "guest: vlan 100",
+      "mac": "02:00:5e:00:a1:02",
+      "mtu": 1500,
+      "speedMbps": null,
+      "ipv4": [
+        "198.51.100.1/25"
+      ],
+      "parent": "GigabitEthernet0/0/0",
+      "lagMembers": [],
+      "lag": null
+    },
+    {
+      "name": "Port-channel20",
+      "adminUp": true,
+      "operUp": true,
+      "description": null,
+      "mac": "02:00:5e:00:a1:20",
+      "mtu": 9198,
+      "speedMbps": 20000,
+      "ipv4": [],
+      "parent": null,
+      "lagMembers": [
+        "TenGigabitEthernet1/1/1",
+        "Te1/1/2"
+      ],
+      "lag": null
+    },
+    {
+      "name": "Loopback0",
+      "adminUp": true,
+      "operUp": true,
+      "description": null,
+      "mac": null,
+      "mtu": 1514,
+      "speedMbps": null,
+      "ipv4": [
+        "203.0.113.9/32"
+      ],
+      "parent": null,
+      "lagMembers": [],
+      "lag": null
+    }
+  ],
+  "truncated": true
+}

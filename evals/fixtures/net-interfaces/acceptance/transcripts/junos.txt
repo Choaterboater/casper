@@ -1,0 +1,52 @@
+Physical interface: xe-0/0/0, Enabled, Physical link is Up
+  Interface index: 150, SNMP ifIndex: 600
+  Link-level type: Ethernet, MTU: 9192, Speed: 10Gbps, BPDU Error: None
+  Current address: 02:00:5E:00:B0:01, Hardware address: 02:00:5E:00:B0:01
+
+  Logical interface xe-0/0/0.0 (Index 80) (SNMP ifIndex 601)
+    Flags: Up SNMP-Traps 0x4000 Encapsulation: ENET2
+    Protocol aenet, AE bundle: ae1.0
+
+Physical interface: xe-0/0/1, Administratively down, Physical link is Down
+  Interface index: 151, SNMP ifIndex: 602
+  Description: spare
+  Link-level type: Ethernet, MTU: 1514, Speed: 10Gbps, BPDU Error: None
+  Current address: 02:00:5e:00:b0:02, Hardware address: 02:00:5e:00:b0:02
+
+Physical interface: xe-0/0/2, Enabled, Physical link is Up
+  Interface index: 152, SNMP ifIndex: 603
+  Link-level type: Ethernet, MTU: 9192, Speed: 10Gbps, BPDU Error: None
+  Current address: 02:00:5e:00:b0:03, Hardware address: 02:00:5e:00:b0:03
+
+  Logical interface xe-0/0/2.0 (Index 81) (SNMP ifIndex 604)
+    Flags: Up SNMP-Traps 0x4000 Encapsulation: ENET2
+    Protocol aenet, AE bundle: ae1.0
+
+Physical interface: ae1, Enabled, Physical link is Up
+  Interface index: 129, SNMP ifIndex: 610
+  Description: core-bundle
+  Link-level type: Ethernet, MTU: 9192, Speed: 20Gbps, BPDU Error: None
+  Current address: 02:00:5e:00:b0:10, Hardware address: 02:00:5e:00:b0:10
+
+  Logical interface ae1.100 (Index 90) (SNMP ifIndex 611)
+    Description: mgmt
+    Flags: Up SNMP-Traps 0x4000 VLAN-Tag [ 0x8100.100 ]  Encapsulation: ENET2
+    Protocol inet, MTU: 9170
+      Flags: Sendbcast-pkt-to-re
+      Addresses, Flags: Is-Preferred Is-Primary
+        Destination: 192.0.2.64/26, Local: 192.0.2.65, Broadcast: 192.0.2.127
+      Addresses, Flags: Is-Preferred
+        Destination: 198.51.100.0/24, Local: 198.51.100.7, Broadcast: 198.51.100.255
+
+  Logical interface ae1.200 (Index 91) (SNMP ifIndex 612)
+    Flags: Down Disabled SNMP-Traps 0x4000 VLAN-Tag [ 0x8100.200 ]  Encapsulation: ENET2
+    Protocol inet, MTU: 9170
+
+Physical interface: ge-0/0/5, Enabled, Physical link is Up
+  Interface index: 160, SNMP ifIndex: 620
+  Link-level type: Ethernet, MTU: 1514, Speed: 1000mbps, BPDU Error: None
+
+  Logical interface ge-0/0/5.0 (Index 95) (SNMP ifIndex 621)
+    Flags: Up SNMP-Traps 0x4000 Encapsulation: ENET2
+---(more)---
+    Protocol inet, MTU: 1500

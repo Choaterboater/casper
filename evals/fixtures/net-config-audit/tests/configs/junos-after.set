@@ -1,0 +1,9 @@
+## Last commit: 2026-01-06 08:30:12 UTC by netops
+set version 23.4R2.13
+set system host-name edge-1
+set system root-authentication encrypted-password "$6$abc$synthetic.hash"
+set system ntp server 192.0.2.123
+set system tacplus-server 192.0.2.50 secret "$9$QwErTy987"
+set system authentication-order [ tacplus password ]
+set interfaces ge-0/0/0 description wan-primary
+set interfaces ge-0/0/0 unit 0 family inet address 198.51.100.2/30

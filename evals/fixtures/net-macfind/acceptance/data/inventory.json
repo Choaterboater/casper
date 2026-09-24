@@ -1,0 +1,5 @@
+[
+  { "device": "core-1", "vendor": "junos", "mac": "core-1.mac.txt", "lldp": "core-1.lldp.txt" },
+  { "device": "idf2-sw1", "vendor": "iosxe", "mac": "idf2-sw1.mac.txt", "lldp": "idf2-sw1.lldp.txt", "lags": { "Po1": ["Te1/1/1", "Te1/1/2"] } },
+  { "device": "idf3-sw1", "vendor": "aoscx", "mac": "idf3-sw1.mac.txt", "lldp": "idf3-sw1.lldp.txt", "lags": { "lag1": ["1/1/49", "1/1/50"] } }
+]

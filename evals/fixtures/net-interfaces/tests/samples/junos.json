@@ -1,0 +1,104 @@
+{
+  "interfaces": [
+    {
+      "name": "ge-0/0/0",
+      "adminUp": true,
+      "operUp": true,
+      "description": "wan-transit",
+      "mac": "02:00:5e:00:02:01",
+      "mtu": 1514,
+      "speedMbps": 1000,
+      "ipv4": [],
+      "parent": null,
+      "lagMembers": [],
+      "lag": null
+    },
+    {
+      "name": "ge-0/0/0.0",
+      "adminUp": true,
+      "operUp": true,
+      "description": null,
+      "mac": null,
+      "mtu": 1500,
+      "speedMbps": null,
+      "ipv4": [
+        "198.51.100.2/30"
+      ],
+      "parent": "ge-0/0/0",
+      "lagMembers": [],
+      "lag": null
+    },
+    {
+      "name": "ge-0/0/1",
+      "adminUp": true,
+      "operUp": true,
+      "description": null,
+      "mac": "02:00:5e:00:02:02",
+      "mtu": 1514,
+      "speedMbps": 1000,
+      "ipv4": [],
+      "parent": null,
+      "lagMembers": [],
+      "lag": "ae0"
+    },
+    {
+      "name": "ae0",
+      "adminUp": true,
+      "operUp": true,
+      "description": "to-core",
+      "mac": "02:00:5e:00:02:10",
+      "mtu": 1514,
+      "speedMbps": 1000,
+      "ipv4": [],
+      "parent": null,
+      "lagMembers": [
+        "ge-0/0/1"
+      ],
+      "lag": null
+    },
+    {
+      "name": "ae0.0",
+      "adminUp": true,
+      "operUp": true,
+      "description": null,
+      "mac": null,
+      "mtu": 1500,
+      "speedMbps": null,
+      "ipv4": [
+        "192.0.2.10/24"
+      ],
+      "parent": "ae0",
+      "lagMembers": [],
+      "lag": null
+    },
+    {
+      "name": "lo0",
+      "adminUp": true,
+      "operUp": true,
+      "description": null,
+      "mac": null,
+      "mtu": null,
+      "speedMbps": null,
+      "ipv4": [],
+      "parent": null,
+      "lagMembers": [],
+      "lag": null
+    },
+    {
+      "name": "lo0.0",
+      "adminUp": true,
+      "operUp": true,
+      "description": null,
+      "mac": null,
+      "mtu": null,
+      "speedMbps": null,
+      "ipv4": [
+        "203.0.113.1/32"
+      ],
+      "parent": "lo0",
+      "lagMembers": [],
+      "lag": null
+    }
+  ],
+  "truncated": false
+}

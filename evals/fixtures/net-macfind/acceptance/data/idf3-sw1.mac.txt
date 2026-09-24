@@ -1,0 +1,8 @@
+MAC age-time            : 300 seconds
+Number of MAC addresses : 3
+
+MAC Address          VLAN     Type                      Port
+--------------------------------------------------------------
+02:00:5e:20:00:01    20       dynamic                   lag1
+02:00:5e:20:00:02    20       dynamic                   1/1/8
+02:00:5e:20:00:10    40       dynamic                   lag1

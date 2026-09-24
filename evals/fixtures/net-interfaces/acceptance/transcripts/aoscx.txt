@@ -1,0 +1,30 @@
+Interface 1/1/3 is up
+ Admin state is up
+ Description: core: primary
+ Hardware: Ethernet, MAC Address: 02:00:5E:00:C0:03
+ MTU 9198
+ Speed 25000 Mb/s
+
+Interface 1/1/3.10 is up
+ Admin state is up
+ IPv4 address 192.0.2.193/27
+ MTU 9198
+
+Interface 1/1/4 is down
+ Admin state is up
+ State information: Waiting for link
+ Hardware: Ethernet, MAC Address: 02:00:5e:00:c0:04
+ MTU 1500
+ Speed 0 Mb/s
+
+Aggregate lag7 is down
+ Admin state is up
+ MAC Address         : 02:00:5e:00:c0:70
+ Aggregated-interfaces : 1/1/4 1/1/5
+ Speed 0 Mb/s
+
+Interface 1/1/6 is up
+ Admin state is up
+ Hardware: Ethernet, MAC Address: 02:00:5e:00:c0:06
+-- MORE --, next page: Space, next line: Enter, quit: Control-C
+ MTU 1500

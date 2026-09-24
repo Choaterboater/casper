@@ -1,0 +1,62 @@
+{
+  "interfaces": [
+    {
+      "name": "1/1/3",
+      "adminUp": true,
+      "operUp": true,
+      "description": "core: primary",
+      "mac": "02:00:5e:00:c0:03",
+      "mtu": 9198,
+      "speedMbps": 25000,
+      "ipv4": [],
+      "parent": null,
+      "lagMembers": [],
+      "lag": null
+    },
+    {
+      "name": "1/1/3.10",
+      "adminUp": true,
+      "operUp": true,
+      "description": null,
+      "mac": null,
+      "mtu": 9198,
+      "speedMbps": null,
+      "ipv4": [
+        "192.0.2.193/27"
+      ],
+      "parent": "1/1/3",
+      "lagMembers": [],
+      "lag": null
+    },
+    {
+      "name": "1/1/4",
+      "adminUp": true,
+      "operUp": false,
+      "description": null,
+      "mac": "02:00:5e:00:c0:04",
+      "mtu": 1500,
+      "speedMbps": null,
+      "ipv4": [],
+      "parent": null,
+      "lagMembers": [],
+      "lag": "lag7"
+    },
+    {
+      "name": "lag7",
+      "adminUp": true,
+      "operUp": false,
+      "description": null,
+      "mac": "02:00:5e:00:c0:70",
+      "mtu": null,
+      "speedMbps": null,
+      "ipv4": [],
+      "parent": null,
+      "lagMembers": [
+        "1/1/4",
+        "1/1/5"
+      ],
+      "lag": null
+    }
+  ],
+  "truncated": true
+}

@@ -1,0 +1,22 @@
+GigabitEthernet1/0/1 is up, line protocol is up (connected)
+  Hardware is Gigabit Ethernet, address is 0200.5e00.0101 (bia 0200.5e00.0101)
+  Description: member of Po1
+  MTU 1500 bytes, BW 1000000 Kbit/sec, DLY 10 usec,
+     reliability 255/255, txload 1/255, rxload 1/255
+  Encapsulation ARPA, loopback not set
+  Full-duplex, 1000Mb/s, media type is 10/100/1000BaseTX
+GigabitEthernet1/0/2 is administratively down, line protocol is down (disabled)
+  Hardware is Gigabit Ethernet, address is 0200.5e00.0102 (bia 0200.5e00.0102)
+  MTU 1500 bytes, BW 1000000 Kbit/sec, DLY 10 usec,
+  Auto-duplex, Auto-speed, media type is 10/100/1000BaseTX
+Port-channel1 is up, line protocol is up (connected)
+  Hardware is EtherChannel, address is 0200.5e00.0110 (bia 0200.5e00.0110)
+  Description: uplink to dist-1
+  MTU 1500 bytes, BW 1000000 Kbit/sec, DLY 10 usec,
+  Full-duplex, 1000Mb/s, link type is auto, media type is N/A
+  Members in this channel: Gi1/0/1
+Vlan10 is up, line protocol is up
+  Hardware is Ethernet SVI, address is 0200.5e00.0120 (bia 0200.5e00.0120)
+  Description: users
+  Internet address is 192.0.2.1/24
+  MTU 1500 bytes, BW 1000000 Kbit/sec, DLY 10 usec,

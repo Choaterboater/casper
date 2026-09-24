@@ -1,0 +1,4 @@
+[
+  { "device": "access-1", "vendor": "iosxe", "mac": "access-1.mac.txt", "lldp": "access-1.lldp.txt" },
+  { "device": "dist-1", "vendor": "aoscx", "mac": "dist-1.mac.txt", "lldp": "dist-1.lldp.txt" }
+]

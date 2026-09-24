@@ -1,0 +1,4 @@
+Local Interface    Parent Interface    Chassis Id          Port info          System Name
+ge-0/0/0           ae1                 02:00:5e:00:00:21   Te1/1/1            idf2-sw1
+ge-0/0/1           ae2                 02:00:5e:00:00:31   1/1/49             idf3-sw1
+ge-0/0/20          -                   02:00:5e:00:00:99   eth0               unmanaged-sw

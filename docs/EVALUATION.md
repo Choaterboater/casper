@@ -24,7 +24,7 @@ evals/
 ├── fixtures/     solved baseline repositories (one per project shape)
 ├── setups/       overlays that turn a baseline into one task's unsolved state
 ├── tasks.ts      the task catalog (prompt, verification, acceptance)
-├── packs.ts      quality-benchmark packs: core (8 tasks)
+├── packs.ts      quality-benchmark packs: core (8 tasks) and network (9 tasks)
 ├── harness.ts    runs the Casper or Pi CLI with identical inputs and an isolated home
 ├── quality.ts    rubric scores from host evidence only
 ├── scenarios.ts  cancellation/restart/resume, delegation and clarify-loop protocols
@@ -137,8 +137,8 @@ prepared for the credential-free protocol below.
 
 The Phase 3 benchmark compares Casper and Pi on the same model, effort, prompt and
 time limit. Its tasks live in `evals/packs.ts` and are reported per pack: **core**
-(domain-neutral, gates every phase); domain packs are reported separately so no single
-domain skews the headline. Each task has its own fixture;
+(domain-neutral, gates every phase) and **network** (the first domain pack, reported
+separately so no single domain skews the headline). Each task has its own fixture;
 none reuses a fixture from the tasks above.
 
 **Hidden acceptance tests.** Every pack fixture is the reference solution plus an
@@ -167,8 +167,18 @@ changed paths, which is the baseline for the Focused score.
 | core | `core-refactor-across-files` | people | `fullName` → structured name across modules; `bun test` **and** `tsc` over src, tests and acceptance |
 | core | `core-flaky-test` | ttl-cache | injected clock, exact TTL boundary, the candidate's own tests rerun 20 times |
 | core | `core-mcp-tool` | mcp-server-kit | schema, annotations, literal matching, `limit` and 4000-character bound, tool errors |
+| network | `net-interface-parser` | net-interfaces | IOS-XE/Junos/AOS-CX transcripts: sub-interfaces, LAGs, abbreviations, pager truncation |
+| network | `net-mac-port-finder` | net-macfind | edge port behind LAG uplinks, phones as edge ports, CLI and HTTP endpoint |
+| network | `net-meraki-inventory` | net-meraki-export | Link rel=next, 429 retries, give-up, RFC 4180 CSV against a loopback mock |
+| network | `net-aoscx-session` | net-aoscx-session | exactly one logout per login on every path, error precedence, session limit |
+| network | `net-netbox-dry-run` | net-netbox-plan | GET-only paging, `device_role` fallback, field diffs, printed plan |
+| network | `net-radius-test` | net-radius-test | Response Authenticator, identifier checks, retransmits, bad-response vs timeout, VSAs, CLI |
+| network | `net-tacacs-accounting` | net-tacacs-acct | start/stop pairing per NAS, stop-only/no-stop, leap days, problems |
+| network | `net-config-compliance` | net-config-audit | volatile lines and `$9$` masking, AOS-CX hierarchy, ntp/aaa/snmpv2-off rules |
+| network | `net-mcp-show-interfaces` | net-mcp-router | router-style discovery, read-only dispatch, filters, 50-item bound |
 
-All fixture data is synthetic. The TLS key in `portcheck/acceptance/certs` is a throwaway
+All network data is synthetic: documentation address ranges, `example.com`, made-up
+MACs and serials. The TLS key in `portcheck/acceptance/certs` is a throwaway
 self-signed test key for `portcheck.example.com`.
 
 `tests/eval-packs.test.ts` checks, with no model: the hidden tests never reach the

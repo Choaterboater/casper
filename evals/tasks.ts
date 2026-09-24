@@ -1,4 +1,4 @@
-import { CORE_PACK } from "./packs";
+import { CORE_PACK, NETWORK_PACK } from "./packs";
 import type { EvalPack, EvalTask, EvalVerification } from "./runner";
 
 /** `{{bun}}` is the running Bun executable; `{{tsc}}` is this repository's TypeScript compiler.
@@ -208,10 +208,11 @@ export const EVAL_TASKS: readonly EvalTask[] = [
     acceptance: { changed: ["src/"], allowedChanges: ["src/"] },
   },
   ...CORE_PACK,
+  ...NETWORK_PACK,
 ];
 
 /** Quality-benchmark packs, reported separately; only `core` gates every phase. */
-export const BENCHMARK_PACKS: readonly EvalPack[] = ["core"];
+export const BENCHMARK_PACKS: readonly EvalPack[] = ["core", "network"];
 
 export function packTasks(pack: EvalPack): EvalTask[] {
   return EVAL_TASKS.filter((task) => task.pack === pack);

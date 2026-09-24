@@ -17,10 +17,11 @@ async function owned(prefix: string): Promise<string> {
 }
 const benchmark = EVAL_TASKS.filter((task) => task.pack);
 
-test("the core benchmark pack has 8 tasks, each on its own fixture", () => {
-  expect(BENCHMARK_PACKS).toEqual(["core"]);
+test("the benchmark has 8 core and 9 network tasks, each on its own fixture", () => {
+  expect(BENCHMARK_PACKS).toEqual(["core", "network"]);
   expect(packTasks("core")).toHaveLength(8);
-  expect(new Set(benchmark.map((task) => task.fixture)).size).toBe(8);
+  expect(packTasks("network")).toHaveLength(9);
+  expect(new Set(benchmark.map((task) => task.fixture)).size).toBe(17);
   // The pre-benchmark catalog keeps its fixtures; packs never reuse them, so their numbers stay comparable.
   const legacy = new Set(EVAL_TASKS.filter((task) => !task.pack).map((task) => task.fixture));
   expect(benchmark.filter((task) => legacy.has(task.fixture))).toEqual([]);
