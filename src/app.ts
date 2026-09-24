@@ -213,6 +213,7 @@ export class CasperApp {
       },
       setTaskStop: (cancelled, failed) => { this.taskRuntimeCancelled = cancelled; this.taskRuntimeFailed = failed; },
       markRuntimeFailed: () => { this.taskRuntimeFailed = true; },
+      cancelled: () => this.commandAbort?.signal.aborted === true,
     });
     this.autoVerify = options.autoVerify ?? false;
     this.verificationRequested = this.autoVerify && (options.verificationRequested ?? false);
