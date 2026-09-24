@@ -6,7 +6,7 @@ const empty = { type: "object" as const, properties: {}, additionalProperties: f
 const site = { type: "object" as const, properties: { site: { type: "string" } }, required: ["site"], additionalProperties: false };
 const read = (name: string, description: string, inputSchema: Tool["inputSchema"] = empty): Tool => ({ name, description, inputSchema, annotations: { readOnlyHint: true } });
 
-/** Synthetic HPE-shaped catalogs. Never contacts devices or external services. */
+/** Synthetic router catalogs. Never contacts devices or external services. */
 export function fixtureServer(mode = "generic") {
   const server = new Server({ name: "casper-fixture", version: "1" }, { capabilities: { tools: { listChanged: true } } });
   let tools: Tool[] = mode === "router" ? [

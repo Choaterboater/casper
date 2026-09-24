@@ -96,17 +96,17 @@ test("a project definition that shadows a user server is marked and reviewed by 
   expect(remote).not.toContain("HEADER-SECRET");
 });
 
-test("a personal HPE profile is not discovered for default or unrelated profiles", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "casper-personal-mcp-"));
+test("a vendor profile is not discovered for default or unrelated profiles", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-vendor-mcp-"));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
-  const profile = path.join(root, "home/.casper/profiles/personal");
+  const profile = path.join(root, "home/.casper/profiles/vendor");
   await mkdir(profile, { recursive: true });
-  await writeFile(path.join(profile, "mcp.json"), JSON.stringify({ mcpServers: { hpe: { command: "never-run-personal-server" } } }));
+  await writeFile(path.join(profile, "mcp.json"), JSON.stringify({ mcpServers: { vendor: { command: "never-run-vendor-server" } } }));
   const options = { homeDir: path.join(root, "home"), projectRoot: path.join(root, "project") };
   expect((await discoverMCPConfiguration(options)).servers).toEqual([]);
   expect((await discoverMCPConfiguration({ ...options, profileName: "other" })).servers).toEqual([]);
-  const config = await discoverMCPConfiguration({ ...options, profileName: "personal" });
-  expect(config.servers.map((server) => server.name)).toEqual(["hpe"]);
+  const config = await discoverMCPConfiguration({ ...options, profileName: "vendor" });
+  expect(config.servers.map((server) => server.name)).toEqual(["vendor"]);
   const mcp = new MCPManager(config);
   cleanup.push(() => mcp.close());
   await mcp.prepare();
@@ -209,21 +209,21 @@ test("escaped schema budgets agree across inspection, direct selection, and fall
   await expect(broker.invoke("mcp:generic:inspect_budget_out", {})).rejects.toThrow("exposure budget");
 });
 
-test("HPE-style router catalogs prefer native discovery and read dispatch, never generic dispatch permission", async () => {
-  const mcp = manager([definition("hpe", "router")]);
-  await mcp.connect("hpe");
+test("router catalogs prefer native discovery and read dispatch, never generic dispatch permission", async () => {
+  const mcp = manager([definition("router-catalog", "router")]);
+  await mcp.connect("router-catalog");
   expect(mcp.status()[0]?.toolCount).toBe(340);
   const broker = new CapabilityBroker(mcp);
   const surface = await broker.prepare("networking health wrapper");
   expect(surface).toHaveLength(5);
   expect(surface.filter((tool) => tool.name.startsWith("mcp_")).map((tool) => tool.description.split("]")[0])).toEqual([
-    "[read; mcp:hpe:find_tool", "[read; mcp:hpe:invoke_read_tool", "[destructive; mcp:hpe:invoke_tool",
+    "[read; mcp:router-catalog:find_tool", "[read; mcp:router-catalog:invoke_read_tool", "[destructive; mcp:router-catalog:invoke_tool",
   ]);
-  const found = await broker.invoke("mcp:hpe:find_tool", { query: "quantum", include_schema: true });
+  const found = await broker.invoke("mcp:router-catalog:find_tool", { query: "quantum", include_schema: true });
   expect(JSON.stringify(found)).toContain("inspect_quantum_flux");
-  const result = await broker.invoke("mcp:hpe:invoke_read_tool", { name: "inspect_quantum_flux", arguments: { site: "lab" } });
+  const result = await broker.invoke("mcp:router-catalog:invoke_read_tool", { name: "inspect_quantum_flux", arguments: { site: "lab" } });
   expect(JSON.stringify(result)).toContain('"counter":42');
-  await expect(broker.invoke("mcp:hpe:invoke_tool", {})).rejects.toThrow("confirmation");
+  await expect(broker.invoke("mcp:router-catalog:invoke_tool", {})).rejects.toThrow("confirmation");
 });
 
 test("collision-safe names route to the exact server and non-read calls need immutable exact-call approval", async () => {
