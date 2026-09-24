@@ -36,7 +36,8 @@ export async function importLegacyEngineState(): Promise<boolean> {
   if (!agentDir) return false;
   const legacyDir = path.join(resolveHome(), ".pi", "agent");
   let imported = false;
-  await mkdir(agentDir, { recursive: true, mode: 0o700 });
+  try { await mkdir(agentDir, { recursive: true, mode: 0o700 }); }
+  catch { return false; } // best-effort: an unwritable HOME surfaces where state is actually needed
   for (const name of ["auth.json", "models.json"]) {
     const target = path.join(agentDir, name);
     const source = path.join(legacyDir, name);
