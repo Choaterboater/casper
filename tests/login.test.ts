@@ -556,10 +556,49 @@ posixOnly("unsafe auth files fail before network without repairing modes or foll
       try { const result = await runtime.authenticate({ provider: 'openai-codex', terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) { if (text.includes('Press Y')) setImmediate(() => input.write('Y')); } } }, operation) } });
         console.log(JSON.stringify({ result, fetches })); } finally { await runtime.dispose(); input.destroy(); }
     `);
-    expect(JSON.parse(output)).toEqual({ result: { status: "failed", effect: "none", reason: "destination" }, fetches: 0 });
+    expect(JSON.parse(output)).toMatchObject({ result: { status: "failed", effect: "none", reason: "destination" }, fetches: 0 });
+    expect(JSON.parse(output).result.detail).toContain(JSON.stringify(auth));
     if (kind === "mode") expect((await stat(auth)).mode & 0o777).toBe(0o644);
     expect(await readFile(other, "utf8")).toBe("{}");
   }
+});
+
+// Symlinked ancestors of HOME (macOS /tmp, ostree /home -> var/home) are canonicalized, not refused.
+posixOnly("login saves through a symlinked HOME ancestor", async () => {
+  const f = await fixture();
+  await mkdir(path.join(f.root, "real")); await symlink(path.join(f.root, "real"), path.join(f.root, "alias"));
+  const agent = path.join(f.root, "alias", "home", ".pi", "agent"); f.env.PI_CODING_AGENT_DIR = agent;
+  const output = await f.run(`
+    import { PiRuntime } from ${JSON.stringify(path.join(repo, "src/runtime/pi.ts"))}; import { PassThrough } from 'node:stream';
+    globalThis.fetch = async (input) => { if (String(input) === 'https://api.anthropic.com/v1/models') return Response.json({}); throw new Error('NETWORK_FORBIDDEN'); };
+    const runtime = new PiRuntime(); const input = new PassThrough();
+    try {
+      const result = await runtime.authenticate({ provider: 'anthropic', terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
+        if (text.includes('Choose sign-in method')) setImmediate(() => input.write('\\r'));
+        if (text.includes('Press Y')) setImmediate(() => input.write('Y'));
+        if (text.includes('Private API key')) setImmediate(() => { input.write('\\x1b[200~synthetic-private-key\\x1b[201~'); setTimeout(() => input.write('\\r'), 20); });
+      } } }, operation) } });
+      console.log(JSON.stringify(result));
+    } finally { await runtime.dispose(); input.destroy(); }
+  `);
+  expect(JSON.parse(output)).toEqual({ status: "saved" });
+  expect(JSON.parse(await readFile(path.join(f.root, "real", "home", ".pi", "agent", "auth.json"), "utf8"))).toEqual({ anthropic: { type: "api_key", key: "synthetic-private-key" } });
+});
+
+// The credential directory Casper controls stays strict, and the refusal names it before any picker or consent.
+posixOnly("an unsafe credential directory is refused before provider choice with the offending path", async () => {
+  const f = await fixture(); const agent = f.env.PI_CODING_AGENT_DIR;
+  await mkdir(path.join(f.root, "elsewhere")); await mkdir(path.dirname(agent), { recursive: true }); await symlink(path.join(f.root, "elsewhere"), agent);
+  const output = await f.run(`
+    import { PiRuntime } from ${JSON.stringify(path.join(repo, "src/runtime/pi.ts"))};
+    let runs = 0; const runtime = new PiRuntime();
+    try { const result = await runtime.authenticate({ terminalHost: { async run() { runs++; throw new Error('MUST_NOT_RUN'); } } }); console.log(JSON.stringify({ result, runs })); } finally { await runtime.dispose(); }
+  `);
+  const parsed = JSON.parse(output);
+  expect(parsed).toMatchObject({ result: { status: "failed", effect: "none", reason: "destination" }, runs: 0 });
+  expect(parsed.result.detail).toContain(JSON.stringify(agent));
+  expect(parsed.result.detail).toContain("symbolic link");
+  expect(await Bun.file(path.join(f.root, "elsewhere", "auth.json")).exists()).toBe(false);
 });
 
 test("raw TUI logging refuses login before terminal or auth ownership", async () => {

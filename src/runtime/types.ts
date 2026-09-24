@@ -104,7 +104,7 @@ export type RuntimeAuthenticationResult =
   | { status: "saved" }
   | { status: "saved-needs-refresh" }
   | { status: "cancelled"; effect: "none" | "unknown" }
-  | { status: "failed"; effect: "none" | "unknown"; reason: "unavailable" | "destination" | "provider" };
+  | { status: "failed"; effect: "none" | "unknown"; reason: "unavailable" | "destination" | "provider"; detail?: string };
 
 export interface RuntimeModelSelectionOptions {
   query?: string;
