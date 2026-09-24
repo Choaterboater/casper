@@ -91,7 +91,7 @@ class PiRuntimeSession implements RuntimeSession {
 
   getSessionInfo(): RuntimeSessionInfo {
     const session = this.runtime.session;
-    if (!session.sessionFile) throw new Error("Pi session persistence is unavailable");
+    if (!session.sessionFile) throw new Error("Conversation persistence is unavailable");
     return {
       cwd: this.runtime.cwd,
       sessionId: session.sessionId,
@@ -105,7 +105,7 @@ class PiRuntimeSession implements RuntimeSession {
     if (this.busy || this.models.busy) throw new Error("Wait for active work before forking sessions.");
     const source = this.runtime.session;
     const sourcePath = source.sessionFile;
-    if (!sourcePath) throw new Error("Pi session persistence is unavailable");
+    if (!sourcePath) throw new Error("Conversation persistence is unavailable");
     // Pi defers creating a JSONL file until the first assistant response. Export
     // only an as-yet-unwritten session so SessionManager.forkFrom remains the
     // sole owner of the persisted session format and active conversation path.
@@ -113,9 +113,9 @@ class PiRuntimeSession implements RuntimeSession {
     const forked = SessionManager.forkFrom(sourcePath, options.cwd);
     forked.appendSessionInfo(options.name);
     const targetPath = forked.getSessionFile();
-    if (!targetPath) throw new Error("Pi did not create a persistent fork");
+    if (!targetPath) throw new Error("The conversation fork was not persisted");
     const result = await this.runtime.switchSession(targetPath);
-    if (result.cancelled) throw new Error("Pi session fork was cancelled");
+    if (result.cancelled) throw new Error("Conversation fork was cancelled");
     if (options.context) await this.appendContext(options.context);
     return this.getSessionInfo();
   }
@@ -124,7 +124,7 @@ class PiRuntimeSession implements RuntimeSession {
     if (this.readOnly) throw new Error("Read-only subagents cannot switch sessions");
     if (this.busy || this.models.busy) throw new Error("Wait for active work before switching sessions.");
     const result = await this.runtime.switchSession(options.sessionFile, { cwdOverride: options.cwd });
-    if (result.cancelled) throw new Error("Pi session switch was cancelled");
+    if (result.cancelled) throw new Error("Conversation switch was cancelled");
     if (options.context) await this.appendContext(options.context);
     return this.getSessionInfo();
   }
@@ -445,7 +445,7 @@ export class PiRuntime implements AgentRuntime {
   }
 
   private async createSession(options: RuntimeStartOptions, readOnly?: RuntimeReadOnlyStartOptions): Promise<RuntimeSession> {
-    if (this.runtime) throw new Error("Pi runtime already started");
+    if (this.runtime) throw new Error("Model runtime already started");
     readOnly?.signal.throwIfAborted();
     const agentDir = getAgentDir();
     if (readOnly) await checkReadOnlyState(readOnly, agentDir);

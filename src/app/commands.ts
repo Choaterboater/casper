@@ -136,7 +136,7 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       if (!result.selected && !result.models) { host.output.write("[model] Selection cancelled; model unchanged.\n"); return; }
       host.output.write(`${formatRuntimeStatus(result.status)}\n`);
       if (result.selected) host.output.write(result.savedDefault
-        ? "[model] Selected and saved as the Casper default for new conversations. Shared Pi settings unchanged.\n"
+        ? "[model] Selected and saved as the Casper default for new conversations.\n"
         : "[model] Selected for this conversation only; startup default unchanged.\n");
       if (result.selected) host.output.write(`[model] The next request sends this conversation's context to ${result.status.provider}.\n`);
       if (result.models) {
