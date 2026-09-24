@@ -31,6 +31,12 @@ declared scope (below) contains none of the changed files. If Casper could not c
 workspace, it runs every selected check. Changes but no configured checks is **incomplete**
 (one-shot exit 2). Cancellation rules are unchanged.
 
+**Exit codes.** A one-shot run exits 0 when done, 1 when a check or the run failed, 2 when
+checks were incomplete, and 130 when cancelled. By default a pass that later went stale, or
+changes nobody verified, still exit 0 and the receipt says "Not verified". Add
+`--require-verification` (which implies `--verify`) to make those exit 3. See
+[SCRIPTING.md](SCRIPTING.md) for the full table and `--json` events.
+
 `--verify`, `verification.mode: auto` and `/verify` are **explicit execution consent, not
 sandboxing or persisted repository trust**. Use them only in repositories whose commands you trust.
 Repair also authorizes model edits. **Native bash is unchanged:** a model's bash run of a check is

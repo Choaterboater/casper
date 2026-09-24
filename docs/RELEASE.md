@@ -6,6 +6,16 @@ GitHub's `latest/download` route excludes prereleases. The first published previ
 was **v0.1.0**; its assets and tag stay as published, and every fix ships under a new
 version.
 
+## Unreleased: scripting surface
+
+Phase 2: one-shot runs are scriptable. `--model <provider/id[:effort]>` and `--effort` choose
+the model and effort for one run and never change the saved default. `--json` streams JSON Lines
+events (`"v": 1`) on stdout and moves human output to stderr. `--continue` and
+`--resume <id-prefix>` pick up a conversation, `--cd <path>` opens a folder, and `--max-turns <n>`
+bounds each request. `--require-verification` makes unverified changes exit 3. **Exit code
+change:** command-line mistakes (unknown options, conflicting flags, bad `learn` arguments) now
+exit **64** instead of 2 or 1, so 2 always means incomplete. See [SCRIPTING.md](SCRIPTING.md).
+
 ## Unreleased: Casper runs the checks
 
 Phase 1: after the model edits files, Casper runs the project's checks itself

@@ -65,6 +65,11 @@ casper --verify "Fix the failing tests"
 casper --version     # casper 0.2.12 (/absolute/path/of/the/binary/or/cli.ts)
 ```
 
+For scripts and CI, `--model` and `--effort` pick the model for one run without changing
+your default, `--json` streams JSON Lines events, `--continue`/`--resume` pick up a
+conversation, and `--require-verification` exits 3 when Casper could not verify the
+changes. Usage errors exit 64. See [docs/SCRIPTING.md](docs/SCRIPTING.md).
+
 After the model edits files, Casper itself runs the project's configured checks
 (typecheck, lint, test, build) and repairs failures within a bounded budget, whatever
 tool the model used. Interactive sessions do this once the checks are known to take
