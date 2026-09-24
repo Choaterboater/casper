@@ -509,7 +509,7 @@ async function handleMCPCommand(host: CommandHost, prompt: string): Promise<void
       host.output.write(`[mcp] reloaded: ${diff.added.length} added, ${diff.removed.length} removed, ${diff.changed.length} changed\n`);
       for (const diagnostic of host.mcp!.diagnostics) host.output.write(`[mcp] ${diagnostic}\n`);
       // A changed command/URL is a different program; consent never carries over silently.
-      if (diff.changed.length) host.output.write(`[mcp] consent revoked for ${diff.changed.join(", ")}; reconnect with /mcp connect <name>\n`);
+      if (diff.revoked.length) host.output.write(`[mcp] consent revoked for ${diff.revoked.join(", ")}; reconnect with /mcp connect <name>\n`);
     } else if (action && (!name || extra.length || !["connect", "disconnect"].includes(action))) {
       throw new Error(usage);
     }

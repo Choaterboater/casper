@@ -304,3 +304,30 @@ test("interactive /mcp connect shows a project definition's origin before approv
     }
   }
 }, 30_000);
+
+test("/mcp reload revokes consent only for approved changed servers and ignores reordered env keys", async () => {
+  const { home, project } = await fixture();
+  const server = (args: string[], env: Record<string, string>) => ({ command: process.execPath, args: [path.join(import.meta.dir, "fixtures/mcp-server.ts"), ...args], env });
+  const write = (servers: Record<string, unknown>) => writeFile(path.join(home, ".casper/mcp.json"), JSON.stringify({ mcpServers: servers }));
+  await write({ fixture: server([], { A: "1", B: "2" }), alpha: server([], {}), steady: server([], { A: "1", B: "2" }) });
+  let output = "";
+  const app = new CasperApp({
+    runtimeFactory: () => { throw new Error("No model should start"); },
+    loadProjectContext: (info) => loadProjectContext(info, { homeDir: home }),
+    loadSkillRegistry: (context) => SkillRegistry.discover({ projectRoot: context.info.root, homeDir: home }),
+    loadMCPConfiguration: () => discoverMCPConfiguration({ projectRoot: project, homeDir: home }),
+    output: { write: (text) => { output += text; } },
+  });
+  cleanup.push(() => app.close());
+  await app.runOnce("/mcp connect fixture", project);
+  await app.runOnce("/mcp connect steady");
+  output = "";
+  // fixture and alpha change programs (only fixture was approved); steady only reorders env keys.
+  await write({ fixture: server(["--changed"], { A: "1", B: "2" }), alpha: server(["--changed"], {}), steady: server([], { B: "2", A: "1" }) });
+  await app.runOnce("/mcp reload");
+  expect(output).toContain("[mcp] reloaded: 0 added, 0 removed, 2 changed");
+  expect(output).toContain("[mcp] consent revoked for fixture; reconnect with /mcp connect <name>");
+  expect(output).not.toMatch(/consent revoked for [^\n]*alpha/);
+  expect(output).toMatch(/steady \[stdio; ready\]/);
+  expect(output).toMatch(/fixture \[stdio; disconnected\]/);
+});

@@ -45,11 +45,18 @@ interface Entry {
 
 const MAX_WIRE_BYTES = 8 * 1024 * 1024;
 
+/** Key-order-independent serialization: reordered env/header maps are the same program. */
+function canonical(value: unknown): string {
+  return JSON.stringify(value, (_key, item: unknown) => item && typeof item === "object" && !Array.isArray(item)
+    ? Object.fromEntries(Object.entries(item).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0))
+    : item);
+}
+
 /** Identity of a loaded server: everything except which file it came from. */
 function sameDefinition(a: MCPServerDefinition, b: MCPServerDefinition): boolean {
   const { source: _a, scope: _sa, shadows: _ha, ...restA } = a;
   const { source: _b, scope: _sb, shadows: _hb, ...restB } = b;
-  return JSON.stringify(restA) === JSON.stringify(restB);
+  return canonical(restA) === canonical(restB);
 }
 
 /** Liveness of the spawned child itself. The SDK's `pid` getter reads `_process`, which
@@ -152,8 +159,9 @@ export class MCPManager {
   /** Re-read configuration: add new servers, drop removed ones, and replace changed
    * definitions (a changed command/url is a different program, so its consent resets and
    * it reconnects only via an explicit /mcp connect). Unchanged approved servers keep
-   * their connection. Returns the diff for the command report. */
-  async reload(configuration: MCPConfiguration): Promise<{ added: string[]; removed: string[]; changed: string[] }> {
+   * their connection. Returns the diff for the command report; `revoked` lists the changed
+   * servers that actually held consent. */
+  async reload(configuration: MCPConfiguration): Promise<{ added: string[]; removed: string[]; changed: string[]; revoked: string[] }> {
     this.assertCleanup();
     const next = new Map<string, MCPServerDefinition>();
     for (const definition of configuration.servers) {
@@ -163,6 +171,7 @@ export class MCPManager {
     const added: string[] = [];
     const removed: string[] = [];
     const changed: string[] = [];
+    const revoked: string[] = [];
     for (const [name, entry] of this.entries) {
       const replacement = next.get(name);
       next.delete(name);
@@ -179,6 +188,7 @@ export class MCPManager {
         entry.definition.shadows = replacement.shadows;
         continue;
       }
+      if (entry.approved) revoked.push(name);
       await this.disconnect(name);
       entry.definition = replacement;
       entry.approved = false;
@@ -197,7 +207,7 @@ export class MCPManager {
     }
     this.diagnostics = configuration.diagnostics;
     await this.prepare();
-    return { added, removed, changed };
+    return { added, removed, changed, revoked };
   }
 
   async call(server: string, name: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {

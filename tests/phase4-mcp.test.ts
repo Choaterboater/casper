@@ -126,7 +126,7 @@ test("a reload diffs definitions in place and revokes consent only for changed p
     definition("edit", "router"),
     definition("added"),
   ] });
-  expect(diff).toEqual({ added: ["added"], removed: [], changed: ["edit"] });
+  expect(diff).toEqual({ added: ["added"], removed: [], changed: ["edit"], revoked: ["edit"] });
   expect(mcp.diagnostics).toEqual(["Reloaded fixture warning"]);
   expect(mcp.catalogRevision).toBeGreaterThan(before);
   const entry = (name: string) => mcp.status().find((status) => status.name === name);
@@ -140,7 +140,7 @@ test("a reload diffs definitions in place and revokes consent only for changed p
   expect(entry("edit")).toMatchObject({ state: "ready", toolCount: 340 });
 
   expect(await mcp.reload({ diagnostics: [], servers: [definition("keep", "router")] }))
-    .toEqual({ added: [], removed: ["edit", "added"], changed: ["keep"] });
+    .toEqual({ added: [], removed: ["edit", "added"], changed: ["keep"], revoked: ["keep"] });
   expect(mcp.catalog()).toEqual([]);
   expect(mcp.diagnostics).toEqual([]);
   await expect(mcp.connect("added")).rejects.toThrow("Unknown MCP server");
