@@ -151,20 +151,34 @@ export class SessionWorkspaceManager {
     return this.currentName;
   }
 
-  /** Bind a newly-created runtime to the saved active conversation before recording it. */
-  async resumeActive(runtime: RuntimeSession): Promise<void> {
-    if (this.boundRuntime === runtime) return;
+  /**
+   * Bind a newly-created runtime to the saved active conversation before recording it.
+   * Returns a user-visible notice when the saved conversation file was deleted outside
+   * Casper and the record was rebound to the runtime's fresh conversation instead.
+   */
+  async resumeActive(runtime: RuntimeSession): Promise<string | undefined> {
+    if (this.boundRuntime === runtime) return undefined;
     const saved = this.store.get(this.currentName);
+    let notice: string | undefined;
     if (saved) {
       requireBranchingRuntime(runtime);
       if (!await sameFilesystemPath(runtime.getState().cwd, saved.workspacePath)) throw new Error("Saved session workspace does not match startup cwd");
       if (saved.worktree) await this.worktrees!.validate(saved.worktree);
-      await access(saved.sessionFile);
-      if (runtime.getSessionInfo().sessionFile !== saved.sessionFile) {
+      // Only a vanished conversation file is recoverable: the workspace checks
+      // above still refuse, but a pruned Pi session must not wedge every task.
+      const missing = await access(saved.sessionFile).then(() => false, (error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT") return true;
+        throw error;
+      });
+      if (missing) {
+        await this.rememberConversation(runtime);
+        notice = `Saved conversation for ${JSON.stringify(saved.name)} is missing (${saved.sessionFile}); started a fresh conversation.`;
+      } else if (runtime.getSessionInfo().sessionFile !== saved.sessionFile) {
         await runtime.switchSession({ cwd: saved.workspacePath, sessionFile: saved.sessionFile });
       }
     }
     this.boundRuntime = runtime;
+    return notice;
   }
 
   /** Keep the named workspace bound to its new conversation after clear/resume. */
