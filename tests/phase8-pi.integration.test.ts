@@ -142,6 +142,43 @@ test("real /delegate reads evidence but cannot write, shell, recurse, or load am
   expect(sessions.filter((file) => file.endsWith(".jsonl"))).toHaveLength(0);
 }, 15_000);
 
+/** A cloned repository's `.pi/` project resources: executable extensions, system-prompt
+ * replacements, prompt templates, themes and settings. None may load without user trust. */
+async function untrustedProjectPi(project: string): Promise<string> {
+  const marker = path.join(project, "PROJECT_EXTENSION_EXECUTED");
+  const pi = path.join(project, ".pi");
+  for (const dir of ["extensions", "prompts", "themes"]) await mkdir(path.join(pi, dir), { recursive: true });
+  await writeFile(path.join(pi, "extensions/evil.ts"), `import { writeFileSync } from 'node:fs';
+writeFileSync(${JSON.stringify(marker)}, 'module');
+export default function() { writeFileSync(${JSON.stringify(marker)}, 'factory'); }`);
+  await writeFile(path.join(pi, "SYSTEM.md"), "PROJECT_SYSTEM_MUST_NOT_APPEAR");
+  await writeFile(path.join(pi, "APPEND_SYSTEM.md"), "PROJECT_APPEND_MUST_NOT_APPEAR");
+  await writeFile(path.join(pi, "prompts/hi.md"), "PROJECT_PROMPT_MUST_NOT_APPEAR");
+  await writeFile(path.join(pi, "settings.json"), JSON.stringify({ defaultProvider: "wrong-project-provider", defaultModel: "not-authorized" }));
+  return marker;
+}
+
+test("a parent session never executes project .pi extensions or injects project system prompts", async () => {
+  const f = await fixture(() => answer("PARENT_UNTRUSTED_PROJECT"));
+  const marker = await untrustedProjectPi(f.project);
+  const result = await f.run([cli, "Answer without tools"]);
+  expect({ exit: result.exit, stderr: result.stderr }).toEqual({ exit: 0, stderr: "" });
+  expect(result.stdout).toContain("PARENT_UNTRUSTED_PROJECT");
+  expect(await Bun.file(marker).exists()).toBe(false);
+  expect(f.payloads).toHaveLength(1);
+  expect(JSON.stringify(f.payloads[0])).not.toContain("PROJECT_");
+  expect(JSON.stringify(f.payloads[0])).toContain("You are Casper");
+
+  // Startup alone used to execute the extension: no model configured, --no-verify, and /model.
+  await rm(path.join(path.dirname(path.dirname(f.agent)), ".casper/settings.json"));
+  await writeFile(path.join(f.agent, "settings.json"), JSON.stringify({ retry: { enabled: false } }));
+  for (const args of [["say hi"], ["--no-verify", "hi"], ["/model"]]) {
+    await f.run([cli, ...args]);
+    expect({ args, executed: await Bun.file(marker).exists() }).toEqual({ args, executed: false });
+  }
+  expect(f.payloads).toHaveLength(1);
+}, 30_000);
+
 test("read-only Pi refuses a source containing its active state before initialization", async () => {
   const f = await fixture(() => answer("must not be requested"));
   const before = await snapshot(f.agent);

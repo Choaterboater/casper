@@ -44,6 +44,12 @@ originals stay untouched); a `PI_CODING_AGENT_DIR` set in the environment
 always overrides Casper's store. Login writes only the consented provider's
 credential into that store.
 
+A repository's own Pi project directory is never trusted: `<project>/.pi/`
+extensions (executable code), `SYSTEM.md`, `APPEND_SYSTEM.md`, prompt templates,
+themes and `settings.json` are not loaded, with or without a model configured.
+User-level resources in the engine store (for example `~/.casper/agent/extensions/`)
+still load. Project `AGENTS.md`/`CLAUDE.md` context files are still sent to the model.
+
 Requests Casper itself sends to OpenRouter — model traffic and API-key
 verification — carry app-attribution headers (`HTTP-Referer`,
 `X-OpenRouter-Title: Casper`, `X-OpenRouter-Categories: cli-agent`, and
