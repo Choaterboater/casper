@@ -11,7 +11,7 @@ const executable = process.env.CASPER_BROWSER_EXECUTABLE ?? "/Applications/Googl
 const browserTest = existsSync(executable) ? test : test.skip;
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
-async function fixture(options: { executablePath?: string; confirm?: (request: unknown, signal: AbortSignal) => Promise<boolean> } = {}) {
+async function fixture(options: { executablePath?: string; confirm?: (request: unknown, signal: AbortSignal) => Promise<boolean>; navigationTimeoutMs?: number } = {}) {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-browser-test-")));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
   const project = path.join(root, "project"), state = path.join(root, "state");
@@ -49,10 +49,10 @@ needsSymlinks("an unavailable executable is an explicit error, never an automati
 });
 
 browserTest("a hanging navigation times out and the same session can recover", async () => {
-  const f = await fixture();
+  const f = await fixture({ navigationTimeoutMs: 1_000 });
   const started = performance.now();
-  await expect(f.session.run({ action: "open", url: `${f.url}/hang` })).rejects.toThrow("timeout");
-  // The navigation deadline is 5 s; the rest is Chromium startup, which a loaded host stretches.
+  await expect(f.session.run({ action: "open", url: `${f.url}/hang` })).rejects.toThrow("Navigation timeout of 1000 ms exceeded");
+  // The injected navigation deadline is 1 s; the rest is Chromium startup, which a loaded host stretches.
   expect(performance.now() - started).toBeLessThan(30_000);
   await f.session.run({ action: "open", url: f.url });
   expect(await f.session.run({ action: "inspect" })).toMatchObject({ title: "Browser fixture" });

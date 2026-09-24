@@ -18,6 +18,8 @@ export interface BrowserSessionOptions {
   /** Host/user configuration only; never a model-supplied executable or profile. */
   executablePath?: string;
   confirm?: (request: BrowserApproval, signal: AbortSignal) => Promise<boolean>;
+  /** Page navigation deadline (default 10 s); a test seam, never model-supplied. */
+  navigationTimeoutMs?: number;
 }
 export interface BrowserApproval { action: string; url: string; selector: string; target: string; value?: string; reason: string; impact: string }
 const INTERACTIONS = ["click", "fill", "press"];
@@ -101,7 +103,7 @@ export class BrowserSession {
       combined.throwIfAborted();
       if (url) {
         this.logs.length = 0; this.requests.length = 0; this.dropped = 0;
-        await page.goto(url, { waitUntil: "domcontentloaded", timeout: 10_000 });
+        await page.goto(url, { waitUntil: "domcontentloaded", timeout: this.options.navigationTimeoutMs ?? 10_000 });
         combined.throwIfAborted();
         return { url: page.url(), title: (await page.title()).slice(0, 512) };
       }
@@ -199,7 +201,7 @@ export class BrowserSession {
       const page = await this.newPage();
       this.logs.length = 0; this.requests.length = 0; this.dropped = 0;
       await page.setViewport(scenario.viewport);
-      await page.goto(scenario.url, { waitUntil: "domcontentloaded", timeout: 10_000 });
+      await page.goto(scenario.url, { waitUntil: "domcontentloaded", timeout: this.options.navigationTimeoutMs ?? 10_000 });
       for (const step of scenario.steps) { signal.throwIfAborted(); await this.interact({ ...step }, signal); }
       for (const assertion of scenario.assertions) {
         signal.throwIfAborted();
