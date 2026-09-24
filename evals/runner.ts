@@ -38,9 +38,21 @@ export interface EvalAcceptance {
   readonly answerContains?: readonly string[];
 }
 
+/** A named host-checked predicate that feeds a rubric score but never decides success. */
+export interface EvalConvention {
+  readonly id: string;
+  readonly check: EvalAcceptance;
+}
+
+export type EvalPack = "core" | "network";
+
 export interface EvalTask {
   readonly id: string;
   readonly fixture: string;
+  /** Quality-benchmark pack. Tasks without one are Casper's own regression catalog. */
+  readonly pack?: EvalPack;
+  /** Project conventions (file placement, exports, naming) for the Conventional score. */
+  readonly conventions?: readonly EvalConvention[];
   /** Overlay that turns the solved fixture into this task's starting state. */
   readonly setup?: string;
   readonly prompt: string;
@@ -224,13 +236,46 @@ export async function prepareWorkdir(task: EvalTask, repoRoot: string, destinati
     if (task.setup) {
       const setup = path.join(repoRoot, "evals/setups", task.setup);
       await copyTree(path.join(setup, "files"), workdir);
-      const removals = await readFile(path.join(setup, "remove.json"), "utf8").catch(() => "[]");
-      for (const relative of JSON.parse(removals) as string[]) await rm(path.join(workdir, relative), { force: true });
+      // An entry ending in `/` removes a directory: that is how hidden grading files leave the candidate.
+      for (const relative of await setupRemovals(task, repoRoot)) {
+        await rm(path.join(workdir, relative), { force: true, recursive: relative.endsWith("/") });
+      }
     }
     return workdir;
   } catch (error) {
     if (owned) await rm(workdir, { recursive: true, force: true });
     throw error;
+  }
+}
+
+async function setupRemovals(task: EvalTask, repoRoot: string): Promise<string[]> {
+  if (!task.setup) return [];
+  const text = await readFile(path.join(repoRoot, "evals/setups", task.setup, "remove.json"), "utf8").catch(() => "[]");
+  const removals: unknown = JSON.parse(text);
+  if (!Array.isArray(removals) || removals.some((entry) => typeof entry !== "string" || !entry || entry.startsWith("/") || entry.split("/").includes(".."))) {
+    throw new Error(`Setup ${task.setup} remove.json must list relative paths`);
+  }
+  return removals as string[];
+}
+
+/** Directories the solved fixture has but the candidate never sees (hidden acceptance tests). */
+export async function hiddenPaths(task: EvalTask, repoRoot: string): Promise<string[]> {
+  return (await setupRemovals(task, repoRoot)).filter((entry) => entry.endsWith("/"));
+}
+
+/** What the reference solution (the solved fixture) changes relative to the task's starting state,
+ * excluding hidden grading files: the baseline for the Focused score. */
+export async function referenceChanges(task: EvalTask, repoRoot: string): Promise<{ added: string[]; modified: string[]; removed: string[] }> {
+  const start = await prepareWorkdir(task, repoRoot);
+  const solved = await prepareWorkdir({ ...task, setup: undefined }, repoRoot);
+  try {
+    const hidden = await hiddenPaths(task, repoRoot);
+    const visible = (entry: string) => !hidden.some((prefix) => entry.startsWith(prefix));
+    const diff = diffTrees(await digestTree(start), await digestTree(solved));
+    return { added: diff.added.filter(visible), modified: diff.modified.filter(visible), removed: diff.removed.filter(visible) };
+  } finally {
+    await rm(start, { recursive: true, force: true });
+    await rm(solved, { recursive: true, force: true });
   }
 }
 
