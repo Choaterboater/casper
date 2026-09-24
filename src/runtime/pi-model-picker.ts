@@ -39,7 +39,9 @@ export async function pickPiModel(view: RuntimePickerView, catalog: ModelRuntime
       };
       if (key === "refresh") return async (options: Parameters<ModelRuntime["refresh"]>[0]) => {
         try {
-          const result = await target.refresh({ ...options, allowNetwork: false });
+          // The browser shows freshness status and keeps cached rows on failure, so live
+          // catalog refresh (new provider models) is safe here, unlike startup paths.
+          const result = await target.refresh({ ...options, allowNetwork: true });
           return { ...result, errors: new Map([...result.errors].map(([provider, error]) =>
             [terminalText(provider), new Error(terminalText(error.message))])) };
         } catch (error) {

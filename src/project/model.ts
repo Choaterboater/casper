@@ -46,7 +46,7 @@ interface CacheEntry {
   model: ProjectModel;
 }
 
-const SIGNAL_NAMES = new Set([
+export const PROJECT_SIGNAL_NAMES = new Set([
   "package.json",
   "bun.lock",
   "bun.lockb",
@@ -110,7 +110,7 @@ async function rootSignals(root: string): Promise<string[]> {
     return [];
   }
 
-  return names.filter((name) => SIGNAL_NAMES.has(name)).sort();
+  return names.filter((name) => PROJECT_SIGNAL_NAMES.has(name)).sort();
 }
 
 async function fingerprint(
