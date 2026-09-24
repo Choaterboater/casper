@@ -200,7 +200,15 @@ export class TerminalSurface {
     return truncateToWidth(`${state} ${text}`, width);
   }
 
-  start(): void { if (!this.started && !this.closed) { this.started = true; this.tui.start(); } }
+  start(): void {
+    if (!this.started && !this.closed) {
+      this.started = true;
+      // A fresh session owns the whole screen: clear the viewport so a previous run's
+      // transcript stays in scrollback instead of stacking the new banner mid-screen.
+      this.terminal.clearScreen();
+      this.tui.start();
+    }
+  }
   /** Shift+Tab. Absent on the plain-line terminal; the key is still consumed so it cannot edit the draft. */
   setEffortCycle(handler: (() => void) | undefined): void { this.onCycleEffort = handler; }
   /** Footer note that expires on its own and never clears a newer note (including the exit arm). */

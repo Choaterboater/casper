@@ -1,4 +1,4 @@
-"""Production Casper CLI + pinned Pi picker, local catalogs only; no model requests."""
+"""Production Casper CLI + Casper model browser, local catalogs only; no model requests."""
 import importlib.util
 import json
 import pathlib
@@ -32,7 +32,7 @@ def exercise(bun, repo, root, no_color=False):
         s.send("/model\n" + draft + "\x1b[D\x1b[D")
         s.until("remember globally")
         s.send("second")
-        s.until("Model Name: second")
+        s.until("second · fixture/second")
         s.send("\x13")  # Ctrl+S is the explicit session-only alternative.
         s.until("Selected for this conversation only")
         assert not (s.root / "home/.casper/settings.json").exists()
@@ -47,7 +47,7 @@ def exercise(bun, repo, root, no_color=False):
         s.send("\x01\x0b/model fixture/first\n")
         s.until("fixture / first")
         s.send("/model sec\n")
-        s.until("Model Name: second")
+        s.until("second · fixture/second")
         s.send("\n")  # Normal selection now remembers the default.
         s.until("Selected and saved as the Casper default")
         saved = json.loads((s.root / "home/.casper/settings.json").read_text())
@@ -147,4 +147,4 @@ if __name__ == "__main__":
     dumb = pathlib.Path(root) / "dumb"
     dumb.mkdir()
     exercise_dumb(bun, repo, str(dumb))
-    print("MODEL PTY PASS: Pi picker search, conversation selection, explicit default, cancel, draft/history, EOF, NO_COLOR, TERM=dumb and Pi settings/auth preservation")
+    print("MODEL PTY PASS: Model browser search, conversation selection, explicit default, cancel, draft/history, EOF, NO_COLOR, TERM=dumb and Pi settings/auth preservation")

@@ -61,7 +61,7 @@ Usage:
 Local commands:
   /help, /help all                  Short help or this full reference (no model)
   /status                           Runtime model/auth and integration status
-  /model [id or provider/id]        Pi picker; select and remember globally
+  /model [id or provider/id]        Model browser; select and remember globally
   /model --session [model]          Select without changing the startup default
   /effort [level|auto] [--session]  Supported levels or auto (Casper picks per request); Shift+Tab cycles
   /context                          Estimated context and capability counts
