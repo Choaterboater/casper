@@ -35,6 +35,16 @@ const EXIT_NOTE = "Ctrl-C again to exit · Ctrl-D exits too";
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const SPINNER_INTERVAL_MS = 120;
 
+/** 95000 ms → "1m35s"; hours fold to "1h02m". Same shape the events layer uses for panels. */
+function formatElapsed(ms: number): string {
+  const seconds = Math.max(0, Math.floor(ms / 1000));
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  if (hours) return `${hours}h${String(minutes % 60).padStart(2, "0")}m`;
+  if (minutes) return `${minutes}m${String(seconds % 60).padStart(2, "0")}s`;
+  return `${seconds}s`;
+}
+
 /** Prompt editor with a fixed two-column gutter: the glyph changes with state, the box never moves. */
 class PromptEditor extends Editor {
   glyph: () => string = () => PROMPT_GLYPH;
@@ -80,6 +90,8 @@ export class TerminalSurface {
   private busy = false;
   private spinnerFrame = 0;
   private spinnerTimer?: NodeJS.Timeout;
+  /** When the current busy/activity stretch began; drives the footer's elapsed timer. */
+  private activeSince?: number;
   /** Component shown in place of the editor while a picker is mounted. */
   private slot?: Component;
   /** Raw input is on loan to a line-oriented flow; the surface keeps rendering. */
@@ -202,9 +214,13 @@ export class TerminalSurface {
   }
 
   private footer(width: number): string {
-    const state = this.busy || this.activity ? this.accent(SPINNER_FRAMES[this.spinnerFrame]) : this.muted("○");
-    // A transient note replaces the status line so it is never truncated away.
-    const text = this.note ? this.accent(this.note) : this.muted(this.status || "Casper · / for commands");
+    const active = this.busy || this.activity !== undefined;
+    const state = active ? this.accent(SPINNER_FRAMES[this.spinnerFrame]) : this.muted("○");
+    // A transient note replaces the status line so it is never truncated away; elapsed time
+    // rides on the status line so a long-running request is measurable at a glance.
+    const elapsed = active && this.activeSince !== undefined && !this.note
+      ? this.muted(` · ${formatElapsed(Date.now() - this.activeSince)}`) : "";
+    const text = this.note ? this.accent(this.note) : this.muted(this.status || "Casper · / for commands") + elapsed;
     return truncateToWidth(`${state} ${text}`, width);
   }
 
@@ -212,6 +228,8 @@ export class TerminalSurface {
  * title cycle through braille frames; idle returns to the static ○. */
 private updateSpinner(): void {
     const active = (this.busy || this.activity !== undefined) && !this.closed;
+    if (active) this.activeSince ??= Date.now();
+    else this.activeSince = undefined;
     if (active && this.spinnerTimer === undefined) {
       this.spinnerTimer = setInterval(() => {
         this.spinnerFrame = (this.spinnerFrame + 1) % SPINNER_FRAMES.length;
