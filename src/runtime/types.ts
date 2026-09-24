@@ -35,6 +35,10 @@ export interface RuntimeReadOnlyStartOptions {
   signal: AbortSignal;
   maxTurns: number;
   maxToolCalls: number;
+  /** Spends one tool-free turn after the budget is exhausted so the child can report what it
+   * found instead of ending mid-tool-call with an empty result. Off by default: the turn
+   * budgets stay exactly what a caller asked for. */
+  reportTurn?: boolean;
   /** Casper role for this child; unset roles use the Casper startup default. */
   modelRole?: "fast" | "review";
 }

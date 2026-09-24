@@ -611,6 +611,18 @@ for (const mode of ["turns", "calls"]) test(`real read-only Pi enforces ${mode} 
   expect(report.events.filter((event) => event.type === "tool_end" && !event.isError)).toHaveLength(mode === "turns" ? 2 : 3);
 }, 15_000);
 
+test("real read-only Pi spends its one opt-in report turn without doing more work", async () => {
+  const f = await fixture(() => calls([{ name: "read", args: { path: "fixture.txt" } }]));
+  const result = await f.run([adapter, f.project, "report"]);
+  expect({ exit: result.exit, stderr: result.stderr }).toEqual({ exit: 0, stderr: "" });
+  const report: { events: RuntimeEvent[]; replaceBlocked: boolean } = JSON.parse(result.stdout.split("READONLY_RESULT=")[1]!);
+  expect(report.events).toContainEqual(expect.objectContaining({ type: "assistant_response_end", stopReason: "limit" }));
+  // Two budget turns plus the report turn, and the report turn runs no tools at all.
+  expect(f.payloads).toHaveLength(3);
+  expect(report.events.filter((event) => event.type === "tool_end" && !event.isError)).toHaveLength(2);
+  expect(report.events.filter((event) => event.type === "tool_end" && event.isError).length).toBeGreaterThan(0);
+}, 15_000);
+
 test("delegation follows a reviewed worktree switch and return with fresh project context", async () => {
   const f = await fixture((payload) => payload.messages.some((message) => message.role === "tool")
     ? answer("WORKSPACE_EVIDENCE: fixture.txt:1")

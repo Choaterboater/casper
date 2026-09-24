@@ -24,6 +24,10 @@ export interface SubagentRunOptions {
   cwd: string;
   projectContext: string;
   context?: string;
+  /** Spend one tool-free turn after the budget is exhausted so the caller receives what the
+   * child found instead of an empty report. Callers that reject a limited run anyway, such as
+   * learn, leave it off and get budgets exactly as asked. */
+  reportTurn?: boolean;
   signal?: AbortSignal;
 }
 
@@ -71,12 +75,15 @@ function validateRole(value: unknown): SubagentRole {
 }
 
 function prompt(options: SubagentRunOptions): string {
+  const budget = options.reportTurn
+    ? `- budget: ${SUBAGENT_LIMITS.maxTurns} model turns, ${SUBAGENT_LIMITS.maxToolCalls} tool calls, then one tool-free turn to report; return a concise report before then`
+    : `- budget: ${SUBAGENT_LIMITS.maxTurns} model turns, ${SUBAGENT_LIMITS.maxToolCalls} tool calls; return a concise report before exhausting it`;
   return [
     "Casper subagent task (a fresh context, not the parent conversation):",
     `- role: ${options.role}`,
     `- workspace: ${options.cwd}`,
     "- constraints: read-only tools (read, grep, find, ls); no edits, shell, tests, external capabilities, or recursive delegation",
-    `- budget: ${SUBAGENT_LIMITS.maxTurns} model turns, ${SUBAGENT_LIMITS.maxToolCalls} tool calls; return a concise report before exhausting it`,
+    budget,
     options.role === "explorer"
       ? "Return a summary, relevant files with line references, evidence, and unknowns."
       : "Return actionable findings ordered by severity, with file/line evidence and reasoning; then open questions and coverage limits. No findings is not proof of correctness. Do not invent an unprovided diff or baseline.",
@@ -140,7 +147,7 @@ export class SubagentManager {
     let dispatched = 0;
     return {
       name: "delegate",
-      description: `Delegate only when an independent read-only explorer (locate files and evidence) or reviewer (find defects in specified code/plan) adds value. Provide a self-contained goal and optional context; children do not inherit conversation history. Only read/grep/find/ls, no shell, edits, MCP/LSP, or recursion. At most ${SUBAGENT_LIMITS.maxDelegationsPerTask} delegations per parent task, ${SUBAGENT_LIMITS.maxConcurrent} concurrent, ${SUBAGENT_LIMITS.timeoutMs / 1000} seconds/${SUBAGENT_LIMITS.maxTurns} turns/${SUBAGENT_LIMITS.maxToolCalls} tool calls each. Results are advisory, capped at 16 KiB, with incomplete/error status disclosed.`,
+      description: `Delegate only when an independent read-only explorer (locate files and evidence) or reviewer (find defects in specified code/plan) adds value, with one narrow goal per call; a broad audit exhausts the child's budget and yields only a partial report. Provide a self-contained goal and optional context; children do not inherit conversation history. Only read/grep/find/ls, no shell, edits, MCP/LSP, or recursion. At most ${SUBAGENT_LIMITS.maxDelegationsPerTask} delegations per parent task, ${SUBAGENT_LIMITS.maxConcurrent} concurrent, ${SUBAGENT_LIMITS.timeoutMs / 1000} seconds/${SUBAGENT_LIMITS.maxTurns} turns/${SUBAGENT_LIMITS.maxToolCalls} tool calls each. Results are advisory, capped at 16 KiB, with incomplete/error status disclosed.`,
       inputSchema: {
         type: "object", additionalProperties: false, required: ["role", "goal"],
         properties: {
@@ -159,7 +166,7 @@ export class SubagentManager {
           const context = args.context === undefined || args.context === "" ? undefined : requireString(args.context, "context", SUBAGENT_LIMITS.contextBytes);
           if (dispatched >= SUBAGENT_LIMITS.maxDelegationsPerTask) throw new Error("Delegation budget exhausted for this parent task");
           dispatched++;
-          const result = await this.run({ ...getContext(), role, goal, context, signal });
+          const result = await this.run({ ...getContext(), role, goal, context, signal, reportTurn: true });
           const isError = result.status !== "completed";
           // The caller already has the goal. Put outcome first so even a byte-
           // bounded preview retains it instead of spending its budget echoing input.
@@ -189,6 +196,9 @@ export class SubagentManager {
     let responseBytes = 0;
     let pendingSurrogate = "";
     let totalBytes = 0;
+    /** Last non-empty response block, kept as the fallback for a run stopped mid-investigation. */
+    let fallback = "";
+    let fallbackTruncated = false;
     let wake!: () => void;
     const cancelled = new Promise<void>((resolve) => { wake = resolve; });
     const stop = (status: SubagentStatus, reason: string) => {
@@ -206,7 +216,9 @@ export class SubagentManager {
     const observe = (event: RuntimeEvent) => {
       if (controller.signal.aborted) return;
       if (event.type === "assistant_response_start") {
-        // Keep only the current response, not every exploratory narration.
+        // Keep only the current response, not every exploratory narration; the previous block
+        // survives only as the fallback below.
+        if (result.response.trim()) { fallback = result.response; fallbackTruncated = result.truncated; }
         result.response = ""; responseBytes = 0; result.truncated = false; pendingSurrogate = "";
       } else if (event.type === "assistant_text_delta") {
         totalBytes += Buffer.byteLength(event.delta);
@@ -251,11 +263,18 @@ export class SubagentManager {
           cwd: options.cwd, signal: controller.signal,
           modelRole: options.role === "explorer" ? "fast" : "review",
           maxTurns: SUBAGENT_LIMITS.maxTurns, maxToolCalls: SUBAGENT_LIMITS.maxToolCalls,
+          reportTurn: options.reportTurn,
           systemPromptAppend: `You are Casper ${options.role}, a bounded read-only subagent. Be concise.\n\n${options.projectContext}`,
         });
         controller.signal.throwIfAborted();
         unsubscribe = session.subscribe(observe);
         await session.prompt(prompt(options), controller.signal, { request: options.goal });
+        // A child that stopped mid-investigation reports its last words rather than nothing at
+        // all; the status and reason still say the run was cut short.
+        if (result.status !== "completed" && !result.response.trim() && fallback.trim()) {
+          result.response = fallback;
+          result.truncated = fallbackTruncated;
+        }
         if (!controller.signal.aborted && !result.response.trim() && result.status === "completed") {
           result.status = "failed"; result.reason = "Subagent returned no report";
         }

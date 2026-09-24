@@ -10,8 +10,9 @@ const events: RuntimeEvent[] = [];
 try {
   const session = await runtime.startReadOnly({
     cwd, signal: controller.signal,
-    maxTurns: mode === "turns" || mode === "length" ? 2 : 12,
+    maxTurns: mode === "turns" || mode === "length" || mode === "report" ? 2 : 12,
     maxToolCalls: mode === "calls" ? 3 : 48,
+    reportTurn: mode === "report",
     systemPromptAppend: "Casper read-only adapter acceptance fixture",
   });
   session.subscribe((event) => {

@@ -122,9 +122,11 @@ describe("Phase 8 bounded subagents", () => {
     await app.runOnce("/delegate explorer Find the entry point", project);
     expect(child.options?.maxToolCalls).toBe(48);
     expect(child.options?.maxTurns).toBe(12);
+    expect(child.options?.reportTurn).toBe(true);
     expect(child.options?.systemPromptAppend).toContain("Casper project context");
     expect(child.prompts[0]).toContain("Goal:\nFind the entry point");
     expect(child.prompts[0]).toContain("no edits, shell, tests");
+    expect(child.prompts[0]).toContain("one tool-free turn to report");
     expect(output).toContain("explorer · completed");
     expect(output).toContain("tools: find");
     expect(output).toContain("index.ts:1");
@@ -209,6 +211,21 @@ describe("Phase 8 bounded subagents", () => {
     expect(output).not.toContain("LATE_REPORT");
     expect(child.aborts).toBe(1);
     expect(child.disposals).toBe(1);
+  });
+
+  test("a child stopped mid-investigation reports its last words instead of nothing", async () => {
+    const child = new ChildRuntime(async (emit) => {
+      emit({ type: "assistant_response_start" });
+      emit({ type: "assistant_text_delta", delta: "Budget constants live in src/agents/manager.ts; checking callers" });
+      emit({ type: "assistant_response_end", stopReason: "toolUse" });
+      emit({ type: "assistant_response_start" });
+      emit({ type: "assistant_response_end", stopReason: "limit", errorMessage: "Subagent turn/tool-call budget exhausted" });
+    });
+    const result = await manager(() => child).run(task);
+    expect(result.status).toBe("limited");
+    expect(result.reason).toContain("budget exhausted");
+    expect(result.response).toBe("Budget constants live in src/agents/manager.ts; checking callers");
+    expect(formatSubagentReport(result)).toContain("checking callers");
   });
 
   test("only the final response is returned; streamed Unicode and terminal controls are bounded", async () => {

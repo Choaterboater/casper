@@ -436,6 +436,8 @@ export class PiRuntime implements AgentRuntime {
     let limitReason: string | undefined;
     let toolCalls = 0;
     let turns = 0;
+    /** Set once to spend the single tool-free turn that lets a spent child hand back a report. */
+    let wrapUp = false;
 
     const createRuntime: CreateAgentSessionRuntimeFactory = async ({ cwd, sessionManager, sessionStartEvent }) => {
       readOnly?.signal.throwIfAborted();
@@ -445,9 +447,17 @@ export class PiRuntime implements AgentRuntime {
           if (isOpenRouterModel(ctx.model)) Object.assign(event.headers, OPENROUTER_ATTRIBUTION);
         });
         if (readOnly) pi.on("tool_call", () => {
-          if (readOnly.signal.aborted || ++toolCalls > readOnly.maxToolCalls) {
-            limitReason = readOnly.signal.aborted ? "Subagent cancelled" : "Subagent tool-call budget exhausted";
+          if (readOnly.signal.aborted) {
+            limitReason = "Subagent cancelled";
             return { block: true, reason: limitReason, terminate: true };
+          }
+          // The report turn is tool-free whichever budget ran out: the work is already spent.
+          if (wrapUp) return { block: true, reason: limitReason ?? "Subagent budget exhausted", terminate: true };
+          if (++toolCalls > readOnly.maxToolCalls) {
+            limitReason ??= "Subagent tool-call budget exhausted";
+            // Before the report turn the child keeps the loop: cutting it off mid-investigation
+            // returns nothing at all.
+            return { block: true, reason: `${limitReason}; reply now with your findings and stop calling tools` };
           }
         });
         if (!readOnly) pi.on("tool_call", (event) => {
@@ -534,7 +544,11 @@ export class PiRuntime implements AgentRuntime {
             if (!limitReason && message.content.some((part) => part.type === "toolCall") && (turns >= readOnly.maxTurns || toolCalls >= readOnly.maxToolCalls)) {
               limitReason = "Subagent turn/tool-call budget exhausted";
             }
-            return Boolean(limitReason) || readOnly.signal.aborted;
+            if (readOnly.signal.aborted) return true;
+            // A spent child gets exactly one tool-free turn to report what it already found;
+            // without it the loop ends on a tool call and the caller receives an empty result.
+            if (limitReason && readOnly.reportTurn && !wrapUp) { wrapUp = true; return false; }
+            return Boolean(limitReason);
           };
         } else created.session.setActiveToolsByName([
           "read", "bash", "edit", "write", "grep", "find", "ls",
