@@ -12,6 +12,7 @@ import { formatEffort, formatRuntimeStatus, redactPreview, terminalText } from "
 import type { InteractiveTerminal } from "../tui/terminal";
 import type { CapabilityBroker } from "../capabilities/broker";
 import type { MCPManager } from "../mcp/manager";
+import type { MCPConfiguration } from "../mcp/config";
 import type { LSPManager } from "../lsp/manager";
 import type { SkillRegistry } from "../skills/registry";
 import type { ProjectContext } from "../project/context";
@@ -49,6 +50,8 @@ export interface CommandHost {
   readonly skillRegistry?: SkillRegistry;
   readonly projectContext?: ProjectContext;
   readonly mcp?: MCPManager;
+  /** Re-reads MCP configuration from disk for /mcp reload; omitted when MCP is unavailable. */
+  readonly reloadMCPConfiguration?: () => Promise<MCPConfiguration>;
   readonly lsp?: LSPManager;
   readonly references?: ReferenceLibrary;
   readonly visualization?: VisualizationRouter;
@@ -467,8 +470,17 @@ async function handleDelegateCommand(host: CommandHost, prompt: string): Promise
 
 async function handleMCPCommand(host: CommandHost, prompt: string): Promise<void> {
     const [, action, name, ...extra] = prompt.trim().split(/\s+/);
-    if (action && (!name || extra.length || !["connect", "disconnect"].includes(action))) {
-      throw new Error("Usage: /mcp | /mcp connect <name> | /mcp disconnect <name>");
+    const usage = "Usage: /mcp | /mcp connect <name> | /mcp disconnect <name> | /mcp reload";
+    if (action === "reload") {
+      if (name || extra.length) throw new Error(usage);
+      if (!host.reloadMCPConfiguration) throw new Error("MCP configuration cannot be re-read in this session");
+      const diff = await host.mcp!.reload(await host.reloadMCPConfiguration());
+      host.output.write(`[mcp] reloaded: ${diff.added.length} added, ${diff.removed.length} removed, ${diff.changed.length} changed\n`);
+      for (const diagnostic of host.mcp!.diagnostics) host.output.write(`[mcp] ${diagnostic}\n`);
+      // A changed command/URL is a different program; consent never carries over silently.
+      if (diff.changed.length) host.output.write(`[mcp] consent revoked for ${diff.changed.join(", ")}; reconnect with /mcp connect <name>\n`);
+    } else if (action && (!name || extra.length || !["connect", "disconnect"].includes(action))) {
+      throw new Error(usage);
     }
     if (action === "connect") await host.mcp!.connect(name!);
     if (action === "disconnect") await host.mcp!.disconnect(name!);

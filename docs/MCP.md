@@ -42,6 +42,7 @@ The example URL is a placeholder, not a server to connect to. `type: "stdio"` is
 /mcp                          # local status; no connection or model
 /mcp connect local-docs        # authorize this loaded definition for this process
 /mcp disconnect local-docs     # disconnect and revoke process-local consent
+/mcp reload                    # re-read the layered files without restarting
 ```
 
 For one-shot tasks or preconnected interactive sessions, use repeatable **leading** CLI options:
@@ -53,7 +54,7 @@ casper --mcp local-docs --mcp another-server
 
 **Discovery is not permission.** All servers, including user/profile servers, start disconnected. Neither a `trusted` flag in project JSON nor a skill can authorize connection. Only the user's local connect command/CLI option does so. Consent lasts for this process; it is not persisted and is separate from skill trust. `/mcp` lists name, source file, transport, state, tool count, and controlled error messages, never command arguments, URLs, header values, or environment values. Server stderr is discarded rather than rendered.
 
-Malformed entries produce diagnostics without taking down other entries. An invalid overriding entry removes that name rather than falling back to the lower-precedence executable. Files are limited to 1 MiB and the merged configuration to 64 servers. Structurally invalid entries are rejected; unknown per-server keys are ignored. Restart to reload configuration changes.
+Malformed entries produce diagnostics without taking down other entries. An invalid overriding entry removes that name rather than falling back to the lower-precedence executable. Files are limited to 1 MiB and the merged configuration to 64 servers. Structurally invalid entries are rejected; unknown per-server keys are ignored. `/mcp reload` re-reads the same layered files in place: new servers appear disconnected, removed servers disappear, and a server whose command, URL, arguments, or environment changed counts as a different program, so its connection closes and its process-local consent is revoked until `/mcp connect <name>` again. Unchanged approved servers keep their connection. Malformed reloaded entries produce diagnostics and take nothing else down.
 
 ## Small model-facing surface
 

@@ -43,9 +43,16 @@ interface Entry {
 
 const MAX_WIRE_BYTES = 8 * 1024 * 1024;
 
+/** Identity of a loaded server: everything except which file it came from. */
+function sameDefinition(a: MCPServerDefinition, b: MCPServerDefinition): boolean {
+  const { source: _a, ...restA } = a;
+  const { source: _b, ...restB } = b;
+  return JSON.stringify(restA) === JSON.stringify(restB);
+}
+
 /** Credentials never enter status, error strings, or the capability index. */
 export class MCPManager {
-  readonly diagnostics: readonly string[];
+  diagnostics: readonly string[];
   private readonly entries = new Map<string, Entry>();
   private closed = false;
   private closeWork?: Promise<void>;
@@ -118,6 +125,55 @@ export class MCPManager {
     await this.release(entry);
     await entry.work;
     await entry.refresh;
+  }
+
+  /** Re-read configuration: add new servers, drop removed ones, and replace changed
+   * definitions (a changed command/url is a different program, so its consent resets and
+   * it reconnects only via an explicit /mcp connect). Unchanged approved servers keep
+   * their connection. Returns the diff for the command report. */
+  async reload(configuration: MCPConfiguration): Promise<{ added: string[]; removed: string[]; changed: string[] }> {
+    this.assertCleanup();
+    const next = new Map<string, MCPServerDefinition>();
+    for (const definition of configuration.servers) {
+      if (next.has(definition.name)) throw new Error("Duplicate MCP server name in reloaded configuration");
+      next.set(definition.name, structuredClone(definition));
+    }
+    const added: string[] = [];
+    const removed: string[] = [];
+    const changed: string[] = [];
+    for (const [name, entry] of this.entries) {
+      const replacement = next.get(name);
+      next.delete(name);
+      if (!replacement) {
+        await this.disconnect(name);
+        this.entries.delete(name);
+        removed.push(name);
+        continue;
+      }
+      if (sameDefinition(entry.definition, replacement)) {
+        // Same program from a different file: keep the connection, update the reported source.
+        entry.definition.source = replacement.source;
+        continue;
+      }
+      await this.disconnect(name);
+      entry.definition = replacement;
+      entry.approved = false;
+      // A different program deserves a fresh burst budget.
+      entry.attempts = [];
+      entry.state = replacement.disabled ? "disabled" : "disconnected";
+      this.publish(entry, []);
+      changed.push(name);
+    }
+    for (const definition of next.values()) {
+      this.entries.set(definition.name, {
+        definition, state: definition.disabled ? "disabled" : "disconnected",
+        tools: [], abort: new AbortController(), dirty: false, approved: false, attempts: [], generation: 0,
+      });
+      added.push(definition.name);
+    }
+    this.diagnostics = configuration.diagnostics;
+    await this.prepare();
+    return { added, removed, changed };
   }
 
   async call(server: string, name: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
