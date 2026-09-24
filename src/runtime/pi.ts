@@ -532,11 +532,11 @@ export class PiRuntime implements AgentRuntime {
             // Casper owns discovery, trust checks, and per-task skill selection.
             noSkills: true,
             skillsOverride: () => ({ skills: [], diagnostics: [] }),
+            // `basePrompt` is a discovered SYSTEM.md (the engine store's own; project ones are
+            // untrusted), not Pi's built-in prompt, which a custom prompt never includes. Casper's
+            // text opens with its identity and leads; the user's SYSTEM.md follows it.
             systemPromptOverride: (basePrompt) => readOnly ? options.systemPromptAppend : options.systemPromptAppend
-              // Lead with Casper's identity: Pi's base prompt opens "operating inside pi", and
-              // models otherwise introduce themselves as pi instead of Casper.
-              ? ["You are Casper, a coding companion running through a thin runtime adapter.",
-                basePrompt ?? "", options.systemPromptAppend].filter(Boolean).join("\n\n")
+              ? [options.systemPromptAppend, basePrompt ?? ""].filter(Boolean).join("\n\n")
               : basePrompt,
             appendSystemPromptOverride: (base) => readOnly ? base : [
               ...base,
