@@ -1,4 +1,36 @@
+import { mkdir, realpath, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import type { EvalRunResult, EvalTaskSummary } from "./runner";
+
+/** Persist shareable evidence, never operational manifests. Preserve numbers and verdicts;
+ * replace home/temp prefixes in every nested string, including embedded command output. */
+export async function writeEvalReport(destination: string, document: unknown): Promise<void> {
+  const prefixes = new Map<string, string>();
+  const roots = [
+    [os.homedir(), "<home>"], [process.env.HOME, "<home>"], [process.env.USERPROFILE, "<home>"],
+    [os.tmpdir(), "<tmp>"], [process.env.TMPDIR, "<tmp>"], [process.env.TEMP, "<tmp>"], [process.env.TMP, "<tmp>"],
+  ] as const;
+  for (const [root, label] of roots) {
+    if (!root || !path.isAbsolute(root) || path.parse(root).root === root) continue;
+    for (const alias of [root, await realpath(root).catch(() => root)]) {
+      const prefix = alias.replace(/[\\/]+$/, "");
+      prefixes.set(prefix, label);
+      prefixes.set(prefix.replaceAll("\\", "/"), label);
+    }
+  }
+  const replacements = [...prefixes].sort(([a], [b]) => b.length - a.length).map(([prefix, label]) => [
+    new RegExp(prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "(?=$|[\\\\/\\s\"'`:),;\\]}])", "g"), label,
+  ] as const);
+  const json = JSON.stringify(document, (_key, value: unknown) => {
+    if (typeof value !== "string") return value;
+    let text = value;
+    for (const [prefix, label] of replacements) text = text.replace(prefix, label);
+    return text;
+  }, 2);
+  await mkdir(path.dirname(path.resolve(destination)), { recursive: true });
+  await writeFile(destination, `${json}\n`, { flag: "wx" });
+}
 
 function pad(value: string, width: number): string {
   return value.length >= width ? value : value + " ".repeat(width - value.length);

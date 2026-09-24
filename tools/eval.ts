@@ -3,7 +3,7 @@
 import { lstat, mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { useCasperAgentStore } from "../src/runtime/agent-store";
-import { formatEvalReport, formatEvalResult } from "../evals/report";
+import { formatEvalReport, formatEvalResult, writeEvalReport } from "../evals/report";
 import { gradePreparedEval, prepareEvalTask, resolveEvalModel, runEvalTask, summarizeEvalRuns } from "../evals/runner";
 import type { EvalModel, EvalRunResult, EvalTaskSummary } from "../evals/runner";
 import { EVAL_TASKS, findEvalTask } from "../evals/tasks";
@@ -185,8 +185,11 @@ async function main(): Promise<void> {
     }
   }
   if (options.json) {
-    await mkdir(path.dirname(path.resolve(options.json)), { recursive: true });
-    await writeFile(path.resolve(options.json), `${JSON.stringify(document, null, 2)}\n`, { flag: "wx" });
+    if (options.prepare) {
+      // Preparation is an operational manifest: its paths must remain usable for --grade.
+      await mkdir(path.dirname(path.resolve(options.json)), { recursive: true });
+      await writeFile(path.resolve(options.json), `${JSON.stringify(document, null, 2)}\n`, { flag: "wx" });
+    } else await writeEvalReport(path.resolve(options.json), document);
     process.stdout.write(`Wrote ${options.json}\n`);
   }
   process.exitCode = results.every(result => result.success) ? 0 : 1;

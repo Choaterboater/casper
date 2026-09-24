@@ -1,8 +1,8 @@
 import { afterEach, expect, test } from "bun:test";
-import { copyFile, mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { formatEvalReport, formatEvalResult, formatEvalSummary } from "../evals/report";
+import { formatEvalReport, formatEvalResult, formatEvalSummary, writeEvalReport } from "../evals/report";
 import { evaluateAcceptance, gradePreparedEval, prepareEvalTask, prepareWorkdir, runEvalTask, runVerification, summarizeEvalRuns, type EvalIntervention, type EvalRunResult } from "../evals/runner";
 import { EVAL_TASKS, findEvalTask } from "../evals/tasks";
 import { needsSymlinks } from "./support/platform";
@@ -542,16 +542,43 @@ test("repeated runs aggregate into a pass rate and medians, and one failing run 
   expect(() => summarizeEvalRuns(task, [])).toThrow("No runs recorded");
 });
 
+needsSymlinks("saved eval reports redact nested paths and home aliases without changing verdicts or replacing evidence", async () => {
+  const root = await tempDir("casper-report-");
+  const home = path.join(root, "home[fixture]");
+  const alias = path.join(root, "home-alias");
+  await mkdir(home); await symlink(home, alias, "dir");
+  const savedHome = process.env.HOME;
+  process.env.HOME = alias;
+  const document = { pass: false, count: 7, nested: [
+    `${alias}/notes`, `${(await realpath(home)).replaceAll("\\", "/")}/source.ts:2`, `${os.tmpdir()}/trace`, "src/index.ts", "https://example.com",
+  ] };
+  const file = path.join(root, "report.json");
+  try {
+    await writeEvalReport(file, document);
+    const original = await readFile(file, "utf8");
+    expect(JSON.parse(original)).toEqual({ pass: false, count: 7, nested: [
+      "<home>/notes", "<home>/source.ts:2", "<tmp>/trace", "src/index.ts", "https://example.com",
+    ] });
+    expect(document.nested[0]).toBe(`${alias}/notes`);
+    await expect(writeEvalReport(file, { pass: true })).rejects.toThrow();
+    expect(await readFile(file, "utf8")).toBe(original);
+  } finally {
+    if (savedHome === undefined) delete process.env.HOME; else process.env.HOME = savedHome;
+  }
+});
+
 test("offline grading preserves failed attempts and requires observed workflow evidence", async () => {
   const task = { ...findEvalTask("fix-failing-test")!, requiredEvidence: ["same-conversation-resumed"] };
   const prepared = await prepareEvalTask(task, repoRoot);
   cleanup.push(() => rm(prepared.root, { recursive: true, force: true }));
   const observation = {
     startedAt: "2026-09-21T00:00:00.000Z", wallClockMs: 100, execution: "completed",
-    modelCalls: 1, answer: "Repaired.", interventions: [],
+    modelCalls: 1, answer: `Repaired. See ${os.homedir()}/notes and ${os.tmpdir()}/trace.`, interventions: [],
   };
   const failed = await gradePreparedEval(prepared.root, observation);
   const original = await readFile(path.join(prepared.root, "results", `${failed.attemptId}.json`), "utf8");
+  expect(JSON.parse(original).observation.answer).toBe("Repaired. See <home>/notes and <tmp>/trace.");
+  expect(observation.answer).toContain(os.homedir()); // Redaction never mutates the caller's evidence.
   await copyFromFixture(task.fixture, "src/slug.ts")(prepared.workdir);
   const missingEvidence = await gradePreparedEval(prepared.root, observation);
   expect(missingEvidence.verification.status).toBe("pass");
@@ -578,7 +605,7 @@ needsSymlinks("the grading CLI rejects candidate-owned observations reached thro
   const host = await tempDir("casper-eval-observer-");
   const observation = JSON.stringify({
     startedAt: "2026-09-21T00:00:00.000Z", wallClockMs: 100, execution: "completed",
-    modelCalls: 1, answer: "Repaired.", interventions: [],
+    modelCalls: 1, answer: "Repaired.", interventions: [], outputTail: `${host}/trace`,
   });
   const inside = path.join(prepared.workdir, "observation.json");
   const alias = path.join(host, "prepared-alias");
@@ -587,7 +614,7 @@ needsSymlinks("the grading CLI rejects candidate-owned observations reached thro
   await symlink(prepared.root, alias, "dir");
   await symlink(inside, linkedObservation, "file");
   const grade = async (root: string, record: string) => {
-    const child = Bun.spawn([process.execPath, "--no-install", path.join(repoRoot, "tools/eval.ts"), "--grade", root, "--observation", record], {
+    const child = Bun.spawn([process.execPath, "--no-install", path.join(repoRoot, "tools/eval.ts"), "--grade", root, "--observation", record, "--json", path.join(host, "export.json")], {
       env: isolatedEnvironment(host), stdout: "pipe", stderr: "pipe",
     });
     const timer = setTimeout(() => child.kill(), 15_000);
@@ -609,6 +636,8 @@ needsSymlinks("the grading CLI rejects candidate-owned observations reached thro
   const accepted = await grade(alias, outside);
   expect({ exitCode: accepted.exitCode, stderr: accepted.stderr }).toEqual({ exitCode: 0, stderr: "" });
   expect((await readdir(path.join(prepared.root, "results"))).length).toBe(1);
+  const exported = JSON.parse(await readFile(path.join(host, "export.json"), "utf8"));
+  expect(exported.results[0].outputTail).toBe("<tmp>/trace");
 }, 30_000);
 
 test.each(["repair-order-reservations", "add-order-cancellation"])("%s rejects otherwise valid repairs that edit outside production scope", async id => {
