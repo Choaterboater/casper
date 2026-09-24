@@ -19,6 +19,8 @@ export interface CliOptions {
   model?: string;
   /** This run's reasoning effort; never remembered. */
   effort?: string;
+  /** Work in this folder instead of the current directory. */
+  cd?: string;
   servers: string[];
   languageServers: string[];
   /** One-shot prompt, `casper learn …`, or an interactive session. */
@@ -28,11 +30,11 @@ export interface CliOptions {
 }
 
 /** Every leading option the parser accepts; /help all must document each one. */
-export const CLI_OPTIONS = ["--model", "--effort", "--verify", "--no-verify", "--verbose", "--require-verification", "--mcp", "--lsp",
+export const CLI_OPTIONS = ["--cd", "--model", "--effort", "--verify", "--no-verify", "--verbose", "--require-verification", "--mcp", "--lsp",
   "--help", "--version", "--licenses"] as const;
 
 /** Options that take a value, as `--name value` or `--name=value`. */
-const VALUE_OPTIONS = new Set(["--model", "--effort", "--mcp", "--lsp"]);
+const VALUE_OPTIONS = new Set(["--cd", "--model", "--effort", "--mcp", "--lsp"]);
 
 const SERVER_NAME = /^[a-zA-Z0-9_.][a-zA-Z0-9_.-]{0,63}$/;
 
@@ -60,6 +62,9 @@ export function parseCliArgs(argv: readonly string[]): CliOptions {
       if (!value || !SERVER_NAME.test(value)) throw new UsageError(`${flag} requires a configured server name`);
       const list = flag === "--lsp" ? options.languageServers : options.servers;
       if (!list.includes(value)) list.push(value);
+    } else if (flag === "--cd") {
+      if (!value || value.startsWith("-")) throw new UsageError("--cd needs a folder: --cd <path>");
+      options.cd = value;
     } else if (flag === "--model" || flag === "--effort") {
       if (!value?.trim() || value.startsWith("-")) throw new UsageError(`${flag} needs a value: ${flag === "--model" ? "--model provider/model-id[:effort]" : "--effort <level|auto>"}`);
       if (flag === "--effort" && !isEffortSelection(value)) throw new UsageError("--effort must be one of auto, off, minimal, low, medium, high, xhigh, max");
