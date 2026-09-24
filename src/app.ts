@@ -64,6 +64,8 @@ import type { VisualizationProvider } from "./visualize/types";
 import { SessionWorkspaceManager, type ReturnAction } from "./sessions/manager";
 import { runSlashCommand, type OutputWriter } from "./app/commands";
 import { UsageError } from "./cli-args";
+import { checkEvent, RuntimeEventMapper, sessionStartEvent, type CasperEvent } from "./app/json-events";
+import { CASPER_VERSION } from "./version";
 
 export type { OutputWriter } from "./app/commands";
 
@@ -92,6 +94,8 @@ export interface CasperAppOptions {
   model?: string;
   /** This run's reasoning effort (`--effort`); never remembered. */
   effort?: string;
+  /** Machine-readable events (`--json`): the session, streamed text, tools and checks. */
+  onEvent?: (event: CasperEvent) => void;
   /** Stop each model request after this many turns (`--max-turns`); the task is then incomplete. */
   maxTurns?: number;
   /** Continue the workspace's latest conversation, or the saved one whose ID starts with `resume`. */
@@ -152,6 +156,10 @@ export class CasperApp {
   private readonly runEffort?: string;
   private runConversation?: CasperAppOptions["conversation"];
   private readonly maxTurns?: number;
+  private readonly onEvent?: (event: CasperEvent) => void;
+  private readonly eventMapper = new RuntimeEventMapper();
+  /** casper_check calls in flight: their results were requested by the model, not by Casper. */
+  private modelCheckCalls = 0;
   /** Turns after which --max-turns stopped the current task's model request. */
   private taskTurnLimit?: number;
   private verificationAbort?: AbortController;
@@ -242,6 +250,7 @@ export class CasperApp {
     this.runEffort = options.effort;
     this.runConversation = options.conversation;
     this.maxTurns = options.maxTurns;
+    this.onEvent = options.onEvent;
     this.verificationFlag = options.verificationMode
       ?? (options.autoVerify === undefined ? undefined : options.autoVerify ? "offer" : "off");
     this.visualizationProviders = options.visualizationProviders ?? [new MermaidProvider(), new MindMeshProvider()];
@@ -495,7 +504,17 @@ export class CasperApp {
         if (resumeNotice) this.output.write(`[sessions] ${resumeNotice}\n`);
         await this.applyRunConversation(this.session);
         await this.applyRunSelection(this.session);
-        this.unsubscribe = this.session.subscribe(event => this.events.handle(event));
+        this.unsubscribe = this.session.subscribe(event => {
+          if (event.type === "tool_start" && event.toolName === "casper_check") this.modelCheckCalls++;
+          if (event.type === "tool_end" && event.toolName === "casper_check") this.modelCheckCalls = Math.max(0, this.modelCheckCalls - 1);
+          this.events.handle(event);
+          if (this.onEvent) for (const mapped of this.eventMapper.map(event)) this.onEvent(mapped);
+        });
+        if (this.onEvent) {
+          let conversation: string | undefined;
+          try { conversation = this.session.getSessionInfo?.().sessionId; } catch { /* no persistence: no ID */ }
+          this.onEvent(sessionStartEvent({ casper: CASPER_VERSION, cwd: context.info.root, session: conversation, status: this.session.getStatus?.() }));
+        }
         const status = this.session.getStatus?.() ?? { auth: "unknown" as const };
         if (!status.blocked) this.output.write(`${formatRuntimeStartLine(status)}\n`);
         this.updateFooter();
@@ -998,6 +1017,7 @@ export class CasperApp {
   /** One inline result line per check; a failed check also boxes the tail of its output, since that is
    * what a person reads next. Passing checks stay quiet (their output remains in the evidence). */
   private writeCheckResult(result: VerificationResult): void {
+    this.onEvent?.(checkEvent(result, this.modelCheckCalls > 0 ? "casper_check" : "casper"));
     this.events.ensureLineBreak();
     // The receipt states each outcome plainly; verbose output keeps the per-run evidence line.
     if (this.verbose) this.output.write(`${formatVerificationResult(result)}\n`);

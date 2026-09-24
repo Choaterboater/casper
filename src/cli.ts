@@ -13,7 +13,8 @@ import { taskExitCode } from "./task/result";
 import { parseCliArgs, parseLearnArgs, UsageError } from "./cli-args";
 import type { VerificationMode } from "./verify/mode";
 
-import { terminalText } from "./tui/format";
+import { redactPreview, terminalText } from "./tui/format";
+import { formatJsonEvent, receiptEvent, type CasperEvent } from "./app/json-events";
 import { HELP_TEXT } from "./tui/help";
 import { CASPER_VERSION } from "./version";
 import licenseNotices from "../THIRD_PARTY_NOTICES.txt" with { type: "text" };
@@ -116,9 +117,12 @@ export async function runCli(): Promise<void> {
     return;
   }
   const prompt = options.rest.join(" ").trim();
+  // --json: stdout carries only JSON Lines; the banner, transcript and receipt a person reads go to stderr.
+  const emit = options.json ? (event: CasperEvent) => { process.stdout.write(formatJsonEvent(event)); } : undefined;
   const app = new CasperApp({ verificationMode: verificationFlag(options), verbose: options.verbose,
     model: options.model, effort: options.effort, maxTurns: options.maxTurns,
-    conversation: options.resume ? { resume: options.resume } : options.continueConversation ? { continue: true } : undefined });
+    conversation: options.resume ? { resume: options.resume } : options.continueConversation ? { continue: true } : undefined,
+    ...(emit ? { onEvent: emit, output: { write: (text: string) => { process.stderr.write(text); } } } : {}) });
   const removeShutdownHandlers = installShutdownHandlers(app);
 
   try {
@@ -126,11 +130,18 @@ export async function runCli(): Promise<void> {
     for (const server of options.languageServers) await app.runOnce(`/lsp connect ${server}`);
     if (prompt) {
       const report = await app.runOnce(prompt);
-      process.exitCode = taskExitCode(report, app.getLastTaskResult(), { requireVerification: options.requireVerification });
+      const task = app.getLastTaskResult();
+      const exitCode = taskExitCode(report, task, { requireVerification: options.requireVerification });
+      process.exitCode = exitCode;
+      emit?.(receiptEvent(report, task, exitCode));
       return;
     }
 
     await app.runInteractive();
+  } catch (error) {
+    // A run ends with a receipt or, when Casper itself stopped, an error event.
+    emit?.({ type: "error", message: redactPreview(error instanceof Error ? error.message : String(error)) });
+    throw error;
   } finally {
     try { await app.close(); }
     finally { removeShutdownHandlers(); }

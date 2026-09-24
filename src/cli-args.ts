@@ -21,6 +21,8 @@ export interface CliOptions {
   effort?: string;
   /** Work in this folder instead of the current directory. */
   cd?: string;
+  /** JSON Lines events on stdout; the usual output moves to stderr. */
+  json: boolean;
   /** Stop each model request after this many turns; the run is then incomplete (exit 2). */
   maxTurns?: number;
   /** Pick up the workspace's most recent conversation. */
@@ -36,7 +38,7 @@ export interface CliOptions {
 }
 
 /** Every leading option the parser accepts; /help all must document each one. */
-export const CLI_OPTIONS = ["--max-turns", "--cd", "--continue", "--resume", "--model", "--effort", "--verify", "--no-verify", "--verbose", "--require-verification", "--mcp", "--lsp",
+export const CLI_OPTIONS = ["--json", "--max-turns", "--cd", "--continue", "--resume", "--model", "--effort", "--verify", "--no-verify", "--verbose", "--require-verification", "--mcp", "--lsp",
   "--help", "--version", "--licenses"] as const;
 
 /** Options that take a value, as `--name value` or `--name=value`. */
@@ -48,7 +50,7 @@ const SERVER_NAME = /^[a-zA-Z0-9_.][a-zA-Z0-9_.-]{0,63}$/;
  * version request. Pure: parsing touches no state, so a mistake costs nothing. */
 export function parseCliArgs(argv: readonly string[]): CliOptions {
   const args = [...argv];
-  const options: CliOptions = { verify: false, noVerify: false, verbose: false, requireVerification: false, continueConversation: false, servers: [], languageServers: [], command: "interactive", rest: [] };
+  const options: CliOptions = { verify: false, noVerify: false, verbose: false, requireVerification: false, json: false, continueConversation: false, servers: [], languageServers: [], command: "interactive", rest: [] };
   let optionCount = 0;
   for (;;) {
     let flag = args[0];
@@ -64,6 +66,7 @@ export function parseCliArgs(argv: readonly string[]): CliOptions {
     else if (flag === "--verbose") options.verbose = true;
     else if (flag === "--require-verification") options.requireVerification = true;
     else if (flag === "--continue") options.continueConversation = true;
+    else if (flag === "--json") options.json = true;
     else if (flag === "--resume") {
       if (!value || !/^[A-Za-z0-9_-]{1,128}$/.test(value)) throw new UsageError("--resume needs the start of a conversation ID: --resume <id-prefix> (casper /resume lists them)");
       options.resume = value;
@@ -105,6 +108,7 @@ export function parseCliArgs(argv: readonly string[]): CliOptions {
     options.command = "learn";
   } else if (args.join(" ").trim()) options.command = "prompt";
   if (options.requireVerification && options.noVerify) throw new UsageError("--require-verification cannot be combined with --no-verify");
+  if (options.json && options.command !== "prompt") throw new UsageError("--json needs a prompt: casper --json \"fix the failing test\"");
   if (options.requireVerification && options.command !== "prompt") throw new UsageError("--require-verification needs a prompt: casper --require-verification \"fix the failing test\"");
   return options;
 }
