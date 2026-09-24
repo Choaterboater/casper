@@ -154,7 +154,9 @@ export class ModelBrowser {
 
   private sortModels(models: Item[]): Item[] {
     const sorted = [...models];
-    // Current model first, Casper default second, then grouped by provider like omp's list.
+    // Current model first, Casper default second; then grouped by provider with the newest
+    // versions on top. The catalog carries no release dates, so descending numeric-aware ids
+    // (deepseek-v4 above deepseek-v3, gpt-5.6 above gpt-5.4) are the freshness proxy.
     sorted.sort((a, b) => {
       const aCurrent = sameRef(this.current, a);
       const bCurrent = sameRef(this.current, b);
@@ -162,7 +164,9 @@ export class ModelBrowser {
       const aDefault = sameRef(this.defaultModel, a);
       const bDefault = sameRef(this.defaultModel, b);
       if (aDefault !== bDefault) return aDefault ? -1 : 1;
-      return a.provider.localeCompare(b.provider);
+      const providerOrder = a.provider.localeCompare(b.provider);
+      if (providerOrder !== 0) return providerOrder;
+      return b.id.localeCompare(a.id, undefined, { numeric: true });
     });
     return sorted;
   }
@@ -263,7 +267,12 @@ export class ModelBrowser {
       priceSegment && width >= 44 ? priceSegment : "",
       tagsSegment && width >= 72 ? tagsSegment : "",
     ].filter(segment => segment.trim() !== "");
-    return segments.map(segment => this.muted(segment)).join(this.muted(" · "));
+    if (!segments.length) return "";
+    const composed = segments.map(segment => this.muted(segment)).join(this.muted(" · "));
+    // Rows missing tags (or price) pad with trailing spaces so every row's columns land at the
+    // same offsets as fully-tagged rows instead of shifting toward the right edge.
+    const classWidth = width >= 72 ? CTX_WIDTH + PRICE_WIDTH + TAGS_WIDTH + 6 : width >= 44 ? CTX_WIDTH + PRICE_WIDTH + 3 : CTX_WIDTH;
+    return composed + " ".repeat(Math.max(0, classWidth - visibleWidth(composed)));
   }
 
   private priceText(model: Model<Api>): string {
