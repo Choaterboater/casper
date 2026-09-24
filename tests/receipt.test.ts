@@ -48,6 +48,9 @@ test("bash-only test runs are reported but not counted as verification", () => {
 test("each reason Casper ran no checks is stated with a way forward", () => {
   expect(formatReceipt(done({ changedPaths: [], verificationMode: "auto", autoSkipped: "no-changes" })))
     .toBe("• No files changed, so Casper ran no checks");
+  // Checks the model ran itself are still reported when nothing changed.
+  expect(formatReceipt(done({ changedPaths: [], verificationMode: "auto", autoSkipped: "no-changes", verification: report([check()]) })))
+    .toBe("• No files changed\n✓ Verified by Casper: test passed (npm run test, 0.3s)");
   expect(formatReceipt(done({ changedPaths: ["sum.js"], verificationMode: "auto", autoSkipped: "no-checks" })))
     .toBe("✓ Changed 1 file: sum.js\n• Not verified — no checks configured. Add verify.test to .casper/project.yaml.");
   expect(formatReceipt(done({ changedPaths: ["README.md"], verificationMode: "auto", autoSkipped: "not-covered" })))
