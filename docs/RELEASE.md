@@ -6,6 +6,16 @@ GitHub's `latest/download` route excludes prereleases. The first published previ
 was **v0.1.0**; its assets and tag stay as published, and every fix ships under a new
 version.
 
+## Unreleased: Casper runs the checks
+
+Phase 1: after the model edits files, Casper runs the project's checks itself
+(`verification.mode: auto`), repairs failures within `repair.maxAttempts`, and ends each
+task with a plain receipt ("✓ Verified by Casper: test passed"). `--verify` now means
+`auto` for the run and `--no-verify` means `off`. Unconfigured interactive sessions use
+`auto` once the checks are measured under 60 seconds, else `offer`. The detailed evidence
+receipt moved to `/receipt` and `--verbose`. `verification.checks` selects the checks, and
+the default per-check timeout is now 600 seconds. See [VERIFICATION.md](VERIFICATION.md).
+
 ## Unreleased: independence and review fixes
 
 Phase 0 lands the full review fixes, including untrusted project-resource isolation,
