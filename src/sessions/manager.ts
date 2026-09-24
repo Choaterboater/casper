@@ -84,7 +84,7 @@ function branchPreview(name: string, source: string, plan?: WorktreePlan): strin
   const lines = [
     "Session branch confirmation",
     `name: ${JSON.stringify(name)}`,
-    "conversation: clone the active Pi session branch",
+    "conversation: clone the active conversation branch",
     `source workspace: ${source}`,
   ];
   if (plan) {
@@ -281,13 +281,13 @@ export class SessionWorkspaceManager {
     const target = this.store.get(name);
     if (!target || target.status !== "open" || target.cleanupPending) throw new Error(`Open session branch not found: ${name}`);
     await access(target.workspacePath).catch(() => { throw new Error(`Session workspace is missing: ${target.workspacePath}`); });
-    await access(target.sessionFile).catch(() => { throw new Error(`Pi session file is missing: ${target.sessionFile}`); });
+    await access(target.sessionFile).catch(() => { throw new Error(`Conversation file is missing: ${target.sessionFile}`); });
     const approved = await options.confirm([
       "Session switch confirmation",
       `from: ${JSON.stringify(this.currentName)}`,
       `to: ${JSON.stringify(name)}`,
       `workspace: ${target.workspacePath}`,
-      `Pi session: ${target.sessionFile}`,
+      `conversation file: ${target.sessionFile}`,
       "",
     ].join("\n"), "Switch to this exact session branch? Type yes: ");
     if (!approved) return undefined;

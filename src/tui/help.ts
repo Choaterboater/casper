@@ -54,8 +54,9 @@ Usage:
                                   Record one exact human promotion/ignore decision
   casper --verify ...  Offer casper_check and bounded repair to a one-shot prompt
   casper --no-verify   Start interactive mode without casper_check
-  casper --mcp <name>  Authorize and connect a configured MCP (repeatable)
-  casper --lsp <name>  Authorize and start a configured language server (repeatable)
+  casper --mcp <name>  Authorize and connect your own (user/profile) MCP server (repeatable)
+  casper --lsp <name>  Authorize and start your own (user/profile) language server (repeatable)
+                       Project-defined servers need interactive /mcp or /lsp connect review
   casper --help, -h    Show help
   casper --licenses    Print third-party license notices
 

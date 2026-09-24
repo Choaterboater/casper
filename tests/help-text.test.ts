@@ -18,3 +18,17 @@ test("/help all lists the model role commands and every CLI flag", () => {
     expect(FULL_HELP_TEXT).toContain(entry);
   }
 });
+
+test("user-facing runtime and session strings name conversations, not the engine", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const sources = await Promise.all(["src/app/commands.ts", "src/runtime/pi.ts", "src/sessions/manager.ts"].map((file) => readFile(new URL(`../${file}`, import.meta.url), "utf8")));
+  // Error and prompt literals only; comments and identifiers may still name the engine.
+  const literals = sources.flatMap((source) => source.match(/(["'`])(?:(?!\1)[^\\\n]|\\.)*\1/g) ?? []);
+  expect(literals.filter((literal) => /\bPi\b/.test(literal))).toEqual([]);
+});
+
+test("help says CLI server flags cover only the user's own definitions", async () => {
+  const { FULL_HELP_TEXT } = await import("../src/tui/help");
+  expect(FULL_HELP_TEXT).toContain("--mcp <name>  Authorize and connect your own (user/profile) MCP server");
+  expect(FULL_HELP_TEXT).toContain("Project-defined servers need interactive /mcp or /lsp connect review");
+});
