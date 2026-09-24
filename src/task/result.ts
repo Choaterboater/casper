@@ -1,6 +1,7 @@
 import { formatVerificationReport, type VerificationReport } from "../verify/evidence";
 import type { ProjectCommand } from "../project/model";
 import type { BrowserReport } from "../browser/scenario";
+import type { AutoCheckSkip, VerificationMode } from "../verify/mode";
 
 /** Tool-reported diagnostics, not process exit evidence or a reusable check pass. */
 export interface ObservedCheck {
@@ -28,6 +29,10 @@ export interface TaskResult {
   /** A mutation-capable tool ran but no workspace snapshot could confirm or refute writes. */
   possibleMutations?: boolean;
   observedChecks?: ObservedCheck[];
+  /** The verification mode this task ran under. */
+  verificationMode?: VerificationMode;
+  /** Why auto mode ran no check after the model turn. */
+  autoSkipped?: AutoCheckSkip;
 }
 
 /** Exit 0 describes command execution (or unverified task completion), not fresh
@@ -36,6 +41,8 @@ export function taskExitCode(report?: VerificationReport, task?: TaskResult): nu
   if (task?.execution === "cancelled") return 130;
   if (task?.execution === "failed") return 1;
   const status = (task?.verification ?? report)?.status;
+  // Casper was asked to verify changed files and had nothing to run: not a pass.
+  if (!status && task?.autoSkipped === "no-checks") return 2;
   if (status && status !== "pass") return status === "incomplete" ? 2 : 1;
   if (task?.browser?.status === "fail") return 1;
   if (task?.browser?.status === "incomplete") return 2;

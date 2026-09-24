@@ -8,6 +8,7 @@ import type { AgentRuntime, RuntimeEventListener, RuntimeStartOptions, RuntimeTo
 import { SkillRegistry } from "../src/skills/registry";
 import type { VerificationResult } from "../src/verify/evidence";
 import { taskExitCode } from "../src/task/result";
+import type { VerificationMode } from "../src/verify/mode";
 import { checkCommand } from "./support/check-command";
 import { needsSymlinks, posixOnly } from "./support/platform";
 
@@ -40,7 +41,7 @@ async function fixture(config: unknown = {
   await writeFile(path.join(root, "src/value"), "bad\n");
   return root;
 }
-function createApp(root: string, respond: (prompt: string, tools: RuntimeTool[], options: RuntimeStartOptions, emit: RuntimeEventListener) => Promise<void>, autoVerify = true) {
+function createApp(root: string, respond: (prompt: string, tools: RuntimeTool[], options: RuntimeStartOptions, emit: RuntimeEventListener) => Promise<void>, verification: boolean | VerificationMode | "default" = true) {
   let tools: RuntimeTool[] = [];
   let listener: RuntimeEventListener | undefined;
   let inPrompt = false;
@@ -67,7 +68,7 @@ function createApp(root: string, respond: (prompt: string, tools: RuntimeTool[],
   };
   const homeDir = path.join(root, "home");
   const app = new CasperApp({
-    autoVerify, runtimeFactory: () => runtime, sessionHomeDir: path.join(homeDir, ".casper"),
+    ...(verification === "default" ? {} : typeof verification === "boolean" ? { autoVerify: verification } : { verificationMode: verification }), runtimeFactory: () => runtime, sessionHomeDir: path.join(homeDir, ".casper"),
     loadProjectContext: (project) => loadProjectContext(project, { homeDir }),
     loadSkillRegistry: (context) => SkillRegistry.discover({ projectRoot: context.info.root, homeDir }),
     output: { write(text) { output += text; } },
@@ -744,4 +745,95 @@ test("a vague request follows edit → selected check → scoped reuse → inval
   // The model turn left src/value at its starting content and only ran checks; the repair
   // round's edit and rerun are reported separately, never as the request's own changes.
   expect(app.getLastTaskResult()).toMatchObject({ changedPaths: ["test-runs"], changedDuringChecks: ["src/value", "test-runs"] });
+});
+
+test("auto mode: Casper runs the configured checks after the model's edits, whatever tool it used", async () => {
+  const root = await fixture();
+  const { app, prompts } = createApp(root, async (_prompt, tools) => {
+    expect(tools.map((tool) => tool.name)).toContain("casper_check");
+    await writeFile(path.join(root, "src/value"), "good\n");
+  }, "auto");
+  const report = await app.runOnce("Fix the value", root);
+  expect(report).toMatchObject({ status: "pass", repairAttempts: 0 });
+  expect(report?.results.map((result) => [result.name, result.status])).toEqual([["test", "pass"], ["build", "pass"]]);
+  expect(prompts).toHaveLength(1);
+  expect(await readFile(path.join(root, "test-runs"), "utf8")).toBe("x");
+  expect(taskExitCode(report, app.getLastTaskResult())).toBe(0);
+});
+
+test("auto mode skips checks when the model changed no files", async () => {
+  const root = await fixture();
+  const { app } = createApp(root, async () => {}, "auto");
+  expect(await app.runOnce("Why is the value bad?", root)).toBeUndefined();
+  expect(await Bun.file(path.join(root, "test-runs")).exists()).toBe(false);
+  expect(taskExitCode(undefined, app.getLastTaskResult())).toBe(0);
+});
+
+test("auto mode runs only the checks whose declared inputs cover a changed file", async () => {
+  const root = await fixture();
+  const { app } = createApp(root, async () => { await writeFile(path.join(root, "README.md"), "notes\n"); }, "auto");
+  const report = await app.runOnce("Document the value", root);
+  expect(report?.results.map((result) => result.name)).toEqual(["build"]);
+  expect(await Bun.file(path.join(root, "test-runs")).exists()).toBe(false);
+});
+
+test("auto mode reuses a fresh pass the model recorded instead of rerunning it", async () => {
+  const root = await fixture({ verify: { test: command }, verification: { scopes: { test: { inputs: ["src"] } } } });
+  const { app } = createApp(root, async (_prompt, tools) => {
+    await writeFile(path.join(root, "src/value"), "good\n");
+    expect(await check(checkTool(tools))).toMatchObject({ status: "pass", freshness: "fresh" });
+  }, "auto");
+  const report = await app.runOnce("Fix the value", root);
+  expect(report).toMatchObject({ status: "pass" });
+  expect(report?.rounds).toHaveLength(1);
+  expect(await readFile(path.join(root, "test-runs"), "utf8")).toBe("x");
+});
+
+test("auto mode hands a failing check to one bounded repair, then exits by the final result", async () => {
+  const root = await fixture({ verify: { test: command }, repair: { maxAttempts: 1 } });
+  const { app, prompts } = createApp(root, async (prompt) => {
+    await writeFile(path.join(root, "src/value"), prompt.startsWith("Casper verification repair 1/1") ? "good\n" : "still bad\n");
+  }, "auto");
+  const report = await app.runOnce("Fix the value", root);
+  expect(report).toMatchObject({ status: "pass", repairAttempts: 1 });
+  expect(prompts).toHaveLength(2);
+  expect(taskExitCode(report, app.getLastTaskResult())).toBe(0);
+
+  const unfixed = await fixture({ verify: { test: command }, repair: { maxAttempts: 1 } });
+  const second = createApp(unfixed, async () => { await writeFile(path.join(unfixed, "src/value"), "still bad\n"); }, "auto");
+  const failed = await second.app.runOnce("Fix the value", unfixed);
+  expect(failed).toMatchObject({ status: "fail", repairAttempts: 1 });
+  expect(second.prompts).toHaveLength(2);
+  expect(taskExitCode(failed, second.app.getLastTaskResult())).toBe(1);
+});
+
+test("auto mode with changes but no configured checks is incomplete (exit 2); cancellation exits 130", async () => {
+  const root = await fixture({});
+  const { app } = createApp(root, async () => { await writeFile(path.join(root, "src/value"), "good\n"); }, "auto");
+  const report = await app.runOnce("Fix the value", root);
+  expect(taskExitCode(report, app.getLastTaskResult())).toBe(2);
+
+  const slow = await fixture({ verify: { test: checkCommand("touch:started", "sleep:10000") }, verification: { timeoutMs: 5000 } });
+  const second = createApp(slow, async () => { await writeFile(path.join(slow, "src/value"), "good\n"); }, "auto");
+  const pending = second.app.runOnce("Fix the value", slow);
+  await waitForFile(path.join(slow, "started"));
+  await second.app.close(); // One-shot SIGINT/SIGTERM close the app.
+  const cancelled = await pending;
+  expect(taskExitCode(cancelled, second.app.getLastTaskResult())).toBe(130);
+  expect(second.prompts).toHaveLength(1);
+});
+
+test("unconfigured interactive sessions offer checks until Casper has timed them under 60 s, then run them automatically", async () => {
+  const root = await fixture({ verify: { test: command } });
+  const { app } = createApp(root, async () => { await writeFile(path.join(root, "src/value"), "good\n"); }, "default");
+  // Behaves as the interactive prompt loop would; no terminal is driven here.
+  app.interactive = true;
+  expect(await app.runOnce("Fix the value", root)).toBeUndefined();
+  expect(app.getLastTaskResult()?.verificationMode).toBe("offer");
+  expect(await Bun.file(path.join(root, "test-runs")).exists()).toBe(false);
+  expect((await app.runOnce("/verify test", root))?.status).toBe("pass");
+  await writeFile(path.join(root, "src/value"), "bad\n");
+  expect((await app.runOnce("Fix the value", root))?.status).toBe("pass");
+  expect(app.getLastTaskResult()?.verificationMode).toBe("auto");
+  expect(await readFile(path.join(root, "test-runs"), "utf8")).toBe("xx");
 });

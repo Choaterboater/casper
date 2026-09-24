@@ -1,4 +1,6 @@
 import type { ProjectCommand } from "../project/model";
+import { CHECK_NAMES } from "./evidence";
+import type { VerificationScope } from "./scope";
 
 /** `auto`: Casper runs the selected checks after the model's edits. `offer`: the model may use
  * casper_check and the receipt suggests /verify. `off`: no managed checks during tasks. */
@@ -11,4 +13,52 @@ export interface VerificationSettings {
   mode?: VerificationMode;
   /** Unset means every configured check. */
   checks?: ProjectCommand[];
+}
+
+/** Checks this fast run automatically in an unconfigured interactive session. */
+export const FAST_CHECKS_MS = 60_000;
+
+/** A flag wins for its run, then configuration. Unconfigured interactive sessions run checks
+ * automatically once they are known to be fast (`measuredMs`, the cached duration of the
+ * selected checks), otherwise offer them. Unconfigured one-shot prompts opt in with --verify. */
+export function resolveVerificationMode(input: {
+  flag?: VerificationMode;
+  configured?: VerificationMode;
+  interactive: boolean;
+  measuredMs?: number;
+}): VerificationMode {
+  if (input.flag) return input.flag;
+  if (input.configured) return input.configured;
+  if (!input.interactive) return "off";
+  return input.measuredMs !== undefined && input.measuredMs < FAST_CHECKS_MS ? "auto" : "offer";
+}
+
+/** `verification.checks`, or every check with a configured or detected command. */
+export function selectedChecks(selected: readonly ProjectCommand[] | undefined, commands: Partial<Record<ProjectCommand, string>>): ProjectCommand[] {
+  return selected ? [...selected] : CHECK_NAMES.filter((name) => commands[name]?.trim());
+}
+
+/** Why auto mode ran nothing after a model turn. */
+export type AutoCheckSkip = "no-changes" | "no-checks" | "not-covered";
+
+/** The checks auto mode runs after a model turn. `changedPaths` undefined means the change set
+ * is unknown (a snapshot failed), so nothing can be skipped for being unaffected. A check with a
+ * declared scope runs only when a changed path lies inside its inputs and outside its excludes. */
+export function planAutoChecks(input: {
+  selected?: readonly ProjectCommand[];
+  commands: Partial<Record<ProjectCommand, string>>;
+  scopes?: Partial<Record<ProjectCommand, VerificationScope>>;
+  changedPaths?: readonly string[];
+}): { run: ProjectCommand[]; skipped?: AutoCheckSkip } {
+  if (input.changedPaths && !input.changedPaths.length) return { run: [], skipped: "no-changes" };
+  const candidates = selectedChecks(input.selected, input.commands);
+  if (!candidates.length) return { run: [], skipped: "no-checks" };
+  const within = (file: string, entry: string) => entry === "." || file === entry || file.startsWith(`${entry}/`);
+  const run = candidates.filter((name) => {
+    const scope = input.scopes?.[name];
+    if (!scope || !input.changedPaths) return true;
+    return input.changedPaths.some((file) => scope.inputs.some((entry) => within(file, entry))
+      && !scope.exclude?.some((entry) => within(file, entry)));
+  });
+  return run.length ? { run } : { run, skipped: "not-covered" };
 }

@@ -6,6 +6,7 @@ import { CasperApp } from "./app";
 import { importLegacyEngineState, useCasperAgentStore } from "./runtime/agent-store";
 import { CandidateLibrary, formatLearningResult } from "./learn/candidates";
 import { taskExitCode } from "./task/result";
+import type { VerificationMode } from "./verify/mode";
 
 import { terminalText } from "./tui/format";
 import { HELP_TEXT } from "./tui/help";
@@ -40,14 +41,11 @@ export function leadingFlag(args: readonly string[]): "help" | "version" | "lice
   return undefined;
 }
 
-/** Interactive sessions offer `casper_check` unless `--no-verify`; one-shot prompts opt in
- * with `--verify`. The tool is offered, never run: the model selects checks and nothing
- * executes without a selection. */
-export function resolveAutoVerify(options: { verify: boolean; noVerify: boolean; interactive: boolean }): boolean {
+/** `--verify` runs Casper's checks after this run's edits; `--no-verify` turns managed
+ * checks off. Without either, configuration and the surface default decide. */
+export function verificationFlag(options: { verify: boolean; noVerify: boolean }): VerificationMode | undefined {
   if (options.verify && options.noVerify) throw new Error("--verify and --no-verify cannot be combined");
-  if (options.verify) return true;
-  if (options.noVerify) return false;
-  return options.interactive;
+  return options.verify ? "auto" : options.noVerify ? "off" : undefined;
 }
 
 /** The last-resort error sink. Messages can quote untrusted repository text (a YAML excerpt,
@@ -141,7 +139,7 @@ export async function runCli(): Promise<void> {
     return;
   }
   const prompt = args.join(" ").trim();
-  const app = new CasperApp({ autoVerify: resolveAutoVerify({ verify, noVerify, interactive: !prompt }), verificationRequested: verify });
+  const app = new CasperApp({ verificationMode: verificationFlag({ verify, noVerify }) });
   const removeShutdownHandlers = installShutdownHandlers(app);
 
   try {
