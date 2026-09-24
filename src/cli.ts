@@ -109,7 +109,8 @@ export async function runCli(): Promise<void> {
     return;
   }
   const prompt = options.rest.join(" ").trim();
-  const app = new CasperApp({ verificationMode: verificationFlag(options), verbose: options.verbose });
+  const app = new CasperApp({ verificationMode: verificationFlag(options), verbose: options.verbose,
+    model: options.model, effort: options.effort });
   const removeShutdownHandlers = installShutdownHandlers(app);
 
   try {

@@ -63,6 +63,7 @@ import { systemPromptAppend } from "./app/prompt";
 import type { VisualizationProvider } from "./visualize/types";
 import { SessionWorkspaceManager, type ReturnAction } from "./sessions/manager";
 import { runSlashCommand, type OutputWriter } from "./app/commands";
+import { UsageError } from "./cli-args";
 
 export type { OutputWriter } from "./app/commands";
 
@@ -87,6 +88,10 @@ export interface CasperAppOptions {
   verificationMode?: VerificationMode;
   /** Show the detailed evidence receipt and per-check lines instead of the plain receipt. */
   verbose?: boolean;
+  /** This run's model selector (`--model`), applied when the runtime starts; never saved. */
+  model?: string;
+  /** This run's reasoning effort (`--effort`); never remembered. */
+  effort?: string;
   /** Embedder shorthand: true = "offer" (model-selected casper_check plus bounded repair),
    * false = "off". Ignored when verificationMode is set. */
   autoVerify?: boolean;
@@ -139,6 +144,8 @@ export class CasperApp {
   private readonly reportedSkillWarnings = new Set<string>();
   private readonly verificationFlag?: VerificationMode;
   private readonly verbose: boolean;
+  private readonly runModel?: string;
+  private readonly runEffort?: string;
   private verificationAbort?: AbortController;
   private verificationWork?: Promise<VerificationReport>;
   /** Active repair evidence; sharing it does not grant managed-tool consent. */
@@ -222,6 +229,8 @@ export class CasperApp {
       cancelled: () => this.commandAbort?.signal.aborted === true,
     });
     this.verbose = options.verbose ?? false;
+    this.runModel = options.model;
+    this.runEffort = options.effort;
     this.verificationFlag = options.verificationMode
       ?? (options.autoVerify === undefined ? undefined : options.autoVerify ? "offer" : "off");
     this.visualizationProviders = options.visualizationProviders ?? [new MermaidProvider(), new MindMeshProvider()];
@@ -473,6 +482,7 @@ export class CasperApp {
         });
         const resumeNotice = await (await this.ensureSessionWorkspace()).resumeActive(this.session);
         if (resumeNotice) this.output.write(`[sessions] ${resumeNotice}\n`);
+        await this.applyRunSelection(this.session);
         this.unsubscribe = this.session.subscribe(event => this.events.handle(event));
         const status = this.session.getStatus?.() ?? { auth: "unknown" as const };
         if (!status.blocked) this.output.write(`${formatRuntimeStartLine(status)}\n`);
@@ -492,6 +502,27 @@ export class CasperApp {
       });
     }
     return this.runtimeStart;
+  }
+
+  /** `--model`/`--effort` select for this conversation only (persist: false), before any request.
+   * A selector or level the catalog rejects is a usage error; missing credentials are not. */
+  private async applyRunSelection(session: RuntimeSession): Promise<void> {
+    const flagError = (flag: string, error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      return /^Credential/.test(message) ? new Error(message) : new UsageError(`${flag}: ${message}`);
+    };
+    if (this.runModel) {
+      if (!session.selectModel) throw new UsageError("--model: this runtime does not support model selection.");
+      let selected: boolean;
+      try { selected = (await session.selectModel({ query: this.runModel, persist: false })).selected; }
+      catch (error) { throw flagError("--model", error); }
+      if (!selected) throw new UsageError(`--model: Unknown model "${this.runModel}". Run casper /model to list models.`);
+    }
+    if (this.runEffort) {
+      if (!session.setEffort) throw new UsageError("--effort: this runtime does not support effort controls.");
+      try { await session.setEffort(this.runEffort, false); }
+      catch (error) { throw flagError("--effort", error); }
+    }
   }
 
   private async handlePrompt(prompt: string): Promise<VerificationReport | undefined> {

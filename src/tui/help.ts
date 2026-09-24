@@ -55,6 +55,9 @@ Usage:
   casper learn inspect <repo> <id>  Inspect a draft and its decisions locally
   casper learn promote <repo> <id> <sha256> <number> <disposition> [skill-name]
                                   Record one exact human promotion/ignore decision
+  casper --model <provider/model-id[:effort]> ...
+                       Use this model for this run only; the saved default is unchanged
+  casper --effort <level|auto> ...  Reasoning effort for this run only; not remembered
   casper --verify ...  Casper runs the checks after this run's edits, with bounded repair (auto)
   casper --no-verify   No Casper checks during tasks for this run (off)
   casper --verbose ... Detailed evidence receipts and per-check lines

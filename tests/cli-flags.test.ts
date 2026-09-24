@@ -240,3 +240,12 @@ test("--require-verification turns Casper's checks on for a one-shot prompt", ()
     expect(() => parseCliArgs(args)).toThrow(message);
   }
 });
+
+test("value options take `--name value` or `--name=value`", () => {
+  expect(parseCliArgs(["--model", "openai/gpt-x", "--effort=low", "hi"])).toMatchObject({ model: "openai/gpt-x", effort: "low" });
+  expect(parseCliArgs(["--model=@review", "hi"])).toMatchObject({ model: "@review", command: "prompt", rest: ["hi"] });
+  expect(parseCliArgs(["--mcp=docs"])).toMatchObject({ servers: ["docs"], command: "interactive" });
+  expect(() => parseCliArgs(["--model=", "hi"])).toThrow("--model needs a value");
+  expect(() => parseCliArgs(["--model", "--verify", "hi"])).toThrow("--model needs a value");
+  expect(() => parseCliArgs(["--bogus=1", "hi"])).toThrow("Unknown option --bogus=1");
+});

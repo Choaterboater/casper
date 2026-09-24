@@ -1,3 +1,5 @@
+import { isEffortSelection } from "./runtime/model-routing";
+
 /** A command-line mistake: exits 64 (EX_USAGE), distinct from task results 1, 2 and 3. */
 export class UsageError extends Error {
   override readonly name = "UsageError";
@@ -13,6 +15,10 @@ export interface CliOptions {
   verbose: boolean;
   /** A one-shot run that ends without Casper's proof exits 3. Implies --verify. */
   requireVerification: boolean;
+  /** This run's model selector (`provider/id[:effort]` or `@role`); never saved as the default. */
+  model?: string;
+  /** This run's reasoning effort; never remembered. */
+  effort?: string;
   servers: string[];
   languageServers: string[];
   /** One-shot prompt, `casper learn …`, or an interactive session. */
@@ -22,8 +28,11 @@ export interface CliOptions {
 }
 
 /** Every leading option the parser accepts; /help all must document each one. */
-export const CLI_OPTIONS = ["--verify", "--no-verify", "--verbose", "--require-verification", "--mcp", "--lsp",
+export const CLI_OPTIONS = ["--model", "--effort", "--verify", "--no-verify", "--verbose", "--require-verification", "--mcp", "--lsp",
   "--help", "--version", "--licenses"] as const;
+
+/** Options that take a value, as `--name value` or `--name=value`. */
+const VALUE_OPTIONS = new Set(["--model", "--effort", "--mcp", "--lsp"]);
 
 const SERVER_NAME = /^[a-zA-Z0-9_.][a-zA-Z0-9_.-]{0,63}$/;
 
@@ -34,20 +43,29 @@ export function parseCliArgs(argv: readonly string[]): CliOptions {
   const options: CliOptions = { verify: false, noVerify: false, verbose: false, requireVerification: false, servers: [], languageServers: [], command: "interactive", rest: [] };
   let optionCount = 0;
   for (;;) {
-    const flag = args[0];
+    let flag = args[0];
+    let value: string | undefined;
+    const equals = flag?.startsWith("--") ? flag.indexOf("=") : -1;
+    if (equals > 0 && VALUE_OPTIONS.has(flag!.slice(0, equals))) {
+      value = flag!.slice(equals + 1);
+      flag = flag!.slice(0, equals);
+      args.splice(0, 1, flag, value);
+    } else if (flag && VALUE_OPTIONS.has(flag)) value = args[1];
     if (flag === "--verify") options.verify = true;
     else if (flag === "--no-verify") options.noVerify = true;
     else if (flag === "--verbose") options.verbose = true;
     else if (flag === "--require-verification") options.requireVerification = true;
     else if (flag === "--mcp" || flag === "--lsp") {
-      const name = args[1];
       // A following flag is not a name: `--mcp --verify` must fail, not connect to "--verify".
-      if (!name || !SERVER_NAME.test(name)) throw new UsageError(`${flag} requires a configured server name`);
+      if (!value || !SERVER_NAME.test(value)) throw new UsageError(`${flag} requires a configured server name`);
       const list = flag === "--lsp" ? options.languageServers : options.servers;
-      if (!list.includes(name)) list.push(name);
-      args.shift();
+      if (!list.includes(value)) list.push(value);
+    } else if (flag === "--model" || flag === "--effort") {
+      if (!value?.trim() || value.startsWith("-")) throw new UsageError(`${flag} needs a value: ${flag === "--model" ? "--model provider/model-id[:effort]" : "--effort <level|auto>"}`);
+      if (flag === "--effort" && !isEffortSelection(value)) throw new UsageError("--effort must be one of auto, off, minimal, low, medium, high, xhigh, max");
+      options[flag === "--model" ? "model" : "effort"] = value.trim();
     } else break;
-    args.shift();
+    args.splice(0, value === undefined ? 1 : 2);
     optionCount++;
   }
 
@@ -59,6 +77,7 @@ export function parseCliArgs(argv: readonly string[]): CliOptions {
     throw new UsageError(`Unknown option ${args[0]}. Run casper --help for usage; put -- before a prompt that starts with "-".`);
   }
   if (options.verify && options.noVerify) throw new UsageError("--verify and --no-verify cannot be combined");
+  if (options.effort && options.model?.includes(":")) throw new UsageError("Give the effort either in --model provider/model-id:effort or in --effort, not both");
 
   options.rest = args;
   if (args[0] === "learn") {
