@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -102,6 +102,27 @@ test("piped stdin runs every line through the real CLI", async () => {
   // Plain mode does not echo input; each command's own output marks that it ran.
   const status = stdout.indexOf(" policy "), help = stdout.indexOf("/help all"), unknown = stdout.indexOf('Unknown command "/nope"');
   expect({ code, status: status >= 0, help: help > status, unknown: unknown > help }).toEqual({ code: 0, status: true, help: true, unknown: true });
+}, 30_000);
+
+test("the startup banner names a saved default model instead of saying no model is set up", async () => {
+  expect(formatRuntimeStatus(undefined, "default fixture/first · high")).toBe(
+    " model     default fixture/first · high (starts on your first prompt; /model to change)\n auth      checked when the model starts");
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-banner-")); roots.push(root);
+  const home = path.join(root, "home"); const project = path.join(root, "project");
+  await Promise.all([mkdir(path.join(home, ".casper"), { recursive: true }), mkdir(project)]);
+  await writeFile(path.join(home, ".casper", "settings.json"), JSON.stringify({ defaultProvider: "fixture", defaultModel: "first", defaultThinkingLevel: "high" }));
+  const env = { ...process.env, HOME: home, CASPER_PROFILE: "default" } as Record<string, string | undefined>;
+  for (const key of ["PI_CODING_AGENT_DIR", "PI_MODEL", "PI_PROVIDER"]) delete env[key];
+  for (const args of [[], ["/exit"]]) {
+    const child = Bun.spawn([process.execPath, path.resolve(import.meta.dir, "../src/cli.ts"), ...args], {
+      cwd: project, env, stdin: new Blob(["/exit\n"]), stdout: "pipe", stderr: "pipe",
+    });
+    const [stdout, code] = await Promise.all([new Response(child.stdout).text(), child.exited]);
+    expect(code).toBe(0);
+    expect(stdout).toContain(" model     default fixture/first · high (starts on your first prompt");
+    expect(stdout).not.toContain("not initialized");
+    expect(stdout).not.toContain("/login to set up a provider");
+  }
 }, 30_000);
 
 // python3 runs the standard-library PTY fixture; Windows has no equivalent here.

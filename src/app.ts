@@ -255,7 +255,9 @@ export class CasperApp {
     const wordmark = this.interactive && this.terminal.rich && (this.terminal.columns ?? 0) >= WORDMARK_COLUMNS;
     if (wordmark) this.terminal.writeTrusted(`\n${renderWordmark(this.terminal.color)}\n`);
     this.output.write(renderBanner(context, { wordmark, interactive: this.interactive }));
-    this.output.write(`${formatRuntimeStatus(this.session?.getStatus?.())}\n`);
+    // A returning user's saved default is known before the runtime starts; say so, not "not initialized".
+    if (!this.session) this.savedModelDisplay = await modelPreference(this.sessionHomeDir ?? os.homedir());
+    this.output.write(`${formatRuntimeStatus(this.session?.getStatus?.(), this.savedModelDisplay)}\n`);
     for (const warning of context.warnings ?? []) this.output.write(`[config] ${terminalText(warning)}\n`);
     for (const diagnostic of referenceConfiguration.diagnostics) this.output.write(`[references] ${formatReferenceResult(diagnostic)}\n`);
     this.reportSkillWarnings();
