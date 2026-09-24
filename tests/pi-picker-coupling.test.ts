@@ -234,3 +234,23 @@ test("rows missing capability tags keep the same ctx and price columns", () => {
     expect(plain!.indexOf("131k ctx")).toBe(tagged!.indexOf("131k ctx"));
   } finally { picker.dispose(); }
 });
+test("a catalog refresh keeps the highlighted model by provider and id, with or without a query", async () => {
+  for (const query of ["", "m"]) {
+    const models = [fakeModel("a", "m1"), fakeModel("a", "m2"), fakeModel("a", "m3")];
+    const refresh = pendingRefresh();
+    let selected: string | undefined;
+    const picker = new ModelBrowser({
+      tui: fakeTui(), catalog: fakeCatalog(models, () => refresh.promise), color: false, sessionOnly: false,
+      initialQuery: query || undefined, onSelect: model => { selected = `${model.provider}/${model.id}`; }, onCancel: () => {},
+    });
+    try {
+      picker.handleInput("\x1b[B"); // Down: m3 → m2 (newest ids sort first).
+      models.push(fakeModel("a", "m4")); // Sorts above the highlight, shifting its index.
+      refresh.settle({ aborted: false, errors: new Map() });
+      await refresh.promise; await Promise.resolve();
+      expect(rendered(picker)).toContain("Model catalogs refreshed.");
+      picker.handleInput("\r");
+      expect({ query, selected }).toEqual({ query, selected: "a/m2" });
+    } finally { picker.dispose(); }
+  }
+});

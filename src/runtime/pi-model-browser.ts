@@ -399,8 +399,13 @@ export class ModelBrowser {
           this.refreshStatusSuccess = true;
         }
       }
+      // The refreshed list re-sorts and re-filters; keep the highlight on the same model (by
+      // provider and id, not position) so Enter still saves what the user was looking at.
+      const highlighted = this.filteredModels[this.selectedIndex];
       this.loadModelsFromSnapshot();
       this.filterModels(this.searchInput.getValue());
+      const kept = highlighted ? this.filteredModels.findIndex(item => sameRef(highlighted, item)) : -1;
+      if (kept >= 0) this.selectedIndex = kept;
       this.options.tui.requestRender();
     } catch (error) {
       if (this.closed) return;
