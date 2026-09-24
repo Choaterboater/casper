@@ -68,7 +68,7 @@ test("closing during an unresponsive approval revokes startup without waiting fo
 
 needsSymlinks("changed configuration, unsupported fields and redirected program paths cannot launch", async () => {
   const f = await fixture(async () => { await writeFile(f.config, JSON.stringify({ targets: { example: { ...f.target, programArgs: ["changed"] } } })); return true; });
-  await expect(f.session.run({ action: "start", target: "example" })).rejects.toThrow("changed");
+  await expect(f.session.run({ action: "start", target: "example" })).rejects.toThrow("target field changed: programArgs");
   expect(await Bun.file(path.join(f.root, "adapter-started")).exists()).toBe(false);
   await writeFile(f.config, JSON.stringify({ targets: { example: { ...f.target, attach: true } } }));
   await expect(f.session.run({ action: "start", target: "example" })).rejects.toThrow("Invalid");

@@ -220,5 +220,6 @@ test("observation envelopes omit arbitrary arguments, bound Unicode output and d
   expect(observationOutput({ content: [{ type: "text", text: "short" }], details: { truncation: { truncated: true } } })).toEqual({ text: "short", truncated: true });
   expect(observationOutput(undefined)).toEqual({ text: "", truncated: false });
   const receipt = formatTaskResult({ execution: "completed", observedEdits: ["a\n\u001b[31mforged"] });
-  expect(receipt).not.toContain("\u001b"); expect(receipt).not.toContain("\n");
+  expect(receipt).not.toContain("\u001b"); expect(receipt).not.toContain("a\n");
+  expect(receipt).toContain("tool edits   a  [31mforged");
 });

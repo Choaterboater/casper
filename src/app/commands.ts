@@ -398,9 +398,20 @@ async function handleDebugCommand(host: CommandHost, prompt: string): Promise<vo
       const debug = host.debugSession;
       host.lifecycle.add({ name: "debug", close: () => debug.close() });
     }
+    if (request) host.output.write(`[debug] ${debugProgressMessage(request)}\n`);
     const result = request ? await host.debugSession.run(request, host.commandAbort?.signal)
       : { ...host.debugSession.status(), targets: await host.debugSession.targets() };
     host.output.write(`${formatTerminalJSON(result)}\n`);
+  }
+
+function debugProgressMessage(request: DebugRequest): string {
+    if (request.action === "start") return `Starting ${request.target}; approval may be required, then Casper waits for adapter initialization and the first stop.`;
+    if (request.action === "continue") return `Continuing thread ${request.threadId}; waiting for the debugger to acknowledge resume.`;
+    if (request.action === "breakpoints") return `Updating breakpoints for ${request.path || "source"}.`;
+    if (request.action === "threads") return "Listing debugger threads.";
+    if (request.action === "stack") return `Reading stack for thread ${request.threadId}.`;
+    if (request.action === "scopes") return "Reading scopes for the selected frame.";
+    return "Reading variables for the selected scope.";
   }
 
 async function handleBrowserCommand(host: CommandHost, prompt: string): Promise<void> {

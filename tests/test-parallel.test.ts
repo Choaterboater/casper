@@ -18,8 +18,12 @@ test("parallel runner propagates failures and still runs every queued file", asy
     const write = (text: string) => { output += text; };
     expect(await runTests([pass, fail, last], 2, write)).toBe(1);
     expect(output).toContain("2 passed, 1 failed, 3 total");
+    expect(output).toContain(`=== ${fail} ===`);
+    expect(output).toContain(`✓ ${pass}`);
     expect(await Bun.file(marker).text()).toBe("yes");
+    output = "";
     expect(await runTests([pass, last], 2, write)).toBe(0);
+    expect(output).not.toContain(`=== ${pass} ===`);
     await expect(runTests([])).rejects.toThrow("No test files");
     await expect(runTests([pass], 0)).rejects.toThrow("Concurrency");
   } finally { await rm(dir, { recursive: true, force: true }); }

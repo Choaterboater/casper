@@ -138,3 +138,25 @@ test("escaping the folder question keeps the home folder as the workspace", asyn
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("folder selection rejects sibling paths that only share the home prefix", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-folder-outside-"));
+  const home = path.join(root, "home");
+  const sibling = path.join(root, "home-other");
+  await mkdir(home, { recursive: true });
+  await mkdir(sibling, { recursive: true });
+  await writeFile(path.join(sibling, "package.json"), "{}");
+  const harness = interactiveHarness(home, home);
+  const interactive = harness.app.runInteractive(home);
+  try {
+    await harness.until(text => Bun.stripANSI(text).includes("Work in which project?"));
+    harness.input.write("../home-other\r");
+    await harness.until(text => Bun.stripANSI(text).includes("../home-other is outside your home directory"));
+    await harness.until(text => new RegExp(`\\bproject\\s+${path.basename(home)}\\b`).test(Bun.stripANSI(text)));
+  } finally {
+    harness.input.write("/exit\r");
+    await interactive;
+    harness.input.destroy();
+    await rm(root, { recursive: true, force: true });
+  }
+});
