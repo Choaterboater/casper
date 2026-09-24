@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { FULL_HELP_TEXT, HELP_TEXT, LOGIN_HELP } from "../src/tui/help";
+import { CLI_OPTIONS } from "../src/cli-args";
 
 test("help names Casper's own credential store and model routing, not Pi's", () => {
   // Built-on-Pi attribution lives in the README; runtime help describes Casper's behavior.
@@ -14,7 +15,8 @@ test("help names Casper's own credential store and model routing, not Pi's", () 
 });
 
 test("/help all lists the model role commands and every CLI flag", () => {
-  for (const entry of ["/model roles", "/model role <fast|build|reason|review> <selector|clear>", "/model @role[:effort]", "casper --licenses", "casper --help, -h"]) {
+  for (const entry of ["/model roles", "/model role <fast|build|reason|review> <selector|clear>", "/model @role[:effort]", "casper --licenses", "casper --help, -h",
+    ...CLI_OPTIONS.map((option) => `casper ${option}`)]) {
     expect(FULL_HELP_TEXT).toContain(entry);
   }
 });

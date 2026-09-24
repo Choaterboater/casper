@@ -228,3 +228,15 @@ test("learn usage mistakes exit 64 before any learning starts", async () => {
     expect(result.stderr).toMatch(/Usage: casper learn|learn cannot be combined/);
   }
 });
+
+test("--require-verification turns Casper's checks on for a one-shot prompt", () => {
+  const options = parseCliArgs(["--require-verification", "fix", "it"]);
+  expect(options).toMatchObject({ requireVerification: true, command: "prompt" });
+  expect(verificationFlag(options)).toBe("auto");
+  for (const [args, message] of [
+    [["--require-verification", "--no-verify", "fix"], "--require-verification cannot be combined with --no-verify"],
+    [["--require-verification"], "--require-verification needs a prompt"],
+  ] as const) {
+    expect(() => parseCliArgs(args)).toThrow(message);
+  }
+});

@@ -35,18 +35,41 @@ export interface TaskResult {
   autoSkipped?: AutoCheckSkip;
 }
 
-/** Exit 0 describes command execution (or unverified task completion), not fresh
- * inputs or behavioral acceptance. Stale/unknown evidence stays in the receipt. */
-export function taskExitCode(report?: VerificationReport, task?: TaskResult): number {
-  if (task?.execution === "cancelled") return 130;
-  if (task?.execution === "failed") return 1;
-  const status = (task?.verification ?? report)?.status;
-  // Casper was asked to verify changed files and had nothing to run: not a pass.
-  if (!status && task?.autoSkipped === "no-checks") return 2;
-  if (status && status !== "pass") return status === "incomplete" ? 2 : 1;
-  if (task?.browser?.status === "fail") return 1;
-  if (task?.browser?.status === "incomplete") return 2;
-  return 0;
+/** What a run proved, in the words scripts match on. */
+export type TaskOutcome = "verified" | "failed" | "incomplete" | "not_verified" | "unchanged" | "cancelled";
+
+/** Failure dominates incompleteness; a pass counts only while its inputs are unchanged. */
+export function taskOutcome(report?: VerificationReport, task?: TaskResult): TaskOutcome {
+  if (task?.execution === "cancelled") return "cancelled";
+  if (task?.execution === "failed") return "failed";
+  const verification = task?.verification ?? report;
+  const status = verification?.status;
+  if (status === "fail" || status === "blocked" || task?.browser?.status === "fail") return "failed";
+  if (status === "incomplete" || task?.browser?.status === "incomplete") return "incomplete";
+  if (status === "pass") return verification!.results.some((result) => result.status === "pass" && result.freshness === "stale") ? "not_verified" : "verified";
+  const changed = Boolean(task?.changedPaths?.length || task?.changedDuringChecks?.length || (!task?.changedPaths && task?.possibleMutations));
+  return changed || task?.autoSkipped === "no-checks" ? "not_verified" : "unchanged";
+}
+
+export interface ExitOptions {
+  /** `--require-verification`: changes Casper did not verify exit 3 instead of 0. */
+  requireVerification?: boolean;
+}
+
+/** 0 done, 1 failed, 2 incomplete, 3 not verified (only when required), 130 cancelled.
+ * Without --require-verification, exit 0 describes completion, not fresh inputs or behavioral
+ * acceptance: stale or missing evidence stays in the receipt. */
+export function taskExitCode(report?: VerificationReport, task?: TaskResult, options: ExitOptions = {}): number {
+  switch (taskOutcome(report, task)) {
+    case "cancelled": return 130;
+    case "failed": return 1;
+    case "incomplete": return 2;
+    case "not_verified":
+      if (options.requireVerification) return 3;
+      // Casper was asked to verify changed files and had nothing to run: not a pass.
+      return task?.autoSkipped === "no-checks" ? 2 : 0;
+    default: return 0;
+  }
 }
 
 /** More paths than this are summarized; the full list stays in the result. */
