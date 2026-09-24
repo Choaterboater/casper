@@ -55,6 +55,7 @@ Usage:
   casper learn inspect <repo> <id>  Inspect a draft and its decisions locally
   casper learn promote <repo> <id> <sha256> <number> <disposition> [skill-name]
                                   Record one exact human promotion/ignore decision
+  casper --cd <path> ...  Work in that folder instead of the current directory
   casper --model <provider/model-id[:effort]> ...
                        Use this model for this run only; the saved default is unchanged
   casper --effort <level|auto> ...  Reasoning effort for this run only; not remembered

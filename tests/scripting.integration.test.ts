@@ -96,3 +96,18 @@ test("a --model whose provider has no credentials fails (exit 1) with the sign-i
   expect(result.stderr).toContain("Credentials missing for missing");
   expect(f.payloads).toEqual([]);
 }, 30_000);
+
+test("--cd opens the given folder as the workspace; a missing folder is a usage error", async () => {
+  const f = await fixture();
+  await writeFile(path.join(f.project, "package.json"), JSON.stringify({ name: "cd-target", scripts: { test: "true" } }));
+  const opened = await f.run(["--cd", f.project, "/project"], f.root);
+  expect({ exit: opened.exit, stderr: opened.stderr }).toEqual({ exit: 0, stderr: "" });
+  expect(opened.stdout).toContain(" project   project\n");
+  expect(opened.stdout).toContain(" test      npm run test\n");
+  for (const target of [path.join(f.root, "missing"), path.join(f.project, "package.json")]) {
+    const result = await f.run(["--cd", target, "hi"], f.root);
+    expect({ target, exit: result.exit, stdout: result.stdout }).toEqual({ target, exit: 64, stdout: "" });
+    expect(result.stderr).toContain("--cd: not a folder");
+  }
+  expect(f.payloads).toEqual([]);
+}, 30_000);

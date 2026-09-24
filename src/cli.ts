@@ -4,6 +4,8 @@
 
 // First: engine setup that every later import may depend on at runtime.
 import "./runtime/engine-setup";
+import path from "node:path";
+import { stat } from "node:fs/promises";
 import { CasperApp } from "./app";
 import { importLegacyEngineState, useCasperAgentStore } from "./runtime/agent-store";
 import { CandidateLibrary, formatLearningResult } from "./learn/candidates";
@@ -75,6 +77,11 @@ export async function runCli(): Promise<void> {
     return;
   }
   const learn = options.command === "learn" ? parseLearnArgs(options.rest) : undefined;
+  if (options.cd) {
+    const folder = path.resolve(options.cd);
+    if (!(await stat(folder).then((entry) => entry.isDirectory(), () => false))) throw new UsageError(`--cd: not a folder: ${options.cd}`);
+    process.chdir(folder);
+  }
   // Only after the informational flags: they write nothing and must work on a read-only HOME,
   // and installers identify the binary by `--version`'s single stdout line.
   // Casper owns its state; explicit CASPER_AGENT_DIR stores are managed by their owner.
