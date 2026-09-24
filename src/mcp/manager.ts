@@ -31,6 +31,7 @@ interface Entry {
   transport?: Transport;
   stdio?: StdioClientTransport;
   owner?: OwnedProcesses;
+  alive?: () => boolean;
   abort: AbortController;
   work?: Promise<void>;
   refresh?: Promise<void>;
@@ -337,7 +338,8 @@ export class MCPManager {
           await start();
           const pid = stdio.pid;
           // Own the child before the protocol handshake, which can fail or stall.
-          entry.owner = ownSpawnedTree(pid, stdioChildAlive(stdio));
+          entry.alive = stdioChildAlive(stdio);
+          entry.owner = ownSpawnedTree(pid, entry.alive);
           await entry.owner?.capture();
         };
       }
@@ -416,17 +418,20 @@ export class MCPManager {
     const transport = entry.transport;
     const pid = entry.stdio?.pid;
     const owner = entry.owner;
+    const alive = entry.alive;
     entry.client = undefined;
     entry.transport = undefined;
     entry.stdio = undefined;
     entry.owner = undefined;
+    entry.alive = undefined;
     if (client) client.onclose = undefined;
     // The SDK allows 4s before KILL, longer than Casper's 1s CLI exit deadline.
     // Accelerate cleanup of this exact tree; close() still owns stdin and reaping.
     entry.releaseWork = (async () => {
       await owner?.captureCurrent();
       const ownedStop = owner ? terminateTree(owner, pid, "SIGTERM") : undefined;
-      const kill = (signal: NodeJS.Signals) => { void terminateTree(owner, pid, signal); };
+      // SDK children are not group leaders: POSIX reaches them only by liveness-gated PID.
+      const kill = (signal: NodeJS.Signals) => { void terminateTree(owner, pid, signal, alive); };
       const term = pid ? setTimeout(() => kill("SIGTERM"), 200) : undefined;
       const force = pid ? setTimeout(() => kill("SIGKILL"), 450) : undefined;
       try { await (client ? client.close() : transport?.close())?.catch(() => {}); }
