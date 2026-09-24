@@ -204,6 +204,35 @@ describe("Phase 7 sessions and worktrees", () => {
     await expect(access(child!.workspacePath)).rejects.toThrow();
   });
 
+  test("review regression: a missing saved session file rebinds to a fresh conversation instead of wedging startup", async () => {
+    const { home, repo } = await repository();
+    const sessions = path.join(home, "fake-sessions"); await mkdir(sessions);
+    const mainFile = path.join(sessions, "main.jsonl"); await writeFile(mainFile, "main session");
+    const policy = { isolateWhen: { parallelAgents: true, riskyRefactor: true, experimentalBranch: false } };
+    const options = { projectRoot: repo, gitBranch: "main", homeDir: home, policy };
+    const runtime = new BranchRuntimeSession(sessions, repo, mainFile);
+    const manager = await SessionWorkspaceManager.open(options);
+    await manager.branch("shared", { getRuntime: async () => runtime, confirm: async () => true });
+    await manager.switch("main", { getRuntime: async () => runtime, confirm: async () => true });
+    await rm(mainFile);
+    for (const restart of ["first", "second"]) {
+      const freshFile = path.join(sessions, `${restart}.jsonl`); await writeFile(freshFile, "fresh");
+      const fresh = new BranchRuntimeSession(sessions, repo, freshFile);
+      const restarted = await SessionWorkspaceManager.open(options);
+      const notice = await restarted.resumeActive(fresh);
+      expect(notice).toContain("started a fresh conversation");
+      expect(fresh.getSessionInfo().sessionFile).toBe(freshFile);
+      const reopened = await SessionBranchStore.open({ projectKey: (await GitWorktreeManager.open(repo, home))!.projectKey, primaryWorkspace: await realpath(repo), homeDir: home });
+      expect(reopened.get("main")?.sessionFile).toBe(freshFile);
+      await rm(freshFile);
+    }
+    // Other refusals stay: a workspace mismatch is never silently rebound.
+    const elsewhere = await mkdtemp(path.join(os.tmpdir(), "casper-phase7-elsewhere-"));
+    cleanup.push(() => rm(elsewhere, { recursive: true, force: true }));
+    const mismatched = new BranchRuntimeSession(sessions, elsewhere, path.join(sessions, "other.jsonl"));
+    await expect((await SessionWorkspaceManager.open(options)).resumeActive(mismatched)).rejects.toThrow("does not match");
+  });
+
   test("workspace isolation policy is layered and defaults to all three guarded reasons", async () => {
     const { home, repo } = await repository();
     await mkdir(path.join(home, ".casper"), { recursive: true });

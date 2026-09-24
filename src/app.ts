@@ -455,7 +455,8 @@ export class CasperApp {
           systemPromptAppend: systemPromptAppend(context),
           beforeToolGate: toolName => this.editGateReason(toolName),
         });
-        await (await this.ensureSessionWorkspace()).resumeActive(this.session);
+        const resumeNotice = await (await this.ensureSessionWorkspace()).resumeActive(this.session);
+        if (resumeNotice) this.output.write(`[sessions] ${resumeNotice}\n`);
         this.unsubscribe = this.session.subscribe(event => this.events.handle(event));
         const status = this.session.getStatus?.() ?? { auth: "unknown" as const };
         if (!status.blocked) this.output.write(`${formatRuntimeStartLine(status)}\n`);
