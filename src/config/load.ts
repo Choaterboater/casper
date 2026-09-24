@@ -1,8 +1,9 @@
-import { readFile } from "node:fs/promises";
+import { readFile, realpath } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { parse } from "yaml";
 import { isValidProfileName } from "./profile";
+import { readReferenceFile } from "../references/files";
 import type { ProjectCommand, ProjectModelOverrides } from "../project/model";
 import { CHECK_NAMES } from "../verify/evidence";
 import { SKILL_IMPORTS, type SkillImport } from "../skills/registry";
@@ -101,10 +102,40 @@ function isMapping(value: unknown): value is Mapping {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-async function readYaml(filePath: string): Promise<Mapping> {
+/** Repository files are bounded: rules ride along with every prompt. */
+const MAX_PROJECT_YAML_BYTES = 256 * 1024;
+const MAX_PROJECT_RULES_BYTES = 64 * 1024;
+
+/** A repository-controlled file. Its realpath must stay under the project root, so a committed
+ * symlink cannot pull `~/.aws/credentials` into the prompt; the read is bounded and never
+ * waits on a special file. User and profile files are the user's own and may link anywhere. */
+async function readProjectFile(projectRoot: string, relative: string, maxBytes: number): Promise<string | null> {
+  let real: string;
+  try {
+    real = await realpath(path.join(projectRoot, relative));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  }
+  const inside = path.relative(await realpath(projectRoot), real);
+  if (!inside || inside === ".." || inside.startsWith(`..${path.sep}`) || path.isAbsolute(inside)) {
+    throw new Error(`${relative} resolves outside the project; refusing to read it`);
+  }
+  try {
+    return (await readReferenceFile(real, maxBytes)).toString("utf8");
+  } catch (error) {
+    throw new Error(`Cannot read ${relative}: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+async function readYaml(filePath: string, projectRoot?: string): Promise<Mapping> {
   let source: string;
 
-  try {
+  if (projectRoot) {
+    const text = await readProjectFile(projectRoot, ".casper/project.yaml", MAX_PROJECT_YAML_BYTES);
+    if (text === null) return {};
+    source = text;
+  } else try {
     source = await readFile(filePath, "utf8");
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
@@ -303,7 +334,7 @@ export async function loadConfiguration(
   const homeDir = options.homeDir ?? os.homedir();
   const casperHome = path.join(homeDir, ".casper");
   const globalDocument = await readYaml(path.join(casperHome, "config.yaml"));
-  const projectDocument = await readYaml(path.join(options.projectRoot, ".casper", "project.yaml"));
+  const projectDocument = await readYaml(path.join(options.projectRoot, ".casper", "project.yaml"), options.projectRoot);
   const candidates = [
     { source: "options.profileName", value: options.profileName },
     { source: "CASPER_PROFILE", value: process.env.CASPER_PROFILE },
@@ -366,7 +397,7 @@ export async function loadConfiguration(
       policyLayer(projectDocument),
     ),
     profileRules: await readOptionalText(path.join(profileDir, "rules.md")),
-    projectRules: await readOptionalText(path.join(options.projectRoot, ".casper", "rules.md")),
+    projectRules: (await readProjectFile(options.projectRoot, ".casper/rules.md", MAX_PROJECT_RULES_BYTES))?.trim() || null,
     projectOverrides: projectOverrides(projectDocument),
   };
 }

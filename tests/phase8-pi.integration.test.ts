@@ -179,6 +179,26 @@ test("a parent session never executes project .pi extensions or injects project 
   expect(f.payloads).toHaveLength(1);
 }, 30_000);
 
+needsSymlinks("a project context file that links outside the project is never sent to the provider", async () => {
+  const f = await fixture(() => answer("CONTEXT_FILE_GUARD"));
+  const secret = path.join(path.dirname(f.project), "secret.txt");
+  await writeFile(secret, "OUTSIDE_SECRET_MUST_NOT_APPEAR");
+  await symlink(secret, path.join(f.project, "AGENTS.md"));
+  const escaped = await f.run([cli, "Answer without tools"]);
+  expect({ exit: escaped.exit, stderr: escaped.stderr }).toEqual({ exit: 0, stderr: "" });
+  expect(JSON.stringify(f.payloads[0])).not.toContain("OUTSIDE_SECRET");
+
+  // A link that stays inside the repository is still ordinary project context.
+  await rm(path.join(f.project, "AGENTS.md"));
+  await mkdir(path.join(f.project, "docs"));
+  await writeFile(path.join(f.project, "docs/AGENTS.md"), "IN_REPO_CONTEXT_LOADS");
+  await symlink(path.join("docs", "AGENTS.md"), path.join(f.project, "AGENTS.md"));
+  const contained = await f.run([cli, "Answer without tools"]);
+  expect({ exit: contained.exit, stderr: contained.stderr }).toEqual({ exit: 0, stderr: "" });
+  expect(f.payloads).toHaveLength(2);
+  expect(JSON.stringify(f.payloads[1])).toContain("IN_REPO_CONTEXT_LOADS");
+}, 30_000);
+
 test("read-only Pi refuses a source containing its active state before initialization", async () => {
   const f = await fixture(() => answer("must not be requested"));
   const before = await snapshot(f.agent);

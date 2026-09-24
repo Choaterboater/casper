@@ -1,12 +1,12 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { loadConfiguration } from "../src/config/load";
 import { discoverMCPConfiguration } from "../src/mcp/config";
 import { discoverLSPConfiguration } from "../src/lsp/config";
 import { discoverReferenceConfiguration } from "../src/references/config";
-import { needsFifos } from "./support/platform";
+import { needsFifos, needsSymlinks } from "./support/platform";
 
 test("profile selections reject traversal and malformed values at every precedence layer", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-profile-review-"));
@@ -108,3 +108,60 @@ needsFifos(`${kind} discovery rejects a project FIFO without blocking startup`, 
     } finally { await rm(root, { recursive: true, force: true }); }
   });
 }
+
+needsSymlinks("project rules and project.yaml are never read through a symlink leaving the project", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-config-review-"));
+  try {
+    const project = path.join(root, "project"); const outside = path.join(root, "outside");
+    await mkdir(path.join(project, ".casper"), { recursive: true }); await mkdir(outside);
+    await writeFile(path.join(outside, "secret.txt"), "OUTSIDE_SECRET_MUST_NOT_LOAD");
+    await writeFile(path.join(outside, "project.yaml"), "commands:\n  test: OUTSIDE_SECRET_MUST_NOT_LOAD\n");
+    const load = () => loadConfiguration({ projectRoot: project, homeDir: path.join(root, "home") });
+
+    await symlink(path.join(outside, "secret.txt"), path.join(project, ".casper/rules.md"));
+    await expect(load()).rejects.toThrow(".casper/rules.md resolves outside the project");
+    await rm(path.join(project, ".casper/rules.md"));
+
+    await symlink(path.join(outside, "project.yaml"), path.join(project, ".casper/project.yaml"));
+    await expect(load()).rejects.toThrow(".casper/project.yaml resolves outside the project");
+    await rm(path.join(project, ".casper"), { recursive: true });
+
+    // The whole .casper directory redirected outside is the same escape.
+    await writeFile(path.join(outside, "rules.md"), "OUTSIDE_SECRET_MUST_NOT_LOAD");
+    await symlink(outside, path.join(project, ".casper"));
+    await expect(load()).rejects.toThrow("resolves outside the project");
+    await rm(path.join(project, ".casper"));
+
+    // A link that stays inside the repository is an ordinary file.
+    await mkdir(path.join(project, ".casper")); await mkdir(path.join(project, "docs"));
+    await writeFile(path.join(project, "docs/rules.md"), "In-repo rules.");
+    await symlink(path.join("..", "docs/rules.md"), path.join(project, ".casper/rules.md"));
+    expect((await load()).projectRules).toBe("In-repo rules.");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("oversized project rules are refused instead of being sent with every prompt", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-config-review-"));
+  try {
+    await mkdir(path.join(root, ".casper"));
+    await writeFile(path.join(root, ".casper/rules.md"), "x".repeat(64 * 1024 + 1));
+    await expect(loadConfiguration({ projectRoot: root, homeDir: path.join(root, "home") })).rejects.toThrow("Cannot read .casper/rules.md: file exceeds 65536 bytes");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+needsFifos("a project.yaml FIFO fails visibly without blocking startup", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-config-review-"));
+  try {
+    await mkdir(path.join(root, ".casper"));
+    expect(Bun.spawnSync(["mkfifo", path.join(root, ".casper/project.yaml")]).exitCode).toBe(0);
+    const child = Bun.spawn([process.execPath, "-e", `
+      import { loadConfiguration } from ${JSON.stringify(path.resolve("src/config/load.ts"))};
+      await loadConfiguration({ projectRoot: process.argv[1], homeDir: process.argv[1] + "/home" }).catch((error) => console.log(error.message));
+    `, root], { stdout: "pipe", stderr: "pipe" });
+    const timer = setTimeout(() => child.kill("SIGKILL"), 2000);
+    try {
+      expect(await child.exited).toBe(0);
+      expect(await new Response(child.stdout).text()).toContain("Cannot read .casper/project.yaml: not a regular file");
+    } finally { clearTimeout(timer); }
+  } finally { await rm(root, { recursive: true, force: true }); }
+});

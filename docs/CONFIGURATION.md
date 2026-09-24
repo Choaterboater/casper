@@ -10,6 +10,11 @@ Casper reads these optional files:
 <project>/.casper/rules.md
 ```
 
+The two project files are repository-controlled: each must resolve (after symlinks) to a
+regular file inside the project, and is capped at 256 KiB (`project.yaml`) or 64 KiB
+(`rules.md`). A symlink leaving the project, a special file or an oversized file stops
+configuration loading with an error naming the file. User and profile files may link anywhere.
+
 Profile selection precedence is the programmatic `profileName` option → `CASPER_PROFILE` → project `profile:` → global `profile:` → `default`. Names must be 1–64 ASCII letters, digits, underscores, dots or hyphens, starting with a letter or digit. Every supplied selection is validated, even if overridden; malformed values (including empty strings, surrounding whitespace and non-string YAML values) stop configuration loading. Policy precedence is safe defaults → global → selected profile → project.
 
 **Profile trust:** project-local `profile:` is intentionally allowed to select an existing user profile, including its rules, MCP/LSP definitions and reference sources. Inspect an unfamiliar repository's `.casper/project.yaml` before running Casper: selecting a profile can expose configured reference excerpts to model tasks. MCP/LSP discovery remains metadata-only and connection still requires explicit consent. Name validation prevents lexical traversal; it does not confine user-owned profile symlinks or sandbox native tools. Direct MCP/LSP/reference discovery skips invalid profile names rather than loading a profile file.
@@ -51,7 +56,8 @@ A repository's own Pi project directory is never trusted: `<project>/.pi/`
 extensions (executable code), `SYSTEM.md`, `APPEND_SYSTEM.md`, prompt templates,
 themes and `settings.json` are not loaded, with or without a model configured.
 User-level resources in the engine store (for example `~/.casper/agent/extensions/`)
-still load. Project `AGENTS.md`/`CLAUDE.md` context files are still sent to the model.
+still load. Project `AGENTS.md`/`CLAUDE.md` context files are still sent to the model,
+except one that is a symlink resolving outside the project, which is skipped.
 
 Requests Casper itself sends to OpenRouter — model traffic and API-key
 verification — carry app-attribution headers (`HTTP-Referer`,
