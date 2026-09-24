@@ -7,6 +7,7 @@ import path from "node:path";
 import { RuntimeEventView } from "../src/app/events";
 import { InteractiveTerminal } from "../src/tui/terminal";
 import { withLoginDisplay } from "../src/tui/login";
+import { getCapabilities, resetCapabilitiesCache, setCapabilityOverrides } from "@earendil-works/pi-tui";
 import { posixOnly } from "./support/platform";
 
 // The rich-surface path is gated on `TERM !== "dumb"`; a harness or CI shell that
@@ -101,6 +102,31 @@ test("a provider failure ends the response with its cause instead of a bare fail
     expect(flat()).not.toContain("sk-or-v1-0000000000000000");
     expect(stops).toEqual([[false, true], [false, false], [false, true]]);
   } finally { terminal.close(); input.destroy(); }
+});
+
+test("assistant links show a differing href as text even in a terminal that supports OSC 8", async () => {
+  const saved = { TERM_PROGRAM: process.env.TERM_PROGRAM, TMUX: process.env.TMUX };
+  process.env.TERM_PROGRAM = "iTerm.app"; delete process.env.TMUX;
+  setCapabilityOverrides({}); resetCapabilitiesCache();
+  const input = Object.assign(new PassThrough(), { isTTY: true, setRawMode() {} });
+  const screen = fakeWriter(100, 12);
+  try {
+    expect(getCapabilities().hyperlinks).toBe(true);
+    const terminal = new InteractiveTerminal(input, screen.writer, () => {}, () => {});
+    try {
+      terminal.setStatus("fixture"); terminal.start();
+      void terminal.readCommand();
+      terminal.assistant("See [https://github.com/o/r](https://evil.example/x) now.\n");
+      await screen.until(output => output.includes("now."));
+      // Pi ends every line with an empty OSC 8 reset; no link may open with a target.
+      expect(screen.output).not.toMatch(/\x1b\]8;[^;\x07\x1b]*;[^\x07\x1b]/);
+      expect(Bun.stripANSI(screen.output)).toContain("https://github.com/o/r (https://evil.example/x) now.");
+    } finally { terminal.close(); }
+  } finally {
+    input.destroy();
+    for (const [key, value] of Object.entries(saved)) if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    resetCapabilitiesCache();
+  }
 });
 
 test("streamed assistant Markdown renders lists and fences once, whole, and re-renders on width change", async () => {
