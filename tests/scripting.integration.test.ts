@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { isolatedEnvironment } from "../src/platform/environment";
@@ -175,4 +175,100 @@ test("--max-turns stops a model that keeps working, runs no checks and exits 2",
   expect(result.stdout).toContain("✗ Stopped after 2 turns (--max-turns) — changes so far are kept; casper --continue to go on");
   expect(result.stdout).toContain("✓ Changed 2 files: turn-0.txt, turn-1.txt");
   expect(result.stdout).not.toContain("Casper checking");
+}, 30_000);
+
+/** Parse every stdout line as a v1 event and replace run-specific values with stable markers. */
+function events(stdout: string, project: string) {
+  const lines = stdout.split("\n").filter(Boolean);
+  return lines.map((line) => {
+    const event = JSON.parse(line);
+    expect(event.v).toBe(1);
+    for (const key of ["ms"]) if (key in event) event[key] = typeof event[key] === "number" ? "<ms>" : event[key];
+    if (event.type === "session_start") {
+      expect(event.session).toMatch(/^[0-9a-f-]{36}$/);
+      Object.assign(event, { casper: "<version>", session: "<id>", cwd: event.cwd === project ? "<project>" : event.cwd });
+    }
+    if (event.type === "receipt") event.checks = event.checks.map((check: { ms: number }) => ({ ...check, ms: "<ms>" }));
+    return event;
+  });
+}
+
+async function fixProject(f: Awaited<ReturnType<typeof fixture>>, test = "grep -q fixed sum.js") {
+  await mkdir(path.join(f.project, ".casper"));
+  await writeFile(path.join(f.project, ".casper/project.yaml"), `verify:\n  test: ${JSON.stringify(test)}\n`);
+  await writeFile(path.join(f.project, "sum.js"), "broken\n");
+}
+
+test("--json streams v1 JSON Lines on stdout: session, text, tools, Casper's check and one receipt", async () => {
+  const f = await fixture((request) => request === 0
+    ? { tools: [{ name: "write", args: { path: "sum.js", content: "fixed\n" } }] }
+    : { text: "Fixed \u001b[31msum.js\u202e." });
+  await fixProject(f);
+  const result = await f.run(["--json", "--verify", "--require-verification", "Fix sum.js"]);
+  expect(result.exit).toBe(0);
+  // The transcript and the plain receipt a person reads moved to stderr.
+  expect(result.stderr).toContain("✓ Verified by Casper: test passed");
+  expect(result.stdout).not.toMatch(/[\x1b\u202e]/);
+  const receiptText = "✓ Changed 1 file: sum.js\n✓ Verified by Casper: test passed (grep -q fixed sum.js, ";
+  const stream = events(result.stdout, await realpath(f.project));
+  const receipt = stream.at(-1);
+  expect(receipt.text).toStartWith(receiptText);
+  receipt.text = "<receipt text>";
+  expect(stream).toEqual([
+    { v: 1, type: "session_start", casper: "<version>", cwd: "<project>", session: "<id>", provider: "fixture", model: "first", effort: stream[0].effort },
+    { v: 1, type: "tool_start", tool: "write", id: "call_0", target: "sum.js" },
+    { v: 1, type: "tool_end", tool: "write", id: "call_0", ok: true, ms: "<ms>" },
+    { v: 1, type: "assistant_delta", text: "Fixed \u001b[31msum.js\u202e." },
+    { v: 1, type: "assistant_message", text: "Fixed \u001b[31msum.js\u202e." },
+    { v: 1, type: "check", name: "test", command: "grep -q fixed sum.js", status: "pass", exit: 0, ms: "<ms>", recordedBy: "casper", reused: false },
+    { v: 1, type: "receipt", outcome: "verified", exitCode: 0, execution: "completed", changed: ["sum.js"], changedDuringChecks: [],
+      verificationMode: "auto", checks: [{ name: "test", command: "grep -q fixed sum.js", status: "pass", exit: 0, ms: "<ms>", fresh: true }],
+      repairAttempts: 0, turnLimit: null, text: "<receipt text>" },
+  ]);
+}, 30_000);
+
+test("--json exit codes match the receipt: failed 1, not verified 3, usage 64 with nothing on stdout", async () => {
+  const failing = await fixture(() => ({ text: "sum.js looks broken." }));
+  await fixProject(failing);
+  await writeFile(path.join(failing.project, ".casper/project.yaml"), 'verify:\n  test: "grep -q fixed sum.js"\nrepair:\n  maxAttempts: 0\n');
+  const noChange = await failing.run(["--json", "--require-verification", "Look at sum.js"]);
+  const receipt = (stdout: string) => JSON.parse(stdout.trim().split("\n").at(-1)!);
+  // No files changed: nothing to verify, so even --require-verification exits 0.
+  expect({ exit: noChange.exit, outcome: receipt(noChange.stdout).outcome }).toEqual({ exit: 0, outcome: "unchanged" });
+
+  const broken = await fixture((request) => request === 0
+    ? { tools: [{ name: "write", args: { path: "sum.js", content: "still broken\n" } }] } : { text: "Done." });
+  await fixProject(broken);
+  await writeFile(path.join(broken.project, ".casper/project.yaml"), 'verify:\n  test: "grep -q fixed sum.js"\nrepair:\n  maxAttempts: 0\n');
+  const failed = await broken.run(["--json", "--verify", "Fix sum.js"]);
+  expect({ exit: failed.exit, outcome: receipt(failed.stdout).outcome, exitCode: receipt(failed.stdout).exitCode }).toEqual({ exit: 1, outcome: "failed", exitCode: 1 });
+
+  const unchecked = await fixture((request) => request === 0
+    ? { tools: [{ name: "write", args: { path: "notes.txt", content: "x\n" } }] } : { text: "Done." });
+  const notVerified = await unchecked.run(["--json", "--require-verification", "Write notes"]);
+  expect({ exit: notVerified.exit, outcome: receipt(notVerified.stdout).outcome }).toEqual({ exit: 3, outcome: "not_verified" });
+
+  const usage = await unchecked.run(["--json"]);
+  expect({ exit: usage.exit, stdout: usage.stdout }).toEqual({ exit: 64, stdout: "" });
+  expect(usage.stderr).toContain("--json needs a prompt");
+}, 60_000);
+
+test("--json ends with an error event when Casper stops before a receipt", async () => {
+  const f = await fixture();
+  const result = await f.run(["--json", "--model", "fixture/nope", "hi"]);
+  expect(result.exit).toBe(64);
+  const lines = result.stdout.trim().split("\n").map((line) => JSON.parse(line));
+  expect(lines.map((line) => line.type)).toEqual(["error"]);
+  expect(lines[0].message).toContain("Unknown model");
+}, 30_000);
+
+test("--json tells a check the model asked for (casper_check) from one Casper ran", async () => {
+  const f = await fixture((request) => request === 0 ? { tools: [{ name: "write", args: { path: "sum.js", content: "fixed\n" } }] }
+    : request === 1 ? { tools: [{ name: "casper_check", args: { check: "test" } }] } : { text: "Fixed." });
+  await fixProject(f);
+  const result = await f.run(["--json", "--verify", "Fix sum.js"]);
+  expect(result.exit).toBe(0);
+  const checks = events(result.stdout, "").filter((event) => event.type === "check");
+  // Without a declared scope Casper cannot prove the model's pass is still fresh, so its final run repeats it.
+  expect(checks.map((check) => [check.recordedBy, check.status, check.reused])).toEqual([["casper_check", "pass", false], ["casper", "pass", false]]);
 }, 30_000);

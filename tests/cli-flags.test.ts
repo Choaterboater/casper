@@ -260,3 +260,8 @@ test("--max-turns takes a whole number of turns", () => {
   expect(parseCliArgs(["--max-turns", "5", "hi"]).maxTurns).toBe(5);
   for (const value of ["0", "-1", "2.5", "many", "10000"]) expect(() => parseCliArgs(["--max-turns", value, "hi"])).toThrow("--max-turns needs a whole number");
 });
+
+test("--json needs a one-shot prompt", () => {
+  expect(parseCliArgs(["--json", "fix"])).toMatchObject({ json: true, command: "prompt" });
+  expect(() => parseCliArgs(["--json"])).toThrow("--json needs a prompt");
+});

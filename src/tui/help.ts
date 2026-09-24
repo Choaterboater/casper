@@ -3,6 +3,7 @@ export const HELP_TEXT = `Casper — your coding companion
   casper                 Start interactive mode
   casper <prompt>        Run one prompt and exit; --verify has Casper check the changes
   casper --verbose ...   Detailed evidence receipts instead of the plain receipt
+  casper --json ...      Scripting: also --model, --continue, --require-verification (docs/SCRIPTING.md)
   /help all              All commands, options and safety details
   /status                Model/auth, integrations and local storage
   /model [model]         Pick a model; Enter remembers globally, Ctrl+S is session-only
@@ -65,6 +66,7 @@ Usage:
   casper --verify ...  Casper runs the checks after this run's edits, with bounded repair (auto)
   casper --no-verify   No Casper checks during tasks for this run (off)
   casper --verbose ... Detailed evidence receipts and per-check lines
+  casper --json <prompt>  JSON Lines events on stdout (see docs/SCRIPTING.md); other output to stderr
   casper --require-verification <prompt>
                        Implies --verify; changes Casper did not verify exit 3, not 0
   casper --mcp <name>  Authorize and connect your own (user/profile) MCP server (repeatable)
@@ -157,7 +159,8 @@ sessions use auto once the checks are measured under 60 s, else offer; one-shot 
 changed, and checks whose declared scope misses every changed file. The receipt says why.
 Verification executes repository shell commands; use only in trusted projects.
 One-shot exit codes: 0 pass (or nothing to verify), 1 check failed or blocked, 2 incomplete
-(skipped checks, or --verify with changes and no checks configured), 130 cancelled.
+(skipped checks, --max-turns reached, or --verify with changes and no checks configured),
+3 not verified (--require-verification only), 64 usage error, 130 cancelled.
 Exit 0 does not certify behavior beyond the checks; /receipt shows scope and freshness.
 MCP connection executes a configured program or contacts its URL. Review its source first.
 Non-read MCP calls require exact interactive confirmation; denied in one-shot mode.
