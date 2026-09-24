@@ -13,6 +13,7 @@ import type { AgentRuntime, RuntimeEventListener, RuntimeSession, RuntimeStartOp
 import { SkillRegistry } from "../src/skills/registry";
 import type { TaskResult } from "../src/task/result";
 import type { VerificationReport } from "../src/verify/evidence";
+import { writeEvalReport } from "./report";
 
 /** Independent acceptance command. `argv` is never run through a shell. */
 export interface EvalVerification {
@@ -729,7 +730,7 @@ export async function gradePreparedEval(root: string, observation: unknown, time
     const result = await gradeCandidate(manifest.task, {
       workdir: path.join(root, "candidate"), evaluator, repoRoot: manifest.repoRoot, homeDir, timeoutMs,
     }, new Map(manifest.before), observation, "host-observation");
-    await writeFile(path.join(root, "results", `${result.attemptId}.json`), `${JSON.stringify({ ...result, observation }, null, 2)}\n`, { flag: "wx" });
+    await writeEvalReport(path.join(root, "results", `${result.attemptId}.json`), { ...result, observation });
     return result;
   } finally {
     await rm(scratch, { recursive: true, force: true });

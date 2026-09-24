@@ -30,6 +30,18 @@ evals/
 tools/eval.ts     CLI
 ```
 
+## Sharing reports
+
+Saved one-shot `--json` reports, grading `--json` exports and `results/<attempt-id>.json`
+replace the current home and temporary-directory prefixes (including resolved aliases)
+with `<home>` and `<tmp>` in nested strings and command output. Numeric measurements,
+verdicts and relative fixture paths are unchanged; existing evidence is never overwritten.
+The historical reports under `docs/evals/` have also had machine-specific temp prefixes removed.
+
+Preparation manifests and `--prepare --json` retain usable paths: they are local operational
+files, **not** shareable reports. Review every report before publishing; prefix redaction
+is not a general secret or source-content scrubber.
+
 ## Fixture contract
 
 A fixture is the **solved** state: its own verification commands pass on it. A
