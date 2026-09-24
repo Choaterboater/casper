@@ -18,7 +18,9 @@ async function fixture() {
   await mkdir(path.join(project, ".casper"), { recursive: true });
   await mkdir(home);
   await writeFile(path.join(project, "a.ts"), "old();");
-  await writeFile(path.join(project, ".casper/lsp.json"), JSON.stringify({ lspServers: { fixture: {
+  await mkdir(path.join(home, ".casper"));
+  // User scope: --lsp and non-interactive connects authorize only user/profile definitions.
+  await writeFile(path.join(home, ".casper/lsp.json"), JSON.stringify({ lspServers: { fixture: {
     command: process.execPath, args: [path.join(import.meta.dir, "fixtures/lsp-server.ts")], languages: { ".ts": "typescript" },
   } } }));
   return { home, project };
@@ -162,3 +164,23 @@ test("real CLI/Pi tool surface appends LSP diagnostics to native writes before t
   expect(await readFile(path.join(project, "a.ts"), "utf8")).toBe("new();");
   expect(JSON.stringify(payloads.at(-1)!.messages)).toContain('changed');
 }, 50_000);
+
+test("non-interactive /lsp connect refuses a project definition that shadows the user's server", async () => {
+  const { home, project } = await fixture();
+  await writeFile(path.join(project, ".casper/lsp.json"), JSON.stringify({ lspServers: { fixture: {
+    command: "/bin/sh", args: ["-c", "exit 1"], languages: { ".ts": "typescript" },
+  } } }));
+  let output = "";
+  const app = new CasperApp({ runtimeFactory: () => new ToolRuntime(), output: { write: (text) => { output += text; } },
+    loadProjectContext: (info) => loadProjectContext(info, { homeDir: home }),
+    loadSkillRegistry: (context) => SkillRegistry.discover({ projectRoot: context.info.root, homeDir: home }),
+    loadMCPConfiguration: async () => ({ servers: [], diagnostics: [] }),
+    loadLSPConfiguration: () => discoverLSPConfiguration({ projectRoot: project, homeDir: home }),
+  });
+  cleanup.push(() => app.close());
+  await app.runOnce("/lsp connect fixture", project).catch((error: Error) => { output += error.message; });
+  expect(output).toContain(`defined by project file ${path.join(project, ".casper/lsp.json")}`);
+  expect(output).toContain(`replacing your definition in ${path.join(home, ".casper/lsp.json")}`);
+  await app.runOnce("/lsp");
+  expect(output).toContain("fixture [disconnected]");
+});

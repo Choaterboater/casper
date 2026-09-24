@@ -35,7 +35,7 @@ Optional metadata files, lowest to highest precedence:
 /lsp disconnect typescript
 ```
 
-Or use a leading, repeatable `--lsp <name>` flag. Local commands do not start Pi or require model credentials. Connection consent lasts only for the process. The command executes at the project root without a shell, with the inherited environment. **Review the executable and configuration before connecting. This is execution consent, not sandboxing.** A language server can itself execute project plugins or other programs.
+Or use a leading, repeatable `--lsp <name>` flag. `--lsp` and non-interactive runs connect only user/profile definitions; a project `.casper/lsp.json` definition connects only through an interactive `/lsp connect <name>` that first shows its source file, the file it replaces, and its command and arguments. Local commands do not start Pi or require model credentials. Connection consent lasts only for the process. The command executes at the project root without a shell, with the inherited environment. **Review the executable and configuration before connecting. This is execution consent, not sandboxing.** A language server can itself execute project plugins or other programs.
 
 ## Model tools
 

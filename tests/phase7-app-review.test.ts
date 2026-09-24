@@ -15,8 +15,10 @@ const exec = promisify(execFile);
 test("review regression: failed destination context loading revokes old capabilities and blocks prompts until recovery", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-rebind-review-"));
   const home = path.join(root, "home"); const project = path.join(root, "project");
-  await mkdir(home); await mkdir(path.join(project, ".casper"), { recursive: true });
-  await writeFile(path.join(project, ".casper/mcp.json"), JSON.stringify({ mcpServers: { fixture: {
+  await mkdir(path.join(home, ".casper"), { recursive: true }); await mkdir(path.join(project, ".casper"), { recursive: true });
+  // The committed project file keeps .casper in the worktree; the server itself is user scope.
+  await writeFile(path.join(project, ".casper/mcp.json"), JSON.stringify({ mcpServers: {} }));
+  await writeFile(path.join(home, ".casper/mcp.json"), JSON.stringify({ mcpServers: { fixture: {
     command: process.execPath, args: [path.join(import.meta.dir, "fixtures/mcp-server.ts")],
   } } }));
   const git = (...args: string[]) => exec("git", ["-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", ...args], { cwd: project });

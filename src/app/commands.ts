@@ -428,12 +428,31 @@ async function handleBrowserCommand(host: CommandHost, prompt: string): Promise<
     throw new Error("Usage: /browser | /browser open <url> | /browser inspect|diagnostics|screenshot|close");
   }
 
+/**
+ * A project file can define, or replace by name, a server the user trusts. A --mcp/--lsp flag,
+ * script or one-shot run cannot review that, so they authorize only user/profile definitions;
+ * a project definition connects only after an interactive exact confirmation of its origin.
+ */
+async function approveProjectDefinition(host: CommandHost, kind: "mcp" | "lsp",
+  name: string, review: { source: string; shadows?: string; preview: string } | undefined): Promise<boolean> {
+  if (!review) return true;
+  const label = kind.toUpperCase();
+  if (!host.interactive) {
+    throw new Error(`${label} server ${JSON.stringify(name)} is defined by project file ${terminalText(review.source)}`
+      + `${review.shadows ? `, replacing your definition in ${terminalText(review.shadows)}` : ""}. `
+      + `--${kind} and non-interactive runs connect only user or profile definitions; review it with an interactive /${kind} connect ${name}`);
+  }
+  const approved = await host.confirmExact(terminalText(review.preview), `Connect this project-defined ${label} server? Type yes: `, host.commandAbort?.signal);
+  if (!approved) host.output.write(`[${kind}] Connection not approved.\n`);
+  return approved;
+}
+
 async function handleLSPCommand(host: CommandHost, prompt: string): Promise<void> {
     const [, action, name, ...extra] = prompt.trim().split(/\s+/);
     if (action && (!name || extra.length || !["connect", "disconnect"].includes(action))) {
       throw new Error("Usage: /lsp | /lsp connect <name> | /lsp disconnect <name>");
     }
-    if (action === "connect") await host.lsp!.connect(name!);
+    if (action === "connect" && await approveProjectDefinition(host, "lsp", name!, host.lsp!.review(name!))) await host.lsp!.connect(name!);
     if (action === "disconnect") await host.lsp!.disconnect(name!);
     const statuses = host.lsp!.status();
     host.output.write(statuses.length ? statuses.map((entry) => `${entry.name} [${entry.state}]\n  source: ${entry.source}`).join("\n") + "\n" : "No LSP servers configured.\n");
@@ -494,6 +513,7 @@ async function handleMCPCommand(host: CommandHost, prompt: string): Promise<void
     } else if (action && (!name || extra.length || !["connect", "disconnect"].includes(action))) {
       throw new Error(usage);
     }
+    if (action === "connect" && !await approveProjectDefinition(host, "mcp", name!, host.mcp!.review(name!))) return;
     if (action === "connect") await host.mcp!.connect(name!);
     if (action === "disconnect") await host.mcp!.disconnect(name!);
     const statuses = host.mcp!.status();

@@ -75,7 +75,8 @@ class Session:
         self.root = pathlib.Path(root)
         home = self.root / "home"; home.mkdir()
         project = self.root / "project"; (project / ".casper").mkdir(parents=True)
-        (project / ".casper/mcp.json").write_text(json.dumps({"mcpServers": {"fixture": {
+        (home / ".casper").mkdir()  # User scope: project servers need an extra reviewed confirmation.
+        (home / ".casper/mcp.json").write_text(json.dumps({"mcpServers": {"fixture": {
             "command": bun, "args": [str(repo / "tests/fixtures/mcp-server.ts")]
         }}}))
         if setup: setup(home, project)

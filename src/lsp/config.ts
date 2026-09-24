@@ -3,10 +3,15 @@ import os from "node:os";
 import path from "node:path";
 import { isValidProfileName } from "../config/profile";
 import { record } from "./protocol";
+import type { ServerDefinitionScope } from "../mcp/config";
 
 export interface LSPServerDefinition {
   name: string;
   source: string;
+  /** Project files are repository content: connecting one needs an interactive review. */
+  scope?: ServerDefinitionScope;
+  /** The user/profile file whose same-named definition this project definition replaces. */
+  shadows?: string;
   command: string;
   args: string[];
   languages: Record<string, string>;
@@ -16,13 +21,14 @@ export interface LSPConfiguration { servers: LSPServerDefinition[]; diagnostics:
 /** Metadata only; reading a definition never grants permission to execute it. */
 export async function discoverLSPConfiguration(options: { projectRoot: string; homeDir?: string; profileName?: string }): Promise<LSPConfiguration> {
   const home = options.homeDir ?? os.homedir();
-  const files = [path.join(home, ".casper/lsp.json")];
+  const files: { source: string; scope: ServerDefinitionScope }[] = [{ source: path.join(home, ".casper/lsp.json"), scope: "user" }];
   const profile = options.profileName ?? "default";
-  if (isValidProfileName(profile)) files.push(path.join(home, ".casper/profiles", profile, "lsp.json"));
-  files.push(path.join(options.projectRoot, ".casper/lsp.json"));
+  if (isValidProfileName(profile)) files.push({ source: path.join(home, ".casper/profiles", profile, "lsp.json"), scope: "profile" });
+  files.push({ source: path.join(options.projectRoot, ".casper/lsp.json"), scope: "project" });
   const servers = new Map<string, LSPServerDefinition>();
+  const personal = new Map<string, string>();
   const diagnostics: string[] = [];
-  for (const source of files) {
+  for (const { source, scope } of files) {
     let value: unknown;
     try {
       const file = await openFollowed(source);
@@ -50,8 +56,25 @@ export async function discoverLSPConfiguration(options: { projectRoot: string; h
         diagnostics.push(`Invalid LSP entry ${JSON.stringify(name.slice(0, 64))}: ${source}`);
         continue;
       }
-      servers.set(name, { name, source, command: entry.command, args, languages: entry.languages as Record<string, string> });
+      const shadows = scope === "project" ? personal.get(name) : undefined;
+      servers.set(name, { name, source, scope, ...(shadows ? { shadows } : {}), command: entry.command, args, languages: entry.languages as Record<string, string> });
+      if (scope !== "project") personal.set(name, source);
     }
   }
   return { servers: [...servers.values()], diagnostics };
+}
+
+/** Review text for a project-scope definition: its file, what it replaces, and what it runs. */
+export function projectLSPDefinitionReview(definition: LSPServerDefinition): string | undefined {
+  if (definition.scope !== "project") return undefined;
+  return [
+    "LSP server confirmation",
+    `name: ${JSON.stringify(definition.name)}`,
+    `source: ${definition.source} (project file)`,
+    ...(definition.shadows ? [`replaces your definition in: ${definition.shadows}`] : []),
+    `command: ${JSON.stringify(definition.command)}`,
+    `args: ${JSON.stringify(definition.args)}`,
+    `languages: ${JSON.stringify(definition.languages)}`,
+    "",
+  ].join("\n");
 }

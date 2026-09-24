@@ -2,7 +2,7 @@ import type { ChildProcess } from "node:child_process";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import type { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import { resolveEnvironment, type MCPConfiguration, type MCPServerDefinition } from "./config";
+import { projectDefinitionReview, resolveEnvironment, type MCPConfiguration, type MCPServerDefinition } from "./config";
 import { ownSpawnedTree, type OwnedProcesses, ProcessCleanupError, terminateTree } from "../platform/processes";
 import { CASPER_VERSION } from "../version";
 
@@ -47,8 +47,8 @@ const MAX_WIRE_BYTES = 8 * 1024 * 1024;
 
 /** Identity of a loaded server: everything except which file it came from. */
 function sameDefinition(a: MCPServerDefinition, b: MCPServerDefinition): boolean {
-  const { source: _a, ...restA } = a;
-  const { source: _b, ...restB } = b;
+  const { source: _a, scope: _sa, shadows: _ha, ...restA } = a;
+  const { source: _b, scope: _sb, shadows: _hb, ...restB } = b;
   return JSON.stringify(restA) === JSON.stringify(restB);
 }
 
@@ -103,6 +103,15 @@ export class MCPManager {
   private publish(entry: Entry, tools: MCPTool[]): void {
     entry.tools = tools;
     this.catalogVersion++;
+  }
+
+  /** Review needed before consenting to a project-scope definition; undefined for user/profile ones. */
+  review(name: string): { source: string; shadows?: string; preview: string } | undefined {
+    const entry = this.entry(name);
+    const { definition } = entry;
+    // Already-consented live connections and disabled entries have nothing new to approve.
+    const preview = definition.disabled || (entry.approved && entry.state === "ready") ? undefined : projectDefinitionReview(definition);
+    return preview ? { source: definition.source, shadows: definition.shadows, preview } : undefined;
   }
 
   /** Explicit process-local consent to execute/contact this loaded definition. */
@@ -164,6 +173,8 @@ export class MCPManager {
       if (sameDefinition(entry.definition, replacement)) {
         // Same program from a different file: keep the connection, update the reported source.
         entry.definition.source = replacement.source;
+        entry.definition.scope = replacement.scope;
+        entry.definition.shadows = replacement.shadows;
         continue;
       }
       await this.disconnect(name);

@@ -3,9 +3,16 @@ import os from "node:os";
 import path from "node:path";
 import { isValidProfileName } from "../config/profile";
 
+/** Where a discovered definition came from; programmatic definitions carry none. */
+export type ServerDefinitionScope = "user" | "profile" | "project";
+
 export interface MCPServerDefinition {
   name: string;
   source: string;
+  /** Project files are repository content: connecting one needs an interactive review. */
+  scope?: ServerDefinitionScope;
+  /** The user/profile file whose same-named definition this project definition replaces. */
+  shadows?: string;
   cwd: string;
   disabled: boolean;
   transport: { type: "stdio"; command: string; args: string[]; env: Record<string, string> }
@@ -54,14 +61,15 @@ export async function discoverMCPConfiguration(options: {
 }): Promise<MCPConfiguration> {
   const home = options.homeDir ?? os.homedir();
   const profile = options.profileName ?? "default";
-  const files = [path.join(home, ".casper/mcp.json")];
+  const files: { source: string; scope: ServerDefinitionScope }[] = [{ source: path.join(home, ".casper/mcp.json"), scope: "user" }];
   if (isValidProfileName(profile)) {
-    files.push(path.join(home, ".casper/profiles", profile, "mcp.json"));
+    files.push({ source: path.join(home, ".casper/profiles", profile, "mcp.json"), scope: "profile" });
   }
-  files.push(...["mcp.json", ".mcp.json", ".casper/mcp.json"].map((file) => path.join(options.projectRoot, file)));
+  files.push(...["mcp.json", ".mcp.json", ".casper/mcp.json"].map((file) => ({ source: path.join(options.projectRoot, file), scope: "project" as const })));
   const servers = new Map<string, MCPServerDefinition>();
+  const personal = new Map<string, string>();
   const diagnostics: string[] = [];
-  for (const source of files) {
+  for (const { source, scope } of files) {
     let document: unknown;
     try {
       const file = await openFollowed(source);
@@ -85,13 +93,33 @@ export async function discoverMCPConfiguration(options: {
       servers.delete(name);
       try {
         if (servers.size >= 64) throw new Error("too many servers");
-        servers.set(name, definition(name, value, source, options.projectRoot));
+        const shadows = scope === "project" ? personal.get(name) : undefined;
+        servers.set(name, { ...definition(name, value, source, options.projectRoot), scope, ...(shadows ? { shadows } : {}) });
+        if (scope !== "project") personal.set(name, source);
       } catch {
         diagnostics.push(`Invalid or unsupported MCP entry ${JSON.stringify(name.slice(0, 64))}: ${source}`);
       }
     }
   }
   return { servers: [...servers.values()].sort((a, b) => a.name.localeCompare(b.name)), diagnostics };
+}
+
+/** Review text for a project-scope definition: its file, what it replaces, and what it runs or
+ * contacts. Environment and header values are never shown; `${VAR}` references stay unresolved. */
+export function projectDefinitionReview(definition: MCPServerDefinition): string | undefined {
+  if (definition.scope !== "project") return undefined;
+  const transport = definition.transport;
+  return [
+    "MCP server confirmation",
+    `name: ${JSON.stringify(definition.name)}`,
+    `source: ${definition.source} (project file)`,
+    ...(definition.shadows ? [`replaces your definition in: ${definition.shadows}`] : []),
+    ...(transport.type === "stdio"
+      ? [`command: ${JSON.stringify(transport.command)}`, `args: ${JSON.stringify(transport.args)}`,
+        `env names (values hidden): ${JSON.stringify(Object.keys(transport.env))}`, `cwd: ${definition.cwd}`]
+      : [`url origin: ${new URL(transport.url).origin}`, `header names (values hidden): ${JSON.stringify(Object.keys(transport.headers))}`]),
+    "",
+  ].join("\n");
 }
 
 /** Only explicit ${ENV_NAME} references; never shell commands or config writes. */
