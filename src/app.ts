@@ -101,6 +101,8 @@ export class CasperApp {
   visualizationWork?: Promise<void>;
   private readonly visualizationProviders: VisualizationProvider[];
   mcp?: MCPManager;
+  /** Re-reads MCP configuration from disk for /mcp reload; set with the loaded workspace. */
+  reloadMCPConfiguration?: () => Promise<MCPConfiguration>;
   private broker?: CapabilityBroker;
   /** Owned-subsystem teardown bookkeeping: idempotent per subsystem, drained at close. */
   readonly lifecycle = new LifecycleRegistry();
@@ -228,6 +230,8 @@ export class CasperApp {
     this.projectContext = context;
     this.skillRegistry = registry;
     this.mcp = new MCPManager(mcpConfiguration);
+    // Re-reads the same layered files the manager was built from; the manager diffs them.
+    this.reloadMCPConfiguration = () => this.loadMCPConfigurationFn(context);
     this.lsp = new LSPManager(context.info.root, lspConfiguration);
     this.visualization = new VisualizationRouter({ providers: this.visualizationProviders, settings: context.visualize, workspaceRoot: context.info.root });
     this.broker = new CapabilityBroker(this.mcp, (call, signal) => this.confirmCapability(call, signal));

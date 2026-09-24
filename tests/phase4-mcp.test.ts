@@ -82,6 +82,41 @@ test("a personal HPE profile is not discovered for default or unrelated profiles
   expect(mcp.status()[0]?.state).toBe("disconnected");
 });
 
+test("a reload diffs definitions in place and revokes consent only for changed programs", async () => {
+  const mcp = manager([definition("keep"), definition("edit")]);
+  await mcp.connect("keep");
+  await mcp.connect("edit");
+  expect(mcp.status().map((status) => status.state)).toEqual(["ready", "ready"]);
+  const before = mcp.catalogRevision;
+
+  // Same program from a different file keeps its connection; a different program is a new server.
+  const diff = await mcp.reload({ diagnostics: ["Reloaded fixture warning"], servers: [
+    { ...definition("keep"), source: "moved" },
+    definition("edit", "router"),
+    definition("added"),
+  ] });
+  expect(diff).toEqual({ added: ["added"], removed: [], changed: ["edit"] });
+  expect(mcp.diagnostics).toEqual(["Reloaded fixture warning"]);
+  expect(mcp.catalogRevision).toBeGreaterThan(before);
+  const entry = (name: string) => mcp.status().find((status) => status.name === name);
+  expect(entry("keep")).toMatchObject({ source: "moved", state: "ready", toolCount: 340 });
+  expect(entry("edit")).toMatchObject({ state: "disconnected", toolCount: 0, error: undefined });
+  expect(entry("added")).toMatchObject({ state: "disconnected", toolCount: 0 });
+  // Reload never reconnects a revoked or new definition; only an explicit connect does.
+  await mcp.prepare();
+  expect(entry("edit")?.state).toBe("disconnected");
+  await mcp.connect("edit");
+  expect(entry("edit")).toMatchObject({ state: "ready", toolCount: 340 });
+
+  expect(await mcp.reload({ diagnostics: [], servers: [definition("keep", "router")] }))
+    .toEqual({ added: [], removed: ["edit", "added"], changed: ["keep"] });
+  expect(mcp.catalog()).toEqual([]);
+  expect(mcp.diagnostics).toEqual([]);
+  await expect(mcp.connect("added")).rejects.toThrow("Unknown MCP server");
+  await expect(mcp.reload({ diagnostics: [], servers: [definition("keep"), definition("keep")] }))
+    .rejects.toThrow("Duplicate MCP server name");
+});
+
 test("340 generic tools expose at most eight schemas and rare tools remain discoverable and callable", async () => {
   const mcp = manager();
   await mcp.connect("generic");

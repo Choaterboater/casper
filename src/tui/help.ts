@@ -95,6 +95,7 @@ Local commands:
   /mcp                              Show redacted MCP status (no connection)
   /mcp connect <name>               Authorize this server for this process
   /mcp disconnect <name>            Disconnect and revoke process-local consent
+  /mcp reload                       Re-read MCP files; changed servers need consent again
   /lsp                              Show language-server status (no startup)
   /lsp connect <name>               Authorize this language server for this process
   /lsp disconnect <name>            Stop this language server
