@@ -27,6 +27,20 @@ test("the standalone CLI starts and reports its version on every host", async ()
   }
 }, 120_000);
 
+test("the compiled binary embeds the OAuth flow of every /login provider", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-compiled-oauth-"));
+  try {
+    const binary = path.join(root, process.platform === "win32" ? "probe.exe" : "probe");
+    await compileExecutable(path.join(import.meta.dir, "fixtures/compiled-oauth.ts"), binary);
+    const child = Bun.spawn([binary], { cwd: root, env: { ...process.env, HOME: root, USERPROFILE: root }, stdout: "pipe", stderr: "pipe" });
+    const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+    expect({ exit, stderr, output: JSON.parse(stdout) }).toEqual({ exit: 0, stderr: "",
+      output: { "openai-codex": "ok", "github-copilot": "ok", anthropic: "ok", openrouter: "ok" } });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}, 120_000);
+
 function chunk(kind: string, bytes: Buffer): Buffer {
   const tag = Buffer.from(kind);
   const length = Buffer.alloc(4); length.writeUInt32BE(bytes.length);

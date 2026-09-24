@@ -2,6 +2,8 @@
 // The source CLI runs from inside untrusted repositories: like the compiled build, it never
 // loads the opened directory's bunfig.toml (preload code) or .env (engine store, profile).
 
+// First: engine setup that every later import may depend on at runtime.
+import "./runtime/engine-setup";
 import { CasperApp } from "./app";
 import { importLegacyEngineState, useCasperAgentStore } from "./runtime/agent-store";
 import { CandidateLibrary, formatLearningResult } from "./learn/candidates";
