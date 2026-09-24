@@ -1,4 +1,4 @@
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, afterEach, expect, test } from "bun:test";
 import { chmod, mkdir, mkdtemp, rm, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -7,11 +7,15 @@ import { AGENT_DIR_ENV, casperAgentDir, importLegacyEngineState, useCasperAgentS
 const env = process.env as Record<string, string | undefined>;
 
 const cleanup: Array<() => Promise<unknown>> = [];
-const savedEnv = env[AGENT_DIR_ENV];
-afterAll(async () => {
-  env[AGENT_DIR_ENV] = savedEnv;
-  for (const close of cleanup.splice(0).reverse()) await close();
-});
+const startEnv = { agentDir: env[AGENT_DIR_ENV], home: env.HOME };
+/** Assigning `undefined` would store the string "undefined": an unset variable is deleted. */
+function restore(name: string, value: string | undefined): void {
+  if (value === undefined) delete env[name];
+  else env[name] = value;
+}
+// Every later test file in the same `bun test` process inherits this file's environment.
+afterEach(() => { restore(AGENT_DIR_ENV, startEnv.agentDir); restore("HOME", startEnv.home); });
+afterAll(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
 
 async function tempHome(): Promise<string> {
   const home = await mkdtemp(path.join(os.tmpdir(), "casper-agent-store-"));
@@ -31,6 +35,13 @@ test("the agent store defaults to Casper's own directory and respects an explici
   env[AGENT_DIR_ENV] = "/custom/pi-compatible-dir";
   expect(useCasperAgentStore()).toBe(false);
   expect(env[AGENT_DIR_ENV]).toBe("/custom/pi-compatible-dir");
+  // `env.X = undefined` stores the string "undefined" in Bun; it is never a real directory,
+  // and trusting it would put the store in `<cwd>/undefined/`.
+  for (const unset of ["undefined", ""]) {
+    env[AGENT_DIR_ENV] = unset;
+    expect(useCasperAgentStore()).toBe(true);
+    expect(env[AGENT_DIR_ENV]).toBe(casperAgentDir());
+  }
 });
 
 test("legacy engine state is imported once by copy, and symlinks are refused", async () => {
@@ -98,4 +109,9 @@ test("OAuth-only legacy credentials import nothing but are named once for /login
   expect(await importLegacyEngineState()).toEqual({ imported: false, signIn: ["anthropic"] });
   expect(await Bun.file(path.join(home, ".casper/agent/auth.json")).json()).toEqual({});
   expect(await importLegacyEngineState()).toEqual({ imported: false, signIn: [] });
+});
+
+test("this file leaves the environment exactly as it found it", () => {
+  expect({ agentDir: env[AGENT_DIR_ENV], home: env.HOME }).toEqual({ agentDir: startEnv.agentDir, home: startEnv.home });
+  expect(Object.values(env)).not.toContain("undefined");
 });
