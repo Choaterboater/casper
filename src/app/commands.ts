@@ -104,7 +104,7 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
         else if ("effect" in result && result.effect === "unknown") host.output.write("[login] Login ended; credential save outcome unknown. Restart and inspect local auth before retrying.\n");
         else if (result.status === "cancelled") host.output.write("[login] Cancelled; no credential saved.\n");
         else host.output.write(result.reason === "destination"
-          ? "[login] Unsafe credential destination. Requires a private, owner-held regular file in real directories; no permissions were repaired.\n"
+          ? `[login] Unsafe credential destination${result.detail ? `: ${terminalText(result.detail)}` : ""}. Requires a private, owner-held regular file in a real directory; no permissions were repaired.\n`
           : "[login] Login unavailable or failed. No credential saved. Disable PI_TUI_WRITE_LOG if set. Check provider eligibility and loopback callback availability; no automatic method fallback.\n");
       } catch { host.output.write("[login] Login could not complete. No provider diagnostics are displayed.\n"); }
       return;
