@@ -35,17 +35,24 @@ export class InteractiveTerminal {
     if (this.surface) { this.surface.start(); return; }
     if (this.rl || this.closed) return;
     this.rl = readline.createInterface({ input: this.input, output: this.output as Writable, terminal: false });
+    // Readline emits a chunk's lines synchronously. Lines that arrive in the same chunk as the
+    // one that answered a read were typed or piped ahead of it, not during its work.
+    let sameChunk = false;
     this.rl.on("line", line => {
       if (this.closed || this.discardingInput) return;
       if (this.confirmation) { this.confirmation(line.trim() === "yes"); return; }
       if (this.command) {
-        const resolve = this.command; this.command = undefined; this.busy = true; resolve(line);
-      } else if (!this.busy) this.earlyLines.push(line);
+        const resolve = this.command; this.command = undefined; this.busy = true;
+        sameChunk = true; queueMicrotask(() => { sameChunk = false; });
+        resolve(line);
+      } else if (!this.busy || sameChunk) this.earlyLines.push(line);
     });
     this.rl.on("SIGINT", () => this.interrupt());
     this.rl.once("close", () => {
       this.closed = true; this.command?.(); this.command = undefined;
-      this.confirmation?.(false); this.onEOF();
+      // A pipe that ends with lines still queued is not a hang-up: the command loop drains
+      // them and then reads EOF itself.
+      this.confirmation?.(false); if (!this.earlyLines.length) this.onEOF();
     });
   }
 
@@ -103,8 +110,8 @@ export class InteractiveTerminal {
   readCommand(): Promise<string | undefined> {
     if (this.surface) return this.surface.readCommand();
     this.endAssistant(); this.busy = false;
-    if (this.closed || !this.rl) return Promise.resolve(undefined);
     if (this.earlyLines.length) { this.busy = true; return Promise.resolve(this.earlyLines.shift()!); }
+    if (this.closed || !this.rl) return Promise.resolve(undefined);
     return new Promise(resolve => { this.command = resolve; this.rl!.setPrompt("> "); this.rl!.prompt(); });
   }
 
