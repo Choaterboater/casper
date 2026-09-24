@@ -249,3 +249,9 @@ test("value options take `--name value` or `--name=value`", () => {
   expect(() => parseCliArgs(["--model", "--verify", "hi"])).toThrow("--model needs a value");
   expect(() => parseCliArgs(["--bogus=1", "hi"])).toThrow("Unknown option --bogus=1");
 });
+
+test("--continue and --resume parse for prompts and interactive sessions alike", () => {
+  expect(parseCliArgs(["--continue"])).toMatchObject({ continueConversation: true, command: "interactive" });
+  expect(parseCliArgs(["--resume=01a0d1", "go", "on"])).toMatchObject({ resume: "01a0d1", command: "prompt" });
+  expect(() => parseCliArgs(["--resume"])).toThrow("--resume needs the start of a conversation ID");
+});

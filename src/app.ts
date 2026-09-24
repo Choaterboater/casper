@@ -92,6 +92,8 @@ export interface CasperAppOptions {
   model?: string;
   /** This run's reasoning effort (`--effort`); never remembered. */
   effort?: string;
+  /** Continue the workspace's latest conversation, or the saved one whose ID starts with `resume`. */
+  conversation?: { continue: true } | { resume: string };
   /** Embedder shorthand: true = "offer" (model-selected casper_check plus bounded repair),
    * false = "off". Ignored when verificationMode is set. */
   autoVerify?: boolean;
@@ -146,6 +148,7 @@ export class CasperApp {
   private readonly verbose: boolean;
   private readonly runModel?: string;
   private readonly runEffort?: string;
+  private runConversation?: CasperAppOptions["conversation"];
   private verificationAbort?: AbortController;
   private verificationWork?: Promise<VerificationReport>;
   /** Active repair evidence; sharing it does not grant managed-tool consent. */
@@ -231,6 +234,7 @@ export class CasperApp {
     this.verbose = options.verbose ?? false;
     this.runModel = options.model;
     this.runEffort = options.effort;
+    this.runConversation = options.conversation;
     this.verificationFlag = options.verificationMode
       ?? (options.autoVerify === undefined ? undefined : options.autoVerify ? "offer" : "off");
     this.visualizationProviders = options.visualizationProviders ?? [new MermaidProvider(), new MindMeshProvider()];
@@ -482,6 +486,7 @@ export class CasperApp {
         });
         const resumeNotice = await (await this.ensureSessionWorkspace()).resumeActive(this.session);
         if (resumeNotice) this.output.write(`[sessions] ${resumeNotice}\n`);
+        await this.applyRunConversation(this.session);
         await this.applyRunSelection(this.session);
         this.unsubscribe = this.session.subscribe(event => this.events.handle(event));
         const status = this.session.getStatus?.() ?? { auth: "unknown" as const };
@@ -502,6 +507,29 @@ export class CasperApp {
       });
     }
     return this.runtimeStart;
+  }
+
+  /** `--continue`/`--resume` pick a saved conversation of this workspace before the first request.
+   * Applied once: a later runtime restart keeps whatever conversation is active by then. */
+  private async applyRunConversation(session: RuntimeSession): Promise<void> {
+    const request = this.runConversation;
+    if (!request) return;
+    const flag = "resume" in request ? "--resume" : "--continue";
+    if (!session.listConversations || !session.resumeConversation) throw new UsageError(`${flag}: this runtime does not support saved conversations.`);
+    const current = session.getSessionInfo?.().sessionId;
+    const saved = (await session.listConversations()).filter((conversation) => conversation.id !== current);
+    let target: string | undefined;
+    if ("resume" in request) {
+      const matches = saved.filter((conversation) => conversation.id.startsWith(request.resume));
+      if (!matches.length) throw new UsageError(`--resume: no saved conversation in this workspace starts with "${request.resume}". Run casper /resume to list them.`);
+      if (matches.length > 1) throw new UsageError(`--resume: "${request.resume}" matches ${matches.length} conversations; give more of the ID.`);
+      target = matches[0]!.id;
+    } else target = saved.sort((a, b) => b.modified.localeCompare(a.modified))[0]?.id;
+    this.runConversation = undefined;
+    if (!target) { this.output.write("[session] No earlier conversation in this workspace; starting a new one.\n"); return; }
+    await session.resumeConversation(target);
+    if (session.getSessionInfo) await (await this.ensureSessionWorkspace()).rememberConversation(session);
+    this.output.write(`[session] Continuing conversation ${target}.\n`);
   }
 
   /** `--model`/`--effort` select for this conversation only (persist: false), before any request.

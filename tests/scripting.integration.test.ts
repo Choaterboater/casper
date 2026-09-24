@@ -111,3 +111,52 @@ test("--cd opens the given folder as the workspace; a missing folder is a usage 
   }
   expect(f.payloads).toEqual([]);
 }, 30_000);
+
+/** Saved conversation IDs, newest first, from the local /resume listing (no model call). */
+async function savedConversations(f: Awaited<ReturnType<typeof fixture>>): Promise<string[]> {
+  const listing = await f.run(["/resume"]);
+  expect(listing.exit).toBe(0);
+  return listing.stdout.split("\n").map((line) => /^([0-9a-f-]{8,})\s/.exec(line)?.[1]).filter((id): id is string => Boolean(id));
+}
+const userText = (payload: Payload) => JSON.stringify(payload.messages.filter((message) => message.role === "user"));
+
+test("--continue picks up the latest conversation and --resume the one whose ID starts with a prefix", async () => {
+  const f = await fixture();
+  const fresh = await f.run(["--continue", "remember ALPHA"]);
+  expect({ exit: fresh.exit, stderr: fresh.stderr }).toEqual({ exit: 0, stderr: "" });
+  expect(fresh.stdout).toContain("[session] No earlier conversation in this workspace; starting a new one.");
+  await Bun.sleep(20);
+  expect((await f.run(["remember BRAVO"])).exit).toBe(0);
+  const [bravo, alpha] = await savedConversations(f);
+  expect(alpha && bravo).toBeTruthy();
+
+  const continued = await f.run(["--continue", "which word?"]);
+  expect({ exit: continued.exit, stderr: continued.stderr }).toEqual({ exit: 0, stderr: "" });
+  expect(continued.stdout).toContain(`[session] Continuing conversation ${bravo}.`);
+  expect(userText(f.payloads.at(-1)!)).toContain("remember BRAVO");
+  expect(userText(f.payloads.at(-1)!)).not.toContain("remember ALPHA");
+
+  const resumed = await f.run(["--resume", alpha!.slice(0, 12), "which word?"]);
+  expect({ exit: resumed.exit, stderr: resumed.stderr }).toEqual({ exit: 0, stderr: "" });
+  expect(userText(f.payloads.at(-1)!)).toContain("remember ALPHA");
+  expect(userText(f.payloads.at(-1)!)).not.toContain("remember BRAVO");
+
+  const requests = f.payloads.length;
+  let shared = 0;
+  while (alpha![shared] === bravo![shared]) shared++;
+  if (shared) {
+    const ambiguous = await f.run(["--resume", alpha!.slice(0, shared), "hi"]);
+    expect({ exit: ambiguous.exit, stderr: ambiguous.stderr }).toMatchObject({ exit: 64 });
+    expect(ambiguous.stderr).toContain("matches 2 conversations; give more of the ID");
+  }
+  for (const [args, message] of [
+    [["--resume", "ffffffffffff", "hi"], "no saved conversation in this workspace starts with"],
+    [["--continue", "--resume", alpha!, "hi"], "--continue and --resume cannot be combined"],
+    [["--resume", "not a prefix!", "hi"], "--resume needs the start of a conversation ID"],
+  ] as const) {
+    const result = await f.run([...args]);
+    expect({ args, exit: result.exit }).toEqual({ args, exit: 64 });
+    expect(result.stderr).toContain(message);
+  }
+  expect(f.payloads.length).toBe(requests);
+}, 90_000);

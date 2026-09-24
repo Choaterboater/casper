@@ -21,6 +21,10 @@ export interface CliOptions {
   effort?: string;
   /** Work in this folder instead of the current directory. */
   cd?: string;
+  /** Pick up the workspace's most recent conversation. */
+  continueConversation: boolean;
+  /** Pick up the saved conversation whose ID starts with this prefix. */
+  resume?: string;
   servers: string[];
   languageServers: string[];
   /** One-shot prompt, `casper learn …`, or an interactive session. */
@@ -30,11 +34,11 @@ export interface CliOptions {
 }
 
 /** Every leading option the parser accepts; /help all must document each one. */
-export const CLI_OPTIONS = ["--cd", "--model", "--effort", "--verify", "--no-verify", "--verbose", "--require-verification", "--mcp", "--lsp",
+export const CLI_OPTIONS = ["--cd", "--continue", "--resume", "--model", "--effort", "--verify", "--no-verify", "--verbose", "--require-verification", "--mcp", "--lsp",
   "--help", "--version", "--licenses"] as const;
 
 /** Options that take a value, as `--name value` or `--name=value`. */
-const VALUE_OPTIONS = new Set(["--cd", "--model", "--effort", "--mcp", "--lsp"]);
+const VALUE_OPTIONS = new Set(["--cd", "--resume", "--model", "--effort", "--mcp", "--lsp"]);
 
 const SERVER_NAME = /^[a-zA-Z0-9_.][a-zA-Z0-9_.-]{0,63}$/;
 
@@ -42,7 +46,7 @@ const SERVER_NAME = /^[a-zA-Z0-9_.][a-zA-Z0-9_.-]{0,63}$/;
  * version request. Pure: parsing touches no state, so a mistake costs nothing. */
 export function parseCliArgs(argv: readonly string[]): CliOptions {
   const args = [...argv];
-  const options: CliOptions = { verify: false, noVerify: false, verbose: false, requireVerification: false, servers: [], languageServers: [], command: "interactive", rest: [] };
+  const options: CliOptions = { verify: false, noVerify: false, verbose: false, requireVerification: false, continueConversation: false, servers: [], languageServers: [], command: "interactive", rest: [] };
   let optionCount = 0;
   for (;;) {
     let flag = args[0];
@@ -57,6 +61,11 @@ export function parseCliArgs(argv: readonly string[]): CliOptions {
     else if (flag === "--no-verify") options.noVerify = true;
     else if (flag === "--verbose") options.verbose = true;
     else if (flag === "--require-verification") options.requireVerification = true;
+    else if (flag === "--continue") options.continueConversation = true;
+    else if (flag === "--resume") {
+      if (!value || !/^[A-Za-z0-9_-]{1,128}$/.test(value)) throw new UsageError("--resume needs the start of a conversation ID: --resume <id-prefix> (casper /resume lists them)");
+      options.resume = value;
+    }
     else if (flag === "--mcp" || flag === "--lsp") {
       // A following flag is not a name: `--mcp --verify` must fail, not connect to "--verify".
       if (!value || !SERVER_NAME.test(value)) throw new UsageError(`${flag} requires a configured server name`);
@@ -82,6 +91,7 @@ export function parseCliArgs(argv: readonly string[]): CliOptions {
     throw new UsageError(`Unknown option ${args[0]}. Run casper --help for usage; put -- before a prompt that starts with "-".`);
   }
   if (options.verify && options.noVerify) throw new UsageError("--verify and --no-verify cannot be combined");
+  if (options.continueConversation && options.resume) throw new UsageError("--continue and --resume cannot be combined");
   if (options.effort && options.model?.includes(":")) throw new UsageError("Give the effort either in --model provider/model-id:effort or in --effort, not both");
 
   options.rest = args;
