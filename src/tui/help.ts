@@ -58,6 +58,8 @@ Usage:
   casper --verify ...  Casper runs the checks after this run's edits, with bounded repair (auto)
   casper --no-verify   No Casper checks during tasks for this run (off)
   casper --verbose ... Detailed evidence receipts and per-check lines
+  casper --require-verification <prompt>
+                       Implies --verify; changes Casper did not verify exit 3, not 0
   casper --mcp <name>  Authorize and connect your own (user/profile) MCP server (repeatable)
   casper --lsp <name>  Authorize and start your own (user/profile) language server (repeatable)
                        Project-defined servers need interactive /mcp or /lsp connect review

@@ -42,9 +42,9 @@ export function leadingFlag(args: readonly string[]): "help" | "version" | "lice
 
 /** `--verify` runs Casper's checks after this run's edits; `--no-verify` turns managed
  * checks off. Without either, configuration and the surface default decide. */
-export function verificationFlag(options: { verify: boolean; noVerify: boolean }): VerificationMode | undefined {
+export function verificationFlag(options: { verify: boolean; noVerify: boolean; requireVerification?: boolean }): VerificationMode | undefined {
   if (options.verify && options.noVerify) throw new UsageError("--verify and --no-verify cannot be combined");
-  return options.verify ? "auto" : options.noVerify ? "off" : undefined;
+  return options.verify || options.requireVerification ? "auto" : options.noVerify ? "off" : undefined;
 }
 
 /** The last-resort error sink. Messages can quote untrusted repository text (a YAML excerpt,
@@ -117,7 +117,7 @@ export async function runCli(): Promise<void> {
     for (const server of options.languageServers) await app.runOnce(`/lsp connect ${server}`);
     if (prompt) {
       const report = await app.runOnce(prompt);
-      process.exitCode = taskExitCode(report, app.getLastTaskResult());
+      process.exitCode = taskExitCode(report, app.getLastTaskResult(), { requireVerification: options.requireVerification });
       return;
     }
 

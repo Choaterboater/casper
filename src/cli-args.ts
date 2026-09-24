@@ -11,6 +11,8 @@ export interface CliOptions {
   verify: boolean;
   noVerify: boolean;
   verbose: boolean;
+  /** A one-shot run that ends without Casper's proof exits 3. Implies --verify. */
+  requireVerification: boolean;
   servers: string[];
   languageServers: string[];
   /** One-shot prompt, `casper learn …`, or an interactive session. */
@@ -19,19 +21,24 @@ export interface CliOptions {
   rest: string[];
 }
 
+/** Every leading option the parser accepts; /help all must document each one. */
+export const CLI_OPTIONS = ["--verify", "--no-verify", "--verbose", "--require-verification", "--mcp", "--lsp",
+  "--help", "--version", "--licenses"] as const;
+
 const SERVER_NAME = /^[a-zA-Z0-9_.][a-zA-Z0-9_.-]{0,63}$/;
 
 /** Only *leading* arguments are options: `casper explain the -v flag` is a prompt, not a
  * version request. Pure: parsing touches no state, so a mistake costs nothing. */
 export function parseCliArgs(argv: readonly string[]): CliOptions {
   const args = [...argv];
-  const options: CliOptions = { verify: false, noVerify: false, verbose: false, servers: [], languageServers: [], command: "interactive", rest: [] };
+  const options: CliOptions = { verify: false, noVerify: false, verbose: false, requireVerification: false, servers: [], languageServers: [], command: "interactive", rest: [] };
   let optionCount = 0;
   for (;;) {
     const flag = args[0];
     if (flag === "--verify") options.verify = true;
     else if (flag === "--no-verify") options.noVerify = true;
     else if (flag === "--verbose") options.verbose = true;
+    else if (flag === "--require-verification") options.requireVerification = true;
     else if (flag === "--mcp" || flag === "--lsp") {
       const name = args[1];
       // A following flag is not a name: `--mcp --verify` must fail, not connect to "--verify".
@@ -58,6 +65,8 @@ export function parseCliArgs(argv: readonly string[]): CliOptions {
     if (optionCount) throw new UsageError("learn cannot be combined with options");
     options.command = "learn";
   } else if (args.join(" ").trim()) options.command = "prompt";
+  if (options.requireVerification && options.noVerify) throw new UsageError("--require-verification cannot be combined with --no-verify");
+  if (options.requireVerification && options.command !== "prompt") throw new UsageError("--require-verification needs a prompt: casper --require-verification \"fix the failing test\"");
   return options;
 }
 
