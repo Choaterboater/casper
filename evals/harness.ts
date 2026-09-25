@@ -8,6 +8,8 @@ import { osSupportsProcessGroups, ownSpawnedTree, terminateTree } from "../src/p
 export type HarnessName = "casper" | "pi";
 export interface HarnessObservation {
   answer: string;
+  /** `completed`: the CLI finished its run normally, whatever it concluded about the work (Casper's
+   * own failed checks exit 1 but still complete). Only the frozen evaluator judges the tree. */
   termination: "completed" | "failed" | "timeout";
   exitCode: number | null;
   wallClockMs: number;
@@ -102,7 +104,8 @@ export async function runHarness(name: HarnessName, input: HarnessInput): Promis
       const [exitCode] = await Promise.all([exited, consume(child.stdout, true), consume(child.stderr, false)]);
       const result = observeHarness(name, events, { exitCode, timedOut, wallClockMs: Math.round(performance.now() - started) });
       result.errors.push(...errors);
-      if (exitCode !== 0 && stderr) result.errors.push(stderr);
+      // Casper's stderr is its normal human output in --json mode: diagnostic only when the run failed.
+      if (result.termination !== "completed" && exitCode !== 0 && stderr) result.errors.push(stderr);
       if (result.errors.length && result.termination !== "timeout") result.termination = "failed";
       return result;
     } finally { clearTimeout(timer); await stop(); }
@@ -120,6 +123,9 @@ export function observeHarness(name: HarnessName, events: readonly unknown[], pr
   let completed = false;
   let ended = false;
   let responded = false;
+  // The exit code a normally finished run must have. Casper's is its verdict (1 when its own checks
+  // failed, 2 incomplete), stated in the receipt: the run still finished and its tree is graded.
+  let expectedExit = 0;
   const errors: string[] = [];
   let turns = 0;
   let tokens: number | null = 0;
@@ -139,6 +145,7 @@ export function observeHarness(name: HarnessName, events: readonly unknown[], pr
       if (event.type === "receipt") {
         completed = event.execution === "completed";
         ended = true;
+        expectedExit = Number.isSafeInteger(event.exitCode) ? event.exitCode as number : 0;
         const usage = record(event.usage);
         const count = (value: unknown) => Number.isSafeInteger(value) && (value as number) >= 0 ? value as number : null;
         const amount = (value: unknown) => typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
@@ -167,7 +174,7 @@ export function observeHarness(name: HarnessName, events: readonly unknown[], pr
     }
   }
   return {
-    answer, termination: process.timedOut ? "timeout" : completed && ended && responded && errors.length === 0 && process.exitCode === 0 ? "completed" : "failed",
+    answer, termination: process.timedOut ? "timeout" : completed && ended && responded && errors.length === 0 && process.exitCode === expectedExit ? "completed" : "failed",
     exitCode: process.exitCode, wallClockMs: process.wallClockMs,
     ...(name === "casper" ? casperUsage : { turns, tokens: turns ? tokens : null, estimatedCost: turns ? estimatedCost : null }),
     errors,

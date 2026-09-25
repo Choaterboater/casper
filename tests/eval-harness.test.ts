@@ -100,6 +100,29 @@ test.each(["casper", "pi"] as const)("%s copies only the selected provider and p
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
+test("Casper's own failed verdict is a finished run, not a failed one: the tree is graded like Pi's", () => {
+  const events = (exitCode: number) => [
+    { v: 1, type: "assistant_message", text: "Implemented it." },
+    { v: 1, type: "receipt", execution: "completed", outcome: "failed", exitCode },
+  ];
+  expect(observeHarness("casper", events(1), { exitCode: 1, timedOut: false, wallClockMs: 5 }).termination).toBe("completed");
+  // The receipt must account for the exit code, and a failed execution stays failed.
+  expect(observeHarness("casper", events(0), { exitCode: 1, timedOut: false, wallClockMs: 5 }).termination).toBe("failed");
+  expect(observeHarness("casper", [{ v: 1, type: "assistant_message", text: "x" }, { v: 1, type: "receipt", execution: "failed", exitCode: 1 }],
+    { exitCode: 1, timedOut: false, wallClockMs: 5 }).termination).toBe("failed");
+});
+
+test("a Casper run whose checks failed is still completed through the CLI; its stderr is not an error", async () => {
+  const workdir = await mkdtemp(path.join(os.tmpdir(), "casper-harness-verdict-"));
+  try {
+    const result = await runHarness("casper", {
+      command: [process.execPath, path.join(import.meta.dir, "fixtures/eval-harness-cli.ts")],
+      cwd: workdir, prompt: "checks fail", model: "test/model", effort: "medium", timeoutMs: 2000,
+    });
+    expect(result).toMatchObject({ termination: "completed", exitCode: 1, errors: [] });
+  } finally { await rm(workdir, { recursive: true, force: true }); }
+});
+
 test("a clean exit without a completed assistant exchange is not success", () => {
   const process = { exitCode: 0, timedOut: false, wallClockMs: 1 };
   expect(observeHarness("pi", [{ type: "message_end", message: {
