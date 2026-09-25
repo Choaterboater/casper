@@ -50,7 +50,7 @@ import { safeGitArgs } from "./platform/git";
 import { VerifierRegistry } from "./verify/registry";
 import { verifyAndRepair } from "./verify/repair-loop";
 import { VerificationTask } from "./verify/task";
-import { ChangeBaseline, changesCode, proofRepairPrompt, type ChangeProof } from "./verify/proof";
+import { ChangeBaseline, changesCode, isTestPath, proofRepairPrompt, type ChangeProof } from "./verify/proof";
 import { parseChecklist, requirementsReviewPrompt, type RequirementsReview } from "./task/review";
 import { planAutoChecks, resolveVerificationMode, selectedChecks, type VerificationMode } from "./verify/mode";
 import { measuredCheckTime, recordCheckTimings } from "./verify/timings";
@@ -747,8 +747,9 @@ export class CasperApp {
           verification = await this.runVerification(autoChecks.run, true, prompt, this.checkTask);
           if (proving && verification.status === "pass" && before && afterModel && changesCode(diffSnapshots(before, afterModel))) {
             const initialReview = parseChecklist(this.lastAnswer);
+            const testsChanged = flatten(diffSnapshots(before, afterModel)).some(isTestPath);
             ({ verification, proof, review } = await this.finishChange({ baseline, baselineUnavailable, before: before!, root: workspaceRoot,
-              command: testCommand!, request: prompt, checks: autoChecks.run, verification, session, initialReview }));
+              command: testCommand!, request: prompt, checks: autoChecks.run, verification, session, initialReview, testsChanged }));
           }
         }
       } else if (!stopped && this.checkTask?.checks.length) {
@@ -799,16 +800,19 @@ export class CasperApp {
     baseline?: ChangeBaseline; baselineUnavailable?: string; before: Map<string, string>; root: string; command: string;
     request: string; checks: readonly ProjectCommand[]; verification: VerificationReport; session: RuntimeSession;
     initialReview?: { done: string[]; open: string[] };
+    /** The task turn added or changed a test. */
+    testsChanged?: boolean;
   }): Promise<{ verification: VerificationReport; proof?: ChangeProof; review?: RequirementsReview }> {
     const context = this.projectContext!;
     const stopped = () => this.closing || Boolean(this.commandAbort?.signal.aborted) || this.taskRuntimeFailed || this.taskTurnLimit !== undefined;
     const max = context.repair.maxAttempts;
     let verification = input.verification;
-    // The first task turn is also asked for a checklist. A complete, test-backed checklist avoids
-    // spending another model round repeating the same review; missing or open items get a second look.
+    // The first task turn is also asked for a checklist. A complete checklist, from a turn that also
+    // wrote tests, avoids spending another model round repeating the same review. Missing or open
+    // items, or ticks that lean only on tests that were already there, get a second look.
     const initialReview = input.initialReview;
     // verification.review: false keeps only the first answer's own checklist, if it has one.
-    if ((initialReview && initialReview.open.length === 0) || context.verification.review === false) {
+    if ((initialReview && initialReview.open.length === 0 && input.testsChanged) || context.verification.review === false) {
       if (verification.status !== "pass" || stopped()) return { verification, review: initialReview };
       this.onEvent?.(phaseEvent("proof", "start"));
       const result = await this.proveChange({ ...input, verification });

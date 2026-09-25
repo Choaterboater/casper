@@ -361,10 +361,10 @@ test("a feature worded like a test task is still reviewed and proven; a docs-onl
   expect(docs.payloads.some((payload) => lastUser(payload).includes(REVIEW))).toBe(false);
 }, 90_000);
 
-test("a first answer that ends with a fully ticked checklist needs no separate review round", async () => {
+test("a first answer that ends with a fully ticked checklist, with tests written, needs no separate review round", async () => {
   const f = await fixture((_request, payload) => lastUser(payload).includes(REVIEW) ? TICKED
-    : afterTool(payload) ? { text: "Fixed sum.js.\n\nRequirements:\n- [x] sum.js prints fixed — the test check" }
-    : { tools: [{ name: "write", args: { path: "sum.js", content: "fixed\n" } }] });
+    : afterTool(payload) ? { text: "Fixed sum.js.\n\nRequirements:\n- [x] sum.js prints fixed — tests/sum.sh" }
+    : { tools: [{ name: "write", args: { path: "sum.js", content: "fixed\n" } }, { name: "write", args: { path: "tests/sum.sh", content: "grep -q fixed sum.js\n" } }] });
   await fixProject(f);
   const result = await f.run(["--json", "--verify", "Fix sum.js"]);
   // B: the task prompt asks for the checklist up front, with the same ticking rule.
@@ -372,7 +372,19 @@ test("a first answer that ends with a fully ticked checklist needs no separate r
   expect(f.payloads.some((payload) => lastUser(payload).includes(REVIEW))).toBe(false);
   const receipt = JSON.parse(result.stdout.trim().split("\n").at(-1)!);
   expect({ outcome: receipt.outcome, review: receipt.review, proof: receipt.proof?.status })
-    .toEqual({ outcome: "verified", review: { done: ["sum.js prints fixed — the test check"], open: [] }, proof: "proven" });
+    .toEqual({ outcome: "verified", review: { done: ["sum.js prints fixed — tests/sum.sh"], open: [] }, proof: "proven" });
+}, 60_000);
+
+test("a fully ticked first checklist with no test added or changed still gets the review round", async () => {
+  const f = await fixture((_request, payload) => lastUser(payload).includes(REVIEW) ? TICKED
+    : afterTool(payload) ? { text: "Fixed sum.js.\n\nRequirements:\n- [x] sum.js prints fixed — the existing tests" }
+    : { tools: [{ name: "write", args: { path: "sum.js", content: "fixed\n" } }] });
+  await fixProject(f);
+  const result = await f.run(["--json", "--verify", "Fix sum.js"]);
+  // Ticks that lean only on tests that were already there are not trusted to skip the review.
+  expect(f.payloads.some((payload) => lastUser(payload).includes(REVIEW))).toBe(true);
+  const receipt = JSON.parse(result.stdout.trim().split("\n").at(-1)!);
+  expect(receipt.review).toEqual({ done: ["sum.js is fixed — tests/check.sh"], open: [] });
 }, 60_000);
 
 test("verification.review: false skips the review round; the change is still proven", async () => {
