@@ -5,7 +5,12 @@ import { isolatedEnvironment } from "../src/platform/environment";
 import { osSupportsProcessGroups, ownSpawnedTree, terminateTree } from "../src/platform/processes";
 
 /** Harness observations are not independent acceptance evidence. */
-export type HarnessName = "casper" | "pi";
+/** `casper-no-review` is Casper with its requirements review round off (`verification.review: false`
+ * in the run's user configuration): the same CLI and protocol, for measuring what the round adds. */
+export type HarnessName = "casper" | "casper-no-review" | "pi";
+export const HARNESS_NAMES: readonly HarnessName[] = ["casper", "casper-no-review", "pi"];
+/** The wire protocol and CLI a harness speaks. */
+export const harnessProtocol = (name: HarnessName): "casper" | "pi" => name === "pi" ? "pi" : "casper";
 export interface HarnessObservation {
   answer: string;
   /** `completed`: the CLI finished its run normally, whatever it concluded about the work (Casper's
@@ -57,7 +62,8 @@ export interface ProcessObservation {
 }
 
 /** Run a CLI with a fresh home, bounded output and process-tree cleanup. No user settings are loaded. */
-export async function runHarness(name: HarnessName, input: HarnessInput): Promise<HarnessObservation> {
+export async function runHarness(harness: HarnessName, input: HarnessInput): Promise<HarnessObservation> {
+  const name = harnessProtocol(harness);
   if (!input.command.length || !input.command[0] || !input.model.includes("/")
     || !Number.isSafeInteger(input.timeoutMs) || input.timeoutMs < 1) throw new Error("Invalid harness input");
   const ownsHome = !input.session;
@@ -73,6 +79,7 @@ export async function runHarness(name: HarnessName, input: HarnessInput): Promis
       await writeFile(path.join(agent, "auth.json"), JSON.stringify({ [provider]: auth[provider] }), { mode: 0o600 });
       if (input.seed.modelsStorePath) await copyFile(input.seed.modelsStorePath, path.join(agent, "models-store.json"));
     }
+    if (harness === "casper-no-review") await writeFile(path.join(home, ".casper/config.yaml"), "verification:\n  review: false\n", { mode: 0o600 });
     const args = name === "casper"
       ? ["--json", "--model", input.model, "--effort", input.effort, "--verify", ...(input.session?.resume ? ["--continue"] : [])]
       // Pi refuses --session-id with --continue; the id alone resumes the conversation once it exists.
@@ -138,7 +145,8 @@ function record(value: unknown): Record<string, unknown> | undefined {
 }
 
 /** Normalize authoritative message events, never count streaming deltas as answers. */
-export function observeHarness(name: HarnessName, events: readonly unknown[], process: ProcessObservation): HarnessObservation {
+export function observeHarness(harness: HarnessName, events: readonly unknown[], process: ProcessObservation): HarnessObservation {
+  const name = harnessProtocol(harness);
   let answer = "";
   let completed = false;
   let ended = false;

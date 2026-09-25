@@ -7,7 +7,7 @@ import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { isolatedEnvironment } from "../src/platform/environment";
 import { useCasperAgentStore } from "../src/runtime/agent-store";
 import { formatBenchmarkReport, runBenchmark, summarizeBenchmark, type BenchmarkFailure, type BenchmarkRun } from "../evals/benchmark";
-import type { HarnessInput, HarnessName } from "../evals/harness";
+import { HARNESS_NAMES, type HarnessInput, type HarnessName } from "../evals/harness";
 import { formatEvalReport, formatEvalResult, writeEvalReport } from "../evals/report";
 import { gradePreparedEval, prepareEvalTask, resolveEvalModel, runEvalTask, summarizeEvalRuns } from "../evals/runner";
 import type { EvalModel, EvalPack, EvalRunResult, EvalTask, EvalTaskSummary } from "../evals/runner";
@@ -46,7 +46,9 @@ Options:
 Quality benchmark (Casper vs Pi through their real CLIs; --pack or --harness selects it):
   --pack <core|network> Benchmark a pack (repeatable). Default with --harness: every pack,
                         or only the --task selection.
-  --harness <name>      casper or pi (repeatable). Default: both.
+  --harness <name>      casper, pi, or casper-no-review (Casper with its requirements review
+                        round off, to measure what the round adds) (repeatable). Default:
+                        casper and pi.
   --model <ref>         Required: both harnesses run this provider/model-id. Only that
                         provider's entry of ~/.casper/agent/auth.json is copied into each
                         run's temporary home.
@@ -118,8 +120,8 @@ function parseArguments(args: readonly string[]): EvalOptions {
         if (!BENCHMARK_PACKS.includes(value as EvalPack)) throw new Error(`--pack must be one of ${BENCHMARK_PACKS.join(", ")}`);
         if (!options.packs.includes(value as EvalPack)) options.packs.push(value as EvalPack);
       } else if (argument === "--harness") {
-        if (value !== "casper" && value !== "pi") throw new Error("--harness must be casper or pi");
-        if (!options.harnesses.includes(value)) options.harnesses.push(value);
+        if (!HARNESS_NAMES.includes(value as HarnessName)) throw new Error(`--harness must be one of ${HARNESS_NAMES.join(", ")}`);
+        if (!options.harnesses.includes(value as HarnessName)) options.harnesses.push(value as HarnessName);
       } else if (argument === "--effort") {
         if (!EFFORTS.includes(value as HarnessInput["effort"])) throw new Error(`--effort must be one of ${EFFORTS.join(", ")}`);
         options.effort = value as HarnessInput["effort"];
@@ -238,10 +240,8 @@ async function benchmark(options: EvalOptions, repoRoot: string): Promise<number
   const seed = { authPath, ...(await lstat(modelsStorePath).then(() => ({ modelsStorePath }), () => ({}))) };
   const pi = options.pi ? await executable(options.pi, "--pi") : Bun.which("pi");
   if (harnesses.includes("pi") && !pi) throw new Error("Pi is not on PATH; pass --pi <path>");
-  const commands: Record<HarnessName, string[]> = {
-    casper: options.casper ? [await executable(options.casper, "--casper")] : [process.execPath, path.join(repoRoot, "src/cli.ts")],
-    pi: pi ? [pi] : [],
-  };
+  const casper = options.casper ? [await executable(options.casper, "--casper")] : [process.execPath, path.join(repoRoot, "src/cli.ts")];
+  const commands: Record<HarnessName, string[]> = { casper, "casper-no-review": casper, pi: pi ? [pi] : [] };
 
   const ranAt = new Date().toISOString();
   const commit = git(repoRoot, ["rev-parse", "--short=12", "HEAD"]);

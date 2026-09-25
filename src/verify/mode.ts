@@ -13,6 +13,10 @@ export interface VerificationSettings {
   mode?: VerificationMode;
   /** Unset means every configured check. */
   checks?: ProjectCommand[];
+  /** `false` skips the requirements review round after the checks pass on a code change; a
+   * checklist the model's own answer ends with is still reported, and the change is still proven.
+   * Unset means on. */
+  review?: boolean;
 }
 
 /** Checks this fast run automatically in an unconfigured interactive session. */

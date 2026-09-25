@@ -93,6 +93,24 @@ test.each(["casper", "pi"] as const)("%s receives explicit identical task inputs
   }
 });
 
+test("casper-no-review is the Casper CLI and protocol with the review round off in its user configuration", async () => {
+  const workdir = await mkdtemp(path.join(os.tmpdir(), "casper-harness-variant-"));
+  const home = await mkdtemp(path.join(os.tmpdir(), "casper-harness-variant-home-"));
+  try {
+    const result = await runHarness("casper-no-review", { command: [process.execPath, path.join(import.meta.dir, "fixtures/eval-harness-cli.ts")],
+      cwd: workdir, prompt: "Implement the task.", model: "github-copilot/gpt-5-mini", effort: "medium", timeoutMs: 5000,
+      session: { home, id: "bench-1", resume: false } });
+    expect(result).toMatchObject({ answer: "Scripted answer.", termination: "completed", receiptOutcome: "unverified" });
+    const observed = JSON.parse(await readFile(path.join(workdir, "observed.json"), "utf8"));
+    expect(observed.args).toEqual(["--json", "--model", "github-copilot/gpt-5-mini", "--effort", "medium", "--verify", "--", "Implement the task."]);
+    expect(observed.casperDir).toBe(path.join(home, ".casper/agent"));
+    expect(await readFile(path.join(home, ".casper/config.yaml"), "utf8")).toBe("verification:\n  review: false\n");
+  } finally {
+    await rm(workdir, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
 test.each(["casper", "pi"] as const)("%s stops a hung CLI at its deadline", async name => {
   const workdir = await mkdtemp(path.join(os.tmpdir(), "casper-harness-timeout-"));
   try {

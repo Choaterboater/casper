@@ -428,7 +428,11 @@ export async function loadConfiguration(
   let maxAttempts = 3;
   let mode: VerificationMode | undefined;
   let checks: ProjectCommand[] | undefined;
+  let review: boolean | undefined;
   for (const document of [globalDocument, profileDocument, projectDocument]) {
+    const reviewSetting = isMapping(document.verification) ? document.verification.review : undefined;
+    if (reviewSetting !== undefined && typeof reviewSetting !== "boolean") throw new Error("verification.review must be true or false");
+    review = reviewSetting ?? review;
     timeoutMs = boundedSetting(document, "verification", "timeoutMs", timeoutMs, 1, 3_600_000);
     const selection = verificationSelection(document);
     mode = selection.mode ?? mode;
@@ -444,7 +448,7 @@ export async function loadConfiguration(
 
   return {
     skills: { maxActive, imports },
-    verification: { timeoutMs, ...(mode ? { mode } : {}), ...(checks ? { checks } : {}) },
+    verification: { timeoutMs, ...(mode ? { mode } : {}), ...(checks ? { checks } : {}), ...(review !== undefined ? { review } : {}) },
     repair: { maxAttempts },
     visualize: resolveVisualizationSettings({
       projectName: path.basename(options.projectRoot),
