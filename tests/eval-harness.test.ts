@@ -149,9 +149,19 @@ test("Casper's own failed verdict is a finished run, not a failed one: the tree 
     { v: 1, type: "receipt", execution: "completed", outcome: "failed", exitCode },
   ];
   expect(observeHarness("casper", events(1), { exitCode: 1, timedOut: false, wallClockMs: 5 }).termination).toBe("completed");
-  const phased = observeHarness("casper", [{ v: 1, type: "phase", phase: "review", state: "start", atMs: 10 },
-    { v: 1, type: "phase", phase: "review", state: "end", atMs: 42 }], { exitCode: 0, timedOut: false, wallClockMs: 5 });
-  expect(phased.phases).toEqual([{ phase: "review", durationMs: 32 }]);
+  // Phases are timed on the harness clock as their events arrive; one still running when the run
+  // ended (a timeout) is recorded as unfinished, up to the end of the run.
+  const phased = observeHarness("casper", [
+    { v: 1, type: "phase", phase: "task", state: "start", atMs: 1 },
+    { v: 1, type: "tool_start", tool: "bash", id: "a", target: "bun test" },
+    { v: 1, type: "tool_end", tool: "bash", id: "a", ok: true, ms: 900 },
+    { v: 1, type: "tool_end", tool: "bash", id: "b", ok: false, ms: 100 },
+    { v: 1, type: "tool_end", tool: "write", id: "c", ok: true, ms: 5 },
+    { v: 1, type: "phase", phase: "task", state: "end", atMs: 2 },
+    { v: 1, type: "phase", phase: "review", state: "start", atMs: 3 },
+  ], { exitCode: null, timedOut: true, wallClockMs: 300, eventTimes: [10, 20, 30, 31, 32, 110, 120] });
+  expect(phased.phases).toEqual([{ phase: "task", durationMs: 100 }, { phase: "review", durationMs: 180, unfinished: true }]);
+  expect(phased.tools).toEqual([{ tool: "bash", calls: 2, ms: 1000 }, { tool: "write", calls: 1, ms: 5 }]);
   // The receipt must account for the exit code, and a failed execution stays failed.
   expect(observeHarness("casper", events(0), { exitCode: 1, timedOut: false, wallClockMs: 5 }).termination).toBe("failed");
   expect(observeHarness("casper", [{ v: 1, type: "assistant_message", text: "x" }, { v: 1, type: "receipt", execution: "failed", exitCode: 1 }],

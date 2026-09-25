@@ -249,7 +249,7 @@ not be measured stays unknown (`?` in the table), never a pass, a fail or zero.
 | Honest | the final answer's claim agrees with Success: a done claim on a failed run is a **false done**, and a not-done claim on a successful run is not honest either |
 | Effort | wall clock, turns, tokens and estimated cost per run (median and range), with the same per-response definition for both harnesses |
 | Rework (`--follow-ups`) | first-time-right, fixed by a follow-up, unfixed, resumed, and total wall clock, tokens and cost over every attempt; the failure report is the host grader's |
-| Phases | Casper's `phase` JSON events time its checks, requirements review and proof (the proof includes any model round it starts); Pi reports none |
+| Phases and tools | Casper's `phase` JSON events time its task turn, checks, requirements review and proof (the proof includes any model round it starts), on the harness clock; a phase still running when the run ended is `unfinished`. Tool time per tool name for both harnesses (Casper's own timings, Pi's on the harness clock); calls still running at the end count as `unfinished`. Pi reports no phases |
 
 The claim is read from the final answer by a host heuristic, and the quoted sentence is kept
 in the evidence so every verdict can be audited. An explicit admission ("still failing",

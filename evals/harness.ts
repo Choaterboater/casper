@@ -29,8 +29,13 @@ export interface HarnessObservation {
    * null when it reported none. A follow-up resumed only if this matches the first attempt's. */
   sessionId: string | null;
   errors: string[];
-  /** Host timing inferred from Casper's additive phase events; absent for Pi. */
-  phases?: readonly { phase: "task" | "checks" | "review" | "proof" | "repair"; durationMs: number }[];
+  /** Casper's phases (its task turn, checks, review, proof), timed on the harness clock as their
+   * events arrived; one still running when the run ended is `unfinished`, timed to the end. Absent
+   * for Pi, which reports none. */
+  phases?: readonly HarnessPhase[];
+  /** Time in tools per tool name: Casper's own tool timings, Pi's timed on the harness clock. Calls
+   * still running when the run ended (a hung test run, say) count to the end and are `unfinished`. */
+  tools?: readonly HarnessToolTime[];
 }
 export interface HarnessInput {
   /** Executable plus fixed arguments; never interpreted by a shell. */
@@ -55,10 +60,16 @@ export interface HarnessInput {
   };
 }
 
+export type PhaseName = "task" | "checks" | "review" | "proof" | "repair";
+export interface HarnessPhase { phase: PhaseName; durationMs: number; unfinished?: true }
+export interface HarnessToolTime { tool: string; calls: number; ms: number; unfinished?: number }
+
 export interface ProcessObservation {
   exitCode: number | null;
   timedOut: boolean;
   wallClockMs: number;
+  /** When each event arrived, in ms since the run started, by event index. */
+  eventTimes?: readonly number[];
 }
 
 /** Run a CLI with a fresh home, bounded output and process-tree cleanup. No user settings are loaded. */
@@ -96,6 +107,7 @@ export async function runHarness(harness: HarnessName, input: HarnessInput): Pro
     let timedOut = false;
     const timer = setTimeout(() => { timedOut = true; void stop(); }, input.timeoutMs);
     const events: unknown[] = [];
+    const eventTimes: number[] = [];
     const errors: string[] = [];
     let stderr = "";
     let bytes = 0;
@@ -104,7 +116,7 @@ export async function runHarness(harness: HarnessName, input: HarnessInput): Pro
       let pending = "";
       const parse = (line: string) => {
         if (!line.trim()) return;
-        try { events.push(JSON.parse(line)); }
+        try { events.push(JSON.parse(line)); eventTimes.push(Math.round(performance.now() - started)); }
         catch { if (!errors.includes("Malformed JSON event")) errors.push("Malformed JSON event"); }
       };
       for await (const chunk of stream) {
@@ -128,7 +140,7 @@ export async function runHarness(harness: HarnessName, input: HarnessInput): Pro
     try {
       const exited = child.exited.then(async code => { await stop(); return code; });
       const [exitCode] = await Promise.all([exited, consume(child.stdout, true), consume(child.stderr, false)]);
-      const result = observeHarness(name, events, { exitCode, timedOut, wallClockMs: Math.round(performance.now() - started) });
+      const result = observeHarness(name, events, { exitCode, timedOut, wallClockMs: Math.round(performance.now() - started), eventTimes });
       result.errors.push(...errors);
       // Casper's stderr is its normal human output in --json mode: diagnostic only when the run failed.
       if (result.termination !== "completed" && exitCode !== 0 && stderr) result.errors.push(stderr);
@@ -165,9 +177,19 @@ export function observeHarness(harness: HarnessName, events: readonly unknown[],
   let estimatedCost: number | null = 0;
   // Casper totals its own responses in the receipt; the same per-response definition as Pi's below.
   let casperUsage: Pick<HarnessObservation, "turns" | "tokens" | "estimatedCost"> = { turns: null, tokens: null, estimatedCost: null };
-  const phaseStarts = new Map<string, number>();
-  const phases: { phase: "task" | "checks" | "review" | "proof" | "repair"; durationMs: number }[] = [];
-  for (const value of events) {
+  const phaseStarts = new Map<PhaseName, number>();
+  const phases: HarnessPhase[] = [];
+  const tools = new Map<string, HarnessToolTime>();
+  const running = new Map<string, { tool: string; at: number }>();
+  const addTool = (tool: string, ms: number, unfinished = false) => {
+    const entry = tools.get(tool) ?? { tool, calls: 0, ms: 0 };
+    entry.calls++;
+    entry.ms += Math.max(0, Math.round(ms));
+    if (unfinished) entry.unfinished = (entry.unfinished ?? 0) + 1;
+    tools.set(tool, entry);
+  };
+  for (const [index, value] of events.entries()) {
+    const at = process.eventTimes?.[index];
     const event = record(value);
     if (!event) { errors.push("Invalid event object"); broken = true; continue; }
     if (name === "casper" && event.v !== 1) {
@@ -176,10 +198,33 @@ export function observeHarness(harness: HarnessName, events: readonly unknown[],
       continue;
     }
     if (event.type === "error") errors.push(typeof event.message === "string" ? event.message : "Harness error");
-    if (name === "casper" && event.type === "phase" && (event.phase === "checks" || event.phase === "review" || event.phase === "proof" || event.phase === "repair")
-      && (event.state === "start" || event.state === "end") && typeof event.atMs === "number") {
-      if (event.state === "start") phaseStarts.set(event.phase, event.atMs);
-      else { const start = phaseStarts.get(event.phase); if (start !== undefined) phases.push({ phase: event.phase, durationMs: Math.max(0, event.atMs - start) }); }
+    if (name === "casper" && event.type === "phase" && (["task", "checks", "review", "proof", "repair"] as unknown[]).includes(event.phase)
+      && (event.state === "start" || event.state === "end")) {
+      const phase = event.phase as PhaseName;
+      // The harness clock when there is one: it also times a phase the run never finished.
+      const time = at ?? (typeof event.atMs === "number" ? event.atMs : undefined);
+      if (time !== undefined && event.state === "start") phaseStarts.set(phase, time);
+      const start = phaseStarts.get(phase);
+      if (time !== undefined && event.state === "end" && start !== undefined) {
+        phases.push({ phase, durationMs: Math.round(Math.max(0, time - start)) });
+        phaseStarts.delete(phase);
+      }
+    }
+    const toolName = typeof event.tool === "string" ? event.tool : typeof event.toolName === "string" ? event.toolName : undefined;
+    const callId = typeof event.id === "string" ? event.id : typeof event.toolCallId === "string" ? event.toolCallId : undefined;
+    if (toolName && ((name === "casper" && event.type === "tool_start") || (name === "pi" && event.type === "tool_execution_start"))) {
+      if (callId && at !== undefined) running.set(callId, { tool: toolName.slice(0, 64), at });
+    }
+    if (toolName && name === "casper" && event.type === "tool_end") {
+      const started = callId ? running.get(callId) : undefined;
+      if (callId) running.delete(callId);
+      const ms = typeof event.ms === "number" && Number.isFinite(event.ms) ? event.ms : started && at !== undefined ? at - started.at : 0;
+      addTool(toolName.slice(0, 64), ms);
+    }
+    if (toolName && name === "pi" && event.type === "tool_execution_end") {
+      const started = callId ? running.get(callId) : undefined;
+      if (callId) running.delete(callId);
+      addTool(toolName.slice(0, 64), started && at !== undefined ? at - started.at : 0);
     }
     if (name === "casper" && event.v === 1) {
       if (event.type === "session_start" && typeof event.session === "string") sessionId = event.session.slice(0, 128);
@@ -217,10 +262,13 @@ export function observeHarness(harness: HarnessName, events: readonly unknown[],
       estimatedCost = estimatedCost !== null && typeof cost === "number" && Number.isFinite(cost) && cost >= 0 ? estimatedCost + cost : null;
     }
   }
+  // Whatever was still running when the run ended ran until then.
+  for (const [phase, start] of phaseStarts) phases.push({ phase, durationMs: Math.round(Math.max(0, process.wallClockMs - start)), unfinished: true });
+  for (const { tool, at } of running.values()) addTool(tool, process.wallClockMs - at, true);
   return {
     answer, termination: process.timedOut ? "timeout" : completed && ended && responded && !broken && process.exitCode === expectedExit ? "completed" : "failed",
     exitCode: process.exitCode, wallClockMs: process.wallClockMs,
     ...(name === "casper" ? casperUsage : { turns, tokens: turns ? tokens : null, estimatedCost: turns ? estimatedCost : null }),
-    receiptOutcome, sessionId, errors, ...(phases.length ? { phases } : {}),
+    receiptOutcome, sessionId, errors, ...(phases.length ? { phases } : {}), ...(tools.size ? { tools: [...tools.values()] } : {}),
   };
 }
