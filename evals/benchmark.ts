@@ -2,7 +2,7 @@ import { copyFile, lstat, mkdir, mkdtemp, readFile, rm } from "node:fs/promises"
 import os from "node:os";
 import path from "node:path";
 import { isolatedEnvironment } from "../src/platform/environment";
-import { runHarness, type HarnessInput, type HarnessName, type HarnessObservation } from "./harness";
+import { HARNESS_NAMES, runHarness, type HarnessInput, type HarnessName, type HarnessObservation } from "./harness";
 import { scoreQuality, type PredicateEvidence, type QualityEvidence, type QualityScore, type Verdict } from "./quality";
 import {
   evaluateAcceptance, gradePreparedEval, prepareEvalTask, prepareWorkdir, referenceChanges, runVerification,
@@ -260,7 +260,8 @@ export interface BenchmarkOptions {
   tasks: readonly EvalTask[];
   harnesses: readonly HarnessName[];
   /** Executable plus fixed arguments per harness. */
-  commands: Record<HarnessName, readonly string[]>;
+  /** Executable per harness; `casper-no-review` runs Casper's unless given its own. */
+  commands: Partial<Record<HarnessName, readonly string[]>>;
   model: string;
   effort: HarnessInput["effort"];
   repeat: number;
@@ -339,7 +340,8 @@ async function runJob(options: BenchmarkOptions, task: EvalTask, harness: Harnes
     const attempt = async (prompt: string, resume: boolean) => {
       const startedAt = new Date().toISOString();
       const run = await runHarness(harness, {
-        command: options.commands[harness], cwd: workdir, prompt, model: options.model, effort: options.effort,
+        command: options.commands[harness] ?? (harness === "casper-no-review" ? options.commands.casper : undefined) ?? [],
+        cwd: workdir, prompt, model: options.model, effort: options.effort,
         timeoutMs: options.timeoutMs, seed: options.seed, session: session(resume),
       });
       const observation: EvalObservation = {
@@ -428,7 +430,7 @@ export interface BenchmarkSummary {
   packs: { pack: EvalPack; tasks: { taskId: string; harnesses: Cells }[]; total: Cells }[];
 }
 
-const HARNESSES: readonly HarnessName[] = ["casper", "pi"];
+const HARNESSES = HARNESS_NAMES;
 const DIMENSIONS = ["works", "complete", "tested", "clean", "conventional", "focused", "honest"] as const;
 
 function spread(values: readonly (number | null)[]): Spread | null {

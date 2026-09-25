@@ -805,7 +805,8 @@ export class CasperApp {
     // The first task turn is also asked for a checklist. A complete, test-backed checklist avoids
     // spending another model round repeating the same review; missing or open items get a second look.
     const initialReview = input.initialReview;
-    if (initialReview && initialReview.open.length === 0) {
+    // verification.review: false keeps only the first answer's own checklist, if it has one.
+    if ((initialReview && initialReview.open.length === 0) || context.verification.review === false) {
       if (verification.status !== "pass" || stopped()) return { verification, review: initialReview };
       this.onEvent?.(phaseEvent("proof", "start"));
       const result = await this.proveChange({ ...input, verification });

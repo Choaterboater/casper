@@ -202,7 +202,9 @@ covers the packs too.
 bun tools/eval.ts --pack core --pack network --model github-copilot/gpt-5-mini --repeat 3
 ```
 
-`--pack` or `--harness` selects benchmark mode. Both harnesses run through their real CLIs
+`--pack` or `--harness` selects benchmark mode. `--harness casper-no-review` adds a third
+harness: the same Casper CLI with `verification.review: false` in its run's user configuration,
+to measure what the requirements review round adds. Both harnesses run through their real CLIs
 (`evals/harness.ts`): Casper from this checkout (`bun src/cli.ts`, or `--casper <path>`, for
 example the release binary) with `--json --verify`, and Pi from `PATH` (or `--pi <path>`) with
 `--print --mode json` and no extensions, skills or prompt templates. Every run gets a fresh

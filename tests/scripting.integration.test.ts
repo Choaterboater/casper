@@ -373,6 +373,26 @@ test("a first answer that ends with a fully ticked checklist needs no separate r
     .toEqual({ outcome: "verified", review: { done: ["sum.js prints fixed — the test check"], open: [] }, proof: "proven" });
 }, 60_000);
 
+test("verification.review: false skips the review round; the change is still proven", async () => {
+  const f = await fixture((_request, payload) => lastUser(payload).includes(REVIEW) ? TICKED
+    : afterTool(payload) ? { text: "Fixed." } : { tools: [{ name: "write", args: { path: "sum.js", content: "fixed\n" } }] });
+  await fixProject(f);
+  await writeFile(path.join(f.project, ".casper/project.yaml"), 'verify:\n  test: "grep -q fixed sum.js"\nverification:\n  review: false\n');
+  const result = await f.run(["--json", "--verify", "Fix sum.js"]);
+  expect(f.payloads.some((payload) => lastUser(payload).includes(REVIEW))).toBe(false);
+  const receipt = JSON.parse(result.stdout.trim().split("\n").at(-1)!);
+  expect({ outcome: receipt.outcome, proof: receipt.proof?.status, review: receipt.review }).toEqual({ outcome: "verified", proof: "proven", review: null });
+
+  // The benchmark's casper-no-review sets it in the user configuration (~/.casper/config.yaml).
+  const user = await fixture((_request, payload) => lastUser(payload).includes(REVIEW) ? TICKED
+    : afterTool(payload) ? { text: "Fixed." } : { tools: [{ name: "write", args: { path: "sum.js", content: "fixed\n" } }] });
+  await fixProject(user);
+  await mkdir(path.join(user.home, ".casper"), { recursive: true });
+  await writeFile(path.join(user.home, ".casper/config.yaml"), "verification:\n  review: false\n");
+  expect((await user.run(["--json", "--verify", "Fix sum.js"])).exit).toBe(0);
+  expect(user.payloads.some((payload) => lastUser(payload).includes(REVIEW))).toBe(false);
+}, 60_000);
+
 test("the review round fixes a gap the model finds; a gap it admits keeps the change unverified", async () => {
   // The review finds that sum.js also needs a newline marker and fixes it; the checks rerun and pass.
   const fixed = await fixture((_request, payload) => {

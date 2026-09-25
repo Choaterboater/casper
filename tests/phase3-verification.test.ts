@@ -88,6 +88,17 @@ verification:
     }
   });
 
+  test("verification.review turns the requirements review round off, layered like the other settings", async () => {
+    const { root, homeDir } = await fixture();
+    await mkdir(path.join(homeDir, ".casper"), { recursive: true });
+    await writeFile(path.join(homeDir, ".casper/config.yaml"), "verification:\n  review: false\n");
+    expect((await loadConfiguration({ projectRoot: root, homeDir })).verification).toEqual({ timeoutMs: 600_000, review: false });
+    await writeFile(path.join(root, ".casper/project.yaml"), "verification:\n  review: true\n");
+    expect((await loadConfiguration({ projectRoot: root, homeDir })).verification).toEqual({ timeoutMs: 600_000, review: true });
+    await writeFile(path.join(root, ".casper/project.yaml"), "verification:\n  review: off\n");
+    await expect(loadConfiguration({ projectRoot: root, homeDir })).rejects.toThrow("verification.review must be true or false");
+  });
+
   test("scope declarations reject ambiguous paths and stay frozen with the check command", async () => {
     const { root, homeDir, context } = await fixture(`verify:
   test: ${JSON.stringify(checkCommand())}
