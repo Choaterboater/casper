@@ -65,7 +65,7 @@ A run ends with exactly one `receipt` event, or, when Casper stops before it can
 | `tool_start` | `tool`, `id`, `target` (path, command or pattern; redacted) | A tool call starts. |
 | `tool_end` | `tool`, `id`, `ok`, `ms` | A tool call ends. `ok` is the tool status, not a check result. |
 | `check` | `name`, `command`, `status` (`pass`/`fail`/`skip`), `exit`, `ms`, `recordedBy`, `reused` | Casper recorded a check. `recordedBy` is `casper` (auto mode, `/verify`, repair) or `casper_check` (the model asked for it). |
-| `receipt` | `outcome`, `exitCode`, `execution`, `changed`, `changedDuringChecks`, `verificationMode`, `checks`, `repairAttempts`, `turnLimit`, `usage`, `proof`, `text` | The run finished. |
+| `receipt` | `outcome`, `exitCode`, `execution`, `changed`, `changedDuringChecks`, `verificationMode`, `checks`, `repairAttempts`, `turnLimit`, `usage`, `proof`, `review`, `text` | The run finished. |
 | `error` | `message` | Something failed. |
 
 `receipt.outcome` is one of `verified`, `failed`, `incomplete`, `not_verified`, `unchanged`,
@@ -84,7 +84,9 @@ does not total: a `delegate` subagent, or automatic effort's classifier.
 `proof` says whether the tests prove the change (see docs/VERIFICATION.md, "Proving the change"):
 `{ "status": "proven" | "unproven", "check", "command", "testsChanged" }`, or `{ "status":
 "unavailable", "check", "reason" }` when Casper could not compare, or `null` when no proof applied.
-An `unproven` change has the outcome `not_verified`.
+An `unproven` change has the outcome `not_verified`. `review` is the model's requirements checklist from its review round
+(`{ "done": [...], "open": [...] }`, or `{ "missing": true }` when it returned none), or `null` when no
+review ran. It is the model's own claim; any `open` item makes the outcome `not_verified`.
 
 ```json
 {"v":1,"type":"check","name":"test","command":"npm run test","status":"pass","exit":0,"ms":412,"recordedBy":"casper","reused":false}
