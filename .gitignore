@@ -5,6 +5,8 @@ coverage/
 *.bun-build
 .scratch/
 __pycache__/
+# Quality-benchmark results (tools/eval.ts --pack/--harness)
+evals/results/
 
 # Local credentials and generated state
 .env

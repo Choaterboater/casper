@@ -51,3 +51,5 @@ export function scoreQuality(evidence: QualityEvidence) {
     effort: { ...evidence.effort },
   };
 }
+
+export type QualityScore = ReturnType<typeof scoreQuality>;
