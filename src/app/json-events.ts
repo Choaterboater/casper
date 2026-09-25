@@ -3,6 +3,7 @@ import { formatTerminalJSON } from "../tui/json";
 import { redactPreview } from "../tui/format";
 import type { VerificationReport, VerificationResult } from "../verify/evidence";
 import type { ChangeProof } from "../verify/proof";
+import type { RequirementsReview } from "../task/review";
 import { formatReceipt, taskOutcome, type TaskOutcome, type TaskResult, type TaskUsage } from "../task/result";
 
 /** Bump only for a breaking change; new event types and fields are additive within a version. */
@@ -37,6 +38,8 @@ export interface ReceiptEvent {
   usage: TaskUsage | null;
   /** Whether the tests fail without the change and pass with it; null when Casper did not compare. */
   proof: ChangeProof | null;
+  /** The model's requirements checklist after its review round (its own claim); null when none ran. */
+  review: RequirementsReview | null;
   /** The plain receipt a person would read. */
   text: string;
 }
@@ -84,6 +87,7 @@ export function receiptEvent(report: VerificationReport | undefined, task: TaskR
     turnLimit: task?.turnLimit ?? null,
     usage: task?.usage ? { ...task.usage } : null,
     proof: task?.proof ? { ...task.proof } : null,
+    review: task?.review ? structuredClone(task.review) : null,
     text: receipt ? formatReceipt(receipt, { surface: "one-shot" }) : "",
   };
 }

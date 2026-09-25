@@ -51,6 +51,7 @@ import { VerifierRegistry } from "./verify/registry";
 import { verifyAndRepair } from "./verify/repair-loop";
 import { VerificationTask } from "./verify/task";
 import { ChangeBaseline, proofRepairPrompt, type ChangeProof } from "./verify/proof";
+import { parseChecklist, requirementsReviewPrompt, type RequirementsReview } from "./task/review";
 import { planAutoChecks, resolveVerificationMode, selectedChecks, type VerificationMode } from "./verify/mode";
 import { measuredCheckTime, recordCheckTimings } from "./verify/timings";
 import { MermaidProvider } from "./visualize/mermaid";
@@ -159,6 +160,9 @@ export class CasperApp {
   private readonly maxTurns?: number;
   private readonly onEvent?: (event: CasperEvent) => void;
   private readonly eventMapper = new RuntimeEventMapper();
+  /** The text of the response being streamed, and of the last response that had text. */
+  private responseText = "";
+  private lastAnswer = "";
   /** casper_check calls in flight: their results were requested by the model, not by Casper. */
   private modelCheckCalls = 0;
   /** Turns after which --max-turns stopped the current task's model request. */
@@ -509,6 +513,9 @@ export class CasperApp {
           if (event.type === "tool_start" && event.toolName === "casper_check") this.modelCheckCalls++;
           if (event.type === "tool_end" && event.toolName === "casper_check") this.modelCheckCalls = Math.max(0, this.modelCheckCalls - 1);
           this.observations.observeUsage(event);
+          if (event.type === "assistant_response_start") this.responseText = "";
+          else if (event.type === "assistant_text_delta") this.responseText = (this.responseText + event.delta).slice(-65_536);
+          else if (event.type === "assistant_response_end" && this.responseText.trim()) this.lastAnswer = this.responseText;
           this.events.handle(event);
           if (this.onEvent) for (const mapped of this.eventMapper.map(event)) this.onEvent(mapped);
         });
@@ -705,6 +712,7 @@ export class CasperApp {
       }
     }
     let proof: ChangeProof | undefined;
+    let review: RequirementsReview | undefined;
     let afterModel: Map<string, string> | undefined;
     let verification: VerificationReport | undefined;
     let autoChecks: ReturnType<typeof planAutoChecks> | undefined;
@@ -734,7 +742,7 @@ export class CasperApp {
           this.output.write(`… Casper checking: ${pending.join(", ")}\n`);
           verification = await this.runVerification(autoChecks.run, true, prompt, this.checkTask);
           if (proving && verification.status === "pass") {
-            ({ verification, proof } = await this.proveChange({ baseline, baselineUnavailable, before: before!, root: workspaceRoot,
+            ({ verification, proof, review } = await this.finishChange({ baseline, baselineUnavailable, before: before!, root: workspaceRoot,
               command: testCommand!, request: prompt, checks: autoChecks.run, verification, session }));
           }
         }
@@ -765,7 +773,7 @@ export class CasperApp {
       const browser = !this.closing && this.browser ? await this.browser.report() : undefined;
       this.lastTaskResult = { execution, verification, ...observations, ...(browser?.checks.length ? { browser } : {}),
         verificationMode, ...(autoChecks?.skipped ? { autoSkipped: autoChecks.skipped } : {}),
-        ...(this.taskTurnLimit !== undefined ? { turnLimit: this.taskTurnLimit } : {}), ...(proof ? { proof } : {}) };
+        ...(this.taskTurnLimit !== undefined ? { turnLimit: this.taskTurnLimit } : {}), ...(proof ? { proof } : {}), ...(review ? { review } : {}) };
       if (!this.closing) {
         this.terminal.endAssistant();
         this.events.ensureLineBreak();
@@ -778,6 +786,35 @@ export class CasperApp {
         modelStatus: execution, verification });
     }
     return verification;
+  }
+
+  /** After the checks pass on a fix or feature: one requirements-review round (the model checks every
+   * stated requirement, fixes gaps and returns a checklist), the checks again, then the proof. */
+  private async finishChange(input: {
+    baseline?: ChangeBaseline; baselineUnavailable?: string; before: Map<string, string>; root: string; command: string;
+    request: string; checks: readonly ProjectCommand[]; verification: VerificationReport; session: RuntimeSession;
+  }): Promise<{ verification: VerificationReport; proof?: ChangeProof; review?: RequirementsReview }> {
+    const context = this.projectContext!;
+    const stopped = () => this.closing || Boolean(this.commandAbort?.signal.aborted) || this.taskRuntimeFailed || this.taskTurnLimit !== undefined;
+    const max = context.repair.maxAttempts;
+    let verification = input.verification;
+    this.events.ensureLineBreak();
+    this.output.write("↻ review: checking the work against every requirement\n");
+    this.lastAnswer = "";
+    const unreviewed = await this.snapshotWorkspace(input.root);
+    await this.prepareCapabilities(input.request);
+    await input.session.prompt(requirementsReviewPrompt(input.request), this.commandAbort?.signal, { request: input.request, maxTurns: this.maxTurns });
+    if (stopped()) return { verification };
+    const review: RequirementsReview = parseChecklist(this.lastAnswer) ?? { missing: true };
+    // Checks rerun only when the review edited (or the tree cannot be compared); failures get the remaining repairs.
+    const after = unreviewed && await this.snapshotWorkspace(input.root);
+    const edited = !unreviewed || !after || [...Object.values(diffSnapshots(unreviewed, after))].some((paths) => paths.length);
+    if (edited) {
+      const reviewed = await this.runVerification(input.checks, true, input.request, this.checkTask, Math.max(0, max - verification.repairAttempts));
+      verification = { ...reviewed, repairAttempts: verification.repairAttempts + reviewed.repairAttempts };
+    }
+    if (verification.status !== "pass" || stopped()) return { verification, review };
+    return { ...await this.proveChange({ ...input, verification }), review };
   }
 
   /** Compare the tests with and without the change. An unproven change gets one repair round,

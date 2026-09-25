@@ -47,6 +47,7 @@ function createApp(root: string, respond: (prompt: string, tools: RuntimeTool[],
   let inPrompt = false;
   let output = "";
   const prompts: string[] = [];
+  const reviews: string[] = [];
   const runtime: AgentRuntime = {
     async start(options) {
       tools = options.tools ?? [];
@@ -55,6 +56,8 @@ function createApp(root: string, respond: (prompt: string, tools: RuntimeTool[],
         async prompt(prompt) {
           if (inPrompt) throw new Error("Nested repair prompt inside tool execution");
           inPrompt = true;
+          // The requirements review (fix/implement in auto mode) is recorded; this fake model finds nothing to change.
+          if (prompt.startsWith("Casper requirements review")) { reviews.push(prompt); inPrompt = false; return; }
           prompts.push(prompt);
           try { await respond(prompt, tools, options, (event) => listener?.(event)); }
           finally { inPrompt = false; }
@@ -74,7 +77,7 @@ function createApp(root: string, respond: (prompt: string, tools: RuntimeTool[],
     output: { write(text) { output += text; } },
   });
   cleanup.push(() => app.close());
-  return { app, prompts, output: () => output };
+  return { app, prompts, reviews, output: () => output };
 }
 function checkTool(tools: RuntimeTool[]): RuntimeTool {
   const tool = tools.find((candidate) => candidate.name === "casper_check");
@@ -749,14 +752,19 @@ test("a vague request follows edit → selected check → scoped reuse → inval
 
 test("auto mode: Casper runs the configured checks after the model's edits, whatever tool it used", async () => {
   const root = await fixture();
-  const { app, prompts } = createApp(root, async (_prompt, tools) => {
+  const created = createApp(root, async (_prompt, tools) => {
     expect(tools.map((tool) => tool.name)).toContain("casper_check");
     await writeFile(path.join(root, "src/value"), "good\n");
   }, "auto");
+  const { app, prompts } = created;
+  const { reviews } = created;
   const report = await app.runOnce("Fix the value", root);
   expect(report).toMatchObject({ status: "pass", repairAttempts: 0 });
   expect(report?.results.map((result) => [result.name, result.status])).toEqual([["test", "pass"], ["build", "pass"]]);
   expect(prompts).toHaveLength(1);
+  // Checks passed on a fix: one requirements review; it changed nothing, so the checks did not rerun.
+  expect(reviews).toHaveLength(1);
+  expect(app.getLastTaskResult()?.review).toEqual({ missing: true });
   expect(await readFile(path.join(root, "test-runs"), "utf8")).toBe("x");
   expect(taskExitCode(report, app.getLastTaskResult())).toBe(0);
 });
@@ -853,7 +861,7 @@ test("the task ends with the plain receipt; /receipt and verbose output keep the
   let text = "";
   const detailed = new CasperApp({ verificationMode: "auto", verbose: true, output: { write(chunk) { text += chunk; } },
     runtimeFactory: () => ({ async start() { return { async prompt() { await writeFile(path.join(verbose, "src/value"), "good\n"); },
-      async abort() {}, subscribe: () => () => {}, getState: () => ({ cwd: verbose, isStreaming: false }) }; }, async dispose() {} }),
+      async abort() {}, setTools() {}, subscribe: () => () => {}, getState: () => ({ cwd: verbose, isStreaming: false }) }; }, async dispose() {} }),
     loadProjectContext: (project) => loadProjectContext(project, { homeDir: path.join(verbose, "home") }),
     loadSkillRegistry: (context) => SkillRegistry.discover({ projectRoot: context.info.root, homeDir: path.join(verbose, "home") }) });
   cleanup.push(() => detailed.close());

@@ -56,6 +56,24 @@ reported but never counted as verification.
 ⚠ Not proven: test passes without this change too, and no test was added or changed
 ```
 
+## Requirements review
+
+When the checks pass on a **fix or implement request in auto mode** with a `test` check, Casper gives
+the model one review round before proving the change: list every requirement the request and the
+project docs (for example `CONTEXT.md`) state, confirm each is implemented and tested, fix any gap,
+and end with a checklist (`- [x] requirement — test`, `- [ ] requirement — why not done`). The
+checks rerun only if the review changed files. The receipt shows the checklist as **the model's own
+claim**, never as Casper's evidence:
+
+```
+• The model's review: all 6 requirements covered (its own claim, not checked by Casper)
+⚠ The model's review says not done: handshake timeout — not implemented
+• The model's review returned no checklist
+```
+
+An item the model admits is not done makes the change `not_verified`. The review costs one more
+model round per such request.
+
 ## Proving the change
 
 A passing test check only shows the tests still pass; they may not exercise the change at all. For

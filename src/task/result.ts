@@ -3,6 +3,7 @@ import type { ProjectCommand } from "../project/model";
 import type { BrowserReport } from "../browser/scenario";
 import type { AutoCheckSkip, VerificationMode } from "../verify/mode";
 import type { ChangeProof } from "../verify/proof";
+import type { RequirementsReview } from "./review";
 
 /** Tool-reported diagnostics, not process exit evidence or a reusable check pass. */
 export interface ObservedCheck {
@@ -51,6 +52,8 @@ export interface TaskResult {
   /** Whether the tests fail without the change and pass with it (fix and implement requests in auto
    * mode). An unproven change is not verified: the passing checks do not exercise it. */
   proof?: ChangeProof;
+  /** The model's requirements checklist (its own claim). Admitted open items make the change not verified. */
+  review?: RequirementsReview;
 }
 
 /** What a run proved, in the words scripts match on. */
@@ -68,7 +71,8 @@ export function taskOutcome(report?: VerificationReport, task?: TaskResult): Tas
   if (status === "incomplete" || task?.browser?.status === "incomplete") return "incomplete";
   if (status === "pass") {
     const stale = verification!.results.some((result) => result.status === "pass" && result.freshness === "stale");
-    return stale || task?.proof?.status === "unproven" ? "not_verified" : "verified";
+    const admittedGaps = Boolean(task?.review && "open" in task.review && task.review.open.length);
+    return stale || task?.proof?.status === "unproven" || admittedGaps ? "not_verified" : "verified";
   }
   const changed = Boolean(task?.changedPaths?.length || task?.changedDuringChecks?.length || (!task?.changedPaths && task?.possibleMutations));
   return changed || task?.autoSkipped === "no-checks" ? "not_verified" : "unchanged";
@@ -113,6 +117,7 @@ export function formatTaskResult(task: TaskResult): string {
 
   lines.push(receiptLine("verification", report ? formatVerificationReport(report, { compact: true }) : "no Casper verification recorded."));
   if (task.proof) lines.push(receiptLine("proof", proofLine(task.proof, safe)));
+  if (task.review) lines.push(receiptLine("review", reviewLine(task.review, safe)));
   if (task.browser) {
     lines.push(receiptLine("browser", `assertions ${task.browser.status}: ${task.browser.checks.map(check => `${safe(check.name)}:${check.status}, inputs ${check.freshness}, baseline ${check.baseline}`).join("; ")}. Declared local scope only; server build/external state and overall acceptance not certified.`));
   }
@@ -164,6 +169,7 @@ export function formatReceipt(task: TaskResult, options: ReceiptOptions = {}): s
   }
 
   if (task.proof) lines.push(proofLine(task.proof, safe));
+  if (task.review) lines.push(reviewLine(task.review, safe));
   if (task.changedDuringChecks?.length) lines.push(`• Changed while checking: ${pathList(task.changedDuringChecks, safe, false)}`);
 
   const changed = Boolean(task.changedPaths?.length || (!task.changedPaths && task.possibleMutations));
@@ -181,6 +187,12 @@ export function formatReceipt(task: TaskResult, options: ReceiptOptions = {}): s
       : task.browser.status === "fail" ? `✗ Browser checks failed: ${failed.join(", ")}` : "• Browser checks incomplete");
   }
   return lines.join("\n");
+}
+
+function reviewLine(review: RequirementsReview, safe: (text: string) => string): string {
+  if ("missing" in review) return "• The model's review returned no checklist";
+  if (review.open.length) return `⚠ The model's review says not done: ${review.open.map(safe).join("; ")}`;
+  return `• The model's review: all ${review.done.length} requirements covered (its own claim, not checked by Casper)`;
 }
 
 function proofLine(proof: ChangeProof, safe: (text: string) => string): string {
