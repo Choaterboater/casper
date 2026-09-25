@@ -31,7 +31,7 @@ async function measured(task: EvalTask, edit: (workdir: string) => Promise<void>
   cleanup.push(() => rm(root, { recursive: true, force: true }));
   await edit(workdir);
   const graded = await gradePreparedEval(root, { startedAt: new Date().toISOString(), wallClockMs: 1000, execution: "completed", modelCalls: 3, answer, interventions: [] });
-  const run: HarnessObservation = { answer, termination: "completed", exitCode: 0, wallClockMs: 1000, turns: 3, tokens: 900, estimatedCost: 0.01, errors: [] };
+  const run: HarnessObservation = { answer, termination: "completed", exitCode: 0, wallClockMs: 1000, turns: 3, tokens: 900, estimatedCost: 0.01, receiptOutcome: null, errors: [] };
   const evidence = await measureQuality({ task, repoRoot, workdir, graded, run, reference: await referenceBaseline(task, repoRoot), timeoutMs: 60_000 });
   return { graded, evidence, score: scoreQuality(evidence) };
 }
