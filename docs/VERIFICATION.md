@@ -72,10 +72,11 @@ claim**, never as Casper's evidence:
 ```
 
 An item the model admits is not done makes the change `not_verified`. The review costs one more
-model round per such request, so Casper skips it when the model's own answer already ends with a
-checklist that has no open item and the answer's turn added or changed a test (the task prompt asks
-for the checklist, in the same format and with the same ticking rule). Ticks that cite only tests
-that were already there still get the review. To turn
+model round per such request. The task prompt already asks for the checklist, in the same format
+and with the same ticking rule, and the review starts from it: it adds what the first list missed
+and splits what it merged, one line per case (each missing option, each malformed value), reusing
+what the model already read. The review runs even when the first checklist is fully ticked: in
+benchmarks, skipping it on a fully ticked list ended in a false done 2 times out of 3. To turn
 the round off entirely:
 
 ```yaml

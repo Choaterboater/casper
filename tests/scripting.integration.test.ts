@@ -361,7 +361,7 @@ test("a feature worded like a test task is still reviewed and proven; a docs-onl
   expect(docs.payloads.some((payload) => lastUser(payload).includes(REVIEW))).toBe(false);
 }, 90_000);
 
-test("a first answer that ends with a fully ticked checklist, with tests written, needs no separate review round", async () => {
+test("the review round runs even after a fully ticked first checklist, and the receipt keeps the review's", async () => {
   const f = await fixture((_request, payload) => lastUser(payload).includes(REVIEW) ? TICKED
     : afterTool(payload) ? { text: "Fixed sum.js.\n\nRequirements:\n- [x] sum.js prints fixed — tests/sum.sh" }
     : { tools: [{ name: "write", args: { path: "sum.js", content: "fixed\n" } }, { name: "write", args: { path: "tests/sum.sh", content: "grep -q fixed sum.js\n" } }] });
@@ -369,22 +369,13 @@ test("a first answer that ends with a fully ticked checklist, with tests written
   const result = await f.run(["--json", "--verify", "Fix sum.js"]);
   // B: the task prompt asks for the checklist up front, with the same ticking rule.
   expect(asked(f.payloads[0], "Tick a requirement only when a test you can name asserts it")).toBe(true);
-  expect(f.payloads.some((payload) => lastUser(payload).includes(REVIEW))).toBe(false);
+  // A fully ticked first checklist was wrong too often to skip the review; the review starts from it.
+  const reviews = f.payloads.filter((payload) => lastUser(payload).includes(REVIEW));
+  expect(reviews.length).toBeGreaterThan(0);
+  expect(lastUser(reviews[0]!)).toContain("start from it: add what it missed and split what it merged");
   const receipt = JSON.parse(result.stdout.trim().split("\n").at(-1)!);
   expect({ outcome: receipt.outcome, review: receipt.review, proof: receipt.proof?.status })
-    .toEqual({ outcome: "verified", review: { done: ["sum.js prints fixed — tests/sum.sh"], open: [] }, proof: "proven" });
-}, 60_000);
-
-test("a fully ticked first checklist with no test added or changed still gets the review round", async () => {
-  const f = await fixture((_request, payload) => lastUser(payload).includes(REVIEW) ? TICKED
-    : afterTool(payload) ? { text: "Fixed sum.js.\n\nRequirements:\n- [x] sum.js prints fixed — the existing tests" }
-    : { tools: [{ name: "write", args: { path: "sum.js", content: "fixed\n" } }] });
-  await fixProject(f);
-  const result = await f.run(["--json", "--verify", "Fix sum.js"]);
-  // Ticks that lean only on tests that were already there are not trusted to skip the review.
-  expect(f.payloads.some((payload) => lastUser(payload).includes(REVIEW))).toBe(true);
-  const receipt = JSON.parse(result.stdout.trim().split("\n").at(-1)!);
-  expect(receipt.review).toEqual({ done: ["sum.js is fixed — tests/check.sh"], open: [] });
+    .toEqual({ outcome: "verified", review: { done: ["sum.js is fixed — tests/check.sh"], open: [] }, proof: "proven" });
 }, 60_000);
 
 test("verification.review: false skips the review round; the change is still proven", async () => {

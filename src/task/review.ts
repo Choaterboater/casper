@@ -31,8 +31,11 @@ export const CHECKLIST_FORMAT: readonly string[] = [
 export function requirementsReviewPrompt(request: string): string {
   return [
     "Casper requirements review.",
-    "Before Casper finishes, check your work against the request one requirement at a time. List every requirement that the request and the project's docs (for example CONTEXT.md) state: each behavior, output format, limit, error case and edge case, including the small ones.",
-    "For each one, confirm the code implements it and a test exercises it. Tick a requirement only when a test you can name asserts it; code that merely looks right or an unasserted claim is not enough. Fix every gap now: implement what is missing and add the missing tests. Do not weaken, skip or delete tests.",
+    "The checks pass. Now find what the request asks for that no test checks yet.",
+    "List every requirement that the request and the project's docs (for example CONTEXT.md) state: each behavior, output format, order, default, limit, error case and edge case, including the small ones.",
+    "Give each case its own line. A rule that covers several inputs, options or errors is several requirements (for example: each missing option, each malformed value, an unknown option).",
+    "If your earlier answer ends with a checklist, start from it: add what it missed and split what it merged. Work from what you have already read; reopen a file only to check a detail.",
+    "Tick a requirement only when a test you can name asserts it; code that merely looks right or an unasserted claim is not enough. For every unticked line, add the test now and fix the code if it fails. Do not weaken, skip or delete tests. Run the tests once your additions are done.",
     "End your answer with this checklist, one line per requirement:",
     ...CHECKLIST_FORMAT,
     "Original request:",
