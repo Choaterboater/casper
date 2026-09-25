@@ -141,6 +141,14 @@ time limit. Its tasks live in `evals/packs.ts` and are reported per pack: **core
 separately so no single domain skews the headline). Each task has its own fixture;
 none reuses a fixture from the tasks above.
 
+**Limits and usage.** The 300-second wall clock is the only run limit, and it is the same for
+both harnesses. There is no turn limit: Pi's CLI has none, so a Casper-only `--max-turns` would
+only ever stop Casper (it did, three times, in the first real runs). Turns, tokens and estimated
+cost use one definition for both: every model response, totalled from what the provider reported
+for it. Pi's come from its `message_end` events, Casper's from its receipt's `usage`. Casper
+reports its totals as unknown when a task delegated to a subagent or ran automatic effort's
+classifier, whose model calls it does not total. Neither side counts context compaction.
+
 **Hidden acceptance tests.** Every pack fixture is the reference solution plus an
 `acceptance/` directory of tests the model never sees: the setup's `remove.json`
 lists `acceptance/` (an entry ending in `/` removes a directory), and the frozen
