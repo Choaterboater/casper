@@ -14,7 +14,7 @@ const GUTTER = 2;
 
 /** pi-tui's main screen clears scrollback and reprints on any height change. Wrapping does not depend
  * on height, so a rows-only resize is absorbed by moving the remembered viewport instead of repainting.
- * The field names below are private in pi-tui's typings; verified against @earendil-works/pi-tui 0.85.1
+ * The field names below are private in pi-tui's typings; verified against @earendil-works/pi-tui 0.87.0
  * (`doRender` in dist/tui-main-screen.js, the same adjustment its Termux branch computes). */
 class StableMainScreen extends TuiMainScreen {
   protected override doRender(): void {
