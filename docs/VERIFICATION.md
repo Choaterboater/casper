@@ -52,7 +52,32 @@ reported but never counted as verification.
 • Not verified — no checks configured. Add verify.test to .casper/project.yaml.
 • Not verified — stale: files changed after the last passing test. Run /verify test.
 • No files changed, so Casper ran no checks
+✓ Proven: test fails without this change and passes with it
+⚠ Not proven: test passes without this change too, and no test was added or changed
 ```
+
+## Proving the change
+
+A passing test check only shows the tests still pass; they may not exercise the change at all. For
+**fix and implement requests in auto mode** (`--verify`, or `verification.mode: auto`) with a `test`
+check configured, Casper also asks whether the tests *prove* the change:
+
+1. Before the model starts, Casper copies the workspace (copy-on-write where the file system allows;
+   `.git`, `.casper` and `node_modules` are left out, and `node_modules` is linked back in).
+2. After the checks pass, it rebuilds the workspace **without the change**: the copy from before,
+   with the tests (anything under a test directory, or named like a test) as they are now. It runs the
+   `test` check there.
+3. If that fails, it runs the same check on a copy of the current workspace. When that passes, the
+   change is **proven**: the tests fail without it and pass with it. When it fails too, the copy
+   cannot run the tests, and the receipt says Casper could not compare (never a false proof).
+4. If the check passes without the change, the change is **not proven**. Casper spends one repair
+   round (within `repair.maxAttempts`) asking the model to add a test that fails without the change,
+   then reruns the checks and the comparison.
+
+An unproven change is not verified: its outcome is `not_verified` (`--require-verification` exits
+3). A change Casper could not compare keeps its check result and says why. Only tests changed, or a
+refactor, docs or other request kinds, need no proof. The comparison runs the test check once more
+(twice when proven), so it adds that time to the run.
 
 One-shot receipts name the next command as `casper "/verify repair test"`. `/receipt` (or
 `--verbose` for a whole run) shows the detailed evidence form: command execution status, input

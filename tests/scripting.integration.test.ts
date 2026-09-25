@@ -234,7 +234,9 @@ test("--json streams v1 JSON Lines on stdout: session, text, tools, Casper's che
     { v: 1, type: "check", name: "test", command: "grep -q fixed sum.js", status: "pass", exit: 0, ms: "<ms>", recordedBy: "casper", reused: false },
     { v: 1, type: "receipt", outcome: "verified", exitCode: 0, execution: "completed", changed: ["sum.js"], changedDuringChecks: [],
       verificationMode: "auto", checks: [{ name: "test", command: "grep -q fixed sum.js", status: "pass", exit: 0, ms: "<ms>", fresh: true }],
-      repairAttempts: 0, turnLimit: null, usage: { turns: 2, tokens: 240, estimatedCost: "<cost>" }, text: "<receipt text>" },
+      repairAttempts: 0, turnLimit: null, usage: { turns: 2, tokens: 240, estimatedCost: "<cost>" },
+      // The check fails on sum.js as it was, so it proves the fix.
+      proof: { status: "proven", check: "test", command: "grep -q fixed sum.js", testsChanged: false }, text: "<receipt text>" },
   ]);
 }, 30_000);
 
@@ -262,6 +264,46 @@ test("--json exit codes match the receipt: failed 1, not verified 3, usage 64 wi
   const usage = await unchecked.run(["--json"]);
   expect({ exit: usage.exit, stdout: usage.stdout }).toEqual({ exit: 64, stdout: "" });
   expect(usage.stderr).toContain("--json needs a prompt");
+}, 60_000);
+
+/** A project whose test passes on the unfixed code too: it cannot prove a fix to sum.js. */
+async function weaklyTestedProject(f: Awaited<ReturnType<typeof fixture>>) {
+  await mkdir(path.join(f.project, ".casper"));
+  await mkdir(path.join(f.project, "tests"));
+  await writeFile(path.join(f.project, ".casper/project.yaml"), 'verify:\n  test: "sh tests/check.sh"\n');
+  await writeFile(path.join(f.project, "tests/check.sh"), "test -f sum.js\n");
+  await writeFile(path.join(f.project, "sum.js"), "broken\n");
+}
+const asked = (payload: Payload | undefined, text: string) => JSON.stringify(payload?.messages ?? []).includes(text);
+const PROOF_REPAIR = "also passes without it";
+
+test("an unproven fix gets one round to add a test that fails without it; then the receipt says proven", async () => {
+  const f = await fixture((request, payload) => request === 0 ? { tools: [{ name: "write", args: { path: "sum.js", content: "fixed\n" } }] }
+    : request === 1 ? { text: "Fixed sum.js." }
+    : asked(payload, PROOF_REPAIR) && request === 2 ? { tools: [{ name: "write", args: { path: "tests/check.sh", content: "grep -q fixed sum.js\n" } }] }
+    : { text: "Added a test that fails on the broken code." });
+  await weaklyTestedProject(f);
+  const result = await f.run(["--json", "--verify", "--require-verification", "Fix sum.js"]);
+  // The task prompt already asks for such a test.
+  expect(asked(f.payloads[0], "fail without your change")).toBe(true);
+  expect(asked(f.payloads[2], PROOF_REPAIR)).toBe(true);
+  const receipt = JSON.parse(result.stdout.trim().split("\n").at(-1)!);
+  expect({ exit: result.exit, outcome: receipt.outcome, repairs: receipt.repairAttempts, proof: receipt.proof }).toEqual({
+    exit: 0, outcome: "verified", repairs: 1, proof: { status: "proven", check: "test", command: "sh tests/check.sh", testsChanged: true },
+  });
+  expect(result.stderr).toContain("✓ Proven: test fails without this change and passes with it");
+}, 60_000);
+
+test("a fix no test proves is not verified: the receipt says why, and --require-verification exits 3", async () => {
+  const f = await fixture((request) => request === 0 ? { tools: [{ name: "write", args: { path: "sum.js", content: "fixed\n" } }] } : { text: "Fixed sum.js." });
+  await weaklyTestedProject(f);
+  const result = await f.run(["--json", "--verify", "--require-verification", "Fix sum.js"]);
+  const receipt = JSON.parse(result.stdout.trim().split("\n").at(-1)!);
+  expect({ exit: result.exit, outcome: receipt.outcome, proof: receipt.proof?.status, testsChanged: receipt.proof?.testsChanged })
+    .toEqual({ exit: 3, outcome: "not_verified", proof: "unproven", testsChanged: false });
+  expect(receipt.text).toContain("⚠ Not proven: test passes without this change too, and no test was added or changed");
+  // Exactly one proof round was asked for; the model's answer did not add a test.
+  expect(f.payloads.filter((payload) => asked(payload, PROOF_REPAIR)).length).toBe(1);
 }, 60_000);
 
 test("--json ends with an error event when Casper stops before a receipt", async () => {
