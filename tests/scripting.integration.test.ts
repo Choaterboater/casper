@@ -197,6 +197,7 @@ function events(stdout: string, project: string) {
       Object.assign(event, { casper: "<version>", session: "<id>", cwd: event.cwd === project ? "<project>" : event.cwd });
     }
     if (event.type === "receipt") event.checks = event.checks.map((check: { ms: number }) => ({ ...check, ms: "<ms>" }));
+    if (event.type === "phase") event.atMs = "<ms>";
     return event;
   });
 }
@@ -238,10 +239,16 @@ test("--json streams v1 JSON Lines on stdout: session, text, tools, Casper's che
     { v: 1, type: "tool_end", tool: "write", id: "call_0", ok: true, ms: "<ms>" },
     { v: 1, type: "assistant_delta", text: "Fixed \u001b[31msum.js\u202e." },
     { v: 1, type: "assistant_message", text: "Fixed \u001b[31msum.js\u202e." },
+    { v: 1, type: "phase", phase: "checks", state: "start", atMs: "<ms>" },
     { v: 1, type: "check", name: "test", command: "grep -q fixed sum.js", status: "pass", exit: 0, ms: "<ms>", recordedBy: "casper", reused: false },
+    { v: 1, type: "phase", phase: "checks", state: "end", atMs: "<ms>" },
+    { v: 1, type: "phase", phase: "review", state: "start", atMs: "<ms>" },
     // The requirements review: the model's checklist, then no rerun because it changed nothing.
     { v: 1, type: "assistant_delta", text: "Requirements:\n- [x] sum.js is fixed — the test check" },
     { v: 1, type: "assistant_message", text: "Requirements:\n- [x] sum.js is fixed — the test check" },
+    { v: 1, type: "phase", phase: "review", state: "end", atMs: "<ms>" },
+    { v: 1, type: "phase", phase: "proof", state: "start", atMs: "<ms>" },
+    { v: 1, type: "phase", phase: "proof", state: "end", atMs: "<ms>" },
     { v: 1, type: "receipt", outcome: "verified", exitCode: 0, execution: "completed", changed: ["sum.js"], changedDuringChecks: [],
       verificationMode: "auto", checks: [{ name: "test", command: "grep -q fixed sum.js", status: "pass", exit: 0, ms: "<ms>", fresh: true }],
       repairAttempts: 0, turnLimit: null, usage: { turns: 3, tokens: 360, estimatedCost: "<cost>" },
@@ -341,6 +348,20 @@ test("a feature worded like a test task is still reviewed and proven; a docs-onl
   expect({ outcome: docsReceipt.outcome, proof: docsReceipt.proof, review: docsReceipt.review }).toEqual({ outcome: "verified", proof: null, review: null });
   expect(docs.payloads.some((payload) => lastUser(payload).includes(REVIEW))).toBe(false);
 }, 90_000);
+
+test("a first answer that ends with a fully ticked checklist needs no separate review round", async () => {
+  const f = await fixture((_request, payload) => lastUser(payload).includes(REVIEW) ? TICKED
+    : afterTool(payload) ? { text: "Fixed sum.js.\n\nRequirements:\n- [x] sum.js prints fixed — the test check" }
+    : { tools: [{ name: "write", args: { path: "sum.js", content: "fixed\n" } }] });
+  await fixProject(f);
+  const result = await f.run(["--json", "--verify", "Fix sum.js"]);
+  // B: the task prompt asks for the checklist up front, with the same ticking rule.
+  expect(asked(f.payloads[0], "Tick a requirement only when a test you can name asserts it")).toBe(true);
+  expect(f.payloads.some((payload) => lastUser(payload).includes(REVIEW))).toBe(false);
+  const receipt = JSON.parse(result.stdout.trim().split("\n").at(-1)!);
+  expect({ outcome: receipt.outcome, review: receipt.review, proof: receipt.proof?.status })
+    .toEqual({ outcome: "verified", review: { done: ["sum.js prints fixed — the test check"], open: [] }, proof: "proven" });
+}, 60_000);
 
 test("the review round fixes a gap the model finds; a gap it admits keeps the change unverified", async () => {
   // The review finds that sum.js also needs a newline marker and fixes it; the checks rerun and pass.

@@ -66,7 +66,7 @@ import type { VisualizationProvider } from "./visualize/types";
 import { SessionWorkspaceManager, type ReturnAction } from "./sessions/manager";
 import { runSlashCommand, type OutputWriter } from "./app/commands";
 import { UsageError } from "./cli-args";
-import { checkEvent, RuntimeEventMapper, sessionStartEvent, type CasperEvent } from "./app/json-events";
+import { checkEvent, phaseEvent, RuntimeEventMapper, sessionStartEvent, type CasperEvent } from "./app/json-events";
 import { CASPER_VERSION } from "./version";
 
 export type { OutputWriter } from "./app/commands";
@@ -744,8 +744,9 @@ export class CasperApp {
           this.output.write(`… Casper checking: ${pending.join(", ")}\n`);
           verification = await this.runVerification(autoChecks.run, true, prompt, this.checkTask);
           if (proving && verification.status === "pass" && before && afterModel && changesCode(diffSnapshots(before, afterModel))) {
+            const initialReview = parseChecklist(this.lastAnswer);
             ({ verification, proof, review } = await this.finishChange({ baseline, baselineUnavailable, before: before!, root: workspaceRoot,
-              command: testCommand!, request: prompt, checks: autoChecks.run, verification, session }));
+              command: testCommand!, request: prompt, checks: autoChecks.run, verification, session, initialReview }));
           }
         }
       } else if (!stopped && this.checkTask?.checks.length) {
@@ -795,12 +796,24 @@ export class CasperApp {
   private async finishChange(input: {
     baseline?: ChangeBaseline; baselineUnavailable?: string; before: Map<string, string>; root: string; command: string;
     request: string; checks: readonly ProjectCommand[]; verification: VerificationReport; session: RuntimeSession;
+    initialReview?: { done: string[]; open: string[] };
   }): Promise<{ verification: VerificationReport; proof?: ChangeProof; review?: RequirementsReview }> {
     const context = this.projectContext!;
     const stopped = () => this.closing || Boolean(this.commandAbort?.signal.aborted) || this.taskRuntimeFailed || this.taskTurnLimit !== undefined;
     const max = context.repair.maxAttempts;
     let verification = input.verification;
+    // The first task turn is also asked for a checklist. A complete, test-backed checklist avoids
+    // spending another model round repeating the same review; missing or open items get a second look.
+    const initialReview = input.initialReview;
+    if (initialReview && initialReview.open.length === 0) {
+      if (verification.status !== "pass" || stopped()) return { verification, review: initialReview };
+      this.onEvent?.(phaseEvent("proof", "start"));
+      const result = await this.proveChange({ ...input, verification });
+      this.onEvent?.(phaseEvent("proof", "end"));
+      return { ...result, review: initialReview };
+    }
     this.events.ensureLineBreak();
+    this.onEvent?.(phaseEvent("review", "start"));
     this.output.write("↻ review: checking the work against every requirement\n");
     this.lastAnswer = "";
     const unreviewed = await this.snapshotWorkspace(input.root);
@@ -815,8 +828,12 @@ export class CasperApp {
       const reviewed = await this.runVerification(input.checks, true, input.request, this.checkTask, Math.max(0, max - verification.repairAttempts));
       verification = { ...reviewed, repairAttempts: verification.repairAttempts + reviewed.repairAttempts };
     }
+    this.onEvent?.(phaseEvent("review", "end"));
     if (verification.status !== "pass" || stopped()) return { verification, review };
-    return { ...await this.proveChange({ ...input, verification }), review };
+    this.onEvent?.(phaseEvent("proof", "start"));
+    const result = await this.proveChange({ ...input, verification });
+    this.onEvent?.(phaseEvent("proof", "end"));
+    return { ...result, review };
   }
 
   /** Compare the tests with and without the change. An unproven change gets one repair round,
@@ -890,6 +907,7 @@ export class CasperApp {
     this.verificationAbort = controller;
     this.verificationTask = evidence;
     this.events.ensureLineBreak();
+    this.onEvent?.(phaseEvent("checks", "start"));
     try {
       this.verificationWork = verifyAndRepair({
         task: evidence,
@@ -916,6 +934,7 @@ export class CasperApp {
       else if (!task) this.output.write(`${formatReceipt({ execution: "completed", verification: report }, { surface: this.receiptSurface() })}\n`);
       return report;
     } finally {
+      this.onEvent?.(phaseEvent("checks", "end"));
       if (!task) await evidence.close();
       this.commandAbort?.signal.removeEventListener("abort", cancel);
       this.verificationTask = undefined;
