@@ -2,6 +2,7 @@ import { formatVerificationReport, type VerificationReport, type VerificationRes
 import type { ProjectCommand } from "../project/model";
 import type { BrowserReport } from "../browser/scenario";
 import type { AutoCheckSkip, VerificationMode } from "../verify/mode";
+import type { ChangeProof } from "../verify/proof";
 
 /** Tool-reported diagnostics, not process exit evidence or a reusable check pass. */
 export interface ObservedCheck {
@@ -47,6 +48,9 @@ export interface TaskResult {
   /** `--max-turns` stopped the model after this many turns, before it finished. */
   turnLimit?: number;
   usage?: TaskUsage;
+  /** Whether the tests fail without the change and pass with it (fix and implement requests in auto
+   * mode). An unproven change is not verified: the passing checks do not exercise it. */
+  proof?: ChangeProof;
 }
 
 /** What a run proved, in the words scripts match on. */
@@ -62,7 +66,10 @@ export function taskOutcome(report?: VerificationReport, task?: TaskResult): Tas
   const status = verification?.status;
   if (status === "fail" || status === "blocked" || task?.browser?.status === "fail") return "failed";
   if (status === "incomplete" || task?.browser?.status === "incomplete") return "incomplete";
-  if (status === "pass") return verification!.results.some((result) => result.status === "pass" && result.freshness === "stale") ? "not_verified" : "verified";
+  if (status === "pass") {
+    const stale = verification!.results.some((result) => result.status === "pass" && result.freshness === "stale");
+    return stale || task?.proof?.status === "unproven" ? "not_verified" : "verified";
+  }
   const changed = Boolean(task?.changedPaths?.length || task?.changedDuringChecks?.length || (!task?.changedPaths && task?.possibleMutations));
   return changed || task?.autoSkipped === "no-checks" ? "not_verified" : "unchanged";
 }
@@ -105,6 +112,7 @@ export function formatTaskResult(task: TaskResult): string {
   }
 
   lines.push(receiptLine("verification", report ? formatVerificationReport(report, { compact: true }) : "no Casper verification recorded."));
+  if (task.proof) lines.push(receiptLine("proof", proofLine(task.proof, safe)));
   if (task.browser) {
     lines.push(receiptLine("browser", `assertions ${task.browser.status}: ${task.browser.checks.map(check => `${safe(check.name)}:${check.status}, inputs ${check.freshness}, baseline ${check.baseline}`).join("; ")}. Declared local scope only; server build/external state and overall acceptance not certified.`));
   }
@@ -155,6 +163,7 @@ export function formatReceipt(task: TaskResult, options: ReceiptOptions = {}): s
     lines.push(`• Not verified — ${observed.name} ran via bash only (${safe(observed.command)}: ${observed.toolStatus === "success" ? "passed" : "failed"}). Run ${slash(`/verify ${observed.name}`)} to record a check.`);
   }
 
+  if (task.proof) lines.push(proofLine(task.proof, safe));
   if (task.changedDuringChecks?.length) lines.push(`• Changed while checking: ${pathList(task.changedDuringChecks, safe, false)}`);
 
   const changed = Boolean(task.changedPaths?.length || (!task.changedPaths && task.possibleMutations));
@@ -172,6 +181,14 @@ export function formatReceipt(task: TaskResult, options: ReceiptOptions = {}): s
       : task.browser.status === "fail" ? `✗ Browser checks failed: ${failed.join(", ")}` : "• Browser checks incomplete");
   }
   return lines.join("\n");
+}
+
+function proofLine(proof: ChangeProof, safe: (text: string) => string): string {
+  if (proof.status === "proven") return `✓ Proven: ${proof.check} fails without this change and passes with it`;
+  if (proof.status === "unproven") {
+    return `⚠ Not proven: ${proof.check} passes without this change too${proof.testsChanged ? "; the changed tests do not check it" : ", and no test was added or changed"}`;
+  }
+  return `• Not proven — ${safe(proof.reason).replace(/\.$/, "")}`;
 }
 
 function checkLine(result: VerificationResult, safe: (text: string) => string, slash: (command: string) => string): string {

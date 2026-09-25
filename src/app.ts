@@ -50,6 +50,7 @@ import { safeGitArgs } from "./platform/git";
 import { VerifierRegistry } from "./verify/registry";
 import { verifyAndRepair } from "./verify/repair-loop";
 import { VerificationTask } from "./verify/task";
+import { ChangeBaseline, proofRepairPrompt, type ChangeProof } from "./verify/proof";
 import { planAutoChecks, resolveVerificationMode, selectedChecks, type VerificationMode } from "./verify/mode";
 import { measuredCheckTime, recordCheckTimings } from "./verify/timings";
 import { MermaidProvider } from "./visualize/mermaid";
@@ -689,6 +690,21 @@ export class CasperApp {
     const workspaceRoot = this.activeWorkspaceRoot();
     // Receipts describe the tree, not tool names: a read-only shell run is not a write.
     const before = await this.snapshotWorkspace(workspaceRoot, this.commandAbort?.signal);
+    // Fix and implement requests in auto mode must be proven: the tests fail without the change.
+    // The workspace as it is now is what "without the change" means.
+    const testCommand = context.model.commands.test?.trim();
+    const proving = verificationMode === "auto" && (classification.intent === "fix" || classification.intent === "implement")
+      && Boolean(testCommand) && before !== undefined;
+    let baseline: ChangeBaseline | undefined;
+    let baselineUnavailable: string | undefined;
+    if (proving) {
+      try { baseline = await ChangeBaseline.capture(workspaceRoot, { signal: this.commandAbort?.signal }); }
+      catch (error) {
+        if (this.commandAbort?.signal.aborted) return;
+        baselineUnavailable = `Casper could not copy the workspace to compare: ${error instanceof Error ? error.message : String(error)}`;
+      }
+    }
+    let proof: ChangeProof | undefined;
     let afterModel: Map<string, string> | undefined;
     let verification: VerificationReport | undefined;
     let autoChecks: ReturnType<typeof planAutoChecks> | undefined;
@@ -701,7 +717,7 @@ export class CasperApp {
       await session.prompt([
         memoryContext,
         skillContext,
-        formatTaskPrompt(prompt, classification, context.model, { verificationMode }),
+        formatTaskPrompt(prompt, classification, context.model, { verificationMode, proveChange: proving }),
       ].filter(Boolean).join("\n\n"), this.commandAbort?.signal, { request: prompt, maxTurns: this.maxTurns });
       afterModel = before && !this.closing ? await this.snapshotWorkspace(workspaceRoot) : undefined;
       // A request cut short by --max-turns is unfinished work: checking it would only start repairs.
@@ -717,6 +733,10 @@ export class CasperApp {
           this.events.ensureLineBreak();
           this.output.write(`… Casper checking: ${pending.join(", ")}\n`);
           verification = await this.runVerification(autoChecks.run, true, prompt, this.checkTask);
+          if (proving && verification.status === "pass") {
+            ({ verification, proof } = await this.proveChange({ baseline, baselineUnavailable, before: before!, root: workspaceRoot,
+              command: testCommand!, request: prompt, checks: autoChecks.run, verification, session }));
+          }
         }
       } else if (!stopped && this.checkTask?.checks.length) {
         verification = await this.runVerification(this.checkTask.checks, true, prompt, this.checkTask);
@@ -725,6 +745,7 @@ export class CasperApp {
       this.taskRuntimeFailed = true;
       throw error;
     } finally {
+      await baseline?.dispose();
       const execution = this.closing || this.commandAbort?.signal.aborted || this.taskRuntimeCancelled || this.checkTask?.signal.aborted ? "cancelled" : this.taskRuntimeFailed ? "failed" : "completed";
       // Keep already-executed evidence on terminal error/cancellation, but never
       // launch another command or repair prompt after the task has stopped.
@@ -744,7 +765,7 @@ export class CasperApp {
       const browser = !this.closing && this.browser ? await this.browser.report() : undefined;
       this.lastTaskResult = { execution, verification, ...observations, ...(browser?.checks.length ? { browser } : {}),
         verificationMode, ...(autoChecks?.skipped ? { autoSkipped: autoChecks.skipped } : {}),
-        ...(this.taskTurnLimit !== undefined ? { turnLimit: this.taskTurnLimit } : {}) };
+        ...(this.taskTurnLimit !== undefined ? { turnLimit: this.taskTurnLimit } : {}), ...(proof ? { proof } : {}) };
       if (!this.closing) {
         this.terminal.endAssistant();
         this.events.ensureLineBreak();
@@ -757,6 +778,42 @@ export class CasperApp {
         modelStatus: execution, verification });
     }
     return verification;
+  }
+
+  /** Compare the tests with and without the change. An unproven change gets one repair round,
+   * within the repair budget, to add a test that fails without it; checks and comparison rerun. */
+  private async proveChange(input: {
+    baseline?: ChangeBaseline; baselineUnavailable?: string; before: Map<string, string>; root: string; command: string;
+    request: string; checks: readonly ProjectCommand[]; verification: VerificationReport; session: RuntimeSession;
+  }): Promise<{ verification: VerificationReport; proof?: ChangeProof }> {
+    const context = this.projectContext!;
+    const compare = async (): Promise<ChangeProof | undefined> => {
+      const now = await this.snapshotWorkspace(input.root);
+      if (!now) return { status: "unavailable", check: "test", reason: "Casper could not compare the workspace" };
+      const changes = diffSnapshots(input.before, now);
+      if (!input.baseline) {
+        return changes.added.length || changes.modified.length || changes.removed.length
+          ? { status: "unavailable", check: "test", reason: input.baselineUnavailable ?? "Casper could not copy the workspace" } : undefined;
+      }
+      this.events.ensureLineBreak();
+      this.output.write("… Casper checking that the tests fail without the change\n");
+      return input.baseline.prove({ root: input.root, changes, check: "test", command: input.command,
+        timeoutMs: context.verification.timeoutMs, signal: this.commandAbort?.signal, onCleanupFailure: this.blockOnCleanupFailure });
+    };
+    let verification = input.verification;
+    let proof = await compare();
+    const stopped = () => this.closing || Boolean(this.commandAbort?.signal.aborted) || this.taskRuntimeFailed || this.taskTurnLimit !== undefined;
+    const max = context.repair.maxAttempts;
+    if (proof?.status !== "unproven" || verification.repairAttempts >= max || stopped()) return { verification, proof };
+    const attempt = verification.repairAttempts + 1;
+    this.output.write(`↻ repair ${attempt}/${max}: add a test that fails without the change\n`);
+    await this.prepareCapabilities(input.request);
+    await input.session.prompt(proofRepairPrompt(input.request, proof), this.commandAbort?.signal, { request: input.request, maxTurns: this.maxTurns });
+    if (stopped()) return { verification: { ...verification, repairAttempts: attempt }, proof };
+    const again = await this.runVerification(input.checks, true, input.request, this.checkTask, max - attempt);
+    verification = { ...again, repairAttempts: attempt + again.repairAttempts };
+    if (verification.status === "pass" && !stopped()) proof = await compare();
+    return { verification, proof };
   }
 
   private async recordTaskOutcome(input: { task: string; skills: string[]; modelStatus: TaskOutcome["modelStatus"]; verification?: VerificationReport }): Promise<void> {
@@ -776,6 +833,8 @@ export class CasperApp {
     repair: boolean,
     request = `Make the selected verification checks pass: ${checks.join(", ")}.`,
     task?: VerificationTask,
+    /** Repairs left for this task; defaults to the project's repair budget. */
+    maxAttempts?: number,
   ): Promise<VerificationReport> {
     const context = this.projectContext!;
     const controller = new AbortController();
@@ -799,7 +858,7 @@ export class CasperApp {
         cwd: this.activeWorkspaceRoot(),
         request,
         constraints: [context.rules.profile, context.rules.project, ...context.model.conventions].filter(Boolean).join("\n"),
-        maxAttempts: context.repair.maxAttempts,
+        maxAttempts: maxAttempts ?? context.repair.maxAttempts,
         signal: controller.signal,
         repair: repair ? async (prompt) => {
           await this.prepareCapabilities(request);

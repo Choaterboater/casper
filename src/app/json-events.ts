@@ -2,6 +2,7 @@ import type { RuntimeEvent, RuntimeStatus } from "../runtime/types";
 import { formatTerminalJSON } from "../tui/json";
 import { redactPreview } from "../tui/format";
 import type { VerificationReport, VerificationResult } from "../verify/evidence";
+import type { ChangeProof } from "../verify/proof";
 import { formatReceipt, taskOutcome, type TaskOutcome, type TaskResult, type TaskUsage } from "../task/result";
 
 /** Bump only for a breaking change; new event types and fields are additive within a version. */
@@ -34,6 +35,8 @@ export interface ReceiptEvent {
   turnLimit: number | null;
   /** This task's model use; null when no model task ran (a local command). */
   usage: TaskUsage | null;
+  /** Whether the tests fail without the change and pass with it; null when Casper did not compare. */
+  proof: ChangeProof | null;
   /** The plain receipt a person would read. */
   text: string;
 }
@@ -80,6 +83,7 @@ export function receiptEvent(report: VerificationReport | undefined, task: TaskR
     repairAttempts: verification?.repairAttempts ?? 0,
     turnLimit: task?.turnLimit ?? null,
     usage: task?.usage ? { ...task.usage } : null,
+    proof: task?.proof ? { ...task.proof } : null,
     text: receipt ? formatReceipt(receipt, { surface: "one-shot" }) : "",
   };
 }

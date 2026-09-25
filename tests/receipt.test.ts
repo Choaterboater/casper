@@ -97,3 +97,16 @@ test("a request stopped by --max-turns says so and how to go on, per surface", (
   ].join("\n"));
   expect(formatReceipt({ ...task, turnLimit: 1 })).toStartWith("✗ Stopped after 1 turn (--max-turns) — changes so far are kept; send another request to go on");
 });
+
+test("the receipt says whether the tests prove the change, and never calls an unproven change verified alone", () => {
+  const passed = (proof: TaskResult["proof"]) => formatReceipt(done({ changedPaths: ["src/sum.js"], verificationMode: "auto", verification: report([check()]), proof }))
+    .split("\n").slice(2).join("\n");
+  expect(passed({ status: "proven", check: "test", command: "npm run test", testsChanged: true }))
+    .toBe("✓ Proven: test fails without this change and passes with it");
+  expect(passed({ status: "unproven", check: "test", command: "npm run test", testsChanged: false }))
+    .toBe("⚠ Not proven: test passes without this change too, and no test was added or changed");
+  expect(passed({ status: "unproven", check: "test", command: "npm run test", testsChanged: true }))
+    .toBe("⚠ Not proven: test passes without this change too; the changed tests do not check it");
+  expect(passed({ status: "unavailable", check: "test", reason: "the workspace has more than 20000 files" }))
+    .toBe("• Not proven — the workspace has more than 20000 files");
+});

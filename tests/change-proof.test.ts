@@ -1,0 +1,99 @@
+import { afterEach, expect, test } from "bun:test";
+import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { diffSnapshots, snapshotTree } from "../src/task/changes";
+import { ChangeBaseline, isTestPath } from "../src/verify/proof";
+
+const cleanup: Array<() => Promise<unknown>> = [];
+afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
+
+async function project(files: Record<string, string>): Promise<string> {
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-proof-"));
+  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  await write(root, files);
+  return root;
+}
+async function write(root: string, files: Record<string, string>): Promise<void> {
+  for (const [relative, text] of Object.entries(files)) {
+    await mkdir(path.dirname(path.join(root, relative)), { recursive: true });
+    await writeFile(path.join(root, relative), text);
+  }
+}
+
+/** Capture, let `change` act as the model, then prove the change with `command`. */
+async function prove(files: Record<string, string>, change: (root: string) => Promise<void>, command: string) {
+  const root = await project(files);
+  const before = await snapshotTree(root);
+  const baseline = await ChangeBaseline.capture(root);
+  cleanup.push(() => baseline.dispose());
+  await change(root);
+  const changes = diffSnapshots(before, await snapshotTree(root));
+  return baseline.prove({ root, changes, check: "test", command, timeoutMs: 20_000 });
+}
+
+test("test paths are recognized across common layouts; source is not", () => {
+  for (const test of ["tests/sum.test.ts", "test/helpers.js", "src/__tests__/a.js", "spec/a_spec.rb", "src/sum.test.ts",
+    "src/sum.spec.js", "pkg/sum_test.go", "tests/test_sum.py", "test_sum.py", "packages/a/tests/fixtures/data.json"]) {
+    expect({ test, isTest: isTestPath(test) }).toEqual({ test, isTest: true });
+  }
+  for (const source of ["src/sum.ts", "src/testing.ts", "src/contest/entry.ts", "latest.js", "README.md", "package.json"]) {
+    expect({ source, isTest: isTestPath(source) }).toEqual({ source, isTest: false });
+  }
+});
+
+test("a change is proven when the tests fail without it and pass with it", async () => {
+  const proof = await prove({ "src/sum.js": "broken\n", "tests/check.sh": "test -f src/sum.js\n" }, async (root) => {
+    await write(root, { "src/sum.js": "fixed\n", "tests/check.sh": "grep -q fixed src/sum.js\n" });
+  }, "sh tests/check.sh");
+  expect(proof).toEqual({ status: "proven", check: "test", command: "sh tests/check.sh", testsChanged: true });
+});
+
+test("a change the tests also pass without is not proven, and the receipt can say no test changed", async () => {
+  const proof = await prove({ "src/sum.js": "broken\n", "tests/check.sh": "test -f src/sum.js\n" }, async (root) => {
+    await write(root, { "src/sum.js": "fixed\n" });
+  }, "sh tests/check.sh");
+  expect(proof).toEqual({ status: "unproven", check: "test", command: "sh tests/check.sh", testsChanged: false });
+});
+
+test("an existing test that the change makes pass proves it too", async () => {
+  const proof = await prove({ "src/sum.js": "broken\n", "tests/check.sh": "grep -q fixed src/sum.js\n" }, async (root) => {
+    await write(root, { "src/sum.js": "fixed\n" });
+  }, "sh tests/check.sh");
+  expect(proof?.status).toBe("proven");
+});
+
+test("a copy that cannot run the tests is unavailable, never mistaken for proof", async () => {
+  // The check needs .git/, which copies never contain: it fails in both copies, so no comparison is possible.
+  const proof = await prove({ "src/sum.js": "broken\n", ".git/marker": "x" }, async (root) => { await write(root, { "src/sum.js": "fixed\n" }); },
+    "test -f .git/marker && grep -q fixed src/sum.js");
+  expect(proof).toEqual({ status: "unavailable", check: "test", reason: "test does not pass in a copy of the workspace, so Casper cannot compare with and without the change" });
+});
+
+test("only test changes need no proof; dependencies are linked, not copied", async () => {
+  expect(await prove({ "src/sum.js": "x\n", "tests/check.sh": "true\n" }, async (root) => {
+    await write(root, { "tests/check.sh": "true # reworded\n" });
+  }, "sh tests/check.sh")).toBeUndefined();
+  const proof = await prove({ "src/sum.js": "broken\n", "node_modules/dep/index.js": "dep\n", "tests/check.sh": "true\n" }, async (root) => {
+    await write(root, { "src/sum.js": "fixed\n", "tests/check.sh": "test -f node_modules/dep/index.js && grep -q fixed src/sum.js\n" });
+  }, "sh tests/check.sh");
+  expect(proof?.status).toBe("proven");
+});
+
+test("the baseline and every comparison copy are removed", async () => {
+  const scratch = await mkdtemp(path.join(os.tmpdir(), "casper-proof-scratch-"));
+  cleanup.push(() => rm(scratch, { recursive: true, force: true }));
+  const root = await project({ "src/sum.js": "broken\n", "tests/check.sh": "grep -q fixed src/sum.js\n" });
+  const before = await snapshotTree(root);
+  const baseline = await ChangeBaseline.capture(root, { scratch });
+  await write(root, { "src/sum.js": "fixed\n" });
+  await baseline.prove({ root, changes: diffSnapshots(before, await snapshotTree(root)), check: "test", command: "sh tests/check.sh", timeoutMs: 20_000 });
+  expect((await readdir(scratch)).length).toBe(1);
+  await baseline.dispose();
+  expect(await readdir(scratch)).toEqual([]);
+});
+
+test("a workspace over the copy limits cannot be captured", async () => {
+  const root = await project({ "a.txt": "a", "b.txt": "b", "c.txt": "c" });
+  await expect(ChangeBaseline.capture(root, { fileLimit: 2 })).rejects.toThrow("more than 2 files");
+});
