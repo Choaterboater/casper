@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { diffSnapshots, snapshotTree } from "../src/task/changes";
-import { ChangeBaseline, isTestPath } from "../src/verify/proof";
+import { ChangeBaseline, isCodePath, isTestPath } from "../src/verify/proof";
 
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -68,6 +68,14 @@ test("a copy that cannot run the tests is unavailable, never mistaken for proof"
   const proof = await prove({ "src/sum.js": "broken\n", ".git/marker": "x" }, async (root) => { await write(root, { "src/sum.js": "fixed\n" }); },
     "test -f .git/marker && grep -q fixed src/sum.js");
   expect(proof).toEqual({ status: "unavailable", check: "test", reason: "test does not pass in a copy of the workspace, so Casper cannot compare with and without the change" });
+});
+
+test("docs and other non-code edits need no proof: only a code change must be proven", async () => {
+  expect(await prove({ "src/sum.js": "x\n", "tests/check.sh": "true\n" }, async (root) => {
+    await write(root, { "README.md": "notes\n", "docs/usage.md": "how\n" });
+  }, "sh tests/check.sh")).toBeUndefined();
+  for (const code of ["src/sum.ts", "lib/a.py", "cmd/main.go", "app/page.tsx", "src/lib.rs", "bin/cli.mjs"]) expect({ code, isCode: isCodePath(code) }).toEqual({ code, isCode: true });
+  for (const other of ["README.md", "docs/a.txt", "package.json", "tests/a.test.ts", "assets/logo.png"]) expect({ other, isCode: isCodePath(other) }).toEqual({ other, isCode: false });
 });
 
 test("only test changes need no proof; dependencies are linked, not copied", async () => {

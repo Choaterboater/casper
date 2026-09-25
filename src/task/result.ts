@@ -49,7 +49,7 @@ export interface TaskResult {
   /** `--max-turns` stopped the model after this many turns, before it finished. */
   turnLimit?: number;
   usage?: TaskUsage;
-  /** Whether the tests fail without the change and pass with it (fix and implement requests in auto
+  /** Whether the tests fail without the change and pass with it (code changes in auto
    * mode). An unproven change is not verified: the passing checks do not exercise it. */
   proof?: ChangeProof;
   /** The model's requirements checklist (its own claim). Admitted open items make the change not verified. */

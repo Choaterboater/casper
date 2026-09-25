@@ -762,9 +762,9 @@ test("auto mode: Casper runs the configured checks after the model's edits, what
   expect(report).toMatchObject({ status: "pass", repairAttempts: 0 });
   expect(report?.results.map((result) => [result.name, result.status])).toEqual([["test", "pass"], ["build", "pass"]]);
   expect(prompts).toHaveLength(1);
-  // Checks passed on a fix: one requirements review; it changed nothing, so the checks did not rerun.
-  expect(reviews).toHaveLength(1);
-  expect(app.getLastTaskResult()?.review).toEqual({ missing: true });
+  // src/value is data, not code: nothing to review or prove (code changes are covered in scripting tests).
+  expect(reviews).toHaveLength(0);
+  expect(app.getLastTaskResult()?.review).toBeUndefined();
   expect(await readFile(path.join(root, "test-runs"), "utf8")).toBe("x");
   expect(taskExitCode(report, app.getLastTaskResult())).toBe(0);
 });

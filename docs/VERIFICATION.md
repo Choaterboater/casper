@@ -58,7 +58,7 @@ reported but never counted as verification.
 
 ## Requirements review
 
-When the checks pass on a **fix or implement request in auto mode** with a `test` check, Casper gives
+When the checks pass on a **code change in auto mode** with a `test` check (see below for what counts), Casper gives
 the model one review round before proving the change: list every requirement the request and the
 project docs (for example `CONTEXT.md`) state, confirm each is implemented and tested, fix any gap,
 and end with a checklist (`- [x] requirement — test`, `- [ ] requirement — why not done`). The
@@ -77,8 +77,12 @@ model round per such request.
 ## Proving the change
 
 A passing test check only shows the tests still pass; they may not exercise the change at all. For
-**fix and implement requests in auto mode** (`--verify`, or `verification.mode: auto`) with a `test`
-check configured, Casper also asks whether the tests *prove* the change:
+a **code change in auto mode** (`--verify`, or `verification.mode: auto`) with a `test` check
+configured, Casper also asks whether the tests *prove* the change. A code change is any added,
+changed or removed source file (by extension; tests, docs, data and configuration do not count),
+made for any request except one Casper classifies as a refactor, docs, inspection, diagram or
+configuration request. The work decides, not the wording: "add X; you may add test files" is still a
+code change.
 
 1. Before the model starts, Casper copies the workspace (copy-on-write where the file system allows;
    `.git`, `.casper` and `node_modules` are left out, and `node_modules` is linked back in).
@@ -93,8 +97,8 @@ check configured, Casper also asks whether the tests *prove* the change:
    then reruns the checks and the comparison.
 
 An unproven change is not verified: its outcome is `not_verified` (`--require-verification` exits
-3). A change Casper could not compare keeps its check result and says why. Only tests changed, or a
-refactor, docs or other request kinds, need no proof. The comparison runs the test check once more
+3). A change Casper could not compare keeps its check result and says why. Test-only, docs-only or data-only changes, and refactor, docs, inspection, diagram and
+configuration requests, need no proof. The comparison runs the test check once more
 (twice when proven), so it adds that time to the run.
 
 One-shot receipts name the next command as `casper "/verify repair test"`. `/receipt` (or

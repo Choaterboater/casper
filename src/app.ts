@@ -50,7 +50,7 @@ import { safeGitArgs } from "./platform/git";
 import { VerifierRegistry } from "./verify/registry";
 import { verifyAndRepair } from "./verify/repair-loop";
 import { VerificationTask } from "./verify/task";
-import { ChangeBaseline, proofRepairPrompt, type ChangeProof } from "./verify/proof";
+import { ChangeBaseline, changesCode, proofRepairPrompt, type ChangeProof } from "./verify/proof";
 import { parseChecklist, requirementsReviewPrompt, type RequirementsReview } from "./task/review";
 import { planAutoChecks, resolveVerificationMode, selectedChecks, type VerificationMode } from "./verify/mode";
 import { measuredCheckTime, recordCheckTimings } from "./verify/timings";
@@ -697,11 +697,13 @@ export class CasperApp {
     const workspaceRoot = this.activeWorkspaceRoot();
     // Receipts describe the tree, not tool names: a read-only shell run is not a write.
     const before = await this.snapshotWorkspace(workspaceRoot, this.commandAbort?.signal);
-    // Fix and implement requests in auto mode must be proven: the tests fail without the change.
+    // A code change in auto mode is reviewed and proven: the tests must fail without it. Only requests
+    // that are clearly not behavior changes are exempt; the keyword intent is too coarse to decide more
+    // ("add X; you may add new test files" reads as intent "test"), so the work itself decides later.
     // The workspace as it is now is what "without the change" means.
     const testCommand = context.model.commands.test?.trim();
-    const proving = verificationMode === "auto" && (classification.intent === "fix" || classification.intent === "implement")
-      && Boolean(testCommand) && before !== undefined;
+    const proving = verificationMode === "auto" && Boolean(testCommand) && before !== undefined
+      && !["refactor", "document", "inspect", "visualize", "configure"].includes(classification.intent);
     let baseline: ChangeBaseline | undefined;
     let baselineUnavailable: string | undefined;
     if (proving) {
@@ -741,7 +743,7 @@ export class CasperApp {
           this.events.ensureLineBreak();
           this.output.write(`… Casper checking: ${pending.join(", ")}\n`);
           verification = await this.runVerification(autoChecks.run, true, prompt, this.checkTask);
-          if (proving && verification.status === "pass") {
+          if (proving && verification.status === "pass" && before && afterModel && changesCode(diffSnapshots(before, afterModel))) {
             ({ verification, proof, review } = await this.finishChange({ baseline, baselineUnavailable, before: before!, root: workspaceRoot,
               command: testCommand!, request: prompt, checks: autoChecks.run, verification, session }));
           }

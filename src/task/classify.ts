@@ -77,7 +77,7 @@ export function formatTaskPrompt(
     // Auto mode only: Casper owns the final run, so the model need not select checks to record them.
     ...(options.verificationMode === "auto" ? ["Casper runs the final checks itself after your last edit and records them; you do not need to. Use casper_check while iterating if it helps. Bash runs of checks are diagnostics only."] : []),
     // Proving: Casper reruns the test check on the code without the change; only a test of the new behavior fails there.
-    ...(options.proveChange ? ["Casper then checks that the tests fail without your change and pass with it. Add or update a test that exercises the requested behavior so it would fail without your change."] : []),
+    ...(options.proveChange ? ["If you change code, Casper then checks that the tests fail without your change and pass with it. Add or update a test that exercises the requested behavior so it would fail without your change."] : []),
     "",
     "User request:",
     request,
