@@ -122,6 +122,59 @@ const baseRun = (overrides: Partial<ReturnType<typeof scoreQuality>> & { harness
   return { taskId, pack, harness, repeat: 1, score: full, graded: { success: full.works === true && full.complete === true } } as unknown as BenchmarkRun;
 };
 
+type AttemptSpec = { success: boolean; termination?: "completed" | "failed" | "timeout"; wallClockMs: number; tokens: number | null; estimatedCost: number | null };
+const reworkRun = (specs: AttemptSpec[], harness: BenchmarkRun["harness"] = "casper"): BenchmarkRun => {
+  const attempts = specs.map((spec, index) => ({ attempt: index, termination: "completed" as const, turns: 1, sessionId: "s", receiptOutcome: null,
+    failedChecks: [], acceptanceFailures: [], answer: "", ...spec }));
+  const first = attempts[0]!;
+  const sum = (values: (number | null)[]) => values.includes(null) ? null : values.reduce<number>((total, value) => total + value!, 0);
+  const run = baseRun({ harness, wallClockMs: first.wallClockMs, works: first.success, complete: first.success });
+  return { ...run, rework: { followUps: attempts.length - 1, firstTimeRight: first.success, fixed: attempts.length > 1 && attempts.at(-1)!.success,
+    resumed: attempts.length > 1 ? true : null, totalWallClockMs: sum(attempts.map((attempt) => attempt.wallClockMs))!, totalTurns: attempts.length,
+    totalTokens: sum(attempts.map((attempt) => attempt.tokens)), totalCost: sum(attempts.map((attempt) => attempt.estimatedCost)), attempts } } as BenchmarkRun;
+};
+const ok = (wallClockMs: number, tokens: number | null = 1000, estimatedCost: number | null = 0.01): AttemptSpec => ({ success: true, wallClockMs, tokens, estimatedCost });
+const bad = (wallClockMs: number, tokens: number | null = 1000, estimatedCost: number | null = 0.01): AttemptSpec => ({ success: false, wallClockMs, tokens, estimatedCost });
+
+test("time to correct: first-time right, follow-up rounds, and every attempt's cost per correct result, unfixed runs included", () => {
+  const summary = summarizeBenchmark([
+    reworkRun([ok(100_000)]),
+    // Fixed by the second follow-up.
+    reworkRun([bad(100_000), bad(50_000), ok(50_000)]),
+    // Never fixed: its cost still counts toward the correct results.
+    reworkRun([bad(100_000), bad(100_000), bad(100_000)]),
+    // Timed out: never continued, and unfixed.
+    reworkRun([{ ...bad(250_000), termination: "timeout" }]),
+  ], { personMs: 60_000 });
+  const rework = summary.packs[0]!.total.casper!.rework!;
+  expect(rework).toMatchObject({
+    runs: 4, firstTimeRight: 1, fixed: 1, fixedAfter: [0, 1], unfixed: 2, stopped: 1, accepted: 2, rounds: 4,
+    sum: { wallClockMs: 850_000, tokens: 8000 },
+    perCorrect: { wallClockMs: 425_000, tokens: 4000, withPersonMs: 545_000 },
+  });
+  expect(rework.sum.estimatedCost).toBeCloseTo(0.08);
+  expect(rework.perCorrect!.estimatedCost).toBeCloseTo(0.04);
+  const report = formatBenchmarkReport(summary);
+  expect(report).toContain("core pack, time to correct");
+  expect(report).toMatch(/all 1 tasks\s+casper\s+1\/4\s+1\/3 \(0\+1\)\s+2 \(1 stopped\)\s+4\s+2\/2\s+850\s+8k\s+\$0\.0800\s+425\s+545\s+4k\s+\$0\.0400/);
+  // Nothing accepted: there is no cost per correct result.
+  expect(summarizeBenchmark([reworkRun([bad(1000), bad(1000)])]).packs[0]!.total.casper!.rework!.perCorrect).toBeNull();
+});
+
+test("the break-even says how long a person's follow-up must take for the slower, more often right harness to cost less per correct result", () => {
+  // Casper: 2 correct, 0 follow-ups, 400 s. Pi: 2 correct after 2 follow-ups, 200 s. Equal at 100 s per follow-up.
+  const summary = summarizeBenchmark([
+    reworkRun([ok(200_000)]), reworkRun([ok(200_000)]),
+    reworkRun([bad(50_000), ok(50_000)], "pi"), reworkRun([bad(50_000), ok(50_000)], "pi"),
+  ], { personMs: 120_000 });
+  const report = formatBenchmarkReport(summary);
+  expect(report).toContain("casper costs less time per correct result than pi when a follow-up takes a person more than 100 s");
+  expect(summary.packs[0]!.total.pi!.rework!.perCorrect!.withPersonMs).toBe(220_000);
+  // A harness that is faster and needs fewer follow-ups wins at any person time.
+  const always = formatBenchmarkReport(summarizeBenchmark([reworkRun([ok(10_000)]), reworkRun([bad(50_000), ok(50_000)], "pi")]));
+  expect(always).toContain("casper costs less time per correct result than pi at any person time");
+});
+
 test("the summary keeps packs apart and reports median, range, unknowns and false dones per task and harness", () => {
   const summary = summarizeBenchmark([
     baseRun({ wallClockMs: 1000, turns: 10 }),
@@ -190,8 +243,8 @@ test("follow-ups continue a failed run in the same conversation; the first attem
     expect(attempts[0]!.failedChecks.length).toBeGreaterThan(0);
   }
   const report = formatBenchmarkReport(summarizeBenchmark(result.runs));
-  expect(report).toContain("follow-ups (the rubric above scores each first attempt)");
-  expect(report).toMatch(/core-log-parser\s+casper\s+0\/1\s+1\/1\s+0\s+1\/1/);
+  expect(report).toContain("time to correct");
+  expect(report).toMatch(/core-log-parser\s+casper\s+0\/1\s+1\/1 \(1\)\s+0\s+1\s+1\/1/);
 
   // A CLI that starts a new conversation for the follow-up did not resume, whatever it fixed.
   const forgetful = await runBenchmark({

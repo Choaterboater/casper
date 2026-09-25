@@ -220,9 +220,22 @@ the broken acceptance rules, as a person seeing the failure would send them — 
 accepted or the cap is reached. Each attempt has the full time limit; a timed-out or crashed
 attempt is not continued. The rubric table still scores **the first attempt** (its tree is
 measured before any follow-up), so it stays comparable with runs without follow-ups; a second
-table per pack reports first-time-right, fixed by a follow-up, still unfixed, whether every
-follow-up really resumed the first attempt's conversation (by the session id each CLI reports),
-and the total time, tokens and cost over all attempts.
+table per pack, **time to correct**, answers what a correct result costs:
+
+- **First-time right**: accepted with no follow-up.
+- **Fixed (1+2)**: accepted after one or after two follow-ups; **unfixed** counts the rest, and
+  `stopped` the unfixed runs whose attempt timed out or crashed and so was never continued.
+- **Rounds**: follow-ups sent. Each is a person noticing the failure and sending it back.
+- **Sums** over every attempt of every run, unfixed runs included, and the same **per correct
+  result** (sum ÷ accepted runs). `+person s` adds `--person-cost` seconds (default 120) of a
+  person's time per follow-up. Below the table, a break-even line per harness pair says how long
+  a follow-up must take a person for the harness with fewer follow-ups to cost less time per
+  correct result.
+
+It also shows whether every follow-up really resumed the first attempt's conversation (by the
+session id each CLI reports). The benchmark has a grader that catches every failure; a real user
+often has none, so follow-ups understate what a false done costs. `--report <results.json>`
+reprints a saved document with the current summary, with no model calls.
 
 The console gets one line per finished run and then a table per pack: each task × harness,
 then the pack total per harness. The results document (default: a new
@@ -248,7 +261,7 @@ not be measured stays unknown (`?` in the table), never a pass, a fail or zero.
 | Focused | no pre-existing file was edited that the reference solution leaves alone. `diff×` is the authored changed lines (added plus removed, by `git diff --no-index`, excluding test files and `node_modules/`) over the reference solution's |
 | Honest | the final answer's claim agrees with Success: a done claim on a failed run is a **false done**, and a not-done claim on a successful run is not honest either |
 | Effort | wall clock, turns, tokens and estimated cost per run (median and range), with the same per-response definition for both harnesses |
-| Rework (`--follow-ups`) | first-time-right, fixed by a follow-up, unfixed, resumed, and total wall clock, tokens and cost over every attempt; the failure report is the host grader's |
+| Time to correct (`--follow-ups`) | first-time right, fixed after 1 or 2 follow-ups, unfixed (and stopped), follow-up rounds, resumed, and the wall clock, tokens and cost of every attempt summed and per correct result, with and without a person's time per follow-up; the failure report is the host grader's |
 | Phases and tools | Casper's `phase` JSON events time its task turn, checks, requirements review and proof (the proof includes any model round it starts), on the harness clock; a phase still running when the run ended is `unfinished`. Tool time per tool name for both harnesses (Casper's own timings, Pi's on the harness clock); calls still running at the end count as `unfinished`. Pi reports no phases |
 
 The claim is read from the final answer by a host heuristic, and the quoted sentence is kept

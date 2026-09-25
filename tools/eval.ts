@@ -57,6 +57,10 @@ Quality benchmark (Casper vs Pi through their real CLIs; --pack or --harness sel
   --concurrency <n>     Runs at once (1..16). Default: 2; more hits provider rate limits.
   --time-limit <sec>    Wall clock per run, the only run limit and the same for both. Default: 300.
   --follow-ups <n>      Continue failed runs with the grader's failure report (1..2 follow-ups). Default: 0.
+  --person-cost <sec>   A person's time charged per follow-up in the time-to-correct table
+                        (0..3600). Default: 120.
+  --report <path>       Reprint a saved benchmark results document with this checkout's
+                        summary (no model calls); --person-cost applies.
   --casper <path>       Casper executable. Default: this checkout (bun src/cli.ts).
   --pi <path>           Pi executable. Default: pi on PATH.
   --json <path>         Results document. Default: a new evals/results/<date>-<commit>.json.
@@ -90,6 +94,8 @@ interface EvalOptions {
   concurrency?: number;
   timeLimitSeconds?: number;
   followUps: number;
+  personCostSeconds?: number;
+  report?: string;
   casper?: string;
   pi?: string;
 }
@@ -113,7 +119,7 @@ function parseArguments(args: readonly string[]): EvalOptions {
     if (argument === "--keep") { options.keep = true; continue; }
     if (argument === "--prepare") { options.prepare = true; continue; }
     if (argument === "--no-auto-verify") { options.autoVerify = false; continue; }
-    if (["--pack", "--harness", "--effort", "--concurrency", "--time-limit", "--follow-ups", "--casper", "--pi"].includes(argument)) {
+    if (["--pack", "--harness", "--effort", "--concurrency", "--time-limit", "--follow-ups", "--person-cost", "--report", "--casper", "--pi"].includes(argument)) {
       const value = args[++index];
       if (!value || value.startsWith("--")) throw new Error(`${argument} needs a value`);
       if (argument === "--pack") {
@@ -128,6 +134,11 @@ function parseArguments(args: readonly string[]): EvalOptions {
       } else if (argument === "--concurrency") options.concurrency = wholeNumber(argument, value, 16);
       else if (argument === "--time-limit") options.timeLimitSeconds = wholeNumber(argument, value, 3600);
       else if (argument === "--follow-ups") options.followUps = wholeNumber(argument, value, 2);
+      else if (argument === "--person-cost") {
+        const seconds = Number(value);
+        if (!Number.isInteger(seconds) || seconds < 0 || seconds > 3600) throw new Error("--person-cost must be an integer between 0 and 3600");
+        options.personCostSeconds = seconds;
+      } else if (argument === "--report") options.report = value;
       else if (argument === "--casper") options.casper = value;
       else options.pi = value;
       continue;
@@ -155,7 +166,11 @@ function parseArguments(args: readonly string[]): EvalOptions {
     throw new Error(`Unknown argument: ${argument}`);
   }
   if (options.help || options.list) return options;
-  const benchmarkOnly = options.effort || options.concurrency || options.timeLimitSeconds || options.followUps || options.casper || options.pi;
+  if (options.report) {
+    if (args.some((flag) => flag.startsWith("--") && !["--report", "--person-cost"].includes(flag))) throw new Error("--report takes only --person-cost");
+    return options;
+  }
+  const benchmarkOnly = options.effort || options.concurrency || options.timeLimitSeconds || options.followUps || options.personCostSeconds !== undefined || options.casper || options.pi;
   if (isBenchmark(options)) {
     if (options.prepare || options.grade || options.scenario || options.keep || !options.autoVerify) {
       throw new Error("--prepare, --grade, --scenario, --keep and --no-auto-verify do not apply to a benchmark");
@@ -163,7 +178,7 @@ function parseArguments(args: readonly string[]): EvalOptions {
     if (!options.model) throw new Error("A benchmark needs --model provider/id: both harnesses run the same model");
     return options;
   }
-  if (benchmarkOnly) throw new Error("--effort, --concurrency, --time-limit, --follow-ups, --casper and --pi apply only to a benchmark (--pack or --harness)");
+  if (benchmarkOnly) throw new Error("--effort, --concurrency, --time-limit, --follow-ups, --person-cost, --casper and --pi apply only to a benchmark (--pack or --harness)");
   if (options.scenario && (!options.prepare || options.selected.length)) throw new Error("--scenario requires --prepare and cannot use --task");
   if (Boolean(options.grade) !== Boolean(options.observation)) throw new Error("--grade and --observation must be used together");
   if (options.grade && (options.prepare || options.selected.length || options.scenario)) throw new Error("--grade cannot select or prepare tasks");
@@ -271,7 +286,7 @@ async function benchmark(options: EvalOptions, repoRoot: string): Promise<number
       process.stdout.write(`[${++finished}/${total}] ${failure.taskId} ${failure.harness} #${failure.repeat}: could not run: ${failure.error}\n`);
     },
   });
-  const summary = summarizeBenchmark(runs);
+  const summary = summarizeBenchmark(runs, personCost(options));
   process.stdout.write(`\n${formatBenchmarkReport(summary)}\n`);
   if (failures.length) process.stdout.write(`\n${failures.length} run(s) could not run or be graded; see failures in the results.\n`);
   await writeEvalReport(destination, {
@@ -283,10 +298,20 @@ async function benchmark(options: EvalOptions, repoRoot: string): Promise<number
   return failures.length ? 1 : 0;
 }
 
+const personCost = (options: EvalOptions) => options.personCostSeconds === undefined ? {} : { personMs: options.personCostSeconds * 1000 };
+
+/** Reprint a saved results document: the runs are evidence, the summary is recomputed. */
+async function reprint(options: EvalOptions): Promise<void> {
+  const document = JSON.parse(await readFile(options.report!, "utf8")) as { kind?: unknown; runs?: unknown };
+  if (document.kind !== "quality-benchmark" || !Array.isArray(document.runs)) throw new Error(`${options.report} is not a benchmark results document`);
+  process.stdout.write(`${formatBenchmarkReport(summarizeBenchmark(document.runs as BenchmarkRun[], personCost(options)))}\n`);
+}
+
 async function main(): Promise<void> {
   useCasperAgentStore(); // Eval runs keep the user's real credentials (Casper's own store).
   const options = parseArguments(process.argv.slice(2));
   if (options.help) { process.stdout.write(`${USAGE}\n`); return; }
+  if (options.report) { await reprint(options); return; }
   if (options.list) {
     for (const task of EVAL_TASKS) process.stdout.write(`${task.id}  (${task.fixture}${task.setup ? ` + ${task.setup}` : ""})${task.pack ? ` [${task.pack} pack]` : ""}\n`);
     for (const id of EVAL_SCENARIOS) process.stdout.write(`${id}  (human-driven; --prepare --scenario ${id})\n`);

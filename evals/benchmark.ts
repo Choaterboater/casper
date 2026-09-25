@@ -417,16 +417,35 @@ export interface ReworkCell {
   firstTimeRight: number;
   /** Accepted after a follow-up. */
   fixed: number;
+  /** Fixed after 1, 2, … follow-ups. */
+  fixedAfter: number[];
   /** Still not accepted after the last follow-up (or not continuable). */
   unfixed: number;
+  /** Unfixed because an attempt timed out or crashed, so it could not be continued. */
+  stopped: number;
+  /** First-time right plus fixed: the correct results. */
+  accepted: number;
+  /** Follow-ups sent: each is a person reading the failure and sending it back. */
+  rounds: number;
   resumed: Tally;
+  /** Medians over runs of each run's total over its attempts. */
   totalWallClockMs: Spread | null;
   totalTokens: Spread | null;
   totalCost: Spread | null;
+  /** Every attempt of every run, the unfixed ones included; null when any is unknown. */
+  sum: { wallClockMs: number; tokens: number | null; estimatedCost: number | null };
+  /** `sum` over the correct results, plus the person's time (`personMs` per follow-up); null when none. */
+  perCorrect: { wallClockMs: number; tokens: number | null; estimatedCost: number | null; withPersonMs: number } | null;
 }
+
+/** How the summary prices a follow-up in a person's time. */
+export interface SummaryOptions { personMs?: number }
+export const DEFAULT_PERSON_MS = 120_000;
 
 type Cells = Partial<Record<HarnessName, BenchmarkCell>>;
 export interface BenchmarkSummary {
+  /** The person's time charged per follow-up. */
+  personMs: number;
   packs: { pack: EvalPack; tasks: { taskId: string; harnesses: Cells }[]; total: Cells }[];
 }
 
@@ -441,7 +460,7 @@ function spread(values: readonly (number | null)[]): Spread | null {
   return { median, min: known[0]!, max: known.at(-1)!, known: known.length };
 }
 
-function cell(runs: readonly BenchmarkRun[]): BenchmarkCell {
+function cell(runs: readonly BenchmarkRun[], personMs: number): BenchmarkCell {
   const tally = (dimension: (typeof DIMENSIONS)[number]): Tally => ({
     yes: runs.filter((run) => run.score[dimension] === true).length,
     no: runs.filter((run) => run.score[dimension] === false).length,
@@ -457,45 +476,63 @@ function cell(runs: readonly BenchmarkRun[]): BenchmarkCell {
     turns: spread(runs.map((run) => run.score.effort.turns)),
     tokens: spread(runs.map((run) => run.score.effort.tokens)),
     estimatedCost: spread(runs.map((run) => run.score.effort.estimatedCost)),
-    rework: reworkCell(runs.flatMap((run) => run.rework ? [run.rework] : [])),
+    rework: reworkCell(runs.flatMap((run) => run.rework ? [run.rework] : []), personMs),
   };
 }
 
-function reworkCell(reworks: readonly ReworkResult[]): ReworkCell | null {
+const total = (values: readonly (number | null)[]) => values.includes(null) ? null : values.reduce<number>((sum, value) => sum + value!, 0);
+
+function reworkCell(reworks: readonly ReworkResult[], personMs: number): ReworkCell | null {
   if (!reworks.length) return null;
   const sent = reworks.filter((rework) => rework.followUps > 0);
+  const fixed = reworks.filter((rework) => rework.fixed);
+  const unfixed = reworks.filter((rework) => !rework.firstTimeRight && !rework.fixed);
+  const attempts = reworks.flatMap((rework) => rework.attempts);
+  const accepted = reworks.length - unfixed.length;
+  const rounds = sent.reduce((count, rework) => count + rework.followUps, 0);
+  const sum = { wallClockMs: attempts.reduce((ms, attempt) => ms + attempt.wallClockMs, 0),
+    tokens: total(attempts.map((attempt) => attempt.tokens)), estimatedCost: total(attempts.map((attempt) => attempt.estimatedCost)) };
+  const per = (value: number | null) => value === null ? null : value / accepted;
   return {
     runs: reworks.length,
     firstTimeRight: reworks.filter((rework) => rework.firstTimeRight).length,
-    fixed: reworks.filter((rework) => rework.fixed).length,
-    unfixed: reworks.filter((rework) => !rework.firstTimeRight && !rework.fixed).length,
+    fixed: fixed.length,
+    fixedAfter: Array.from({ length: Math.max(0, ...reworks.map((rework) => rework.followUps)) }, (_, index) => fixed.filter((rework) => rework.followUps === index + 1).length),
+    unfixed: unfixed.length,
+    stopped: unfixed.filter((rework) => rework.attempts.at(-1)?.termination !== "completed").length,
+    accepted, rounds,
     resumed: { yes: sent.filter((rework) => rework.resumed === true).length, no: sent.filter((rework) => rework.resumed === false).length,
       unknown: sent.filter((rework) => rework.resumed === null).length },
     totalWallClockMs: spread(reworks.map((rework) => rework.totalWallClockMs)),
     totalTokens: spread(reworks.map((rework) => rework.totalTokens)),
     totalCost: spread(reworks.map((rework) => rework.totalCost)),
+    sum,
+    perCorrect: accepted ? { wallClockMs: sum.wallClockMs / accepted, tokens: per(sum.tokens), estimatedCost: per(sum.estimatedCost),
+      withPersonMs: (sum.wallClockMs + rounds * personMs) / accepted } : null,
   };
 }
 
-function cells(runs: readonly BenchmarkRun[]): Cells {
+function cells(runs: readonly BenchmarkRun[], personMs: number): Cells {
   const result: Cells = {};
   for (const harness of HARNESSES) {
     const own = runs.filter((run) => run.harness === harness);
-    if (own.length) result[harness] = cell(own);
+    if (own.length) result[harness] = cell(own, personMs);
   }
   return result;
 }
 
 /** Packs stay apart (no cross-pack headline); tasks keep catalog order. */
-export function summarizeBenchmark(runs: readonly BenchmarkRun[]): BenchmarkSummary {
+export function summarizeBenchmark(runs: readonly BenchmarkRun[], options: SummaryOptions = {}): BenchmarkSummary {
+  const personMs = options.personMs ?? DEFAULT_PERSON_MS;
   const order = (id: string) => { const index = EVAL_TASKS.findIndex((task) => task.id === id); return index < 0 ? Number.MAX_SAFE_INTEGER : index; };
   const packs = [...BENCHMARK_PACKS, ...new Set(runs.map((run) => run.pack))].filter((pack, index, all) => all.indexOf(pack) === index);
   return {
+    personMs,
     packs: packs.flatMap((pack) => {
       const own = runs.filter((run) => run.pack === pack);
       if (!own.length) return [];
       const ids = [...new Set(own.map((run) => run.taskId))].sort((left, right) => order(left) - order(right) || left.localeCompare(right));
-      return [{ pack, tasks: ids.map((taskId) => ({ taskId, harnesses: cells(own.filter((run) => run.taskId === taskId)) })), total: cells(own) }];
+      return [{ pack, tasks: ids.map((taskId) => ({ taskId, harnesses: cells(own.filter((run) => run.taskId === taskId), personMs) })), total: cells(own, personMs) }];
     }),
   };
 }
@@ -525,12 +562,33 @@ function row(label: string, harness: HarnessName, value: BenchmarkCell): string[
     spreadText(value.tokens, tokensText), spreadText(value.estimatedCost, costText)];
 }
 
-const REWORK_HEADER = ["task", "harness", "first-time", "fixed", "unfixed", "resumed", "total wall s", "total tokens", "total cost"];
+const REWORK_HEADER = ["task", "harness", "first-time", "fixed (1+2)", "unfixed", "rounds", "resumed", "sum s", "sum tokens", "sum cost",
+  "s/correct", "+person s", "tokens/correct", "cost/correct"];
 
 function reworkRow(label: string, harness: HarnessName, value: ReworkCell): string[] {
-  return [label, harness, `${value.firstTimeRight}/${value.runs}`, `${value.fixed}/${value.runs - value.firstTimeRight}`, String(value.unfixed),
-    tallyText(value.resumed), spreadText(value.totalWallClockMs, (ms) => (ms / 1000).toFixed(0)),
-    spreadText(value.totalTokens, tokensText), spreadText(value.totalCost, costText)];
+  const known = <T,>(number: T | null | undefined, format: (value: T) => string) => number === null || number === undefined ? "–" : format(number);
+  const seconds = (ms: number) => (ms / 1000).toFixed(0);
+  return [label, harness, `${value.firstTimeRight}/${value.runs}`,
+    `${value.fixed}/${value.runs - value.firstTimeRight}${value.fixedAfter.length ? ` (${value.fixedAfter.join("+")})` : ""}`,
+    `${value.unfixed}${value.stopped ? ` (${value.stopped} stopped)` : ""}`, String(value.rounds), tallyText(value.resumed),
+    seconds(value.sum.wallClockMs), known(value.sum.tokens, tokensText), known(value.sum.estimatedCost, costText),
+    known(value.perCorrect?.wallClockMs, seconds), known(value.perCorrect?.withPersonMs, seconds),
+    known(value.perCorrect?.tokens, tokensText), known(value.perCorrect?.estimatedCost, costText)];
+}
+
+/** The person's time per follow-up at which `a` and `b` cost the same time per correct result. */
+function breakEven(names: [HarnessName, HarnessName], a: ReworkCell, b: ReworkCell): string | undefined {
+  if (!a.accepted || !b.accepted) return undefined;
+  // perCorrect(a) − perCorrect(b) = intercept + slope × personMs; negative means a costs less.
+  // Frame it for the harness needing fewer follow-ups per correct result (slope ≤ 0).
+  let intercept = a.sum.wallClockMs / a.accepted - b.sum.wallClockMs / b.accepted;
+  let slope = a.rounds / a.accepted - b.rounds / b.accepted;
+  if (slope > 0) { names = [names[1], names[0]]; intercept = -intercept; slope = -slope; }
+  if (slope === 0 && intercept === 0) return `${names[0]} and ${names[1]} cost the same time per correct result`;
+  if (slope === 0 && intercept > 0) return `${names[1]} costs less time per correct result than ${names[0]} at any person time`;
+  const lead = `${names[0]} costs less time per correct result than ${names[1]}`;
+  const even = slope === 0 ? 0 : -intercept / slope;
+  return even <= 0 ? `${lead} at any person time` : `${lead} when a follow-up takes a person more than ${(even / 1000).toFixed(0)} s`;
 }
 
 /** One table per pack: every task × harness, then the pack total per harness. Numbers are the
@@ -543,7 +601,10 @@ export function formatBenchmarkReport(summary: BenchmarkSummary): string {
     const rework = [REWORK_HEADER];
     for (const { taskId, harnesses } of tasks) for (const harness of HARNESSES) if (harnesses[harness]?.rework) rework.push(reworkRow(taskId, harness, harnesses[harness]!.rework!));
     for (const harness of HARNESSES) if (total[harness]?.rework) rework.push(reworkRow(`all ${tasks.length} tasks`, harness, total[harness]!.rework!));
-    return `${pack} pack\n${table(rows)}${rework.length > 1 ? `\n\n${pack} pack, follow-ups (the rubric above scores each first attempt)\n${table(rework)}` : ""}`;
+    const withRework = HARNESSES.filter((harness) => total[harness]?.rework);
+    const evens = withRework.slice(1).flatMap((other) => breakEven([withRework[0]!, other], total[withRework[0]!]!.rework!, total[other]!.rework!) ?? []);
+    return `${pack} pack\n${table(rows)}${rework.length > 1 ? `\n\n${pack} pack, time to correct (every attempt of every run, unfixed ones included; `
+      + `+person charges ${(summary.personMs / 1000).toFixed(0)} s of a person's time per follow-up)\n${table(rework)}${evens.map((line) => `\n${line}`).join("")}` : ""}`;
   });
   return [
     "k/n = yes of n known; ?u = unknown (never counted as a pass or a fail). Spreads are median (min–max) over runs.",
