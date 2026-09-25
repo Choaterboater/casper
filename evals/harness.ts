@@ -24,9 +24,9 @@ export interface HarnessInput {
   prompt: string;
   model: string;
   effort: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+  /** The only run limit, identical for both harnesses. There is deliberately no turn limit: Pi's CLI
+   * has none, so a Casper-only limit would stop only Casper. */
   timeoutMs: number;
-  /** Casper has a native limit; Pi's CLI has no equivalent flag. */
-  maxTurns: number;
   /** Read-only sources; only the model's provider entry is copied to the temporary home. */
   seed?: { authPath: string; modelsStorePath?: string };
 }
@@ -40,7 +40,6 @@ export interface ProcessObservation {
 /** Run a CLI with a fresh home, bounded output and process-tree cleanup. No user settings are loaded. */
 export async function runHarness(name: HarnessName, input: HarnessInput): Promise<HarnessObservation> {
   if (!input.command.length || !input.command[0] || !input.model.includes("/")
-    || !Number.isSafeInteger(input.maxTurns) || input.maxTurns < 1
     || !Number.isSafeInteger(input.timeoutMs) || input.timeoutMs < 1) throw new Error("Invalid harness input");
   const home = await mkdtemp(path.join(os.tmpdir(), "casper-harness-home-"));
   const agent = path.join(home, name === "casper" ? ".casper/agent" : ".pi/agent");
@@ -55,7 +54,7 @@ export async function runHarness(name: HarnessName, input: HarnessInput): Promis
       if (input.seed.modelsStorePath) await copyFile(input.seed.modelsStorePath, path.join(agent, "models-store.json"));
     }
     const args = name === "casper"
-      ? ["--json", "--model", input.model, "--effort", input.effort, "--max-turns", String(input.maxTurns), "--verify"]
+      ? ["--json", "--model", input.model, "--effort", input.effort, "--verify"]
       : ["--print", "--mode", "json", "--no-session", "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-themes",
         "--model", input.model, "--thinking", input.effort];
     const child = Bun.spawn([...input.command, ...args, "--", input.prompt], {
@@ -125,6 +124,8 @@ export function observeHarness(name: HarnessName, events: readonly unknown[], pr
   let turns = 0;
   let tokens: number | null = 0;
   let estimatedCost: number | null = 0;
+  // Casper totals its own responses in the receipt; the same per-response definition as Pi's below.
+  let casperUsage: Pick<HarnessObservation, "turns" | "tokens" | "estimatedCost"> = { turns: null, tokens: null, estimatedCost: null };
   for (const value of events) {
     const event = record(value);
     if (!event) { errors.push("Invalid event object"); continue; }
@@ -135,7 +136,14 @@ export function observeHarness(name: HarnessName, events: readonly unknown[], pr
     if (event.type === "error") errors.push(typeof event.message === "string" ? event.message : "Harness error");
     if (name === "casper" && event.v === 1) {
       if (event.type === "assistant_message" && typeof event.text === "string") { answer = event.text; responded = true; }
-      if (event.type === "receipt") { completed = event.execution === "completed"; ended = true; }
+      if (event.type === "receipt") {
+        completed = event.execution === "completed";
+        ended = true;
+        const usage = record(event.usage);
+        const count = (value: unknown) => Number.isSafeInteger(value) && (value as number) >= 0 ? value as number : null;
+        const amount = (value: unknown) => typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
+        casperUsage = { turns: count(usage?.turns), tokens: count(usage?.tokens), estimatedCost: amount(usage?.estimatedCost) };
+      }
     }
     if (name === "pi" && event.type === "agent_end") ended = true;
     if (name === "pi" && event.type === "message_end") {
@@ -161,8 +169,7 @@ export function observeHarness(name: HarnessName, events: readonly unknown[], pr
   return {
     answer, termination: process.timedOut ? "timeout" : completed && ended && responded && errors.length === 0 && process.exitCode === 0 ? "completed" : "failed",
     exitCode: process.exitCode, wallClockMs: process.wallClockMs,
-    turns: name === "pi" ? turns : null,
-    tokens: name === "pi" && turns ? tokens : null,
-    estimatedCost: name === "pi" && turns ? estimatedCost : null, errors,
+    ...(name === "casper" ? casperUsage : { turns, tokens: turns ? tokens : null, estimatedCost: turns ? estimatedCost : null }),
+    errors,
   };
 }

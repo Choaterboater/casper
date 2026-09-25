@@ -17,6 +17,19 @@ test("Casper observations use the last complete answer, not deltas or its verifi
   });
 });
 
+test("Casper's turns, tokens and cost come from its receipt; an unknown value stays null", () => {
+  const process = { exitCode: 0, timedOut: false, wallClockMs: 42 };
+  const run = (usage: unknown) => observeHarness("casper", [
+    { v: 1, type: "assistant_message", text: "Done." },
+    { v: 1, type: "receipt", execution: "completed", outcome: "verified", exitCode: 0, usage },
+  ], process);
+  expect(run({ turns: 3, tokens: 900, estimatedCost: 0.01 })).toMatchObject({ turns: 3, tokens: 900, estimatedCost: 0.01 });
+  // A subagent's calls are not totalled, so Casper reports tokens and cost as unknown.
+  expect(run({ turns: 3, tokens: null, estimatedCost: null })).toMatchObject({ turns: 3, tokens: null, estimatedCost: null });
+  expect(run({ turns: -1, tokens: 1.5, estimatedCost: "0.01" })).toMatchObject({ turns: null, tokens: null, estimatedCost: null });
+  expect(run(null)).toMatchObject({ turns: null, tokens: null, estimatedCost: null });
+});
+
 test("Pi counts authoritative assistant usage once, excluding tool results and agent_end copies", () => {
   const message = { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "Implemented." }],
     usage: { totalTokens: 120, cost: { total: 0.02 } } };
@@ -38,15 +51,16 @@ test.each(["casper", "pi"] as const)("%s receives explicit identical task inputs
     const result = await runHarness(name, {
       command: [process.execPath, path.join(import.meta.dir, "fixtures/eval-harness-cli.ts")],
       cwd: workdir, prompt: "Implement the task.", model: "github-copilot/gpt-5-mini", effort: "medium",
-      timeoutMs: 2000, maxTurns: 20,
+      timeoutMs: 2000,
     });
     expect(result).toMatchObject({ answer: "Scripted answer.", termination: "completed", exitCode: 0 });
     const observed = JSON.parse(await readFile(path.join(workdir, "observed.json"), "utf8"));
     expect(observed.inheritedSecret).toBeNull();
     expect(observed.home).not.toBe(os.homedir());
     expect(await stat(observed.home).then(() => true, () => false)).toBe(false);
+    // No turn limit: Pi's CLI has none, so a Casper-only limit would stop only Casper.
     expect(observed.args).toEqual(name === "casper"
-      ? ["--json", "--model", "github-copilot/gpt-5-mini", "--effort", "medium", "--max-turns", "20", "--verify", "--", "Implement the task."]
+      ? ["--json", "--model", "github-copilot/gpt-5-mini", "--effort", "medium", "--verify", "--", "Implement the task."]
       : ["--print", "--mode", "json", "--no-session", "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-themes", "--model", "github-copilot/gpt-5-mini", "--thinking", "medium", "--", "Implement the task."]);
   } finally {
     if (previous === undefined) delete process.env.EVAL_HARNESS_SECRET; else process.env.EVAL_HARNESS_SECRET = previous;
@@ -59,7 +73,7 @@ test.each(["casper", "pi"] as const)("%s stops a hung CLI at its deadline", asyn
   try {
     const result = await runHarness(name, {
       command: [process.execPath, path.join(import.meta.dir, "fixtures/eval-harness-cli.ts")],
-      cwd: workdir, prompt: "hang", model: "test/model", effort: "medium", timeoutMs: 100, maxTurns: 20,
+      cwd: workdir, prompt: "hang", model: "test/model", effort: "medium", timeoutMs: 100,
     });
     expect(result.termination).toBe("timeout");
     expect(result.wallClockMs).toBeLessThan(3000);
@@ -76,7 +90,7 @@ test.each(["casper", "pi"] as const)("%s copies only the selected provider and p
     await writeFile(modelsStorePath, '{"synthetic":true}');
     const result = await runHarness(name, {
       command: [process.execPath, path.join(import.meta.dir, "fixtures/eval-harness-cli.ts")],
-      cwd: root, prompt: "inspect seed", model: "test/model", effort: "medium", timeoutMs: 2000, maxTurns: 20,
+      cwd: root, prompt: "inspect seed", model: "test/model", effort: "medium", timeoutMs: 2000,
       seed: { authPath, modelsStorePath },
     });
     expect(result.termination).toBe("completed");
