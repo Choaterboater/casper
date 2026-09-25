@@ -1,12 +1,17 @@
 #!/usr/bin/env bun
 
-import { lstat, mkdir, readFile, realpath, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { isolatedEnvironment } from "../src/platform/environment";
 import { useCasperAgentStore } from "../src/runtime/agent-store";
+import { formatBenchmarkReport, runBenchmark, summarizeBenchmark, type BenchmarkFailure, type BenchmarkRun } from "../evals/benchmark";
+import type { HarnessInput, HarnessName } from "../evals/harness";
 import { formatEvalReport, formatEvalResult, writeEvalReport } from "../evals/report";
 import { gradePreparedEval, prepareEvalTask, resolveEvalModel, runEvalTask, summarizeEvalRuns } from "../evals/runner";
-import type { EvalModel, EvalRunResult, EvalTaskSummary } from "../evals/runner";
-import { EVAL_TASKS, findEvalTask } from "../evals/tasks";
+import type { EvalModel, EvalPack, EvalRunResult, EvalTask, EvalTaskSummary } from "../evals/runner";
+import { BENCHMARK_PACKS, EVAL_TASKS, findEvalTask, packTasks } from "../evals/tasks";
 import { EVAL_SCENARIOS, prepareScenario } from "../evals/scenarios";
 
 const USAGE = `Usage: bun tools/eval.ts [options]
@@ -38,6 +43,23 @@ Options:
   --list                List catalog tasks and human-driven scenarios.
   --help                Show this text.
 
+Quality benchmark (Casper vs Pi through their real CLIs; --pack or --harness selects it):
+  --pack <core|network> Benchmark a pack (repeatable). Default with --harness: every pack,
+                        or only the --task selection.
+  --harness <name>      casper or pi (repeatable). Default: both.
+  --model <ref>         Required: both harnesses run this provider/model-id. Only that
+                        provider's entry of ~/.casper/agent/auth.json is copied into each
+                        run's temporary home.
+  --effort <level>      Reasoning effort for both harnesses. Default: medium.
+  --repeat <n>          Runs per task per harness (1..20). Default: 1.
+  --concurrency <n>     Runs at once (1..16). Default: 2; more hits provider rate limits.
+  --time-limit <sec>    Wall clock per run, the only run limit and the same for both. Default: 300.
+  --casper <path>       Casper executable. Default: this checkout (bun src/cli.ts).
+  --pi <path>           Pi executable. Default: pi on PATH.
+  --json <path>         Results document. Default: a new evals/results/<date>-<commit>.json.
+  Prints a rubric table per pack (docs/EVALUATION.md). Exits 1 only when a run could not
+  be run or graded; failed tasks are results, not errors.
+
 Prepared roots contain candidate/, evaluator/, home/, prompt.txt and manifest.json.
 Workflow preparations also contain instructions.txt. Keep host artifacts outside
 candidate/. Authorize provider/account, model/effort and allowance before execution.
@@ -59,11 +81,26 @@ interface EvalOptions {
   scenario?: string;
   grade?: string;
   observation?: string;
+  packs: EvalPack[];
+  harnesses: HarnessName[];
+  effort?: HarnessInput["effort"];
+  concurrency?: number;
+  timeLimitSeconds?: number;
+  casper?: string;
+  pi?: string;
+}
+
+const EFFORTS: readonly HarnessInput["effort"][] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+
+function wholeNumber(flag: string, value: string, max: number): number {
+  const count = Number(value);
+  if (!Number.isInteger(count) || count < 1 || count > max) throw new Error(`${flag} must be an integer between 1 and ${max}`);
+  return count;
 }
 
 function parseArguments(args: readonly string[]): EvalOptions {
   const options: EvalOptions = {
-    help: false, list: false, selected: [], repeat: 1, timeoutSeconds: 120, keep: false, autoVerify: true, prepare: false,
+    help: false, list: false, selected: [], repeat: 1, timeoutSeconds: 120, keep: false, autoVerify: true, prepare: false, packs: [], harnesses: [],
   };
   for (let index = 0; index < args.length; index++) {
     const argument = args[index]!;
@@ -72,6 +109,24 @@ function parseArguments(args: readonly string[]): EvalOptions {
     if (argument === "--keep") { options.keep = true; continue; }
     if (argument === "--prepare") { options.prepare = true; continue; }
     if (argument === "--no-auto-verify") { options.autoVerify = false; continue; }
+    if (["--pack", "--harness", "--effort", "--concurrency", "--time-limit", "--casper", "--pi"].includes(argument)) {
+      const value = args[++index];
+      if (!value || value.startsWith("--")) throw new Error(`${argument} needs a value`);
+      if (argument === "--pack") {
+        if (!BENCHMARK_PACKS.includes(value as EvalPack)) throw new Error(`--pack must be one of ${BENCHMARK_PACKS.join(", ")}`);
+        if (!options.packs.includes(value as EvalPack)) options.packs.push(value as EvalPack);
+      } else if (argument === "--harness") {
+        if (value !== "casper" && value !== "pi") throw new Error("--harness must be casper or pi");
+        if (!options.harnesses.includes(value)) options.harnesses.push(value);
+      } else if (argument === "--effort") {
+        if (!EFFORTS.includes(value as HarnessInput["effort"])) throw new Error(`--effort must be one of ${EFFORTS.join(", ")}`);
+        options.effort = value as HarnessInput["effort"];
+      } else if (argument === "--concurrency") options.concurrency = wholeNumber(argument, value, 16);
+      else if (argument === "--time-limit") options.timeLimitSeconds = wholeNumber(argument, value, 3600);
+      else if (argument === "--casper") options.casper = value;
+      else options.pi = value;
+      continue;
+    }
     if (["--task", "--json", "--timeout", "--repeat", "--model", "--scenario", "--grade", "--observation"].includes(argument)) {
       const value = args[++index];
       if (!value || value.startsWith("--")) throw new Error(`${argument} needs a value`);
@@ -95,6 +150,15 @@ function parseArguments(args: readonly string[]): EvalOptions {
     throw new Error(`Unknown argument: ${argument}`);
   }
   if (options.help || options.list) return options;
+  const benchmarkOnly = options.effort || options.concurrency || options.timeLimitSeconds || options.casper || options.pi;
+  if (isBenchmark(options)) {
+    if (options.prepare || options.grade || options.scenario || options.keep || !options.autoVerify) {
+      throw new Error("--prepare, --grade, --scenario, --keep and --no-auto-verify do not apply to a benchmark");
+    }
+    if (!options.model) throw new Error("A benchmark needs --model provider/id: both harnesses run the same model");
+    return options;
+  }
+  if (benchmarkOnly) throw new Error("--effort, --concurrency, --time-limit, --casper and --pi apply only to a benchmark (--pack or --harness)");
   if (options.scenario && (!options.prepare || options.selected.length)) throw new Error("--scenario requires --prepare and cannot use --task");
   if (Boolean(options.grade) !== Boolean(options.observation)) throw new Error("--grade and --observation must be used together");
   if (options.grade && (options.prepare || options.selected.length || options.scenario)) throw new Error("--grade cannot select or prepare tasks");
@@ -111,12 +175,116 @@ function observedModel(requested: EvalModel | undefined, summaries: readonly Eva
   return models.size === 1 ? [...models][0]! : null;
 }
 
+function isBenchmark(options: EvalOptions): boolean {
+  return options.packs.length > 0 || options.harnesses.length > 0;
+}
+
+/** The chosen packs plus any --task selection; with neither, every benchmark task. */
+function benchmarkTasks(options: EvalOptions): EvalTask[] {
+  const selected = options.selected.map((id) => {
+    const task = findEvalTask(id);
+    if (!task) throw new Error(`Unknown task: ${id}`);
+    if (!task.pack) throw new Error(`${id} is not a benchmark task; --list shows each task's pack`);
+    return task;
+  });
+  const tasks = options.packs.flatMap((pack) => packTasks(pack));
+  for (const task of selected) if (!tasks.includes(task)) tasks.push(task);
+  return tasks.length ? tasks : EVAL_TASKS.filter((task) => task.pack);
+}
+
+function git(repoRoot: string, args: string[]): string | null {
+  const result = Bun.spawnSync(["git", ...args], { cwd: repoRoot, stdin: "ignore", stdout: "pipe", stderr: "ignore" });
+  return result.exitCode === 0 ? result.stdout.toString().trim() : null;
+}
+
+/** A harness's `--version` line, probed in an empty directory with an isolated home. */
+async function harnessVersion(command: readonly string[]): Promise<string | null> {
+  const scratch = await mkdtemp(path.join(os.tmpdir(), "casper-bench-version-"));
+  try {
+    const child = Bun.spawn([...command, "--version"], { cwd: scratch, env: isolatedEnvironment(scratch), stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+    const timer = setTimeout(() => child.kill(), 10_000);
+    const [stdout, stderr, exitCode] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+    clearTimeout(timer);
+    return exitCode === 0 ? (`${stdout}${stderr}`.trim().split("\n")[0] ?? null) : null;
+  } catch { return null; }
+  finally { await rm(scratch, { recursive: true, force: true }); }
+}
+
+async function executable(file: string, flag: string): Promise<string> {
+  const resolved = path.resolve(file);
+  const stats = await lstat(resolved).catch(() => undefined);
+  if (!stats || stats.isDirectory()) throw new Error(`${flag} ${file}: no such executable`);
+  return resolved;
+}
+
+async function benchmark(options: EvalOptions, repoRoot: string): Promise<number> {
+  const tasks = benchmarkTasks(options);
+  const harnesses: HarnessName[] = options.harnesses.length ? options.harnesses : ["casper", "pi"];
+  const effort = options.effort ?? "medium";
+  const concurrency = options.concurrency ?? 2;
+  const timeLimitSeconds = options.timeLimitSeconds ?? 300;
+  // Both harnesses get the same model; fail on an unknown model or a missing sign-in before any run.
+  const model = await resolveEvalModel(options.model!);
+  const reference = `${model.provider}/${model.id}`;
+  const authPath = path.join(getAgentDir(), "auth.json");
+  const auth: unknown = JSON.parse(await readFile(authPath, "utf8").catch(() => "{}"));
+  if (!auth || typeof auth !== "object" || !Object.hasOwn(auth, model.provider)) {
+    throw new Error(`No ${model.provider} sign-in in ${authPath}: each run's temporary home gets only that entry (casper /login ${model.provider})`);
+  }
+  const modelsStorePath = path.join(getAgentDir(), "models-store.json");
+  const seed = { authPath, ...(await lstat(modelsStorePath).then(() => ({ modelsStorePath }), () => ({}))) };
+  const pi = options.pi ? await executable(options.pi, "--pi") : Bun.which("pi");
+  if (harnesses.includes("pi") && !pi) throw new Error("Pi is not on PATH; pass --pi <path>");
+  const commands: Record<HarnessName, string[]> = {
+    casper: options.casper ? [await executable(options.casper, "--casper")] : [process.execPath, path.join(repoRoot, "src/cli.ts")],
+    pi: pi ? [pi] : [],
+  };
+
+  const ranAt = new Date().toISOString();
+  const commit = git(repoRoot, ["rev-parse", "--short=12", "HEAD"]);
+  const status = git(repoRoot, ["status", "--porcelain"]);
+  const dirty = status === null ? null : status.length > 0;
+  let destination = options.json ? path.resolve(options.json) : undefined;
+  for (let attempt = 1; !destination; attempt++) {
+    const candidate = path.join(repoRoot, "evals/results", `${ranAt.slice(0, 10)}-${commit ?? "unknown"}${dirty ? "-dirty" : ""}${attempt > 1 ? `-${attempt}` : ""}.json`);
+    if (!await lstat(candidate).then(() => true, () => false)) destination = candidate;
+  }
+  const total = tasks.length * options.repeat * harnesses.length;
+  process.stdout.write(`${tasks.length} task(s) x ${options.repeat} run(s) x ${harnesses.length} harness(es) = ${total} runs; model ${reference}, effort ${effort}, `
+    + `${timeLimitSeconds} s time limit, ${concurrency} at a time.\nProvider billing applies to every model call. Results: ${path.relative(process.cwd(), destination) || destination}\n\n`);
+  const versions = Object.fromEntries(await Promise.all(harnesses.map(async (name) => [name, { command: commands[name], version: await harnessVersion(commands[name]) }])));
+
+  let finished = 0;
+  const { runs, failures } = await runBenchmark({
+    repoRoot, tasks, harnesses, commands, model: reference, effort, repeat: options.repeat, concurrency,
+    timeoutMs: timeLimitSeconds * 1000, verifyTimeoutMs: options.timeoutSeconds * 1000, seed,
+    onRun: (run: BenchmarkRun) => {
+      const { score } = run;
+      process.stdout.write(`[${++finished}/${total}] ${run.taskId} ${run.harness} #${run.repeat}: ${run.graded.success ? "accepted" : "not accepted"}; `
+        + `claim ${run.evidence.claim.verdict}${score.falseDone ? " (false done)" : ""}; ${Math.round(score.effort.wallClockMs / 1000)} s, ${score.effort.turns ?? "?"} turns\n`);
+    },
+    onFailure: (failure: BenchmarkFailure) => {
+      process.stdout.write(`[${++finished}/${total}] ${failure.taskId} ${failure.harness} #${failure.repeat}: could not run: ${failure.error}\n`);
+    },
+  });
+  const summary = summarizeBenchmark(runs);
+  process.stdout.write(`\n${formatBenchmarkReport(summary)}\n`);
+  if (failures.length) process.stdout.write(`\n${failures.length} run(s) could not run or be graded; see failures in the results.\n`);
+  await writeEvalReport(destination, {
+    kind: "quality-benchmark", version: 1, ranAt, commit, dirty, model: reference, effort, repeat: options.repeat, concurrency,
+    timeLimitSeconds, verifyTimeoutSeconds: options.timeoutSeconds, harnesses: versions, tasks: tasks.map((task) => task.id),
+    summary, failures, runs,
+  });
+  process.stdout.write(`Wrote ${path.relative(process.cwd(), destination) || destination}\n`);
+  return failures.length ? 1 : 0;
+}
+
 async function main(): Promise<void> {
   useCasperAgentStore(); // Eval runs keep the user's real credentials (Casper's own store).
   const options = parseArguments(process.argv.slice(2));
   if (options.help) { process.stdout.write(`${USAGE}\n`); return; }
   if (options.list) {
-    for (const task of EVAL_TASKS) process.stdout.write(`${task.id}  (${task.fixture}${task.setup ? ` + ${task.setup}` : ""})\n`);
+    for (const task of EVAL_TASKS) process.stdout.write(`${task.id}  (${task.fixture}${task.setup ? ` + ${task.setup}` : ""})${task.pack ? ` [${task.pack} pack]` : ""}\n`);
     for (const id of EVAL_SCENARIOS) process.stdout.write(`${id}  (human-driven; --prepare --scenario ${id})\n`);
     return;
   }
@@ -128,6 +296,7 @@ async function main(): Promise<void> {
     if (existing) throw new Error(`Refusing to replace existing evidence: ${options.json}`);
   }
   const repoRoot = path.resolve(import.meta.dir, "..");
+  if (isBenchmark(options)) { process.exitCode = await benchmark(options, repoRoot); return; }
   const results: EvalRunResult[] = [];
   let document: unknown;
   if (options.grade) {

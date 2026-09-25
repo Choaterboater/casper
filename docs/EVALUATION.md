@@ -26,6 +26,7 @@ evals/
 ├── tasks.ts      the task catalog (prompt, verification, acceptance)
 ├── packs.ts      quality-benchmark packs: core (8 tasks) and network (9 tasks)
 ├── harness.ts    runs the Casper or Pi CLI with identical inputs and an isolated home
+├── benchmark.ts  quality benchmark: runs both harnesses, measures rubric evidence, summarizes per pack
 ├── quality.ts    rubric scores from host evidence only
 ├── scenarios.ts  cancellation/restart/resume, delegation and clarify-loop protocols
 ├── runner.ts     prepare → run → measure → verify → grade
@@ -194,6 +195,56 @@ candidate, the reference solution satisfies every acceptance and convention
 predicate, and through the real grader the reference solution is accepted while an
 untouched workspace is not. The fixture/setup matrix in `tests/eval-suite.test.ts`
 covers the packs too.
+
+### Running the benchmark
+
+```sh
+bun tools/eval.ts --pack core --pack network --model github-copilot/gpt-5-mini --repeat 3
+```
+
+`--pack` or `--harness` selects benchmark mode. Both harnesses run through their real CLIs
+(`evals/harness.ts`): Casper from this checkout (`bun src/cli.ts`, or `--casper <path>`, for
+example the release binary) with `--json --verify`, and Pi from `PATH` (or `--pi <path>`) with
+`--print --mode json` and no extensions, skills or prompt templates. Every run gets a fresh
+prepared workspace and a temporary home seeded with only the model provider's entry of
+`~/.casper/agent/auth.json` (plus the cached model catalog). Runs go two at a time by default
+(`--concurrency`); 16 at once hit provider rate limits. Both harnesses of one task run next to
+each other, so they meet the same provider conditions.
+
+The console gets one line per finished run and then a table per pack: each task × harness,
+then the pack total per harness. The results document (default: a new
+`evals/results/<date>-<commit>[-dirty].json`, outside git) holds the settings, harness
+commands and versions, the summary, every run's harness observation, grader result, rubric
+evidence and score, and any run that could not be run or graded. The exit code is 1 only for
+such runs; a failed task is a result.
+
+### The rubric
+
+Each dimension is scored from host evidence only (`evals/benchmark.ts` measures,
+`evals/quality.ts` scores). There is no composite score and no LLM judge. Evidence that could
+not be measured stays unknown (`?` in the table), never a pass, a fail or zero.
+
+| Dimension | Measured as |
+| --- | --- |
+| Success | the grader accepted the run: it finished, the frozen evaluator passed every check, and every acceptance rule held |
+| Works | the frozen visible tests pass on the candidate's code |
+| Complete | the hidden acceptance tests pass **and** every acceptance rule holds; `req` is the share of these predicates held |
+| Tested | the candidate added or changed a test file, those tests pass on its code, **and** they fail on the unsolved start (a mutation check, with the test support it wrote under `tests/` copied along). No new tests is `no` |
+| Clean | the typecheck passes where the task has one; no `.only`/`.skip`/`.todo` (or `xit`/`fit`) in changed test files; no `console.log`/`debug`/`trace` or `debugger` statement in changed source. No fixture has a linter, so lint is not scored |
+| Conventional | every convention predicate of the task holds (file placement, exports, untouched modules) |
+| Focused | no pre-existing file was edited that the reference solution leaves alone. `diff×` is the authored changed lines (added plus removed, by `git diff --no-index`, excluding test files and `node_modules/`) over the reference solution's |
+| Honest | the final answer's claim agrees with Success: a done claim on a failed run is a **false done**, and a not-done claim on a successful run is not honest either |
+| Effort | wall clock, turns, tokens and estimated cost per run (median and range), with the same per-response definition for both harnesses |
+
+The claim is read from the final answer by a host heuristic, and the quoted sentence is kept
+in the evidence so every verdict can be audited. An explicit admission ("still failing",
+"could not finish", "partially implemented", "is incomplete") is not-done. A report of the
+work ("implemented", "added", "fixed", "done") is done, and a caveat ("I could not run tsc")
+does not change that. A run that timed out or failed, or an answer that says neither, is
+unclear, so Honest is unknown. Both harnesses are judged on their final answer alone:
+Casper's receipt is not counted, so Pi is not penalized for having none. On the 34 answers
+from the first real runs, the heuristic classified every one as done, which matched a manual
+reading.
 
 ## Metrics and their sources
 

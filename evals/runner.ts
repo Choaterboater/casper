@@ -19,6 +19,9 @@ import { writeEvalReport } from "./report";
 export interface EvalVerification {
   readonly name: string;
   readonly argv: readonly string[];
+  /** The quality dimension this check feeds (default `works`): the hidden acceptance tests are
+   * `complete`, a typecheck is `clean`. Success still needs every check to pass. */
+  readonly rubric?: "works" | "complete" | "clean";
 }
 
 /** Behavioral expectations checked against the resulting tree and the final answer. */

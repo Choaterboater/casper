@@ -4,9 +4,9 @@ import type { EvalAcceptance, EvalConvention, EvalTask, EvalVerification } from 
  * the hidden tests, which the setup removes from the candidate and the frozen evaluator runs. Prompts
  * carry the contract; the fixture's CONTEXT.md carries the conventions (neither harness auto-loads it). */
 
-const VISIBLE: EvalVerification = { name: "visible tests", argv: ["{{bun}}", "test", "./tests"] };
-const HIDDEN: EvalVerification = { name: "hidden acceptance", argv: ["{{bun}}", "test", "./acceptance"] };
-const TSC: EvalVerification = { name: "tsc --noEmit", argv: ["{{bun}}", "{{tsc}}", "--noEmit", "-p", "tsconfig.json"] };
+const VISIBLE: EvalVerification = { name: "visible tests", argv: ["{{bun}}", "test", "./tests"], rubric: "works" };
+const HIDDEN: EvalVerification = { name: "hidden acceptance", argv: ["{{bun}}", "test", "./acceptance"], rubric: "complete" };
+const TSC: EvalVerification = { name: "tsc --noEmit", argv: ["{{bun}}", "{{tsc}}", "--noEmit", "-p", "tsconfig.json"], rubric: "clean" };
 
 const RULES = " Read CONTEXT.md first; it describes this project's conventions. The visible tests in tests/ are "
   + "incomplete: hidden acceptance tests will check exactly the behavior described here and in CONTEXT.md. Keep the "
