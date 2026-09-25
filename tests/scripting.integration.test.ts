@@ -11,13 +11,15 @@ afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await c
 interface Payload { model: string; messages: Array<{ role: string; content: unknown }>; reasoning_effort?: string }
 type Step = { text: string } | { tools: Array<{ name: string; args: unknown }> };
 
-function chunk(delta: unknown, finishReason: string | null): string {
-  return `data: ${JSON.stringify({ id: "scripting", object: "chat.completion.chunk", created: 1, model: "fixture", choices: [{ index: 0, delta, finish_reason: finishReason }] })}\n\n`;
+function chunk(delta: unknown, finishReason: string | null, usage?: unknown): string {
+  return `data: ${JSON.stringify({ id: "scripting", object: "chat.completion.chunk", created: 1, model: "fixture", choices: [{ index: 0, delta, finish_reason: finishReason }], ...(usage ? { usage } : {}) })}\n\n`;
 }
+/** Every response reports 100 prompt and 20 completion tokens. */
+const USAGE = { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 };
 function respond(step: Step): Response {
   const body = "text" in step
-    ? chunk({ role: "assistant", content: step.text }, "stop")
-    : chunk({ role: "assistant", tool_calls: step.tools.map((tool, index) => ({ index, id: `call_${index}`, type: "function", function: { name: tool.name, arguments: JSON.stringify(tool.args) } })) }, null) + chunk({}, "tool_calls");
+    ? chunk({ role: "assistant", content: step.text }, "stop", USAGE)
+    : chunk({ role: "assistant", tool_calls: step.tools.map((tool, index) => ({ index, id: `call_${index}`, type: "function", function: { name: tool.name, arguments: JSON.stringify(tool.args) } })) }, null) + chunk({}, "tool_calls", USAGE);
   return new Response(`${body}data: [DONE]\n\n`, { headers: { "content-type": "text/event-stream" } });
 }
 
@@ -39,7 +41,9 @@ async function fixture(script: (request: number, payload: Payload) => Step = () 
   await mkdir(agent, { recursive: true });
   const baseUrl = `http://127.0.0.1:${server.port}/v1`;
   await writeFile(path.join(agent, "models.json"), JSON.stringify({ providers: {
-    fixture: { baseUrl, api: "openai-completions", apiKey: "synthetic", models: [{ id: "first" }, { id: "second", reasoning: true }] },
+    fixture: { baseUrl, api: "openai-completions", apiKey: "synthetic", models: [
+      // $1 per million input and $2 per million output tokens: $0.00014 per scripted response.
+      { id: "first", cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 } }, { id: "second", reasoning: true }] },
     missing: { baseUrl, api: "openai-completions", models: [{ id: "no-auth" }] },
   } }));
   const settings = path.join(home, ".casper/settings.json");
@@ -218,6 +222,9 @@ test("--json streams v1 JSON Lines on stdout: session, text, tools, Casper's che
   const receipt = stream.at(-1);
   expect(receipt.text).toStartWith(receiptText);
   receipt.text = "<receipt text>";
+  // Two model responses at 120 tokens each; the cost is the catalog estimate for those tokens.
+  expect(receipt.usage.estimatedCost).toBeCloseTo(0.00028, 10);
+  receipt.usage.estimatedCost = "<cost>";
   expect(stream).toEqual([
     { v: 1, type: "session_start", casper: "<version>", cwd: "<project>", session: "<id>", provider: "fixture", model: "first", effort: stream[0].effort },
     { v: 1, type: "tool_start", tool: "write", id: "call_0", target: "sum.js" },
@@ -227,7 +234,7 @@ test("--json streams v1 JSON Lines on stdout: session, text, tools, Casper's che
     { v: 1, type: "check", name: "test", command: "grep -q fixed sum.js", status: "pass", exit: 0, ms: "<ms>", recordedBy: "casper", reused: false },
     { v: 1, type: "receipt", outcome: "verified", exitCode: 0, execution: "completed", changed: ["sum.js"], changedDuringChecks: [],
       verificationMode: "auto", checks: [{ name: "test", command: "grep -q fixed sum.js", status: "pass", exit: 0, ms: "<ms>", fresh: true }],
-      repairAttempts: 0, turnLimit: null, text: "<receipt text>" },
+      repairAttempts: 0, turnLimit: null, usage: { turns: 2, tokens: 240, estimatedCost: "<cost>" }, text: "<receipt text>" },
   ]);
 }, 30_000);
 

@@ -30,3 +30,9 @@ test("a receipt exists even for a local command, and unknown changes are null", 
   expect(receiptEvent(undefined, undefined, 0)).toMatchObject({ outcome: "unchanged", changed: [], checks: [], text: "" });
   expect(receiptEvent(undefined, { execution: "completed", possibleMutations: true }, 0)).toMatchObject({ outcome: "not_verified", changed: null });
 });
+
+test("the receipt carries the task's model usage, and null when no model task ran", () => {
+  expect(receiptEvent(undefined, undefined, 0).usage).toBeNull();
+  expect(receiptEvent(undefined, { execution: "completed", usage: { turns: 4, tokens: null, estimatedCost: null } }, 0).usage)
+    .toEqual({ turns: 4, tokens: null, estimatedCost: null });
+});

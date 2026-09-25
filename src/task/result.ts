@@ -12,6 +12,17 @@ export interface ObservedCheck {
   truncated: boolean;
 }
 
+/** Model use by the main conversation during one task, repair prompts included. */
+export interface TaskUsage {
+  /** Model responses (turns). */
+  turns: number;
+  /** Totals of what the provider reported per response. Null when a response had no report or the
+   * task also made model calls Casper does not total (a delegated subagent, automatic effort's
+   * classifier): unknown, never an undercount. The cost is a catalog estimate, never an invoice. */
+  tokens: number | null;
+  estimatedCost: number | null;
+}
+
 /** Execution completion is not behavioral acceptance or proof of correctness. */
 export interface TaskResult {
   execution: "completed" | "failed" | "cancelled";
@@ -35,6 +46,7 @@ export interface TaskResult {
   autoSkipped?: AutoCheckSkip;
   /** `--max-turns` stopped the model after this many turns, before it finished. */
   turnLimit?: number;
+  usage?: TaskUsage;
 }
 
 /** What a run proved, in the words scripts match on. */

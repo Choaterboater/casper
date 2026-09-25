@@ -50,6 +50,76 @@ test("the receipt reports an aliased shell test run as a diagnostic observation"
   expect(text).toContain("test:success (diagnostics only)");
 });
 
+const response = (usage?: { tokens: number; estimatedCost: number }) => ({ type: "assistant_response_end" as const, stopReason: "toolUse", ...(usage ? { usage } : {}) });
+
+test("usage counts every model response and totals its reported tokens and cost", () => {
+  const observations = new TaskObservations();
+  expect(observations.snapshot([]).usage).toEqual({ turns: 0, tokens: 0, estimatedCost: 0 });
+  observations.observeUsage(response({ tokens: 100, estimatedCost: 0.25 }));
+  observations.observeUsage({ type: "tool_start", toolName: "bash" });
+  observations.observeUsage(response({ tokens: 50, estimatedCost: 0.5 }));
+  expect(observations.snapshot([]).usage).toEqual({ turns: 2, tokens: 150, estimatedCost: 0.75 });
+});
+
+test("usage is unknown, never an undercount, when a response has none or a subagent made model calls", () => {
+  const unreported = new TaskObservations();
+  unreported.observeUsage(response({ tokens: 100, estimatedCost: 0.25 }));
+  unreported.observeUsage(response());
+  unreported.observeUsage(response({ tokens: 50, estimatedCost: 0.5 }));
+  expect(unreported.snapshot([]).usage).toEqual({ turns: 3, tokens: null, estimatedCost: null });
+
+  const delegated = new TaskObservations();
+  delegated.observeUsage(response({ tokens: 100, estimatedCost: 0.25 }));
+  delegated.observeUsage({ type: "tool_start", toolName: "delegate" });
+  expect(delegated.snapshot([]).usage).toEqual({ turns: 1, tokens: null, estimatedCost: null });
+
+  const classified = new TaskObservations();
+  classified.recordUntrackedModelUse();
+  classified.observeUsage(response({ tokens: 100, estimatedCost: 0.25 }));
+  expect(classified.snapshot([]).usage).toEqual({ turns: 1, tokens: null, estimatedCost: null });
+});
+
+test("the task result carries this task's usage; automatic-effort classification makes tokens unknown", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-task-usage-"));
+  try {
+    await mkdir(path.join(root, "home"));
+    let classifications = 0;
+    let classify = false;
+    const runtime: AgentRuntime = {
+      async start(): Promise<RuntimeSession> {
+        const listeners = new Set<(event: Parameters<Parameters<RuntimeSession["subscribe"]>[0]>[0]) => void>();
+        return {
+          async prompt() {
+            if (classify) classifications++;
+            for (const listener of listeners) {
+              listener({ type: "assistant_response_start" });
+              listener({ type: "assistant_response_end", stopReason: "stop", usage: { tokens: 120, estimatedCost: 0.5 } });
+            }
+          },
+          async abort() {}, setTools() {}, subscribe: (listener) => { listeners.add(listener); return () => listeners.delete(listener); },
+          getState: () => ({ cwd: root, isStreaming: false }),
+          getUsage: () => ({ tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }, messages: 0,
+            effortClassification: { requests: classifications, tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } }),
+        };
+      },
+      async dispose() {},
+    };
+    const app = new CasperApp({
+      verificationMode: "off", runtimeFactory: () => runtime, output: { write: () => {} },
+      loadProjectContext: (project) => loadProjectContext(project, { homeDir: path.join(root, "home") }),
+      loadSkillRegistry: (context) => SkillRegistry.discover({ projectRoot: context.info.root, homeDir: path.join(root, "home") }),
+    });
+    try {
+      await app.runOnce("explain the project", root);
+      expect(app.getLastTaskResult()?.usage).toEqual({ turns: 1, tokens: 120, estimatedCost: 0.5 });
+      // Each task counts only its own responses.
+      classify = true;
+      await app.runOnce("explain the project again", root);
+      expect(app.getLastTaskResult()?.usage).toEqual({ turns: 1, tokens: null, estimatedCost: null });
+    } finally { await app.close(); }
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 const model: ProjectModel = {
   schemaVersion: 1, project: { name: "sum", root: "/sum", git: false }, languages: ["javascript"], frameworks: [],
   packageManager: "npm", commands: { test: "npm run test" }, architecture: {}, conventions: [], detectedAt: "2026-01-01T00:00:00.000Z",

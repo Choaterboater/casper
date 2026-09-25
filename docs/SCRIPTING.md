@@ -65,7 +65,7 @@ A run ends with exactly one `receipt` event, or, when Casper stops before it can
 | `tool_start` | `tool`, `id`, `target` (path, command or pattern; redacted) | A tool call starts. |
 | `tool_end` | `tool`, `id`, `ok`, `ms` | A tool call ends. `ok` is the tool status, not a check result. |
 | `check` | `name`, `command`, `status` (`pass`/`fail`/`skip`), `exit`, `ms`, `recordedBy`, `reused` | Casper recorded a check. `recordedBy` is `casper` (auto mode, `/verify`, repair) or `casper_check` (the model asked for it). |
-| `receipt` | `outcome`, `exitCode`, `execution`, `changed`, `changedDuringChecks`, `verificationMode`, `checks`, `repairAttempts`, `turnLimit`, `text` | The run finished. |
+| `receipt` | `outcome`, `exitCode`, `execution`, `changed`, `changedDuringChecks`, `verificationMode`, `checks`, `repairAttempts`, `turnLimit`, `usage`, `text` | The run finished. |
 | `error` | `message` | Something failed. |
 
 `receipt.outcome` is one of `verified`, `failed`, `incomplete`, `not_verified`, `unchanged`,
@@ -74,9 +74,16 @@ request changed, or `null` when Casper could not compare the workspace. Each ent
 has `name`, `command`, `status`, `exit`, `ms` and `fresh`. `text` is the plain receipt a person
 would read.
 
+`usage` is the request's model use, repair prompts included, or `null` when no model request ran
+(a local `/` command): `turns` counts model responses, and `tokens` and `estimatedCost` total
+what the provider reported for each of them. `estimatedCost` is the model catalog's estimate,
+not an invoice. Context compaction is not counted. Both totals are `null` (unknown, never an
+undercount) when a response had no usage report, or the request also made model calls Casper
+does not total: a `delegate` subagent, or automatic effort's classifier.
+
 ```json
 {"v":1,"type":"check","name":"test","command":"npm run test","status":"pass","exit":0,"ms":412,"recordedBy":"casper","reused":false}
-{"v":1,"type":"receipt","outcome":"verified","exitCode":0,"execution":"completed","changed":["sum.js"],"changedDuringChecks":[],"verificationMode":"auto","checks":[{"name":"test","command":"npm run test","status":"pass","exit":0,"ms":412,"fresh":true}],"repairAttempts":0,"turnLimit":null,"text":"✓ Changed 1 file: sum.js\n✓ Verified by Casper: test passed (npm run test, 0.4s)"}
+{"v":1,"type":"receipt","outcome":"verified","exitCode":0,"execution":"completed","changed":["sum.js"],"changedDuringChecks":[],"verificationMode":"auto","checks":[{"name":"test","command":"npm run test","status":"pass","exit":0,"ms":412,"fresh":true}],"repairAttempts":0,"turnLimit":null,"usage":{"turns":2,"tokens":18342,"estimatedCost":0.0041},"text":"✓ Changed 1 file: sum.js\n✓ Verified by Casper: test passed (npm run test, 0.4s)"}
 ```
 
 ### `jq` recipes

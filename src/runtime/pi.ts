@@ -308,9 +308,14 @@ class PiRuntimeSession implements RuntimeSession {
           });
           break;
         case "message_end":
-          if (event.message.role === "assistant") this.emit({
-            type: "assistant_response_end", stopReason: event.message.stopReason, errorMessage: event.message.errorMessage,
-          });
+          if (event.message.role === "assistant") {
+            const { totalTokens, cost } = event.message.usage ?? {};
+            const reported = Number.isFinite(totalTokens) && Number.isFinite(cost?.total);
+            this.emit({
+              type: "assistant_response_end", stopReason: event.message.stopReason, errorMessage: event.message.errorMessage,
+              ...(reported ? { usage: { tokens: totalTokens!, estimatedCost: cost!.total } } : {}),
+            });
+          }
           break;
         case "message_update": {
           const update = event.assistantMessageEvent;

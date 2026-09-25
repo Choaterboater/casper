@@ -4,7 +4,7 @@ import type { RuntimeEvent } from "../runtime/types";
 import { CHECK_NAMES } from "../verify/evidence";
 import type { ObservedCheck, TaskResult } from "./result";
 
-type TaskObservationSnapshot = Required<Pick<TaskResult, "observedEdits" | "observedChecks" | "possibleMutations">> & Pick<TaskResult, "changedPaths" | "changedDuringChecks">;
+type TaskObservationSnapshot = Required<Pick<TaskResult, "observedEdits" | "observedChecks" | "possibleMutations" | "usage">> & Pick<TaskResult, "changedPaths" | "changedDuringChecks">;
 
 /** One retained tool call, newest last. Output is already bounded by the runtime adapter. */
 export interface RetainedToolOutput {
@@ -39,6 +39,26 @@ export class TaskObservations {
   private readonly checks = new Map<ProjectCommand, ObservedCheck>();
   private readonly outputs: RetainedToolOutput[] = [];
   private mutationToolRan = false;
+  private turns = 0;
+  private tokens: number | null = 0;
+  private estimatedCost: number | null = 0;
+
+  /** Counts the main conversation's model responses and totals their reported usage. A
+   * delegated subagent's model calls are not totalled, so delegating makes the totals unknown. */
+  observeUsage(event: RuntimeEvent): void {
+    if (event.type === "tool_start" && event.toolName === "delegate") this.recordUntrackedModelUse();
+    if (event.type !== "assistant_response_end") return;
+    this.turns++;
+    if (!event.usage) { this.recordUntrackedModelUse(); return; }
+    if (this.tokens !== null) this.tokens += event.usage.tokens;
+    if (this.estimatedCost !== null) this.estimatedCost += event.usage.estimatedCost;
+  }
+
+  /** The task made model calls these totals do not include. */
+  recordUntrackedModelUse(): void {
+    this.tokens = null;
+    this.estimatedCost = null;
+  }
 
   recordEdit(path: string): void {
     if (this.edits.size < 32) this.edits.add(path.slice(0, 512));
@@ -79,6 +99,7 @@ export class TaskObservations {
     return { observedEdits: [...this.edits], observedChecks: [...this.checks.values()].map((check) => ({ ...check })),
       ...(changedPaths ? { changedPaths: [...changedPaths] } : {}),
       ...(changedDuringChecks.length ? { changedDuringChecks: [...changedDuringChecks] } : {}),
-      possibleMutations: this.mutationToolRan && !changedPaths };
+      possibleMutations: this.mutationToolRan && !changedPaths,
+      usage: { turns: this.turns, tokens: this.tokens, estimatedCost: this.estimatedCost } };
   }
 }
