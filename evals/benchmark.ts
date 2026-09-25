@@ -13,13 +13,43 @@ import { BENCHMARK_PACKS, EVAL_TASKS } from "./tasks";
 /** The quality benchmark: Casper and Pi on the same task, model, effort and time limit, each run graded
  * by the frozen evaluator and scored from host evidence only (evals/quality.ts). */
 
+/** One attempt of a run with follow-ups: attempt 0 is the task itself, then each follow-up. */
+export interface ReworkAttempt {
+  attempt: number;
+  termination: HarnessObservation["termination"];
+  wallClockMs: number;
+  turns: number | null;
+  tokens: number | null;
+  estimatedCost: number | null;
+  /** The conversation the CLI reported; a follow-up in another one did not really continue. */
+  sessionId: string | null;
+  receiptOutcome: string | null;
+  /** Accepted by the frozen grader after this attempt. */
+  success: boolean;
+  failedChecks: string[];
+  acceptanceFailures: string[];
+  phases?: HarnessObservation["phases"];
+  /** The final answer, bounded. */
+  answer: string;
+}
+
+/** The rework experiment (`followUps`): a failed run gets the grader's failure report in the same
+ * conversation, as a person reporting the failure would, up to the cap. The rubric still scores the
+ * first attempt; this is what it took to get from there to an accepted result. */
 export interface ReworkResult {
+  /** Follow-ups sent. */
   followUps: number;
   firstTimeRight: boolean;
-  fixedWithinFollowUps: boolean;
+  /** Accepted after a follow-up. */
+  fixed: boolean;
+  /** Every follow-up ran in the first attempt's conversation; null when a CLI reported no id or no
+   * follow-up was sent. */
+  resumed: boolean | null;
   totalWallClockMs: number;
   totalTurns: number | null;
   totalTokens: number | null;
+  totalCost: number | null;
+  attempts: ReworkAttempt[];
 }
 
 export interface BenchmarkRun {
@@ -32,7 +62,7 @@ export interface BenchmarkRun {
   graded: EvalRunResult;
   evidence: QualityEvidence;
   score: QualityScore;
-  /** Optional continuation experiment; the initial run remains the acceptance result. */
+  /** Only with follow-ups. `run`, `graded`, `evidence` and `score` are always the first attempt. */
   rework?: ReworkResult;
 }
 
@@ -241,7 +271,8 @@ export interface BenchmarkOptions {
   /** Per independent check and per mutation-check command. */
   verifyTimeoutMs: number;
   seed?: HarnessInput["seed"];
-  /** Continue failed runs with a realistic failure report, capped to avoid turning benchmarks into open-ended repair. */
+  /** Follow-ups a failed run gets (0–2, default 0): the grader's failure report, sent into the same
+   * conversation. Each attempt has the full time limit. */
   followUps?: number;
   onRun?(run: BenchmarkRun): void;
   onFailure?(failure: BenchmarkFailure): void;
@@ -283,49 +314,77 @@ export async function runBenchmark(options: BenchmarkOptions): Promise<{ runs: B
   return { runs: runs.filter((run) => run !== undefined), failures: failures.filter((failure) => failure !== undefined) };
 }
 
+const MAX_FAILURE_REPORT = 6000;
+
+/** What a person would send back after seeing the failure: the failing checks' output tails (the
+ * grader's, which a person running the tests would see) or the broken acceptance rules. */
+export function followUpPrompt(graded: EvalRunResult): string {
+  const checks = graded.verification.checks.filter((check) => check.status === "fail")
+    .map((check) => `${check.name} (exit ${check.exitCode ?? "none"}):\n${check.output.slice(-2500).trim()}`);
+  const report = [...checks, ...graded.acceptance.failures].join("\n\n").slice(-MAX_FAILURE_REPORT)
+    || `The independent verification is ${graded.verification.status}${graded.verification.unavailable ? `: ${graded.verification.unavailable}` : ""}.`;
+  return ["Continue the task. It is not done: the checks below still fail. Fix the implementation, not the checks, and run the relevant tests before you finish.",
+    "", "Failure report:", report].join("\n");
+}
+
 async function runJob(options: BenchmarkOptions, task: EvalTask, harness: HarnessName, repeat: number,
   reference: (task: EvalTask) => Promise<ReferenceBaseline>): Promise<BenchmarkRun> {
   const { root, workdir } = await prepareEvalTask(task, options.repoRoot);
-  const home = await mkdtemp(path.join(os.tmpdir(), "casper-bench-session-"));
+  const limit = options.followUps ?? 0;
+  if (!Number.isSafeInteger(limit) || limit < 0 || limit > 2) throw new Error("Follow-ups must be 0, 1 or 2");
+  // A conversation that outlives one attempt needs a home that does too; otherwise runHarness owns it.
+  const home = limit ? await mkdtemp(path.join(os.tmpdir(), "casper-bench-session-")) : undefined;
   try {
-    const startedAt = new Date().toISOString();
-    const sessionId = `casper-bench-${task.id}-${repeat}`;
-    const limit = options.followUps ?? 0;
-    let prompt = task.prompt;
-    let run!: HarnessObservation;
-    let graded!: EvalRunResult;
-    let totalWallClockMs = 0;
-    let totalTurns: number | null = 0;
-    let totalTokens: number | null = 0;
-    let attempt = 0;
-    while (true) {
-      run = await runHarness(harness, {
+    const session = (resume: boolean) => home ? { home, id: `casper-bench-${task.id}-${repeat}`, resume } : undefined;
+    const attempt = async (prompt: string, resume: boolean) => {
+      const startedAt = new Date().toISOString();
+      const run = await runHarness(harness, {
         command: options.commands[harness], cwd: workdir, prompt, model: options.model, effort: options.effort,
-        timeoutMs: options.timeoutMs, seed: options.seed, homeDir: home, sessionId, continueSession: attempt > 0,
+        timeoutMs: options.timeoutMs, seed: options.seed, session: session(resume),
       });
-      totalWallClockMs += run.wallClockMs;
-      totalTurns = totalTurns !== null && run.turns !== null ? totalTurns + run.turns : null;
-      totalTokens = totalTokens !== null && run.tokens !== null ? totalTokens + run.tokens : null;
       const observation: EvalObservation = {
-        startedAt, wallClockMs: totalWallClockMs, execution: run.termination === "completed" ? "completed" : "failed",
-        modelCalls: totalTurns ?? (run.answer ? 1 : 0), answer: run.answer, interventions: [], model: options.model,
+        startedAt, wallClockMs: run.wallClockMs, execution: run.termination === "completed" ? "completed" : "failed",
+        modelCalls: run.turns ?? (run.answer ? 1 : 0), answer: run.answer, interventions: [], model: options.model,
         ...(run.termination === "timeout" ? { error: `Stopped at the ${options.timeoutMs / 1000} s time limit` } : {}),
         runtimeErrors: run.errors.map((error) => error.slice(0, 2000)),
       };
-      graded = await gradePreparedEval(root, observation, options.verifyTimeoutMs);
-      if (graded.success || attempt >= limit || run.termination !== "completed") break;
-      const failures = graded.verification.checks.filter((check) => check.status === "fail")
-        .map((check) => `${check.name}: ${check.output.slice(-2500)}`).join("\\n\\n");
-      prompt = `Continue the task. The independent acceptance checks still fail. Fix the implementation, not the checks, and run the relevant tests.\\n\\nFailure report:\\n${failures || graded.acceptance.failures.join("\\n")}`;
-      attempt++;
+      return { run, graded: await gradePreparedEval(root, observation, options.verifyTimeoutMs) };
+    };
+    const record = (index: number, { run, graded }: Awaited<ReturnType<typeof attempt>>): ReworkAttempt => ({
+      attempt: index, termination: run.termination, wallClockMs: run.wallClockMs, turns: run.turns, tokens: run.tokens,
+      estimatedCost: run.estimatedCost, sessionId: run.sessionId, receiptOutcome: run.receiptOutcome, success: graded.success,
+      failedChecks: graded.verification.checks.filter((check) => check.status === "fail").map((check) => check.name),
+      acceptanceFailures: [...graded.acceptance.failures], ...(run.phases ? { phases: run.phases } : {}), answer: run.answer.slice(0, 4000),
+    });
+
+    const first = await attempt(task.prompt, false);
+    // The rubric reads the tree the first attempt left, before any follow-up changes it.
+    const evidence = await measureQuality({ task, repoRoot: options.repoRoot, workdir, graded: first.graded, run: first.run,
+      reference: await reference(task), timeoutMs: options.verifyTimeoutMs });
+    const result: BenchmarkRun = { taskId: task.id, pack: task.pack!, harness, repeat, run: first.run, graded: first.graded, evidence, score: scoreQuality(evidence) };
+    if (!limit) return result;
+
+    const attempts = [record(0, first)];
+    let last = first;
+    // A timed-out or crashed CLI has no finished conversation to continue.
+    while (!last.graded.success && last.run.termination === "completed" && attempts.length <= limit) {
+      last = await attempt(followUpPrompt(last.graded), true);
+      attempts.push(record(attempts.length, last));
     }
-    const aggregate: HarnessObservation = { ...run, wallClockMs: totalWallClockMs, turns: totalTurns, tokens: totalTokens,
-      phases: run.phases, errors: run.errors };
-    const evidence = await measureQuality({ task, repoRoot: options.repoRoot, workdir, graded, run: aggregate, reference: await reference(task), timeoutMs: options.verifyTimeoutMs });
-    return { taskId: task.id, pack: task.pack!, harness, repeat, run: aggregate, graded, evidence, score: scoreQuality(evidence),
-      rework: limit ? { followUps: attempt, firstTimeRight: attempt === 0 && graded.success, fixedWithinFollowUps: attempt > 0 && graded.success,
-        totalWallClockMs, totalTurns, totalTokens } : undefined };
-  } finally { await rm(home, { recursive: true, force: true }); await rm(root, { recursive: true, force: true }); }
+    const sum = (values: readonly (number | null)[]) => values.some((value) => value === null) ? null : values.reduce<number>((total, value) => total + value!, 0);
+    const followUps = attempts.slice(1);
+    const ids = attempts.map((entry) => entry.sessionId);
+    return { ...result, rework: {
+      followUps: followUps.length, firstTimeRight: first.graded.success, fixed: followUps.length > 0 && last.graded.success,
+      resumed: !followUps.length || ids.includes(null) ? null : ids.every((id) => id === ids[0]),
+      totalWallClockMs: attempts.reduce((total, entry) => total + entry.wallClockMs, 0),
+      totalTurns: sum(attempts.map((entry) => entry.turns)), totalTokens: sum(attempts.map((entry) => entry.tokens)),
+      totalCost: sum(attempts.map((entry) => entry.estimatedCost)), attempts,
+    } };
+  } finally {
+    if (home) await rm(home, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true });
+  }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -347,6 +406,21 @@ export interface BenchmarkCell {
   turns: Spread | null;
   tokens: Spread | null;
   estimatedCost: Spread | null;
+  /** Runs with follow-ups only; null when none had them. */
+  rework: ReworkCell | null;
+}
+
+export interface ReworkCell {
+  runs: number;
+  firstTimeRight: number;
+  /** Accepted after a follow-up. */
+  fixed: number;
+  /** Still not accepted after the last follow-up (or not continuable). */
+  unfixed: number;
+  resumed: Tally;
+  totalWallClockMs: Spread | null;
+  totalTokens: Spread | null;
+  totalCost: Spread | null;
 }
 
 type Cells = Partial<Record<HarnessName, BenchmarkCell>>;
@@ -381,6 +455,23 @@ function cell(runs: readonly BenchmarkRun[]): BenchmarkCell {
     turns: spread(runs.map((run) => run.score.effort.turns)),
     tokens: spread(runs.map((run) => run.score.effort.tokens)),
     estimatedCost: spread(runs.map((run) => run.score.effort.estimatedCost)),
+    rework: reworkCell(runs.flatMap((run) => run.rework ? [run.rework] : [])),
+  };
+}
+
+function reworkCell(reworks: readonly ReworkResult[]): ReworkCell | null {
+  if (!reworks.length) return null;
+  const sent = reworks.filter((rework) => rework.followUps > 0);
+  return {
+    runs: reworks.length,
+    firstTimeRight: reworks.filter((rework) => rework.firstTimeRight).length,
+    fixed: reworks.filter((rework) => rework.fixed).length,
+    unfixed: reworks.filter((rework) => !rework.firstTimeRight && !rework.fixed).length,
+    resumed: { yes: sent.filter((rework) => rework.resumed === true).length, no: sent.filter((rework) => rework.resumed === false).length,
+      unknown: sent.filter((rework) => rework.resumed === null).length },
+    totalWallClockMs: spread(reworks.map((rework) => rework.totalWallClockMs)),
+    totalTokens: spread(reworks.map((rework) => rework.totalTokens)),
+    totalCost: spread(reworks.map((rework) => rework.totalCost)),
   };
 }
 
@@ -432,6 +523,14 @@ function row(label: string, harness: HarnessName, value: BenchmarkCell): string[
     spreadText(value.tokens, tokensText), spreadText(value.estimatedCost, costText)];
 }
 
+const REWORK_HEADER = ["task", "harness", "first-time", "fixed", "unfixed", "resumed", "total wall s", "total tokens", "total cost"];
+
+function reworkRow(label: string, harness: HarnessName, value: ReworkCell): string[] {
+  return [label, harness, `${value.firstTimeRight}/${value.runs}`, `${value.fixed}/${value.runs - value.firstTimeRight}`, String(value.unfixed),
+    tallyText(value.resumed), spreadText(value.totalWallClockMs, (ms) => (ms / 1000).toFixed(0)),
+    spreadText(value.totalTokens, tokensText), spreadText(value.totalCost, costText)];
+}
+
 /** One table per pack: every task × harness, then the pack total per harness. Numbers are the
  * median (min–max) over runs; `k/n` counts yes among the n known, `?u` the unknown. */
 export function formatBenchmarkReport(summary: BenchmarkSummary): string {
@@ -439,7 +538,10 @@ export function formatBenchmarkReport(summary: BenchmarkSummary): string {
     const rows = [HEADER];
     for (const { taskId, harnesses } of tasks) for (const harness of HARNESSES) if (harnesses[harness]) rows.push(row(taskId, harness, harnesses[harness]!));
     for (const harness of HARNESSES) if (total[harness]) rows.push(row(`all ${tasks.length} tasks`, harness, total[harness]!));
-    return `${pack} pack\n${table(rows)}`;
+    const rework = [REWORK_HEADER];
+    for (const { taskId, harnesses } of tasks) for (const harness of HARNESSES) if (harnesses[harness]?.rework) rework.push(reworkRow(taskId, harness, harnesses[harness]!.rework!));
+    for (const harness of HARNESSES) if (total[harness]?.rework) rework.push(reworkRow(`all ${tasks.length} tasks`, harness, total[harness]!.rework!));
+    return `${pack} pack\n${table(rows)}${rework.length > 1 ? `\n\n${pack} pack, follow-ups (the rubric above scores each first attempt)\n${table(rework)}` : ""}`;
   });
   return [
     "k/n = yes of n known; ?u = unknown (never counted as a pass or a fail). Spreads are median (min–max) over runs.",

@@ -20,6 +20,9 @@ export interface HarnessObservation {
   /** Casper's own verdict from its receipt (`verified`, `failed`, ...); null for Pi. A self-report,
    * never acceptance evidence: kept to compare Casper's receipts with the grader. */
   receiptOutcome: string | null;
+  /** The conversation the CLI reported running in (Casper's session_start, Pi's session header);
+   * null when it reported none. A follow-up resumed only if this matches the first attempt's. */
+  sessionId: string | null;
   errors: string[];
   /** Host timing inferred from Casper's additive phase events; absent for Pi. */
   phases?: readonly { phase: "task" | "checks" | "review" | "proof" | "repair"; durationMs: number }[];
@@ -36,12 +39,15 @@ export interface HarnessInput {
   timeoutMs: number;
   /** Read-only sources; only the model's provider entry is copied to the temporary home. */
   seed?: { authPath: string; modelsStorePath?: string };
-  /** Reuse a caller-owned home for a continuation run. */
-  homeDir?: string;
-  /** Continue the latest conversation in the caller-owned home. */
-  continueSession?: boolean;
-  /** Stable session id for Pi continuation. */
-  sessionId?: string;
+  /** A saved conversation in a caller-owned home, kept across runs so a follow-up can continue it.
+   * Without one, the home is temporary and the conversation is not saved (Pi: `--no-session`). */
+  session?: {
+    home: string;
+    /** Pi's conversation id (`--session-id`, created on the first run and resumed after). Casper
+     * cannot be given an id: it resumes its latest conversation in the home (`--continue`). */
+    id: string;
+    resume: boolean;
+  };
 }
 
 export interface ProcessObservation {
@@ -54,8 +60,8 @@ export interface ProcessObservation {
 export async function runHarness(name: HarnessName, input: HarnessInput): Promise<HarnessObservation> {
   if (!input.command.length || !input.command[0] || !input.model.includes("/")
     || !Number.isSafeInteger(input.timeoutMs) || input.timeoutMs < 1) throw new Error("Invalid harness input");
-  const ownsHome = !input.homeDir;
-  const home = input.homeDir ?? await mkdtemp(path.join(os.tmpdir(), "casper-harness-home-"));
+  const ownsHome = !input.session;
+  const home = input.session?.home ?? await mkdtemp(path.join(os.tmpdir(), "casper-harness-home-"));
   const agent = path.join(home, name === "casper" ? ".casper/agent" : ".pi/agent");
   const started = performance.now();
   try {
@@ -68,8 +74,9 @@ export async function runHarness(name: HarnessName, input: HarnessInput): Promis
       if (input.seed.modelsStorePath) await copyFile(input.seed.modelsStorePath, path.join(agent, "models-store.json"));
     }
     const args = name === "casper"
-      ? ["--json", "--model", input.model, "--effort", input.effort, "--verify", ...(input.continueSession ? ["--continue"] : [])]
-      : ["--print", "--mode", "json", ...(input.sessionId ? ["--session-id", input.sessionId] : ["--no-session"]), ...(input.continueSession ? ["--continue"] : []), "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-themes",
+      ? ["--json", "--model", input.model, "--effort", input.effort, "--verify", ...(input.session?.resume ? ["--continue"] : [])]
+      // Pi refuses --session-id with --continue; the id alone resumes the conversation once it exists.
+      : ["--print", "--mode", "json", ...(input.session ? ["--session-id", input.session.id] : ["--no-session"]), "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-themes",
         "--model", input.model, "--thinking", input.effort];
     const child = Bun.spawn([...input.command, ...args, "--", input.prompt], {
       cwd: input.cwd, env: isolatedEnvironment(home, name === "casper"
@@ -140,6 +147,7 @@ export function observeHarness(name: HarnessName, events: readonly unknown[], pr
   // failed, 2 incomplete), stated in the receipt: the run still finished and its tree is graded.
   let expectedExit = 0;
   let receiptOutcome: string | null = null;
+  let sessionId: string | null = null;
   const errors: string[] = [];
   // Protocol faults fail the run. Provider errors are diagnostics: both CLIs retry them, and only
   // the final state (Casper's receipt, Pi's last response) says whether the run finished.
@@ -166,6 +174,7 @@ export function observeHarness(name: HarnessName, events: readonly unknown[], pr
       else { const start = phaseStarts.get(event.phase); if (start !== undefined) phases.push({ phase: event.phase, durationMs: Math.max(0, event.atMs - start) }); }
     }
     if (name === "casper" && event.v === 1) {
+      if (event.type === "session_start" && typeof event.session === "string") sessionId = event.session.slice(0, 128);
       if (event.type === "assistant_message" && typeof event.text === "string") { answer = event.text; responded = true; }
       if (event.type === "receipt") {
         completed = event.execution === "completed";
@@ -178,6 +187,7 @@ export function observeHarness(name: HarnessName, events: readonly unknown[], pr
         casperUsage = { turns: count(usage?.turns), tokens: count(usage?.tokens), estimatedCost: amount(usage?.estimatedCost) };
       }
     }
+    if (name === "pi" && event.type === "session" && typeof event.id === "string") sessionId = event.id.slice(0, 128);
     if (name === "pi" && event.type === "agent_end") ended = true;
     if (name === "pi" && event.type === "message_end") {
       const message = record(event.message);
@@ -203,6 +213,6 @@ export function observeHarness(name: HarnessName, events: readonly unknown[], pr
     answer, termination: process.timedOut ? "timeout" : completed && ended && responded && !broken && process.exitCode === expectedExit ? "completed" : "failed",
     exitCode: process.exitCode, wallClockMs: process.wallClockMs,
     ...(name === "casper" ? casperUsage : { turns, tokens: turns ? tokens : null, estimatedCost: turns ? estimatedCost : null }),
-    receiptOutcome, errors, ...(phases.length ? { phases } : {}),
+    receiptOutcome, sessionId, errors, ...(phases.length ? { phases } : {}),
   };
 }

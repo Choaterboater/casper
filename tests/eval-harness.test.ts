@@ -6,6 +6,7 @@ import { observeHarness, runHarness } from "../evals/harness";
 
 test("Casper observations use the last complete answer, not deltas or its verification claim", () => {
   const result = observeHarness("casper", [
+    { v: 1, type: "session_start", session: "casper-conversation" },
     { v: 1, type: "assistant_delta", text: "Working" },
     { v: 1, type: "assistant_message", text: "I will fix it." },
     { v: 1, type: "assistant_message", text: "Fixed and tested." },
@@ -13,7 +14,7 @@ test("Casper observations use the last complete answer, not deltas or its verifi
   ], { exitCode: 0, timedOut: false, wallClockMs: 42 });
   expect(result).toEqual({
     answer: "Fixed and tested.", termination: "completed", exitCode: 0, wallClockMs: 42,
-    turns: null, tokens: null, estimatedCost: null, receiptOutcome: "verified", errors: [],
+    turns: null, tokens: null, estimatedCost: null, receiptOutcome: "verified", sessionId: "casper-conversation", errors: [],
   });
 });
 
@@ -34,13 +35,37 @@ test("Pi counts authoritative assistant usage once, excluding tool results and a
   const message = { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "Implemented." }],
     usage: { totalTokens: 120, cost: { total: 0.02 } } };
   const result = observeHarness("pi", [
+    { type: "session", version: 3, id: "pi-conversation" },
     { type: "message_end", message: { ...message, stopReason: "toolUse" } },
     { type: "message_end", message: { role: "toolResult", content: [{ type: "text", text: "Not an answer" }] } },
     { type: "message_end", message },
     { type: "agent_end", messages: [message] },
   ], { exitCode: 0, timedOut: false, wallClockMs: 70 });
   expect(result).toEqual({ answer: "Implemented.", termination: "completed", exitCode: 0,
-    wallClockMs: 70, turns: 2, tokens: 240, estimatedCost: 0.04, receiptOutcome: null, errors: [] });
+    wallClockMs: 70, turns: 2, tokens: 240, estimatedCost: 0.04, receiptOutcome: null, sessionId: "pi-conversation", errors: [] });
+});
+
+test.each(["casper", "pi"] as const)("%s keeps a saved conversation in the caller's home for a follow-up", async name => {
+  const workdir = await mkdtemp(path.join(os.tmpdir(), "casper-harness-session-"));
+  const home = await mkdtemp(path.join(os.tmpdir(), "casper-harness-session-home-"));
+  try {
+    const args = async (resume: boolean) => {
+      await runHarness(name, { command: [process.execPath, path.join(import.meta.dir, "fixtures/eval-harness-cli.ts")],
+        cwd: workdir, prompt: "Go on.", model: "github-copilot/gpt-5-mini", effort: "medium", timeoutMs: 5000,
+        session: { home, id: "bench-task-1", resume } });
+      const observed = JSON.parse(await readFile(path.join(workdir, "observed.json"), "utf8"));
+      expect(observed.home).toBe(home);
+      return (observed.args as string[]).filter((arg) => ["--continue", "--session-id", "bench-task-1", "--no-session"].includes(arg));
+    };
+    // Casper resumes its latest conversation; Pi resumes by id and refuses --continue with it.
+    expect(await args(false)).toEqual(name === "casper" ? [] : ["--session-id", "bench-task-1"]);
+    expect(await args(true)).toEqual(name === "casper" ? ["--continue"] : ["--session-id", "bench-task-1"]);
+    // The caller owns the home: it survives the run.
+    expect(await stat(home).then(() => true, () => false)).toBe(true);
+  } finally {
+    await rm(workdir, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true });
+  }
 });
 
 test.each(["casper", "pi"] as const)("%s receives explicit identical task inputs and an isolated environment", async name => {
