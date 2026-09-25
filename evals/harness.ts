@@ -17,6 +17,9 @@ export interface HarnessObservation {
   turns: number | null;
   tokens: number | null;
   estimatedCost: number | null;
+  /** Casper's own verdict from its receipt (`verified`, `failed`, ...); null for Pi. A self-report,
+   * never acceptance evidence: kept to compare Casper's receipts with the grader. */
+  receiptOutcome: string | null;
   errors: string[];
 }
 export interface HarnessInput {
@@ -127,6 +130,7 @@ export function observeHarness(name: HarnessName, events: readonly unknown[], pr
   // The exit code a normally finished run must have. Casper's is its verdict (1 when its own checks
   // failed, 2 incomplete), stated in the receipt: the run still finished and its tree is graded.
   let expectedExit = 0;
+  let receiptOutcome: string | null = null;
   const errors: string[] = [];
   // Protocol faults fail the run. Provider errors are diagnostics: both CLIs retry them, and only
   // the final state (Casper's receipt, Pi's last response) says whether the run finished.
@@ -151,6 +155,7 @@ export function observeHarness(name: HarnessName, events: readonly unknown[], pr
         completed = event.execution === "completed";
         ended = true;
         expectedExit = Number.isSafeInteger(event.exitCode) ? event.exitCode as number : 0;
+        receiptOutcome = typeof event.outcome === "string" ? event.outcome.slice(0, 64) : null;
         const usage = record(event.usage);
         const count = (value: unknown) => Number.isSafeInteger(value) && (value as number) >= 0 ? value as number : null;
         const amount = (value: unknown) => typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
@@ -182,6 +187,6 @@ export function observeHarness(name: HarnessName, events: readonly unknown[], pr
     answer, termination: process.timedOut ? "timeout" : completed && ended && responded && !broken && process.exitCode === expectedExit ? "completed" : "failed",
     exitCode: process.exitCode, wallClockMs: process.wallClockMs,
     ...(name === "casper" ? casperUsage : { turns, tokens: turns ? tokens : null, estimatedCost: turns ? estimatedCost : null }),
-    errors,
+    receiptOutcome, errors,
   };
 }

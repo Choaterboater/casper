@@ -13,7 +13,7 @@ test("Casper observations use the last complete answer, not deltas or its verifi
   ], { exitCode: 0, timedOut: false, wallClockMs: 42 });
   expect(result).toEqual({
     answer: "Fixed and tested.", termination: "completed", exitCode: 0, wallClockMs: 42,
-    turns: null, tokens: null, estimatedCost: null, errors: [],
+    turns: null, tokens: null, estimatedCost: null, receiptOutcome: "verified", errors: [],
   });
 });
 
@@ -40,7 +40,7 @@ test("Pi counts authoritative assistant usage once, excluding tool results and a
     { type: "agent_end", messages: [message] },
   ], { exitCode: 0, timedOut: false, wallClockMs: 70 });
   expect(result).toEqual({ answer: "Implemented.", termination: "completed", exitCode: 0,
-    wallClockMs: 70, turns: 2, tokens: 240, estimatedCost: 0.04, errors: [] });
+    wallClockMs: 70, turns: 2, tokens: 240, estimatedCost: 0.04, receiptOutcome: null, errors: [] });
 });
 
 test.each(["casper", "pi"] as const)("%s receives explicit identical task inputs and an isolated environment", async name => {
