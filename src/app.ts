@@ -724,11 +724,13 @@ export class CasperApp {
     const classifications = () => { try { return session.getUsage?.().effortClassification?.requests ?? 0; } catch { return undefined; } };
     const classifiedBefore = classifications();
     try {
+      this.onEvent?.(phaseEvent("task", "start"));
       await session.prompt([
         memoryContext,
         skillContext,
         formatTaskPrompt(prompt, classification, context.model, { verificationMode, proveChange: proving }),
       ].filter(Boolean).join("\n\n"), this.commandAbort?.signal, { request: prompt, maxTurns: this.maxTurns });
+      this.onEvent?.(phaseEvent("task", "end"));
       afterModel = before && !this.closing ? await this.snapshotWorkspace(workspaceRoot) : undefined;
       // A request cut short by --max-turns is unfinished work: checking it would only start repairs.
       const stopped = this.closing || this.commandAbort?.signal.aborted || this.taskRuntimeFailed || this.checkTask?.signal.aborted || this.taskTurnLimit !== undefined;

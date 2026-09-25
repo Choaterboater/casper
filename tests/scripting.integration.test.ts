@@ -245,10 +245,12 @@ test("--json streams v1 JSON Lines on stdout: session, text, tools, Casper's che
   receipt.usage.estimatedCost = "<cost>";
   expect(stream).toEqual([
     { v: 1, type: "session_start", casper: "<version>", cwd: "<project>", session: "<id>", provider: "fixture", model: "first", effort: stream[0].effort },
+    { v: 1, type: "phase", phase: "task", state: "start", atMs: "<ms>" },
     { v: 1, type: "tool_start", tool: "write", id: "call_0", target: "sum.js" },
     { v: 1, type: "tool_end", tool: "write", id: "call_0", ok: true, ms: "<ms>" },
     { v: 1, type: "assistant_delta", text: "Fixed \u001b[31msum.js\u202e." },
     { v: 1, type: "assistant_message", text: "Fixed \u001b[31msum.js\u202e." },
+    { v: 1, type: "phase", phase: "task", state: "end", atMs: "<ms>" },
     { v: 1, type: "phase", phase: "checks", state: "start", atMs: "<ms>" },
     { v: 1, type: "check", name: "test", command: "grep -q fixed sum.js", status: "pass", exit: 0, ms: "<ms>", recordedBy: "casper", reused: false },
     { v: 1, type: "phase", phase: "checks", state: "end", atMs: "<ms>" },
