@@ -27,6 +27,8 @@ test("the review prompt asks for every stated requirement, from the request and 
   expect(prompt).toContain("- [ ] <requirement>");
   // A: only a named test that asserts it earns a tick; anything else is added now or left open.
   expect(prompt).toContain("Tick a requirement only when a test you can name asserts it");
+  // A rule over several inputs, options or errors was ticked as one line and half tested.
+  expect(prompt).toContain("Give each case its own line");
 });
 
 test("the first turn asks for the checklist in the exact format the review parses", () => {
@@ -35,6 +37,7 @@ test("the first turn asks for the checklist in the exact format the review parse
   // A checklist in any other shape reads as none, and costs a whole review round.
   expect(prompt).toContain("- [x] <requirement> — <the test that covers it>");
   expect(prompt).toContain("- [ ] <requirement> — <why it is still not done>");
+  expect(prompt).toContain("Give each case its own line");
   expect(parseChecklist("Requirements:\n- [x] --tls connects — tests/tls.test.ts")).toEqual({ done: ["--tls connects — tests/tls.test.ts"], open: [] });
 });
 
