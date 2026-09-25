@@ -2,7 +2,7 @@ import type { RuntimeEvent, RuntimeStatus } from "../runtime/types";
 import { formatTerminalJSON } from "../tui/json";
 import { redactPreview } from "../tui/format";
 import type { VerificationReport, VerificationResult } from "../verify/evidence";
-import { formatReceipt, taskOutcome, type TaskOutcome, type TaskResult } from "../task/result";
+import { formatReceipt, taskOutcome, type TaskOutcome, type TaskResult, type TaskUsage } from "../task/result";
 
 /** Bump only for a breaking change; new event types and fields are additive within a version. */
 export const JSON_EVENTS_VERSION = 1;
@@ -32,6 +32,8 @@ export interface ReceiptEvent {
   checks: Array<{ name: string; command: string | null; status: VerificationResult["status"]; exit: number | null; ms: number; fresh: boolean }>;
   repairAttempts: number;
   turnLimit: number | null;
+  /** This task's model use; null when no model task ran (a local command). */
+  usage: TaskUsage | null;
   /** The plain receipt a person would read. */
   text: string;
 }
@@ -77,6 +79,7 @@ export function receiptEvent(report: VerificationReport | undefined, task: TaskR
       exit: result.exitCode, ms: Math.round(result.durationMs), fresh: result.status === "pass" && result.freshness !== "stale" })),
     repairAttempts: verification?.repairAttempts ?? 0,
     turnLimit: task?.turnLimit ?? null,
+    usage: task?.usage ? { ...task.usage } : null,
     text: receipt ? formatReceipt(receipt, { surface: "one-shot" }) : "",
   };
 }

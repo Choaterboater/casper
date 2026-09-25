@@ -161,7 +161,9 @@ export interface RuntimeSwitchOptions {
 export type RuntimeEvent =
   | { type: "model_controls_changed"; status: RuntimeStatus }
   | { type: "assistant_response_start"; provider?: string; model?: string }
-  | { type: "assistant_response_end"; stopReason: string; errorMessage?: string }
+  /** `usage` is what the provider reported for this response (the SDK's catalog cost estimate,
+   * never an invoice); absent when the runtime has no report. */
+  | { type: "assistant_response_end"; stopReason: string; errorMessage?: string; usage?: { tokens: number; estimatedCost: number } }
   | { type: "assistant_text_delta"; delta: string }
   /** The model is producing something not yet visible: reasoning, or a tool call's arguments
    * (a large `write` body streams for seconds before `tool_start`). `chars` is cumulative for

@@ -507,6 +507,7 @@ export class CasperApp {
         this.unsubscribe = this.session.subscribe(event => {
           if (event.type === "tool_start" && event.toolName === "casper_check") this.modelCheckCalls++;
           if (event.type === "tool_end" && event.toolName === "casper_check") this.modelCheckCalls = Math.max(0, this.modelCheckCalls - 1);
+          this.observations.observeUsage(event);
           this.events.handle(event);
           if (this.onEvent) for (const mapped of this.eventMapper.map(event)) this.onEvent(mapped);
         });
@@ -692,6 +693,10 @@ export class CasperApp {
     let verification: VerificationReport | undefined;
     let autoChecks: ReturnType<typeof planAutoChecks> | undefined;
     const flatten = (changes: TreeChanges) => [...changes.added, ...changes.modified, ...changes.removed].sort();
+    // Automatic effort's classifier is a model call outside the conversation, so the task's usage
+    // totals cannot include it: any classification (or an unreadable count) makes them unknown.
+    const classifications = () => { try { return session.getUsage?.().effortClassification?.requests ?? 0; } catch { return undefined; } };
+    const classifiedBefore = classifications();
     try {
       await session.prompt([
         memoryContext,
@@ -733,6 +738,8 @@ export class CasperApp {
       const afterChecks = verification && afterModel && !this.closing ? await this.snapshotWorkspace(workspaceRoot) : afterModel;
       const changedPaths = before && afterModel ? flatten(diffSnapshots(before, afterModel)) : undefined;
       const changedDuringChecks = afterModel && afterChecks && afterChecks !== afterModel ? flatten(diffSnapshots(afterModel, afterChecks)) : [];
+      const classifiedAfter = classifications();
+      if (classifiedBefore === undefined || classifiedAfter !== classifiedBefore) this.observations.recordUntrackedModelUse();
       const observations = this.observations.snapshot(changedPaths, changedDuringChecks);
       const browser = !this.closing && this.browser ? await this.browser.report() : undefined;
       this.lastTaskResult = { execution, verification, ...observations, ...(browser?.checks.length ? { browser } : {}),
