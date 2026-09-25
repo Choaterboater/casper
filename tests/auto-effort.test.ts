@@ -1,7 +1,7 @@
 import { expect, test, vi } from "bun:test";
 import type { AgentSession, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { AssistantMessage as Response } from "@earendil-works/pi-ai";
-import { classifyEffort, resolveAutoEffort } from "../src/runtime/auto-effort";
+import { classifyEffort, nearestEffort, resolveAutoEffort } from "../src/runtime/auto-effort";
 
 const model: NonNullable<AgentSession["model"]> = {
   id: "classifier", name: "Fixture classifier", provider: "fixture", api: "openai-completions",
@@ -18,6 +18,19 @@ function response(text = '{"effort":"medium"}', overrides: Partial<Response> = {
     ...overrides,
   };
 }
+
+test("any effort level runs on any model: the supported level itself, else the nearest above, else below (as Pi does)", () => {
+  const glm = ["off", "low", "high", "max"];
+  expect(nearestEffort("high", glm)).toBe("high");
+  expect(nearestEffort("medium", glm)).toBe("high");
+  expect(nearestEffort("minimal", glm)).toBe("low");
+  expect(nearestEffort("xhigh", glm)).toBe("max");
+  expect(nearestEffort("max", ["off", "low", "high"])).toBe("high");
+  // A model without reasoning runs every level as off.
+  expect(nearestEffort("high", ["off"])).toBe("off");
+  expect(nearestEffort("loud", glm)).toBeUndefined();
+  expect(nearestEffort("high", [])).toBeUndefined();
+});
 
 test("automatic effort respects sparse unordered ladders and never disables reasoning", () => {
   expect(resolveAutoEffort("medium", ["xhigh", "off", "low", "minimal"])).toBe("low");

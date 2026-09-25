@@ -19,7 +19,7 @@ options accept `--name value` or `--name=value`.
 | Flag | Effect |
 |---|---|
 | `--model <provider/model-id[:effort]>` | Use this model for this run only. Also accepts `@role` selectors. The saved default is never changed. |
-| `--effort <level\|auto>` | Reasoning effort for this run only (`auto`, `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`; the model decides which it supports). Not remembered. |
+| `--effort <level\|auto>` | Reasoning effort for this run only (`auto`, `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`). Any level runs on any model: one the model lacks runs as the nearest level above it, else below (`medium` on a model with only low and high runs as high; a model without reasoning runs without it). Not remembered. |
 | `--json` | JSON Lines events on stdout (below). Everything a person would read (banner, transcript, receipt) goes to stderr. Needs a prompt. |
 | `--verify` / `--no-verify` | Casper runs the checks after this run's edits (`auto`), or runs none (`off`). See [VERIFICATION.md](VERIFICATION.md). |
 | `--require-verification` | Implies `--verify`. Changes Casper did not verify exit **3** instead of 0. Needs a prompt. |

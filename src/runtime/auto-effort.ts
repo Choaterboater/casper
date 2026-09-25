@@ -29,6 +29,17 @@ export function resolveAutoEffort(requested: string, supported: readonly string[
   return chosen ?? minimum ?? (supported.includes("minimal") ? "minimal" : undefined);
 }
 
+const LADDER = ["off", "minimal", ...LEVELS, "max"] as const;
+
+/** An explicit effort on a model that lacks it: the nearest supported level above, else below (Pi's
+ * clamp). Undefined only for a word that is not a level, or a model with no levels at all. */
+export function nearestEffort(requested: string, supported: readonly string[]): ThinkingLevel | undefined {
+  const index = LADDER.indexOf(requested as (typeof LADDER)[number]);
+  if (index < 0) return undefined;
+  const up = LADDER.slice(index).find((level) => supported.includes(level));
+  return (up ?? LADDER.slice(0, index).reverse().find((level) => supported.includes(level))) as ThinkingLevel | undefined;
+}
+
 function classificationError(): Error {
   return new Error("Automatic effort classification unavailable.");
 }
