@@ -106,7 +106,8 @@ export async function runHarness(name: HarnessName, input: HarnessInput): Promis
       result.errors.push(...errors);
       // Casper's stderr is its normal human output in --json mode: diagnostic only when the run failed.
       if (result.termination !== "completed" && exitCode !== 0 && stderr) result.errors.push(stderr);
-      if (result.errors.length && result.termination !== "timeout") result.termination = "failed";
+      // Unparseable or oversized output is a broken protocol, whatever the last event said.
+      if (errors.length && result.termination !== "timeout") result.termination = "failed";
       return result;
     } finally { clearTimeout(timer); await stop(); }
   } finally { await rm(home, { recursive: true, force: true }); }
@@ -127,6 +128,9 @@ export function observeHarness(name: HarnessName, events: readonly unknown[], pr
   // failed, 2 incomplete), stated in the receipt: the run still finished and its tree is graded.
   let expectedExit = 0;
   const errors: string[] = [];
+  // Protocol faults fail the run. Provider errors are diagnostics: both CLIs retry them, and only
+  // the final state (Casper's receipt, Pi's last response) says whether the run finished.
+  let broken = false;
   let turns = 0;
   let tokens: number | null = 0;
   let estimatedCost: number | null = 0;
@@ -134,9 +138,10 @@ export function observeHarness(name: HarnessName, events: readonly unknown[], pr
   let casperUsage: Pick<HarnessObservation, "turns" | "tokens" | "estimatedCost"> = { turns: null, tokens: null, estimatedCost: null };
   for (const value of events) {
     const event = record(value);
-    if (!event) { errors.push("Invalid event object"); continue; }
+    if (!event) { errors.push("Invalid event object"); broken = true; continue; }
     if (name === "casper" && event.v !== 1) {
       errors.push("Unsupported Casper event version");
+      broken = true;
       continue;
     }
     if (event.type === "error") errors.push(typeof event.message === "string" ? event.message : "Harness error");
@@ -174,7 +179,7 @@ export function observeHarness(name: HarnessName, events: readonly unknown[], pr
     }
   }
   return {
-    answer, termination: process.timedOut ? "timeout" : completed && ended && responded && errors.length === 0 && process.exitCode === expectedExit ? "completed" : "failed",
+    answer, termination: process.timedOut ? "timeout" : completed && ended && responded && !broken && process.exitCode === expectedExit ? "completed" : "failed",
     exitCode: process.exitCode, wallClockMs: process.wallClockMs,
     ...(name === "casper" ? casperUsage : { turns, tokens: turns ? tokens : null, estimatedCost: turns ? estimatedCost : null }),
     errors,
