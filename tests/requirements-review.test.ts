@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { parseChecklist, requirementsReviewPrompt } from "../src/task/review";
+import { formatTaskPrompt } from "../src/task/classify";
 import { formatReceipt, taskOutcome, type TaskResult } from "../src/task/result";
 import type { VerificationReport, VerificationResult } from "../src/verify/evidence";
 
@@ -26,6 +27,15 @@ test("the review prompt asks for every stated requirement, from the request and 
   expect(prompt).toContain("- [ ] <requirement>");
   // A: only a named test that asserts it earns a tick; anything else is added now or left open.
   expect(prompt).toContain("Tick a requirement only when a test you can name asserts it");
+});
+
+test("the first turn asks for the checklist in the exact format the review parses", () => {
+  const model = { commands: { test: "npm test" } } as unknown as Parameters<typeof formatTaskPrompt>[2];
+  const prompt = formatTaskPrompt("Add --tls to portcheck.", { intent: "implement", mode: "modify", verification: [] }, model, { proveChange: true });
+  // A checklist in any other shape reads as none, and costs a whole review round.
+  expect(prompt).toContain("- [x] <requirement> — <the test that covers it>");
+  expect(prompt).toContain("- [ ] <requirement> — <why it is still not done>");
+  expect(parseChecklist("Requirements:\n- [x] --tls connects — tests/tls.test.ts")).toEqual({ done: ["--tls connects — tests/tls.test.ts"], open: [] });
 });
 
 const check: VerificationResult = { name: "test", status: "pass", command: "npm test", cwd: "/r", exitCode: 0, signal: null,
