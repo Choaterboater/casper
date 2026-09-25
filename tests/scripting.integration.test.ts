@@ -43,7 +43,9 @@ async function fixture(script: (request: number, payload: Payload) => Step = () 
   await writeFile(path.join(agent, "models.json"), JSON.stringify({ providers: {
     fixture: { baseUrl, api: "openai-completions", apiKey: "synthetic", models: [
       // $1 per million input and $2 per million output tokens: $0.00014 per scripted response.
-      { id: "first", cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 } }, { id: "second", reasoning: true }] },
+      { id: "first", cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 } }, { id: "second", reasoning: true },
+      // Like GLM: no minimal or medium, but max.
+      { id: "sparse", reasoning: true, thinkingLevelMap: { minimal: null, medium: null, max: "max" } }] },
     missing: { baseUrl, api: "openai-completions", models: [{ id: "no-auth" }] },
   } }));
   const settings = path.join(home, ".casper/settings.json");
@@ -77,11 +79,22 @@ test("--model and --effort choose this run's model and effort without touching t
   expect(f.payloads[2]!.model).toBe("first");
 }, 60_000);
 
-test("an unknown --model or unsupported --effort is a usage error before any model request", async () => {
+test("every --effort level runs on every model, mapped to the nearest level it supports", async () => {
+  const f = await fixture();
+  const sparse = await f.run(["--model", "fixture/sparse", "--effort", "medium", "Answer without tools"]);
+  expect(sparse.exit).toBe(0);
+  const plain = await f.run(["--model", "fixture/first", "--effort", "high", "Answer without tools"]);
+  expect(plain.exit).toBe(0);
+  const suffix = await f.run(["--model", "fixture/sparse:xhigh", "Answer without tools"]);
+  expect(suffix.exit).toBe(0);
+  // medium runs as high, a model without reasoning runs without it, xhigh runs as max.
+  expect(f.payloads.map((payload) => [payload.model, payload.reasoning_effort])).toEqual([["sparse", "high"], ["first", undefined], ["sparse", "max"]]);
+}, 60_000);
+
+test("an unknown --model or effort word is a usage error before any model request", async () => {
   const f = await fixture();
   for (const [args, message] of [
     [["--model", "fixture/nope", "hi"], "Unknown model"],
-    [["--model", "fixture/first", "--effort", "high", "hi"], "Unsupported effort"],
     [["--effort", "loud", "hi"], "--effort must be one of"],
     [["--model", "fixture/second:high", "--effort", "low", "hi"], "either in --model"],
     [["--model"], "--model needs a value"],

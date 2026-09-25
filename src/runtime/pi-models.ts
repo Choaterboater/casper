@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai/compat";
 import { SettingsManager, type AgentSession, type ModelRuntime, type SessionManager } from "@earendil-works/pi-coding-agent";
-import { classifyEffort, resolveAutoEffort } from "./auto-effort";
+import { classifyEffort, nearestEffort, resolveAutoEffort } from "./auto-effort";
 import { isEffortSelection, isModelRole, resolveModelSelection, type ModelReference, type ModelRoles, type ResolvedModelSelection } from "./model-routing";
 import type { RuntimeModelSelection, RuntimeModelSelectionOptions, RuntimeReadOnlyStartOptions, RuntimeStatus, RuntimeUsage } from "./types";
 import { pickPiModel } from "./pi-model-picker";
@@ -214,8 +214,8 @@ export class PiModels {
 
   private applyEffort(session: AgentSession, effort: string, retain = false): void {
     const supported = session.getAvailableThinkingLevels();
-    const level = effort === "auto" ? resolveAutoEffort(retain ? session.thinkingLevel : "high", supported) : supported.find(value => value === effort);
-    if (effort !== "auto" && !level) throw new Error(`Unsupported effort. Choose: auto, ${supported.join(", ")}`);
+    const level = effort === "auto" ? resolveAutoEffort(retain ? session.thinkingLevel : "high", supported) : nearestEffort(effort, supported);
+    if (effort !== "auto" && !level) throw new Error(`Unknown effort ${effort}. Choose: auto, off, minimal, low, medium, high, xhigh, max`);
     if (level) session.setThinkingLevel(level, { persist: false });
     const selection = this.selections.get(session)!;
     selection.effort = effort;
@@ -331,7 +331,7 @@ export class PiModels {
         models: this.catalog.getAvailableSnapshot().map(({ provider, id, name }) => ({ provider, id, name })) };
       const saved = this.recorded(session.sessionManager, model);
       const effort = resolved?.effort ?? saved?.effort ?? (this.autoDefault(model) ? "auto" : undefined);
-      if (effort && effort !== "auto" && !getSupportedThinkingLevels(model).some(level => level === effort)) throw new Error(`Unsupported effort ${effort} for ${model.provider}/${model.id}.`);
+      if (effort && effort !== "auto" && !nearestEffort(effort, getSupportedThinkingLevels(model))) throw new Error(`Unknown effort ${effort} for ${model.provider}/${model.id}.`);
       if (this.staleAuth.has(model.provider)) throw new Error("Credential state needs local refresh. Restart Casper before selecting this provider.");
       if (!this.catalog.hasConfiguredAuth(model.provider)) throw new Error(`Credentials missing for ${model.provider}. Use /login for OpenAI Codex or configure another supported credential; selection unchanged.`);
       await session.setModel(model, { persist: false });
