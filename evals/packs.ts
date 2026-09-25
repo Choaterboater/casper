@@ -34,7 +34,8 @@ export const CORE_PACK: readonly EvalTask[] = [
       + "Errors: a content type other than application/json is 415 `unsupported_media_type`; malformed JSON is 400 "
       + "`invalid_json`; anything else invalid (wrong types, out-of-range values, unknown fields, or a body that is not "
       + "a JSON object) is 422 `{ \"error\": \"validation_failed\", \"fields\": { <field>: <message> } }` naming every "
-      + "offending field. A rejected request must not create a note." + RULES,
+      + "offending field by its top-level property name (`title`, `body`, `tags` or the unknown property; a bad tag is "
+      + "reported under `tags`, never `tags[0]`). A rejected request must not create a note." + RULES,
     conventions: [
       onlyEdits("src/", "tests/"),
       convention("errors-through-jsonError", { contains: [{ path: "src/handlers.ts", text: "validation_failed" }], noMatch: [{ text: "new Response(", under: "src/handlers.ts" }] }),
@@ -142,7 +143,8 @@ export const CORE_PACK: readonly EvalTask[] = [
       + "allowed. Annotations: read-only, not destructive, idempotent, closed-world. It searches every workspace file in "
       + "path order, line by line (LF or CRLF), and returns one `path:line: text` line per match with 1-based line "
       + "numbers. At most `limit` matches are returned; when matches are left out, the last line is exactly "
-      + "`… truncated (<n> more matches)`. The whole output never exceeds 4000 characters, even with very long lines. "
+      + "`… truncated (<n> more matches)`. The whole output never exceeds 4000 characters, even with very long lines: a very "
+      + "long matching line is shortened (ending in `…`) rather than left out, so the output still starts with the first match. "
       + "No matches is a normal (non-error) result that names the query. Invalid arguments return a tool error whose text "
       + "starts with `Invalid arguments`; the tool never throws." + RULES,
     conventions: [
