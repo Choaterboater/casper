@@ -324,6 +324,24 @@ test("a fix no test proves is not verified: the receipt says why, and --require-
   expect(f.payloads.filter((payload) => lastUser(payload).includes(PROOF_REPAIR)).length).toBe(1);
 }, 60_000);
 
+test("a feature worded like a test task is still reviewed and proven; a docs-only edit is not", async () => {
+  // "new test files" makes the keyword classifier say intent "test"; the work (a code change) decides.
+  const f = await fixture((_request, payload) => lastUser(payload).includes(REVIEW) ? TICKED
+    : afterTool(payload) ? { text: "Done." } : { tools: [{ name: "write", args: { path: "sum.js", content: "fixed\n" } }] });
+  await fixProject(f);
+  const result = await f.run(["--json", "--verify", "sum.js should print fixed; you may add new test files"]);
+  const receipt = JSON.parse(result.stdout.trim().split("\n").at(-1)!);
+  expect({ proof: receipt.proof?.status, review: receipt.review }).toEqual({ proof: "proven", review: { done: ["sum.js is fixed — tests/check.sh"], open: [] } });
+
+  const docs = await fixture((_request, payload) => afterTool(payload) ? { text: "Documented." } : { tools: [{ name: "write", args: { path: "NOTES.md", content: "notes\n" } }] });
+  await fixProject(docs);
+  await writeFile(path.join(docs.project, ".casper/project.yaml"), 'verify:\n  test: "test -f sum.js"\n');
+  const documented = await docs.run(["--json", "--verify", "Add notes about sum.js"]);
+  const docsReceipt = JSON.parse(documented.stdout.trim().split("\n").at(-1)!);
+  expect({ outcome: docsReceipt.outcome, proof: docsReceipt.proof, review: docsReceipt.review }).toEqual({ outcome: "verified", proof: null, review: null });
+  expect(docs.payloads.some((payload) => lastUser(payload).includes(REVIEW))).toBe(false);
+}, 90_000);
+
 test("the review round fixes a gap the model finds; a gap it admits keeps the change unverified", async () => {
   // The review finds that sum.js also needs a newline marker and fixes it; the checks rerun and pass.
   const fixed = await fixture((_request, payload) => {

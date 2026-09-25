@@ -22,6 +22,18 @@ export function isTestPath(relative: string): boolean {
     || /_(?:test|spec)\.[^/.]+$/i.test(relative);
 }
 
+/** Source code a behavior change lives in (tests excluded). Docs, data, assets and configuration are
+ * not: editing them alone needs no proof. */
+export function isCodePath(relative: string): boolean {
+  return !isTestPath(relative) && /\.(?:[cm]?[jt]sx?|py|go|rs|java|kt|kts|scala|rb|php|cs|fs|swift|c|cc|cpp|cxx|h|hpp|m|mm|ex|exs|erl|clj|dart|lua|pl|sh|bash|zsh|vue|svelte)$/i.test(relative);
+}
+
+/** Whether a set of changes touches code that must be proven. */
+export function changesCode(changes: TreeChanges): boolean {
+  return [...changes.added, ...changes.modified, ...changes.removed]
+    .some((relative) => isCodePath(relative) && !relative.split("/").some((part) => Object.hasOwn(SKIPPED, part)));
+}
+
 /** Never copied: VCS internals, Casper's state and installed dependencies (linked instead). */
 const SKIPPED: Record<string, true> = { ".git": true, node_modules: true, ".casper": true };
 const LINKED = "node_modules";
@@ -93,7 +105,7 @@ export class ChangeBaseline {
     const changed = [...options.changes.added, ...options.changes.modified, ...options.changes.removed]
       .filter((relative) => !relative.split("/").some((part) => Object.hasOwn(SKIPPED, part)));
     const tests = changed.filter(isTestPath);
-    if (changed.length === tests.length) return undefined;
+    if (!changesCode(options.changes)) return undefined;
     const { check, command } = options;
     const run = (cwd: string) => runCommandCheck({ name: check, command, cwd, timeoutMs: options.timeoutMs, signal: options.signal, onCleanupFailure: options.onCleanupFailure });
     const copies = await mkdtemp(path.join(this.scratch, "compare-"));
