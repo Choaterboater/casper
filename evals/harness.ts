@@ -21,6 +21,8 @@ export interface HarnessObservation {
    * never acceptance evidence: kept to compare Casper's receipts with the grader. */
   receiptOutcome: string | null;
   errors: string[];
+  /** Host timing inferred from Casper's additive phase events; absent for Pi. */
+  phases?: readonly { phase: "task" | "checks" | "review" | "proof" | "repair"; durationMs: number }[];
 }
 export interface HarnessInput {
   /** Executable plus fixed arguments; never interpreted by a shell. */
@@ -34,6 +36,12 @@ export interface HarnessInput {
   timeoutMs: number;
   /** Read-only sources; only the model's provider entry is copied to the temporary home. */
   seed?: { authPath: string; modelsStorePath?: string };
+  /** Reuse a caller-owned home for a continuation run. */
+  homeDir?: string;
+  /** Continue the latest conversation in the caller-owned home. */
+  continueSession?: boolean;
+  /** Stable session id for Pi continuation. */
+  sessionId?: string;
 }
 
 export interface ProcessObservation {
@@ -46,7 +54,8 @@ export interface ProcessObservation {
 export async function runHarness(name: HarnessName, input: HarnessInput): Promise<HarnessObservation> {
   if (!input.command.length || !input.command[0] || !input.model.includes("/")
     || !Number.isSafeInteger(input.timeoutMs) || input.timeoutMs < 1) throw new Error("Invalid harness input");
-  const home = await mkdtemp(path.join(os.tmpdir(), "casper-harness-home-"));
+  const ownsHome = !input.homeDir;
+  const home = input.homeDir ?? await mkdtemp(path.join(os.tmpdir(), "casper-harness-home-"));
   const agent = path.join(home, name === "casper" ? ".casper/agent" : ".pi/agent");
   const started = performance.now();
   try {
@@ -59,8 +68,8 @@ export async function runHarness(name: HarnessName, input: HarnessInput): Promis
       if (input.seed.modelsStorePath) await copyFile(input.seed.modelsStorePath, path.join(agent, "models-store.json"));
     }
     const args = name === "casper"
-      ? ["--json", "--model", input.model, "--effort", input.effort, "--verify"]
-      : ["--print", "--mode", "json", "--no-session", "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-themes",
+      ? ["--json", "--model", input.model, "--effort", input.effort, "--verify", ...(input.continueSession ? ["--continue"] : [])]
+      : ["--print", "--mode", "json", ...(input.sessionId ? ["--session-id", input.sessionId] : ["--no-session"]), ...(input.continueSession ? ["--continue"] : []), "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-themes",
         "--model", input.model, "--thinking", input.effort];
     const child = Bun.spawn([...input.command, ...args, "--", input.prompt], {
       cwd: input.cwd, env: isolatedEnvironment(home, name === "casper"
@@ -113,7 +122,7 @@ export async function runHarness(name: HarnessName, input: HarnessInput): Promis
       if (errors.length && result.termination !== "timeout") result.termination = "failed";
       return result;
     } finally { clearTimeout(timer); await stop(); }
-  } finally { await rm(home, { recursive: true, force: true }); }
+  } finally { if (ownsHome) await rm(home, { recursive: true, force: true }); }
 }
 
 function record(value: unknown): Record<string, unknown> | undefined {
@@ -140,6 +149,8 @@ export function observeHarness(name: HarnessName, events: readonly unknown[], pr
   let estimatedCost: number | null = 0;
   // Casper totals its own responses in the receipt; the same per-response definition as Pi's below.
   let casperUsage: Pick<HarnessObservation, "turns" | "tokens" | "estimatedCost"> = { turns: null, tokens: null, estimatedCost: null };
+  const phaseStarts = new Map<string, number>();
+  const phases: { phase: "task" | "checks" | "review" | "proof" | "repair"; durationMs: number }[] = [];
   for (const value of events) {
     const event = record(value);
     if (!event) { errors.push("Invalid event object"); broken = true; continue; }
@@ -149,6 +160,11 @@ export function observeHarness(name: HarnessName, events: readonly unknown[], pr
       continue;
     }
     if (event.type === "error") errors.push(typeof event.message === "string" ? event.message : "Harness error");
+    if (name === "casper" && event.type === "phase" && (event.phase === "checks" || event.phase === "review" || event.phase === "proof" || event.phase === "repair")
+      && (event.state === "start" || event.state === "end") && typeof event.atMs === "number") {
+      if (event.state === "start") phaseStarts.set(event.phase, event.atMs);
+      else { const start = phaseStarts.get(event.phase); if (start !== undefined) phases.push({ phase: event.phase, durationMs: Math.max(0, event.atMs - start) }); }
+    }
     if (name === "casper" && event.v === 1) {
       if (event.type === "assistant_message" && typeof event.text === "string") { answer = event.text; responded = true; }
       if (event.type === "receipt") {
@@ -187,6 +203,6 @@ export function observeHarness(name: HarnessName, events: readonly unknown[], pr
     answer, termination: process.timedOut ? "timeout" : completed && ended && responded && !broken && process.exitCode === expectedExit ? "completed" : "failed",
     exitCode: process.exitCode, wallClockMs: process.wallClockMs,
     ...(name === "casper" ? casperUsage : { turns, tokens: turns ? tokens : null, estimatedCost: turns ? estimatedCost : null }),
-    receiptOutcome, errors,
+    receiptOutcome, errors, ...(phases.length ? { phases } : {}),
   };
 }

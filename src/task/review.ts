@@ -25,7 +25,7 @@ export function requirementsReviewPrompt(request: string): string {
   return [
     "Casper requirements review.",
     "Before Casper finishes, check your work against the request one requirement at a time. List every requirement that the request and the project's docs (for example CONTEXT.md) state: each behavior, output format, limit, error case and edge case, including the small ones.",
-    "For each one, confirm the code implements it and a test exercises it. Fix every gap now: implement what is missing and add the missing tests. Do not weaken, skip or delete tests.",
+    "For each one, confirm the code implements it and a test exercises it. Tick a requirement only when a test you can name asserts it; code that merely looks right or an unasserted claim is not enough. Fix every gap now: implement what is missing and add the missing tests. Do not weaken, skip or delete tests.",
     "End your answer with this checklist, one line per requirement:",
     "Requirements:",
     "- [x] <requirement> — <the test that covers it>",

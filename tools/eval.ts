@@ -54,6 +54,7 @@ Quality benchmark (Casper vs Pi through their real CLIs; --pack or --harness sel
   --repeat <n>          Runs per task per harness (1..20). Default: 1.
   --concurrency <n>     Runs at once (1..16). Default: 2; more hits provider rate limits.
   --time-limit <sec>    Wall clock per run, the only run limit and the same for both. Default: 300.
+  --follow-ups <n>      Continue failed runs with the grader's failure report (1..2 follow-ups). Default: 0.
   --casper <path>       Casper executable. Default: this checkout (bun src/cli.ts).
   --pi <path>           Pi executable. Default: pi on PATH.
   --json <path>         Results document. Default: a new evals/results/<date>-<commit>.json.
@@ -86,6 +87,7 @@ interface EvalOptions {
   effort?: HarnessInput["effort"];
   concurrency?: number;
   timeLimitSeconds?: number;
+  followUps: number;
   casper?: string;
   pi?: string;
 }
@@ -100,7 +102,7 @@ function wholeNumber(flag: string, value: string, max: number): number {
 
 function parseArguments(args: readonly string[]): EvalOptions {
   const options: EvalOptions = {
-    help: false, list: false, selected: [], repeat: 1, timeoutSeconds: 120, keep: false, autoVerify: true, prepare: false, packs: [], harnesses: [],
+    help: false, list: false, selected: [], repeat: 1, timeoutSeconds: 120, keep: false, autoVerify: true, prepare: false, packs: [], harnesses: [], followUps: 0,
   };
   for (let index = 0; index < args.length; index++) {
     const argument = args[index]!;
@@ -109,7 +111,7 @@ function parseArguments(args: readonly string[]): EvalOptions {
     if (argument === "--keep") { options.keep = true; continue; }
     if (argument === "--prepare") { options.prepare = true; continue; }
     if (argument === "--no-auto-verify") { options.autoVerify = false; continue; }
-    if (["--pack", "--harness", "--effort", "--concurrency", "--time-limit", "--casper", "--pi"].includes(argument)) {
+    if (["--pack", "--harness", "--effort", "--concurrency", "--time-limit", "--follow-ups", "--casper", "--pi"].includes(argument)) {
       const value = args[++index];
       if (!value || value.startsWith("--")) throw new Error(`${argument} needs a value`);
       if (argument === "--pack") {
@@ -123,6 +125,7 @@ function parseArguments(args: readonly string[]): EvalOptions {
         options.effort = value as HarnessInput["effort"];
       } else if (argument === "--concurrency") options.concurrency = wholeNumber(argument, value, 16);
       else if (argument === "--time-limit") options.timeLimitSeconds = wholeNumber(argument, value, 3600);
+      else if (argument === "--follow-ups") options.followUps = wholeNumber(argument, value, 2);
       else if (argument === "--casper") options.casper = value;
       else options.pi = value;
       continue;
@@ -150,7 +153,7 @@ function parseArguments(args: readonly string[]): EvalOptions {
     throw new Error(`Unknown argument: ${argument}`);
   }
   if (options.help || options.list) return options;
-  const benchmarkOnly = options.effort || options.concurrency || options.timeLimitSeconds || options.casper || options.pi;
+  const benchmarkOnly = options.effort || options.concurrency || options.timeLimitSeconds || options.followUps || options.casper || options.pi;
   if (isBenchmark(options)) {
     if (options.prepare || options.grade || options.scenario || options.keep || !options.autoVerify) {
       throw new Error("--prepare, --grade, --scenario, --keep and --no-auto-verify do not apply to a benchmark");
@@ -158,7 +161,7 @@ function parseArguments(args: readonly string[]): EvalOptions {
     if (!options.model) throw new Error("A benchmark needs --model provider/id: both harnesses run the same model");
     return options;
   }
-  if (benchmarkOnly) throw new Error("--effort, --concurrency, --time-limit, --casper and --pi apply only to a benchmark (--pack or --harness)");
+  if (benchmarkOnly) throw new Error("--effort, --concurrency, --time-limit, --follow-ups, --casper and --pi apply only to a benchmark (--pack or --harness)");
   if (options.scenario && (!options.prepare || options.selected.length)) throw new Error("--scenario requires --prepare and cannot use --task");
   if (Boolean(options.grade) !== Boolean(options.observation)) throw new Error("--grade and --observation must be used together");
   if (options.grade && (options.prepare || options.selected.length || options.scenario)) throw new Error("--grade cannot select or prepare tasks");
@@ -257,11 +260,12 @@ async function benchmark(options: EvalOptions, repoRoot: string): Promise<number
   let finished = 0;
   const { runs, failures } = await runBenchmark({
     repoRoot, tasks, harnesses, commands, model: reference, effort, repeat: options.repeat, concurrency,
-    timeoutMs: timeLimitSeconds * 1000, verifyTimeoutMs: options.timeoutSeconds * 1000, seed,
+    timeoutMs: timeLimitSeconds * 1000, verifyTimeoutMs: options.timeoutSeconds * 1000, seed, followUps: options.followUps,
     onRun: (run: BenchmarkRun) => {
       const { score } = run;
       process.stdout.write(`[${++finished}/${total}] ${run.taskId} ${run.harness} #${run.repeat}: ${run.graded.success ? "accepted" : "not accepted"}; `
-        + `claim ${run.evidence.claim.verdict}${score.falseDone ? " (false done)" : ""}; ${Math.round(score.effort.wallClockMs / 1000)} s, ${score.effort.turns ?? "?"} turns\n`);
+        + `claim ${run.evidence.claim.verdict}${score.falseDone ? " (false done)" : ""}; ${Math.round(score.effort.wallClockMs / 1000)} s, ${score.effort.turns ?? "?"} turns`
+        + (run.rework ? `; rework ${run.rework.followUps} follow-up(s), ${run.rework.fixedWithinFollowUps ? "fixed" : run.rework.firstTimeRight ? "first-time" : "not fixed"}` : "") + "\n");
     },
     onFailure: (failure: BenchmarkFailure) => {
       process.stdout.write(`[${++finished}/${total}] ${failure.taskId} ${failure.harness} #${failure.repeat}: could not run: ${failure.error}\n`);

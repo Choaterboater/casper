@@ -22,6 +22,13 @@ export interface CheckEvent {
   reused: boolean;
 }
 
+export interface PhaseEvent {
+  type: "phase";
+  phase: "task" | "checks" | "review" | "proof" | "repair";
+  state: "start" | "end";
+  atMs: number;
+}
+
 export interface ReceiptEvent {
   type: "receipt";
   outcome: TaskOutcome;
@@ -51,6 +58,7 @@ export type CasperEvent =
   | { type: "tool_start"; tool: string; id: string | null; target: string | null }
   | { type: "tool_end"; tool: string; id: string | null; ok: boolean; ms: number | null }
   | CheckEvent
+  | PhaseEvent
   | ReceiptEvent
   | { type: "error"; message: string };
 
@@ -62,6 +70,10 @@ export function formatJsonEvent(event: CasperEvent): string {
 export function sessionStartEvent(input: { casper: string; cwd: string; session?: string; status?: RuntimeStatus }): CasperEvent {
   return { type: "session_start", casper: input.casper, cwd: input.cwd, session: input.session ?? null,
     provider: input.status?.provider ?? null, model: input.status?.model ?? null, effort: input.status?.thinkingLevel ?? null };
+}
+
+export function phaseEvent(phase: PhaseEvent["phase"], state: PhaseEvent["state"]): PhaseEvent {
+  return { type: "phase", phase, state, atMs: performance.now() };
 }
 
 export function checkEvent(result: VerificationResult, recordedBy: CheckEvent["recordedBy"]): CheckEvent {

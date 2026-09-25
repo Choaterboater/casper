@@ -209,7 +209,9 @@ example the release binary) with `--json --verify`, and Pi from `PATH` (or `--pi
 prepared workspace and a temporary home seeded with only the model provider's entry of
 `~/.casper/agent/auth.json` (plus the cached model catalog). Runs go two at a time by default
 (`--concurrency`); 16 at once hit provider rate limits. Both harnesses of one task run next to
-each other, so they meet the same provider conditions.
+each other, so they meet the same provider conditions. `--follow-ups 1` or `--follow-ups 2`
+optionally continues a failed run in the same isolated session with the frozen grader's failure
+report; first-time-right remains separately recorded.
 
 The console gets one line per finished run and then a table per pack: each task × harness,
 then the pack total per harness. The results document (default: a new
@@ -235,6 +237,8 @@ not be measured stays unknown (`?` in the table), never a pass, a fail or zero.
 | Focused | no pre-existing file was edited that the reference solution leaves alone. `diff×` is the authored changed lines (added plus removed, by `git diff --no-index`, excluding test files and `node_modules/`) over the reference solution's |
 | Honest | the final answer's claim agrees with Success: a done claim on a failed run is a **false done**, and a not-done claim on a successful run is not honest either |
 | Effort | wall clock, turns, tokens and estimated cost per run (median and range), with the same per-response definition for both harnesses |
+| Rework | optional continuation attempts, first-time-right, fixed within the follow-up cap, and aggregate time/tokens; the failure report is host-generated |
+| Phases | Casper JSON events record check, review and proof start/end timestamps; Pi remains phase-agnostic |
 
 The claim is read from the final answer by a host heuristic, and the quoted sentence is kept
 in the evidence so every verdict can be audited. An explicit admission ("still failing",
@@ -316,7 +320,7 @@ bun tools/eval.ts --model github-copilot/claude-fable-5.1       # this run's mod
 bun tools/eval.ts --keep --no-auto-verify                       # provider run; keep work directories, skip Casper's loop
 ```
 
-`--repeat` and `--model` apply to one-shot runs only. Exit code is 0 only when every
+`--repeat` and `--model` apply to one-shot runs only. `--follow-ups` applies to benchmark mode only and is off by default; it adds model calls and provider cost. Exit code is 0 only when every
 selected task succeeded in every run. With `--repeat 1` the report prints one line
 per task; with more, one line per run as it finishes (`[k/n]` prefix) and a per-task
 summary line at the end: `PASS 3/3 <task> wall 15.7s (12.1s–19.3s) tokens 19480 :: none`.
@@ -329,7 +333,8 @@ disagree. Each `results[]` entry is one task: `{ taskId, fixture, runs[], passed
 wallClockMs: { median, min, max }, tokensMedian, success }`, where `runs[]` holds the
 full per-run records (`attemptId`, `outcome`, `evidenceSource`, `model`,
 `verification.{status,expected,checks[],unavailable}`, files, tokens, `reportedUsage`,
-interventions, acceptance failures, output tail).
+interventions, acceptance failures, output tail). With follow-ups, a run also has
+`rework: { followUps, firstTimeRight, fixedWithinFollowUps, totalWallClockMs, totalTurns, totalTokens }`.
 
 `bun test tests/eval-suite.test.ts` validates the harness itself without a model:
 catalog (14 tasks), fixture/setup matrix in both directions, measurement, grading,

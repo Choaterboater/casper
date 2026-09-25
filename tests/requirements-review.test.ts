@@ -24,6 +24,8 @@ test("the review prompt asks for every stated requirement, from the request and 
   expect(prompt).toContain("Add --tls to portcheck.");
   expect(prompt).toContain("CONTEXT.md");
   expect(prompt).toContain("- [ ] <requirement>");
+  // A: only a named test that asserts it earns a tick; anything else is added now or left open.
+  expect(prompt).toContain("Tick a requirement only when a test you can name asserts it");
 });
 
 const check: VerificationResult = { name: "test", status: "pass", command: "npm test", cwd: "/r", exitCode: 0, signal: null,

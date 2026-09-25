@@ -106,6 +106,9 @@ test("Casper's own failed verdict is a finished run, not a failed one: the tree 
     { v: 1, type: "receipt", execution: "completed", outcome: "failed", exitCode },
   ];
   expect(observeHarness("casper", events(1), { exitCode: 1, timedOut: false, wallClockMs: 5 }).termination).toBe("completed");
+  const phased = observeHarness("casper", [{ v: 1, type: "phase", phase: "review", state: "start", atMs: 10 },
+    { v: 1, type: "phase", phase: "review", state: "end", atMs: 42 }], { exitCode: 0, timedOut: false, wallClockMs: 5 });
+  expect(phased.phases).toEqual([{ phase: "review", durationMs: 32 }]);
   // The receipt must account for the exit code, and a failed execution stays failed.
   expect(observeHarness("casper", events(0), { exitCode: 1, timedOut: false, wallClockMs: 5 }).termination).toBe("failed");
   expect(observeHarness("casper", [{ v: 1, type: "assistant_message", text: "x" }, { v: 1, type: "receipt", execution: "failed", exitCode: 1 }],

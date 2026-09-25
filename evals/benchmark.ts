@@ -13,6 +13,15 @@ import { BENCHMARK_PACKS, EVAL_TASKS } from "./tasks";
 /** The quality benchmark: Casper and Pi on the same task, model, effort and time limit, each run graded
  * by the frozen evaluator and scored from host evidence only (evals/quality.ts). */
 
+export interface ReworkResult {
+  followUps: number;
+  firstTimeRight: boolean;
+  fixedWithinFollowUps: boolean;
+  totalWallClockMs: number;
+  totalTurns: number | null;
+  totalTokens: number | null;
+}
+
 export interface BenchmarkRun {
   taskId: string;
   pack: EvalPack;
@@ -23,6 +32,8 @@ export interface BenchmarkRun {
   graded: EvalRunResult;
   evidence: QualityEvidence;
   score: QualityScore;
+  /** Optional continuation experiment; the initial run remains the acceptance result. */
+  rework?: ReworkResult;
 }
 
 /** A job that could not run or be graded at all; the other jobs still finish. */
@@ -230,6 +241,8 @@ export interface BenchmarkOptions {
   /** Per independent check and per mutation-check command. */
   verifyTimeoutMs: number;
   seed?: HarnessInput["seed"];
+  /** Continue failed runs with a realistic failure report, capped to avoid turning benchmarks into open-ended repair. */
+  followUps?: number;
   onRun?(run: BenchmarkRun): void;
   onFailure?(failure: BenchmarkFailure): void;
 }
@@ -273,22 +286,46 @@ export async function runBenchmark(options: BenchmarkOptions): Promise<{ runs: B
 async function runJob(options: BenchmarkOptions, task: EvalTask, harness: HarnessName, repeat: number,
   reference: (task: EvalTask) => Promise<ReferenceBaseline>): Promise<BenchmarkRun> {
   const { root, workdir } = await prepareEvalTask(task, options.repoRoot);
+  const home = await mkdtemp(path.join(os.tmpdir(), "casper-bench-session-"));
   try {
     const startedAt = new Date().toISOString();
-    const run = await runHarness(harness, {
-      command: options.commands[harness], cwd: workdir, prompt: task.prompt, model: options.model, effort: options.effort,
-      timeoutMs: options.timeoutMs, seed: options.seed,
-    });
-    const observation: EvalObservation = {
-      startedAt, wallClockMs: run.wallClockMs, execution: run.termination === "completed" ? "completed" : "failed",
-      modelCalls: run.turns ?? (run.answer ? 1 : 0), answer: run.answer, interventions: [], model: options.model,
-      ...(run.termination === "timeout" ? { error: `Stopped at the ${options.timeoutMs / 1000} s time limit` } : {}),
-      runtimeErrors: run.errors.map((error) => error.slice(0, 2000)),
-    };
-    const graded = await gradePreparedEval(root, observation, options.verifyTimeoutMs);
-    const evidence = await measureQuality({ task, repoRoot: options.repoRoot, workdir, graded, run, reference: await reference(task), timeoutMs: options.verifyTimeoutMs });
-    return { taskId: task.id, pack: task.pack!, harness, repeat, run, graded, evidence, score: scoreQuality(evidence) };
-  } finally { await rm(root, { recursive: true, force: true }); }
+    const sessionId = `casper-bench-${task.id}-${repeat}`;
+    const limit = options.followUps ?? 0;
+    let prompt = task.prompt;
+    let run!: HarnessObservation;
+    let graded!: EvalRunResult;
+    let totalWallClockMs = 0;
+    let totalTurns: number | null = 0;
+    let totalTokens: number | null = 0;
+    let attempt = 0;
+    while (true) {
+      run = await runHarness(harness, {
+        command: options.commands[harness], cwd: workdir, prompt, model: options.model, effort: options.effort,
+        timeoutMs: options.timeoutMs, seed: options.seed, homeDir: home, sessionId, continueSession: attempt > 0,
+      });
+      totalWallClockMs += run.wallClockMs;
+      totalTurns = totalTurns !== null && run.turns !== null ? totalTurns + run.turns : null;
+      totalTokens = totalTokens !== null && run.tokens !== null ? totalTokens + run.tokens : null;
+      const observation: EvalObservation = {
+        startedAt, wallClockMs: totalWallClockMs, execution: run.termination === "completed" ? "completed" : "failed",
+        modelCalls: totalTurns ?? (run.answer ? 1 : 0), answer: run.answer, interventions: [], model: options.model,
+        ...(run.termination === "timeout" ? { error: `Stopped at the ${options.timeoutMs / 1000} s time limit` } : {}),
+        runtimeErrors: run.errors.map((error) => error.slice(0, 2000)),
+      };
+      graded = await gradePreparedEval(root, observation, options.verifyTimeoutMs);
+      if (graded.success || attempt >= limit || run.termination !== "completed") break;
+      const failures = graded.verification.checks.filter((check) => check.status === "fail")
+        .map((check) => `${check.name}: ${check.output.slice(-2500)}`).join("\\n\\n");
+      prompt = `Continue the task. The independent acceptance checks still fail. Fix the implementation, not the checks, and run the relevant tests.\\n\\nFailure report:\\n${failures || graded.acceptance.failures.join("\\n")}`;
+      attempt++;
+    }
+    const aggregate: HarnessObservation = { ...run, wallClockMs: totalWallClockMs, turns: totalTurns, tokens: totalTokens,
+      phases: run.phases, errors: run.errors };
+    const evidence = await measureQuality({ task, repoRoot: options.repoRoot, workdir, graded, run: aggregate, reference: await reference(task), timeoutMs: options.verifyTimeoutMs });
+    return { taskId: task.id, pack: task.pack!, harness, repeat, run: aggregate, graded, evidence, score: scoreQuality(evidence),
+      rework: limit ? { followUps: attempt, firstTimeRight: attempt === 0 && graded.success, fixedWithinFollowUps: attempt > 0 && graded.success,
+        totalWallClockMs, totalTurns, totalTokens } : undefined };
+  } finally { await rm(home, { recursive: true, force: true }); await rm(root, { recursive: true, force: true }); }
 }
 
 // ---------------------------------------------------------------------------------------------
