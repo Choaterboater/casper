@@ -124,6 +124,16 @@ async function savedConversations(f: Awaited<ReturnType<typeof fixture>>): Promi
 }
 const userText = (payload: Payload) => JSON.stringify(payload.messages.filter((message) => message.role === "user"));
 
+test("--json --continue reports the conversation it continued: the same session id", async () => {
+  const f = await fixture();
+  const first = await f.run(["--json", "remember ALPHA"]);
+  const second = await f.run(["--json", "--continue", "which word?"]);
+  const session = (stdout: string) => JSON.parse(stdout.split("\n")[0]!).session;
+  expect({ first: first.exit, second: second.exit }).toEqual({ first: 0, second: 0 });
+  expect(session(second.stdout)).toBe(session(first.stdout));
+  expect(userText(f.payloads.at(-1)!)).toContain("remember ALPHA");
+}, 30_000);
+
 test("--continue picks up the latest conversation and --resume the one whose ID starts with a prefix", async () => {
   const f = await fixture();
   const fresh = await f.run(["--continue", "remember ALPHA"]);

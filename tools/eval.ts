@@ -265,7 +265,7 @@ async function benchmark(options: EvalOptions, repoRoot: string): Promise<number
       const { score } = run;
       process.stdout.write(`[${++finished}/${total}] ${run.taskId} ${run.harness} #${run.repeat}: ${run.graded.success ? "accepted" : "not accepted"}; `
         + `claim ${run.evidence.claim.verdict}${score.falseDone ? " (false done)" : ""}; ${Math.round(score.effort.wallClockMs / 1000)} s, ${score.effort.turns ?? "?"} turns`
-        + (run.rework ? `; rework ${run.rework.followUps} follow-up(s), ${run.rework.fixedWithinFollowUps ? "fixed" : run.rework.firstTimeRight ? "first-time" : "not fixed"}` : "") + "\n");
+        + (run.rework?.followUps ? `; ${run.rework.followUps} follow-up(s): ${run.rework.fixed ? "fixed" : "still not accepted"}${run.rework.resumed === false ? " (did not resume the conversation)" : ""}, ${Math.round(run.rework.totalWallClockMs / 1000)} s total` : "") + "\n");
     },
     onFailure: (failure: BenchmarkFailure) => {
       process.stdout.write(`[${++finished}/${total}] ${failure.taskId} ${failure.harness} #${failure.repeat}: could not run: ${failure.error}\n`);

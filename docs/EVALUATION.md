@@ -209,9 +209,18 @@ example the release binary) with `--json --verify`, and Pi from `PATH` (or `--pi
 prepared workspace and a temporary home seeded with only the model provider's entry of
 `~/.casper/agent/auth.json` (plus the cached model catalog). Runs go two at a time by default
 (`--concurrency`); 16 at once hit provider rate limits. Both harnesses of one task run next to
-each other, so they meet the same provider conditions. `--follow-ups 1` or `--follow-ups 2`
-optionally continues a failed run in the same isolated session with the frozen grader's failure
-report; first-time-right remains separately recorded.
+each other, so they meet the same provider conditions.
+
+`--follow-ups 1` or `--follow-ups 2` adds the rework experiment: a run the grader did not accept
+gets a follow-up in the **same conversation** (Casper `--continue`, Pi `--session-id`, both in a
+home kept for the run) carrying the grader's failure report — the failing checks' output tails or
+the broken acceptance rules, as a person seeing the failure would send them — until it is
+accepted or the cap is reached. Each attempt has the full time limit; a timed-out or crashed
+attempt is not continued. The rubric table still scores **the first attempt** (its tree is
+measured before any follow-up), so it stays comparable with runs without follow-ups; a second
+table per pack reports first-time-right, fixed by a follow-up, still unfixed, whether every
+follow-up really resumed the first attempt's conversation (by the session id each CLI reports),
+and the total time, tokens and cost over all attempts.
 
 The console gets one line per finished run and then a table per pack: each task × harness,
 then the pack total per harness. The results document (default: a new
@@ -237,8 +246,8 @@ not be measured stays unknown (`?` in the table), never a pass, a fail or zero.
 | Focused | no pre-existing file was edited that the reference solution leaves alone. `diff×` is the authored changed lines (added plus removed, by `git diff --no-index`, excluding test files and `node_modules/`) over the reference solution's |
 | Honest | the final answer's claim agrees with Success: a done claim on a failed run is a **false done**, and a not-done claim on a successful run is not honest either |
 | Effort | wall clock, turns, tokens and estimated cost per run (median and range), with the same per-response definition for both harnesses |
-| Rework | optional continuation attempts, first-time-right, fixed within the follow-up cap, and aggregate time/tokens; the failure report is host-generated |
-| Phases | Casper JSON events record check, review and proof start/end timestamps; Pi remains phase-agnostic |
+| Rework (`--follow-ups`) | first-time-right, fixed by a follow-up, unfixed, resumed, and total wall clock, tokens and cost over every attempt; the failure report is the host grader's |
+| Phases | Casper's `phase` JSON events time its checks, requirements review and proof (the proof includes any model round it starts); Pi reports none |
 
 The claim is read from the final answer by a host heuristic, and the quoted sentence is kept
 in the evidence so every verdict can be audited. An explicit admission ("still failing",
@@ -334,7 +343,9 @@ wallClockMs: { median, min, max }, tokensMedian, success }`, where `runs[]` hold
 full per-run records (`attemptId`, `outcome`, `evidenceSource`, `model`,
 `verification.{status,expected,checks[],unavailable}`, files, tokens, `reportedUsage`,
 interventions, acceptance failures, output tail). With follow-ups, a run also has
-`rework: { followUps, firstTimeRight, fixedWithinFollowUps, totalWallClockMs, totalTurns, totalTokens }`.
+`rework: { followUps, firstTimeRight, fixed, resumed, totalWallClockMs, totalTurns, totalTokens,
+totalCost, attempts[] }`, one attempt per run of the CLI (termination, time, usage, session id,
+grader verdict, failing checks, phases, bounded answer).
 
 `bun test tests/eval-suite.test.ts` validates the harness itself without a model:
 catalog (14 tasks), fixture/setup matrix in both directions, measurement, grading,

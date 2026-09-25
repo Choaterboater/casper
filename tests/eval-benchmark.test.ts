@@ -31,7 +31,7 @@ async function measured(task: EvalTask, edit: (workdir: string) => Promise<void>
   cleanup.push(() => rm(root, { recursive: true, force: true }));
   await edit(workdir);
   const graded = await gradePreparedEval(root, { startedAt: new Date().toISOString(), wallClockMs: 1000, execution: "completed", modelCalls: 3, answer, interventions: [] });
-  const run: HarnessObservation = { answer, termination: "completed", exitCode: 0, wallClockMs: 1000, turns: 3, tokens: 900, estimatedCost: 0.01, receiptOutcome: null, errors: [] };
+  const run: HarnessObservation = { answer, termination: "completed", exitCode: 0, wallClockMs: 1000, turns: 3, tokens: 900, estimatedCost: 0.01, receiptOutcome: null, sessionId: null, errors: [] };
   const evidence = await measureQuality({ task, repoRoot, workdir, graded, run, reference: await referenceBaseline(task, repoRoot), timeoutMs: 60_000 });
   return { graded, evidence, score: scoreQuality(evidence) };
 }
@@ -167,6 +167,39 @@ test("a scripted CLI runs through prepare, harness, grader and scoring for both 
       .toEqual({ harness: run.harness, success: true, works: true, complete: true, honest: true, turns: 2 });
   }
 }, 120_000);
+
+test("follow-ups continue a failed run in the same conversation; the first attempt stays the headline", async () => {
+  const task = findEvalTask("core-log-parser")!;
+  const cli = (mode: "resumes" | "forgets") => [process.execPath, path.join(import.meta.dir, "fixtures/eval-rework-cli.ts"), path.join(repoRoot, "evals/fixtures", task.fixture, "src"), mode];
+  const result = await runBenchmark({
+    repoRoot, tasks: [task], harnesses: ["casper", "pi"], commands: { casper: cli("resumes"), pi: cli("resumes") },
+    model: "test/model", effort: "medium", repeat: 1, concurrency: 2, timeoutMs: 30_000, verifyTimeoutMs: 60_000, followUps: 2,
+  });
+  expect(result.failures).toEqual([]);
+  for (const run of result.runs) {
+    // The rubric scores the first attempt: it changed nothing and claimed done.
+    expect({ harness: run.harness, success: run.graded.success, falseDone: run.score.falseDone, turns: run.score.effort.turns })
+      .toEqual({ harness: run.harness, success: false, falseDone: true, turns: 2 });
+    const { attempts, ...rework } = run.rework!;
+    // One follow-up fixed it, so the second was never sent; both ran in one conversation.
+    expect(rework).toEqual({ followUps: 1, firstTimeRight: false, fixed: true, resumed: true,
+      totalWallClockMs: attempts[0]!.wallClockMs + attempts[1]!.wallClockMs, totalTurns: 4,
+      totalTokens: 600, totalCost: run.harness === "casper" ? 0.004 : 0.004 });
+    expect(attempts.map((attempt) => [attempt.attempt, attempt.success, attempt.answer, attempt.sessionId === attempts[0]!.sessionId]))
+      .toEqual([[0, false, "Implemented the change.", true], [1, true, "Fixed the failing checks.", true]]);
+    expect(attempts[0]!.failedChecks.length).toBeGreaterThan(0);
+  }
+  const report = formatBenchmarkReport(summarizeBenchmark(result.runs));
+  expect(report).toContain("follow-ups (the rubric above scores each first attempt)");
+  expect(report).toMatch(/core-log-parser\s+casper\s+0\/1\s+1\/1\s+0\s+1\/1/);
+
+  // A CLI that starts a new conversation for the follow-up did not resume, whatever it fixed.
+  const forgetful = await runBenchmark({
+    repoRoot, tasks: [task], harnesses: ["casper"], commands: { casper: cli("forgets"), pi: [] },
+    model: "test/model", effort: "medium", repeat: 1, concurrency: 1, timeoutMs: 30_000, verifyTimeoutMs: 60_000, followUps: 1,
+  });
+  expect(forgetful.runs[0]!.rework).toMatchObject({ followUps: 1, fixed: true, resumed: false });
+}, 180_000);
 
 test("a job that cannot run is a recorded failure, and the other jobs still finish", async () => {
   const task = findEvalTask("core-log-parser")!;
