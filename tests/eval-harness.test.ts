@@ -133,10 +133,11 @@ test("a clean exit without a completed assistant exchange is not success", () =>
 
 test("errors and incompatible Casper events cannot become completed observations", () => {
   const process = { exitCode: 0, timedOut: false, wallClockMs: 1 };
+  // A provider failure Casper did not recover from ends in a failed receipt.
   expect(observeHarness("casper", [
     { v: 1, type: "error", message: "Provider unavailable" },
-    { v: 1, type: "receipt", execution: "completed" },
-  ], process)).toMatchObject({ termination: "failed", errors: ["Provider unavailable"] });
+    { v: 1, type: "receipt", execution: "failed", exitCode: 1 },
+  ], { ...process, exitCode: 1 })).toMatchObject({ termination: "failed", errors: ["Provider unavailable"] });
   expect(observeHarness("casper", [{ v: 2, type: "receipt", execution: "completed" }], process))
     .toMatchObject({ termination: "failed", errors: ["Unsupported Casper event version"] });
   expect(observeHarness("pi", [
@@ -144,4 +145,20 @@ test("errors and incompatible Casper events cannot become completed observations
     { type: "agent_end" },
   ], process)).toMatchObject({ termination: "failed", errors: ["Quota exceeded"], tokens: null, estimatedCost: null });
   expect(observeHarness("casper", [{ v: 1, type: "receipt", execution: "completed" }], { ...process, timedOut: true }).termination).toBe("timeout");
+});
+
+test("a provider error the CLI retried past is kept as a diagnostic; the final state decides the run", () => {
+  const process = { exitCode: 0, timedOut: false, wallClockMs: 1 };
+  // Seen in the first live benchmark run: both harnesses retried a dropped connection and finished.
+  expect(observeHarness("casper", [
+    { v: 1, type: "error", message: "The socket connection was closed unexpectedly." },
+    { v: 1, type: "assistant_message", text: "Added the Tabs component." },
+    { v: 1, type: "receipt", execution: "completed", outcome: "verified", exitCode: 0 },
+  ], process)).toMatchObject({ termination: "completed", answer: "Added the Tabs component.", errors: ["The socket connection was closed unexpectedly."] });
+  expect(observeHarness("pi", [
+    { type: "message_end", message: { role: "assistant", stopReason: "error", errorMessage: "terminated", content: [], usage: { totalTokens: 0, cost: { total: 0 } } } },
+    { type: "auto_retry_start" }, { type: "auto_retry_end" },
+    { type: "message_end", message: { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "Added it." }], usage: { totalTokens: 50, cost: { total: 0.01 } } } },
+    { type: "agent_end" },
+  ], process)).toMatchObject({ termination: "completed", answer: "Added it.", turns: 2, tokens: 50, errors: ["terminated"] });
 });
