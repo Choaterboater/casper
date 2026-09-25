@@ -2,7 +2,7 @@
 
 Casper keeps conversation branching and workspace isolation related but separate:
 
-- **Pi owns conversations.** Casper uses Pi SDK 0.85.1 `SessionManager` and `AgentSessionRuntime` to clone/resume Pi JSONL sessions. Casper does not duplicate the message tree or invent another conversation database.
+- **Pi owns conversations.** Casper uses Pi SDK 0.87.0 `SessionManager` and `AgentSessionRuntime` to clone/resume Pi JSONL sessions. Casper does not duplicate the message tree or invent another conversation database.
 - **Casper owns names and workspace relations.** A small manifest under `~/.casper/sessions/<project-key>.json` maps a branch name to its Pi session file and, when applicable, a managed Git worktree.
 - **Git owns candidate content.** Experimental branches use `casper/<session-name>` in a worktree under `~/.casper/worktrees/<project-key>/`.
 

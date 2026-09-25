@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
  * arbitrary argument. */
 export interface ToolObservationInput { path?: string; command?: string; operation?: string; pattern?: string; check?: string }
 
-/** Pi 0.85.1's native edit/write path syntax (its resolver is not an SDK export).
+/** Pi 0.87.0's native edit/write path syntax (its resolver is not an SDK export).
  * Expand once at the adapter boundary; the result is a literal filesystem path. */
 export function nativeEditPath(input: string): string | undefined {
   const file = input.replace(/[\u00a0\u2000-\u200a\u202f\u205f\u3000]/g, " ").replace(/^@/, "");

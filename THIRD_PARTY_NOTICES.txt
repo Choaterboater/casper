@@ -1642,14 +1642,14 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
-@earendil-works/chord@0.85.1 — declared MIT
-@earendil-works/pi-agent-core@0.85.1 — declared MIT
-@earendil-works/pi-ai@0.85.1 — declared MIT
-@earendil-works/pi-coding-agent@0.85.1 — declared MIT
-@earendil-works/pi-telemetry@0.85.1 — declared MIT
-@earendil-works/pi-tui@0.85.1 — declared MIT
+@earendil-works/chord@0.87.1 — declared MIT
+@earendil-works/pi-agent-core@0.87.0 — declared MIT
+@earendil-works/pi-ai@0.87.0 — declared MIT
+@earendil-works/pi-coding-agent@0.87.0 — declared MIT
+@earendil-works/pi-telemetry@0.87.1 — declared MIT
+@earendil-works/pi-tui@0.87.0 — declared MIT
 Sources:
-https://raw.githubusercontent.com/earendil-works/pi/v0.85.1/LICENSE
+https://raw.githubusercontent.com/earendil-works/pi/v0.87.0/LICENSE
 
 MIT License
 

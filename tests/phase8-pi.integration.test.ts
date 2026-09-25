@@ -364,9 +364,9 @@ try {
   expect(await readFile(path.join(f.project, "test-runs"), "utf8")).toBe("xxx");
   expect(await readFile(path.join(f.project, "src/value"), "utf8")).toBe("good\n");
   expect(await readFile(path.join(f.project, "native-proof"), "utf8")).toBe("native");
-  // Native signal termination still resolves in this pinned Pi. Its tool success
-  // remains diagnostic, never fabricated exit 0 or a managed build pass.
-  expect(task.observedChecks).toEqual([{ name: "build", command: native, toolStatus: "success", output: expect.any(String), truncated: false }]);
+  // Native signal termination resolves as a tool error in this pinned Pi (exit 143). Its tool
+  // status remains diagnostic, never fabricated exit 0 or a managed build pass.
+  expect(task.observedChecks).toEqual([{ name: "build", command: native, toolStatus: "error", output: expect.stringContaining("143"), truncated: false }]);
   expect(task.observedChecks?.[0]).not.toHaveProperty("exitCode");
   expect(f.payloads).toHaveLength(9);
   for (const payload of f.payloads) expect(payload.tools.map((tool) => tool.function.name)).toEqual(expect.arrayContaining(["bash", "edit", "write", "casper_check"]));

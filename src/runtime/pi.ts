@@ -227,15 +227,18 @@ class PiRuntimeSession implements RuntimeSession {
     const agent = session.agent;
     const stream = agent.streamFunction;
     // A read-only child already owns its budget; a main-session limit applies to this prompt only.
-    const previousStop = agent.shouldStopAfterTurn;
+    const previousFinish = agent.finishTurn;
     const maxTurns = this.readOnly ? undefined : options?.maxTurns;
     let turns = 0;
     let limited = false;
-    if (maxTurns !== undefined) agent.shouldStopAfterTurn = async (context, stopSignal) => {
-      if (await previousStop?.(context, stopSignal)) return true;
+    if (maxTurns !== undefined) agent.finishTurn = async (turn, finishSignal) => {
+      const previous = await previousFinish?.(turn, finishSignal);
+      if (previous?.action === "end") return previous;
+      // Error and aborted responses end the run anyway; they are not counted turns.
+      if (turn.message.stopReason === "error" || turn.message.stopReason === "aborted") return previous ?? undefined;
       turns++;
-      limited = turns >= maxTurns && context.message.content.some((part) => part.type === "toolCall");
-      return limited;
+      limited = turns >= maxTurns && turn.message.content.some((part) => part.type === "toolCall");
+      return limited ? { action: "end" } : previous ?? undefined;
     };
     // Pi can resolve auth before its agent has an AbortController. Keep the
     // preparation signal linked at the last seam before provider execution.
@@ -266,7 +269,7 @@ class PiRuntimeSession implements RuntimeSession {
       throw error;
     } finally {
       agent.streamFunction = stream;
-      if (maxTurns !== undefined) agent.shouldStopAfterTurn = previousStop;
+      if (maxTurns !== undefined) agent.finishTurn = previousFinish;
       promptSignal.removeEventListener("abort", cancel);
       this.promptController = undefined;
       this.promptActive = false;
@@ -577,16 +580,17 @@ export class PiRuntime implements AgentRuntime {
           ...(readOnly ? { tools: ["read", "grep", "find", "ls"] } : {}),
         });
         if (readOnly) {
-          created.session.agent.shouldStopAfterTurn = ({ message }) => {
+          created.session.agent.finishTurn = ({ message }) => {
+            if (message.stopReason === "error" || message.stopReason === "aborted") return undefined;
             turns++;
             if (!limitReason && message.content.some((part) => part.type === "toolCall") && (turns >= readOnly.maxTurns || toolCalls >= readOnly.maxToolCalls)) {
               limitReason = "Subagent turn/tool-call budget exhausted";
             }
-            if (readOnly.signal.aborted) return true;
+            if (readOnly.signal.aborted) return { action: "end" };
             // A spent child gets exactly one tool-free turn to report what it already found;
             // without it the loop ends on a tool call and the caller receives an empty result.
-            if (limitReason && readOnly.reportTurn && !wrapUp) { wrapUp = true; return false; }
-            return Boolean(limitReason);
+            if (limitReason && readOnly.reportTurn && !wrapUp) { wrapUp = true; return undefined; }
+            return limitReason ? { action: "end" } : undefined;
           };
         } else created.session.setActiveToolsByName([
           "read", "bash", "edit", "write", "grep", "find", "ls",
