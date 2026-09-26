@@ -24,7 +24,7 @@ evals/
 ├── fixtures/     solved baseline repositories (one per project shape)
 ├── setups/       overlays that turn a baseline into one task's unsolved state
 ├── tasks.ts      the task catalog (prompt, verification, acceptance)
-├── packs.ts      quality-benchmark packs: core (9 tasks) and network (9 tasks)
+├── packs.ts      quality-benchmark packs: core (9 tasks), network (9 tasks) and hard (6 tasks)
 ├── harness.ts    runs the Casper, Pi or OMP CLI with identical inputs and an isolated home
 ├── benchmark.ts  quality benchmark: runs both harnesses, measures rubric evidence, summarizes per pack
 ├── quality.ts    rubric scores from host evidence only
@@ -138,8 +138,9 @@ prepared for the credential-free protocol below.
 
 The Phase 3 benchmark compares Casper and Pi on the same model, effort, prompt and
 time limit. Its tasks live in `evals/packs.ts` and are reported per pack: **core**
-(domain-neutral, gates every phase) and **network** (the first domain pack, reported
-separately so no single domain skews the headline). Each task has its own fixture;
+(domain-neutral, gates every phase), **network** (the first domain pack, reported
+separately so no single domain skews the headline) and **hard** (the receipt-honesty
+experiment, [below](#the-hard-pack-and-receipt-honesty)). Each task has its own fixture;
 none reuses a fixture from the tasks above.
 
 **Limits and usage.** The 300-second wall clock is the only run limit, and it is the same for
@@ -193,6 +194,12 @@ changed paths, which is the baseline for the Focused score.
 | network | `net-tacacs-accounting` | net-tacacs-acct | start/stop pairing per NAS, stop-only/no-stop, leap days, problems |
 | network | `net-config-compliance` | net-config-audit | volatile lines and `$9$` masking, AOS-CX hierarchy, ntp/aaa/snmpv2-off rules |
 | network | `net-mcp-show-interfaces` | net-mcp-router | router-style discovery, read-only dispatch, filters, 50-item bound |
+| hard | `hard-job-queue` | job-queue | concurrency cap, start and result order, 10·2ⁿ⁻¹ ms retry backoff through injected sleep, slot held while waiting, cancel queued/running/waiting |
+| hard | `hard-config-merge` | config-loader | env > file > defaults per key, lists replaced, `APP_`/`__` env names, type conversion, all issues with path/source in order, `__proto__`, no shared objects |
+| hard | `hard-money-allocation` | allocation | largest remainder with ties to the earlier ratio, exact bigint minor units, negative mirroring, per-currency digits, input rejects |
+| hard | `hard-dependency-scheduler` | task-graph | smallest-ready-first order, code-unit comparison, sorted batches, missing dependency before cycle, cycle path from its smallest task |
+| hard | `hard-conditional-http` | docs-api | strong content ETag, `If-None-Match` weak/list/`*` → 304, `If-Match` strong/list/`*` → 412, 428 without it, 404 first, no write on reject |
+| hard | `hard-rate-limiter` | rate-limiter | continuous fractional refill, exact rounded-up `retryAfterMs`, denied takes use nothing, cap, per-key buckets, backwards clock |
 
 **The notes fixture runs as a server.** `notes-api` has `src/server.ts`, which serves the
 existing app on `PORT`/`HOST` (defaults 3000 and 127.0.0.1), and a `dev` script (`bun run dev`).
@@ -236,6 +243,39 @@ candidate, the reference solution satisfies every acceptance and convention
 predicate, and through the real grader the reference solution is accepted while an
 untouched workspace is not. The fixture/setup matrix in `tests/eval-suite.test.ts`
 covers the packs too.
+
+### The hard pack and receipt honesty
+
+Casper runs Pi's loop on the same model, so its claimed value is a trustworthy outcome signal:
+its receipt should say `verified` only when the change is right. On core and network too few runs
+are wrong to measure that (6 of 99 pinned Casper runs). The **hard** pack is built so that models
+miss or half-do stated requirements often: edge cases, ordering, concurrency, error contracts.
+Each task starts from a stub that fails its visible tests; the visible tests cover only the basic
+path, and the prompt states every requirement the hidden tests check, so a hidden failure is always
+a stated requirement the model missed. Hardness is calibrated on Pi only (a combined failure rate of
+roughly 25-60% across both models), so the tasks are not tuned toward what Casper's receipt happens
+to catch; the pack is then frozen before any decision run.
+
+Every pack with Casper runs gets a **receipt honesty** table per Casper harness (`casper`,
+`casper-review`, `casper-no-review`), computed from the saved runs:
+
+- **caught**: of the wrong runs (not accepted by the grader), those whose receipt outcome was not
+  `verified` (`not_verified`, `failed` or `incomplete`), with a Wilson 95% interval;
+- **flagged**: of the right runs, those whose receipt was not `verified` (the guard against a
+  receipt that never says verified);
+- **false-verified**: of the `verified` runs, those that were wrong;
+- **timeouts** and **no receipt** are counted separately and left out of those three, since they
+  say nothing about whether a receipt tells the truth; infrastructure runs are left out entirely;
+- **wall×Pi**, **tokens×Pi**: Casper's median over Pi's, on the tasks both ran, timed-out runs
+  included (a timeout costs its time).
+
+The **rule** is the agreed decision: *met* when caught ≥ 70%, flagged ≤ 20% and both ratios
+≤ 1.25; *inconclusive* with more than 10% timeouts, no wrong runs or an unknown ratio; `–`
+without Pi runs. The decision is taken on the shipped default (`casper`, review off);
+`casper-review` runs alongside as a diagnostic.
+
+`hard-conditional-http` is a server task: `docs-api` declares `services.api` and a `GET /docs/1`
+smoke check like `notes-api`, so Phase 6's smoke checks take part.
 
 ### Running the benchmark
 
@@ -289,7 +329,8 @@ table per pack, **time to correct**, answers what a correct result costs:
 It also shows whether every follow-up really resumed the first attempt's conversation (by the
 session id each CLI reports). The benchmark has a grader that catches every failure; a real user
 often has none, so follow-ups understate what a false done costs. `--report <results.json>`
-reprints a saved document with the current summary, with no model calls.
+reprints a saved document with the current summary, with no model calls; repeat `--report` to
+summarize several documents together (one per model, for example).
 
 **Infrastructure failures.** A run that **failed** (not the time limit) before its first tool call,
 with every error its CLI reported being a retryable provider error by Pi's own classification
