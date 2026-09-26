@@ -163,3 +163,14 @@ test("retrying an ad-hoc command reuses its slot, at most 4 ad-hoc services are 
   await f.manager.close();
   for (const service of live) await gone(service.pid);
 }, 60_000);
+
+test("starting the same command after an edit restarts the stale ad-hoc service and says so", async () => {
+  const f = await fixture();
+  const first = (await f.call({ action: "start", command: COMMAND, ready: { log: "listening" } })).data.service;
+  expect((await f.call({ action: "start", command: COMMAND })).data).toMatchObject({ restarted: false, service: { name: first.name, pid: first.pid } });
+  f.manager.markEdited(path.join(f.root, "src", "app.ts"));
+  const again = await f.call({ action: "start", command: COMMAND });
+  expect(again.data).toMatchObject({ restarted: true, service: { name: first.name, state: "ready", stale: false } });
+  expect(again.data.service.pid).not.toBe(first.pid);
+  await gone(first.pid);
+}, 30_000);
