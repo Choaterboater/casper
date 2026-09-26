@@ -9,6 +9,7 @@ import { findProjectCandidates, hasProjectSignals } from "../src/project/inspect
 import { loadProjectContext } from "../src/project/context";
 import { SkillRegistry } from "../src/skills/registry";
 import type { AgentRuntime, RuntimeSession } from "../src/runtime/types";
+import { cleanEnv } from "./support/env";
 
 setDefaultTimeout(15_000);
 // The ask flow renders only on a rich terminal; this suite must not depend on the ambient TERM.
@@ -186,9 +187,8 @@ test("without a rich terminal the home-folder hint gives a command that actually
   // Real path: the launch folder is compared with HOME as given (macOS tmp is a symlink).
   const home = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-folder-plain-")));
   try {
-    const { PI_CODING_AGENT_DIR: _dir, ...inherited } = process.env;
     const child = Bun.spawn([process.execPath, path.resolve(import.meta.dir, "../src/cli.ts")], {
-      cwd: home, env: { ...inherited, HOME: home, CASPER_PROFILE: "default" }, stdin: "ignore", stdout: "pipe", stderr: "pipe",
+      cwd: home, env: cleanEnv({ HOME: home, CASPER_PROFILE: "default" }), stdin: "ignore", stdout: "pipe", stderr: "pipe",
     });
     const [stdout, code] = await Promise.all([new Response(child.stdout).text(), child.exited]);
     expect(code).toBe(0);
