@@ -387,6 +387,7 @@ test("the review round runs even after a fully ticked first checklist, and the r
   const reviews = f.payloads.filter((payload) => lastUser(payload).includes(REVIEW));
   expect(reviews.length).toBeGreaterThan(0);
   expect(lastUser(reviews[0]!)).toContain("start from it: add what it missed and split what it merged");
+  expect(lastUser(reviews[0]!)).toContain("Covered: <n> of <m> requirements.");
   const receipt = JSON.parse(result.stdout.trim().split("\n").at(-1)!);
   expect({ outcome: receipt.outcome, review: receipt.review, proof: receipt.proof?.status })
     .toEqual({ outcome: "verified", review: { done: ["sum.js is fixed — tests/check.sh"], open: [] }, proof: "proven" });
@@ -419,7 +420,8 @@ test("the review round fixes a gap the model finds; a gap it admits keeps the ch
   // The review finds that sum.js also needs a newline marker and fixes it; the checks rerun and pass.
   const fixed = await fixture((_request, payload) => {
     const prompt = lastUser(payload);
-    if (prompt.includes(REVIEW)) return afterTool(payload) ? { text: "Requirements:\n- [x] sum.js is fixed — test\n- [x] marker — test" }
+    // The delta answer: only the gap it fixed, and the count.
+    if (prompt.includes(REVIEW)) return afterTool(payload) ? { text: "Requirements review:\n- [x] marker — test\nCovered: 2 of 2 requirements." }
       : { tools: [{ name: "write", args: { path: "sum.js", content: "fixed marker\n" } }] };
     return afterTool(payload) ? { text: "Fixed." } : { tools: [{ name: "write", args: { path: "sum.js", content: "fixed\n" } }] };
   });
@@ -427,7 +429,8 @@ test("the review round fixes a gap the model finds; a gap it admits keeps the ch
   const reviewed = await fixed.run(["--json", "--verify", "Fix sum.js"]);
   const receipt = JSON.parse(reviewed.stdout.trim().split("\n").at(-1)!);
   expect({ exit: reviewed.exit, outcome: receipt.outcome, review: receipt.review, proof: receipt.proof?.status })
-    .toEqual({ exit: 0, outcome: "verified", review: { done: ["sum.js is fixed — test", "marker — test"], open: [] }, proof: "proven" });
+    .toEqual({ exit: 0, outcome: "verified", review: { done: ["marker — test"], open: [], total: 2 }, proof: "proven" });
+  expect(receipt.text).toContain("• The model's review: all 2 requirements covered (1 gap fixed; its own claim, not checked by Casper)");
   expect(await readFile(path.join(fixed.project, "sum.js"), "utf8")).toBe("fixed marker\n");
 
   const admitted = await fixture((_request, payload) => lastUser(payload).includes(REVIEW)
