@@ -188,7 +188,7 @@ posixOnly("the compiled CLI renders artifact files outside the checkout without 
   const [noticeText, noticeError, noticeExit] = await Promise.all([new Response(notices.stdout).text(), new Response(notices.stderr).text(), notices.exited]);
   expect({ exit: noticeExit, error: noticeError }).toEqual({ exit: 0, error: "" });
   expect(noticeText).toContain("CASPER — THIRD-PARTY NOTICES");
-  expect(noticeText).toContain("@earendil-works/pi-coding-agent@0.85.1");
+  expect(noticeText).toContain("@earendil-works/pi-coding-agent@0.87.0");
   const home = path.join(root, "home"), project = path.join(root, "project");
   await mkdir(home); await mkdir(project);
   await writeFile(path.join(project, "index.ts"), "export const answer = 42;\n");

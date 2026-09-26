@@ -93,7 +93,7 @@ transcript at the new width. A rows-only resize does not: `StableMainScreen`
 delegating, the same adjustment Pi's Termux branch makes, so shrinking or growing
 the window keeps scrollback intact (`tests/daily-terminal.test.ts` asserts no
 `ESC[3J` for a rows change and a repaint for a columns change; the field access is
-pinned to `@earendil-works/pi-tui` 0.85.1).
+pinned to `@earendil-works/pi-tui` 0.87.0).
 `tests/fixtures/layout-pty.py` drives the offline demo through a bounded 24x80
 VT emulator that scrolls, and fails on footer creep, scrollback wipes from
 popups/pickers, or a duplicated prompt box (`bun test tests/terminal-layout.test.ts`;
