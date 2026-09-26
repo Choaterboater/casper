@@ -202,3 +202,14 @@ test("a crash the smoke run found goes into the repair prompt, since no tool cal
   expect(f.app.getLastTaskResult()!.verification?.smoke).toMatchObject({ status: "pass" });
   expect(f.text()).not.toContain("restarted after crash");
 }, 30_000);
+
+test("after the task ends the model cannot record into its smoke checks any more", async () => {
+  const f = await fixture();
+  f.runtime.turns.push(async runtime => { await runtime.service({ action: "check", ...list }); });
+  await f.app.runOnce("Look at the notes");
+  const tool = f.runtime.tools.find(candidate => candidate.name === "service")!;
+  for (const args of [{ action: "check", ...create }, { action: "replay", id: "smoke-1" }]) {
+    const result = await tool.execute(args, new AbortController().signal);
+    expect({ isError: result.isError, text: result.text }).toEqual({ isError: true, text: expect.stringContaining("recorded during a task") });
+  }
+}, 30_000);

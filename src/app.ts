@@ -654,7 +654,9 @@ export class CasperApp {
         if (error instanceof ProcessCleanupError) this.cleanupError = error;
         throw error;
       } finally {
+        // With the task's checks: the service tool must not record into them from a later, non-task prompt.
         this.checkTask = undefined;
+        this.smokeTask = undefined;
         this.taskEdits = undefined;
         this.commandActive = false;
         this.workspaceTransition = false;
