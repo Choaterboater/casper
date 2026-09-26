@@ -11,8 +11,11 @@ cpSync(reference, "src", { recursive: true });
 const answer = "Implemented the change. All visible tests pass.";
 const emit = (event: unknown) => console.log(JSON.stringify(event));
 if (args.includes("--json")) {
+  emit({ v: 1, type: "phase", phase: "smoke", state: "start" });
+  emit({ v: 1, type: "phase", phase: "smoke", state: "end" });
   emit({ v: 1, type: "assistant_message", text: answer });
-  emit({ v: 1, type: "receipt", execution: "completed", outcome: "verified", exitCode: 0, usage: { turns: 2, tokens: 300, estimatedCost: 0.002 } });
+  const smoke = { status: "pass", checks: [{ id: "smoke-1", name: "parses", service: "api", source: "model", request: { method: "GET", path: "/" }, baseline: "fail", status: "pass", evidence: true }] };
+  emit({ v: 1, type: "receipt", execution: "completed", outcome: "verified", exitCode: 0, usage: { turns: 2, tokens: 300, estimatedCost: 0.002 }, smoke });
 } else {
   const usage = { totalTokens: 150, cost: { total: 0.001 } };
   emit({ type: "message_end", message: { role: "assistant", stopReason: "toolUse", content: [], usage } });

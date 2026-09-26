@@ -30,6 +30,7 @@ export interface ReworkAttempt {
   failedChecks: string[];
   acceptanceFailures: string[];
   phases?: HarnessObservation["phases"];
+  smoke?: HarnessObservation["smoke"];
   /** The final answer, bounded. */
   answer: string;
 }
@@ -399,7 +400,8 @@ async function runAttempt(options: BenchmarkOptions, task: EvalTask, harness: Ha
       attempt: index, termination: run.termination, wallClockMs: run.wallClockMs, turns: run.turns, tokens: run.tokens,
       estimatedCost: run.estimatedCost, sessionId: run.sessionId, receiptOutcome: run.receiptOutcome, success: graded.success,
       failedChecks: graded.verification.checks.filter((check) => check.status === "fail").map((check) => check.name),
-      acceptanceFailures: [...graded.acceptance.failures], ...(run.phases ? { phases: run.phases } : {}), answer: run.answer.slice(0, 4000),
+      acceptanceFailures: [...graded.acceptance.failures], ...(run.phases ? { phases: run.phases } : {}),
+      ...(run.smoke ? { smoke: run.smoke } : {}), answer: run.answer.slice(0, 4000),
     });
 
     const first = await attempt(task.prompt, false);
@@ -456,6 +458,19 @@ export interface BenchmarkCell {
   estimatedCost: Spread | null;
   /** Runs with follow-ups only; null when none had them. */
   rework: ReworkCell | null;
+  /** Casper's smoke runs (its self-report, not acceptance); null for harnesses that have none. */
+  smoke: SmokeCell | null;
+}
+
+export interface SmokeCell {
+  /** Runs whose receipt carried a smoke report. */
+  ran: number;
+  /** Of those, the ones whose smoke report passed. */
+  passed: number;
+  /** Runs with a model-recorded check Casper counted as evidence: it failed before the change and passes after it. */
+  proved: number;
+  /** Time in the smoke phase per run that had one. */
+  ms: Spread | null;
 }
 
 export interface ReworkCell {
@@ -524,6 +539,18 @@ function cell(all: readonly BenchmarkRun[], personMs: number): BenchmarkCell {
     tokens: spread(runs.map((run) => run.score.effort.tokens)),
     estimatedCost: spread(runs.map((run) => run.score.effort.estimatedCost)),
     rework: reworkCell(runs.flatMap((run) => run.rework ? [run.rework] : []), personMs),
+    smoke: all[0] && harnessProtocol(all[0].harness) === "casper" ? smokeCell(runs) : null,
+  };
+}
+
+function smokeCell(runs: readonly BenchmarkRun[]): SmokeCell {
+  const reports = runs.flatMap((run) => run.run.smoke ? [run.run.smoke] : []);
+  const phaseMs = runs.map((run) => run.run.phases?.filter((phase) => phase.phase === "smoke"))
+    .map((phases) => phases?.length ? phases.reduce((ms, phase) => ms + phase.durationMs, 0) : null);
+  return {
+    ran: reports.length, passed: reports.filter((report) => report.status === "pass").length,
+    proved: reports.filter((report) => report.checks.some((check) => check.source === "model" && check.status === "pass" && check.evidence === true)).length,
+    ms: spread(phaseMs),
   };
 }
 
@@ -599,14 +626,20 @@ function table(rows: readonly (readonly string[])[]): string {
   return rows.map((row) => row.map((value, column) => column === row.length - 1 ? value : value.padEnd(widths[column]!)).join("  ").trimEnd()).join("\n");
 }
 
-const HEADER = ["task", "harness", "success", "infra", "works", "complete", "req", "tested", "clean", "conv", "focused", "diff×", "honest", "false-done", "wall s", "turns", "tokens", "cost"];
+const HEADER = ["task", "harness", "success", "infra", "works", "complete", "req", "tested", "clean", "conv", "focused", "diff×", "honest", "false-done", "wall s", "turns", "tokens", "cost", "smoke"];
 
 function row(label: string, harness: HarnessName, value: BenchmarkCell): string[] {
   return [label, harness, `${value.success}/${value.runs}`, String(value.infra), ...DIMENSIONS.slice(0, 2).map((dimension) => tallyText(value[dimension])),
     spreadText(value.requirementFraction, percent), ...DIMENSIONS.slice(2, 6).map((dimension) => tallyText(value[dimension])),
     spreadText(value.diffRatio, decimal(2)), tallyText(value.honest), String(value.falseDone),
     spreadText(value.wallClockMs, (ms) => (ms / 1000).toFixed(0)), spreadText(value.turns, decimal(0)),
-    spreadText(value.tokens, tokensText), spreadText(value.estimatedCost, costText)];
+    spreadText(value.tokens, tokensText), spreadText(value.estimatedCost, costText), smokeText(value.smoke)];
+}
+
+function smokeText(smoke: SmokeCell | null): string {
+  if (!smoke) return "–";
+  if (!smoke.ran) return "none";
+  return `${smoke.passed}/${smoke.ran}${smoke.proved ? `, ${smoke.proved} proved` : ""}${smoke.ms ? `, ${spreadText(smoke.ms, (ms) => `${(ms / 1000).toFixed(1)}s`)}` : ""}`;
 }
 
 const REWORK_HEADER = ["task", "harness", "first-time", "fixed (1+2)", "unfixed", "rounds", "resumed", "sum s", "sum tokens", "sum cost",
@@ -656,6 +689,8 @@ export function formatBenchmarkReport(summary: BenchmarkSummary): string {
   return [
     "k/n = yes of n known; ?u = unknown (never counted as a pass or a fail). Spreads are median (min–max) over runs.",
     "req = share of requirement predicates held; diff× = authored changed lines over the reference solution's.",
+    "smoke = Casper's runs whose smoke checks passed, of those that ran any (Casper's own report, not acceptance); proved = runs with a model-recorded"
+      + " check that failed before the change and passes after it; then the time in the smoke phase. – = a harness without smoke checks.",
     "infra = runs that failed on retryable provider errors alone (rate limit, 5xx, lost connection) before any tool call; the benchmark reruns"
       + " such a run once, fresh, and counts it here only if the rerun failed the same way. They are not quality evidence: every other column,"
       + " success and first-time right included, leaves them out of its n.",
