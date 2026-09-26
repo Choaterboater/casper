@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { freePort, ManagedProcess, ManagedProcessError, portInUse, type ManagedProcessOptions } from "../src/platform/managed-process";
 import { ProcessCleanupError, type ProcessPlatform } from "../src/platform/processes";
+import { BrowserServer } from "../src/browser/server";
 
 const cleanups: Array<() => unknown> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
@@ -117,4 +118,17 @@ test("an unconfirmed cleanup raises the process cleanup error", async () => {
   const root = managed.pid!;
   cleanups.push(() => { try { process.kill(-root, "SIGKILL"); } catch { try { process.kill(root, "SIGKILL"); } catch { /* gone */ } } });
   await expect(managed.close()).rejects.toBeInstanceOf(ProcessCleanupError);
+}, 20_000);
+
+test("a browser server closed while its port is probed never spawns the development server", async () => {
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-managed-test-")));
+  cleanups.push(() => rm(root, { recursive: true, force: true }));
+  const port = await freePort();
+  const server = new BrowserServer();
+  cleanups.push(() => server.close().catch(() => {}));
+  const started = server.start(COMMAND, root, `http://127.0.0.1:${port}/`, new AbortController().signal).catch((error: unknown) => error);
+  await server.close();
+  expect(await started).toMatchObject({ message: "Development server was closed during startup" });
+  expect(server.diagnostics().running).toBe(false);
+  expect(await portInUse("127.0.0.1", port)).toBe(false);
 }, 20_000);

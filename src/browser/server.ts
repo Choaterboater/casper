@@ -18,6 +18,8 @@ export class BrowserServer {
     const held = await portInUse(url.hostname, Number(url.port)).catch(() => { throw new Error("Cannot establish that browser server port is unused"); });
     if (held) throw new Error("Browser server port is already in use; existing processes are never replaced");
     signal.throwIfAborted();
+    // close() may have run during the probe; nothing would close a process spawned after it.
+    if (this.stopped) throw new Error("Development server was closed during startup");
     const managed = this.process = new ManagedProcess({ command, cwd: projectRoot, ready: { http: url }, timeoutMs: 10_000, logBytes: 8192,
       label: "Development server", tempPrefix: "casper-browser-server-",
       env: { PORT: url.port, HOST: url.hostname.replace(/^\[|\]$/g, ""), NODE_ENV: "development" } });
