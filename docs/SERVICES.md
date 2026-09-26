@@ -96,6 +96,9 @@ During a task the model uses one `service` tool, with these actions:
   body, with JSON pretty-printed. A body over 8 KiB is cut with a marker such as
   `[truncated: 20480 bytes, first 8192 shown]`. The whole result stays within the usual
   16 KiB capability-result bound.
+- **`check`** records a smoke check (`name`, `service`, `request`, `expect`) and runs it
+  once for its baseline; **`replay`** reruns one by `id`. Casper replays every recorded
+  check after the change (see [VERIFICATION.md](VERIFICATION.md), "Smoke checks").
 
 A crash after readiness is not pushed into the model's turn. The next `service` call
 reports it once, under `crashed`, with the exit code and last log lines. This happens

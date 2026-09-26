@@ -65,7 +65,8 @@ A run ends with exactly one `receipt` event, or, when Casper stops before it can
 | `tool_start` | `tool`, `id`, `target` (path, command or pattern; redacted) | A tool call starts. |
 | `tool_end` | `tool`, `id`, `ok`, `ms` | A tool call ends. `ok` is the tool status, not a check result. |
 | `check` | `name`, `command`, `status` (`pass`/`fail`/`skip`), `exit`, `ms`, `recordedBy`, `reused` | Casper recorded a check. `recordedBy` is `casper` (auto mode, `/verify`, repair) or `casper_check` (the model asked for it). |
-| `receipt` | `outcome`, `exitCode`, `execution`, `changed`, `changedDuringChecks`, `verificationMode`, `checks`, `repairAttempts`, `turnLimit`, `usage`, `proof`, `review`, `text` | The run finished. |
+| `phase` | `phase` (`task`, `checks`, `smoke`, `review`, `proof`, `repair`), `state` (`start`/`end`), `atMs` | A stage of Casper's work starts or ends. `smoke` runs inside `checks`. |
+| `receipt` | `outcome`, `exitCode`, `execution`, `changed`, `changedDuringChecks`, `verificationMode`, `checks`, `repairAttempts`, `turnLimit`, `usage`, `proof`, `review`, `services`, `smoke`, `text` | The run finished. |
 | `error` | `message` | Something failed. |
 
 `receipt.outcome` is one of `verified`, `failed`, `incomplete`, `not_verified`, `unchanged`,
@@ -101,6 +102,15 @@ answer without a count) is `{ "done": [...], "open": [...] }`, `done` being ever
 turn budget; `null` means there was no checklist to report. It is the model's own claim; any `open` item
 makes the outcome `not_verified` (a `covered` short of `total` with no `open` item does not, but the receipt
 says `n of m requirements covered`, not all).
+
+`services` lists the session's managed services at the end of the task, each `{ "name", "origin", "state" }`
+(`origin` such as `http://127.0.0.1:53121`, or `null` when it is not starting or ready), or `[]`. `smoke` is
+Casper's last smoke run (see docs/VERIFICATION.md, "Smoke checks"), or `null` when none ran: `{ "status":
+"pass" | "fail" | "incomplete", "checks": [...] }`. Each check has `id`, `name`, `service`, `source` (`config`,
+or `model` for one the model recorded), `request` (`method`, `path`), `baseline` (model checks: the result
+when recorded, before the change), `status`, `evidence` (whether it counts as verification: a configured
+pass, or a model check that failed before and passes now), and when available `actual` (`status` and at
+most 512 characters of body), `reason` and `restarted`.
 
 ```json
 {"v":1,"type":"check","name":"test","command":"npm run test","status":"pass","exit":0,"ms":412,"recordedBy":"casper","reused":false}
