@@ -212,3 +212,17 @@ test("/services start restarts a stale service, and leaves a fresh one running",
   await gone(first);
   expect(f.app.services!.status()[0]).toMatchObject({ state: "ready", stale: false });
 }, 30_000);
+
+test("/services stop says a service that is not running is not running", async () => {
+  const f = await fixture();
+  await f.app.start(f.project);
+  await f.app.runOnce("/services stop api");
+  expect(f.text()).toContain("[services] api is not running.");
+  expect(f.text()).not.toContain("Stopped api");
+  await f.app.runOnce("/services start api");
+  await f.app.runOnce("/services stop api");
+  expect(f.text()).toContain("[services] Stopped api.");
+  await f.app.runOnce("/services stop api");
+  expect(f.text().trimEnd()).toEndWith("[services] api is not running.");
+  await expect(f.app.runOnce("/services stop web")).rejects.toThrow('No service named "web"');
+}, 30_000);

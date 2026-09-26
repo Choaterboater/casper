@@ -474,8 +474,7 @@ async function handleServicesCommand(host: CommandHost, prompt: string): Promise
       return;
     }
     if (action === "stop") {
-      await manager.stop(name);
-      host.output.write(`[services] Stopped ${name}.\n`);
+      host.output.write(await manager.stop(name) ? `[services] Stopped ${name}.\n` : `[services] ${name} is not running.\n`);
       return;
     }
     if (!manager.names().includes(name)) throw new Error(`No service named ${JSON.stringify(name)}; declared: ${manager.names().join(", ") || "none"} (.casper/project.yaml services)`);
