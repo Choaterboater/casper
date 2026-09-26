@@ -114,7 +114,8 @@ export function serviceTool(manager: () => ServiceManager, lifetime?: AbortSigna
       if (!checks) throw new Error("Checks are recorded during a task with Casper's verification on");
       const check = action === "check" ? await checks.record({ name: args.name, service: args.service, request: args.request, expect: args.expect }, signal)
         : await checks.replay(string(args.id, "id"), signal);
-      return { check, guidance: "Casper replays every recorded check after the change. A check counts as evidence only when it failed before the change and passes after it; one that passed before is an observation." };
+      return { check, guidance: `Casper replays every recorded check after the change. A check counts as evidence only when it failed before the change and passes after it; one that passed before is an observation.${
+        check.baselineAfterEdits ? " This one was recorded after edits in this task, so it is an observation too: record checks before editing." : ""}` };
     }
     if (action === "start" && args.command !== undefined) {
       if (args.service !== undefined) throw new Error("Give service (declared) or command (ad-hoc), not both");

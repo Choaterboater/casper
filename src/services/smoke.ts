@@ -111,8 +111,10 @@ export interface SmokeResult {
   request: { method: string; path: string };
   /** Model checks: the result when recorded, before the change. */
   baseline?: SmokeStatus;
+  /** Model checks recorded after edits in this task (or during a repair round): the baseline is not "before the change", so never evidence. */
+  baselineAfterEdits?: true;
   status: SmokeStatus;
-  /** Verification evidence: a configured check passing against fresh services, or a model check that failed before and passes now. */
+  /** Verification evidence: a configured check passing against fresh services, or a model check that failed before the change and passes now. */
   evidence: boolean;
   /** The response status and a body snippet. */
   actual?: { status: number; body: string };
@@ -137,8 +139,11 @@ export function smokeStatus(checks: readonly SmokeResult[]): SmokeStatus {
  * (restarting it after edits or a crash), so a result describes the current code.
  */
 export class SmokeChecks {
-  private readonly recorded: Array<{ id: string; check: SmokeCheck; baseline: SmokeStatus }> = [];
-  constructor(private readonly configured: readonly SmokeCheck[], private readonly manager: () => ServiceManager) {}
+  private readonly recorded: Array<{ id: string; check: SmokeCheck; baseline: SmokeStatus; afterEdits: boolean }> = [];
+  /** `changed` says whether the task's code may already differ from its start (an edit, or a round after the
+   * task turn); nothing else confirms the model recorded before editing, so such a baseline is never evidence. */
+  constructor(private readonly configured: readonly SmokeCheck[], private readonly manager: () => ServiceManager,
+    private readonly changed: () => boolean | Promise<boolean> = () => false) {}
 
   /** Configured plus recorded checks. */
   get size(): number { return this.configured.length + this.recorded.length; }
@@ -150,29 +155,30 @@ export class SmokeChecks {
     if (this.recorded.length >= MAX_SMOKE_CHECKS) throw new Error(`At most ${MAX_SMOKE_CHECKS} checks are recorded per task; replay an existing one`);
     const check = parseSmokeCheck(input, "check", this.manager().names());
     const id = `smoke-${this.recorded.length + 1}`;
+    const afterEdits = await this.changed();
     const result = await this.execute(check, signal);
-    this.recorded.push({ id, check, baseline: result.status });
-    return this.result(id, "model", check, result, result.status);
+    this.recorded.push({ id, check, baseline: result.status, afterEdits });
+    return this.result(id, "model", check, result, result.status, afterEdits);
   }
 
   async replay(id: string, signal: AbortSignal): Promise<SmokeResult> {
     const entry = this.recorded.find(recorded => recorded.id === id);
     if (!entry) throw new Error(`No recorded check ${JSON.stringify(id)}; recorded: ${this.recorded.map(recorded => recorded.id).join(", ") || "none"}`);
-    return this.result(id, "model", entry.check, await this.execute(entry.check, signal), entry.baseline);
+    return this.result(id, "model", entry.check, await this.execute(entry.check, signal), entry.baseline, entry.afterEdits);
   }
 
   /** Runs every check against fresh services. */
   async run(signal: AbortSignal): Promise<SmokeReport> {
     const checks: SmokeResult[] = [];
     for (const check of this.configured) checks.push(this.result(check.name, "config", check, await this.execute(check, signal)));
-    for (const { id, check, baseline } of this.recorded) checks.push(this.result(id, "model", check, await this.execute(check, signal), baseline));
+    for (const { id, check, baseline, afterEdits } of this.recorded) checks.push(this.result(id, "model", check, await this.execute(check, signal), baseline, afterEdits));
     return { status: smokeStatus(checks), checks };
   }
 
-  private result(id: string, source: SmokeResult["source"], check: SmokeCheck, run: Pick<SmokeResult, "status" | "actual" | "reason" | "restarted">, baseline?: SmokeStatus): SmokeResult {
-    const evidence = run.status === "pass" && (source === "config" || baseline === "fail");
+  private result(id: string, source: SmokeResult["source"], check: SmokeCheck, run: Pick<SmokeResult, "status" | "actual" | "reason" | "restarted">, baseline?: SmokeStatus, afterEdits = false): SmokeResult {
+    const evidence = run.status === "pass" && (source === "config" || (baseline === "fail" && !afterEdits));
     return { id, name: check.name, service: check.service, source, request: { method: check.request.method, path: check.request.path },
-      ...(baseline ? { baseline } : {}), ...run, evidence };
+      ...(baseline ? { baseline } : {}), ...(afterEdits ? { baselineAfterEdits: true as const } : {}), ...run, evidence };
   }
 
   private async execute(check: SmokeCheck, signal: AbortSignal): Promise<Pick<SmokeResult, "status" | "actual" | "reason" | "restarted">> {

@@ -108,9 +108,11 @@ says `n of m requirements covered`, not all).
 Casper's last smoke run (see docs/VERIFICATION.md, "Smoke checks"), or `null` when none ran: `{ "status":
 "pass" | "fail" | "incomplete", "checks": [...] }`. Each check has `id`, `name`, `service`, `source` (`config`,
 or `model` for one the model recorded), `request` (`method`, `path`), `baseline` (model checks: the result
-when recorded, before the change), `status`, `evidence` (whether it counts as verification: a configured
-pass, or a model check that failed before and passes now), and when available `actual` (`status` and at
-most 512 characters of body), `reason` and `restarted`.
+when recorded, before the change), `baselineAfterEdits` (`true` for a model check recorded after edits in the
+task or during a repair round, whose baseline is therefore not "before the change"), `status`, `evidence`
+(whether it counts as verification: a configured pass, or a model check that failed before the change and
+passes now), and when available `actual` (`status` and at most 512 characters of body), `reason` and
+`restarted`.
 
 ```json
 {"v":1,"type":"check","name":"test","command":"npm run test","status":"pass","exit":0,"ms":412,"recordedBy":"casper","reused":false}

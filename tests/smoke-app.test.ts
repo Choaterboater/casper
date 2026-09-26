@@ -8,7 +8,7 @@ import type { CasperEvent } from "../src/app/json-events";
 import { receiptEvent } from "../src/app/json-events";
 import { loadProjectContext } from "../src/project/context";
 import { SkillRegistry } from "../src/skills/registry";
-import type { AgentRuntime, RuntimeSession, RuntimeStartOptions, RuntimeTool } from "../src/runtime/types";
+import type { AgentRuntime, RuntimeEventListener, RuntimeSession, RuntimeStartOptions, RuntimeTool } from "../src/runtime/types";
 import { taskExitCode } from "../src/task/result";
 import { notesServer } from "./support/notes-server";
 
@@ -21,11 +21,12 @@ class ScriptedRuntime implements AgentRuntime {
   options?: RuntimeStartOptions;
   tools: RuntimeTool[] = [];
   turns: Array<(runtime: ScriptedRuntime) => Promise<void>> = [];
+  listeners = new Set<RuntimeEventListener>();
   async start(options: RuntimeStartOptions): Promise<RuntimeSession> {
     this.options = options; this.tools = options.tools ?? [];
     const info = () => ({ cwd: options.cwd, sessionId: "fixture", sessionFile: path.join(options.cwd, "..", "session.jsonl") });
     return { prompt: async text => { this.prompts.push(text); await this.turns.shift()?.(this); }, setTools: tools => { this.tools = tools; },
-      abort: async () => {}, subscribe: () => () => {}, getState: () => ({ cwd: options.cwd, isStreaming: false }), clearConversation: async () => {},
+      abort: async () => {}, subscribe: listener => { this.listeners.add(listener); return () => this.listeners.delete(listener); }, getState: () => ({ cwd: options.cwd, isStreaming: false }), clearConversation: async () => {},
       getSessionInfo: info, resumeConversation: async () => {}, forkSession: async () => info(), switchSession: async () => info() };
   }
   async dispose() {}
@@ -33,6 +34,8 @@ class ScriptedRuntime implements AgentRuntime {
     const result = await this.tools.find(tool => tool.name === "service")!.execute(args, new AbortController().signal);
     return JSON.parse(result.text).data;
   }
+  /** A shell command the model ran (its effect, if any, is up to the caller): only its tool events are reported. */
+  bash(command: string) { for (const listener of this.listeners) listener({ type: "tool_end", toolName: "bash", toolCallId: command, input: { command }, isError: false }); }
   /** A model edit: the file is written and reported, as Pi's edit/write tools do. */
   async write(file: string, content: string) { await writeFile(file, content); await this.options!.afterFileEdit!(file); }
 }
@@ -133,4 +136,52 @@ test("a smoke failure the repairs leave in place fails the task; a service that 
   expect(incomplete.verification).toMatchObject({ status: "incomplete", repairAttempts: 0, smoke: { status: "incomplete" } });
   expect(receiptEvent(undefined, incomplete, 2).outcome).toBe("incomplete");
   expect(g.runtime.prompts).toHaveLength(1);
+}, 30_000);
+
+test("a model check recorded after an edit in this task is never evidence; the receipt says it failed when recorded, after edits", async () => {
+  const f = await fixture();
+  f.runtime.turns.push(async runtime => {
+    await runtime.write(path.join(f.project, "src/notes.ts"), "export {};\n");
+    const recorded = await runtime.service({ action: "check", ...create });
+    expect(recorded.check).toMatchObject({ baseline: "fail", baselineAfterEdits: true, evidence: false });
+    expect(recorded.guidance).toContain("after edits");
+    await runtime.write(f.server, notesServer(true));
+  });
+  await f.app.runOnce("Add POST /notes");
+  const result = f.app.getLastTaskResult()!;
+  expect(result.verification?.smoke?.checks[0]).toMatchObject({ baseline: "fail", baselineAfterEdits: true, status: "pass", evidence: false });
+  expect(receiptEvent(undefined, result, 0).outcome).toBe("not_verified");
+  expect(f.text()).toContain("create note failed when recorded, after edits — an observation, not proof");
+  expect(f.text()).not.toContain("failed before the change");
+}, 30_000);
+
+test("a shell command that changed the workspace before the check makes its baseline after edits; a read-only one does not", async () => {
+  const f = await fixture();
+  f.runtime.turns.push(async runtime => {
+    runtime.bash("cat src/server.ts");
+    expect((await runtime.service({ action: "check", ...create })).check).toMatchObject({ baseline: "fail", evidence: false });
+    await writeFile(path.join(f.project, "src/notes.ts"), "export {};\n");
+    runtime.bash("echo 'export {};' > src/notes.ts");
+    expect((await runtime.service({ action: "check", ...create, name: "create again" })).check).toMatchObject({ baseline: "fail", baselineAfterEdits: true });
+    await runtime.write(f.server, notesServer(true));
+  });
+  await f.app.runOnce("Add POST /notes");
+  const checks = f.app.getLastTaskResult()!.verification!.smoke!.checks;
+  expect(checks.map(({ name, evidence, baselineAfterEdits }) => ({ name, evidence, baselineAfterEdits }))).toEqual([
+    { name: "create note", evidence: true, baselineAfterEdits: undefined }, { name: "create again", evidence: false, baselineAfterEdits: true }]);
+}, 30_000);
+
+test("a model check recorded during a repair round is never evidence", async () => {
+  const f = await fixture({ smoke: [{ ...create, name: "configured create" }] });
+  f.runtime.turns.push(async runtime => { await runtime.write(path.join(f.project, "src/notes.ts"), "export {};\n"); });
+  f.runtime.turns.push(async runtime => {
+    expect((await runtime.service({ action: "check", ...create })).check).toMatchObject({ baseline: "fail", baselineAfterEdits: true, evidence: false });
+    await runtime.write(f.server, notesServer(true));
+  });
+  await f.app.runOnce("Tidy the notes module");
+  const result = f.app.getLastTaskResult()!;
+  expect(f.runtime.prompts[1]).toContain("Casper verification repair 1/3.");
+  expect(result.verification?.smoke?.checks.map(({ name, evidence }) => ({ name, evidence }))).toEqual([
+    { name: "configured create", evidence: true }, { name: "create note", evidence: false }]);
+  expect(f.text()).toContain("create note failed when recorded, after edits");
 }, 30_000);
