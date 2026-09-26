@@ -1,6 +1,5 @@
 import { boundedObservation } from "../capabilities/result";
 import type { RuntimeTool } from "../runtime/types";
-import { formatTerminalJSON } from "../tui/json";
 import type { ServiceSpec } from "./config";
 import type { ServiceManager } from "./manager";
 import type { SmokeChecks } from "./smoke";
@@ -164,7 +163,8 @@ export function serviceTool(manager: () => ServiceManager, lifetime?: AbortSigna
         const result = await run(services, args, signals.length ? AbortSignal.any(signals) : new AbortController().signal);
         return { text: boundedObservation({ ...result, ...report }, "Service observation") };
       } catch (error) {
-        return { isError: true, text: formatTerminalJSON({ error: (error instanceof Error ? error.message : "Service operation failed").slice(0, 4096), ...report }) };
+        // Crash tails ride along here too, so the error is bounded like any observation.
+        return { isError: true, text: boundedObservation({ error: (error instanceof Error ? error.message : "Service operation failed").slice(0, 4096), ...report }, "Service error") };
       }
     },
   };

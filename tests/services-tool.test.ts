@@ -134,6 +134,19 @@ test("the tool is offered for declared or live services and server vocabulary, n
   }
 });
 
+test("an error result stays bounded when it carries noisy crash tails", async () => {
+  const f = await fixture();
+  const script = path.join(f.root, "noisy.ts");
+  await writeFile(script, `console.log("listening"); setTimeout(() => { for (let i = 0; i < 20; i++) console.error("fatal " + i + " " + "y".repeat(2000)); process.exit(3); }, 300); setInterval(() => {}, 1000);\n`);
+  for (const which of ["a", "b"]) await f.call({ action: "start", command: `"${process.execPath}" "${script}" ${which}`, ready: { log: "listening" } });
+  await until(() => f.manager.status().filter(service => service.state === "crashed").length === 2);
+  const failed = await f.tool.execute({ action: "request", method: "GET", url: "http://example.com/" }, new AbortController().signal);
+  expect(failed.isError).toBe(true);
+  expect(Buffer.byteLength(failed.text)).toBeLessThanOrEqual(16_384);
+  expect(failed.text).toContain("loopback");
+  expect(failed.text).toContain("adhoc-1");
+}, 30_000);
+
 test("retrying an ad-hoc command reuses its slot, at most 4 ad-hoc services are kept, and 4 live ones refuse a fifth", async () => {
   const f = await fixture();
   const broken = `"${process.execPath}" -e "process.exit(4)"`;
