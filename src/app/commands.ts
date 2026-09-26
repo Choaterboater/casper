@@ -1,4 +1,5 @@
 import type { BrowserSession } from "../browser/session";
+import type { ServiceManager, ServiceStatus } from "../services/manager";
 import type { DebugRequest, DebugSession } from "../debug/session";
 import { formatSubagentReport, SubagentManager, type SubagentRole } from "../agents/manager";
 import { formatReferenceResult, type ReferenceLibrary } from "../references/library";
@@ -63,6 +64,7 @@ export interface CommandHost {
   visualizationWork?: Promise<void>;
   visualizationAbort?: AbortController;
   browser?: BrowserSession;
+  services?: ServiceManager;
   debugSession?: DebugSession;
   lastTaskRequest?: string;
   ensureRuntime(): Promise<RuntimeSession>;
@@ -74,6 +76,7 @@ export interface CommandHost {
   runVerification(checks: readonly ProjectCommand[], repair: boolean, request?: string, task?: VerificationTask): Promise<VerificationReport>;
   activeWorkspaceRoot(): string;
   browserSession(): BrowserSession;
+  serviceManager(): ServiceManager;
   updateFooter(): void;
   handleBranchCommand(prompt: string): Promise<void>;
   handleSwitchCommand(prompt: string): Promise<void>;
@@ -210,6 +213,8 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
         return;
       }
       await host.browser?.close(); host.browser = undefined;
+      // Services belong to the conversation that started them.
+      await host.services?.close(); host.services = undefined;
       await host.stopDebugger(); host.debugSession = undefined;
       if (prompt === "/clear") {
         if (!session.clearConversation) throw new Error("This runtime does not support fresh conversations.");
@@ -261,6 +266,8 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       host.output.write(` mcp       ${host.mcp!.status().length} configured (/mcp for connection status)\n`);
       host.output.write(` lsp       ${host.lsp!.status().length} configured (/lsp for connection status)\n`);
       host.output.write(` browser   ${host.browser?.status().state ?? "idle"}; disposable local browser (/browser)\n`);
+      const services = host.services?.status() ?? [];
+      host.output.write(` services  ${Object.keys(host.projectContext!.services ?? {}).length} declared, ${services.filter(service => service.state === "ready").length} running (/services)\n`);
       host.output.write(` debugger  ${host.debugSession?.status().state ?? "idle"}; explicit local DAP (/debug)\n`);
       const usage = host.session?.getUsage?.();
       host.output.write(` context   ${usage?.context?.percent == null ? "—" : `${usage.context.percent.toFixed(1)}%~`} · ${usage?.tokens.total ?? "—"} session tokens (/context, /usage)\n`);
@@ -276,6 +283,10 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
     }
     if (/^\/browser(?:\s|$)/.test(prompt)) {
       await handleBrowserCommand(host, prompt);
+      return;
+    }
+    if (/^\/services(?:\s|$)/.test(prompt)) {
+      await handleServicesCommand(host, prompt);
       return;
     }
     if (/^\/memory(?:\s|$)/.test(prompt)) {
@@ -434,6 +445,44 @@ async function handleBrowserCommand(host: CommandHost, prompt: string): Promise<
       host.output.write(`${formatTerminalJSON(await host.browserSession().run({ action }, host.commandAbort?.signal))}\n`); return;
     }
     throw new Error("Usage: /browser | /browser open <url> | /browser inspect|diagnostics|screenshot|close");
+  }
+
+/** One line per service, plus a crash's or failed start's reason and log tail. */
+export function formatServiceStatus(services: readonly ServiceStatus[]): string {
+  if (!services.length) return "[services] No services declared. Declare them under services: in .casper/project.yaml (docs/SERVICES.md).\n";
+  return `[services]\n${services.map(service => {
+    const detail = service.state === "ready" || service.state === "starting" ? `${service.origin ?? ""}  pid ${service.pid ?? "?"}${service.stale ? " · stale (restarts before next use)" : ""}`
+      : service.state === "crashed" ? `exit code ${service.exit?.code ?? service.exit?.signal ?? "unknown"}`
+      : service.state === "failed" ? service.error ?? "startup failed" : service.command;
+    const cleanup = service.cleanup ? "\n  process cleanup unconfirmed; inspect its processes before starting more work" : "";
+    const tail = service.tail ? `\n${service.tail.split("\n").map(line => `  | ${line}`).join("\n")}` : "";
+    return `${service.name}  ${service.state}  ${detail}${cleanup}${tail}`;
+  }).join("\n")}\n`;
+}
+
+/** Local control of declared services: no model call and no runtime start. */
+async function handleServicesCommand(host: CommandHost, prompt: string): Promise<void> {
+    const [, action, name, ...extra] = prompt.trim().split(/\s+/);
+    const usage = "Usage: /services | /services logs <name> | /services start|restart|stop <name>";
+    if (!action) { host.output.write(formatServiceStatus((host.services ?? host.serviceManager()).status())); return; }
+    if (!name || extra.length || !["logs", "start", "restart", "stop"].includes(action)) throw new Error(usage);
+    const manager = host.serviceManager();
+    if (action === "logs") {
+      const { text, truncated } = manager.logs(name, { lines: 60 });
+      host.output.write("");
+      host.terminal.writePanel(`[services] ${name} log${truncated ? " (recent lines)" : ""}`, text || "(no output)");
+      return;
+    }
+    if (action === "stop") {
+      await manager.stop(name);
+      host.output.write(`[services] Stopped ${name}.\n`);
+      return;
+    }
+    if (!manager.names().includes(name)) throw new Error(`No service named ${JSON.stringify(name)}; declared: ${manager.names().join(", ") || "none"} (.casper/project.yaml services)`);
+    host.output.write(`[services] ${action === "start" ? "Starting" : "Restarting"} ${name}; waiting for readiness (Ctrl+C cancels the startup).\n`);
+    const signal = host.commandAbort?.signal ?? new AbortController().signal;
+    const status = await (action === "start" ? manager.start(name, signal) : manager.restart(name, signal));
+    host.output.write(formatServiceStatus([status]));
   }
 
 /**
