@@ -42,6 +42,18 @@ before anything is terminated. It is not a sandbox and does not certify that eve
 descendant was observed.
 _Avoid_: Kill list, process registry
 
+**Managed service**:
+A long-running process, such as a development server, that Casper started and owns for
+the session until exit, a cleared or switched conversation, or an explicit stop. It carries
+no evidence itself; evidence comes only from what Casper runs against it.
+_Avoid_: Background job, daemon
+
+**Smoke check**:
+An HTTP expectation that Casper runs against a managed service. A configured one is
+verification evidence when it passes fresh; one the model recorded counts only if it failed
+before the change and passes after it, otherwise it is reported as an observation.
+_Avoid_: Health check, endpoint test
+
 **Evaluation task**:
 A bounded piece of work over a prepared repository with independent behavioral checks
 and declared expectations. A workflow scenario also requires host-observed lifecycle evidence.
