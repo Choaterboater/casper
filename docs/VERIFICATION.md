@@ -63,6 +63,35 @@ reported but never counted as verification.
 A pass marked `reused` did not run again: its declared inputs are unchanged since it passed earlier in
 the same task (often the model's own `casper_check`), and the time is that earlier run's.
 
+## Independent acceptance check (experimental)
+
+Off by default. The hard-pack decision run (docs/evals/2026-09-26-hard-pack.md) found that every wrong
+run passed the visible tests and the proof: the model's own tests missed the same requirement its
+code did. With the check on, a code change in auto mode that passed the checks and was not left
+unproven gets one more piece of evidence:
+
+```yaml
+verification:
+  acceptance: true   # default false
+```
+
+Casper makes one separate model call (same model and effort, outside the conversation). It sends the
+request, `CONTEXT.md` and `AGENTS.md`, the changed code and up to two existing tests as style examples,
+and asks for one test file with one test per requirement the request states, asserting only what the
+request says. Casper saves the file next to the project's first test file (or in `tests/`), runs
+`<verify.test> ./<file>` once and deletes the file, so the workspace ends as the model left it.
+
+```
+✓ Independent acceptance: tests written from the request alone pass
+✗ Independent acceptance: tests written from the request alone fail
+• Independent acceptance not run: the acceptance answer had no test file
+```
+
+A failure makes the change `not_verified` (exit 3 with `--require-verification`). A pass or an error
+never upgrades anything. It is signal only: no repair round follows. The call's tokens join the task's
+usage. The JSON receipt carries `acceptance` (`status`, `reason`, `output`) or `null`. The test command must
+accept a file argument (`bun test`, jest, vitest, pytest).
+
 ## Requirements review
 
 The requirements review is **off by default**. In pinned benchmarks it added no first-time-right

@@ -5,6 +5,7 @@ import type { ServiceState } from "../services/manager";
 import type { SmokeReport } from "../services/smoke";
 import type { AutoCheckSkip, VerificationMode } from "../verify/mode";
 import type { ChangeProof } from "../verify/proof";
+import type { AcceptanceResult } from "../verify/acceptance";
 import { ROUND_MAX_TURNS, type RequirementsReview } from "./review";
 
 /** Tool-reported diagnostics, not process exit evidence or a reusable check pass. */
@@ -56,6 +57,9 @@ export interface TaskResult {
   proof?: ChangeProof;
   /** The model's requirements checklist (its own claim). Admitted open items make the change not verified. */
   review?: RequirementsReview;
+  /** Tests written from the request alone and run against the change (verification.acceptance). A failure
+   * makes the change not verified; the check never repairs and its test file is never kept. */
+  acceptance?: Omit<AcceptanceResult, "usage">;
   /** The session's managed services at the end of the task (the origin while starting or ready). */
   services?: Array<{ name: string; origin?: string; state: ServiceState }>;
 }
@@ -78,7 +82,8 @@ export function taskOutcome(report?: VerificationReport, task?: TaskResult): Tas
     const admittedGaps = Boolean(task?.review && "open" in task.review && task.review.open.length);
     // Smoke alone verifies only with evidence: a model check that passed before the change is an observation.
     const observationsOnly = !verification!.results.length && !verification!.smoke?.checks.some((check) => check.evidence);
-    return stale || task?.proof?.status === "unproven" || admittedGaps || observationsOnly ? "not_verified" : "verified";
+    const rejected = task?.acceptance?.status === "fail";
+    return stale || task?.proof?.status === "unproven" || admittedGaps || observationsOnly || rejected ? "not_verified" : "verified";
   }
   const changed = Boolean(task?.changedPaths?.length || task?.changedDuringChecks?.length || (!task?.changedPaths && task?.possibleMutations));
   return changed || task?.autoSkipped === "no-checks" ? "not_verified" : "unchanged";
@@ -123,6 +128,7 @@ export function formatTaskResult(task: TaskResult): string {
 
   lines.push(receiptLine("verification", report ? formatVerificationReport(report, { compact: true }) : "no Casper verification recorded."));
   if (task.proof) lines.push(receiptLine("proof", proofLine(task.proof, safe)));
+  if (task.acceptance) lines.push(receiptLine("acceptance", acceptanceLine(task.acceptance, safe)));
   if (task.review) lines.push(receiptLine("review", reviewLine(task.review, safe).replace(/\n/g, "; ")));
   if (report?.smoke) {
     if (task.services?.length) lines.push(receiptLine("services", task.services.map((service) => `${safe(service.name)} ${service.state}${service.origin ? ` ${service.origin}` : ""}`).join("; ")));
@@ -181,6 +187,7 @@ export function formatReceipt(task: TaskResult, options: ReceiptOptions = {}): s
   }
 
   if (task.proof) lines.push(proofLine(task.proof, safe));
+  if (task.acceptance) lines.push(acceptanceLine(task.acceptance, safe));
   if (task.review) lines.push(reviewLine(task.review, safe));
   if (task.changedDuringChecks?.length) lines.push(`• Changed while checking: ${pathList(task.changedDuringChecks, safe, false)}`);
 
@@ -247,6 +254,12 @@ function reviewLine(review: RequirementsReview, safe: (text: string) => string):
     return `• The model's review: ${count} covered (${fixed}; its own claim, not checked by Casper)`;
   }
   return `• The model's review: all ${review.done.length} requirements covered (its own claim, not checked by Casper)`;
+}
+
+function acceptanceLine(acceptance: NonNullable<TaskResult["acceptance"]>, safe: (text: string) => string): string {
+  if (acceptance.status === "pass") return "✓ Independent acceptance: tests written from the request alone pass";
+  if (acceptance.status === "fail") return "✗ Independent acceptance: tests written from the request alone fail";
+  return `• Independent acceptance not run: ${safe(acceptance.reason ?? "unknown reason")}`;
 }
 
 function proofLine(proof: ChangeProof, safe: (text: string) => string): string {

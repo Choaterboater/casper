@@ -257,7 +257,7 @@ roughly 25-60% across both models), so the tasks are not tuned toward what Caspe
 to catch; the pack is then frozen before any decision run.
 
 Every pack with Casper runs gets a **receipt honesty** table per Casper harness (`casper`,
-`casper-review`, `casper-no-review`), computed from the saved runs:
+`casper-review`, `casper-no-review`, `casper-acceptance`), computed from the saved runs:
 
 - **caught**: of the wrong runs (not accepted by the grader), those whose receipt outcome was not
   `verified` (`not_verified`, `failed` or `incomplete`), with a Wilson 95% interval;
@@ -286,7 +286,8 @@ bun tools/eval.ts --pack core --pack network --model github-copilot/gpt-5-mini -
 `--pack` or `--harness` selects benchmark mode. `casper` is Casper as it ships, with its
 requirements review round off (the default). `--harness casper-no-review` and `--harness casper-review`
 add the same Casper CLI with `verification.review: false` (explicitly) or `verification.review: true`
-in its run's user configuration, to measure what the requirements review round adds. `--harness omp` adds oh-my-pi (see
+in its run's user configuration, to measure what the requirements review round adds. `--harness casper-acceptance`
+writes `verification.acceptance: true` (the independent acceptance check, docs/VERIFICATION.md). `--harness omp` adds oh-my-pi (see
 [OMP](#omp) below). Both harnesses run through their real CLIs
 (`evals/harness.ts`): Casper from this checkout (`bun src/cli.ts`, or `--casper <path>`, for
 example the release binary) with `--json --verify`, and Pi from `PATH` (or `--pi <path>`) with
