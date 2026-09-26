@@ -196,3 +196,19 @@ test("a workspace transition (/branch) stops the session's services", async () =
   await gone(root); await gone(grandchild);
   expect(branching.services).toBeUndefined();
 }, 30_000);
+
+test("/services start restarts a stale service, and leaves a fresh one running", async () => {
+  const f = await fixture();
+  await f.app.start(f.project);
+  await f.app.runOnce("/services start api");
+  const first = pid(f.text());
+  await f.app.runOnce("/services start api");
+  expect(pid(f.text())).toBe(first);
+  f.app.services!.markEdited(path.join(f.project, "src", "server.ts"));
+  await f.app.runOnce("/services start api");
+  expect(f.text()).toContain("[services] Restarted api: edits made it stale.");
+  const second = pid(f.text());
+  expect(second).not.toBe(first);
+  await gone(first);
+  expect(f.app.services!.status()[0]).toMatchObject({ state: "ready", stale: false });
+}, 30_000);

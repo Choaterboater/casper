@@ -56,7 +56,7 @@ Invalid values stop configuration loading with the dotted path, for example
 ```text
 /services                       state and address of each declared service
 /services logs <name>           recent log lines
-/services start <name>          start and wait for readiness
+/services start <name>          start and wait for readiness (restarts a stale or crashed one)
 /services restart <name>        stop, then start again
 /services stop <name>           stop the service and its child processes
 ```
@@ -68,7 +68,8 @@ A state is one of `idle` (declared, not started), `starting`, `ready`, `crashed`
 readiness) or `stopped`. A crash is recorded with its exit code and last log lines. It
 is shown on the next `/services` and is not pushed into a running model turn. Casper
 also stops any child processes the crashed service left behind. A `stale` service keeps
-running until something needs it fresh; then it is restarted first.
+running until something needs it fresh, such as `/services start`; then it is restarted
+first.
 
 ## Lifetime
 

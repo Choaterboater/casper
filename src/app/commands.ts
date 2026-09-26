@@ -481,8 +481,12 @@ async function handleServicesCommand(host: CommandHost, prompt: string): Promise
     if (!manager.names().includes(name)) throw new Error(`No service named ${JSON.stringify(name)}; declared: ${manager.names().join(", ") || "none"} (.casper/project.yaml services)`);
     host.output.write(`[services] ${action === "start" ? "Starting" : "Restarting"} ${name}; waiting for readiness (Ctrl+C cancels the startup).\n`);
     const signal = host.commandAbort?.signal ?? new AbortController().signal;
-    const status = await (action === "start" ? manager.start(name, signal) : manager.restart(name, signal));
-    host.output.write(formatServiceStatus([status]));
+    if (action === "restart") { host.output.write(formatServiceStatus([await manager.restart(name, signal)])); return; }
+    // start means "make it usable": a stale or crashed service is restarted, as before the model's next use.
+    const before = manager.status().find(service => service.name === name);
+    const { restarted } = await manager.ensureFresh(name, signal);
+    if (restarted) host.output.write(`[services] Restarted ${name}: ${before?.state === "crashed" ? "it had crashed" : before?.stale ? "edits made it stale" : "it stopped answering"}.\n`);
+    host.output.write(formatServiceStatus(manager.status().filter(service => service.name === name)));
   }
 
 /**
