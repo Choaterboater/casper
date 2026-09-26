@@ -92,6 +92,14 @@ test("/services lists, starts, shows logs, restarts and stops a declared service
   expect(f.runtime.starts).toBe(0);
 }, 30_000);
 
+test("/permissions says /services runs the project's declared commands", async () => {
+  const f = await fixture();
+  await f.app.start(f.project);
+  await f.app.runOnce("/permissions");
+  expect(f.text()).toContain("/verify and /services may execute project scripts");
+  expect(f.runtime.starts).toBe(0);
+});
+
 test("help and command discovery list /services", () => {
   expect(HELP_TEXT).toContain("/services");
   for (const entry of ["/services logs <name>", "/services start|restart|stop <name>"]) expect(FULL_HELP_TEXT).toContain(entry);

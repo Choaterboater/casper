@@ -175,7 +175,7 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       return;
     }
     if (prompt === "/permissions") {
-      host.output.write("Permissions: native read/edit/write/bash tools execute within the requested coding task; no OS sandbox or universal shell approval gate.\nMCP, workspace transitions, debugger launch and consequential browser operations have their own exact approvals.\nNo SAFE/YOLO or read-only mode is implied. /verify may execute project scripts.\n");
+      host.output.write("Permissions: native read/edit/write/bash tools execute within the requested coding task; no OS sandbox or universal shell approval gate.\nMCP, workspace transitions, debugger launch and consequential browser operations have their own exact approvals.\nNo SAFE/YOLO or read-only mode is implied. /verify and /services may execute project scripts (the declared checks and service commands).\n");
       return;
     }
     if (prompt === "/context" || prompt === "/usage") {
