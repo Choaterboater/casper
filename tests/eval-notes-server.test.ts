@@ -57,7 +57,9 @@ async function lifecycleAcceptance(source: string) {
   cleanup.push(() => rm(evaluator, { recursive: true, force: true }));
   await rm(path.join(evaluator, "src"), { recursive: true, force: true });
   await cp(path.join(source, "src"), path.join(evaluator, "src"), { recursive: true });
-  const run = Bun.spawn([process.execPath, "test", "./acceptance/server-lifecycle.test.ts"], { cwd: evaluator, stdout: "pipe", stderr: "pipe" });
+  // Bun prints no `(pass)` lines when it detects an AI agent (AGENT=1, CLAUDECODE=1, ...), and the results are read from them.
+  const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !/^(AGENT|AI_AGENT|CLAUDECODE|OMPCODE|CURSOR_AGENT|GEMINI_CLI|CODEX_\w+)$/.test(name)));
+  const run = Bun.spawn([process.execPath, "test", "./acceptance/server-lifecycle.test.ts"], { cwd: evaluator, env, stdout: "pipe", stderr: "pipe" });
   const [stdout, stderr, exitCode] = await Promise.all([new Response(run.stdout).text(), new Response(run.stderr).text(), run.exited]);
   const output = `${stdout}${stderr}`;
   const pids = [...output.matchAll(/\[server-lifecycle\] spawned pid (\d+)/g)].map((match) => Number(match[1]));
