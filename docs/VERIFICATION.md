@@ -183,6 +183,8 @@ smoke:
 `expect` needs at least one of `status`, `headers`, `json` and `bodyMatches`, and every one given
 must hold. `json` matches a subset: an object needs only the keys listed (each matching in turn), a
 list needs each listed item to match some item of the actual list, and anything else must be equal.
+`bodyMatches` runs in a separate process that is killed after a second, so a pattern that backtracks
+badly fails the check ("took too long") instead of hanging Casper.
 At most 8 checks, each at most 4 KiB as JSON, with unique names; `smoke` is a project setting only.
 Invalid values stop configuration loading with the dotted path, for example
 `smoke[0].service must name a declared service (api)`.
