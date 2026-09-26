@@ -20,3 +20,8 @@ test("cleanEnv keeps what a test sets explicitly, even in the stripped namespace
   expect(clean).toMatchObject({ HOME: "/tmp/home", CASPER_PROFILE: "default", PI_OFFLINE: "1", OPENAI_API_KEY: "fixture" });
   expect(clean.PI_MODEL).toBeUndefined();
 });
+
+test("an undefined value in extra removes that variable rather than passing it through", () => {
+  env.CLEAN_ENV_UNRELATED = "ambient";
+  expect("CLEAN_ENV_UNRELATED" in cleanEnv({ CLEAN_ENV_UNRELATED: undefined })).toBe(false);
+});
