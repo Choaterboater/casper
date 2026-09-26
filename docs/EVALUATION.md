@@ -206,17 +206,23 @@ starts the server through Casper's service manager on the solved fixture and on 
 
 **`core-service-lifecycle`: running the server is the only way to see the gap.** Its setup
 (`add-server-lifecycle`) takes `/health` out of the app and replaces `src/server.ts` with one
-that always listens on 127.0.0.1:3000 and has no SIGTERM handling; the visible tests, which
+that listens on 127.0.0.1 at a port the OS picks (so concurrent runs never share one) and
+has no SIGTERM handling; the visible tests, which
 call `createApp()` directly, still pass. The hidden `acceptance/server-lifecycle.test.ts`
 spawns the real `src/server.ts` (`bun src/server.ts`, one process) with `PORT`/`HOST` on
 loopback and checks `/health` (200 JSON, whole-millisecond uptime that grows), listening on
 the given port and on `HOST=::1` (and not on IPv4 there), and that a `POST /notes` whose
 body is still arriving when SIGTERM is sent gets its 201 before the process exits 0 within
 2 s. Every server it spawns is killed by PID after each test, including when the test
-failed; the check's process group is drained as for every check. It needs IPv6 loopback.
+failed; the check's process group is drained as for every check. It needs IPv6 loopback
+and POSIX signals (a Windows grader cannot deliver a catchable SIGTERM).
 The prompt states the same contract to both harnesses. Casper also has the fixture's
 `services.api` and `GET /notes` smoke check, which on the start cannot become ready (the
-server ignores the assigned port) and so is incomplete until `PORT` is honored.
+server ignores the assigned port) and so is incomplete until `PORT` is honored; its readiness
+wait is 10 s, not the 30 s default. For the same reason a model check recorded before the fix has
+an incomplete baseline, so the report's `proved` count stays 0 on this task by design.
+The benchmark keeps a Casper smoke report only when it has at most 64 checks (Casper sends at
+most 16); a larger one is dropped and the run counts as no smoke.
 `tests/eval-notes-server.test.ts` runs this acceptance over the solved fixture (all pass),
 the setup (all fail, no spawned PID survives) and the solved server with one behavior
 removed at a time (only that behavior's test fails).
@@ -465,7 +471,7 @@ grader verdict, failing checks, phases, Casper's smoke report, bounded answer). 
 observation carries Casper's `smoke` report when one ran.
 
 `bun test tests/eval-suite.test.ts` validates the harness itself without a model:
-catalog (14 tasks), fixture/setup matrix in both directions, measurement, grading,
+catalog (32 tasks), fixture/setup matrix in both directions, measurement, grading,
 the three harder tasks' shortcut/honesty cases, `--model` selection and recording,
 repeat aggregation.
 
