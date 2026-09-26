@@ -181,3 +181,26 @@ test("a path containing a backslash is refused rather than rewritten", async () 
   expect(refused.isError).toBe(true);
   expect(refused.data.error).toContain("path");
 }, 30_000);
+
+test("a plain loopback URL that is no service is reachable, and large bodies are marked by what was shown", async () => {
+  const f = await fixture();
+  const items = Array.from({ length: 400 }, (_, id) => ({ id, title: `item ${id}` }));
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: request => {
+    const { pathname } = new URL(request.url);
+    if (pathname === "/items") return Response.json(items);
+    if (pathname === "/huge") return new Response("z".repeat(100_000));
+    return new Response("plain");
+  } });
+  cleanups.push(() => server.stop(true));
+  const plain = await f.call({ action: "request", method: "GET", url: `http://127.0.0.1:${server.port}/` });
+  expect(plain.isError).toBe(false);
+  expect(plain.data).toMatchObject({ status: 200, restarted: false, body: "plain" });
+  expect(plain.data.service).toBeUndefined();
+  const json = await f.call({ action: "request", method: "GET", url: `http://127.0.0.1:${server.port}/items` });
+  const pretty = Buffer.byteLength(JSON.stringify(items, null, 2));
+  expect(Buffer.byteLength(JSON.stringify(items))).toBeLessThan(pretty);
+  expect(json.data.body).toContain(`[truncated: ${pretty} bytes as pretty-printed JSON, first 8192 shown]`);
+  const huge = await f.call({ action: "request", method: "GET", url: `http://127.0.0.1:${server.port}/huge` });
+  expect(huge.data.body).toContain("[truncated: more than 65536 bytes, first 8192 shown]");
+  expect(Buffer.byteLength(huge.text)).toBeLessThanOrEqual(16_384);
+}, 30_000);

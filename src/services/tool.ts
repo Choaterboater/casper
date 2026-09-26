@@ -37,14 +37,15 @@ export async function readBody(response: Response): Promise<{ bytes: Buffer; com
   }
 }
 
-/** JSON is pretty-printed; the shown body is cut at 8 KiB on a character boundary with a marker naming the size. */
+/** JSON is pretty-printed; the shown body is cut at 8 KiB on a character boundary with a marker naming the
+ * size of what is shown (pretty JSON is larger than it was on the wire, so the marker says which). */
 function showBody(bytes: Buffer, complete: boolean, contentType: string): string {
-  let text = bytes.toString("utf8");
-  if (complete && /\bjson\b|\+json/i.test(contentType)) { try { text = JSON.stringify(JSON.parse(text), null, 2); } catch { /* shown as sent */ } }
+  let text = bytes.toString("utf8"), pretty = false;
+  if (complete && /\bjson\b|\+json/i.test(contentType)) { try { text = JSON.stringify(JSON.parse(text), null, 2); pretty = true; } catch { /* shown as sent */ } }
   const size = Buffer.byteLength(text);
   if (complete && size <= BODY_BYTES) return text;
   const shown = Buffer.from(text).subarray(0, BODY_BYTES).toString("utf8").replace(/\uFFFD+$/, "");
-  return `${shown}\n[truncated: ${complete ? `${size} bytes` : `more than ${READ_BYTES} bytes`}, first ${BODY_BYTES} shown]`;
+  return `${shown}\n[truncated: ${complete ? `${size} bytes${pretty ? " as pretty-printed JSON" : ""}` : `more than ${READ_BYTES} bytes`}, first ${BODY_BYTES} shown]`;
 }
 
 /** The model's handle on Casper's managed services. `manager` is created on first use; `smoke`
