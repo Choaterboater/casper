@@ -51,12 +51,13 @@ shown as `[config]` warnings at startup and otherwise ignored.
 | --- | --- |
 | `CASPER_AGENT_DIR` | Credentials, model catalog, engine resources and transcripts. Defaults to `~/.casper/agent`. Relative paths resolve from the launch directory; `~/` expands to HOME. An explicit directory never receives the legacy import. |
 | `CASPER_OFFLINE` | Set to `1` to disable provider catalog fetches and automatic sign-in browser launches. Cached models remain available. This is **not** a network sandbox: requested model calls and authentication still use the network. |
+| `CASPER_TELEMETRY` | Set to `0` to send no OpenRouter app attribution (`HTTP-Referer`, `X-OpenRouter-Title`, `X-OpenRouter-Categories`, `X-OpenRouter-App-Visibility`) on model requests and key checks; the bundled engine's own attribution is turned off with it. Mirrors Pi's `PI_TELEMETRY`: unset keeps attribution, and when set only `1`, `true` or `yes` keep it. An inherited `PI_TELEMETRY` is ignored. |
 | `CASPER_OAUTH_CALLBACK_HOST` | Browser sign-in callback bind host; defaults to `127.0.0.1`. Casper refuses browser sign-in for any other value. |
 | `CASPER_TUI_WRITE_LOG` | Optional raw terminal-output log file, or an existing directory for timestamped logs. Can contain sensitive output; login is refused while logging is enabled. |
 | `CASPER_PROFILE` | Profile selection; precedence and name rules are described above. |
 
 Set these in your shell, not a repository `.env` (the source launcher ignores it).
-Casper forwards the four engine settings to the matching `PI_*` variables internally at
+Casper forwards the five engine settings to the matching `PI_*` variables internally at
 startup. Their inherited `PI_*` values are not fallbacks; a conflicting
 `PI_CODING_AGENT_DIR` produces a stderr notice without reading or writing that directory.
 Use `CASPER_AGENT_DIR` for an intentional override. `--version`, `--help` and `--licenses`

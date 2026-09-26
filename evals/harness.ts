@@ -102,9 +102,11 @@ export async function runHarness(harness: HarnessName, input: HarnessInput): Pro
       // Pi refuses --session-id with --continue; the id alone resumes the conversation once it exists.
       : ["--print", "--mode", "json", ...(input.session ? ["--session-id", input.session.id] : ["--no-session"]), "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-themes",
         "--model", input.model, "--thinking", input.effort];
+    // Pi runs with PI_TELEMETRY=0 and sends no OpenRouter attribution; CASPER_TELEMETRY=0 gives
+    // Casper's requests the same headers, so the host sees no difference but the prompt.
     const child = Bun.spawn([...input.command, ...args, "--", input.prompt], {
       cwd: input.cwd, env: isolatedEnvironment(home, name === "casper"
-        ? { CASPER_AGENT_DIR: agent, CASPER_OFFLINE: "1" }
+        ? { CASPER_AGENT_DIR: agent, CASPER_OFFLINE: "1", CASPER_TELEMETRY: "0" }
         : { PI_CODING_AGENT_DIR: agent, PI_OFFLINE: "1", PI_TELEMETRY: "0" }),
       stdin: "ignore", stdout: "pipe", stderr: "pipe", detached: osSupportsProcessGroups,
     });
