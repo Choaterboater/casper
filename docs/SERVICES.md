@@ -88,8 +88,8 @@ During a task the model uses one `service` tool, with these actions:
   kept: starting a fifth drops the oldest one that is not running.
 - **`status`**, **`logs`** (the most recent `lines`, default 40 and at most 200,
   optionally only lines containing `filter`), **`restart`** and **`stop`**.
-- **`request`** sends one HTTP request. It is sent either to `service` plus `path`, or
-  to a `url` on `localhost`, `127.0.0.1` or `[::1]` over `http:`. A URL at a service's
+- **`request`** sends one HTTP request. It is sent either to `service` plus `path` (which
+  starts with a single `/` and contains no `\`), or to a `url` on `localhost`, `127.0.0.1` or `[::1]` over `http:`. A URL at a service's
   address counts as that service. Anything else is refused. Before sending, Casper makes
   the service fresh: a service that is stale from edits, has crashed or no longer answers
   its readiness path is restarted, and the result says `restarted: true`. Redirects are

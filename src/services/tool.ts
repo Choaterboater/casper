@@ -68,7 +68,8 @@ export function serviceTool(manager: () => ServiceManager, lifetime?: AbortSigna
       name = owner?.name;
     } else {
       const target = string(args.path, "path");
-      if (!/^\/(?!\/)/.test(target)) throw new Error("path must start with a single / (use url for a full loopback URL)");
+      // URL parsing reads a backslash as a slash (`/\host/x` would name a host), so it is refused, not rewritten.
+      if (!/^\/(?!\/)[^\\]*$/.test(target)) throw new Error("path must start with a single / and contain no \\ (use url for a full loopback URL)");
       if (name === undefined) {
         const names = services.names();
         if (names.length !== 1) throw new Error(`Name the service: ${names.join(", ") || "none declared or started"}`);

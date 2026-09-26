@@ -174,3 +174,10 @@ test("starting the same command after an edit restarts the stale ad-hoc service 
   expect(again.data.service.pid).not.toBe(first.pid);
   await gone(first.pid);
 }, 30_000);
+
+test("a path containing a backslash is refused rather than rewritten", async () => {
+  const f = await fixture();
+  const refused = await f.call({ action: "request", service: "api", method: "GET", path: "/\\evil.com/x" });
+  expect(refused.isError).toBe(true);
+  expect(refused.data.error).toContain("path");
+}, 30_000);
