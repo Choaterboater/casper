@@ -82,7 +82,9 @@ During a task the model uses one `service` tool, with these actions:
   **ad-hoc service** named `adhoc-<n>`. It runs at the project root with `PORT`/`HOST`
   and nothing else in `env`, has no scope (any edit makes it stale), and is ready at
   `ready` (default `{ http: / }`) within `timeoutMs` (default 30000). Starting the same
-  command again joins the running one. At most 4 ad-hoc services run at once.
+  command again joins the running one, and relaunches it under the same name if it
+  stopped, failed or crashed. At most 4 ad-hoc services run at once, and at most 4 are
+  kept: starting a fifth drops the oldest one that is not running.
 - **`status`**, **`logs`** (the most recent `lines`, default 40 and at most 200,
   optionally only lines containing `filter`), **`restart`** and **`stop`**.
 - **`request`** sends one HTTP request. It is sent either to `service` plus `path`, or

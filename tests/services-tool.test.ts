@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, realpath, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { CORE_PACK, NETWORK_PACK } from "../evals/packs";
@@ -133,3 +133,20 @@ test("the tool is offered for declared or live services and server vocabulary, n
     expect({ text, offered: serviceRequested(text, { declared: false, live: false }) }).toEqual({ text, offered: true });
   }
 });
+
+test("retrying an ad-hoc command reuses its slot, at most 4 ad-hoc services are kept, and 4 live ones refuse a fifth", async () => {
+  const f = await fixture();
+  const broken = `"${process.execPath}" -e "process.exit(4)"`;
+  for (let attempt = 0; attempt < 3; attempt++) expect((await f.call({ action: "start", command: broken })).isError).toBe(true);
+  expect(f.manager.names()).toEqual(["api", "adhoc-1"]);
+  for (let other = 0; other < 6; other++) await f.call({ action: "start", command: `${broken} ${other}` });
+  expect(f.manager.names().filter(name => name.startsWith("adhoc-")).length).toBe(4);
+  const live = [];
+  for (let n = 0; n < 4; n++) live.push((await f.call({ action: "start", command: `${COMMAND} live-${n}`, ready: { log: "listening" } })).data.service);
+  expect(live.map(service => service.state)).toEqual(["ready", "ready", "ready", "ready"]);
+  const fifth = await f.call({ action: "start", command: `${COMMAND} live-4`, ready: { log: "listening" } });
+  expect(fifth.isError).toBe(true);
+  expect(fifth.data.error).toContain("At most 4 ad-hoc services run at once");
+  await f.manager.close();
+  for (const service of live) await gone(service.pid);
+}, 60_000);
