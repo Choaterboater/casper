@@ -228,7 +228,8 @@ function checkLine(result: VerificationResult, safe: (text: string) => string, s
   }
   if (result.status === "pass") {
     if (result.freshness === "stale") return `• Not verified — stale: files changed after the last passing ${name}. Run ${slash(`/verify ${name}`)}.`;
-    return `✓ Verified by Casper: ${name} passed (${result.command ? `${safe(result.command)}, ` : ""}${duration(result.durationMs)})`;
+    // A reused pass did not run again: the time shown is the earlier run's, so the receipt says so.
+    return `✓ Verified by Casper: ${name} passed${result.reused ? " earlier in this task, reused" : ""} (${result.command ? `${safe(result.command)}, ` : ""}${duration(result.durationMs)})`;
   }
   const timeout = /^Timed out after (\d+)ms$/.exec(result.reason ?? "");
   const why = typeof result.exitCode === "number" ? `exit ${result.exitCode}`

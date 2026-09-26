@@ -17,6 +17,11 @@ test("a Casper-run pass names the check, command and time", () => {
     .toBe("✓ Changed 1 file: sum.js\n✓ Verified by Casper: test passed (npm run test, 0.3s)");
 });
 
+test("a pass reused from earlier in the task says so, and that its time is the earlier run's", () => {
+  expect(formatReceipt(done({ changedPaths: ["sum.js"], verificationMode: "auto", verification: report([check({ freshness: "fresh", reused: true })]) })))
+    .toBe("✓ Changed 1 file: sum.js\n✓ Verified by Casper: test passed earlier in this task, reused (npm run test, 0.3s)");
+});
+
 test("a failure names the exit and the next command, per surface", () => {
   const task = done({ changedPaths: ["sum.js"], verificationMode: "auto",
     verification: report([check({ status: "fail", exitCode: 1, durationMs: 1500 })], { repairAttempts: 2, reason: "Repair limit reached." }) });
@@ -85,7 +90,8 @@ test("stopped tasks, unknown changes, long path lists and browser checks read pl
 
 test("the default receipt never uses internal terms and escapes terminal controls", () => {
   const text = formatReceipt(done({ changedPaths: ["a\n\u001b[31mforged"], verification: report([check(), check({ name: "build", freshness: "fresh", scope: { inputs: ["src"] }, reused: true })]) }));
-  expect(text).not.toMatch(/scope|reuse|freshness|fingerprint|undeclared|certified|\u001b/);
+  // "reused" is plain language here (the build passed earlier in the task); "reuse disabled" is not.
+  expect(text).not.toMatch(/scope|reuse disabled|declared-input|freshness|fingerprint|undeclared|certified|\u001b/);
   expect(text.split("\n")).toHaveLength(3);
 });
 
