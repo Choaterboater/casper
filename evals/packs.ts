@@ -6,6 +6,8 @@ import type { EvalAcceptance, EvalConvention, EvalTask, EvalVerification } from 
 
 const VISIBLE: EvalVerification = { name: "visible tests", argv: ["{{bun}}", "test", "./tests"], rubric: "works" };
 const HIDDEN: EvalVerification = { name: "hidden acceptance", argv: ["{{bun}}", "test", "./acceptance"], rubric: "complete" };
+/** One hidden file, for a fixture whose `acceptance/` serves more than one task. */
+const hidden = (file: string): EvalVerification => ({ ...HIDDEN, argv: ["{{bun}}", "test", `./acceptance/${file}.test.ts`] });
 const TSC: EvalVerification = { name: "tsc --noEmit", argv: ["{{bun}}", "{{tsc}}", "--noEmit", "-p", "tsconfig.json"], rubric: "clean" };
 
 const RULES = " Read CONTEXT.md first; it describes this project's conventions. The visible tests in tests/ are "
@@ -27,6 +29,7 @@ function task(fields: Omit<EvalTask, "verify" | "candidatePaths" | "initialVerif
 export const CORE_PACK: readonly EvalTask[] = [
   task({
     id: "core-rest-validation", pack: "core", fixture: "notes-api", setup: "add-validated-endpoint",
+    verify: [VISIBLE, hidden("create-note")],
     prompt: "Add `POST /notes` to this notes service. It accepts a JSON object `{ title, body?, tags? }`: `title` is a "
       + "string of 1-100 characters after trimming (store it trimmed); `body` is an optional string of at most 1000 "
       + "characters (default \"\"); `tags` is an optional array (default []) of at most 5 unique strings, each 1-20 "
@@ -39,6 +42,21 @@ export const CORE_PACK: readonly EvalTask[] = [
     conventions: [
       onlyEdits("src/", "tests/"),
       convention("errors-through-jsonError", { contains: [{ path: "src/handlers.ts", text: "validation_failed" }], noMatch: [{ text: "new Response(", under: "src/handlers.ts" }] }),
+    ],
+  }),
+  task({
+    // Only running the server shows these behaviors: the visible tests pass on the start, and the
+    // hidden file spawns the real server (docs/EVALUATION.md). Shares notes-api with core-rest-validation.
+    id: "core-service-lifecycle", pack: "core", fixture: "notes-api", setup: "add-server-lifecycle",
+    verify: [VISIBLE, hidden("server-lifecycle")],
+    prompt: "Make this notes service behave as a real server (src/server.ts, started with `bun run dev`). Add `GET /health` "
+      + "answering 200 JSON `{ \"status\": \"ok\", \"uptimeMs\": <n> }`, where n is the whole number of milliseconds since "
+      + "the server started. Listen on the port in the `PORT` environment variable and the host in `HOST` (defaults 3000 "
+      + "and 127.0.0.1); any loopback host must work, including IPv6 `::1`. On SIGTERM, requests already in progress must "
+      + "still get their full response, and the process must then exit with code 0 within 2 seconds of the signal." + RULES,
+    conventions: [
+      onlyEdits("src/", "tests/"),
+      convention("health-route-in-app", { contains: [{ path: "src/app.ts", text: "/health" }] }),
     ],
   }),
   task({
