@@ -5,7 +5,8 @@ const prompt = args.at(-1);
 const casper = args.includes("--json");
 writeFileSync("observed.json", JSON.stringify({ args, home: process.env.HOME,
   casperDir: process.env.CASPER_AGENT_DIR, piDir: process.env.PI_CODING_AGENT_DIR,
-  inheritedSecret: process.env.EVAL_HARNESS_SECRET ?? null }));
+  inheritedSecret: process.env.EVAL_HARNESS_SECRET ?? null,
+  casperTelemetry: process.env.CASPER_TELEMETRY ?? null, piTelemetry: process.env.PI_TELEMETRY ?? null }));
 if (prompt === "inspect models") {
   const agent = process.env.CASPER_AGENT_DIR ?? process.env.PI_CODING_AGENT_DIR!;
   writeFileSync("models.json", readFileSync(`${agent}/models.json`, "utf8"));

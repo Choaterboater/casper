@@ -61,6 +61,20 @@ test("usage counts every model response and totals its reported tokens and cost"
   expect(observations.snapshot([]).usage).toEqual({ turns: 2, tokens: 150, estimatedCost: 0.75 });
 });
 
+test("a delegated subagent's reported usage is added to the task's tokens and cost, but not its turns", () => {
+  const delegated = new TaskObservations();
+  delegated.observeUsage(response({ tokens: 100, estimatedCost: 0.25 }));
+  delegated.observeUsage({ type: "tool_start", toolName: "delegate" });
+  delegated.observeUsage({ type: "tool_start", toolName: "delegate" });
+  // The children report in either order relative to the parent's events; an invalid call that
+  // started no child reports zero.
+  delegated.recordDelegatedUsage({ tokens: 40, estimatedCost: 0.125 });
+  expect(delegated.snapshot([]).usage).toEqual({ turns: 1, tokens: null, estimatedCost: null });
+  delegated.recordDelegatedUsage({ tokens: 0, estimatedCost: 0 });
+  delegated.observeUsage(response({ tokens: 50, estimatedCost: 0.5 }));
+  expect(delegated.snapshot([]).usage).toEqual({ turns: 2, tokens: 190, estimatedCost: 0.875 });
+});
+
 test("usage is unknown, never an undercount, when a response has none or a subagent made model calls", () => {
   const unreported = new TaskObservations();
   unreported.observeUsage(response({ tokens: 100, estimatedCost: 0.25 }));
@@ -68,10 +82,15 @@ test("usage is unknown, never an undercount, when a response has none or a subag
   unreported.observeUsage(response({ tokens: 50, estimatedCost: 0.5 }));
   expect(unreported.snapshot([]).usage).toEqual({ turns: 3, tokens: null, estimatedCost: null });
 
-  const delegated = new TaskObservations();
-  delegated.observeUsage(response({ tokens: 100, estimatedCost: 0.25 }));
-  delegated.observeUsage({ type: "tool_start", toolName: "delegate" });
-  expect(delegated.snapshot([]).usage).toEqual({ turns: 1, tokens: null, estimatedCost: null });
+  // A delegation whose child never reported, or reported no usage, leaves the totals unknown.
+  const unreportedChild = new TaskObservations();
+  unreportedChild.observeUsage(response({ tokens: 100, estimatedCost: 0.25 }));
+  unreportedChild.observeUsage({ type: "tool_start", toolName: "delegate" });
+  expect(unreportedChild.snapshot([]).usage).toEqual({ turns: 1, tokens: null, estimatedCost: null });
+  const unknownChild = new TaskObservations();
+  unknownChild.observeUsage({ type: "tool_start", toolName: "delegate" });
+  unknownChild.recordDelegatedUsage(null);
+  expect(unknownChild.snapshot([]).usage).toEqual({ turns: 0, tokens: null, estimatedCost: null });
 
   const classified = new TaskObservations();
   classified.recordUntrackedModelUse();

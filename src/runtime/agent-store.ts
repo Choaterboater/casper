@@ -1,6 +1,7 @@
 import { chmod, copyFile, lstat, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
+import { casperTelemetryEnabled } from "./openrouter-attribution";
 
 /** Internal bridge: the bundled engine still reads this name for its state directory. */
 export const AGENT_DIR_ENV = "PI_CODING_AGENT_DIR";
@@ -37,6 +38,10 @@ export function useCasperAgentStore(): boolean {
   env[AGENT_DIR_ENV] = casperAgentDir();
   if (env.CASPER_OFFLINE === "1") env.PI_OFFLINE = "1";
   else delete env.PI_OFFLINE;
+  // The runtime adds its own "pi" attribution to OpenRouter requests unless PI_TELEMETRY is off;
+  // Casper replaces it, so only Casper's opt-out decides, never an inherited PI_TELEMETRY.
+  if (casperTelemetryEnabled()) delete env.PI_TELEMETRY;
+  else env.PI_TELEMETRY = "0";
   for (const [source, target] of [
     ["CASPER_OAUTH_CALLBACK_HOST", "PI_OAUTH_CALLBACK_HOST"],
     ["CASPER_TUI_WRITE_LOG", "PI_TUI_WRITE_LOG"],

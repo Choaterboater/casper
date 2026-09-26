@@ -99,6 +99,8 @@ test.each(["casper", "pi"] as const)("%s receives explicit identical task inputs
     expect(result).toMatchObject({ answer: "Scripted answer.", termination: "completed", exitCode: 0 });
     const observed = JSON.parse(await readFile(path.join(workdir, "observed.json"), "utf8"));
     expect(observed.inheritedSecret).toBeNull();
+    // Neither CLI sends OpenRouter app attribution: the same request headers on both sides.
+    expect(name === "casper" ? observed.casperTelemetry : observed.piTelemetry).toBe("0");
     expect(observed.home).not.toBe(os.homedir());
     expect(await stat(observed.home).then(() => true, () => false)).toBe(false);
     // No turn limit: Pi's CLI has none, so a Casper-only limit would stop only Casper.

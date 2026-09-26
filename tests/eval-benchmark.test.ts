@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { isolatedEnvironment } from "../src/platform/environment";
 import {
-  classifyClaim, formatBenchmarkReport, measureQuality, referenceBaseline, runBenchmark, summarizeBenchmark, type BenchmarkRun,
+  classifyClaim, formatBenchmarkReport, isInfrastructureRun, measureQuality, referenceBaseline, runBenchmark, summarizeBenchmark, type BenchmarkRun,
 } from "../evals/benchmark";
 import type { HarnessObservation } from "../evals/harness";
 import { scoreQuality } from "../evals/quality";
@@ -119,7 +119,8 @@ const baseRun = (overrides: Partial<ReturnType<typeof scoreQuality>> & { harness
   const { harness = "casper", taskId = "core-a", pack = "core", wallClockMs = 1000, turns = 10, ...score } = overrides;
   const full = { works: true, complete: true, requirementFraction: 1, tested: false, clean: true, conventional: true, focused: true, diffRatio: 1,
     honest: true, falseDone: false, effort: { wallClockMs, turns, tokens: null, estimatedCost: null, rescues: 0 }, ...score };
-  return { taskId, pack, harness, repeat: 1, score: full, graded: { success: full.works === true && full.complete === true } } as unknown as BenchmarkRun;
+  return { taskId, pack, harness, repeat: 1, score: full, graded: { success: full.works === true && full.complete === true },
+    run: { termination: "completed", exitCode: 0, errors: [] } } as unknown as BenchmarkRun;
 };
 
 type AttemptSpec = { success: boolean; termination?: "completed" | "failed" | "timeout"; wallClockMs: number; tokens: number | null; estimatedCost: number | null };
@@ -203,6 +204,71 @@ test("the summary keeps packs apart and reports median, range, unknowns and fals
   // An unknown is shown as unknown, never folded into a pass or a fail.
   expect(report).toContain("1/2 ?1");
 });
+
+// Casper on core-log-parser #2 of the pinned GLM benchmark (.scratch/phase-4/pinned-glm.json), verbatim:
+// four Together 429s retried and lost in 16 s, no tool call, and its stderr tail as the last error.
+const rateLimited: HarnessObservation = JSON.parse(await readFile(path.join(import.meta.dir, "fixtures/eval-infra-429-run.json"), "utf8"));
+
+test("a run that failed on retryable provider errors alone, before any tool call, is infrastructure", () => {
+  const casper = (run: HarnessObservation, harness: BenchmarkRun["harness"] = "casper") => isInfrastructureRun({ harness, run });
+  // Saved before the harness recorded `stderr`: Casper always prints its banner there, so the last entry is that tail.
+  expect(casper(rateLimited)).toBe(true);
+  const tail = rateLimited.errors.at(-1)!;
+  expect(casper({ ...rateLimited, stderr: tail })).toBe(true);
+  for (const error of ["503 Service Unavailable", "Network connection lost.", "fetch failed"]) {
+    expect(casper({ ...rateLimited, errors: [error, tail], stderr: tail })).toBe(true);
+    expect(isInfrastructureRun({ harness: "pi", run: { ...rateLimited, errors: [error] } })).toBe(true);
+  }
+  // Any work, a finished run, the time limit, a non-provider error or no error at all is the harness's own result.
+  expect(casper({ ...rateLimited, tools: [{ tool: "read", calls: 1, ms: 3 }] })).toBe(false);
+  expect(casper({ ...rateLimited, termination: "completed" })).toBe(false);
+  expect(casper({ ...rateLimited, termination: "timeout" })).toBe(false);
+  expect(casper({ ...rateLimited, errors: [rateLimited.errors[0]!, "401 Unauthorized: invalid API key", tail], stderr: tail })).toBe(false);
+  expect(casper({ ...rateLimited, errors: [rateLimited.errors[0]!, "Harness output limit exceeded", tail], stderr: tail })).toBe(false);
+  expect(casper({ ...rateLimited, errors: ["429: quota exceeded for this billing period", tail], stderr: tail })).toBe(false);
+  // The stderr tail echoes the prompt, which may say "timeout" or "500": it is never read as a provider error.
+  const echo = "CASPER banner\n> Retry on 500 and on timeout\n✗ Stopped";
+  expect(casper({ ...rateLimited, errors: [echo], stderr: echo })).toBe(false);
+});
+
+test("infrastructure runs are counted apart and left out of every quality denominator", () => {
+  const infra = { ...reworkRun([{ ...bad(16_916), termination: "failed" }]), run: rateLimited };
+  const summary = summarizeBenchmark([reworkRun([ok(100_000)]), reworkRun([bad(200_000)]), infra, baseRun({ harness: "pi" })]);
+  const casper = summary.packs[0]!.total.casper!;
+  expect(casper).toMatchObject({ runs: 2, infra: 1, success: 1, works: { yes: 1, no: 1, unknown: 0 }, wallClockMs: { median: 150_000, known: 2 } });
+  expect(casper.rework).toMatchObject({ runs: 2, firstTimeRight: 1, unfixed: 1 });
+  expect(summary.packs[0]!.total.pi).toMatchObject({ runs: 1, infra: 0 });
+  const report = formatBenchmarkReport(summary);
+  expect(report).toMatch(/infra = /);
+  expect(report).toMatch(/all 1 tasks\s+casper\s+1\/2\s+1\s/);
+  expect(report).toMatch(/all 1 tasks\s+casper\s+1\/2\s+0\/1/);
+});
+
+test("the benchmark reruns an infrastructure failure once, fresh, and records it as infra only if the rerun fails too", async () => {
+  const task = findEvalTask("core-log-parser")!;
+  const scratch = await mkdtemp(path.join(os.tmpdir(), "casper-bench-infra-"));
+  cleanup.push(() => rm(scratch, { recursive: true, force: true }));
+  const cli = (failures: number, counter: string) => [process.execPath, path.join(import.meta.dir, "fixtures/eval-infra-cli.ts"),
+    path.join(repoRoot, "evals/fixtures", task.fixture, "src"), path.join(scratch, counter), String(failures)];
+  const options = { repoRoot, tasks: [task], harnesses: ["casper" as const], model: "test/model", effort: "medium" as const, repeat: 1, concurrency: 1,
+    timeoutMs: 30_000, verifyTimeoutMs: 60_000 };
+  const recovered = await runBenchmark({ ...options, commands: { casper: cli(1, "once") } });
+  expect(recovered.failures).toEqual([]);
+  const [rerun] = recovered.runs;
+  expect({ success: rerun!.graded.success, infra: rerun!.infra, first: rerun!.infraAttempt?.termination, errors: rerun!.infraAttempt?.errors.length })
+    .toEqual({ success: true, infra: undefined, first: "failed", errors: 5 });
+  // The harness keeps the stderr tail apart, so it is never mistaken for a provider error.
+  expect(rerun!.infraAttempt!.stderr).toContain("CASPER banner");
+  expect(rerun!.infraAttempt!.errors.at(-1)).toBe(rerun!.infraAttempt!.stderr!);
+  expect(await readFile(path.join(scratch, "once"), "utf8")).toBe("2");
+
+  const limited = await runBenchmark({ ...options, commands: { casper: cli(9, "always") } });
+  const [stuck] = limited.runs;
+  expect({ success: stuck!.graded.success, infra: stuck!.infra, first: Boolean(stuck!.infraAttempt) }).toEqual({ success: false, infra: true, first: true });
+  // One rerun, not a loop.
+  expect(await readFile(path.join(scratch, "always"), "utf8")).toBe("2");
+  expect(summarizeBenchmark(limited.runs).packs[0]!.total.casper).toMatchObject({ runs: 0, infra: 1, success: 0 });
+}, 180_000);
 
 test("a scripted CLI runs through prepare, harness, grader and scoring for both harnesses", async () => {
   const task = findEvalTask("core-log-parser")!;

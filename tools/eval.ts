@@ -57,9 +57,11 @@ Quality benchmark (Casper vs Pi through their real CLIs; --pack or --harness sel
   --concurrency <n>     Runs at once (1..16). Default: 2; more hits provider rate limits.
   --time-limit <sec>    Wall clock per run, the only run limit and the same for both. Default: 300.
   --follow-ups <n>      Continue failed runs with the grader's failure report (1..2 follow-ups). Default: 0.
-  --route <hosts>       OpenRouter only: pin both harnesses to these hosts, comma-separated in
-                        preference order, with no fallbacks (e.g. Together,Novita). OpenRouter
-                        keeps a conversation on one host and hosts differ tenfold in speed.
+  --route <hosts>       OpenRouter only, and required for an openrouter/* model: pin both harnesses
+                        to these hosts, comma-separated in preference order, with no fallbacks
+                        (e.g. Together,Novita). OpenRouter keeps a conversation on one host and
+                        hosts differ tenfold in speed. --route any runs unpinned on purpose; the
+                        results document records route "unpinned".
   --person-cost <sec>   A person's time charged per follow-up in the time-to-correct table
                         (0..3600). Default: 120.
   --report <path>       Reprint a saved benchmark results document with this checkout's
@@ -99,6 +101,8 @@ interface EvalOptions {
   followUps: number;
   personCostSeconds?: number;
   route?: string[];
+  /** `--route any`: an OpenRouter benchmark deliberately left unpinned. */
+  unpinned?: boolean;
   report?: string;
   casper?: string;
   pi?: string;
@@ -112,7 +116,7 @@ function wholeNumber(flag: string, value: string, max: number): number {
   return count;
 }
 
-function parseArguments(args: readonly string[]): EvalOptions {
+export function parseArguments(args: readonly string[]): EvalOptions {
   const options: EvalOptions = {
     help: false, list: false, selected: [], repeat: 1, timeoutSeconds: 120, keep: false, autoVerify: true, prepare: false, packs: [], harnesses: [], followUps: 0,
   };
@@ -146,7 +150,9 @@ function parseArguments(args: readonly string[]): EvalOptions {
       else if (argument === "--route") {
         const hosts = value.split(",").map((host) => host.trim()).filter(Boolean);
         if (!hosts.length || hosts.some((host) => host.length > 64)) throw new Error("--route needs comma-separated OpenRouter host names");
-        options.route = hosts;
+        if (hosts.length === 1 && hosts[0] === "any") options.unpinned = true;
+        else if (hosts.includes("any")) throw new Error("--route any stands alone: it leaves every host open");
+        else options.route = hosts;
       }
       else if (argument === "--casper") options.casper = value;
       else options.pi = value;
@@ -179,13 +185,18 @@ function parseArguments(args: readonly string[]): EvalOptions {
     if (args.some((flag) => flag.startsWith("--") && !["--report", "--person-cost"].includes(flag))) throw new Error("--report takes only --person-cost");
     return options;
   }
-  const benchmarkOnly = options.effort || options.concurrency || options.timeLimitSeconds || options.followUps || options.personCostSeconds !== undefined || options.route || options.casper || options.pi;
+  const benchmarkOnly = options.effort || options.concurrency || options.timeLimitSeconds || options.followUps || options.personCostSeconds !== undefined || options.route || options.unpinned || options.casper || options.pi;
   if (isBenchmark(options)) {
     if (options.prepare || options.grade || options.scenario || options.keep || !options.autoVerify) {
       throw new Error("--prepare, --grade, --scenario, --keep and --no-auto-verify do not apply to a benchmark");
     }
     if (!options.model) throw new Error("A benchmark needs --model provider/id: both harnesses run the same model");
-    if (options.route && !options.model.startsWith("openrouter/")) throw new Error("--route applies only to openrouter models");
+    const openRouter = options.model.startsWith("openrouter/");
+    if ((options.route || options.unpinned) && !openRouter) throw new Error("--route applies only to openrouter models");
+    if (openRouter && !options.route && !options.unpinned) {
+      throw new Error("OpenRouter benchmarks need --route <hosts> (e.g. --route Together): OpenRouter keeps a conversation on one host and its hosts "
+        + "differ tenfold in speed, so an unpinned comparison measures which host each harness drew. Pass --route any to run unpinned anyway.");
+    }
     return options;
   }
   if (benchmarkOnly) throw new Error("--effort, --concurrency, --time-limit, --follow-ups, --person-cost, --route, --casper and --pi apply only to a benchmark (--pack or --harness)");
@@ -196,6 +207,12 @@ function parseArguments(args: readonly string[]): EvalOptions {
     throw new Error("--keep, --no-auto-verify, --repeat and --model apply only to one-shot runs");
   }
   return options;
+}
+
+/** The results document's `route`: the pinned hosts, "unpinned" for an OpenRouter run left open
+ * on purpose (`--route any`), or null for a provider with no host choice. */
+export function recordedRoute(options: Pick<EvalOptions, "route" | "unpinned">): string[] | "unpinned" | null {
+  return options.route ?? (options.unpinned ? "unpinned" : null);
 }
 
 /** The requested model, or the one every run agreed on; null when runs disagree or reported none. */
@@ -279,7 +296,7 @@ async function benchmark(options: EvalOptions, repoRoot: string): Promise<number
   }
   const total = tasks.length * options.repeat * harnesses.length;
   process.stdout.write(`${tasks.length} task(s) x ${options.repeat} run(s) x ${harnesses.length} harness(es) = ${total} runs; model ${reference}, effort ${effort}, `
-    + `${timeLimitSeconds} s time limit, ${concurrency} at a time${options.route ? `, OpenRouter hosts ${options.route.join(", ")} only` : ""}.\nProvider billing applies to every model call. Results: ${path.relative(process.cwd(), destination) || destination}\n\n`);
+    + `${timeLimitSeconds} s time limit, ${concurrency} at a time${options.route ? `, OpenRouter hosts ${options.route.join(", ")} only` : options.unpinned ? ", OpenRouter hosts UNPINNED (--route any): each run may draw a different host" : ""}.\nProvider billing applies to every model call. Results: ${path.relative(process.cwd(), destination) || destination}\n\n`);
   const versions = Object.fromEntries(await Promise.all(harnesses.map(async (name) => [name, { command: commands[name], version: await harnessVersion(commands[name]) }])));
 
   let finished = 0;
@@ -288,7 +305,8 @@ async function benchmark(options: EvalOptions, repoRoot: string): Promise<number
     timeoutMs: timeLimitSeconds * 1000, verifyTimeoutMs: options.timeoutSeconds * 1000, seed, followUps: options.followUps, ...(options.route ? { route: options.route } : {}),
     onRun: (run: BenchmarkRun) => {
       const { score } = run;
-      process.stdout.write(`[${++finished}/${total}] ${run.taskId} ${run.harness} #${run.repeat}: ${run.graded.success ? "accepted" : "not accepted"}; `
+      process.stdout.write(`[${++finished}/${total}] ${run.taskId} ${run.harness} #${run.repeat}: ${run.graded.success ? "accepted" : "not accepted"}`
+        + `${run.infra ? " (infra: provider errors only, twice; not scored)" : run.infraAttempt ? " (rerun after provider errors)" : ""}; `
         + `claim ${run.evidence.claim.verdict}${score.falseDone ? " (false done)" : ""}; ${Math.round(score.effort.wallClockMs / 1000)} s, ${score.effort.turns ?? "?"} turns`
         + (run.rework?.followUps ? `; ${run.rework.followUps} follow-up(s): ${run.rework.fixed ? "fixed" : "still not accepted"}${run.rework.resumed === false ? " (did not resume the conversation)" : ""}, ${Math.round(run.rework.totalWallClockMs / 1000)} s total` : "") + "\n");
     },
@@ -301,7 +319,7 @@ async function benchmark(options: EvalOptions, repoRoot: string): Promise<number
   if (failures.length) process.stdout.write(`\n${failures.length} run(s) could not run or be graded; see failures in the results.\n`);
   await writeEvalReport(destination, {
     kind: "quality-benchmark", version: 1, ranAt, commit, dirty, model: reference, effort, repeat: options.repeat, concurrency,
-    timeLimitSeconds, verifyTimeoutSeconds: options.timeoutSeconds, route: options.route ?? null, harnesses: versions, tasks: tasks.map((task) => task.id),
+    timeLimitSeconds, verifyTimeoutSeconds: options.timeoutSeconds, route: recordedRoute(options), harnesses: versions, tasks: tasks.map((task) => task.id),
     summary, failures, runs,
   });
   process.stdout.write(`Wrote ${path.relative(process.cwd(), destination) || destination}\n`);

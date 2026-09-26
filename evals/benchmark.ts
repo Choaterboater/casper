@@ -2,7 +2,8 @@ import { copyFile, lstat, mkdir, mkdtemp, readFile, rm } from "node:fs/promises"
 import os from "node:os";
 import path from "node:path";
 import { isolatedEnvironment } from "../src/platform/environment";
-import { HARNESS_NAMES, runHarness, type HarnessInput, type HarnessName, type HarnessObservation } from "./harness";
+import { isRetryableAssistantError, type AssistantMessage } from "@earendil-works/pi-ai";
+import { HARNESS_NAMES, harnessProtocol, runHarness, type HarnessInput, type HarnessName, type HarnessObservation } from "./harness";
 import { scoreQuality, type PredicateEvidence, type QualityEvidence, type QualityScore, type Verdict } from "./quality";
 import {
   evaluateAcceptance, gradePreparedEval, prepareEvalTask, prepareWorkdir, referenceChanges, runVerification,
@@ -64,6 +65,38 @@ export interface BenchmarkRun {
   score: QualityScore;
   /** Only with follow-ups. `run`, `graded`, `evidence` and `score` are always the first attempt. */
   rework?: ReworkResult;
+  /** The run ended on provider errors alone even after its one rerun (`isInfrastructureRun`): not
+   * quality evidence. The summary re-derives it from `run`, so older documents are counted too. */
+  infra?: true;
+  /** The attempt this run replaced: it ended on provider errors alone, so the job ran once more,
+   * fresh. Kept as evidence; never scored. */
+  infraAttempt?: HarnessObservation;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Infrastructure failures. A rate-limited or unreachable host says nothing about either harness:
+// the pinned GLM benchmark lost one Casper run to four Together 429s in 16 s, scored as a miss.
+
+/** The errors the CLI itself reported, without the stderr tail runHarness appends to a failed run.
+ * Documents saved before `stderr` was recorded: Casper always prints its banner to stderr, so a
+ * failed Casper run's last entry is that tail. */
+function reportedErrors(harness: HarnessName, run: HarnessObservation): string[] {
+  const tail = run.stderr !== undefined ? run.errors.at(-1) === run.stderr
+    : harnessProtocol(harness) === "casper" && run.exitCode !== 0 && run.errors.length > 0;
+  return tail ? run.errors.slice(0, -1) : run.errors;
+}
+
+/** Pi's own retry classification (pi-ai `isRetryableAssistantError`): rate limits, 5xx, overload and
+ * transport failures, but not quota or billing exhaustion. */
+const retryable = (error: string) => isRetryableAssistantError({ stopReason: "error", errorMessage: error } as AssistantMessage);
+
+/** The run failed (not the time limit) before any tool call, and every error the CLI reported is a
+ * retryable provider error: the host failed, not the harness. A timeout is not infrastructure: a
+ * model silent for the whole limit is the model's own behavior. */
+export function isInfrastructureRun({ harness, run }: Pick<BenchmarkRun, "harness" | "run">): boolean {
+  if (run.termination !== "failed" || run.tools?.length) return false;
+  const errors = reportedErrors(harness, run);
+  return errors.length > 0 && errors.every(retryable);
 }
 
 /** A job that could not run or be graded at all; the other jobs still finish. */
@@ -330,7 +363,16 @@ export function followUpPrompt(graded: EvalRunResult): string {
     "", "Failure report:", report].join("\n");
 }
 
+/** One job, rerun once from a fresh workspace and home when it ended on provider errors alone. */
 async function runJob(options: BenchmarkOptions, task: EvalTask, harness: HarnessName, repeat: number,
+  reference: (task: EvalTask) => Promise<ReferenceBaseline>): Promise<BenchmarkRun> {
+  const first = await runAttempt(options, task, harness, repeat, reference);
+  if (!isInfrastructureRun(first)) return first;
+  const rerun = await runAttempt(options, task, harness, repeat, reference);
+  return { ...rerun, ...(isInfrastructureRun(rerun) ? { infra: true as const } : {}), infraAttempt: first.run };
+}
+
+async function runAttempt(options: BenchmarkOptions, task: EvalTask, harness: HarnessName, repeat: number,
   reference: (task: EvalTask) => Promise<ReferenceBaseline>): Promise<BenchmarkRun> {
   const { root, workdir } = await prepareEvalTask(task, options.repoRoot);
   const limit = options.followUps ?? 0;
@@ -399,7 +441,10 @@ export interface Spread { median: number; min: number; max: number; known: numbe
 
 /** One task × harness, or one pack × harness. */
 export interface BenchmarkCell {
+  /** Runs scored: every run but the infrastructure ones, the denominator of every other field. */
   runs: number;
+  /** Runs that ended on provider errors alone even after a rerun (`isInfrastructureRun`). */
+  infra: number;
   /** Accepted by the grader: finished, verified by the frozen evaluator, every rule held. */
   success: number;
   works: Tally; complete: Tally; tested: Tally; clean: Tally; conventional: Tally; focused: Tally; honest: Tally;
@@ -462,7 +507,8 @@ function spread(values: readonly (number | null)[]): Spread | null {
   return { median, min: known[0]!, max: known.at(-1)!, known: known.length };
 }
 
-function cell(runs: readonly BenchmarkRun[], personMs: number): BenchmarkCell {
+function cell(all: readonly BenchmarkRun[], personMs: number): BenchmarkCell {
+  const runs = all.filter((run) => !isInfrastructureRun(run));
   const tally = (dimension: (typeof DIMENSIONS)[number]): Tally => ({
     yes: runs.filter((run) => run.score[dimension] === true).length,
     no: runs.filter((run) => run.score[dimension] === false).length,
@@ -470,7 +516,7 @@ function cell(runs: readonly BenchmarkRun[], personMs: number): BenchmarkCell {
   });
   const tallies = Object.fromEntries(DIMENSIONS.map((dimension) => [dimension, tally(dimension)])) as Record<(typeof DIMENSIONS)[number], Tally>;
   return {
-    runs: runs.length, success: runs.filter((run) => run.graded.success).length, ...tallies,
+    runs: runs.length, infra: all.length - runs.length, success: runs.filter((run) => run.graded.success).length, ...tallies,
     falseDone: runs.filter((run) => run.score.falseDone).length,
     requirementFraction: spread(runs.map((run) => run.score.requirementFraction)),
     diffRatio: spread(runs.map((run) => run.score.diffRatio)),
@@ -554,10 +600,10 @@ function table(rows: readonly (readonly string[])[]): string {
   return rows.map((row) => row.map((value, column) => column === row.length - 1 ? value : value.padEnd(widths[column]!)).join("  ").trimEnd()).join("\n");
 }
 
-const HEADER = ["task", "harness", "success", "works", "complete", "req", "tested", "clean", "conv", "focused", "diff×", "honest", "false-done", "wall s", "turns", "tokens", "cost"];
+const HEADER = ["task", "harness", "success", "infra", "works", "complete", "req", "tested", "clean", "conv", "focused", "diff×", "honest", "false-done", "wall s", "turns", "tokens", "cost"];
 
 function row(label: string, harness: HarnessName, value: BenchmarkCell): string[] {
-  return [label, harness, `${value.success}/${value.runs}`, ...DIMENSIONS.slice(0, 2).map((dimension) => tallyText(value[dimension])),
+  return [label, harness, `${value.success}/${value.runs}`, String(value.infra), ...DIMENSIONS.slice(0, 2).map((dimension) => tallyText(value[dimension])),
     spreadText(value.requirementFraction, percent), ...DIMENSIONS.slice(2, 6).map((dimension) => tallyText(value[dimension])),
     spreadText(value.diffRatio, decimal(2)), tallyText(value.honest), String(value.falseDone),
     spreadText(value.wallClockMs, (ms) => (ms / 1000).toFixed(0)), spreadText(value.turns, decimal(0)),
@@ -611,6 +657,9 @@ export function formatBenchmarkReport(summary: BenchmarkSummary): string {
   return [
     "k/n = yes of n known; ?u = unknown (never counted as a pass or a fail). Spreads are median (min–max) over runs.",
     "req = share of requirement predicates held; diff× = authored changed lines over the reference solution's.",
+    "infra = runs that failed on retryable provider errors alone (rate limit, 5xx, lost connection) before any tool call; the benchmark reruns"
+      + " such a run once, fresh, and counts it here only if the rerun failed the same way. They are not quality evidence: every other column,"
+      + " success and first-time right included, leaves them out of its n.",
     ...sections,
   ].join("\n\n");
 }
