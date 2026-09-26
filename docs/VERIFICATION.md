@@ -69,9 +69,15 @@ claim**, never as Casper's evidence:
 • The model's review: all 6 requirements covered (its own claim, not checked by Casper)
 ⚠ The model's review says not done: handshake timeout — not implemented
 • The model's review returned no checklist
+• The model's review stopped at its 12-turn budget (its own claim so far, not checked by Casper)
 ```
 
-An item the model admits is not done makes the change `not_verified`. The review costs one more
+An item the model admits is not done makes the change `not_verified`. The review round has its own
+budget of 12 model turns (a `--max-turns` at or below 12 wins and stops the task as usual, exit 2).
+A review that hits its budget ends there; Casper keeps any checklist from its last answer, marks the
+review `incomplete` (receipt line above, `"incomplete": true` in the JSON receipt's `review`) and
+goes on as after a finished review: the checks rerun if the review changed files, then the proof.
+An incomplete review alone does not make the change `not_verified`; open items it listed still do. The review costs one more
 model round per such request. Such a change's first turn is the request as the user wrote it,
 without Casper's task hints (project facts and selected skills still come first, with the request
 labelled, and an under-specified target still gets the clarification nudge). The review then asks
