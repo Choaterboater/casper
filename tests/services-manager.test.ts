@@ -222,3 +222,12 @@ test("scope matching resolves aliases, and an edit whose identity cannot be prov
   f.manager.markEdited("notdir/routes.ts");
   expect(api(f.manager).stale).toBe(true);
 }, 20_000);
+
+test("a crash that a freshness restart replaces is still reported once afterwards", async () => {
+  const f = await fixture({ env: { CRASH_AFTER_MS: "400" } });
+  await f.manager.start("api", new AbortController().signal);
+  await until(() => api(f.manager).state === "crashed");
+  expect(await f.manager.ensureFresh("api", new AbortController().signal)).toEqual({ restarted: true });
+  expect(f.manager.takeCrashes()).toEqual([expect.objectContaining({ name: "api", state: "crashed", exit: { code: 3, signal: null }, tail: expect.stringContaining("fatal: synthetic crash") })]);
+  expect(f.manager.takeCrashes()).toEqual([]);
+}, 20_000);
