@@ -1,6 +1,6 @@
-import path from "node:path";
 import { freePort, ManagedProcess, ManagedProcessError, portInUse } from "../platform/managed-process";
 import { ProcessCleanupError, type ProcessPlatform } from "../platform/processes";
+import { editAffects } from "../verify/task";
 import type { ServiceSpec } from "./config";
 
 /** idle: declared, never started. failed: the last startup did not reach readiness. crashed: exited on its own after readiness. */
@@ -45,7 +45,6 @@ interface Slot {
 
 const HOST = "127.0.0.1";
 const TAIL_LINES = 20;
-const within = (file: string, entry: string) => entry === "." || file === entry || file.startsWith(`${entry}/`);
 
 /**
  * The managed services of one session. Each runs on the shared owned-process runner
@@ -105,15 +104,15 @@ export class ServiceManager {
     return running;
   }
 
-  /** An edited file (absolute or project-relative) marks the running services whose scope covers it stale.
+  /** An edited file (absolute or project-relative) marks the running services whose scope may cover it
+   * stale, resolved the way verification scopes are (aliases, case; unprovable counts as covered).
    * Unknown files (a shell command) mark every running service stale. */
   markEdited(file?: string): void {
-    const relative = file === undefined ? undefined : path.relative(this.options.projectRoot, path.resolve(this.options.projectRoot, file)).split(path.sep).join("/");
-    if (relative !== undefined && (relative === ".." || relative.startsWith("../") || path.isAbsolute(relative))) return;
+    const affects = file === undefined ? () => true : editAffects(this.options.projectRoot, file);
     for (const slot of this.slots.values()) {
       if (slot.state !== "ready" && slot.state !== "starting") continue;
-      const scope = slot.spec.scope;
-      if (relative === undefined || !scope || (scope.inputs.some(entry => within(relative, entry)) && !scope.exclude?.some(entry => within(relative, entry)))) slot.stale = true;
+      // Without a scope, any edit inside the project counts.
+      if (affects(slot.spec.scope)) slot.stale = true;
     }
   }
 

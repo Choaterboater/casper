@@ -4,6 +4,7 @@ import type { ProjectCommand } from "../project/model";
 import type { RuntimeTool } from "../runtime/types";
 import { CHECK_NAMES, type VerificationResult } from "./evidence";
 import type { VerifierRegistry } from "./registry";
+import type { VerificationScope } from "./scope";
 import { workspaceState } from "./workspace-state";
 
 /** Keep the referent AND the symlink entries traversed to reach it. A link can
@@ -70,6 +71,53 @@ function pathIdentity(file: string, budget: { remaining: number; deadline: numbe
   } catch { return undefined; } // Unknown identity conservatively invalidates.
 }
 
+/**
+ * Whether an observed edit of `file` (absolute, or relative to the project root `cwd`) may
+ * affect a declared scope, or, with no scope, the project at all. Both sides are resolved
+ * (symlinks, case, missing names); an edit that cannot be proven disjoint counts as
+ * affecting. Call the returned test synchronously: its resolution budget is shared.
+ */
+export function editAffects(cwd: string, file: string): (scope?: VerificationScope) => boolean {
+  const budget = { remaining: 4096, deadline: performance.now() + 500 };
+  const root = pathIdentity(cwd, budget)?.target;
+  const observed = pathIdentity(path.resolve(cwd, file), budget);
+  const targets = observed ? [observed.target, ...observed.links] : [];
+  const outside = (relative: string) => relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative);
+  if (root && observed && targets.every((target) => outside(path.relative(root, target)))) return () => false;
+  return (scope) => {
+    if (!scope) return true;
+    // Resolve both sides: e.g. declared SRC and actual src on a case-insensitive
+    // filesystem. Unknown identities cannot safely be declared unrelated.
+    return !root || !observed || scope.inputs.some((entry) => {
+      const input = pathIdentity(path.resolve(root, entry), budget);
+      if (!input) return true;
+      if (input.missingParent !== undefined && input.missingParent === observed.missingParent) {
+        // Missing names have no canonical spelling. Possible case/Unicode
+        // aliases cannot prove disjointness, even on a case-sensitive volume.
+        // The first missing entry may be an input's parent, which is observed
+        // too. Fold only that entry, never existing prefixes or exclusions.
+        const parent = input.missingParent;
+        const firstMissing = (target: string) => path.relative(parent, target).split(path.sep)[0]!.normalize("NFD").toLowerCase().toUpperCase().normalize("NFD");
+        if (firstMissing(input.target) === firstMissing(observed.target)) return true;
+      }
+      // A named input may itself traverse the observed unsupported link.
+      if (input.links.some((link) => observed.links.includes(link))) return true;
+      return targets.some((target) => {
+        const relative = path.relative(input.target, target);
+        if (outside(relative)) return !outside(path.relative(target, input.target)); // Edit of an input's ancestor.
+        // Exclusions need known traversal spelling. A missing suffix cannot
+        // prove it was excluded (e.g. removed GENERATED visited as generated).
+        // Never resolve an exclusion through its own symlink.
+        const knownTarget = target === observed.target ? observed.missingParent ?? target : target;
+        const knownRelative = path.relative(input.target, knownTarget);
+        if (outside(knownRelative)) return true;
+        const scopedPath = path.posix.join(entry, knownRelative.split(path.sep).join("/"));
+        return !scope.exclude?.some((excluded) => scopedPath === excluded || scopedPath.startsWith(excluded + "/"));
+      });
+    });
+  };
+}
+
 /** One task's command evidence, shared by the model's check tool and repair owner.
  * Native shell observations never enter this store. Commands/scopes are frozen in
  * the registry; reuse says nothing about inputs outside the declared scope. */
@@ -99,44 +147,11 @@ export class VerificationTask {
     // would turn an actual @-prefixed filename into a different path.
     // Resolve aliases synchronously so an overlapping check cannot publish a
     // fresh result before this observation updates its edit revision.
-    const budget = { remaining: 4096, deadline: performance.now() + 500 };
-    const root = pathIdentity(this.cwd, budget)?.target;
-    const observed = pathIdentity(path.resolve(this.cwd, file), budget);
-    const targets = observed ? [observed.target, ...observed.links] : [];
-    const outside = (relative: string) => relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative);
-    if (root && observed && targets.every((target) => outside(path.relative(root, target)))) return;
+    const affects = editAffects(this.cwd, file);
     for (const name of CHECK_NAMES) {
       const scope = this.registry.scope(name);
       if (!scope) continue;
-      // Resolve both sides: e.g. declared SRC and actual src on a case-insensitive
-      // filesystem. Unknown identities cannot safely be declared unrelated.
-      const affected = !root || !observed || scope.inputs.some((entry) => {
-        const input = pathIdentity(path.resolve(root, entry), budget);
-        if (!input) return true;
-        if (input.missingParent !== undefined && input.missingParent === observed.missingParent) {
-          // Missing names have no canonical spelling. Possible case/Unicode
-          // aliases cannot prove disjointness, even on a case-sensitive volume.
-          // The first missing entry may be an input's parent, which is observed
-          // too. Fold only that entry, never existing prefixes or exclusions.
-          const parent = input.missingParent;
-          const firstMissing = (target: string) => path.relative(parent, target).split(path.sep)[0]!.normalize("NFD").toLowerCase().toUpperCase().normalize("NFD");
-          if (firstMissing(input.target) === firstMissing(observed.target)) return true;
-        }
-        // A named input may itself traverse the observed unsupported link.
-        if (input.links.some((link) => observed.links.includes(link))) return true;
-        return targets.some((target) => {
-          const relative = path.relative(input.target, target);
-          if (outside(relative)) return !outside(path.relative(target, input.target)); // Edit of an input's ancestor.
-          // Exclusions need known traversal spelling. A missing suffix cannot
-          // prove it was excluded (e.g. removed GENERATED visited as generated).
-          // Never resolve an exclusion through its own symlink.
-          const knownTarget = target === observed.target ? observed.missingParent ?? target : target;
-          const knownRelative = path.relative(input.target, knownTarget);
-          if (outside(knownRelative)) return true;
-          const scopedPath = path.posix.join(entry, knownRelative.split(path.sep).join("/"));
-          return !scope.exclude?.some((excluded) => scopedPath === excluded || scopedPath.startsWith(excluded + "/"));
-        });
-      });
+      const affected = affects(scope);
       if (affected) {
         this.inputEdits.set(name, (this.inputEdits.get(name) ?? 0) + 1);
         const result = this.latest.get(name);

@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, readFile, realpath, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { freePort, portInUse } from "../src/platform/managed-process";
@@ -102,7 +102,10 @@ test("a crash after ready is reported with its exit code and log tail, and its c
 }, 20_000);
 
 test("an edit inside a service's scope makes the next freshness check restart it; one outside does not", async () => {
-  const f = await fixture({ scope: { inputs: ["src"], exclude: ["src/ui"] } });
+  const root = await project();
+  // Existing directories: an exclusion or outside path is proven only against known spelling.
+  await mkdir(path.join(root, "src", "ui"), { recursive: true }); await mkdir(path.join(root, "docs"));
+  const f = await fixture({ scope: { inputs: ["src"], exclude: ["src/ui"] } }, { root });
   const first = await f.manager.start("api", new AbortController().signal);
   const signal = new AbortController().signal;
   expect(await f.manager.ensureFresh("api", signal)).toEqual({ restarted: false });
@@ -199,4 +202,23 @@ test("a restart while a service is starting leaves exactly one process", async (
   expect((await pids(log)).filter(alive)).toHaveLength(1);
   await f.manager.close();
   for (const pid of await pids(log)) await gone(pid);
+}, 20_000);
+
+test("scope matching resolves aliases, and an edit whose identity cannot be proven disjoint marks the service stale", async () => {
+  // A small parent: resolving a link lists its directory within a bounded budget.
+  const base = await project(), root = path.join(base, "app"), alias = path.join(base, "alias");
+  await mkdir(path.join(root, "src"), { recursive: true }); await mkdir(path.join(root, "docs"));
+  await writeFile(path.join(root, "notdir"), "a file");
+  await symlink(root, alias);
+  const f = await fixture({ scope: { inputs: ["src"] } }, { root });
+  await f.manager.start("api", new AbortController().signal);
+  f.manager.markEdited(path.join(alias, "docs", "notes.md"));
+  expect(api(f.manager).stale).toBe(false);
+  // The same project through a symlinked path is still inside the scope.
+  f.manager.markEdited(path.join(alias, "src", "routes.ts"));
+  expect(api(f.manager).stale).toBe(true);
+  await f.manager.restart("api", new AbortController().signal);
+  // A path through a regular file has no provable identity, so it cannot be ruled out.
+  f.manager.markEdited("notdir/routes.ts");
+  expect(api(f.manager).stale).toBe(true);
 }, 20_000);

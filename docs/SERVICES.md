@@ -34,8 +34,11 @@ services:
   HTTP answer arrives, or `{ log: <text> }`, a line the service prints. A service that
   misses its deadline, or exits first, is stopped and reported with its last log lines.
 - **`scope`** has the same shape as `verification.scopes` (literal project-relative
-  paths, no globs). An edit inside it marks the service stale. Without a scope, any edit
-  does. A shell command's files are unknown, so it marks every running service stale.
+  paths, no globs). An edit inside it marks the service stale. Paths are resolved as for
+  verification scopes (symlinks, letter case), and an edit Casper cannot prove is outside
+  the scope (for example a path that does not exist yet next to a scoped name) counts as
+  inside. Without a scope, any edit in the project does. A shell command's files are
+  unknown, so it marks every running service stale.
 - **`env`** holds literal values. Nothing else comes from your shell: services start in
   Casper's isolated environment (a temporary `HOME`, the project's `node_modules/.bin` on
   `PATH`, package installs disabled). Casper sets `PORT` and `HOST` (`127.0.0.1`) itself,
