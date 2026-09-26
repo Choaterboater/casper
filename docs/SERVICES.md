@@ -73,6 +73,42 @@ also stops any child processes the crashed service left behind. A `stale` servic
 running until something needs it fresh, such as `/services start`; then it is restarted
 first.
 
+## The model's `service` tool
+
+During a task the model uses one `service` tool, with these actions:
+
+- **`start`** starts a declared service by name and waits for readiness. A stale or
+  crashed one is restarted first. With `command` instead of a name, it starts an
+  **ad-hoc service** named `adhoc-<n>`. It runs at the project root with `PORT`/`HOST`
+  and nothing else in `env`, has no scope (any edit makes it stale), and is ready at
+  `ready` (default `{ http: / }`) within `timeoutMs` (default 30000). Starting the same
+  command again joins the running one. At most 4 ad-hoc services run at once.
+- **`status`**, **`logs`** (the most recent `lines`, default 40 and at most 200,
+  optionally only lines containing `filter`), **`restart`** and **`stop`**.
+- **`request`** sends one HTTP request. It is sent either to `service` plus `path`, or
+  to a `url` on `localhost`, `127.0.0.1` or `[::1]` over `http:`. A URL at a service's
+  address counts as that service. Anything else is refused. Before sending, Casper makes
+  the service fresh: a service that is stale from edits, has crashed or no longer answers
+  its readiness path is restarted, and the result says `restarted: true`. Redirects are
+  shown, not followed. The request times out after 10 s. The result shows the status,
+  selected headers (content type and length, location, allow, caching, retry-after,
+  authentication challenge) and the count of the rest. It also shows the timing and the
+  body, with JSON pretty-printed. A body over 8 KiB is cut with a marker such as
+  `[truncated: 20480 bytes, first 8192 shown]`. The whole result stays within the usual
+  16 KiB capability-result bound.
+
+A crash after readiness is not pushed into the model's turn. The next `service` call
+reports it once, under `crashed`, with the exit code and last log lines. This happens
+before a request restarts the service.
+
+The model's `edit` and `write` calls mark the services whose scope covers the file
+stale. A `bash` call marks every running service stale.
+
+The tool is offered only when the project declares services, a service is running, or
+the task mentions a dev, HTTP or web server, `localhost`, an endpoint or `curl`. In other
+tasks it is left out, so it costs no prompt tokens. Services the model starts belong to
+the session like declared ones, and `/services` lists and controls them too.
+
 ## Lifetime
 
 Services belong to the session, not to one task. They keep running between prompts, so a
