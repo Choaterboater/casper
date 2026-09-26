@@ -8,6 +8,7 @@ import { loadProjectContext } from "../src/project/context";
 import { SkillRegistry } from "../src/skills/registry";
 import { discoverMCPConfiguration } from "../src/mcp/config";
 import type { AgentRuntime, RuntimeStartOptions, RuntimeTool } from "../src/runtime/types";
+import { cleanEnv } from "./support/env";
 
 const cleanup: (() => Promise<unknown>)[] = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -201,7 +202,7 @@ test("real CLI and Pi adapter send a small surface and complete search/schema/ca
   await mkdir(path.join(home, ".casper"), { recursive: true });
   await writeFile(path.join(home, ".casper/settings.json"), JSON.stringify({ defaultProvider: "fixture", defaultModel: "fixture" }));
   const processFixture = Bun.spawn([process.execPath, path.join(import.meta.dir, "../src/cli.ts"), "--mcp", "fixture", "Read site health metric"], {
-    cwd: project, env: { ...process.env, HOME: home, CASPER_AGENT_DIR: agentDir, PI_CODING_AGENT_DIR: agentDir, CASPER_OFFLINE: "1", PI_TELEMETRY: "0" }, stdout: "pipe", stderr: "pipe",
+    cwd: project, env: cleanEnv({ HOME: home, CASPER_AGENT_DIR: agentDir, PI_CODING_AGENT_DIR: agentDir, CASPER_OFFLINE: "1", PI_TELEMETRY: "0" }), stdout: "pipe", stderr: "pipe",
   });
   const timer = setTimeout(() => processFixture.kill(), 15_000);
   const [stdout, stderr, exit] = await Promise.all([new Response(processFixture.stdout).text(), new Response(processFixture.stderr).text(), processFixture.exited]);
@@ -229,7 +230,7 @@ try {
 } finally { await app.close(); }
 `);
   const replay = Bun.spawn([process.execPath, harness], {
-    cwd: project, env: { ...process.env, HOME: home, PI_CODING_AGENT_DIR: agentDir, PI_OFFLINE: "1", PI_TELEMETRY: "0" }, stdout: "pipe", stderr: "pipe",
+    cwd: project, env: cleanEnv({ HOME: home, PI_CODING_AGENT_DIR: agentDir, PI_OFFLINE: "1", PI_TELEMETRY: "0" }), stdout: "pipe", stderr: "pipe",
   });
   const replayTimer = setTimeout(() => replay.kill(), 10_000);
   const [, replayError, replayExit] = await Promise.all([new Response(replay.stdout).text(), new Response(replay.stderr).text(), replay.exited]);
@@ -254,8 +255,7 @@ async function shadowFixture() {
 
 test("--mcp refuses a project definition that shadows the user's server and never runs it", async () => {
   const { home, project, marker } = await shadowFixture();
-  const env: Record<string, string | undefined> = { ...process.env, HOME: home, PI_OFFLINE: "1", PI_TELEMETRY: "0" };
-  for (const name of ["PI_CODING_AGENT_DIR", "PI_MODEL", "PI_PROVIDER"]) delete env[name];
+  const env = cleanEnv({ HOME: home, PI_OFFLINE: "1", PI_TELEMETRY: "0" });
   const child = Bun.spawn([process.execPath, path.join(import.meta.dir, "../src/cli.ts"), "--mcp", "github", "Summarize"], {
     cwd: project, env, stdout: "pipe", stderr: "pipe", stdin: "ignore",
   });

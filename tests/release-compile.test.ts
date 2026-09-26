@@ -5,6 +5,7 @@ import path from "node:path";
 import { deflateSync } from "node:zlib";
 import { compileExecutable } from "../scripts/compile";
 import { CASPER_VERSION } from "../src/version";
+import { cleanEnv } from "./support/env";
 
 // Bun 1.4 copies a read-only runtime (Homebrew's 0555 bun) into the build's cwd as
 // `.<hash>-00000000.bun-build` and never unlinks it; the compile must not leave one here.
@@ -17,7 +18,7 @@ test("the standalone CLI starts and reports its version on every host", async ()
     const before = new Set(await bunBuildLeaks());
     await compileExecutable(path.join(import.meta.dir, "../src/standalone.ts"), binary);
     expect((await bunBuildLeaks()).filter((name) => !before.has(name))).toEqual([]);
-    const child = Bun.spawn([binary, "--version"], { cwd: root, stdout: "pipe", stderr: "pipe" });
+    const child = Bun.spawn([binary, "--version"], { cwd: root, env: cleanEnv(), stdout: "pipe", stderr: "pipe" });
     const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
     // A compiled binary names its own executable path (the installer compares only the version token).
     expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });
@@ -32,7 +33,7 @@ test("the compiled binary embeds the OAuth flow of every /login provider", async
   try {
     const binary = path.join(root, process.platform === "win32" ? "probe.exe" : "probe");
     await compileExecutable(path.join(import.meta.dir, "fixtures/compiled-oauth.ts"), binary);
-    const child = Bun.spawn([binary], { cwd: root, env: { ...process.env, HOME: root, USERPROFILE: root }, stdout: "pipe", stderr: "pipe" });
+    const child = Bun.spawn([binary], { cwd: root, env: cleanEnv({ HOME: root, USERPROFILE: root }), stdout: "pipe", stderr: "pipe" });
     const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
     expect({ exit, stderr, output: JSON.parse(stdout) }).toEqual({ exit: 0, stderr: "",
       output: { "openai-codex": "ok", "github-copilot": "ok", anthropic: "ok", openrouter: "ok" } });
@@ -64,7 +65,7 @@ test("compiled native image reads work without build-time WASM or Bun on PATH", 
     ]));
     const child = Bun.spawn([binary, image], {
       cwd: root,
-      env: { ...process.env, HOME: root, USERPROFILE: root, PATH: process.platform === "win32" ? `${process.env.SystemRoot}\\System32` : "/usr/bin:/bin" },
+      env: cleanEnv({ HOME: root, USERPROFILE: root, PATH: process.platform === "win32" ? `${process.env.SystemRoot}\\System32` : "/usr/bin:/bin" }),
       stdout: "pipe", stderr: "pipe",
     });
     const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);

@@ -7,6 +7,7 @@ import { discoverMCPConfiguration } from "../src/mcp/config";
 import { discoverLSPConfiguration } from "../src/lsp/config";
 import { discoverReferenceConfiguration } from "../src/references/config";
 import { needsFifos, needsSymlinks } from "./support/platform";
+import { cleanEnv } from "./support/env";
 
 test("profile selections reject traversal and malformed values at every precedence layer", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-profile-review-"));
@@ -216,9 +217,8 @@ test("Casper shows configuration warnings at startup", async () => {
   try {
     await mkdir(path.join(root, ".casper"));
     await writeFile(path.join(root, ".casper/project.yaml"), "skils:\n  maxActive: 2\n\"x\\e]0;T\\a\": 1\n");
-    const { PI_CODING_AGENT_DIR: _dir, ...inherited } = process.env;
     const child = Bun.spawn([process.execPath, path.resolve(import.meta.dir, "../src/cli.ts"), "/project"], {
-      cwd: root, env: { ...inherited, HOME: root, CASPER_PROFILE: "default" }, stdout: "pipe", stderr: "pipe",
+      cwd: root, env: cleanEnv({ HOME: root, CASPER_PROFILE: "default" }), stdout: "pipe", stderr: "pipe",
     });
     const [stdout, code] = await Promise.all([new Response(child.stdout).text(), child.exited]);
     expect(code).toBe(0);

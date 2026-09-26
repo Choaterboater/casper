@@ -15,6 +15,7 @@ import type {
   RuntimeSession,
   RuntimeStartOptions,
 } from "../src/runtime/types";
+import { cleanEnv } from "./support/env";
 
 const execFileAsync = promisify(execFile);
 const tempDirs: string[] = [];
@@ -108,7 +109,7 @@ describe("CasperApp", () => {
     const cli = path.resolve(import.meta.dir, "../src/cli.ts");
     for (const command of ["--help", "/help", "/exit", "/quit", "/verfy typecheck"]) {
       const child = Bun.spawn([process.execPath, cli, command], {
-        cwd: root, env: { ...process.env, HOME: root, CASPER_PROFILE: "default" }, stdout: "pipe", stderr: "pipe",
+        cwd: root, env: cleanEnv({ HOME: root, CASPER_PROFILE: "default" }), stdout: "pipe", stderr: "pipe",
       });
       const [stdout, stderr, code] = await Promise.all([
         new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited,
@@ -134,7 +135,7 @@ describe("CasperApp", () => {
     const cli = path.resolve(import.meta.dir, "../src/cli.ts");
     for (const args of [["--version"], ["-v"]]) {
       const child = Bun.spawn([process.execPath, cli, ...args], {
-        cwd: root, env: { ...process.env, HOME: root, CASPER_PROFILE: "default" }, stdout: "pipe", stderr: "pipe",
+        cwd: root, env: cleanEnv({ HOME: root, CASPER_PROFILE: "default" }), stdout: "pipe", stderr: "pipe",
       });
       const [stdout, code] = await Promise.all([new Response(child.stdout).text(), child.exited]);
       expect({ leading: stdout.trim().startsWith("casper "), code }).toEqual({ leading: true, code: 0 });

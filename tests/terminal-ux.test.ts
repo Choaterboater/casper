@@ -6,6 +6,7 @@ import { PassThrough } from "node:stream";
 import { formatRuntimeStatus, formatToolActivity, markdownTheme, redactPreview, terminalText } from "../src/tui/format";
 import { InteractiveTerminal } from "../src/tui/terminal";
 import { posixOnly } from "./support/platform";
+import { cleanEnv } from "./support/env";
 
 // readline delivers a written line on a later turn of the event loop; no wall-clock wait involved.
 const delivered = () => new Promise(resolve => setImmediate(resolve));
@@ -93,8 +94,7 @@ test("piped stdin runs every line through the real CLI", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-piped-")); roots.push(root);
   const home = path.join(root, "home"); const project = path.join(root, "project");
   await Promise.all([mkdir(home), mkdir(project)]);
-  const env = { ...process.env, HOME: home, CASPER_PROFILE: "default" } as Record<string, string | undefined>;
-  for (const key of ["PI_CODING_AGENT_DIR", "PI_MODEL", "PI_PROVIDER", "NO_COLOR"]) delete env[key];
+  const env = cleanEnv({ HOME: home, CASPER_PROFILE: "default", NO_COLOR: undefined });
   const child = Bun.spawn([process.execPath, path.resolve(import.meta.dir, "../src/cli.ts")], {
     cwd: project, env, stdin: new Blob(["/status\n/help\n/nope\n"]), stdout: "pipe", stderr: "pipe",
   });
@@ -111,8 +111,7 @@ test("the startup banner names a saved default model instead of saying no model 
   const home = path.join(root, "home"); const project = path.join(root, "project");
   await Promise.all([mkdir(path.join(home, ".casper"), { recursive: true }), mkdir(project)]);
   await writeFile(path.join(home, ".casper", "settings.json"), JSON.stringify({ defaultProvider: "fixture", defaultModel: "first", defaultThinkingLevel: "high" }));
-  const env = { ...process.env, HOME: home, CASPER_PROFILE: "default" } as Record<string, string | undefined>;
-  for (const key of ["PI_CODING_AGENT_DIR", "PI_MODEL", "PI_PROVIDER"]) delete env[key];
+  const env = cleanEnv({ HOME: home, CASPER_PROFILE: "default" });
   for (const args of [[], ["/exit"]]) {
     const child = Bun.spawn([process.execPath, path.resolve(import.meta.dir, "../src/cli.ts"), ...args], {
       cwd: project, env, stdin: new Blob(["/exit\n"]), stdout: "pipe", stderr: "pipe",
