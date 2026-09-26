@@ -866,3 +866,31 @@ test("real CLI delegation fails rather than calling a provider error a successfu
   expect(result.stderr).toContain("Delegation failed");
   expect(f.payloads).toHaveLength(1);
 }, 15_000);
+
+test("a real child sees Pi's continuation notice for a large read, the real error for a directory, and recovers from a cut-off call", async () => {
+  // The observed reviewer run: three reads of a large file, one lost to the output-token limit,
+  // came back "limited" with a bare "tool failed: read" although the child went on to report.
+  let step = 0;
+  const f = await fixture((payload) => {
+    if (payload.tools.length !== 4) return answer("PARENT_UNUSED");
+    switch (step++) {
+      case 0: return calls([{ name: "read", args: { path: "big.ts" } }, { name: "read", args: { path: "src" } }]);
+      case 1: return calls([{ name: "read", args: { path: "big.ts", offset: 1276 } }], "length");
+      case 2: return calls([{ name: "read", args: { path: "big.ts", offset: 1276 } }]);
+      default: return answer("FINDINGS: big.ts:3400 ends the file");
+    }
+  });
+  await writeFile(path.join(f.project, "big.ts"), Array.from({ length: 3400 }, (_, i) => `const line${i} = "${"x".repeat(20)}";`).join("\n"));
+  await mkdir(path.join(f.project, "src"));
+  const result = await f.run([cli, "/delegate", "reviewer", "Review big.ts"]);
+  expect({ exit: result.exit, stderr: result.stderr }).toEqual({ exit: 0, stderr: "" });
+  expect(result.stdout).toContain("reviewer · completed");
+  expect(result.stdout).toContain("FINDINGS: big.ts:3400");
+  // The truncated read is a result, not an error; the directory and cut-off call are errors with Pi's words.
+  expect(result.stdout.match(/\[delegate\] read: .*/g)).toEqual([
+    "[delegate] read: EISDIR: illegal operation on a directory, read",
+    '[delegate] read: Tool call "read" was not executed: the response hit the output token limit, so its arguments may be truncated. Re-issue the tool call with complete arguments.',
+  ]);
+  expect(JSON.stringify(f.payloads[1]?.messages)).toContain("[Showing lines 1-1275 of 3400 (50.0KB limit). Use offset=1276 to continue.]");
+  expect(f.payloads).toHaveLength(4);
+}, 15_000);
