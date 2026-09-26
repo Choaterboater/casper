@@ -127,7 +127,8 @@ export class ManagedProcess {
 
   /** Resolves once ready; otherwise cleans up and rejects with a `ManagedProcessError` carrying the log tail. */
   async start(signal: AbortSignal): Promise<{ readyMs: number; httpStatus?: number }> {
-    if (this.child || this.stopWork) throw new Error(`${this.label} was already started`);
+    if (this.child) throw new Error(`${this.label} was already started`);
+    if (this.stopWork) throw new ManagedProcessError("closed", `${this.label} was closed before it started`, "");
     const began = performance.now();
     const fail = async (reason: ManagedProcessError["reason"], message: string): Promise<never> => {
       // Let buffered output drain so the tail shows why it exited.

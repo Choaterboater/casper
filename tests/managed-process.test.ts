@@ -174,3 +174,10 @@ test("a sticky or global pattern still matches anywhere in a line, for readiness
   await f.managed.start(new AbortController().signal);
   expect(f.managed.logs({ filter: /is up/y }).text).toBe("service is up");
 }, 20_000);
+
+test("a process closed before it started refuses to start as closed", async () => {
+  const f = await fixture({});
+  await f.managed.close();
+  expect(await f.managed.start(new AbortController().signal).catch((error: unknown) => error)).toMatchObject({ reason: "closed", message: expect.stringContaining("closed before it started") });
+  expect(f.managed.pid).toBeUndefined();
+});
