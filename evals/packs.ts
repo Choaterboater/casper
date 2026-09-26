@@ -284,17 +284,21 @@ export const HARD_PACK: readonly EvalTask[] = [
     id: "hard-job-queue", pack: "hard", fixture: "job-queue", setup: "add-job-queue",
     prompt: "Implement `JobQueue` in src/queue.ts (the types there are the API). `new JobQueue({ concurrency, retries?, sleep? })`: "
       + "`concurrency` must be a positive integer and `retries` (default 0) a non-negative integer, otherwise throw RangeError. "
-      + "`add(job)` returns `{ id, result, cancel }`: ids are 1, 2, 3... in the order jobs were added, and jobs start in that "
-      + "order. Never more than `concurrency` jobs run at once. Each job is called with an AbortSignal; a job that throws "
+      + "`add(job, { priority? })` returns `{ id, result, cancel }`: ids are 1, 2, 3... in the order jobs were added. Jobs start "
+      + "by priority (default 0, higher first), and equal priorities in the order added. Never more than `concurrency` jobs "
+      + "run at once. Each job is called with an AbortSignal; a job that throws "
       + "(synchronously or by rejecting) is retried up to `retries` more times, and before retry n (n = 1, 2, 3...) the queue "
-      + "awaits `sleep(10 * 2 ** (n - 1), signal)`, so 10, 20, 40 ms; the default sleep is a real timer, tests inject their own. "
+      + "awaits `sleep(min(10 * 2 ** (n - 1), 100), signal)`, so 10, 20, 40, 80, 100, 100 ms; the default sleep is a real "
+      + "timer, tests inject their own. "
       + "A job waiting for its retry keeps its concurrency slot. `result` never rejects: it resolves to `{ status: \"fulfilled\", "
       + "value }`, `{ status: \"rejected\", error }` with the last attempt's error, or `{ status: \"cancelled\" }`. `cancel()` on a "
       + "queued job means it never runs; on a running job (or one waiting to retry) it aborts the job's signal, the result is "
       + "`cancelled` at once whatever the job does afterwards, no further attempt is made, and the job keeps its slot until its "
       + "own promise settles; after a job settled, `cancel()` changes nothing. `onIdle()` resolves once nothing is queued or "
       + "running, with every job's result in the order the jobs were added (not the order they finished); on a queue with no "
-      + "jobs it resolves with []." + RULES,
+      + "jobs it resolves with []. `pause()` starts no new jobs (running ones go on, and `onIdle()` keeps waiting while jobs "
+      + "are queued) until `resume()`, which starts jobs up to the limit again. The `size` getter counts jobs waiting to "
+      + "start and `pending` the jobs holding a slot (running, waiting to retry, or cancelled but not yet settled)." + RULES,
     conventions: [onlyEdits("src/", "tests/"), convention("queue-in-place", { changed: ["src/queue.ts"] })],
   }),
   task({
@@ -302,13 +306,16 @@ export const HARD_PACK: readonly EvalTask[] = [
     prompt: "Implement `loadConfig(defaults, { file?, env? })` in src/config.ts (the types there are the API). The defaults "
       + "object is the schema: its keys are the only allowed keys, and each default's type (string, number, boolean, list of "
       + "strings, or nested object) is the only allowed type. Precedence is env over file over defaults, merged key by key "
-      + "through nested objects; a list from a higher source replaces the lower list entirely. `file` is already-parsed JSON "
+      + "through nested objects; a list from a higher source replaces the lower list entirely, and every list from the file "
+      + "or the environment keeps only the first occurrence of each item. `file` is already-parsed JSON "
       + "and must be an object. Environment variables count only when their name starts with `APP_`: the rest is lowercased "
       + "and `__` separates nesting levels (`APP_DB__PORT` is `db.port`), while a single `_` stays part of the key "
       + "(`APP_LOG_LEVEL` is `log_level`); undefined values are ignored. Env strings are converted to the default's type: a "
       + "number must be a finite number and not empty, a boolean is exactly `true` or `false`, a list is comma-separated with "
-      + "each item trimmed and empty items dropped (an empty string is an empty list); an env variable naming an object is an "
-      + "error. Problems are collected, never stopping at the first, and thrown as one `ConfigError` whose `issues` are "
+      + "each item trimmed and empty items dropped (an empty string is an empty list; `\\,` is a comma inside an item); an env "
+      + "variable naming an object is an `expected object` error, and one nesting below a key that is not an object "
+      + "(`APP_NAME__FIRST` when `name` is a string) is an unknown key. Problems are collected, never stopping at the first, "
+      + "and thrown as one `ConfigError` whose `issues` are "
       + "`{ path, source, message }`: `path` is the dotted key path (`\"\"` when the file is not an object), `source` is `file` "
       + "or `env`, and `message` is `unknown key` or `expected <string|number|boolean|list|object>` (the default's type; null "
       + "never matches). File issues come first in the file's key order, then env issues sorted by variable name. A key such "
@@ -319,8 +326,10 @@ export const HARD_PACK: readonly EvalTask[] = [
   task({
     id: "hard-money-allocation", pack: "hard", fixture: "allocation", setup: "add-allocation",
     prompt: "Implement `allocate(amount, currency, ratios)` in src/allocate.ts. `amount` is a decimal string: an optional `-`, "
-      + "digits, and optionally `.` followed by digits, with at most as many decimal places as the currency has minor-unit "
-      + "digits in src/currencies.ts (USD 2, JPY 0, KWD 3; do not change that table). Anything else, an unknown currency, an "
+      + "then `0` or digits not starting with `0`, and optionally `.` followed by digits, with at most as many decimal places "
+      + "as the currency has minor-unit digits in src/currencies.ts (USD 2, JPY 0, KWD 3; do not change that table). Anything "
+      + "else (including leading zeros such as `007.00` and any whitespace), a currency code that is not exactly a key of that "
+      + "table (`usd` is unknown), an "
       + "empty ratio list or a ratio that is not a positive integer throws RangeError. Split the amount's exact integer minor "
       + "units, with no floating point (amounts beyond 2^53 minor units must stay exact): each part first gets the floor of "
       + "its share, then the leftover units go one each to the parts with the largest remainders, ties to the earlier ratio, "
@@ -331,11 +340,14 @@ export const HARD_PACK: readonly EvalTask[] = [
   }),
   task({
     id: "hard-dependency-scheduler", pack: "hard", fixture: "task-graph", setup: "add-scheduler",
-    prompt: "Implement `schedule(graph)` and `batches(graph)` in src/schedule.ts; a graph maps each task name to the names "
-      + "it depends on, and a dependency listed twice counts once. `schedule` returns one order in which every task comes "
-      + "after its dependencies, and whenever several tasks are ready the smallest name goes first. `batches` returns groups "
-      + "that can run in parallel: each task sits in the first batch after all of its dependencies, and each batch is sorted. "
-      + "Names compare by plain string order (`<`), never locale order. Both check for unknown dependencies before anything "
+    prompt: "Implement `schedule(graph)` and `batches(graph, { limit? })` in src/schedule.ts; a graph maps each task name to the "
+      + "names it depends on, and a dependency listed twice counts once. A dependency written `name?` is optional: ignored "
+      + "when there is no task `name`, an ordinary dependency on `name` otherwise. `schedule` returns one order in which every "
+      + "task comes after its dependencies, and whenever several tasks are ready the smallest name goes first. `batches` "
+      + "returns groups that can run in parallel: each task sits in the first batch after all of its dependencies, and each "
+      + "batch is sorted. With `limit` (a positive integer, RangeError otherwise) a batch holds at most `limit` tasks: when "
+      + "more are ready, the smallest names go in and the rest wait for a later batch. "
+      + "Names compare by plain string order (`<`), never locale order. Both check for unknown (non-optional) dependencies before anything "
       + "else: throw `MissingDependencyError` for the first one, taking tasks in sorted name order and each task's "
       + "dependencies in listed order. Otherwise a cycle throws `CycleError` whose `cycle` starts and ends with the same "
       + "task and follows dependencies (`[\"a\", \"b\", \"a\"]`: a needs b needs a). Report the cycle through the smallest task "
@@ -346,15 +358,19 @@ export const HARD_PACK: readonly EvalTask[] = [
   }),
   task({
     id: "hard-conditional-http", pack: "hard", fixture: "docs-api", setup: "add-conditional-requests",
-    prompt: "Add conditional requests to this document service's `GET /docs/:id` and `PUT /docs/:id`. Every 200 response "
+    prompt: "Add conditional requests to this document service's `GET`, `HEAD` and `PUT /docs/:id`. Every 200 response "
       + "carries a strong `ETag` (a quoted string, never `W/`) derived from the JSON representation: the same document "
       + "content always has the same tag, in any `createApp()`, and changed content has a different one. GET with "
       + "`If-None-Match` answers 304 with an empty body and the `ETag` header when any listed tag matches the current one by "
-      + "weak comparison (`W/\"x\"` matches `\"x\"`) or the header is `*`; otherwise a normal 200. PUT requires `If-Match`: "
+      + "weak comparison (`W/\"x\"` matches `\"x\"`) or the header is `*`; otherwise a normal 200. GET and HEAD answers with "
+      + "status 200 or 304 carry `Cache-Control: no-cache`. HEAD answers exactly what GET would (status and headers, 304 and "
+      + "404 included) with no body. PUT requires `If-Match`: "
       + "without it the answer is 428 `precondition_required`; when no listed tag matches by strong comparison (a weak "
       + "tag never matches) and the header is not `*`, 412 `precondition_failed`. Headers may list several comma-separated "
-      + "tags. A rejected PUT writes nothing, and an unknown document is 404 `not_found` before any precondition. The "
-      + "successful PUT answers 200 with the updated document and its new ETag." + RULES,
+      + "tags. The exception is `PUT` with `If-None-Match: *`, which only creates: on a missing document it creates it and "
+      + "answers 201 with the document, `Location: /docs/<id>` and its ETag; on an existing one it is 412 "
+      + "`precondition_failed`. Any other request for an unknown document is 404 `not_found` before any precondition. A "
+      + "rejected PUT writes nothing. The successful update answers 200 with the updated document and its new ETag." + RULES,
     conventions: [
       onlyEdits("src/", "tests/"),
       convention("errors-through-jsonError", { contains: [{ path: "src/handlers.ts", text: "precondition_failed" }], noMatch: [{ text: "new Response(JSON", under: "src/handlers.ts" }] }),
@@ -366,11 +382,14 @@ export const HARD_PACK: readonly EvalTask[] = [
       + "and `refillPerSecond` must be positive integers, otherwise throw RangeError; time comes only from the injected "
       + "`now()` (default `Date.now`), read on every call. A new key starts with a full bucket. Tokens refill continuously, "
       + "fractions included, at `refillPerSecond` per second, and a bucket never holds more than `capacity`. If the clock "
-      + "goes backwards, no tokens are added and none are lost. `take(key, cost = 1)`: `cost` must be a positive integer no "
-      + "larger than `capacity` (RangeError otherwise). When the bucket holds at least `cost` tokens they are used and the "
+      + "goes backwards, no tokens are added and none are lost. `take(key, cost = 1)`: `cost` must be a non-negative integer "
+      + "no larger than `capacity` (RangeError otherwise); cost 0 is a probe that is always allowed and uses nothing. When the "
+      + "bucket holds at least `cost` tokens they are used and the "
       + "answer is `{ allowed: true, remaining, retryAfterMs: 0 }`; otherwise nothing is used and the answer is `{ allowed: "
       + "false, remaining, retryAfterMs }`, where `retryAfterMs` is the exact number of milliseconds, rounded up, until this "
-      + "cost would be allowed. `remaining` is the whole tokens left after the call." + RULES,
+      + "cost would be allowed. `remaining` is the whole tokens left after the call. `reset(key)` forgets a key, so its next "
+      + "take starts full; the `size` getter counts keys whose bucket is not full now, and a bucket that refilled to full is "
+      + "forgotten." + RULES,
     conventions: [onlyEdits("src/", "tests/"), convention("limiter-in-place", { changed: ["src/limiter.ts"] })],
   }),
 ];

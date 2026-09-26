@@ -98,3 +98,12 @@ test("inputs are never mutated and the result shares nothing mutable with them",
   plain.db.host = "mutated";
   expect({ defaults, file }).toEqual(snapshot);
 });
+
+test("lists from the file or the environment keep only the first occurrence of each item", () => {
+  expect(loadConfig(defaults, { file: { hosts: ["b", "a", "b", "c", "a"] } }).hosts).toEqual(["b", "a", "c"]);
+  expect(loadConfig(defaults, { env: { APP_HOSTS: "x, y ,x,,z,y" } }).hosts).toEqual(["x", "y", "z"]);
+});
+
+test("in an env list, \\, is a comma inside an item", () => {
+  expect(loadConfig(defaults, { env: { APP_HOSTS: String.raw`a\,b, c ,d\,e\,f` } }).hosts).toEqual(["a,b", "c", "d,e,f"]);
+});

@@ -156,3 +156,60 @@ test("rejects a concurrency that is not a positive integer and negative or fract
   for (const concurrency of [0, -1, 1.5, Number.NaN]) expect(() => new JobQueue({ concurrency })).toThrow(RangeError);
   for (const retries of [-1, 0.5]) expect(() => new JobQueue({ concurrency: 1, retries })).toThrow(RangeError);
 });
+
+test("higher priority starts first; equal priorities start in the order added; results stay in add order", async () => {
+  const gate = deferred();
+  const queue = new JobQueue({ concurrency: 1 });
+  const started: string[] = [];
+  queue.add(async () => { started.push("first"); await gate.promise; return "first"; });
+  for (const [name, priority] of [["low", -1], ["a", 0], ["high", 5], ["b", 0], ["higher", 9], ["high2", 5]] as const) {
+    queue.add(async () => { started.push(name); return name; }, { priority });
+  }
+  gate.resolve();
+  const results = await queue.onIdle();
+  expect(started).toEqual(["first", "higher", "high", "high2", "a", "b", "low"]);
+  expect(results.map((result) => (result as { value: string }).value)).toEqual(["first", "low", "a", "high", "b", "higher", "high2"]);
+});
+
+test("retry delays double from 10 ms and are capped at 100 ms", async () => {
+  const delays: number[] = [];
+  const queue = new JobQueue({ concurrency: 1, retries: 6, sleep: async (ms) => { delays.push(ms); } });
+  await queue.add(async () => { throw new Error("always"); }).result;
+  expect(delays).toEqual([10, 20, 40, 80, 100, 100]);
+});
+
+test("pause starts no new jobs while running ones finish; resume starts up to the limit; onIdle waits for a paused queue", async () => {
+  const gate = deferred();
+  const queue = new JobQueue({ concurrency: 2 });
+  const started: number[] = [];
+  queue.add(async () => { started.push(0); await gate.promise; });
+  queue.pause();
+  for (const index of [1, 2, 3]) queue.add(async () => { started.push(index); });
+  let idle = false;
+  void queue.onIdle().then(() => { idle = true; });
+  gate.resolve();
+  await tick(); await tick();
+  expect({ started, idle, size: queue.size, pending: queue.pending }).toEqual({ started: [0], idle: false, size: 3, pending: 0 });
+  queue.resume();
+  await queue.onIdle();
+  expect(started).toEqual([0, 1, 2, 3]);
+  expect(idle).toBe(true);
+});
+
+test("size counts jobs waiting to start and pending counts jobs holding a slot", async () => {
+  const gates = [deferred(), deferred(), deferred()];
+  const queue = new JobQueue({ concurrency: 2 });
+  expect({ size: queue.size, pending: queue.pending }).toEqual({ size: 0, pending: 0 });
+  const handles = gates.map((gate) => queue.add(() => gate.promise));
+  await tick();
+  expect({ size: queue.size, pending: queue.pending }).toEqual({ size: 1, pending: 2 });
+  handles[2]!.cancel();
+  expect(queue.size).toBe(0);
+  handles[0]!.cancel();
+  await tick();
+  expect(queue.pending).toBe(2);
+  gates[0]!.resolve();
+  gates[1]!.resolve();
+  await queue.onIdle();
+  expect({ size: queue.size, pending: queue.pending }).toEqual({ size: 0, pending: 0 });
+});

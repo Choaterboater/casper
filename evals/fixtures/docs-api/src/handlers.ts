@@ -23,19 +23,34 @@ export function getDoc(store: Store, id: number, request: Request): Response {
   if (!doc) return jsonError(404, "not_found");
   const etag = etagOf(doc);
   const ifNoneMatch = request.headers.get("if-none-match");
-  if (ifNoneMatch !== null && noneMatch(ifNoneMatch, etag)) return new Response(null, { status: 304, headers: { etag } });
-  return json(200, doc, { etag });
+  const headers = { etag, "cache-control": "no-cache" };
+  if (ifNoneMatch !== null && noneMatch(ifNoneMatch, etag)) return new Response(null, { status: 304, headers });
+  return json(200, doc, headers);
+}
+
+async function readBody(request: Request): Promise<{ body: string } | Response> {
+  let input: unknown;
+  try { input = await request.json(); } catch { return jsonError(400, "invalid_json"); }
+  if (typeof input !== "object" || input === null || typeof (input as { body?: unknown }).body !== "string") return jsonError(422, "validation_failed");
+  return { body: (input as { body: string }).body };
 }
 
 export async function putDoc(store: Store, id: number, request: Request): Promise<Response> {
   const current = store.get(id);
-  if (!current) return jsonError(404, "not_found");
+  const createOnly = request.headers.get("if-none-match")?.trim() === "*";
+  if (!current) {
+    if (!createOnly) return jsonError(404, "not_found");
+    const input = await readBody(request);
+    if (input instanceof Response) return input;
+    const doc = store.put(id, input.body);
+    return json(201, doc, { etag: etagOf(doc), location: `/docs/${id}` });
+  }
+  if (createOnly) return jsonError(412, "precondition_failed");
   const ifMatch = request.headers.get("if-match");
   if (ifMatch === null) return jsonError(428, "precondition_required");
   if (!anyMatch(ifMatch, etagOf(current))) return jsonError(412, "precondition_failed");
-  let input: unknown;
-  try { input = await request.json(); } catch { return jsonError(400, "invalid_json"); }
-  if (typeof input !== "object" || input === null || typeof (input as { body?: unknown }).body !== "string") return jsonError(422, "validation_failed");
-  const doc = store.put(id, (input as { body: string }).body);
+  const input = await readBody(request);
+  if (input instanceof Response) return input;
+  const doc = store.put(id, input.body);
   return json(200, doc, { etag: etagOf(doc) });
 }

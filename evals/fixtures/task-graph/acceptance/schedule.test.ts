@@ -61,3 +61,21 @@ test("a task that only depends on a cycle is not itself reported as the cycle", 
   const error = thrown(() => schedule({ a: ["q"], q: ["r"], r: ["q"] }));
   expect((error as CycleError).cycle).toEqual(["q", "r", "q"]);
 });
+
+test("an optional dependency (name?) is ignored when there is no such task and ordinary otherwise", () => {
+  expect(schedule({ app: ["lib", "plugin?"], lib: [] })).toEqual(["lib", "app"]);
+  expect(schedule({ app: ["zlib?"], zlib: [] })).toEqual(["zlib", "app"]);
+  expect(batches({ app: ["zlib?", "ghost?"], zlib: [] })).toEqual([["zlib"], ["app"]]);
+  const cycle = thrown(() => schedule({ a: ["b?"], b: ["a"] }));
+  expect((cycle as CycleError).cycle).toEqual(["a", "b", "a"]);
+  const missing = thrown(() => schedule({ a: ["x?", "y"] }));
+  expect({ task: (missing as MissingDependencyError).task, dependency: (missing as MissingDependencyError).dependency }).toEqual({ task: "a", dependency: "y" });
+});
+
+test("batches with a limit: at most `limit` per batch, the smallest ready names first, the rest in later batches", () => {
+  const graph = { a: [], b: [], c: [], d: [], e: ["a"], f: ["e"] };
+  expect(batches(graph, { limit: 2 })).toEqual([["a", "b"], ["c", "d"], ["e"], ["f"]]);
+  expect(batches({ a: [], b: [], x: ["a"], c: [] }, { limit: 2 })).toEqual([["a", "b"], ["c", "x"]]);
+  expect(batches(graph, { limit: 10 })).toEqual([["a", "b", "c", "d"], ["e"], ["f"]]);
+  for (const limit of [0, -1, 1.5, Number.NaN]) expect(() => batches(graph, { limit })).toThrow(RangeError);
+});

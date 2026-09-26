@@ -36,6 +36,9 @@ function kindOf(value: unknown): Kind | undefined {
   return undefined;
 }
 
+/** Lists keep the first occurrence of each item, from any source. */
+const unique = (items: readonly string[]) => [...new Set(items)];
+
 function clone(value: unknown): unknown {
   if (Array.isArray(value)) return [...value];
   if (isObject(value)) return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, clone(entry)]));
@@ -59,7 +62,7 @@ function mergeFile(target: Mutable, schema: ConfigObject, input: Record<string, 
       ? Array.isArray(value) && value.every((item) => typeof item === "string")
       : kindOf(value) === expected && (expected !== "number" || Number.isFinite(value));
     if (!ok) issues.push({ path, source: "file", message: `expected ${expected}` });
-    else target[key] = clone(value);
+    else target[key] = expected === "list" ? unique(value as string[]) : clone(value);
   }
 }
 
@@ -70,7 +73,11 @@ function fromEnv(raw: string, kind: Kind): { value: unknown } | undefined {
     return raw.trim() !== "" && Number.isFinite(value) ? { value } : undefined;
   }
   if (kind === "boolean") return raw === "true" ? { value: true } : raw === "false" ? { value: false } : undefined;
-  if (kind === "list") return { value: raw.trim() === "" ? [] : raw.split(",").map((item) => item.trim()).filter((item) => item !== "") };
+  if (kind === "list") {
+    // `\,` is a comma inside an item.
+    const items = raw.split(/(?<!\\),/).map((item) => item.replaceAll("\\,", ",").trim()).filter((item) => item !== "");
+    return { value: unique(items) };
+  }
   return undefined;
 }
 

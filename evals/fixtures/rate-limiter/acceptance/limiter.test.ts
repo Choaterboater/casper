@@ -86,11 +86,50 @@ test("the clock is read from the injected now() on every call", () => {
   expect(reads).toBeGreaterThanOrEqual(2);
 });
 
-test("rejects options that are not positive integers and costs that are not positive integers or exceed capacity", () => {
+test("rejects options that are not positive integers and costs that are not non-negative integers or exceed capacity", () => {
   for (const options of [{ capacity: 0, refillPerSecond: 1 }, { capacity: 1.5, refillPerSecond: 1 }, { capacity: 1, refillPerSecond: 0 }, { capacity: 1, refillPerSecond: 0.5 }, { capacity: Number.NaN, refillPerSecond: 1 }]) {
     expect(() => new RateLimiter(options)).toThrow(RangeError);
   }
   const limiter = new RateLimiter({ capacity: 3, refillPerSecond: 1, now: () => 0 });
-  for (const cost of [0, -1, 1.5, 4]) expect(() => limiter.take("a", cost)).toThrow(RangeError);
+  for (const cost of [-1, 1.5, 4, Number.NaN]) expect(() => limiter.take("a", cost)).toThrow(RangeError);
   expect(limiter.take("a", 3).allowed).toBe(true);
+});
+
+test("cost 0 is a probe: allowed, reports the bucket, uses nothing, even when the bucket is empty", () => {
+  const time = clock();
+  const limiter = new RateLimiter({ capacity: 2, refillPerSecond: 1, now: time.now });
+  expect(limiter.take("a", 0)).toEqual({ allowed: true, remaining: 2, retryAfterMs: 0 });
+  limiter.take("a", 2);
+  expect(limiter.take("a", 0)).toEqual({ allowed: true, remaining: 0, retryAfterMs: 0 });
+  time.advance(1000);
+  expect(limiter.take("a", 0)).toEqual({ allowed: true, remaining: 1, retryAfterMs: 0 });
+  expect(limiter.take("a")).toEqual({ allowed: true, remaining: 0, retryAfterMs: 0 });
+});
+
+test("reset forgets a key: its next take starts with a full bucket, other keys untouched", () => {
+  const time = clock();
+  const limiter = new RateLimiter({ capacity: 1, refillPerSecond: 1, now: time.now });
+  limiter.take("a"); limiter.take("b");
+  limiter.reset("a");
+  expect(limiter.take("a")).toEqual({ allowed: true, remaining: 0, retryAfterMs: 0 });
+  expect(limiter.take("b").allowed).toBe(false);
+  limiter.reset("never-seen");
+});
+
+test("size counts keys whose bucket is not full now; full buckets are forgotten", () => {
+  const time = clock();
+  const limiter = new RateLimiter({ capacity: 2, refillPerSecond: 1, now: time.now });
+  expect(limiter.size).toBe(0);
+  limiter.take("probe", 0);
+  expect(limiter.size).toBe(0);
+  limiter.take("a"); limiter.take("b", 2);
+  expect(limiter.size).toBe(2);
+  time.advance(1000);
+  expect(limiter.size).toBe(1);
+  time.advance(1000);
+  expect(limiter.size).toBe(0);
+  // A forgotten key starts full again.
+  expect(limiter.take("b", 2).allowed).toBe(true);
+  limiter.reset("b");
+  expect(limiter.size).toBe(0);
 });

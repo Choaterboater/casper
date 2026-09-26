@@ -194,12 +194,12 @@ changed paths, which is the baseline for the Focused score.
 | network | `net-tacacs-accounting` | net-tacacs-acct | start/stop pairing per NAS, stop-only/no-stop, leap days, problems |
 | network | `net-config-compliance` | net-config-audit | volatile lines and `$9$` masking, AOS-CX hierarchy, ntp/aaa/snmpv2-off rules |
 | network | `net-mcp-show-interfaces` | net-mcp-router | router-style discovery, read-only dispatch, filters, 50-item bound |
-| hard | `hard-job-queue` | job-queue | concurrency cap, start and result order, 10·2ⁿ⁻¹ ms retry backoff through injected sleep, slot held while waiting, cancel queued/running/waiting |
-| hard | `hard-config-merge` | config-loader | env > file > defaults per key, lists replaced, `APP_`/`__` env names, type conversion, all issues with path/source in order, `__proto__`, no shared objects |
-| hard | `hard-money-allocation` | allocation | largest remainder with ties to the earlier ratio, exact bigint minor units, negative mirroring, per-currency digits, input rejects |
-| hard | `hard-dependency-scheduler` | task-graph | smallest-ready-first order, code-unit comparison, sorted batches, missing dependency before cycle, cycle path from its smallest task |
-| hard | `hard-conditional-http` | docs-api | strong content ETag, `If-None-Match` weak/list/`*` → 304, `If-Match` strong/list/`*` → 412, 428 without it, 404 first, no write on reject |
-| hard | `hard-rate-limiter` | rate-limiter | continuous fractional refill, exact rounded-up `retryAfterMs`, denied takes use nothing, cap, per-key buckets, backwards clock |
+| hard | `hard-job-queue` | job-queue | concurrency cap, priority then add order, result order, retry backoff 10·2ⁿ⁻¹ ms capped at 100 through injected sleep, slot held while waiting, cancel queued/running/waiting, pause/resume, `size`/`pending` |
+| hard | `hard-config-merge` | config-loader | env > file > defaults per key, lists replaced and de-duplicated, `APP_`/`__` env names, `\,` in env lists, type conversion, all issues with path/source in order, `__proto__`, no shared objects |
+| hard | `hard-money-allocation` | allocation | largest remainder with ties to the earlier ratio, exact bigint minor units, negative mirroring, per-currency digits, rejects (leading zeros, whitespace, exact currency codes) |
+| hard | `hard-dependency-scheduler` | task-graph | smallest-ready-first order, code-unit comparison, optional `name?` dependencies, sorted batches with a `limit`, missing dependency before cycle, cycle path from its smallest task |
+| hard | `hard-conditional-http` | docs-api | strong content ETag, `If-None-Match` weak/list/`*` → 304, `If-Match` strong/list/`*` → 412, 428 without it, create-only `PUT` with `If-None-Match: *`, HEAD, `Cache-Control`, no write on reject |
+| hard | `hard-rate-limiter` | rate-limiter | continuous fractional refill, exact rounded-up `retryAfterMs`, cost-0 probes, denied takes use nothing, cap, per-key buckets, `reset`, `size`, backwards clock |
 
 **The notes fixture runs as a server.** `notes-api` has `src/server.ts`, which serves the
 existing app on `PORT`/`HOST` (defaults 3000 and 127.0.0.1), and a `dev` script (`bun run dev`).

@@ -13,6 +13,11 @@ export interface JobHandle<T> {
   cancel(): void;
 }
 
+export interface AddOptions {
+  /** Higher starts first; equal priorities start in the order added. Default 0. */
+  readonly priority?: number;
+}
+
 export interface QueueOptions {
   /** How many jobs may run at once: a positive integer. */
   readonly concurrency: number;
@@ -25,7 +30,26 @@ export interface QueueOptions {
 export class JobQueue {
   constructor(_options: QueueOptions) {}
 
-  add<T>(_job: Job<T>): JobHandle<T> {
+  /** Jobs waiting to start. */
+  get size(): number {
+    throw new Error("not implemented");
+  }
+
+  /** Jobs holding a slot: running, waiting to retry, or cancelled but not yet settled. */
+  get pending(): number {
+    throw new Error("not implemented");
+  }
+
+  /** Start no new jobs until `resume()`; running jobs go on. */
+  pause(): void {
+    throw new Error("not implemented");
+  }
+
+  resume(): void {
+    throw new Error("not implemented");
+  }
+
+  add<T>(_job: Job<T>, _options: AddOptions = {}): JobHandle<T> {
     throw new Error("not implemented");
   }
 

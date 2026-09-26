@@ -34,18 +34,35 @@ export class RateLimiter {
     this.#now = options.now ?? Date.now;
   }
 
-  take(key: string, cost = 1): Decision {
-    if (!positiveInteger(cost) || cost > this.#capacity) throw new RangeError("cost must be a positive integer no larger than capacity");
+  /** Keys whose bucket is not full now; a bucket that refilled to full is forgotten. */
+  get size(): number {
     const now = this.#now();
-    const full = this.#capacity * 1000;
-    let bucket = this.#buckets.get(key);
-    if (!bucket) {
-      bucket = { milli: full, at: now };
-      this.#buckets.set(key, bucket);
-    } else if (now > bucket.at) {
-      bucket.milli = Math.min(full, bucket.milli + (now - bucket.at) * this.#rate);
+    for (const [key, bucket] of this.#buckets) if (this.#refill(bucket, now) >= this.#capacity * 1000) this.#buckets.delete(key);
+    return this.#buckets.size;
+  }
+
+  /** Forget the key: its next take starts with a full bucket. */
+  reset(key: string): void {
+    this.#buckets.delete(key);
+  }
+
+  #refill(bucket: Bucket, now: number): number {
+    if (now > bucket.at) {
+      bucket.milli = Math.min(this.#capacity * 1000, bucket.milli + (now - bucket.at) * this.#rate);
       bucket.at = now;
     }
+    return bucket.milli;
+  }
+
+  /** `cost` 0 is a probe: it reports the bucket and uses nothing. */
+  take(key: string, cost = 1): Decision {
+    if (!Number.isSafeInteger(cost) || cost < 0 || cost > this.#capacity) throw new RangeError("cost must be a non-negative integer no larger than capacity");
+    const now = this.#now();
+    let bucket = this.#buckets.get(key);
+    if (!bucket) {
+      bucket = { milli: this.#capacity * 1000, at: now };
+      this.#buckets.set(key, bucket);
+    } else this.#refill(bucket, now);
     const needed = cost * 1000;
     if (bucket.milli >= needed) {
       bucket.milli -= needed;

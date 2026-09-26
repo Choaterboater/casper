@@ -13,6 +13,11 @@ export interface JobHandle<T> {
   cancel(): void;
 }
 
+export interface AddOptions {
+  /** Higher starts first; equal priorities start in the order added. Default 0. */
+  readonly priority?: number;
+}
+
 export interface QueueOptions {
   /** How many jobs may run at once: a positive integer. */
   readonly concurrency: number;
@@ -32,6 +37,7 @@ interface Entry {
   readonly job: Job<unknown>;
   readonly controller: AbortController;
   readonly resolve: (result: JobResult<unknown>) => void;
+  readonly priority: number;
   state: "queued" | "running" | "done";
   settled?: JobResult<unknown>;
 }
@@ -44,6 +50,7 @@ export class JobQueue {
   readonly #waiting: Entry[] = [];
   readonly #idle: Array<(results: JobResult<unknown>[]) => void> = [];
   #running = 0;
+  #paused = false;
 
   constructor(options: QueueOptions) {
     if (!Number.isInteger(options.concurrency) || options.concurrency < 1) throw new RangeError("concurrency must be a positive integer");
@@ -54,12 +61,33 @@ export class JobQueue {
     this.#sleep = options.sleep ?? realSleep;
   }
 
-  add<T>(job: Job<T>): JobHandle<T> {
+  /** Jobs waiting to start. */
+  get size(): number {
+    return this.#waiting.length;
+  }
+
+  /** Jobs holding a slot: running, waiting to retry, or cancelled but not yet settled. */
+  get pending(): number {
+    return this.#running;
+  }
+
+  /** Start no new jobs until `resume()`; running jobs go on. */
+  pause(): void {
+    this.#paused = true;
+  }
+
+  resume(): void {
+    this.#paused = false;
+    this.#pump();
+  }
+
+  add<T>(job: Job<T>, options: AddOptions = {}): JobHandle<T> {
     let resolve!: (result: JobResult<unknown>) => void;
     const result = new Promise<JobResult<unknown>>((settle) => { resolve = settle; });
-    const entry: Entry = { id: this.#all.length + 1, job, controller: new AbortController(), resolve, state: "queued" };
+    const entry: Entry = { id: this.#all.length + 1, job, controller: new AbortController(), resolve, priority: options.priority ?? 0, state: "queued" };
     this.#all.push(entry);
-    this.#waiting.push(entry);
+    const before = this.#waiting.findIndex((queued) => queued.priority < entry.priority);
+    this.#waiting.splice(before < 0 ? this.#waiting.length : before, 0, entry);
     this.#pump();
     return { id: entry.id, result: result as Promise<JobResult<T>>, cancel: () => this.#cancel(entry) };
   }
@@ -90,7 +118,7 @@ export class JobQueue {
   }
 
   #pump(): void {
-    while (this.#running < this.#concurrency && this.#waiting.length > 0) {
+    while (!this.#paused && this.#running < this.#concurrency && this.#waiting.length > 0) {
       const entry = this.#waiting.shift()!;
       entry.state = "running";
       this.#running++;
@@ -117,7 +145,7 @@ export class JobQueue {
           return;
         }
       }
-      await this.#sleep(10 * 2 ** attempt, signal);
+      await this.#sleep(Math.min(10 * 2 ** attempt, 100), signal);
       if (signal.aborted) return;
     }
   }
