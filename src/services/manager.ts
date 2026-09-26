@@ -60,6 +60,8 @@ export class ServiceManager {
   private closing?: Promise<void>;
   private cleanupUnknown = false;
   private adhocCount = 0;
+  /** Unreported crashes whose service was relaunched since (by a freshness check, /services or a smoke run). */
+  private replacedCrashes: ServiceStatus[] = [];
   /** Cleanup of ad-hoc slots dropped past the cap, which close() still awaits. */
   private readonly retired: Promise<void>[] = [];
   constructor(private readonly options: { projectRoot: string; services: Record<string, ServiceSpec>; platform?: ProcessPlatform }) {
@@ -72,8 +74,9 @@ export class ServiceManager {
   live(): boolean { return [...this.slots.values()].some(slot => slot.work !== undefined || slot.state === "starting" || slot.state === "ready"); }
   /** Crashes after readiness not yet reported, each returned once (with its exit and log tail) for the next tool call. */
   takeCrashes(): ServiceStatus[] {
-    return [...this.slots.values()].filter(slot => slot.state === "crashed" && slot.crashUnreported)
-      .map(slot => { slot.crashUnreported = false; return this.describe(slot); });
+    const replaced = this.replacedCrashes.splice(0);
+    return [...replaced, ...[...this.slots.values()].filter(slot => slot.state === "crashed" && slot.crashUnreported)
+      .map(slot => { slot.crashUnreported = false; return this.describe(slot); })];
   }
   status(): ServiceStatus[] { return [...this.slots.values()].map(slot => this.describe(slot)); }
   origin(name: string): string | undefined {
@@ -136,6 +139,7 @@ export class ServiceManager {
     const work = slot.work;
     const running = work !== undefined || slot.state === "starting" || slot.state === "ready";
     if (!slot.process && !work) return false;
+    this.keepCrash(slot);
     if (slot.state !== "idle") slot.state = "stopped";
     slot.stale = false;
     slot.launch?.abort(new Error(`Service ${name} was stopped during startup`));
@@ -211,7 +215,8 @@ export class ServiceManager {
       this.assertCleanup();
       await slot.stopping?.catch(() => {});
       signal.throwIfAborted();
-      Object.assign(slot, { state: "starting", stale: false, readyMs: undefined, error: undefined, exit: undefined, tail: undefined });
+      this.keepCrash(slot);
+      Object.assign(slot, { state: "starting", stale: false, crashUnreported: false, readyMs: undefined, error: undefined, exit: undefined, tail: undefined });
       const { spec, name } = slot;
       try {
         let port: number;
@@ -258,6 +263,13 @@ export class ServiceManager {
     if (slot.process !== managed || slot.state !== "ready") return;
     slot.state = "crashed"; slot.exit = details; slot.crashUnreported = true;
     void this.closeProcess(slot).catch(() => {});
+  }
+
+  /** A stop or relaunch must not hide a crash no call has reported yet; keep it (bounded) for the next one. */
+  private keepCrash(slot: Slot): void {
+    if (slot.state !== "crashed" || !slot.crashUnreported) return;
+    this.replacedCrashes = [...this.replacedCrashes, this.describe(slot)].slice(-MAX_SERVICES * 2);
+    slot.crashUnreported = false;
   }
 
   private closeProcess(slot: Slot): Promise<void> {

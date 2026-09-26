@@ -104,7 +104,8 @@ During a task the model uses one `service` tool, with these actions:
 
 A crash after readiness is not pushed into the model's turn. The next `service` call
 reports it once, under `crashed`, with the exit code and last log lines. This happens
-before a request restarts the service.
+before a request restarts the service, and a crash that something else restarted or
+stopped first (`/services`, a smoke run) is still reported on that next call.
 
 The model's `edit` and `write` calls mark the services whose scope covers the file
 stale. A `bash` call marks every running service stale.
