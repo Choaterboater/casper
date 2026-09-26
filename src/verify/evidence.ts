@@ -1,4 +1,5 @@
 import type { ProjectCommand } from "../project/model";
+import type { SmokeReport } from "../services/smoke";
 import type { VerificationScope } from "./scope";
 
 export const CHECK_NAMES: readonly ProjectCommand[] = ["typecheck", "lint", "test", "build"];
@@ -31,6 +32,8 @@ export interface VerificationReport {
   rounds: VerificationResult[][];
   results: VerificationResult[];
   reason?: string;
+  /** The last smoke run against fresh services, when the task had smoke checks and the commands passed. */
+  smoke?: SmokeReport;
 }
 
 export function verificationStatus(results: VerificationResult[]): VerificationReport["status"] {

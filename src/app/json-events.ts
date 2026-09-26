@@ -1,4 +1,5 @@
 import type { RuntimeEvent, RuntimeStatus } from "../runtime/types";
+import type { SmokeReport } from "../services/smoke";
 import { formatTerminalJSON } from "../tui/json";
 import { redactPreview } from "../tui/format";
 import type { VerificationReport, VerificationResult } from "../verify/evidence";
@@ -24,7 +25,7 @@ export interface CheckEvent {
 
 export interface PhaseEvent {
   type: "phase";
-  phase: "task" | "checks" | "review" | "proof" | "repair";
+  phase: "task" | "checks" | "smoke" | "review" | "proof" | "repair";
   state: "start" | "end";
   atMs: number;
 }
@@ -47,6 +48,10 @@ export interface ReceiptEvent {
   proof: ChangeProof | null;
   /** The model's requirements checklist after its review round (its own claim); null when none ran. */
   review: RequirementsReview | null;
+  /** The session's managed services at the end of the task (origin null when not starting or ready). */
+  services: Array<{ name: string; origin: string | null; state: string }>;
+  /** Casper's last smoke run against fresh services; null when none ran. */
+  smoke: SmokeReport | null;
   /** The plain receipt a person would read. */
   text: string;
 }
@@ -100,6 +105,8 @@ export function receiptEvent(report: VerificationReport | undefined, task: TaskR
     usage: task?.usage ? { ...task.usage } : null,
     proof: task?.proof ? structuredClone(task.proof) : null,
     review: task?.review ? structuredClone(task.review) : null,
+    services: (task?.services ?? []).map((service) => ({ name: service.name, origin: service.origin ?? null, state: service.state })),
+    smoke: verification?.smoke ? structuredClone(verification.smoke) : null,
     text: receipt ? formatReceipt(receipt, { surface: "one-shot" }) : "",
   };
 }

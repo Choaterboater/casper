@@ -5,23 +5,10 @@ import path from "node:path";
 import { ServiceManager } from "../src/services/manager";
 import { SmokeChecks, type SmokeCheck } from "../src/services/smoke";
 import { serviceTool } from "../src/services/tool";
+import { notesServer } from "./support/notes-server";
 
 const cleanups: Array<() => unknown> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
-
-/** A notes server that honors PORT/HOST; the unsolved one has no POST /notes. */
-export function notesServer(solved: boolean): string {
-  return `const notes = [];
-Bun.serve({ hostname: process.env.HOST, port: Number(process.env.PORT), async fetch(request) {
-  const { pathname } = new URL(request.url);
-  if (pathname === "/health") return new Response("ok");
-  if (pathname === "/notes" && request.method === "GET") return Response.json(notes);
-  ${solved ? `if (pathname === "/notes" && request.method === "POST") { const note = { id: notes.length + 1, ...(await request.json()) }; notes.push(note); return Response.json(note, { status: 201 }); }` : ""}
-  return new Response("not found", { status: 404 });
-} });
-console.log("listening");
-`;
-}
 
 async function fixture(options: { command?: string } = {}) {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-smoke-run-")));

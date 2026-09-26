@@ -8,6 +8,7 @@ import { modelPreference } from "./tui/model-preference";
 import { HELP_TEXT, FULL_HELP_TEXT, LOGIN_HELP } from "./tui/help";
 import { BrowserSession } from "./browser/session";
 import { ServiceManager } from "./services/manager";
+import { SmokeChecks, type SmokeReport } from "./services/smoke";
 import { serviceTool } from "./services/tool";
 import { formatTerminalJSON } from "./tui/json";
 import { InteractiveTerminal } from "./tui/terminal";
@@ -180,6 +181,8 @@ export class CasperApp {
   /** Active repair evidence; sharing it does not grant managed-tool consent. */
   private verificationTask?: VerificationTask;
   private checkTask?: VerificationTask;
+  /** This task's smoke checks (configured and model-recorded); run inside the task's verification. */
+  private smokeTask?: SmokeChecks;
   private readonly sessionHomeDir?: string;
   private sessionWorkspace?: SessionWorkspaceManager;
   private sessionWorkspaceStart?: Promise<SessionWorkspaceManager>;
@@ -704,6 +707,8 @@ export class CasperApp {
       VerifierRegistry.forProject(context.model, context.verification.timeoutMs, this.blockOnCleanupFailure), this.activeWorkspaceRoot(),
       (result) => this.writeCheckResult(result),
     );
+    // Smoke checks are verification: they run only when Casper checks this task.
+    this.smokeTask = verificationMode !== "off" ? new SmokeChecks(context.smoke ?? [], () => this.serviceManager()) : undefined;
     await this.prepareCapabilities(prompt, classification.intent === "visualize");
     if (this.closing || this.commandAbort?.signal.aborted) return;
     const session = await this.ensureRuntime();
@@ -754,9 +759,11 @@ export class CasperApp {
           selected: context.verification.checks, commands: context.model.commands, scopes: context.model.verificationScopes,
           changedPaths: before && afterModel ? flatten(diffSnapshots(before, afterModel)) : undefined,
         });
+        // Configured smoke checks run after a change; checks the model recorded always run.
+        const smokeDue = Boolean(this.smokeTask?.recordedCount || (this.smokeTask?.size && autoChecks.skipped !== "no-changes"));
         // Fresh passes the model already recorded are reused, not rerun (VerificationTask).
-        if (autoChecks.run.length || this.checkTask.checks.length) {
-          const pending = [...new Set([...autoChecks.run, ...this.checkTask.checks])];
+        if (autoChecks.run.length || this.checkTask.checks.length || smokeDue) {
+          const pending = [...new Set([...autoChecks.run, ...this.checkTask.checks]), ...(smokeDue ? ["smoke"] : [])];
           this.events.ensureLineBreak();
           this.output.write(`… Casper checking: ${pending.join(", ")}\n`);
           verification = await this.runVerification(autoChecks.run, true, prompt, this.checkTask);
@@ -766,7 +773,7 @@ export class CasperApp {
               command: testCommand!, request: prompt, checks: autoChecks.run, verification, session, initialReview }));
           }
         }
-      } else if (!stopped && this.checkTask?.checks.length) {
+      } else if (!stopped && this.checkTask && (this.checkTask.checks.length || this.smokeTask?.recordedCount)) {
         verification = await this.runVerification(this.checkTask.checks, true, prompt, this.checkTask);
       }
     } catch (error) {
@@ -791,8 +798,12 @@ export class CasperApp {
       if (classifiedBefore === undefined || classifiedAfter !== classifiedBefore) this.observations.recordUntrackedModelUse();
       const observations = this.observations.snapshot(changedPaths, changedDuringChecks);
       const browser = !this.closing && this.browser ? await this.browser.report() : undefined;
+      const services = !this.closing && this.services && !this.services.closed
+        ? this.services.status().map(({ name, origin, state }) => ({ name, ...(origin ? { origin } : {}), state })) : [];
       this.lastTaskResult = { execution, verification, ...observations, ...(browser?.checks.length ? { browser } : {}),
-        verificationMode, ...(autoChecks?.skipped ? { autoSkipped: autoChecks.skipped } : {}),
+        ...(services.length ? { services } : {}),
+        // Smoke checks ran even without a configured command, so "no checks" no longer describes the task.
+        verificationMode, ...(autoChecks?.skipped && !verification?.smoke ? { autoSkipped: autoChecks.skipped } : {}),
         ...(this.taskTurnLimit !== undefined ? { turnLimit: this.taskTurnLimit } : {}), ...(proof ? { proof } : {}), ...(review ? { review } : {}) };
       if (!this.closing) {
         this.terminal.endAssistant();
@@ -958,6 +969,8 @@ export class CasperApp {
           }
         } : undefined,
         onRepair: (attempt, max) => { this.output.write(`↻ repair ${attempt}/${max}\n`); },
+        // The task's smoke checks join its own verification (repairs and review reruns), never a standalone /verify.
+        smoke: task && task === this.checkTask && this.smokeTask?.size ? this.smokeRun(this.smokeTask) : undefined,
       });
       const report = await this.verificationWork;
       await recordCheckTimings(context.stateDirectory, report.rounds.flat());
@@ -973,6 +986,18 @@ export class CasperApp {
       this.verificationAbort = undefined;
       this.verificationWork = undefined;
     }
+  }
+
+  /** One smoke run against fresh services, timed as the `smoke` phase. Cancellation is reported by the loop. */
+  private smokeRun(smoke: SmokeChecks): (signal: AbortSignal) => Promise<SmokeReport> {
+    return async (signal) => {
+      this.onEvent?.(phaseEvent("smoke", "start"));
+      try { return await smoke.run(signal); }
+      catch (error) {
+        if (signal.aborted) return { status: "incomplete", checks: [] };
+        throw error;
+      } finally { this.onEvent?.(phaseEvent("smoke", "end")); }
+    };
   }
 
   async ensureSessionWorkspace(): Promise<SessionWorkspaceManager> {
@@ -1120,7 +1145,7 @@ export class CasperApp {
       browserReady: this.browser?.status().state === "ready", browser: () => this.browserSession(),
       browserSignal: this.commandAbort?.signal,
       services: { declared: Object.keys(this.projectContext?.services ?? {}).length > 0, live: this.services?.live() ?? false },
-      serviceTool: () => serviceTool(() => this.serviceManager(), this.commandAbort?.signal),
+      serviceTool: () => serviceTool(() => this.serviceManager(), this.commandAbort?.signal, () => this.smokeTask),
     });
     if (this.closing) return;
     if (this.session) {

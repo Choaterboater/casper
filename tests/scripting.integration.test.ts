@@ -3,6 +3,7 @@ import { appendFile, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "n
 import os from "node:os";
 import path from "node:path";
 import { isolatedEnvironment } from "../src/platform/environment";
+import { notesServer } from "./support/notes-server";
 
 const cli = path.resolve(import.meta.dir, "../src/cli.ts");
 const cleanup: Array<() => Promise<unknown>> = [];
@@ -282,7 +283,7 @@ test("--json streams v1 JSON Lines on stdout: session, text, tools, Casper's che
       repairAttempts: 0, turnLimit: null, usage: { turns: 3, tokens: 360, estimatedCost: "<cost>" },
       // The check fails on sum.js as it was, so it proves the fix.
       proof: { status: "proven", check: "test", command: "grep -q fixed sum.js", testsChanged: false, without: { exitCode: 1, ended: "fail" } },
-      review: { done: ["sum.js is fixed — the test check"], open: [] }, text: "<receipt text>" },
+      review: { done: ["sum.js is fixed — the test check"], open: [] }, services: [], smoke: null, text: "<receipt text>" },
   ]);
 }, 30_000);
 
@@ -532,3 +533,33 @@ test("--json tells a check the model asked for (casper_check) from one Casper ra
   // Without a declared scope Casper cannot prove the model's pass is still fresh, so its final run repeats it.
   expect(checks.map((check) => [check.recordedBy, check.status, check.reused])).toEqual([["casper_check", "pass", false], ["casper", "pass", false]]);
 }, 30_000);
+
+test("--json --verify: the model records a smoke check, edits, and Casper replays it: pass with a failing baseline, no service left running", async () => {
+  const check = { action: "check", name: "create note", service: "api", request: { method: "POST", path: "/notes", body: { title: "a" } }, expect: { status: 201, json: { title: "a" } } };
+  let pidLog = "";
+  const f = await fixture((request) => request === 0 ? { tools: [{ name: "service", args: check }] }
+    : request === 1 ? { tools: [{ name: "write", args: { path: "src/server.ts", content: notesServer(true, pidLog) } }] }
+    : { text: "Added POST /notes." });
+  pidLog = path.join(f.root, "pids.log");
+  await mkdir(path.join(f.project, ".casper"));
+  await mkdir(path.join(f.project, "src"));
+  await writeFile(path.join(f.project, "src/server.ts"), notesServer(false, pidLog));
+  await writeFile(path.join(f.project, ".casper/project.yaml"), JSON.stringify({ services: { api: {
+    command: `"${process.execPath}" src/server.ts`, port: "auto", ready: { http: "/health" }, timeoutMs: 10_000, scope: { inputs: ["src"] } } } }));
+  const result = await f.run(["--json", "--verify", "Add POST /notes that creates a note"]);
+  const stream = result.stdout.trim().split("\n").map((line) => JSON.parse(line));
+  const receipt = stream.at(-1);
+  // The model saw its check fail before the edit.
+  const toolResult = JSON.parse(String(f.payloads[1]!.messages.at(-1)!.content));
+  expect(toolResult.data.check).toMatchObject({ baseline: "fail", actual: { status: 404 } });
+  expect({ exit: result.exit, outcome: receipt.outcome, smoke: receipt.smoke }).toEqual({ exit: 0, outcome: "verified", smoke: { status: "pass", checks: [{
+    id: "smoke-1", name: "create note", service: "api", source: "model", request: { method: "POST", path: "/notes" }, baseline: "fail", status: "pass",
+    actual: { status: 201, body: '{"id":1,"title":"a"}' }, restarted: true, evidence: true }] } });
+  expect(receipt.services).toEqual([{ name: "api", origin: expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+$/), state: "ready" }]);
+  expect(receipt.text).toContain("smoke 1/1 passed (model-declared, run by Casper: create note failed before the change)");
+  expect(stream.filter((event) => event.type === "phase" && event.phase === "smoke").map((event) => event.state)).toEqual(["start", "end"]);
+  // Casper started the unsolved server, then the fixed one after the edit; neither outlives the run.
+  const pids = (await readFile(pidLog, "utf8")).trim().split("\n").map(Number);
+  expect(pids).toHaveLength(2);
+  for (const pid of pids) expect(() => process.kill(pid, 0)).toThrow();
+}, 60_000);

@@ -1,6 +1,8 @@
 import { formatVerificationReport, type VerificationReport, type VerificationResult } from "../verify/evidence";
 import type { ProjectCommand } from "../project/model";
 import type { BrowserReport } from "../browser/scenario";
+import type { ServiceState } from "../services/manager";
+import type { SmokeReport } from "../services/smoke";
 import type { AutoCheckSkip, VerificationMode } from "../verify/mode";
 import type { ChangeProof } from "../verify/proof";
 import { ROUND_MAX_TURNS, type RequirementsReview } from "./review";
@@ -54,6 +56,8 @@ export interface TaskResult {
   proof?: ChangeProof;
   /** The model's requirements checklist (its own claim). Admitted open items make the change not verified. */
   review?: RequirementsReview;
+  /** The session's managed services at the end of the task (the origin while starting or ready). */
+  services?: Array<{ name: string; origin?: string; state: ServiceState }>;
 }
 
 /** What a run proved, in the words scripts match on. */
@@ -72,7 +76,9 @@ export function taskOutcome(report?: VerificationReport, task?: TaskResult): Tas
   if (status === "pass") {
     const stale = verification!.results.some((result) => result.status === "pass" && result.freshness === "stale");
     const admittedGaps = Boolean(task?.review && "open" in task.review && task.review.open.length);
-    return stale || task?.proof?.status === "unproven" || admittedGaps ? "not_verified" : "verified";
+    // Smoke alone verifies only with evidence: a model check that passed before the change is an observation.
+    const observationsOnly = !verification!.results.length && !verification!.smoke?.checks.some((check) => check.evidence);
+    return stale || task?.proof?.status === "unproven" || admittedGaps || observationsOnly ? "not_verified" : "verified";
   }
   const changed = Boolean(task?.changedPaths?.length || task?.changedDuringChecks?.length || (!task?.changedPaths && task?.possibleMutations));
   return changed || task?.autoSkipped === "no-checks" ? "not_verified" : "unchanged";
@@ -118,6 +124,12 @@ export function formatTaskResult(task: TaskResult): string {
   lines.push(receiptLine("verification", report ? formatVerificationReport(report, { compact: true }) : "no Casper verification recorded."));
   if (task.proof) lines.push(receiptLine("proof", proofLine(task.proof, safe)));
   if (task.review) lines.push(receiptLine("review", reviewLine(task.review, safe).replace(/\n/g, "; ")));
+  if (report?.smoke) {
+    if (task.services?.length) lines.push(receiptLine("services", task.services.map((service) => `${safe(service.name)} ${service.state}${service.origin ? ` ${service.origin}` : ""}`).join("; ")));
+    lines.push(receiptLine("smoke", `${report.smoke.status}: ${report.smoke.checks.map((check) => `${safe(check.name)} [${check.source}] ${safe(check.service)} ${check.request.method} ${safe(check.request.path)}: ${check.status}`
+      + `${check.actual ? ` (${check.actual.status})` : ""}${check.baseline ? `, baseline ${check.baseline}` : ""}${check.status === "pass" && !check.evidence ? ", observation only" : ""}`
+      + `${check.status !== "pass" && check.reason ? ` — ${safe(check.reason)}` : ""}`).join("; ")}. Model checks are the model's expectations, run by Casper.`));
+  }
   if (task.browser) {
     lines.push(receiptLine("browser", `assertions ${task.browser.status}: ${task.browser.checks.map(check => `${safe(check.name)}:${check.status}, inputs ${check.freshness}, baseline ${check.baseline}`).join("; ")}. Declared local scope only; server build/external state and overall acceptance not certified.`));
   }
@@ -181,12 +193,32 @@ export function formatReceipt(task: TaskResult, options: ReceiptOptions = {}): s
     } else if (changed && task.verificationMode === "offer") lines.push(`• Not verified — run ${slash("/verify")} to check these changes.`);
   }
 
+  if (report?.smoke) lines.push(smokeLine(report.smoke, task.services, safe));
   if (task.browser) {
     const failed = task.browser.checks.filter((check) => check.status === "fail").map((check) => safe(check.name));
     lines.push(task.browser.status === "pass" ? `✓ Browser checks passed (${task.browser.checks.length})`
       : task.browser.status === "fail" ? `✗ Browser checks failed: ${failed.join(", ")}` : "• Browser checks incomplete");
   }
   return lines.join("\n");
+}
+
+/** One line: each checked service's address, the smoke tally, what failed, and the model-declared checks with their baselines. */
+function smokeLine(smoke: SmokeReport, services: TaskResult["services"], safe: (text: string) => string): string {
+  const names = [...new Set(smoke.checks.map((check) => check.service))];
+  const where = names.map((name) => {
+    const service = services?.find((entry) => entry.name === name);
+    return `${safe(name)} ${service?.origin ? `at ${service.origin.replace(/^http:\/\//, "")}` : `(${service?.state ?? "not started"})`}`;
+  }).join(", ");
+  const passed = smoke.checks.filter((check) => check.status === "pass").length;
+  const listed = (status: "fail" | "incomplete") => smoke.checks.filter((check) => check.status === status)
+    .map((check) => `${safe(check.name)}${check.reason ? ` (${safe(check.reason)})` : ""}`).join(", ");
+  const failed = listed("fail"), incomplete = listed("incomplete");
+  const model = smoke.checks.filter((check) => check.source === "model").map((check) => check.baseline === "pass"
+    ? `${safe(check.name)} passed before the change too — an observation, not proof`
+    : `${safe(check.name)} ${check.baseline === "fail" ? "failed" : "could not run"} before the change`);
+  const mark = smoke.status === "fail" ? "✗" : smoke.status === "pass" && smoke.checks.some((check) => check.evidence) ? "✓" : "•";
+  return `${mark} ${names.length === 1 ? "Service" : "Services"} ${where}; smoke ${passed}/${smoke.checks.length} passed`
+    + `${failed ? `; failed: ${failed}` : ""}${incomplete ? `; incomplete: ${incomplete}` : ""}${model.length ? ` (model-declared, run by Casper: ${model.join("; ")})` : ""}`;
 }
 
 function reviewLine(review: RequirementsReview, safe: (text: string) => string): string {
