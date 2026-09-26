@@ -103,6 +103,7 @@ export function serviceTool(manager: () => ServiceManager, lifetime?: AbortSigna
   }
 
   async function run(services: ServiceManager, args: Record<string, unknown>, signal: AbortSignal): Promise<Record<string, unknown>> {
+    const start = async (name: string) => { const { restarted } = await services.ensureFresh(name, signal); return { restarted, service: describe(services, name) }; };
     const action = args.action;
     if (action === "status") return { services: services.status() };
     if (action === "request") return request(services, args, signal);
@@ -122,10 +123,11 @@ export function serviceTool(manager: () => ServiceManager, lifetime?: AbortSigna
         spec = "http" in ready ? { http: string(ready.http, "ready.http") } : { log: string(ready.log, "ready.log") };
       }
       const timeoutMs = args.timeoutMs === undefined ? undefined : Number(args.timeoutMs);
-      return { service: await services.startCommand(string(args.command, "command"), { ready: spec, timeoutMs }, signal) };
+      // Joining the same command then takes the declared start's path, so a stale one restarts.
+      return start((await services.startCommand(string(args.command, "command"), { ready: spec, timeoutMs }, signal)).name);
     }
     const name = string(args.service, "service");
-    if (action === "start") { const { restarted } = await services.ensureFresh(name, signal); return { restarted, service: describe(services, name) }; }
+    if (action === "start") return start(name);
     if (action === "restart") return { service: await services.restart(name, signal) };
     if (action === "stop") { const stopped = await services.stop(name); return { stopped, service: describe(services, name) }; }
     if (action === "logs") {
