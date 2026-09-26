@@ -155,9 +155,12 @@ export class PiModels {
     // A repository is never trusted implicitly: projectTrusted:false is Pi's single gate for
     // `.pi/` extensions (in-process code), SYSTEM.md/APPEND_SYSTEM.md, prompts, themes and
     // settings. The loader reads it from the session's settings, so both managers carry it.
+    // A read-only child reads no shared settings, so it keeps Pi's default retry policy (3 retries,
+    // 2 s doubling backoff), as the main session and `pi` do: one 429 or dropped connection must
+    // not end a scout. Cancelling the child aborts the backoff through session.abort().
     const shared = readOnly ? undefined : SettingsManager.create(cwd, this.agentDir, { projectTrusted: false });
     const settingsManager = SettingsManager.inMemory({
-      ...(shared ? withoutModels(shared.getGlobalSettings()) : { compaction: { enabled: false }, retry: { enabled: false } }),
+      ...(shared ? withoutModels(shared.getGlobalSettings()) : { compaction: { enabled: false } }),
       defaultThinkingLevel: preferences.getDefaultThinkingLevel(), modelThinkingLevels: preferences.getAllModelThinkingLevels(),
     }, { projectTrusted: false });
     if (shared) settingsManager.applyOverrides(withoutModels(shared.getProjectSettings()));
