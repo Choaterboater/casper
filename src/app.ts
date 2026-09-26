@@ -1128,10 +1128,11 @@ export class CasperApp {
   private delegateToolForTask?: RuntimeTool;
 
   private delegateTool(): RuntimeTool {
+    // The child's usage joins the current task's totals (observations are replaced per task).
     this.delegateToolForTask ??= this.subagents.createTool(() => ({
       cwd: this.activeWorkspaceRoot(),
       projectContext: formatProjectContext(this.projectContext!),
-    }));
+    }), (usage) => this.observations.recordDelegatedUsage(usage));
     return this.delegateToolForTask;
   }
 

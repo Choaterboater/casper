@@ -75,11 +75,14 @@ has `name`, `command`, `status`, `exit`, `ms` and `fresh`. `text` is the plain r
 would read.
 
 `usage` is the request's model use, repair prompts included, or `null` when no model request ran
-(a local `/` command): `turns` counts model responses, and `tokens` and `estimatedCost` total
-what the provider reported for each of them. `estimatedCost` is the model catalog's estimate,
-not an invoice. Context compaction is not counted. Both totals are `null` (unknown, never an
-undercount) when a response had no usage report, or the request also made model calls Casper
-does not total: a `delegate` subagent, or automatic effort's classifier.
+(a local `/` command): `turns` counts the conversation's model responses, and `tokens` and
+`estimatedCost` total what the provider reported for each of them plus every `delegate`
+subagent's responses (a child's turns are not counted in `turns`). `estimatedCost` is the model
+catalog's estimate, not an invoice. Context compaction is not counted. Both totals are `null`
+(unknown, never an undercount) when a response had no usage report, or the request also made
+model calls Casper does not total: a subagent whose usage is unknown (a response without a
+report, a run cut off mid-response or still cleaning up, or a child running the effort
+classifier), or automatic effort's classifier.
 
 `proof` says whether the tests prove the change (see docs/VERIFICATION.md, "Proving the change"):
 `{ "status": "proven" | "unproven", "check", "command", "testsChanged" }`, or `{ "status":
