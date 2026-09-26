@@ -206,7 +206,15 @@ function reviewLine(review: RequirementsReview, safe: (text: string) => string):
 }
 
 function proofLine(proof: ChangeProof, safe: (text: string) => string): string {
-  if (proof.status === "proven") return `✓ Proven: ${proof.check} fails without this change and passes with it`;
+  if (proof.status === "proven") {
+    const { exitCode, ended, reason } = proof.without;
+    if (ended === "fail") return `✓ Proven: ${proof.check} fails without this change (exit ${exitCode}) and passes with it`;
+    // A timeout, crash or missing command shows the old code did not pass, not that a test caught it.
+    const timeout = /^Timed out after (\d+)ms$/.exec(reason ?? "");
+    const how = ended === "timeout" ? `timed out${timeout ? ` after ${duration(Number(timeout[1]))}` : ""}`
+      : ended === "crash" ? `crashed or was killed (exit ${exitCode})` : `could not start (exit ${exitCode})`;
+    return `✓ Proven, weakly: ${proof.check} passes with this change; without it ${proof.check} ${how} instead of failing`;
+  }
   if (proof.status === "unproven") {
     return `⚠ Not proven: ${proof.check} passes without this change too${proof.testsChanged ? "; the changed tests do not check it" : ", and no test was added or changed"}`;
   }
@@ -220,7 +228,8 @@ function checkLine(result: VerificationResult, safe: (text: string) => string, s
   }
   if (result.status === "pass") {
     if (result.freshness === "stale") return `• Not verified — stale: files changed after the last passing ${name}. Run ${slash(`/verify ${name}`)}.`;
-    return `✓ Verified by Casper: ${name} passed (${result.command ? `${safe(result.command)}, ` : ""}${duration(result.durationMs)})`;
+    // A reused pass did not run again: the time shown is the earlier run's, so the receipt says so.
+    return `✓ Verified by Casper: ${name} passed${result.reused ? " earlier in this task, reused" : ""} (${result.command ? `${safe(result.command)}, ` : ""}${duration(result.durationMs)})`;
   }
   const timeout = /^Timed out after (\d+)ms$/.exec(result.reason ?? "");
   const why = typeof result.exitCode === "number" ? `exit ${result.exitCode}`

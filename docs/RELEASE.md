@@ -40,7 +40,7 @@ consent, bounded cleanup, and release builds without stray `.bun-build` files.
 **Environment migration:** use `CASPER_AGENT_DIR`, `CASPER_OFFLINE`,
 `CASPER_OAUTH_CALLBACK_HOST` and `CASPER_TUI_WRITE_LOG`. Inherited matching `PI_*`
 settings are no longer fallbacks. A conflicting `PI_CODING_AGENT_DIR` is ignored
-with a stderr notice, so Casper does not silently use another agent's credentials
+with a `[config]` startup warning, so Casper does not silently use another agent's credentials
 or conversations. Explicit Casper stores receive no legacy import. See
 [CONFIGURATION.md](CONFIGURATION.md#environment-variables).
 

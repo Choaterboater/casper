@@ -7,7 +7,7 @@ import "./runtime/engine-setup";
 import path from "node:path";
 import { stat } from "node:fs/promises";
 import { CasperApp } from "./app";
-import { importLegacyEngineState, useCasperAgentStore } from "./runtime/agent-store";
+import { agentStoreWarnings, importLegacyEngineState, useCasperAgentStore } from "./runtime/agent-store";
 import { CandidateLibrary, formatLearningResult } from "./learn/candidates";
 import { taskExitCode } from "./task/result";
 import { parseCliArgs, parseLearnArgs, UsageError } from "./cli-args";
@@ -88,6 +88,8 @@ export async function runCli(): Promise<void> {
   // Casper owns its state; explicit CASPER_AGENT_DIR stores are managed by their owner.
   // Forward Casper's environment settings before loading the engine or creating a terminal.
   // Only the default store gets a best-effort, one-time legacy API-key/catalog import.
+  // Read before the store replaces the variable; printed with the app's startup warnings.
+  const startupWarnings = agentStoreWarnings();
   if (useCasperAgentStore()) {
     const legacy = await importLegacyEngineState();
     if (legacy.imported) process.stderr.write("[auth] Imported existing credentials into ~/.casper/agent.\n");
@@ -96,6 +98,8 @@ export async function runCli(): Promise<void> {
     }
   }
   if (learn) {
+    // No app, so no app output: learning prints its own diagnostics on stderr.
+    for (const warning of startupWarnings) process.stderr.write(`[config] ${warning}\n`);
     const learning = new CandidateLibrary({ runtimeFactory: async () => {
       const { PiRuntime } = await import("./runtime/pi");
       return new PiRuntime();
@@ -120,7 +124,7 @@ export async function runCli(): Promise<void> {
   // --json: stdout carries only JSON Lines; the banner, transcript and receipt a person reads go to stderr.
   const emit = options.json ? (event: CasperEvent) => { process.stdout.write(formatJsonEvent(event)); } : undefined;
   const app = new CasperApp({ verificationMode: verificationFlag(options), verbose: options.verbose,
-    model: options.model, effort: options.effort, maxTurns: options.maxTurns,
+    model: options.model, effort: options.effort, maxTurns: options.maxTurns, startupWarnings,
     conversation: options.resume ? { resume: options.resume } : options.continueConversation ? { continue: true } : undefined,
     ...(emit ? { onEvent: emit, output: { write: (text: string) => { process.stderr.write(text); } } } : {}) });
   const removeShutdownHandlers = installShutdownHandlers(app);

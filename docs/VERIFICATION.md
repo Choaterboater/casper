@@ -47,14 +47,19 @@ reported but never counted as verification.
 ```
 ✓ Changed 1 file: sum.js
 ✓ Verified by Casper: test passed (npm run test, 0.3s)
+✓ Verified by Casper: test passed earlier in this task, reused (npm run test, 0.3s)
 ✗ Verified by Casper: test failed (exit 1) — log above; /verify repair test to fix
 • Not verified — test ran via bash only (npm test: passed). Run /verify test to record a check.
 • Not verified — no checks configured. Add verify.test to .casper/project.yaml.
 • Not verified — stale: files changed after the last passing test. Run /verify test.
 • No files changed, so Casper ran no checks
-✓ Proven: test fails without this change and passes with it
+✓ Proven: test fails without this change (exit 1) and passes with it
+✓ Proven, weakly: test passes with this change; without it test crashed or was killed (exit 139) instead of failing
 ⚠ Not proven: test passes without this change too, and no test was added or changed
 ```
+
+A pass marked `reused` did not run again: its declared inputs are unchanged since it passed earlier in
+the same task (often the model's own `casper_check`), and the time is that earlier run's.
 
 ## Requirements review
 
@@ -128,6 +133,10 @@ code change.
 3. If that fails, it runs the same check on a copy of the current workspace. When that passes, the
    change is **proven**: the tests fail without it and pass with it. When it fails too, the copy
    cannot run the tests, and the receipt says Casper could not compare (never a false proof).
+   The receipt names the exit code of the run without the change. A run that did not end as a test
+   failure is weaker evidence and reads **Proven, weakly**: a timeout, a crash or signal (a shell's
+   exit above 128), or a command that could not start (exit 126 or 127). A run with no exit status
+   at all (killed before it could report one) is not proof: Casper could not compare.
 4. If the check passes without the change, the change is **not proven**. Casper spends one repair
    round (within `repair.maxAttempts`) asking the model to add a test that fails without the change,
    then reruns the checks and the comparison.

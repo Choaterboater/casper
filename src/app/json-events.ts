@@ -98,7 +98,7 @@ export function receiptEvent(report: VerificationReport | undefined, task: TaskR
     repairAttempts: verification?.repairAttempts ?? 0,
     turnLimit: task?.turnLimit ?? null,
     usage: task?.usage ? { ...task.usage } : null,
-    proof: task?.proof ? { ...task.proof } : null,
+    proof: task?.proof ? structuredClone(task.proof) : null,
     review: task?.review ? structuredClone(task.review) : null,
     text: receipt ? formatReceipt(receipt, { surface: "one-shot" }) : "",
   };
