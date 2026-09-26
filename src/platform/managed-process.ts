@@ -44,6 +44,9 @@ function loopbackHost(host: string): string {
   return bare;
 }
 
+/** A copy without `g`/`y`: a stateful or sticky caller pattern would silently anchor or skip matches. */
+const unanchored = (pattern: RegExp) => new RegExp(pattern.source, pattern.flags.replace(/[gy]/g, ""));
+
 /** Whether something already accepts connections on this loopback port. Throws when that cannot be established. */
 export async function portInUse(host: string, port: number): Promise<boolean> {
   return await new Promise<boolean>((resolve, reject) => {
@@ -117,7 +120,7 @@ export class ManagedProcess {
     if (options.lines === undefined && options.filter === undefined) return { text, truncated: this.totalBytes > this.logBytes };
     const filter = options.filter;
     let lines = text.split("\n").filter(line => line.length > 0);
-    if (filter !== undefined) lines = lines.filter(line => typeof filter === "string" ? line.includes(filter) : new RegExp(filter.source, filter.flags.replace("g", "")).test(line));
+    if (filter !== undefined) lines = lines.filter(line => typeof filter === "string" ? line.includes(filter) : unanchored(filter).test(line));
     const kept = options.lines === undefined ? lines : lines.slice(-Math.max(0, options.lines));
     return { text: kept.join("\n"), truncated: this.totalBytes > this.logBytes || kept.length < lines.length };
   }
@@ -154,7 +157,7 @@ export class ManagedProcess {
       // Match across chunk boundaries without depending on the ring still holding the line.
       if ("log" in ready && !this.logMatched) {
         const window = previous + bytes.toString("utf8");
-        this.logMatched = typeof ready.log === "string" ? window.includes(ready.log) : new RegExp(ready.log.source, ready.log.flags.replace("g", "")).test(window);
+        this.logMatched = typeof ready.log === "string" ? window.includes(ready.log) : unanchored(ready.log).test(window);
       }
     };
     child.stdout!.on("data", retain); child.stderr!.on("data", retain);
