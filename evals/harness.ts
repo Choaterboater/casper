@@ -29,6 +29,10 @@ export interface HarnessObservation {
    * null when it reported none. A follow-up resumed only if this matches the first attempt's. */
   sessionId: string | null;
   errors: string[];
+  /** The CLI's stderr tail, when a failed run's is kept as its last `errors` entry: diagnostic
+   * human output (Casper's echoes the prompt), never a provider error. Absent in documents saved
+   * before it was recorded. */
+  stderr?: string;
   /** Casper's phases (its task turn, checks, review, proof), timed on the harness clock as their
    * events arrived; one still running when the run ended is `unfinished`, timed to the end. Absent
    * for Pi, which reports none. */
@@ -151,7 +155,7 @@ export async function runHarness(harness: HarnessName, input: HarnessInput): Pro
       const result = observeHarness(name, events, { exitCode, timedOut, wallClockMs: Math.round(performance.now() - started), eventTimes });
       result.errors.push(...errors);
       // Casper's stderr is its normal human output in --json mode: diagnostic only when the run failed.
-      if (result.termination !== "completed" && exitCode !== 0 && stderr) result.errors.push(stderr);
+      if (result.termination !== "completed" && exitCode !== 0 && stderr) { result.errors.push(stderr); result.stderr = stderr; }
       // Unparseable or oversized output is a broken protocol, whatever the last event said.
       if (errors.length && result.termination !== "timeout") result.termination = "failed";
       return result;

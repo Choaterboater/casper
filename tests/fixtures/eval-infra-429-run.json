@@ -1,0 +1,24 @@
+{
+  "answer": "",
+  "termination": "failed",
+  "exitCode": 1,
+  "wallClockMs": 16916,
+  "turns": 4,
+  "tokens": 0,
+  "estimatedCost": 0,
+  "receiptOutcome": "failed",
+  "sessionId": "01a0db96-6000-704d-a084-b48bb6a6ab02",
+  "errors": [
+    "429: {\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"z-ai/glm-5.3-flash is temporarily rate-limited upstream. Please retry shortly, or add your own key to accumulate your rate limits: https://openrouter.ai/settings/integrations\",\"provider_name\":\"Together\",\"is_byok\":false,\"limit_source\":\"upstream_provider_shared_pool\",\"remedy_hint\":\"Retry shortly, add your own provider key (https://openrouter.ai/settings/integrations), or route to another provider with provider routing: https://openrouter.ai/docs/features/provider-routing\"}}",
+    "429: {\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"z-ai/glm-5.3-flash is temporarily rate-limited upstream. Please retry shortly, or add your own key to accumulate your rate limits: https://openrouter.ai/settings/integrations\",\"provider_name\":\"Together\",\"is_byok\":false,\"limit_source\":\"upstream_provider_shared_pool\",\"remedy_hint\":\"Retry shortly, add your own provider key (https://openrouter.ai/settings/integrations), or route to another provider with provider routing: https://openrouter.ai/docs/features/provider-routing\"}}",
+    "429: {\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"z-ai/glm-5.3-flash is temporarily rate-limited upstream. Please retry shortly, or add your own key to accumulate your rate limits: https://openrouter.ai/settings/integrations\",\"provider_name\":\"Together\",\"is_byok\":false,\"limit_source\":\"upstream_provider_shared_pool\",\"remedy_hint\":\"Retry shortly, add your own provider key (https://openrouter.ai/settings/integrations), or route to another provider with provider routing: https://openrouter.ai/docs/features/provider-routing\"}}",
+    "429: {\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"z-ai/glm-5.3-flash is temporarily rate-limited upstream. Please retry shortly, or add your own key to accumulate your rate limits: https://openrouter.ai/settings/integrations\",\"provider_name\":\"Together\",\"is_byok\":false,\"limit_source\":\"upstream_provider_shared_pool\",\"remedy_hint\":\"Retry shortly, add your own provider key (https://openrouter.ai/settings/integrations), or route to another provider with provider routing: https://openrouter.ai/docs/features/provider-routing\"}}",
+    "CASPER 0.2.12 · your coding companion\n project   candidate · branch (no git branch) · profile default\n model     not initialized (starts on your first prompt or /model)\n auth      not checked (/login to set up a provider)\n> Implement `parseLog(text)` in src/parse.ts for the log format in CONTEXT.md. It returns `{ records, problems }` using the types in src/types.ts. Handle every rule in CONTEXT.md, including quoted values with escapes, continuation lines, CRLF, invalid timestamps (including impossible dates such as February 30), and invalid lines, which are reported as problems while parsing continues. Read CONTEXT.md first; it describes this project's conventions. The visible tests in tests/ are incomplete: hidden acceptance tests will check exactly the behavior described here and in CONTEXT.md. Keep the visible tests passing without modifying them (you may add new test files). Do not add dependencies.\n[model] openrouter/z-ai/glm-5.3-flash · high · credentials configured\n[error] 429: {\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"z-ai/glm-5.3-flash is temporarily rate-limited upstream. Please retry shortly, or add your own key to accumulate your rate limits: https://openrouter.ai/settings/integrations\",\"provider_name\":\"Together\",\"is_byok\":false,\"limit_source\":\"upstream_provider_shared_pool\",\"remedy_hint\":\"Retry shortly, add your own provider key (https://openrouter.ai/settings/integrations), or route to another provider with provider routing: https://openrouter.ai/docs/features/provider-routing\"}}\n✗ Stopped: the model run failed — changes already made are kept\n• No files changed\n"
+  ],
+  "phases": [
+    {
+      "phase": "task",
+      "durationMs": 15924
+    }
+  ]
+}
