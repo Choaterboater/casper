@@ -1,0 +1,46 @@
+{
+  "verify": {
+    "test": "bun run test"
+  },
+  "verification": {
+    "scopes": {
+      "test": {
+        "inputs": [
+          "src",
+          "tests"
+        ]
+      }
+    }
+  },
+  "services": {
+    "api": {
+      "command": "bun run dev",
+      "port": "auto",
+      "ready": {
+        "http": "/docs/1"
+      },
+      "timeoutMs": 10000,
+      "scope": {
+        "inputs": [
+          "src"
+        ]
+      }
+    }
+  },
+  "smoke": [
+    {
+      "name": "read doc",
+      "service": "api",
+      "request": {
+        "method": "GET",
+        "path": "/docs/1"
+      },
+      "expect": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        }
+      }
+    }
+  ]
+}

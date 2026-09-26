@@ -17,11 +17,12 @@ async function owned(prefix: string): Promise<string> {
 }
 const benchmark = EVAL_TASKS.filter((task) => task.pack);
 
-test("the benchmark has 9 core and 9 network tasks, each on its own fixture except the two notes-api tasks", () => {
-  expect(BENCHMARK_PACKS).toEqual(["core", "network"]);
+test("the benchmark has 9 core, 9 network and 6 hard tasks, each on its own fixture except the two notes-api tasks", () => {
+  expect(BENCHMARK_PACKS).toEqual(["core", "network", "hard"]);
   expect(packTasks("core")).toHaveLength(9);
   expect(packTasks("network")).toHaveLength(9);
-  expect(new Set(benchmark.map((task) => task.fixture)).size).toBe(17);
+  expect(packTasks("hard")).toHaveLength(6);
+  expect(new Set(benchmark.map((task) => task.fixture)).size).toBe(23);
   // The lifecycle task shares the notes server on purpose; each task runs only its own hidden file.
   expect(benchmark.filter((task) => task.fixture === "notes-api").map((task) => [task.id, task.verify.at(-1)!.argv.slice(1).join(" ")]))
     .toEqual([["core-rest-validation", "test ./acceptance/create-note.test.ts"], ["core-service-lifecycle", "test ./acceptance/server-lifecycle.test.ts"]]);
