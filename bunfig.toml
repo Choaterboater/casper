@@ -2,3 +2,5 @@
 # their own test files: they run inside a copied work directory, never here.
 [test]
 root = "tests"
+# Strip ambient agent state (PI_*, CASPER_*, provider keys) before any test file runs.
+preload = ["./tests/support/preload.ts"]

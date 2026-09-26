@@ -153,7 +153,7 @@ test("in auto mode the model is told Casper runs the final checks; casper_check 
   expect(auto.endsWith("User request:\nfix the failing test")).toBe(true);
 });
 
-test("--verify (auto mode) sends a reviewed code change as the request itself; offer mode keeps the hints", async () => {
+test("--verify (auto mode) asks the first turn for the checklist by default, and sends the request alone when the review is on", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-verify-requested-"));
   try {
     await mkdir(path.join(root, "home"));
@@ -177,8 +177,14 @@ test("--verify (auto mode) sends a reviewed code change as the request itself; o
       await app.runOnce("fix the failing test", root);
     };
     await run(false); await run(true);
-    // Auto mode reviews and proves the change afterwards, so its first turn carries no Casper framing.
-    expect(prompts.map((prompt) => prompt.includes("Casper initial classification"))).toEqual([true, false]);
-    expect(prompts[1]!.trim().endsWith("fix the failing test")).toBe(true);
+    // The review is off by default: auto mode's first turn asks for the checklist and the failing test itself.
+    expect(prompts.map((prompt) => prompt.includes("Casper initial classification"))).toEqual([true, true]);
+    expect(prompts.map((prompt) => prompt.includes("Tick a requirement only when a test you can name asserts it"))).toEqual([false, true]);
+    // With the review on, it checks the requirements afterwards, so the first turn is the request alone.
+    await mkdir(path.join(root, ".casper"));
+    await writeFile(path.join(root, ".casper/project.yaml"), "verification:\n  review: true\n");
+    await run(true);
+    expect(prompts[2]!.includes("Casper initial classification")).toBe(false);
+    expect(prompts[2]!.trim().endsWith("fix the failing test")).toBe(true);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
