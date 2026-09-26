@@ -36,7 +36,13 @@ export class ManagedProcessError extends Error {
   }
 }
 
-const loopbackHost = (host: string) => host.replace(/^\[|\]$/g, "");
+/** The bare loopback host. Anything else is refused here, not by each caller, so no
+ * runner user can probe, bind or wait on a host beyond this machine. */
+function loopbackHost(host: string): string {
+  const bare = host.replace(/^\[|\]$/g, "");
+  if (!["localhost", "127.0.0.1", "::1"].includes(bare)) throw new Error(`${host} is not a loopback host (localhost, 127.0.0.1 or [::1])`);
+  return bare;
+}
 
 /** Whether something already accepts connections on this loopback port. Throws when that cannot be established. */
 export async function portInUse(host: string, port: number): Promise<boolean> {
@@ -93,6 +99,11 @@ export class ManagedProcess {
   constructor(private readonly options: ManagedProcessOptions) {
     this.logBytes = options.logBytes ?? 16_384;
     this.label = options.label ?? "Managed process";
+    const ready = options.ready;
+    if ("http" in ready) {
+      if (ready.http.protocol !== "http:") throw new Error(`${this.label} readiness needs a loopback http: URL`);
+      loopbackHost(ready.http.hostname);
+    }
   }
 
   get pid(): number | undefined { return this.child?.pid; }
