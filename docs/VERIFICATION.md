@@ -201,7 +201,9 @@ the same `repair.maxAttempts` budget; there is no extra round. Smoke runs again 
 requirements-review edit or a proof repair. A standalone `/verify` runs only commands.
 
 **What counts.** A configured check is verification evidence when it passes against fresh services.
-A model check counts only when its baseline failed and it now passes. One whose baseline passed is
+A model check counts only when its baseline failed and it now passes. A baseline that got no HTTP
+response (a timeout, a reset connection) says nothing about the endpoint: it is recorded as
+`incomplete` ("could not run before the change"), never as a failure. One whose baseline passed is
 shown as an observation and never makes the outcome verified: with no command checks and only such
 observations, the outcome is `not_verified`. Casper does not take the model's word that it recorded
 before editing: a check recorded after an edit in the task (a native edit or write, or a shell command

@@ -109,7 +109,7 @@ export interface SmokeResult {
   service: string;
   source: "config" | "model";
   request: { method: string; path: string };
-  /** Model checks: the result when recorded, before the change. */
+  /** Model checks: the result when recorded, before the change; `incomplete` when it got no HTTP response. */
   baseline?: SmokeStatus;
   /** Model checks recorded after edits in this task (or during a repair round): the baseline is not "before the change", so never evidence. */
   baselineAfterEdits?: true;
@@ -157,8 +157,10 @@ export class SmokeChecks {
     const id = `smoke-${this.recorded.length + 1}`;
     const afterEdits = await this.changed();
     const result = await this.execute(check, signal);
-    this.recorded.push({ id, check, baseline: result.status, afterEdits });
-    return this.result(id, "model", check, result, result.status, afterEdits);
+    // Without an HTTP response (timeout, reset, a server that just died) the baseline says nothing about the endpoint.
+    const baseline = result.status === "fail" && !result.actual ? "incomplete" : result.status;
+    this.recorded.push({ id, check, baseline, afterEdits });
+    return this.result(id, "model", check, result, baseline, afterEdits);
   }
 
   async replay(id: string, signal: AbortSignal): Promise<SmokeResult> {

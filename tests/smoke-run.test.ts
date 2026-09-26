@@ -74,3 +74,18 @@ test("a service that will not start makes its checks incomplete, with the reason
   expect(report.status).toBe("incomplete");
   expect(report.checks[0]).toMatchObject({ status: "incomplete", evidence: false, reason: expect.stringContaining("Service api did not start") });
 }, 30_000);
+
+test("a baseline without an HTTP response (a transport error) is not a failing baseline, so a later pass is no evidence", async () => {
+  const f = await fixture();
+  // Ready on /health, but every other request has its connection destroyed without a response.
+  await writeFile(path.join(f.root, "src/server.ts"), `require("node:http").createServer((request, response) => {
+  if (request.url === "/health") response.end("ok"); else request.socket.destroy();
+}).listen(Number(process.env.PORT), process.env.HOST);\n`);
+  const smoke = new SmokeChecks([], () => f.manager);
+  const recorded = await smoke.record(create, signal());
+  expect(recorded).toMatchObject({ baseline: "incomplete", status: "fail", reason: expect.stringContaining("request failed") });
+  expect(recorded.actual).toBeUndefined();
+  await writeFile(path.join(f.root, "src/server.ts"), notesServer(true));
+  f.manager.markEdited("src/server.ts");
+  expect((await smoke.run(signal())).checks[0]).toMatchObject({ baseline: "incomplete", status: "pass", evidence: false });
+}, 30_000);
