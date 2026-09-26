@@ -169,6 +169,10 @@ class PiRuntimeSession implements RuntimeSession {
       effortClassification: this.models.usage(session) };
   }
 
+  complete(input: { systemPrompt: string; user: string; signal?: AbortSignal }) {
+    return this.models.complete(this.runtime.session, input);
+  }
+
   async listConversations(): Promise<RuntimeConversation[]> {
     return (await SessionManager.list(this.runtime.cwd)).map(info => ({ id: info.id, name: info.name, modified: info.modified.toISOString() }));
   }

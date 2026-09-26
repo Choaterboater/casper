@@ -67,6 +67,13 @@ export class TaskObservations {
     if (this.estimatedCost !== null) this.estimatedCost += usage.estimatedCost;
   }
 
+  /** A Casper-made model call outside the conversation (the acceptance check); null when unreported. */
+  recordModelCall(usage: { tokens: number; estimatedCost: number } | null): void {
+    if (!usage) { this.recordUntrackedModelUse(); return; }
+    if (this.tokens !== null) this.tokens += usage.tokens;
+    if (this.estimatedCost !== null) this.estimatedCost += usage.estimatedCost;
+  }
+
   /** The task made model calls these totals do not include. */
   recordUntrackedModelUse(): void {
     this.tokens = null;

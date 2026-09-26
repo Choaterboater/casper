@@ -48,7 +48,8 @@ Quality benchmark (Casper vs Pi, optionally OMP, through their real CLIs; --pack
                         or only the --task selection.
   --harness <name>      casper (as shipped: requirements review off), pi, omp (oh-my-pi),
                         casper-no-review (review explicitly off) or casper-review (review
-                        on), to measure what the round adds (repeatable). Default: casper and pi.
+                        on), to measure what the round adds, or casper-acceptance (the
+                        independent acceptance check on) (repeatable). Default: casper and pi.
   --model <ref>         Required: every harness runs this provider/model-id. Only that
                         provider's entry of ~/.casper/agent/auth.json is copied into each
                         run's temporary home (for OMP, into its agent.db).
@@ -289,7 +290,7 @@ async function benchmark(options: EvalOptions, repoRoot: string): Promise<number
   const omp = options.omp ? await executable(options.omp, "--omp") : Bun.which("omp");
   if (harnesses.includes("omp") && !omp) throw new Error("OMP is not on PATH; pass --omp <path>");
   const casper = options.casper ? [await executable(options.casper, "--casper")] : [process.execPath, path.join(repoRoot, "src/cli.ts")];
-  const commands: Record<HarnessName, string[]> = { casper, "casper-no-review": casper, "casper-review": casper, pi: pi ? [pi] : [], omp: omp ? [omp] : [] };
+  const commands: Record<HarnessName, string[]> = { casper, "casper-no-review": casper, "casper-review": casper, "casper-acceptance": casper, pi: pi ? [pi] : [], omp: omp ? [omp] : [] };
 
   const ranAt = new Date().toISOString();
   const commit = git(repoRoot, ["rev-parse", "--short=12", "HEAD"]);

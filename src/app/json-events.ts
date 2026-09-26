@@ -25,7 +25,7 @@ export interface CheckEvent {
 
 export interface PhaseEvent {
   type: "phase";
-  phase: "task" | "checks" | "smoke" | "review" | "proof" | "repair";
+  phase: "task" | "checks" | "smoke" | "review" | "proof" | "acceptance" | "repair";
   state: "start" | "end";
   atMs: number;
 }
@@ -48,6 +48,8 @@ export interface ReceiptEvent {
   proof: ChangeProof | null;
   /** The model's requirements checklist after its review round (its own claim); null when none ran. */
   review: RequirementsReview | null;
+  /** Tests written from the request alone, run against the change; null when the check did not run. */
+  acceptance: NonNullable<TaskResult["acceptance"]> | null;
   /** The session's managed services at the end of the task (origin null when not starting or ready). */
   services: Array<{ name: string; origin: string | null; state: string }>;
   /** Casper's last smoke run against fresh services; null when none ran. */
@@ -117,6 +119,7 @@ export function receiptEvent(report: VerificationReport | undefined, task: TaskR
     usage: task?.usage ? { ...task.usage } : null,
     proof: task?.proof ? structuredClone(task.proof) : null,
     review: task?.review ? structuredClone(task.review) : null,
+    acceptance: task?.acceptance ? { ...task.acceptance, ...(task.acceptance.output !== undefined ? { output: redactPreview(task.acceptance.output) } : {}) } : null,
     services: (task?.services ?? []).map((service) => ({ name: service.name, origin: service.origin ?? null, state: service.state })),
     smoke: verification?.smoke ? redactSmoke(verification.smoke) : null,
     text: receipt ? formatReceipt(receipt, { surface: "one-shot" }) : "",

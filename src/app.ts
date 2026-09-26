@@ -54,6 +54,7 @@ import { VerifierRegistry } from "./verify/registry";
 import { verifyAndRepair } from "./verify/repair-loop";
 import { VerificationTask } from "./verify/task";
 import { ChangeBaseline, changesCode, proofRepairPrompt, type ChangeProof } from "./verify/proof";
+import { independentAcceptance } from "./verify/acceptance";
 import { parseChecklist, parseReview, requirementsReviewPrompt, ROUND_MAX_TURNS, type RequirementsReview } from "./task/review";
 import { planAutoChecks, resolveVerificationMode, selectedChecks, type VerificationMode } from "./verify/mode";
 import { measuredCheckTime, recordCheckTimings } from "./verify/timings";
@@ -744,6 +745,7 @@ export class CasperApp {
     }
     let proof: ChangeProof | undefined;
     let review: RequirementsReview | undefined;
+    let acceptance: TaskResult["acceptance"];
     let afterModel: Map<string, string> | undefined;
     let verification: VerificationReport | undefined;
     let autoChecks: ReturnType<typeof planAutoChecks> | undefined;
@@ -783,6 +785,10 @@ export class CasperApp {
             const initialReview = parseChecklist(this.lastAnswer);
             ({ verification, proof, review } = await this.finishChange({ baseline, baselineUnavailable, before: before!, root: workspaceRoot,
               command: testCommand!, request: prompt, checks: autoChecks.run, verification, session, initialReview }));
+            if (context.verification.acceptance === true && verification.status === "pass" && proof?.status !== "unproven"
+              && !this.closing && !this.commandAbort?.signal.aborted && !this.taskRuntimeFailed && this.taskTurnLimit === undefined) {
+              acceptance = await this.acceptChange({ session, before: before!, root: workspaceRoot, command: testCommand!, request: prompt });
+            }
           }
         }
       } else if (!stopped && this.checkTask && (this.checkTask.checks.length || this.smokeTask?.recordedCount)) {
@@ -816,7 +822,8 @@ export class CasperApp {
         ...(services.length ? { services } : {}),
         // Smoke checks ran even without a configured command, so "no checks" no longer describes the task.
         verificationMode, ...(autoChecks?.skipped && !verification?.smoke ? { autoSkipped: autoChecks.skipped } : {}),
-        ...(this.taskTurnLimit !== undefined ? { turnLimit: this.taskTurnLimit } : {}), ...(proof ? { proof } : {}), ...(review ? { review } : {}) };
+        ...(this.taskTurnLimit !== undefined ? { turnLimit: this.taskTurnLimit } : {}), ...(proof ? { proof } : {}), ...(review ? { review } : {}),
+        ...(acceptance ? { acceptance } : {}) };
       if (!this.closing) {
         this.terminal.endAssistant();
         this.events.ensureLineBreak();
@@ -829,6 +836,29 @@ export class CasperApp {
         modelStatus: execution, verification });
     }
     return verification;
+  }
+
+  /** verification.acceptance: tests written from the request alone by a separate model call, run once
+   * against the change and removed. Signal only: no repair, nothing kept; its usage joins the task's. */
+  private async acceptChange(input: { session: RuntimeSession; before: Map<string, string>; root: string; command: string; request: string }): Promise<TaskResult["acceptance"]> {
+    const complete = input.session.complete?.bind(input.session);
+    if (!complete) return { status: "error", reason: "this runtime cannot make a separate model call" };
+    const now = await this.snapshotWorkspace(input.root);
+    if (!now) return { status: "error", reason: "Casper could not compare the workspace" };
+    this.events.ensureLineBreak();
+    this.output.write("… Casper checking the change against tests written from the request alone\n");
+    this.onEvent?.(phaseEvent("acceptance", "start"));
+    try {
+      const { usage, ...result } = await independentAcceptance({ complete, request: input.request, root: input.root, changes: diffSnapshots(input.before, now),
+        files: now, testCommand: input.command, timeoutMs: this.projectContext!.verification.timeoutMs, signal: this.commandAbort?.signal });
+      this.observations.recordModelCall(usage);
+      return result;
+    } catch (error) {
+      if (this.commandAbort?.signal.aborted) throw error;
+      // The call may have reached the provider: its usage is unknown.
+      this.observations.recordUntrackedModelUse();
+      return { status: "error", reason: `the acceptance check failed: ${error instanceof Error ? error.message : String(error)}` };
+    } finally { this.onEvent?.(phaseEvent("acceptance", "end")); }
   }
 
   /** After the checks pass on a fix or feature: with verification.review: true, one requirements-review

@@ -357,4 +357,20 @@ export class PiModels {
       return { status: this.status(session), selected: true, savedDefault: persist };
     } finally { this.selecting = false; this.selectionSignal = undefined; finish(); }
   }
+
+  /** A one-off request with the conversation's model and effort; the transcript is untouched. */
+  async complete(session: AgentSession, input: { systemPrompt: string; user: string; signal?: AbortSignal }): Promise<{ text: string; error?: string; usage: { tokens: number; estimatedCost: number } | null }> {
+    const model = session.model;
+    if (!model) return { text: "", error: "no model selected", usage: { tokens: 0, estimatedCost: 0 } };
+    const level = session.thinkingLevel;
+    const response = await this.catalog.completeSimple(model, {
+      systemPrompt: input.systemPrompt,
+      messages: [{ role: "user", content: input.user, timestamp: Date.now() }],
+    }, { signal: input.signal, toolChoice: "none", ...(level && level !== "off" ? { reasoning: level } : {}) });
+    const usage = response.usage;
+    const cost = usage?.cost?.total;
+    const reported = usage && Number.isFinite(usage.totalTokens) ? { tokens: usage.totalTokens, estimatedCost: Number.isFinite(cost) && cost! >= 0 ? cost! : 0 } : null;
+    if (response.stopReason === "error" || response.stopReason === "aborted") return { text: "", error: response.errorMessage ?? response.stopReason, usage: reported };
+    return { text: response.content.filter((part) => part.type === "text").map((part) => part.text).join(""), usage: reported };
+  }
 }
