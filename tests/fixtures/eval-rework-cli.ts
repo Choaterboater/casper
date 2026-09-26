@@ -6,8 +6,9 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 
 const [reference, mode, ...args] = process.argv.slice(2) as [string, "resumes" | "forgets", ...string[]];
-if (!args.includes("--")) { console.log("scripted-rework 1.0.0"); process.exit(0); }
-const prompt = args.at(-1)!;
+if (!args.includes("--") && args.at(-1) !== "-") { console.log("scripted-rework 1.0.0"); process.exit(0); }
+// Casper's harness passes `-` and the prompt on stdin.
+const prompt = args.at(-1) === "-" ? await new Response(Bun.stdin.stream()).text() : args.at(-1)!;
 const casper = args.includes("--json");
 const emit = (event: unknown) => console.log(JSON.stringify(event));
 const flag = (name: string) => { const index = args.indexOf(name); return index < 0 ? undefined : args[index + 1]; };
