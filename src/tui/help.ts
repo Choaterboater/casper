@@ -20,6 +20,7 @@ export const HELP_TEXT = `Casper — your coding companion
   /skills                Skills and trust; /skills diagnostics for warnings
   /verify [checks ...]   Run repository checks (trusted projects only); /verify repair fixes failures
   /browser               Disposable browser status; website tasks can reproduce bugs
+  /services              Declared services: status, logs, start, restart, stop (no model)
   /debug                 Local debugger targets/status; explicit launch approval
   /exit, /quit           Exit
 
@@ -124,6 +125,9 @@ Local commands:
   /browser open <url>               Open an HTTP(S) page in a disposable browser
   /browser inspect|diagnostics      Bounded observations, not verification
   /browser screenshot|close         Save a viewport PNG or close owned resources
+  /services                         Declared services: state and address (no model or startup)
+  /services logs <name>             Recent log lines of a service
+  /services start|restart|stop <name>  Start (waits for readiness), restart or stop a service
   /debug                            Local DAP state and .casper/debug.json targets
   /debug start <target>             Fresh approval for adapter + debuggee execution
   /debug breakpoints <path> <lines|clear>  Replace one file's one-based line list
@@ -176,6 +180,8 @@ Browser checks replay immutable scenarios; screenshots alone and model claims ar
 Task-owned development scripts run trusted project code, not a sandbox, and stop with the task.
 Saved owner-only screenshots remain in external project state until manually removed; may be sensitive.
 See docs/BROWSER.md for limits, input freshness, supported assertions and remaining caveats.
+Services from .casper/project.yaml run trusted project code, not a sandbox; they stay up between
+prompts and stop on exit, /clear, /resume, /branch and /switch. Ctrl+C cancels only a startup. See docs/SERVICES.md.
 Session branching/switching and worktree creation/removal require exact interactive approval.
 Subagents get read/grep/find/ls only; no edit/write/bash/MCP/LSP or recursive delegation.
 Limits: 2 concurrent, 4 delegations per parent prompt; 180 seconds/12 turns/48 tool calls per child.

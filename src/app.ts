@@ -7,6 +7,7 @@ import { stat } from "node:fs/promises";
 import { modelPreference } from "./tui/model-preference";
 import { HELP_TEXT, FULL_HELP_TEXT, LOGIN_HELP } from "./tui/help";
 import { BrowserSession } from "./browser/session";
+import { ServiceManager } from "./services/manager";
 import { formatTerminalJSON } from "./tui/json";
 import { InteractiveTerminal } from "./tui/terminal";
 import { askTool } from "./tui/ask";
@@ -120,6 +121,8 @@ export class CasperApp {
   private readonly loadLSPConfigurationFn: (context: ProjectContext) => Promise<LSPConfiguration>;
   private readonly loadReferenceConfigurationFn: (context: ProjectContext) => Promise<ReferenceConfiguration>;
   browser?: BrowserSession;
+  /** Managed services live for the session, not the task (docs/SERVICES.md). */
+  services?: ServiceManager;
   debugSession?: DebugSession;
   references?: ReferenceLibrary;
   lsp?: LSPManager;
@@ -245,9 +248,14 @@ export class CasperApp {
       onToolEnd: event => {
         this.observations.observeToolEnd(event, this.projectContext?.model.commands);
         if (["bash", "edit", "write"].includes(event.toolName)) this.browser?.invalidate();
+        // A shell command's files are unknown, so it marks every running service stale.
+        if (event.toolName === "bash") this.services?.markEdited();
         // Successful native writes invalidate in afterFileEdit, before LSP awaits.
         // Failed writes may be partial; invalidate without claiming a completed edit.
-        if (event.isError && ["edit", "write"].includes(event.toolName) && typeof event.input?.path === "string") (this.checkTask ?? this.verificationTask)?.invalidateForEdit(event.input.path);
+        if (event.isError && ["edit", "write"].includes(event.toolName) && typeof event.input?.path === "string") {
+          (this.checkTask ?? this.verificationTask)?.invalidateForEdit(event.input.path);
+          this.services?.markEdited(event.input.path);
+        }
       },
       setTaskStop: (cancelled, failed) => { this.taskRuntimeCancelled = cancelled; this.taskRuntimeFailed = failed; },
       markRuntimeFailed: () => { this.taskRuntimeFailed = true; },
@@ -604,10 +612,10 @@ export class CasperApp {
     if (this.commandActive) throw new Error("Another command is active; wait for active subagents or workspace transition");
     // Keep local status/help and cleanup available, but never forget an uncertain
     // tree just because its originating command or model tool has finished.
-    if (!/^\/(?:help(?: all)?|status|project|permissions|mcp|lsp|browser|debug|exit|quit|browser close|debug stop)$/.test(prompt)
-      && !/^\/(?:mcp|lsp) disconnect\s/.test(prompt)) {
+    if (!/^\/(?:help(?: all)?|status|project|permissions|mcp|lsp|browser|debug|services|exit|quit|browser close|debug stop)$/.test(prompt)
+      && !/^\/(?:mcp|lsp) disconnect\s/.test(prompt) && !/^\/services (?:logs|stop)\s/.test(prompt)) {
       if (this.cleanupError) throw this.cleanupError;
-      this.browser?.assertCleanup(); this.mcp?.assertCleanup(); this.lsp?.assertCleanup();
+      this.browser?.assertCleanup(); this.mcp?.assertCleanup(); this.lsp?.assertCleanup(); this.services?.assertCleanup();
     }
     const transition = /^\/(?:branch|switch)(?:\s|$)/.test(prompt);
     if (transition && this.subagents.isBusy) throw new Error("Wait for active subagents before changing workspaces");
@@ -1049,8 +1057,9 @@ export class CasperApp {
     if (this.runtimeTools.length && !this.session?.setTools) throw new Error("Runtime cannot revoke workspace capabilities");
     this.session?.setTools?.([]);
     this.runtimeTools = [];
-    await Promise.all([this.broker?.close(), this.lsp?.close(), this.references?.close(), this.browser?.close(), this.stopDebugger()]);
+    await Promise.all([this.broker?.close(), this.lsp?.close(), this.references?.close(), this.browser?.close(), this.services?.close(), this.stopDebugger()]);
     this.browser = undefined;
+    this.services = undefined;
     this.debugSession = undefined;
   }
 
@@ -1140,6 +1149,15 @@ export class CasperApp {
 
 
 
+
+  /** The session's service manager, created on first use for the active workspace's declared services. */
+  serviceManager(): ServiceManager {
+    if (!this.services || this.services.closed) {
+      const services = this.services = new ServiceManager({ projectRoot: this.activeWorkspaceRoot(), services: this.projectContext!.services ?? {} });
+      this.lifecycle.add({ name: "services", close: () => services.close() });
+    }
+    return this.services;
+  }
 
   /** The delegate tool carries the per-task dispatch budget, so it is rebuilt only at task
    * boundaries (a new request, or an explicit /verify repair task) — never for repair rounds
@@ -1285,6 +1303,7 @@ export class CasperApp {
 
   private observeEdit(path: string): void {
     this.browser?.invalidate();
+    this.services?.markEdited(path);
     (this.checkTask ?? this.verificationTask)?.invalidateForEdit(path);
     this.observations.recordEdit(path);
   }
