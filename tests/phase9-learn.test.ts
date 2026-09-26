@@ -6,6 +6,7 @@ import path from "node:path";
 import { SkillRegistry } from "../src/skills/registry";
 import { classifyTask } from "../src/task/classify";
 import { needsFifos, needsSymlinks, posixModes, posixOnly } from "./support/platform";
+import { cleanEnv } from "./support/env";
 
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -47,8 +48,7 @@ async function fixture(respond?: (payload: Payload, index: number) => Response |
   await writeFile(path.join(agent, "settings.json"), JSON.stringify({ defaultProvider: "fixture", defaultModel: "fixture", retry: { enabled: false } }));
   await mkdir(path.join(home, ".casper"), { recursive: true });
   await writeFile(path.join(home, ".casper/settings.json"), JSON.stringify({ defaultProvider: "fixture", defaultModel: "fixture" }));
-  const { PI_CODING_AGENT_DIR: _inherited, ...inherited } = process.env;
-  const env: NodeJS.ProcessEnv = { ...inherited, HOME: home, CASPER_AGENT_DIR: agent, CASPER_OFFLINE: "1", PI_TELEMETRY: "0" };
+  const env = cleanEnv({ HOME: home, CASPER_AGENT_DIR: agent, CASPER_OFFLINE: "1", PI_TELEMETRY: "0" });
   function spawn(args: string[]) {
     return Bun.spawn([process.execPath, path.join(import.meta.dir, "../src/cli.ts"), ...args], { cwd, env, stdout: "pipe", stderr: "pipe" });
   }

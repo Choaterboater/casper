@@ -9,6 +9,7 @@ import { taskExitCode } from "../src/task/result";
 import { SkillRegistry } from "../src/skills/registry";
 import { checkCommand } from "./support/check-command";
 import { posixOnly } from "./support/platform";
+import { cleanEnv } from "./support/env";
 
 // Nearly every test here runs two or more fixture checks, each a fresh Bun process; under a
 // full parallel suite their startup alone has crossed Bun's 5 s default once.
@@ -488,7 +489,7 @@ posixOnly("CLI termination cleans up a running verifier process group", async ()
   // An interrupted sleep must not fast-forward into the delayed-work marker.
   await writeFile(path.join(root, ".casper/project.yaml"), 'verify:\n  test: "touch started; (sleep 1 && touch leaked) & wait"\n');
   const child = Bun.spawn([process.execPath, path.resolve("src/cli.ts"), "/verify test"], {
-    cwd: root, env: { ...process.env, HOME: path.join(root, "home"), CASPER_PROFILE: "default" }, stdout: "ignore", stderr: "ignore",
+    cwd: root, env: cleanEnv({ HOME: path.join(root, "home"), CASPER_PROFILE: "default" }), stdout: "ignore", stderr: "ignore",
   });
   try {
     for (let attempt = 0; attempt < 200 && !await Bun.file(path.join(root, "started")).exists(); attempt++) await Bun.sleep(10);
@@ -532,7 +533,7 @@ for (const redirected of [false, true]) posixOnly(`CLI termination kills a TERM-
   const command = `printf '%s' "$$" > verifier-pgid; ${JSON.stringify(process.execPath)} ${JSON.stringify(path.resolve("tests/fixtures/verifier-descendant.ts"))}${redirected ? " >/dev/null 2>&1" : ""} & wait`;
   await writeFile(path.join(root, ".casper/project.yaml"), JSON.stringify({ verify: { test: command } }));
   const child = Bun.spawn([process.execPath, path.resolve("src/cli.ts"), "/verify test"], {
-    cwd: root, env: { ...process.env, HOME: path.join(root, "home"), CASPER_PROFILE: "default" }, stdout: "ignore", stderr: "ignore",
+    cwd: root, env: cleanEnv({ HOME: path.join(root, "home"), CASPER_PROFILE: "default" }), stdout: "ignore", stderr: "ignore",
   });
   try {
     for (let attempt = 0; attempt < 200 && !await Bun.file(path.join(root, "started")).exists(); attempt++) await Bun.sleep(10);
@@ -581,7 +582,7 @@ posixOnly("CLI shutdown has a deadline when runtime startup never settles", asyn
     await app.runOnce("/verify repair test");
   `);
   const child = Bun.spawn([process.execPath, harness], {
-    cwd: root, env: { ...process.env, HOME: path.join(root, "home"), CASPER_PROFILE: "default" }, stdout: "ignore", stderr: "ignore",
+    cwd: root, env: cleanEnv({ HOME: path.join(root, "home"), CASPER_PROFILE: "default" }), stdout: "ignore", stderr: "ignore",
   });
   let deadline: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -599,7 +600,7 @@ posixOnly("one-shot CLI returns meaningful exit codes without model credentials"
   const root = await fixture();
   const cli = path.resolve("src/cli.ts");
   const run = async (prompt: string, ...flags: string[]) => {
-    const child = Bun.spawn([process.execPath, cli, ...flags, prompt], { cwd: root, env: { ...process.env, HOME: path.join(root, "home"), CASPER_PROFILE: "default" }, stdout: "pipe", stderr: "pipe" });
+    const child = Bun.spawn([process.execPath, cli, ...flags, prompt], { cwd: root, env: cleanEnv({ HOME: path.join(root, "home"), CASPER_PROFILE: "default" }), stdout: "pipe", stderr: "pipe" });
     const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
     return { stdout, stderr, code };
   };

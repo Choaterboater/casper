@@ -21,6 +21,7 @@ import { SessionBranchStore, sessionProjectKey, type NamedSessionBranch } from "
 import { SkillRegistry } from "../src/skills/registry";
 import { GitWorktreeManager } from "../src/workspace/worktree";
 import { posixOnly } from "./support/platform";
+import { cleanEnv } from "./support/env";
 
 const execFileAsync = promisify(execFile);
 const cleanup: Array<() => Promise<unknown>> = [];
@@ -567,14 +568,13 @@ describe("Phase 7 sessions and worktrees", () => {
       branch,
     ], {
       cwd: main,
-      env: {
-        ...process.env,
+      env: cleanEnv({
         HOME: root,
         PI_CODING_AGENT_DIR: agentDir,
         PI_OFFLINE: "1",
         PI_TELEMETRY: "0",
         NO_COLOR: "1",
-      },
+      }),
       stdout: "pipe",
       stderr: "pipe",
     });

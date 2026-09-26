@@ -9,6 +9,7 @@ import type { TaskResult } from "../src/task/result";
 
 import { POSIX, needsSymlinks, posixOnly } from "./support/platform";
 import { checkCommand } from "./support/check-command";
+import { cleanEnv } from "./support/env";
 /** The fixture check every managed-check test here runs; the native commands stay shell. */
 const runsCheck = checkCommand("append:test-runs");
 const cleanup: Array<() => Promise<unknown>> = [];
@@ -60,7 +61,7 @@ export default function(pi) {
     await writeFile(path.join(agent, "APPEND_SYSTEM.md"), "AMBIENT_APPEND_MUST_NOT_APPEAR");
     await writeFile(path.join(project, "AGENTS.md"), "AMBIENT_AGENTS_MUST_NOT_APPEAR");
   }
-  const env = { ...process.env, HOME: home, CASPER_AGENT_DIR: agent, PI_CODING_AGENT_DIR: agent, CASPER_OFFLINE: "1", PI_OFFLINE: "1", PI_TELEMETRY: "0" };
+  const env = cleanEnv({ HOME: home, CASPER_AGENT_DIR: agent, PI_CODING_AGENT_DIR: agent, CASPER_OFFLINE: "1", PI_OFFLINE: "1", PI_TELEMETRY: "0" });
   async function run(args: string[], overrides: Record<string, string | undefined> = {}) {
     const child = Bun.spawn([process.execPath, ...args], { cwd: project, env: { ...env, ...overrides }, stdout: "pipe", stderr: "pipe" });
     const timer = setTimeout(() => child.kill(), 10_000);
