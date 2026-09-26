@@ -43,21 +43,21 @@ Options:
   --list                List catalog tasks and human-driven scenarios.
   --help                Show this text.
 
-Quality benchmark (Casper vs Pi through their real CLIs; --pack or --harness selects it):
+Quality benchmark (Casper vs Pi, optionally OMP, through their real CLIs; --pack or --harness selects it):
   --pack <core|network> Benchmark a pack (repeatable). Default with --harness: every pack,
                         or only the --task selection.
-  --harness <name>      casper, pi, or casper-no-review (Casper with its requirements review
-                        round off, to measure what the round adds) (repeatable). Default:
-                        casper and pi.
-  --model <ref>         Required: both harnesses run this provider/model-id. Only that
+  --harness <name>      casper, pi, omp (oh-my-pi), or casper-no-review (Casper with its
+                        requirements review round off, to measure what the round adds)
+                        (repeatable). Default: casper and pi.
+  --model <ref>         Required: every harness runs this provider/model-id. Only that
                         provider's entry of ~/.casper/agent/auth.json is copied into each
-                        run's temporary home.
-  --effort <level>      Reasoning effort for both harnesses. Default: medium.
+                        run's temporary home (for OMP, into its agent.db).
+  --effort <level>      Reasoning effort for every harness (Pi and OMP: --thinking). Default: medium.
   --repeat <n>          Runs per task per harness (1..20). Default: 1.
   --concurrency <n>     Runs at once (1..16). Default: 2; more hits provider rate limits.
-  --time-limit <sec>    Wall clock per run, the only run limit and the same for both. Default: 300.
+  --time-limit <sec>    Wall clock per run, the only run limit and the same for all. Default: 300.
   --follow-ups <n>      Continue failed runs with the grader's failure report (1..2 follow-ups). Default: 0.
-  --route <hosts>       OpenRouter only: pin both harnesses to these hosts, comma-separated in
+  --route <hosts>       OpenRouter only: pin every harness to these hosts, comma-separated in
                         preference order, with no fallbacks (e.g. Together,Novita). OpenRouter
                         keeps a conversation on one host and hosts differ tenfold in speed.
   --person-cost <sec>   A person's time charged per follow-up in the time-to-correct table
@@ -66,6 +66,7 @@ Quality benchmark (Casper vs Pi through their real CLIs; --pack or --harness sel
                         summary (no model calls); --person-cost applies.
   --casper <path>       Casper executable. Default: this checkout (bun src/cli.ts).
   --pi <path>           Pi executable. Default: pi on PATH.
+  --omp <path>          OMP executable. Default: omp on PATH.
   --json <path>         Results document. Default: a new evals/results/<date>-<commit>.json.
   Prints a rubric table per pack (docs/EVALUATION.md). Exits 1 only when a run could not
   be run or graded; failed tasks are results, not errors.
@@ -102,6 +103,7 @@ interface EvalOptions {
   report?: string;
   casper?: string;
   pi?: string;
+  omp?: string;
 }
 
 const EFFORTS: readonly HarnessInput["effort"][] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
@@ -123,7 +125,7 @@ function parseArguments(args: readonly string[]): EvalOptions {
     if (argument === "--keep") { options.keep = true; continue; }
     if (argument === "--prepare") { options.prepare = true; continue; }
     if (argument === "--no-auto-verify") { options.autoVerify = false; continue; }
-    if (["--pack", "--harness", "--effort", "--concurrency", "--time-limit", "--follow-ups", "--person-cost", "--report", "--route", "--casper", "--pi"].includes(argument)) {
+    if (["--pack", "--harness", "--effort", "--concurrency", "--time-limit", "--follow-ups", "--person-cost", "--report", "--route", "--casper", "--pi", "--omp"].includes(argument)) {
       const value = args[++index];
       if (!value || value.startsWith("--")) throw new Error(`${argument} needs a value`);
       if (argument === "--pack") {
@@ -149,7 +151,8 @@ function parseArguments(args: readonly string[]): EvalOptions {
         options.route = hosts;
       }
       else if (argument === "--casper") options.casper = value;
-      else options.pi = value;
+      else if (argument === "--pi") options.pi = value;
+      else options.omp = value;
       continue;
     }
     if (["--task", "--json", "--timeout", "--repeat", "--model", "--scenario", "--grade", "--observation"].includes(argument)) {
@@ -179,7 +182,7 @@ function parseArguments(args: readonly string[]): EvalOptions {
     if (args.some((flag) => flag.startsWith("--") && !["--report", "--person-cost"].includes(flag))) throw new Error("--report takes only --person-cost");
     return options;
   }
-  const benchmarkOnly = options.effort || options.concurrency || options.timeLimitSeconds || options.followUps || options.personCostSeconds !== undefined || options.route || options.casper || options.pi;
+  const benchmarkOnly = options.effort || options.concurrency || options.timeLimitSeconds || options.followUps || options.personCostSeconds !== undefined || options.route || options.casper || options.pi || options.omp;
   if (isBenchmark(options)) {
     if (options.prepare || options.grade || options.scenario || options.keep || !options.autoVerify) {
       throw new Error("--prepare, --grade, --scenario, --keep and --no-auto-verify do not apply to a benchmark");
@@ -188,7 +191,7 @@ function parseArguments(args: readonly string[]): EvalOptions {
     if (options.route && !options.model.startsWith("openrouter/")) throw new Error("--route applies only to openrouter models");
     return options;
   }
-  if (benchmarkOnly) throw new Error("--effort, --concurrency, --time-limit, --follow-ups, --person-cost, --route, --casper and --pi apply only to a benchmark (--pack or --harness)");
+  if (benchmarkOnly) throw new Error("--effort, --concurrency, --time-limit, --follow-ups, --person-cost, --route, --casper, --pi and --omp apply only to a benchmark (--pack or --harness)");
   if (options.scenario && (!options.prepare || options.selected.length)) throw new Error("--scenario requires --prepare and cannot use --task");
   if (Boolean(options.grade) !== Boolean(options.observation)) throw new Error("--grade and --observation must be used together");
   if (options.grade && (options.prepare || options.selected.length || options.scenario)) throw new Error("--grade cannot select or prepare tasks");
@@ -253,7 +256,7 @@ async function benchmark(options: EvalOptions, repoRoot: string): Promise<number
   const effort = options.effort ?? "medium";
   const concurrency = options.concurrency ?? 2;
   const timeLimitSeconds = options.timeLimitSeconds ?? 300;
-  // Both harnesses get the same model; fail on an unknown model or a missing sign-in before any run.
+  // Every harness gets the same model; fail on an unknown model or a missing sign-in before any run.
   const model = await resolveEvalModel(options.model!);
   const reference = `${model.provider}/${model.id}`;
   const authPath = path.join(getAgentDir(), "auth.json");
@@ -265,8 +268,10 @@ async function benchmark(options: EvalOptions, repoRoot: string): Promise<number
   const seed = { authPath, ...(await lstat(modelsStorePath).then(() => ({ modelsStorePath }), () => ({}))) };
   const pi = options.pi ? await executable(options.pi, "--pi") : Bun.which("pi");
   if (harnesses.includes("pi") && !pi) throw new Error("Pi is not on PATH; pass --pi <path>");
+  const omp = options.omp ? await executable(options.omp, "--omp") : Bun.which("omp");
+  if (harnesses.includes("omp") && !omp) throw new Error("OMP is not on PATH; pass --omp <path>");
   const casper = options.casper ? [await executable(options.casper, "--casper")] : [process.execPath, path.join(repoRoot, "src/cli.ts")];
-  const commands: Record<HarnessName, string[]> = { casper, "casper-no-review": casper, pi: pi ? [pi] : [] };
+  const commands: Record<HarnessName, string[]> = { casper, "casper-no-review": casper, pi: pi ? [pi] : [], omp: omp ? [omp] : [] };
 
   const ranAt = new Date().toISOString();
   const commit = git(repoRoot, ["rev-parse", "--short=12", "HEAD"]);
