@@ -87,11 +87,16 @@ classifier), or automatic effort's classifier.
 `proof` says whether the tests prove the change (see docs/VERIFICATION.md, "Proving the change"):
 `{ "status": "proven" | "unproven", "check", "command", "testsChanged" }`, or `{ "status":
 "unavailable", "check", "reason" }` when Casper could not compare, or `null` when no proof applied.
-An `unproven` change has the outcome `not_verified`. `review` is the model's requirements checklist from its review round
-(`{ "done": [...], "open": [...], "total": m }`, or `{ "missing": true }` when it returned none), or `null` when no
-review ran. With `total` (the requirement count the review reported), `done` lists only the gaps the review
-fixed and `open` those still open; without it (the review off, the default: the first answer's own checklist; or an answer with no count),
-`done` is the full checklist. It is the model's own claim; any `open` item makes the outcome `not_verified`.
+An `unproven` change has the outcome `not_verified`. `review` is the model's requirements checklist, in one of
+two shapes. The review round's answer (`verification.review: true`) is `{ "fixed": [...], "open": [...],
+"covered": n, "total": m }`: `fixed` lists only the gaps the review added a test or fix for, `open` those still
+open, and `covered`/`total` come from its `Covered: n of m` line (both absent after a bare `Requirements
+review: all covered.`). A full checklist (the first answer's own with the review off, the default, or a review
+answer without a count) is `{ "done": [...], "open": [...] }`, `done` being every ticked requirement.
+`{ "missing": true }` means the review returned none; `"incomplete": true` marks a review stopped at its
+turn budget; `null` means there was no checklist to report. It is the model's own claim; any `open` item
+makes the outcome `not_verified` (a `covered` short of `total` with no `open` item does not, but the receipt
+says `n of m requirements covered`, not all).
 
 ```json
 {"v":1,"type":"check","name":"test","command":"npm run test","status":"pass","exit":0,"ms":412,"recordedBy":"casper","reused":false}

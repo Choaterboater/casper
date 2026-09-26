@@ -91,12 +91,16 @@ changed files. The receipt shows the review as **the model's own claim**, never 
 
 ```
 • The model's review: all 6 requirements covered (1 gap fixed; its own claim, not checked by Casper)
+• The model's review: 5 of 6 requirements covered (1 gap fixed; its own claim, not checked by Casper)
 ⚠ The model's review says not done: handshake timeout — not implemented
 • The model's review returned no checklist
 • The model's review stopped at its 12-turn budget (its own claim so far, not checked by Casper)
 ```
 
-An answer with a full checklist but no `Covered:` line is still read, and reported without the gap count.
+A `Covered:` line counts only at the start of a line and with its colon. When `n` is less than `m` and no open
+line is listed, the receipt says `n of m requirements covered`, not all. A bare `Requirements review: all
+covered.` with no `Covered:` line reads as all covered, without a number. An answer with a full checklist
+but no `Covered:` line is still read, and reported without the gap count.
 
 An item the model admits is not done makes the change `not_verified`. The review round has its own
 budget of 12 model turns (a `--max-turns` at or below 12 wins and stops the task as usual, exit 2).
