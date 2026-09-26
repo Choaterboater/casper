@@ -168,3 +168,9 @@ test("a crash after readiness reports exited with its exit details and calls onE
   expect(f.managed.state()).toBe("exited");
   await gone(f.managed.pid!); await gone(await f.grandchild());
 }, 20_000);
+
+test("a sticky or global pattern still matches anywhere in a line, for readiness and log filters", async () => {
+  const f = await fixture({ READY_LOG: "service is up" }, { ready: { log: /is up/gy } });
+  await f.managed.start(new AbortController().signal);
+  expect(f.managed.logs({ filter: /is up/y }).text).toBe("service is up");
+}, 20_000);
