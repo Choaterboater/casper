@@ -88,7 +88,9 @@ export async function verifyAndRepair(options: VerificationOptions): Promise<Ver
         : status === "incomplete" && smoke?.status === "incomplete" ? smoke.reason ?? "A smoke check could not run (its service did not start)." : undefined);
     }
     if (!options.repair || repairAttempts >= maxAttempts) {
-      return report("fail", options.repair ? "Repair limit reached." : "Run /verify repair to request repair.");
+      const ended = report("fail", options.repair ? "Repair limit reached." : "Run /verify repair to request repair.");
+      // Say so rather than let the pending smoke checks vanish from the receipt.
+      return failures.length && options.smoke ? { ...ended, smokeSkipped: "command checks failed" } : ended;
     }
     repairAttempts++;
     options.onRepair?.(repairAttempts, maxAttempts);

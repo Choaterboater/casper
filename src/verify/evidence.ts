@@ -34,6 +34,8 @@ export interface VerificationReport {
   reason?: string;
   /** The last smoke run against fresh services, when the task had smoke checks and the commands passed. */
   smoke?: SmokeReport;
+  /** The task had smoke checks but the loop ended with command failures, so they never ran (smoke runs only on passing commands). */
+  smokeSkipped?: "command checks failed";
 }
 
 export function verificationStatus(results: VerificationResult[]): VerificationReport["status"] {

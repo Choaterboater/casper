@@ -194,6 +194,7 @@ export function formatReceipt(task: TaskResult, options: ReceiptOptions = {}): s
   }
 
   if (report?.smoke) lines.push(smokeLine(report.smoke, task.services, safe));
+  else if (report?.smokeSkipped) lines.push(`• Smoke not run: ${report.smokeSkipped}`);
   if (task.browser) {
     const failed = task.browser.checks.filter((check) => check.status === "fail").map((check) => safe(check.name));
     lines.push(task.browser.status === "pass" ? `✓ Browser checks passed (${task.browser.checks.length})`

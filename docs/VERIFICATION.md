@@ -200,7 +200,9 @@ checks run after any change; recorded ones always run. Before each run Casper ma
 service fresh: a service that is stale from edits, has crashed or no longer answers its readiness path
 is restarted. A failing smoke check joins the normal repair prompt as smoke failure evidence and uses
 the same `repair.maxAttempts` budget; there is no extra round. Smoke runs again after a repair, a
-requirements-review edit or a proof repair. A standalone `/verify` runs only commands.
+requirements-review edit or a proof repair. A standalone `/verify` runs only commands. When the
+command checks still fail after the last repair, smoke never ran, and the receipt says
+`• Smoke not run: command checks failed`.
 
 **What counts.** A configured check is verification evidence when it passes against fresh services.
 A model check counts only when its baseline failed and it now passes. A baseline that got no HTTP

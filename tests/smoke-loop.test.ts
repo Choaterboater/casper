@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { loadProjectContext } from "../src/project/context";
 import type { SmokeReport } from "../src/services/smoke";
+import { formatReceipt } from "../src/task/result";
 import { VerifierRegistry } from "../src/verify/registry";
 import { verifyAndRepair } from "../src/verify/repair-loop";
 
@@ -35,4 +36,17 @@ test("a command failure skips the smoke run; the repair that fixes the commands 
   // Smoke ran once, after the repair.
   expect(f.smokeRuns).toEqual([1]);
   expect(report).toMatchObject({ status: "pass", repairAttempts: 1, smoke: { status: "pass" } });
+  expect(report.smokeSkipped).toBeUndefined();
+}, 30_000);
+
+test("when the command checks use up the repair budget, the report and receipt say smoke was not run", async () => {
+  const f = await fixture();
+  const report = await verifyAndRepair({ ...f.options, maxAttempts: 1, repair: async (prompt) => { f.prompts.push(prompt); } });
+  expect(f.smokeRuns).toEqual([]);
+  expect(report).toMatchObject({ status: "fail", repairAttempts: 1, smokeSkipped: "command checks failed" });
+  expect(report.smoke).toBeUndefined();
+  expect(formatReceipt({ execution: "completed", verification: report })).toContain("• Smoke not run: command checks failed");
+  // Without smoke checks there is nothing to skip.
+  const plain = await verifyAndRepair({ ...f.options, smoke: undefined, maxAttempts: 0 });
+  expect(plain.smokeSkipped).toBeUndefined();
 }, 30_000);

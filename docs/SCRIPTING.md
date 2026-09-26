@@ -105,7 +105,8 @@ says `n of m requirements covered`, not all).
 
 `services` lists the session's managed services at the end of the task, each `{ "name", "origin", "state" }`
 (`origin` such as `http://127.0.0.1:53121`, or `null` when it is not starting or ready), or `[]`. `smoke` is
-Casper's last smoke run (see docs/VERIFICATION.md, "Smoke checks"), or `null` when none ran: `{ "status":
+Casper's last smoke run (see docs/VERIFICATION.md, "Smoke checks"), or `null` when none ran (when command
+checks failed with smoke checks pending, `text` says `Smoke not run: command checks failed`): `{ "status":
 "pass" | "fail" | "incomplete", "checks": [...], "reason"? }` (`reason` when the run is incomplete beyond its
 checks, such as unconfirmed service cleanup; `crashes`, when present, lists `{ "service", "exit", "tail" }` for each
 service that crashed since a call last reported it, with at most 2048 characters of log tail). Each check has `id`, `name`, `service`, `source` (`config`,
