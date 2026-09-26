@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { loadConfiguration } from "../src/config/load";
@@ -48,3 +48,63 @@ test("the fixture server is fixture code the validation task's setup leaves alon
   const touched = [...changes.added, ...changes.modified, ...changes.removed];
   expect(touched.filter((entry) => entry === "src/server.ts" || entry === "package.json" || entry.startsWith(".casper/"))).toEqual([]);
 });
+
+/** Run the lifecycle task's hidden acceptance over `src` from `source`, as the frozen evaluator does,
+ * and report each test's result and the server PIDs it said it spawned. */
+async function lifecycleAcceptance(source: string) {
+  const task = findEvalTask("core-service-lifecycle")!;
+  const evaluator = await prepareWorkdir({ ...task, setup: undefined }, repoRoot);
+  cleanup.push(() => rm(evaluator, { recursive: true, force: true }));
+  await rm(path.join(evaluator, "src"), { recursive: true, force: true });
+  await cp(path.join(source, "src"), path.join(evaluator, "src"), { recursive: true });
+  const run = Bun.spawn([process.execPath, "test", "./acceptance/server-lifecycle.test.ts"], { cwd: evaluator, stdout: "pipe", stderr: "pipe" });
+  const [stdout, stderr, exitCode] = await Promise.all([new Response(run.stdout).text(), new Response(run.stderr).text(), run.exited]);
+  const output = `${stdout}${stderr}`;
+  const pids = [...output.matchAll(/\[server-lifecycle\] spawned pid (\d+)/g)].map((match) => Number(match[1]));
+  // Kill by PID anything the acceptance left behind, after recording that it survived.
+  const survivors = pids.filter(alive);
+  for (const pid of survivors) process.kill(pid, "SIGKILL");
+  const results = [...output.matchAll(/^\((pass|fail)\) (.+?)(?: \[[\d.]+m?s\])?$/gm)].map((match) => `${match[1]} ${match[2]!.split(" ").slice(0, 3).join(" ")}`);
+  return { exitCode, results, pids, survivors, tail: exitCode ? output.slice(-1500) : "" };
+}
+
+/** The solved fixture with `edits` applied to its `src/` files, each replacement required to match. */
+async function variant(edits: Record<string, [string, string][]>): Promise<string> {
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-lifecycle-variant-"));
+  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  await cp(path.join(repoRoot, "evals/fixtures/notes-api/src"), path.join(root, "src"), { recursive: true });
+  for (const [file, replacements] of Object.entries(edits)) {
+    let text = await readFile(path.join(root, "src", file), "utf8");
+    for (const [from, to] of replacements) { expect(text).toContain(from); text = text.replace(from, to); }
+    await writeFile(path.join(root, "src", file), text);
+  }
+  return root;
+}
+
+const ALL = ["GET /health answers", "the server listens", "the server listens", "on SIGTERM an"];
+const results = (failing: number[]) => ALL.map((name, index) => `${failing.includes(index) ? "fail" : "pass"} ${name}`);
+
+test("the lifecycle task's hidden acceptance passes on the solved fixture and fails on its start, leaving no server behind", async () => {
+  const solved = await lifecycleAcceptance(path.join(repoRoot, "evals/fixtures/notes-api"));
+  expect({ exit: solved.exitCode, results: solved.results, survivors: solved.survivors, tail: solved.tail })
+    .toEqual({ exit: 0, results: results([]), survivors: [], tail: "" });
+  const start = await prepareWorkdir(findEvalTask("core-service-lifecycle")!, repoRoot);
+  cleanup.push(() => rm(start, { recursive: true, force: true }));
+  const unsolved = await lifecycleAcceptance(start);
+  expect({ exit: unsolved.exitCode, results: unsolved.results }).toEqual({ exit: 1, results: results([0, 1, 2, 3]) });
+  // Failing tests still stop every server they started (the setup's server never exits on its own).
+  expect(unsolved.pids.length).toBe(4);
+  expect(unsolved.survivors).toEqual([]);
+}, 90_000);
+
+/** Each behavior the setup removes is caught on its own: the solved server minus just that behavior fails just its test. */
+test.each<[string, Record<string, [string, string][]>, number[]]>([
+  ["no /health", { "app.ts": [["if (pathname === \"/health\")", "if (pathname === \"/nothing\")"]] }, [0]],
+  ["HOST ignored", { "server.ts": [["process.env.HOST || \"127.0.0.1\"", "\"127.0.0.1\""]] }, [2]],
+  ["no graceful SIGTERM", { "server.ts": [["process.once(\"SIGTERM\"", "process.once(\"SIGUSR2\""]] }, [3]],
+  ["exits on SIGTERM without draining", { "server.ts": [["void server.stop().then(() => process.exit(0));", "process.exit(0);"]] }, [3]],
+  ["drains but never exits", { "server.ts": [["setTimeout(() => process.exit(0), 1_500).unref();\n  void server.stop().then(() => process.exit(0));", "void server.stop();\n  setInterval(() => {}, 1_000);"]] }, [3]],
+])("the lifecycle acceptance catches a server with %s", async (_name, edits, failing) => {
+  const run = await lifecycleAcceptance(await variant(edits));
+  expect({ results: run.results, survivors: run.survivors }).toEqual({ results: results(failing), survivors: [] });
+}, 60_000);

@@ -7,4 +7,11 @@ const server = Bun.serve({
   port: Number(process.env.PORT || 3000),
   fetch: (request) => app.handle(request),
 });
-console.log(`notes-api listening on http://${server.hostname}:${server.port}`);
+console.info(`notes-api listening on http://${server.hostname}:${server.port}`);
+
+/** Graceful shutdown: stop accepting connections, let in-flight requests finish, then exit 0.
+ * A request that outlives the grace period is cut off so the process still exits within 2 s. */
+process.once("SIGTERM", () => {
+  setTimeout(() => process.exit(0), 1_500).unref();
+  void server.stop().then(() => process.exit(0));
+});
