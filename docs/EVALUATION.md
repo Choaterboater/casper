@@ -25,7 +25,7 @@ evals/
 ├── setups/       overlays that turn a baseline into one task's unsolved state
 ├── tasks.ts      the task catalog (prompt, verification, acceptance)
 ├── packs.ts      quality-benchmark packs: core (8 tasks) and network (9 tasks)
-├── harness.ts    runs the Casper or Pi CLI with identical inputs and an isolated home
+├── harness.ts    runs the Casper, Pi or OMP CLI with identical inputs and an isolated home
 ├── benchmark.ts  quality benchmark: runs both harnesses, measures rubric evidence, summarizes per pack
 ├── quality.ts    rubric scores from host evidence only
 ├── scenarios.ts  cancellation/restart/resume, delegation and clarify-loop protocols
@@ -146,7 +146,7 @@ none reuses a fixture from the tasks above.
 both harnesses. There is no turn limit: Pi's CLI has none, so a Casper-only `--max-turns` would
 only ever stop Casper (it did, three times, in the first real runs). Turns, tokens and estimated
 cost use one definition for both: every model response, totalled from what the provider reported
-for it. Pi's come from its `message_end` events, Casper's from its receipt's `usage`. Casper
+for it. Pi's and OMP's come from their `message_end` events, Casper's from its receipt's `usage`. Casper
 reports its totals as unknown when a task delegated to a subagent or ran automatic effort's
 classifier, whose model calls it does not total. Neither side counts context compaction.
 
@@ -204,7 +204,8 @@ bun tools/eval.ts --pack core --pack network --model github-copilot/gpt-5-mini -
 
 `--pack` or `--harness` selects benchmark mode. `--harness casper-no-review` adds a third
 harness: the same Casper CLI with `verification.review: false` in its run's user configuration,
-to measure what the requirements review round adds. Both harnesses run through their real CLIs
+to measure what the requirements review round adds. `--harness omp` adds oh-my-pi (see
+[OMP](#omp) below). Both harnesses run through their real CLIs
 (`evals/harness.ts`): Casper from this checkout (`bun src/cli.ts`, or `--casper <path>`, for
 example the release binary) with `--json --verify`, and Pi from `PATH` (or `--pi <path>`) with
 `--print --mode json` and no extensions, skills or prompt templates. Every run gets a fresh
@@ -220,8 +221,8 @@ measures which host each harness drew. `--route Together,Novita` writes the same
 into both harnesses' homes: those hosts only, in that order, no fallbacks.
 
 `--follow-ups 1` or `--follow-ups 2` adds the rework experiment: a run the grader did not accept
-gets a follow-up in the **same conversation** (Casper `--continue`, Pi `--session-id`, both in a
-home kept for the run) carrying the grader's failure report — the failing checks' output tails or
+gets a follow-up in the **same conversation** (Casper and OMP `--continue`, Pi `--session-id`, all
+in a home kept for the run) carrying the grader's failure report — the failing checks' output tails or
 the broken acceptance rules, as a person seeing the failure would send them — until it is
 accepted or the cap is reached. Each attempt has the full time limit; a timed-out or crashed
 attempt is not continued. The rubric table still scores **the first attempt** (its tree is
@@ -242,6 +243,41 @@ It also shows whether every follow-up really resumed the first attempt's convers
 session id each CLI reports). The benchmark has a grader that catches every failure; a real user
 often has none, so follow-ups understate what a false done costs. `--report <results.json>`
 reprints a saved document with the current summary, with no model calls.
+
+#### OMP
+
+`--harness omp` runs [oh-my-pi](https://github.com/can1357/oh-my-pi) (checked against omp 18.2.11),
+a Pi-based CLI, from `PATH` (or `--omp <path>`). It is not in the default harness set. The results
+document records its `--version` line like the others'. What the harness relies on, all read from
+the omp binary and checked with a run against a loopback fake provider (no real model call):
+
+- **Protocol.** `--print --mode json` writes Pi's event stream: a `session` header with the
+  conversation id, `message_end` per message with the assistant's `usage.totalTokens` and
+  `usage.cost.total`, `tool_execution_start`/`_end`, `agent_end`. So turns, tokens, cost, answer,
+  session id and tool times are read exactly as Pi's. omp exits 1 when its last response failed.
+- **Flags.** `--no-session` (or a saved conversation, below), `--no-extensions --no-skills
+  --no-rules` (ambient discovery; omp has no prompt-template or theme flags), `--no-lsp` (it would
+  start language servers found on the host `PATH` and format files on write), `--no-title` (the
+  session title is a side model call that no event reports), `--auto-approve` (pins tool approval
+  to its default, yolo), `--model`, and `--thinking <effort>`: omp takes every harness effort
+  level (off … max) as is.
+- **Home.** omp honors `PI_CODING_AGENT_DIR`; each run gets `~/.omp/agent` under its temporary
+  home, which is also omp's default there. omp has no offline or telemetry switch.
+- **Credentials.** omp reads no `auth.json`: it keeps credentials in SQLite (`agent.db`). The run's
+  store is created with only the model provider's entry of `~/.casper/agent/auth.json`, in omp's
+  own row format (the entry minus its `type`) at the store's current schema version (8). A
+  follow-up in a kept home keeps the store omp already has. The Pi model-catalog cache is not
+  copied: omp has its own catalog. OpenRouter runs call the provider's model-list endpoints at
+  startup with that credential (no model call).
+- **Route.** `--route` writes the same JSON as `models.yml` (omp's file; YAML reads JSON). omp sends
+  `openRouterRouting` as the request's `provider` object unchanged, `allow_fallbacks` included.
+- **Follow-ups.** omp has no `--session-id`: the first attempt saves its conversation, and a
+  follow-up passes `--continue`, which resumes the latest conversation for the work directory in
+  the kept home. The session header shows whether it did.
+- **Unknown usage.** omp's `task` tool runs subagents whose model responses never reach the
+  event stream. A run that started one reports tokens and cost as unknown (turns still count the
+  main conversation's responses), as Casper does for its subagents. Context compaction is not
+  counted, as for the other harnesses.
 
 The console gets one line per finished run and then a table per pack: each task × harness,
 then the pack total per harness. The results document (default: a new
@@ -268,7 +304,7 @@ not be measured stays unknown (`?` in the table), never a pass, a fail or zero.
 | Honest | the final answer's claim agrees with Success: a done claim on a failed run is a **false done**, and a not-done claim on a successful run is not honest either |
 | Effort | wall clock, turns, tokens and estimated cost per run (median and range), with the same per-response definition for both harnesses |
 | Time to correct (`--follow-ups`) | first-time right, fixed after 1 or 2 follow-ups, unfixed (and stopped), follow-up rounds, resumed, and the wall clock, tokens and cost of every attempt summed and per correct result, with and without a person's time per follow-up; the failure report is the host grader's |
-| Phases and tools | Casper's `phase` JSON events time its task turn, checks, requirements review and proof (the proof includes any model round it starts), on the harness clock; a phase still running when the run ended is `unfinished`. Tool time per tool name for both harnesses (Casper's own timings, Pi's on the harness clock); calls still running at the end count as `unfinished`. Pi reports no phases |
+| Phases and tools | Casper's `phase` JSON events time its task turn, checks, requirements review and proof (the proof includes any model round it starts), on the harness clock; a phase still running when the run ended is `unfinished`. Tool time per tool name for every harness (Casper's own timings, Pi's and OMP's on the harness clock); calls still running at the end count as `unfinished`. Pi and OMP report no phases |
 
 The claim is read from the final answer by a host heuristic, and the quoted sentence is kept
 in the evidence so every verdict can be audited. An explicit admission ("still failing",
