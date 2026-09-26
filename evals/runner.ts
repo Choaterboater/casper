@@ -47,7 +47,7 @@ export interface EvalConvention {
   readonly check: EvalAcceptance;
 }
 
-export type EvalPack = "core" | "network";
+export type EvalPack = "core" | "network" | "hard";
 
 export interface EvalTask {
   readonly id: string;
