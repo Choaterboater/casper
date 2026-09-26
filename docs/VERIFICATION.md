@@ -77,7 +77,8 @@ budget of 12 model turns (a `--max-turns` at or below 12 wins and stops the task
 A review that hits its budget ends there; Casper keeps any checklist from its last answer, marks the
 review `incomplete` (receipt line above, `"incomplete": true` in the JSON receipt's `review`) and
 goes on as after a finished review: the checks rerun if the review changed files, then the proof.
-An incomplete review alone does not make the change `not_verified`; open items it listed still do. The review costs one more
+An incomplete review alone does not make the change `not_verified`; open items it listed still do.
+The proof repair round (below) has the same 12-turn budget; the checks and the comparison after it decide. The review costs one more
 model round per such request. Such a change's first turn is the request as the user wrote it,
 without Casper's task hints (project facts and selected skills still come first, with the request
 labelled, and an under-specified target still gets the clarification nudge). The review then asks

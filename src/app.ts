@@ -869,7 +869,8 @@ export class CasperApp {
     const attempt = verification.repairAttempts + 1;
     this.output.write(`↻ repair ${attempt}/${max}: add a test that fails without the change\n`);
     await this.prepareCapabilities(input.request);
-    await input.session.prompt(proofRepairPrompt(input.request, proof), this.commandAbort?.signal, { request: input.request, maxTurns: this.maxTurns });
+    // A round cut off by its own budget needs no mark: the checks and the comparison below decide.
+    await this.promptRound(input.session, proofRepairPrompt(input.request, proof), input.request);
     if (stopped()) return { verification: { ...verification, repairAttempts: attempt }, proof };
     const again = await this.runVerification(input.checks, true, input.request, this.checkTask, max - attempt);
     verification = { ...again, repairAttempts: attempt + again.repairAttempts };
