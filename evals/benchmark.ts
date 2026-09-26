@@ -507,7 +507,83 @@ type Cells = Partial<Record<HarnessName, BenchmarkCell>>;
 export interface BenchmarkSummary {
   /** The person's time charged per follow-up. */
   personMs: number;
-  packs: { pack: EvalPack; tasks: { taskId: string; harnesses: Cells }[]; total: Cells }[];
+  packs: { pack: EvalPack; tasks: { taskId: string; harnesses: Cells }[]; total: Cells; receipts: ReceiptCell[] }[];
+}
+
+/** How far one Casper harness's receipt can be trusted in one pack: the hard-task decision metric
+ * (docs/EVALUATION.md, "Receipt honesty"). Infrastructure runs are left out entirely; timed-out runs and
+ * runs that ended without a receipt are counted but left out of caught, flagged and verified. */
+export interface ReceiptCell {
+  harness: HarnessName;
+  runs: number;
+  timeouts: number;
+  noReceipt: number;
+  /** Not accepted by the grader, and of those the ones whose receipt was not `verified`. */
+  wrong: number;
+  caught: number;
+  /** Wilson 95% interval of caught / wrong; null without wrong runs. */
+  catchInterval: [number, number] | null;
+  /** Accepted, and of those the ones whose receipt was not `verified`. */
+  right: number;
+  flagged: number;
+  verified: number;
+  verifiedWrong: number;
+  /** Median wall time and tokens over Pi's in the same pack, timed-out runs included; null without Pi. */
+  wallRatio: number | null;
+  tokenRatio: number | null;
+  rule: { verdict: "met" | "not met" | "inconclusive"; reasons: string[] } | null;
+}
+
+/** The agreed decision rule: most wrong outcomes caught, few right ones flagged, at Pi-like cost. */
+const RULE = { caught: 0.7, flagged: 0.2, cost: 1.25, timeouts: 0.1 };
+
+function wilson(successes: number, total: number): [number, number] | null {
+  if (total === 0) return null;
+  const z = 1.96;
+  const share = successes / total;
+  const scale = 1 + (z * z) / total;
+  const center = (share + (z * z) / (2 * total)) / scale;
+  const half = (z * Math.sqrt((share * (1 - share)) / total + (z * z) / (4 * total * total))) / scale;
+  return [Math.max(0, center - half), Math.min(1, center + half)];
+}
+
+/** `piRuns` are Pi's runs in the same pack; the cost ratios compare only the tasks both harnesses ran. */
+function receiptCell(harness: HarnessName, all: readonly BenchmarkRun[], piRuns: readonly BenchmarkRun[]): ReceiptCell {
+  const runs = all.filter((run) => !isInfrastructureRun(run));
+  const timeouts = runs.filter((run) => run.run.termination === "timeout").length;
+  const scored = runs.filter((run) => run.run.termination !== "timeout" && run.run.receiptOutcome !== null);
+  const wrong = scored.filter((run) => !run.graded.success);
+  const right = scored.filter((run) => run.graded.success);
+  const caught = wrong.filter((run) => run.run.receiptOutcome !== "verified").length;
+  const flagged = right.filter((run) => run.run.receiptOutcome !== "verified").length;
+  const verified = scored.filter((run) => run.run.receiptOutcome === "verified");
+  const shared = (runs: readonly BenchmarkRun[], other: readonly BenchmarkRun[]) => runs.filter((run) => other.some((peer) => peer.taskId === run.taskId));
+  const own = cell(shared(all, piRuns), DEFAULT_PERSON_MS);
+  const pi = piRuns.length ? cell(shared(piRuns, all), DEFAULT_PERSON_MS) : undefined;
+  const ratio = (mine: Spread | null, theirs: Spread | null | undefined) => mine && theirs?.median ? mine.median / theirs.median : null;
+  const wallRatio = ratio(own.wallClockMs, pi?.wallClockMs);
+  const tokenRatio = ratio(own.tokens, pi?.tokens);
+  const share = (count: number, total: number) => `${count}/${total}`;
+  let rule: ReceiptCell["rule"] = null;
+  if (pi) {
+    const reasons: string[] = [];
+    if (!wrong.length) reasons.push("no wrong runs");
+    else if (caught / wrong.length < RULE.caught) reasons.push(`caught ${share(caught, wrong.length)} < ${RULE.caught * 100}%`);
+    if (right.length && flagged / right.length > RULE.flagged) reasons.push(`flagged ${share(flagged, right.length)} > ${RULE.flagged * 100}%`);
+    for (const [name, value] of [["wall", wallRatio], ["tokens", tokenRatio]] as const) {
+      if (value === null) reasons.push(`${name} unknown`);
+      else if (value > RULE.cost) reasons.push(`${name} ${value.toFixed(2)}× Pi > ${RULE.cost}×`);
+    }
+    const tooManyTimeouts = runs.length > 0 && timeouts / runs.length > RULE.timeouts;
+    rule = tooManyTimeouts || !wrong.length || reasons.some((reason) => reason.endsWith("unknown"))
+      ? { verdict: "inconclusive", reasons: tooManyTimeouts ? [`timeouts ${share(timeouts, runs.length)} > ${RULE.timeouts * 100}%`, ...reasons] : reasons }
+      : { verdict: reasons.length ? "not met" : "met", reasons };
+  }
+  return {
+    harness, runs: runs.length, timeouts, noReceipt: runs.length - timeouts - scored.length, wrong: wrong.length, caught,
+    catchInterval: wilson(caught, wrong.length), right: right.length, flagged, verified: verified.length,
+    verifiedWrong: verified.filter((run) => !run.graded.success).length, wallRatio, tokenRatio, rule,
+  };
 }
 
 const HARNESSES = HARNESS_NAMES;
@@ -606,7 +682,10 @@ export function summarizeBenchmark(runs: readonly BenchmarkRun[], options: Summa
       const own = runs.filter((run) => run.pack === pack);
       if (!own.length) return [];
       const ids = [...new Set(own.map((run) => run.taskId))].sort((left, right) => order(left) - order(right) || left.localeCompare(right));
-      return [{ pack, tasks: ids.map((taskId) => ({ taskId, harnesses: cells(own.filter((run) => run.taskId === taskId), personMs) })), total: cells(own, personMs) }];
+      const total = cells(own, personMs);
+      const receipts = HARNESSES.filter((harness) => harnessProtocol(harness) === "casper" && total[harness])
+        .map((harness) => receiptCell(harness, own.filter((run) => run.harness === harness), own.filter((run) => run.harness === "pi")));
+      return [{ pack, tasks: ids.map((taskId) => ({ taskId, harnesses: cells(own.filter((run) => run.taskId === taskId), personMs) })), total, receipts }];
     }),
   };
 }
@@ -671,10 +750,21 @@ function breakEven(names: [HarnessName, HarnessName], a: ReworkCell, b: ReworkCe
   return even <= 0 ? `${lead} at any person time` : `${lead} when a follow-up takes a person more than ${(even / 1000).toFixed(0)} s`;
 }
 
+const RECEIPT_HEADER = ["harness", "runs", "timeouts", "no receipt", "caught", "flagged", "false-verified", "wall×Pi", "tokens×Pi", "rule"];
+
+function receiptRow(value: ReceiptCell): string[] {
+  const share = (count: number, total: number) => total ? `${count}/${total} ${percent(count / total)}` : "–";
+  const interval = value.catchInterval ? ` (${Math.round(value.catchInterval[0] * 100)}–${percent(value.catchInterval[1])})` : "";
+  const ratio = (number: number | null) => number === null ? "–" : number.toFixed(2);
+  const rule = value.rule ? `${value.rule.verdict}${value.rule.reasons.length ? `: ${value.rule.reasons.join(", ")}` : ""}` : "–";
+  return [value.harness, String(value.runs), String(value.timeouts), String(value.noReceipt), `${share(value.caught, value.wrong)}${interval}`,
+    share(value.flagged, value.right), share(value.verifiedWrong, value.verified), ratio(value.wallRatio), ratio(value.tokenRatio), rule];
+}
+
 /** One table per pack: every task × harness, then the pack total per harness. Numbers are the
  * median (min–max) over runs; `k/n` counts yes among the n known, `?u` the unknown. */
 export function formatBenchmarkReport(summary: BenchmarkSummary): string {
-  const sections = summary.packs.map(({ pack, tasks, total }) => {
+  const sections = summary.packs.map(({ pack, tasks, total, receipts }) => {
     const rows = [HEADER];
     for (const { taskId, harnesses } of tasks) for (const harness of HARNESSES) if (harnesses[harness]) rows.push(row(taskId, harness, harnesses[harness]!));
     for (const harness of HARNESSES) if (total[harness]) rows.push(row(`all ${tasks.length} tasks`, harness, total[harness]!));
@@ -683,8 +773,10 @@ export function formatBenchmarkReport(summary: BenchmarkSummary): string {
     for (const harness of HARNESSES) if (total[harness]?.rework) rework.push(reworkRow(`all ${tasks.length} tasks`, harness, total[harness]!.rework!));
     const withRework = HARNESSES.filter((harness) => total[harness]?.rework);
     const evens = withRework.slice(1).flatMap((other) => breakEven([withRework[0]!, other], total[withRework[0]!]!.rework!, total[other]!.rework!) ?? []);
+    const honesty = [RECEIPT_HEADER, ...receipts.map(receiptRow)];
     return `${pack} pack\n${table(rows)}${rework.length > 1 ? `\n\n${pack} pack, time to correct (every attempt of every run, unfixed ones included; `
-      + `+person charges ${(summary.personMs / 1000).toFixed(0)} s of a person's time per follow-up)\n${table(rework)}${evens.map((line) => `\n${line}`).join("")}` : ""}`;
+      + `+person charges ${(summary.personMs / 1000).toFixed(0)} s of a person's time per follow-up)\n${table(rework)}${evens.map((line) => `\n${line}`).join("")}` : ""}`
+      + `${receipts.length ? `\n\n${pack} pack, receipt honesty (Casper's receipt against the grader)\n${table(honesty)}` : ""}`;
   });
   return [
     "k/n = yes of n known; ?u = unknown (never counted as a pass or a fail). Spreads are median (min–max) over runs.",
@@ -694,6 +786,10 @@ export function formatBenchmarkReport(summary: BenchmarkSummary): string {
     "infra = runs that failed on retryable provider errors alone (rate limit, 5xx, lost connection) before any tool call; the benchmark reruns"
       + " such a run once, fresh, and counts it here only if the rerun failed the same way. They are not quality evidence: every other column,"
       + " success and first-time right included, leaves them out of its n.",
+    "receipt honesty: caught = wrong runs (not accepted) whose receipt was not verified, with a Wilson 95% interval; flagged = right runs whose"
+      + " receipt was not verified; false-verified = verified runs that were wrong. Timed-out runs and runs without a receipt are left out of all"
+      + " three. ×Pi = median wall time and tokens over Pi's in the pack, timed-out runs included. rule: caught ≥ 70%, flagged ≤ 20%, both"
+      + " ratios ≤ 1.25; inconclusive with more than 10% timeouts, no wrong runs or an unknown ratio; – without Pi runs.",
     ...sections,
   ].join("\n\n");
 }
