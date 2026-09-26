@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { isolatedEnvironment } from "../src/platform/environment";
@@ -235,6 +235,8 @@ async function fixProject(f: Awaited<ReturnType<typeof fixture>>, test = "grep -
 const lastUser = (payload: Payload | undefined) => JSON.stringify([...(payload?.messages ?? [])].reverse().find((message) => message.role === "user")?.content ?? "");
 const afterTool = (payload: Payload) => payload.messages.at(-1)?.role === "tool";
 const REVIEW = "Casper requirements review";
+/** The requirements review is off by default; a test about the review turns it on in the project. */
+const reviewOn = (f: Awaited<ReturnType<typeof fixture>>) => appendFile(path.join(f.project, ".casper/project.yaml"), "verification:\n  review: true\n");
 const PROOF_REPAIR = "also passes without it";
 
 test("--json streams v1 JSON Lines on stdout: session, text, tools, Casper's check and one receipt", async () => {
@@ -242,6 +244,7 @@ test("--json streams v1 JSON Lines on stdout: session, text, tools, Casper's che
     : request === 0 ? { tools: [{ name: "write", args: { path: "sum.js", content: "fixed\n" } }] }
     : { text: "Fixed \u001b[31msum.js\u202e." });
   await fixProject(f);
+  await reviewOn(f);
   const result = await f.run(["--json", "--verify", "--require-verification", "Fix sum.js"]);
   expect(result.exit).toBe(0);
   // The transcript and the plain receipt a person reads moved to stderr.
@@ -329,6 +332,7 @@ test("an unproven fix gets one round to add a test that fails without it; then t
     return afterTool(payload) ? { text: "Fixed sum.js." } : { tools: [{ name: "write", args: { path: "sum.js", content: "fixed\n" } }] };
   });
   await weaklyTestedProject(f);
+  await reviewOn(f);
   const result = await f.run(["--json", "--verify", "--require-verification", "Fix sum.js"]);
   // The first turn is the request itself; the review comes before the proof, and the proof round asks for the test.
   expect(asked(f.payloads[0], "fail without your change")).toBe(false);
@@ -362,6 +366,7 @@ test("a feature worded like a test task is still reviewed and proven; a docs-onl
   const f = await fixture((_request, payload) => lastUser(payload).includes(REVIEW) ? TICKED
     : afterTool(payload) ? { text: "Done." } : { tools: [{ name: "write", args: { path: "sum.js", content: "fixed\n" } }] });
   await fixProject(f);
+  await reviewOn(f);
   const result = await f.run(["--json", "--verify", "sum.js should print fixed; you may add new test files"]);
   const receipt = JSON.parse(result.stdout.trim().split("\n").at(-1)!);
   expect({ proof: receipt.proof?.status, review: receipt.review }).toEqual({ proof: "proven", review: { done: ["sum.js is fixed — tests/check.sh"], open: [] } });
@@ -380,6 +385,7 @@ test("the review round runs even after a fully ticked first checklist, and the r
     : afterTool(payload) ? { text: "Fixed sum.js.\n\nRequirements:\n- [x] sum.js prints fixed — tests/sum.sh" }
     : { tools: [{ name: "write", args: { path: "sum.js", content: "fixed\n" } }, { name: "write", args: { path: "tests/sum.sh", content: "grep -q fixed sum.js\n" } }] });
   await fixProject(f);
+  await reviewOn(f);
   const result = await f.run(["--json", "--verify", "Fix sum.js"]);
   // B: the first turn is the request itself; the review asks for the checklist, with the ticking rule.
   expect(asked(f.payloads[0], "Tick a requirement only when a test you can name asserts it")).toBe(false);
@@ -393,11 +399,11 @@ test("the review round runs even after a fully ticked first checklist, and the r
     .toEqual({ outcome: "verified", review: { done: ["sum.js is fixed — tests/check.sh"], open: [] }, proof: "proven" });
 }, 60_000);
 
-test("verification.review: false skips the review round; the change is still proven", async () => {
+test("the review round is off by default (and with verification.review: false); the change is still proven", async () => {
   const f = await fixture((_request, payload) => lastUser(payload).includes(REVIEW) ? TICKED
     : afterTool(payload) ? { text: "Fixed." } : { tools: [{ name: "write", args: { path: "sum.js", content: "fixed\n" } }] });
+  // Pinned benchmarks: the review added no first-time-right and cost 40% of the wall time; the checks and the proof decide.
   await fixProject(f);
-  await writeFile(path.join(f.project, ".casper/project.yaml"), 'verify:\n  test: "grep -q fixed sum.js"\nverification:\n  review: false\n');
   const result = await f.run(["--json", "--verify", "Fix sum.js"]);
   expect(f.payloads.some((payload) => lastUser(payload).includes(REVIEW))).toBe(false);
   // No review follows, so the first turn itself asks for the checklist and a test that fails without the change.
@@ -406,7 +412,7 @@ test("verification.review: false skips the review round; the change is still pro
   const receipt = JSON.parse(result.stdout.trim().split("\n").at(-1)!);
   expect({ outcome: receipt.outcome, proof: receipt.proof?.status, review: receipt.review }).toEqual({ outcome: "verified", proof: "proven", review: null });
 
-  // The benchmark's casper-no-review sets it in the user configuration (~/.casper/config.yaml).
+  // The benchmark's casper-no-review sets it explicitly in the user configuration (~/.casper/config.yaml).
   const user = await fixture((_request, payload) => lastUser(payload).includes(REVIEW) ? TICKED
     : afterTool(payload) ? { text: "Fixed." } : { tools: [{ name: "write", args: { path: "sum.js", content: "fixed\n" } }] });
   await fixProject(user);
@@ -426,6 +432,7 @@ test("the review round fixes a gap the model finds; a gap it admits keeps the ch
     return afterTool(payload) ? { text: "Fixed." } : { tools: [{ name: "write", args: { path: "sum.js", content: "fixed\n" } }] };
   });
   await fixProject(fixed);
+  await reviewOn(fixed);
   const reviewed = await fixed.run(["--json", "--verify", "Fix sum.js"]);
   const receipt = JSON.parse(reviewed.stdout.trim().split("\n").at(-1)!);
   expect({ exit: reviewed.exit, outcome: receipt.outcome, review: receipt.review, proof: receipt.proof?.status })
@@ -437,6 +444,7 @@ test("the review round fixes a gap the model finds; a gap it admits keeps the ch
     ? { text: "Requirements:\n- [x] sum.js is fixed — test\n- [ ] negative numbers — not implemented" }
     : afterTool(payload) ? { text: "Fixed." } : { tools: [{ name: "write", args: { path: "sum.js", content: "fixed\n" } }] });
   await fixProject(admitted);
+  await reviewOn(admitted);
   const gap = await admitted.run(["--json", "--verify", "--require-verification", "Fix sum.js"]);
   const gapReceipt = JSON.parse(gap.stdout.trim().split("\n").at(-1)!);
   expect({ exit: gap.exit, outcome: gapReceipt.outcome }).toEqual({ exit: 3, outcome: "not_verified" });
@@ -452,6 +460,7 @@ const endlessReview = (_request: number, payload: Payload): Step => {
 test("the review stops at its own 12-turn budget; Casper still reruns the checks and proves the change", async () => {
   const f = await fixture(endlessReview);
   await fixProject(f);
+  await reviewOn(f);
   const result = await f.run(["--json", "--verify", "--require-verification", "Fix sum.js"]);
   expect(f.payloads.filter((payload) => lastUser(payload).includes(REVIEW)).length).toBe(12);
   const stream = events(result.stdout, "");
@@ -467,6 +476,7 @@ test("the review stops at its own 12-turn budget; Casper still reruns the checks
 test("a --max-turns below the review's budget still stops the task in the review: no proof, exit 2", async () => {
   const f = await fixture(endlessReview);
   await fixProject(f);
+  await reviewOn(f);
   const result = await f.run(["--json", "--verify", "--max-turns", "3", "Fix sum.js"]);
   expect(f.payloads.filter((payload) => lastUser(payload).includes(REVIEW)).length).toBe(3);
   const receipt = events(result.stdout, "").at(-1);

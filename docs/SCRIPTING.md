@@ -26,7 +26,7 @@ options accept `--name value` or `--name=value`.
 | `--continue` | Continue this folder's most recent conversation. With none, a new one starts (with a notice). |
 | `--resume <id-prefix>` | Continue the saved conversation whose ID starts with this prefix. `casper /resume` lists IDs. |
 | `--cd <path>` | Work in that folder instead of the current directory. |
-| `--max-turns <n>` | Stop each model request after `n` model turns (1–9999). The run is then incomplete (exit 2) and Casper runs no checks. The requirements review and proof repair rounds have their own 12-turn budget; hitting that is not this stop (see VERIFICATION.md). |
+| `--max-turns <n>` | Stop each model request after `n` model turns (1–9999). The run is then incomplete (exit 2) and Casper runs no checks. The requirements review (`verification.review: true`) and proof repair rounds have their own 12-turn budget; hitting that is not this stop (see VERIFICATION.md). |
 | `--verbose` | The detailed evidence receipt instead of the plain one. |
 | `--mcp <name>`, `--lsp <name>` | Connect your own configured MCP or language server first (repeatable). |
 
@@ -90,7 +90,7 @@ classifier), or automatic effort's classifier.
 An `unproven` change has the outcome `not_verified`. `review` is the model's requirements checklist from its review round
 (`{ "done": [...], "open": [...], "total": m }`, or `{ "missing": true }` when it returned none), or `null` when no
 review ran. With `total` (the requirement count the review reported), `done` lists only the gaps the review
-fixed and `open` those still open; without it (`verification.review: false`, or an answer with no count),
+fixed and `open` those still open; without it (the review off, the default: the first answer's own checklist; or an answer with no count),
 `done` is the full checklist. It is the model's own claim; any `open` item makes the outcome `not_verified`.
 
 ```json

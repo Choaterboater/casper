@@ -729,7 +729,7 @@ export class CasperApp {
         memoryContext,
         skillContext,
         formatTaskPrompt(prompt, classification, context.model, { verificationMode, proveChange: proving,
-          reviewFollows: context.verification.review !== false, afterContext: Boolean(memoryContext || skillContext) }),
+          reviewFollows: context.verification.review === true, afterContext: Boolean(memoryContext || skillContext) }),
       ].filter(Boolean).join("\n\n"), this.commandAbort?.signal, { request: prompt, maxTurns: this.maxTurns });
       this.onEvent?.(phaseEvent("task", "end"));
       afterModel = before && !this.closing ? await this.snapshotWorkspace(workspaceRoot) : undefined;
@@ -794,8 +794,9 @@ export class CasperApp {
     return verification;
   }
 
-  /** After the checks pass on a fix or feature: one requirements-review round (the model checks every
-   * stated requirement, fixes gaps and returns a checklist), the checks again, then the proof. */
+  /** After the checks pass on a fix or feature: with verification.review: true, one requirements-review
+   * round (the model checks every stated requirement, fixes gaps and reports them) and the checks again;
+   * then the proof. */
   private async finishChange(input: {
     baseline?: ChangeBaseline; baselineUnavailable?: string; before: Map<string, string>; root: string; command: string;
     request: string; checks: readonly ProjectCommand[]; verification: VerificationReport; session: RuntimeSession;
@@ -805,11 +806,11 @@ export class CasperApp {
     const stopped = () => this.closing || Boolean(this.commandAbort?.signal.aborted) || this.taskRuntimeFailed || this.taskTurnLimit !== undefined;
     const max = context.repair.maxAttempts;
     let verification = input.verification;
-    // The review always runs: a first answer's fully ticked checklist was wrong too often to skip it
-    // (benchmarks: 2 of 3 skipped reviews ended in a false done). With the review on, the first turn is
-    // not asked for a checklist; verification.review: false keeps only the first answer's own, if any.
+    // The review is opt-in (verification.review: true): pinned benchmarks showed no first-time-right gain
+    // for 40% of the wall time. With it on, the first turn is not asked for a checklist; with it off
+    // (the default), the first turn asks for one and only the first answer's own, if any, is kept.
     const initialReview = input.initialReview;
-    if (context.verification.review === false) {
+    if (context.verification.review !== true) {
       if (verification.status !== "pass" || stopped()) return { verification, review: initialReview };
       this.onEvent?.(phaseEvent("proof", "start"));
       const result = await this.proveChange({ ...input, verification });
