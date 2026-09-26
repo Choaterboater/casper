@@ -326,3 +326,26 @@ test("a provider error the CLI retried past is kept as a diagnostic; the final s
     { type: "agent_end" },
   ], process)).toMatchObject({ termination: "completed", answer: "Added it.", turns: 2, tokens: 50, errors: ["terminated"] });
 });
+
+test("Casper's smoke report is recorded as its receipt gave it, and its smoke phase is timed", () => {
+  const smoke = { status: "pass", checks: [
+    { id: "list notes", name: "list notes", service: "api", source: "config", request: { method: "GET", path: "/notes" }, status: "pass", evidence: true, actual: { status: 200, body: "{}" } },
+    { id: "smoke-1", name: "create note", service: "api", source: "model", request: { method: "POST", path: "/notes" }, baseline: "fail", status: "pass", evidence: true, extra: 1 },
+  ] };
+  const events = (receiptSmoke: unknown) => [
+    { v: 1, type: "phase", phase: "checks", state: "start" }, { v: 1, type: "phase", phase: "checks", state: "end" },
+    { v: 1, type: "phase", phase: "smoke", state: "start" }, { v: 1, type: "phase", phase: "smoke", state: "end" },
+    { v: 1, type: "assistant_message", text: "Done." },
+    { v: 1, type: "receipt", execution: "completed", outcome: "verified", exitCode: 0, services: [{ name: "api", origin: "http://127.0.0.1:5000", state: "ready" }], smoke: receiptSmoke },
+  ];
+  const process = { exitCode: 0, timedOut: false, wallClockMs: 900, eventTimes: [10, 40, 50, 450, 460, 470] };
+  const observed = observeHarness("casper", events(smoke), process);
+  expect(observed.smoke).toEqual(smoke);
+  expect(observed.phases).toEqual([{ phase: "checks", durationMs: 30 }, { phase: "smoke", durationMs: 400 }]);
+  // No smoke run, or a report without a status and checks, records none.
+  expect(observeHarness("casper", events(null), process).smoke).toBeUndefined();
+  expect(observeHarness("casper", events({ status: "pass" }), process).smoke).toBeUndefined();
+  // Pi reports no smoke at all.
+  expect(observeHarness("pi", [{ type: "message_end", message: { role: "assistant", stopReason: "stop", content: [] } }, { type: "agent_end" }],
+    { exitCode: 0, timedOut: false, wallClockMs: 1 }).smoke).toBeUndefined();
+});

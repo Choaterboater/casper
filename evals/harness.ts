@@ -46,6 +46,14 @@ export interface HarnessObservation {
   /** Time in tools per tool name: Casper's own tool timings, Pi's timed on the harness clock. Calls
    * still running when the run ended (a hung test run, say) count to the end and are `unfinished`. */
   tools?: readonly HarnessToolTime[];
+  /** Casper's last smoke run, as its receipt reported it (`smoke`): a self-report like
+   * `receiptOutcome`, kept to measure the capability. Absent when none ran, and for Pi. */
+  smoke?: HarnessSmoke;
+}
+/** Casper's smoke report, recorded as given; only these fields are read, so a newer Casper's extra ones are kept, not required. */
+export interface HarnessSmoke {
+  status: string;
+  checks: Array<{ source?: string; baseline?: string; status?: string; evidence?: boolean; [field: string]: unknown }>;
 }
 export interface HarnessInput {
   /** Executable plus fixed arguments; never interpreted by a shell. */
@@ -74,7 +82,8 @@ export interface HarnessInput {
   };
 }
 
-export type PhaseName = "task" | "checks" | "review" | "proof" | "repair";
+export type PhaseName = "task" | "checks" | "smoke" | "review" | "proof" | "repair";
+const PHASES: readonly unknown[] = ["task", "checks", "smoke", "review", "proof", "repair"] satisfies readonly PhaseName[];
 export interface HarnessPhase { phase: PhaseName; durationMs: number; unfinished?: true }
 export interface HarnessToolTime { tool: string; calls: number; ms: number; unfinished?: number }
 
@@ -228,6 +237,7 @@ export function observeHarness(harness: HarnessName, events: readonly unknown[],
   let expectedExit = 0;
   let receiptOutcome: string | null = null;
   let sessionId: string | null = null;
+  let smoke: HarnessSmoke | undefined;
   const errors: string[] = [];
   // Protocol faults fail the run. Provider errors are diagnostics: both CLIs retry them, and only
   // the final state (Casper's receipt, Pi's last response) says whether the run finished.
@@ -260,7 +270,7 @@ export function observeHarness(harness: HarnessName, events: readonly unknown[],
       continue;
     }
     if (event.type === "error") errors.push(typeof event.message === "string" ? event.message : "Harness error");
-    if (name === "casper" && event.type === "phase" && (["task", "checks", "review", "proof", "repair"] as unknown[]).includes(event.phase)
+    if (name === "casper" && event.type === "phase" && PHASES.includes(event.phase)
       && (event.state === "start" || event.state === "end")) {
       const phase = event.phase as PhaseName;
       // The harness clock when there is one: it also times a phase the run never finished.
@@ -301,6 +311,7 @@ export function observeHarness(harness: HarnessName, events: readonly unknown[],
         const count = (value: unknown) => Number.isSafeInteger(value) && (value as number) >= 0 ? value as number : null;
         const amount = (value: unknown) => typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
         casperUsage = { turns: count(usage?.turns), tokens: count(usage?.tokens), estimatedCost: amount(usage?.estimatedCost) };
+        smoke = smokeReport(event.smoke);
       }
     }
     if (name === "pi" && event.type === "session" && typeof event.id === "string") sessionId = event.id.slice(0, 128);
@@ -333,5 +344,15 @@ export function observeHarness(harness: HarnessName, events: readonly unknown[],
     exitCode: process.exitCode, wallClockMs: process.wallClockMs,
     ...(name === "casper" ? casperUsage : { turns, tokens: turns && !delegated ? tokens : null, estimatedCost: turns && !delegated ? estimatedCost : null }),
     receiptOutcome, sessionId, errors, ...(phases.length ? { phases } : {}), ...(tools.size ? { tools: [...tools.values()] } : {}),
+    ...(smoke ? { smoke } : {}),
   };
+}
+
+/** A receipt's smoke report with a status and a bounded list of check records; anything else is none. */
+function smokeReport(value: unknown): HarnessSmoke | undefined {
+  const report = record(value);
+  if (typeof report?.status !== "string" || !Array.isArray(report.checks) || report.checks.length > 64) return undefined;
+  const checks = report.checks.map(record);
+  if (checks.some((check) => !check)) return undefined;
+  return structuredClone({ ...report, status: report.status, checks: checks as HarnessSmoke["checks"] });
 }
