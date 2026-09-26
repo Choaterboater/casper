@@ -26,7 +26,7 @@ options accept `--name value` or `--name=value`.
 | `--continue` | Continue this folder's most recent conversation. With none, a new one starts (with a notice). |
 | `--resume <id-prefix>` | Continue the saved conversation whose ID starts with this prefix. `casper /resume` lists IDs. |
 | `--cd <path>` | Work in that folder instead of the current directory. |
-| `--max-turns <n>` | Stop each model request after `n` model turns (1–9999). The run is then incomplete (exit 2) and Casper runs no checks. |
+| `--max-turns <n>` | Stop each model request after `n` model turns (1–9999). The run is then incomplete (exit 2) and Casper runs no checks. The requirements review and proof repair rounds have their own 12-turn budget; hitting that is not this stop (see VERIFICATION.md). |
 | `--verbose` | The detailed evidence receipt instead of the plain one. |
 | `--mcp <name>`, `--lsp <name>` | Connect your own configured MCP or language server first (repeatable). |
 

@@ -443,6 +443,53 @@ test("the review round fixes a gap the model finds; a gap it admits keeps the ch
   expect(gapReceipt.text).toContain("⚠ The model's review says not done: negative numbers — not implemented");
 }, 90_000);
 
+/** A model that fixes sum.js, then keeps editing through the whole review without ever ending it. */
+const endlessReview = (_request: number, payload: Payload): Step => {
+  if (lastUser(payload).includes(REVIEW)) return { tools: [{ name: "write", args: { path: `review-${payload.messages.length}.txt`, content: "x\n" } }] };
+  return afterTool(payload) ? { text: "Fixed." } : { tools: [{ name: "write", args: { path: "sum.js", content: "fixed\n" } }] };
+};
+
+test("the review stops at its own 12-turn budget; Casper still reruns the checks and proves the change", async () => {
+  const f = await fixture(endlessReview);
+  await fixProject(f);
+  const result = await f.run(["--json", "--verify", "--require-verification", "Fix sum.js"]);
+  expect(f.payloads.filter((payload) => lastUser(payload).includes(REVIEW)).length).toBe(12);
+  const stream = events(result.stdout, "");
+  const receipt = stream.at(-1);
+  // The review edited files, so the checks ran again; then the proof. Not the task's own --max-turns stop.
+  expect(stream.filter((event) => event.type === "check").length).toBe(2);
+  expect({ exit: result.exit, outcome: receipt.outcome, turnLimit: receipt.turnLimit, proof: receipt.proof?.status, review: receipt.review })
+    .toEqual({ exit: 0, outcome: "verified", turnLimit: null, proof: "proven", review: { missing: true, incomplete: true } });
+  expect(receipt.text).toContain("• The model's review stopped at its 12-turn budget (its own claim so far, not checked by Casper)");
+  expect(receipt.text).not.toContain("--max-turns");
+}, 60_000);
+
+test("a --max-turns below the review's budget still stops the task in the review: no proof, exit 2", async () => {
+  const f = await fixture(endlessReview);
+  await fixProject(f);
+  const result = await f.run(["--json", "--verify", "--max-turns", "3", "Fix sum.js"]);
+  expect(f.payloads.filter((payload) => lastUser(payload).includes(REVIEW)).length).toBe(3);
+  const receipt = events(result.stdout, "").at(-1);
+  expect({ exit: result.exit, outcome: receipt.outcome, turnLimit: receipt.turnLimit, proof: receipt.proof, review: receipt.review })
+    .toEqual({ exit: 2, outcome: "incomplete", turnLimit: 3, proof: null, review: null });
+  expect(receipt.text).toContain("✗ Stopped after 3 turns (--max-turns)");
+}, 60_000);
+
+test("the proof repair round has the same 12-turn budget; the proof then decides", async () => {
+  const f = await fixture((_request, payload) => {
+    const prompt = lastUser(payload);
+    if (prompt.includes(PROOF_REPAIR)) return { tools: [{ name: "write", args: { path: `proof-${payload.messages.length}.txt`, content: "x\n" } }] };
+    if (prompt.includes(REVIEW)) return TICKED;
+    return afterTool(payload) ? { text: "Fixed sum.js." } : { tools: [{ name: "write", args: { path: "sum.js", content: "fixed\n" } }] };
+  });
+  await weaklyTestedProject(f);
+  const result = await f.run(["--json", "--verify", "--require-verification", "Fix sum.js"]);
+  expect(f.payloads.filter((payload) => lastUser(payload).includes(PROOF_REPAIR)).length).toBe(12);
+  const receipt = JSON.parse(result.stdout.trim().split("\n").at(-1)!);
+  expect({ exit: result.exit, outcome: receipt.outcome, turnLimit: receipt.turnLimit, proof: receipt.proof?.status })
+    .toEqual({ exit: 3, outcome: "not_verified", turnLimit: null, proof: "unproven" });
+}, 60_000);
+
 test("--json ends with an error event when Casper stops before a receipt", async () => {
   const f = await fixture();
   const result = await f.run(["--json", "--model", "fixture/nope", "hi"]);

@@ -80,12 +80,21 @@ changed files. The receipt shows the review as **the model's own claim**, never 
 • The model's review: all 6 requirements covered (1 gap fixed; its own claim, not checked by Casper)
 ⚠ The model's review says not done: handshake timeout — not implemented
 • The model's review returned no checklist
+• The model's review stopped at its 12-turn budget (its own claim so far, not checked by Casper)
 ```
 
 An answer with a full checklist but no `Covered:` line is still read, and reported without the gap count.
 
-An item the model admits is not done makes the change `not_verified`. The review costs one more
-model round per such request. Such a change's first turn is the request as the user wrote it,
+An item the model admits is not done makes the change `not_verified`. The review round has its own
+budget of 12 model turns (a `--max-turns` at or below 12 wins and stops the task as usual, exit 2).
+A review that hits its budget ends there; Casper keeps any checklist from its last answer, marks the
+review `incomplete` (receipt line above, `"incomplete": true` in the JSON receipt's `review`) and
+goes on as after a finished review: the checks rerun if the review changed files, then the proof.
+An incomplete review alone does not make the change `not_verified`; open items it listed still do.
+The proof repair round (below) has the same 12-turn budget; the checks and the comparison after it
+decide.
+
+The review costs one more model round per such request. Such a change's first turn is the request as the user wrote it,
 without Casper's task hints (project facts and selected skills still come first, with the request
 labelled, and an under-specified target still gets the clarification nudge). The review then checks
 every requirement, one case at a time (each missing option, each malformed value), reusing what
@@ -93,8 +102,8 @@ the model already read; if the tests also pass without the change, the proof rou
 that fails. In one pinned ablation the request alone was as accurate as the hinted first turn, with
 fewer turns. If the work stops before the review (checks still failing after repairs, a turn
 limit), no later round asks for tests. With the round off (below), the first turn asks for the
-full checklist (`- [x] requirement — test`, `- [ ] requirement — why not done`) and the failing test instead, and the review runs in no case. To turn the round off
-entirely:
+full checklist (`- [x] requirement — test`, `- [ ] requirement — why not done`) and the failing
+test instead, and the review runs in no case. To turn the round off entirely:
 
 ```yaml
 verification:
