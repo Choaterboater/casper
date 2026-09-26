@@ -45,6 +45,11 @@ with an error naming the file, the key and the allowed values. Unknown top-level
 and unknown keys in the policy sections (`behavior`, `code`, `git`, `workspace`) are
 shown as `[config]` warnings at startup and otherwise ignored.
 
+The project file may also declare managed services under `services:` (the command, port,
+readiness, deadline, scope and literal environment of each development server Casper may
+run). Services are project-only, and invalid values stop loading with their dotted path. See
+[SERVICES.md](SERVICES.md).
+
 ## Environment variables
 
 | Variable | Meaning |
