@@ -25,6 +25,8 @@ export interface ManagedProcessOptions {
   tempPrefix?: string;
   /** Process-table seam; the host platform by default. Tests simulate Windows through it. */
   platform?: ProcessPlatform;
+  /** Called when the root exits on its own after readiness (a crash); the owner decides the cleanup. */
+  onExit?: (details: { code: number | null; signal: NodeJS.Signals | null }) => void;
 }
 
 /** A startup that did not reach readiness. The process is already cleaned up when this is thrown. */
@@ -148,7 +150,11 @@ export class ManagedProcess {
     let failed = false;
     child.on("error", () => { failed = true; });
     child.once("exit", (code, exitSignal) => {
-      if (this.current === "starting" || this.current === "ready") { this.current = "exited"; this.exitDetails = { code, signal: exitSignal }; }
+      if (this.current === "starting" || this.current === "ready") {
+        const wasReady = this.current === "ready";
+        this.current = "exited"; this.exitDetails = { code, signal: exitSignal };
+        if (wasReady) this.options.onExit?.({ code, signal: exitSignal });
+      }
     });
     this.exited = new Promise(resolve => child.once("close", () => resolve()));
     const stop = () => { void this.close().catch(() => {}); };
