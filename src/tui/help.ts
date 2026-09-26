@@ -68,6 +68,7 @@ Usage:
   casper --no-verify   No Casper checks during tasks for this run (off)
   casper --verbose ... Detailed evidence receipts and per-check lines
   casper --json <prompt>  JSON Lines events on stdout (see docs/SCRIPTING.md); other output to stderr
+  casper --json - < f     Read the prompt from stdin (kept out of the process list)
   casper --require-verification <prompt>
                        Implies --verify; changes Casper did not verify exit 3, not 0
   casper --mcp <name>  Authorize and connect your own (user/profile) MCP server (repeatable)

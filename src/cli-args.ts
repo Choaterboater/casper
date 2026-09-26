@@ -31,6 +31,10 @@ export interface CliOptions {
   resume?: string;
   servers: string[];
   languageServers: string[];
+  /** A lone `-`: the one-shot prompt comes from stdin. Bun cannot retitle its process the way Node can, so a
+   * prompt argument stays readable in the process list, and a model's `pkill -f <text from the prompt>` would
+   * match Casper itself. */
+  promptFromStdin?: boolean;
   /** One-shot prompt, `casper learn …`, or an interactive session. */
   command: "prompt" | "learn" | "interactive";
   /** Prompt words, or the full `learn …` argument list. */
@@ -94,7 +98,7 @@ export function parseCliArgs(argv: readonly string[]): CliOptions {
   const info = infoFlag(args[0]);
   if (info) return { ...options, info };
   if (args[0] === "--") args.shift();
-  else if (args[0]?.startsWith("-")) {
+  else if (args[0]?.startsWith("-") && !(args[0] === "-" && args.length === 1)) {
     // An unknown or misspelled option would otherwise become a (paid) model prompt.
     throw new UsageError(`Unknown option ${args[0]}. Run casper --help for usage; put -- before a prompt that starts with "-".`);
   }
@@ -103,7 +107,11 @@ export function parseCliArgs(argv: readonly string[]): CliOptions {
   if (options.effort && options.model?.includes(":")) throw new UsageError("Give the effort either in --model provider/model-id:effort or in --effort, not both");
 
   options.rest = args;
-  if (args[0] === "learn") {
+  if (args.length === 1 && args[0] === "-") {
+    options.promptFromStdin = true;
+    options.rest = [];
+    options.command = "prompt";
+  } else if (args[0] === "learn") {
     if (optionCount) throw new UsageError("learn cannot be combined with options");
     options.command = "learn";
   } else if (args.join(" ").trim()) options.command = "prompt";

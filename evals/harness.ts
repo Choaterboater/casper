@@ -135,12 +135,15 @@ export async function runHarness(harness: HarnessName, input: HarnessInput): Pro
           "--model", input.model, "--thinking", input.effort];
     // Pi runs with PI_TELEMETRY=0 and sends no OpenRouter attribution; CASPER_TELEMETRY=0 gives
     // Casper's requests the same headers, so the host sees no difference but the prompt.
-    const child = Bun.spawn([...input.command, ...args, "--", input.prompt], {
+    // Casper takes the prompt on stdin: Bun cannot retitle a process, so a prompt argument would stay in the
+    // process list, where a model's `pkill -f <words from the prompt>` kills every Casper run on the task
+    // (Phase 6: three core-service-lifecycle runs died so). Pi and OMP retitle themselves on Node.
+    const child = Bun.spawn([...input.command, ...args, ...(name === "casper" ? ["-"] : ["--", input.prompt])], {
       // OMP honors PI_CODING_AGENT_DIR but has no offline or telemetry switch.
       cwd: input.cwd, env: isolatedEnvironment(home, name === "casper"
         ? { CASPER_AGENT_DIR: agent, CASPER_OFFLINE: "1", CASPER_TELEMETRY: "0" }
         : harness === "omp" ? { PI_CODING_AGENT_DIR: agent, PI_TELEMETRY: "0" } : { PI_CODING_AGENT_DIR: agent, PI_OFFLINE: "1", PI_TELEMETRY: "0" }),
-      stdin: "ignore", stdout: "pipe", stderr: "pipe", detached: osSupportsProcessGroups,
+      stdin: name === "casper" ? new Blob([input.prompt]) : "ignore", stdout: "pipe", stderr: "pipe", detached: osSupportsProcessGroups,
     });
     const owner = ownSpawnedTree(child.pid, () => child.exitCode === null && child.signalCode === null);
     const stop = () => terminateTree(owner, child.pid, "SIGKILL");

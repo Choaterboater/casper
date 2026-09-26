@@ -14,6 +14,12 @@ Options go **before** the prompt. Everything after the first non-option word is 
 `casper explain the -v flag` is a prompt. Put `--` before a prompt that starts with `-`. Value
 options accept `--name value` or `--name=value`.
 
+A lone `-` as the prompt reads it from stdin (at most 1 MiB): `casper --json --verify - < task.md`.
+Prefer it in scripts. Casper runs on Bun, which cannot rename its process the way Node programs such
+as Pi do, so a prompt given as arguments stays visible in `ps` to other users of the machine, and a
+`pkill -f` with words from the prompt (a model stopping "src/server.ts", say) matches Casper itself.
+The benchmark harness passes Casper's prompt this way.
+
 ## Flags
 
 | Flag | Effect |

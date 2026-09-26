@@ -52,8 +52,8 @@ async function fixture(script: (request: number, payload: Payload) => Step = () 
   const settings = path.join(home, ".casper/settings.json");
   await writeFile(settings, JSON.stringify({ defaultProvider: "fixture", defaultModel: "first", retry: { enabled: false } }));
   const env = { ...isolatedEnvironment(home), CASPER_OFFLINE: "1" };
-  async function run(args: string[], cwd = project, extra: Record<string, string> = {}) {
-    const child = Bun.spawn([process.execPath, cli, ...args], { cwd, env: { ...env, ...extra }, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+  async function run(args: string[], cwd = project, extra: Record<string, string> = {}, input?: string) {
+    const child = Bun.spawn([process.execPath, cli, ...args], { cwd, env: { ...env, ...extra }, stdin: input === undefined ? "ignore" : new Blob([input]), stdout: "pipe", stderr: "pipe" });
     const timer = setTimeout(() => child.kill(), 20_000);
     try {
       const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
@@ -78,6 +78,18 @@ test("--model and --effort choose this run's model and effort without touching t
   const plain = await f.run(["Answer without tools"]);
   expect(plain.exit).toBe(0);
   expect(f.payloads[2]!.model).toBe("first");
+}, 60_000);
+
+test("casper - takes the one-shot prompt from stdin, keeping it out of the process list", async () => {
+  const f = await fixture();
+  const result = await f.run(["--json", "-"], undefined, {}, "Answer without tools: kill src/server.ts\n");
+  expect(result.exit).toBe(0);
+  expect(JSON.stringify(f.payloads[0]!.messages)).toContain("Answer without tools: kill src/server.ts");
+  expect(result.stdout).toContain('"type":"receipt"');
+  const empty = await f.run(["--json", "-"], undefined, {}, "  \n");
+  expect(empty.exit).toBe(64);
+  expect(empty.stderr).toContain("No prompt on stdin");
+  expect(f.payloads).toHaveLength(1);
 }, 60_000);
 
 test("every --effort level runs on every model, mapped to the nearest level it supports", async () => {

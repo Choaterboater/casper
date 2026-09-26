@@ -58,6 +58,15 @@ export function reportFatal(error: unknown): void {
   process.exitCode = error instanceof UsageError ? 64 : 1;
 }
 
+/** The prompt for `casper … -`: all of stdin, bounded, so it never sits in the process list. */
+async function stdinPrompt(): Promise<string> {
+  if (process.stdin.isTTY) throw new UsageError("casper - reads the prompt from stdin; pipe it in: casper --json - < prompt.txt");
+  const text = await new Response(Bun.stdin.stream()).text();
+  if (Buffer.byteLength(text) > 1024 * 1024) throw new UsageError("The prompt on stdin is over 1 MiB");
+  if (!text.trim()) throw new UsageError("No prompt on stdin: casper --json - < prompt.txt");
+  return text.trim();
+}
+
 export async function runCli(): Promise<void> {
   // Options are parsed before anything touches state; they have no side effects.
   const options = parseCliArgs(process.argv.slice(2));
@@ -120,7 +129,7 @@ export async function runCli(): Promise<void> {
     }
     return;
   }
-  const prompt = options.rest.join(" ").trim();
+  const prompt = options.promptFromStdin ? await stdinPrompt() : options.rest.join(" ").trim();
   // --json: stdout carries only JSON Lines; the banner, transcript and receipt a person reads go to stderr.
   const emit = options.json ? (event: CasperEvent) => { process.stdout.write(formatJsonEvent(event)); } : undefined;
   const app = new CasperApp({ verificationMode: verificationFlag(options), verbose: options.verbose,
