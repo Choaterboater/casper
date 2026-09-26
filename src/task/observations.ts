@@ -42,16 +42,29 @@ export class TaskObservations {
   private turns = 0;
   private tokens: number | null = 0;
   private estimatedCost: number | null = 0;
+  /** Delegate calls started, and child usage reports received. Counted apart, not matched in
+   * order: the tool reports when it returns, which may reach us before or after its tool_start. */
+  private delegations = 0;
+  private delegationReports = 0;
 
-  /** Counts the main conversation's model responses and totals their reported usage. A
-   * delegated subagent's model calls are not totalled, so delegating makes the totals unknown. */
+  /** Counts the main conversation's model responses and totals their reported usage. A delegated
+   * subagent's model calls are added by `recordDelegatedUsage`; until every delegate call has
+   * reported, the totals are unknown rather than an undercount. Turns stay the parent's own. */
   observeUsage(event: RuntimeEvent): void {
-    if (event.type === "tool_start" && event.toolName === "delegate") this.recordUntrackedModelUse();
+    if (event.type === "tool_start" && event.toolName === "delegate") this.delegations++;
     if (event.type !== "assistant_response_end") return;
     this.turns++;
     if (!event.usage) { this.recordUntrackedModelUse(); return; }
     if (this.tokens !== null) this.tokens += event.usage.tokens;
     if (this.estimatedCost !== null) this.estimatedCost += event.usage.estimatedCost;
+  }
+
+  /** One delegate call's child usage (zero when no child ran); null when the child's is unknown. */
+  recordDelegatedUsage(usage: { tokens: number; estimatedCost: number } | null): void {
+    this.delegationReports++;
+    if (!usage) { this.recordUntrackedModelUse(); return; }
+    if (this.tokens !== null) this.tokens += usage.tokens;
+    if (this.estimatedCost !== null) this.estimatedCost += usage.estimatedCost;
   }
 
   /** The task made model calls these totals do not include. */
@@ -100,6 +113,7 @@ export class TaskObservations {
       ...(changedPaths ? { changedPaths: [...changedPaths] } : {}),
       ...(changedDuringChecks.length ? { changedDuringChecks: [...changedDuringChecks] } : {}),
       possibleMutations: this.mutationToolRan && !changedPaths,
-      usage: { turns: this.turns, tokens: this.tokens, estimatedCost: this.estimatedCost } };
+      usage: { turns: this.turns, ...(this.delegationReports < this.delegations ? { tokens: null, estimatedCost: null }
+        : { tokens: this.tokens, estimatedCost: this.estimatedCost }) } };
   }
 }

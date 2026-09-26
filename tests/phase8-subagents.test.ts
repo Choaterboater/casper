@@ -100,6 +100,67 @@ describe("Phase 8 bounded subagents", () => {
     expect(created).toBe(0);
   });
 
+  test("a child's reported model usage is totalled for the parent; one unreported response makes it unknown", async () => {
+    const end = (usage?: { tokens: number; estimatedCost: number }) => ({ type: "assistant_response_end" as const, stopReason: "toolUse", ...(usage ? { usage } : {}) });
+    const reported = await manager(() => new ChildRuntime(async (emit) => {
+      emit({ type: "assistant_response_start" }); emit(end({ tokens: 30, estimatedCost: 0.5 }));
+      emit({ type: "assistant_response_start" }); emit({ type: "assistant_text_delta", delta: "Evidence: index.ts:1" });
+      emit({ ...end({ tokens: 20, estimatedCost: 0.25 }), stopReason: "stop" });
+      // The runtime's own limit notice ends no model response and carries no usage.
+      emit({ type: "assistant_response_end", stopReason: "limit", errorMessage: "Subagent tool-call budget exhausted" });
+    })).run(task);
+    expect(reported.usage).toEqual({ tokens: 50, estimatedCost: 0.75 });
+    const unreported = await manager(() => new ChildRuntime(async (emit) => {
+      emit({ type: "assistant_response_start" }); emit(end({ tokens: 30, estimatedCost: 0.5 }));
+      emit({ type: "assistant_response_start" }); emit({ type: "assistant_text_delta", delta: "Evidence: index.ts:1" }); emit(end());
+    })).run(task);
+    expect(unreported.usage).toBeNull();
+    // A response still streaming when the run ended may be billed later: unknown, not zero.
+    const cut = await manager(() => new ChildRuntime(async (emit) => {
+      emit({ type: "assistant_response_start" }); emit({ type: "assistant_text_delta", delta: "Evidence: index.ts:1" });
+    })).run(task);
+    expect(cut.usage).toBeNull();
+    // The model reads the report; the usage goes to the parent's totals, not into the tool result.
+    const seen: unknown[] = [];
+    const tool = manager(() => new ChildRuntime(async (emit) => {
+      emit({ type: "assistant_response_start" }); emit({ type: "assistant_text_delta", delta: "Evidence: index.ts:1" });
+      emit({ ...end({ tokens: 7, estimatedCost: 0.125 }), stopReason: "stop" });
+    })).createTool(() => task, (usage) => seen.push(usage));
+    expect((await tool.execute({ role: "explorer", goal: "inspect" })).text).not.toContain("estimatedCost");
+    // A call rejected before any child ran made no model calls.
+    expect((await tool.execute({ role: "writer", goal: "inspect" })).isError).toBe(true);
+    expect(seen).toEqual([{ tokens: 7, estimatedCost: 0.125 }, { tokens: 0, estimatedCost: 0 }]);
+  });
+
+  test("a parent task that delegated reports its own and its child's usage in the receipt", async () => {
+    const listeners = new Set<RuntimeEventListener>();
+    const emit = (event: RuntimeEvent) => { for (const listener of listeners) listener(event); };
+    let tools: RuntimeTool[] = [];
+    const parent: AgentRuntime = { start: async (options) => {
+      tools = options.tools ?? [];
+      return {
+        setTools: (next) => { tools = next; }, abort: async () => {}, getState: () => ({ cwd: options.cwd, isStreaming: false }),
+        subscribe: (listener) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
+        prompt: async () => {
+          emit({ type: "assistant_response_start" });
+          emit({ type: "assistant_response_end", stopReason: "toolUse", usage: { tokens: 100, estimatedCost: 0.5 } });
+          emit({ type: "tool_start", toolName: "delegate", toolCallId: "d1" });
+          const result = await tools.find((tool) => tool.name === "delegate")!.execute({ role: "explorer", goal: "Find the entry point" });
+          emit({ type: "tool_end", toolName: "delegate", toolCallId: "d1", isError: Boolean(result.isError), output: { text: result.text, truncated: false } });
+          emit({ type: "assistant_response_start" });
+          emit({ type: "assistant_text_delta", delta: "The entry point is index.ts." });
+          emit({ type: "assistant_response_end", stopReason: "stop", usage: { tokens: 50, estimatedCost: 0.25 } });
+        },
+      };
+    }, dispose: async () => {} };
+    const { app, project } = await appFixture({ runtimeFactory: () => parent, subagentRuntimeFactory: () => new ChildRuntime(async (emit) => {
+      emit({ type: "assistant_response_start" }); emit({ type: "assistant_text_delta", delta: "Evidence: index.ts:1" });
+      emit({ type: "assistant_response_end", stopReason: "stop", usage: { tokens: 30, estimatedCost: 0.125 } });
+    }) });
+    await app.runOnce("Where is the entry point?", project);
+    expect(app.getLastTaskResult()?.usage).toEqual({ turns: 2, tokens: 180, estimatedCost: 0.875 });
+  });
+
   test("unsupported runtimes fail closed instead of ignoring a read-only hint", async () => {
     const parent = new ParentRuntime();
     const result = await manager(() => parent).run(task);

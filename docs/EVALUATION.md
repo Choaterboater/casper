@@ -146,9 +146,10 @@ none reuses a fixture from the tasks above.
 both harnesses. There is no turn limit: Pi's CLI has none, so a Casper-only `--max-turns` would
 only ever stop Casper (it did, three times, in the first real runs). Turns, tokens and estimated
 cost use one definition for both: every model response, totalled from what the provider reported
-for it. Pi's come from its `message_end` events, Casper's from its receipt's `usage`. Casper
-reports its totals as unknown when a task delegated to a subagent or ran automatic effort's
-classifier, whose model calls it does not total. Neither side counts context compaction.
+for it. Pi's come from its `message_end` events, Casper's from its receipt's `usage`. Casper's
+tokens and cost include its `delegate` subagents' responses (its turns are the main conversation's
+only); they are unknown when a subagent's usage could not be read or the task ran automatic
+effort's classifier, whose model calls it does not total. Neither side counts context compaction.
 
 **Hidden acceptance tests.** Every pack fixture is the reference solution plus an
 `acceptance/` directory of tests the model never sees: the setup's `remove.json`
