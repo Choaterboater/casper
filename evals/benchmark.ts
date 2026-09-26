@@ -292,7 +292,7 @@ export interface BenchmarkOptions {
   repoRoot: string;
   tasks: readonly EvalTask[];
   harnesses: readonly HarnessName[];
-  /** Executable plus fixed arguments per harness; `casper-no-review` runs Casper's unless given its own. */
+  /** Executable plus fixed arguments per harness; the Casper variants (`casper-no-review`, `casper-review`) run Casper's unless given their own. */
   commands: Partial<Record<HarnessName, readonly string[]>>;
   model: string;
   effort: HarnessInput["effort"];
@@ -383,7 +383,7 @@ async function runAttempt(options: BenchmarkOptions, task: EvalTask, harness: Ha
     const attempt = async (prompt: string, resume: boolean) => {
       const startedAt = new Date().toISOString();
       const run = await runHarness(harness, {
-        command: options.commands[harness] ?? (harness === "casper-no-review" ? options.commands.casper : undefined) ?? [],
+        command: options.commands[harness] ?? (harnessProtocol(harness) === "casper" ? options.commands.casper : undefined) ?? [],
         cwd: workdir, prompt, model: options.model, effort: options.effort,
         timeoutMs: options.timeoutMs, seed: options.seed, session: session(resume), ...(options.route?.length ? { route: options.route } : {}),
       });

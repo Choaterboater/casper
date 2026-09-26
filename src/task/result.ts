@@ -3,7 +3,7 @@ import type { ProjectCommand } from "../project/model";
 import type { BrowserReport } from "../browser/scenario";
 import type { AutoCheckSkip, VerificationMode } from "../verify/mode";
 import type { ChangeProof } from "../verify/proof";
-import { REVIEW_MAX_TURNS, type RequirementsReview } from "./review";
+import { ROUND_MAX_TURNS, type RequirementsReview } from "./review";
 
 /** Tool-reported diagnostics, not process exit evidence or a reusable check pass. */
 export interface ObservedCheck {
@@ -193,14 +193,17 @@ function reviewLine(review: RequirementsReview, safe: (text: string) => string):
   const open = "open" in review && review.open.length ? `⚠ The model's review says not done: ${review.open.map(safe).join("; ")}` : "";
   // A review cut off by its own budget claims nothing complete; admitted gaps still stand.
   if (review.incomplete) {
-    return [`• The model's review stopped at its ${REVIEW_MAX_TURNS}-turn budget (its own claim so far, not checked by Casper)`, open].filter(Boolean).join("\n");
+    return [`• The model's review stopped at its ${ROUND_MAX_TURNS}-turn budget (its own claim so far, not checked by Casper)`, open].filter(Boolean).join("\n");
   }
   if ("missing" in review) return "• The model's review returned no checklist";
   if (open) return open;
-  // With a count, done holds only the gaps the review fixed; without one it is the full checklist.
-  if (review.total !== undefined) {
-    const fixed = review.done.length ? `${review.done.length} ${review.done.length === 1 ? "gap" : "gaps"} fixed` : "no gaps found";
-    return `• The model's review: all ${review.total} requirements covered (${fixed}; its own claim, not checked by Casper)`;
+  // The delta answer: fixed holds only the gaps the review added tests or fixes for. A count short of
+  // its total is not "all covered", even with no open line listed (the open lines still decide the outcome).
+  if ("fixed" in review) {
+    const fixed = review.fixed.length ? `${review.fixed.length} ${review.fixed.length === 1 ? "gap" : "gaps"} fixed` : "no gaps found";
+    const count = review.total === undefined ? "all requirements" : review.covered !== undefined && review.covered < review.total
+      ? `${review.covered} of ${review.total} requirements` : `all ${review.total} requirements`;
+    return `• The model's review: ${count} covered (${fixed}; its own claim, not checked by Casper)`;
   }
   return `• The model's review: all ${review.done.length} requirements covered (its own claim, not checked by Casper)`;
 }

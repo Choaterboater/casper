@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { parseChecklist, parseReview, requirementsReviewPrompt } from "../src/task/review";
+import { CHECKLIST_FORMAT, parseChecklist, parseReview, requirementsReviewPrompt } from "../src/task/review";
 import { formatTaskPrompt } from "../src/task/classify";
 import { formatReceipt, formatTaskResult, taskOutcome, type TaskResult } from "../src/task/result";
 import type { VerificationReport, VerificationResult } from "../src/verify/evidence";
@@ -34,29 +34,39 @@ test("the review prompt checks every stated requirement, from the request and th
   // The answer re-listed every covered requirement (3.7-4.9x Pi's length); it now names only gaps and a count.
   expect(prompt).toContain("- [x] <requirement> — <the test you added for it>");
   expect(prompt).toContain("- [ ] <requirement> — <why it is still not done>");
+  // The open-item line is the task turn's own, so both rounds read the same way.
+  expect(prompt).toContain(CHECKLIST_FORMAT[2]!);
   expect(prompt).toContain("Covered: <n> of <m> requirements.");
   expect(prompt).toContain("Requirements review: all covered.\nCovered: <m> of <m> requirements.");
   expect(prompt).toContain("do not list requirements that were already covered");
 });
 
 test("the review answer is read as its gaps plus the requirement count", () => {
-  // Delta: only what the review fixed or left open, and the count.
+  // Delta: only what the review fixed (fixed) or left open, and the count. done is only ever a full checklist.
   expect(parseReview([
     "Requirements review:",
     "- [x] unknown option exits 2 — tests/cli.test.ts",
     "- [ ] handshake timeout — node:tls has no option",
     "Covered: 5 of 6 requirements.",
-  ].join("\n"))).toEqual({ done: ["unknown option exits 2 — tests/cli.test.ts"], open: ["handshake timeout — node:tls has no option"], total: 6 });
+  ].join("\n"))).toEqual({ fixed: ["unknown option exits 2 — tests/cli.test.ts"], open: ["handshake timeout — node:tls has no option"], covered: 5, total: 6 });
   // No gaps: the explicit all-covered answer, markdown emphasis allowed.
-  expect(parseReview("Requirements review: all covered.\nCovered: 7 of 7 requirements.")).toEqual({ done: [], open: [], total: 7 });
-  expect(parseReview("**Covered:** 3 of 3 requirements")).toEqual({ done: [], open: [], total: 3 });
-  // The open list decides, not the count's arithmetic.
-  expect(parseReview("Covered: 2 of 3 requirements.")).toEqual({ done: [], open: [], total: 3 });
-  // A legacy full checklist still reads as before, without a total.
+  expect(parseReview("Requirements review: all covered.\nCovered: 7 of 7 requirements.")).toEqual({ fixed: [], open: [], covered: 7, total: 7 });
+  expect(parseReview("**Covered:** 3 of 3 requirements")).toEqual({ fixed: [], open: [], covered: 3, total: 3 });
+  // Both numbers are kept: the open list decides the outcome, the count the wording.
+  expect(parseReview("Covered: 2 of 3 requirements.")).toEqual({ fixed: [], open: [], covered: 2, total: 3 });
+  // The all-covered answer without its count is still all covered, just uncounted.
+  expect(parseReview("Requirements review: all covered.")).toEqual({ fixed: [], open: [] });
+  expect(parseReview("**Requirements review:** all covered")).toEqual({ fixed: [], open: [] });
+  // The delta header with gap lines but no count is still the delta format.
+  expect(parseReview("Requirements review:\n- [x] a — t1")).toEqual({ fixed: ["a — t1"], open: [] });
+  // A legacy full checklist still reads as before, without a count.
   expect(parseReview("Requirements:\n- [x] a — t1\n- [x] b — t2")).toEqual({ done: ["a — t1", "b — t2"], open: [] });
   // Neither a checklist nor a count is no review at all.
   expect(parseReview("Everything is covered.")).toBeUndefined();
-  expect(parseReview("Requirements review: all covered.")).toBeUndefined();
+  // The count needs its colon, at the start of a line.
+  expect(parseReview("Covered 3 of 3 requirements.")).toBeUndefined();
+  expect(parseReview("I think we have covered: 3 of 3 requirements.")).toBeUndefined();
+  expect(parseReview("The tests are all covered.")).toBeUndefined();
 });
 
 test("a change the review will check gets the request itself as its first turn, as Pi sends it", () => {
@@ -98,15 +108,23 @@ test("the receipt reports the review as the model's own claim, and admitted gaps
     .toContain("⚠ The model's review says not done: handshake timeout — not implemented");
   expect(formatReceipt(task({ missing: true }))).toContain("• The model's review returned no checklist");
   // With a count, the delta answer reports all m requirements and how many gaps the review fixed.
-  expect(formatReceipt(task({ done: [], open: [], total: 7 })))
+  expect(formatReceipt(task({ fixed: [], open: [], covered: 7, total: 7 })))
     .toContain("• The model's review: all 7 requirements covered (no gaps found; its own claim, not checked by Casper)");
-  expect(formatReceipt(task({ done: ["a — t"], open: [], total: 4 })))
+  expect(formatReceipt(task({ fixed: ["a — t"], open: [], covered: 4, total: 4 })))
     .toContain("• The model's review: all 4 requirements covered (1 gap fixed; its own claim, not checked by Casper)");
-  expect(formatTaskResult(task({ done: ["a — t", "b — t"], open: [], total: 4 })))
+  expect(formatTaskResult(task({ fixed: ["a — t", "b — t"], open: [], covered: 4, total: 4 })))
     .toContain("review       • The model's review: all 4 requirements covered (2 gaps fixed; its own claim, not checked by Casper)");
-  expect(formatReceipt(task({ done: [], open: ["b — no option"], total: 4 }))).toContain("⚠ The model's review says not done: b — no option");
-  expect(taskOutcome(undefined, task({ done: [], open: ["b"], total: 4 }))).toBe("not_verified");
-  expect(taskOutcome(undefined, task({ done: [], open: [], total: 4 }))).toBe("verified");
+  // A count short of the total is not "all covered", even with no open line listed; open lines still decide the outcome.
+  const short = formatReceipt(task({ fixed: ["a — t"], open: [], covered: 5, total: 6 }));
+  expect(short).toContain("• The model's review: 5 of 6 requirements covered (1 gap fixed; its own claim, not checked by Casper)");
+  expect(short).not.toContain("all 6");
+  expect(taskOutcome(undefined, task({ fixed: [], open: [], covered: 5, total: 6 }))).toBe("verified");
+  // "all covered" without a count: all covered, no number.
+  expect(formatReceipt(task({ fixed: [], open: [] })))
+    .toContain("• The model's review: all requirements covered (no gaps found; its own claim, not checked by Casper)");
+  expect(formatReceipt(task({ fixed: [], open: ["b — no option"], covered: 3, total: 4 }))).toContain("⚠ The model's review says not done: b — no option");
+  expect(taskOutcome(undefined, task({ fixed: [], open: ["b"], covered: 3, total: 4 }))).toBe("not_verified");
+  expect(taskOutcome(undefined, task({ fixed: [], open: [], covered: 4, total: 4 }))).toBe("verified");
   expect(taskOutcome(undefined, task({ done: ["a"], open: ["b"] }))).toBe("not_verified");
   expect(taskOutcome(undefined, task({ done: ["a"], open: [] }))).toBe("verified");
   expect(taskOutcome(undefined, task({ missing: true }))).toBe("verified");
