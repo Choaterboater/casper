@@ -7,6 +7,7 @@ import { discoverMCPConfiguration } from "../src/mcp/config";
 import { discoverLSPConfiguration } from "../src/lsp/config";
 import { discoverReferenceConfiguration } from "../src/references/config";
 import { needsFifos, needsSymlinks } from "./support/platform";
+import { cleanEnv } from "./support/env";
 
 test("profile selections reject traversal and malformed values at every precedence layer", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-profile-review-"));
@@ -200,7 +201,9 @@ test("unknown top-level and policy-section keys are reported as warnings, not si
     await writeFile(path.join(home, ".casper/config.yaml"), "profile: work\npolicy:\n  behaviour:\n    askQuestions: beforeChanges\n");
     await writeFile(path.join(home, ".casper/profiles/work/config.yaml"), "git:\n  pushh: never\n");
     await writeFile(path.join(root, ".casper/project.yaml"), "skils:\n  maxActive: 2\nbehavior:\n  autonomy: low\n  inspectFirst: true\n");
-    const configuration = await loadConfiguration({ projectRoot: root, homeDir: home });
+    // The global file selects the profile; an ambient CASPER_PROFILE would outrank it.
+    const ambient = process.env.CASPER_PROFILE; delete process.env.CASPER_PROFILE;
+    const configuration = await loadConfiguration({ projectRoot: root, homeDir: home }).finally(() => { if (ambient !== undefined) process.env.CASPER_PROFILE = ambient; });
     expect(configuration.warnings).toEqual([
       "~/.casper/config.yaml: unknown key policy.behaviour (ignored)",
       "profile work config.yaml: unknown key git.pushh (ignored)",
@@ -216,9 +219,8 @@ test("Casper shows configuration warnings at startup", async () => {
   try {
     await mkdir(path.join(root, ".casper"));
     await writeFile(path.join(root, ".casper/project.yaml"), "skils:\n  maxActive: 2\n\"x\\e]0;T\\a\": 1\n");
-    const { PI_CODING_AGENT_DIR: _dir, ...inherited } = process.env;
     const child = Bun.spawn([process.execPath, path.resolve(import.meta.dir, "../src/cli.ts"), "/project"], {
-      cwd: root, env: { ...inherited, HOME: root, CASPER_PROFILE: "default" }, stdout: "pipe", stderr: "pipe",
+      cwd: root, env: cleanEnv({ HOME: root, CASPER_PROFILE: "default" }), stdout: "pipe", stderr: "pipe",
     });
     const [stdout, code] = await Promise.all([new Response(child.stdout).text(), child.exited]);
     expect(code).toBe(0);

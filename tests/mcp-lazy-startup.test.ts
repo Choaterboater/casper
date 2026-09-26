@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { cleanEnv } from "./support/env";
 
 const source = path.resolve(import.meta.dir, "..");
 async function freshProcess(code: string) {
@@ -17,7 +18,7 @@ async function freshProcess(code: string) {
       const source = ${JSON.stringify(source)};
       const project = ${JSON.stringify(project)};
       ${code}
-    `], { cwd: project, env: { ...process.env, HOME: home, CASPER_PROFILE: "default", PI_OFFLINE: "1", PI_TELEMETRY: "0" }, stdout: "pipe", stderr: "pipe" });
+    `], { cwd: project, env: cleanEnv({ HOME: home, CASPER_PROFILE: "default", PI_OFFLINE: "1", PI_TELEMETRY: "0" }), stdout: "pipe", stderr: "pipe" });
     const timer = setTimeout(() => child.kill("SIGKILL"), 5000);
     try {
       const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);

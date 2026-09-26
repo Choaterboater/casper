@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { artifactName, hostTarget, TARGETS } from "../scripts/build-release";
 import { posixOnly } from "./support/platform";
+import { cleanEnv } from "./support/env";
 
 const repoRoot = path.resolve(import.meta.dir, "..");
 const installer = path.join(repoRoot, "scripts/install.sh");
@@ -207,7 +208,7 @@ posixOnly("the compiled CLI renders artifact files outside the checkout without 
 
 posixOnly("an unsupported platform is reported instead of guessed", async () => {
   const child = Bun.spawn(["sh", installer], {
-    env: { ...process.env, CASPER_OS: "FreeBSD", CASPER_ARCH: "x64", CASPER_BASE_URL: "https://example.invalid" },
+    env: cleanEnv({ CASPER_OS: "FreeBSD", CASPER_ARCH: "x64", CASPER_BASE_URL: "https://example.invalid" }),
     stdout: "pipe", stderr: "pipe",
   });
   const [stderr, exitCode] = await Promise.all([new Response(child.stderr).text(), child.exited]);
