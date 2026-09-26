@@ -50,3 +50,23 @@ a follow-up) and Pi 9/10. Casper took about 2x Pi's wall time and 2-3x its token
 
 Local, gitignored: `.scratch/phase-3-close/short-{glm,deepseek}.json`, `.scratch/phase-4/pinned-*.json`,
 `.scratch/phase-4/ablate/`. Reprint any of them with `bun tools/eval.ts --report <file>`.
+
+## Phase 4a: review off by default (2026-09-26)
+
+Owner decision after the runs above: the requirements review is **off by default**
+(`verification.review: true` turns it on, now with a short answer of only its gaps and a 12-turn
+budget). The checks and the proof stay on. Acceptance (`core-mcp-tool` + `net-radius-test`, 2 runs
+each, pinned):
+
+| Model | Harness | First-time right | False done | Median wall | Median tokens |
+|---|---|---:|---:|---:|---:|
+| GLM 5.3 Flash (Together) | Casper (default) | 3/4 | 1 | 146 s | 123k |
+| | Pi | 4/4 | 0 | 153 s | 122k |
+| DeepSeek V4.1 Flash (DeepSeek) | Casper (default) | 4/4 | 0 | 131 s | 382k |
+| | Pi | 4/4 | 0 | 128 s | 332k |
+
+Casper's wall time went from about 2x Pi's to parity (target: at most 1.4x). Its one false done
+(GLM `core-mcp-tool`, the model stopped after 49 s) is the first in the pinned runs; the same
+configuration was 4/4 as `casper-no-review` in the run before, so watch it rather than conclude
+from one run. With the review on (`casper-review`), the short answer cut the review from 98-123 s
+to 69-88 s median, still not enough to pay for itself on these tasks.
