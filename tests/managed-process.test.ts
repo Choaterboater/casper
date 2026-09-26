@@ -143,3 +143,28 @@ test("HTTP readiness and the port helpers are limited to loopback hosts", async 
   await expect(freePort("0.0.0.0")).rejects.toThrow("loopback");
   expect(await freePort("localhost")).toBeGreaterThan(0);
 });
+
+test("a close during startup rejects as closed, reports stopped and leaves no process", async () => {
+  const f = await fixture({ SLOW_READY_MS: "60000" });
+  const work = f.managed.start(new AbortController().signal).catch((error: unknown) => error);
+  const grandchild = await f.grandchild();
+  await f.managed.close();
+  expect(await work).toMatchObject({ reason: "closed" });
+  expect(f.managed.state()).toBe("stopped");
+  expect(f.managed.exit()).toBeUndefined();
+  await gone(f.managed.pid!); await gone(grandchild);
+}, 20_000);
+
+test("a crash after readiness reports exited with its exit details and calls onExit", async () => {
+  const exits: unknown[] = [];
+  const f = await fixture({ CRASH_AFTER_MS: "500" }, { onExit: details => exits.push(details) });
+  await f.managed.start(new AbortController().signal);
+  expect(f.managed.state()).toBe("ready");
+  await until(() => f.managed.state() === "exited");
+  expect(f.managed.exit()).toMatchObject({ code: 3 });
+  expect(exits).toEqual([{ code: 3, signal: null }]);
+  await until(() => f.managed.logs().text.includes("fatal: synthetic crash"));
+  await f.managed.close();
+  expect(f.managed.state()).toBe("exited");
+  await gone(f.managed.pid!); await gone(await f.grandchild());
+}, 20_000);

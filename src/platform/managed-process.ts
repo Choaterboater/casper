@@ -174,8 +174,9 @@ export class ManagedProcess {
       const deadline = began + this.options.timeoutMs;
       while (performance.now() < deadline) {
         if (signal.aborted) return await aborted();
-        if (failed || !alive()) return await fail("exited", `${this.label} exited before readiness${child.exitCode !== null ? ` (exit code ${child.exitCode})` : ""}`);
+        // A close kills the tree, so check it before liveness: the process died because it was closed.
         if (this.current === "stopped") return await fail("closed", `${this.label} was closed during startup`);
+        if (failed || !alive()) return await fail("exited", `${this.label} exited before readiness${child.exitCode !== null ? ` (exit code ${child.exitCode})` : ""}`);
         if ("log" in ready) {
           if (this.logMatched) { this.current = "ready"; return { readyMs: Math.round(performance.now() - began) }; }
         } else {
