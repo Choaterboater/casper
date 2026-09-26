@@ -6,7 +6,7 @@ import { hostProcessPlatform, ProcessCleanupError, type ProcessPlatform, type Pr
 import { ServiceManager } from "../src/services/manager";
 import { SmokeChecks, type SmokeCheck } from "../src/services/smoke";
 import { serviceTool } from "../src/services/tool";
-import { formatReceipt } from "../src/task/result";
+import { formatReceipt, formatTaskResult } from "../src/task/result";
 import { notesServer } from "./support/notes-server";
 
 const cleanups: Array<() => unknown> = [];
@@ -113,4 +113,19 @@ test("unknown cleanup of another service makes smoke incomplete even when the ch
   expect(report.reason).toContain("could not confirm");
   expect(formatReceipt({ execution: "completed", verification: { status: "incomplete", results: [], rounds: [], repairAttempts: 0, smoke: report } }))
     .toContain("smoke 1/1 passed; Casper could not confirm a service's processes were stopped");
+}, 30_000);
+
+test("a crash since the last report is surfaced on the smoke run, once, and the verbose receipt says the service restarted after it", async () => {
+  const f = await fixture();
+  const started = await f.manager.start("api", signal());
+  process.kill(started.pid!, "SIGKILL");
+  while (f.manager.status()[0]!.state !== "crashed") await Bun.sleep(20);
+  const report = await new SmokeChecks([list], () => f.manager).run(signal());
+  expect(report.checks[0]).toMatchObject({ status: "pass", restarted: true });
+  expect(report.crashes).toEqual([{ service: "api", exit: { code: null, signal: "SIGKILL" }, tail: expect.any(String) }]);
+  expect(f.manager.takeCrashes()).toEqual([]);
+  expect(formatTaskResult({ execution: "completed", verification: { status: "pass", results: [], rounds: [], repairAttempts: 0, smoke: report } }))
+    .toContain("api restarted after crash (signal SIGKILL)");
+  expect(formatReceipt({ execution: "completed", verification: { status: "pass", results: [], rounds: [], repairAttempts: 0, smoke: report } }))
+    .toContain("api restarted after crash (signal SIGKILL)");
 }, 30_000);

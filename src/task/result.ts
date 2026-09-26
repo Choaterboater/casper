@@ -128,7 +128,7 @@ export function formatTaskResult(task: TaskResult): string {
     if (task.services?.length) lines.push(receiptLine("services", task.services.map((service) => `${safe(service.name)} ${service.state}${service.origin ? ` ${service.origin}` : ""}`).join("; ")));
     lines.push(receiptLine("smoke", `${report.smoke.status}: ${report.smoke.checks.map((check) => `${safe(check.name)} [${check.source}] ${safe(check.service)} ${check.request.method} ${safe(check.request.path)}: ${check.status}`
       + `${check.actual ? ` (${check.actual.status})` : ""}${check.baseline ? `, baseline ${check.baseline}${check.baselineAfterEdits ? " (after edits)" : ""}` : ""}${check.status === "pass" && !check.evidence ? ", observation only" : ""}`
-      + `${check.status !== "pass" && check.reason ? ` — ${safe(check.reason)}` : ""}`).join("; ")}.${report.smoke.reason ? ` ${safe(report.smoke.reason)}` : ""} Model checks are the model's expectations, run by Casper.`));
+      + `${check.status !== "pass" && check.reason ? ` — ${safe(check.reason)}` : ""}`).join("; ")}.${report.smoke.reason ? ` ${safe(report.smoke.reason)}` : ""}${crashNotes(report.smoke, safe).map((note) => ` ${note}.`).join("")} Model checks are the model's expectations, run by Casper.`));
   }
   if (task.browser) {
     lines.push(receiptLine("browser", `assertions ${task.browser.status}: ${task.browser.checks.map(check => `${safe(check.name)}:${check.status}, inputs ${check.freshness}, baseline ${check.baseline}`).join("; ")}. Declared local scope only; server build/external state and overall acceptance not certified.`));
@@ -203,6 +203,12 @@ export function formatReceipt(task: TaskResult, options: ReceiptOptions = {}): s
 }
 
 /** One line: each checked service's address, the smoke tally, what failed, and the model-declared checks with their baselines. */
+/** "api restarted after crash (exit 1)" for each crash the smoke run reported. */
+function crashNotes(smoke: SmokeReport, safe: (text: string) => string): string[] {
+  return (smoke.crashes ?? []).map(({ service, exit }) => `${safe(service)} restarted after crash${exit
+    ? ` (${exit.signal ? `signal ${exit.signal}` : `exit ${exit.code}`})` : ""}`);
+}
+
 function smokeLine(smoke: SmokeReport, services: TaskResult["services"], safe: (text: string) => string): string {
   const names = [...new Set(smoke.checks.map((check) => check.service))];
   const where = names.map((name) => {
@@ -220,7 +226,7 @@ function smokeLine(smoke: SmokeReport, services: TaskResult["services"], safe: (
     : `${safe(check.name)} ${verb(check)} before the change`);
   const mark = smoke.status === "fail" ? "✗" : smoke.status === "pass" && smoke.checks.some((check) => check.evidence) ? "✓" : "•";
   return `${mark} ${names.length === 1 ? "Service" : "Services"} ${where}; smoke ${passed}/${smoke.checks.length} passed`
-    + `${failed ? `; failed: ${failed}` : ""}${incomplete ? `; incomplete: ${incomplete}` : ""}${smoke.reason ? `; ${safe(smoke.reason).replace(/\.$/, "")}` : ""}${model.length ? ` (model-declared, run by Casper: ${model.join("; ")})` : ""}`;
+    + `${failed ? `; failed: ${failed}` : ""}${incomplete ? `; incomplete: ${incomplete}` : ""}${smoke.reason ? `; ${safe(smoke.reason).replace(/\.$/, "")}` : ""}${crashNotes(smoke, safe).map((note) => `; ${note}`).join("")}${model.length ? ` (model-declared, run by Casper: ${model.join("; ")})` : ""}`;
 }
 
 function reviewLine(review: RequirementsReview, safe: (text: string) => string): string {

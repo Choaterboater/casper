@@ -106,10 +106,12 @@ During a task the model uses one `service` tool, with these actions:
   check after the change (see [VERIFICATION.md](VERIFICATION.md), "Smoke checks"). A check
   recorded after edits in the task, or during a repair round, is an observation, never evidence.
 
-A crash after readiness is not pushed into the model's turn. The next `service` call
-reports it once, under `crashed`, with the exit code and last log lines. This happens
-before a request restarts the service, and a crash that something else restarted or
-stopped first (`/services`, a smoke run) is still reported on that next call.
+A crash after readiness is not pushed into the model's turn. The next `service` call or
+smoke run reports it once, with the exit code and last log lines. A `service` call reports
+it under `crashed`, before a request restarts the service, and a crash that `/services`
+restarted or stopped first is still reported on that next call. A smoke run reports it in
+the smoke report's `crashes` (the receipt says `api restarted after crash (exit 1)`), and a
+repair prompt that follows it includes the crash.
 
 The model's `edit` and `write` calls mark the services whose scope covers the file
 stale. A `bash` call marks every running service stale.
