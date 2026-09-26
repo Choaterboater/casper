@@ -65,27 +65,37 @@ test("a model-recorded check is validated the same way, against the services Cas
   expect(parseSmokeCheck({ ...check, service: "adhoc-1" }, "check", ["api", "adhoc-1"]).service).toBe("adhoc-1");
 });
 
-test("matching: status, header substrings, deep JSON subsets and a body pattern must all hold", () => {
+test("matching: status, header substrings, deep JSON subsets and a body pattern must all hold", async () => {
   const response = { status: 201, headers: new Headers({ "content-type": "application/json; charset=utf-8", etag: "W/1" }),
     body: JSON.stringify({ id: 7, title: "a", tags: ["x", "y"], items: [{ id: 1, done: true }, { id: 2, done: false }] }) };
-  const pass = (expectation: object) => expect({ expectation, ...matchSmoke(expectation, response) }).toMatchObject({ pass: true });
-  const fail = (expectation: object, reason: string) => {
-    const result = matchSmoke(expectation, response);
+  const pass = async (expectation: object) => expect({ expectation, ...await matchSmoke(expectation, response) }).toMatchObject({ pass: true });
+  const fail = async (expectation: object, reason: string) => {
+    const result = await matchSmoke(expectation, response);
     expect({ expectation, pass: result.pass }).toEqual({ expectation, pass: false });
     expect(result.reason).toContain(reason);
   };
-  pass({ status: 201 });
-  pass({ headers: { "Content-Type": "APPLICATION/JSON" } });
-  pass({ json: { title: "a" } });
-  pass({ json: { tags: ["y"], items: [{ done: false }] } });
-  pass({ bodyMatches: "\"id\":7" });
-  pass({ status: 201, json: { id: 7 }, bodyMatches: "title" });
-  fail({ status: 200 }, "status 201, expected 200");
-  fail({ headers: { etag: "W/2" } }, "etag");
-  fail({ headers: { location: "/" } }, "location");
-  fail({ json: { id: "7" } }, "json");
-  fail({ json: { tags: ["z"] } }, "json");
-  fail({ json: { missing: null } }, "json");
-  fail({ bodyMatches: "^nope" }, "body does not match");
-  expect(matchSmoke({ json: { id: 7 } }, { ...response, body: "not json" })).toMatchObject({ pass: false, reason: expect.stringContaining("not JSON") });
+  await pass({ status: 201 });
+  await pass({ headers: { "Content-Type": "APPLICATION/JSON" } });
+  await pass({ json: { title: "a" } });
+  await pass({ json: { tags: ["y"], items: [{ done: false }] } });
+  await pass({ bodyMatches: "\"id\":7" });
+  await pass({ status: 201, json: { id: 7 }, bodyMatches: "title" });
+  await fail({ status: 200 }, "status 201, expected 200");
+  await fail({ headers: { etag: "W/2" } }, "etag");
+  await fail({ headers: { location: "/" } }, "location");
+  await fail({ json: { id: "7" } }, "json");
+  await fail({ json: { tags: ["z"] } }, "json");
+  await fail({ json: { missing: null } }, "json");
+  await fail({ bodyMatches: "^nope" }, "body does not match");
+  expect(await matchSmoke({ json: { id: 7 } }, { ...response, body: "not json" })).toMatchObject({ pass: false, reason: expect.stringContaining("not JSON") });
+});
+
+test("a catastrophically backtracking bodyMatches is cut off instead of hanging Casper", async () => {
+  const began = performance.now();
+  // Polynomial backtracking: minutes on 8000 characters if nothing cuts it off (JSC's own backtrack limit
+  // stops exponential patterns such as (a+)+$ after about half a second, but not this).
+  const result = await matchSmoke({ bodyMatches: "a*a*a*b" }, { status: 200, headers: new Headers(), body: "a".repeat(8000) });
+  expect(performance.now() - began).toBeLessThan(2000);
+  expect(result.pass).toBe(false);
+  expect(result.reason).toContain("took too long");
 });

@@ -84,8 +84,23 @@ function subset(expected: unknown, actual: unknown): boolean {
   return Object.is(expected, actual);
 }
 
+const MATCH_TIMEOUT_MS = 1000;
+const MATCHER = "const { pattern, body } = JSON.parse(await Bun.stdin.text()); process.stdout.write(new RegExp(pattern).test(body) ? \"1\" : \"0\");";
+/** The pattern comes from the model or config, and a backtracking one (`a*a*a*b` on a few KiB) blocks a thread
+ * for minutes; JSC does not interrupt a running regex (a terminated Worker keeps spinning and holds the process
+ * open). So it runs in a child of Casper's own runtime (`BUN_BE_BUN` makes the compiled binary act as bun),
+ * killed by PID after a second. The child gets no inherited environment. */
+async function bodyMatches(pattern: string, body: string): Promise<boolean | string> {
+  const child = Bun.spawn([process.execPath, "-e", MATCHER], { stdin: new Blob([JSON.stringify({ pattern, body })]), stdout: "pipe", stderr: "ignore",
+    env: { BUN_BE_BUN: "1", ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}) }, timeout: MATCH_TIMEOUT_MS, killSignal: "SIGKILL" });
+  const [out] = await Promise.all([new Response(child.stdout).text(), child.exited]);
+  if (child.signalCode) return `matching the body against /${pattern}/ took too long (over ${MATCH_TIMEOUT_MS / 1000} s); use a simpler pattern`;
+  if (child.exitCode !== 0 || (out !== "0" && out !== "1")) return `the body matcher failed (exit ${child.exitCode})`;
+  return out === "1";
+}
+
 /** Whether a response meets the expectation; the reason names the first unmet part. */
-export function matchSmoke(expect: SmokeExpect, response: { status: number; headers: Headers; body: string }): { pass: boolean; reason?: string } {
+export async function matchSmoke(expect: SmokeExpect, response: { status: number; headers: Headers; body: string }): Promise<{ pass: boolean; reason?: string }> {
   if (expect.status !== undefined && response.status !== expect.status) return { pass: false, reason: `status ${response.status}, expected ${expect.status}` };
   for (const [name, value] of Object.entries(expect.headers ?? {})) {
     const actual = response.headers.get(name);
@@ -96,7 +111,11 @@ export function matchSmoke(expect: SmokeExpect, response: { status: number; head
     try { parsed = JSON.parse(response.body); } catch { return { pass: false, reason: "body is not JSON, expected a json match" }; }
     if (!subset(expect.json, parsed)) return { pass: false, reason: "json body does not contain the expected subset" };
   }
-  if (expect.bodyMatches !== undefined && !new RegExp(expect.bodyMatches).test(response.body)) return { pass: false, reason: `body does not match /${expect.bodyMatches}/` };
+  if (expect.bodyMatches !== undefined) {
+    const matched = await bodyMatches(expect.bodyMatches, response.body);
+    if (typeof matched === "string") return { pass: false, reason: matched };
+    if (!matched) return { pass: false, reason: `body does not match /${expect.bodyMatches}/` };
+  }
   return { pass: true };
 }
 
@@ -221,7 +240,7 @@ export class SmokeChecks {
       const response = await fetch(new URL(check.request.path, origin), { method: check.request.method, headers, body, redirect: "manual",
         signal: AbortSignal.any([signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)]) });
       const text = (await readBody(response)).bytes.toString("utf8");
-      const matched = matchSmoke(check.expect, { status: response.status, headers: response.headers, body: text });
+      const matched = await matchSmoke(check.expect, { status: response.status, headers: response.headers, body: text });
       return { status: matched.pass ? "pass" : "fail", actual: { status: response.status, body: text.slice(0, SNIPPET) },
         ...(matched.reason ? { reason: matched.reason } : {}), restarted };
     } catch (error) {
