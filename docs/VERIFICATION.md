@@ -72,12 +72,16 @@ claim**, never as Casper's evidence:
 ```
 
 An item the model admits is not done makes the change `not_verified`. The review costs one more
-model round per such request. The task prompt already asks for the checklist, in the same format
-and with the same ticking rule, and the review starts from it: it adds what the first list missed
-and splits what it merged, one line per case (each missing option, each malformed value), reusing
-what the model already read. The review runs even when the first checklist is fully ticked: in
-benchmarks, skipping it on a fully ticked list ended in a false done 2 times out of 3. To turn
-the round off entirely:
+model round per such request. Such a change's first turn is the request as the user wrote it,
+without Casper's task hints (project facts and selected skills still come first, with the request
+labelled, and an under-specified target still gets the clarification nudge). The review then asks
+for every requirement, one line per case (each missing option, each malformed value), reusing what
+the model already read; if the tests also pass without the change, the proof round asks for one
+that fails. In one pinned ablation the request alone was as accurate as the hinted first turn, with
+fewer turns. If the work stops before the review (checks still failing after repairs, a turn
+limit), no later round asks for tests. With the round off (below), the first turn asks for the
+checklist and the failing test instead, and the review runs in no case. To turn the round off
+entirely:
 
 ```yaml
 verification:

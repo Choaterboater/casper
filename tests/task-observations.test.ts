@@ -134,7 +134,7 @@ test("in auto mode the model is told Casper runs the final checks; casper_check 
   expect(auto.endsWith("User request:\nfix the failing test")).toBe(true);
 });
 
-test("the app forwards --verify (auto mode) into the task prompt", async () => {
+test("--verify (auto mode) sends a reviewed code change as the request itself; offer mode keeps the hints", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-verify-requested-"));
   try {
     await mkdir(path.join(root, "home"));
@@ -158,6 +158,8 @@ test("the app forwards --verify (auto mode) into the task prompt", async () => {
       await app.runOnce("fix the failing test", root);
     };
     await run(false); await run(true);
-    expect(prompts.map((prompt) => prompt.includes("Casper runs the final checks"))).toEqual([false, true]);
+    // Auto mode reviews and proves the change afterwards, so its first turn carries no Casper framing.
+    expect(prompts.map((prompt) => prompt.includes("Casper initial classification"))).toEqual([true, false]);
+    expect(prompts[1]!.trim().endsWith("fix the failing test")).toBe(true);
   } finally { await rm(root, { recursive: true, force: true }); }
 });

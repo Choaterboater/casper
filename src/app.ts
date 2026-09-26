@@ -728,7 +728,8 @@ export class CasperApp {
       await session.prompt([
         memoryContext,
         skillContext,
-        formatTaskPrompt(prompt, classification, context.model, { verificationMode, proveChange: proving }),
+        formatTaskPrompt(prompt, classification, context.model, { verificationMode, proveChange: proving,
+          reviewFollows: context.verification.review !== false, afterContext: Boolean(memoryContext || skillContext) }),
       ].filter(Boolean).join("\n\n"), this.commandAbort?.signal, { request: prompt, maxTurns: this.maxTurns });
       this.onEvent?.(phaseEvent("task", "end"));
       afterModel = before && !this.closing ? await this.snapshotWorkspace(workspaceRoot) : undefined;
@@ -805,8 +806,8 @@ export class CasperApp {
     const max = context.repair.maxAttempts;
     let verification = input.verification;
     // The review always runs: a first answer's fully ticked checklist was wrong too often to skip it
-    // (benchmarks: 2 of 3 skipped reviews ended in a false done). The first checklist is the review's
-    // starting point. verification.review: false keeps only the first answer's own checklist, if any.
+    // (benchmarks: 2 of 3 skipped reviews ended in a false done). With the review on, the first turn is
+    // not asked for a checklist; verification.review: false keeps only the first answer's own, if any.
     const initialReview = input.initialReview;
     if (context.verification.review === false) {
       if (verification.status !== "pass" || stopped()) return { verification, review: initialReview };
