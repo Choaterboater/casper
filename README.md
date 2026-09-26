@@ -137,6 +137,7 @@ Nothing here requires installing or connecting a server automatically.
 - [Verification, freshness and repair](docs/VERIFICATION.md)
 - [MCP tools](docs/MCP.md) and [language servers](docs/LSP.md)
 - [Browser-assisted debugging](docs/BROWSER.md) and [local DAP debugging](docs/DEBUGGER.md)
+- [Managed services](docs/SERVICES.md): declared development servers Casper runs and stops
 - [Diagram export](docs/VISUALIZATION.md)
 - [Named sessions and worktrees](docs/SESSIONS.md)
 - [Read-only explorer/reviewer agents](docs/DELEGATION.md)
