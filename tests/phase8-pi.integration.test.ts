@@ -27,7 +27,7 @@ function calls(tools: Array<{ name: string; args: unknown }>, finish = "tool_cal
   const tool_calls = tools.map((tool, index) => ({ index, id: `call_${index}`, type: "function", function: { name: tool.name, arguments: JSON.stringify(tool.args) } }));
   return new Response(stream({ role: "assistant", tool_calls }, null) + stream({}, finish) + "data: [DONE]\n\n", { headers: { "content-type": "text/event-stream" } });
 }
-async function fixture(respond: (payload: Payload) => Response, hostile = false) {
+async function fixture(respond: (payload: Payload) => Response | Promise<Response>, hostile = false) {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-phase8-pi-"));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
   const home = path.join(root, "home"); const project = path.join(root, "project"); const agent = path.join(home, ".pi/agent");
@@ -61,8 +61,8 @@ export default function(pi) {
     await writeFile(path.join(project, "AGENTS.md"), "AMBIENT_AGENTS_MUST_NOT_APPEAR");
   }
   const env = { ...process.env, HOME: home, CASPER_AGENT_DIR: agent, PI_CODING_AGENT_DIR: agent, CASPER_OFFLINE: "1", PI_OFFLINE: "1", PI_TELEMETRY: "0" };
-  async function run(args: string[]) {
-    const child = Bun.spawn([process.execPath, ...args], { cwd: project, env, stdout: "pipe", stderr: "pipe" });
+  async function run(args: string[], overrides: Record<string, string | undefined> = {}) {
+    const child = Bun.spawn([process.execPath, ...args], { cwd: project, env: { ...env, ...overrides }, stdout: "pipe", stderr: "pipe" });
     const timer = setTimeout(() => child.kill(), 10_000);
     try {
       const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
@@ -109,7 +109,16 @@ test("OpenRouter traffic carries Casper's app attribution while other providers 
   const sent = f.headers[1]!;
   expect([sent.get("http-referer"), sent.get("x-openrouter-title"), sent.get("x-openrouter-categories"), sent.get("x-openrouter-app-visibility")])
     .toEqual(["https://github.com/Choaterboater/casper", "Casper", "cli-agent", "hidden"]);
-}, 20_000);
+
+  // CASPER_TELEMETRY=0 (Pi's PI_TELEMETRY=0, mirrored) sends no attribution at all: neither
+  // Casper's nor the runtime's own "pi" default, which an inherited PI_TELEMETRY cannot re-enable.
+  const quiet = await f.run([cli, "Answer without tools"], { CASPER_TELEMETRY: "0", PI_TELEMETRY: "1" });
+  expect({ exit: quiet.exit, stderr: quiet.stderr }).toEqual({ exit: 0, stderr: "" });
+  expect(f.headers).toHaveLength(3);
+  const none = f.headers[2]!;
+  expect([none.get("http-referer"), none.get("x-openrouter-title"), none.get("x-openrouter-categories"), none.get("x-openrouter-app-visibility")])
+    .toEqual([null, null, null, null]);
+}, 30_000);
 
 test("real /delegate reads evidence but cannot write, shell, recurse, or load ambient extensions/settings", async () => {
   let step = 0;
@@ -675,6 +684,24 @@ test("real parent Pi delegates and receives the child report without sharing chi
   expect(await snapshot(f.project)).toEqual(before);
   const sessions = await readdir(path.join(f.agent, "sessions"), { recursive: true });
   expect(sessions.filter((file) => file.endsWith(".jsonl"))).toHaveLength(1);
+}, 15_000);
+
+test("a real delegating task's receipt totals the parent's and the child's reported tokens", async () => {
+  // The finishing chunk reports usage, as OpenAI-compatible providers do.
+  const billed = async (response: Response, total: number) => new Response((await response.text()).replace(/("finish_reason":"(?:stop|tool_calls)"\}\])/,
+    `$1,"usage":${JSON.stringify({ prompt_tokens: total - 1, completion_tokens: 1, total_tokens: total })}`), { headers: { "content-type": "text/event-stream" } });
+  let parentCalls = 0; let childCalls = 0;
+  const f = await fixture((payload) => {
+    if (payload.tools.length === 4) return childCalls++ === 0 ? billed(calls([{ name: "read", args: { path: "fixture.txt" } }]), 10)
+      : billed(answer("REVIEW_REPORT: fixture.txt:1 contains LOCAL_EVIDENCE_8."), 20);
+    return parentCalls++ === 0 ? billed(calls([{ name: "delegate", args: { role: "reviewer", goal: "Inspect fixture.txt" } }]), 100)
+      : billed(answer("PARENT_DONE"), 200);
+  });
+  const result = await f.run([cli, "--json", "delegate an independent review"]);
+  expect(result.stderr).not.toContain("Error");
+  const receipt = result.stdout.split("\n").filter(Boolean).map((line) => JSON.parse(line)).find((event) => event.type === "receipt");
+  expect(childCalls).toBe(2);
+  expect(receipt.usage).toMatchObject({ turns: 2, tokens: 330 });
 }, 15_000);
 
 for (const mode of ["turns", "calls"]) test(`real read-only Pi enforces ${mode} budget before more work`, async () => {

@@ -29,6 +29,10 @@ export interface HarnessObservation {
    * null when it reported none. A follow-up resumed only if this matches the first attempt's. */
   sessionId: string | null;
   errors: string[];
+  /** The CLI's stderr tail, when a failed run's is kept as its last `errors` entry: diagnostic
+   * human output (Casper's echoes the prompt), never a provider error. Absent in documents saved
+   * before it was recorded. */
+  stderr?: string;
   /** Casper's phases (its task turn, checks, review, proof), timed on the harness clock as their
    * events arrived; one still running when the run ended is `unfinished`, timed to the end. Absent
    * for Pi, which reports none. */
@@ -102,9 +106,11 @@ export async function runHarness(harness: HarnessName, input: HarnessInput): Pro
       // Pi refuses --session-id with --continue; the id alone resumes the conversation once it exists.
       : ["--print", "--mode", "json", ...(input.session ? ["--session-id", input.session.id] : ["--no-session"]), "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-themes",
         "--model", input.model, "--thinking", input.effort];
+    // Pi runs with PI_TELEMETRY=0 and sends no OpenRouter attribution; CASPER_TELEMETRY=0 gives
+    // Casper's requests the same headers, so the host sees no difference but the prompt.
     const child = Bun.spawn([...input.command, ...args, "--", input.prompt], {
       cwd: input.cwd, env: isolatedEnvironment(home, name === "casper"
-        ? { CASPER_AGENT_DIR: agent, CASPER_OFFLINE: "1" }
+        ? { CASPER_AGENT_DIR: agent, CASPER_OFFLINE: "1", CASPER_TELEMETRY: "0" }
         : { PI_CODING_AGENT_DIR: agent, PI_OFFLINE: "1", PI_TELEMETRY: "0" }),
       stdin: "ignore", stdout: "pipe", stderr: "pipe", detached: osSupportsProcessGroups,
     });
@@ -149,7 +155,7 @@ export async function runHarness(harness: HarnessName, input: HarnessInput): Pro
       const result = observeHarness(name, events, { exitCode, timedOut, wallClockMs: Math.round(performance.now() - started), eventTimes });
       result.errors.push(...errors);
       // Casper's stderr is its normal human output in --json mode: diagnostic only when the run failed.
-      if (result.termination !== "completed" && exitCode !== 0 && stderr) result.errors.push(stderr);
+      if (result.termination !== "completed" && exitCode !== 0 && stderr) { result.errors.push(stderr); result.stderr = stderr; }
       // Unparseable or oversized output is a broken protocol, whatever the last event said.
       if (errors.length && result.termination !== "timeout") result.termination = "failed";
       return result;

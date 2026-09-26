@@ -14,6 +14,18 @@ export const OPENROUTER_ATTRIBUTION: Record<string, string> = {
   "X-OpenRouter-App-Visibility": "hidden",
 };
 
+/** `CASPER_TELEMETRY` mirrors Pi's `PI_TELEMETRY`: unset leaves attribution on; set, only
+ * `1`/`true`/`yes` keep it. The opt-out exists so a benchmark can send the same request headers
+ * as Pi run with `PI_TELEMETRY=0`, and for anyone who wants no app identity on their traffic. */
+export function casperTelemetryEnabled(value = process.env.CASPER_TELEMETRY): boolean {
+  return value === undefined || ["1", "true", "yes"].includes(value.toLowerCase());
+}
+
+/** The attribution headers to send now, or none under `CASPER_TELEMETRY=0`. */
+export function openRouterAttribution(): Record<string, string> {
+  return casperTelemetryEnabled() ? OPENROUTER_ATTRIBUTION : {};
+}
+
 /** A request is OpenRouter's by provider id or by endpoint host, matching how the runtime
  * classifies a model. Anything else is left untouched. */
 export function isOpenRouterModel(model: { provider?: string; baseUrl?: string } | undefined): boolean {

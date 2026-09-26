@@ -31,6 +31,9 @@ export interface SubagentRunOptions {
   signal?: AbortSignal;
 }
 
+/** What the provider reported for a child's model responses (the SDK's catalog cost estimate). */
+export interface SubagentUsage { tokens: number; estimatedCost: number }
+
 export interface SubagentResult {
   role: SubagentRole;
   cwd: string;
@@ -42,6 +45,10 @@ export interface SubagentResult {
   toolErrors: string[];
   truncated: boolean;
   cleanupPending?: boolean;
+  /** Totalled over every model response the child made; null when one reported none, one was
+   * still streaming, the child ran the effort classifier, or cleanup had not drained (a late call
+   * may still be billed). For the parent's totals only; never shown to the parent model. */
+  usage: SubagentUsage | null;
 }
 
 export interface SubagentManagerOptions {
@@ -143,7 +150,7 @@ export class SubagentManager {
   get isBusy(): boolean { return this.active.size > 0; }
 
   /** Each prepared parent task gets one tool with its own non-resettable dispatch budget. */
-  createTool(getContext: () => { cwd: string; projectContext: string }): RuntimeTool {
+  createTool(getContext: () => { cwd: string; projectContext: string }, onUsage?: (usage: SubagentUsage | null) => void): RuntimeTool {
     let dispatched = 0;
     return {
       name: "delegate",
@@ -167,12 +174,15 @@ export class SubagentManager {
           if (dispatched >= SUBAGENT_LIMITS.maxDelegationsPerTask) throw new Error("Delegation budget exhausted for this parent task");
           dispatched++;
           const result = await this.run({ ...getContext(), role, goal, context, signal, reportTurn: true });
+          onUsage?.(result.usage);
           const isError = result.status !== "completed";
           // The caller already has the goal. Put outcome first so even a byte-
           // bounded preview retains it instead of spending its budget echoing input.
-          const { goal: _goal, status, reason, ...report } = result;
+          const { goal: _goal, status, reason, usage: _usage, ...report } = result;
           return { text: JSON.stringify(boundCapabilityResult({ isError, status, reason, ...report })), ...(isError ? { isError: true } : {}) };
         } catch (error) {
+          // run() throws only before it creates a child runtime: no model call was made.
+          onUsage?.({ tokens: 0, estimatedCost: 0 });
           return { text: JSON.stringify(boundCapabilityResult({ isError: true, error: prefix(error instanceof Error ? error.message : "Delegation failed", 1024) })), isError: true };
         }
       },
@@ -186,7 +196,8 @@ export class SubagentManager {
     requireString(options.cwd, "cwd", 4096);
     if (this.closed) throw new Error("Subagent manager is closed");
     if (this.active.size >= SUBAGENT_LIMITS.maxConcurrent) throw new Error("Subagent concurrency limit reached; wait for an active run");
-    const result: SubagentResult = { role: options.role, goal: options.goal, cwd: options.cwd, status: "completed", response: "", toolsUsed: [], toolErrors: [], truncated: false };
+    const result: SubagentResult = { role: options.role, goal: options.goal, cwd: options.cwd, status: "completed", response: "", toolsUsed: [], toolErrors: [], truncated: false,
+      usage: { tokens: 0, estimatedCost: 0 } };
     if (options.signal?.aborted) return { ...result, status: "cancelled", reason: "Delegation cancelled before startup" };
 
     const controller = new AbortController();
@@ -215,7 +226,17 @@ export class SubagentManager {
     const onCancel = () => stop("cancelled", "Delegation cancelled");
     options.signal?.addEventListener("abort", onCancel, { once: true });
     const timer = setTimeout(() => stop("timed_out", `Delegation exceeded ${this.timeoutMs} ms`), this.timeoutMs);
+    /** A model response has started and not yet ended. A limit notice from the runtime is an end
+     * with no start: it closes no response and carries no usage. */
+    let streaming = false;
     const observe = (event: RuntimeEvent) => {
+      // Usage first: a call cut off by an abort still happened.
+      if (event.type === "assistant_response_start") streaming = true;
+      else if (event.type === "assistant_response_end" && streaming) {
+        streaming = false;
+        if (!event.usage) result.usage = null;
+        else if (result.usage) result.usage = { tokens: result.usage.tokens + event.usage.tokens, estimatedCost: result.usage.estimatedCost + event.usage.estimatedCost };
+      }
       if (controller.signal.aborted) return;
       if (event.type === "assistant_response_start") {
         // Only a failure the child's retry went on to replace; a final provider error stays failed.
@@ -274,6 +295,8 @@ export class SubagentManager {
         controller.signal.throwIfAborted();
         unsubscribe = session.subscribe(observe);
         await session.prompt(prompt(options), controller.signal, { request: options.goal });
+        // The effort classifier's calls are not response events (the main task treats them alike).
+        try { if (session.getUsage?.().effortClassification?.requests) result.usage = null; } catch { result.usage = null; }
         // A child that stopped mid-investigation reports its last words rather than nothing at
         // all; the status and reason still say the run was cut short.
         if (result.status !== "completed" && !result.response.trim() && fallback.trim()) {
@@ -298,7 +321,9 @@ export class SubagentManager {
     try {
       await Promise.race([work, cancelled]);
       if (controller.signal.aborted) await settleWithin(work, this.cleanupGraceMs);
-      return { ...result, ...(this.active.has(active) ? { cleanupPending: true } : {}), toolsUsed: [...result.toolsUsed], toolErrors: [...result.toolErrors] };
+      const pending = this.active.has(active);
+      return { ...result, ...(pending ? { cleanupPending: true } : {}), toolsUsed: [...result.toolsUsed], toolErrors: [...result.toolErrors],
+        usage: pending || streaming || !result.usage ? null : { ...result.usage } };
     } finally {
       clearTimeout(timer);
       options.signal?.removeEventListener("abort", onCancel);

@@ -2,7 +2,7 @@ import { lstat, readlink } from "node:fs/promises";
 import path from "node:path";
 import { CredentialSynchronizationError, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { withLoginDisplay } from "../tui/login";
-import { OPENROUTER_ATTRIBUTION } from "./openrouter-attribution";
+import { openRouterAttribution } from "./openrouter-attribution";
 import type { RuntimeAuthenticationOptions, RuntimeAuthenticationResult, RuntimeAuthProvider } from "./types";
 
 const providers: readonly { id: RuntimeAuthProvider; label: string }[] = [
@@ -89,7 +89,7 @@ type KeyVerification = { ok: true } | { ok: false; rejected: true; status: numbe
 async function verifyProviderKey(provider: "anthropic" | "openrouter", key: string, signal: AbortSignal): Promise<KeyVerification> {
   const url = provider === "openrouter" ? "https://openrouter.ai/api/v1/auth/key" : "https://api.anthropic.com/v1/models";
   const headers: Record<string, string> = provider === "openrouter"
-    ? { authorization: `Bearer ${key}`, ...OPENROUTER_ATTRIBUTION }
+    ? { authorization: `Bearer ${key}`, ...openRouterAttribution() }
     : { "x-api-key": key, "anthropic-version": "2023-06-01" };
   try {
     const response = await fetch(url, {

@@ -126,7 +126,7 @@ $env:APPDATA = $ProbeHome
 $env:LOCALAPPDATA = $ProbeHome
 $env:CASPER_AGENT_DIR = Join-Path $ProbeHome '.casper\agent'
 $env:CASPER_OFFLINE = '1'
-$env:PI_TELEMETRY = '0'
+$env:CASPER_TELEMETRY = '0'
 Remove-Item Env:CASPER_PROFILE -ErrorAction SilentlyContinue
 Set-Location $Project
 bun (Join-Path $Source 'src\cli.ts')

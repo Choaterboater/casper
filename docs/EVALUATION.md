@@ -146,9 +146,10 @@ none reuses a fixture from the tasks above.
 both harnesses. There is no turn limit: Pi's CLI has none, so a Casper-only `--max-turns` would
 only ever stop Casper (it did, three times, in the first real runs). Turns, tokens and estimated
 cost use one definition for both: every model response, totalled from what the provider reported
-for it. Pi's come from its `message_end` events, Casper's from its receipt's `usage`. Casper
-reports its totals as unknown when a task delegated to a subagent or ran automatic effort's
-classifier, whose model calls it does not total. Neither side counts context compaction.
+for it. Pi's come from its `message_end` events, Casper's from its receipt's `usage`. Casper's
+tokens and cost include its `delegate` subagents' responses (its turns are the main conversation's
+only); they are unknown when a subagent's usage could not be read or the task ran automatic
+effort's classifier, whose model calls it does not total. Neither side counts context compaction.
 Transient provider errors (429, "Provider returned error", a dropped connection) get the same
 retry policy on both sides, since neither harness home has a `settings.json`: Pi's default of 3
 retries after 2, 4 and 8 s, then the run fails. Casper's delegated read-only children use that
@@ -213,7 +214,9 @@ to measure what the requirements review round adds. Both harnesses run through t
 example the release binary) with `--json --verify`, and Pi from `PATH` (or `--pi <path>`) with
 `--print --mode json` and no extensions, skills or prompt templates. Every run gets a fresh
 prepared workspace and a temporary home seeded with only the model provider's entry of
-`~/.casper/agent/auth.json` (plus the cached model catalog). Runs go two at a time by default
+`~/.casper/agent/auth.json` (plus the cached model catalog). Pi runs with `PI_TELEMETRY=0` and Casper with its
+mirror `CASPER_TELEMETRY=0`, so neither sends OpenRouter app-attribution headers and both
+harnesses' requests carry the same headers. Runs go two at a time by default
 (`--concurrency`); 16 at once hit provider rate limits. Both harnesses of one task run next to
 each other, so they meet the same provider conditions.
 
@@ -221,7 +224,10 @@ OpenRouter models need `--route <hosts>`. OpenRouter keeps a conversation on one
 hosts for the same model differ tenfold in speed (one GLM 5.3 Flash host answered in 3 s per call
 and made the model report "corrupted" tool output; another in 0.3 s). Unpinned, a comparison
 measures which host each harness drew. `--route Together,Novita` writes the same `models.json`
-into both harnesses' homes: those hosts only, in that order, no fallbacks.
+into both harnesses' homes: those hosts only, in that order, no fallbacks. An `openrouter/*`
+benchmark without `--route` is a usage error. `--route any` is the explicit escape hatch: no host
+is pinned, the console says so, and the results document records `route: "unpinned"` (pinned runs
+record the host list, other providers `null`).
 
 `--follow-ups 1` or `--follow-ups 2` adds the rework experiment: a run the grader did not accept
 gets a follow-up in the **same conversation** (Casper `--continue`, Pi `--session-id`, both in a
@@ -247,6 +253,20 @@ session id each CLI reports). The benchmark has a grader that catches every fail
 often has none, so follow-ups understate what a false done costs. `--report <results.json>`
 reprints a saved document with the current summary, with no model calls.
 
+**Infrastructure failures.** A run that **failed** (not the time limit) before its first tool call,
+with every error its CLI reported being a retryable provider error by Pi's own classification
+(pi-ai `isRetryableAssistantError`: rate limits such as 429, 5xx, overload, lost connections; not
+quota or billing exhaustion), measured the host, not the harness. The pinned GLM run lost Casper's
+`core-log-parser #2` this way: four Together 429s, retried and lost in 16 s. The benchmark reruns
+such a job once, from a fresh workspace and home, and records the rerun; the failed attempt is kept
+as `infraAttempt`. If the rerun fails the same way the run is marked `infra: true`. The table's
+`infra` column counts these runs, and every other column, the success and first-time-right
+denominators included, leaves them out. The CLI's stderr tail (Casper echoes the prompt there) is
+recorded as `stderr` and never read as a provider error. The summary re-derives `infra` from each
+run's observation, so `--report` also separates such runs in documents saved before this existed
+(there, a failed Casper run's last error is taken to be its stderr tail, which Casper always
+prints); those runs were not rerun.
+
 The console gets one line per finished run and then a table per pack: each task × harness,
 then the pack total per harness. The results document (default: a new
 `evals/results/<date>-<commit>[-dirty].json`, outside git) holds the settings, harness
@@ -263,6 +283,7 @@ not be measured stays unknown (`?` in the table), never a pass, a fail or zero.
 | Dimension | Measured as |
 | --- | --- |
 | Success | the grader accepted the run: it finished, the frozen evaluator passed every check, and every acceptance rule held |
+| Infra | the run failed on retryable provider errors alone before any tool call, even after one fresh rerun; counted apart and excluded from every other dimension's n |
 | Works | the frozen visible tests pass on the candidate's code |
 | Complete | the hidden acceptance tests pass **and** every acceptance rule holds; `req` is the share of these predicates held |
 | Tested | the candidate added or changed a test file, those tests pass on its code, **and** they fail on the unsolved start (a mutation check, with the test support it wrote under `tests/` copied along). No new tests is `no` |
