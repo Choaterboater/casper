@@ -5,13 +5,44 @@ import path from "node:path";
 import type { ProjectCommand } from "../project/model";
 import type { TreeChanges } from "../task/changes";
 import { runCommandCheck } from "./command";
+import type { VerificationResult } from "./evidence";
 
 /** Whether the tests show the change works: they fail on the code without the change (the change's
  * own new tests included) and pass with it. Host evidence, never a model claim. */
 export type ChangeProof =
-  | { status: "proven"; check: ProjectCommand; command: string; testsChanged: boolean }
-  | { status: "unproven"; check: ProjectCommand; command: string; testsChanged: boolean }
+  | { status: "proven"; check: ProjectCommand; command: string; testsChanged: boolean; without: WithoutRun }
+  | { status: "unproven"; check: ProjectCommand; command: string; testsChanged: boolean; without: WithoutRun }
   | { status: "unavailable"; check: ProjectCommand; reason: string };
+
+/** The check's run on the code without the change, the half of the proof that is otherwise only
+ * asserted. `ended` says whether a failure was the tests failing or a weaker signal: a timeout, a
+ * crash or signal, or a command that could not start also "fail" without the change. */
+export interface WithoutRun {
+  exitCode: number;
+  ended: "pass" | "fail" | "timeout" | "crash" | "no_start";
+  /** The runner's reason, e.g. "Timed out after 20000ms". */
+  reason?: string;
+  /** The last OUTPUT_TAIL characters of the failing run's output (stdout then stderr); omitted when empty. */
+  output?: string;
+}
+
+const OUTPUT_TAIL = 500;
+
+/** A timeout the runner reported, a shell's 128+signal (or a Windows NTSTATUS crash code), or the
+ * shell's 126/127 (not executable, not found) are not the tests failing on the old code. */
+export function withoutEnded(exitCode: number, reason?: string): WithoutRun["ended"] {
+  if (reason?.startsWith("Timed out")) return "timeout";
+  if (exitCode === 0 && !reason) return "pass";
+  if (exitCode > 128) return "crash";
+  if (exitCode === 126 || exitCode === 127) return "no_start";
+  return "fail";
+}
+
+function withoutRun(result: VerificationResult & { exitCode: number }): WithoutRun {
+  const ended = withoutEnded(result.exitCode, result.reason);
+  const output = ended === "pass" ? "" : [result.stdout, result.stderr].map((text) => text.trim()).filter(Boolean).join("\n").slice(-OUTPUT_TAIL);
+  return { exitCode: result.exitCode, ended, ...(result.reason ? { reason: result.reason } : {}), ...(output ? { output } : {}) };
+}
 
 /** Tests and their support files (helpers, fixtures under a test directory). They are what proves a
  * change, so the comparison keeps their new version; everything else is the change itself. */
@@ -135,16 +166,17 @@ export class ChangeBaseline {
       }
       await linkDependencies(without, this.links);
       const result = await run(without);
-      if (result.status === "pass") return { status: "unproven", check, command, testsChanged: tests.length > 0 };
       if (result.exitCode === null) {
         return { status: "unavailable", check, reason: `${check} could not run without the change (${(result.reason ?? "no exit status").replace(/\.$/, "").toLowerCase()})` };
       }
+      const evidence = withoutRun({ ...result, exitCode: result.exitCode });
+      if (result.status === "pass") return { status: "unproven", check, command, testsChanged: tests.length > 0, without: evidence };
       // A copy that cannot run the tests at all would look like proof: the current code must pass there too.
       const current = path.join(copies, "with");
       await linkDependencies(current, await cloneTree(options.root, current, this.limits, options.signal));
       const control = await run(current);
       if (control.status !== "pass") return { status: "unavailable", check, reason: `${check} does not pass in a copy of the workspace, so Casper cannot compare with and without the change` };
-      return { status: "proven", check, command, testsChanged: tests.length > 0 };
+      return { status: "proven", check, command, testsChanged: tests.length > 0, without: evidence };
     } catch (error) {
       if (options.signal?.aborted) throw error;
       return { status: "unavailable", check, reason: `Casper could not build the comparison: ${error instanceof Error ? error.message : String(error)}` };

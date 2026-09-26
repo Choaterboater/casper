@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { diffSnapshots, snapshotTree } from "../src/task/changes";
-import { ChangeBaseline, isCodePath, isTestPath } from "../src/verify/proof";
+import { ChangeBaseline, isCodePath, isTestPath, withoutEnded } from "../src/verify/proof";
 
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -46,14 +46,37 @@ test("a change is proven when the tests fail without it and pass with it", async
   const proof = await prove({ "src/sum.js": "broken\n", "tests/check.sh": "test -f src/sum.js\n" }, async (root) => {
     await write(root, { "src/sum.js": "fixed\n", "tests/check.sh": "grep -q fixed src/sum.js\n" });
   }, "sh tests/check.sh");
-  expect(proof).toEqual({ status: "proven", check: "test", command: "sh tests/check.sh", testsChanged: true });
+  // The run without the change is evidence too: how it ended, and the end of its output.
+  expect(proof).toEqual({ status: "proven", check: "test", command: "sh tests/check.sh", testsChanged: true,
+    without: { exitCode: 1, ended: "fail" } });
+});
+
+test("a failure without the change that is a crash, not a test failure, is kept as weaker evidence with a bounded output tail", async () => {
+  // The shell reports a child killed by SIGSEGV as exit 139.
+  const proof = await prove({ "src/sum.js": "broken\n", "tests/check.sh": "test -f src/sum.js\n" }, async (root) => {
+    await write(root, { "src/sum.js": "fixed\n", "tests/check.sh": "grep -q fixed src/sum.js && exit 0\nhead -c 3000 /dev/zero | tr '\\0' x; echo; echo crashing >&2; sh -c 'kill -SEGV $$'\n" });
+  }, "sh tests/check.sh");
+  expect(proof?.status).toBe("proven");
+  const without = proof && "without" in proof ? proof.without : undefined;
+  expect({ exitCode: without?.exitCode, ended: without?.ended }).toEqual({ exitCode: 139, ended: "crash" });
+  expect(without?.output?.length).toBeLessThanOrEqual(500);
+  expect(without?.output).toContain("\ncrashing\n");
+});
+
+test("how the run without the change ended: a test failure, a timeout, a crash or a command that could not start", () => {
+  expect(withoutEnded(1)).toBe("fail");
+  expect(withoutEnded(0)).toBe("pass");
+  expect(withoutEnded(143, "Timed out after 1000ms")).toBe("timeout");
+  expect(withoutEnded(139)).toBe("crash");
+  expect(withoutEnded(3221225477)).toBe("crash");
+  expect(withoutEnded(127)).toBe("no_start");
 });
 
 test("a change the tests also pass without is not proven, and the receipt can say no test changed", async () => {
   const proof = await prove({ "src/sum.js": "broken\n", "tests/check.sh": "test -f src/sum.js\n" }, async (root) => {
     await write(root, { "src/sum.js": "fixed\n" });
   }, "sh tests/check.sh");
-  expect(proof).toEqual({ status: "unproven", check: "test", command: "sh tests/check.sh", testsChanged: false });
+  expect(proof).toEqual({ status: "unproven", check: "test", command: "sh tests/check.sh", testsChanged: false, without: { exitCode: 0, ended: "pass" } });
 });
 
 test("an existing test that the change makes pass proves it too", async () => {

@@ -278,7 +278,7 @@ test("--json streams v1 JSON Lines on stdout: session, text, tools, Casper's che
       verificationMode: "auto", checks: [{ name: "test", command: "grep -q fixed sum.js", status: "pass", exit: 0, ms: "<ms>", fresh: true }],
       repairAttempts: 0, turnLimit: null, usage: { turns: 3, tokens: 360, estimatedCost: "<cost>" },
       // The check fails on sum.js as it was, so it proves the fix.
-      proof: { status: "proven", check: "test", command: "grep -q fixed sum.js", testsChanged: false },
+      proof: { status: "proven", check: "test", command: "grep -q fixed sum.js", testsChanged: false, without: { exitCode: 1, ended: "fail" } },
       review: { done: ["sum.js is fixed — the test check"], open: [] }, text: "<receipt text>" },
   ]);
 }, 30_000);
@@ -337,10 +337,10 @@ test("an unproven fix gets one round to add a test that fails without it; then t
     .toEqual(["task", "task", "review", "proof", "proof"]);
   const receipt = JSON.parse(result.stdout.trim().split("\n").at(-1)!);
   expect({ exit: result.exit, outcome: receipt.outcome, repairs: receipt.repairAttempts, proof: receipt.proof, review: receipt.review }).toEqual({
-    exit: 0, outcome: "verified", repairs: 1, proof: { status: "proven", check: "test", command: "sh tests/check.sh", testsChanged: true },
+    exit: 0, outcome: "verified", repairs: 1, proof: { status: "proven", check: "test", command: "sh tests/check.sh", testsChanged: true, without: { exitCode: 1, ended: "fail" } },
     review: { done: ["sum.js is fixed — tests/check.sh"], open: [] },
   });
-  expect(result.stderr).toContain("✓ Proven: test fails without this change and passes with it");
+  expect(result.stderr).toContain("✓ Proven: test fails without this change (exit 1) and passes with it");
 }, 60_000);
 
 test("a fix no test proves is not verified: the receipt says why, and --require-verification exits 3", async () => {
