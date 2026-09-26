@@ -206,7 +206,15 @@ function reviewLine(review: RequirementsReview, safe: (text: string) => string):
 }
 
 function proofLine(proof: ChangeProof, safe: (text: string) => string): string {
-  if (proof.status === "proven") return `✓ Proven: ${proof.check} fails without this change and passes with it`;
+  if (proof.status === "proven") {
+    const { exitCode, ended, reason } = proof.without;
+    if (ended === "fail") return `✓ Proven: ${proof.check} fails without this change (exit ${exitCode}) and passes with it`;
+    // A timeout, crash or missing command shows the old code did not pass, not that a test caught it.
+    const timeout = /^Timed out after (\d+)ms$/.exec(reason ?? "");
+    const how = ended === "timeout" ? `timed out${timeout ? ` after ${duration(Number(timeout[1]))}` : ""}`
+      : ended === "crash" ? `crashed or was killed (exit ${exitCode})` : `could not start (exit ${exitCode})`;
+    return `✓ Proven, weakly: ${proof.check} passes with this change; without it ${proof.check} ${how} instead of failing`;
+  }
   if (proof.status === "unproven") {
     return `⚠ Not proven: ${proof.check} passes without this change too${proof.testsChanged ? "; the changed tests do not check it" : ", and no test was added or changed"}`;
   }
