@@ -183,6 +183,9 @@ export class CasperApp {
   private checkTask?: VerificationTask;
   /** This task's smoke checks (configured and model-recorded); run inside the task's verification. */
   private smokeTask?: SmokeChecks;
+  /** What may have changed this task's code since it started: a check the model records after that has no
+   * before-the-change baseline. `before` is the task's starting tree, compared only after a shell command. */
+  private taskEdits?: { before?: Map<string, string>; edited: boolean; shell: boolean; turnEnded: boolean };
   private readonly sessionHomeDir?: string;
   private sessionWorkspace?: SessionWorkspaceManager;
   private sessionWorkspaceStart?: Promise<SessionWorkspaceManager>;
@@ -253,12 +256,13 @@ export class CasperApp {
         this.observations.observeToolEnd(event, this.projectContext?.model.commands);
         if (["bash", "edit", "write"].includes(event.toolName)) this.browser?.invalidate();
         // A shell command's files are unknown, so it marks every running service stale.
-        if (event.toolName === "bash") this.services?.markEdited();
+        if (event.toolName === "bash") { this.services?.markEdited(); if (this.taskEdits) this.taskEdits.shell = true; }
         // Successful native writes invalidate in afterFileEdit, before LSP awaits.
         // Failed writes may be partial; invalidate without claiming a completed edit.
         if (event.isError && ["edit", "write"].includes(event.toolName) && typeof event.input?.path === "string") {
           (this.checkTask ?? this.verificationTask)?.invalidateForEdit(event.input.path);
           this.services?.markEdited(event.input.path);
+          if (this.taskEdits) this.taskEdits.edited = true;
         }
       },
       setTaskStop: (cancelled, failed) => { this.taskRuntimeCancelled = cancelled; this.taskRuntimeFailed = failed; },
@@ -651,6 +655,7 @@ export class CasperApp {
         throw error;
       } finally {
         this.checkTask = undefined;
+        this.taskEdits = undefined;
         this.commandActive = false;
         this.workspaceTransition = false;
         this.updateFooter();
@@ -708,7 +713,9 @@ export class CasperApp {
       (result) => this.writeCheckResult(result),
     );
     // Smoke checks are verification: they run only when Casper checks this task.
-    this.smokeTask = verificationMode !== "off" ? new SmokeChecks(context.smoke ?? [], () => this.serviceManager()) : undefined;
+    const edits: NonNullable<CasperApp["taskEdits"]> = { edited: false, shell: false, turnEnded: false };
+    this.taskEdits = edits;
+    this.smokeTask = verificationMode !== "off" ? new SmokeChecks(context.smoke ?? [], () => this.serviceManager(), () => this.changedSinceTaskStart(edits)) : undefined;
     await this.prepareCapabilities(prompt, classification.intent === "visualize");
     if (this.closing || this.commandAbort?.signal.aborted) return;
     const session = await this.ensureRuntime();
@@ -716,6 +723,7 @@ export class CasperApp {
     const workspaceRoot = this.activeWorkspaceRoot();
     // Receipts describe the tree, not tool names: a read-only shell run is not a write.
     const before = await this.snapshotWorkspace(workspaceRoot, this.commandAbort?.signal);
+    edits.before = before;
     // A code change in auto mode is reviewed and proven: the tests must fail without it. Only requests
     // that are clearly not behavior changes are exempt; the keyword intent is too coarse to decide more
     // ("add X; you may add new test files" reads as intent "test"), so the work itself decides later.
@@ -751,6 +759,8 @@ export class CasperApp {
           reviewFollows: context.verification.review === true, afterContext: Boolean(memoryContext || skillContext) }),
       ].filter(Boolean).join("\n\n"), this.commandAbort?.signal, { request: prompt, maxTurns: this.maxTurns });
       this.onEvent?.(phaseEvent("task", "end"));
+      // Repair, review and proof rounds follow the change.
+      edits.turnEnded = true;
       afterModel = before && !this.closing ? await this.snapshotWorkspace(workspaceRoot) : undefined;
       // A request cut short by --max-turns is unfinished work: checking it would only start repairs.
       const stopped = this.closing || this.commandAbort?.signal.aborted || this.taskRuntimeFailed || this.checkTask?.signal.aborted || this.taskTurnLimit !== undefined;
@@ -1329,7 +1339,17 @@ export class CasperApp {
     } catch { this.terminal.setStatus("Session status unavailable · /status", this.projectContext.info.root); }
   }
 
+  /** Whether the task's code may differ from its start. A shell command's effect is unknown, so the tree is
+   * compared to the start; an uncomparable tree counts as changed. */
+  private async changedSinceTaskStart(edits: NonNullable<CasperApp["taskEdits"]>): Promise<boolean> {
+    if (edits.edited || edits.turnEnded) return true;
+    if (!edits.shell) return false;
+    const now = edits.before && await this.snapshotWorkspace(this.activeWorkspaceRoot());
+    return !now || Object.values(diffSnapshots(edits.before!, now)).some((paths) => paths.length > 0);
+  }
+
   private observeEdit(path: string): void {
+    if (this.taskEdits) this.taskEdits.edited = true;
     this.browser?.invalidate();
     this.services?.markEdited(path);
     (this.checkTask ?? this.verificationTask)?.invalidateForEdit(path);

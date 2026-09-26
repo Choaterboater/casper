@@ -127,7 +127,7 @@ export function formatTaskResult(task: TaskResult): string {
   if (report?.smoke) {
     if (task.services?.length) lines.push(receiptLine("services", task.services.map((service) => `${safe(service.name)} ${service.state}${service.origin ? ` ${service.origin}` : ""}`).join("; ")));
     lines.push(receiptLine("smoke", `${report.smoke.status}: ${report.smoke.checks.map((check) => `${safe(check.name)} [${check.source}] ${safe(check.service)} ${check.request.method} ${safe(check.request.path)}: ${check.status}`
-      + `${check.actual ? ` (${check.actual.status})` : ""}${check.baseline ? `, baseline ${check.baseline}` : ""}${check.status === "pass" && !check.evidence ? ", observation only" : ""}`
+      + `${check.actual ? ` (${check.actual.status})` : ""}${check.baseline ? `, baseline ${check.baseline}${check.baselineAfterEdits ? " (after edits)" : ""}` : ""}${check.status === "pass" && !check.evidence ? ", observation only" : ""}`
       + `${check.status !== "pass" && check.reason ? ` — ${safe(check.reason)}` : ""}`).join("; ")}. Model checks are the model's expectations, run by Casper.`));
   }
   if (task.browser) {
@@ -213,9 +213,11 @@ function smokeLine(smoke: SmokeReport, services: TaskResult["services"], safe: (
   const listed = (status: "fail" | "incomplete") => smoke.checks.filter((check) => check.status === status)
     .map((check) => `${safe(check.name)}${check.reason ? ` (${safe(check.reason)})` : ""}`).join(", ");
   const failed = listed("fail"), incomplete = listed("incomplete");
-  const model = smoke.checks.filter((check) => check.source === "model").map((check) => check.baseline === "pass"
-    ? `${safe(check.name)} passed before the change too — an observation, not proof`
-    : `${safe(check.name)} ${check.baseline === "fail" ? "failed" : "could not run"} before the change`);
+  const verb = (check: SmokeReport["checks"][number]) => check.baseline === "fail" ? "failed" : check.baseline === "pass" ? "passed" : "could not run";
+  const model = smoke.checks.filter((check) => check.source === "model").map((check) => check.baselineAfterEdits
+    ? `${safe(check.name)} ${verb(check)} when recorded, after edits — an observation, not proof`
+    : check.baseline === "pass" ? `${safe(check.name)} passed before the change too — an observation, not proof`
+    : `${safe(check.name)} ${verb(check)} before the change`);
   const mark = smoke.status === "fail" ? "✗" : smoke.status === "pass" && smoke.checks.some((check) => check.evidence) ? "✓" : "•";
   return `${mark} ${names.length === 1 ? "Service" : "Services"} ${where}; smoke ${passed}/${smoke.checks.length} passed`
     + `${failed ? `; failed: ${failed}` : ""}${incomplete ? `; incomplete: ${incomplete}` : ""}${model.length ? ` (model-declared, run by Casper: ${model.join("; ")})` : ""}`;

@@ -103,7 +103,8 @@ During a task the model uses one `service` tool, with these actions:
   stays within the usual 16 KiB capability-result bound.
 - **`check`** records a smoke check (`name`, `service`, `request`, `expect`) and runs it
   once for its baseline; **`replay`** reruns one by `id`. Casper replays every recorded
-  check after the change (see [VERIFICATION.md](VERIFICATION.md), "Smoke checks").
+  check after the change (see [VERIFICATION.md](VERIFICATION.md), "Smoke checks"). A check
+  recorded after edits in the task, or during a repair round, is an observation, never evidence.
 
 A crash after readiness is not pushed into the model's turn. The next `service` call
 reports it once, under `crashed`, with the exit code and last log lines. This happens

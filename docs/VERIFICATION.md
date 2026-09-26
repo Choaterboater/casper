@@ -203,7 +203,11 @@ requirements-review edit or a proof repair. A standalone `/verify` runs only com
 **What counts.** A configured check is verification evidence when it passes against fresh services.
 A model check counts only when its baseline failed and it now passes. One whose baseline passed is
 shown as an observation and never makes the outcome verified: with no command checks and only such
-observations, the outcome is `not_verified`. A smoke failure left after the repairs makes the outcome
+observations, the outcome is `not_verified`. Casper does not take the model's word that it recorded
+before editing: a check recorded after an edit in the task (a native edit or write, or a shell command
+after which the tree differs from the task's start) or during a repair, review or proof round has no
+before-the-change baseline, so it is an observation too, and the receipt says `create note failed when
+recorded, after edits — an observation, not proof`. A smoke failure left after the repairs makes the outcome
 `failed`. A check that could not run (its service would not start, or its cleanup is unconfirmed) makes
 it `incomplete`. The plain receipt gets one line with each service's address and the smoke tally; the
 detailed receipt lists every check with its source, response status and baseline. `--json` carries the
