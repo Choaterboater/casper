@@ -102,6 +102,9 @@ export interface CasperAppOptions {
   maxTurns?: number;
   /** Continue the workspace's latest conversation, or the saved one whose ID starts with `resume`. */
   conversation?: { continue: true } | { resume: string };
+  /** Configuration warnings found before the app existed (the CLI's environment checks), printed at
+   * start with the project's [config] warnings on this app's output. */
+  startupWarnings?: readonly string[];
   /** Embedder shorthand: true = "offer" (model-selected casper_check plus bounded repair),
    * false = "off". Ignored when verificationMode is set. */
   autoVerify?: boolean;
@@ -154,6 +157,7 @@ export class CasperApp {
   private readonly reportedSkillWarnings = new Set<string>();
   private readonly verificationFlag?: VerificationMode;
   private readonly verbose: boolean;
+  private readonly startupWarnings: readonly string[];
   private readonly runModel?: string;
   private readonly runEffort?: string;
   private runConversation?: CasperAppOptions["conversation"];
@@ -251,6 +255,7 @@ export class CasperApp {
       cancelled: () => this.commandAbort?.signal.aborted === true,
     });
     this.verbose = options.verbose ?? false;
+    this.startupWarnings = options.startupWarnings ?? [];
     this.runModel = options.model;
     this.runEffort = options.effort;
     this.runConversation = options.conversation;
@@ -300,7 +305,7 @@ export class CasperApp {
     // A returning user's saved default is known before the runtime starts; say so, not "not initialized".
     if (!this.session) this.savedModelDisplay = await modelPreference(this.sessionHomeDir ?? os.homedir());
     this.output.write(`${formatRuntimeStatus(this.session?.getStatus?.(), this.savedModelDisplay)}\n`);
-    for (const warning of context.warnings ?? []) this.output.write(`[config] ${terminalText(warning)}\n`);
+    for (const warning of [...this.startupWarnings, ...context.warnings ?? []]) this.output.write(`[config] ${terminalText(warning)}\n`);
     for (const diagnostic of referenceConfiguration.diagnostics) this.output.write(`[references] ${formatReferenceResult(diagnostic)}\n`);
     this.reportSkillWarnings();
     for (const diagnostic of mcp.diagnostics) this.output.write(`[mcp] ${diagnostic}\n`);
