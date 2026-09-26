@@ -8,6 +8,7 @@ import { modelPreference } from "./tui/model-preference";
 import { HELP_TEXT, FULL_HELP_TEXT, LOGIN_HELP } from "./tui/help";
 import { BrowserSession } from "./browser/session";
 import { ServiceManager } from "./services/manager";
+import { serviceTool } from "./services/tool";
 import { formatTerminalJSON } from "./tui/json";
 import { InteractiveTerminal } from "./tui/terminal";
 import { askTool } from "./tui/ask";
@@ -1118,6 +1119,8 @@ export class CasperApp {
       references: this.references!, visualization: this.visualization!, projectRoot: this.activeWorkspaceRoot(),
       browserReady: this.browser?.status().state === "ready", browser: () => this.browserSession(),
       browserSignal: this.commandAbort?.signal,
+      services: { declared: Object.keys(this.projectContext?.services ?? {}).length > 0, live: this.services?.live() ?? false },
+      serviceTool: () => serviceTool(() => this.serviceManager(), this.commandAbort?.signal),
     });
     if (this.closing) return;
     if (this.session) {
