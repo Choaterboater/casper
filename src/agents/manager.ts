@@ -210,7 +210,9 @@ export class SubagentManager {
     /** Last non-empty response block, kept as the fallback for a run stopped mid-investigation. */
     let fallback = "";
     let fallbackTruncated = false;
-    /** The last response ended on a provider error; a new response means Pi is retrying it. */
+    /** The last response ended on a provider error or the output-token limit; a new response
+     * means Pi went on: it retries an error, and after a length stop it fails the cut-off tool
+     * calls (the child sees why) and continues. Only a response the run ends on is the outcome. */
     let retrying = false;
     let wake!: () => void;
     const cancelled = new Promise<void>((resolve) => { wake = resolve; });
@@ -239,7 +241,7 @@ export class SubagentManager {
       }
       if (controller.signal.aborted) return;
       if (event.type === "assistant_response_start") {
-        // Only a failure the child's retry went on to replace; a final provider error stays failed.
+        // Only a failure the child went on to replace; a final provider error or cut-off stays.
         if (retrying) { retrying = false; result.status = "completed"; delete result.reason; }
         // Keep only the current response, not every exploratory narration; the previous block
         // survives only as the fallback below.
@@ -261,11 +263,14 @@ export class SubagentManager {
         const name = prefix(event.toolName, 128);
         if (!result.toolsUsed.includes(name) && result.toolsUsed.length < 16) result.toolsUsed.push(name);
       } else if (event.type === "tool_end" && event.isError && result.toolErrors.length < 8) {
-        result.toolErrors.push(`tool failed: ${prefix(event.toolName, 128)}`);
+        // Pi's own first line (EISDIR, ENOENT, a cut-off call), which the child also saw, so the
+        // caller can tell a misdirected read from a broken tool.
+        const message = event.output?.text.trim().split("\n", 1)[0];
+        result.toolErrors.push(`${prefix(event.toolName, 128)}: ${message ? prefix(message, 256) : "tool failed"}`);
       } else if (event.type === "error") {
         retrying = false; result.status = "failed"; result.reason = prefix(event.message, 1024);
       } else if (event.type === "assistant_response_end" && event.stopReason !== "stop" && event.stopReason !== "toolUse") {
-        retrying = event.stopReason === "error";
+        retrying = event.stopReason === "error" || event.stopReason === "length";
         result.status = ["length", "limit"].includes(event.stopReason) ? "limited" : "failed";
         result.reason = prefix(event.errorMessage ?? `Model stopped: ${event.stopReason}`, 1024);
       }
