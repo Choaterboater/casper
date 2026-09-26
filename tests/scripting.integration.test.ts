@@ -51,8 +51,8 @@ async function fixture(script: (request: number, payload: Payload) => Step = () 
   const settings = path.join(home, ".casper/settings.json");
   await writeFile(settings, JSON.stringify({ defaultProvider: "fixture", defaultModel: "first", retry: { enabled: false } }));
   const env = { ...isolatedEnvironment(home), CASPER_OFFLINE: "1" };
-  async function run(args: string[], cwd = project) {
-    const child = Bun.spawn([process.execPath, cli, ...args], { cwd, env, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+  async function run(args: string[], cwd = project, extra: Record<string, string> = {}) {
+    const child = Bun.spawn([process.execPath, cli, ...args], { cwd, env: { ...env, ...extra }, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
     const timer = setTimeout(() => child.kill(), 20_000);
     try {
       const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
@@ -278,7 +278,7 @@ test("--json streams v1 JSON Lines on stdout: session, text, tools, Casper's che
       verificationMode: "auto", checks: [{ name: "test", command: "grep -q fixed sum.js", status: "pass", exit: 0, ms: "<ms>", fresh: true }],
       repairAttempts: 0, turnLimit: null, usage: { turns: 3, tokens: 360, estimatedCost: "<cost>" },
       // The check fails on sum.js as it was, so it proves the fix.
-      proof: { status: "proven", check: "test", command: "grep -q fixed sum.js", testsChanged: false },
+      proof: { status: "proven", check: "test", command: "grep -q fixed sum.js", testsChanged: false, without: { exitCode: 1, ended: "fail" } },
       review: { done: ["sum.js is fixed — the test check"], open: [] }, text: "<receipt text>" },
   ]);
 }, 30_000);
@@ -337,10 +337,10 @@ test("an unproven fix gets one round to add a test that fails without it; then t
     .toEqual(["task", "task", "review", "proof", "proof"]);
   const receipt = JSON.parse(result.stdout.trim().split("\n").at(-1)!);
   expect({ exit: result.exit, outcome: receipt.outcome, repairs: receipt.repairAttempts, proof: receipt.proof, review: receipt.review }).toEqual({
-    exit: 0, outcome: "verified", repairs: 1, proof: { status: "proven", check: "test", command: "sh tests/check.sh", testsChanged: true },
+    exit: 0, outcome: "verified", repairs: 1, proof: { status: "proven", check: "test", command: "sh tests/check.sh", testsChanged: true, without: { exitCode: 1, ended: "fail" } },
     review: { done: ["sum.js is fixed — tests/check.sh"], open: [] },
   });
-  expect(result.stderr).toContain("✓ Proven: test fails without this change and passes with it");
+  expect(result.stderr).toContain("✓ Proven: test fails without this change (exit 1) and passes with it");
 }, 60_000);
 
 test("a fix no test proves is not verified: the receipt says why, and --require-verification exits 3", async () => {
@@ -488,6 +488,19 @@ test("the proof repair round has the same 12-turn budget; the proof then decides
   const receipt = JSON.parse(result.stdout.trim().split("\n").at(-1)!);
   expect({ exit: result.exit, outcome: receipt.outcome, turnLimit: receipt.turnLimit, proof: receipt.proof?.status })
     .toEqual({ exit: 3, outcome: "not_verified", turnLimit: null, proof: "unproven" });
+}, 60_000);
+
+test("an ignored PI_CODING_AGENT_DIR is a [config] warning on the app's output: stdout when plain, stderr (never JSON stdout) with --json", async () => {
+  const f = await fixture();
+  const warning = "[config] Ignoring PI_CODING_AGENT_DIR; use CASPER_AGENT_DIR to choose Casper's state directory.";
+  const inherited = { PI_CODING_AGENT_DIR: path.join(f.root, "pi-agent") };
+  const plain = await f.run(["Answer without tools"], f.project, inherited);
+  expect({ exit: plain.exit, stderr: plain.stderr }).toEqual({ exit: 0, stderr: "" });
+  expect(plain.stdout).toContain(`${warning}\n`);
+  const json = await f.run(["--json", "Answer without tools"], f.project, inherited);
+  expect(json.exit).toBe(0);
+  expect(json.stderr).toContain(`${warning}\n`);
+  for (const line of json.stdout.trim().split("\n")) expect(() => JSON.parse(line)).not.toThrow();
 }, 60_000);
 
 test("--json ends with an error event when Casper stops before a receipt", async () => {

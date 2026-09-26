@@ -25,16 +25,21 @@ export function casperAgentDir(): string {
     ? path.join(resolveHome(), override.slice(2)) : override);
 }
 
-/** Select Casper's state before the engine resolves paths. Inherited engine state is never used.
- * Returns true when legacy credentials may be imported into the default store. */
+/** What useCasperAgentStore will override, as [config] warnings. Read it first: the store replaces the
+ * variable. The caller prints them on the app's output with the other startup warnings, so they
+ * never land on --json's stdout nor bypass the plain run's output. */
+export function agentStoreWarnings(): string[] {
+  // Bun stores `env.X = undefined` as the string "undefined"; it names no real directory.
+  const preset = process.env[AGENT_DIR_ENV];
+  return preset && preset !== "undefined" && preset !== casperAgentDir()
+    ? ["Ignoring PI_CODING_AGENT_DIR; use CASPER_AGENT_DIR to choose Casper's state directory."] : [];
+}
+
+/** Select Casper's state before the engine resolves paths. Inherited engine state is never used
+ * (agentStoreWarnings says so). Returns true when legacy credentials may be imported into the default store. */
 export function useCasperAgentStore(): boolean {
   const env = process.env as Record<string, string | undefined>;
-  // Bun stores `env.X = undefined` as the string "undefined"; it names no real directory
-  // and would otherwise put the store in `<cwd>/undefined/`.
-  const preset = env[AGENT_DIR_ENV];
-  if (preset && preset !== "undefined" && preset !== casperAgentDir()) {
-    process.stderr.write("[config] Ignoring PI_CODING_AGENT_DIR; use CASPER_AGENT_DIR to choose Casper's state directory.\n");
-  }
+  // An inherited value (even Bun's "undefined", which would put the store in `<cwd>/undefined/`) is replaced.
   env[AGENT_DIR_ENV] = casperAgentDir();
   if (env.CASPER_OFFLINE === "1") env.PI_OFFLINE = "1";
   else delete env.PI_OFFLINE;

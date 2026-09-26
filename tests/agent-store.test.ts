@@ -2,7 +2,7 @@ import { afterAll, afterEach, expect, test } from "bun:test";
 import { chmod, mkdir, mkdtemp, rm, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { AGENT_DIR_ENV, casperAgentDir, importLegacyEngineState, useCasperAgentStore } from "../src/runtime/agent-store";
+import { AGENT_DIR_ENV, agentStoreWarnings, casperAgentDir, importLegacyEngineState, useCasperAgentStore } from "../src/runtime/agent-store";
 
 const env = process.env as Record<string, string | undefined>;
 
@@ -42,6 +42,23 @@ test("the agent store defaults to Casper's own directory and respects an explici
     expect(useCasperAgentStore()).toBe(true);
     expect(env[AGENT_DIR_ENV]).toBe(casperAgentDir());
   }
+});
+
+test("an inherited PI_CODING_AGENT_DIR is ignored with a warning for the app's output, never written straight to stderr", () => {
+  delete env.CASPER_AGENT_DIR;
+  process.env.HOME = "/tmp/agent-store-warning-home";
+  env[AGENT_DIR_ENV] = "/tmp/some-pi-agent";
+  expect(agentStoreWarnings()).toEqual(["Ignoring PI_CODING_AGENT_DIR; use CASPER_AGENT_DIR to choose Casper's state directory."]);
+  const write = process.stderr.write;
+  const written: unknown[] = [];
+  process.stderr.write = ((chunk: unknown) => { written.push(chunk); return true; }) as typeof process.stderr.write;
+  try { useCasperAgentStore(); } finally { process.stderr.write = write; }
+  expect(written).toEqual([]);
+  expect(env[AGENT_DIR_ENV]).toBe(casperAgentDir());
+  // Casper's own value (set by an earlier start, or by a parent Casper) and an unset one warn about nothing.
+  expect(agentStoreWarnings()).toEqual([]);
+  delete env[AGENT_DIR_ENV];
+  expect(agentStoreWarnings()).toEqual([]);
 });
 
 test("legacy engine state is imported once by copy, and symlinks are refused", async () => {

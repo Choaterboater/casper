@@ -59,7 +59,8 @@ shown as `[config]` warnings at startup and otherwise ignored.
 Set these in your shell, not a repository `.env` (the source launcher ignores it).
 Casper forwards the five engine settings to the matching `PI_*` variables internally at
 startup. Their inherited `PI_*` values are not fallbacks; a conflicting
-`PI_CODING_AGENT_DIR` produces a stderr notice without reading or writing that directory.
+`PI_CODING_AGENT_DIR` produces a `[config]` warning with the other startup warnings (on
+stderr with `--json`, never on its stdout) without reading or writing that directory.
 Use `CASPER_AGENT_DIR` for an intentional override. `--version`, `--help` and `--licenses`
 return before this setup, create no state and perform no legacy import.
 

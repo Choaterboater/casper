@@ -85,8 +85,12 @@ report, a run cut off mid-response or still cleaning up, or a child running the 
 classifier), or automatic effort's classifier.
 
 `proof` says whether the tests prove the change (see docs/VERIFICATION.md, "Proving the change"):
-`{ "status": "proven" | "unproven", "check", "command", "testsChanged" }`, or `{ "status":
+`{ "status": "proven" | "unproven", "check", "command", "testsChanged", "without" }`, or `{ "status":
 "unavailable", "check", "reason" }` when Casper could not compare, or `null` when no proof applied.
+`without` is the check's run on the code without the change: `{ "exitCode", "ended", "reason"?, "output"? }`.
+`ended` is `pass` (unproven), `fail` (the tests failed), or weaker evidence for a proven change: `timeout`,
+`crash` (a signal or crash, exit above 128) or `no_start` (exit 126/127). `reason` is the runner's reason
+(for example `Timed out after 20000ms`); `output` is at most the last 500 characters of the failing run's output.
 An `unproven` change has the outcome `not_verified`. `review` is the model's requirements checklist from its review round
 (`{ "done": [...], "open": [...], "total": m }`, or `{ "missing": true }` when it returned none), or `null` when no
 review ran. With `total` (the requirement count the review reported), `done` lists only the gaps the review
@@ -95,7 +99,7 @@ fixed and `open` those still open; without it (`verification.review: false`, or 
 
 ```json
 {"v":1,"type":"check","name":"test","command":"npm run test","status":"pass","exit":0,"ms":412,"recordedBy":"casper","reused":false}
-{"v":1,"type":"receipt","outcome":"verified","exitCode":0,"execution":"completed","changed":["sum.js"],"changedDuringChecks":[],"verificationMode":"auto","checks":[{"name":"test","command":"npm run test","status":"pass","exit":0,"ms":412,"fresh":true}],"repairAttempts":0,"turnLimit":null,"usage":{"turns":2,"tokens":18342,"estimatedCost":0.0041},"proof":{"status":"proven","check":"test","command":"npm run test","testsChanged":true},"text":"✓ Changed 1 file: sum.js\n✓ Verified by Casper: test passed (npm run test, 0.4s)\n✓ Proven: test fails without this change and passes with it"}
+{"v":1,"type":"receipt","outcome":"verified","exitCode":0,"execution":"completed","changed":["sum.js"],"changedDuringChecks":[],"verificationMode":"auto","checks":[{"name":"test","command":"npm run test","status":"pass","exit":0,"ms":412,"fresh":true}],"repairAttempts":0,"turnLimit":null,"usage":{"turns":2,"tokens":18342,"estimatedCost":0.0041},"proof":{"status":"proven","check":"test","command":"npm run test","testsChanged":true,"without":{"exitCode":1,"ended":"fail","output":"expected 3, got 2"}},"text":"✓ Changed 1 file: sum.js\n✓ Verified by Casper: test passed (npm run test, 0.4s)\n✓ Proven: test fails without this change (exit 1) and passes with it"}
 ```
 
 ### `jq` recipes

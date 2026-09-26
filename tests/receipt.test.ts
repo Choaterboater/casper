@@ -17,6 +17,11 @@ test("a Casper-run pass names the check, command and time", () => {
     .toBe("✓ Changed 1 file: sum.js\n✓ Verified by Casper: test passed (npm run test, 0.3s)");
 });
 
+test("a pass reused from earlier in the task says so, and that its time is the earlier run's", () => {
+  expect(formatReceipt(done({ changedPaths: ["sum.js"], verificationMode: "auto", verification: report([check({ freshness: "fresh", reused: true })]) })))
+    .toBe("✓ Changed 1 file: sum.js\n✓ Verified by Casper: test passed earlier in this task, reused (npm run test, 0.3s)");
+});
+
 test("a failure names the exit and the next command, per surface", () => {
   const task = done({ changedPaths: ["sum.js"], verificationMode: "auto",
     verification: report([check({ status: "fail", exitCode: 1, durationMs: 1500 })], { repairAttempts: 2, reason: "Repair limit reached." }) });
@@ -85,7 +90,8 @@ test("stopped tasks, unknown changes, long path lists and browser checks read pl
 
 test("the default receipt never uses internal terms and escapes terminal controls", () => {
   const text = formatReceipt(done({ changedPaths: ["a\n\u001b[31mforged"], verification: report([check(), check({ name: "build", freshness: "fresh", scope: { inputs: ["src"] }, reused: true })]) }));
-  expect(text).not.toMatch(/scope|reuse|freshness|fingerprint|undeclared|certified|\u001b/);
+  // "reused" is plain language here (the build passed earlier in the task); "reuse disabled" is not.
+  expect(text).not.toMatch(/scope|reuse disabled|declared-input|freshness|fingerprint|undeclared|certified|\u001b/);
   expect(text.split("\n")).toHaveLength(3);
 });
 
@@ -101,11 +107,21 @@ test("a request stopped by --max-turns says so and how to go on, per surface", (
 test("the receipt says whether the tests prove the change, and never calls an unproven change verified alone", () => {
   const passed = (proof: TaskResult["proof"]) => formatReceipt(done({ changedPaths: ["src/sum.js"], verificationMode: "auto", verification: report([check()]), proof }))
     .split("\n").slice(2).join("\n");
-  expect(passed({ status: "proven", check: "test", command: "npm run test", testsChanged: true }))
-    .toBe("✓ Proven: test fails without this change and passes with it");
-  expect(passed({ status: "unproven", check: "test", command: "npm run test", testsChanged: false }))
+  const proven = (without: Extract<NonNullable<TaskResult["proof"]>, { status: "proven" }>["without"]) =>
+    passed({ status: "proven", check: "test", command: "npm run test", testsChanged: true, without });
+  expect(proven({ exitCode: 1, ended: "fail", output: "expected 3, got 2" }))
+    .toBe("✓ Proven: test fails without this change (exit 1) and passes with it");
+  // A run that did not fail as a test fails is weaker evidence, and says so.
+  expect(proven({ exitCode: 143, ended: "timeout", reason: "Timed out after 20000ms" }))
+    .toBe("✓ Proven, weakly: test passes with this change; without it test timed out after 20.0s instead of failing");
+  expect(proven({ exitCode: 139, ended: "crash" }))
+    .toBe("✓ Proven, weakly: test passes with this change; without it test crashed or was killed (exit 139) instead of failing");
+  expect(proven({ exitCode: 127, ended: "no_start" }))
+    .toBe("✓ Proven, weakly: test passes with this change; without it test could not start (exit 127) instead of failing");
+  const unproven = { exitCode: 0, ended: "pass" } as const;
+  expect(passed({ status: "unproven", check: "test", command: "npm run test", testsChanged: false, without: unproven }))
     .toBe("⚠ Not proven: test passes without this change too, and no test was added or changed");
-  expect(passed({ status: "unproven", check: "test", command: "npm run test", testsChanged: true }))
+  expect(passed({ status: "unproven", check: "test", command: "npm run test", testsChanged: true, without: unproven }))
     .toBe("⚠ Not proven: test passes without this change too; the changed tests do not check it");
   expect(passed({ status: "unavailable", check: "test", reason: "the workspace has more than 20000 files" }))
     .toBe("• Not proven — the workspace has more than 20000 files");
