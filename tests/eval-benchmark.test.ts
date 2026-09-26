@@ -137,6 +137,49 @@ const reworkRun = (specs: AttemptSpec[], harness: BenchmarkRun["harness"] = "cas
 const ok = (wallClockMs: number, tokens: number | null = 1000, estimatedCost: number | null = 0.01): AttemptSpec => ({ success: true, wallClockMs, tokens, estimatedCost });
 const bad = (wallClockMs: number, tokens: number | null = 1000, estimatedCost: number | null = 0.01): AttemptSpec => ({ success: false, wallClockMs, tokens, estimatedCost });
 
+/** A hard-pack run with a given grader verdict, receipt outcome and end. */
+const receiptRun = (success: boolean, receiptOutcome: string | null, options: { harness?: BenchmarkRun["harness"]; termination?: HarnessObservation["termination"]; wallClockMs?: number; tokens?: number } = {}): BenchmarkRun => {
+  const { harness = "casper", termination = "completed", wallClockMs = 100_000, tokens = 1000 } = options;
+  const run = baseRun({ harness, pack: "hard", taskId: "hard-job-queue", works: success, complete: success,
+    effort: { wallClockMs, turns: 10, tokens, estimatedCost: null, rescues: 0 } });
+  return { ...run, run: { ...run.run, termination, receiptOutcome } } as BenchmarkRun;
+};
+
+test("receipt honesty: wrong runs the receipt caught, right runs it flagged, and the decision rule against Pi's cost", () => {
+  const runs = [
+    receiptRun(false, "not_verified"), receiptRun(false, "failed"), receiptRun(false, "incomplete"), receiptRun(false, "verified"),
+    receiptRun(true, "verified"), receiptRun(true, "verified"), receiptRun(true, "verified"), receiptRun(true, "verified"), receiptRun(true, "not_verified"),
+    // Out of caught and flagged: a timeout, and a crash that left no receipt.
+    receiptRun(false, null, { termination: "timeout", wallClockMs: 600_000 }), receiptRun(false, null, { termination: "failed" }),
+    ...[1, 2, 3, 4, 5].map(() => receiptRun(true, null, { harness: "pi", wallClockMs: 90_000, tokens: 900 })),
+  ];
+  const [casper] = summarizeBenchmark(runs).packs[0]!.receipts;
+  expect(casper).toMatchObject({
+    harness: "casper", runs: 11, timeouts: 1, noReceipt: 1, wrong: 4, caught: 3, right: 5, flagged: 1, verified: 5, verifiedWrong: 1,
+    wallRatio: 100 / 90, tokenRatio: 1000 / 900, rule: { verdict: "met", reasons: [] },
+  });
+  // Wilson 95% interval for 3 of 4.
+  expect(casper!.catchInterval![0]).toBeCloseTo(0.3006, 3);
+  expect(casper!.catchInterval![1]).toBeCloseTo(0.9544, 3);
+  expect(formatBenchmarkReport(summarizeBenchmark(runs))).toMatch(/^casper\s+11\s+1\s+1\s+3\/4 75% \(30–95%\)\s+1\/5 20%\s+1\/5 20%\s+1\.11\s+1\.11\s+met$/m);
+
+  // Each part of the rule fails on its own; more than 10% timeouts makes the result inconclusive, not a pass.
+  const rule = (extra: BenchmarkRun[]) => summarizeBenchmark([...runs, ...extra]).packs[0]!.receipts[0]!.rule;
+  expect(rule([receiptRun(false, "verified"), receiptRun(false, "verified")])).toEqual({ verdict: "not met", reasons: ["caught 3/6 < 70%"] });
+  expect(rule([receiptRun(true, "not_verified")])).toEqual({ verdict: "not met", reasons: ["flagged 2/6 > 20%"] });
+  const slow = runs.map((run) => run.harness === "casper"
+    ? receiptRun(run.graded.success, run.run.receiptOutcome, { termination: run.run.termination, wallClockMs: 200_000 }) : run);
+  expect(summarizeBenchmark(slow).packs[0]!.receipts[0]!.rule).toEqual({ verdict: "not met", reasons: ["wall 2.22× Pi > 1.25×"] });
+  expect(rule([receiptRun(false, null, { termination: "timeout" })])).toEqual({ verdict: "inconclusive", reasons: ["timeouts 2/12 > 10%"] });
+  // Without Pi runs there is no cost to compare against, so no verdict.
+  expect(summarizeBenchmark(runs.filter((run) => run.harness === "casper")).packs[0]!.receipts[0]!.rule).toBeNull();
+  // Pi has no receipt: it gets no row.
+  expect(summarizeBenchmark(runs).packs[0]!.receipts.map((row) => row.harness)).toEqual(["casper"]);
+  // Cost compares only tasks both harnesses ran: a slow Casper-only task does not move the ratio, but its runs still count.
+  const casperOnly = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(() => ({ ...receiptRun(true, "verified", { wallClockMs: 900_000 }), taskId: "hard-rate-limiter" }));
+  expect(summarizeBenchmark([...runs, ...casperOnly]).packs[0]!.receipts[0]).toMatchObject({ runs: 23, wallRatio: 100 / 90 });
+});
+
 test("time to correct: first-time right, follow-up rounds, and every attempt's cost per correct result, unfixed runs included", () => {
   const summary = summarizeBenchmark([
     reworkRun([ok(100_000)]),

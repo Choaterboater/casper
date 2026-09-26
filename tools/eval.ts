@@ -44,7 +44,7 @@ Options:
   --help                Show this text.
 
 Quality benchmark (Casper vs Pi, optionally OMP, through their real CLIs; --pack or --harness selects it):
-  --pack <core|network> Benchmark a pack (repeatable). Default with --harness: every pack,
+  --pack <core|network|hard> Benchmark a pack (repeatable). Default with --harness: every pack,
                         or only the --task selection.
   --harness <name>      casper (as shipped: requirements review off), pi, omp (oh-my-pi),
                         casper-no-review (review explicitly off) or casper-review (review
@@ -65,7 +65,8 @@ Quality benchmark (Casper vs Pi, optionally OMP, through their real CLIs; --pack
   --person-cost <sec>   A person's time charged per follow-up in the time-to-correct table
                         (0..3600). Default: 120.
   --report <path>       Reprint a saved benchmark results document with this checkout's
-                        summary (no model calls); --person-cost applies.
+                        summary (no model calls); --person-cost applies. Repeat it to
+                        summarize several documents together (for example one per model).
   --casper <path>       Casper executable. Default: this checkout (bun src/cli.ts).
   --pi <path>           Pi executable. Default: pi on PATH.
   --omp <path>          OMP executable. Default: omp on PATH.
@@ -104,7 +105,7 @@ interface EvalOptions {
   route?: string[];
   /** `--route any`: an OpenRouter benchmark deliberately left unpinned. */
   unpinned?: boolean;
-  report?: string;
+  reports: string[];
   casper?: string;
   pi?: string;
   omp?: string;
@@ -120,7 +121,7 @@ function wholeNumber(flag: string, value: string, max: number): number {
 
 export function parseArguments(args: readonly string[]): EvalOptions {
   const options: EvalOptions = {
-    help: false, list: false, selected: [], repeat: 1, timeoutSeconds: 120, keep: false, autoVerify: true, prepare: false, packs: [], harnesses: [], followUps: 0,
+    help: false, list: false, selected: [], repeat: 1, timeoutSeconds: 120, keep: false, autoVerify: true, prepare: false, packs: [], harnesses: [], followUps: 0, reports: [],
   };
   for (let index = 0; index < args.length; index++) {
     const argument = args[index]!;
@@ -148,7 +149,7 @@ export function parseArguments(args: readonly string[]): EvalOptions {
         const seconds = Number(value);
         if (!Number.isInteger(seconds) || seconds < 0 || seconds > 3600) throw new Error("--person-cost must be an integer between 0 and 3600");
         options.personCostSeconds = seconds;
-      } else if (argument === "--report") options.report = value;
+      } else if (argument === "--report") options.reports.push(value);
       else if (argument === "--route") {
         const hosts = value.split(",").map((host) => host.trim()).filter(Boolean);
         if (!hosts.length || hosts.some((host) => host.length > 64)) throw new Error("--route needs comma-separated OpenRouter host names");
@@ -184,7 +185,7 @@ export function parseArguments(args: readonly string[]): EvalOptions {
     throw new Error(`Unknown argument: ${argument}`);
   }
   if (options.help || options.list) return options;
-  if (options.report) {
+  if (options.reports.length) {
     if (args.some((flag) => flag.startsWith("--") && !["--report", "--person-cost"].includes(flag))) throw new Error("--report takes only --person-cost");
     return options;
   }
@@ -333,18 +334,22 @@ async function benchmark(options: EvalOptions, repoRoot: string): Promise<number
 
 const personCost = (options: EvalOptions) => options.personCostSeconds === undefined ? {} : { personMs: options.personCostSeconds * 1000 };
 
-/** Reprint a saved results document: the runs are evidence, the summary is recomputed. */
+/** Reprint saved results documents: the runs are evidence, the summary is recomputed over all of them. */
 async function reprint(options: EvalOptions): Promise<void> {
-  const document = JSON.parse(await readFile(options.report!, "utf8")) as { kind?: unknown; runs?: unknown };
-  if (document.kind !== "quality-benchmark" || !Array.isArray(document.runs)) throw new Error(`${options.report} is not a benchmark results document`);
-  process.stdout.write(`${formatBenchmarkReport(summarizeBenchmark(document.runs as BenchmarkRun[], personCost(options)))}\n`);
+  const runs: BenchmarkRun[] = [];
+  for (const file of options.reports) {
+    const document = JSON.parse(await readFile(file, "utf8")) as { kind?: unknown; runs?: unknown };
+    if (document.kind !== "quality-benchmark" || !Array.isArray(document.runs)) throw new Error(`${file} is not a benchmark results document`);
+    runs.push(...document.runs as BenchmarkRun[]);
+  }
+  process.stdout.write(`${formatBenchmarkReport(summarizeBenchmark(runs, personCost(options)))}\n`);
 }
 
 async function main(): Promise<void> {
   useCasperAgentStore(); // Eval runs keep the user's real credentials (Casper's own store).
   const options = parseArguments(process.argv.slice(2));
   if (options.help) { process.stdout.write(`${USAGE}\n`); return; }
-  if (options.report) { await reprint(options); return; }
+  if (options.reports.length) { await reprint(options); return; }
   if (options.list) {
     for (const task of EVAL_TASKS) process.stdout.write(`${task.id}  (${task.fixture}${task.setup ? ` + ${task.setup}` : ""})${task.pack ? ` [${task.pack} pack]` : ""}\n`);
     for (const id of EVAL_SCENARIOS) process.stdout.write(`${id}  (human-driven; --prepare --scenario ${id})\n`);
