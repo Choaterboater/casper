@@ -99,7 +99,7 @@ test("the receipt reports the review as the model's own claim, and admitted gaps
   expect(formatReceipt(task({ missing: true }))).toContain("• The model's review returned no checklist");
   // With a count, the delta answer reports all m requirements and how many gaps the review fixed.
   expect(formatReceipt(task({ done: [], open: [], total: 7 })))
-    .toContain("• The model's review: all 7 requirements covered (0 gaps fixed; its own claim, not checked by Casper)");
+    .toContain("• The model's review: all 7 requirements covered (no gaps found; its own claim, not checked by Casper)");
   expect(formatReceipt(task({ done: ["a — t"], open: [], total: 4 })))
     .toContain("• The model's review: all 4 requirements covered (1 gap fixed; its own claim, not checked by Casper)");
   expect(formatTaskResult(task({ done: ["a — t", "b — t"], open: [], total: 4 })))
@@ -110,4 +110,17 @@ test("the receipt reports the review as the model's own claim, and admitted gaps
   expect(taskOutcome(undefined, task({ done: ["a"], open: ["b"] }))).toBe("not_verified");
   expect(taskOutcome(undefined, task({ done: ["a"], open: [] }))).toBe("verified");
   expect(taskOutcome(undefined, task({ missing: true }))).toBe("verified");
+});
+
+test("a review stopped at its own turn budget is reported as such; only open items make the change not verified", () => {
+  const budget = "• The model's review stopped at its 12-turn budget (its own claim so far, not checked by Casper)";
+  expect(formatReceipt(task({ missing: true, incomplete: true }))).toContain(budget);
+  expect(formatReceipt(task({ missing: true, incomplete: true }))).not.toContain("returned no checklist");
+  const partial = formatReceipt(task({ done: ["a"], open: ["b — not tested yet"], incomplete: true }));
+  expect(partial).toContain(budget);
+  expect(partial).toContain("⚠ The model's review says not done: b — not tested yet");
+  expect(formatReceipt(task({ done: ["a"], open: [], incomplete: true }))).not.toContain("requirements covered");
+  expect(taskOutcome(undefined, task({ missing: true, incomplete: true }))).toBe("verified");
+  expect(taskOutcome(undefined, task({ done: ["a"], open: [], incomplete: true }))).toBe("verified");
+  expect(taskOutcome(undefined, task({ done: ["a"], open: ["b"], incomplete: true }))).toBe("not_verified");
 });

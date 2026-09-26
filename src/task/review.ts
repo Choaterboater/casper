@@ -3,10 +3,17 @@
  * model's own claim, never Casper's evidence; admitted gaps still count against the result. */
 
 /** done/open: the review's ticked and open lines (with a `total`, only the gaps it fixed or left open);
- * total: the requirement count from its "Covered: n of m" line, when it gave one. */
+ * total: the requirement count from its "Covered: n of m" line, when it gave one; incomplete: the
+ * review round hit REVIEW_MAX_TURNS before it ended, and the checklist (if any) is from its last answer. */
 export type RequirementsReview =
   | { done: string[]; open: string[]; total?: number; incomplete?: true }
   | { missing: true; incomplete?: true };
+
+/** Model turns the review round (and the proof repair round) may take. Pinned benchmarks: the review was
+ * 41-44% of Casper's wall time and, on the latest runs, added no first-time-right over no review at all;
+ * a round that is still working after 12 turns is exploring, not checking. A smaller --max-turns wins
+ * and stays the task's own stop. */
+export const REVIEW_MAX_TURNS = 12;
 
 const ITEM = /^\s*[-*]\s*\[([ xX])\]\s+(.+?)\s*$/;
 const MAX_ITEMS = 50;
