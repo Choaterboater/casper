@@ -105,3 +105,10 @@ test("a JSON expectation on a body cut at 64 KiB says the body was truncated, no
   const result = await matchSmoke({ json: { items: [] } }, { status: 200, headers: new Headers(), body, complete: false });
   expect(result).toEqual({ pass: false, reason: expect.stringContaining("body over 64 KiB was truncated") });
 });
+
+test("a header mismatch quotes at most 1024 characters of the actual value", async () => {
+  const result = await matchSmoke({ headers: { "x-long": "wanted" } }, { status: 200, headers: new Headers({ "x-long": "v".repeat(8000) }), body: "" });
+  expect(result.pass).toBe(false);
+  expect(result.reason!.length).toBeLessThan(1200);
+  expect(result.reason).toContain("x-long");
+});

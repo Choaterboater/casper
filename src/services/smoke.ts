@@ -103,8 +103,9 @@ async function bodyMatches(pattern: string, body: string): Promise<boolean | str
 export async function matchSmoke(expect: SmokeExpect, response: { status: number; headers: Headers; body: string; complete?: boolean }): Promise<{ pass: boolean; reason?: string }> {
   if (expect.status !== undefined && response.status !== expect.status) return { pass: false, reason: `status ${response.status}, expected ${expect.status}` };
   for (const [name, value] of Object.entries(expect.headers ?? {})) {
+    // The quoted value is cut like other messages: it reaches the repair prompt, the receipt and JSON.
     const actual = response.headers.get(name);
-    if (actual === null || !actual.toLowerCase().includes(value.toLowerCase())) return { pass: false, reason: `header ${name.toLowerCase()} is ${actual === null ? "missing" : JSON.stringify(actual)}, expected it to contain ${JSON.stringify(value)}` };
+    if (actual === null || !actual.toLowerCase().includes(value.toLowerCase())) return { pass: false, reason: `header ${name.toLowerCase()} is ${actual === null ? "missing" : JSON.stringify(actual.slice(0, 1024))}, expected it to contain ${JSON.stringify(value)}` };
   }
   if (expect.json !== undefined) {
     let parsed: unknown;
