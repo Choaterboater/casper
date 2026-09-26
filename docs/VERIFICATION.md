@@ -56,6 +56,8 @@ reported but never counted as verification.
 ✓ Proven: test fails without this change (exit 1) and passes with it
 ✓ Proven, weakly: test passes with this change; without it test crashed or was killed (exit 139) instead of failing
 ⚠ Not proven: test passes without this change too, and no test was added or changed
+✓ Service api at 127.0.0.1:53121; smoke 2/2 passed (model-declared, run by Casper: create note failed before the change)
+✗ Service api at 127.0.0.1:53121; smoke 0/1 passed; failed: create note (status 404, expected 201)
 ```
 
 A pass marked `reused` did not run again: its declared inputs are unchanged since it passed earlier in
@@ -159,6 +161,54 @@ configuration requests, need no proof. The comparison runs the test check once m
 One-shot receipts name the next command as `casper "/verify repair test"`. `/receipt` (or
 `--verbose` for a whole run) shows the detailed evidence form: command execution status, input
 scope and freshness, reuse, and the "not independently certified" qualification described below.
+
+## Smoke checks
+
+A **smoke check** is an HTTP expectation Casper runs against one of the project's
+[managed services](SERVICES.md). Configured checks live in `.casper/project.yaml`; the model can
+record more during a task with the `service` tool.
+
+```yaml
+smoke:
+  - name: list notes
+    service: api                         # a declared service
+    request: { method: GET, path: /notes } # also headers (strings) and body (a string, or JSON)
+    expect:
+      status: 200
+      headers: { content-type: json }    # the header must contain this text (case-insensitive)
+      json: [ ]                          # deep subset of the JSON body (see below)
+      bodyMatches: '^\['                 # a regular expression on the body text
+```
+
+`expect` needs at least one of `status`, `headers`, `json` and `bodyMatches`, and every one given
+must hold. `json` matches a subset: an object needs only the keys listed (each matching in turn), a
+list needs each listed item to match some item of the actual list, and anything else must be equal.
+At most 8 checks, each at most 4 KiB as JSON, with unique names; `smoke` is a project setting only.
+Invalid values stop configuration loading with the dotted path, for example
+`smoke[0].service must name a declared service (api)`.
+
+**Model checks.** `service` `check { name, service, request, expect }` records a check and runs it
+once for its **baseline**, the result before the change. `replay { id }` reruns it. The tool asks
+the model to record a check for new endpoint behavior before editing; Casper replays every recorded
+check after the change. A model check is the model's expectation, run by Casper: the receipt says so.
+
+**When they run.** In a task Casper verifies (`auto`, or `offer` once the model recorded a check),
+smoke runs inside the same verify-and-repair loop as the command checks, after those pass. Configured
+checks run after any change; recorded ones always run. Before each run Casper makes every referenced
+service fresh: a service that is stale from edits, has crashed or no longer answers its readiness path
+is restarted. A failing smoke check joins the normal repair prompt as smoke failure evidence and uses
+the same `repair.maxAttempts` budget; there is no extra round. Smoke runs again after a repair, a
+requirements-review edit or a proof repair. A standalone `/verify` runs only commands.
+
+**What counts.** A configured check is verification evidence when it passes against fresh services.
+A model check counts only when its baseline failed and it now passes. One whose baseline passed is
+shown as an observation and never makes the outcome verified: with no command checks and only such
+observations, the outcome is `not_verified`. A smoke failure left after the repairs makes the outcome
+`failed`. A check that could not run (its service would not start, or its cleanup is unconfirmed) makes
+it `incomplete`. The plain receipt gets one line with each service's address and the smoke tally; the
+detailed receipt lists every check with its source, response status and baseline. `--json` carries the
+report (see [SCRIPTING.md](SCRIPTING.md)). A passing smoke check shows what one request returned; it
+does not certify the requested behavior as a whole.
 
 ## Configuration
 
