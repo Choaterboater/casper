@@ -99,3 +99,9 @@ test("a catastrophically backtracking bodyMatches is cut off instead of hanging 
   expect(result.pass).toBe(false);
   expect(result.reason).toContain("took too long");
 });
+
+test("a JSON expectation on a body cut at 64 KiB says the body was truncated, not that it is not JSON", async () => {
+  const body = JSON.stringify({ items: Array.from({ length: 10 }, (_, id) => ({ id })) }).slice(0, 20);
+  const result = await matchSmoke({ json: { items: [] } }, { status: 200, headers: new Headers(), body, complete: false });
+  expect(result).toEqual({ pass: false, reason: expect.stringContaining("body over 64 KiB was truncated") });
+});
