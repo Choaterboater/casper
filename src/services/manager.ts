@@ -27,7 +27,8 @@ export interface ServiceStatus {
 
 interface Slot {
   readonly name: string;
-  readonly spec: ServiceSpec;
+  /** Replaced when an ad-hoc command is started again with other readiness options. */
+  spec: ServiceSpec;
   state: ServiceState;
   stale: boolean;
   process?: ManagedProcess;
@@ -59,6 +60,8 @@ export class ServiceManager {
   private closing?: Promise<void>;
   private cleanupUnknown = false;
   private adhocCount = 0;
+  /** Cleanup of ad-hoc slots dropped past the cap, which close() still awaits. */
+  private readonly retired: Promise<void>[] = [];
   constructor(private readonly options: { projectRoot: string; services: Record<string, ServiceSpec>; platform?: ProcessPlatform }) {
     for (const [name, spec] of Object.entries(options.services)) this.slots.set(name, { name, spec, state: "idle", stale: false });
   }
@@ -90,7 +93,9 @@ export class ServiceManager {
   }
 
   /** Starts a command the model supplied as `adhoc-<n>`: an auto port, no scope (any edit makes it
-   * stale) and no env beyond PORT/HOST. The same command already running is joined, not duplicated. */
+   * stale) and no env beyond PORT/HOST. The same command already running is joined, not duplicated
+   * (the caller makes it fresh); one that stopped, failed or crashed is relaunched under its name.
+   * At most MAX_SERVICES ad-hoc slots are kept: past that the oldest one not running is dropped. */
   async startCommand(command: string, options: { ready?: ServiceSpec["ready"]; timeoutMs?: number }, signal: AbortSignal): Promise<ServiceStatus> {
     if (this.closing) throw new Error("Casper's services were stopped with the conversation; start them again after it changes");
     const ready = options.ready ?? { http: "/" }, timeoutMs = options.timeoutMs ?? 30_000;
@@ -100,12 +105,19 @@ export class ServiceManager {
     }
     if (!Number.isInteger(timeoutMs) || timeoutMs < 1000 || timeoutMs > 120_000) throw new Error("timeoutMs must be an integer between 1000 and 120000");
     const adhoc = [...this.slots.values()].filter(slot => slot.name.startsWith("adhoc-"));
-    const same = adhoc.find(slot => slot.spec.command === command && (slot.work || slot.state === "ready"));
-    if (same) return same.work ?? this.describe(same);
-    if (adhoc.filter(slot => slot.work || slot.state === "starting" || slot.state === "ready").length >= MAX_SERVICES) {
-      throw new Error(`At most ${MAX_SERVICES} ad-hoc services run at once; stop one first`);
+    const running = (slot: Slot) => slot.work !== undefined || slot.state === "starting" || slot.state === "ready";
+    const spec: ServiceSpec = { command, port: "auto", ready, timeoutMs };
+    const same = adhoc.find(slot => slot.spec.command === command);
+    if (same && running(same)) return same.work ?? this.describe(same);
+    if (same) { same.spec = spec; return this.launch(same, signal); }
+    if (adhoc.filter(running).length >= MAX_SERVICES) throw new Error(`At most ${MAX_SERVICES} ad-hoc services run at once; stop one first`);
+    if (adhoc.length >= MAX_SERVICES) {
+      // Oldest first (insertion order); its crash, if any, was reported at the start of this call.
+      const oldest = adhoc.find(slot => !running(slot))!;
+      this.slots.delete(oldest.name);
+      if (oldest.process) this.retired.push(this.closeProcess(oldest).catch(() => {}));
     }
-    const slot: Slot = { name: `adhoc-${++this.adhocCount}`, spec: { command, port: "auto", ready, timeoutMs }, state: "idle", stale: false };
+    const slot: Slot = { name: `adhoc-${++this.adhocCount}`, spec, state: "idle", stale: false };
     this.slots.set(slot.name, slot);
     return this.launch(slot, signal);
   }
@@ -164,6 +176,7 @@ export class ServiceManager {
     return this.closing ??= (async () => {
       const results = await Promise.allSettled([...this.slots.keys()].map(name => this.stop(name)));
       await Promise.allSettled([...this.slots.values()].map(slot => slot.work));
+      await Promise.allSettled(this.retired);
       const failure = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
       if (failure) throw failure.reason instanceof ProcessCleanupError ? new ProcessCleanupError() : failure.reason;
     })();
