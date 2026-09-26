@@ -171,3 +171,32 @@ test("an unconfirmed cleanup raises the process cleanup error through the platfo
   expect(() => f.manager.assertCleanup()).toThrow(ProcessCleanupError);
   expect(api(f.manager).cleanup).toBe("unknown");
 }, 20_000);
+
+const pids = async (file: string) => (await readFile(file, "utf8").catch(() => "")).split("\n").filter(Boolean).map(Number);
+
+test("a close while a service is still starting leaves no process", async () => {
+  const root = await project(), log = path.join(root, "pids.log");
+  const f = await fixture({ env: { PID_LOG: log } }, { root });
+  const work = f.manager.start("api", new AbortController().signal).catch((error: unknown) => error);
+  await f.manager.close();
+  expect(await work).toBeInstanceOf(Error);
+  // A launch that spawned after close would have logged a PID by now.
+  await Bun.sleep(750);
+  for (const pid of await pids(log)) await gone(pid);
+  expect(["idle", "stopped"]).toContain(api(f.manager).state);
+  expect(api(f.manager).pid).toBeUndefined();
+}, 20_000);
+
+test("a restart while a service is starting leaves exactly one process", async () => {
+  const root = await project(), log = path.join(root, "pids.log");
+  const f = await fixture({ env: { PID_LOG: log } }, { root });
+  const signal = new AbortController().signal;
+  const first = f.manager.start("api", signal).catch((error: unknown) => error);
+  const second = await f.manager.restart("api", signal);
+  expect(second.state).toBe("ready");
+  expect(await first).toBeInstanceOf(Error);
+  await Bun.sleep(300);
+  expect((await pids(log)).filter(alive)).toHaveLength(1);
+  await f.manager.close();
+  for (const pid of await pids(log)) await gone(pid);
+}, 20_000);

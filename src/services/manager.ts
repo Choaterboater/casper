@@ -33,6 +33,8 @@ interface Slot {
   process?: ManagedProcess;
   port?: number;
   work?: Promise<ServiceStatus>;
+  /** Aborts the launch in progress, including before it has spawned anything. */
+  launch?: AbortController;
   stopping?: Promise<void>;
   readyMs?: number;
   error?: string;
@@ -85,13 +87,22 @@ export class ServiceManager {
     return this.launch(slot, signal);
   }
 
-  /** Stops the service's process tree; aborts a startup in progress. */
-  async stop(name: string): Promise<void> {
+  /** Stops the service's process tree and aborts a startup in progress, even one still
+   * choosing its port. Resolves whether it was running (starting or ready). */
+  async stop(name: string): Promise<boolean> {
     const slot = this.slot(name);
-    if (!slot.process) return;
+    const work = slot.work;
+    const running = work !== undefined || slot.state === "starting" || slot.state === "ready";
+    if (!slot.process && !work) return false;
     if (slot.state !== "idle") slot.state = "stopped";
     slot.stale = false;
-    await this.closeProcess(slot);
+    slot.launch?.abort(new Error(`Service ${name} was stopped during startup`));
+    try { await this.closeProcess(slot); }
+    finally {
+      // Wait for the launch to unwind; only its unconfirmed cleanup matters here.
+      await work?.catch((error: unknown) => { if (error instanceof ProcessCleanupError) throw error; });
+    }
+    return running;
   }
 
   /** An edited file (absolute or project-relative) marks the running services whose scope covers it stale.
@@ -147,11 +158,16 @@ export class ServiceManager {
       ...(slot.cleanup ? { cleanup: slot.cleanup } : {}) };
   }
 
-  private launch(slot: Slot, signal: AbortSignal): Promise<ServiceStatus> {
+  private launch(slot: Slot, callerSignal: AbortSignal): Promise<ServiceStatus> {
+    // stop() and close() abort this launch through its own controller, so a launch they
+    // interrupt before its spawn never spawns afterwards; the caller's signal still cancels it.
+    const controller = slot.launch = new AbortController();
+    const signal = AbortSignal.any([callerSignal, controller.signal]);
     const work = (async () => {
       if (this.closing) throw new Error("Casper's services were stopped with the conversation; start them again after it changes");
       this.assertCleanup();
       await slot.stopping?.catch(() => {});
+      signal.throwIfAborted();
       Object.assign(slot, { state: "starting", stale: false, readyMs: undefined, error: undefined, exit: undefined, tail: undefined });
       const { spec, name } = slot;
       try {
@@ -163,6 +179,10 @@ export class ServiceManager {
           port = spec.port;
           if (await portInUse(HOST, port)) throw new Error(`Port ${port} is in use by a process Casper didn't start; stop that process or set services.${name}.port: auto. Casper never replaces a process it does not own.`);
         }
+        signal.throwIfAborted();
+        if (this.closing) throw new Error("Casper's services were stopped with the conversation; start them again after it changes");
+        // Never orphan an earlier process by overwriting the slot's only reference to it.
+        if (slot.process) await this.closeProcess(slot);
         signal.throwIfAborted();
         slot.port = port;
         const origin = `http://${HOST}:${port}`;
@@ -186,7 +206,7 @@ export class ServiceManager {
       }
     })();
     slot.work = work;
-    void work.finally(() => { if (slot.work === work) slot.work = undefined; }).catch(() => {});
+    void work.finally(() => { if (slot.work === work) slot.work = undefined; if (slot.launch === controller) slot.launch = undefined; }).catch(() => {});
     return work;
   }
 

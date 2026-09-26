@@ -1,12 +1,14 @@
-import { writeFileSync } from "node:fs";
+import { appendFileSync, writeFileSync } from "node:fs";
 
 // A real development-server stand-in for the owned-process runner and service
 // tests. Env switches: SLOW_READY_MS delays listening, READY_LOG is printed once
 // listening, CRASH_AFTER_MS exits with code 3, NOISE_BYTES floods stdout first,
 // SPAWN_CHILD names a file that receives a long-lived grandchild's PID, PRINT_ENV
-// (comma-separated names) prints those variables as one JSON line.
+// (comma-separated names) prints those variables as one JSON line, PID_LOG names a
+// file that every started server appends its PID to.
 const env = process.env;
 console.log("booting");
+if (env.PID_LOG) appendFileSync(env.PID_LOG, `${process.pid}\n`);
 if (env.PRINT_ENV) console.log(`env ${JSON.stringify(Object.fromEntries(env.PRINT_ENV.split(",").map(name => [name, env[name] ?? null])))}`);
 if (env.SPAWN_CHILD) {
   const child = Bun.spawn([process.execPath, "-e", "setInterval(() => {}, 1000)"], { stdio: ["ignore", "ignore", "ignore"] });
