@@ -330,8 +330,9 @@ test("an unproven fix gets one round to add a test that fails without it; then t
   });
   await weaklyTestedProject(f);
   const result = await f.run(["--json", "--verify", "--require-verification", "Fix sum.js"]);
-  // The task prompt already asks for such a test; the review comes before the proof.
-  expect(asked(f.payloads[0], "fail without your change")).toBe(true);
+  // The first turn is the request itself; the review comes before the proof, and the proof round asks for the test.
+  expect(asked(f.payloads[0], "fail without your change")).toBe(false);
+  expect(lastUser(f.payloads[0]!)).toContain("Fix sum.js");
   expect(f.payloads.map((payload) => lastUser(payload).includes(REVIEW) ? "review" : lastUser(payload).includes(PROOF_REPAIR) ? "proof" : "task"))
     .toEqual(["task", "task", "review", "proof", "proof"]);
   const receipt = JSON.parse(result.stdout.trim().split("\n").at(-1)!);
@@ -380,8 +381,8 @@ test("the review round runs even after a fully ticked first checklist, and the r
     : { tools: [{ name: "write", args: { path: "sum.js", content: "fixed\n" } }, { name: "write", args: { path: "tests/sum.sh", content: "grep -q fixed sum.js\n" } }] });
   await fixProject(f);
   const result = await f.run(["--json", "--verify", "Fix sum.js"]);
-  // B: the task prompt asks for the checklist up front, with the same ticking rule.
-  expect(asked(f.payloads[0], "Tick a requirement only when a test you can name asserts it")).toBe(true);
+  // B: the first turn is the request itself; the review asks for the checklist, with the ticking rule.
+  expect(asked(f.payloads[0], "Tick a requirement only when a test you can name asserts it")).toBe(false);
   // A fully ticked first checklist was wrong too often to skip the review; the review starts from it.
   const reviews = f.payloads.filter((payload) => lastUser(payload).includes(REVIEW));
   expect(reviews.length).toBeGreaterThan(0);
@@ -398,6 +399,9 @@ test("verification.review: false skips the review round; the change is still pro
   await writeFile(path.join(f.project, ".casper/project.yaml"), 'verify:\n  test: "grep -q fixed sum.js"\nverification:\n  review: false\n');
   const result = await f.run(["--json", "--verify", "Fix sum.js"]);
   expect(f.payloads.some((payload) => lastUser(payload).includes(REVIEW))).toBe(false);
+  // No review follows, so the first turn itself asks for the checklist and a test that fails without the change.
+  expect(asked(f.payloads[0], "Tick a requirement only when a test you can name asserts it")).toBe(true);
+  expect(asked(f.payloads[0], "fail without your change")).toBe(true);
   const receipt = JSON.parse(result.stdout.trim().split("\n").at(-1)!);
   expect({ outcome: receipt.outcome, proof: receipt.proof?.status, review: receipt.review }).toEqual({ outcome: "verified", proof: "proven", review: null });
 

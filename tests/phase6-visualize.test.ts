@@ -374,6 +374,33 @@ test("task classification recognizes visualization requests as read-only without
   }
   expect(classifyTask("fix the broken diagram export").intent).toBe("fix");
   expect(classifyTask("add a map of features").intent).toBe("implement");
+  // The leading verb decides a modification request: a feature that mentions errors is not a fix.
+  expect(classifyTask("Add a `search_files` tool. Invalid arguments are a tool error; you may add new test files.").intent).toBe("implement");
+  expect(classifyTask("Extend portcheck with --tls: a non-TLS listener is a tls-error.").intent).toBe("implement");
+  expect(classifyTask("Fix the error in the login flow").intent).toBe("fix");
+  expect(classifyTask("Refactor the parser; keep every test passing").intent).toBe("refactor");
+  expect(classifyTask("Write tests for the parser's error cases").intent).toBe("test");
+  expect(classifyTask("Add error handling tests").intent).toBe("test");
+  expect(classifyTask("Add a spec parser that reports errors").intent).toBe("implement");
+  // The leading verb only overrides incidental fix/test words: documentation, configuration, diagrams
+  // and questions keep their own intents (and their proof exemptions).
+  for (const [request, intent] of [
+    ["Create a diagram of the modules", "visualize"], ["Create a flowchart of the login", "visualize"],
+    ["Create a dependency graph of src", "visualize"],
+    ["Add JSDoc documentation to src/parse.ts", "document"], ["Write docs for the API", "document"],
+    ["Extend the docs with an error table", "document"], ["Add a section to the README", "document"],
+    ["Add eslint configuration", "configure"], ["Add a dependency on zod", "configure"],
+    ["Write an explanation of how the parser works", "inspect"],
+    // Docs or configuration elsewhere in a feature request do not make it docs or configuration work.
+    ["Add a `grep` tool. Invalid args are a tool error; document it in the README.", "implement"],
+    ["Add a `search_files` tool. Invalid arguments are a tool error; you may add new test files and update the README.", "implement"],
+    ["Extend portcheck with --tls: a non-TLS listener is a tls-error; see docs/tls.md", "implement"],
+    ["Add retry on network error without adding a dependency", "implement"],
+    ["Add a failing test for the setup script", "test"], ["Add a new test file", "test"],
+    ["Add a test case for config parsing", "test"], ["Create tests/foo.test.ts", "test"],
+    // "Build" as a noun is not a request to build.
+    ["Build is broken on main", "fix"], ["Build fails with a type error", "fix"],
+  ] as const) expect({ request, intent: classifyTask(request).intent }).toEqual({ request, intent });
 });
 
 test("regression: oversized sources are skipped without crashing and are disclosed", async () => {

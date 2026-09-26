@@ -31,9 +31,27 @@ test("the review prompt asks for every stated requirement, from the request and 
   expect(prompt).toContain("Give each case its own line");
 });
 
-test("the first turn asks for the checklist in the exact format the review parses", () => {
+test("a change the review will check gets the request itself as its first turn, as Pi sends it", () => {
   const model = { commands: { test: "npm test" } } as unknown as Parameters<typeof formatTaskPrompt>[2];
-  const prompt = formatTaskPrompt("Add --tls to portcheck.", { intent: "implement", mode: "modify", verification: [] }, model, { proveChange: true });
+  // The review asks for every requirement and its test afterwards; asking in the first turn too made the
+  // model enumerate tests before it had working code (pinned ablation: same accuracy, fewer turns without).
+  expect(formatTaskPrompt("Add --tls to `portcheck`.", { intent: "implement", mode: "modify", verification: [] }, model,
+    { verificationMode: "auto", proveChange: true, reviewFollows: true })).toBe("Add --tls to `portcheck`.");
+  // After project facts or skills, the request keeps its label so it does not run on from them.
+  expect(formatTaskPrompt("Add --tls to `portcheck`.", { intent: "implement", mode: "modify", verification: [] }, model,
+    { verificationMode: "auto", proveChange: true, reviewFollows: true, afterContext: true })).toBe("User request:\nAdd --tls to `portcheck`.");
+  // An under-specified target still gets the clarification nudge.
+  expect(formatTaskPrompt("build me a REST API", { intent: "implement", mode: "modify", verification: [] }, model,
+    { verificationMode: "auto", proveChange: true, reviewFollows: true })).toBe(
+    "The target is under-specified: if the ask tool is available, ask one concrete question with options before the first edit.\nUser request:\nbuild me a REST API");
+  // Without a review to follow (offer mode, or no proof), the hints stay.
+  expect(formatTaskPrompt("Add --tls to `portcheck`.", { intent: "implement", mode: "modify", verification: [] }, model,
+    { verificationMode: "offer", proveChange: false, reviewFollows: true })).toContain("Casper initial classification");
+});
+
+test("with the review off, the first turn asks for the checklist in the exact format the review parses", () => {
+  const model = { commands: { test: "npm test" } } as unknown as Parameters<typeof formatTaskPrompt>[2];
+  const prompt = formatTaskPrompt("Add --tls to portcheck.", { intent: "implement", mode: "modify", verification: [] }, model, { proveChange: true, reviewFollows: false });
   // A checklist in any other shape reads as none, and costs a whole review round.
   expect(prompt).toContain("- [x] <requirement> — <the test that covers it>");
   expect(prompt).toContain("- [ ] <requirement> — <why it is still not done>");
