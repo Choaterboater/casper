@@ -5,14 +5,15 @@
 import { cpSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 
 const [reference, counter, failures, ...args] = process.argv.slice(2) as [string, string, string, ...string[]];
-if (!args.includes("--")) { console.log("scripted-infra 1.0.0"); process.exit(0); }
+if (!args.includes("--") && args.at(-1) !== "-") { console.log("scripted-infra 1.0.0"); process.exit(0); }
 const runs = existsSync(counter) ? Number(readFileSync(counter, "utf8")) : 0;
 writeFileSync(counter, String(runs + 1));
 const emit = (event: unknown) => console.log(JSON.stringify(event));
 if (runs < Number(failures)) {
   const limited = '429: {"message":"Provider returned error","code":429,"metadata":{"provider_name":"Together","limit_source":"upstream_provider_shared_pool"}}';
   // Casper's human output echoes the prompt to stderr, which mentions timeouts: never a provider error.
-  process.stderr.write(`CASPER banner\n> ${args.at(-1)}\n[error] ${limited}\n✗ Stopped: the model run failed\n`);
+  const prompt = args.at(-1) === "-" ? await new Response(Bun.stdin.stream()).text() : args.at(-1);
+  process.stderr.write(`CASPER banner\n> ${prompt}\n[error] ${limited}\n✗ Stopped: the model run failed\n`);
   emit({ v: 1, type: "session_start", session: `infra-${runs}` });
   for (let attempt = 0; attempt < 4; attempt++) emit({ v: 1, type: "error", message: limited });
   emit({ v: 1, type: "receipt", execution: "failed", outcome: "failed", exitCode: 1, usage: { turns: 4, tokens: 0, estimatedCost: 0 } });

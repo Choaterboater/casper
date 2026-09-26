@@ -4,8 +4,9 @@ import { cpSync, rmSync } from "node:fs";
 
 const args = process.argv.slice(2);
 const reference = args[0]!;
-// Only a real run (harness flags, then `--` and the prompt) touches the workspace; `--version` does not.
-if (!args.includes("--")) { console.log("scripted-harness 1.0.0"); process.exit(0); }
+// Only a real run (harness flags, then `--` and the prompt, or Casper's `-` with the prompt on stdin)
+// touches the workspace; `--version` does not.
+if (!args.includes("--") && args.at(-1) !== "-") { console.log("scripted-harness 1.0.0"); process.exit(0); }
 rmSync("src", { recursive: true, force: true });
 cpSync(reference, "src", { recursive: true });
 const answer = "Implemented the change. All visible tests pass.";
