@@ -472,6 +472,21 @@ test("a --max-turns below the review's budget still stops the task in the review
   expect(receipt.text).toContain("✗ Stopped after 3 turns (--max-turns)");
 }, 60_000);
 
+test("the proof repair round has the same 12-turn budget; the proof then decides", async () => {
+  const f = await fixture((_request, payload) => {
+    const prompt = lastUser(payload);
+    if (prompt.includes(PROOF_REPAIR)) return { tools: [{ name: "write", args: { path: `proof-${payload.messages.length}.txt`, content: "x\n" } }] };
+    if (prompt.includes(REVIEW)) return TICKED;
+    return afterTool(payload) ? { text: "Fixed sum.js." } : { tools: [{ name: "write", args: { path: "sum.js", content: "fixed\n" } }] };
+  });
+  await weaklyTestedProject(f);
+  const result = await f.run(["--json", "--verify", "--require-verification", "Fix sum.js"]);
+  expect(f.payloads.filter((payload) => lastUser(payload).includes(PROOF_REPAIR)).length).toBe(12);
+  const receipt = JSON.parse(result.stdout.trim().split("\n").at(-1)!);
+  expect({ exit: result.exit, outcome: receipt.outcome, turnLimit: receipt.turnLimit, proof: receipt.proof?.status })
+    .toEqual({ exit: 3, outcome: "not_verified", turnLimit: null, proof: "unproven" });
+}, 60_000);
+
 test("--json ends with an error event when Casper stops before a receipt", async () => {
   const f = await fixture();
   const result = await f.run(["--json", "--model", "fixture/nope", "hi"]);
