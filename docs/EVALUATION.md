@@ -24,7 +24,7 @@ evals/
 ├── fixtures/     solved baseline repositories (one per project shape)
 ├── setups/       overlays that turn a baseline into one task's unsolved state
 ├── tasks.ts      the task catalog (prompt, verification, acceptance)
-├── packs.ts      quality-benchmark packs: core (8 tasks) and network (9 tasks)
+├── packs.ts      quality-benchmark packs: core (9 tasks) and network (9 tasks)
 ├── harness.ts    runs the Casper, Pi or OMP CLI with identical inputs and an isolated home
 ├── benchmark.ts  quality benchmark: runs both harnesses, measures rubric evidence, summarizes per pack
 ├── quality.ts    rubric scores from host evidence only
@@ -159,7 +159,9 @@ policy too (`tests/phase8-pi.integration.test.ts` pins both budgets against a lo
 `acceptance/` directory of tests the model never sees: the setup's `remove.json`
 lists `acceptance/` (an entry ending in `/` removes a directory), and the frozen
 evaluator runs `bun test ./tests` (the visible tests) and `bun test ./acceptance`
-(the hidden ones) as separate checks. Prompts say that hidden acceptance tests exist
+(the hidden ones) as separate checks. The two `notes-api` tasks share that fixture, so each
+runs only its own hidden file (`./acceptance/create-note.test.ts`,
+`./acceptance/server-lifecycle.test.ts`). Prompts say that hidden acceptance tests exist
 but never where they are. The contract is in the prompt and in the fixture's
 `CONTEXT.md`. Neither harness loads `CONTEXT.md` on its own (both read `AGENTS.md`),
 so every prompt says to read it first.
@@ -174,6 +176,7 @@ changed paths, which is the baseline for the Focused score.
 | Pack | Task | Fixture | What the hidden tests pin down |
 | --- | --- | --- | --- |
 | core | `core-rest-validation` | notes-api | `POST /notes`: 201 + Location, 400/415/422 with every offending field, no write on reject |
+| core | `core-service-lifecycle` | notes-api | real server process: `GET /health` uptime, `PORT`/`HOST` (incl. `::1`), SIGTERM drains an in-flight request and exits 0 within 2 s |
 | core | `core-ui-tabs` | ui-kit | WAI-ARIA tabs markup (order-independent), roving tabindex, keys, escaping, errors |
 | core | `core-portcheck-cli` | portcheck | `--json` rows, `--tls` expiry from a loopback TLS server, tls-error vs timeout, usage 64 |
 | core | `core-resilient-client` | api-client | cursor pagination, 429 Retry-After, 5xx backoff, loop detection, `TimeoutError` via abort |
@@ -200,6 +203,23 @@ configured smoke check, `GET /notes` answering 200 JSON. There is no configured 
 endpoint a task adds: that would be a spec only Casper sees. `tests/eval-notes-server.test.ts`
 starts the server through Casper's service manager on the solved fixture and on the
 `core-rest-validation` start, and runs the configured smoke check (docs/SERVICES.md).
+
+**`core-service-lifecycle`: running the server is the only way to see the gap.** Its setup
+(`add-server-lifecycle`) takes `/health` out of the app and replaces `src/server.ts` with one
+that always listens on 127.0.0.1:3000 and has no SIGTERM handling; the visible tests, which
+call `createApp()` directly, still pass. The hidden `acceptance/server-lifecycle.test.ts`
+spawns the real `src/server.ts` (`bun src/server.ts`, one process) with `PORT`/`HOST` on
+loopback and checks `/health` (200 JSON, whole-millisecond uptime that grows), listening on
+the given port and on `HOST=::1` (and not on IPv4 there), and that a `POST /notes` whose
+body is still arriving when SIGTERM is sent gets its 201 before the process exits 0 within
+2 s. Every server it spawns is killed by PID after each test, including when the test
+failed; the check's process group is drained as for every check. It needs IPv6 loopback.
+The prompt states the same contract to both harnesses. Casper also has the fixture's
+`services.api` and `GET /notes` smoke check, which on the start cannot become ready (the
+server ignores the assigned port) and so is incomplete until `PORT` is honored.
+`tests/eval-notes-server.test.ts` runs this acceptance over the solved fixture (all pass),
+the setup (all fail, no spawned PID survives) and the solved server with one behavior
+removed at a time (only that behavior's test fails).
 
 All network data is synthetic: documentation address ranges, `example.com`, made-up
 MACs and serials. The TLS key in `portcheck/acceptance/certs` is a throwaway
