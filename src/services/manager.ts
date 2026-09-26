@@ -1,7 +1,7 @@
 import { freePort, ManagedProcess, ManagedProcessError, portInUse } from "../platform/managed-process";
 import { ProcessCleanupError, type ProcessPlatform } from "../platform/processes";
 import { editAffects } from "../verify/task";
-import type { ServiceSpec } from "./config";
+import { MAX_SERVICES, type ServiceSpec } from "./config";
 
 /** idle: declared, never started. failed: the last startup did not reach readiness. crashed: exited on its own after readiness. */
 export type ServiceState = "idle" | "starting" | "ready" | "crashed" | "failed" | "stopped";
@@ -41,6 +41,8 @@ interface Slot {
   exit?: ServiceStatus["exit"];
   tail?: string;
   cleanup?: "unknown";
+  /** A crash after readiness that no tool call has reported yet. */
+  crashUnreported?: boolean;
 }
 
 const HOST = "127.0.0.1";
@@ -56,12 +58,20 @@ export class ServiceManager {
   private readonly slots = new Map<string, Slot>();
   private closing?: Promise<void>;
   private cleanupUnknown = false;
+  private adhocCount = 0;
   constructor(private readonly options: { projectRoot: string; services: Record<string, ServiceSpec>; platform?: ProcessPlatform }) {
     for (const [name, spec] of Object.entries(options.services)) this.slots.set(name, { name, spec, state: "idle", stale: false });
   }
 
   get closed(): boolean { return this.closing !== undefined; }
   names(): string[] { return [...this.slots.keys()]; }
+  /** Whether any service is starting or ready. */
+  live(): boolean { return [...this.slots.values()].some(slot => slot.work !== undefined || slot.state === "starting" || slot.state === "ready"); }
+  /** Crashes after readiness not yet reported, each returned once (with its exit and log tail) for the next tool call. */
+  takeCrashes(): ServiceStatus[] {
+    return [...this.slots.values()].filter(slot => slot.state === "crashed" && slot.crashUnreported)
+      .map(slot => { slot.crashUnreported = false; return this.describe(slot); });
+  }
   status(): ServiceStatus[] { return [...this.slots.values()].map(slot => this.describe(slot)); }
   origin(name: string): string | undefined {
     const slot = this.slots.get(name);
@@ -76,6 +86,27 @@ export class ServiceManager {
     const slot = this.slot(name);
     if (slot.work) return slot.work;
     if (slot.state === "ready") return this.describe(slot);
+    return this.launch(slot, signal);
+  }
+
+  /** Starts a command the model supplied as `adhoc-<n>`: an auto port, no scope (any edit makes it
+   * stale) and no env beyond PORT/HOST. The same command already running is joined, not duplicated. */
+  async startCommand(command: string, options: { ready?: ServiceSpec["ready"]; timeoutMs?: number }, signal: AbortSignal): Promise<ServiceStatus> {
+    if (this.closing) throw new Error("Casper's services were stopped with the conversation; start them again after it changes");
+    const ready = options.ready ?? { http: "/" }, timeoutMs = options.timeoutMs ?? 30_000;
+    if (!command.trim() || Buffer.byteLength(command) > 4096) throw new Error("command must be a nonempty shell command of at most 4 KiB");
+    if ("http" in ready ? !/^\/(?!\/)[^\s\\]*$/.test(ready.http) || ready.http.length > 1024 : !ready.log.trim() || ready.log.length > 1024) {
+      throw new Error("ready must be { http: <path such as /health> } or { log: <nonempty text> }");
+    }
+    if (!Number.isInteger(timeoutMs) || timeoutMs < 1000 || timeoutMs > 120_000) throw new Error("timeoutMs must be an integer between 1000 and 120000");
+    const adhoc = [...this.slots.values()].filter(slot => slot.name.startsWith("adhoc-"));
+    const same = adhoc.find(slot => slot.spec.command === command && (slot.work || slot.state === "ready"));
+    if (same) return same.work ?? this.describe(same);
+    if (adhoc.filter(slot => slot.work || slot.state === "starting" || slot.state === "ready").length >= MAX_SERVICES) {
+      throw new Error(`At most ${MAX_SERVICES} ad-hoc services run at once; stop one first`);
+    }
+    const slot: Slot = { name: `adhoc-${++this.adhocCount}`, spec: { command, port: "auto", ready, timeoutMs }, state: "idle", stale: false };
+    this.slots.set(slot.name, slot);
     return this.launch(slot, signal);
   }
 
@@ -212,7 +243,7 @@ export class ServiceManager {
   /** A crash after readiness: record it, then clean up whatever the root left behind (its process group). */
   private crashed(slot: Slot, managed: ManagedProcess, details: NonNullable<ServiceStatus["exit"]>): void {
     if (slot.process !== managed || slot.state !== "ready") return;
-    slot.state = "crashed"; slot.exit = details;
+    slot.state = "crashed"; slot.exit = details; slot.crashUnreported = true;
     void this.closeProcess(slot).catch(() => {});
   }
 

@@ -5,7 +5,9 @@ import { appendFileSync, writeFileSync } from "node:fs";
 // listening, CRASH_AFTER_MS exits with code 3, NOISE_BYTES floods stdout first,
 // SPAWN_CHILD names a file that receives a long-lived grandchild's PID, PRINT_ENV
 // (comma-separated names) prints those variables as one JSON line, PID_LOG names a
-// file that every started server appends its PID to.
+// file that every started server appends its PID to. Paths: /health, /json (compact
+// JSON), /big (20 KiB of text), /echo (method, x-test header and body as JSON; 201 on
+// POST); anything else answers plain text.
 const env = process.env;
 console.log("booting");
 if (env.PID_LOG) appendFileSync(env.PID_LOG, `${process.pid}\n`);
@@ -20,7 +22,13 @@ if (env.NOISE_BYTES) for (let written = 0, line = 0; written < Number(env.NOISE_
 }
 if (env.CRASH_AFTER_MS) setTimeout(() => { console.error("fatal: synthetic crash"); process.exit(3); }, Number(env.CRASH_AFTER_MS));
 setTimeout(() => {
-  Bun.serve({ hostname: env.HOST ?? "127.0.0.1", port: Number(env.PORT ?? 0), fetch: request =>
-    new URL(request.url).pathname === "/health" ? Response.json({ ok: true }) : new Response("hello from service") });
+  Bun.serve({ hostname: env.HOST ?? "127.0.0.1", port: Number(env.PORT ?? 0), fetch: async request => {
+    const { pathname } = new URL(request.url);
+    if (pathname === "/health") return Response.json({ ok: true });
+    if (pathname === "/json") return Response.json({ items: [{ id: 1, title: "first" }], count: 1 });
+    if (pathname === "/big") return new Response("x".repeat(20_480));
+    if (pathname === "/echo") return Response.json({ method: request.method, test: request.headers.get("x-test"), body: await request.text() }, { status: request.method === "POST" ? 201 : 200 });
+    return new Response("hello from service");
+  } });
   console.log(env.READY_LOG ?? "listening");
 }, Number(env.SLOW_READY_MS ?? 0));
