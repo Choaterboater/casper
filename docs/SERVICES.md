@@ -97,7 +97,9 @@ During a task the model uses one `service` tool, with these actions:
   selected headers (content type and length, location, allow, caching, retry-after,
   authentication challenge) and the count of the rest. It also shows the timing and the
   body, with JSON pretty-printed. A body over 8 KiB is cut with a marker such as
-  `[truncated: 20480 bytes, first 8192 shown]`. The whole result, an error included,
+  `[truncated: 20480 bytes, first 8192 shown]`; the size is that of the body as shown, so
+  for pretty-printed JSON the marker says `bytes as pretty-printed JSON`, and a body over
+  64 KiB is not read further (`more than 65536 bytes`). The whole result, an error included,
   stays within the usual 16 KiB capability-result bound.
 - **`check`** records a smoke check (`name`, `service`, `request`, `expect`) and runs it
   once for its baseline; **`replay`** reruns one by `id`. Casper replays every recorded
