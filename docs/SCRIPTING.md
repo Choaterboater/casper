@@ -115,7 +115,8 @@ when recorded, before the change; `incomplete` when it got no HTTP response), `b
 task or during a repair round, whose baseline is therefore not "before the change"), `status`, `evidence`
 (whether it counts as verification: a configured pass, or a model check that failed before the change and
 passes now), and when available `actual` (`status` and at most 512 characters of body), `reason` and
-`restarted`.
+`restarted`. Bodies, reasons and crash tails are redacted like other previews (tokens, keys and passwords
+become `<redacted>`).
 
 ```json
 {"v":1,"type":"check","name":"test","command":"npm run test","status":"pass","exit":0,"ms":412,"recordedBy":"casper","reused":false}

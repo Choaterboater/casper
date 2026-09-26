@@ -2,9 +2,11 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { receiptEvent } from "../src/app/json-events";
 import { loadProjectContext } from "../src/project/context";
 import type { SmokeReport } from "../src/services/smoke";
 import { formatReceipt } from "../src/task/result";
+import type { VerificationReport } from "../src/verify/evidence";
 import { VerifierRegistry } from "../src/verify/registry";
 import { verifyAndRepair } from "../src/verify/repair-loop";
 
@@ -50,3 +52,16 @@ test("when the command checks use up the repair budget, the report and receipt s
   const plain = await verifyAndRepair({ ...f.options, smoke: undefined, maxAttempts: 0 });
   expect(plain.smokeSkipped).toBeUndefined();
 }, 30_000);
+
+test("the JSON receipt redacts secrets a service echoed into smoke bodies, reasons and crash tails", () => {
+  const report: VerificationReport = { status: "fail", repairAttempts: 0, rounds: [], results: [], smoke: { status: "fail",
+    checks: [{ id: "env", name: "env", service: "api", source: "config", request: { method: "GET", path: "/env" }, status: "fail", evidence: false,
+      actual: { status: 200, body: '{"API_KEY":"abc123secret","ok":false}' }, reason: "header x-debug is \"Bearer tok-999\", expected it to contain \"ok\"" }],
+    crashes: [{ service: "api", tail: "boot with token=sk-abcdefghijkl\n" }] } };
+  const smoke = receiptEvent(report, undefined, 1).smoke!;
+  const text = JSON.stringify(smoke);
+  for (const secret of ["abc123secret", "tok-999", "sk-abcdefghijkl"]) expect(text).not.toContain(secret);
+  expect(smoke.checks[0]!.actual!.body).toContain('"ok":false');
+  // The report Casper keeps is not changed.
+  expect(report.smoke!.checks[0]!.actual!.body).toContain("abc123secret");
+});
