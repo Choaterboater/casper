@@ -209,7 +209,9 @@ to measure what the requirements review round adds. Both harnesses run through t
 example the release binary) with `--json --verify`, and Pi from `PATH` (or `--pi <path>`) with
 `--print --mode json` and no extensions, skills or prompt templates. Every run gets a fresh
 prepared workspace and a temporary home seeded with only the model provider's entry of
-`~/.casper/agent/auth.json` (plus the cached model catalog). Runs go two at a time by default
+`~/.casper/agent/auth.json` (plus the cached model catalog). Pi runs with `PI_TELEMETRY=0` and Casper with its
+mirror `CASPER_TELEMETRY=0`, so neither sends OpenRouter app-attribution headers and both
+harnesses' requests carry the same headers. Runs go two at a time by default
 (`--concurrency`); 16 at once hit provider rate limits. Both harnesses of one task run next to
 each other, so they meet the same provider conditions.
 
