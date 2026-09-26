@@ -14,7 +14,8 @@ export interface ManagedProcessOptions {
   /** Shell command, run exactly as written from `cwd`. */
   command: string;
   cwd: string;
-  /** Variables added to the isolated environment; they override its defaults. */
+  /** Variables added to the isolated environment. Casper's isolation (PATH, HOME, TMPDIR and the
+   * Windows profile variables) and offline guards win over them, so no caller can widen them. */
   env?: Record<string, string>;
   ready: Readiness;
   timeoutMs: number;
@@ -141,12 +142,11 @@ export class ManagedProcess {
     if (signal.aborted) return aborted();
     if (this.stopWork) return fail("closed", `${this.label} was closed during startup`);
     const { cwd, command } = this.options;
-    const child = this.child = spawn(command, { cwd, shell: true, detached: osSupportsProcessGroups, stdio: ["ignore", "pipe", "pipe"], env: isolatedEnvironment(this.home, {
+    const child = this.child = spawn(command, { cwd, shell: true, detached: osSupportsProcessGroups, stdio: ["ignore", "pipe", "pipe"], env: { ...this.options.env, ...isolatedEnvironment(this.home, {
       PATH: `${path.join(cwd, "node_modules", ".bin")}${path.delimiter}${process.env.PATH ?? ""}`,
       // Never let a started project fetch or install packages on its own.
       BUN_INSTALL_AUTO: "disable", npm_config_offline: "true",
-      ...this.options.env,
-    }) });
+    }) } });
     const alive = () => child.exitCode === null && child.signalCode === null;
     if (this.options.platform && child.pid) { this.owner = new OwnedProcesses(child.pid, alive, this.options.platform); void this.owner.capture(); }
     else this.owner = ownSpawnedTree(child.pid, alive);

@@ -38,7 +38,12 @@ share one runner, `src/platform/managed-process.ts`: it spawns the shell command
 own process group with the isolated environment, keeps a bounded log ring (16 KiB by
 default), waits for an HTTP answer or a log line within a deadline, and closes TERM then
 KILL through `terminateTree`, raising the cleanup error when the outcome is unknown. It
-also answers whether a loopback port is in use and picks a free loopback port.
+also answers whether a loopback port is in use and picks a free loopback port. It refuses
+any readiness URL or port-helper host that is not `localhost`, `127.0.0.1` or `[::1]`.
+Caller variables never override the isolated `PATH`/`HOME`/`TMPDIR` (and Windows profile
+variables) or the offline guards `BUN_INSTALL_AUTO=disable` and `npm_config_offline=true`.
+HTTP readiness accepts any answer on the port, so callers check that the port is free
+before starting (the browser and the service manager both do).
 
 Termination policy for spawned trees is one shared function: POSIX signals the
 process group (falling back to the direct process when the root is not a group
