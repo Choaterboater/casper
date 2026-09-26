@@ -52,6 +52,8 @@ export interface HarnessObservation {
   /** Casper's last smoke run, as its receipt reported it (`smoke`): a self-report like
    * `receiptOutcome`, kept to measure the capability. Absent when none ran, and for Pi. */
   smoke?: HarnessSmoke;
+  /** Casper's independent acceptance check as its receipt reported it; absent when none ran, and for Pi. */
+  receiptAcceptance?: { status: string; reason?: string };
 }
 /** Casper's smoke report, recorded as given; only these fields are read, so a newer Casper's extra ones are kept, not required. */
 export interface HarnessSmoke {
@@ -244,6 +246,7 @@ export function observeHarness(harness: HarnessName, events: readonly unknown[],
   let receiptOutcome: string | null = null;
   let sessionId: string | null = null;
   let smoke: HarnessSmoke | undefined;
+  let receiptAcceptance: HarnessObservation["receiptAcceptance"];
   const errors: string[] = [];
   // Protocol faults fail the run. Provider errors are diagnostics: both CLIs retry them, and only
   // the final state (Casper's receipt, Pi's last response) says whether the run finished.
@@ -318,6 +321,9 @@ export function observeHarness(harness: HarnessName, events: readonly unknown[],
         const amount = (value: unknown) => typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
         casperUsage = { turns: count(usage?.turns), tokens: count(usage?.tokens), estimatedCost: amount(usage?.estimatedCost) };
         smoke = smokeReport(event.smoke);
+        const acceptance = record(event.acceptance);
+        if (typeof acceptance?.status === "string") receiptAcceptance = { status: acceptance.status.slice(0, 16),
+          ...(typeof acceptance.reason === "string" ? { reason: acceptance.reason.slice(0, 500) } : {}) };
       }
     }
     if (name === "pi" && event.type === "session" && typeof event.id === "string") sessionId = event.id.slice(0, 128);
@@ -350,7 +356,7 @@ export function observeHarness(harness: HarnessName, events: readonly unknown[],
     exitCode: process.exitCode, wallClockMs: process.wallClockMs,
     ...(name === "casper" ? casperUsage : { turns, tokens: turns && !delegated ? tokens : null, estimatedCost: turns && !delegated ? estimatedCost : null }),
     receiptOutcome, sessionId, errors, ...(phases.length ? { phases } : {}), ...(tools.size ? { tools: [...tools.values()] } : {}),
-    ...(smoke ? { smoke } : {}),
+    ...(smoke ? { smoke } : {}), ...(receiptAcceptance ? { receiptAcceptance } : {}),
   };
 }
 
