@@ -3,6 +3,7 @@ import type { RuntimeTool } from "../runtime/types";
 import { formatTerminalJSON } from "../tui/json";
 import type { ServiceSpec } from "./config";
 import type { ServiceManager } from "./manager";
+import type { SmokeChecks } from "./smoke";
 
 /** Server vocabulary in the task, declared services or a live one pull in the service tool; elsewhere it costs no prompt tokens. */
 export function serviceRequested(task: string, services: { declared: boolean; live: boolean }): boolean {
@@ -25,7 +26,7 @@ const string = (value: unknown, name: string): string => {
 const optional = (value: unknown, name: string): string | undefined => value === undefined ? undefined : string(value, name);
 
 /** Reads up to READ_BYTES, then stops the stream; `complete` says whether the whole body arrived. */
-async function readBody(response: Response): Promise<{ bytes: Buffer; complete: boolean }> {
+export async function readBody(response: Response): Promise<{ bytes: Buffer; complete: boolean }> {
   if (!response.body) return { bytes: Buffer.alloc(0), complete: true };
   const reader = response.body.getReader(), chunks: Buffer[] = [];
   let size = 0;
@@ -47,8 +48,9 @@ function showBody(bytes: Buffer, complete: boolean, contentType: string): string
   return `${shown}\n[truncated: ${complete ? `${size} bytes` : `more than ${READ_BYTES} bytes`}, first ${BODY_BYTES} shown]`;
 }
 
-/** The model's handle on Casper's managed services. `manager` is created on first use. */
-export function serviceTool(manager: () => ServiceManager, lifetime?: AbortSignal): RuntimeTool {
+/** The model's handle on Casper's managed services. `manager` is created on first use; `smoke`
+ * is the current task's smoke checks, which `check` records into and Casper replays after the change. */
+export function serviceTool(manager: () => ServiceManager, lifetime?: AbortSignal, smoke?: () => SmokeChecks | undefined): RuntimeTool {
   const describe = (services: ServiceManager, name: string) => services.status().find(service => service.name === name)!;
 
   /** A request goes to a managed service's origin (by name and path, or by its URL) or to another loopback URL; nothing else. */
@@ -105,6 +107,13 @@ export function serviceTool(manager: () => ServiceManager, lifetime?: AbortSigna
     const action = args.action;
     if (action === "status") return { services: services.status() };
     if (action === "request") return request(services, args, signal);
+    if (action === "check" || action === "replay") {
+      const checks = smoke?.();
+      if (!checks) throw new Error("Checks are recorded during a task with Casper's verification on");
+      const check = action === "check" ? await checks.record({ name: args.name, service: args.service, request: args.request, expect: args.expect }, signal)
+        : await checks.replay(string(args.id, "id"), signal);
+      return { check, guidance: "Casper replays every recorded check after the change. A check counts as evidence only when it failed before the change and passes after it; one that passed before is an observation." };
+    }
     if (action === "start" && args.command !== undefined) {
       if (args.service !== undefined) throw new Error("Give service (declared) or command (ad-hoc), not both");
       const ready = args.ready as Record<string, unknown> | undefined;
@@ -126,19 +135,24 @@ export function serviceTool(manager: () => ServiceManager, lifetime?: AbortSigna
       const { text, truncated } = services.logs(name, { lines, ...(typeof args.filter === "string" && args.filter ? { filter: args.filter } : {}) });
       return { service: name, logs: text, truncated };
     }
-    throw new Error("action must be start, status, logs, restart, stop or request");
+    throw new Error("action must be start, status, logs, restart, stop, request, check or replay");
   }
 
   return {
     name: "service",
-    description: "Run and observe the project's services (dev servers) in the background under Casper's control; do not background servers with bash. Casper gives each a loopback port (PORT/HOST env), waits until it is ready, keeps its log, restarts it after edits and stops it with the session. start a declared service by name, or an ad-hoc one by command (it must listen on $HOST:$PORT); status; logs (lines, filter); restart; stop. request sends HTTP to a service path or a loopback URL, restarting a stale or crashed service first; nothing else is reachable. Crashes are reported on your next call.",
+    description: "Run and observe the project's services (dev servers) in the background under Casper's control; do not background servers with bash. Casper gives each a loopback port (PORT/HOST env), waits until it is ready, keeps its log, restarts it after edits and stops it with the session. start a declared service by name, or an ad-hoc one by command (it must listen on $HOST:$PORT); status; logs (lines, filter); restart; stop. request sends HTTP to a service path or a loopback URL, restarting a stale or crashed service first; nothing else is reachable. Crashes are reported on your next call. For new or changed endpoint behavior, record a check before editing (check: name, service, request { method, path, headers?, body? }, expect { status?, headers?, json? subset, bodyMatches? }); Casper replays it after the change, and replay { id } reruns it.",
     inputSchema: { type: "object", additionalProperties: false, required: ["action"], properties: {
-      action: { type: "string", enum: ["start", "status", "logs", "restart", "stop", "request"] },
+      action: { type: "string", enum: ["start", "status", "logs", "restart", "stop", "request", "check", "replay"] },
       service: { type: "string" }, command: { type: "string" },
       ready: { type: "object", additionalProperties: false, properties: { http: { type: "string" }, log: { type: "string" } } },
       timeoutMs: { type: "integer" }, lines: { type: "integer" }, filter: { type: "string" },
       method: { type: "string", enum: METHODS }, path: { type: "string" }, url: { type: "string" },
       headers: { type: "object", additionalProperties: { type: "string" } }, body: {},
+      name: { type: "string" }, id: { type: "string" },
+      request: { type: "object", additionalProperties: false, required: ["method", "path"], properties: {
+        method: { type: "string", enum: METHODS }, path: { type: "string" }, headers: { type: "object", additionalProperties: { type: "string" } }, body: {} } },
+      expect: { type: "object", additionalProperties: false, properties: {
+        status: { type: "integer" }, headers: { type: "object", additionalProperties: { type: "string" } }, json: {}, bodyMatches: { type: "string" } } },
     } },
     async execute(args, signal) {
       const services = manager();
