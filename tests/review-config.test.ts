@@ -201,7 +201,9 @@ test("unknown top-level and policy-section keys are reported as warnings, not si
     await writeFile(path.join(home, ".casper/config.yaml"), "profile: work\npolicy:\n  behaviour:\n    askQuestions: beforeChanges\n");
     await writeFile(path.join(home, ".casper/profiles/work/config.yaml"), "git:\n  pushh: never\n");
     await writeFile(path.join(root, ".casper/project.yaml"), "skils:\n  maxActive: 2\nbehavior:\n  autonomy: low\n  inspectFirst: true\n");
-    const configuration = await loadConfiguration({ projectRoot: root, homeDir: home });
+    // The global file selects the profile; an ambient CASPER_PROFILE would outrank it.
+    const ambient = process.env.CASPER_PROFILE; delete process.env.CASPER_PROFILE;
+    const configuration = await loadConfiguration({ projectRoot: root, homeDir: home }).finally(() => { if (ambient !== undefined) process.env.CASPER_PROFILE = ambient; });
     expect(configuration.warnings).toEqual([
       "~/.casper/config.yaml: unknown key policy.behaviour (ignored)",
       "profile work config.yaml: unknown key git.pushh (ignored)",
