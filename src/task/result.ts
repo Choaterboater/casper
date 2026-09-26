@@ -192,6 +192,11 @@ export function formatReceipt(task: TaskResult, options: ReceiptOptions = {}): s
 function reviewLine(review: RequirementsReview, safe: (text: string) => string): string {
   if ("missing" in review) return "• The model's review returned no checklist";
   if (review.open.length) return `⚠ The model's review says not done: ${review.open.map(safe).join("; ")}`;
+  // With a count, done holds only the gaps the review fixed; without one it is the full checklist.
+  if (review.total !== undefined) {
+    const fixed = `${review.done.length} ${review.done.length === 1 ? "gap" : "gaps"} fixed`;
+    return `• The model's review: all ${review.total} requirements covered (${fixed}; its own claim, not checked by Casper)`;
+  }
   return `• The model's review: all ${review.done.length} requirements covered (its own claim, not checked by Casper)`;
 }
 
