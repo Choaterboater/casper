@@ -199,6 +199,8 @@ export class SubagentManager {
     /** Last non-empty response block, kept as the fallback for a run stopped mid-investigation. */
     let fallback = "";
     let fallbackTruncated = false;
+    /** The last response ended on a provider error; a new response means Pi is retrying it. */
+    let retrying = false;
     let wake!: () => void;
     const cancelled = new Promise<void>((resolve) => { wake = resolve; });
     const stop = (status: SubagentStatus, reason: string) => {
@@ -216,6 +218,8 @@ export class SubagentManager {
     const observe = (event: RuntimeEvent) => {
       if (controller.signal.aborted) return;
       if (event.type === "assistant_response_start") {
+        // Only a failure the child's retry went on to replace; a final provider error stays failed.
+        if (retrying) { retrying = false; result.status = "completed"; delete result.reason; }
         // Keep only the current response, not every exploratory narration; the previous block
         // survives only as the fallback below.
         if (result.response.trim()) { fallback = result.response; fallbackTruncated = result.truncated; }
@@ -238,8 +242,9 @@ export class SubagentManager {
       } else if (event.type === "tool_end" && event.isError && result.toolErrors.length < 8) {
         result.toolErrors.push(`tool failed: ${prefix(event.toolName, 128)}`);
       } else if (event.type === "error") {
-        result.status = "failed"; result.reason = prefix(event.message, 1024);
+        retrying = false; result.status = "failed"; result.reason = prefix(event.message, 1024);
       } else if (event.type === "assistant_response_end" && event.stopReason !== "stop" && event.stopReason !== "toolUse") {
+        retrying = event.stopReason === "error";
         result.status = ["length", "limit"].includes(event.stopReason) ? "limited" : "failed";
         result.reason = prefix(event.errorMessage ?? `Model stopped: ${event.stopReason}`, 1024);
       }

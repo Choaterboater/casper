@@ -803,6 +803,17 @@ test("cancelling a read-only child during retry backoff stops it without another
   expect(Date.now() - started).toBeLessThan(8_000);
 }, 15_000);
 
+test("real CLI delegation reports a child that recovered from a 429 as completed", async () => {
+  // Pi's real 2 s first backoff: the CLI offers no retry override for children, by design.
+  let requests = 0;
+  const f = await fixture(() => ++requests === 1 ? throttled() : answer("RECOVERED_EVIDENCE: fixture.txt:1"));
+  const result = await f.run([cli, "/delegate", "reviewer", "Inspect fixture.txt"]);
+  expect({ exit: result.exit, stderr: result.stderr }).toEqual({ exit: 0, stderr: "" });
+  expect(result.stdout).toContain("reviewer · completed");
+  expect(result.stdout).toContain("RECOVERED_EVIDENCE");
+  expect(f.payloads).toHaveLength(2);
+}, 15_000);
+
 test("real CLI delegation fails rather than calling a provider error a successful report", async () => {
   const f = await fixture(() => new Response(JSON.stringify({ error: { message: "fixture model failure" } }), { status: 400 }));
   const result = await f.run([cli, "/delegate", "reviewer", "Inspect fixture.txt"]);
