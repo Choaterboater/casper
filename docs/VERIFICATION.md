@@ -210,8 +210,8 @@ before editing: a check recorded after an edit in the task (a native edit or wri
 after which the tree differs from the task's start) or during a repair, review or proof round has no
 before-the-change baseline, so it is an observation too, and the receipt says `create note failed when
 recorded, after edits — an observation, not proof`. A smoke failure left after the repairs makes the outcome
-`failed`. A check that could not run (its service would not start, or its cleanup is unconfirmed) makes
-it `incomplete`. The plain receipt gets one line with each service's address and the smoke tally; the
+`failed`. A check that could not run (its service would not start) makes it `incomplete`, and so does any
+managed service whose processes Casper could not confirm stopped, even when every check passed. The plain receipt gets one line with each service's address and the smoke tally; the
 detailed receipt lists every check with its source, response status and baseline. `--json` carries the
 report (see [SCRIPTING.md](SCRIPTING.md)). A passing smoke check shows what one request returned; it
 does not certify the requested behavior as a whole.

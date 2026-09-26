@@ -85,7 +85,7 @@ export async function verifyAndRepair(options: VerificationOptions): Promise<Ver
     if (!failures.length && !smokeFailures.length) {
       const status = withSmoke(verificationStatus(results), results, smoke);
       return report(status, !checks().length && !smoke?.checks.length ? "No applicable verification commands configured or detected."
-        : status === "incomplete" && smoke?.status === "incomplete" ? "A smoke check could not run (a service did not start or its cleanup is unknown)." : undefined);
+        : status === "incomplete" && smoke?.status === "incomplete" ? smoke.reason ?? "A smoke check could not run (its service did not start)." : undefined);
     }
     if (!options.repair || repairAttempts >= maxAttempts) {
       return report("fail", options.repair ? "Repair limit reached." : "Run /verify repair to request repair.");
