@@ -758,8 +758,7 @@ export class CasperApp {
         memoryContext,
         skillContext,
         formatTaskPrompt(prompt, classification, context.model, { verificationMode, proveChange: proving,
-          reviewFollows: context.verification.review === true, afterContext: Boolean(memoryContext || skillContext),
-          services: Object.keys(context.services ?? {}) }),
+          reviewFollows: context.verification.review === true, afterContext: Boolean(memoryContext || skillContext) }),
       ].filter(Boolean).join("\n\n"), this.commandAbort?.signal, { request: prompt, maxTurns: this.maxTurns });
       this.onEvent?.(phaseEvent("task", "end"));
       // Repair, review and proof rounds follow the change.

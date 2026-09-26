@@ -88,9 +88,7 @@ export function formatTaskPrompt(
   request: string,
   classification: TaskClassification,
   model: ProjectModel,
-  options: { verificationMode?: VerificationMode; proveChange?: boolean; reviewFollows?: boolean; afterContext?: boolean;
-    /** Declared managed services; named with a check-first nudge, since models left the service tool unused. */
-    services?: readonly string[] } = {},
+  options: { verificationMode?: VerificationMode; proveChange?: boolean; reviewFollows?: boolean; afterContext?: boolean } = {},
 ): string {
   const underSpecified = classification.mode === "modify"
     && (classification.intent === "implement" || classification.intent === "configure")
@@ -100,14 +98,9 @@ export function formatTaskPrompt(
   // .scratch/phase-4/ablate) the request alone was as accurate with fewer turns, and the hint header's
   // "(X, not Y):" framing had been echoed back as invented tool summaries. If the work stops before the
   // review (checks still failing, a turn limit), no later round asks for tests either; that is accepted.
-  // In 12 pinned Phase 6 runs no model called the service tool unprompted; one line where a project
-  // declares services (and Casper will replay the check) asks for the check before the first edit.
-  const services = options.services?.length && options.verificationMode !== "off" && classification.mode === "modify"
-    ? [`Managed services: ${options.services.join(", ")}. The service tool runs them under Casper's control (no background bash). For new or changed HTTP behavior, record a service check before your first edit; Casper replays it after the change.`]
-    : [];
   if (options.proveChange && options.reviewFollows) {
-    if (!underSpecified && !options.afterContext && !services.length) return request;
-    return [...services, ...(underSpecified ? ["The target is under-specified: if the ask tool is available, ask one concrete question with options before the first edit."] : []),
+    if (!underSpecified && !options.afterContext) return request;
+    return [...(underSpecified ? ["The target is under-specified: if the ask tool is available, ask one concrete question with options before the first edit."] : []),
       "User request:", request].join("\n");
   }
   const availableChecks = CHECK_NAMES
@@ -125,7 +118,6 @@ export function formatTaskPrompt(
     ...(options.verificationMode === "auto" ? ["Casper runs the final checks itself after your last edit and records them; you do not need to. Use casper_check while iterating if it helps. Bash runs of checks are diagnostics only."] : []),
     // Proving: Casper reruns the test check on the code without the change; only a test of the new behavior fails there.
     ...(options.proveChange ? ["If you change code, Casper then checks that the tests fail without your change and pass with it. Add or update a test that exercises the requested behavior so it would fail without your change.", "Before finishing, review every requirement in the request and project docs. Tick a requirement only when a test you can name asserts it; otherwise add the test or leave it open. Give each case its own line: a rule that covers several inputs, options or errors is several requirements. End your answer with this checklist, one line per requirement:", ...CHECKLIST_FORMAT ] : []),
-    ...services,
     "",
     "User request:",
     request,
