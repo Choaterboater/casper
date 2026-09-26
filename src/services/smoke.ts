@@ -142,6 +142,8 @@ export class SmokeChecks {
 
   /** Configured plus recorded checks. */
   get size(): number { return this.configured.length + this.recorded.length; }
+  /** Checks the model recorded this task. */
+  get recordedCount(): number { return this.recorded.length; }
 
   /** Validates and records a model check, and runs it once for its baseline. */
   async record(input: unknown, signal: AbortSignal): Promise<SmokeResult> {
