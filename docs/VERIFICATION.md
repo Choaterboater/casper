@@ -58,7 +58,20 @@ reported but never counted as verification.
 
 ## Requirements review
 
-When the checks pass on a **code change in auto mode** with a `test` check (see below for what counts), Casper gives
+The requirements review is **off by default**. In pinned benchmarks it added no first-time-right
+(the same runs were right first time with it off) while taking about 40% of Casper's wall time;
+the checks and the proof, not the review, keep Casper at zero false "done". With it off, the first
+turn of a **code change in auto mode** with a `test` check asks for the full checklist
+(`- [x] requirement — test`, `- [ ] requirement — why not done`) and a test that fails without the
+change; the receipt reports that checklist as the model's own claim, and the change is still proven.
+To turn the round on:
+
+```yaml
+verification:
+  review: true   # default false
+```
+
+With it on, when the checks pass on such a change (see below for what counts), Casper gives
 the model one review round before proving the change: check every requirement the request and the
 project docs (for example `CONTEXT.md`) state, one case at a time, confirm each is implemented and
 tested, and fix any gap. The answer reports only the gaps and a count, not the requirements that were
@@ -94,21 +107,14 @@ An incomplete review alone does not make the change `not_verified`; open items i
 The proof repair round (below) has the same 12-turn budget; the checks and the comparison after it
 decide.
 
-The review costs one more model round per such request. Such a change's first turn is the request as the user wrote it,
+The review costs one more model round per such request. With it on, such a change's first turn is the request as the user wrote it,
 without Casper's task hints (project facts and selected skills still come first, with the request
 labelled, and an under-specified target still gets the clarification nudge). The review then checks
 every requirement, one case at a time (each missing option, each malformed value), reusing what
 the model already read; if the tests also pass without the change, the proof round asks for one
 that fails. In one pinned ablation the request alone was as accurate as the hinted first turn, with
 fewer turns. If the work stops before the review (checks still failing after repairs, a turn
-limit), no later round asks for tests. With the round off (below), the first turn asks for the
-full checklist (`- [x] requirement — test`, `- [ ] requirement — why not done`) and the failing
-test instead, and the review runs in no case. To turn the round off entirely:
-
-```yaml
-verification:
-  review: false   # default true; the first answer's own checklist is still reported, and the change still proven
-```
+limit), no later round asks for tests.
 
 ## Proving the change
 
