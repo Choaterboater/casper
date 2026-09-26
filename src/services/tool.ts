@@ -134,7 +134,6 @@ export function serviceTool(manager: () => ServiceManager, lifetime?: AbortSigna
     if (action === "stop") { const stopped = await services.stop(name); return { stopped, service: describe(services, name) }; }
     if (action === "logs") {
       const lines = Math.min(200, Math.max(1, Number.isInteger(args.lines) ? Number(args.lines) : 40));
-      describe(services, name);
       const { text, truncated } = services.logs(name, { lines, ...(typeof args.filter === "string" && args.filter ? { filter: args.filter } : {}) });
       return { service: name, logs: text, truncated };
     }
