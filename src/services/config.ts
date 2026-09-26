@@ -20,6 +20,9 @@ export const SERVICE_NAME = /^[A-Za-z][A-Za-z0-9_-]{0,31}$/;
 const SERVICE_KEYS = ["command", "port", "ready", "timeoutMs", "scope", "env"];
 /** Casper sets these itself so the service listens where Casper probes. */
 const RESERVED_ENV = ["PORT", "HOST"];
+/** The runner's isolation and offline guards, which win over declared values anyway; refused
+ * here (in any case, as Windows variable names are) so a declaration never looks like it applied. */
+const ISOLATION_ENV = ["PATH", "HOME", "TMPDIR", "BUN_INSTALL_AUTO", "NPM_CONFIG_OFFLINE"];
 
 type Mapping = Record<string, unknown>;
 const isMapping = (value: unknown): value is Mapping => typeof value === "object" && value !== null && !Array.isArray(value);
@@ -59,6 +62,7 @@ export function parseServices(value: unknown, label = ".casper/project.yaml"): R
       for (const [key, item] of Object.entries(env as Mapping)) {
         if (!/^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(key)) fail(`${at}.env.${key} is not a variable name`);
         if (RESERVED_ENV.includes(key)) fail(`${at}.env.${key} is set by Casper to the service's address`);
+        if (ISOLATION_ENV.includes(key.toUpperCase())) fail(`${at}.env.${key} is set by Casper (an isolated home and PATH, installs disabled)`);
         if (typeof item !== "string" || Buffer.byteLength(item) > 4096) fail(`${at}.env.${key} must be a literal string of at most 4 KiB`);
       }
     }

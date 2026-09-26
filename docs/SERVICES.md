@@ -39,7 +39,8 @@ services:
 - **`env`** holds literal values. Nothing else comes from your shell: services start in
   Casper's isolated environment (a temporary `HOME`, the project's `node_modules/.bin` on
   `PATH`, package installs disabled). Casper sets `PORT` and `HOST` (`127.0.0.1`) itself,
-  so `env` may not set them. The service should listen on `HOST:PORT`.
+  and owns `PATH`, `HOME`, `TMPDIR`, `BUN_INSTALL_AUTO` and `npm_config_offline`, so `env`
+  may not set any of them (in any letter case). The service should listen on `HOST:PORT`.
 
 A project declares at most 4 services. Names are a letter followed by up to 31 letters,
 digits, `_` or `-`. `adhoc-<n>` is reserved for services started by command. Services

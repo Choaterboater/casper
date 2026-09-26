@@ -181,3 +181,15 @@ test("a process closed before it started refuses to start as closed", async () =
   expect(await f.managed.start(new AbortController().signal).catch((error: unknown) => error)).toMatchObject({ reason: "closed", message: expect.stringContaining("closed before it started") });
   expect(f.managed.pid).toBeUndefined();
 });
+
+test("Casper's isolation and offline variables win over caller env; other caller values pass through", async () => {
+  const names = ["PATH", "HOME", "TMPDIR", "BUN_INSTALL_AUTO", "npm_config_offline", "DATABASE_URL"];
+  const f = await fixture({ PRINT_ENV: names.join(","), PATH: "/caller/bin", HOME: "/caller/home", TMPDIR: "/caller/tmp",
+    BUN_INSTALL_AUTO: "force", npm_config_offline: "false", DATABASE_URL: "postgres://127.0.0.1/app" });
+  await f.managed.start(new AbortController().signal);
+  const seen = JSON.parse(f.managed.logs({ filter: /^env / }).text.slice(4)) as Record<string, string | null>;
+  expect(seen).toMatchObject({ BUN_INSTALL_AUTO: "disable", npm_config_offline: "true", DATABASE_URL: "postgres://127.0.0.1/app" });
+  expect(seen.PATH).toStartWith(path.join(f.root, "node_modules", ".bin"));
+  expect(seen.HOME).not.toBe("/caller/home");
+  if (process.platform !== "win32") expect(seen.TMPDIR).toBe(seen.HOME);
+}, 20_000);
