@@ -213,6 +213,12 @@ prepared workspace and a temporary home seeded with only the model provider's en
 (`--concurrency`); 16 at once hit provider rate limits. Both harnesses of one task run next to
 each other, so they meet the same provider conditions.
 
+OpenRouter models need `--route <hosts>`. OpenRouter keeps a conversation on one host, and its
+hosts for the same model differ tenfold in speed (one GLM 5.3 Flash host answered in 3 s per call
+and made the model report "corrupted" tool output; another in 0.3 s). Unpinned, a comparison
+measures which host each harness drew. `--route Together,Novita` writes the same `models.json`
+into both harnesses' homes: those hosts only, in that order, no fallbacks.
+
 `--follow-ups 1` or `--follow-ups 2` adds the rework experiment: a run the grader did not accept
 gets a follow-up in the **same conversation** (Casper `--continue`, Pi `--session-id`, both in a
 home kept for the run) carrying the grader's failure report — the failing checks' output tails or

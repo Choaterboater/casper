@@ -47,6 +47,10 @@ export interface HarnessInput {
   /** The only run limit, identical for both harnesses. There is deliberately no turn limit: Pi's CLI
    * has none, so a Casper-only limit would stop only Casper. */
   timeoutMs: number;
+  /** OpenRouter host names, in preference order, both harnesses' model is pinned to (no fallbacks).
+   * OpenRouter keeps a conversation on one host and hosts differ tenfold in speed, so an unpinned
+   * comparison measures which host each harness drew as much as the harness itself. */
+  route?: readonly string[];
   /** Read-only sources; only the model's provider entry is copied to the temporary home. */
   seed?: { authPath: string; modelsStorePath?: string };
   /** A saved conversation in a caller-owned home, kept across runs so a follow-up can continue it.
@@ -77,6 +81,7 @@ export async function runHarness(harness: HarnessName, input: HarnessInput): Pro
   const name = harnessProtocol(harness);
   if (!input.command.length || !input.command[0] || !input.model.includes("/")
     || !Number.isSafeInteger(input.timeoutMs) || input.timeoutMs < 1) throw new Error("Invalid harness input");
+  if (input.route?.length && !input.model.startsWith("openrouter/")) throw new Error("--route applies only to openrouter models");
   const ownsHome = !input.session;
   const home = input.session?.home ?? await mkdtemp(path.join(os.tmpdir(), "casper-harness-home-"));
   const agent = path.join(home, name === "casper" ? ".casper/agent" : ".pi/agent");
@@ -90,6 +95,7 @@ export async function runHarness(harness: HarnessName, input: HarnessInput): Pro
       await writeFile(path.join(agent, "auth.json"), JSON.stringify({ [provider]: auth[provider] }), { mode: 0o600 });
       if (input.seed.modelsStorePath) await copyFile(input.seed.modelsStorePath, path.join(agent, "models-store.json"));
     }
+    if (input.route?.length) await writeFile(path.join(agent, "models.json"), JSON.stringify(routedModels(input.model, input.route)), { mode: 0o600 });
     if (harness === "casper-no-review") await writeFile(path.join(home, ".casper/config.yaml"), "verification:\n  review: false\n", { mode: 0o600 });
     const args = name === "casper"
       ? ["--json", "--model", input.model, "--effort", input.effort, "--verify", ...(input.session?.resume ? ["--continue"] : [])]
@@ -149,6 +155,13 @@ export async function runHarness(harness: HarnessName, input: HarnessInput): Pro
       return result;
     } finally { clearTimeout(timer); await stop(); }
   } finally { if (ownsHome) await rm(home, { recursive: true, force: true }); }
+}
+
+/** The same models.json for both CLIs: the model's OpenRouter hosts, and nothing else. */
+export function routedModels(model: string, hosts: readonly string[]): unknown {
+  const id = model.slice(model.indexOf("/") + 1);
+  return { providers: { openrouter: { modelOverrides: { [id]: {
+    compat: { openRouterRouting: { only: [...hosts], order: [...hosts], allow_fallbacks: false } } } } } } };
 }
 
 function record(value: unknown): Record<string, unknown> | undefined {

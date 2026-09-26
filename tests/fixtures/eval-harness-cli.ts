@@ -6,6 +6,10 @@ const casper = args.includes("--json");
 writeFileSync("observed.json", JSON.stringify({ args, home: process.env.HOME,
   casperDir: process.env.CASPER_AGENT_DIR, piDir: process.env.PI_CODING_AGENT_DIR,
   inheritedSecret: process.env.EVAL_HARNESS_SECRET ?? null }));
+if (prompt === "inspect models") {
+  const agent = process.env.CASPER_AGENT_DIR ?? process.env.PI_CODING_AGENT_DIR!;
+  writeFileSync("models.json", readFileSync(`${agent}/models.json`, "utf8"));
+}
 if (prompt === "inspect seed") {
   const agent = process.env.CASPER_AGENT_DIR ?? process.env.PI_CODING_AGENT_DIR!;
   writeFileSync("seed.json", JSON.stringify({
