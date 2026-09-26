@@ -6,11 +6,14 @@ import { isolatedEnvironment } from "../src/platform/environment";
 import { osSupportsProcessGroups, ownSpawnedTree, terminateTree } from "../src/platform/processes";
 
 /** Harness observations are not independent acceptance evidence. */
-/** `casper-no-review` is Casper with its requirements review round off (`verification.review: false`
- * in the run's user configuration): the same CLI and protocol, for measuring what the round adds.
+/** `casper` is Casper as it ships (its requirements review round is off by default). `casper-no-review`
+ * writes `verification.review: false` and `casper-review` writes `verification.review: true` into the
+ * run's user configuration: the same CLI and protocol, for measuring what the round adds.
  * `omp` is oh-my-pi, a Pi-based CLI with its own flags, store and subagents. */
-export type HarnessName = "casper" | "casper-no-review" | "pi" | "omp";
-export const HARNESS_NAMES: readonly HarnessName[] = ["casper", "casper-no-review", "pi", "omp"];
+export type HarnessName = "casper" | "casper-no-review" | "casper-review" | "pi" | "omp";
+export const HARNESS_NAMES: readonly HarnessName[] = ["casper", "casper-no-review", "casper-review", "pi", "omp"];
+/** The `verification.review` a Casper variant writes into its run's ~/.casper/config.yaml. */
+const REVIEW_SETTING: Partial<Record<HarnessName, boolean>> = { "casper-no-review": false, "casper-review": true };
 /** The JSON event protocol a harness speaks: OMP's `--mode json` is Pi's event stream (checked
  * against a recorded omp 18.2.11 run), so only its launch differs. */
 export const harnessProtocol = (name: HarnessName): "casper" | "pi" => name === "pi" || name === "omp" ? "pi" : "casper";
@@ -107,7 +110,8 @@ export async function runHarness(harness: HarnessName, input: HarnessInput): Pro
     }
     // OMP reads models.yml (it migrates a models.json only once); JSON is YAML, so the content is the same.
     if (input.route?.length) await writeFile(path.join(agent, harness === "omp" ? "models.yml" : "models.json"), JSON.stringify(routedModels(input.model, input.route)), { mode: 0o600 });
-    if (harness === "casper-no-review") await writeFile(path.join(home, ".casper/config.yaml"), "verification:\n  review: false\n", { mode: 0o600 });
+    const review = REVIEW_SETTING[harness];
+    if (review !== undefined) await writeFile(path.join(home, ".casper/config.yaml"), `verification:\n  review: ${review}\n`, { mode: 0o600 });
     const args = name === "casper"
       ? ["--json", "--model", input.model, "--effort", input.effort, "--verify", ...(input.session?.resume ? ["--continue"] : [])]
       : harness === "omp"
