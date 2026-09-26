@@ -106,7 +106,8 @@ says `n of m requirements covered`, not all).
 `services` lists the session's managed services at the end of the task, each `{ "name", "origin", "state" }`
 (`origin` such as `http://127.0.0.1:53121`, or `null` when it is not starting or ready), or `[]`. `smoke` is
 Casper's last smoke run (see docs/VERIFICATION.md, "Smoke checks"), or `null` when none ran: `{ "status":
-"pass" | "fail" | "incomplete", "checks": [...] }`. Each check has `id`, `name`, `service`, `source` (`config`,
+"pass" | "fail" | "incomplete", "checks": [...], "reason"? }` (`reason` when the run is incomplete beyond its
+checks, such as unconfirmed service cleanup). Each check has `id`, `name`, `service`, `source` (`config`,
 or `model` for one the model recorded), `request` (`method`, `path`), `baseline` (model checks: the result
 when recorded, before the change; `incomplete` when it got no HTTP response), `baselineAfterEdits` (`true` for a model check recorded after edits in the
 task or during a repair round, whose baseline is therefore not "before the change"), `status`, `evidence`

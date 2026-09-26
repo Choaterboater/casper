@@ -2,20 +2,22 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { hostProcessPlatform, ProcessCleanupError, type ProcessPlatform, type ProcessRecord } from "../src/platform/processes";
 import { ServiceManager } from "../src/services/manager";
 import { SmokeChecks, type SmokeCheck } from "../src/services/smoke";
 import { serviceTool } from "../src/services/tool";
+import { formatReceipt } from "../src/task/result";
 import { notesServer } from "./support/notes-server";
 
 const cleanups: Array<() => unknown> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
 
-async function fixture(options: { command?: string } = {}) {
+async function fixture(options: { command?: string; platform?: ProcessPlatform } = {}) {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-smoke-run-")));
   cleanups.push(() => rm(root, { recursive: true, force: true }));
   await mkdir(path.join(root, "src"));
   await writeFile(path.join(root, "src/server.ts"), notesServer(false));
-  const manager = new ServiceManager({ projectRoot: root, services: {
+  const manager = new ServiceManager({ projectRoot: root, platform: options.platform, services: {
     api: { command: options.command ?? `"${process.execPath}" src/server.ts`, port: "auto", ready: { http: "/health" }, timeoutMs: 10_000, scope: { inputs: ["src"] } },
   } });
   cleanups.push(() => manager.close().catch(() => {}));
@@ -88,4 +90,27 @@ test("a baseline without an HTTP response (a transport error) is not a failing b
   await writeFile(path.join(f.root, "src/server.ts"), notesServer(true));
   f.manager.markEdited("src/server.ts");
   expect((await smoke.run(signal())).checks[0]).toMatchObject({ baseline: "incomplete", status: "pass", evidence: false });
+}, 30_000);
+
+test("unknown cleanup of another service makes smoke incomplete even when the checked service is fresh and passes", async () => {
+  // The OS listing keeps showing the ad-hoc service's root after it is gone, so its stop is never confirmed.
+  let stuck = 0, kept: ProcessRecord | undefined;
+  const host = hostProcessPlatform();
+  const platform: ProcessPlatform = { ...host, list: async () => {
+    const all = await host.list();
+    if (stuck) { const real = all.get(stuck); if (real) kept = real; else if (kept) all.set(stuck, kept); }
+    return all;
+  } };
+  const f = await fixture({ platform });
+  await f.manager.start("api", signal());
+  const adhoc = await f.manager.startCommand(`"${process.execPath}" src/server.ts`, { ready: { http: "/health" } }, signal());
+  stuck = adhoc.pid!;
+  await expect(f.manager.stop(adhoc.name)).rejects.toBeInstanceOf(ProcessCleanupError);
+  const report = await new SmokeChecks([list], () => f.manager).run(signal());
+  expect(report.checks[0]).toMatchObject({ status: "pass", evidence: true });
+  // Not toMatchObject with an asymmetric matcher: Bun 1.4 writes the matcher into the received object.
+  expect(report.status).toBe("incomplete");
+  expect(report.reason).toContain("could not confirm");
+  expect(formatReceipt({ execution: "completed", verification: { status: "incomplete", results: [], rounds: [], repairAttempts: 0, smoke: report } }))
+    .toContain("smoke 1/1 passed; Casper could not confirm a service's processes were stopped");
 }, 30_000);

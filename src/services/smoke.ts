@@ -122,7 +122,12 @@ export interface SmokeResult {
   /** The service was restarted (stale or crashed) before this run. */
   restarted?: boolean;
 }
-export interface SmokeReport { status: SmokeStatus; checks: SmokeResult[] }
+export interface SmokeReport {
+  status: SmokeStatus;
+  checks: SmokeResult[];
+  /** Why the run is incomplete beyond its checks, such as unconfirmed service cleanup. */
+  reason?: string;
+}
 
 const SNIPPET = 512;
 const REQUEST_TIMEOUT_MS = 10_000;
@@ -174,6 +179,12 @@ export class SmokeChecks {
     const checks: SmokeResult[] = [];
     for (const check of this.configured) checks.push(this.result(check.name, "config", check, await this.execute(check, signal)));
     for (const { id, check, baseline, afterEdits } of this.recorded) checks.push(this.result(id, "model", check, await this.execute(check, signal), baseline, afterEdits));
+    // A service tree Casper could not confirm stopped may still answer, or hold state the checks saw.
+    try { this.manager().assertCleanup(); }
+    catch {
+      const reason = "Casper could not confirm a service's processes were stopped; the checks may have run beside leftover processes.";
+      return { status: smokeStatus(checks) === "fail" ? "fail" : "incomplete", checks, reason };
+    }
     return { status: smokeStatus(checks), checks };
   }
 
