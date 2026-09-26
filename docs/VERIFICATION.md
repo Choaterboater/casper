@@ -47,6 +47,7 @@ reported but never counted as verification.
 ```
 ✓ Changed 1 file: sum.js
 ✓ Verified by Casper: test passed (npm run test, 0.3s)
+✓ Verified by Casper: test passed earlier in this task, reused (npm run test, 0.3s)
 ✗ Verified by Casper: test failed (exit 1) — log above; /verify repair test to fix
 • Not verified — test ran via bash only (npm test: passed). Run /verify test to record a check.
 • Not verified — no checks configured. Add verify.test to .casper/project.yaml.
@@ -56,6 +57,9 @@ reported but never counted as verification.
 ✓ Proven, weakly: test passes with this change; without it test crashed or was killed (exit 139) instead of failing
 ⚠ Not proven: test passes without this change too, and no test was added or changed
 ```
+
+A pass marked `reused` did not run again: its declared inputs are unchanged since it passed earlier in
+the same task (often the model's own `casper_check`), and the time is that earlier run's.
 
 ## Requirements review
 
