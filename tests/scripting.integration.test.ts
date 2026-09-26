@@ -436,7 +436,7 @@ test("the review round fixes a gap the model finds; a gap it admits keeps the ch
   const reviewed = await fixed.run(["--json", "--verify", "Fix sum.js"]);
   const receipt = JSON.parse(reviewed.stdout.trim().split("\n").at(-1)!);
   expect({ exit: reviewed.exit, outcome: receipt.outcome, review: receipt.review, proof: receipt.proof?.status })
-    .toEqual({ exit: 0, outcome: "verified", review: { done: ["marker — test"], open: [], total: 2 }, proof: "proven" });
+    .toEqual({ exit: 0, outcome: "verified", review: { fixed: ["marker — test"], open: [], covered: 2, total: 2 }, proof: "proven" });
   expect(receipt.text).toContain("• The model's review: all 2 requirements covered (1 gap fixed; its own claim, not checked by Casper)");
   expect(await readFile(path.join(fixed.project, "sum.js"), "utf8")).toBe("fixed marker\n");
 

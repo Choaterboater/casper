@@ -51,7 +51,7 @@ import { VerifierRegistry } from "./verify/registry";
 import { verifyAndRepair } from "./verify/repair-loop";
 import { VerificationTask } from "./verify/task";
 import { ChangeBaseline, changesCode, proofRepairPrompt, type ChangeProof } from "./verify/proof";
-import { parseChecklist, parseReview, requirementsReviewPrompt, REVIEW_MAX_TURNS, type RequirementsReview } from "./task/review";
+import { parseChecklist, parseReview, requirementsReviewPrompt, ROUND_MAX_TURNS, type RequirementsReview } from "./task/review";
 import { planAutoChecks, resolveVerificationMode, selectedChecks, type VerificationMode } from "./verify/mode";
 import { measuredCheckTime, recordCheckTimings } from "./verify/timings";
 import { MermaidProvider } from "./visualize/mermaid";
@@ -825,7 +825,7 @@ export class CasperApp {
     await this.prepareCapabilities(input.request);
     const cutOff = await this.promptRound(input.session, requirementsReviewPrompt(input.request), input.request);
     if (stopped()) return { verification };
-    if (cutOff) this.output.write(`↻ review: stopped at its ${REVIEW_MAX_TURNS}-turn budget\n`);
+    if (cutOff) this.output.write(`↻ review: stopped at its ${ROUND_MAX_TURNS}-turn budget\n`);
     const review: RequirementsReview = { ...(parseReview(this.lastAnswer) ?? { missing: true as const }), ...(cutOff ? { incomplete: true as const } : {}) };
     // Checks rerun only when the review edited (or the tree cannot be compared); failures get the remaining repairs.
     const after = unreviewed && await this.snapshotWorkspace(input.root);
@@ -879,13 +879,13 @@ export class CasperApp {
     return { verification, proof };
   }
 
-  /** A round after the task turn (review, proof repair) with its own REVIEW_MAX_TURNS budget. A --max-turns
+  /** A round after the task turn (review, proof repair) with its own ROUND_MAX_TURNS budget. A --max-turns
    * at or below it wins and stays the task's stop (taskTurnLimit, exit 2). The round's own budget ending it
    * is not the task's stop: Casper goes on with the checks and the proof. True when that budget ended it. */
   private async promptRound(session: RuntimeSession, text: string, request: string): Promise<boolean> {
-    const own = this.maxTurns === undefined || REVIEW_MAX_TURNS < this.maxTurns;
-    await session.prompt(text, this.commandAbort?.signal, { request, maxTurns: own ? REVIEW_MAX_TURNS : this.maxTurns });
-    if (!own || this.taskTurnLimit === undefined) return false;
+    const roundBudget = this.maxTurns === undefined || ROUND_MAX_TURNS < this.maxTurns;
+    await session.prompt(text, this.commandAbort?.signal, { request, maxTurns: roundBudget ? ROUND_MAX_TURNS : this.maxTurns });
+    if (!roundBudget || this.taskTurnLimit === undefined) return false;
     this.taskTurnLimit = undefined;
     return true;
   }
