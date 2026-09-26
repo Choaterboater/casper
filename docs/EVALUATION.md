@@ -191,6 +191,16 @@ changed paths, which is the baseline for the Focused score.
 | network | `net-config-compliance` | net-config-audit | volatile lines and `$9$` masking, AOS-CX hierarchy, ntp/aaa/snmpv2-off rules |
 | network | `net-mcp-show-interfaces` | net-mcp-router | router-style discovery, read-only dispatch, filters, 50-item bound |
 
+**The notes fixture runs as a server.** `notes-api` has `src/server.ts`, which serves the
+existing app on `PORT`/`HOST` (defaults 3000 and 127.0.0.1), and a `dev` script (`bun run dev`).
+It is ordinary fixture code, identical in the solved fixture and every setup built on it, so
+both harnesses can start the same server. Its `.casper/project.yaml` declares `services.api`
+(`bun run dev`, `port: auto`, ready when `GET /notes` answers, scoped to `src/`) and one
+configured smoke check, `GET /notes` answering 200 JSON. There is no configured check for an
+endpoint a task adds: that would be a spec only Casper sees. `tests/eval-notes-server.test.ts`
+starts the server through Casper's service manager on the solved fixture and on the
+`core-rest-validation` start, and runs the configured smoke check (docs/SERVICES.md).
+
 All network data is synthetic: documentation address ranges, `example.com`, made-up
 MACs and serials. The TLS key in `portcheck/acceptance/certs` is a throwaway
 self-signed test key for `portcheck.example.com`.
@@ -332,7 +342,8 @@ not be measured stays unknown (`?` in the table), never a pass, a fail or zero.
 | Honest | the final answer's claim agrees with Success: a done claim on a failed run is a **false done**, and a not-done claim on a successful run is not honest either |
 | Effort | wall clock, turns, tokens and estimated cost per run (median and range), with the same per-response definition for both harnesses |
 | Time to correct (`--follow-ups`) | first-time right, fixed after 1 or 2 follow-ups, unfixed (and stopped), follow-up rounds, resumed, and the wall clock, tokens and cost of every attempt summed and per correct result, with and without a person's time per follow-up; the failure report is the host grader's |
-| Phases and tools | Casper's `phase` JSON events time its task turn, checks, requirements review and proof (the proof includes any model round it starts), on the harness clock; a phase still running when the run ended is `unfinished`. Tool time per tool name for every harness (Casper's own timings, Pi's and OMP's on the harness clock); calls still running at the end count as `unfinished`. Pi and OMP report no phases |
+| Smoke (Casper only) | Casper's own smoke report from its receipt (`smoke`), recorded on the run as given, and its `smoke` phase time. The column reads `passed/ran` over the runs that ran smoke checks, how many runs had a model-recorded check Casper counted as evidence (`proved`: it failed before the change and passes after it), and the median smoke phase time; `none` when no run ran any, `–` for Pi and OMP, which have no smoke checks. A self-report like the receipt outcome: it never decides Success |
+| Phases and tools | Casper's `phase` JSON events time its task turn, checks, smoke checks, requirements review and proof (the proof includes any model round it starts), on the harness clock; a phase still running when the run ended is `unfinished`. Tool time per tool name for every harness (Casper's own timings, Pi's and OMP's on the harness clock); calls still running at the end count as `unfinished`. Pi and OMP report no phases |
 
 The claim is read from the final answer by a host heuristic, and the quoted sentence is kept
 in the evidence so every verdict can be audited. An explicit admission ("still failing",
@@ -430,7 +441,8 @@ full per-run records (`attemptId`, `outcome`, `evidenceSource`, `model`,
 interventions, acceptance failures, output tail). With follow-ups, a run also has
 `rework: { followUps, firstTimeRight, fixed, resumed, totalWallClockMs, totalTurns, totalTokens,
 totalCost, attempts[] }`, one attempt per run of the CLI (termination, time, usage, session id,
-grader verdict, failing checks, phases, bounded answer).
+grader verdict, failing checks, phases, Casper's smoke report, bounded answer). A benchmark run's `run`
+observation carries Casper's `smoke` report when one ran.
 
 `bun test tests/eval-suite.test.ts` validates the harness itself without a model:
 catalog (14 tasks), fixture/setup matrix in both directions, measurement, grading,

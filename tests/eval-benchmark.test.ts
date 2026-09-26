@@ -205,6 +205,34 @@ test("the summary keeps packs apart and reports median, range, unknowns and fals
   expect(report).toContain("1/2 ?1");
 });
 
+test("the smoke column counts Casper's passing smoke runs, the model checks they proved and the smoke phase time; other harnesses show –", () => {
+  const check = (source: string, baseline: string | undefined, status: string, evidence: boolean) => ({ source, ...(baseline ? { baseline } : {}), status, evidence });
+  const smoked = (smoke: unknown, smokeMs?: number) => {
+    const run = baseRun({});
+    return { ...run, run: { ...run.run, ...(smoke ? { smoke } : {}), phases: [{ phase: "task", durationMs: 9000 }, ...(smokeMs === undefined ? [] : [{ phase: "smoke", durationMs: smokeMs }])] } } as BenchmarkRun;
+  };
+  const summary = summarizeBenchmark([
+    // A model check that failed before the change and passes after it: proof.
+    smoked({ status: "pass", checks: [check("config", undefined, "pass", true), check("model", "fail", "pass", true)] }, 1000),
+    // A model check that passed before too is only an observation.
+    smoked({ status: "pass", checks: [check("model", "pass", "pass", false)] }, 3000),
+    smoked({ status: "fail", checks: [check("config", undefined, "fail", false)] }, 2000),
+    // No smoke ran.
+    smoked(undefined),
+    baseRun({ harness: "pi" }),
+  ]);
+  const { casper, pi } = summary.packs[0]!.total;
+  expect(casper!.smoke).toEqual({ ran: 3, passed: 2, proved: 1, ms: { median: 2000, min: 1000, max: 3000, known: 3 } });
+  expect(pi!.smoke).toBeNull();
+  const report = formatBenchmarkReport(summary);
+  expect(report).toMatch(/\bsmoke\n/);
+  expect(report).toMatch(/all 1 tasks\s+casper\s.*\s2\/3, 1 proved, 2\.0s \(1\.0s–3\.0s\)\n/);
+  expect(report).toMatch(/all 1 tasks\s+pi\s.*\s–$/m);
+  expect(report).toContain("smoke = Casper's runs whose smoke checks passed");
+  // Casper runs without any smoke run read as none, not as a failure.
+  expect(formatBenchmarkReport(summarizeBenchmark([smoked(undefined)]))).toMatch(/core-a\s+casper\s.*\snone$/m);
+});
+
 // Casper on core-log-parser #2 of the pinned GLM benchmark (.scratch/phase-4/pinned-glm.json), verbatim:
 // four Together 429s retried and lost in 16 s, no tool call, and its stderr tail as the last error.
 const rateLimited: HarnessObservation = JSON.parse(await readFile(path.join(import.meta.dir, "fixtures/eval-infra-429-run.json"), "utf8"));
@@ -284,7 +312,13 @@ test("a scripted CLI runs through prepare, harness, grader and scoring for both 
   for (const run of result.runs) {
     expect({ harness: run.harness, success: run.graded.success, works: run.score.works, complete: run.score.complete, honest: run.score.honest, turns: run.score.effort.turns })
       .toEqual({ harness: run.harness, success: true, works: true, complete: true, honest: true, turns: 2 });
+    // Casper's smoke report and smoke phase time are recorded from its event stream; Pi has neither.
+    expect({ smoke: run.run.smoke?.status, smokePhase: run.run.phases?.some((phase) => phase.phase === "smoke") ?? false })
+      .toEqual(run.harness === "casper" ? { smoke: "pass", smokePhase: true } : { smoke: undefined, smokePhase: false });
   }
+  const report = formatBenchmarkReport(summarizeBenchmark(result.runs));
+  expect(report).toMatch(/core-log-parser\s+casper\s.*\s2\/2, 2 proved, \S+s$/m);
+  expect(report).toMatch(/core-log-parser\s+pi\s.*\s–$/m);
 }, 120_000);
 
 test("follow-ups continue a failed run in the same conversation; the first attempt stays the headline", async () => {
