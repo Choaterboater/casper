@@ -100,7 +100,7 @@ async function bodyMatches(pattern: string, body: string): Promise<boolean | str
 }
 
 /** Whether a response meets the expectation; the reason names the first unmet part. */
-export async function matchSmoke(expect: SmokeExpect, response: { status: number; headers: Headers; body: string }): Promise<{ pass: boolean; reason?: string }> {
+export async function matchSmoke(expect: SmokeExpect, response: { status: number; headers: Headers; body: string; complete?: boolean }): Promise<{ pass: boolean; reason?: string }> {
   if (expect.status !== undefined && response.status !== expect.status) return { pass: false, reason: `status ${response.status}, expected ${expect.status}` };
   for (const [name, value] of Object.entries(expect.headers ?? {})) {
     const actual = response.headers.get(name);
@@ -108,13 +108,14 @@ export async function matchSmoke(expect: SmokeExpect, response: { status: number
   }
   if (expect.json !== undefined) {
     let parsed: unknown;
-    try { parsed = JSON.parse(response.body); } catch { return { pass: false, reason: "body is not JSON, expected a json match" }; }
+    try { parsed = JSON.parse(response.body); }
+    catch { return { pass: false, reason: response.complete === false ? "body over 64 KiB was truncated, so it cannot be matched as JSON" : "body is not JSON, expected a json match" }; }
     if (!subset(expect.json, parsed)) return { pass: false, reason: "json body does not contain the expected subset" };
   }
   if (expect.bodyMatches !== undefined) {
     const matched = await bodyMatches(expect.bodyMatches, response.body);
     if (typeof matched === "string") return { pass: false, reason: matched };
-    if (!matched) return { pass: false, reason: `body does not match /${expect.bodyMatches}/` };
+    if (!matched) return { pass: false, reason: `body does not match /${expect.bodyMatches}/${response.complete === false ? " (body over 64 KiB was truncated; only its start was matched)" : ""}` };
   }
   return { pass: true };
 }
@@ -239,8 +240,8 @@ export class SmokeChecks {
       // Redirects are not followed: the target stays the service.
       const response = await fetch(new URL(check.request.path, origin), { method: check.request.method, headers, body, redirect: "manual",
         signal: AbortSignal.any([signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)]) });
-      const text = (await readBody(response)).bytes.toString("utf8");
-      const matched = await matchSmoke(check.expect, { status: response.status, headers: response.headers, body: text });
+      const { bytes, complete } = await readBody(response), text = bytes.toString("utf8");
+      const matched = await matchSmoke(check.expect, { status: response.status, headers: response.headers, body: text, complete });
       return { status: matched.pass ? "pass" : "fail", actual: { status: response.status, body: text.slice(0, SNIPPET) },
         ...(matched.reason ? { reason: matched.reason } : {}), restarted };
     } catch (error) {
