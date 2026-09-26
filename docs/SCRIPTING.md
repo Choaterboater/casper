@@ -26,7 +26,7 @@ options accept `--name value` or `--name=value`.
 | `--continue` | Continue this folder's most recent conversation. With none, a new one starts (with a notice). |
 | `--resume <id-prefix>` | Continue the saved conversation whose ID starts with this prefix. `casper /resume` lists IDs. |
 | `--cd <path>` | Work in that folder instead of the current directory. |
-| `--max-turns <n>` | Stop each model request after `n` model turns (1–9999). The run is then incomplete (exit 2) and Casper runs no checks. The requirements review and proof repair rounds have their own 12-turn budget; hitting that is not this stop (see VERIFICATION.md). |
+| `--max-turns <n>` | Stop each model request after `n` model turns (1–9999). The run is then incomplete (exit 2) and Casper runs no checks. The requirements review (`verification.review: true`) and proof repair rounds have their own 12-turn budget; hitting that is not this stop (see VERIFICATION.md). |
 | `--verbose` | The detailed evidence receipt instead of the plain one. |
 | `--mcp <name>`, `--lsp <name>` | Connect your own configured MCP or language server first (repeatable). |
 
@@ -91,11 +91,16 @@ classifier), or automatic effort's classifier.
 `ended` is `pass` (unproven), `fail` (the tests failed), or weaker evidence for a proven change: `timeout`,
 `crash` (a signal or crash, exit above 128) or `no_start` (exit 126/127). `reason` is the runner's reason
 (for example `Timed out after 20000ms`); `output` is at most the last 500 characters of the failing run's output.
-An `unproven` change has the outcome `not_verified`. `review` is the model's requirements checklist from its review round
-(`{ "done": [...], "open": [...], "total": m }`, or `{ "missing": true }` when it returned none), or `null` when no
-review ran. With `total` (the requirement count the review reported), `done` lists only the gaps the review
-fixed and `open` those still open; without it (`verification.review: false`, or an answer with no count),
-`done` is the full checklist. It is the model's own claim; any `open` item makes the outcome `not_verified`.
+An `unproven` change has the outcome `not_verified`. `review` is the model's requirements checklist, in one of
+two shapes. The review round's answer (`verification.review: true`) is `{ "fixed": [...], "open": [...],
+"covered": n, "total": m }`: `fixed` lists only the gaps the review added a test or fix for, `open` those still
+open, and `covered`/`total` come from its `Covered: n of m` line (both absent after a bare `Requirements
+review: all covered.`). A full checklist (the first answer's own with the review off, the default, or a review
+answer without a count) is `{ "done": [...], "open": [...] }`, `done` being every ticked requirement.
+`{ "missing": true }` means the review returned none; `"incomplete": true` marks a review stopped at its
+turn budget; `null` means there was no checklist to report. It is the model's own claim; any `open` item
+makes the outcome `not_verified` (a `covered` short of `total` with no `open` item does not, but the receipt
+says `n of m requirements covered`, not all).
 
 ```json
 {"v":1,"type":"check","name":"test","command":"npm run test","status":"pass","exit":0,"ms":412,"recordedBy":"casper","reused":false}

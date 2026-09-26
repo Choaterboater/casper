@@ -2,18 +2,22 @@
  * every stated requirement and reports the gaps it fixed or left open, with a count. The answer is the
  * model's own claim, never Casper's evidence; admitted gaps still count against the result. */
 
-/** done/open: the review's ticked and open lines (with a `total`, only the gaps it fixed or left open);
- * total: the requirement count from its "Covered: n of m" line, when it gave one; incomplete: the
- * review round hit REVIEW_MAX_TURNS before it ended, and the checklist (if any) is from its last answer. */
+/** Two shapes, so `done` means one thing. A full checklist (the first answer's, or a legacy review
+ * answer): done/open are every ticked and open requirement. The review's delta answer: fixed/open are
+ * only the gaps it added tests or fixes for and those still open, with covered/total from its
+ * "Covered: n of m" line (absent after a bare "all covered."). incomplete: the review round hit
+ * ROUND_MAX_TURNS before it ended, and the checklist (if any) is from its last answer. */
 export type RequirementsReview =
-  | { done: string[]; open: string[]; total?: number; incomplete?: true }
+  | { done: string[]; open: string[]; incomplete?: true }
+  | { fixed: string[]; open: string[]; covered?: number; total?: number; incomplete?: true }
   | { missing: true; incomplete?: true };
 
-/** Model turns the review round (and the proof repair round) may take. Pinned benchmarks: the review was
- * 41-44% of Casper's wall time and, on the latest runs, added no first-time-right over no review at all;
- * a round that is still working after 12 turns is exploring, not checking. A smaller --max-turns wins
- * and stays the task's own stop. */
-export const REVIEW_MAX_TURNS = 12;
+/** Model turns each round after the task turn (the requirements review, the proof repair) may take.
+ * Owner-approved (Phase 4a): the review was 41-44% of Casper's wall time and added no first-time-right
+ * in pinned runs, so it is off by default; the proof round keeps the same 12 turns. A round still
+ * working after 12 turns is exploring, not checking. A smaller --max-turns wins and stays the task's
+ * own stop. */
+export const ROUND_MAX_TURNS = 12;
 
 const ITEM = /^\s*[-*]\s*\[([ xX])\]\s+(.+?)\s*$/;
 const MAX_ITEMS = 50;
@@ -32,19 +36,25 @@ export function parseChecklist(answer: string): { done: string[]; open: string[]
   return done.length || open.length ? { done, open } : undefined;
 }
 
-/** "Covered: n of m requirements", tolerating markdown emphasis. Only m is kept: the open list decides. */
-const COVERED = /^\s*\**Covered:?\**\s*(\d+)\s*of\s*(\d+)\b/im;
+/** "Covered: n of m requirements" at the start of a line, tolerating markdown emphasis; the colon is required
+ * so prose ("we covered 3 of 3") is not a count. */
+const COVERED = /^[ \t]*\**Covered:\**[ \t]*(\d+)[ \t]*of[ \t]*(\d+)\b/im;
+/** The delta answer's heading; a bare "Requirements review: all covered." is all covered without a count. */
+const DELTA = /^[ \t]*\**Requirements review:/im;
+const ALL_COVERED = /^[ \t]*\**Requirements review:\**[ \t]*all covered\b/im;
 
-/** The review round's answer: its gap lines plus the requirement count. An answer with no gaps is only
- * the count; a legacy full checklist still reads, without a total. Undefined when it has neither. */
-export function parseReview(answer: string): { done: string[]; open: string[]; total?: number } | undefined {
+/** The review round's answer: its gap lines plus the requirement count (the delta format), or a legacy
+ * full checklist without a count. Undefined when it has neither. */
+export function parseReview(answer: string): RequirementsReview | undefined {
   const checklist = parseChecklist(answer);
   const covered = COVERED.exec(answer);
-  if (!covered) return checklist;
-  return { ...(checklist ?? { done: [], open: [] }), total: Number(covered[2]) };
+  if (!covered && !(checklist ? DELTA : ALL_COVERED).test(answer)) return checklist;
+  return { fixed: checklist?.done ?? [], open: checklist?.open ?? [],
+    ...(covered ? { covered: Number(covered[1]), total: Number(covered[2]) } : {}) };
 }
 
-/** The checklist lines parseChecklist reads; both the task turn and the review ask for exactly these. */
+/** The full checklist the task turn asks for when no review follows; parseChecklist reads it. The review's
+ * delta answer reuses its open-item line under its own heading and a count. */
 export const CHECKLIST_FORMAT: readonly string[] = [
   "Requirements:",
   "- [x] <requirement> — <the test that covers it>",
@@ -64,7 +74,7 @@ export function requirementsReviewPrompt(request: string): string {
     "Your answer reports only the gaps, one case per line: do not list requirements that were already covered and do not summarize the change. End it with:",
     "Requirements review:",
     "- [x] <requirement> — <the test you added for it>",
-    "- [ ] <requirement> — <why it is still not done>",
+    CHECKLIST_FORMAT[2]!,
     "Covered: <n> of <m> requirements.",
     "With no gaps, answer only:",
     "Requirements review: all covered.",

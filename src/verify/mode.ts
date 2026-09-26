@@ -13,9 +13,10 @@ export interface VerificationSettings {
   mode?: VerificationMode;
   /** Unset means every configured check. */
   checks?: ProjectCommand[];
-  /** `false` skips the requirements review round after the checks pass on a code change; a
-   * checklist the model's own answer ends with is still reported, and the change is still proven.
-   * Unset means on. */
+  /** `true` adds the requirements review round after the checks pass on a code change. Unset means
+   * off (owner decision, Phase 4a): in pinned benchmarks the review added no first-time-right and cost
+   * about 40% of Casper's wall time; the checks and the proof keep false "done" at zero. With it off, a
+   * checklist the model's own answer ends with is still reported, and the change is still proven. */
   review?: boolean;
 }
 
