@@ -45,9 +45,57 @@ test("Pi counts authoritative assistant usage once, excluding tool results and a
     wallClockMs: 70, turns: 2, tokens: 240, estimatedCost: 0.04, receiptOutcome: null, sessionId: "pi-conversation", errors: [] });
 });
 
-test("a route pins both harnesses' model to the same OpenRouter hosts, without fallbacks", async () => {
+// Recorded from omp 18.2.11 (`--print --mode json`, isolated home, a loopback fake OpenRouter; message_update
+// deltas and the long result/details fields trimmed): Pi's event schema, with its own session header.
+const OMP_RUN = [
+  { type: "session", version: 3, id: "01a0dbb8-3d82-71c6-84c8-38879a2325a7", timestamp: "2026-09-26T03:17:59.810Z", cwd: "/tmp/omp-probe/work" },
+  { type: "agent_start" }, { type: "turn_start" },
+  { type: "message_start", message: { role: "user", content: [{ type: "text", text: "Read hello.txt" }], attribution: "user", timestamp: 1790392679810 } },
+  { type: "message_end", message: { role: "user", content: [{ type: "text", text: "Read hello.txt" }], attribution: "user", timestamp: 1790392679810 } },
+  { type: "message_start", message: { role: "assistant", content: [], api: "openrouter", provider: "openrouter", model: "z-ai/glm-4.6", stopReason: "stop",
+    usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } } },
+  { type: "message_update", assistantMessageEvent: { type: "toolcall_delta", contentIndex: 0, delta: "{\"path\":\"hello.txt\"}" } },
+  { type: "message_end", message: { role: "assistant", content: [{ type: "toolCall", id: "call_1|fc_1", name: "read", arguments: { path: "hello.txt" } }],
+    api: "openrouter", provider: "openrouter", model: "z-ai/glm-4.6", stopReason: "toolUse", responseId: "resp_1",
+    usage: { input: 100, output: 20, cacheRead: 0, cacheWrite: 0, totalTokens: 120, cost: { input: 0.000043, output: 0.000035, cacheRead: 0, cacheWrite: 0, total: 0.000078 } } } },
+  { type: "tool_execution_start", toolCallId: "call_1|fc_1", toolName: "read", args: { path: "hello.txt" } },
+  { type: "tool_execution_end", toolCallId: "call_1|fc_1", toolName: "read", result: { content: [{ type: "text", text: "[hello.txt#44A2]\n1:hello from file" }] }, isError: false },
+  { type: "message_start", message: { role: "toolResult", toolCallId: "call_1|fc_1", toolName: "read", content: [{ type: "text", text: "[hello.txt#44A2]\n1:hello from file" }], isError: false } },
+  { type: "message_end", message: { role: "toolResult", toolCallId: "call_1|fc_1", toolName: "read", content: [{ type: "text", text: "[hello.txt#44A2]\n1:hello from file" }], isError: false } },
+  { type: "turn_end" }, { type: "turn_start" },
+  { type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "Scripted answer.", textSignature: "{\"v\":1,\"id\":\"msg_1\"}" }],
+    api: "openrouter", provider: "openrouter", model: "z-ai/glm-4.6", stopReason: "stop", responseId: "resp_2",
+    usage: { input: 150, output: 5, cacheRead: 0, cacheWrite: 0, totalTokens: 155, cost: { input: 0.0000645, output: 0.00000875, cacheRead: 0, cacheWrite: 0, total: 0.00007325 } } } },
+  { type: "turn_end" }, { type: "agent_end", messages: [] },
+];
+
+test("OMP speaks Pi's JSON events: usage per assistant response, its session header and tool timings", () => {
+  const result = observeHarness("omp", OMP_RUN, { exitCode: 0, timedOut: false, wallClockMs: 900,
+    eventTimes: OMP_RUN.map((_, index) => index * 10) });
+  expect({ ...result, estimatedCost: Number(result.estimatedCost?.toFixed(8)) }).toEqual({ answer: "Scripted answer.", termination: "completed", exitCode: 0,
+    wallClockMs: 900, turns: 2, tokens: 275, estimatedCost: 0.00015125, receiptOutcome: null, sessionId: "01a0dbb8-3d82-71c6-84c8-38879a2325a7", errors: [],
+    tools: [{ tool: "read", calls: 1, ms: 10 }] });
+  // omp exits 1 when its last response failed; a provider error is a failed run, as for Pi.
+  expect(observeHarness("omp", [OMP_RUN[0], { type: "message_end", message: { role: "assistant", content: [], stopReason: "error", errorMessage: "404 {}",
+    usage: { totalTokens: 0, cost: { total: 0 } } } }, { type: "agent_end" }], { exitCode: 1, timedOut: false, wallClockMs: 5 }))
+    .toMatchObject({ termination: "failed", errors: ["404 {}"], turns: 1 });
+});
+
+test("an OMP run that delegated to a subagent has unknown tokens and cost, not its own responses' total", () => {
+  // omp's task tool runs subagents whose model responses never reach the parent's message_end events.
+  const delegated = [...OMP_RUN.slice(0, 9),
+    { type: "tool_execution_start", toolCallId: "call_2", toolName: "task", args: {} },
+    { type: "tool_execution_end", toolCallId: "call_2", toolName: "task", result: { content: [] }, isError: false },
+    ...OMP_RUN.slice(9)];
+  expect(observeHarness("omp", delegated, { exitCode: 0, timedOut: false, wallClockMs: 900 }))
+    .toMatchObject({ termination: "completed", turns: 2, tokens: null, estimatedCost: null });
+  // Pi has no subagents: a tool of that name is just a tool.
+  expect(observeHarness("pi", delegated, { exitCode: 0, timedOut: false, wallClockMs: 900 })).toMatchObject({ turns: 2, tokens: 275 });
+});
+
+test("a route pins every harness's model to the same OpenRouter hosts, without fallbacks", async () => {
   const written: unknown[] = [];
-  for (const name of ["casper", "pi"] as const) {
+  for (const name of ["casper", "pi", "omp"] as const) {
     const workdir = await mkdtemp(path.join(os.tmpdir(), "casper-harness-route-"));
     try {
       await runHarness(name, { command: [process.execPath, path.join(import.meta.dir, "fixtures/eval-harness-cli.ts")],
@@ -59,11 +107,13 @@ test("a route pins both harnesses' model to the same OpenRouter hosts, without f
   expect(written[0]).toEqual({ providers: { openrouter: { modelOverrides: { "z-ai/glm-5.3-flash": {
     compat: { openRouterRouting: { only: ["Together", "Novita"], order: ["Together", "Novita"], allow_fallbacks: false } } } } } } });
   expect(written[1]).toEqual(written[0]);
+  // OMP reads models.yml (YAML, so the same JSON) and sends openRouterRouting as the request's `provider`.
+  expect(written[2]).toEqual(written[0]);
   await expect(runHarness("pi", { command: ["true"], cwd: os.tmpdir(), prompt: "x", model: "github-copilot/gpt-5-mini", effort: "medium", timeoutMs: 1000, route: ["Together"] }))
     .rejects.toThrow("--route applies only to openrouter models");
 });
 
-test.each(["casper", "pi"] as const)("%s keeps a saved conversation in the caller's home for a follow-up", async name => {
+test.each(["casper", "pi", "omp"] as const)("%s keeps a saved conversation in the caller's home for a follow-up", async name => {
   const workdir = await mkdtemp(path.join(os.tmpdir(), "casper-harness-session-"));
   const home = await mkdtemp(path.join(os.tmpdir(), "casper-harness-session-home-"));
   try {
@@ -75,9 +125,10 @@ test.each(["casper", "pi"] as const)("%s keeps a saved conversation in the calle
       expect(observed.home).toBe(home);
       return (observed.args as string[]).filter((arg) => ["--continue", "--session-id", "bench-task-1", "--no-session"].includes(arg));
     };
-    // Casper resumes its latest conversation; Pi resumes by id and refuses --continue with it.
-    expect(await args(false)).toEqual(name === "casper" ? [] : ["--session-id", "bench-task-1"]);
-    expect(await args(true)).toEqual(name === "casper" ? ["--continue"] : ["--session-id", "bench-task-1"]);
+    // Casper and OMP resume their latest conversation (OMP has no --session-id); Pi resumes by id
+    // and refuses --continue with it.
+    expect(await args(false)).toEqual(name === "pi" ? ["--session-id", "bench-task-1"] : []);
+    expect(await args(true)).toEqual(name === "pi" ? ["--session-id", "bench-task-1"] : ["--continue"]);
     // The caller owns the home: it survives the run.
     expect(await stat(home).then(() => true, () => false)).toBe(true);
   } finally {
@@ -86,7 +137,7 @@ test.each(["casper", "pi"] as const)("%s keeps a saved conversation in the calle
   }
 });
 
-test.each(["casper", "pi"] as const)("%s receives explicit identical task inputs and an isolated environment", async name => {
+test.each(["casper", "pi", "omp"] as const)("%s receives explicit identical task inputs and an isolated environment", async name => {
   const workdir = await mkdtemp(path.join(os.tmpdir(), "casper-harness-test-"));
   const previous = process.env.EVAL_HARNESS_SECRET;
   process.env.EVAL_HARNESS_SECRET = "must-not-inherit";
@@ -104,7 +155,12 @@ test.each(["casper", "pi"] as const)("%s receives explicit identical task inputs
     // No turn limit: Pi's CLI has none, so a Casper-only limit would stop only Casper.
     expect(observed.args).toEqual(name === "casper"
       ? ["--json", "--model", "github-copilot/gpt-5-mini", "--effort", "medium", "--verify", "--", "Implement the task."]
-      : ["--print", "--mode", "json", "--no-session", "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-themes", "--model", "github-copilot/gpt-5-mini", "--thinking", "medium", "--", "Implement the task."]);
+      : name === "pi"
+        ? ["--print", "--mode", "json", "--no-session", "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-themes", "--model", "github-copilot/gpt-5-mini", "--thinking", "medium", "--", "Implement the task."]
+        // No session title (a side model call no event reports), no host-dependent language servers.
+        : ["--print", "--mode", "json", "--no-session", "--no-extensions", "--no-skills", "--no-rules", "--no-lsp", "--no-title", "--auto-approve",
+          "--model", "github-copilot/gpt-5-mini", "--thinking", "medium", "--", "Implement the task."]);
+    if (name !== "casper") expect(observed.piDir).toBe(path.join(observed.home, name === "omp" ? ".omp/agent" : ".pi/agent"));
   } finally {
     if (previous === undefined) delete process.env.EVAL_HARNESS_SECRET; else process.env.EVAL_HARNESS_SECRET = previous;
     await rm(workdir, { recursive: true, force: true });
@@ -129,7 +185,7 @@ test("casper-no-review is the Casper CLI and protocol with the review round off 
   }
 });
 
-test.each(["casper", "pi"] as const)("%s stops a hung CLI at its deadline", async name => {
+test.each(["casper", "pi", "omp"] as const)("%s stops a hung CLI at its deadline", async name => {
   const workdir = await mkdtemp(path.join(os.tmpdir(), "casper-harness-timeout-"));
   try {
     const result = await runHarness(name, {
@@ -158,6 +214,37 @@ test.each(["casper", "pi"] as const)("%s copies only the selected provider and p
     expect(JSON.parse(await readFile(path.join(root, "seed.json"), "utf8")))
       .toEqual({ providers: ["test"], catalog: '{"synthetic":true}' });
     expect(await readFile(authPath, "utf8")).toBe(auth);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("OMP gets only the selected provider's credential in its own store, and no Pi model catalog", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-harness-omp-seed-"));
+  try {
+    const authPath = path.join(root, "auth.json");
+    const modelsStorePath = path.join(root, "models-store.json");
+    const auth = JSON.stringify({ test: { type: "api_key", key: "synthetic" }, other: { type: "api_key", key: "unrelated" } });
+    await writeFile(authPath, auth);
+    await writeFile(modelsStorePath, '{"synthetic":true}');
+    const result = await runHarness("omp", {
+      command: [process.execPath, path.join(import.meta.dir, "fixtures/eval-harness-cli.ts")],
+      cwd: root, prompt: "inspect seed", model: "test/model", effort: "medium", timeoutMs: 5000,
+      seed: { authPath, modelsStorePath },
+    });
+    expect(result.termination).toBe("completed");
+    // omp reads credentials from agent.db (auth.json is never read), one row per credential with the
+    // entry minus its type; schema version 8 is the store's current one, so omp migrates nothing.
+    expect(JSON.parse(await readFile(path.join(root, "seed.json"), "utf8"))).toEqual({
+      credentials: [{ provider: "test", credential_type: "api_key", data: '{"key":"synthetic"}', disabled_cause: null }],
+      schemaVersion: 8, catalog: false });
+    expect(await readFile(authPath, "utf8")).toBe(auth);
+    // A follow-up in a kept home keeps the store omp already has (and may have refreshed a token in).
+    const home = path.join(root, "home");
+    for (const resume of [false, true]) {
+      expect(await runHarness("omp", { command: [process.execPath, path.join(import.meta.dir, "fixtures/eval-harness-cli.ts")],
+        cwd: root, prompt: "inspect seed", model: "test/model", effort: "medium", timeoutMs: 5000,
+        seed: { authPath }, session: { home, id: "bench-1", resume } })).toMatchObject({ termination: "completed" });
+    }
+    expect(JSON.parse(await readFile(path.join(root, "seed.json"), "utf8")).credentials).toHaveLength(1);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
