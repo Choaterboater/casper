@@ -17,11 +17,14 @@ async function owned(prefix: string): Promise<string> {
 }
 const benchmark = EVAL_TASKS.filter((task) => task.pack);
 
-test("the benchmark has 8 core and 9 network tasks, each on its own fixture", () => {
+test("the benchmark has 9 core and 9 network tasks, each on its own fixture except the two notes-api tasks", () => {
   expect(BENCHMARK_PACKS).toEqual(["core", "network"]);
-  expect(packTasks("core")).toHaveLength(8);
+  expect(packTasks("core")).toHaveLength(9);
   expect(packTasks("network")).toHaveLength(9);
   expect(new Set(benchmark.map((task) => task.fixture)).size).toBe(17);
+  // The lifecycle task shares the notes server on purpose; each task runs only its own hidden file.
+  expect(benchmark.filter((task) => task.fixture === "notes-api").map((task) => [task.id, task.verify.at(-1)!.argv.slice(1).join(" ")]))
+    .toEqual([["core-rest-validation", "test ./acceptance/create-note.test.ts"], ["core-service-lifecycle", "test ./acceptance/server-lifecycle.test.ts"]]);
   // The pre-benchmark catalog keeps its fixtures; packs never reuse them, so their numbers stay comparable.
   const legacy = new Set(EVAL_TASKS.filter((task) => !task.pack).map((task) => task.fixture));
   expect(benchmark.filter((task) => legacy.has(task.fixture))).toEqual([]);
@@ -54,7 +57,7 @@ test("hidden acceptance tests exist in the solved fixture, never reach the candi
     expect(task.prompt).not.toContain("acceptance/");
     expect(task.prompt).toContain("CONTEXT.md");
     expect(task.prompt).toContain("hidden acceptance tests");
-    expect(task.verify.map((check) => check.argv.slice(1).join(" "))).toContain("test ./acceptance");
+    expect(task.verify.some((check) => check.name === "hidden acceptance" && check.argv.slice(1).join(" ").startsWith("test ./acceptance"))).toBe(true);
     expect(task.candidatePaths).not.toContain("acceptance");
   }
 });
