@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, readFile, realpath, rm } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, realpath, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { freePort, ManagedProcess, ManagedProcessError, portInUse, type ManagedProcessOptions } from "../src/platform/managed-process";
@@ -193,3 +193,14 @@ test("Casper's isolation and offline variables win over caller env; other caller
   expect(seen.HOME).not.toBe("/caller/home");
   if (process.platform !== "win32") expect(seen.TMPDIR).toBe(seen.HOME);
 }, 20_000);
+
+test("a close while the temporary home is created leaves no temporary home", async () => {
+  const f = await fixture({});
+  const tempPrefix = `casper-home-race-${Math.random().toString(36).slice(2)}-`;
+  const managed = new ManagedProcess({ command: COMMAND, cwd: f.root, env: { PORT: String(f.port) }, ready: { log: "listening" }, timeoutMs: 10_000, tempPrefix });
+  const work = managed.start(new AbortController().signal).catch((error: unknown) => error);
+  await managed.close();
+  expect(await work).toMatchObject({ reason: "closed" });
+  expect(managed.pid).toBeUndefined();
+  expect((await readdir(os.tmpdir())).filter(name => name.startsWith(tempPrefix))).toEqual([]);
+});

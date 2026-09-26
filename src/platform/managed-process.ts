@@ -138,7 +138,9 @@ export class ManagedProcess {
       throw new ManagedProcessError(reason, message, this.log.toString("utf8"));
     };
     const aborted = () => fail("aborted", `${this.label} startup was cancelled`);
-    this.home = await realpath(await mkdtemp(path.join(os.tmpdir(), this.options.tempPrefix ?? "casper-process-")));
+    const home = this.home = await realpath(await mkdtemp(path.join(os.tmpdir(), this.options.tempPrefix ?? "casper-process-")));
+    // Nothing spawned yet, and a close that landed during mkdtemp may have looked for the home before it existed.
+    if (signal.aborted || this.stopWork) await rm(home, { recursive: true, force: true });
     if (signal.aborted) return aborted();
     if (this.stopWork) return fail("closed", `${this.label} was closed during startup`);
     const { cwd, command } = this.options;
