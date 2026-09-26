@@ -11,7 +11,7 @@ import {
 } from "./runner";
 import { BENCHMARK_PACKS, EVAL_TASKS } from "./tasks";
 
-/** The quality benchmark: Casper and Pi on the same task, model, effort and time limit, each run graded
+/** The quality benchmark: Casper and Pi (optionally OMP) on the same task, model, effort and time limit, each run graded
  * by the frozen evaluator and scored from host evidence only (evals/quality.ts). */
 
 /** One attempt of a run with follow-ups: attempt 0 is the task itself, then each follow-up. */
@@ -292,8 +292,7 @@ export interface BenchmarkOptions {
   repoRoot: string;
   tasks: readonly EvalTask[];
   harnesses: readonly HarnessName[];
-  /** Executable plus fixed arguments per harness. */
-  /** Executable per harness; `casper-no-review` runs Casper's unless given its own. */
+  /** Executable plus fixed arguments per harness; `casper-no-review` runs Casper's unless given its own. */
   commands: Partial<Record<HarnessName, readonly string[]>>;
   model: string;
   effort: HarnessInput["effort"];

@@ -1,4 +1,5 @@
-import { copyFile, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { Database } from "bun:sqlite";
+import { copyFile, mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { isolatedEnvironment } from "../src/platform/environment";
@@ -6,11 +7,13 @@ import { osSupportsProcessGroups, ownSpawnedTree, terminateTree } from "../src/p
 
 /** Harness observations are not independent acceptance evidence. */
 /** `casper-no-review` is Casper with its requirements review round off (`verification.review: false`
- * in the run's user configuration): the same CLI and protocol, for measuring what the round adds. */
-export type HarnessName = "casper" | "casper-no-review" | "pi";
-export const HARNESS_NAMES: readonly HarnessName[] = ["casper", "casper-no-review", "pi"];
-/** The wire protocol and CLI a harness speaks. */
-export const harnessProtocol = (name: HarnessName): "casper" | "pi" => name === "pi" ? "pi" : "casper";
+ * in the run's user configuration): the same CLI and protocol, for measuring what the round adds.
+ * `omp` is oh-my-pi, a Pi-based CLI with its own flags, store and subagents. */
+export type HarnessName = "casper" | "casper-no-review" | "pi" | "omp";
+export const HARNESS_NAMES: readonly HarnessName[] = ["casper", "casper-no-review", "pi", "omp"];
+/** The JSON event protocol a harness speaks: OMP's `--mode json` is Pi's event stream (checked
+ * against a recorded omp 18.2.11 run), so only its launch differs. */
+export const harnessProtocol = (name: HarnessName): "casper" | "pi" => name === "pi" || name === "omp" ? "pi" : "casper";
 export interface HarnessObservation {
   answer: string;
   /** `completed`: the CLI finished its run normally, whatever it concluded about the work (Casper's
@@ -58,11 +61,11 @@ export interface HarnessInput {
   /** Read-only sources; only the model's provider entry is copied to the temporary home. */
   seed?: { authPath: string; modelsStorePath?: string };
   /** A saved conversation in a caller-owned home, kept across runs so a follow-up can continue it.
-   * Without one, the home is temporary and the conversation is not saved (Pi: `--no-session`). */
+   * Without one, the home is temporary and the conversation is not saved (Pi, OMP: `--no-session`). */
   session?: {
     home: string;
-    /** Pi's conversation id (`--session-id`, created on the first run and resumed after). Casper
-     * cannot be given an id: it resumes its latest conversation in the home (`--continue`). */
+    /** Pi's conversation id (`--session-id`, created on the first run and resumed after). Casper and
+     * OMP cannot be given an id: they resume their latest conversation in the home (`--continue`). */
     id: string;
     resume: boolean;
   };
@@ -88,7 +91,8 @@ export async function runHarness(harness: HarnessName, input: HarnessInput): Pro
   if (input.route?.length && !input.model.startsWith("openrouter/")) throw new Error("--route applies only to openrouter models");
   const ownsHome = !input.session;
   const home = input.session?.home ?? await mkdtemp(path.join(os.tmpdir(), "casper-harness-home-"));
-  const agent = path.join(home, name === "casper" ? ".casper/agent" : ".pi/agent");
+  // OMP's default agent directory under the isolated home (it would be ~/.omp/agent anyway).
+  const agent = path.join(home, name === "casper" ? ".casper/agent" : harness === "omp" ? ".omp/agent" : ".pi/agent");
   const started = performance.now();
   try {
     await mkdir(agent, { recursive: true, mode: 0o700 });
@@ -96,22 +100,33 @@ export async function runHarness(harness: HarnessName, input: HarnessInput): Pro
       const provider = input.model.slice(0, input.model.indexOf("/"));
       const auth = record(JSON.parse(await readFile(input.seed.authPath, "utf8")));
       if (!auth || !Object.hasOwn(auth, provider)) throw new Error(`Missing credentials for ${provider}`);
-      await writeFile(path.join(agent, "auth.json"), JSON.stringify({ [provider]: auth[provider] }), { mode: 0o600 });
-      if (input.seed.modelsStorePath) await copyFile(input.seed.modelsStorePath, path.join(agent, "models-store.json"));
+      if (harness === "omp") { if (!await stat(path.join(agent, "agent.db")).then(() => true, () => false)) await seedOmpCredential(agent, provider, auth[provider]); }
+      else await writeFile(path.join(agent, "auth.json"), JSON.stringify({ [provider]: auth[provider] }), { mode: 0o600 });
+      // Pi's model catalog cache; OMP has its own bundled catalog and models.db cache.
+      if (input.seed.modelsStorePath && harness !== "omp") await copyFile(input.seed.modelsStorePath, path.join(agent, "models-store.json"));
     }
-    if (input.route?.length) await writeFile(path.join(agent, "models.json"), JSON.stringify(routedModels(input.model, input.route)), { mode: 0o600 });
+    // OMP reads models.yml (it migrates a models.json only once); JSON is YAML, so the content is the same.
+    if (input.route?.length) await writeFile(path.join(agent, harness === "omp" ? "models.yml" : "models.json"), JSON.stringify(routedModels(input.model, input.route)), { mode: 0o600 });
     if (harness === "casper-no-review") await writeFile(path.join(home, ".casper/config.yaml"), "verification:\n  review: false\n", { mode: 0o600 });
     const args = name === "casper"
       ? ["--json", "--model", input.model, "--effort", input.effort, "--verify", ...(input.session?.resume ? ["--continue"] : [])]
-      // Pi refuses --session-id with --continue; the id alone resumes the conversation once it exists.
-      : ["--print", "--mode", "json", ...(input.session ? ["--session-id", input.session.id] : ["--no-session"]), "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-themes",
-        "--model", input.model, "--thinking", input.effort];
+      : harness === "omp"
+        // OMP has no --session-id: a saved run starts a conversation, a follow-up continues the latest
+        // one for this directory in the home. Off: extensions, skills and rules discovery (ambient
+        // configuration), LSP (language servers found on the host PATH, formatting on write), the
+        // session title (a side model call no event reports). --auto-approve pins its default, yolo.
+        ? ["--print", "--mode", "json", ...(input.session ? input.session.resume ? ["--continue"] : [] : ["--no-session"]),
+          "--no-extensions", "--no-skills", "--no-rules", "--no-lsp", "--no-title", "--auto-approve", "--model", input.model, "--thinking", input.effort]
+        // Pi refuses --session-id with --continue; the id alone resumes the conversation once it exists.
+        : ["--print", "--mode", "json", ...(input.session ? ["--session-id", input.session.id] : ["--no-session"]), "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-themes",
+          "--model", input.model, "--thinking", input.effort];
     // Pi runs with PI_TELEMETRY=0 and sends no OpenRouter attribution; CASPER_TELEMETRY=0 gives
     // Casper's requests the same headers, so the host sees no difference but the prompt.
     const child = Bun.spawn([...input.command, ...args, "--", input.prompt], {
+      // OMP honors PI_CODING_AGENT_DIR but has no offline or telemetry switch.
       cwd: input.cwd, env: isolatedEnvironment(home, name === "casper"
         ? { CASPER_AGENT_DIR: agent, CASPER_OFFLINE: "1", CASPER_TELEMETRY: "0" }
-        : { PI_CODING_AGENT_DIR: agent, PI_OFFLINE: "1", PI_TELEMETRY: "0" }),
+        : harness === "omp" ? { PI_CODING_AGENT_DIR: agent } : { PI_CODING_AGENT_DIR: agent, PI_OFFLINE: "1", PI_TELEMETRY: "0" }),
       stdin: "ignore", stdout: "pipe", stderr: "pipe", detached: osSupportsProcessGroups,
     });
     const owner = ownSpawnedTree(child.pid, () => child.exitCode === null && child.signalCode === null);
@@ -152,7 +167,7 @@ export async function runHarness(harness: HarnessName, input: HarnessInput): Pro
     try {
       const exited = child.exited.then(async code => { await stop(); return code; });
       const [exitCode] = await Promise.all([exited, consume(child.stdout, true), consume(child.stderr, false)]);
-      const result = observeHarness(name, events, { exitCode, timedOut, wallClockMs: Math.round(performance.now() - started), eventTimes });
+      const result = observeHarness(harness, events, { exitCode, timedOut, wallClockMs: Math.round(performance.now() - started), eventTimes });
       result.errors.push(...errors);
       // Casper's stderr is its normal human output in --json mode: diagnostic only when the run failed.
       if (result.termination !== "completed" && exitCode !== 0 && stderr) { result.errors.push(stderr); result.stderr = stderr; }
@@ -163,7 +178,29 @@ export async function runHarness(harness: HarnessName, input: HarnessInput): Pro
   } finally { if (ownsHome) await rm(home, { recursive: true, force: true }); }
 }
 
-/** The same models.json for both CLIs: the model's OpenRouter hosts, and nothing else. */
+/** OMP's credential store is SQLite (`agent.db`), not auth.json: one row per credential, holding Pi's
+ * auth.json entry minus its `type` (omp 18.2.11's own serialization). Schema version 8 is the store's
+ * current one, so omp adds its other tables around this one and migrates nothing. Only a new store is
+ * seeded: a follow-up in a kept home keeps the one omp already used, and may have refreshed a token in. */
+async function seedOmpCredential(agent: string, provider: string, entry: unknown): Promise<void> {
+  const credential = record(entry);
+  if (credential?.type !== "api_key" && credential?.type !== "oauth") throw new Error(`Unsupported credential for ${provider}`);
+  const { type, ...data } = credential;
+  const file = path.join(agent, "agent.db");
+  await writeFile(file, "", { mode: 0o600, flag: "wx" });
+  const db = new Database(file, { strict: true });
+  try {
+    db.run("CREATE TABLE auth_schema_version (id INTEGER PRIMARY KEY CHECK (id = 1), version INTEGER NOT NULL)");
+    db.run("INSERT INTO auth_schema_version (id, version) VALUES (1, 8)");
+    const now = "CAST(strftime('%s','now') AS INTEGER)";
+    db.run(`CREATE TABLE auth_credentials (id INTEGER PRIMARY KEY AUTOINCREMENT, provider TEXT NOT NULL, credential_type TEXT NOT NULL,
+      data TEXT NOT NULL, disabled_cause TEXT DEFAULT NULL, identity_key TEXT DEFAULT NULL,
+      created_at INTEGER NOT NULL DEFAULT (${now}), updated_at INTEGER NOT NULL DEFAULT (${now}))`);
+    db.run("INSERT INTO auth_credentials (provider, credential_type, data) VALUES (?, ?, ?)", [provider, type as string, JSON.stringify(data)]);
+  } finally { db.close(); }
+}
+
+/** The same models.json for every CLI: the model's OpenRouter hosts, and nothing else. */
 export function routedModels(model: string, hosts: readonly string[]): unknown {
   const id = model.slice(model.indexOf("/") + 1);
   return { providers: { openrouter: { modelOverrides: { [id]: {
@@ -200,6 +237,8 @@ export function observeHarness(harness: HarnessName, events: readonly unknown[],
   const phases: HarnessPhase[] = [];
   const tools = new Map<string, HarnessToolTime>();
   const running = new Map<string, { tool: string; at: number }>();
+  // OMP's `task` tool runs subagents whose responses never reach this stream: their usage is unknown.
+  let delegated = false;
   const addTool = (tool: string, ms: number, unfinished = false) => {
     const entry = tools.get(tool) ?? { tool, calls: 0, ms: 0 };
     entry.calls++;
@@ -240,6 +279,7 @@ export function observeHarness(harness: HarnessName, events: readonly unknown[],
       const ms = typeof event.ms === "number" && Number.isFinite(event.ms) ? event.ms : started && at !== undefined ? at - started.at : 0;
       addTool(toolName.slice(0, 64), ms);
     }
+    if (harness === "omp" && toolName === "task" && event.type === "tool_execution_start") delegated = true;
     if (toolName && name === "pi" && event.type === "tool_execution_end") {
       const started = callId ? running.get(callId) : undefined;
       if (callId) running.delete(callId);
@@ -287,7 +327,7 @@ export function observeHarness(harness: HarnessName, events: readonly unknown[],
   return {
     answer, termination: process.timedOut ? "timeout" : completed && ended && responded && !broken && process.exitCode === expectedExit ? "completed" : "failed",
     exitCode: process.exitCode, wallClockMs: process.wallClockMs,
-    ...(name === "casper" ? casperUsage : { turns, tokens: turns ? tokens : null, estimatedCost: turns ? estimatedCost : null }),
+    ...(name === "casper" ? casperUsage : { turns, tokens: turns && !delegated ? tokens : null, estimatedCost: turns && !delegated ? estimatedCost : null }),
     receiptOutcome, sessionId, errors, ...(phases.length ? { phases } : {}), ...(tools.size ? { tools: [...tools.values()] } : {}),
   };
 }

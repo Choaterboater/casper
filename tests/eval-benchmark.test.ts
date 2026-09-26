@@ -345,22 +345,28 @@ test("tools/eval.ts --harness runs the benchmark, prints the rubric table and sa
   await writeFile(harness, `#!/bin/sh\nexec "${process.execPath}" "${cli}" "${path.join(repoRoot, "evals/fixtures", task.fixture, "src")}" "$@"\n`, { mode: 0o755 });
   const results = path.join(host, "results.json");
   const run = async (extra: string[]) => {
-    const child = Bun.spawn([process.execPath, "--no-install", path.join(repoRoot, "tools/eval.ts"), "--task", task.id, "--harness", "casper", "--harness", "pi",
-      "--model", "fixture/m", "--casper", harness, "--pi", harness, "--json", results, ...extra], { env: isolatedEnvironment(host), stdout: "pipe", stderr: "pipe" });
+    const child = Bun.spawn([process.execPath, "--no-install", path.join(repoRoot, "tools/eval.ts"), "--task", task.id, "--harness", "casper", "--harness", "pi", "--harness", "omp",
+      "--model", "fixture/m", "--casper", harness, "--pi", harness, "--omp", harness, "--json", results, ...extra], { env: isolatedEnvironment(host), stdout: "pipe", stderr: "pipe" });
     const [stdout, stderr, exitCode] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
     return { stdout, stderr, exitCode };
   };
   const done = await run([]);
   expect({ exitCode: done.exitCode, stderr: done.stderr }).toEqual({ exitCode: 0, stderr: "" });
-  expect(done.stdout).toContain("1 task(s) x 1 run(s) x 2 harness(es) = 2 runs; model fixture/m, effort medium, 300 s time limit, 2 at a time");
+  expect(done.stdout).toContain("1 task(s) x 1 run(s) x 3 harness(es) = 3 runs; model fixture/m, effort medium, 300 s time limit, 2 at a time");
   expect(done.stdout).toMatch(/core-log-parser\s+casper\s+1\/1/);
   expect(done.stdout).toMatch(/core-log-parser\s+pi\s+1\/1/);
+  expect(done.stdout).toMatch(/core-log-parser\s+omp\s+1\/1/);
   const document = JSON.parse(await readFile(results, "utf8"));
   expect(document).toMatchObject({ kind: "quality-benchmark", version: 1, model: "fixture/m", effort: "medium", repeat: 1, timeLimitSeconds: 300, tasks: [task.id], failures: [] });
-  expect(document.runs.map((entry: BenchmarkRun) => [entry.harness, entry.graded.success])).toEqual([["casper", true], ["pi", true]]);
+  expect(document.runs.map((entry: BenchmarkRun) => [entry.harness, entry.graded.success])).toEqual([["casper", true], ["pi", true], ["omp", true]]);
+  // Temporary paths are redacted in saved evidence.
+  expect(document.harnesses.omp).toEqual({ command: ["<tmp>/scripted-harness"], version: "scripted-harness 1.0.0" });
   expect(document.summary.packs[0].pack).toBe("core");
   // Evidence is never replaced; a benchmark needs an explicit model.
   expect((await run([])).stderr).toContain("Refusing to replace existing evidence");
   const noModel = Bun.spawnSync([process.execPath, "--no-install", path.join(repoRoot, "tools/eval.ts"), "--harness", "pi"], { env: isolatedEnvironment(host) });
   expect({ exit: noModel.exitCode, stderr: noModel.stderr.toString() }).toEqual({ exit: 1, stderr: "[eval] A benchmark needs --model provider/id: both harnesses run the same model\n" });
+  // --omp is a benchmark option; without a benchmark it is refused like --pi.
+  const stray = Bun.spawnSync([process.execPath, "--no-install", path.join(repoRoot, "tools/eval.ts"), "--omp", harness], { env: isolatedEnvironment(host) });
+  expect(stray.stderr.toString()).toContain("--casper, --pi and --omp apply only to a benchmark");
 }, 120_000);
