@@ -86,6 +86,18 @@ export function checkEvent(result: VerificationResult, recordedBy: CheckEvent["r
     ms: Math.round(result.durationMs), recordedBy, reused: result.reused === true };
 }
 
+/** Service responses and logs may echo env or tokens: like other previews, they are redacted before script output. */
+function redactSmoke(smoke: SmokeReport): SmokeReport {
+  const copy = structuredClone(smoke);
+  for (const check of copy.checks) {
+    if (check.actual) check.actual.body = redactPreview(check.actual.body);
+    if (check.reason) check.reason = redactPreview(check.reason);
+  }
+  for (const crash of copy.crashes ?? []) if (crash.tail) crash.tail = redactPreview(crash.tail);
+  if (copy.reason) copy.reason = redactPreview(copy.reason);
+  return copy;
+}
+
 /** Exactly one per one-shot run: what changed, what Casper proved, and the exit code it implies. */
 export function receiptEvent(report: VerificationReport | undefined, task: TaskResult | undefined, exitCode: number): ReceiptEvent {
   const verification = task?.verification ?? report;
@@ -106,7 +118,7 @@ export function receiptEvent(report: VerificationReport | undefined, task: TaskR
     proof: task?.proof ? structuredClone(task.proof) : null,
     review: task?.review ? structuredClone(task.review) : null,
     services: (task?.services ?? []).map((service) => ({ name: service.name, origin: service.origin ?? null, state: service.state })),
-    smoke: verification?.smoke ? structuredClone(verification.smoke) : null,
+    smoke: verification?.smoke ? redactSmoke(verification.smoke) : null,
     text: receipt ? formatReceipt(receipt, { surface: "one-shot" }) : "",
   };
 }
