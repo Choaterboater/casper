@@ -1,4 +1,5 @@
 import { ManagedProcess, ManagedProcessError, portInUse } from "../platform/managed-process";
+import { ProcessCleanupError } from "../platform/processes";
 
 /** Owns only the process group spawned for this exact development command. */
 export class BrowserServer {
@@ -27,6 +28,8 @@ export class BrowserServer {
       const { httpStatus } = await managed.start(signal);
       return { ready: true, url: url.href, httpStatus, guidance: "HTTP readiness only, not verification. Only the spawned process group is owned; existing processes are untouched." };
     } catch (error) {
+      // Unconfirmed cleanup outranks the abort that caused it: it must reach the session.
+      if (error instanceof ProcessCleanupError) throw error;
       signal.throwIfAborted();
       // The log tail stays out of the model-facing error; browser diagnostics expose it bounded.
       if (error instanceof ManagedProcessError) throw new Error(error.reason === "exited" ? "Development server exited before readiness; inspect browser diagnostics"
