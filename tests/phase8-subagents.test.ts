@@ -304,6 +304,22 @@ describe("Phase 8 bounded subagents", () => {
     expect((await manager(() => child).run(task)).reason).toBe("Cleanup failed");
   });
 
+  test("a provider error the child's retry recovers from is not a failure, but one it gives up on is", async () => {
+    const attempt = (emit: (event: RuntimeEvent) => void, stopReason: string, text?: string) => {
+      emit({ type: "assistant_response_start" });
+      if (text) emit({ type: "assistant_text_delta", delta: text });
+      emit({ type: "assistant_response_end", stopReason, ...(stopReason === "error" ? { errorMessage: "429 Provider returned error" } : {}) });
+    };
+    const recovered = await manager(() => new ChildRuntime(async (emit) => {
+      attempt(emit, "error"); attempt(emit, "stop", "Evidence: index.ts:1");
+    })).run(task);
+    expect({ status: recovered.status, reason: recovered.reason, response: recovered.response }).toEqual({ status: "completed", reason: undefined, response: "Evidence: index.ts:1" });
+    const exhausted = await manager(() => new ChildRuntime(async (emit) => {
+      attempt(emit, "toolUse", "Looking"); attempt(emit, "error"); attempt(emit, "error");
+    })).run(task);
+    expect({ status: exhausted.status, reason: exhausted.reason }).toEqual({ status: "failed", reason: "429 Provider returned error" });
+  });
+
   test("tool envelopes stay below 16 KiB even when report/goal escaping expands the JSON", async () => {
     const tool = manager(() => new ChildRuntime(async (emit) => {
       emit({ type: "assistant_text_delta", delta: '"\\\\'.repeat(20_000) });

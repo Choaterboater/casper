@@ -773,6 +773,64 @@ test("real Pi caller cancellation stops a streaming child", async () => {
   expect(f.payloads).toHaveLength(1);
 }, 15_000);
 
+/** OpenRouter's shape for an upstream throttle; Pi's retry classifier matches both "429" and "Provider returned error". */
+function throttled(): Response {
+  return new Response(JSON.stringify({ error: { message: "Provider returned error", code: 429, metadata: { raw: "fixture is temporarily rate-limited upstream" } } }), { status: 429, headers: { "content-type": "application/json" } });
+}
+
+test("a read-only child retries a transient 429 under Pi's default policy and the child completes", async () => {
+  let requests = 0;
+  const f = await fixture(() => ++requests === 1 ? throttled() : answer("RETRIED_EVIDENCE: fixture.txt:1"));
+  const result = await f.run([adapter, f.project, "retry"]);
+  expect({ exit: result.exit, stderr: result.stderr }).toEqual({ exit: 0, stderr: "" });
+  const report: { events: RuntimeEvent[]; retry?: Record<string, unknown> } = JSON.parse(result.stdout.split("READONLY_RESULT=")[1]!);
+  expect(report.retry).toMatchObject({ enabled: true, maxRetries: 3, baseDelayMs: 2000 });
+  expect(f.payloads).toHaveLength(2);
+  expect(report.events.filter((event) => event.type === "assistant_response_end").map((event) => event.stopReason)).toEqual(["error", "stop"]);
+  expect(report.events.some((event) => event.type === "error")).toBe(false);
+}, 15_000);
+
+test("cancelling a read-only child during retry backoff stops it without another request", async () => {
+  const f = await fixture(() => throttled());
+  const started = Date.now();
+  const result = await f.run([adapter, f.project, "retry-cancel"]);
+  expect({ exit: result.exit, stderr: result.stderr }).toEqual({ exit: 0, stderr: "" });
+  const report: { events: RuntimeEvent[]; cancelled: boolean; retry?: Record<string, unknown> } = JSON.parse(result.stdout.split("READONLY_RESULT=")[1]!);
+  expect(report.cancelled).toBe(true);
+  expect(report.retry).toMatchObject({ enabled: true });
+  expect(f.payloads).toHaveLength(1);
+  // The backoff is 60 s: finishing well inside it means the abort ended the sleep.
+  expect(Date.now() - started).toBeLessThan(8_000);
+}, 15_000);
+
+test("the main session honors a settings.json retry budget: it recovers within it and fails one 429 past it", async () => {
+  let throttles = 2;
+  const f = await fixture(() => throttles-- > 0 ? throttled() : answer("MAIN_RECOVERED"));
+  const routing = { defaultProvider: "fixture", defaultModel: "fixture" };
+  await writeFile(path.join(f.agent, "settings.json"), JSON.stringify({ ...routing, retry: { maxRetries: 2, baseDelayMs: 1 } }));
+  const recovered = await f.run([cli, "Answer without tools"]);
+  expect({ exit: recovered.exit, stderr: recovered.stderr }).toEqual({ exit: 0, stderr: "" });
+  expect(recovered.stdout).toContain("MAIN_RECOVERED");
+  expect(f.payloads).toHaveLength(3);
+  // maxRetries + 1 throttles: one first attempt and two retries, then the run fails.
+  throttles = 3;
+  const exhausted = await f.run([cli, "Answer without tools"]);
+  expect(exhausted.exit).not.toBe(0);
+  expect(exhausted.stdout + exhausted.stderr).toContain("rate-limited upstream");
+  expect(f.payloads).toHaveLength(6);
+}, 15_000);
+
+test("real CLI delegation reports a child that recovered from a 429 as completed", async () => {
+  // Pi's real 2 s first backoff: the CLI offers no retry override for children, by design.
+  let requests = 0;
+  const f = await fixture(() => ++requests === 1 ? throttled() : answer("RECOVERED_EVIDENCE: fixture.txt:1"));
+  const result = await f.run([cli, "/delegate", "reviewer", "Inspect fixture.txt"]);
+  expect({ exit: result.exit, stderr: result.stderr }).toEqual({ exit: 0, stderr: "" });
+  expect(result.stdout).toContain("reviewer · completed");
+  expect(result.stdout).toContain("RECOVERED_EVIDENCE");
+  expect(f.payloads).toHaveLength(2);
+}, 15_000);
+
 test("real CLI delegation fails rather than calling a provider error a successful report", async () => {
   const f = await fixture(() => new Response(JSON.stringify({ error: { message: "fixture model failure" } }), { status: 400 }));
   const result = await f.run([cli, "/delegate", "reviewer", "Inspect fixture.txt"]);
