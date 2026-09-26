@@ -127,7 +127,7 @@ Local commands:
   /browser screenshot|close         Save a viewport PNG or close owned resources
   /services                         Declared services: state and address (no model or startup)
   /services logs <name>             Recent log lines of a service
-  /services start|restart|stop <name>  Start (waits for readiness), restart or stop a service
+  /services start|restart|stop <name>  Start (waits for readiness; restarts a stale or crashed one), restart or stop
   /debug                            Local DAP state and .casper/debug.json targets
   /debug start <target>             Fresh approval for adapter + debuggee execution
   /debug breakpoints <path> <lines|clear>  Replace one file's one-based line list
