@@ -10,6 +10,7 @@ import { SKILL_IMPORTS, type SkillImport } from "../skills/registry";
 import { isVerificationScope, type VerificationScope } from "../verify/scope";
 import { VERIFICATION_MODES, type VerificationMode, type VerificationSettings } from "../verify/mode";
 import { resolveVisualizationSettings, type VisualizationSettings } from "../visualize/router";
+import { parseServices, type ServiceSpec } from "../services/config";
 
 export type Autonomy = "low" | "medium" | "high";
 export type AskQuestions = "beforeChanges" | "onlyWhenBlocked";
@@ -52,6 +53,8 @@ export interface LoadedConfiguration {
   verification: VerificationSettings;
   repair: { maxAttempts: number };
   visualize: VisualizationSettings;
+  /** Declared managed services (project layer only), by name. */
+  services: Record<string, ServiceSpec>;
   /** Unknown keys, by file; shown at startup and otherwise ignored. */
   warnings: string[];
 }
@@ -187,7 +190,7 @@ const POLICY_KEYS = {
 } as const;
 const ISOLATE_KEYS = ["parallelAgents", "riskyRefactor", "experimentalBranch"];
 const TOP_LEVEL_KEYS = new Set(["profile", "project", "languages", "frameworks", "packageManager", "commands", "architecture",
-  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", ...Object.keys(POLICY_KEYS)]);
+  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", ...Object.keys(POLICY_KEYS)]);
 
 /** Typos used to fall back silently to the defaults; the loader names them instead. */
 function unknownKeys(document: Mapping, label: string): string[] {
@@ -423,6 +426,10 @@ export async function loadConfiguration(
     }
     imports = [...new Set<SkillImport>(value)];
   }
+  // A service runs the project's own command at its root; only the project declares one.
+  for (const [document, label] of [[globalDocument, labels.global], [profileDocument, labels.profile]] as const) {
+    if (document.services !== undefined) throw new Error(`services is a project setting (.casper/project.yaml); remove it from ${label}`);
+  }
   let maxActive = 6;
   let timeoutMs = 600_000;
   let maxAttempts = 3;
@@ -450,6 +457,7 @@ export async function loadConfiguration(
     skills: { maxActive, imports },
     verification: { timeoutMs, ...(mode ? { mode } : {}), ...(checks ? { checks } : {}), ...(review !== undefined ? { review } : {}) },
     repair: { maxAttempts },
+    services: parseServices(projectDocument.services, labels.project),
     visualize: resolveVisualizationSettings({
       projectName: path.basename(options.projectRoot),
       homeDir,

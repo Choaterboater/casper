@@ -14,6 +14,8 @@ export interface ProjectContext {
   verification: LoadedConfiguration["verification"];
   repair: { maxAttempts: number };
   visualize: VisualizationSettings;
+  /** Managed services declared in .casper/project.yaml (see docs/SERVICES.md). */
+  services?: LoadedConfiguration["services"];
   rules: {
     profile: string | null;
     project: string | null;
@@ -52,6 +54,7 @@ export async function loadProjectContext(
     verification: configuration.verification,
     repair: configuration.repair,
     visualize: configuration.visualize,
+    services: configuration.services,
     rules: {
       profile: configuration.profileRules,
       project: configuration.projectRules,
