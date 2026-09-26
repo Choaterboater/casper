@@ -51,7 +51,7 @@ import { VerifierRegistry } from "./verify/registry";
 import { verifyAndRepair } from "./verify/repair-loop";
 import { VerificationTask } from "./verify/task";
 import { ChangeBaseline, changesCode, proofRepairPrompt, type ChangeProof } from "./verify/proof";
-import { parseChecklist, requirementsReviewPrompt, type RequirementsReview } from "./task/review";
+import { parseChecklist, parseReview, requirementsReviewPrompt, type RequirementsReview } from "./task/review";
 import { planAutoChecks, resolveVerificationMode, selectedChecks, type VerificationMode } from "./verify/mode";
 import { measuredCheckTime, recordCheckTimings } from "./verify/timings";
 import { MermaidProvider } from "./visualize/mermaid";
@@ -824,7 +824,7 @@ export class CasperApp {
     await this.prepareCapabilities(input.request);
     await input.session.prompt(requirementsReviewPrompt(input.request), this.commandAbort?.signal, { request: input.request, maxTurns: this.maxTurns });
     if (stopped()) return { verification };
-    const review: RequirementsReview = parseChecklist(this.lastAnswer) ?? { missing: true };
+    const review: RequirementsReview = parseReview(this.lastAnswer) ?? { missing: true };
     // Checks rerun only when the review edited (or the tree cannot be compared); failures get the remaining repairs.
     const after = unreviewed && await this.snapshotWorkspace(input.root);
     const edited = !unreviewed || !after || [...Object.values(diffSnapshots(unreviewed, after))].some((paths) => paths.length);

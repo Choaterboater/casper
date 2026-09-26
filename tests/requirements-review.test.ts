@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
-import { parseChecklist, requirementsReviewPrompt } from "../src/task/review";
+import { parseChecklist, parseReview, requirementsReviewPrompt } from "../src/task/review";
 import { formatTaskPrompt } from "../src/task/classify";
-import { formatReceipt, taskOutcome, type TaskResult } from "../src/task/result";
+import { formatReceipt, formatTaskResult, taskOutcome, type TaskResult } from "../src/task/result";
 import type { VerificationReport, VerificationResult } from "../src/verify/evidence";
 
 test("the review checklist is read from the model's answer: ticked and open requirements", () => {
@@ -20,15 +20,43 @@ test("the review checklist is read from the model's answer: ticked and open requ
   expect(parseChecklist("Everything is covered.")).toBeUndefined();
 });
 
-test("the review prompt asks for every stated requirement, from the request and the project docs", () => {
+test("the review prompt checks every stated requirement, from the request and the project docs, but answers only the gaps", () => {
   const prompt = requirementsReviewPrompt("Add --tls to portcheck.");
   expect(prompt).toContain("Add --tls to portcheck.");
   expect(prompt).toContain("CONTEXT.md");
-  expect(prompt).toContain("- [ ] <requirement>");
-  // A: only a named test that asserts it earns a tick; anything else is added now or left open.
-  expect(prompt).toContain("Tick a requirement only when a test you can name asserts it");
-  // A rule over several inputs, options or errors was ticked as one line and half tested.
-  expect(prompt).toContain("Give each case its own line");
+  expect(prompt).toContain("each behavior, output format, order, default, limit, error case and edge case");
+  // A: only a named test that asserts it counts as covered; anything else is added now or left open.
+  expect(prompt).toContain("covered only when a test you can name asserts it");
+  // A rule over several inputs, options or errors was checked as one case and half tested.
+  expect(prompt).toContain("Check one case at a time");
+  expect(prompt).toContain("Do not weaken, skip or delete tests");
+  expect(prompt).toContain("Run the tests once");
+  // The answer re-listed every covered requirement (3.7-4.9x Pi's length); it now names only gaps and a count.
+  expect(prompt).toContain("- [x] <requirement> — <the test you added for it>");
+  expect(prompt).toContain("- [ ] <requirement> — <why it is still not done>");
+  expect(prompt).toContain("Covered: <n> of <m> requirements.");
+  expect(prompt).toContain("Requirements review: all covered.\nCovered: <m> of <m> requirements.");
+  expect(prompt).toContain("do not list requirements that were already covered");
+});
+
+test("the review answer is read as its gaps plus the requirement count", () => {
+  // Delta: only what the review fixed or left open, and the count.
+  expect(parseReview([
+    "Requirements review:",
+    "- [x] unknown option exits 2 — tests/cli.test.ts",
+    "- [ ] handshake timeout — node:tls has no option",
+    "Covered: 5 of 6 requirements.",
+  ].join("\n"))).toEqual({ done: ["unknown option exits 2 — tests/cli.test.ts"], open: ["handshake timeout — node:tls has no option"], total: 6 });
+  // No gaps: the explicit all-covered answer, markdown emphasis allowed.
+  expect(parseReview("Requirements review: all covered.\nCovered: 7 of 7 requirements.")).toEqual({ done: [], open: [], total: 7 });
+  expect(parseReview("**Covered:** 3 of 3 requirements")).toEqual({ done: [], open: [], total: 3 });
+  // The open list decides, not the count's arithmetic.
+  expect(parseReview("Covered: 2 of 3 requirements.")).toEqual({ done: [], open: [], total: 3 });
+  // A legacy full checklist still reads as before, without a total.
+  expect(parseReview("Requirements:\n- [x] a — t1\n- [x] b — t2")).toEqual({ done: ["a — t1", "b — t2"], open: [] });
+  // Neither a checklist nor a count is no review at all.
+  expect(parseReview("Everything is covered.")).toBeUndefined();
+  expect(parseReview("Requirements review: all covered.")).toBeUndefined();
 });
 
 test("a change the review will check gets the request itself as its first turn, as Pi sends it", () => {
@@ -69,6 +97,16 @@ test("the receipt reports the review as the model's own claim, and admitted gaps
   expect(formatReceipt(task({ done: ["a"], open: ["handshake timeout — not implemented"] })))
     .toContain("⚠ The model's review says not done: handshake timeout — not implemented");
   expect(formatReceipt(task({ missing: true }))).toContain("• The model's review returned no checklist");
+  // With a count, the delta answer reports all m requirements and how many gaps the review fixed.
+  expect(formatReceipt(task({ done: [], open: [], total: 7 })))
+    .toContain("• The model's review: all 7 requirements covered (0 gaps fixed; its own claim, not checked by Casper)");
+  expect(formatReceipt(task({ done: ["a — t"], open: [], total: 4 })))
+    .toContain("• The model's review: all 4 requirements covered (1 gap fixed; its own claim, not checked by Casper)");
+  expect(formatTaskResult(task({ done: ["a — t", "b — t"], open: [], total: 4 })))
+    .toContain("review       • The model's review: all 4 requirements covered (2 gaps fixed; its own claim, not checked by Casper)");
+  expect(formatReceipt(task({ done: [], open: ["b — no option"], total: 4 }))).toContain("⚠ The model's review says not done: b — no option");
+  expect(taskOutcome(undefined, task({ done: [], open: ["b"], total: 4 }))).toBe("not_verified");
+  expect(taskOutcome(undefined, task({ done: [], open: [], total: 4 }))).toBe("verified");
   expect(taskOutcome(undefined, task({ done: ["a"], open: ["b"] }))).toBe("not_verified");
   expect(taskOutcome(undefined, task({ done: ["a"], open: [] }))).toBe("verified");
   expect(taskOutcome(undefined, task({ missing: true }))).toBe("verified");

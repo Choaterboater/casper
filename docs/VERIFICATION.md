@@ -59,28 +59,41 @@ reported but never counted as verification.
 ## Requirements review
 
 When the checks pass on a **code change in auto mode** with a `test` check (see below for what counts), Casper gives
-the model one review round before proving the change: list every requirement the request and the
-project docs (for example `CONTEXT.md`) state, confirm each is implemented and tested, fix any gap,
-and end with a checklist (`- [x] requirement — test`, `- [ ] requirement — why not done`). The
-checks rerun only if the review changed files. The receipt shows the checklist as **the model's own
-claim**, never as Casper's evidence:
+the model one review round before proving the change: check every requirement the request and the
+project docs (for example `CONTEXT.md`) state, one case at a time, confirm each is implemented and
+tested, and fix any gap. The answer reports only the gaps and a count, not the requirements that were
+already covered:
 
 ```
-• The model's review: all 6 requirements covered (its own claim, not checked by Casper)
+Requirements review:
+- [x] unknown option exits 2 — tests/cli.test.ts       (a gap the review added a test or fix for)
+- [ ] handshake timeout — not implemented              (a gap still open)
+Covered: 5 of 6 requirements.
+```
+
+With no gaps it is just `Requirements review: all covered.` and `Covered: 6 of 6 requirements.`
+(Re-listing every covered requirement made the round 41-44% of the wall time and its answer several
+times longer, with no first-time-right gain in pinned runs.) The checks rerun only if the review
+changed files. The receipt shows the review as **the model's own claim**, never as Casper's evidence:
+
+```
+• The model's review: all 6 requirements covered (1 gap fixed; its own claim, not checked by Casper)
 ⚠ The model's review says not done: handshake timeout — not implemented
 • The model's review returned no checklist
 ```
 
+An answer with a full checklist but no `Covered:` line is still read, and reported without the gap count.
+
 An item the model admits is not done makes the change `not_verified`. The review costs one more
 model round per such request. Such a change's first turn is the request as the user wrote it,
 without Casper's task hints (project facts and selected skills still come first, with the request
-labelled, and an under-specified target still gets the clarification nudge). The review then asks
-for every requirement, one line per case (each missing option, each malformed value), reusing what
+labelled, and an under-specified target still gets the clarification nudge). The review then checks
+every requirement, one case at a time (each missing option, each malformed value), reusing what
 the model already read; if the tests also pass without the change, the proof round asks for one
 that fails. In one pinned ablation the request alone was as accurate as the hinted first turn, with
 fewer turns. If the work stops before the review (checks still failing after repairs, a turn
 limit), no later round asks for tests. With the round off (below), the first turn asks for the
-checklist and the failing test instead, and the review runs in no case. To turn the round off
+full checklist (`- [x] requirement — test`, `- [ ] requirement — why not done`) and the failing test instead, and the review runs in no case. To turn the round off
 entirely:
 
 ```yaml

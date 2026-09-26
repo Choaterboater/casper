@@ -88,8 +88,10 @@ classifier), or automatic effort's classifier.
 `{ "status": "proven" | "unproven", "check", "command", "testsChanged" }`, or `{ "status":
 "unavailable", "check", "reason" }` when Casper could not compare, or `null` when no proof applied.
 An `unproven` change has the outcome `not_verified`. `review` is the model's requirements checklist from its review round
-(`{ "done": [...], "open": [...] }`, or `{ "missing": true }` when it returned none), or `null` when no
-review ran. It is the model's own claim; any `open` item makes the outcome `not_verified`.
+(`{ "done": [...], "open": [...], "total": m }`, or `{ "missing": true }` when it returned none), or `null` when no
+review ran. With `total` (the requirement count the review reported), `done` lists only the gaps the review
+fixed and `open` those still open; without it (`verification.review: false`, or an answer with no count),
+`done` is the full checklist. It is the model's own claim; any `open` item makes the outcome `not_verified`.
 
 ```json
 {"v":1,"type":"check","name":"test","command":"npm run test","status":"pass","exit":0,"ms":412,"recordedBy":"casper","reused":false}
