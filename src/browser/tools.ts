@@ -1,16 +1,7 @@
-import { boundCapabilityResult } from "../capabilities/result";
+import { boundedObservation } from "../capabilities/result";
 import type { RuntimeTool } from "../runtime/types";
 import { formatTerminalJSON } from "../tui/json";
 import type { BrowserSession } from "./session";
-
-/** Measure the delivered encoding: terminal escaping can expand otherwise bounded JSON. */
-function boundedObservation(value: unknown): string {
-  for (let budget = 16_384; budget >= 512; budget /= 2) {
-    const text = formatTerminalJSON(boundCapabilityResult(value, budget));
-    if (Buffer.byteLength(text) <= 16_384) return text;
-  }
-  throw new Error("Browser observation exceeds the encoded result budget");
-}
 
 export function browserTool(session: BrowserSession, lifetime?: AbortSignal): RuntimeTool {
   return {
@@ -39,7 +30,7 @@ export function browserTool(session: BrowserSession, lifetime?: AbortSignal): Ru
       try {
         const signals = [lifetime, signal].filter((entry): entry is AbortSignal => Boolean(entry));
         const result = await session.run(args, signals.length ? AbortSignal.any(signals) : undefined);
-        return { text: boundedObservation(result) };
+        return { text: boundedObservation(result, "Browser observation") };
       } catch (error) {
         return { isError: true, text: formatTerminalJSON({ error: (error instanceof Error ? error.message : "Browser operation failed").slice(0, 1024) }) };
       }
