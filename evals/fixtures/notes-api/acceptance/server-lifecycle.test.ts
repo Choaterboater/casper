@@ -42,13 +42,15 @@ async function start(host = "127.0.0.1") {
     stdout: "pipe", stderr: "pipe",
   });
   spawned.push(child);
+  // Drain the pipes from the start: a server that logs every request must never block on a full pipe.
+  const output = Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text()]).then((parts) => parts.join(""));
   console.log(`[server-lifecycle] spawned pid ${child.pid}`);
   const started = performance.now();
   while (!await connects(host, port)) {
     if (child.exitCode !== null || child.signalCode !== null || performance.now() - started > 5_000) {
       if (child.exitCode === null) child.kill("SIGKILL");
-      const output = `${await new Response(child.stdout).text()}${await new Response(child.stderr).text()}`;
-      throw new Error(`server did not listen on ${host}:${port} within 5 s (PORT=${port} HOST=${host}):\n${output.slice(-2000)}`);
+      await child.exited;
+      throw new Error(`server did not listen on ${host}:${port} within 5 s (PORT=${port} HOST=${host}):\n${(await output).slice(-2000)}`);
     }
     await Bun.sleep(50);
   }
