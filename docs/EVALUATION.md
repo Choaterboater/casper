@@ -249,6 +249,20 @@ session id each CLI reports). The benchmark has a grader that catches every fail
 often has none, so follow-ups understate what a false done costs. `--report <results.json>`
 reprints a saved document with the current summary, with no model calls.
 
+**Infrastructure failures.** A run that **failed** (not the time limit) before its first tool call,
+with every error its CLI reported being a retryable provider error by Pi's own classification
+(pi-ai `isRetryableAssistantError`: rate limits such as 429, 5xx, overload, lost connections; not
+quota or billing exhaustion), measured the host, not the harness. The pinned GLM run lost Casper's
+`core-log-parser #2` this way: four Together 429s, retried and lost in 16 s. The benchmark reruns
+such a job once, from a fresh workspace and home, and records the rerun; the failed attempt is kept
+as `infraAttempt`. If the rerun fails the same way the run is marked `infra: true`. The table's
+`infra` column counts these runs, and every other column, the success and first-time-right
+denominators included, leaves them out. The CLI's stderr tail (Casper echoes the prompt there) is
+recorded as `stderr` and never read as a provider error. The summary re-derives `infra` from each
+run's observation, so `--report` also separates such runs in documents saved before this existed
+(there, a failed Casper run's last error is taken to be its stderr tail, which Casper always
+prints); those runs were not rerun.
+
 The console gets one line per finished run and then a table per pack: each task × harness,
 then the pack total per harness. The results document (default: a new
 `evals/results/<date>-<commit>[-dirty].json`, outside git) holds the settings, harness
@@ -265,6 +279,7 @@ not be measured stays unknown (`?` in the table), never a pass, a fail or zero.
 | Dimension | Measured as |
 | --- | --- |
 | Success | the grader accepted the run: it finished, the frozen evaluator passed every check, and every acceptance rule held |
+| Infra | the run failed on retryable provider errors alone before any tool call, even after one fresh rerun; counted apart and excluded from every other dimension's n |
 | Works | the frozen visible tests pass on the candidate's code |
 | Complete | the hidden acceptance tests pass **and** every acceptance rule holds; `req` is the share of these predicates held |
 | Tested | the candidate added or changed a test file, those tests pass on its code, **and** they fail on the unsolved start (a mutation check, with the test support it wrote under `tests/` copied along). No new tests is `no` |
