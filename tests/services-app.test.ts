@@ -25,6 +25,7 @@ const gone = (pid: number) => until(() => { try { process.kill(pid, 0); return f
 
 class ScriptedRuntime implements AgentRuntime {
   starts = 0;
+  resumed: string[] = [];
   options?: RuntimeStartOptions;
   action: (signal?: AbortSignal) => Promise<void> = async () => {};
   constructor(private readonly sessionFile: string) {}
@@ -33,6 +34,7 @@ class ScriptedRuntime implements AgentRuntime {
     const info = () => ({ cwd: options.cwd, sessionId: "fixture", sessionFile: this.sessionFile });
     return { prompt: async (_text, signal) => this.action(signal), setTools: () => {}, abort: async () => {}, subscribe: () => () => {},
       getState: () => ({ cwd: options.cwd, isStreaming: false }), clearConversation: async () => {}, getSessionInfo: info,
+      resumeConversation: async (id: string) => { this.resumed.push(id); },
       forkSession: async () => info(), switchSession: async () => info() };
   }
   async dispose() {}
@@ -120,6 +122,19 @@ test("services persist across tasks, a model edit in scope marks them stale, and
   await f.app.runOnce("/services");
   expect(f.text()).toContain("stale");
   await f.app.runOnce("/clear");
+  await gone(root); await gone(grandchild);
+  await expect(fetch(`${url}/health`)).rejects.toThrow();
+  await f.app.runOnce("/services");
+  expect(f.text().split("[services]").at(-1)).toContain("api  idle");
+}, 30_000);
+
+test("/resume <id> stops the session's services before switching conversations", async () => {
+  const f = await fixture();
+  await f.app.start(f.project);
+  await f.app.runOnce("/services start api");
+  const url = origin(f.text())!, root = pid(f.text()), grandchild = await f.grandchild();
+  await f.app.runOnce("/resume other-conversation");
+  expect(f.runtime.resumed).toEqual(["other-conversation"]);
   await gone(root); await gone(grandchild);
   await expect(fetch(`${url}/health`)).rejects.toThrow();
   await f.app.runOnce("/services");
