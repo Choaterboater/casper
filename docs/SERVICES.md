@@ -29,7 +29,9 @@ services:
   project never collide. Casper keeps the same port across restarts while it is free. A
   **fixed port** stays the same address. If it is already held by a process Casper did
   not start, the start is refused with guidance (stop that process, or use `port: auto`).
-  Casper never stops or replaces a process it does not own.
+  Casper never stops or replaces a process it does not own. The port check and the
+  service's own bind are not atomic: a foreign process that binds the port in between
+  could answer an HTTP readiness probe, and Casper would take it for the service.
 - **`ready`** is `{ http: <path> }`, a path probed on `http://127.0.0.1:<port>` until any
   HTTP answer arrives, or `{ log: <text> }`, a line the service prints. A service that
   misses its deadline, or exits first, is stopped and reported with its last log lines.
