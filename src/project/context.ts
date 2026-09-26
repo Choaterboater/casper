@@ -16,6 +16,8 @@ export interface ProjectContext {
   visualize: VisualizationSettings;
   /** Managed services declared in .casper/project.yaml (see docs/SERVICES.md). */
   services?: LoadedConfiguration["services"];
+  /** Configured smoke checks, run after every change (see docs/VERIFICATION.md). */
+  smoke?: LoadedConfiguration["smoke"];
   rules: {
     profile: string | null;
     project: string | null;
@@ -55,6 +57,7 @@ export async function loadProjectContext(
     repair: configuration.repair,
     visualize: configuration.visualize,
     services: configuration.services,
+    smoke: configuration.smoke,
     rules: {
       profile: configuration.profileRules,
       project: configuration.projectRules,
