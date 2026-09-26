@@ -1,4 +1,11 @@
 {
   "verify": { "test": "bun run test" },
-  "verification": { "scopes": { "test": { "inputs": ["src", "tests"] } } }
+  "verification": { "scopes": { "test": { "inputs": ["src", "tests"] } } },
+  "services": {
+    "api": { "command": "bun run dev", "port": "auto", "ready": { "http": "/notes" }, "scope": { "inputs": ["src"] } }
+  },
+  "smoke": [
+    { "name": "list notes", "service": "api", "request": { "method": "GET", "path": "/notes" },
+      "expect": { "status": 200, "headers": { "content-type": "application/json" }, "json": { "notes": [] } } }
+  ]
 }
