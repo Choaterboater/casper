@@ -46,3 +46,12 @@ test("rejects an empty ratio list and ratios that are not positive integers", ()
     expect(() => allocate("1.00", "USD", ratios)).toThrow(RangeError);
   }
 });
+
+test("rejects leading zeros, surrounding whitespace and currency codes that are not exactly as in the table", () => {
+  for (const [amount, currency] of [["007.00", "USD"], ["00.50", "USD"], ["01", "JPY"], [" 1.00", "USD"], ["1.00 ", "USD"], ["1 000", "JPY"], ["-", "USD"], ["1.00", "usd"], ["1.00", " USD"]]) {
+    expect(() => allocate(amount!, currency!, [1])).toThrow(RangeError);
+  }
+  expect(allocate("0.50", "USD", [1, 1])).toEqual(["0.25", "0.25"]);
+  expect(allocate("-0.50", "USD", [1])).toEqual(["-0.50"]);
+  expect(allocate("0", "JPY", [1])).toEqual(["0"]);
+});

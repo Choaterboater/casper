@@ -14,10 +14,6 @@ export function createApp(seed?: readonly string[]): App {
       if (!match) return jsonError(404, "not_found");
       const id = Number(match[1]);
       if (request.method === "GET") return getDoc(store, id, request);
-      if (request.method === "HEAD") {
-        const response = getDoc(store, id, request);
-        return new Response(null, { status: response.status, headers: response.headers });
-      }
       if (request.method === "PUT") return putDoc(store, id, request);
       return jsonError(405, "method_not_allowed");
     },

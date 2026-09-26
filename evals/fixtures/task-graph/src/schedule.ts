@@ -20,10 +20,19 @@ const has = (graph: Graph, key: string) => Object.prototype.hasOwnProperty.call(
 
 function dependencies(graph: Graph): Map<string, string[]> {
   const names = Object.keys(graph).sort(byName);
+  const resolved = new Map<string, string[]>();
   for (const task of names) {
-    for (const dependency of graph[task]!) if (!has(graph, dependency)) throw new MissingDependencyError(task, dependency);
+    const own = new Set<string>();
+    for (const dependency of graph[task]!) {
+      // `name?` is optional: ignored when there is no such task, an ordinary dependency otherwise.
+      const optional = dependency.endsWith("?");
+      const name = optional ? dependency.slice(0, -1) : dependency;
+      if (has(graph, name)) own.add(name);
+      else if (!optional) throw new MissingDependencyError(task, dependency);
+    }
+    resolved.set(task, [...own].sort(byName));
   }
-  return new Map(names.map((task) => [task, [...new Set(graph[task]!)].sort(byName)]));
+  return resolved;
 }
 
 /** The shortest cycle back to `start` (lexicographically smallest among the shortest), or undefined. */
@@ -48,7 +57,7 @@ function cycleThrough(start: string, deps: Map<string, string[]>): string[] | un
   return undefined;
 }
 
-function layers(graph: Graph): string[][] {
+function layers(graph: Graph, limit = Number.POSITIVE_INFINITY): string[][] {
   const deps = dependencies(graph);
   const done = new Set<string>();
   const result: string[][] = [];
@@ -60,15 +69,24 @@ function layers(graph: Graph): string[][] {
         if (cycle) throw new CycleError(cycle);
       }
     }
-    for (const task of ready) done.add(task);
-    result.push(ready);
+    const batch = ready.slice(0, limit);
+    for (const task of batch) done.add(task);
+    result.push(batch);
   }
   return result;
 }
 
-/** Groups that can run in parallel: each task sits in the first batch after all of its dependencies. */
-export function batches(graph: Graph): string[][] {
-  return layers(graph);
+export interface BatchOptions {
+  /** Most tasks per batch: a positive integer. When more are ready, the smallest names go first. */
+  readonly limit?: number;
+}
+
+/** Groups that can run in parallel: each task sits in the first batch after all of its dependencies
+ * that still has room. */
+export function batches(graph: Graph, options: BatchOptions = {}): string[][] {
+  const limit = options.limit ?? Number.POSITIVE_INFINITY;
+  if (options.limit !== undefined && (!Number.isSafeInteger(limit) || limit < 1)) throw new RangeError("limit must be a positive integer");
+  return layers(graph, limit);
 }
 
 /** One order: whenever several tasks are ready, the smallest name goes first. */

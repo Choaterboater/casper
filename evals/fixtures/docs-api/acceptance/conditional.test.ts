@@ -79,9 +79,49 @@ test("PUT without If-Match is 428 precondition_required and writes nothing", asy
   expect(await bodyOf(app)).toBe("Welcome");
 });
 
-test("an unknown document is 404 not_found before any precondition", async () => {
+test("an unknown document is 404 not_found unless the PUT creates it", async () => {
   const app = createApp();
   expect((await put(app, { body: "x" }, {}, 9)).status).toBe(404);
   expect((await put(app, { body: "x" }, { "if-match": "*" }, 9)).status).toBe(404);
+  expect((await put(app, { body: "x" }, { "if-none-match": `"abc"` }, 9)).status).toBe(404);
   expect((await get(app, { "if-none-match": "*" }, 9)).status).toBe(404);
+});
+
+test("PUT with If-None-Match: * creates a missing document: 201, Location and ETag; on an existing one it is 412", async () => {
+  const app = createApp();
+  const created = await put(app, { body: "new" }, { "if-none-match": "*" }, 7);
+  expect(created.status).toBe(201);
+  expect(created.headers.get("location")).toBe("/docs/7");
+  expect(await created.json()).toEqual({ id: 7, body: "new" });
+  const etag = created.headers.get("etag");
+  expect(etag).toMatch(/^"[^"]+"$/);
+  const read = await get(app, {}, 7);
+  expect(read.headers.get("etag")).toBe(etag);
+  const again = await put(app, { body: "overwrite" }, { "if-none-match": "*" }, 7);
+  expect(again.status).toBe(412);
+  expect(await again.json()).toEqual({ error: "precondition_failed" });
+  expect((await put(app, { body: "overwrite" }, { "if-none-match": "*", "if-match": etag! }, 7)).status).toBe(412);
+  expect((await (await get(app, {}, 7)).json() as { body: string }).body).toBe("new");
+});
+
+test("GET and HEAD answers with 200 or 304 carry Cache-Control: no-cache", async () => {
+  const app = createApp();
+  const ok = await get(app);
+  expect(ok.headers.get("cache-control")).toBe("no-cache");
+  const etag = ok.headers.get("etag")!;
+  expect((await get(app, { "if-none-match": etag })).headers.get("cache-control")).toBe("no-cache");
+  expect((await app.handle(new Request(url("/docs/1"), { method: "HEAD" }))).headers.get("cache-control")).toBe("no-cache");
+});
+
+test("HEAD answers what GET would, with the same headers and no body, including 304 and 404", async () => {
+  const app = createApp();
+  const head = (headers: Record<string, string> = {}, id = 1) => app.handle(new Request(url(`/docs/${id}`), { method: "HEAD", headers }));
+  const etag = await etagOf(app);
+  const plain = await head();
+  expect({ status: plain.status, etag: plain.headers.get("etag"), type: plain.headers.get("content-type"), body: await plain.text() })
+    .toEqual({ status: 200, etag, type: "application/json", body: "" });
+  const notModified = await head({ "if-none-match": `W/${etag}` });
+  expect({ status: notModified.status, body: await notModified.text() }).toEqual({ status: 304, body: "" });
+  const missing = await head({}, 9);
+  expect({ status: missing.status, body: await missing.text() }).toEqual({ status: 404, body: "" });
 });

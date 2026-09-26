@@ -1,6 +1,6 @@
 import { MINOR_DIGITS } from "./currencies";
 
-const AMOUNT = /^(-)?(\d+)(?:\.(\d+))?$/;
+const AMOUNT = /^(-)?(0|[1-9]\d*)(?:\.(\d+))?$/;
 
 function digitsOf(currency: string): number {
   if (!Object.prototype.hasOwnProperty.call(MINOR_DIGITS, currency)) throw new RangeError(`unknown currency ${currency}`);
