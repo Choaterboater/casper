@@ -2,12 +2,14 @@
 import { Database } from "bun:sqlite";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 const args = process.argv.slice(2);
-const prompt = args.at(-1);
+// Casper's harness passes `-` and the prompt on stdin, keeping it out of the process list.
+const stdinPrompt = args.at(-1) === "-" ? await new Response(Bun.stdin.stream()).text() : null;
+const prompt = stdinPrompt ?? args.at(-1);
 const casper = args.includes("--json");
 // OMP keeps its agent directory under ~/.omp, its models in models.yml and its credentials in agent.db.
 const agent = process.env.CASPER_AGENT_DIR ?? process.env.PI_CODING_AGENT_DIR!;
 const omp = agent?.endsWith(".omp/agent");
-writeFileSync("observed.json", JSON.stringify({ args, home: process.env.HOME,
+writeFileSync("observed.json", JSON.stringify({ args, stdinPrompt, home: process.env.HOME,
   casperDir: process.env.CASPER_AGENT_DIR, piDir: process.env.PI_CODING_AGENT_DIR,
   inheritedSecret: process.env.EVAL_HARNESS_SECRET ?? null,
   casperTelemetry: process.env.CASPER_TELEMETRY ?? null, piTelemetry: process.env.PI_TELEMETRY ?? null }));

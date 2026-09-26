@@ -156,12 +156,13 @@ test.each(["casper", "pi", "omp"] as const)("%s receives explicit identical task
     expect(await stat(observed.home).then(() => true, () => false)).toBe(false);
     // No turn limit: Pi's CLI has none, so a Casper-only limit would stop only Casper.
     expect(observed.args).toEqual(name === "casper"
-      ? ["--json", "--model", "github-copilot/gpt-5-mini", "--effort", "medium", "--verify", "--", "Implement the task."]
+      ? ["--json", "--model", "github-copilot/gpt-5-mini", "--effort", "medium", "--verify", "-"]
       : name === "pi"
         ? ["--print", "--mode", "json", "--no-session", "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-themes", "--model", "github-copilot/gpt-5-mini", "--thinking", "medium", "--", "Implement the task."]
         // No session title (a side model call no event reports), no host-dependent language servers.
         : ["--print", "--mode", "json", "--no-session", "--no-extensions", "--no-skills", "--no-rules", "--no-lsp", "--no-title", "--auto-approve",
           "--model", "github-copilot/gpt-5-mini", "--thinking", "medium", "--", "Implement the task."]);
+    expect(observed.stdinPrompt).toBe(name === "casper" ? "Implement the task." : null);
     if (name !== "casper") expect(observed.piDir).toBe(path.join(observed.home, name === "omp" ? ".omp/agent" : ".pi/agent"));
   } finally {
     if (previous === undefined) delete process.env.EVAL_HARNESS_SECRET; else process.env.EVAL_HARNESS_SECRET = previous;
@@ -179,7 +180,8 @@ test.each([["casper-no-review", false], ["casper-review", true]] as const)("%s i
       session: { home, id: "bench-1", resume: false } });
     expect(result).toMatchObject({ answer: "Scripted answer.", termination: "completed", receiptOutcome: "unverified" });
     const observed = JSON.parse(await readFile(path.join(workdir, "observed.json"), "utf8"));
-    expect(observed.args).toEqual(["--json", "--model", "github-copilot/gpt-5-mini", "--effort", "medium", "--verify", "--", "Implement the task."]);
+    expect(observed.args).toEqual(["--json", "--model", "github-copilot/gpt-5-mini", "--effort", "medium", "--verify", "-"]);
+    expect(observed.stdinPrompt).toBe("Implement the task.");
     expect(observed.casperDir).toBe(path.join(home, ".casper/agent"));
     expect(await readFile(path.join(home, ".casper/config.yaml"), "utf8")).toBe(`verification:\n  review: ${review}\n`);
   } finally {

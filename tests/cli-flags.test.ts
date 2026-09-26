@@ -264,3 +264,10 @@ test("--json needs a one-shot prompt", () => {
   expect(parseCliArgs(["--json", "fix"])).toMatchObject({ json: true, command: "prompt" });
   expect(() => parseCliArgs(["--json"])).toThrow("--json needs a prompt");
 });
+
+test("a lone - reads the one-shot prompt from stdin, so it never appears in the process list", () => {
+  expect(parseCliArgs(["--json", "--verify", "-"])).toMatchObject({ command: "prompt", promptFromStdin: true, rest: [] });
+  expect(parseCliArgs(["--", "-"])).toMatchObject({ command: "prompt", promptFromStdin: true });
+  expect(parseCliArgs(["fix", "-"])).toMatchObject({ command: "prompt", rest: ["fix", "-"] });
+  expect(parseCliArgs(["fix"]).promptFromStdin).toBeUndefined();
+});
