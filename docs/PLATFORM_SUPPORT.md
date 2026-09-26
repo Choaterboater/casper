@@ -33,6 +33,13 @@ server, verifier command, LSP server, MCP stdio server):
   available. Budgets (1,024 live / 4,096 tracked identities, 64 parentage levels)
   are unchanged.
 
+Long-running owned commands (the browser's development server, and managed services)
+share one runner, `src/platform/managed-process.ts`: it spawns the shell command in its
+own process group with the isolated environment, keeps a bounded log ring (16 KiB by
+default), waits for an HTTP answer or a log line within a deadline, and closes TERM then
+KILL through `terminateTree`, raising the cleanup error when the outcome is unknown. It
+also answers whether a loopback port is in use and picks a free loopback port.
+
 Termination policy for spawned trees is one shared function: POSIX signals the
 process group (falling back to the direct process when the root is not a group
 leader), Windows terminates verified descendants. POSIX consumers therefore keep
