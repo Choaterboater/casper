@@ -190,9 +190,10 @@ unavailable. `bunfig.toml` scopes discovery to `tests/`, so evaluation fixtures 
 `evals/fixtures/` keep their own test files. POSIX-only fixtures declare an explicit
 skip through `tests/support/platform.ts` on hosts that cannot run them, and a
 fixture's configured check runs `tests/fixtures/check-script.ts` rather than a POSIX
-shell pipeline; portability by construction is not host validation. Spawned CLIs
-get `cleanEnv()` from `tests/support/env.ts`, so a developer's own `PI_*`,
-`CASPER_*` or provider API key variables cannot change a result.
+shell pipeline; portability by construction is not host validation. The test preload
+(`tests/support/preload.ts`) strips a developer's own `PI_*`, `CASPER_*` and provider
+API key variables before any test runs, and spawned CLIs get `cleanEnv()` from
+`tests/support/env.ts`, so the machine's environment cannot change a result.
 [Host verification](docs/PLATFORM_VERIFICATION.md).
 
 Build the host executable with `bun run build:release`, or all five release targets

@@ -36,8 +36,9 @@ test("startup ignores an inherited engine directory with a notice and uses Caspe
   const inherited = path.join(f.root, "inherited-engine-state");
   const result = await f.run(["/help"], { PI_CODING_AGENT_DIR: inherited });
   expect(result.exit).toBe(0);
-  expect(result.stderr).toContain("Ignoring PI_CODING_AGENT_DIR; use CASPER_AGENT_DIR");
-  expect(result.stdout).not.toContain("Ignoring");
+  // The notice goes out with Casper's other startup [config] warnings, on its own output.
+  expect(result.stdout).toContain("[config] Ignoring PI_CODING_AGENT_DIR; use CASPER_AGENT_DIR");
+  expect(result.stderr).not.toContain("Ignoring");
   expect(await readdir(f.root)).not.toContain("inherited-engine-state");
   expect(await readdir(path.join(f.home, ".casper"))).toContain("agent");
 });
