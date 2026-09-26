@@ -132,3 +132,14 @@ test("a browser server closed while its port is probed never spawns the developm
   expect(server.diagnostics().running).toBe(false);
   expect(await portInUse("127.0.0.1", port)).toBe(false);
 }, 20_000);
+
+test("HTTP readiness and the port helpers are limited to loopback hosts", async () => {
+  const options = { command: COMMAND, cwd: os.tmpdir(), timeoutMs: 1000 };
+  for (const url of ["http://example.com:8080/health", "http://0.0.0.0:8080/", "http://10.0.0.1:8080/", "file:///etc/passwd"])
+    expect(() => new ManagedProcess({ ...options, ready: { http: new URL(url) } })).toThrow("loopback");
+  for (const url of ["http://localhost:8080/", "http://127.0.0.1:8080/", "http://[::1]:8080/"])
+    expect(() => new ManagedProcess({ ...options, ready: { http: new URL(url) } })).not.toThrow();
+  await expect(portInUse("example.com", 80)).rejects.toThrow("loopback");
+  await expect(freePort("0.0.0.0")).rejects.toThrow("loopback");
+  expect(await freePort("localhost")).toBeGreaterThan(0);
+});
