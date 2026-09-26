@@ -803,6 +803,23 @@ test("cancelling a read-only child during retry backoff stops it without another
   expect(Date.now() - started).toBeLessThan(8_000);
 }, 15_000);
 
+test("the main session honors a settings.json retry budget: it recovers within it and fails one 429 past it", async () => {
+  let throttles = 2;
+  const f = await fixture(() => throttles-- > 0 ? throttled() : answer("MAIN_RECOVERED"));
+  const routing = { defaultProvider: "fixture", defaultModel: "fixture" };
+  await writeFile(path.join(f.agent, "settings.json"), JSON.stringify({ ...routing, retry: { maxRetries: 2, baseDelayMs: 1 } }));
+  const recovered = await f.run([cli, "Answer without tools"]);
+  expect({ exit: recovered.exit, stderr: recovered.stderr }).toEqual({ exit: 0, stderr: "" });
+  expect(recovered.stdout).toContain("MAIN_RECOVERED");
+  expect(f.payloads).toHaveLength(3);
+  // maxRetries + 1 throttles: one first attempt and two retries, then the run fails.
+  throttles = 3;
+  const exhausted = await f.run([cli, "Answer without tools"]);
+  expect(exhausted.exit).not.toBe(0);
+  expect(exhausted.stdout + exhausted.stderr).toContain("rate-limited upstream");
+  expect(f.payloads).toHaveLength(6);
+}, 15_000);
+
 test("real CLI delegation reports a child that recovered from a 429 as completed", async () => {
   // Pi's real 2 s first backoff: the CLI offers no retry override for children, by design.
   let requests = 0;
