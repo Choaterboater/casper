@@ -1,5 +1,5 @@
 import { PiRuntime } from "../../src/runtime/pi";
-import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import type { RuntimeEvent } from "../../src/runtime/types";
 
 const [cwd, mode] = process.argv.slice(2);
@@ -7,6 +7,14 @@ if (!cwd) throw new Error("Missing fixture cwd");
 const runtime = new PiRuntime();
 const controller = new AbortController();
 const events: RuntimeEvent[] = [];
+// Keep the child's own retry policy but shrink Pi's backoff: "retry" waits 1 ms, "retry-cancel"
+// waits long enough that only cancellation can end the backoff. The policy seen is reported.
+let retry: ReturnType<SettingsManager["getRetrySettings"]> | undefined;
+const getRetrySettings = SettingsManager.prototype.getRetrySettings;
+if (mode === "retry" || mode === "retry-cancel") SettingsManager.prototype.getRetrySettings = function () {
+  retry = getRetrySettings.call(this);
+  return { ...retry, baseDelayMs: mode === "retry" ? 1 : 60_000 };
+};
 try {
   const session = await runtime.startReadOnly({
     cwd, signal: controller.signal,
@@ -18,6 +26,7 @@ try {
   session.subscribe((event) => {
     events.push(event);
     if (mode === "cancel" && event.type === "assistant_text_delta") controller.abort();
+    if (mode === "retry-cancel" && event.type === "assistant_response_end" && event.stopReason === "error") setTimeout(() => controller.abort(), 100);
   });
   let replaceBlocked = false;
   try { session.setTools?.([]); } catch { replaceBlocked = true; }
@@ -35,5 +44,5 @@ try {
   }
   try { await session.prompt("Inspect fixture.txt; report evidence, no changes.").catch(() => {}); }
   finally { ModelRuntime.prototype.checkAuth = checkAuth; ModelRuntime.prototype.hasConfiguredAuth = hasConfiguredAuth; }
-  console.log("READONLY_RESULT=" + JSON.stringify({ events, replaceBlocked, cancelled: controller.signal.aborted }));
+  console.log("READONLY_RESULT=" + JSON.stringify({ events, replaceBlocked, cancelled: controller.signal.aborted, retry }));
 } finally { await runtime.dispose(); }
