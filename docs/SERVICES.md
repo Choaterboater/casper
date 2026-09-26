@@ -75,10 +75,6 @@ first.
 
 ## The model's `service` tool
 
-When a project declares services, the first turn of a change names them and asks the model to
-record a service check before its first edit (in 12 pinned runs without that line, no model used
-the tool on its own). Nothing is added for projects without services or with verification off.
-
 During a task the model uses one `service` tool, with these actions:
 
 - **`start`** starts a declared service by name and waits for readiness. A stale or

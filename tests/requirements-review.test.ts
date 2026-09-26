@@ -142,18 +142,3 @@ test("a review stopped at its own turn budget is reported as such; only open ite
   expect(taskOutcome(undefined, task({ done: ["a"], open: [], incomplete: true }))).toBe("verified");
   expect(taskOutcome(undefined, task({ done: ["a"], open: ["b"], incomplete: true }))).toBe("not_verified");
 });
-
-test("a project with managed services names them on the first turn and asks for a service check before editing", () => {
-  const model = { commands: { test: "npm test" } } as unknown as Parameters<typeof formatTaskPrompt>[2];
-  const change: Parameters<typeof formatTaskPrompt>[1] = { intent: "implement", mode: "modify", verification: [] };
-  const line = "Managed services: api. The service tool runs them under Casper's control (no background bash). For new or changed HTTP behavior, record a service check before your first edit; Casper replays it after the change.";
-  const reviewOff = formatTaskPrompt("Add `POST /notes` to src/app.ts.", change, model, { verificationMode: "auto", proveChange: true, services: ["api"] });
-  expect(reviewOff).toContain(line);
-  expect(reviewOff.indexOf(line)).toBeLessThan(reviewOff.indexOf("User request:"));
-  // With the review on the request stays plain, the service line going first.
-  expect(formatTaskPrompt("Add `POST /notes` to src/app.ts.", change, model, { verificationMode: "auto", proveChange: true, reviewFollows: true, services: ["api"] }))
-    .toBe(`${line}\nUser request:\nAdd \`POST /notes\` to src/app.ts.`);
-  // No services, no line; verification off, no check to ask for.
-  expect(formatTaskPrompt("Add `POST /notes` to src/app.ts.", change, model, { verificationMode: "auto", proveChange: true })).not.toContain("Managed services");
-  expect(formatTaskPrompt("Add `POST /notes` to src/app.ts.", change, model, { verificationMode: "off", services: ["api"] })).not.toContain("record a service check");
-});
