@@ -1,4 +1,5 @@
 import { isRecord } from "../mcp/config";
+import { formatTerminalJSON } from "../tui/json";
 
 export interface BoundedCapabilityResult {
   isError: boolean;
@@ -74,4 +75,14 @@ export function boundCapabilityResult(value: unknown, maxBytes = 16_384, maxItem
   if (low && /[\uD800-\uDBFF]/.test(preview[low - 1]!)) low--;
   result.preview = preview.slice(0, low);
   return result;
+}
+
+/** A tool observation bounded in its delivered encoding: terminal escaping can expand
+ * otherwise bounded JSON, so the budget shrinks until the encoded text fits 16 KiB. */
+export function boundedObservation(value: unknown, label = "Observation"): string {
+  for (let budget = 16_384; budget >= 512; budget /= 2) {
+    const text = formatTerminalJSON(boundCapabilityResult(value, budget));
+    if (Buffer.byteLength(text) <= 16_384) return text;
+  }
+  throw new Error(`${label} exceeds the encoded result budget`);
 }
