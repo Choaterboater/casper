@@ -580,8 +580,15 @@ export class PiRuntime implements AgentRuntime {
           ...(readOnly ? { tools: ["read", "grep", "find", "ls"] } : {}),
         });
         if (readOnly) {
-          created.session.agent.finishTurn = ({ message }) => {
-            if (message.stopReason === "error" || message.stopReason === "aborted") return undefined;
+          // Chain Pi's own boundary hook, as the main session does: a turn_end handler's decision is
+          // honored and dispatch comes before the budget decision. (Children load no extensions, so
+          // this changes nothing today.) Extension-driven turns without tool calls never trip the budget.
+          const piFinish = created.session.agent.finishTurn;
+          created.session.agent.finishTurn = async (turn, finishSignal) => {
+            const previous = await piFinish?.(turn, finishSignal);
+            const { message } = turn;
+            if (previous?.action === "end") return previous;
+            if (message.stopReason === "error" || message.stopReason === "aborted") return previous ?? undefined;
             turns++;
             if (!limitReason && message.content.some((part) => part.type === "toolCall") && (turns >= readOnly.maxTurns || toolCalls >= readOnly.maxToolCalls)) {
               limitReason = "Subagent turn/tool-call budget exhausted";
@@ -589,8 +596,8 @@ export class PiRuntime implements AgentRuntime {
             if (readOnly.signal.aborted) return { action: "end" };
             // A spent child gets exactly one tool-free turn to report what it already found;
             // without it the loop ends on a tool call and the caller receives an empty result.
-            if (limitReason && readOnly.reportTurn && !wrapUp) { wrapUp = true; return undefined; }
-            return limitReason ? { action: "end" } : undefined;
+            if (limitReason && readOnly.reportTurn && !wrapUp) { wrapUp = true; return previous ?? undefined; }
+            return limitReason ? { action: "end" } : previous ?? undefined;
           };
         } else created.session.setActiveToolsByName([
           "read", "bash", "edit", "write", "grep", "find", "ls",
