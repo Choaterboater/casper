@@ -3,7 +3,7 @@ import type { ProjectCommand } from "../project/model";
 import type { BrowserReport } from "../browser/scenario";
 import type { AutoCheckSkip, VerificationMode } from "../verify/mode";
 import type { ChangeProof } from "../verify/proof";
-import type { RequirementsReview } from "./review";
+import { REVIEW_MAX_TURNS, type RequirementsReview } from "./review";
 
 /** Tool-reported diagnostics, not process exit evidence or a reusable check pass. */
 export interface ObservedCheck {
@@ -117,7 +117,7 @@ export function formatTaskResult(task: TaskResult): string {
 
   lines.push(receiptLine("verification", report ? formatVerificationReport(report, { compact: true }) : "no Casper verification recorded."));
   if (task.proof) lines.push(receiptLine("proof", proofLine(task.proof, safe)));
-  if (task.review) lines.push(receiptLine("review", reviewLine(task.review, safe)));
+  if (task.review) lines.push(receiptLine("review", reviewLine(task.review, safe).replace(/\n/g, "; ")));
   if (task.browser) {
     lines.push(receiptLine("browser", `assertions ${task.browser.status}: ${task.browser.checks.map(check => `${safe(check.name)}:${check.status}, inputs ${check.freshness}, baseline ${check.baseline}`).join("; ")}. Declared local scope only; server build/external state and overall acceptance not certified.`));
   }
@@ -190,8 +190,13 @@ export function formatReceipt(task: TaskResult, options: ReceiptOptions = {}): s
 }
 
 function reviewLine(review: RequirementsReview, safe: (text: string) => string): string {
+  const open = "open" in review && review.open.length ? `⚠ The model's review says not done: ${review.open.map(safe).join("; ")}` : "";
+  // A review cut off by its own budget claims nothing complete; admitted gaps still stand.
+  if (review.incomplete) {
+    return [`• The model's review stopped at its ${REVIEW_MAX_TURNS}-turn budget (its own claim so far, not checked by Casper)`, open].filter(Boolean).join("\n");
+  }
   if ("missing" in review) return "• The model's review returned no checklist";
-  if (review.open.length) return `⚠ The model's review says not done: ${review.open.map(safe).join("; ")}`;
+  if (open) return open;
   return `• The model's review: all ${review.done.length} requirements covered (its own claim, not checked by Casper)`;
 }
 

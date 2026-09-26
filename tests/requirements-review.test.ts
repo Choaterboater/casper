@@ -73,3 +73,16 @@ test("the receipt reports the review as the model's own claim, and admitted gaps
   expect(taskOutcome(undefined, task({ done: ["a"], open: [] }))).toBe("verified");
   expect(taskOutcome(undefined, task({ missing: true }))).toBe("verified");
 });
+
+test("a review stopped at its own turn budget is reported as such; only open items make the change not verified", () => {
+  const budget = "• The model's review stopped at its 12-turn budget (its own claim so far, not checked by Casper)";
+  expect(formatReceipt(task({ missing: true, incomplete: true }))).toContain(budget);
+  expect(formatReceipt(task({ missing: true, incomplete: true }))).not.toContain("returned no checklist");
+  const partial = formatReceipt(task({ done: ["a"], open: ["b — not tested yet"], incomplete: true }));
+  expect(partial).toContain(budget);
+  expect(partial).toContain("⚠ The model's review says not done: b — not tested yet");
+  expect(formatReceipt(task({ done: ["a"], open: [], incomplete: true }))).not.toContain("requirements covered");
+  expect(taskOutcome(undefined, task({ missing: true, incomplete: true }))).toBe("verified");
+  expect(taskOutcome(undefined, task({ done: ["a"], open: [], incomplete: true }))).toBe("verified");
+  expect(taskOutcome(undefined, task({ done: ["a"], open: ["b"], incomplete: true }))).toBe("not_verified");
+});
