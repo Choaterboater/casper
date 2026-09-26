@@ -261,7 +261,10 @@ export class SubagentManager {
         const name = prefix(event.toolName, 128);
         if (!result.toolsUsed.includes(name) && result.toolsUsed.length < 16) result.toolsUsed.push(name);
       } else if (event.type === "tool_end" && event.isError && result.toolErrors.length < 8) {
-        result.toolErrors.push(`tool failed: ${prefix(event.toolName, 128)}`);
+        // Pi's own first line (EISDIR, ENOENT, a cut-off call), which the child also saw, so the
+        // caller can tell a misdirected read from a broken tool.
+        const message = event.output?.text.trim().split("\n", 1)[0];
+        result.toolErrors.push(`${prefix(event.toolName, 128)}: ${message ? prefix(message, 256) : "tool failed"}`);
       } else if (event.type === "error") {
         retrying = false; result.status = "failed"; result.reason = prefix(event.message, 1024);
       } else if (event.type === "assistant_response_end" && event.stopReason !== "stop" && event.stopReason !== "toolUse") {

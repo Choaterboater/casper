@@ -381,6 +381,16 @@ describe("Phase 8 bounded subagents", () => {
     expect({ status: exhausted.status, reason: exhausted.reason }).toEqual({ status: "failed", reason: "429 Provider returned error" });
   });
 
+  test("a child's tool errors carry Pi's message, which the child also saw, not just the tool name", async () => {
+    const result = await manager(() => new ChildRuntime(async (emit) => {
+      emit({ type: "tool_end", toolName: "read", toolCallId: "1", isError: true, output: { text: "EISDIR: illegal operation on a directory, read", truncated: false } });
+      emit({ type: "tool_end", toolName: "read", toolCallId: "2", isError: true, output: { text: `ENOENT: no such file\n${"x".repeat(2000)}`, truncated: false } });
+      emit({ type: "tool_end", toolName: "read", toolCallId: "3", isError: true });
+      emit({ type: "assistant_text_delta", delta: "done" });
+    })).run(task);
+    expect(result.toolErrors).toEqual(["read: EISDIR: illegal operation on a directory, read", "read: ENOENT: no such file", "read: tool failed"]);
+  });
+
   test("tool envelopes stay below 16 KiB even when report/goal escaping expands the JSON", async () => {
     const tool = manager(() => new ChildRuntime(async (emit) => {
       emit({ type: "assistant_text_delta", delta: '"\\\\'.repeat(20_000) });
