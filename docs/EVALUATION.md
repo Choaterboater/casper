@@ -217,7 +217,10 @@ OpenRouter models need `--route <hosts>`. OpenRouter keeps a conversation on one
 hosts for the same model differ tenfold in speed (one GLM 5.3 Flash host answered in 3 s per call
 and made the model report "corrupted" tool output; another in 0.3 s). Unpinned, a comparison
 measures which host each harness drew. `--route Together,Novita` writes the same `models.json`
-into both harnesses' homes: those hosts only, in that order, no fallbacks.
+into both harnesses' homes: those hosts only, in that order, no fallbacks. An `openrouter/*`
+benchmark without `--route` is a usage error. `--route any` is the explicit escape hatch: no host
+is pinned, the console says so, and the results document records `route: "unpinned"` (pinned runs
+record the host list, other providers `null`).
 
 `--follow-ups 1` or `--follow-ups 2` adds the rework experiment: a run the grader did not accept
 gets a follow-up in the **same conversation** (Casper `--continue`, Pi `--session-id`, both in a
