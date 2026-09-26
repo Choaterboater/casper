@@ -185,3 +185,20 @@ test("a model check recorded during a repair round is never evidence", async () 
     { name: "configured create", evidence: true }, { name: "create note", evidence: false }]);
   expect(f.text()).toContain("create note failed when recorded, after edits");
 }, 30_000);
+
+test("a crash the smoke run found goes into the repair prompt, since no tool call reported it; the final run has none left", async () => {
+  const f = await fixture({ smoke: [create] });
+  f.runtime.turns.push(async runtime => {
+    const { service } = await runtime.service({ action: "start", service: "api" });
+    process.kill(service.pid, "SIGKILL");
+    // Let the manager record the crash before the turn ends.
+    await Bun.sleep(300);
+    await runtime.write(path.join(f.project, "src/notes.ts"), "export {};\n");
+  });
+  f.runtime.turns.push(async runtime => { await runtime.write(f.server, notesServer(true)); });
+  await f.app.runOnce("Tidy the notes module");
+  expect(f.runtime.prompts[1]).toContain("Service crashes since the last report");
+  expect(f.runtime.prompts[1]).toContain('"signal": "SIGKILL"');
+  expect(f.app.getLastTaskResult()!.verification?.smoke).toMatchObject({ status: "pass" });
+  expect(f.text()).not.toContain("restarted after crash");
+}, 30_000);

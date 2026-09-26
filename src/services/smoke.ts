@@ -127,9 +127,13 @@ export interface SmokeReport {
   checks: SmokeResult[];
   /** Why the run is incomplete beyond its checks, such as unconfirmed service cleanup. */
   reason?: string;
+  /** Services that crashed since any call last reported it (each once); the run restarted the ones it checks. */
+  crashes?: SmokeCrash[];
 }
+export interface SmokeCrash { service: string; exit?: { code: number | null; signal: NodeJS.Signals | null }; tail?: string }
 
 const SNIPPET = 512;
+const TAIL_CHARS = 2048;
 const REQUEST_TIMEOUT_MS = 10_000;
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error)).split("\nLog tail:")[0]!.slice(0, 1024);
 
@@ -179,13 +183,17 @@ export class SmokeChecks {
     const checks: SmokeResult[] = [];
     for (const check of this.configured) checks.push(this.result(check.name, "config", check, await this.execute(check, signal)));
     for (const { id, check, baseline, afterEdits } of this.recorded) checks.push(this.result(id, "model", check, await this.execute(check, signal), baseline, afterEdits));
+    // Crashes are recorded, not pushed into a turn: the smoke run reports them (and so the repair prompt and receipt).
+    const crashes = this.manager().takeCrashes().map(({ name, exit, tail }): SmokeCrash =>
+      ({ service: name, ...(exit ? { exit } : {}), ...(tail ? { tail: tail.slice(-TAIL_CHARS) } : {}) }));
+    const report = { checks, ...(crashes.length ? { crashes } : {}) };
     // A service tree Casper could not confirm stopped may still answer, or hold state the checks saw.
     try { this.manager().assertCleanup(); }
     catch {
       const reason = "Casper could not confirm a service's processes were stopped; the checks may have run beside leftover processes.";
-      return { status: smokeStatus(checks) === "fail" ? "fail" : "incomplete", checks, reason };
+      return { status: smokeStatus(checks) === "fail" ? "fail" : "incomplete", ...report, reason };
     }
-    return { status: smokeStatus(checks), checks };
+    return { status: smokeStatus(checks), ...report };
   }
 
   private result(id: string, source: SmokeResult["source"], check: SmokeCheck, run: Pick<SmokeResult, "status" | "actual" | "reason" | "restarted">, baseline?: SmokeStatus, afterEdits = false): SmokeResult {
