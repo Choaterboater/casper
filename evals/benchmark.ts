@@ -275,6 +275,8 @@ export interface BenchmarkOptions {
   /** Follow-ups a failed run gets (0–2, default 0): the grader's failure report, sent into the same
    * conversation. Each attempt has the full time limit. */
   followUps?: number;
+  /** OpenRouter hosts both harnesses are pinned to (HarnessInput.route). */
+  route?: readonly string[];
   onRun?(run: BenchmarkRun): void;
   onFailure?(failure: BenchmarkFailure): void;
 }
@@ -342,7 +344,7 @@ async function runJob(options: BenchmarkOptions, task: EvalTask, harness: Harnes
       const run = await runHarness(harness, {
         command: options.commands[harness] ?? (harness === "casper-no-review" ? options.commands.casper : undefined) ?? [],
         cwd: workdir, prompt, model: options.model, effort: options.effort,
-        timeoutMs: options.timeoutMs, seed: options.seed, session: session(resume),
+        timeoutMs: options.timeoutMs, seed: options.seed, session: session(resume), ...(options.route?.length ? { route: options.route } : {}),
       });
       const observation: EvalObservation = {
         startedAt, wallClockMs: run.wallClockMs, execution: run.termination === "completed" ? "completed" : "failed",

@@ -45,6 +45,24 @@ test("Pi counts authoritative assistant usage once, excluding tool results and a
     wallClockMs: 70, turns: 2, tokens: 240, estimatedCost: 0.04, receiptOutcome: null, sessionId: "pi-conversation", errors: [] });
 });
 
+test("a route pins both harnesses' model to the same OpenRouter hosts, without fallbacks", async () => {
+  const written: unknown[] = [];
+  for (const name of ["casper", "pi"] as const) {
+    const workdir = await mkdtemp(path.join(os.tmpdir(), "casper-harness-route-"));
+    try {
+      await runHarness(name, { command: [process.execPath, path.join(import.meta.dir, "fixtures/eval-harness-cli.ts")],
+        cwd: workdir, prompt: "inspect models", model: "openrouter/z-ai/glm-5.3-flash", effort: "medium", timeoutMs: 5000, route: ["Together", "Novita"] });
+      written.push(JSON.parse(await readFile(path.join(workdir, "models.json"), "utf8")));
+    } finally { await rm(workdir, { recursive: true, force: true }); }
+  }
+  // OpenRouter pins a conversation to one host; hosts differ tenfold in speed, so both harnesses get the same ones.
+  expect(written[0]).toEqual({ providers: { openrouter: { modelOverrides: { "z-ai/glm-5.3-flash": {
+    compat: { openRouterRouting: { only: ["Together", "Novita"], order: ["Together", "Novita"], allow_fallbacks: false } } } } } } });
+  expect(written[1]).toEqual(written[0]);
+  await expect(runHarness("pi", { command: ["true"], cwd: os.tmpdir(), prompt: "x", model: "github-copilot/gpt-5-mini", effort: "medium", timeoutMs: 1000, route: ["Together"] }))
+    .rejects.toThrow("--route applies only to openrouter models");
+});
+
 test.each(["casper", "pi"] as const)("%s keeps a saved conversation in the caller's home for a follow-up", async name => {
   const workdir = await mkdtemp(path.join(os.tmpdir(), "casper-harness-session-"));
   const home = await mkdtemp(path.join(os.tmpdir(), "casper-harness-session-home-"));
