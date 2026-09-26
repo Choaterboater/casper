@@ -286,7 +286,9 @@ the omp binary and checked with a run against a loopback fake provider (no real 
   to its default, yolo), `--model`, and `--thinking <effort>`: omp takes every harness effort
   level (off … max) as is.
 - **Home.** omp honors `PI_CODING_AGENT_DIR`; each run gets `~/.omp/agent` under its temporary
-  home, which is also omp's default there. omp has no offline or telemetry switch.
+  home, which is also omp's default there. omp has no offline or telemetry switch: the harness sets
+  `PI_TELEMETRY=0` for symmetry, but omp 18.2.11 does not read it, so whatever attribution headers
+  omp sends to OpenRouter are a known difference from the other two.
 - **Credentials.** omp reads no `auth.json`: it keeps credentials in SQLite (`agent.db`). The run's
   store is created with only the model provider's entry of `~/.casper/agent/auth.json`, in omp's
   own row format (the entry minus its `type`) at the store's current schema version (8). A

@@ -570,7 +570,7 @@ test("exhausting the existing explorer turn limit saves no truncated draft and s
 });
 
 test("provider failure does not expose raw provider text or record an outcome as a learning draft", async () => {
-  const f = await fixture(() => new Response(JSON.stringify({ error: { message: "PRIVATE_PROVIDER_ERROR" } }), { status: 500 }));
+  const f = await fixture(() => new Response(JSON.stringify({ error: { message: "PRIVATE_PROVIDER_ERROR" } }), { status: 400 }));
   const result = await f.run(["learn", f.project]);
   expect(result.exit).toBe(1);
   expect(result.stderr).toContain("incomplete");

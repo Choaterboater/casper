@@ -126,7 +126,7 @@ export async function runHarness(harness: HarnessName, input: HarnessInput): Pro
       // OMP honors PI_CODING_AGENT_DIR but has no offline or telemetry switch.
       cwd: input.cwd, env: isolatedEnvironment(home, name === "casper"
         ? { CASPER_AGENT_DIR: agent, CASPER_OFFLINE: "1", CASPER_TELEMETRY: "0" }
-        : harness === "omp" ? { PI_CODING_AGENT_DIR: agent } : { PI_CODING_AGENT_DIR: agent, PI_OFFLINE: "1", PI_TELEMETRY: "0" }),
+        : harness === "omp" ? { PI_CODING_AGENT_DIR: agent, PI_TELEMETRY: "0" } : { PI_CODING_AGENT_DIR: agent, PI_OFFLINE: "1", PI_TELEMETRY: "0" }),
       stdin: "ignore", stdout: "pipe", stderr: "pipe", detached: osSupportsProcessGroups,
     });
     const owner = ownSpawnedTree(child.pid, () => child.exitCode === null && child.signalCode === null);
