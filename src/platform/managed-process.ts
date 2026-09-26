@@ -86,6 +86,10 @@ export async function freePort(host = "127.0.0.1"): Promise<number> {
  * service): spawned in its own process group with the isolated environment,
  * a bounded log ring, readiness within a deadline, and TERM-then-KILL cleanup
  * through process ownership. Only the tree spawned here is ever signalled.
+ *
+ * HTTP readiness accepts any answer on the URL and does not check who answered:
+ * a foreign listener already on the port would satisfy it. Callers must check the
+ * port is free (`portInUse`) before `start`, as the browser and services do.
  */
 export class ManagedProcess {
   private child?: ChildProcess;
@@ -126,7 +130,8 @@ export class ManagedProcess {
     return { text: kept.join("\n"), truncated: this.totalBytes > this.logBytes || kept.length < lines.length };
   }
 
-  /** Resolves once ready; otherwise cleans up and rejects with a `ManagedProcessError` carrying the log tail. */
+  /** Resolves once ready; otherwise cleans up and rejects with a `ManagedProcessError` carrying the log tail,
+   * or with `ProcessCleanupError` when that cleanup could not be confirmed. */
   async start(signal: AbortSignal): Promise<{ readyMs: number; httpStatus?: number }> {
     if (this.child) throw new Error(`${this.label} was already started`);
     if (this.stopWork) throw new ManagedProcessError("closed", `${this.label} was closed before it started`, "");
