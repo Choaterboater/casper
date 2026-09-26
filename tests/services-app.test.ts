@@ -7,7 +7,7 @@ import { stringify } from "yaml";
 import { CasperApp } from "../src/app";
 import { loadProjectContext } from "../src/project/context";
 import { SkillRegistry } from "../src/skills/registry";
-import type { AgentRuntime, RuntimeSession, RuntimeStartOptions } from "../src/runtime/types";
+import type { AgentRuntime, RuntimeSession, RuntimeStartOptions, RuntimeTool } from "../src/runtime/types";
 import { COMMANDS } from "../src/tui/commands";
 import { FULL_HELP_TEXT, HELP_TEXT } from "../src/tui/help";
 
@@ -27,12 +27,13 @@ class ScriptedRuntime implements AgentRuntime {
   starts = 0;
   resumed: string[] = [];
   options?: RuntimeStartOptions;
+  tools: RuntimeTool[] = [];
   action: (signal?: AbortSignal) => Promise<void> = async () => {};
   constructor(private readonly sessionFile: string) {}
   async start(options: RuntimeStartOptions): Promise<RuntimeSession> {
-    this.starts++; this.options = options;
+    this.starts++; this.options = options; this.tools = options.tools ?? [];
     const info = () => ({ cwd: options.cwd, sessionId: "fixture", sessionFile: this.sessionFile });
-    return { prompt: async (_text, signal) => this.action(signal), setTools: () => {}, abort: async () => {}, subscribe: () => () => {},
+    return { prompt: async (_text, signal) => this.action(signal), setTools: tools => { this.tools = tools; }, abort: async () => {}, subscribe: () => () => {},
       getState: () => ({ cwd: options.cwd, isStreaming: false }), clearConversation: async () => {}, getSessionInfo: info,
       resumeConversation: async (id: string) => { this.resumed.push(id); },
       forkSession: async () => info(), switchSession: async () => info() };
@@ -40,13 +41,13 @@ class ScriptedRuntime implements AgentRuntime {
   async dispose() {}
 }
 
-async function fixture(env: Record<string, string> = {}, options: { input?: PassThrough } = {}) {
+async function fixture(env: Record<string, string> = {}, options: { input?: PassThrough; declare?: boolean } = {}) {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-services-app-")));
   cleanups.push(() => rm(root, { recursive: true, force: true }));
   const home = path.join(root, "home"), project = path.join(root, "project");
   await mkdir(home); await mkdir(path.join(project, ".casper"), { recursive: true });
   const marker = path.join(root, "grandchild.pid");
-  await writeFile(path.join(project, ".casper", "project.yaml"), stringify({ services: { api: {
+  await writeFile(path.join(project, ".casper", "project.yaml"), options.declare === false ? "{}\n" : stringify({ services: { api: {
     command: `"${process.execPath}" "${SERVER}"`, port: "auto", ready: { http: "/health" }, timeoutMs: 10_000,
     scope: { inputs: ["src"] }, env: { SPAWN_CHILD: marker, ...env } } } }));
   const sessionFile = path.join(root, "session.jsonl"); await writeFile(sessionFile, "");
@@ -248,4 +249,35 @@ test("/services stop says a service that is not running is not running", async (
   await f.app.runOnce("/services stop api");
   expect(f.text().trimEnd()).toEndWith("[services] api is not running.");
   await expect(f.app.runOnce("/services stop web")).rejects.toThrow('No service named "web"');
+}, 30_000);
+
+const offered = (runtime: ScriptedRuntime) => runtime.tools.some(tool => tool.name === "service");
+
+test("the service tool is offered for declared services; elsewhere only for server tasks or while one runs, and /clear stops ad-hoc services", async () => {
+  const declared = await fixture();
+  let seen: boolean[] = [];
+  declared.runtime.action = async () => { seen.push(offered(declared.runtime)); };
+  await declared.app.runOnce("fix the parser", declared.project);
+  expect(seen).toEqual([true]);
+
+  const f = await fixture({}, { declare: false });
+  seen = [];
+  let pid = 0;
+  f.runtime.action = async () => {
+    seen.push(offered(f.runtime));
+    const tool = f.runtime.tools.find(entry => entry.name === "service");
+    if (!tool || pid) return;
+    const result = await tool.execute({ action: "start", command: `"${process.execPath}" "${SERVER}"`, ready: { http: "/health" } }, new AbortController().signal);
+    pid = JSON.parse(result.text).data.service.pid;
+  };
+  await f.app.start(f.project);
+  await f.app.runOnce("fix the parser");
+  await f.app.runOnce("start the dev server and check it");
+  expect(pid).toBeGreaterThan(0);
+  await f.app.runOnce("fix the parser again");
+  expect(seen).toEqual([false, true, true]);
+  await f.app.runOnce("/clear");
+  await gone(pid);
+  await f.app.runOnce("fix the parser once more");
+  expect(seen).toEqual([false, true, true, false]);
 }, 30_000);

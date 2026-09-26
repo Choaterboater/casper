@@ -4,6 +4,7 @@ import type { CapabilityBroker } from "../capabilities/broker";
 import type { LSPManager, ConfirmRename } from "../lsp/manager";
 import { lspTools } from "../lsp/tools";
 import type { ReferenceLibrary } from "../references/library";
+import { serviceRequested } from "../services/tool";
 import type { RuntimeTool } from "../runtime/types";
 import type { VisualizationRouter } from "../visualize/router";
 import { visualizationTools } from "../visualize/tools";
@@ -26,6 +27,10 @@ export interface TaskCapabilitySource {
   /** Lazily creates (or returns) the owned browser session; called only when browser tools are included. */
   browser: () => BrowserSession;
   browserSignal?: AbortSignal;
+  /** Whether the project declares services and whether one is starting or ready. */
+  services: { declared: boolean; live: boolean };
+  /** Builds the service tool (its manager is created on first use); called only when it is included. */
+  serviceTool: () => RuntimeTool;
 }
 
 /** Web/browser vocabulary in the task (or a live session) pulls in the browser tool. */
@@ -34,7 +39,7 @@ export function browserRequested(task: string, browserReady: boolean): boolean {
 }
 
 /** The complete custom tool surface for one task, in the established order: MCP capabilities,
- * delegation, clarification, managed checks, LSP, references, browser, visualization. */
+ * delegation, clarification, managed checks, LSP, references, browser, services, visualization. */
 export async function assembleTaskTools(task: string, includeVisualization: boolean, source: TaskCapabilitySource): Promise<RuntimeTool[]> {
   return [
     ...await source.broker.prepare(task),
@@ -44,6 +49,7 @@ export async function assembleTaskTools(task: string, includeVisualization: bool
     ...lspTools(source.lsp, source.confirmRename),
     ...source.references.tools(),
     ...(browserRequested(task, source.browserReady) ? [browserTool(source.browser(), source.browserSignal)] : []),
+    ...(serviceRequested(task, source.services) ? [source.serviceTool()] : []),
     ...(includeVisualization ? visualizationTools({ router: source.visualization, projectRoot: source.projectRoot }) : []),
   ];
 }
