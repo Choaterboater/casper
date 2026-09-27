@@ -97,9 +97,10 @@ Acceptance replay (no coding runs; model billing applies to the acceptance calls
   --acceptance-route <hosts> / --route <hosts>  Its OpenRouter hosts (required for an openrouter model).
   --concurrency <n>     Checks at once (1..16). Default: 6.
   --stop-when-decided   Stop once every replayed harness's rule is decided on caught and flagged; exit 3.
-  --check <acceptance|trace>  The check replayed: tests written from the request (default), or
+  --check <acceptance|trace|mutation>  The check replayed: tests written from the request (default),
                         requirement-to-test tracing (each stated requirement needs a test that
-                        passes with the change and fails without it).
+                        passes with the change and fails without it), or mutation (small bugs in the
+                        changed code must each fail a test; no model call).
   --timeout <sec>       Per acceptance test run. Default: 120.
   Exits 1 when a run could not be replayed.
 
@@ -138,7 +139,7 @@ interface EvalOptions {
   unpinned?: boolean;
   reports: string[];
   replays: string[];
-  check?: "acceptance" | "trace";
+  check?: "acceptance" | "trace" | "mutation";
   keepWorkspaces?: string;
   /** A harness in benchmark mode; `true` (no harness) with --replay. */
   stopWhenDecided?: HarnessName | true;
@@ -199,7 +200,7 @@ export function parseArguments(args: readonly string[]): EvalOptions {
       } else if (argument === "--report") options.reports.push(value);
       else if (argument === "--replay") options.replays.push(value);
       else if (argument === "--check") {
-        if (value !== "acceptance" && value !== "trace") throw new Error("--check must be acceptance or trace");
+        if (value !== "acceptance" && value !== "trace" && value !== "mutation") throw new Error("--check must be acceptance, trace or mutation");
         options.check = value;
       }
       else if (argument === "--keep-workspaces") options.keepWorkspaces = value;

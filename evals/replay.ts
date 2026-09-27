@@ -8,7 +8,8 @@ import { nearestEffort } from "../src/runtime/auto-effort";
 import { diffSnapshots, snapshotTree } from "../src/task/changes";
 import { independentAcceptance, type AcceptanceCompletion, type AcceptanceResult } from "../src/verify/acceptance";
 import { changesCode, isTestPath } from "../src/verify/proof";
-import { traceRequirements, withoutTree } from "../src/verify/trace";
+import { traceRequirements, withoutAgentMarkers, withoutTree } from "../src/verify/trace";
+import { mutationCheck } from "../src/verify/mutation";
 import { futility, isInfrastructureRun, RECEIPT_COUNTS_HEADER, receiptCell, receiptCounts, table, type BenchmarkRun, type BenchmarkStop, type ReceiptCell } from "./benchmark";
 import { harnessProtocol, routedModels, type HarnessName } from "./harness";
 import { prepareWorkdir, type EvalPack } from "./runner";
@@ -145,8 +146,8 @@ export interface ReplayOptions {
   /** Per acceptance test run. */
   timeoutMs: number;
   stopWhenDecided: boolean;
-  /** Which check is replayed: the independent acceptance tests (default) or requirement-to-test tracing. */
-  check?: "acceptance" | "trace";
+  /** Which check is replayed: the independent acceptance tests (default), requirement-to-test tracing, or mutation. */
+  check?: "acceptance" | "trace" | "mutation";
   /** The completion for a model and the saved run's effort. */
   complete(model: string, effort: string | undefined): AcceptanceCompletion;
   onRun?(run: ReplayRun): void;
@@ -257,6 +258,9 @@ async function replayRun(options: ReplayOptions, entry: Entry, signal: AbortSign
       try {
         result = await traceRequirements({ complete, request: task.prompt, root, without: without.tree, testCommand, timeoutMs: options.timeoutMs, signal });
       } finally { await without.dispose(); }
+    } else if (options.check === "mutation") {
+      // `root` is this replay's own copy, so the check may mutate it in place.
+      result = await mutationCheck({ root, changes, testCommand, timeoutMs: options.timeoutMs, signal, env: withoutAgentMarkers(process.env) });
     } else {
       result = await independentAcceptance({ complete, request: task.prompt, root, changes, files, testCommand, timeoutMs: options.timeoutMs, signal });
     }
