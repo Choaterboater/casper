@@ -428,7 +428,7 @@ test("--stop-when-decided: once the rule cannot be met no job starts, a running 
   expect(hung.length).toBe(1);
   expect(() => process.kill(Number(hung[0]!.slice("hung-".length)), 0)).toThrow();
   const [run] = result.runs;
-  expect(run!.workspace).toBe(path.join(keep, `${task.id}-casper-${run!.repeat}`));
+  expect(run!.workspace).toBe(path.join(keep, `test_model-${task.id}-casper-${run!.repeat}`));
   expect(await readFile(path.join(run!.workspace!, "src/stopper-note.ts"), "utf8")).toBe("export const note = 1;\n");
   expect(await readdir(run!.workspace!)).not.toContain("node_modules");
 }, 120_000);
