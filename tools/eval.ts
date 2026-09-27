@@ -81,6 +81,8 @@ Quality benchmark (Casper vs Pi, optionally OMP, through their real CLIs; --pack
   --stop-when-decided <harness>  Stop the benchmark once that Casper harness's rule can no longer be
                         met with its unfinished runs: no new runs start, running ones are killed and
                         dropped; the results document records why (stopped), and the exit code is 3.
+  --stop-when-success-decided <harness>:<against>:<ratio>  Stop once "harness has at most ratio x
+                        against's not-accepted runs" is decided either way (met or not); exit 3.
   --casper <path>       Casper executable. Default: this checkout (bun src/cli.ts).
   --pi <path>           Pi executable. Default: pi on PATH.
   --omp <path>          OMP executable. Default: omp on PATH.
@@ -145,6 +147,8 @@ interface EvalOptions {
   keepWorkspaces?: string;
   /** A harness in benchmark mode; `true` (no harness) with --replay. */
   stopWhenDecided?: HarnessName | true;
+  /** Stop once a not-accepted-rate comparison is decided either way (runBenchmark). */
+  stopWhenSuccessDecided?: { harness: HarnessName; against: HarnessName; ratio: number };
   casper?: string;
   pi?: string;
   omp?: string;
@@ -178,6 +182,16 @@ export function parseArguments(args: readonly string[]): EvalOptions {
       if (!HARNESS_NAMES.includes(value as HarnessName)) throw new Error(`--stop-when-decided must name one of ${HARNESS_NAMES.join(", ")}`);
       options.stopWhenDecided = value as HarnessName;
       index++;
+      continue;
+    }
+    if (argument === "--stop-when-success-decided") {
+      // <harness>:<against>:<ratio>, e.g. casper-checklist:casper:0.5
+      const [harness, against, ratio] = (args[++index] ?? "").split(":");
+      const share = Number(ratio);
+      if (!HARNESS_NAMES.includes(harness as HarnessName) || !HARNESS_NAMES.includes(against as HarnessName) || !(share > 0)) {
+        throw new Error("--stop-when-success-decided takes <harness>:<against>:<ratio>, e.g. casper-checklist:casper:0.5");
+      }
+      options.stopWhenSuccessDecided = { harness: harness as HarnessName, against: against as HarnessName, ratio: share };
       continue;
     }
     if (["--pack", "--harness", "--effort", "--concurrency", "--time-limit", "--follow-ups", "--person-cost", "--report", "--replay", "--keep-workspaces", "--route", "--casper", "--pi", "--omp", "--acceptance-model", "--acceptance-route", "--gate", "--remaining", "--check"].includes(argument)) {
@@ -279,7 +293,7 @@ export function parseArguments(args: readonly string[]): EvalOptions {
   }
   if (options.gate !== undefined) throw new Error("--gate and --remaining apply only to --report");
   const benchmarkOnly = options.effort || options.concurrency || options.timeLimitSeconds || options.followUps || options.personCostSeconds !== undefined || options.route || options.unpinned || options.casper || options.pi || options.omp || options.acceptanceModel || options.acceptanceRoute
-    || options.keepWorkspaces || options.stopWhenDecided;
+    || options.keepWorkspaces || options.stopWhenDecided || options.stopWhenSuccessDecided;
   if (isBenchmark(options)) {
     if (options.prepare || options.grade || options.scenario || options.keep || !options.autoVerify) {
       throw new Error("--prepare, --grade, --scenario, --keep and --no-auto-verify do not apply to a benchmark");
@@ -302,6 +316,10 @@ export function parseArguments(args: readonly string[]): EvalOptions {
     const harnesses = options.harnesses.length ? options.harnesses : ["casper", "pi"];
     if (options.stopWhenDecided && (!harnesses.includes(options.stopWhenDecided) || harnessProtocol(options.stopWhenDecided) !== "casper")) {
       throw new Error("--stop-when-decided must name a Casper harness of this benchmark (one with a receipt)");
+    }
+    const success = options.stopWhenSuccessDecided;
+    if (success && (!harnesses.includes(success.harness) || !harnesses.includes(success.against))) {
+      throw new Error("--stop-when-success-decided must name two harnesses of this benchmark");
     }
     return options;
   }
@@ -416,6 +434,7 @@ async function benchmark(options: EvalOptions, repoRoot: string): Promise<number
     timeoutMs: timeLimitSeconds * 1000, verifyTimeoutMs: options.timeoutSeconds * 1000, seed, followUps: options.followUps, ...(options.route ? { route: options.route } : {}),
     ...(acceptanceModel ? { acceptanceModel } : {}), ...(keepWorkspaces ? { keepWorkspaces } : {}),
     ...(options.stopWhenDecided && options.stopWhenDecided !== true ? { stopWhenDecided: options.stopWhenDecided } : {}),
+    ...(options.stopWhenSuccessDecided ? { stopWhenSuccessDecided: options.stopWhenSuccessDecided } : {}),
     onRun: (run: BenchmarkRun) => {
       const { score } = run;
       process.stdout.write(`[${++finished}/${total}] ${run.taskId} ${run.harness} #${run.repeat}: ${run.graded.success ? "accepted" : "not accepted"}`

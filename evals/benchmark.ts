@@ -319,6 +319,8 @@ export interface BenchmarkOptions {
   keepWorkspaces?: string;
   /** Stop once this receipt harness's rule is decided (`decidedReasons`): no new jobs start, running ones are killed and dropped. */
   stopWhenDecided?: HarnessName;
+  /** Stop once "`harness` has at most `ratio` × `against`'s not-accepted runs" is decided either way (`successDecision`). */
+  stopWhenSuccessDecided?: { harness: HarnessName; against: HarnessName; ratio: number };
   onRun?(run: BenchmarkRun): void;
   onFailure?(failure: BenchmarkFailure): void;
 }
@@ -364,6 +366,16 @@ export async function runBenchmark(options: BenchmarkOptions): Promise<{ runs: B
         options.onFailure?.(failure);
       }
       finished[index] = true;
+      const successRule = options.stopWhenSuccessDecided;
+      if (successRule) {
+        const left = (name: HarnessName) => jobs.filter((job, position) => !finished[position] && job.harness === name).length;
+        const reason = successDecision(runs.filter((run) => run !== undefined), successRule, left(successRule.harness), left(successRule.against));
+        if (reason) {
+          stopped = { reason, afterRuns: runs.filter((run) => run !== undefined).length };
+          controller.abort(new Error("The benchmark was decided"));
+          continue;
+        }
+      }
       const decider = options.stopWhenDecided;
       if (!decider) continue;
       const remaining = (pack: EvalPack) => jobs.filter((job, position) => !finished[position] && job.harness === decider && job.task.pack === pack).length;
@@ -376,6 +388,20 @@ export async function runBenchmark(options: BenchmarkOptions): Promise<{ runs: B
   return {
     runs: runs.filter((run) => run !== undefined), failures: failures.filter((failure) => failure !== undefined), ...(stopped ? { stopped } : {}),
   };
+}
+
+/** Whether "`harness`'s not-accepted runs ≤ `ratio` × `against`'s" is already decided, given the runs still to come:
+ * met when even all of `harness`'s remaining runs failing keeps it true with none of `against`'s failing, not met when
+ * all of `against`'s remaining runs failing still cannot make it true. Infrastructure runs are left out. */
+export function successDecision(runs: readonly BenchmarkRun[], rule: { harness: HarnessName; against: HarnessName; ratio: number },
+  remainingHarness: number, remainingAgainst: number): string | undefined {
+  const wrong = (name: HarnessName) => runs.filter((run) => run.harness === name && !isInfrastructureRun(run) && !run.graded.success).length;
+  const mine = wrong(rule.harness);
+  const theirs = wrong(rule.against);
+  const label = `${rule.harness} ${mine} not accepted vs ${rule.against} ${theirs} (≤ ${rule.ratio}×)`;
+  if (mine > rule.ratio * (theirs + remainingAgainst)) return `not met: ${label}, ${remainingHarness}/${remainingAgainst} runs left`;
+  if (mine + remainingHarness <= rule.ratio * theirs) return `met: ${label}, ${remainingHarness}/${remainingAgainst} runs left`;
+  return undefined;
 }
 
 const MAX_FAILURE_REPORT = 6000;

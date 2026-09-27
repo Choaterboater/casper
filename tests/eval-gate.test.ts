@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { decidedReasons, futility, type BenchmarkRun, type ReceiptCell } from "../evals/benchmark";
+import { decidedReasons, futility, successDecision, type BenchmarkRun, type ReceiptCell } from "../evals/benchmark";
+import type { HarnessName } from "../evals/harness";
 import type { EvalTask } from "../evals/runner";
 
 const cell = (fields: Partial<ReceiptCell>): ReceiptCell => ({ harness: "casper", runs: 24, timeouts: 0, noReceipt: 0, wrong: 2, caught: 1,
@@ -39,4 +40,15 @@ test("the stopper counts cost only once every task has a run of both the harness
   // Task b has no Pi run yet: a median over different tasks is no cost evidence.
   expect(decidedReasons(slow, "casper", tasks, () => 10)).toEqual([]);
   expect(decidedReasons([...slow, run("pi", "b", true, null)], "casper", tasks, () => 10)).toEqual(["hard: wall 3.00× Pi > 1.25×"]);
+});
+
+test("the success gate decides once the remaining runs cannot change the comparison, either way", () => {
+  const run = (harness: HarnessName, success: boolean) => ({ harness, graded: { success }, run: { termination: "completed", errors: [] } }) as unknown as BenchmarkRun;
+  const rule = { harness: "casper-checklist" as HarnessName, against: "casper" as HarnessName, ratio: 0.5 };
+  // 3 wrong vs 2 wrong with 1 casper run left: at most 3 casper wrong, half is 1.5 < 3.
+  expect(successDecision([run("casper-checklist", false), run("casper-checklist", false), run("casper-checklist", false), run("casper", false), run("casper", false)], rule, 5, 1))
+    .toStartWith("not met: casper-checklist 3 not accepted vs casper 2");
+  // 0 wrong so far, 1 left; casper already at 2: even a failure keeps 1 ≤ 1.
+  expect(successDecision([run("casper", false), run("casper", false)], rule, 1, 4)).toStartWith("met:");
+  expect(successDecision([run("casper", false)], rule, 3, 4)).toBeUndefined();
 });
