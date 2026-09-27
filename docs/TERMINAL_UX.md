@@ -193,9 +193,10 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   completion labels are omitted.
 - Clarification questions keep the question on its own line. The question and every
   option wrap in full at the current width (a description that does not fit beside
-  its label goes on indented lines under it); nothing is truncated. Use Up/Down and
-  Enter to choose; Space toggles multi-select choices. Typing still accepts a custom
-  answer, and Esc skips.
+  its label goes on indented lines under it); nothing is truncated. When all of it
+  would be taller than the screen, only the highlighted option shows its description,
+  so the question stays in view. Use Up/Down and Enter to choose; Space toggles
+  multi-select choices. Typing still accepts a custom answer, and Esc skips.
 - Up/Down recalls current-process prompt history. Shift+Enter where the terminal
   supports it, or Ctrl+J, inserts a newline. Bracketed paste stays in the draft.
 - Shift+Tab cycles reasoning effort (`auto`, then the model's supported levels) without

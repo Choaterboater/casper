@@ -174,7 +174,7 @@ export class TerminalSurface {
         const activity = this.activity ? renderPanel(`${SPINNER_FRAMES[this.spinnerFrame]} Working`, [this.activity], width, this.io.color, "accent") : [];
         const block = this.slot ? this.slot.render(width).map(line => truncateToWidth(line, width))
           : this.lending ? [rule, this.muted(truncateToWidth("  exclusive input in progress · Esc or Ctrl+C cancels", width)), rule]
-          : this.pendingAsk ? [rule, ...this.renderAsk(width), ...editorLines]
+          : this.pendingAsk ? [rule, ...this.renderAsk(width, this.terminal.rows - editorLines.length - 2), ...editorLines]
           : this.editor.popup.length ? [rule, ...this.editor.popup, ...activity, ...editorLines] : [...activity, ...editorLines];
         while (block.length < editorLines.length) block.push("");
         const body = this.transcript.render(width);
@@ -429,21 +429,26 @@ private updateSpinner(): void {
     return promise;
   }
 
-  /** The whole question and every option, wrapped to the width; the highlighted option is accented. */
-  private renderAsk(width: number): string[] {
+  /** The whole question and every option, wrapped to the width; the highlighted option is accented.
+   * When that is taller than `height` rows, only the highlighted option keeps its description, so the
+   * question itself stays on screen instead of scrolling away. */
+  private renderAsk(width: number, height: number): string[] {
     const hint = this.askMulti
       ? "Up/Down move · Space toggle · Enter answer · type to answer · Esc skip"
       : "Up/Down move · Enter choose · type to answer · Esc skip";
-    return [
+    const lines = (compact: boolean) => [
       ...wrapTextWithAnsi(this.accent(this.askQuestion ?? ""), width),
       ...(this.askOptions ?? []).flatMap((option, index) => {
         const selected = index === this.askActiveIndex;
         const marker = this.askMulti ? (this.askSelections.has(index) ? "[x] " : "[ ] ") : "";
-        return askOptionLines(selected ? this.accent("→ ") : "  ", { ...option, label: marker + option.label }, width,
+        return askOptionLines(selected ? this.accent("→ ") : "  ",
+          { label: marker + option.label, description: compact && !selected ? undefined : option.description }, width,
           selected ? { label: this.accent, description: this.accent } : { label: text => text, description: this.muted });
       }),
       ...wrapTextWithAnsi(this.muted(hint), width),
     ].map(line => truncateToWidth(line, width));
+    const full = lines(false);
+    return full.length <= height ? full : lines(true);
   }
 
   /** Enter on the list: the highlighted option, or every toggled option (the highlighted one if none). */

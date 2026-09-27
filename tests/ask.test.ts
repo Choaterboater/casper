@@ -202,6 +202,37 @@ test("a long question and long options wrap in full at 60 columns, below the mod
   } finally { session.close(); }
 });
 
+test("a question taller than the screen stays on screen: only the highlighted option keeps its description", async () => {
+  const question = "Which of these five approaches should the change take?";
+  const options = Array.from({ length: 5 }, (_, index) => ({ label: `Option ${index + 1}`,
+    description: `Explanation ${index + 1} of what this choice changes, long enough to wrap onto more rows at sixty columns.` }));
+  const session = interactiveTerminal();
+  const repaint = async (columns: number) => {
+    const repaints = session.screen.output.split(REPAINT).length;
+    session.screen.writer.columns = columns; session.screen.writer.rows = 20; session.screen.writer.emit("resize");
+    await session.screen.until(() => session.screen.output.split(REPAINT).length > repaints && lastFrame(session.screen.output).some(line => line.includes("skip")));
+    // The rows a 20-row terminal shows: the frame's last 20 lines.
+    return lastFrame(session.screen.output).slice(-20).map(line => line.trimEnd());
+  };
+  try {
+    session.terminal.setStatus("fixture"); session.terminal.start();
+    const answer = session.terminal.ask(question, options, false);
+    await session.screen.until(output => output.includes("skip"));
+    let visible = await repaint(60);
+    expect(visible).toContain(question);
+    expect(visible.join(" ").replace(/\s+/g, " ")).toContain(`→ Option 1 ${options[0]!.description}`);
+    expect(visible).toContain("  Option 2");
+    expect(visible.join(" ")).not.toContain("Explanation 2");
+    session.input.write("\x1b[B");
+    visible = await repaint(61);
+    expect(visible).toContain(question);
+    expect(visible.join(" ").replace(/\s+/g, " ")).toContain(`→ Option 2 ${options[1]!.description}`);
+    expect(visible.join(" ")).not.toContain("Explanation 1");
+    session.input.write("\r");
+    expect(await answer).toEqual(["Option 2"]);
+  } finally { session.close(); }
+});
+
 test("an asked question is recorded on its own line, not appended to the running ask tool line", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-ask-record-"));
   const home = path.join(root, "home");
