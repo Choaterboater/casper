@@ -393,3 +393,8 @@ export const HARD_PACK: readonly EvalTask[] = [
     conventions: [onlyEdits("src/", "tests/"), convention("limiter-in-place", { changed: ["src/limiter.ts"] })],
   }),
 ];
+
+/** Tasks for confirming the request checklist against Pi:
+ * 30-35 cases per task, all stated in the prompt as prose, several deliberate departures from a well-known
+ * convention, one hidden test per case. Calibrated on Pi only. */
+export const HARDER_PACK: readonly EvalTask[] = [];

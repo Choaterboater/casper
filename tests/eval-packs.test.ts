@@ -17,18 +17,31 @@ async function owned(prefix: string): Promise<string> {
 }
 const benchmark = EVAL_TASKS.filter((task) => task.pack);
 
-test("the benchmark has 9 core, 9 network and 6 hard tasks, each on its own fixture except the two notes-api tasks", () => {
-  expect(BENCHMARK_PACKS).toEqual(["core", "network", "hard"]);
+/** Harder tasks built so far; Tasks 2-7 each raise it by one, ending at 6. */
+const HARDER_BUILT = 0;
+
+test("the benchmark has 9 core, 9 network, 6 hard and 6 harder tasks, each on its own fixture except the two notes-api tasks", () => {
+  expect(BENCHMARK_PACKS).toEqual(["core", "network", "hard", "harder"]);
   expect(packTasks("core")).toHaveLength(9);
   expect(packTasks("network")).toHaveLength(9);
   expect(packTasks("hard")).toHaveLength(6);
-  expect(new Set(benchmark.map((task) => task.fixture)).size).toBe(23);
+  expect(packTasks("harder")).toHaveLength(HARDER_BUILT);
+  expect(new Set(benchmark.map((task) => task.fixture)).size).toBe(23 + HARDER_BUILT);
   // The lifecycle task shares the notes server on purpose; each task runs only its own hidden file.
   expect(benchmark.filter((task) => task.fixture === "notes-api").map((task) => [task.id, task.verify.at(-1)!.argv.slice(1).join(" ")]))
     .toEqual([["core-rest-validation", "test ./acceptance/create-note.test.ts"], ["core-service-lifecycle", "test ./acceptance/server-lifecycle.test.ts"]]);
   // The pre-benchmark catalog keeps its fixtures; packs never reuse them, so their numbers stay comparable.
   const legacy = new Set(EVAL_TASKS.filter((task) => !task.pack).map((task) => task.fixture));
   expect(benchmark.filter((task) => legacy.has(task.fixture))).toEqual([]);
+});
+
+test("every harder task states 30-35 cases: one hidden test each, under the checklist's 40-case cap", async () => {
+  for (const task of packTasks("harder")) {
+    const dir = path.join(repoRoot, "evals/fixtures", task.fixture, "acceptance");
+    let count = 0;
+    for (const file of await readdir(dir)) if (file.endsWith(".test.ts")) count += ((await Bun.file(path.join(dir, file)).text()).match(/^test\(/gm) ?? []).length;
+    expect({ task: task.id, count, inRange: count >= 30 && count <= 35 }).toEqual({ task: task.id, count, inRange: true });
+  }
 });
 
 test("a setup removal ending in / deletes that whole directory from the candidate", async () => {
