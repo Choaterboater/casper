@@ -219,12 +219,13 @@ test("20 [D] an ANY route matches every method, but a route for the exact method
   expect([r.route, r.name]).toEqual(["/n/:y<slug>", "get-slug"]);
 
   // The exact route only wins when it actually matches the path too: here the GET route's
-  // <int> constraint fails on "abc", so it never joins the ANY route's precedence group.
+  // pattern is "/n/y", which doesn't match the request path "/n/x" at all, so it never joins
+  // the ANY route's precedence group.
   const groupedNoMatch = new Router();
-  groupedNoMatch.add("ANY", "/n/:x<slug>", "any-slug");
-  groupedNoMatch.add("GET", "/n/:y<int>", "get-int");
-  const r2 = must200(groupedNoMatch.match("GET", "/n/abc"));
-  expect([r2.route, r2.name]).toEqual(["/n/:x<slug>", "any-slug"]);
+  groupedNoMatch.add("ANY", "/n/x", "any-x");
+  groupedNoMatch.add("GET", "/n/y", "get-y");
+  const r2 = must200(groupedNoMatch.match("GET", "/n/x"));
+  expect([r2.route, r2.name]).toEqual(["/n/x", "any-x"]);
 });
 
 test("21 HEAD uses the GET route when no HEAD route matches", () => {
@@ -240,12 +241,13 @@ test("21 HEAD uses the GET route when no HEAD route matches", () => {
   expect([r2.route, r2.name]).toEqual(["/b", "any-b"]);
 
   // The ANY route only blocks the GET fallback when it actually matches the path too: here its
-  // <int> constraint fails on "abc", so HEAD still falls back to the GET route that does match.
+  // pattern is "/n/x", which doesn't match the request path "/n/y" at all, so HEAD still falls
+  // back to the GET route that does match.
   const groupedNoMatch = new Router();
-  groupedNoMatch.add("ANY", "/n/:x<int>", "any-int");
-  groupedNoMatch.add("GET", "/n/:y<slug>", "get-slug");
-  const r3 = must200(groupedNoMatch.match("HEAD", "/n/abc"));
-  expect([r3.route, r3.name]).toEqual(["/n/:y<slug>", "get-slug"]);
+  groupedNoMatch.add("ANY", "/n/x", "any-x");
+  groupedNoMatch.add("GET", "/n/y", "get-y");
+  const r3 = must200(groupedNoMatch.match("HEAD", "/n/y"));
+  expect([r3.route, r3.name]).toEqual(["/n/y", "get-y"]);
 });
 
 test("22 a path matched for another method is status 405 with allow", () => {
