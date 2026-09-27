@@ -236,18 +236,18 @@ export function totalInvoice(invoice: Invoice): InvoiceTotals {
     const rateMilli = lineRateMilli ?? invoiceRateMilli;
 
     const isReturn = quantityMinor !== null && quantityMinor < 0n;
-    let ownDiscountMinor = 0n;
-    if (!isReturn) {
-      const parsed = parseDiscount(
-        line.discount,
-        `${prefix}.discount`,
-        resolvedDigits,
-        subtotalKnown,
-        subtotalMinor,
-        lineIssues,
-      );
-      ownDiscountMinor = parsed.minor;
-    }
+    // A return line's own discount is still validated (malformed/out-of-range/both-fields all still
+    // reported) exactly as on any line; only its "exceeds subtotal" check (which needs a sensible,
+    // non-negative basis) is skipped and its value is never applied, so subtotalKnown is forced false.
+    const parsedDiscount = parseDiscount(
+      line.discount,
+      `${prefix}.discount`,
+      resolvedDigits,
+      subtotalKnown && !isReturn,
+      subtotalMinor,
+      lineIssues,
+    );
+    const ownDiscountMinor = isReturn ? 0n : parsedDiscount.minor;
 
     const eligible = line.discountable !== false && quantityMinor !== null && quantityMinor >= 0n;
     lineWork.push({ id: line.id, quantityMinor, subtotalMinor, ownDiscountMinor, eligible, rateMilli });
