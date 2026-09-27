@@ -5,8 +5,9 @@ import type { TreeChanges } from "../task/changes";
 import { runCommandCheck } from "./command";
 import { isCodePath, isTestPath } from "./proof";
 
-/** One model call outside the task conversation. `usage` is null when the provider reported none. */
-export type AcceptanceCompletion = (input: { systemPrompt: string; user: string; signal?: AbortSignal }) => Promise<{
+/** One model call outside the task conversation. `effort` and `maxTokens`, when given, override the
+ * session's effort and cap the answer. `usage` is null when the provider reported none. */
+export type AcceptanceCompletion = (input: { systemPrompt: string; user: string; signal?: AbortSignal; effort?: string; maxTokens?: number }) => Promise<{
   text: string;
   /** Set when the call failed or was aborted; `text` is then ignored. */
   error?: string;
@@ -19,6 +20,9 @@ export interface AcceptanceResult {
   reason?: string;
   /** Tail of the test run's output when it failed. */
   output?: string;
+  /** The failing tests' names (each quotes a requirement), parsed from the run's output. Set only on a
+   * fail that named at least one test. */
+  unconfirmed?: string[];
   /** Zero when no model call ran; null when the provider reported none. */
   usage: { tokens: number; estimatedCost: number } | null;
 }
@@ -30,6 +34,11 @@ const FILE_LIMIT = 16 * 1024;
 const CODE_BUDGET = 48 * 1024;
 const EXAMPLE_LIMIT = 8 * 1024;
 const OUTPUT_TAIL = 4000;
+const NAME_LIMIT = 200;
+const NAME_COUNT = 20;
+/** The acceptance answer is one test file: a low-effort call with a capped answer is enough. */
+const EFFORT = "low";
+const MAX_TOKENS = 24_000;
 const EXTENSIONS = [".ts", ".tsx", ".js", ".mjs", ".cjs", ".py"];
 
 const clip = (text: string, limit: number) => text.length > limit ? `${text.slice(0, limit)}\n… (truncated)` : text;
@@ -43,6 +52,25 @@ export function acceptanceTarget(files: Iterable<string>, hex: string): { relati
   const ext = EXTENSIONS.includes(found) ? found : ".ts";
   const name = ext === ".py" ? `test_casper_acceptance_${hex}.py` : `casper-acceptance-${hex}.test${ext}`;
   return { relative: path.posix.join(testDir, name), testDir };
+}
+
+/** Failing-test lines by runner: bun `(fail) name [1.2ms]`, jest/vitest `✕ name (3 ms)` / `× name 3ms`,
+ * pytest `FAILED path::name - reason`. Each captures the name without its timing or reason. */
+const FAILED_TEST_LINES = [
+  /^\s*\(fail\)\s+(.+?)(?:\s+\[[\d.]+\s*m?s\])?\s*$/,
+  /^\s*[✕×]\s+(.+?)(?:\s+\(\d+(?:\.\d+)?\s*m?s\)|\s+\d+(?:\.\d+)?\s*m?s)?\s*$/,
+  /^\s*FAILED\s+\S+?::(.+?)(?:\s+-\s.*)?\s*$/,
+];
+
+/** The failing test names in a run's output, in order: deduplicated, each ≤ 200 characters, at most 20. */
+export function failedTestNames(output: string): string[] {
+  const names = new Set<string>();
+  for (const line of output.replace(/\x1b\[[0-9;]*m/g, "").split(/\r?\n/)) {
+    const name = FAILED_TEST_LINES.map((pattern) => pattern.exec(line)?.[1]).find(Boolean)?.trim().slice(0, NAME_LIMIT);
+    if (name) names.add(name);
+    if (names.size === NAME_COUNT) break;
+  }
+  return [...names];
 }
 
 export async function independentAcceptance(input: {
@@ -80,7 +108,7 @@ export async function independentAcceptance(input: {
   }
   sections.push(`Your file will be saved as ${relative} and run with: ${input.testCommand} ./${relative}`);
 
-  const answer = await input.complete({ systemPrompt: ACCEPTANCE_SYSTEM_PROMPT, user: sections.join("\n\n"), signal: input.signal });
+  const answer = await input.complete({ systemPrompt: ACCEPTANCE_SYSTEM_PROMPT, user: sections.join("\n\n"), signal: input.signal, effort: EFFORT, maxTokens: MAX_TOKENS });
   const usage = answer.usage;
   if (answer.error !== undefined) return { status: "error", reason: `the acceptance model call failed: ${answer.error}`, usage };
   const body = /```[a-zA-Z]*\n([\s\S]*?)```/.exec(answer.text)?.[1];
@@ -95,7 +123,9 @@ export async function independentAcceptance(input: {
     const result = await runCommandCheck({ name: "test", command: `${input.testCommand} ./${relative}`, cwd: input.root, timeoutMs: input.timeoutMs, signal: input.signal });
     if (result.exitCode === null) return { status: "error", reason: `the acceptance tests did not finish (${(result.reason ?? "no exit status").replace(/\.$/, "")})`, usage };
     if (result.exitCode === 0) return { status: "pass", usage };
-    return { status: "fail", output: `${result.stdout}\n${result.stderr}`.slice(-OUTPUT_TAIL), usage };
+    const output = `${result.stdout}\n${result.stderr}`;
+    const unconfirmed = failedTestNames(output);
+    return { status: "fail", output: output.slice(-OUTPUT_TAIL), ...(unconfirmed.length ? { unconfirmed } : {}), usage };
   } finally {
     await rm(createdDirectory ? directory : target, { recursive: true, force: true });
   }

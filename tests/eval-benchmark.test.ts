@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { isolatedEnvironment } from "../src/platform/environment";
@@ -406,6 +406,31 @@ test("a job that cannot run is a recorded failure, and the other jobs still fini
   });
   expect(result.runs.map((run) => run.harness)).toEqual(["casper"]);
   expect(result.failures).toEqual([{ taskId: task.id, harness: "pi", repeat: 1, error: "Invalid harness input" }]);
+}, 120_000);
+
+test("--stop-when-decided: once the rule cannot be met no job starts, a running one is killed and dropped; kept workspaces skip node_modules", async () => {
+  const task = findEvalTask("core-log-parser")!;
+  const scratch = await mkdtemp(path.join(os.tmpdir(), "casper-bench-stop-"));
+  cleanup.push(() => rm(scratch, { recursive: true, force: true }));
+  const state = path.join(scratch, "state");
+  const keep = path.join(scratch, "kept");
+  const started = performance.now();
+  // One wrong run with a verified receipt: 0 caught of 1, and at most 2 more cannot reach 70%.
+  const result = await runBenchmark({
+    repoRoot, tasks: [task], harnesses: ["casper"], commands: { casper: [process.execPath, path.join(import.meta.dir, "fixtures/eval-stop-cli.ts"), state] },
+    model: "test/model", effort: "medium", repeat: 3, concurrency: 2, timeoutMs: 60_000, verifyTimeoutMs: 60_000, stopWhenDecided: "casper", keepWorkspaces: keep,
+  });
+  expect(performance.now() - started).toBeLessThan(45_000);
+  expect(result.stopped).toEqual({ reason: "casper: core: caught 0/1 cannot reach 70%", afterRuns: 1 });
+  expect({ runs: result.runs.length, failures: result.failures }).toEqual({ runs: 1, failures: [] });
+  // The third job never started; the second was killed with its process tree.
+  const hung = (await readdir(state)).filter((name) => name.startsWith("hung-"));
+  expect(hung.length).toBe(1);
+  expect(() => process.kill(Number(hung[0]!.slice("hung-".length)), 0)).toThrow();
+  const [run] = result.runs;
+  expect(run!.workspace).toBe(path.join(keep, `${task.id}-casper-${run!.repeat}`));
+  expect(await readFile(path.join(run!.workspace!, "src/stopper-note.ts"), "utf8")).toBe("export const note = 1;\n");
+  expect(await readdir(run!.workspace!)).not.toContain("node_modules");
 }, 120_000);
 
 test("tools/eval.ts --harness runs the benchmark, prints the rubric table and saves one new results document", async () => {

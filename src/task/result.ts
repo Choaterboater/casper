@@ -57,9 +57,10 @@ export interface TaskResult {
   proof?: ChangeProof;
   /** The model's requirements checklist (its own claim). Admitted open items make the change not verified. */
   review?: RequirementsReview;
-  /** Tests written from the request alone and run against the change (verification.acceptance). A failure
-   * makes the change not verified; the check never repairs and its test file is never kept. */
-  acceptance?: Omit<AcceptanceResult, "usage">;
+  /** Tests written from the request alone and run against the change (verification.acceptance). In
+   * `verdict` mode (`true`) a failure makes the change not verified; in `warn` mode it only names what
+   * is unconfirmed. The check never repairs and its test file is never kept. */
+  acceptance?: Omit<AcceptanceResult, "usage"> & { mode: "verdict" | "warn" };
   /** The session's managed services at the end of the task (the origin while starting or ready). */
   services?: Array<{ name: string; origin?: string; state: ServiceState }>;
 }
@@ -82,7 +83,7 @@ export function taskOutcome(report?: VerificationReport, task?: TaskResult): Tas
     const admittedGaps = Boolean(task?.review && "open" in task.review && task.review.open.length);
     // Smoke alone verifies only with evidence: a model check that passed before the change is an observation.
     const observationsOnly = !verification!.results.length && !verification!.smoke?.checks.some((check) => check.evidence);
-    const rejected = task?.acceptance?.status === "fail";
+    const rejected = task?.acceptance?.status === "fail" && task.acceptance.mode === "verdict";
     return stale || task?.proof?.status === "unproven" || admittedGaps || observationsOnly || rejected ? "not_verified" : "verified";
   }
   const changed = Boolean(task?.changedPaths?.length || task?.changedDuringChecks?.length || (!task?.changedPaths && task?.possibleMutations));
@@ -258,7 +259,11 @@ function reviewLine(review: RequirementsReview, safe: (text: string) => string):
 
 function acceptanceLine(acceptance: NonNullable<TaskResult["acceptance"]>, safe: (text: string) => string): string {
   if (acceptance.status === "pass") return "✓ Independent acceptance: tests written from the request alone pass";
-  if (acceptance.status === "fail") return "✗ Independent acceptance: tests written from the request alone fail";
+  const names = acceptance.unconfirmed?.map(safe).join("; ");
+  if (acceptance.status === "fail" && acceptance.mode === "warn") {
+    return names ? `⚠ Not confirmed by tests written from the request: ${names}` : "⚠ Independent acceptance: tests written from the request alone fail";
+  }
+  if (acceptance.status === "fail") return `✗ Independent acceptance: tests written from the request alone fail${names ? `: ${names}` : ""}`;
   return `• Independent acceptance not run: ${safe(acceptance.reason ?? "unknown reason")}`;
 }
 

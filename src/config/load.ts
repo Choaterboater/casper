@@ -440,13 +440,13 @@ export async function loadConfiguration(
   let mode: VerificationMode | undefined;
   let checks: ProjectCommand[] | undefined;
   let review: boolean | undefined;
-  let acceptance: boolean | undefined;
+  let acceptance: boolean | "warn" | undefined;
   for (const document of [globalDocument, profileDocument, projectDocument]) {
     const reviewSetting = isMapping(document.verification) ? document.verification.review : undefined;
     if (reviewSetting !== undefined && typeof reviewSetting !== "boolean") throw new Error("verification.review must be true or false");
     review = reviewSetting ?? review;
     const acceptanceSetting = isMapping(document.verification) ? document.verification.acceptance : undefined;
-    if (acceptanceSetting !== undefined && typeof acceptanceSetting !== "boolean") throw new Error("verification.acceptance must be true or false");
+    if (acceptanceSetting !== undefined && typeof acceptanceSetting !== "boolean" && acceptanceSetting !== "warn") throw new Error("verification.acceptance must be true, false or warn");
     acceptance = acceptanceSetting ?? acceptance;
     timeoutMs = boundedSetting(document, "verification", "timeoutMs", timeoutMs, 1, 3_600_000);
     const selection = verificationSelection(document);

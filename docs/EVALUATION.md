@@ -282,6 +282,41 @@ to reach 70%, or when a cost ratio is over 1.25×. Cost ratios count as final be
 same extra work. The cross-model run (docs/evals/2026-09-27-cross-model-acceptance.md) could have stopped
 after its first 24 runs.
 
+**Stopping inside a run.** `--stop-when-decided <harness>` applies the same test after every finished run of a
+benchmark: per pack, that Casper harness's receipt cell over the runs so far (Pi's runs of the pack for the cost
+ratios) against its jobs not yet finished. Cost ratios count only once every task of the pack has at least one run
+of both the harness and Pi; before that a median compares different tasks. When any pack is decided, no new job
+starts, running jobs are killed with their process trees and dropped (never scored, whatever state they reached),
+the results document records `stopped: { reason, afterRuns }`, the console prints the reason and the exit code is 3.
+
+**Keeping workspaces.** `--keep-workspaces <dir>` copies each run's graded tree (the one the rubric read, before
+any follow-up, without `node_modules`) to `<dir>/<task>-<harness>-<repeat>/` and records it as the run's
+`workspace`. An infrastructure rerun replaces its first attempt's copy. The results document redacts paths under
+the home and temp directories (`<home>/…`, `<tmp>/…`); the replay restores them.
+
+**Replaying the acceptance check.** `bun tools/eval.ts --replay <results.json> [--replay <more>] --json <out>`
+reruns Casper's independent acceptance check (`src/verify/acceptance.ts`) on those kept trees, with no coding runs,
+so a change to the check is measured against the same wrong and right changes. For each Casper-protocol run with a
+`workspace` it copies the tree to a temporary directory (with the unsolved start's `node_modules`), diffs it
+against the unsolved start (`prepareWorkdir`), reads the test command from the tree's `.casper/project.yaml`
+(`verify.test`) and runs the check with the task's prompt as the request. The model is each document's own (with
+its recorded OpenRouter hosts), or `--acceptance-model <ref>` / `--model <ref>` with `--acceptance-route` /
+`--route` for an OpenRouter model; credentials and model configuration are Casper's own store's. Checks run six at
+a time (`--concurrency`); `--timeout` bounds each test run.
+
+Only a verified receipt can change, so only scored runs (not infrastructure, not timed out) whose receipt was
+`verified` are checked; the rest keep their receipt. A saved `not_verified` that came with a failed acceptance check
+of the run's own (`casper-acceptance`) counts as `verified` before the replayed check replaces it. A run whose tree
+has no test command or no code change is not checked. The replayed outcome is `not_verified` when the receipt was
+verified and the check failed, else the receipt. The replay prints the receipt-honesty counts for the replayed
+outcomes per pack and harness, the checks' pass/fail/error counts, their median time and tokens, and **est.
+wall×Pi**: the median over runs of (saved wall − the run's own `acceptance` phase + the replayed check's time), over
+Pi's median wall on the same tasks in the same documents. It is an estimate: the check never ran inside those runs.
+`--stop-when-decided` (no harness) stops once every replayed pack and harness is decided on caught and flagged
+(the replay has no cost ratio of its own): checks still running are aborted and dropped, `stopped` is recorded and
+the exit code is 3. The document (`kind: "acceptance-replay"`) keeps every replayed run with the grader's verdict,
+the saved receipt, the check's status, unconfirmed tests, output tail, usage and time, and the replayed outcome.
+
 `hard-conditional-http` is a server task: `docs-api` declares `services.api` and a `GET /docs/1`
 smoke check like `notes-api`, so Phase 6's smoke checks take part.
 

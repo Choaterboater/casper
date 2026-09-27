@@ -1,4 +1,4 @@
-import { copyFile, lstat, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { copyFile, cp, lstat, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { isolatedEnvironment } from "../src/platform/environment";
@@ -72,6 +72,8 @@ export interface BenchmarkRun {
   /** The attempt this run replaced: it ended on provider errors alone, so the job ran once more,
    * fresh. Kept as evidence; never scored. */
   infraAttempt?: HarnessObservation;
+  /** `--keep-workspaces`: the copy of the tree the first attempt left (the one the rubric read), without node_modules. */
+  workspace?: string;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -312,13 +314,21 @@ export interface BenchmarkOptions {
   route?: readonly string[];
   /** casper-acceptance-cross's acceptance-test model (HarnessInput.acceptanceModel). */
   acceptanceModel?: HarnessInput["acceptanceModel"];
+  /** Copy each run's graded tree to `<keepWorkspaces>/<taskId>-<harness>-<repeat>/` (BenchmarkRun.workspace). */
+  keepWorkspaces?: string;
+  /** Stop once this receipt harness's rule is decided (`decidedReasons`): no new jobs start, running ones are killed and dropped. */
+  stopWhenDecided?: HarnessName;
   onRun?(run: BenchmarkRun): void;
   onFailure?(failure: BenchmarkFailure): void;
 }
 
+/** Why a benchmark stopped early, after how many scored runs. */
+export interface BenchmarkStop { reason: string; afterRuns: number }
+
 /** Every repeat of every task on every harness. Both harnesses of one task run next to each other,
- * so they meet the same provider conditions. Results come back in job order. */
-export async function runBenchmark(options: BenchmarkOptions): Promise<{ runs: BenchmarkRun[]; failures: BenchmarkFailure[] }> {
+ * so they meet the same provider conditions. Results come back in job order. With `stopWhenDecided`,
+ * a job finishing after the stop is dropped whatever its state: only runs scored before it count. */
+export async function runBenchmark(options: BenchmarkOptions): Promise<{ runs: BenchmarkRun[]; failures: BenchmarkFailure[]; stopped?: BenchmarkStop }> {
   if (options.tasks.some((task) => !task.pack)) throw new Error("Benchmark tasks must belong to a pack");
   if (!Number.isSafeInteger(options.repeat) || options.repeat < 1 || !Number.isSafeInteger(options.concurrency) || options.concurrency < 1) {
     throw new Error("Repeat and concurrency must be positive integers");
@@ -333,23 +343,38 @@ export async function runBenchmark(options: BenchmarkOptions): Promise<{ runs: B
   };
   const runs: Array<BenchmarkRun | undefined> = [];
   const failures: Array<BenchmarkFailure | undefined> = [];
+  const finished: boolean[] = [];
+  const controller = new AbortController();
+  let stopped: BenchmarkStop | undefined;
   let next = 0;
   await Promise.all(Array.from({ length: Math.min(options.concurrency, jobs.length) }, async () => {
-    while (next < jobs.length) {
+    while (next < jobs.length && !stopped) {
       const index = next++;
       const { task, harness, repeat } = jobs[index]!;
       try {
-        const run = await runJob(options, task, harness, repeat, reference);
+        const run = await runJob(options, task, harness, repeat, reference, controller.signal);
+        if (stopped) continue;
         runs[index] = run;
         options.onRun?.(run);
       } catch (error) {
+        if (stopped) continue;
         const failure = { taskId: task.id, harness, repeat, error: error instanceof Error ? error.message : String(error) };
         failures[index] = failure;
         options.onFailure?.(failure);
       }
+      finished[index] = true;
+      const decider = options.stopWhenDecided;
+      if (!decider) continue;
+      const remaining = (pack: EvalPack) => jobs.filter((job, position) => !finished[position] && job.harness === decider && job.task.pack === pack).length;
+      const reasons = decidedReasons(runs.filter((run) => run !== undefined), decider, options.tasks, remaining);
+      if (!reasons.length) continue;
+      stopped = { reason: `${decider}: ${reasons.join("; ")}`, afterRuns: runs.filter((run) => run !== undefined).length };
+      controller.abort(new Error("The benchmark was decided"));
     }
   }));
-  return { runs: runs.filter((run) => run !== undefined), failures: failures.filter((failure) => failure !== undefined) };
+  return {
+    runs: runs.filter((run) => run !== undefined), failures: failures.filter((failure) => failure !== undefined), ...(stopped ? { stopped } : {}),
+  };
 }
 
 const MAX_FAILURE_REPORT = 6000;
@@ -367,15 +392,16 @@ export function followUpPrompt(graded: EvalRunResult): string {
 
 /** One job, rerun once from a fresh workspace and home when it ended on provider errors alone. */
 async function runJob(options: BenchmarkOptions, task: EvalTask, harness: HarnessName, repeat: number,
-  reference: (task: EvalTask) => Promise<ReferenceBaseline>): Promise<BenchmarkRun> {
-  const first = await runAttempt(options, task, harness, repeat, reference);
+  reference: (task: EvalTask) => Promise<ReferenceBaseline>, signal: AbortSignal): Promise<BenchmarkRun> {
+  const first = await runAttempt(options, task, harness, repeat, reference, signal);
   if (!isInfrastructureRun(first)) return first;
-  const rerun = await runAttempt(options, task, harness, repeat, reference);
+  const rerun = await runAttempt(options, task, harness, repeat, reference, signal);
   return { ...rerun, ...(isInfrastructureRun(rerun) ? { infra: true as const } : {}), infraAttempt: first.run };
 }
 
 async function runAttempt(options: BenchmarkOptions, task: EvalTask, harness: HarnessName, repeat: number,
-  reference: (task: EvalTask) => Promise<ReferenceBaseline>): Promise<BenchmarkRun> {
+  reference: (task: EvalTask) => Promise<ReferenceBaseline>, signal: AbortSignal): Promise<BenchmarkRun> {
+  signal.throwIfAborted();
   const { root, workdir } = await prepareEvalTask(task, options.repoRoot);
   const limit = options.followUps ?? 0;
   if (!Number.isSafeInteger(limit) || limit < 0 || limit > 2) throw new Error("Follow-ups must be 0, 1 or 2");
@@ -389,7 +415,7 @@ async function runAttempt(options: BenchmarkOptions, task: EvalTask, harness: Ha
         command: options.commands[harness] ?? (harnessProtocol(harness) === "casper" ? options.commands.casper : undefined) ?? [],
         cwd: workdir, prompt, model: options.model, effort: options.effort,
         timeoutMs: options.timeoutMs, seed: options.seed, session: session(resume), ...(options.route?.length ? { route: options.route } : {}),
-        ...(options.acceptanceModel ? { acceptanceModel: options.acceptanceModel } : {}),
+        ...(options.acceptanceModel ? { acceptanceModel: options.acceptanceModel } : {}), signal,
       });
       const observation: EvalObservation = {
         startedAt, wallClockMs: run.wallClockMs, execution: run.termination === "completed" ? "completed" : "failed",
@@ -411,7 +437,15 @@ async function runAttempt(options: BenchmarkOptions, task: EvalTask, harness: Ha
     // The rubric reads the tree the first attempt left, before any follow-up changes it.
     const evidence = await measureQuality({ task, repoRoot: options.repoRoot, workdir, graded: first.graded, run: first.run,
       reference: await reference(task), timeoutMs: options.verifyTimeoutMs });
-    const result: BenchmarkRun = { taskId: task.id, pack: task.pack!, harness, repeat, run: first.run, graded: first.graded, evidence, score: scoreQuality(evidence) };
+    const workspace = options.keepWorkspaces ? path.join(options.keepWorkspaces, `${task.id}-${harness}-${repeat}`) : undefined;
+    if (workspace) {
+      // An infrastructure rerun replaces its first attempt's copy.
+      await rm(workspace, { recursive: true, force: true });
+      await cp(workdir, workspace, { recursive: true, verbatimSymlinks: true, filter: (source) => !path.relative(workdir, source).split(path.sep).includes("node_modules") });
+    }
+    const result: BenchmarkRun = {
+      taskId: task.id, pack: task.pack!, harness, repeat, run: first.run, graded: first.graded, evidence, score: scoreQuality(evidence), ...(workspace ? { workspace } : {}),
+    };
     if (!limit) return result;
 
     const attempts = [record(0, first)];
@@ -551,7 +585,7 @@ function wilson(successes: number, total: number): [number, number] | null {
 }
 
 /** `piRuns` are Pi's runs in the same pack; the cost ratios compare only the tasks both harnesses ran. */
-function receiptCell(harness: HarnessName, all: readonly BenchmarkRun[], piRuns: readonly BenchmarkRun[]): ReceiptCell {
+export function receiptCell(harness: HarnessName, all: readonly BenchmarkRun[], piRuns: readonly BenchmarkRun[]): ReceiptCell {
   const runs = all.filter((run) => !isInfrastructureRun(run));
   const timeouts = runs.filter((run) => run.run.termination === "timeout").length;
   const scored = runs.filter((run) => run.run.termination !== "timeout" && run.run.receiptOutcome !== null);
@@ -600,6 +634,21 @@ export function futility(cell: ReceiptCell, remaining: number): string[] {
     if (value !== null && value > RULE.cost) reasons.push(`${name} ${value.toFixed(2)}× Pi > ${RULE.cost}×`);
   }
   return reasons;
+}
+
+/** The in-run stopper (`stopWhenDecided`): per pack of `tasks`, why `harness`'s rule can no longer be met given its
+ * finished `runs` and `remaining(pack)` jobs still to finish; empty while every pack can. Cost ratios count only once
+ * every task of the pack has a run of both the harness and Pi: before that a median compares different tasks. */
+export function decidedReasons(runs: readonly BenchmarkRun[], harness: HarnessName, tasks: readonly EvalTask[], remaining: (pack: EvalPack) => number): string[] {
+  return [...new Set(tasks.flatMap((task) => task.pack ? [task.pack] : []))].flatMap((pack) => {
+    const own = runs.filter((run) => run.pack === pack && run.harness === harness);
+    if (!own.length) return [];
+    const pi = runs.filter((run) => run.pack === pack && run.harness === "pi");
+    const costKnown = tasks.filter((task) => task.pack === pack)
+      .every((task) => own.some((run) => run.taskId === task.id) && pi.some((run) => run.taskId === task.id));
+    const cell = receiptCell(harness, own, pi);
+    return futility(costKnown ? cell : { ...cell, wallRatio: null, tokenRatio: null }, remaining(pack)).map((reason) => `${pack}: ${reason}`);
+  });
 }
 
 const HARNESSES = HARNESS_NAMES;
@@ -716,7 +765,7 @@ const tokensText = (value: number) => value >= 1000 ? `${Math.round(value / 1000
 const costText = (value: number) => `$${value < 0.1 ? value.toFixed(4) : value.toFixed(2)}`;
 const percent = (value: number) => `${Math.round(value * 100)}%`;
 
-function table(rows: readonly (readonly string[])[]): string {
+export function table(rows: readonly (readonly string[])[]): string {
   const widths = rows[0]!.map((_, column) => Math.max(...rows.map((row) => row[column]!.length)));
   return rows.map((row) => row.map((value, column) => column === row.length - 1 ? value : value.padEnd(widths[column]!)).join("  ").trimEnd()).join("\n");
 }
@@ -766,15 +815,21 @@ function breakEven(names: [HarnessName, HarnessName], a: ReworkCell, b: ReworkCe
   return even <= 0 ? `${lead} at any person time` : `${lead} when a follow-up takes a person more than ${(even / 1000).toFixed(0)} s`;
 }
 
-const RECEIPT_HEADER = ["harness", "runs", "timeouts", "no receipt", "caught", "flagged", "false-verified", "wall×Pi", "tokens×Pi", "rule"];
+export const RECEIPT_COUNTS_HEADER = ["harness", "runs", "timeouts", "no receipt", "caught", "flagged", "false-verified"];
+const RECEIPT_HEADER = [...RECEIPT_COUNTS_HEADER, "wall×Pi", "tokens×Pi", "rule"];
 
-function receiptRow(value: ReceiptCell): string[] {
+/** The receipt-honesty counts (RECEIPT_COUNTS_HEADER), shared with the acceptance replay's table. */
+export function receiptCounts(value: ReceiptCell): string[] {
   const share = (count: number, total: number) => total ? `${count}/${total} ${percent(count / total)}` : "–";
   const interval = value.catchInterval ? ` (${Math.round(value.catchInterval[0] * 100)}–${percent(value.catchInterval[1])})` : "";
+  return [value.harness, String(value.runs), String(value.timeouts), String(value.noReceipt), `${share(value.caught, value.wrong)}${interval}`,
+    share(value.flagged, value.right), share(value.verifiedWrong, value.verified)];
+}
+
+function receiptRow(value: ReceiptCell): string[] {
   const ratio = (number: number | null) => number === null ? "–" : number.toFixed(2);
   const rule = value.rule ? `${value.rule.verdict}${value.rule.reasons.length ? `: ${value.rule.reasons.join(", ")}` : ""}` : "–";
-  return [value.harness, String(value.runs), String(value.timeouts), String(value.noReceipt), `${share(value.caught, value.wrong)}${interval}`,
-    share(value.flagged, value.right), share(value.verifiedWrong, value.verified), ratio(value.wallRatio), ratio(value.tokenRatio), rule];
+  return [...receiptCounts(value), ratio(value.wallRatio), ratio(value.tokenRatio), rule];
 }
 
 /** One table per pack: every task × harness, then the pack total per harness. Numbers are the

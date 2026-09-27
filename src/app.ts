@@ -781,14 +781,18 @@ export class CasperApp {
           this.events.ensureLineBreak();
           this.output.write(`… Casper checking: ${pending.join(", ")}\n`);
           verification = await this.runVerification(autoChecks.run, true, prompt, this.checkTask);
-          if (proving && verification.status === "pass" && before && afterModel && changesCode(diffSnapshots(before, afterModel))) {
+          const changedCode = Boolean(before && afterModel && changesCode(diffSnapshots(before, afterModel)));
+          if (proving && verification.status === "pass" && changedCode) {
             const initialReview = parseChecklist(this.lastAnswer);
             ({ verification, proof, review } = await this.finishChange({ baseline, baselineUnavailable, before: before!, root: workspaceRoot,
               command: testCommand!, request: prompt, checks: autoChecks.run, verification, session, initialReview }));
-            if (context.verification.acceptance === true && verification.status === "pass" && proof?.status !== "unproven"
-              && !this.closing && !this.commandAbort?.signal.aborted && !this.taskRuntimeFailed && this.taskTurnLimit === undefined) {
-              acceptance = await this.acceptChange({ session, before: before!, root: workspaceRoot, command: testCommand!, request: prompt });
-            }
+          }
+          // Not tied to the proof: any code change whose checks pass (server tasks and configure requests too).
+          const acceptanceMode = context.verification.acceptance;
+          if ((acceptanceMode === true || acceptanceMode === "warn") && testCommand && changedCode && verification.status === "pass" && proof?.status !== "unproven"
+            && !this.closing && !this.commandAbort?.signal.aborted && !this.taskRuntimeFailed && this.taskTurnLimit === undefined) {
+            acceptance = await this.acceptChange({ session, before: before!, root: workspaceRoot, command: testCommand, request: prompt,
+              mode: acceptanceMode === "warn" ? "warn" : "verdict" });
           }
         }
       } else if (!stopped && this.checkTask && (this.checkTask.checks.length || this.smokeTask?.recordedCount)) {
@@ -840,11 +844,13 @@ export class CasperApp {
 
   /** verification.acceptance: tests written from the request alone by a separate model call, run once
    * against the change and removed. Signal only: no repair, nothing kept; its usage joins the task's. */
-  private async acceptChange(input: { session: RuntimeSession; before: Map<string, string>; root: string; command: string; request: string }): Promise<TaskResult["acceptance"]> {
+  private async acceptChange(input: { session: RuntimeSession; before: Map<string, string>; root: string; command: string; request: string;
+    mode: NonNullable<TaskResult["acceptance"]>["mode"] }): Promise<TaskResult["acceptance"]> {
+    const { mode } = input;
     const complete = input.session.complete?.bind(input.session);
-    if (!complete) return { status: "error", reason: "this runtime cannot make a separate model call" };
+    if (!complete) return { status: "error", reason: "this runtime cannot make a separate model call", mode };
     const now = await this.snapshotWorkspace(input.root);
-    if (!now) return { status: "error", reason: "Casper could not compare the workspace" };
+    if (!now) return { status: "error", reason: "Casper could not compare the workspace", mode };
     this.events.ensureLineBreak();
     this.output.write("… Casper checking the change against tests written from the request alone\n");
     this.onEvent?.(phaseEvent("acceptance", "start"));
@@ -852,12 +858,12 @@ export class CasperApp {
       const { usage, ...result } = await independentAcceptance({ complete, request: input.request, root: input.root, changes: diffSnapshots(input.before, now),
         files: now, testCommand: input.command, timeoutMs: this.projectContext!.verification.timeoutMs, signal: this.commandAbort?.signal });
       this.observations.recordModelCall(usage);
-      return result;
+      return { ...result, mode };
     } catch (error) {
       if (this.commandAbort?.signal.aborted) throw error;
       // The call may have reached the provider: its usage is unknown.
       this.observations.recordUntrackedModelUse();
-      return { status: "error", reason: `the acceptance check failed: ${error instanceof Error ? error.message : String(error)}` };
+      return { status: "error", reason: `the acceptance check failed: ${error instanceof Error ? error.message : String(error)}`, mode };
     } finally { this.onEvent?.(phaseEvent("acceptance", "end")); }
   }
 

@@ -360,8 +360,9 @@ export class PiModels {
 
   /** A one-off request outside the transcript: the configured `review` role's model when set (so a check can
    * come from a different model than the one that did the work), else the conversation's; effort is the
-   * role's suffix, else the conversation's, mapped to what the model supports. */
-  async complete(session: AgentSession, input: { systemPrompt: string; user: string; signal?: AbortSignal }): Promise<{ text: string; error?: string; usage: { tokens: number; estimatedCost: number } | null }> {
+   * caller's `effort` when given, else the role's suffix, else the conversation's, mapped to what the model
+   * supports. `maxTokens` caps the answer. */
+  async complete(session: AgentSession, input: { systemPrompt: string; user: string; signal?: AbortSignal; effort?: string; maxTokens?: number }): Promise<{ text: string; error?: string; usage: { tokens: number; estimatedCost: number } | null }> {
     const none = { tokens: 0, estimatedCost: 0 };
     const roles = this.getRoles();
     const role = roles.review ? resolveModelSelection("@review", this.catalog.getModels(), roles, this.defaultReference()) : undefined;
@@ -370,12 +371,13 @@ export class PiModels {
     if (role && (this.staleAuth.has(model.provider) || !this.catalog.hasConfiguredAuth(model.provider))) {
       return { text: "", error: `credentials missing for the review model's provider ${model.provider}`, usage: none };
     }
-    const requested = role?.effort && role.effort !== "auto" ? role.effort : session.thinkingLevel;
+    const requested = input.effort ?? (role?.effort && role.effort !== "auto" ? role.effort : session.thinkingLevel);
     const level = requested && requested !== "off" ? nearestEffort(requested, getSupportedThinkingLevels(model)) : undefined;
     const response = await this.catalog.completeSimple(model, {
       systemPrompt: input.systemPrompt,
       messages: [{ role: "user", content: input.user, timestamp: Date.now() }],
-    }, { signal: input.signal, toolChoice: "none", ...(level && level !== "off" ? { reasoning: level } : {}) });
+    }, { signal: input.signal, toolChoice: "none", ...(level && level !== "off" ? { reasoning: level } : {}),
+      ...(input.maxTokens !== undefined ? { maxTokens: input.maxTokens } : {}) });
     const usage = response.usage;
     const cost = usage?.cost?.total;
     const reported = usage && Number.isFinite(usage.totalTokens) ? { tokens: usage.totalTokens, estimatedCost: Number.isFinite(cost) && cost! >= 0 ? cost! : 0 } : null;
