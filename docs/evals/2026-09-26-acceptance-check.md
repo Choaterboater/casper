@@ -5,7 +5,7 @@ the bar is 70%), flagged 29 of 87 right runs (33%; the limit is 20%), and took 1
 (the limit is 1.25×). Tokens were 1.01× Pi. `verification.acceptance` stays off by default, and the
 check stays in the code as an experiment.
 
-Design and pre-registration: `local://casper-acceptance-plan.md`. Owner decision the same day: Casper
+Pre-registration: the rule and volume were fixed before the run, in `.scratch/acceptance/decision/run.sh`. Owner decision the same day: Casper
 stays its own product, so the check was built into standalone Casper (`src/verify/acceptance.ts`) and not
 into a Pi extension. The check makes one separate model call with the same model and effort. The model
 writes one test file from the request alone (it also sees `CONTEXT.md`/`AGENTS.md`, the changed code and
