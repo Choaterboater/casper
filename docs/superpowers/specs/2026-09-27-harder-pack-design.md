@@ -36,8 +36,11 @@ from existing packs. The structure is the hard pack's (docs/EVALUATION.md, "Qual
 
 What makes it harder (approach A, chosen by the owner):
 
-1. **20-30 stated cases per task**, against 8-12 in the hard pack. A case is one concrete behavior: an input and
-   its output, an error and its exact message, a boundary, an order, a format.
+1. **30-35 stated cases per task.** The hard pack's prompts already state roughly 12-22 each (`hard-job-queue`
+   about 22), and Pi handles those, so fewer than 30 would not be harder. 35 is a ceiling: the checklist keeps at
+   most 40 cases (`CASE_COUNT` in src/task/checklist.ts), and a task near that cap would measure the cap, not the
+   checklist. A case is one concrete behavior: an input and its output, an error and its exact message, a
+   boundary, an order, a format.
 2. **Every case is stated in the prompt.** The checklist call sees only the request (it does not read project
    files), so a case stated only in a file would test a different design. `CONTEXT.md` holds project rules
    (layout, no new dependencies, `tests/` conventions), not behavior cases.
@@ -47,7 +50,8 @@ What makes it harder (approach A, chosen by the owner):
    test checks anything the prompt does not state.
 5. **Several deliberate departures from a well-known convention per task**, each stated plainly in the prompt
    (for example, a quoting rule that differs from RFC 4180). A model that falls back on the convention it knows
-   omits a stated case, which is the failure being measured.
+   omits a stated case, which is the failure being measured. This lever is new and untested; case count alone did
+   not raise Pi's failure rate on the hard pack, so calibration round 1 shows whether the two together do.
 
 Candidate tasks (single module, deterministic, Bun + TypeScript, no network, no timers):
 
@@ -60,7 +64,7 @@ Candidate tasks (single module, deterministic, Bun + TypeScript, no network, no 
 | `harder-invoice-totals` | `invoice-totals` | discount order, per-line vs total rounding, tax-inclusive prices, currency minor units, rejects |
 | `harder-text-wrap` | `text-wrap` | width rules, long words, hyphenation, tabs, blank lines, indentation |
 
-A candidate may be swapped for another of the same shape during building if it cannot reach 20 clean,
+A candidate may be swapped for another of the same shape during building if it cannot reach 30 clean,
 independently testable cases.
 
 ## Calibration (Pi only), then freeze
