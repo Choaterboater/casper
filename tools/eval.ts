@@ -97,6 +97,9 @@ Acceptance replay (no coding runs; model billing applies to the acceptance calls
   --acceptance-route <hosts> / --route <hosts>  Its OpenRouter hosts (required for an openrouter model).
   --concurrency <n>     Checks at once (1..16). Default: 6.
   --stop-when-decided   Stop once every replayed harness's rule is decided on caught and flagged; exit 3.
+  --check <acceptance|trace>  The check replayed: tests written from the request (default), or
+                        requirement-to-test tracing (each stated requirement needs a test that
+                        passes with the change and fails without it).
   --timeout <sec>       Per acceptance test run. Default: 120.
   Exits 1 when a run could not be replayed.
 
@@ -135,6 +138,7 @@ interface EvalOptions {
   unpinned?: boolean;
   reports: string[];
   replays: string[];
+  check?: "acceptance" | "trace";
   keepWorkspaces?: string;
   /** A harness in benchmark mode; `true` (no harness) with --replay. */
   stopWhenDecided?: HarnessName | true;
@@ -173,7 +177,7 @@ export function parseArguments(args: readonly string[]): EvalOptions {
       index++;
       continue;
     }
-    if (["--pack", "--harness", "--effort", "--concurrency", "--time-limit", "--follow-ups", "--person-cost", "--report", "--replay", "--keep-workspaces", "--route", "--casper", "--pi", "--omp", "--acceptance-model", "--acceptance-route", "--gate", "--remaining"].includes(argument)) {
+    if (["--pack", "--harness", "--effort", "--concurrency", "--time-limit", "--follow-ups", "--person-cost", "--report", "--replay", "--keep-workspaces", "--route", "--casper", "--pi", "--omp", "--acceptance-model", "--acceptance-route", "--gate", "--remaining", "--check"].includes(argument)) {
       const value = args[++index];
       if (!value || value.startsWith("--")) throw new Error(`${argument} needs a value`);
       if (argument === "--pack") {
@@ -194,6 +198,10 @@ export function parseArguments(args: readonly string[]): EvalOptions {
         options.personCostSeconds = seconds;
       } else if (argument === "--report") options.reports.push(value);
       else if (argument === "--replay") options.replays.push(value);
+      else if (argument === "--check") {
+        if (value !== "acceptance" && value !== "trace") throw new Error("--check must be acceptance or trace");
+        options.check = value;
+      }
       else if (argument === "--keep-workspaces") options.keepWorkspaces = value;
       else if (argument === "--route") {
         const hosts = value.split(",").map((host) => host.trim()).filter(Boolean);
@@ -252,9 +260,9 @@ export function parseArguments(args: readonly string[]): EvalOptions {
     return options;
   }
   if (options.replays.length) {
-    const allowed = ["--replay", "--json", "--model", "--route", "--acceptance-model", "--acceptance-route", "--concurrency", "--stop-when-decided", "--timeout"];
+    const allowed = ["--replay", "--json", "--model", "--route", "--acceptance-model", "--acceptance-route", "--concurrency", "--stop-when-decided", "--timeout", "--check"];
     if (args.some((flag) => flag.startsWith("--") && !allowed.includes(flag))) {
-      throw new Error("--replay takes only --json, --model, --route, --acceptance-model, --acceptance-route, --concurrency, --stop-when-decided and --timeout");
+      throw new Error("--replay takes only --json, --model, --route, --acceptance-model, --acceptance-route, --concurrency, --stop-when-decided, --timeout and --check");
     }
     if (!options.json) throw new Error("--replay needs --json <path> for its results document");
     if (options.stopWhenDecided !== undefined && options.stopWhenDecided !== true) throw new Error("--stop-when-decided takes no harness with --replay: it stops once every replayed harness is decided");
@@ -453,7 +461,7 @@ async function replay(options: EvalOptions, repoRoot: string): Promise<number> {
     let finished = 0;
     const result = await replayAcceptance({
       repoRoot, sources, ...(override ? { model: override } : {}), concurrency, timeoutMs: options.timeoutSeconds * 1000,
-      stopWhenDecided: options.stopWhenDecided === true, complete: completions.complete,
+      stopWhenDecided: options.stopWhenDecided === true, complete: completions.complete, ...(options.check ? { check: options.check } : {}),
       onRun: (run: ReplayRun) => {
         process.stdout.write(`[${++finished}] ${run.taskId} ${run.harness} #${run.repeat}: ${run.success ? "accepted" : "not accepted"}; receipt ${run.receiptOutcome ?? "none"} → ${run.replayOutcome ?? "none"}`
           + `${run.acceptance ? ` (acceptance ${run.acceptance.status}, ${Math.round(run.acceptance.durationMs / 1000)} s${run.acceptance.reason ? `: ${run.acceptance.reason}` : ""})` : ` (not checked: ${run.skipped})`}\n`);
@@ -468,7 +476,7 @@ async function replay(options: EvalOptions, repoRoot: string): Promise<number> {
     const destination = path.resolve(options.json!);
     await writeEvalReport(destination, {
       kind: "acceptance-replay", version: 1, ranAt, commit, dirty: status === null ? null : status.length > 0, sources: options.replays,
-      model: override ?? null, concurrency, timeoutSeconds: options.timeoutSeconds, ...(result.stopped ? { stopped: result.stopped } : {}),
+      model: override ?? null, check: options.check ?? "acceptance", concurrency, timeoutSeconds: options.timeoutSeconds, ...(result.stopped ? { stopped: result.stopped } : {}),
       withoutWorkspace: result.withoutWorkspace, cells: result.cells, failures: result.failures, runs: result.runs,
     });
     process.stdout.write(`Wrote ${path.relative(process.cwd(), destination) || destination}\n`);

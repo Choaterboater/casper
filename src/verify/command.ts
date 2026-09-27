@@ -36,6 +36,8 @@ export interface CommandCheckOptions {
   signal?: AbortSignal;
   /** The host must block further repair/work when an owned tree cannot be stopped. */
   onCleanupFailure?: () => void;
+  /** The command's environment; unset inherits Casper's. */
+  env?: NodeJS.ProcessEnv;
 }
 
 export async function runCommandCheck(options: CommandCheckOptions): Promise<VerificationResult> {
@@ -63,7 +65,7 @@ export async function runCommandCheck(options: CommandCheckOptions): Promise<Ver
     let child;
     let owner: OwnedProcesses | undefined;
     try {
-      child = spawn(command, { cwd, shell: true, detached: osSupportsProcessGroups, stdio: ["ignore", "pipe", "pipe"] });
+      child = spawn(command, { cwd, shell: true, detached: osSupportsProcessGroups, stdio: ["ignore", "pipe", "pipe"], ...(options.env ? { env: options.env } : {}) });
       owner = ownSpawnedTree(child.pid, () => child!.exitCode === null && child!.signalCode === null);
     } catch (error) {
       resolve({ ...base(), status: "fail", exitCode: null, signal: null, reason: `Could not execute: ${error instanceof Error ? error.message : String(error)}` });
