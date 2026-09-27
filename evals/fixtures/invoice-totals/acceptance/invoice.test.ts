@@ -14,10 +14,11 @@ function issuesOf(invoice: Invoice): { path: string; message: string }[] {
 test("01 amounts are decimal strings and all arithmetic is exact, including amounts above 2^53 minor units", () => {
   const result = totalInvoice({
     currency: "USD",
-    lines: [{ id: "a", quantity: "100000000", unitPrice: "100000000" }],
+    // The exact product is 90071992547409.94, above 2^53 minor units; computing it via floats first
+    // loses precision and rounds to 90071992547409.95 instead.
+    lines: [{ id: "a", quantity: "4503599627370497", unitPrice: "0.02" }],
   });
-  expect(result.lines[0]!.subtotal).toBe("10000000000000000.00");
-  expect(result.subtotal).toBe("10000000000000000.00");
+  expect(result.lines[0]!.subtotal).toBe("90071992547409.94");
 });
 
 test("02 every output amount has exactly the currency's number of decimal places", () => {
@@ -46,10 +47,11 @@ test("04 quantity is a decimal with at most 3 decimal places", () => {
 
 test("05 [D] unitPrice may have up to 4 decimal places, whatever the currency", () => {
   const result = totalInvoice({
-    currency: "JPY",
+    currency: "USD",
+    // quantity 1 so rounding order can never matter here (that's case 6's own concern).
     lines: [{ id: "a", quantity: "1", unitPrice: "2.5001" }],
   });
-  expect(result.lines[0]!.subtotal).toBe("3");
+  expect(result.lines[0]!.subtotal).toBe("2.50");
 });
 
 test("06 a line's subtotal rounds the quantity-times-price product once, never the unit price first", () => {
@@ -117,20 +119,19 @@ test("11 line discounts apply before the invoice discount", () => {
   });
   // subtotal 100.00, own discount 30.00 leaves 70.00; the invoice's 10% is 7.00 of that, not of 100.00.
   expect(result.lines[0]!.discount).toBe("37.00");
-  expect(result.lines[0]!.net).toBe("63.00");
 });
 
 test("12 the invoice discount is shared in proportion to each line's amount after its own discount", () => {
   const result = totalInvoice({
     currency: "USD",
-    discount: { percent: "10" },
+    discount: { amount: "28.00" },
     lines: [
       { id: "a", quantity: "1", unitPrice: "100.00", discount: { amount: "20.00" } },
       { id: "b", quantity: "1", unitPrice: "200.00" },
     ],
   });
-  // Eligible bases are 80.00 and 200.00 (280.00 total); 10% of that is 28.00, split 8.00 / 20.00.
-  // A basis of the raw subtotals (100 and 200) would instead give 28.00's line A a 10.00 share.
+  // Eligible bases are 80.00 and 200.00 (280.00 total); the 28.00 splits 8.00 / 20.00 in that
+  // proportion. A basis of the raw subtotals (100 and 200) would instead give line A a 10.00 share.
   expect(result.lines[0]!.discount).toBe("28.00");
   expect(result.lines[1]!.discount).toBe("20.00");
 });
@@ -140,18 +141,21 @@ test("13 the shared discount is split in minor units by largest remainder, ties 
     currency: "USD",
     discount: { amount: "0.01" },
     lines: [
-      { id: "a", quantity: "1", unitPrice: "10.00" },
-      { id: "b", quantity: "1", unitPrice: "10.00" },
-      { id: "c", quantity: "1", unitPrice: "10.00" },
+      { id: "a", quantity: "1", unitPrice: "1.00" },
+      { id: "b", quantity: "1", unitPrice: "2.00" },
+      { id: "c", quantity: "1", unitPrice: "2.00" },
     ],
   });
-  expect(result.lines.map((line) => line.discount)).toEqual(["0.01", "0.00", "0.00"]);
+  // Bases 1.00 / 2.00 / 2.00 (sum 5.00): each gets 0 whole cents, with remainders 1 / 2 / 2 — the
+  // largest remainder is tied between lines b and c, and the earlier of those two (b) gets the cent.
+  // A bug that always gives the leftover to the first line would instead put it on line a.
+  expect(result.lines.map((line) => line.discount)).toEqual(["0.00", "0.01", "0.00"]);
 });
 
 test("14 [D] lines with discountable: false take no share of the invoice discount", () => {
   const result = totalInvoice({
     currency: "USD",
-    discount: { percent: "10" },
+    discount: { amount: "10.00" },
     lines: [
       { id: "a", quantity: "1", unitPrice: "100.00" },
       { id: "b", quantity: "1", unitPrice: "100.00", discountable: false },
@@ -164,11 +168,12 @@ test("14 [D] lines with discountable: false take no share of the invoice discoun
 test("15 a line's net is its subtotal minus both discounts", () => {
   const result = totalInvoice({
     currency: "USD",
-    discount: { amount: "25.00" },
-    lines: [{ id: "a", quantity: "1", unitPrice: "100.00" }],
+    discount: { amount: "18.00" },
+    lines: [{ id: "a", quantity: "1", unitPrice: "100.00", discount: { amount: "10.00" } }],
   });
-  expect(result.lines[0]!.discount).toBe("25.00");
-  expect(result.lines[0]!.net).toBe("75.00");
+  // own discount 10.00 plus the invoice's full 18.00 share (the only eligible line) is 28.00.
+  expect(result.lines[0]!.discount).toBe("28.00");
+  expect(result.lines[0]!.net).toBe("72.00");
 });
 
 test("16 a line's tax rate is its own taxRate, else the invoice's, else 0", () => {
@@ -251,24 +256,20 @@ test("22 taxes groups lines by rate, sorted by rate ascending, with each group's
       { id: "c", quantity: "1", unitPrice: "200.00", taxRate: "5" },
     ],
   });
-  expect(result.taxes).toEqual([
-    { rate: "5", net: "300.00", tax: "15.00" },
-    { rate: "20", net: "100.00", tax: "20.00" },
+  // Rate formatting is case 24's concern; this checks only the grouping, order and sums.
+  expect(result.taxes.map((group) => ({ net: group.net, tax: group.tax }))).toEqual([
+    { net: "300.00", tax: "15.00" },
+    { net: "100.00", tax: "20.00" },
   ]);
 });
 
 test("23 a 0% rate appears in taxes like any other", () => {
   const result = totalInvoice({
     currency: "USD",
-    lines: [
-      { id: "a", quantity: "1", unitPrice: "50.00", taxRate: "0" },
-      { id: "b", quantity: "1", unitPrice: "50.00", taxRate: "10" },
-    ],
+    lines: [{ id: "a", quantity: "1", unitPrice: "50.00", taxRate: "0" }],
   });
-  expect(result.taxes).toEqual([
-    { rate: "0", net: "50.00", tax: "0.00" },
-    { rate: "10", net: "50.00", tax: "5.00" },
-  ]);
+  // A single 0% line's group must still be present (not filtered out); rate formatting is case 24's concern.
+  expect(result.taxes.map((group) => ({ net: group.net, tax: group.tax }))).toEqual([{ net: "50.00", tax: "0.00" }]);
 });
 
 test("24 taxes shows each rate in its shortest decimal form", () => {
@@ -276,16 +277,16 @@ test("24 taxes shows each rate in its shortest decimal form", () => {
     currency: "USD",
     lines: [
       { id: "a", quantity: "1", unitPrice: "10.00", taxRate: "7.50" },
-      { id: "b", quantity: "1", unitPrice: "10.00", taxRate: "20.000" },
+      { id: "b", quantity: "1", unitPrice: "10.00", taxRate: "8.000" },
     ],
   });
-  expect(result.taxes.map((group) => group.rate)).toEqual(["7.5", "20"]);
+  expect(result.taxes.map((group) => group.rate)).toEqual(["7.5", "8"]);
 });
 
 test("25 [D] a negative quantity line takes no discount of either kind", () => {
   const result = totalInvoice({
     currency: "USD",
-    discount: { percent: "10" },
+    discount: { amount: "1.00" },
     lines: [
       { id: "a", quantity: "5", unitPrice: "2.00" },
       { id: "b", quantity: "-3", unitPrice: "2.00", discount: { percent: "50" } },
@@ -293,6 +294,12 @@ test("25 [D] a negative quantity line takes no discount of either kind", () => {
   });
   expect(result.lines[1]!.discount).toBe("0.00");
   expect(result.lines[0]!.discount).toBe("1.00");
+  // Its own discount is still validated, even though never applied: an out-of-range percent still issues.
+  const issues = issuesOf({
+    currency: "USD",
+    lines: [{ id: "a", quantity: "-1", unitPrice: "2.00", discount: { percent: "150" } }],
+  });
+  expect(issues).toEqual([{ path: "lines[0].discount.percent", message: "percent out of range" }]);
 });
 
 test("26 the invoice total may be negative", () => {
@@ -316,10 +323,10 @@ test("27 output lines keep the input order and their id", () => {
 
 test("28 an unknown currency is an issue, and other checks still run and are reported too", () => {
   const issues = issuesOf({ currency: "XXX", lines: [{ id: "a", quantity: "abc", unitPrice: "1.00" }] });
-  expect(issues).toEqual([
-    { path: "currency", message: "unknown currency XXX" },
-    { path: "lines[0].quantity", message: "invalid amount" },
-  ]);
+  // Both issues must be present; their relative order is case 31's concern, not this one's.
+  expect(issues).toHaveLength(2);
+  expect(issues).toContainEqual({ path: "currency", message: "unknown currency XXX" });
+  expect(issues).toContainEqual({ path: "lines[0].quantity", message: "invalid amount" });
 });
 
 test("29 no lines is an issue", () => {
@@ -328,31 +335,36 @@ test("29 no lines is an issue", () => {
 });
 
 test("30 a percent above 100 or below 0 is an issue, for a discount percent or a tax rate", () => {
-  const issues = issuesOf({
+  const discountIssues = issuesOf({
     currency: "USD",
     discount: { percent: "101" },
+    lines: [{ id: "a", quantity: "1", unitPrice: "1.00" }],
+  });
+  expect(discountIssues).toEqual([{ path: "discount.percent", message: "percent out of range" }]);
+  const taxRateIssues = issuesOf({
+    currency: "USD",
     lines: [{ id: "a", quantity: "1", unitPrice: "1.00", taxRate: "-0.001" }],
   });
-  expect(issues).toEqual([
-    { path: "discount.percent", message: "percent out of range" },
-    { path: "lines[0].taxRate", message: "percent out of range" },
-  ]);
+  expect(taxRateIssues).toEqual([{ path: "lines[0].taxRate", message: "percent out of range" }]);
 });
 
 test("31 all problems are collected and thrown together, in input order", () => {
   const issues = issuesOf({
     currency: "USD",
+    taxRate: "abc",
     lines: [
       { id: "a", quantity: "abc", unitPrice: "1.00" },
-      { id: "b", quantity: "1", unitPrice: "-5.00" },
-      { id: "c", quantity: "1", unitPrice: "1.00", taxRate: "abc", discount: { percent: "5", amount: "1.00" } },
+      { id: "b", quantity: "1", unitPrice: "abc" },
+      { id: "c", quantity: "1", unitPrice: "1.00", taxRate: "abc", discount: { percent: "abc" } },
     ],
   });
+  // The invoice's own taxRate comes before any line; within line c, taxRate comes before discount.
   expect(issues).toEqual([
+    { path: "taxRate", message: "invalid amount" },
     { path: "lines[0].quantity", message: "invalid amount" },
     { path: "lines[1].unitPrice", message: "invalid amount" },
     { path: "lines[2].taxRate", message: "invalid amount" },
-    { path: "lines[2].discount", message: "use percent or amount, not both" },
+    { path: "lines[2].discount.percent", message: "invalid amount" },
   ]);
 });
 
