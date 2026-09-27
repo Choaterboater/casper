@@ -1,7 +1,8 @@
 export interface CsvOptions {
-  /** One character; default ",". Must differ from the quote character, "\n" and "\r". */
+  /** One character; default ",". Must differ from the quote character, "\n" and "\r" (a delimiter equal
+   * to the quote is an invalid delimiter, not an invalid quote). */
   readonly delimiter?: string;
-  /** One character; default '"'. Must differ from the delimiter, "\n" and "\r". */
+  /** One character; default '"'. Must differ from "\n" and "\r". */
   readonly quote?: string;
   /** When true, the first non-skipped row names the columns and later rows are objects. Default false. */
   readonly header?: boolean;
@@ -73,7 +74,7 @@ export function readCsv(text: string, options: CsvOptions = {}): CsvResult {
   if (delimiter.length !== 1 || delimiter === quote || delimiter === "\n" || delimiter === "\r") {
     throw new RangeError("invalid delimiter");
   }
-  if (quote.length !== 1 || quote === delimiter || quote === "\n" || quote === "\r") {
+  if (quote.length !== 1 || quote === "\n" || quote === "\r") {
     throw new RangeError("invalid quote");
   }
   if (columns !== undefined && header !== true) {
@@ -144,16 +145,16 @@ export function readCsv(text: string, options: CsvOptions = {}): CsvResult {
 
     // eslint-disable-next-line no-constant-condition
     while (true) {
-      const fieldStart: Position = { line, column: col };
       if (trim) {
         while (pos < length && (source[pos] === " " || source[pos] === "\t")) advance();
       }
+      const fieldStart: Position = { line, column: col };
 
       const isQuoted = pos < length && source[pos] === quote;
       let value: string;
 
       if (isQuoted) {
-        const openPos: Position = { line, column: col };
+        const openPos: Position = fieldStart;
         advance(); // opening quote
         let buffer = "";
         let closed = false;
