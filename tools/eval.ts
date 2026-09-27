@@ -449,7 +449,7 @@ async function benchmark(options: EvalOptions, repoRoot: string): Promise<number
   const summary = summarizeBenchmark(runs, personCost(options));
   process.stdout.write(`\n${formatBenchmarkReport(summary)}\n`);
   if (failures.length) process.stdout.write(`\n${failures.length} run(s) could not run or be graded; see failures in the results.\n`);
-  if (stopped) process.stdout.write(`\nStopped after ${stopped.afterRuns} scored run(s): the rule cannot be met — ${stopped.reason}\n`);
+  if (stopped) process.stdout.write(`\nStopped after ${stopped.afterRuns} scored run(s): decided — ${stopped.reason}\n`);
   await writeEvalReport(destination, {
     kind: "quality-benchmark", version: 1, ranAt, commit, dirty, model: reference, effort, repeat: options.repeat, concurrency,
     timeLimitSeconds, verifyTimeoutSeconds: options.timeoutSeconds, route: recordedRoute(options), ...(acceptanceModel ? { acceptanceModel } : {}), harnesses: versions, tasks: tasks.map((task) => task.id),
