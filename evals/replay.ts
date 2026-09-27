@@ -7,7 +7,8 @@ import { parse } from "yaml";
 import { nearestEffort } from "../src/runtime/auto-effort";
 import { diffSnapshots, snapshotTree } from "../src/task/changes";
 import { independentAcceptance, type AcceptanceCompletion, type AcceptanceResult } from "../src/verify/acceptance";
-import { changesCode } from "../src/verify/proof";
+import { changesCode, isTestPath } from "../src/verify/proof";
+import { traceRequirements, withoutTree } from "../src/verify/trace";
 import { futility, isInfrastructureRun, RECEIPT_COUNTS_HEADER, receiptCell, receiptCounts, table, type BenchmarkRun, type BenchmarkStop, type ReceiptCell } from "./benchmark";
 import { harnessProtocol, routedModels, type HarnessName } from "./harness";
 import { prepareWorkdir, type EvalPack } from "./runner";
@@ -144,6 +145,8 @@ export interface ReplayOptions {
   /** Per acceptance test run. */
   timeoutMs: number;
   stopWhenDecided: boolean;
+  /** Which check is replayed: the independent acceptance tests (default) or requirement-to-test tracing. */
+  check?: "acceptance" | "trace";
   /** The completion for a model and the saved run's effort. */
   complete(model: string, effort: string | undefined): AcceptanceCompletion;
   onRun?(run: ReplayRun): void;
@@ -246,9 +249,17 @@ async function replayRun(options: ReplayOptions, entry: Entry, signal: AbortSign
     if (!changesCode(changes)) return replayRecord(entry, base, null, "no code change");
     const model = options.model?.model ?? source.model;
     const started = performance.now();
-    const result = await independentAcceptance({
-      complete: options.complete(model, source.effort), request: task.prompt, root, changes, files, testCommand, timeoutMs: options.timeoutMs, signal,
-    });
+    const complete = options.complete(model, source.effort);
+    let result: AcceptanceResult;
+    if (options.check === "trace") {
+      const tests = [...changes.added, ...changes.modified].filter(isTestPath);
+      const without = await withoutTree(start, root, tests);
+      try {
+        result = await traceRequirements({ complete, request: task.prompt, root, without: without.tree, testCommand, timeoutMs: options.timeoutMs, signal });
+      } finally { await without.dispose(); }
+    } else {
+      result = await independentAcceptance({ complete, request: task.prompt, root, changes, files, testCommand, timeoutMs: options.timeoutMs, signal });
+    }
     signal.throwIfAborted();
     return replayRecord(entry, base, { ...result, model, durationMs: Math.round(performance.now() - started) });
   } finally {
