@@ -1,6 +1,14 @@
 import { afterAll, expect, test } from "bun:test";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { PassThrough } from "node:stream";
 import { EventEmitter } from "node:events";
+import { visibleWidth } from "@earendil-works/pi-tui";
+import { CasperApp } from "../src/app";
+import { loadProjectContext } from "../src/project/context";
+import type { AgentRuntime, RuntimeEvent, RuntimeEventListener, RuntimeTool } from "../src/runtime/types";
+import { SkillRegistry } from "../src/skills/registry";
 import { InteractiveTerminal } from "../src/tui/terminal";
 import { ASK_BUDGET, askTool, type AskChannel } from "../src/tui/ask";
 import { formatTaskPrompt, underSpecifiedTarget } from "../src/task/classify";
@@ -160,6 +168,97 @@ test("closing the terminal resolves a pending question as skipped", async () => 
     terminal.close();
     expect(await answer).toBeUndefined();
   } finally { input.destroy(); }
+});
+
+const REPAINT = "\x1b[2J\x1b[H\x1b[3J";
+/** The screen as last fully repainted (a width change forces one), without styling. */
+const lastFrame = (output: string) => Bun.stripANSI(output.split(REPAINT).at(-1)!).split("\r\n");
+
+test("a long question and long options wrap in full at 60 columns, below the model's lead-in", async () => {
+  const question = "Which storage backend should the rate limiter use for its counters in production, given that you run several API instances behind a load balancer and want limits to hold across all of them even during a deploy?";
+  const options = [
+    { label: "Redis (shared, survives instance restarts, needs a running server)", description: "Counters live in Redis with an expiring key per window; every instance sees the same counts." },
+    { label: "In-memory per instance", description: "No new dependency, but each instance counts on its own, so the effective limit is multiplied by the instance count." },
+    { label: "Postgres", description: "file-based" },
+  ];
+  const session = interactiveTerminal();
+  try {
+    session.terminal.setStatus("fixture"); session.terminal.start();
+    session.terminal.write("Two backends fit; the choice changes the deploy.\n");
+    const answer = session.terminal.ask(question, options, false);
+    await session.screen.until(output => output.includes("skip"));
+    session.screen.writer.columns = 60; session.screen.writer.emit("resize");
+    await session.screen.until(() => session.screen.output.split(REPAINT).length > 1 && lastFrame(session.screen.output).some(line => line.includes("skip")));
+    const frame = lastFrame(session.screen.output);
+    for (const line of frame) expect(visibleWidth(line)).toBeLessThanOrEqual(60);
+    // The panel follows the transcript instead of covering its tail.
+    expect(frame).toContain("Two backends fit; the choice changes the deploy.");
+    const panel = frame.slice(frame.findIndex(line => line.startsWith("Which storage")), frame.findIndex(line => line.includes("skip")));
+    const text = panel.join(" ").replace("→", " ").replace(/\s+/g, " ");
+    expect(text).toContain(question);
+    for (const option of options) expect(text).toContain(`${option.label} ${option.description}`);
+    session.input.write("\x1b[B\r");
+    expect(await answer).toEqual([options[1]!.label]);
+  } finally { session.close(); }
+});
+
+test("an asked question is recorded on its own line, not appended to the running ask tool line", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-ask-record-"));
+  const home = path.join(root, "home");
+  const project = path.join(root, "project");
+  await mkdir(home, { recursive: true }); await mkdir(project, { recursive: true });
+  const listeners = new Set<RuntimeEventListener>();
+  const emit = (event: RuntimeEvent) => { for (const listener of listeners) listener(event); };
+  let tools: RuntimeTool[] = [];
+  const runtime: AgentRuntime = {
+    start: async options => {
+      tools = options.tools ?? [];
+      return {
+        getStatus: () => ({ provider: "fixture", model: "demo", auth: "configured" }),
+        getState: () => ({ cwd: project, isStreaming: false }),
+        setTools: next => { tools = next; },
+        subscribe: listener => { listeners.add(listener); return () => { listeners.delete(listener); }; },
+        abort: async () => {},
+        prompt: async () => {
+          emit({ type: "tool_start", toolName: "ask", toolCallId: "ask-1" });
+          const result = await tools.find(tool => tool.name === "ask")!.execute({ question: "Which database?", options: OPTIONS });
+          emit({ type: "tool_end", toolName: "ask", toolCallId: "ask-1", isError: Boolean(result.isError) });
+          emit({ type: "message_end" });
+        },
+      };
+    },
+    dispose: async () => {},
+  };
+  const input = Object.assign(new PassThrough(), { isTTY: true, setRawMode() {} });
+  const screen = fakeWriter();
+  const app = new CasperApp({
+    input, output: screen.writer, runtimeFactory: () => runtime, sessionHomeDir: home,
+    loadProjectContext: info => loadProjectContext(info, { homeDir: home }),
+    loadSkillRegistry: context => SkillRegistry.discover({ projectRoot: context.info.root, homeDir: home }),
+    loadMCPConfiguration: async () => ({ servers: [], diagnostics: [] }),
+    loadLSPConfiguration: async () => ({ servers: [], diagnostics: [] }),
+    loadReferenceConfiguration: async () => ({ sources: [], diagnostics: [] }),
+  });
+  const interactive = app.runInteractive(project);
+  try {
+    await screen.until(output => output.includes("idle"));
+    input.write("pick a database\r");
+    await screen.until(output => output.includes("Which database?"));
+    input.write("\r");
+    await screen.until(output => output.includes("ask — completed") && output.includes("idle"));
+    const repaints = screen.output.split(REPAINT).length;
+    screen.writer.columns = 90; screen.writer.emit("resize");
+    await screen.until(() => screen.output.split(REPAINT).length > repaints && lastFrame(screen.output).some(line => line.includes("ask — completed")));
+    const frame = lastFrame(screen.output);
+    const running = frame.findIndex(line => line.startsWith("• ask — running"));
+    expect(frame.slice(running, running + 6)).toEqual(["• ask — running", "Which database?", "• SQLite  file-based", "• Postgres", "[ask] SQLite", expect.stringMatching(/^✓ ask — completed/)]);
+  } finally {
+    input.write("/exit\r");
+    await interactive;
+    await app.close();
+    input.destroy();
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 /** Recording channel stub for the tool-level contract. */

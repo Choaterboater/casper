@@ -81,6 +81,9 @@ does not scroll the terminal; covered transcript rows return unchanged.
 Login panels instead follow the transcript, keeping standalone authorization URLs
 and device codes visible above the current panel. They are transient components,
 not transcript entries: navigation replaces rows and completed panels disappear.
+A clarification question also follows the transcript, so the model's lead-in
+above it stays visible; once answered, the question and its options are recorded
+in the transcript.
 Pickers and login share the live surface's renderer and footer; login borrows raw
 input without starting a second terminal renderer. Finished transcript entries
 are rendered once per width and cached; only the open tail line and the unfinished
@@ -180,8 +183,10 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
 - `@`/Tab offers file-path completion. This inserts a reference; it does **not**
   attach/read the file or grant additional permissions. Unsafe control-bearing
   completion labels are omitted.
-- Clarification questions keep the question on its own line. Use Up/Down and Enter
-  to choose; Space toggles multi-select choices. Typing still accepts a custom
+- Clarification questions keep the question on its own line. The question and every
+  option wrap in full at the current width (a description that does not fit beside
+  its label goes on indented lines under it); nothing is truncated. Use Up/Down and
+  Enter to choose; Space toggles multi-select choices. Typing still accepts a custom
   answer, and Esc skips.
 - Up/Down recalls current-process prompt history. Shift+Enter where the terminal
   supports it, or Ctrl+J, inserts a newline. Bracketed paste stays in the draft.
