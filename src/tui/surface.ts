@@ -1,6 +1,6 @@
 import {
-  CombinedAutocompleteProvider, Container, type AutocompleteProvider, type Component, Editor, type MarkdownTheme,
-  matchesKey, SelectList, setCapabilityOverrides, Text, TuiMainScreen, truncateToWidth,
+  CombinedAutocompleteProvider, type AutocompleteProvider, type Component, Editor, type MarkdownTheme,
+  matchesKey, setCapabilityOverrides, TuiMainScreen, truncateToWidth, visibleWidth, wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 import type { RuntimeModelPickerHost, RuntimePickerIO, RuntimePickerView } from "../runtime/types";
 import { COMMANDS } from "./commands";
@@ -43,6 +43,23 @@ function formatElapsed(ms: number): string {
   if (hours) return `${hours}h${String(minutes % 60).padStart(2, "0")}m`;
   if (minutes) return `${minutes}m${String(seconds % 60).padStart(2, "0")}s`;
   return `${seconds}s`;
+}
+
+type AskOption = { label: string; description?: string };
+
+/** One clarification option wrapped to the width under a hanging indent: the label after its marker,
+ * its description two columns further in. They share a row only when both fit whole, so nothing is cut. */
+function askOptionLines(prefix: string, option: AskOption, width: number,
+  style: { label: (text: string) => string; description: (text: string) => string }): string[] {
+  const indent = " ".repeat(visibleWidth(prefix));
+  const { label, description } = option;
+  if (indent.length + visibleWidth(label) + (description ? 2 + visibleWidth(description) : 0) <= width) {
+    return [`${prefix}${style.label(label)}${description ? style.description(`  ${description}`) : ""}`];
+  }
+  return [
+    ...wrapTextWithAnsi(label, Math.max(1, width - indent.length)).map((line, index) => `${index ? indent : prefix}${style.label(line)}`),
+    ...(description ? wrapTextWithAnsi(description, Math.max(1, width - indent.length - 2)).map(line => `${indent}  ${style.description(line)}`) : []),
+  ];
 }
 
 /** Prompt editor with a fixed two-column gutter: the glyph changes with state, the box never moves. */
@@ -99,11 +116,11 @@ export class TerminalSurface {
   private command?: (text?: string) => void;
   private confirmation?: (approved: boolean) => void;
   private pendingAsk?: (answer: string[] | undefined) => void;
-  private askOptions?: { label: string; description?: string }[];
-  private askMulti = false;
-  private askPanel?: Container;
+  /** The open question and its options sanitized for display; an answer is the caller's own label. */
   private askQuestion?: string;
-  private askList?: SelectList;
+  private askOptions?: AskOption[];
+  private askLabels: string[] = [];
+  private askMulti = false;
   private askSelections = new Set<number>();
   private askActiveIndex = 0;
   private message?: StreamingMarkdown;
@@ -141,22 +158,21 @@ export class TerminalSurface {
       this.write(terminalText(value).split("\n").map((line, index) => this.accent(`${index ? "  " : `${PROMPT_GLYPH} `}${line}`)).join("\n") + "\n");
       resolve(value);
     };
-    // Popovers cover the transcript tail without scrolling. Private login panels
-    // instead follow it, keeping copyable authorization URLs and device codes visible.
+    // Popovers cover the transcript tail without scrolling. Private login panels and questions
+    // instead follow it: authorization URLs, device codes and the model's lead-in stay visible.
     this.tui.addChild({
       render: width => {
         const editorLines = this.editor.render(width);
         const rule = this.muted("─".repeat(width));
         const activity = this.activity ? renderPanel(`${SPINNER_FRAMES[this.spinnerFrame]} Working`, [this.activity], width, this.io.color, "accent") : [];
-        const askLines = this.askPanel?.render(width) ?? [];
         const block = this.slot ? this.slot.render(width).map(line => truncateToWidth(line, width))
           : this.lending ? [rule, this.muted(truncateToWidth("  exclusive input in progress · Esc or Ctrl+C cancels", width)), rule]
-          : this.askPanel ? [rule, ...askLines, rule, ...editorLines]
+          : this.pendingAsk ? [rule, ...this.renderAsk(width), ...editorLines]
           : this.editor.popup.length ? [rule, ...this.editor.popup, ...activity, ...editorLines] : [...activity, ...editorLines];
         while (block.length < editorLines.length) block.push("");
         const body = this.transcript.render(width);
         const overlayLines = this.slot ? block.length - editorLines.length
-          : this.askPanel ? askLines.length + 2
+          : this.pendingAsk ? 0
           : this.editor.popup.length ? this.editor.popup.length + 1 : 0;
         const overflow = this.lending ? 0 : Math.max(0, overlayLines);
         return [...body.slice(0, Math.max(0, body.length - overflow)), ...block, this.footer(width)];
@@ -188,21 +204,17 @@ export class TerminalSurface {
         else this.cancel();
         return { consume: true };
       }
-      if (this.askList && this.pendingAsk) {
-        if ((matchesKey(data, "up") || matchesKey(data, "down")) && !this.editor.getText()) {
-          this.askList.handleInput(data); this.render(); return { consume: true };
+      if (this.pendingAsk && this.askOptions && !this.editor.getText()) {
+        const count = this.askOptions.length;
+        if (matchesKey(data, "up") || matchesKey(data, "down")) {
+          this.askActiveIndex = (this.askActiveIndex + (matchesKey(data, "up") ? count - 1 : 1)) % count;
+          this.render(); return { consume: true };
         }
-        if (matchesKey(data, "enter") && !this.editor.getText()) {
-          this.askList.handleInput(data); return { consume: true };
-        }
-        if (this.askMulti && matchesKey(data, "space") && !this.editor.getText()) {
-          const selected = this.askList.getSelectedItem();
-          if (selected) {
-            const index = Number(selected.value);
-            if (this.askSelections.has(index)) this.askSelections.delete(index); else this.askSelections.add(index);
-            this.buildAskList(); this.render();
-          }
-          return { consume: true };
+        if (matchesKey(data, "enter")) { this.chooseAsk(); return { consume: true }; }
+        if (this.askMulti && matchesKey(data, "space")) {
+          const index = this.askActiveIndex;
+          if (this.askSelections.has(index)) this.askSelections.delete(index); else this.askSelections.add(index);
+          this.render(); return { consume: true };
         }
       }
       if (matchesKey(data, "ctrl+l")) { this.tui.requestRender(true); return { consume: true }; }
@@ -381,58 +393,57 @@ private updateSpinner(): void {
     const draft = this.editor.getExpandedText();
     this.editor.setText(""); // Pretyped drafts never answer a question.
     const safeQuestion = terminalText(question);
-    const transcriptEntry = [this.accent(safeQuestion), ...options.flatMap(option => [
-      `• ${terminalText(option.label)}`,
-      ...(option.description ? [`  ${terminalText(option.description)}`] : []),
-    ])].join("\n") + "\n";
-    this.askQuestion = safeQuestion;
+    const shown = options.map(option => ({
+      label: terminalText(option.label).replace(/\s+/g, " ").trim(),
+      description: option.description ? terminalText(option.description).replace(/\s+/g, " ").trim() : undefined,
+    }));
+    // The record re-wraps per width like the live panel, and commits after any open tail line.
+    const record: Component = { render: width => [
+      ...wrapTextWithAnsi(this.accent(safeQuestion), width),
+      ...shown.flatMap(option => askOptionLines("• ", option, width, { label: text => text, description: this.muted })),
+    ].map(line => truncateToWidth(line, width)), invalidate() {} };
     const { promise, resolve } = Promise.withResolvers<string[] | undefined>();
     let settled = false;
     const finish = (answer: string[] | undefined) => {
       if (settled) return; settled = true;
       signal?.removeEventListener("abort", cancel);
-      this.pendingAsk = undefined; this.askOptions = undefined; this.askMulti = false;
-      this.askPanel = undefined; this.askList = undefined; this.askSelections.clear(); this.askActiveIndex = 0;
-      this.write(transcriptEntry); this.askQuestion = undefined;
+      this.pendingAsk = undefined; this.askQuestion = undefined; this.askOptions = undefined; this.askLabels = [];
+      this.askMulti = false; this.askSelections.clear(); this.askActiveIndex = 0;
+      this.writeBlock(record);
       this.editor.setText(draft); this.configureAutocomplete(); this.render(); resolve(answer);
     };
     const cancel = () => finish(undefined);
-    this.pendingAsk = finish; this.askOptions = options; this.askMulti = multi; this.askSelections.clear(); this.askActiveIndex = 0;
-    this.buildAskList(); this.configureAutocomplete(); this.render();
+    this.pendingAsk = finish; this.askQuestion = safeQuestion; this.askOptions = shown;
+    this.askLabels = options.map(option => option.label); this.askMulti = multi;
+    this.askSelections.clear(); this.askActiveIndex = 0;
+    this.configureAutocomplete(); this.render();
     signal?.addEventListener("abort", cancel, { once: true });
     if (signal?.aborted) cancel();
     return promise;
   }
 
-  private buildAskList(): void {
-    const options = this.askOptions ?? [];
-    const items = options.map((option, index) => {
-      const marker = this.askMulti ? (this.askSelections.has(index) ? "[x] " : "[ ] ") : "";
-      return {
-        value: String(index), label: `${marker}${terminalText(option.label)}`,
-        description: option.description ? terminalText(option.description) : undefined,
-      };
-    });
-    const list = new SelectList(items, Math.max(1, items.length), {
-      selectedPrefix: this.accent, selectedText: this.accent, description: this.muted,
-      scrollInfo: this.muted, noMatch: this.muted,
-    });
-    list.setSelectedIndex(this.askActiveIndex);
-    list.onSelectionChange = item => { this.askActiveIndex = Number(item.value); };
-    list.onSelect = item => {
-      const index = Number(item.value);
-      if (!this.askMulti) { this.pendingAsk?.([options[index]!.label]); return; }
-      if (!this.askSelections.size) this.askSelections.add(index);
-      this.pendingAsk?.([...this.askSelections].sort((a, b) => a - b).map(selected => options[selected]!.label));
-    };
-    list.onCancel = () => this.pendingAsk?.(undefined);
-    const panel = new Container();
-    panel.addChild(new Text(this.accent(this.askQuestion ?? ""), 0, 0));
-    panel.addChild(list);
-    panel.addChild(new Text(this.muted(this.askMulti
-      ? "Up/Down: move · Space: toggle · Enter: answer · type: custom answer · Esc: skip"
-      : "Up/Down: move · Enter: choose · type: custom answer · Esc: skip"), 0, 0));
-    this.askList = list; this.askPanel = panel;
+  /** The whole question and every option, wrapped to the width; the highlighted option is accented. */
+  private renderAsk(width: number): string[] {
+    const hint = this.askMulti
+      ? "Up/Down move · Space toggle · Enter answer · type to answer · Esc skip"
+      : "Up/Down move · Enter choose · type to answer · Esc skip";
+    return [
+      ...wrapTextWithAnsi(this.accent(this.askQuestion ?? ""), width),
+      ...(this.askOptions ?? []).flatMap((option, index) => {
+        const selected = index === this.askActiveIndex;
+        const marker = this.askMulti ? (this.askSelections.has(index) ? "[x] " : "[ ] ") : "";
+        return askOptionLines(selected ? this.accent("→ ") : "  ", { ...option, label: marker + option.label }, width,
+          selected ? { label: this.accent, description: this.accent } : { label: text => text, description: this.muted });
+      }),
+      ...wrapTextWithAnsi(this.muted(hint), width),
+    ].map(line => truncateToWidth(line, width));
+  }
+
+  /** Enter on the list: the highlighted option, or every toggled option (the highlighted one if none). */
+  private chooseAsk(): void {
+    if (!this.askMulti) { this.pendingAsk?.([this.askLabels[this.askActiveIndex]!]); return; }
+    if (!this.askSelections.size) this.askSelections.add(this.askActiveIndex);
+    this.pendingAsk?.([...this.askSelections].sort((a, b) => a - b).map(index => this.askLabels[index]!));
   }
 
   /** A nonempty editor submission is always free text; listed choices are selected with arrow keys. */

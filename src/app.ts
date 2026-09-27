@@ -1291,6 +1291,8 @@ export class CasperApp {
       available: () => this.interactive && this.terminal.rich && !this.closing,
       ask: (question, options, multi, signal) => {
         const signals = [signal, this.commandAbort?.signal].filter((value): value is AbortSignal => Boolean(value));
+        // Commit the open `• ask — running` line first, so the recorded question starts on its own line.
+        this.output.write("");
         return this.terminal.ask(question, options, multi, signals.length ? AbortSignal.any(signals) : undefined);
       },
       record: answer => {
