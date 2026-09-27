@@ -41,3 +41,25 @@ reducing wrong runs, not by flagging them.
 Prevention works where detection did not: listing the stated cases for the builder removed most of the missed
 cases at little cost. Next, if the owner agrees: confirm on a second run (or the harder pack) before making
 `verification.checklist` the default in auto mode, and show the checklist to interactive users so they can correct it.
+
+## Confirmation run (same day)
+
+Pre-registered in `.scratch/checklist2/run.sh`: only the 3 tasks that ever failed (`hard-job-queue`,
+`hard-money-allocation`, `hard-rate-limiter`), casper vs casper-checklist, repeat 6, concurrency 10, and each model
+stopped by `--stop-when-success-decided casper-checklist:casper:0.5`. It took 12 minutes (GLM) and 7 minutes
+(DeepSeek), against about 75 for the first run. Pi was not rerun; its saved runs on the same tasks are the baseline.
+
+| On the 3 tasks | Confirmation run | Both runs together |
+|---|---:|---:|
+| casper not accepted | 9/35 (GLM 5, DeepSeek 4) | 16/59 (27%) |
+| casper-checklist not accepted | 4/34 (GLM 3, DeepSeek 1) | 6/58 (10%) |
+| pi not accepted (saved) | – | 3/24 (12.5%) |
+
+The rule holds again (4 ≤ 0.5 × 9), though only barely on GLM alone (3 against 5). Both runs point the same way:
+the checklist cuts Casper's misses on these tasks by about two thirds, to Pi's level. The larger finding is the
+baseline: on these three tasks Casper as shipped misses more often than Pi (27% against 12.5%), mostly on
+`hard-rate-limiter` (10 of 20 wrong against Pi's 1 of 8). Something in Casper's own task prompt or loop makes that
+task worse, and the checklist mostly repairs it rather than adding value beyond Pi.
+
+The early-stop gate saved almost nothing here: with 10 runs in flight, both models' comparisons were decided only
+with 1 or 2 runs left.
