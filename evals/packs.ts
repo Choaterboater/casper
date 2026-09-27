@@ -499,8 +499,9 @@ export const HARDER_PACK: readonly EvalTask[] = [
       + "`>=v1.2.3`. A prerelease is a `-` followed by dot-separated identifiers of letters, digits and `-`; a "
       + "purely numeric identifier has no leading zeros (`1.0.0-01` is invalid) and is compared and returned as a "
       + "number, never a string. Build metadata is a `+` followed by dot-separated identifiers of the same "
-      + "characters, parsed into `build` as an array of strings; build metadata is ignored everywhere, including "
-      + "inside ranges — `1.2.3+b` satisfies the range `1.2.3`, and `compare(\"1.0.0+a\", \"1.0.0+b\")` is `0`. An "
+      + "characters, and build identifiers may have leading zeros (`1.2.3+007` is valid). Build metadata is "
+      + "parsed into `build` as an array of strings and is ignored everywhere, including inside ranges — "
+      + "`1.2.3+b` satisfies the range `1.2.3`, and `compare(\"1.0.0+a\", \"1.0.0+b\")` is `0`. An "
       + "invalid version, given to `parse` or `compare`, is a `SemverError` whose message is `invalid version "
       + "\"<text>\"`, quoting the text exactly as passed in, without trimming. `compare` orders two versions by "
       + "major, then minor, then patch, numerically. A version with a prerelease is lower than the same "
@@ -525,8 +526,8 @@ export const HARDER_PACK: readonly EvalTask[] = [
       + "`>=1.2.0 <2.4.0`), while a partial left end is zero-filled to its lower edge. A tilde range `~1.2.3` "
       + "means `>=1.2.3 <1.3.0`; `~1.2` means `>=1.2.0 <1.3.0`; `~1` means `>=1.0.0 <2.0.0`. A caret range "
       + "`^1.2.3` means `>=1.2.3 <2.0.0`. A caret range never pins the minor or patch below `1.0.0`: `^0.2.3` "
-      + "means `>=0.2.3 <1.0.0`, and `^0.0.3` also means `>=0.0.3 <1.0.0` — the upper bound only ever depends on "
-      + "whether the major version is `0`."
+      + "means `>=0.2.3 <1.0.0`, and `^0.0.3` also means `>=0.0.3 <1.0.0` — the caret's upper bound is `1.0.0` "
+      + "when the major version is `0`, and otherwise the next major version above it."
       + " A version with a prerelease satisfies a range only when at least one comparator written in that same "
       + "alternative — after `~`, `^`, a hyphen range or an x-range are expanded to their lower and upper bounds — "
       + "carries a prerelease whose major, minor and patch match the tested version's; an expanded upper bound "
@@ -544,9 +545,8 @@ export const HARDER_PACK: readonly EvalTask[] = [
       + "the lowest the same way; both return `null` when nothing in the list satisfies. Both skip any version in "
       + "the list that fails to parse, rather than throwing."
       + " `sort(versions)` returns a new array in ascending order by `compare`, leaving the array passed in "
-      + "untouched; versions that compare equal (for example, differing only in build metadata) keep their "
-      + "relative order from the input. Any version that fails to parse is placed after every valid one, in the "
-      + "order those invalid versions appeared in the input." + RULES,
+      + "untouched; versions that compare equal keep their relative order from the input. Any version that fails "
+      + "to parse is placed after every valid one, in the order those invalid versions appeared in the input." + RULES,
     conventions: [onlyEdits("src/", "tests/"), convention("semver-in-place", { changed: ["src/semver.ts"] })],
   }),
 ];
