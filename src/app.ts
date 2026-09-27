@@ -45,7 +45,7 @@ import { TaskObservations } from "./task/observations";
 import { LifecycleRegistry } from "./app/lifecycle";
 import { RuntimeEventView } from "./app/events";
 import { diffSnapshots, snapshotTree, type TreeChanges } from "./task/changes";
-import { WORDMARK_COLUMNS, renderBanner, renderProjectSummary, renderWordmark } from "./tui/banner";
+import { renderBanner, renderProjectSummary, wordmarkHeader } from "./tui/banner";
 import type { ProjectCommand } from "./project/model";
 import { CHECK_NAMES, formatVerificationReport, formatVerificationResult, type VerificationReport, type VerificationResult } from "./verify/evidence";
 import { ProcessCleanupError } from "./platform/processes";
@@ -316,8 +316,9 @@ export class CasperApp {
     const { project, context, mcp, visualization, lspConfiguration, referenceConfiguration } = await this.loadWorkspace(cwd);
     if (this.closing) throw new Error("Casper is closing");
     // The wordmark is for a person at a rich terminal; one-shot and piped output keep the text banner.
-    const wordmark = this.interactive && this.terminal.rich && (this.terminal.columns ?? 0) >= WORDMARK_COLUMNS;
-    if (wordmark) this.terminal.writeTrusted(`\n${renderWordmark(this.terminal.color)}\n`);
+    // The header picks art or text per width, so a later resize never wraps the art.
+    const wordmark = this.interactive && this.terminal.rich;
+    if (wordmark) this.terminal.writeTrusted(wordmarkHeader(this.terminal.color));
     this.output.write(renderBanner(context, { wordmark, interactive: this.interactive }));
     // A returning user's saved default is known before the runtime starts; say so, not "not initialized".
     if (!this.session) this.savedModelDisplay = await modelPreference(this.sessionHomeDir ?? os.homedir());

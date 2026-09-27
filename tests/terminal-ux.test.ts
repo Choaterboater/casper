@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
+import { WORDMARK_COLUMNS, wordmarkHeader } from "../src/tui/banner";
 import { formatRuntimeStatus, formatToolActivity, markdownTheme, redactPreview, terminalText } from "../src/tui/format";
 import { InteractiveTerminal } from "../src/tui/terminal";
 import { posixOnly } from "./support/platform";
@@ -48,6 +49,18 @@ test("a wide-character and emoji line measures the cells a terminal draws", () =
   expect(visibleWidth(line)).toBe(21);
   // In a joined sequence the selector belongs to one two-cell emoji and stays.
   expect(terminalText("❤️\u200d🔥")).toBe("❤️\u200d🔥");
+});
+
+test("the startup wordmark gives way to the one-line header when the window narrows, never wrapping the art", () => {
+  const header = wordmarkHeader(false);
+  const wide = header.render(WORDMARK_COLUMNS);
+  expect(wide.some(line => line.includes("▄▄███▄▄"))).toBe(true);
+  expect(wide.at(-1)).toMatch(/^ version {3}\S+ · your coding companion$/);
+  for (const width of [WORDMARK_COLUMNS - 1, 30]) {
+    const narrow = header.render(width);
+    expect(narrow.join(" ")).toMatch(/^CASPER \S+ · your coding companion$/);
+    for (const line of narrow) expect(visibleWidth(line)).toBeLessThanOrEqual(width);
+  }
 });
 
 test("model and auth display distinguishes uninitialized, missing, configured and unknown", () => {

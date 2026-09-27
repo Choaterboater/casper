@@ -14,7 +14,9 @@ On a rich terminal at least 58 columns wide the transcript opens with the
 wordmark — the Casper ghost (bold white) beside a block-letter `CASPER` (accent)
 — followed by the `version` / `project` / `/help` lines. Narrower terminals,
 `TERM=dumb`, one-shot prompts and redirected output print the one-line
-`CASPER <version> · your coding companion` header instead; `NO_COLOR` keeps the
+`CASPER <version> · your coding companion` header instead; on a rich terminal the
+choice follows the current width, so narrowing the window below 58 columns swaps the
+art for that header rather than wrapping it. `NO_COLOR` keeps the
 art and drops the color. The wordmark is constant text written past the untrusted
 line classifier (`InteractiveTerminal.writeTrusted`), which is never used for
 model or tool output.
