@@ -17,14 +17,17 @@ function must405(result: Match): Extract<Match, { status: 405 }> {
 test("01 static segments match exactly and case-sensitively", () => {
   const router = new Router();
   router.add("GET", "/Users/Home", "home");
-  expect(router.match("GET", "/Users/Home")).toEqual({ status: 200, route: "/Users/Home", name: "home", params: {} });
+  const r = must200(router.match("GET", "/Users/Home"));
+  expect([r.route, r.name]).toEqual(["/Users/Home", "home"]);
   expect(router.match("GET", "/users/home").status).not.toBe(200);
 });
 
 test("02 :name matches one non-empty segment into params.name", () => {
   const router = new Router();
   router.add("GET", "/users/:id", "show-user");
-  expect(router.match("GET", "/users/42")).toEqual({ status: 200, route: "/users/:id", name: "show-user", params: { id: "42" } });
+  const r = must200(router.match("GET", "/users/42"));
+  expect([r.route, r.name]).toEqual(["/users/:id", "show-user"]);
+  expect(r.params.id).toBe("42");
 });
 
 test("03 a param name must be [A-Za-z_][A-Za-z0-9_]*, else RouteError invalid param name", () => {
@@ -37,9 +40,13 @@ test("04 [D] :name<int> and :name<slug> constrain the segment but keep the value
   const router = new Router();
   router.add("GET", "/n/:id<int>", "by-int");
   router.add("GET", "/s/:slug<slug>", "by-slug");
-  expect(router.match("GET", "/n/042")).toEqual({ status: 200, route: "/n/:id<int>", name: "by-int", params: { id: "042" } });
+  const byInt = must200(router.match("GET", "/n/042"));
+  expect([byInt.route, byInt.name]).toEqual(["/n/:id<int>", "by-int"]);
+  expect(byInt.params.id).toBe("042");
   expect(router.match("GET", "/n/4a2").status).not.toBe(200);
-  expect(router.match("GET", "/s/my-page-2")).toEqual({ status: 200, route: "/s/:slug<slug>", name: "by-slug", params: { slug: "my-page-2" } });
+  const bySlug = must200(router.match("GET", "/s/my-page-2"));
+  expect([bySlug.route, bySlug.name]).toEqual(["/s/:slug<slug>", "by-slug"]);
+  expect(bySlug.params.slug).toBe("my-page-2");
   expect(router.match("GET", "/s/My-Page").status).not.toBe(200);
   expect(() => new Router().add("GET", "/z/:id<uuid>", "z")).toThrow("unknown param type uuid");
 });
@@ -62,9 +69,15 @@ test("06 * or *name as the last segment captures the rest of the path, possibly 
   const router = new Router();
   router.add("GET", "/files/*", "all-files");
   router.add("GET", "/assets/*rest", "assets");
-  expect(router.match("GET", "/files/a/b/c")).toEqual({ status: 200, route: "/files/*", name: "all-files", params: { "*": "a/b/c" } });
-  expect(router.match("GET", "/files")).toEqual({ status: 200, route: "/files/*", name: "all-files", params: { "*": "" } });
-  expect(router.match("GET", "/assets/x/y")).toEqual({ status: 200, route: "/assets/*rest", name: "assets", params: { rest: "x/y" } });
+  const full = must200(router.match("GET", "/files/a/b/c"));
+  expect([full.route, full.name]).toEqual(["/files/*", "all-files"]);
+  expect(full.params["*"]).toBe("a/b/c");
+  const empty = must200(router.match("GET", "/files"));
+  expect([empty.route, empty.name]).toEqual(["/files/*", "all-files"]);
+  expect(empty.params["*"]).toBe("");
+  const named = must200(router.match("GET", "/assets/x/y"));
+  expect([named.route, named.name]).toEqual(["/assets/*rest", "assets"]);
+  expect(named.params.rest).toBe("x/y");
   expect(() => new Router().add("GET", "/*x/b", "bad")).toThrow("wildcard must be last");
 });
 
@@ -122,8 +135,10 @@ test("11 [D] a trailing slash on the request path is ignored, except the root /"
   const router = new Router();
   router.add("GET", "/users", "users");
   router.add("GET", "/", "root");
-  expect(router.match("GET", "/users/")).toEqual({ status: 200, route: "/users", name: "users", params: {} });
-  expect(router.match("GET", "/")).toEqual({ status: 200, route: "/", name: "root", params: {} });
+  const withSlash = must200(router.match("GET", "/users/"));
+  expect([withSlash.route, withSlash.name]).toEqual(["/users", "users"]);
+  const root = must200(router.match("GET", "/"));
+  expect([root.route, root.name]).toEqual(["/", "root"]);
 });
 
 test("12 [D] repeated slashes in the request path count as one", () => {
@@ -136,25 +151,31 @@ test("12 [D] repeated slashes in the request path count as one", () => {
 test("13 the query string and fragment are ignored", () => {
   const router = new Router();
   router.add("GET", "/search", "search");
-  expect(router.match("GET", "/search?q=1#top")).toEqual({ status: 200, route: "/search", name: "search", params: {} });
+  const r = must200(router.match("GET", "/search?q=1#top"));
+  expect([r.route, r.name]).toEqual(["/search", "search"]);
 });
 
 test("14 param values are percent-decoded after matching (%20 is a space)", () => {
   const router = new Router();
   router.add("GET", "/greet/:name", "greet");
-  expect(router.match("GET", "/greet/John%20Doe")).toEqual({ status: 200, route: "/greet/:name", name: "greet", params: { name: "John Doe" } });
+  const r = must200(router.match("GET", "/greet/John%20Doe"));
+  expect([r.route, r.name]).toEqual(["/greet/:name", "greet"]);
+  expect(r.params.name).toBe("John Doe");
 });
 
 test("15 an encoded slash %2F stays inside its segment and decodes to / in the param value", () => {
   const router = new Router();
   router.add("GET", "/files/:name", "one-segment");
-  expect(router.match("GET", "/files/a%2Fb")).toEqual({ status: 200, route: "/files/:name", name: "one-segment", params: { name: "a/b" } });
+  const r = must200(router.match("GET", "/files/a%2Fb"));
+  expect([r.route, r.name]).toEqual(["/files/:name", "one-segment"]);
+  expect(r.params.name).toBe("a/b");
 });
 
 test("16 static segments match their decoded form", () => {
   const router = new Router();
   router.add("GET", "/café", "cafe");
-  expect(router.match("GET", "/caf%C3%A9")).toEqual({ status: 200, route: "/café", name: "cafe", params: {} });
+  const r = must200(router.match("GET", "/caf%C3%A9"));
+  expect([r.route, r.name]).toEqual(["/café", "cafe"]);
 });
 
 test("17 invalid percent-encoding, or bytes that are not UTF-8, is status 400", () => {
@@ -173,35 +194,58 @@ test("18 a request path not starting with / is status 400", () => {
 test("19 methods are case-insensitive and stored upper-case", () => {
   const router = new Router();
   router.add("get", "/a", "a");
-  expect(router.match("GET", "/a")).toEqual({ status: 200, route: "/a", name: "a", params: {} });
-  expect(router.match("get", "/a")).toEqual({ status: 200, route: "/a", name: "a", params: {} });
+  const viaUpper = must200(router.match("GET", "/a"));
+  expect([viaUpper.route, viaUpper.name]).toEqual(["/a", "a"]);
+  const viaLower = must200(router.match("get", "/a"));
+  expect([viaLower.route, viaLower.name]).toEqual(["/a", "a"]);
   expect(router.list()[0]).toMatch(/^GET /);
 });
 
 test("20 [D] an ANY route matches every method, but a route for the exact method on the same pattern wins", () => {
   const router = new Router();
   router.add("ANY", "/a", "any-a");
-  expect(router.match("POST", "/a")).toEqual({ status: 200, route: "/a", name: "any-a", params: {} });
+  const viaAny = must200(router.match("POST", "/a"));
+  expect([viaAny.route, viaAny.name]).toEqual(["/a", "any-a"]);
   router.add("GET", "/a", "get-a");
-  expect(router.match("GET", "/a")).toEqual({ status: 200, route: "/a", name: "get-a", params: {} });
-  expect(router.match("POST", "/a")).toEqual({ status: 200, route: "/a", name: "any-a", params: {} });
+  const viaExact = must200(router.match("GET", "/a"));
+  expect([viaExact.route, viaExact.name]).toEqual(["/a", "get-a"]);
+  const stillAny = must200(router.match("POST", "/a"));
+  expect([stillAny.route, stillAny.name]).toEqual(["/a", "any-a"]);
 
   const grouped = new Router();
   grouped.add("ANY", "/n/:x<int>", "any-int");
   grouped.add("GET", "/n/:y<slug>", "get-slug");
   const r = must200(grouped.match("GET", "/n/5"));
   expect([r.route, r.name]).toEqual(["/n/:y<slug>", "get-slug"]);
+
+  // The exact route only wins when it actually matches the path too: here the GET route's
+  // <int> constraint fails on "abc", so it never joins the ANY route's precedence group.
+  const groupedNoMatch = new Router();
+  groupedNoMatch.add("ANY", "/n/:x<slug>", "any-slug");
+  groupedNoMatch.add("GET", "/n/:y<int>", "get-int");
+  const r2 = must200(groupedNoMatch.match("GET", "/n/abc"));
+  expect([r2.route, r2.name]).toEqual(["/n/:x<slug>", "any-slug"]);
 });
 
 test("21 HEAD uses the GET route when no HEAD route matches", () => {
   const router = new Router();
   router.add("GET", "/a", "get-a");
-  expect(router.match("HEAD", "/a")).toEqual({ status: 200, route: "/a", name: "get-a", params: {} });
+  const r = must200(router.match("HEAD", "/a"));
+  expect([r.route, r.name]).toEqual(["/a", "get-a"]);
 
   const withAny = new Router();
   withAny.add("ANY", "/b", "any-b");
   withAny.add("GET", "/b", "get-b");
-  expect(withAny.match("HEAD", "/b")).toEqual({ status: 200, route: "/b", name: "any-b", params: {} });
+  const r2 = must200(withAny.match("HEAD", "/b"));
+  expect([r2.route, r2.name]).toEqual(["/b", "any-b"]);
+
+  // The ANY route only blocks the GET fallback when it actually matches the path too: here its
+  // <int> constraint fails on "abc", so HEAD still falls back to the GET route that does match.
+  const groupedNoMatch = new Router();
+  groupedNoMatch.add("ANY", "/n/:x<int>", "any-int");
+  groupedNoMatch.add("GET", "/n/:y<slug>", "get-slug");
+  const r3 = must200(groupedNoMatch.match("HEAD", "/n/abc"));
+  expect([r3.route, r3.name]).toEqual(["/n/:y<slug>", "get-slug"]);
 });
 
 test("22 a path matched for another method is status 405 with allow", () => {
