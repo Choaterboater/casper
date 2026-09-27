@@ -1,3 +1,4 @@
+import { type Component, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type { ProjectContext } from "../project/context";
 import { CASPER_VERSION } from "../version";
 import { paint } from "./format";
@@ -26,9 +27,15 @@ const WORDMARK = [
 /** Narrower terminals get the one-line text banner instead of a wrapped wordmark. */
 export const WORDMARK_COLUMNS = GHOST[0]!.length + 2 + WORDMARK[0]!.length;
 
-/** Trusted constant art: already styled, so it bypasses the untrusted-text line classifier. */
-export function renderWordmark(color: boolean): string {
-  return GHOST.map((row, index) => `${paint(row, "1;37", color)}  ${paint(WORDMARK[index]!, "36", color)}`).join("\n") + "\n";
+const TEXT_HEADER = `CASPER ${CASPER_VERSION} · your coding companion`;
+
+/** Trusted constant art above the version line, already styled, so it bypasses the untrusted-text line
+ * classifier. It is chosen per render width: a window narrowed below the art gets the one-line header
+ * instead of the art wrapped into fragments. */
+export function wordmarkHeader(color: boolean): Component {
+  const art = ["", ...GHOST.map((row, index) => `${paint(row, "1;37", color)}  ${paint(WORDMARK[index]!, "36", color)}`), "",
+    ` version   ${CASPER_VERSION} · your coding companion`];
+  return { render: width => width >= WORDMARK_COLUMNS ? art : wrapTextWithAnsi(paint(TEXT_HEADER, "1;36", color), width), invalidate() {} };
 }
 
 export function renderProjectSummary(context: ProjectContext): string {
@@ -44,11 +51,11 @@ export function renderProjectSummary(context: ProjectContext): string {
   ].join("\n");
 }
 
-/** With the wordmark above, the name is already on screen and the version joins the label column.
+/** With the wordmark header above, the name and version are already on screen.
  * The slash-command hint is only meaningful where someone can type one. */
 export function renderBanner(context: ProjectContext, options: { wordmark?: boolean; interactive?: boolean } = {}): string {
   return [
-    options.wordmark ? ` version   ${CASPER_VERSION} · your coding companion` : `CASPER ${CASPER_VERSION} · your coding companion`,
+    ...(options.wordmark ? [] : [TEXT_HEADER]),
     ` project   ${context.model.project.name} · branch ${context.info.gitBranch ?? "(no git branch)"} · profile ${context.profileName}`,
     ...(options.interactive ? [" /help · /status · /login · /model"] : []),
     "",

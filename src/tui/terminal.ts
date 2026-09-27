@@ -1,3 +1,4 @@
+import type { Component } from "@earendil-works/pi-tui";
 import readline from "node:readline";
 import type { Readable, Writable } from "node:stream";
 import type { RuntimeModelPickerHost, RuntimePickerIO } from "../runtime/types";
@@ -66,9 +67,9 @@ export class InteractiveTerminal {
   get rich(): boolean { return this.surface !== undefined; }
   get columns(): number | undefined { return this.output.columns; }
 
-  /** Constant, already-styled text such as the startup wordmark. Never for model or tool output. */
-  writeTrusted(text: string): void {
-    if (this.surface) this.surface.write(text); else this.output.write(text);
+  /** Constant, already-styled lines laid out per width, such as the startup wordmark. Never for model or tool output. */
+  writeTrusted(block: Component): void {
+    if (this.surface) this.surface.writeBlock(block); else this.output.write(block.render(this.output.columns ?? 80).join("\n") + "\n");
   }
 
   /** Code-like output (a replayed tool result, a diff) boxed under a title on the rich surface; a
