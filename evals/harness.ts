@@ -52,8 +52,9 @@ export interface HarnessObservation {
   /** Casper's last smoke run, as its receipt reported it (`smoke`): a self-report like
    * `receiptOutcome`, kept to measure the capability. Absent when none ran, and for Pi. */
   smoke?: HarnessSmoke;
-  /** Casper's independent acceptance check as its receipt reported it; absent when none ran, and for Pi. */
-  receiptAcceptance?: { status: string; reason?: string };
+  /** Casper's independent acceptance check as its receipt reported it (`output`: the failing run's tail,
+   * already redacted by Casper); absent when none ran, and for Pi. */
+  receiptAcceptance?: { status: string; reason?: string; output?: string };
 }
 /** Casper's smoke report, recorded as given; only these fields are read, so a newer Casper's extra ones are kept, not required. */
 export interface HarnessSmoke {
@@ -323,7 +324,8 @@ export function observeHarness(harness: HarnessName, events: readonly unknown[],
         smoke = smokeReport(event.smoke);
         const acceptance = record(event.acceptance);
         if (typeof acceptance?.status === "string") receiptAcceptance = { status: acceptance.status.slice(0, 16),
-          ...(typeof acceptance.reason === "string" ? { reason: acceptance.reason.slice(0, 500) } : {}) };
+          ...(typeof acceptance.reason === "string" ? { reason: acceptance.reason.slice(0, 500) } : {}),
+          ...(typeof acceptance.output === "string" ? { output: acceptance.output.slice(-4000) } : {}) };
       }
     }
     if (name === "pi" && event.type === "session" && typeof event.id === "string") sessionId = event.id.slice(0, 128);
