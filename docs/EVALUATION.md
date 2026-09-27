@@ -282,6 +282,8 @@ to reach 70%, or when a cost ratio is over 1.25×. Cost ratios count as final be
 same extra work. The cross-model run (docs/evals/2026-09-27-cross-model-acceptance.md) could have stopped
 after its first 24 runs.
 
+**Stopping on a success-rate rule.** `--stop-when-success-decided <harness>:<against>:<ratio>` stops a benchmark once "`harness` has at most `ratio` × `against`'s not-accepted runs" is decided either way: met when every remaining `harness` run could fail and it would still hold, not met when every remaining `against` run could fail and it still would not. Exit 3, with the reason in the results document's `stopped`.
+
 **Stopping inside a run.** `--stop-when-decided <harness>` applies the same test after every finished run of a
 benchmark: per pack, that Casper harness's receipt cell over the runs so far (Pi's runs of the pack for the cost
 ratios) against its jobs not yet finished. Cost ratios count only once every task of the pack has at least one run
