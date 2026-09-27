@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { cp, mkdir, mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { evaluateAcceptance, gradePreparedEval, hiddenPaths, prepareEvalTask, prepareWorkdir, referenceChanges, runEvalTask, type EvalTask } from "../evals/runner";
@@ -42,6 +42,38 @@ test("every harder task states 30-35 cases: one hidden test each, under the chec
     for (const file of await readdir(dir)) if (file.endsWith(".test.ts")) count += ((await Bun.file(path.join(dir, file)).text()).match(/^test\(/gm) ?? []).length;
     expect({ task: task.id, count, inRange: count >= 30 && count <= 35 }).toEqual({ task: task.id, count, inRange: true });
   }
+});
+
+/** Finds every `"..."` piece of a HARDER_PACK prompt's `+`-joined string literal, in source order: either the
+ * first piece after `prompt:` or a later piece introduced by a `+` at the start of its own line. Consecutive
+ * pieces belong to the same prompt only when nothing but whitespace and that `+` separates them in the source
+ * (a `+ RULES,` line, or the next task's `id:`/`prompt:`, breaks the chain instead of matching this pattern). */
+function harderPromptPieces(source: string): { text: string; index: number; end: number }[] {
+  const offset = Math.max(0, source.indexOf("export const HARDER_PACK"));
+  const slice = source.slice(offset);
+  const pieceRe = /(?:prompt:[ \t]*|^[ \t]*\+[ \t]*)("(?:[^"\\]|\\.)*")/gm;
+  const pieces: { text: string; index: number; end: number }[] = [];
+  for (const m of slice.matchAll(pieceRe)) {
+    pieces.push({ text: JSON.parse(m[1]!) as string, index: offset + m.index!, end: offset + m.index! + m[0].length });
+  }
+  return pieces;
+}
+
+test("every HARDER_PACK prompt piece boundary has a space on at least one side, so the joined prompt reads correctly", async () => {
+  const source = await readFile(path.join(repoRoot, "evals/packs.ts"), "utf8");
+  const pieces = harderPromptPieces(source);
+  expect(pieces.length).toBeGreaterThan(0);
+  const violations: string[] = [];
+  for (let i = 0; i + 1 < pieces.length; i++) {
+    const gap = source.slice(pieces[i]!.end, pieces[i + 1]!.index);
+    if (!/^\s*$/.test(gap)) continue; // not adjacent pieces of the same prompt (the next `+` is part of its own match)
+    const a = pieces[i]!.text;
+    const b = pieces[i + 1]!.text;
+    const aEndsSpace = a.length === 0 || /\s$/.test(a);
+    const bStartsSpace = b.length === 0 || /^\s/.test(b);
+    if (!aEndsSpace && !bStartsSpace) violations.push(`...${JSON.stringify(a.slice(-25))} + ${JSON.stringify(b.slice(0, 25))}...`);
+  }
+  expect(violations).toEqual([]);
 });
 
 test("a setup removal ending in / deletes that whole directory from the candidate", async () => {
