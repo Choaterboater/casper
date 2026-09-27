@@ -210,12 +210,13 @@ test("a rows-only resize writes every visible row again in place, so the prompt 
     terminal.setStatus("fixture"); terminal.start();
     void terminal.readCommand();
     for (let line = 0; line < 20; line++) terminal.write(`line ${line}\n`);
-    await screen.until(output => output.includes("○ fixture"));
+    // The footer is styled (`○` and the status are dimmed separately), so match on the plain text.
+    await screen.until(output => Bun.stripANSI(output).includes("○ fixture"));
     const painted = screen.output.length;
     // A terminal may drop the rows below the cursor when it shrinks (xterm.js does: the prompt's lower
     // border and the footer), so no row can be assumed intact.
     screen.writer.rows = 8; screen.writer.emit("resize");
-    await screen.until(output => output.slice(painted).includes("○ fixture"));
+    await screen.until(output => Bun.stripANSI(output.slice(painted)).includes("○ fixture"));
     const repaint = screen.output.slice(painted);
     expect(repaint).not.toContain("\x1b[3J");
     const rule = "─".repeat(60);
