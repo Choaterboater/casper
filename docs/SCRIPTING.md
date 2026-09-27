@@ -159,7 +159,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install Casper
-        run: curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.12/install.sh | sh
+        run: curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.13/install.sh | sh
       - name: Fix the failing test
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
@@ -178,7 +178,7 @@ jobs:
 
 `set -o pipefail` makes the step fail with Casper's exit code rather than `jq`'s. Provider API keys
 such as `OPENROUTER_API_KEY` are read from the environment. The flags on this page are newer than
-the v0.2.12 preview: pin the installer to a release that includes them. A check runs
+v0.1.0: they ship in v0.2.13 and later, so pin the installer to v0.2.13 or newer. A check runs
 the repository's own configured commands: that is execution consent, not sandboxing, so run it
 only on code you trust. Configure the checks in `.casper/project.yaml` (see
 [VERIFICATION.md](VERIFICATION.md)); `--require-verification` then fails the job when Casper

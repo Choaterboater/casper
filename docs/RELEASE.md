@@ -1,12 +1,26 @@
 # Release process and installers
 
-Casper distributes an unsigned **v0.2.12 preview**, not a stable release. Installers
-default to `https://github.com/Choaterboater/casper/releases/download/v0.2.12` because
+Casper distributes an unsigned **v0.2.13 preview**, not a stable release. Installers
+default to `https://github.com/Choaterboater/casper/releases/download/v0.2.13` because
 GitHub's `latest/download` route excludes prereleases. The first published preview
 was **v0.1.0**; its assets and tag stay as published, and every fix ships under a new
 version.
 
-## Unreleased: scripting surface
+## v0.2.13
+
+The first published build since v0.1.0. It carries every change below. The 0.2.12 build was never
+published: its binary could not use stored OAuth sign-ins (fixed here, see below), and the installer
+URLs that pointed at it returned 404.
+
+**Request checklist:** before an interactive code change (implement, fix or test), Casper lists the
+cases the request states and shows them in the prompt editor, where you can edit them or press Esc to
+skip; the model then writes one test per case. On by default for interactive code changes,
+`verification.checklist: false` turns it off, `true` also enables it for one-shot runs. Long requests
+work: up to 80 cases, a 24,000-token answer, bullet-list answers accepted, and a cut list says how many
+cases were left out. The requirements list no longer drops open items past its 50th line, so an
+admitted gap always makes the change not verified. See [VERIFICATION.md](VERIFICATION.md#request-checklist).
+
+## v0.2.13: scripting surface
 
 Phase 2: one-shot runs are scriptable. `--model <provider/id[:effort]>` and `--effort` choose
 the model and effort for one run and never change the saved default. `--json` streams JSON Lines
@@ -16,7 +30,7 @@ bounds each request. `--require-verification` makes unverified changes exit 3. *
 change:** command-line mistakes (unknown options, conflicting flags, bad `learn` arguments) now
 exit **64** instead of 2 or 1, so 2 always means incomplete. See [SCRIPTING.md](SCRIPTING.md).
 
-## Unreleased: Casper runs the checks
+## v0.2.13: Casper runs the checks
 
 Phase 1: after the model edits files, Casper runs the project's checks itself
 (`verification.mode: auto`), repairs failures within `repair.maxAttempts`, and ends each
@@ -26,12 +40,12 @@ task with a plain receipt ("✓ Verified by Casper: test passed"). `--verify` no
 receipt moved to `/receipt` and `--verbose`. `verification.checks` selects the checks, and
 the default per-check timeout is now 600 seconds. See [VERIFICATION.md](VERIFICATION.md).
 
-**Compiled-binary sign-in fix:** the v0.2.12 release binary could not use any stored OAuth sign-in
+**Compiled-binary sign-in fix:** the unpublished 0.2.12 binary could not use any stored OAuth sign-in
 (OpenAI Codex, GitHub Copilot, Anthropic, OpenRouter): model requests failed with
 `OAuth auth derivation failed … Cannot find module './github-copilot.js'`. The OAuth flows are now
 embedded in the binary. The source CLI was unaffected.
 
-## Unreleased: independence and review fixes
+## v0.2.13: independence and review fixes
 
 Phase 0 lands the full review fixes, including untrusted project-resource isolation,
 side-effect-free informational flags, terminal sanitization, explicit project-server
@@ -46,12 +60,11 @@ or conversations. Explicit Casper stores receive no legacy import. See
 
 Runtime copy now uses Casper/conversation terminology. Synthetic MCP fixtures use
 neutral vendor/router-catalog names. Saved evaluation reports redact home and temp
-prefixes; the committed historical reports are scrubbed too. This is unreleased
-source work: the version remains **0.2.12**, with no new tag or published assets.
+prefixes; the committed historical reports are scrubbed too.
 
 ## Changes since v0.1.0
 
-Unreleased source correction: `/login` now mounts every provider/method, consent
+Correction: `/login` now mounts every provider/method, consent
 and private-input panel in Casper's existing renderer. Previously a second
 renderer sent cursor controls through the transcript sanitizer, printing literal
 `\u{d}` and appending navigation updates. Login panels no longer become transcript
@@ -310,7 +323,7 @@ Linux artifacts are cross-compiled but still require real-host verification.
 - Binaries are unsigned/unnotarized. SmartScreen or Gatekeeper may warn; the
   installers clear the quarantine attribute but do not sign or notarize.
 - Published v0.1.0 appends login selection messages instead of moving the highlight,
-  and lacks every change listed above. Those corrections ship in v0.2.12.
+  and lacks every change listed above. Those corrections ship in v0.2.13.
 - Windows diagram output is inline; screenshot/diagram artifact files require the
   POSIX bridge. Optional browser/debugger/LSP/MCP behavior is not fully host-tested.
 - There is no npm/Homebrew distribution channel, automatic updater or rollback.
