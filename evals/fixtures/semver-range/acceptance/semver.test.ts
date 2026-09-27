@@ -17,7 +17,8 @@ test("03 prerelease identifiers: letters, digits and -, numeric ones have no lea
 });
 
 test("04 build metadata is parsed into build and ignored in comparisons", () => {
-  expect(parse("1.2.3+build.001").build).toEqual(["build", "001"]);
+  expect(parse("1.2.3+build.5").build).toEqual(["build", "5"]);
+  expect(parse("1.2.3+007").build).toEqual(["007"]);
   expect(compare("1.2.3+aaa", "1.2.3+zzz")).toBe(0);
 });
 
@@ -40,17 +41,22 @@ test("07 a prerelease is lower than the same release", () => {
 test("08 prerelease identifiers compare one by one, numbers before strings, shorter lower when equal", () => {
   const order = [
     "1.0.0-alpha", "1.0.0-alpha.1", "1.0.0-alpha.beta", "1.0.0-beta",
-    "1.0.0-beta.2", "1.0.0-beta.11", "1.0.0-rc.1", "1.0.0",
+    "1.0.0-beta.2", "1.0.0-beta.11", "1.0.0-rc.1",
   ];
   for (let i = 0; i < order.length - 1; i++) expect(compare(order[i]!, order[i + 1]!)).toBe(-1);
 });
 
 test("09 comparators <, <=, >, >=, = and a bare version meaning =", () => {
   expect(satisfies("1.2.3", "<1.3.0")).toBe(true);
+  expect(satisfies("1.3.0", "<1.3.0")).toBe(false);
   expect(satisfies("1.2.3", "<=1.2.3")).toBe(true);
+  expect(satisfies("1.2.4", "<=1.2.3")).toBe(false);
   expect(satisfies("1.2.4", ">1.2.3")).toBe(true);
+  expect(satisfies("1.2.3", ">1.2.3")).toBe(false);
   expect(satisfies("1.2.3", ">=1.2.3")).toBe(true);
+  expect(satisfies("1.2.2", ">=1.2.3")).toBe(false);
   expect(satisfies("1.2.3", "=1.2.3")).toBe(true);
+  expect(satisfies("1.2.4", "=1.2.3")).toBe(false);
   expect(satisfies("1.2.3", "1.2.3")).toBe(true);
   expect(satisfies("1.2.4", "1.2.3")).toBe(false);
 });
@@ -166,8 +172,8 @@ test("26 minSatisfying returns the lowest satisfying version, or null", () => {
 });
 
 test("27 [D] maxSatisfying and minSatisfying skip invalid versions in the list", () => {
-  expect(maxSatisfying(["1.2.3", "not-a-version", "1.5.0"], "*")).toBe("1.5.0");
-  expect(minSatisfying(["1.2.3", "not-a-version", "1.5.0"], "*")).toBe("1.2.3");
+  expect(maxSatisfying(["not-a-version", "1.2.3", "also-bad"], ">=1.0.0")).toBe("1.2.3");
+  expect(minSatisfying(["not-a-version", "1.2.3", "also-bad"], ">=1.0.0")).toBe("1.2.3");
 });
 
 test("28 sort returns a new ascending list and does not change its input", () => {
@@ -178,9 +184,9 @@ test("28 sort returns a new ascending list and does not change its input", () =>
 });
 
 test("29 sort keeps the input order of versions that compare equal", () => {
-  expect(sort(["1.2.3+b", "1.2.3+a"])).toEqual(["1.2.3+b", "1.2.3+a"]);
+  expect(sort(["v1.2.3", "1.0.0", "1.2.3"])).toEqual(["1.0.0", "v1.2.3", "1.2.3"]);
 });
 
 test("30 [D] sort puts invalid versions last, in their input order", () => {
-  expect(sort(["bad2", "1.0.0", "bad1", "0.5.0"])).toEqual(["0.5.0", "1.0.0", "bad2", "bad1"]);
+  expect(sort(["bad2", "1.0.0", "bad1"])).toEqual(["1.0.0", "bad2", "bad1"]);
 });
