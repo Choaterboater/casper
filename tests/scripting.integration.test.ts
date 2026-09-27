@@ -436,7 +436,8 @@ test("the review round is off by default (and with verification.review: false); 
 }, 60_000);
 
 const ACCEPTANCE = "Casper independent acceptance.";
-const isAcceptance = (payload: Payload) => payload.messages.some((message) => message.role === "system" && JSON.stringify(message.content).includes(ACCEPTANCE));
+// Reasoning models get the system prompt as a "developer" message.
+const isAcceptance = (payload: Payload) => payload.messages.some((message) => ["system", "developer"].includes(message.role) && JSON.stringify(message.content).includes(ACCEPTANCE));
 
 test("verification.acceptance: tests written from the request alone decide between verified and not verified, and are never kept", async () => {
   const accepting = (assertion: string) => fixture((_request, payload) => isAcceptance(payload)
@@ -469,7 +470,15 @@ test("verification.acceptance: tests written from the request alone decide betwe
   const passed = await approved.run(["--json", "--verify", "--require-verification", "Make value FIXED"]);
   const passedReceipt = JSON.parse(passed.stdout.trim().split("\n").at(-1)!);
   expect({ exit: passed.exit, outcome: passedReceipt.outcome, acceptance: passedReceipt.acceptance }).toEqual({ exit: 0, outcome: "verified", acceptance: { status: "pass" } });
-}, 60_000);
+
+  // With a review role, the acceptance tests come from that model, not the one that did the work.
+  const crossed = await accepting("expect(value).toBe(\"FIXED\")");
+  await setUp(crossed);
+  await writeFile(crossed.settings, JSON.stringify({ defaultProvider: "fixture", defaultModel: "first", retry: { enabled: false }, modelRoles: { review: "fixture/second" } }));
+  const crossedReceipt = JSON.parse((await crossed.run(["--json", "--verify", "Make value FIXED"])).stdout.trim().split("\n").at(-1)!);
+  expect(crossedReceipt.acceptance).toEqual({ status: "pass" });
+  expect(crossed.payloads.map((payload) => [isAcceptance(payload), payload.model])).toEqual([[false, "first"], [false, "first"], [true, "second"]]);
+}, 90_000);
 
 test("the review round fixes a gap the model finds; a gap it admits keeps the change unverified", async () => {
   // The review finds that sum.js also needs a newline marker and fixes it; the checks rerun and pass.

@@ -358,11 +358,20 @@ export class PiModels {
     } finally { this.selecting = false; this.selectionSignal = undefined; finish(); }
   }
 
-  /** A one-off request with the conversation's model and effort; the transcript is untouched. */
+  /** A one-off request outside the transcript: the configured `review` role's model when set (so a check can
+   * come from a different model than the one that did the work), else the conversation's; effort is the
+   * role's suffix, else the conversation's, mapped to what the model supports. */
   async complete(session: AgentSession, input: { systemPrompt: string; user: string; signal?: AbortSignal }): Promise<{ text: string; error?: string; usage: { tokens: number; estimatedCost: number } | null }> {
-    const model = session.model;
-    if (!model) return { text: "", error: "no model selected", usage: { tokens: 0, estimatedCost: 0 } };
-    const level = session.thinkingLevel;
+    const none = { tokens: 0, estimatedCost: 0 };
+    const roles = this.getRoles();
+    const role = roles.review ? resolveModelSelection("@review", this.catalog.getModels(), roles, this.defaultReference()) : undefined;
+    const model = role ? this.catalog.getModel(role.reference.provider, role.reference.id) : session.model;
+    if (!model) return { text: "", error: role ? `the review model ${role.reference.provider}/${role.reference.id} is not in the catalog` : "no model selected", usage: none };
+    if (role && (this.staleAuth.has(model.provider) || !this.catalog.hasConfiguredAuth(model.provider))) {
+      return { text: "", error: `credentials missing for the review model's provider ${model.provider}`, usage: none };
+    }
+    const requested = role?.effort && role.effort !== "auto" ? role.effort : session.thinkingLevel;
+    const level = requested && requested !== "off" ? nearestEffort(requested, getSupportedThinkingLevels(model)) : undefined;
     const response = await this.catalog.completeSimple(model, {
       systemPrompt: input.systemPrompt,
       messages: [{ role: "user", content: input.user, timestamp: Date.now() }],

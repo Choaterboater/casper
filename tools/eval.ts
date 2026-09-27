@@ -63,6 +63,9 @@ Quality benchmark (Casper vs Pi, optionally OMP, through their real CLIs; --pack
                         (e.g. Together,Novita). OpenRouter keeps a conversation on one host and
                         hosts differ tenfold in speed. --route any runs unpinned on purpose; the
                         results document records route "unpinned".
+  --acceptance-model <ref>  The model (same provider as --model) that writes the acceptance tests
+                        for --harness casper-acceptance-cross, set as its run's review role.
+  --acceptance-route <hosts> Its OpenRouter hosts, like --route (required for an openrouter model).
   --person-cost <sec>   A person's time charged per follow-up in the time-to-correct table
                         (0..3600). Default: 120.
   --report <path>       Reprint a saved benchmark results document with this checkout's
@@ -104,6 +107,8 @@ interface EvalOptions {
   followUps: number;
   personCostSeconds?: number;
   route?: string[];
+  acceptanceModel?: string;
+  acceptanceRoute?: string[];
   /** `--route any`: an OpenRouter benchmark deliberately left unpinned. */
   unpinned?: boolean;
   reports: string[];
@@ -131,7 +136,7 @@ export function parseArguments(args: readonly string[]): EvalOptions {
     if (argument === "--keep") { options.keep = true; continue; }
     if (argument === "--prepare") { options.prepare = true; continue; }
     if (argument === "--no-auto-verify") { options.autoVerify = false; continue; }
-    if (["--pack", "--harness", "--effort", "--concurrency", "--time-limit", "--follow-ups", "--person-cost", "--report", "--route", "--casper", "--pi", "--omp"].includes(argument)) {
+    if (["--pack", "--harness", "--effort", "--concurrency", "--time-limit", "--follow-ups", "--person-cost", "--report", "--route", "--casper", "--pi", "--omp", "--acceptance-model", "--acceptance-route"].includes(argument)) {
       const value = args[++index];
       if (!value || value.startsWith("--")) throw new Error(`${argument} needs a value`);
       if (argument === "--pack") {
@@ -157,6 +162,14 @@ export function parseArguments(args: readonly string[]): EvalOptions {
         if (hosts.length === 1 && hosts[0] === "any") options.unpinned = true;
         else if (hosts.includes("any")) throw new Error("--route any stands alone: it leaves every host open");
         else options.route = hosts;
+      }
+      else if (argument === "--acceptance-model") {
+        if (!value.includes("/")) throw new Error("--acceptance-model needs provider/id");
+        options.acceptanceModel = value;
+      } else if (argument === "--acceptance-route") {
+        const hosts = value.split(",").map((host) => host.trim()).filter(Boolean);
+        if (!hosts.length || hosts.some((host) => host.length > 64 || host === "any")) throw new Error("--acceptance-route needs comma-separated OpenRouter host names");
+        options.acceptanceRoute = hosts;
       }
       else if (argument === "--casper") options.casper = value;
       else if (argument === "--pi") options.pi = value;
@@ -190,7 +203,7 @@ export function parseArguments(args: readonly string[]): EvalOptions {
     if (args.some((flag) => flag.startsWith("--") && !["--report", "--person-cost"].includes(flag))) throw new Error("--report takes only --person-cost");
     return options;
   }
-  const benchmarkOnly = options.effort || options.concurrency || options.timeLimitSeconds || options.followUps || options.personCostSeconds !== undefined || options.route || options.unpinned || options.casper || options.pi || options.omp;
+  const benchmarkOnly = options.effort || options.concurrency || options.timeLimitSeconds || options.followUps || options.personCostSeconds !== undefined || options.route || options.unpinned || options.casper || options.pi || options.omp || options.acceptanceModel || options.acceptanceRoute;
   if (isBenchmark(options)) {
     if (options.prepare || options.grade || options.scenario || options.keep || !options.autoVerify) {
       throw new Error("--prepare, --grade, --scenario, --keep and --no-auto-verify do not apply to a benchmark");
@@ -202,9 +215,16 @@ export function parseArguments(args: readonly string[]): EvalOptions {
       throw new Error("OpenRouter benchmarks need --route <hosts> (e.g. --route Together): OpenRouter keeps a conversation on one host and its hosts "
         + "differ tenfold in speed, so an unpinned comparison measures which host each harness drew. Pass --route any to run unpinned anyway.");
     }
+    const cross = options.harnesses.includes("casper-acceptance-cross");
+    if (cross !== Boolean(options.acceptanceModel)) throw new Error("--harness casper-acceptance-cross and --acceptance-model go together");
+    if (options.acceptanceModel && options.acceptanceModel.slice(0, options.acceptanceModel.indexOf("/")) !== options.model.slice(0, options.model.indexOf("/"))) {
+      throw new Error("--acceptance-model must use the same provider as --model");
+    }
+    if (options.acceptanceModel?.startsWith("openrouter/") && !options.acceptanceRoute) throw new Error("An openrouter --acceptance-model needs --acceptance-route <hosts>");
+    if (options.acceptanceRoute && !options.acceptanceModel?.startsWith("openrouter/")) throw new Error("--acceptance-route applies only to an openrouter --acceptance-model");
     return options;
   }
-  if (benchmarkOnly) throw new Error("--effort, --concurrency, --time-limit, --follow-ups, --person-cost, --route, --casper, --pi and --omp apply only to a benchmark (--pack or --harness)");
+  if (benchmarkOnly) throw new Error("--effort, --concurrency, --time-limit, --follow-ups, --person-cost, --route, --acceptance-model, --acceptance-route, --casper, --pi and --omp apply only to a benchmark (--pack or --harness)");
   if (options.scenario && (!options.prepare || options.selected.length)) throw new Error("--scenario requires --prepare and cannot use --task");
   if (Boolean(options.grade) !== Boolean(options.observation)) throw new Error("--grade and --observation must be used together");
   if (options.grade && (options.prepare || options.selected.length || options.scenario)) throw new Error("--grade cannot select or prepare tasks");
@@ -290,7 +310,8 @@ async function benchmark(options: EvalOptions, repoRoot: string): Promise<number
   const omp = options.omp ? await executable(options.omp, "--omp") : Bun.which("omp");
   if (harnesses.includes("omp") && !omp) throw new Error("OMP is not on PATH; pass --omp <path>");
   const casper = options.casper ? [await executable(options.casper, "--casper")] : [process.execPath, path.join(repoRoot, "src/cli.ts")];
-  const commands: Record<HarnessName, string[]> = { casper, "casper-no-review": casper, "casper-review": casper, "casper-acceptance": casper, pi: pi ? [pi] : [], omp: omp ? [omp] : [] };
+  const commands: Record<HarnessName, string[]> = { casper, "casper-no-review": casper, "casper-review": casper, "casper-acceptance": casper, "casper-acceptance-cross": casper, pi: pi ? [pi] : [], omp: omp ? [omp] : [] };
+  const acceptanceModel = options.acceptanceModel ? { model: options.acceptanceModel, ...(options.acceptanceRoute ? { route: options.acceptanceRoute } : {}) } : undefined;
 
   const ranAt = new Date().toISOString();
   const commit = git(repoRoot, ["rev-parse", "--short=12", "HEAD"]);
@@ -310,6 +331,7 @@ async function benchmark(options: EvalOptions, repoRoot: string): Promise<number
   const { runs, failures } = await runBenchmark({
     repoRoot, tasks, harnesses, commands, model: reference, effort, repeat: options.repeat, concurrency,
     timeoutMs: timeLimitSeconds * 1000, verifyTimeoutMs: options.timeoutSeconds * 1000, seed, followUps: options.followUps, ...(options.route ? { route: options.route } : {}),
+    ...(acceptanceModel ? { acceptanceModel } : {}),
     onRun: (run: BenchmarkRun) => {
       const { score } = run;
       process.stdout.write(`[${++finished}/${total}] ${run.taskId} ${run.harness} #${run.repeat}: ${run.graded.success ? "accepted" : "not accepted"}`
@@ -326,7 +348,7 @@ async function benchmark(options: EvalOptions, repoRoot: string): Promise<number
   if (failures.length) process.stdout.write(`\n${failures.length} run(s) could not run or be graded; see failures in the results.\n`);
   await writeEvalReport(destination, {
     kind: "quality-benchmark", version: 1, ranAt, commit, dirty, model: reference, effort, repeat: options.repeat, concurrency,
-    timeLimitSeconds, verifyTimeoutSeconds: options.timeoutSeconds, route: recordedRoute(options), harnesses: versions, tasks: tasks.map((task) => task.id),
+    timeLimitSeconds, verifyTimeoutSeconds: options.timeoutSeconds, route: recordedRoute(options), ...(acceptanceModel ? { acceptanceModel } : {}), harnesses: versions, tasks: tasks.map((task) => task.id),
     summary, failures, runs,
   });
   process.stdout.write(`Wrote ${path.relative(process.cwd(), destination) || destination}\n`);
