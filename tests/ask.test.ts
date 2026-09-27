@@ -3,13 +3,13 @@ import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
-import { EventEmitter } from "node:events";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { CasperApp } from "../src/app";
 import { loadProjectContext } from "../src/project/context";
 import type { AgentRuntime, RuntimeEvent, RuntimeEventListener, RuntimeTool } from "../src/runtime/types";
 import { SkillRegistry } from "../src/skills/registry";
 import { InteractiveTerminal } from "../src/tui/terminal";
+import { fakeWriter, interactiveTerminal } from "./support/tty";
 import { ASK_BUDGET, askTool, type AskChannel } from "../src/tui/ask";
 import { formatTaskPrompt, underSpecifiedTarget } from "../src/task/classify";
 
@@ -20,33 +20,6 @@ process.env.TERM = "xterm-256color";
 afterAll(() => { if (ambientTerm === undefined) delete process.env.TERM; else process.env.TERM = ambientTerm; });
 
 const OPTIONS = [{ label: "SQLite", description: "file-based" }, { label: "Postgres" }];
-
-/** Fake TTY writer whose `until` resolves on the first write that satisfies the predicate, no timers. */
-function fakeWriter() {
-  let output = "";
-  let pending: { test: (output: string) => boolean; resolve: () => void } | undefined;
-  const writer = Object.assign(new EventEmitter(), { isTTY: true, columns: 100, rows: 30, write(text: string) {
-    output += text;
-    if (pending?.test(Bun.stripANSI(output))) { pending.resolve(); pending = undefined; }
-  } });
-  return {
-    writer,
-    get output() { return output; },
-    until(test: (output: string) => boolean): Promise<void> {
-      if (test(Bun.stripANSI(output))) return Promise.resolve();
-      const { promise, resolve } = Promise.withResolvers<void>();
-      pending = { test, resolve };
-      return promise;
-    },
-  };
-}
-
-function interactiveTerminal() {
-  const input = Object.assign(new PassThrough(), { isTTY: true, setRawMode() {} });
-  const screen = fakeWriter();
-  const terminal = new InteractiveTerminal(input, screen.writer, () => {}, () => {});
-  return { input, terminal, screen, close: () => { terminal.close(); input.destroy(); } };
-}
 
 test("an ask shows a standalone question and Up/Down selects an option", async () => {
   const session = interactiveTerminal();

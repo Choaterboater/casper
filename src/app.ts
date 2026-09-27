@@ -56,7 +56,7 @@ import { VerificationTask } from "./verify/task";
 import { ChangeBaseline, changesCode, proofRepairPrompt, type ChangeProof } from "./verify/proof";
 import { independentAcceptance } from "./verify/acceptance";
 import { parseChecklist, parseReview, requirementsReviewPrompt, ROUND_MAX_TURNS, type RequirementsReview } from "./task/review";
-import { extractChecklist, formatChecklistPrompt } from "./task/checklist";
+import { extractChecklist, formatChecklistPrompt, normalizeCases } from "./task/checklist";
 import { planAutoChecks, resolveVerificationMode, selectedChecks, type VerificationMode } from "./verify/mode";
 import { measuredCheckTime, recordCheckTimings } from "./verify/timings";
 import { MermaidProvider } from "./visualize/mermaid";
@@ -849,9 +849,9 @@ export class CasperApp {
     return verification;
   }
 
-  /** verification.checklist: one separate model call lists the cases the request states; Casper prints
-   * them and the task prompt asks for one test per case. Its usage joins the task's. A failed call is
-   * one line on the transcript and the task goes on without a checklist. */
+  /** verification.checklist: one separate model call lists the cases the request states; an interactive
+   * user may edit them first; Casper prints them and the task prompt asks for one test per case. Its
+   * usage joins the task's. A failed call is one line on the transcript and the task goes on without a checklist. */
   private async makeChecklist(complete: NonNullable<RuntimeSession["complete"]>, request: string): Promise<string[] | undefined> {
     this.onEvent?.(phaseEvent("checklist", "start"));
     let result: { cases: string[] } | { error: string };
@@ -870,9 +870,25 @@ export class CasperApp {
       this.output.write(`• Checklist not made: ${result.error.replace(/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g, " ")}\n`);
       return undefined;
     }
-    const count = result.cases.length;
-    this.output.write(`Casper checklist (${count} ${count === 1 ? "case" : "cases"} from your request):\n${result.cases.map((item) => `  - ${item}\n`).join("")}`);
-    return result.cases;
+    let cases = result.cases;
+    let edited = false;
+    // Interactive: the user corrects the list before the model sees it. Enter keeps the editor's lines,
+    // Esc (or deleting every line) starts without one, Ctrl+C cancels the task.
+    if (this.interactive && this.terminal.rich) {
+      const answer = await this.terminal.editLines(`Casper checklist: ${cases.length} ${cases.length === 1 ? "case" : "cases"} from your request. The model writes one test per case.`,
+        "Enter starts with these · edit, add or delete lines · Esc starts without a checklist", cases, this.commandAbort?.signal);
+      if (this.closing || this.commandAbort?.signal.aborted) return undefined;
+      const kept = answer ? normalizeCases(answer) : [];
+      if (!kept.length) {
+        this.output.write("[checklist] skipped; the task starts without one\n");
+        return undefined;
+      }
+      edited = kept.join("\n") !== cases.join("\n");
+      cases = kept;
+    }
+    const count = cases.length;
+    this.output.write(`Casper checklist (${count} ${count === 1 ? "case" : "cases"}${edited ? ", edited by you" : " from your request"}):\n${cases.map((item) => `  - ${item}\n`).join("")}`);
+    return cases;
   }
 
   /** verification.acceptance: tests written from the request alone by a separate model call, run once

@@ -125,6 +125,14 @@ Casper checklist (2 cases from your request):
   - the 6th call within a minute is rejected
 ```
 
+In an interactive session on a rich terminal, Casper first opens the cases in the prompt editor, one per
+line, so you can correct them before the model sees them. Enter starts the task with the lines as they
+stand. You can change, add (Shift+Enter or Ctrl+J for a new line) or delete lines, and a leading `- ` is
+dropped. Esc, or deleting every line, starts the task without a checklist (`[checklist] skipped; the task
+starts without one`). Ctrl+C cancels the task. Edited lines get the same limits as the model's, and the
+printed list says `edited by you` when you changed it. One-shot runs, `--json` and plain terminals use the
+cases as listed, without a pause.
+
 If the call fails or its answer has no JSON array of cases, Casper prints one line
 (`• Checklist not made: <reason>`) and the task runs unchanged. The checklist is guidance, not evidence:
 the receipt text and outcome do not change. The call's tokens join the task's usage, the JSON stream
