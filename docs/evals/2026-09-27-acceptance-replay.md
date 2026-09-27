@@ -54,6 +54,20 @@ then the acceptance check with DeepSeek writing the tests, and grades the result
   receipt said `unchanged`, not `verified`. Codex runs are 3-10 minutes each at maximum effort.
 - Wrapping took no Casper changes. The only coupling is the tree snapshots and `repair(prompt)` → `codex exec resume <thread>`.
 
+## Claude Code as the builder (prototype)
+
+Same prototype with `--agent claude` (`claude -p`, repairs through `--resume <session>`). Claude Code ran Opus 5.5
+(`claude-opus-5-5`) at the user's default effort, and DeepSeek wrote the acceptance tests. Raw data:
+`.scratch/any-agent/claude-hard/`.
+
+- 12 runs (6 tasks at repeat 2): 10 right, 2 wrong (`hard-conditional-http` #1, `hard-rate-limiter` #2; both failed the
+  hidden acceptance tests). Casper said `verified` on both (0/2 caught) and flagged 1 of 10 right ones
+  (`hard-money-allocation`, acceptance fail).
+- Runs took 51-89 s at medium effort. `hard-config-merge` #1 took 573 s, before the user switched Opus 5.5's
+  default effort down.
+- Six Claude sessions at once on one subscription all hit the 600 s limit and produced nothing (`aborted/`). Two
+  at a time worked. The run was paused once to protect the subscription.
+
 ## What this means
 
 1. Tests written by one model from the request alone are not a verdict any of these models can deliver on
@@ -61,6 +75,6 @@ then the acceptance check with DeepSeek writing the tests, and grades the result
    caught ≥ 70% with flagged ≤ 20%.
 2. Replay plus the early-stop gate are the lasting result: a new check now costs minutes against the same 11
    saved misses. The next candidate (ADR 0001: requirement-to-test tracing) is measured this way first.
-3. "Casper checks any agent" works mechanically, and the receipt stayed honest in both cases that could be
-   judged (a no-op run and proven changes). Whether it adds catches on a strong builder needs a harder pack:
-   Codex was wrong on 1 of 12 runs.
+3. "Casper checks any agent" works mechanically for both Codex and Claude Code, and the receipt stayed honest
+   about what it checked. It added no catches on strong builders: Codex was wrong on 1 of 12 runs, Claude Code on 2 of 12,
+   and Casper said `verified` on all 3. These are the same misses as before: stated requirements no test caught.
