@@ -4,7 +4,7 @@ import {
 } from "@earendil-works/pi-tui";
 import type { RuntimeModelPickerHost, RuntimePickerIO, RuntimePickerView } from "../runtime/types";
 import { COMMANDS } from "./commands";
-import { BUSY_GLYPH, markdownTheme, paint, PROMPT_GLYPH, terminalText } from "./format";
+import { BUSY_GLYPH, hasTerminalControls, markdownTheme, paint, PROMPT_GLYPH, terminalText } from "./format";
 import { StreamingMarkdown } from "./markdown-stream";
 import { renderPanel } from "./presentation";
 import { StreamTerminal } from "./stream-terminal";
@@ -297,7 +297,7 @@ private updateSpinner(): void {
           const result = await provider.getSuggestions(...args);
           if (!result) return null;
           return { ...result, items: result.items.filter(item =>
-            [item.value, item.label, item.description ?? ""].every(value => terminalText(value) === value && !/[\r\n\t]/.test(value))) };
+            [item.value, item.label, item.description ?? ""].every(value => !hasTerminalControls(value) && !/[\r\n\t]/.test(value))) };
         },
         applyCompletion: (lines, row, col, item, prefix) => {
           if (prefix.startsWith("/") && lines.length === 1 && !/\s/.test(lines[0]!)) {

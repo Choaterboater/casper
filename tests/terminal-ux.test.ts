@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -36,6 +37,17 @@ test("Markdown theme stays plain without color and terminal controls are neutral
   expect(terminalText("hi\x1b[2J\x1b]0;title\x07\u202efake")).toBe("hi\\u{202e}fake");
   const clean = "hello\n\tworld";
   expect(terminalText(clean)).toBe(clean);
+});
+
+test("a wide-character and emoji line measures the cells a terminal draws", () => {
+  // A text-default symbol plus U+FE0F is one cell in iTerm2 and xterm.js but two in Pi's layout;
+  // without the selector both say one. CJK and emoji-presentation symbols stay two cells.
+  const line = terminalText("你好 🚀 ✅ ⚠️ ✔️ 1️⃣ done");
+  expect(line).toBe("你好 🚀 ✅ ⚠ ✔ 1\u20e3 done");
+  // 你好 4 · 🚀 2 · ✅ 2 · ⚠ 1 · ✔ 1 · 1⃣ 1 · done 4 · six spaces.
+  expect(visibleWidth(line)).toBe(21);
+  // In a joined sequence the selector belongs to one two-cell emoji and stays.
+  expect(terminalText("❤️\u200d🔥")).toBe("❤️\u200d🔥");
 });
 
 test("model and auth display distinguishes uninitialized, missing, configured and unknown", () => {
