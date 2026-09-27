@@ -202,6 +202,28 @@ test("a rows-only resize repositions without clearing scrollback; a columns chan
   } finally { terminal.close(); input.destroy(); }
 });
 
+test("a rows-only resize writes every visible row again in place, so the prompt box and footer return", async () => {
+  const input = Object.assign(new PassThrough(), { isTTY: true, setRawMode() {} });
+  const screen = fakeWriter(60, 12);
+  const terminal = new InteractiveTerminal(input, screen.writer, () => {}, () => {});
+  try {
+    terminal.setStatus("fixture"); terminal.start();
+    void terminal.readCommand();
+    for (let line = 0; line < 20; line++) terminal.write(`line ${line}\n`);
+    await screen.until(output => output.includes("○ fixture"));
+    const painted = screen.output.length;
+    // A terminal may drop the rows below the cursor when it shrinks (xterm.js does: the prompt's lower
+    // border and the footer), so no row can be assumed intact.
+    screen.writer.rows = 8; screen.writer.emit("resize");
+    await screen.until(output => output.slice(painted).includes("○ fixture"));
+    const repaint = screen.output.slice(painted);
+    expect(repaint).not.toContain("\x1b[3J");
+    const rule = "─".repeat(60);
+    expect(plainLines(repaint).map(line => line.replace(/^\r/, "").trimEnd()))
+      .toEqual(["line 16", "line 17", "line 18", "line 19", rule, "❯", rule, "○ fixture"]);
+  } finally { terminal.close(); input.destroy(); }
+});
+
 test("login navigation on the live surface replaces rows without escaped controls or retained panels", async () => {
   const input = Object.assign(new PassThrough(), { isTTY: true, setRawMode() {} });
   const screen = fakeWriter(60, 30);

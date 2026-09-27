@@ -94,11 +94,14 @@ tail of a streaming assistant message re-render per frame.
 
 Ctrl+L and a width change still repaint from the top, matching Pi's renderer:
 both clear the visible screen and the terminal's scrollback and reprint the whole
-transcript at the new width. A rows-only resize does not: `StableMainScreen`
-(`src/tui/surface.ts`) shifts Pi's remembered viewport by the height delta before
-delegating, the same adjustment Pi's Termux branch makes, so shrinking or growing
-the window keeps scrollback intact (`tests/daily-terminal.test.ts` asserts no
-`ESC[3J` for a rows change and a repaint for a columns change; the field access is
+transcript at the new width. A rows-only resize does not clear: terminals re-fit a
+shorter or taller screen differently (xterm.js drops the rows below the cursor, which
+are the prompt's lower border and the footer), so `StableMainScreen`
+(`src/tui/surface.ts`) takes the last screenful of lines as visible and writes each
+of those rows again in place. Scrollback is kept; a terminal that neither kept nor
+restored those rows may show a few of them twice in scrollback
+(`tests/daily-terminal.test.ts` asserts no `ESC[3J` and a rewrite of every visible
+row for a rows change, and a repaint for a columns change; the field access is
 pinned to `@earendil-works/pi-tui` 0.87.0).
 `tests/fixtures/layout-pty.py` drives the offline demo through a bounded 24x80
 VT emulator that scrolls, and fails on footer creep, scrollback wipes from

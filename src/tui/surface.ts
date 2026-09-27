@@ -13,16 +13,23 @@ import { Transcript } from "./transcript";
 const GUTTER = 2;
 
 /** pi-tui's main screen clears scrollback and reprints on any height change. Wrapping does not depend
- * on height, so a rows-only resize is absorbed by moving the remembered viewport instead of repainting.
+ * on height, so a rows-only resize repaints just the visible rows instead. Terminals re-fit a resized
+ * screen differently (some keep the bottom rows; xterm.js drops the rows below the cursor, which are
+ * the prompt's lower border and the footer), so no fixed viewport shift is right for all of them. The
+ * last `rows` lines are taken as visible and every one is marked changed: Pi's differential pass then
+ * moves up from the cursor, which each terminal keeps on its own line, and rewrites the whole screen.
  * The field names below are private in pi-tui's typings; verified against @earendil-works/pi-tui 0.87.0
- * (`doRender` in dist/tui-main-screen.js, the same adjustment its Termux branch computes). */
+ * (`doRender` in dist/tui-main-screen.js). */
 class StableMainScreen extends TuiMainScreen {
   protected override doRender(): void {
-    const frame = this as unknown as { previousWidth: number; previousHeight: number; previousViewportTop: number };
+    const frame = this as unknown as { previousLines: string[]; previousWidth: number; previousHeight: number; previousViewportTop: number };
     const rows = this.terminal.rows;
     if (frame.previousHeight > 0 && frame.previousHeight !== rows && frame.previousWidth === this.terminal.columns) {
-      frame.previousViewportTop = Math.max(0, frame.previousViewportTop + frame.previousHeight - rows);
+      const top = Math.max(0, frame.previousLines.length - rows);
+      frame.previousViewportTop = top;
       frame.previousHeight = rows;
+      // No rendered line is NUL, so each visible row compares as changed and is written again.
+      frame.previousLines = frame.previousLines.map((line, index) => index < top ? line : "\u0000");
     }
     super.doRender();
   }
