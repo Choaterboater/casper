@@ -127,6 +127,10 @@ function splitOverlongWord(atoms: Atom[], firstBudget: number, laterBudget: numb
   let remaining = atoms;
   let budget = firstBudget;
   while (true) {
+    // A forced take (a single atom wider than the whole budget) or a break right at the end of `remaining`
+    // can fully consume the word exactly at a piece boundary; when nothing is left, stop rather than
+    // emitting a bogus empty final piece.
+    if (remaining.length === 0) break;
     const width = atomsWidth(remaining);
     if (width <= budget) {
       pieces.push(renderAtoms(remaining));
@@ -144,13 +148,16 @@ function splitOverlongWord(atoms: Atom[], firstBudget: number, laterBudget: numb
         const rendered = prefix.slice(0, -1).map((atom) => atom.render).join("") + (last.breakable === "soft" ? "-" : last.render);
         pieces.push(rendered);
         remaining = remaining.slice(breakIdx + 1);
-      } else if (budget <= 1) {
-        const { taken, rest } = takeByWidth(remaining, budget);
-        pieces.push(renderAtoms(taken));
-        remaining = rest;
       } else {
-        const { taken, rest } = takeByWidth(remaining, budget - 1);
-        pieces.push(renderAtoms(taken) + "-");
+        // Reserve 1 column for the printed "-" by targeting budget - 1; but a single wide character that
+        // does not fit even the full budget must still be taken alone (never split), so the piece actually
+        // taken can come out narrower than that reservation (a deferred wide character starts the next
+        // piece instead) or, on a line narrower than it, wider than the whole budget. Either way, the "-"
+        // is only printed when the piece taken still has room for it within the real budget.
+        const chunkBudget = budget > 1 ? budget - 1 : budget;
+        const { taken, rest } = takeByWidth(remaining, chunkBudget);
+        const hyphenFits = budget > 1 && atomsWidth(taken) + 1 <= budget;
+        pieces.push(renderAtoms(taken) + (hyphenFits ? "-" : ""));
         remaining = rest;
       }
     }
@@ -258,9 +265,10 @@ export function wrap(text: string, width: number, options: WrapOptions = {}): st
 
   const normalized = text.replace(/\r\n/g, "\n");
   const hadTrailingNewline = normalized.endsWith("\n");
-  // A run of one or more trailing newlines is entirely absorbed into "kept once": it never surfaces as a
-  // visible blank paragraph at the end, however many newlines the input actually ends with.
-  const stripped = hadTrailingNewline ? normalized.replace(/\n+$/, "") : normalized;
+  // A trailing run of blank lines (empty, or only spaces/tabs) plus its final newline is entirely absorbed
+  // into "kept once": it never surfaces as a visible blank paragraph at the end, however many newlines or
+  // blank lines the input actually ends with.
+  const stripped = hadTrailingNewline ? normalized.replace(/(\n[ \t]*)+$/, "") : normalized;
   const rawLines = stripped.split("\n");
 
   for (const raw of rawLines) {

@@ -43,6 +43,9 @@ test("10 a final newline in the input is kept once, otherwise the output has non
   expect(wrap("aa bb", 20)).toBe("aa bb");
   expect(wrap("aa bb\n", 20)).toBe("aa bb\n");
   expect(wrap("aa bb\n\n\n", 20)).toBe("aa bb\n");
+  // a trailing blank line (spaces/tabs only, per this same "blank" definition) is absorbed too, not just
+  // a bare run of newlines.
+  expect(wrap("aa\n  \n", 20)).toBe("aa\n");
 });
 
 test("11 a paragraph's leading spaces are kept on its first line", () => {
