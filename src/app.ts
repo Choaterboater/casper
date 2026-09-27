@@ -730,7 +730,11 @@ export class CasperApp {
     const before = await this.snapshotWorkspace(workspaceRoot, this.commandAbort?.signal);
     edits.before = before;
     // verification.checklist: the cases the request states, listed before the model starts, so it tests each one.
-    const complete = context.verification.checklist === true ? session.complete?.bind(session) : undefined;
+    // Unset, it is on for interactive code changes (the user sees and can edit or skip the list) and off
+    // otherwise: questions, docs, refactors and one-shot runs.
+    const checklistOn = context.verification.checklist
+      ?? (this.interactive && ["implement", "fix", "test"].includes(classification.intent));
+    const complete = checklistOn ? session.complete?.bind(session) : undefined;
     const checklist = complete ? await this.makeChecklist(complete, prompt) : undefined;
     if (this.closing || this.commandAbort?.signal.aborted) return;
     // A code change in auto mode is reviewed and proven: the tests must fail without it. Only requests
@@ -854,7 +858,7 @@ export class CasperApp {
    * usage joins the task's. A failed call is one line on the transcript and the task goes on without a checklist. */
   private async makeChecklist(complete: NonNullable<RuntimeSession["complete"]>, request: string): Promise<string[] | undefined> {
     this.onEvent?.(phaseEvent("checklist", "start"));
-    let result: { cases: string[] } | { error: string };
+    let result: { cases: string[]; dropped: number } | { error: string };
     try {
       const made = await extractChecklist({ complete, request, signal: this.commandAbort?.signal });
       this.observations.recordModelCall(made.usage);
@@ -872,10 +876,12 @@ export class CasperApp {
     }
     let cases = result.cases;
     let edited = false;
+    const count = (n: number) => `${n} ${n === 1 ? "case" : "cases"}`;
+    const leftOut = result.dropped ? `${result.dropped} more ${result.dropped === 1 ? "was" : "were"} left out` : "";
     // Interactive: the user corrects the list before the model sees it. Enter keeps the editor's lines,
     // Esc (or deleting every line) starts without one, Ctrl+C cancels the task.
     if (this.interactive && this.terminal.rich) {
-      const answer = await this.terminal.editLines(`Casper checklist: ${cases.length} ${cases.length === 1 ? "case" : "cases"} from your request. The model writes one test per case.`,
+      const answer = await this.terminal.editLines(`Casper checklist: ${count(cases.length)} from your request${leftOut ? ` (${leftOut})` : ""}. The model writes one test per case.`,
         "Enter starts with these · edit, add or delete lines · Esc starts without a checklist", cases, this.commandAbort?.signal);
       if (this.closing || this.commandAbort?.signal.aborted) return undefined;
       const kept = answer ? normalizeCases(answer) : [];
@@ -886,8 +892,7 @@ export class CasperApp {
       edited = kept.join("\n") !== cases.join("\n");
       cases = kept;
     }
-    const count = cases.length;
-    this.output.write(`Casper checklist (${count} ${count === 1 ? "case" : "cases"}${edited ? ", edited by you" : " from your request"}):\n${cases.map((item) => `  - ${item}\n`).join("")}`);
+    this.output.write(`Casper checklist (${count(cases.length)}${edited ? ", edited by you" : ` from your request${leftOut ? `; ${leftOut}` : ""}`}):\n${cases.map((item) => `  - ${item}\n`).join("")}`);
     return cases;
   }
 

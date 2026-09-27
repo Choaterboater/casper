@@ -142,3 +142,10 @@ test("a review stopped at its own turn budget is reported as such; only open ite
   expect(taskOutcome(undefined, task({ done: ["a"], open: [], incomplete: true }))).toBe("verified");
   expect(taskOutcome(undefined, task({ done: ["a"], open: ["b"], incomplete: true }))).toBe("not_verified");
 });
+
+test("an open item is never dropped, however long the checklist; done items are capped at 50", () => {
+  const answer = [...Array.from({ length: 60 }, (_, index) => `- [x] case ${index} — test ${index}`), "- [ ] the 6th call is rejected"].join("\n");
+  const parsed = parseChecklist(answer)!;
+  expect(parsed.open).toEqual(["the 6th call is rejected"]);
+  expect(parsed.done).toHaveLength(50);
+});
