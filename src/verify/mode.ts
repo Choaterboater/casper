@@ -24,6 +24,10 @@ export interface VerificationSettings {
    * never downgrades; the receipt names what the tests did not confirm. Unset or `false` means off
    * (experimental). */
   acceptance?: boolean | "warn";
+  /** `true`: before the model's turn, one separate low-effort model call lists the concrete cases the
+   * request states; Casper prints them and asks the model for one test per case. Unset or `false`
+   * means off (experimental). */
+  checklist?: boolean;
 }
 
 /** Checks this fast run automatically in an unconfigured interactive session. */

@@ -170,8 +170,9 @@ test.each(["casper", "pi", "omp"] as const)("%s receives explicit identical task
   }
 });
 
-// The review is off by default: casper-no-review states that explicitly, casper-review turns the round on.
-test.each([["casper-no-review", false], ["casper-review", true]] as const)("%s is the Casper CLI and protocol with verification.review in its user configuration", async (harness, review) => {
+// The review is off by default: casper-no-review states that explicitly, casper-review turns the round on;
+// casper-checklist turns the builder's checklist on.
+test.each([["casper-no-review", "review: false"], ["casper-review", "review: true"], ["casper-checklist", "checklist: true"]] as const)("%s is the Casper CLI and protocol with its verification setting in its user configuration", async (harness, setting) => {
   const workdir = await mkdtemp(path.join(os.tmpdir(), "casper-harness-variant-"));
   const home = await mkdtemp(path.join(os.tmpdir(), "casper-harness-variant-home-"));
   try {
@@ -183,7 +184,7 @@ test.each([["casper-no-review", false], ["casper-review", true]] as const)("%s i
     expect(observed.args).toEqual(["--json", "--model", "github-copilot/gpt-5-mini", "--effort", "medium", "--verify", "-"]);
     expect(observed.stdinPrompt).toBe("Implement the task.");
     expect(observed.casperDir).toBe(path.join(home, ".casper/agent"));
-    expect(await readFile(path.join(home, ".casper/config.yaml"), "utf8")).toBe(`verification:\n  review: ${review}\n`);
+    expect(await readFile(path.join(home, ".casper/config.yaml"), "utf8")).toBe(`verification:\n  ${setting}\n`);
   } finally {
     await rm(workdir, { recursive: true, force: true });
     await rm(home, { recursive: true, force: true });

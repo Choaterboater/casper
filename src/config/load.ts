@@ -441,6 +441,7 @@ export async function loadConfiguration(
   let checks: ProjectCommand[] | undefined;
   let review: boolean | undefined;
   let acceptance: boolean | "warn" | undefined;
+  let checklist: boolean | undefined;
   for (const document of [globalDocument, profileDocument, projectDocument]) {
     const reviewSetting = isMapping(document.verification) ? document.verification.review : undefined;
     if (reviewSetting !== undefined && typeof reviewSetting !== "boolean") throw new Error("verification.review must be true or false");
@@ -448,6 +449,9 @@ export async function loadConfiguration(
     const acceptanceSetting = isMapping(document.verification) ? document.verification.acceptance : undefined;
     if (acceptanceSetting !== undefined && typeof acceptanceSetting !== "boolean" && acceptanceSetting !== "warn") throw new Error("verification.acceptance must be true, false or warn");
     acceptance = acceptanceSetting ?? acceptance;
+    const checklistSetting = isMapping(document.verification) ? document.verification.checklist : undefined;
+    if (checklistSetting !== undefined && typeof checklistSetting !== "boolean") throw new Error("verification.checklist must be true or false");
+    checklist = checklistSetting ?? checklist;
     timeoutMs = boundedSetting(document, "verification", "timeoutMs", timeoutMs, 1, 3_600_000);
     const selection = verificationSelection(document);
     mode = selection.mode ?? mode;
@@ -464,7 +468,8 @@ export async function loadConfiguration(
   const services = parseServices(projectDocument.services, labels.project);
   return {
     skills: { maxActive, imports },
-    verification: { timeoutMs, ...(mode ? { mode } : {}), ...(checks ? { checks } : {}), ...(review !== undefined ? { review } : {}), ...(acceptance !== undefined ? { acceptance } : {}) },
+    verification: { timeoutMs, ...(mode ? { mode } : {}), ...(checks ? { checks } : {}), ...(review !== undefined ? { review } : {}), ...(acceptance !== undefined ? { acceptance } : {}),
+      ...(checklist !== undefined ? { checklist } : {}) },
     repair: { maxAttempts },
     services,
     smoke: parseSmoke(projectDocument.smoke, Object.keys(services), labels.project),
