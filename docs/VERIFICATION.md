@@ -102,22 +102,31 @@ The test command must accept a file argument (`bun test`, jest, vitest, pytest).
 configured (`modelRoles.review` in `~/.casper/settings.json`, docs/CONFIGURATION.md), the tests come from
 that model instead of the one that did the work; that role also serves delegated reviewer subagents.
 
-## Request checklist (experimental)
+## Request checklist
 
-Off by default. It targets the same failure as the acceptance check, from the other end: before the
-model starts, Casper lists the concrete cases the request states, so the model's own tests cover each one.
+Before the model starts, Casper lists the concrete cases the request states, so the model's own tests
+cover each one. On the hard eval pack it cut wrong runs from 7 of 48 to 2 of 48 at 1.06× Pi's wall time
+(docs/evals/2026-09-27-request-checklist.md).
+
+**On by default in interactive sessions for code changes** (requests Casper classifies as implement, fix
+or test), where you see the list and can edit or skip it. Off for questions, docs, refactors and
+configuration, and off in one-shot runs unless set:
 
 ```yaml
 verification:
-  checklist: true   # default false
+  checklist: true    # also in one-shot runs and for every request
+  # checklist: false # never
 ```
 
 Casper makes one separate model call outside the conversation, with the conversation's model (or the
-`review` role's) at low effort and an answer capped at 8,000 tokens. It sends only the request and asks
-for every concrete behavior case it states (inputs and outputs, errors, boundaries, orders, formats), one
-short line each quoting the request's specifics, leaving out process instructions such as which files to
-read. Casper keeps up to 40 cases of at most 200 characters, prints them and appends them to the task
-prompt, asking for one test per case that asserts exactly that case:
+`review` role's) at low effort and an answer capped at 24,000 tokens (at 8,000, a reasoning model often
+ran out before listing anything on a long request). It sends only the request and asks for every
+concrete behavior case it states (inputs and outputs, errors, boundaries, orders, formats), one short
+line each quoting the request's specifics, leaving out process instructions such as which files to read.
+It reads a JSON array; if the answer was cut off mid-array it keeps the complete cases, and if the model
+wrote a bullet or numbered list instead it reads that. Casper keeps up to 80 cases of at most 200
+characters and says how many more were left out, prints them and appends them to the task prompt, asking
+for one test per case that asserts exactly that case:
 
 ```
 Casper checklist (2 cases from your request):
@@ -133,7 +142,7 @@ starts without one`). Ctrl+C cancels the task. Edited lines get the same limits 
 printed list says `edited by you` when you changed it. One-shot runs, `--json` and plain terminals use the
 cases as listed, without a pause.
 
-If the call fails or its answer has no JSON array of cases, Casper prints one line
+If the call fails or its answer has no list of cases, Casper prints one line
 (`• Checklist not made: <reason>`) and the task runs unchanged. The checklist is guidance, not evidence:
 the receipt text and outcome do not change. The call's tokens join the task's usage, the JSON stream
 marks it with a `checklist` phase, and the JSON receipt carries `checklist` (the cases) or `null`.

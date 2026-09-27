@@ -75,14 +75,16 @@ test("abort, Ctrl-C and closing the terminal each return undefined", async () =>
   } finally { session.close(); }
 });
 
-/** An interactive CasperApp with verification.checklist on; the fake model lists CASES and records each task prompt. */
-async function checklistApp() {
+/** An interactive CasperApp; `config` is the project's verification setting (checklist on by default here).
+ * The fake model lists `cases` and records each task prompt and each checklist call. */
+async function checklistApp(config = "verification:\n  checklist: true\n", cases: readonly string[] = CASES) {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-checklist-edit-"));
   const home = path.join(root, "home");
   const project = path.join(root, "project");
   await mkdir(home, { recursive: true }); await mkdir(path.join(project, ".casper"), { recursive: true });
-  await writeFile(path.join(project, ".casper/project.yaml"), "verification:\n  checklist: true\n");
+  if (config) await writeFile(path.join(project, ".casper/project.yaml"), config);
   const prompts: string[] = [];
+  let checklistCalls = 0;
   const runtime: AgentRuntime = {
     start: async () => ({
       getStatus: () => ({ provider: "fixture", model: "demo", auth: "configured" }),
@@ -91,7 +93,7 @@ async function checklistApp() {
       subscribe: () => () => {},
       abort: async () => {},
       prompt: async text => { prompts.push(text); },
-      complete: async () => ({ text: JSON.stringify(CASES), usage: { tokens: 10, estimatedCost: 0 } }),
+      complete: async () => { checklistCalls++; return { text: JSON.stringify(cases), usage: { tokens: 10, estimatedCost: 0 } }; },
     }),
     dispose: async () => {},
   };
@@ -117,7 +119,14 @@ async function checklistApp() {
     await screen.until(() => done(since()));
     return since();
   };
-  return { app, prompts, screen, run, close: async () => {
+  /** Sends a request that is expected to run without the checklist editor, and waits for it to finish. */
+  const plain = async (request: string) => {
+    const from = screen.output.length;
+    input.write(`${request}\r`);
+    await screen.until(() => prompts.length > 0 && Bun.stripANSI(screen.output.slice(from)).includes("idle"));
+    return Bun.stripANSI(screen.output.slice(from)).replaceAll("\r\n", "\n");
+  };
+  return { app, prompts, screen, run, plain, checklistCalls: () => checklistCalls, close: async () => {
     input.write("/exit\r"); await interactive; await app.close(); input.destroy();
     await rm(root, { recursive: true, force: true });
   } };
@@ -158,5 +167,37 @@ test("interactive: Ctrl-C while editing cancels the task before the model starts
     const cancelled = await fixture.run("add a rate limiter", "\x03", finished);
     expect(cancelled).toContain("[cancel]");
     expect(fixture.prompts).toHaveLength(0);
+  } finally { await fixture.close(); }
+});
+
+test("interactive default: a code-change request gets the checklist with no setting; a question does not", async () => {
+  const fixture = await checklistApp("");
+  try {
+    const asked = await fixture.plain("explain how the rate limiter works");
+    expect(fixture.checklistCalls()).toBe(0);
+    expect(asked).not.toContain("Casper checklist");
+    const changed = await fixture.run("add a rate limiter", "\r", finished);
+    expect(fixture.checklistCalls()).toBe(1);
+    expect(changed).toContain("Casper checklist (2 cases from your request):");
+    expect(fixture.prompts.at(-1)).toContain("- limit(0) throws\n- the 6th call is rejected");
+  } finally { await fixture.close(); }
+});
+
+test("interactive: verification.checklist: false turns the default off", async () => {
+  const fixture = await checklistApp("verification:\n  checklist: false\n");
+  try {
+    await fixture.plain("add a rate limiter");
+    expect(fixture.checklistCalls()).toBe(0);
+    expect(fixture.prompts[0]).not.toContain("Casper's checklist");
+  } finally { await fixture.close(); }
+});
+
+test("a list cut at 80 cases says how many were left out", async () => {
+  const many = Array.from({ length: 83 }, (_, index) => `case ${index}`);
+  const fixture = await checklistApp(undefined, many);
+  try {
+    const shown = await fixture.run("add a rate limiter", "\r", finished);
+    expect(shown).toContain("Casper checklist: 80 cases from your request (3 more were left out).");
+    expect(shown).toContain("Casper checklist (80 cases from your request; 3 more were left out):");
   } finally { await fixture.close(); }
 });

@@ -20,16 +20,17 @@ export type RequirementsReview =
 export const ROUND_MAX_TURNS = 12;
 
 const ITEM = /^\s*[-*]\s*\[([ xX])\]\s+(.+?)\s*$/;
-const MAX_ITEMS = 50;
+const MAX_DONE = 50;
 const MAX_ITEM_CHARS = 300;
 
-/** Checkbox lines from the answer; undefined when it has none. */
+/** Checkbox lines from the answer; undefined when it has none. Ticked items are capped at 50 for the
+ * receipt; open items never are, since an admitted gap makes the change not verified. */
 export function parseChecklist(answer: string): { done: string[]; open: string[] } | undefined {
   const done: string[] = [];
   const open: string[] = [];
   for (const line of answer.split(/\r?\n/)) {
     const item = ITEM.exec(line);
-    if (!item || done.length + open.length >= MAX_ITEMS) continue;
+    if (!item || (item[1] !== " " && done.length >= MAX_DONE)) continue;
     const text = item[2]!.length > MAX_ITEM_CHARS ? `${item[2]!.slice(0, MAX_ITEM_CHARS - 1)}…` : item[2]!;
     (item[1] === " " ? open : done).push(text);
   }

@@ -522,7 +522,7 @@ test("verification.checklist: a separate call lists the request's cases first; t
   const failed = await unlisted.run(["--json", "--verify", "Fix sum.js"]);
   const failedReceipt = JSON.parse(failed.stdout.trim().split("\n").at(-1)!);
   expect({ exit: failed.exit, outcome: failedReceipt.outcome, checklist: failedReceipt.checklist }).toEqual({ exit: 0, outcome: "verified", checklist: null });
-  expect(failed.stderr).toContain("• Checklist not made: the checklist answer had no JSON array\n");
+  expect(failed.stderr).toContain("• Checklist not made: the checklist answer had no list of cases\n");
   expect(lastUser(unlisted.payloads[1])).not.toContain("Casper's checklist");
 
   // Off by default: no extra call.
