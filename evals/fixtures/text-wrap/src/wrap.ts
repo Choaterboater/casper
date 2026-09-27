@@ -156,14 +156,29 @@ function splitOverlongWord(atoms: Atom[], firstBudget: number, laterBudget: numb
         // is only printed when the piece taken still has room for it within the real budget.
         const chunkBudget = budget > 1 ? budget - 1 : budget;
         const { taken, rest } = takeByWidth(remaining, chunkBudget);
-        const hyphenFits = budget > 1 && atomsWidth(taken) + 1 <= budget;
+        // A hyphen is only ever printed after some real (non-zero-width) content; a chunk that came out
+        // entirely width-0 (an escape sequence with nothing else fitting alongside it) gets no hyphen of
+        // its own — see the merge pass below, which folds it into a neighboring piece instead.
+        const hyphenFits = budget > 1 && atomsWidth(taken) > 0 && atomsWidth(taken) + 1 <= budget;
         pieces.push(renderAtoms(taken) + (hyphenFits ? "-" : ""));
         remaining = rest;
       }
     }
     budget = laterBudget;
   }
-  return pieces;
+  // A piece that ended up carrying no display width at all (an unused soft hyphen, an escape sequence, or
+  // both, with nothing else fitting alongside them) is never left to stand as its own line: it joins the
+  // previous piece, or the next one if there is no previous.
+  const merged: string[] = [];
+  for (const piece of pieces) {
+    if (displayWidth(piece) === 0 && merged.length > 0) merged[merged.length - 1] += piece;
+    else merged.push(piece);
+  }
+  while (merged.length > 1 && displayWidth(merged[0]!) === 0) {
+    const zero = merged.shift()!;
+    merged[0] = zero + merged[0];
+  }
+  return merged;
 }
 
 interface Line {
@@ -265,10 +280,11 @@ export function wrap(text: string, width: number, options: WrapOptions = {}): st
 
   const normalized = text.replace(/\r\n/g, "\n");
   const hadTrailingNewline = normalized.endsWith("\n");
-  // A trailing run of blank lines (empty, or only spaces/tabs) plus its final newline is entirely absorbed
-  // into "kept once": it never surfaces as a visible blank paragraph at the end, however many newlines or
-  // blank lines the input actually ends with.
-  const stripped = hadTrailingNewline ? normalized.replace(/(\n[ \t]*)+$/, "") : normalized;
+  // A trailing run of blank lines (empty, or only spaces/tabs) is entirely absorbed, whether or not the
+  // input's own last line ends in a newline: with one, `hadTrailingNewline` restores exactly one at the
+  // very end below; without one, none is added. It never surfaces as a visible blank paragraph at the end,
+  // however many newlines or blank lines the input actually ends with.
+  const stripped = normalized.replace(/(\n[ \t]*)+$/, "");
   const rawLines = stripped.split("\n");
 
   for (const raw of rawLines) {
