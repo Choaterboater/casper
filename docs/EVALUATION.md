@@ -139,9 +139,10 @@ prepared for the credential-free protocol below.
 The Phase 3 benchmark compares Casper and Pi on the same model, effort, prompt and
 time limit. Its tasks live in `evals/packs.ts` and are reported per pack: **core**
 (domain-neutral, gates every phase), **network** (the first domain pack, reported
-separately so no single domain skews the headline) and **hard** (the receipt-honesty
-experiment, [below](#the-hard-pack-and-receipt-honesty)). Each task has its own fixture;
-none reuses a fixture from the tasks above.
+separately so no single domain skews the headline), **hard** (the receipt-honesty
+experiment, [below](#the-hard-pack-and-receipt-honesty)) and **harder** (the
+request-checklist calibration pack, [below](#the-harder-pack)). Each task has its own
+fixture; none reuses a fixture from the tasks above.
 
 **Limits and usage.** The 300-second wall clock is the only run limit, and it is the same for
 both harnesses. There is no turn limit: Pi's CLI has none, so a Casper-only `--max-turns` would
@@ -200,6 +201,12 @@ changed paths, which is the baseline for the Focused score.
 | hard | `hard-dependency-scheduler` | task-graph | smallest-ready-first order, code-unit comparison, optional `name?` dependencies, sorted batches with a `limit`, missing dependency before cycle, cycle path from its smallest task |
 | hard | `hard-conditional-http` | docs-api | strong content ETag, `If-None-Match` weak/list/`*` → 304, `If-Match` strong/list/`*` → 412, 428 without it, create-only `PUT` with `If-None-Match: *`, HEAD, `Cache-Control`, no write on reject |
 | hard | `hard-rate-limiter` | rate-limiter | continuous fractional refill, exact rounded-up `retryAfterMs`, cost-0 probes, denied takes use nothing, cap, per-key buckets, `reset`, `size`, backwards clock |
+| harder | `harder-csv-reader` | csv-reader | delimiter/quote validation, backslash escaping inside quotes, doubled quotes, unterminated/trailing-text problems, header dedup and short/long rows, typed number/boolean/date columns with line/column-ordered problems |
+| harder | `harder-cron-next` | cron-next | 5/6-field parsing, lists/ranges/steps/names, wrapping ranges, day-of-month-and-weekday AND rule, `L` and weekday-`L`, optional year field, macros, 8-year search horizon |
+| harder | `harder-semver-range` | semver-range | strict version parsing, prerelease/build-metadata comparison, `x`/tilde/caret/hyphen range expansion, prerelease-matching rule, `maxSatisfying`/`minSatisfying`/`sort` skipping invalid versions |
+| harder | `harder-url-router` | url-router | typed/optional/wildcard params, left-to-right precedence and duplicate-shape detection, path normalization and percent-decoding, `ANY`/`HEAD`/`OPTIONS` fallbacks, 404 vs 405 with sorted `Allow` |
+| harder | `harder-invoice-totals` | invoice-totals | exact bigint decimal arithmetic, half-to-even rounding, line vs invoice discounts with largest-remainder sharing, tax-inclusive vs exclusive pricing, ordered multi-issue `InvoiceError` |
+| harder | `harder-text-wrap` | text-wrap | indent/hanging-indent budgets, paragraph and blank-line handling, overlong-word hyphen/hard-cut/wide-character splitting, East-Asian/emoji/combining-mark/ANSI display width, `maxLines` truncation with ellipsis |
 
 **The notes fixture runs as a server.** `notes-api` has `src/server.ts`, which serves the
 existing app on `PORT`/`HOST` (defaults 3000 and 127.0.0.1), and a `dev` script (`bun run dev`).
@@ -321,6 +328,51 @@ the saved receipt, the check's status, unconfirmed tests, output tail, usage and
 
 `hard-conditional-http` is a server task: `docs-api` declares `services.api` and a `GET /docs/1`
 smoke check like `notes-api`, so Phase 6's smoke checks take part.
+
+### The harder pack
+
+`verification.checklist: true` (`src/task/checklist.ts`) has one job to confirm against Pi: does an
+explicit list of the request's own stated cases, appended to the prompt before the model's turn, cut
+wrong runs that pass their own tests. The **hard** pack could not answer that: it was meant to make Pi
+fail 25-60% of runs, but its own calibration (Pi alone) missed that band — round 1 had 3 fair misses in
+24 runs and round 2, after adding 2-3 stated requirements per task, fell to 2 of 24
+(`docs/evals/2026-09-26-hard-pack.md`) — so Pi was already passing almost every run and a checklist lead
+over it was not measurable. **harder** is a second pack of 6 tasks, one new fixture and setup each,
+built the same way as hard (a reference solution plus hidden `acceptance/` tests, a stub that fails
+only the visible tests, `bun test ./tests` and `bun test ./acceptance` as separate checks) but pushed
+harder on two levers at once: more stated cases, and deliberate departures from a well-known
+convention.
+
+Each task's prompt states 30-35 concrete cases — an input and its output, an error and its exact
+message, a boundary, an order, a format — as **prose**, the way a person writes a request, never a
+numbered list; a numbered list would do the checklist's own job for it. 30 is a floor (the hard pack's
+prompts already state roughly 12-22 cases each, and Pi handles those); 35 is a ceiling, because the
+checklist keeps at most 40 cases (`CASE_COUNT` in `src/task/checklist.ts`), and a task near that cap
+would measure the cap rather than the checklist. Every case is stated in the prompt itself, never only
+in `CONTEXT.md` or another project file, because the checklist call sees only the request text, not
+project files. Each task also carries several deliberate departures from a well-known convention —
+for example `harder-csv-reader`'s backslash escaping inside quotes, `harder-cron-next`'s day-of-month-
+and-weekday AND rule, or `harder-invoice-totals`'s half-to-even rounding — each stated as plainly as
+every other case; a model that falls back on the convention it already knows, instead of the stated
+one, misses exactly that case.
+
+Every prompt sentence was checked true of the reference solution while building the pack, and one
+hidden test exists per stated case, named after it, so a hidden failure always maps to exactly one
+missed requirement rather than a shared test covering several cases at once. A small number of
+inherent couplings are documented where one hidden test necessarily also depends on another stated
+case (for example, a rounding case that can only be observed through a case that also exercises
+currency minor units). `tests/eval-packs.test.ts` is a permanent guard on this shape: it asserts every
+harder task's hidden-test count is between 30 and 35, and it rejects a glued `+`-string join in a
+harder prompt whose two pieces have no whitespace on either side (a join that would run two stated
+cases together into unreadable prose).
+
+Calibration stays **Pi-only**, as the hard pack's was, so the tasks are tuned to Pi's difficulty and
+not toward whatever Casper's checklist happens to catch: harder is calibrated by running Pi alone
+against it, adjusting only cases at 0/8 or 8/8 across models, and freezing the pack — one commit, no
+further prompt or hidden-test change except under the design's bug rule
+(`docs/superpowers/specs/2026-09-27-harder-pack-design.md`) — before any decision run compares
+Casper's checklist harness against Pi. No calibration or decision result exists yet; this section
+describes only how the pack was built.
 
 ### Running the benchmark
 
