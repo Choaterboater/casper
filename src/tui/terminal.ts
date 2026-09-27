@@ -162,6 +162,11 @@ export class InteractiveTerminal {
     return this.surface ? this.surface.ask(question, options, multi, signal) : Promise.resolve(undefined);
   }
 
+  /** Lines edited in place on the rich surface; undefined when skipped or unavailable. */
+  editLines(heading: string, hint: string, lines: readonly string[], signal?: AbortSignal): Promise<string[] | undefined> {
+    return this.surface ? this.surface.editLines(heading, hint, lines, signal) : Promise.resolve(undefined);
+  }
+
   interrupt(): void {
     if (this.surface) { this.surface.interrupt(); return; }
     if (this.closed) return;

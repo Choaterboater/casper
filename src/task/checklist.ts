@@ -23,17 +23,22 @@ export async function extractChecklist(input: { complete: AcceptanceCompletion; 
   return "error" in parsed ? { ...parsed, usage } : { cases: parsed.cases, usage };
 }
 
-/** The first JSON array in the answer (prose or a fence around it is fine): its non-empty strings,
- * each on one line without control characters, at most 200 characters, at most 40 of them. */
+/** The first JSON array in the answer (prose or a fence around it is fine): its strings as normalizeCases keeps them. */
 export function parseChecklistCases(text: string): { cases: string[] } | { error: string } {
   const array = firstJsonArray(text);
   if (!array) return { error: "the checklist answer had no JSON array" };
-  const cases = array
-    .filter((item): item is string => typeof item === "string")
-    .map((item) => item.replace(/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g, " ").replace(/\s+/g, " ").trim().slice(0, CASE_LIMIT).trimEnd())
+  const cases = normalizeCases(array.filter((item): item is string => typeof item === "string"));
+  return cases.length ? { cases } : { error: "the checklist answer listed no cases" };
+}
+
+/** Cases as Casper keeps them, from the model's answer or the user's edit: each on one line without
+ * control characters or a leading bullet, at most 200 characters, blank ones dropped, at most 40. */
+export function normalizeCases(lines: readonly string[]): string[] {
+  return lines
+    .map((item) => item.replace(/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g, " ").replace(/\s+/g, " ").trim()
+      .replace(/^[-*•](?: |$)/, "").trim().slice(0, CASE_LIMIT).trimEnd())
     .filter(Boolean)
     .slice(0, CASE_COUNT);
-  return cases.length ? { cases } : { error: "the checklist answer listed no cases" };
 }
 
 /** Scans from each `[` to its matching `]` (skipping brackets inside strings) and returns the first

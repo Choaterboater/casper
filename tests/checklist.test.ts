@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { extractChecklist, parseChecklistCases } from "../src/task/checklist";
+import { extractChecklist, normalizeCases, parseChecklistCases } from "../src/task/checklist";
 
 test("the first JSON array in prose or a fence is the checklist", () => {
   expect(parseChecklistCases("Here are the cases [from the request]:\n```json\n[\"limit(0) throws \\\"limit must be positive\\\"\", \"returns [1, 2] in order\"]\n```\nDone."))
@@ -27,4 +27,11 @@ test("a failed model call is an error that keeps the call's usage", async () => 
   const usage = { tokens: 12, estimatedCost: 0.001 };
   expect(await extractChecklist({ complete: async () => ({ text: "[\"ignored\"]", error: "rate limited", usage }), request: "Add limit()" }))
     .toEqual({ error: "the checklist model call failed: rate limited", usage });
+});
+
+test("edited lines get the answer's limits; a leading bullet and blank lines are dropped", () => {
+  expect(normalizeCases(["- limit(0) throws", "  * returns [1, 2]‮ ", "", "   ", "-", "a\tb", "x".repeat(250)]))
+    .toEqual(["limit(0) throws", "returns [1, 2]", "a b", "x".repeat(200)]);
+  expect(normalizeCases(Array.from({ length: 50 }, (_, index) => `case ${index}`))).toHaveLength(40);
+  expect(normalizeCases(["", " - "])).toEqual([]);
 });

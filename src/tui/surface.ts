@@ -130,6 +130,9 @@ export class TerminalSurface {
   private askMulti = false;
   private askSelections = new Set<number>();
   private askActiveIndex = 0;
+  /** An open list edit: the editor holds the lines; Enter returns them, Esc/Ctrl+C/close return undefined. */
+  private pendingEdit?: (lines: string[] | undefined) => void;
+  private editHeading: string[] = [];
   private message?: StreamingMarkdown;
   private source = "";
   private plainAssistantOpen = false;
@@ -145,9 +148,10 @@ export class TerminalSurface {
     this.editor = new PromptEditor(this.tui, { borderColor: this.muted, selectList: {
       selectedPrefix: this.accent, selectedText: this.accent, description: this.muted, scrollInfo: this.muted, noMatch: this.muted,
     } }, { autocompleteMaxVisible: 7 });
-    this.editor.glyph = () => this.confirmation || this.pendingAsk ? "?" : this.busy ? BUSY_GLYPH : PROMPT_GLYPH;
-    this.editor.paintGutter = text => this.busy && !this.confirmation && !this.pendingAsk ? this.muted(text) : this.accent(text);
+    this.editor.glyph = () => this.confirmation || this.pendingAsk || this.pendingEdit ? "?" : this.busy ? BUSY_GLYPH : PROMPT_GLYPH;
+    this.editor.paintGutter = text => this.busy && !this.confirmation && !this.pendingAsk && !this.pendingEdit ? this.muted(text) : this.accent(text);
     this.editor.onSubmit = value => {
+      if (this.pendingEdit) { this.pendingEdit(value.split("\n")); return; }
       if (this.pendingAsk) { this.answerAsk(value); return; }
       if (this.confirmation) { this.confirmation(value.trim() === "yes"); return; }
       if (!this.command) {
@@ -175,11 +179,12 @@ export class TerminalSurface {
         const block = this.slot ? this.slot.render(width).map(line => truncateToWidth(line, width))
           : this.lending ? [rule, this.muted(truncateToWidth("  exclusive input in progress · Esc or Ctrl+C cancels", width)), rule]
           : this.pendingAsk ? [rule, ...this.renderAsk(width, this.terminal.rows - editorLines.length - 2), ...editorLines]
+          : this.pendingEdit ? [rule, ...this.editHeading.flatMap(line => wrapTextWithAnsi(line, width)).map(line => truncateToWidth(line, width)), ...editorLines]
           : this.editor.popup.length ? [rule, ...this.editor.popup, ...activity, ...editorLines] : [...activity, ...editorLines];
         while (block.length < editorLines.length) block.push("");
         const body = this.transcript.render(width);
         const overlayLines = this.slot ? block.length - editorLines.length
-          : this.pendingAsk ? 0
+          : this.pendingAsk || this.pendingEdit ? 0
           : this.editor.popup.length ? this.editor.popup.length + 1 : 0;
         const overflow = this.lending ? 0 : Math.max(0, overlayLines);
         return [...body.slice(0, Math.max(0, body.length - overflow)), ...block, this.footer(width)];
@@ -205,9 +210,10 @@ export class TerminalSurface {
       }
       if (matchesKey(data, "ctrl+c")) { this.interrupt(); return { consume: true }; }
       if (matchesKey(data, "ctrl+d") && !this.editor.getText()) { this.close(); return { consume: true }; }
-      if (matchesKey(data, "escape") && (this.busy || this.confirmation || this.pendingAsk)) {
+      if (matchesKey(data, "escape") && (this.busy || this.confirmation || this.pendingAsk || this.pendingEdit)) {
         if (this.confirmation) this.confirmation(false);
         else if (this.pendingAsk) this.pendingAsk(undefined);
+        else if (this.pendingEdit) this.pendingEdit(undefined);
         else this.cancel();
         return { consume: true };
       }
@@ -227,7 +233,7 @@ export class TerminalSurface {
       if (matchesKey(data, "ctrl+l")) { this.tui.requestRender(true); return { consume: true }; }
       // Pi's thinking-cycle key. Consumed even while busy so the sequence never lands in the draft.
       if (matchesKey(data, "shift+tab")) {
-        if (this.busy || this.confirmation || this.pendingAsk) this.flashNote("effort unchanged · wait until idle");
+        if (this.busy || this.confirmation || this.pendingAsk || this.pendingEdit) this.flashNote("effort unchanged · wait until idle");
         else this.onCycleEffort?.();
         return { consume: true };
       }
@@ -330,7 +336,7 @@ private updateSpinner(): void {
   private configureAutocomplete(): void {
     const provider = this.autocomplete;
     if (!provider) return;
-    this.editor.setAutocompleteProvider(this.busy || this.confirmation || this.pendingAsk
+    this.editor.setAutocompleteProvider(this.busy || this.confirmation || this.pendingAsk || this.pendingEdit
       ? { ...provider, triggerCharacters: [], getSuggestions: async () => null } : provider);
   }
   private render(): void { if (this.started && !this.closed) this.tui.requestRender(); }
@@ -373,7 +379,7 @@ private updateSpinner(): void {
     return promise;
   }
   confirm(preview: string, question: string, signal?: AbortSignal): Promise<boolean> {
-    if (this.closed || this.slot || this.lending || this.confirmation || signal?.aborted) return Promise.resolve(false);
+    if (this.closed || this.slot || this.lending || this.confirmation || this.pendingEdit || signal?.aborted) return Promise.resolve(false);
     this.endAssistant();
     const draft = this.editor.getExpandedText();
     this.editor.setText(""); // Pretyped drafts never answer approval.
@@ -395,7 +401,7 @@ private updateSpinner(): void {
 
   /** One structured clarification with a standalone question, navigable choices and free-text input. */
   ask(question: string, options: { label: string; description?: string }[], multi: boolean, signal?: AbortSignal): Promise<string[] | undefined> {
-    if (this.closed || this.slot || this.lending || this.confirmation || this.pendingAsk || signal?.aborted) return Promise.resolve(undefined);
+    if (this.closed || this.slot || this.lending || this.confirmation || this.pendingAsk || this.pendingEdit || signal?.aborted) return Promise.resolve(undefined);
     this.endAssistant(); this.activity = undefined;
     const draft = this.editor.getExpandedText();
     this.editor.setText(""); // Pretyped drafts never answer a question.
@@ -423,6 +429,31 @@ private updateSpinner(): void {
     this.pendingAsk = finish; this.askQuestion = safeQuestion; this.askOptions = shown;
     this.askLabels = options.map(option => option.label); this.askMulti = multi;
     this.askSelections.clear(); this.askActiveIndex = 0;
+    this.configureAutocomplete(); this.render();
+    signal?.addEventListener("abort", cancel, { once: true });
+    if (signal?.aborted) cancel();
+    return promise;
+  }
+
+  /** Lines for the user to edit in place, one per editor line, under a heading and a key hint. Enter
+   * returns the editor's lines as they stand (blank ones included); Esc, Ctrl+C, abort or close return
+   * undefined. A pretyped draft is set aside and restored. The caller records the outcome. */
+  editLines(heading: string, hint: string, lines: readonly string[], signal?: AbortSignal): Promise<string[] | undefined> {
+    if (this.closed || this.slot || this.lending || this.confirmation || this.pendingAsk || this.pendingEdit || signal?.aborted) return Promise.resolve(undefined);
+    this.endAssistant(); this.activity = undefined;
+    const draft = this.editor.getExpandedText();
+    const { promise, resolve } = Promise.withResolvers<string[] | undefined>();
+    let settled = false;
+    const finish = (edited: string[] | undefined) => {
+      if (settled) return; settled = true;
+      signal?.removeEventListener("abort", cancel);
+      this.pendingEdit = undefined; this.editHeading = [];
+      this.editor.setText(draft); this.configureAutocomplete(); this.render(); resolve(edited);
+    };
+    const cancel = () => finish(undefined);
+    this.pendingEdit = finish;
+    this.editHeading = [this.accent(terminalText(heading)), this.muted(terminalText(hint))];
+    this.editor.setText(lines.map(line => terminalText(line).replace(/\s+/g, " ")).join("\n"));
     this.configureAutocomplete(); this.render();
     signal?.addEventListener("abort", cancel, { once: true });
     if (signal?.aborted) cancel();
@@ -465,7 +496,7 @@ private updateSpinner(): void {
   }
 
   exclusiveHost(): RuntimeModelPickerHost | undefined {
-    if (this.closed || this.slot || this.lending || this.confirmation || !this.started) return undefined;
+    if (this.closed || this.slot || this.lending || this.confirmation || this.pendingEdit || !this.started) return undefined;
     const claim = () => {
       if (this.closed || this.slot || this.lending || this.confirmation) throw new Error("Terminal input is unavailable.");
       this.endAssistant();
@@ -500,6 +531,7 @@ private updateSpinner(): void {
     if (this.closed) return;
     if (this.confirmation) this.confirmation(false);
     if (this.pendingAsk) this.pendingAsk(undefined);
+    if (this.pendingEdit) this.pendingEdit(undefined);
     if (this.busy) { this.cancel(); return; }
     if (this.editor.getText()) { this.editor.setText(""); this.render(); return; }
     // An idle, empty editor: the first Ctrl-C only arms exit, so a reflexive Ctrl-C after a task
@@ -522,7 +554,7 @@ private updateSpinner(): void {
     clearInterval(this.spinnerTimer);
     this.spinnerTimer = undefined;
     this.endAssistant(); this.closed = true;
-    this.confirmation?.(false); this.pendingAsk?.(undefined); this.command?.(); this.command = undefined;
+    this.confirmation?.(false); this.pendingAsk?.(undefined); this.pendingEdit?.(undefined); this.command?.(); this.command = undefined;
     if (this.started) this.tui.stop();
     this.eof();
   }
