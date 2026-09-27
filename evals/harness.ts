@@ -88,6 +88,8 @@ export interface HarnessInput {
     id: string;
     resume: boolean;
   };
+  /** Aborting kills the CLI's process tree; runHarness then throws the signal's reason instead of observing. */
+  signal?: AbortSignal;
 }
 
 export type PhaseName = "task" | "checks" | "smoke" | "review" | "proof" | "acceptance" | "repair";
@@ -106,6 +108,7 @@ export interface ProcessObservation {
 /** Run a CLI with a fresh home, bounded output and process-tree cleanup. No user settings are loaded. */
 export async function runHarness(harness: HarnessName, input: HarnessInput): Promise<HarnessObservation> {
   const name = harnessProtocol(harness);
+  input.signal?.throwIfAborted();
   if (!input.command.length || !input.command[0] || !input.model.includes("/")
     || !Number.isSafeInteger(input.timeoutMs) || input.timeoutMs < 1) throw new Error("Invalid harness input");
   if (input.route?.length && !input.model.startsWith("openrouter/")) throw new Error("--route applies only to openrouter models");
@@ -164,6 +167,9 @@ export async function runHarness(harness: HarnessName, input: HarnessInput): Pro
     });
     const owner = ownSpawnedTree(child.pid, () => child.exitCode === null && child.signalCode === null);
     const stop = () => terminateTree(owner, child.pid, "SIGKILL");
+    const abort = () => void stop();
+    input.signal?.addEventListener("abort", abort, { once: true });
+    if (input.signal?.aborted) abort();
     let timedOut = false;
     const timer = setTimeout(() => { timedOut = true; void stop(); }, input.timeoutMs);
     const events: unknown[] = [];
@@ -200,6 +206,7 @@ export async function runHarness(harness: HarnessName, input: HarnessInput): Pro
     try {
       const exited = child.exited.then(async code => { await stop(); return code; });
       const [exitCode] = await Promise.all([exited, consume(child.stdout, true), consume(child.stderr, false)]);
+      input.signal?.throwIfAborted();
       const result = observeHarness(harness, events, { exitCode, timedOut, wallClockMs: Math.round(performance.now() - started), eventTimes });
       result.errors.push(...errors);
       // Casper's stderr is its normal human output in --json mode: diagnostic only when the run failed.
@@ -207,7 +214,7 @@ export async function runHarness(harness: HarnessName, input: HarnessInput): Pro
       // Unparseable or oversized output is a broken protocol, whatever the last event said.
       if (errors.length && result.termination !== "timeout") result.termination = "failed";
       return result;
-    } finally { clearTimeout(timer); await stop(); }
+    } finally { clearTimeout(timer); input.signal?.removeEventListener("abort", abort); await stop(); }
   } finally { if (ownsHome) await rm(home, { recursive: true, force: true }); }
 }
 

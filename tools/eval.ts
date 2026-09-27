@@ -7,7 +7,8 @@ import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { isolatedEnvironment } from "../src/platform/environment";
 import { useCasperAgentStore } from "../src/runtime/agent-store";
 import { formatBenchmarkReport, futility, runBenchmark, summarizeBenchmark, type BenchmarkFailure, type BenchmarkRun } from "../evals/benchmark";
-import { HARNESS_NAMES, type HarnessInput, type HarnessName } from "../evals/harness";
+import { HARNESS_NAMES, harnessProtocol, type HarnessInput, type HarnessName } from "../evals/harness";
+import { acceptanceCompletions, formatReplayReport, replayAcceptance, type ReplayFailure, type ReplayRun, type ReplaySource } from "../evals/replay";
 import { formatEvalReport, formatEvalResult, writeEvalReport } from "../evals/report";
 import { gradePreparedEval, prepareEvalTask, resolveEvalModel, runEvalTask, summarizeEvalRuns } from "../evals/runner";
 import type { EvalModel, EvalPack, EvalRunResult, EvalTask, EvalTaskSummary } from "../evals/runner";
@@ -73,12 +74,31 @@ Quality benchmark (Casper vs Pi, optionally OMP, through their real CLIs; --pack
                         summarize several documents together (for example one per model).
   --gate <harness> --remaining <n>  With --report: exit 3 when that harness's rule can no longer
                         be met with n more scored runs (a phase gate), else 0.
+  --keep-workspaces <dir>  Keep each run's graded tree (without node_modules) in
+                        <dir>/<task>-<harness>-<repeat>/ for --replay; the run records its path.
+  --stop-when-decided <harness>  Stop the benchmark once that Casper harness's rule can no longer be
+                        met with its unfinished runs: no new runs start, running ones are killed and
+                        dropped; the results document records why (stopped), and the exit code is 3.
   --casper <path>       Casper executable. Default: this checkout (bun src/cli.ts).
   --pi <path>           Pi executable. Default: pi on PATH.
   --omp <path>          OMP executable. Default: omp on PATH.
   --json <path>         Results document. Default: a new evals/results/<date>-<commit>.json.
   Prints a rubric table per pack (docs/EVALUATION.md). Exits 1 only when a run could not
   be run or graded; failed tasks are results, not errors.
+
+Acceptance replay (no coding runs; model billing applies to the acceptance calls):
+  --replay <results.json>  Rerun Casper's independent acceptance check on the kept workspaces of a
+                        benchmark results document's Casper runs (repeatable) and print their receipt
+                        honesty with the replayed check, plus its added time and tokens. Only runs whose
+                        receipt was verified (before their own acceptance check) are checked. Takes:
+  --json <path>         Required: the replay's results document.
+  --acceptance-model <ref> / --model <ref>  The model that writes the tests (one of the two).
+                        Default: each document's own model and hosts.
+  --acceptance-route <hosts> / --route <hosts>  Its OpenRouter hosts (required for an openrouter model).
+  --concurrency <n>     Checks at once (1..16). Default: 6.
+  --stop-when-decided   Stop once every replayed harness's rule is decided on caught and flagged; exit 3.
+  --timeout <sec>       Per acceptance test run. Default: 120.
+  Exits 1 when a run could not be replayed.
 
 Prepared roots contain candidate/, evaluator/, home/, prompt.txt and manifest.json.
 Workflow preparations also contain instructions.txt. Keep host artifacts outside
@@ -114,6 +134,10 @@ interface EvalOptions {
   /** `--route any`: an OpenRouter benchmark deliberately left unpinned. */
   unpinned?: boolean;
   reports: string[];
+  replays: string[];
+  keepWorkspaces?: string;
+  /** A harness in benchmark mode; `true` (no harness) with --replay. */
+  stopWhenDecided?: HarnessName | true;
   casper?: string;
   pi?: string;
   omp?: string;
@@ -132,7 +156,7 @@ function wholeNumber(flag: string, value: string, max: number): number {
 
 export function parseArguments(args: readonly string[]): EvalOptions {
   const options: EvalOptions = {
-    help: false, list: false, selected: [], repeat: 1, timeoutSeconds: 120, keep: false, autoVerify: true, prepare: false, packs: [], harnesses: [], followUps: 0, reports: [],
+    help: false, list: false, selected: [], repeat: 1, timeoutSeconds: 120, keep: false, autoVerify: true, prepare: false, packs: [], harnesses: [], followUps: 0, reports: [], replays: [],
   };
   for (let index = 0; index < args.length; index++) {
     const argument = args[index]!;
@@ -141,7 +165,15 @@ export function parseArguments(args: readonly string[]): EvalOptions {
     if (argument === "--keep") { options.keep = true; continue; }
     if (argument === "--prepare") { options.prepare = true; continue; }
     if (argument === "--no-auto-verify") { options.autoVerify = false; continue; }
-    if (["--pack", "--harness", "--effort", "--concurrency", "--time-limit", "--follow-ups", "--person-cost", "--report", "--route", "--casper", "--pi", "--omp", "--acceptance-model", "--acceptance-route", "--gate", "--remaining"].includes(argument)) {
+    if (argument === "--stop-when-decided") {
+      const value = args[index + 1];
+      if (value === undefined || value.startsWith("--")) { options.stopWhenDecided = true; continue; }
+      if (!HARNESS_NAMES.includes(value as HarnessName)) throw new Error(`--stop-when-decided must name one of ${HARNESS_NAMES.join(", ")}`);
+      options.stopWhenDecided = value as HarnessName;
+      index++;
+      continue;
+    }
+    if (["--pack", "--harness", "--effort", "--concurrency", "--time-limit", "--follow-ups", "--person-cost", "--report", "--replay", "--keep-workspaces", "--route", "--casper", "--pi", "--omp", "--acceptance-model", "--acceptance-route", "--gate", "--remaining"].includes(argument)) {
       const value = args[++index];
       if (!value || value.startsWith("--")) throw new Error(`${argument} needs a value`);
       if (argument === "--pack") {
@@ -161,6 +193,8 @@ export function parseArguments(args: readonly string[]): EvalOptions {
         if (!Number.isInteger(seconds) || seconds < 0 || seconds > 3600) throw new Error("--person-cost must be an integer between 0 and 3600");
         options.personCostSeconds = seconds;
       } else if (argument === "--report") options.reports.push(value);
+      else if (argument === "--replay") options.replays.push(value);
+      else if (argument === "--keep-workspaces") options.keepWorkspaces = value;
       else if (argument === "--route") {
         const hosts = value.split(",").map((host) => host.trim()).filter(Boolean);
         if (!hosts.length || hosts.some((host) => host.length > 64)) throw new Error("--route needs comma-separated OpenRouter host names");
@@ -217,8 +251,24 @@ export function parseArguments(args: readonly string[]): EvalOptions {
     if ((options.gate === undefined) !== (options.remaining === undefined)) throw new Error("--gate and --remaining go together");
     return options;
   }
+  if (options.replays.length) {
+    const allowed = ["--replay", "--json", "--model", "--route", "--acceptance-model", "--acceptance-route", "--concurrency", "--stop-when-decided", "--timeout"];
+    if (args.some((flag) => flag.startsWith("--") && !allowed.includes(flag))) {
+      throw new Error("--replay takes only --json, --model, --route, --acceptance-model, --acceptance-route, --concurrency, --stop-when-decided and --timeout");
+    }
+    if (!options.json) throw new Error("--replay needs --json <path> for its results document");
+    if (options.stopWhenDecided !== undefined && options.stopWhenDecided !== true) throw new Error("--stop-when-decided takes no harness with --replay: it stops once every replayed harness is decided");
+    if (options.model && options.acceptanceModel) throw new Error("--replay takes --acceptance-model or --model, not both");
+    if (options.model && !options.model.includes("/")) throw new Error("--model needs provider/id");
+    if ((options.route || options.unpinned) && !options.model?.startsWith("openrouter/")) throw new Error("--route applies only to an openrouter --model");
+    if (options.model?.startsWith("openrouter/") && !options.route && !options.unpinned) throw new Error("An openrouter --model needs --route <hosts> (or --route any)");
+    if (options.acceptanceModel?.startsWith("openrouter/") && !options.acceptanceRoute) throw new Error("An openrouter --acceptance-model needs --acceptance-route <hosts>");
+    if (options.acceptanceRoute && !options.acceptanceModel?.startsWith("openrouter/")) throw new Error("--acceptance-route applies only to an openrouter --acceptance-model");
+    return options;
+  }
   if (options.gate !== undefined) throw new Error("--gate and --remaining apply only to --report");
-  const benchmarkOnly = options.effort || options.concurrency || options.timeLimitSeconds || options.followUps || options.personCostSeconds !== undefined || options.route || options.unpinned || options.casper || options.pi || options.omp || options.acceptanceModel || options.acceptanceRoute;
+  const benchmarkOnly = options.effort || options.concurrency || options.timeLimitSeconds || options.followUps || options.personCostSeconds !== undefined || options.route || options.unpinned || options.casper || options.pi || options.omp || options.acceptanceModel || options.acceptanceRoute
+    || options.keepWorkspaces || options.stopWhenDecided;
   if (isBenchmark(options)) {
     if (options.prepare || options.grade || options.scenario || options.keep || !options.autoVerify) {
       throw new Error("--prepare, --grade, --scenario, --keep and --no-auto-verify do not apply to a benchmark");
@@ -237,9 +287,14 @@ export function parseArguments(args: readonly string[]): EvalOptions {
     }
     if (options.acceptanceModel?.startsWith("openrouter/") && !options.acceptanceRoute) throw new Error("An openrouter --acceptance-model needs --acceptance-route <hosts>");
     if (options.acceptanceRoute && !options.acceptanceModel?.startsWith("openrouter/")) throw new Error("--acceptance-route applies only to an openrouter --acceptance-model");
+    if (options.stopWhenDecided === true) throw new Error("--stop-when-decided needs the Casper harness whose rule decides the benchmark");
+    const harnesses = options.harnesses.length ? options.harnesses : ["casper", "pi"];
+    if (options.stopWhenDecided && (!harnesses.includes(options.stopWhenDecided) || harnessProtocol(options.stopWhenDecided) !== "casper")) {
+      throw new Error("--stop-when-decided must name a Casper harness of this benchmark (one with a receipt)");
+    }
     return options;
   }
-  if (benchmarkOnly) throw new Error("--effort, --concurrency, --time-limit, --follow-ups, --person-cost, --route, --acceptance-model, --acceptance-route, --casper, --pi and --omp apply only to a benchmark (--pack or --harness)");
+  if (benchmarkOnly) throw new Error("--effort, --concurrency, --time-limit, --follow-ups, --person-cost, --route, --acceptance-model, --acceptance-route, --keep-workspaces, --stop-when-decided, --casper, --pi and --omp apply only to a benchmark (--pack or --harness)");
   if (options.scenario && (!options.prepare || options.selected.length)) throw new Error("--scenario requires --prepare and cannot use --task");
   if (Boolean(options.grade) !== Boolean(options.observation)) throw new Error("--grade and --observation must be used together");
   if (options.grade && (options.prepare || options.selected.length || options.scenario)) throw new Error("--grade cannot select or prepare tasks");
@@ -341,12 +396,15 @@ async function benchmark(options: EvalOptions, repoRoot: string): Promise<number
   process.stdout.write(`${tasks.length} task(s) x ${options.repeat} run(s) x ${harnesses.length} harness(es) = ${total} runs; model ${reference}, effort ${effort}, `
     + `${timeLimitSeconds} s time limit, ${concurrency} at a time${options.route ? `, OpenRouter hosts ${options.route.join(", ")} only` : options.unpinned ? ", OpenRouter hosts UNPINNED (--route any): each run may draw a different host" : ""}.\nProvider billing applies to every model call. Results: ${path.relative(process.cwd(), destination) || destination}\n\n`);
   const versions = Object.fromEntries(await Promise.all(harnesses.map(async (name) => [name, { command: commands[name], version: await harnessVersion(commands[name]) }])));
+  const keepWorkspaces = options.keepWorkspaces ? path.resolve(options.keepWorkspaces) : undefined;
+  if (keepWorkspaces) await mkdir(keepWorkspaces, { recursive: true });
 
   let finished = 0;
-  const { runs, failures } = await runBenchmark({
+  const { runs, failures, stopped } = await runBenchmark({
     repoRoot, tasks, harnesses, commands, model: reference, effort, repeat: options.repeat, concurrency,
     timeoutMs: timeLimitSeconds * 1000, verifyTimeoutMs: options.timeoutSeconds * 1000, seed, followUps: options.followUps, ...(options.route ? { route: options.route } : {}),
-    ...(acceptanceModel ? { acceptanceModel } : {}),
+    ...(acceptanceModel ? { acceptanceModel } : {}), ...(keepWorkspaces ? { keepWorkspaces } : {}),
+    ...(options.stopWhenDecided && options.stopWhenDecided !== true ? { stopWhenDecided: options.stopWhenDecided } : {}),
     onRun: (run: BenchmarkRun) => {
       const { score } = run;
       process.stdout.write(`[${++finished}/${total}] ${run.taskId} ${run.harness} #${run.repeat}: ${run.graded.success ? "accepted" : "not accepted"}`
@@ -361,13 +419,61 @@ async function benchmark(options: EvalOptions, repoRoot: string): Promise<number
   const summary = summarizeBenchmark(runs, personCost(options));
   process.stdout.write(`\n${formatBenchmarkReport(summary)}\n`);
   if (failures.length) process.stdout.write(`\n${failures.length} run(s) could not run or be graded; see failures in the results.\n`);
+  if (stopped) process.stdout.write(`\nStopped after ${stopped.afterRuns} scored run(s): the rule cannot be met — ${stopped.reason}\n`);
   await writeEvalReport(destination, {
     kind: "quality-benchmark", version: 1, ranAt, commit, dirty, model: reference, effort, repeat: options.repeat, concurrency,
     timeLimitSeconds, verifyTimeoutSeconds: options.timeoutSeconds, route: recordedRoute(options), ...(acceptanceModel ? { acceptanceModel } : {}), harnesses: versions, tasks: tasks.map((task) => task.id),
-    summary, failures, runs,
+    ...(stopped ? { stopped } : {}), summary, failures, runs,
   });
   process.stdout.write(`Wrote ${path.relative(process.cwd(), destination) || destination}\n`);
-  return failures.length ? 1 : 0;
+  return stopped ? 3 : failures.length ? 1 : 0;
+}
+
+/** Rerun the acceptance check on saved runs' kept workspaces (evals/replay.ts); exit 3 when the stopper decided it. */
+async function replay(options: EvalOptions, repoRoot: string): Promise<number> {
+  const sources: ReplaySource[] = [];
+  for (const file of options.replays) {
+    const document = JSON.parse(await readFile(file, "utf8")) as { kind?: unknown; runs?: unknown; model?: unknown; route?: unknown; effort?: unknown };
+    if (document.kind !== "quality-benchmark" || !Array.isArray(document.runs) || typeof document.model !== "string") throw new Error(`${file} is not a benchmark results document`);
+    sources.push({
+      file, model: document.model, route: Array.isArray(document.route) ? document.route.filter((host): host is string => typeof host === "string") : null,
+      ...(typeof document.effort === "string" ? { effort: document.effort } : {}), runs: document.runs as BenchmarkRun[],
+    });
+  }
+  const override = options.acceptanceModel ? { model: options.acceptanceModel, route: options.acceptanceRoute ?? null }
+    : options.model ? { model: options.model, route: options.route ?? null } : undefined;
+  const completions = await acceptanceCompletions(override ? [override] : sources, getAgentDir());
+  try {
+    const concurrency = options.concurrency ?? 6;
+    const ranAt = new Date().toISOString();
+    const commit = git(repoRoot, ["rev-parse", "--short=12", "HEAD"]);
+    const status = git(repoRoot, ["status", "--porcelain"]);
+    process.stdout.write(`Replaying the acceptance check on ${options.replays.length} document(s); model ${override ? override.model : "each document's own"}, ${concurrency} at a time.\n`
+      + "Provider billing applies to every acceptance call.\n\n");
+    let finished = 0;
+    const result = await replayAcceptance({
+      repoRoot, sources, ...(override ? { model: override } : {}), concurrency, timeoutMs: options.timeoutSeconds * 1000,
+      stopWhenDecided: options.stopWhenDecided === true, complete: completions.complete,
+      onRun: (run: ReplayRun) => {
+        process.stdout.write(`[${++finished}] ${run.taskId} ${run.harness} #${run.repeat}: ${run.success ? "accepted" : "not accepted"}; receipt ${run.receiptOutcome ?? "none"} → ${run.replayOutcome ?? "none"}`
+          + `${run.acceptance ? ` (acceptance ${run.acceptance.status}, ${Math.round(run.acceptance.durationMs / 1000)} s${run.acceptance.reason ? `: ${run.acceptance.reason}` : ""})` : ` (not checked: ${run.skipped})`}\n`);
+      },
+      onFailure: (failure: ReplayFailure) => {
+        process.stdout.write(`[${++finished}] ${failure.taskId} ${failure.harness} #${failure.repeat}: could not replay: ${failure.error}\n`);
+      },
+    });
+    process.stdout.write(`\n${formatReplayReport(result)}\n`);
+    if (result.failures.length) process.stdout.write(`\n${result.failures.length} run(s) could not be replayed; see failures in the results.\n`);
+    if (result.stopped) process.stdout.write(`\nStopped after ${result.stopped.afterRuns} replayed run(s): the rule cannot be met — ${result.stopped.reason}\n`);
+    const destination = path.resolve(options.json!);
+    await writeEvalReport(destination, {
+      kind: "acceptance-replay", version: 1, ranAt, commit, dirty: status === null ? null : status.length > 0, sources: options.replays,
+      model: override ?? null, concurrency, timeoutSeconds: options.timeoutSeconds, ...(result.stopped ? { stopped: result.stopped } : {}),
+      withoutWorkspace: result.withoutWorkspace, cells: result.cells, failures: result.failures, runs: result.runs,
+    });
+    process.stdout.write(`Wrote ${path.relative(process.cwd(), destination) || destination}\n`);
+    return result.stopped ? 3 : result.failures.length ? 1 : 0;
+  } finally { await completions.close(); }
 }
 
 const personCost = (options: EvalOptions) => options.personCostSeconds === undefined ? {} : { personMs: options.personCostSeconds * 1000 };
@@ -408,6 +514,7 @@ async function main(): Promise<void> {
     if (existing) throw new Error(`Refusing to replace existing evidence: ${options.json}`);
   }
   const repoRoot = path.resolve(import.meta.dir, "..");
+  if (options.replays.length) { process.exitCode = await replay(options, repoRoot); return; }
   if (isBenchmark(options)) { process.exitCode = await benchmark(options, repoRoot); return; }
   const results: EvalRunResult[] = [];
   let document: unknown;

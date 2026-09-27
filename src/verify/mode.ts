@@ -18,10 +18,12 @@ export interface VerificationSettings {
    * about 40% of Casper's wall time; the checks and the proof keep false "done" at zero. With it off, a
    * checklist the model's own answer ends with is still reported, and the change is still proven. */
   review?: boolean;
-  /** `true` adds the independent acceptance check after a proven code change: tests written from the
-   * request alone, by a separate model call, run once against the change. Signal only: a failure makes
-   * the receipt not verified; nothing is repaired or kept. Unset means off (experimental). */
-  acceptance?: boolean;
+  /** Adds the independent acceptance check after the checks pass on a code change: tests written from
+   * the request alone, by a separate low-effort model call, run once against the change. Signal only:
+   * nothing is repaired or kept. `true`: a failure makes the receipt not verified. `"warn"`: a failure
+   * never downgrades; the receipt names what the tests did not confirm. Unset or `false` means off
+   * (experimental). */
+  acceptance?: boolean | "warn";
 }
 
 /** Checks this fast run automatically in an unconfigured interactive session. */

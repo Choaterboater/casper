@@ -3,8 +3,8 @@ import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { snapshotTree } from "../src/task/changes";
-import { taskOutcome, formatReceipt, type TaskResult } from "../src/task/result";
-import { acceptanceTarget, independentAcceptance, type AcceptanceCompletion } from "../src/verify/acceptance";
+import { taskOutcome, formatReceipt, formatTaskResult, type TaskResult } from "../src/task/result";
+import { acceptanceTarget, failedTestNames, independentAcceptance, type AcceptanceCompletion } from "../src/verify/acceptance";
 
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
@@ -30,13 +30,30 @@ async function run(root: string, complete: AcceptanceCompletion) {
     files, testCommand: `"${process.execPath}" test`, timeoutMs: 60_000 });
 }
 
-test("tests written from the request that fail the change make the check fail, and the file is removed", async () => {
+test("tests written from the request that fail the change make the check fail, name the failing tests, and the file is removed", async () => {
   const root = await project();
   const result = await run(root, answer(file("expect(value).toBe(\"OTHER\")")));
   expect(result.status).toBe("fail");
   expect(result.output).toContain("OTHER");
+  expect(result.unconfirmed).toEqual(["\"value is FIXED\""]);
   expect(result.usage).toEqual({ tokens: 42, estimatedCost: 0.001 });
   expect(await readdir(path.join(root, "tests"))).toEqual(["value.test.js"]);
+});
+
+test("failing test names are read from bun, jest, vitest and pytest output, deduplicated and bounded", () => {
+  expect(failedTestNames([
+    "(pass) keeps the rest [0.10ms]",
+    "\x1b[31m(fail)\x1b[0m suite > \"rejects over 5 per minute\" [1.52ms]",
+    "  ✕ \"counts per key\" (3 ms)",
+    "   × \"resets after the window\" 4ms",
+    "FAILED tests/test_limiter.py::test_burst - AssertionError: 6 != 5",
+    "(fail) suite > \"rejects over 5 per minute\"",
+  ].join("\n"))).toEqual(["suite > \"rejects over 5 per minute\"", "\"counts per key\"", "\"resets after the window\"", "test_burst"]);
+  const many = Array.from({ length: 30 }, (_, index) => `(fail) ${index}${"x".repeat(300)}`).join("\n");
+  const names = failedTestNames(many);
+  expect(names).toHaveLength(20);
+  expect(names[0]).toHaveLength(200);
+  expect(failedTestNames("error: Cannot find module '../src/value.js'")).toEqual([]);
 });
 
 test("tests that pass the change make the check pass", async () => {
@@ -67,9 +84,23 @@ test("a failed acceptance check downgrades verified to not verified; a pass or a
   const verified: TaskResult = { execution: "completed", changedPaths: ["src/value.js"], verification: { status: "pass", repairAttempts: 0, rounds: [],
     results: [{ name: "test", command: "bun test", cwd: "/", status: "pass", exitCode: 0, signal: null, stdout: "", stderr: "", truncated: false, durationMs: 1, freshness: "fresh" }] } };
   expect(taskOutcome(undefined, verified)).toBe("verified");
-  expect(taskOutcome(undefined, { ...verified, acceptance: { status: "pass" } })).toBe("verified");
-  expect(taskOutcome(undefined, { ...verified, acceptance: { status: "error", reason: "x" } })).toBe("verified");
-  const failed = { ...verified, acceptance: { status: "fail" as const } };
+  expect(taskOutcome(undefined, { ...verified, acceptance: { status: "pass", mode: "verdict" } })).toBe("verified");
+  expect(taskOutcome(undefined, { ...verified, acceptance: { status: "error", reason: "x", mode: "verdict" } })).toBe("verified");
+  const failed = { ...verified, acceptance: { status: "fail" as const, mode: "verdict" as const } };
   expect(taskOutcome(undefined, failed)).toBe("not_verified");
   expect(formatReceipt(failed)).toContain("✗ Independent acceptance: tests written from the request alone fail");
+  const named = { ...verified, acceptance: { status: "fail" as const, mode: "verdict" as const, unconfirmed: ["\"a\"", "\"b\""] } };
+  expect(formatReceipt(named)).toContain("✗ Independent acceptance: tests written from the request alone fail: \"a\"; \"b\"");
+});
+
+test("in warn mode a failed acceptance check never downgrades; the receipt names what is unconfirmed", () => {
+  const verified: TaskResult = { execution: "completed", changedPaths: ["src/value.js"], verification: { status: "pass", repairAttempts: 0, rounds: [],
+    results: [{ name: "test", command: "bun test", cwd: "/", status: "pass", exitCode: 0, signal: null, stdout: "", stderr: "", truncated: false, durationMs: 1, freshness: "fresh" }] } };
+  const named = { ...verified, acceptance: { status: "fail" as const, mode: "warn" as const, unconfirmed: ["\"rejects over 5\"", "\"per key\""] } };
+  expect(taskOutcome(undefined, named)).toBe("verified");
+  expect(formatReceipt(named)).toContain("⚠ Not confirmed by tests written from the request: \"rejects over 5\"; \"per key\"");
+  expect(formatTaskResult(named)).toContain("⚠ Not confirmed by tests written from the request: \"rejects over 5\"; \"per key\"");
+  const unnamed = { ...verified, acceptance: { status: "fail" as const, mode: "warn" as const } };
+  expect(taskOutcome(undefined, unnamed)).toBe("verified");
+  expect(formatReceipt(unnamed)).toContain("⚠ Independent acceptance: tests written from the request alone fail");
 });

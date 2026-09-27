@@ -443,11 +443,11 @@ test("verification.acceptance: tests written from the request alone decide betwe
   const accepting = (assertion: string) => fixture((_request, payload) => isAcceptance(payload)
     ? { text: `\`\`\`js\nimport { expect, test } from "bun:test";\nimport { value } from "../src/value.js";\ntest("\\"value is FIXED\\"", () => { ${assertion}; });\n\`\`\`` }
     : afterTool(payload) ? { text: "Fixed." } : { tools: [{ name: "write", args: { path: "src/value.js", content: "export const value = \"FIXED\";\n" } }] });
-  const setUp = async (f: Awaited<ReturnType<typeof fixture>>) => {
+  const setUp = async (f: Awaited<ReturnType<typeof fixture>>, setting = "true") => {
     await mkdir(path.join(f.project, ".casper"));
     await mkdir(path.join(f.project, "src"));
     await mkdir(path.join(f.project, "tests"));
-    await writeFile(path.join(f.project, ".casper/project.yaml"), `verify:\n  test: ${JSON.stringify(`"${process.execPath}" test`)}\nverification:\n  acceptance: true\n`);
+    await writeFile(path.join(f.project, ".casper/project.yaml"), `verify:\n  test: ${JSON.stringify(`"${process.execPath}" test`)}\nverification:\n  acceptance: ${setting}\n`);
     await writeFile(path.join(f.project, "src/value.js"), "export const value = \"BROKEN\";\n");
     await writeFile(path.join(f.project, "tests/value.test.js"), "import { expect, test } from \"bun:test\";\nimport { value } from \"../src/value.js\";\ntest(\"value\", () => expect(value).toBe(\"FIXED\"));\n");
   };
@@ -459,7 +459,8 @@ test("verification.acceptance: tests written from the request alone decide betwe
   // Proven by the project's tests, then rejected by the request's: not verified, exit 3 when verification is required.
   expect({ exit: failed.exit, outcome: failedReceipt.outcome, proof: failedReceipt.proof?.status, acceptance: failedReceipt.acceptance?.status })
     .toEqual({ exit: 3, outcome: "not_verified", proof: "proven", acceptance: "fail" });
-  expect(failedReceipt.text).toContain("✗ Independent acceptance: tests written from the request alone fail");
+  expect(failedReceipt.acceptance.unconfirmed).toEqual(["\"value is FIXED\""]);
+  expect(failedReceipt.text).toContain("✗ Independent acceptance: tests written from the request alone fail: \"value is FIXED\"");
   // Two task responses and the acceptance call, 120 tokens each: the separate call is in the task's usage.
   expect(rejected.payloads.filter(isAcceptance)).toHaveLength(1);
   expect(failedReceipt.usage.tokens).toBe(360);
@@ -469,16 +470,26 @@ test("verification.acceptance: tests written from the request alone decide betwe
   await setUp(approved);
   const passed = await approved.run(["--json", "--verify", "--require-verification", "Make value FIXED"]);
   const passedReceipt = JSON.parse(passed.stdout.trim().split("\n").at(-1)!);
-  expect({ exit: passed.exit, outcome: passedReceipt.outcome, acceptance: passedReceipt.acceptance }).toEqual({ exit: 0, outcome: "verified", acceptance: { status: "pass" } });
+  expect({ exit: passed.exit, outcome: passedReceipt.outcome, acceptance: passedReceipt.acceptance }).toEqual({ exit: 0, outcome: "verified", acceptance: { status: "pass", mode: "verdict" } });
 
   // With a review role, the acceptance tests come from that model, not the one that did the work.
   const crossed = await accepting("expect(value).toBe(\"FIXED\")");
   await setUp(crossed);
   await writeFile(crossed.settings, JSON.stringify({ defaultProvider: "fixture", defaultModel: "first", retry: { enabled: false }, modelRoles: { review: "fixture/second" } }));
   const crossedReceipt = JSON.parse((await crossed.run(["--json", "--verify", "Make value FIXED"])).stdout.trim().split("\n").at(-1)!);
-  expect(crossedReceipt.acceptance).toEqual({ status: "pass" });
+  expect(crossedReceipt.acceptance).toEqual({ status: "pass", mode: "verdict" });
   expect(crossed.payloads.map((payload) => [isAcceptance(payload), payload.model])).toEqual([[false, "first"], [false, "first"], [true, "second"]]);
-}, 90_000);
+
+  // warn: a request Casper does not prove (intent configure) is still checked, and a failure only names
+  // what the request's tests did not confirm: verified, exit 0 even when verification is required.
+  const warned = await accepting("expect(value).toBe(\"OTHER\")");
+  await setUp(warned, "warn");
+  const warnedRun = await warned.run(["--json", "--verify", "--require-verification", "Configure value to be FIXED"]);
+  const warnedReceipt = JSON.parse(warnedRun.stdout.trim().split("\n").at(-1)!);
+  expect({ exit: warnedRun.exit, outcome: warnedReceipt.outcome, proof: warnedReceipt.proof, acceptance: { ...warnedReceipt.acceptance, output: undefined } })
+    .toEqual({ exit: 0, outcome: "verified", proof: null, acceptance: { status: "fail", mode: "warn", unconfirmed: ["\"value is FIXED\""], output: undefined } });
+  expect(warnedReceipt.text).toContain("⚠ Not confirmed by tests written from the request: \"value is FIXED\"");
+}, 120_000);
 
 test("the review round fixes a gap the model finds; a gap it admits keeps the change unverified", async () => {
   // The review finds that sum.js also needs a newline marker and fixes it; the checks rerun and pass.

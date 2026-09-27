@@ -194,9 +194,10 @@ export interface RuntimeSession {
   setModelRole?(role: string, selector?: string): Promise<Record<string, string>>;
   setEffort?(level: string, persist: boolean): Promise<RuntimeStatus>;
   getUsage?(): RuntimeUsage;
-  /** One model call outside the conversation, with the conversation's model and effort: nothing is
-   * added to the transcript. `usage` is null when the provider reported none. */
-  complete?(input: { systemPrompt: string; user: string; signal?: AbortSignal }): Promise<{ text: string; error?: string; usage: { tokens: number; estimatedCost: number } | null }>;
+  /** One model call outside the conversation, with the conversation's model and effort unless `effort`
+   * asks for another (mapped to what the model supports); `maxTokens` caps the answer. Nothing is added
+   * to the transcript. `usage` is null when the provider reported none. */
+  complete?(input: { systemPrompt: string; user: string; signal?: AbortSignal; effort?: string; maxTokens?: number }): Promise<{ text: string; error?: string; usage: { tokens: number; estimatedCost: number } | null }>;
   listConversations?(): Promise<RuntimeConversation[]>;
   clearConversation?(): Promise<void>;
   /** `keepUnwritten: false` drops a new conversation that has no saved response yet instead of

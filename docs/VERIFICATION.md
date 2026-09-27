@@ -67,32 +67,40 @@ the same task (often the model's own `casper_check`), and the time is that earli
 
 Off by default. The hard-pack decision run (docs/evals/2026-09-26-hard-pack.md) found that every wrong
 run passed the visible tests and the proof: the model's own tests missed the same requirement its
-code did. With the check on, a code change in auto mode that passed the checks and was not left
-unproven gets one more piece of evidence:
+code did. With the check on, a change to code in auto mode whose checks passed and that was not left
+unproven gets one more piece of evidence. It needs a `verify.test` command and runs whether or not
+Casper proves the change, so server tasks and requests Casper does not prove (refactor, configure and
+the like) are checked too.
 
 ```yaml
 verification:
-  acceptance: true   # default false
+  acceptance: true   # or warn; default false
 ```
 
-Casper makes one separate model call (same model and effort, outside the conversation). It sends the
-request, `CONTEXT.md` and `AGENTS.md`, the changed code and up to two existing tests as style examples,
-and asks for one test file with one test per requirement the request states, asserting only what the
-request says. Casper saves the file next to the project's first test file (or in `tests/`), runs
-`<verify.test> ./<file>` once and deletes the file, so the workspace ends as the model left it.
+Casper makes one separate model call outside the conversation, with the conversation's model (or the
+`review` role's) at low effort and an answer capped at 24,000 tokens. It sends the request, `CONTEXT.md`
+and `AGENTS.md`, the changed code and up to two existing tests as style examples, and asks for one test
+file with one test per requirement the request states, each named with a short quote of it, asserting
+only what the request says. Casper saves the file next to the project's first test file (or in `tests/`),
+runs `<verify.test> ./<file>` once and deletes the file, so the workspace ends as the model left it.
 
 ```
 ✓ Independent acceptance: tests written from the request alone pass
-✗ Independent acceptance: tests written from the request alone fail
+✗ Independent acceptance: tests written from the request alone fail: "rejects the 6th call"
+⚠ Not confirmed by tests written from the request: "rejects the 6th call"; "counts per key"
 • Independent acceptance not run: the acceptance answer had no test file
 ```
 
-A failure makes the change `not_verified` (exit 3 with `--require-verification`). A pass or an error
-never upgrades anything. It is signal only: no repair round follows. The call's tokens join the task's
-usage. The JSON receipt carries `acceptance` (`status`, `reason`, `output`) or `null`. The test command must
-accept a file argument (`bun test`, jest, vitest, pytest). With a `review` model role configured
-(`modelRoles.review` in `~/.casper/settings.json`, docs/CONFIGURATION.md), the tests come from that model
-instead of the one that did the work; that role also serves delegated reviewer subagents.
+With `true`, a failure makes the change `not_verified` (exit 3 with `--require-verification`). With `warn`,
+a failure never changes the outcome or exit code: the receipt's ⚠ line names the failing tests, which
+quote the requirements the tests did not confirm (or says the tests fail when the output names none). A
+pass or an error never upgrades anything. It is signal only: no repair round follows. Failing test names
+are read from bun (`(fail) <name>`), jest and vitest (`✕`/`× <name>`) and pytest (`FAILED <path>::<name>`)
+output, at most 20. The call's tokens join the task's usage. The JSON receipt carries `acceptance`
+(`status`, `mode` `verdict` or `warn`, `reason`, `output`, `unconfirmed` when names were parsed) or `null`.
+The test command must accept a file argument (`bun test`, jest, vitest, pytest). With a `review` model role
+configured (`modelRoles.review` in `~/.casper/settings.json`, docs/CONFIGURATION.md), the tests come from
+that model instead of the one that did the work; that role also serves delegated reviewer subagents.
 
 ## Requirements review
 
