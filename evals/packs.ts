@@ -397,4 +397,48 @@ export const HARD_PACK: readonly EvalTask[] = [
 /** Tasks for confirming the request checklist against Pi (docs/superpowers/specs/2026-09-27-harder-pack-design.md):
  * 30-35 cases per task, all stated in the prompt as prose, several deliberate departures from a well-known
  * convention, one hidden test per case. Calibrated on Pi only. */
-export const HARDER_PACK: readonly EvalTask[] = [];
+export const HARDER_PACK: readonly EvalTask[] = [
+  task({
+    id: "harder-csv-reader", pack: "harder", fixture: "csv-reader", setup: "add-csv-reader",
+    prompt: "Implement `readCsv(text, options?)` in src/csv.ts (the types there are the API), returning "
+      + "`{ rows, problems }`. Rows end at `\\n` or `\\r\\n`; a lone `\\r` is ordinary data (`\"a\\rb,c\"` reads as one "
+      + "row `[\"a\\rb\", \"c\"]`). Fields split on `delimiter`, default `,`. `delimiter` must be one character other "
+      + "than the quote, `\\n` or `\\r`, otherwise throw RangeError `invalid delimiter`; `quote` (default `\"`) must be "
+      + "one character other than the delimiter, `\\n` or `\\r`, otherwise throw RangeError `invalid quote`. A quoted "
+      + "field may contain the delimiter and newlines. A doubled quote inside a quoted field is one quote character. "
+      + "Inside a quoted field, a backslash before the quote character is a literal quote and a doubled backslash is "
+      + "one backslash; everywhere else a backslash is literal, including inside an unquoted field and a lone "
+      + "backslash inside quotes. A quote character inside an unquoted field is literal (`ab\"c` stays `ab\"c`). Text "
+      + "between a closing quote and the next delimiter or row end is a problem `text after closing quote` at that "
+      + "text's column, and the field keeps the quoted content. A quote still open at the end of input is a problem "
+      + "`unterminated quote` at the opening quote's line and column, and that row is dropped. Empty input gives no "
+      + "rows and no problems. A newline at the very end of the input does not add a row. Lines that are empty or "
+      + "contain only spaces and tabs are skipped wherever they occur, but a row of one or more empty fields (such as "
+      + "a line that is just the delimiter) is kept. With a `comment` option, a line whose first character matches it "
+      + "is skipped; a line with spaces before the comment character is an ordinary row. A comment character inside a "
+      + "quoted multi-line field is data, never a comment marker. `trim` (default false): when true, spaces and tabs "
+      + "around an unquoted field are removed; whitespace outside a quoted field is ignored and whitespace inside it "
+      + "is kept. With `trim: false`, whitespace before an opening quote makes the whole field unquoted and literal (a "
+      + "leading space turns `\"a\"` into ` \"a\"`, quotes and all). A leading byte-order mark (U+FEFF) is ignored. "
+      + "With `header: true`, the first row after any skipped lines names the columns, and every later row is an "
+      + "object instead of an array. Header names are always trimmed, even with `trim: false`. A header name that "
+      + "repeats gets `_2`, `_3`, and so on, in order (`a,a,a` becomes `a`, `a_2`, `a_3`); an empty header name "
+      + "becomes `column<N>`, where N is its 1-based position. With a header, a row with fewer fields than the header "
+      + "sets the missing columns to `null`, with no problem; a row with more fields is a problem `too many fields` at "
+      + "the first extra field's column, and the extra fields are dropped while the row is kept. Without a header, "
+      + "rows may differ in length with no problem. `line` on a problem is the 1-based physical line where it occurs, "
+      + "counting newlines inside quoted fields even though they don't end the row; `column` is the 1-based character "
+      + "position within that physical line. `columns` (a map of column name to `\"number\"`, `\"boolean\"` or "
+      + "`\"date\"`) requires `header: true`, otherwise throw RangeError `columns requires header`; a `columns` key "
+      + "that is not one of the header names is a problem `unknown column <name>` at the header row's line, column 1. "
+      + "`number` accepts, after trimming, an optional `-` then digits with an optional `.` and more digits, where `_` "
+      + "may separate digit groups (`1_000` reads as 1000); forms like `1e3`, `0x10`, `.5` or `5.` are a problem "
+      + "`not a number in column <name>`. `boolean` accepts `true`, `false`, `yes`, `no`, `1` or `0`, "
+      + "case-insensitively; anything else is a problem `not a boolean in column <name>`. `date` accepts a real "
+      + "calendar date `YYYY-MM-DD` and keeps it as the same string (never a Date object); an impossible date such as "
+      + "`2023-02-29` is a problem `not a date in column <name>`. For a typed column, an empty value is `null`; a "
+      + "value that fails its conversion stays as the original string in the row (still a problem). Problems are "
+      + "always returned ordered by line, then column." + RULES,
+    conventions: [onlyEdits("src/", "tests/"), convention("csv-reader-in-place", { changed: ["src/csv.ts"] })],
+  }),
+];
