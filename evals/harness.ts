@@ -11,11 +11,11 @@ import { osSupportsProcessGroups, ownSpawnedTree, terminateTree } from "../src/p
  * `casper-acceptance` writes `verification.acceptance: true` into the run's user configuration: the same
  * CLI and protocol, for measuring what the round or check adds.
  * `omp` is oh-my-pi, a Pi-based CLI with its own flags, store and subagents. */
-export type HarnessName = "casper" | "casper-no-review" | "casper-review" | "pi" | "omp" | "casper-acceptance";
-export const HARNESS_NAMES: readonly HarnessName[] = ["casper", "casper-no-review", "casper-review", "pi", "omp", "casper-acceptance"];
+export type HarnessName = "casper" | "casper-no-review" | "casper-review" | "pi" | "omp" | "casper-acceptance" | "casper-acceptance-cross";
+export const HARNESS_NAMES: readonly HarnessName[] = ["casper", "casper-no-review", "casper-review", "pi", "omp", "casper-acceptance", "casper-acceptance-cross"];
 /** The `verification` settings a Casper variant writes into its run's ~/.casper/config.yaml. */
 const VARIANT_SETTING: Partial<Record<HarnessName, string>> = {
-  "casper-no-review": "review: false", "casper-review": "review: true", "casper-acceptance": "acceptance: true",
+  "casper-no-review": "review: false", "casper-review": "review: true", "casper-acceptance": "acceptance: true", "casper-acceptance-cross": "acceptance: true",
 };
 /** The JSON event protocol a harness speaks: OMP's `--mode json` is Pi's event stream (checked
  * against a recorded omp 18.2.11 run), so only its launch differs. */
@@ -75,6 +75,8 @@ export interface HarnessInput {
    * OpenRouter keeps a conversation on one host and hosts differ tenfold in speed, so an unpinned
    * comparison measures which host each harness drew as much as the harness itself. */
   route?: readonly string[];
+  /** casper-acceptance-cross: the model (same provider) that writes the acceptance tests, with its own hosts. */
+  acceptanceModel?: { model: string; route?: readonly string[] };
   /** Read-only sources; only the model's provider entry is copied to the temporary home. */
   seed?: { authPath: string; modelsStorePath?: string };
   /** A saved conversation in a caller-owned home, kept across runs so a follow-up can continue it.
@@ -124,9 +126,18 @@ export async function runHarness(harness: HarnessName, input: HarnessInput): Pro
       if (input.seed.modelsStorePath && harness !== "omp") await copyFile(input.seed.modelsStorePath, path.join(agent, "models-store.json"));
     }
     // OMP reads models.yml (it migrates a models.json only once); JSON is YAML, so the content is the same.
-    if (input.route?.length) await writeFile(path.join(agent, harness === "omp" ? "models.yml" : "models.json"), JSON.stringify(routedModels(input.model, input.route)), { mode: 0o600 });
+    // A cross-model acceptance check's model gets its own pinned hosts in the same catalog overrides.
+    const cross = harness === "casper-acceptance-cross" ? input.acceptanceModel : undefined;
+    if (harness === "casper-acceptance-cross" && !cross) throw new Error("casper-acceptance-cross needs an acceptance model (--acceptance-model)");
+    if (cross && cross.model.slice(0, cross.model.indexOf("/")) !== input.model.slice(0, input.model.indexOf("/"))) {
+      throw new Error("The acceptance model must use the same provider as --model (only that provider's credentials are seeded)");
+    }
+    const routes = [...(input.route?.length ? [{ model: input.model, hosts: input.route }] : []), ...(cross?.route?.length ? [{ model: cross.model, hosts: cross.route }] : [])];
+    if (routes.length) await writeFile(path.join(agent, harness === "omp" ? "models.yml" : "models.json"), JSON.stringify(routedModels(routes)), { mode: 0o600 });
     const setting = VARIANT_SETTING[harness];
     if (setting !== undefined) await writeFile(path.join(home, ".casper/config.yaml"), `verification:\n  ${setting}\n`, { mode: 0o600 });
+    // The acceptance check's separate call uses the review role (PiModels.complete).
+    if (cross) await writeFile(path.join(home, ".casper/settings.json"), JSON.stringify({ modelRoles: { review: cross.model } }), { mode: 0o600 });
     const args = name === "casper"
       ? ["--json", "--model", input.model, "--effort", input.effort, "--verify", ...(input.session?.resume ? ["--continue"] : [])]
       : harness === "omp"
@@ -223,10 +234,9 @@ async function seedOmpCredential(agent: string, provider: string, entry: unknown
 }
 
 /** The same models.json for every CLI: the model's OpenRouter hosts, and nothing else. */
-export function routedModels(model: string, hosts: readonly string[]): unknown {
-  const id = model.slice(model.indexOf("/") + 1);
-  return { providers: { openrouter: { modelOverrides: { [id]: {
-    compat: { openRouterRouting: { only: [...hosts], order: [...hosts], allow_fallbacks: false } } } } } } };
+export function routedModels(routes: ReadonlyArray<{ model: string; hosts: readonly string[] }>): unknown {
+  return { providers: { openrouter: { modelOverrides: Object.fromEntries(routes.map(({ model, hosts }) => [model.slice(model.indexOf("/") + 1), {
+    compat: { openRouterRouting: { only: [...hosts], order: [...hosts], allow_fallbacks: false } } }])) } } };
 }
 
 function record(value: unknown): Record<string, unknown> | undefined {

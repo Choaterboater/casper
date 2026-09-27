@@ -90,7 +90,9 @@ request says. Casper saves the file next to the project's first test file (or in
 A failure makes the change `not_verified` (exit 3 with `--require-verification`). A pass or an error
 never upgrades anything. It is signal only: no repair round follows. The call's tokens join the task's
 usage. The JSON receipt carries `acceptance` (`status`, `reason`, `output`) or `null`. The test command must
-accept a file argument (`bun test`, jest, vitest, pytest).
+accept a file argument (`bun test`, jest, vitest, pytest). With a `review` model role configured
+(`modelRoles.review` in `~/.casper/settings.json`, docs/CONFIGURATION.md), the tests come from that model
+instead of the one that did the work; that role also serves delegated reviewer subagents.
 
 ## Requirements review
 

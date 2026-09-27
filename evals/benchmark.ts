@@ -310,6 +310,8 @@ export interface BenchmarkOptions {
   followUps?: number;
   /** OpenRouter hosts both harnesses are pinned to (HarnessInput.route). */
   route?: readonly string[];
+  /** casper-acceptance-cross's acceptance-test model (HarnessInput.acceptanceModel). */
+  acceptanceModel?: HarnessInput["acceptanceModel"];
   onRun?(run: BenchmarkRun): void;
   onFailure?(failure: BenchmarkFailure): void;
 }
@@ -387,6 +389,7 @@ async function runAttempt(options: BenchmarkOptions, task: EvalTask, harness: Ha
         command: options.commands[harness] ?? (harnessProtocol(harness) === "casper" ? options.commands.casper : undefined) ?? [],
         cwd: workdir, prompt, model: options.model, effort: options.effort,
         timeoutMs: options.timeoutMs, seed: options.seed, session: session(resume), ...(options.route?.length ? { route: options.route } : {}),
+        ...(options.acceptanceModel ? { acceptanceModel: options.acceptanceModel } : {}),
       });
       const observation: EvalObservation = {
         startedAt, wallClockMs: run.wallClockMs, execution: run.termination === "completed" ? "completed" : "failed",

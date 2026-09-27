@@ -287,7 +287,9 @@ bun tools/eval.ts --pack core --pack network --model github-copilot/gpt-5-mini -
 requirements review round off (the default). `--harness casper-no-review` and `--harness casper-review`
 add the same Casper CLI with `verification.review: false` (explicitly) or `verification.review: true`
 in its run's user configuration, to measure what the requirements review round adds. `--harness casper-acceptance`
-writes `verification.acceptance: true` (the independent acceptance check, docs/VERIFICATION.md). `--harness omp` adds oh-my-pi (see
+writes `verification.acceptance: true` (the independent acceptance check, docs/VERIFICATION.md); `--harness casper-acceptance-cross`
+does the same with `--acceptance-model <provider/id>` (same provider, hosts via `--acceptance-route`) as the run's `review`
+role, so a different model writes the acceptance tests. `--harness omp` adds oh-my-pi (see
 [OMP](#omp) below). Both harnesses run through their real CLIs
 (`evals/harness.ts`): Casper from this checkout (`bun src/cli.ts`, or `--casper <path>`, for
 example the release binary) with `--json --verify`, and Pi from `PATH` (or `--pi <path>`) with
