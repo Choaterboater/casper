@@ -1,0 +1,15 @@
+{
+  "verify": {
+    "test": "bun run test"
+  },
+  "verification": {
+    "scopes": {
+      "test": {
+        "inputs": [
+          "src",
+          "tests"
+        ]
+      }
+    }
+  }
+}

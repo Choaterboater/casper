@@ -444,4 +444,49 @@ export const HARDER_PACK: readonly EvalTask[] = [
       + "always returned ordered by line, then column." + RULES,
     conventions: [onlyEdits("src/", "tests/"), convention("csv-reader-in-place", { changed: ["src/csv.ts"] })],
   }),
+  task({
+    id: "harder-cron-next", pack: "harder", fixture: "cron-next", setup: "add-cron-next",
+    prompt: "Implement `nextRun(expression, after)` and `nextRuns(expression, after, count)` in src/cron.ts (the "
+      + "`CronError` class there is the API), finding when a cron expression next matches, in UTC. Fields are "
+      + "separated by one or more spaces or tabs; whitespace at the ends of the expression is ignored. An "
+      + "expression has five fields: minute (0-59), hour (0-23), day of month (1-31), month (1-12) and weekday "
+      + "(0-7, where 0 and 7 are both Sunday); an optional sixth field is the year (1970-2199), with the same "
+      + "syntax as the rest. Any other number of fields is `CronError` `expected 5 or 6 fields, got <n>`, with "
+      + "`field` null. `*` matches every value. A field may be a comma-separated list such as `1,5,10`; a value "
+      + "may repeat. A field may be a range `1-5`. A range whose start is above its end wraps around the field's "
+      + "own values (`22-2` in the hour field is 22, 23, 0, 1, 2; `FRI-MON` in the weekday field is Friday through "
+      + "Monday). A field may carry a step, `*/15` or `10-50/20`. A single value followed by a step, such as "
+      + "`5/15` in the minute field, means from that value up to the field's maximum in steps of that size (5, "
+      + "20, 35, 50). A step of 0, or a step that is not a number, is `CronError` `<field>: invalid step`. The "
+      + "month field also accepts the names `JAN`-`DEC` and the weekday field the names `SUN`-`SAT`, in any case; "
+      + "a name may be used as a range end, as a list item, or as the value before a step's slash — the step "
+      + "itself must always be a plain number. A value outside its field's range is `CronError` `<field>: <value> "
+      + "out of range <min>-<max>`. Any other token is `CronError` `<field>: invalid token \"<token>\"`; when more "
+      + "than one field is invalid, the error names the leftmost one. `?` means the same as `*`, but only in the "
+      + "day-of-month and weekday fields — elsewhere it is an invalid token. When both the day-of-month field and "
+      + "the weekday field are restricted (neither is `*` nor `?`), a day must match both of them, not either; "
+      + "when only one of the two is restricted, only that one applies. `L` in the day-of-month field means the "
+      + "month's last day. A weekday name or number (0-7) followed by `L`, such as `5L` or `FRIL`, means the "
+      + "month's last such weekday. `L` combines with nothing else in its field: `L,15` in the day-of-month field "
+      + "is an invalid token, as a whole. `L` used any other way is an invalid token."
+      + " The returned time is always strictly after `after`; a time equal to `after` never counts. Seconds and "
+      + "milliseconds of `after` are ignored when matching, and the result's own seconds and milliseconds are "
+      + "always 0 — `after` at 10:00:30 with `* * * * *` gives 10:01:00, not 10:00:00. Everything is computed in "
+      + "UTC, whatever time zone the process runs in. The search crosses month and year ends as needed; `0 0 29 2 "
+      + "*` finds the next 29 February, even when that is four years away. When there is no match at or before "
+      + "the same instant 8 calendar years after `after`, `nextRun` throws `CronError` `never runs` with `field` "
+      + "null; with a year field, it throws that same error as soon as every year the field allows is already "
+      + "before `after`'s year, without waiting for the 8-year window. An `after` that is an Invalid Date throws "
+      + "`RangeError`. `nextRuns(expression, after, count)` returns `count` successive results; `count` must be an "
+      + "integer from 1 to 1000, or it throws `RangeError` — and in `nextRuns`, an invalid `count` or an invalid "
+      + "`after` is reported before the expression is even looked at."
+      + " An expression may instead be one of the macros `@hourly`, `@daily`, `@weekly`, `@monthly`, `@yearly` or "
+      + "`@annually` — lowercase, and nothing else in the expression. `@hourly` is `0 * * * *`; `@daily` is `0 0 * "
+      + "* *`; `@weekly` is `0 0 * * 0` (Sunday at 00:00); `@monthly` is `0 0 1 * *`; `@yearly` and `@annually` are "
+      + "both `0 0 1 1 *`. Anything else that starts with `@` is `CronError` `unknown macro <expression>`, using "
+      + "the whole trimmed expression, with `field` null. On a field error, `CronError`'s `field` names the field "
+      + "responsible: `minute`, `hour`, `day`, `month`, `weekday` or `year`; it is null for an error about the "
+      + "whole expression (a wrong field count, an unknown macro, or never running)." + RULES,
+    conventions: [onlyEdits("src/", "tests/"), convention("cron-in-place", { changed: ["src/cron.ts"] })],
+  }),
 ];
