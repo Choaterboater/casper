@@ -45,7 +45,7 @@ Options:
   --help                Show this text.
 
 Quality benchmark (Casper vs Pi, optionally OMP, through their real CLIs; --pack or --harness selects it):
-  --pack <core|network|hard> Benchmark a pack (repeatable). Default with --harness: every pack,
+  --pack <core|network|hard|harder> Benchmark a pack (repeatable). Default with --harness: every pack,
                         or only the --task selection.
   --harness <name>      casper (as shipped: requirements review off), pi, omp (oh-my-pi),
                         casper-no-review (review explicitly off) or casper-review (review
