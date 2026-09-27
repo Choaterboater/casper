@@ -10,8 +10,19 @@ export const BUSY_GLYPH = "…";
 const UNSAFE_TERMINAL = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/u;
 const UNSAFE_TERMINAL_G = new RegExp(UNSAFE_TERMINAL.source, "gu");
 
-/** Untrusted output cannot move the cursor, set a title, or conceal text with bidi controls. */
+/** U+FE0F asks for the emoji form of a text-default symbol (⚠️ ✔️ ➡️ 1️⃣). Terminals disagree on its width:
+ * iTerm2 and xterm.js draw the pair in one cell, others in two, and Pi's layout counts two, so boxes and
+ * tables around it drift a column per symbol. Without the selector the layout and every terminal agree
+ * on one cell. Kept before U+200D, where it belongs to a joined emoji sequence. */
+const EMOJI_PRESENTATION = /\uFE0F(?!\u200D)/g;
+
+/** Control-bearing text: C0/C1 controls other than newline and tab, or a bidi override. */
+export function hasTerminalControls(text: string): boolean { return UNSAFE_TERMINAL.test(text); }
+
+/** Untrusted output cannot move the cursor, set a title, conceal text with bidi controls or throw off
+ * the layout's cell count. */
 export function terminalText(text: string): string {
+  if (text.includes("\uFE0F")) text = text.replace(EMOJI_PRESENTATION, "");
   if (!UNSAFE_TERMINAL.test(text)) return text;
   UNSAFE_TERMINAL_G.lastIndex = 0;
   return stripVTControlCharacters(text).replace(UNSAFE_TERMINAL_G,

@@ -39,7 +39,10 @@ blocks are reused; only the open tail is re-parsed, and the result matches a ful
 render (lists, fences and wrapped emphasis stay correct across chunk boundaries).
 When the message ends, its rendered lines are committed once. The source Markdown
 is kept per message so a width change re-renders it rather than re-wrapping old output. Text still passes
-`terminalText()` before rendering. Links show their destination as inert text —
+`terminalText()` before rendering, which also drops the emoji presentation selector
+(U+FE0F) after text-default symbols such as ⚠️ or ✔️: terminals disagree on that pair's
+width (iTerm2 draws one cell, Pi's layout counts two), which pushed box borders and table
+columns out of line, so these symbols show in text style, one cell wide. Links show their destination as inert text —
 the URL in parentheses instead of an OSC 8 hyperlink. Login URLs and device codes
 stay on standalone lines so frames do not become part of a copied value. Captured
 tool errors and verifier stdout/stderr remain available with display-only
