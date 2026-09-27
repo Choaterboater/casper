@@ -18,7 +18,7 @@ async function owned(prefix: string): Promise<string> {
 const benchmark = EVAL_TASKS.filter((task) => task.pack);
 
 /** Harder tasks built so far; Tasks 2-7 each raise it by one, ending at 6. */
-const HARDER_BUILT = 5;
+const HARDER_BUILT = 6;
 
 test("the benchmark has 9 core, 9 network, 6 hard and 6 harder tasks, each on its own fixture except the two notes-api tasks", () => {
   expect(BENCHMARK_PACKS).toEqual(["core", "network", "hard", "harder"]);
