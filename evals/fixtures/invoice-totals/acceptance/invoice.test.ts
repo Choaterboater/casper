@@ -11,14 +11,24 @@ function issuesOf(invoice: Invoice): { path: string; message: string }[] {
   }
 }
 
+/** Parses a USD (2-decimal) amount string into an exact integer number of cents. */
+function centsOf(amount: string): bigint {
+  const negative = amount.startsWith("-");
+  const unsigned = negative ? amount.slice(1) : amount;
+  const [whole, frac = ""] = unsigned.split(".");
+  const value = BigInt(whole + frac.padEnd(2, "0"));
+  return negative ? -value : value;
+}
+
 test("01 amounts are decimal strings and all arithmetic is exact, including amounts above 2^53 minor units", () => {
   const result = totalInvoice({
     currency: "USD",
-    // The exact product is 90071992547409.94, above 2^53 minor units; computing it via floats first
-    // loses precision and rounds to 90071992547409.95 instead.
-    lines: [{ id: "a", quantity: "4503599627370497", unitPrice: "0.02" }],
+    // 9007199254740993 (2^53 + 1) is odd, so it has no exact float64 representation; the exact product
+    // is 90071992547409.93, above 2^53 minor units. Computing it via floats (parseFloat and multiply,
+    // with or without an intermediate Math.round) instead loses precision and gives 90071992547409.92.
+    lines: [{ id: "a", quantity: "9007199254740993", unitPrice: "0.01" }],
   });
-  expect(result.lines[0]!.subtotal).toBe("90071992547409.94");
+  expect(result.lines[0]!.subtotal).toBe("90071992547409.93");
 });
 
 test("02 every output amount has exactly the currency's number of decimal places", () => {
@@ -235,16 +245,22 @@ test("20 a line's total is net plus tax", () => {
 test("21 the invoice's subtotal, discount, net, tax and total are the sums of the line values", () => {
   const result = totalInvoice({
     currency: "USD",
+    // An invoice-level discount too, so a line's discount field is itself a combination (own + share):
+    // this checks only that the invoice fields equal the sums of whatever the lines report, regardless of
+    // what formula produced those line values (that's cases 8, 11, 12, 15, 17-19's concern, not this one's).
+    discount: { amount: "18.00" },
     lines: [
-      { id: "a", quantity: "1", unitPrice: "100.00", taxRate: "10" },
-      { id: "b", quantity: "2", unitPrice: "50.00", taxRate: "20", discount: { amount: "10.00" } },
+      { id: "a", quantity: "1", unitPrice: "100.00", taxRate: "10", discount: { amount: "20.00" } },
+      { id: "b", quantity: "2", unitPrice: "50.00", taxRate: "20" },
     ],
   });
-  expect(result.subtotal).toBe("200.00");
-  expect(result.discount).toBe("10.00");
-  expect(result.net).toBe("190.00");
-  expect(result.tax).toBe("28.00");
-  expect(result.total).toBe("218.00");
+  const sumOfLines = (field: "subtotal" | "discount" | "net" | "tax" | "total") =>
+    result.lines.reduce((sum, line) => sum + centsOf(line[field]), 0n);
+  expect(centsOf(result.subtotal)).toBe(sumOfLines("subtotal"));
+  expect(centsOf(result.discount)).toBe(sumOfLines("discount"));
+  expect(centsOf(result.net)).toBe(sumOfLines("net"));
+  expect(centsOf(result.tax)).toBe(sumOfLines("tax"));
+  expect(centsOf(result.total)).toBe(sumOfLines("total"));
 });
 
 test("22 taxes groups lines by rate, sorted by rate ascending, with each group's net and tax", () => {
