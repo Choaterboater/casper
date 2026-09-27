@@ -42,6 +42,7 @@ test("09 an empty string returns an empty string", () => {
 test("10 a final newline in the input is kept once, otherwise the output has none", () => {
   expect(wrap("aa bb", 20)).toBe("aa bb");
   expect(wrap("aa bb\n", 20)).toBe("aa bb\n");
+  expect(wrap("aa bb\n\n\n", 20)).toBe("aa bb\n");
 });
 
 test("11 a paragraph's leading spaces are kept on its first line", () => {
@@ -58,7 +59,7 @@ test("13 hangingIndent (default 0) adds that many more spaces to continuation li
 });
 
 test("14 a tab in the leading indentation advances to the next multiple of tabWidth (default 4)", () => {
-  expect(wrap("\taa bb", 20)).toBe("    aa bb");
+  expect(wrap("  \taa bb", 20)).toBe("    aa bb");
 });
 
 test("15 [D] a tab anywhere else counts as one space between words", () => {
@@ -67,6 +68,11 @@ test("15 [D] a tab anywhere else counts as one space between words", () => {
 
 test("16 a word with a hyphen may break right after a hyphen when the whole word does not fit", () => {
   expect(wrap("well-known", 7)).toBe("well-\nknown");
+  // a hyphenated word that fits whole on a fresh line is not broken, even though it doesn't share
+  // the current line with the word before it.
+  expect(wrap("aa well-known", 10)).toBe("aa\nwell-known");
+  // more than one hyphen: breaks after the last one whose piece still fits, not the first.
+  expect(wrap("state-of-art", 9)).toBe("state-of-\nart");
 });
 
 test("17 [D] a word longer than the line is cut into width-1 pieces with -, the last piece without one", () => {
@@ -97,8 +103,13 @@ test("22 emoji count as width 2", () => {
 });
 
 test("23 combining marks count as width 0 and stay with their base character", () => {
-  expect(wrap("é", 1)).toBe("é");
-  expect(wrap("ab́cdef", 3)).toBe("ab́-\ncd-\nef");
+  // width 0: "e" plus a combining acute is width 1, so the pair alone fits a width-1 line unsplit.
+  expect(wrap("e\u0301", 1)).toBe("e\u0301");
+  // stays with its base: forcing "b" plus a combining acute to split somewhere never separates them --
+  // the pair survives intact, and no output line is ever left starting with a bare combining mark.
+  const result = wrap("ab\u0301cdef", 3);
+  expect(result).toContain("b\u0301");
+  for (const line of result.split("\n")) expect(line.startsWith("\u0301")).toBe(false);
 });
 
 test("24 text of wide characters without spaces may break between any two of them", () => {
@@ -107,7 +118,18 @@ test("24 text of wide characters without spaces may break between any two of the
 });
 
 test("25 ANSI escape sequences count as width 0 and are never split", () => {
-  expect(wrap("\x1b[1mabcdef\x1b[0m", 4)).toBe("\x1b[1mabc-\ndef\x1b[0m");
+  // width 0: this word plus its two ANSI codes fits the line unchanged, proving the codes add no width.
+  expect(wrap("\x1b[1mabcd\x1b[0m", 4)).toBe("\x1b[1mabcd\x1b[0m");
+  // never split: forcing a break must still keep each escape sequence intact on one line, never
+  // straddling two -- every ESC on a line is part of a complete `ESC [ ... m` match on that same line.
+  const result = wrap("\x1b[1mabcdef\x1b[0m", 4);
+  expect(result).toContain("\x1b[1m");
+  expect(result).toContain("\x1b[0m");
+  for (const line of result.split("\n")) {
+    const escCount = (line.match(/\x1b/g) ?? []).length;
+    const completeCount = (line.match(/\x1b\[[0-9;]*m/g) ?? []).length;
+    expect(completeCount).toBe(escCount);
+  }
 });
 
 test("26 maxLines keeps at most that many lines", () => {

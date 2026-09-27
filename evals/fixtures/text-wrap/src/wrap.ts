@@ -258,8 +258,10 @@ export function wrap(text: string, width: number, options: WrapOptions = {}): st
 
   const normalized = text.replace(/\r\n/g, "\n");
   const hadTrailingNewline = normalized.endsWith("\n");
-  const rawLines = normalized.split("\n");
-  if (hadTrailingNewline) rawLines.pop();
+  // A run of one or more trailing newlines is entirely absorbed into "kept once": it never surfaces as a
+  // visible blank paragraph at the end, however many newlines the input actually ends with.
+  const stripped = hadTrailingNewline ? normalized.replace(/\n+$/, "") : normalized;
+  const rawLines = stripped.split("\n");
 
   for (const raw of rawLines) {
     if (isBlank(raw)) continue;
