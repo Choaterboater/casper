@@ -6,7 +6,7 @@ import path from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { isolatedEnvironment } from "../src/platform/environment";
 import { useCasperAgentStore } from "../src/runtime/agent-store";
-import { formatBenchmarkReport, runBenchmark, summarizeBenchmark, type BenchmarkFailure, type BenchmarkRun } from "../evals/benchmark";
+import { formatBenchmarkReport, futility, runBenchmark, summarizeBenchmark, type BenchmarkFailure, type BenchmarkRun } from "../evals/benchmark";
 import { HARNESS_NAMES, type HarnessInput, type HarnessName } from "../evals/harness";
 import { formatEvalReport, formatEvalResult, writeEvalReport } from "../evals/report";
 import { gradePreparedEval, prepareEvalTask, resolveEvalModel, runEvalTask, summarizeEvalRuns } from "../evals/runner";
@@ -71,6 +71,8 @@ Quality benchmark (Casper vs Pi, optionally OMP, through their real CLIs; --pack
   --report <path>       Reprint a saved benchmark results document with this checkout's
                         summary (no model calls); --person-cost applies. Repeat it to
                         summarize several documents together (for example one per model).
+  --gate <harness> --remaining <n>  With --report: exit 3 when that harness's rule can no longer
+                        be met with n more scored runs (a phase gate), else 0.
   --casper <path>       Casper executable. Default: this checkout (bun src/cli.ts).
   --pi <path>           Pi executable. Default: pi on PATH.
   --omp <path>          OMP executable. Default: omp on PATH.
@@ -115,6 +117,9 @@ interface EvalOptions {
   casper?: string;
   pi?: string;
   omp?: string;
+  /** `--report` gate: the harness whose rule is checked, and the scored runs still planned. */
+  gate?: HarnessName;
+  remaining?: number;
 }
 
 const EFFORTS: readonly HarnessInput["effort"][] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
@@ -136,7 +141,7 @@ export function parseArguments(args: readonly string[]): EvalOptions {
     if (argument === "--keep") { options.keep = true; continue; }
     if (argument === "--prepare") { options.prepare = true; continue; }
     if (argument === "--no-auto-verify") { options.autoVerify = false; continue; }
-    if (["--pack", "--harness", "--effort", "--concurrency", "--time-limit", "--follow-ups", "--person-cost", "--report", "--route", "--casper", "--pi", "--omp", "--acceptance-model", "--acceptance-route"].includes(argument)) {
+    if (["--pack", "--harness", "--effort", "--concurrency", "--time-limit", "--follow-ups", "--person-cost", "--report", "--route", "--casper", "--pi", "--omp", "--acceptance-model", "--acceptance-route", "--gate", "--remaining"].includes(argument)) {
       const value = args[++index];
       if (!value || value.startsWith("--")) throw new Error(`${argument} needs a value`);
       if (argument === "--pack") {
@@ -173,6 +178,14 @@ export function parseArguments(args: readonly string[]): EvalOptions {
       }
       else if (argument === "--casper") options.casper = value;
       else if (argument === "--pi") options.pi = value;
+      else if (argument === "--gate") {
+        if (!HARNESS_NAMES.includes(value as HarnessName)) throw new Error(`--gate must be one of ${HARNESS_NAMES.join(", ")}`);
+        options.gate = value as HarnessName;
+      } else if (argument === "--remaining") {
+        const count = Number(value);
+        if (!Number.isInteger(count) || count < 0 || count > 10_000) throw new Error("--remaining must be an integer between 0 and 10000");
+        options.remaining = count;
+      }
       else options.omp = value;
       continue;
     }
@@ -200,9 +213,11 @@ export function parseArguments(args: readonly string[]): EvalOptions {
   }
   if (options.help || options.list) return options;
   if (options.reports.length) {
-    if (args.some((flag) => flag.startsWith("--") && !["--report", "--person-cost"].includes(flag))) throw new Error("--report takes only --person-cost");
+    if (args.some((flag) => flag.startsWith("--") && !["--report", "--person-cost", "--gate", "--remaining"].includes(flag))) throw new Error("--report takes only --person-cost, --gate and --remaining");
+    if ((options.gate === undefined) !== (options.remaining === undefined)) throw new Error("--gate and --remaining go together");
     return options;
   }
+  if (options.gate !== undefined) throw new Error("--gate and --remaining apply only to --report");
   const benchmarkOnly = options.effort || options.concurrency || options.timeLimitSeconds || options.followUps || options.personCostSeconds !== undefined || options.route || options.unpinned || options.casper || options.pi || options.omp || options.acceptanceModel || options.acceptanceRoute;
   if (isBenchmark(options)) {
     if (options.prepare || options.grade || options.scenario || options.keep || !options.autoVerify) {
@@ -358,21 +373,28 @@ async function benchmark(options: EvalOptions, repoRoot: string): Promise<number
 const personCost = (options: EvalOptions) => options.personCostSeconds === undefined ? {} : { personMs: options.personCostSeconds * 1000 };
 
 /** Reprint saved results documents: the runs are evidence, the summary is recomputed over all of them. */
-async function reprint(options: EvalOptions): Promise<void> {
+async function reprint(options: EvalOptions): Promise<number> {
   const runs: BenchmarkRun[] = [];
   for (const file of options.reports) {
     const document = JSON.parse(await readFile(file, "utf8")) as { kind?: unknown; runs?: unknown };
     if (document.kind !== "quality-benchmark" || !Array.isArray(document.runs)) throw new Error(`${file} is not a benchmark results document`);
     runs.push(...document.runs as BenchmarkRun[]);
   }
-  process.stdout.write(`${formatBenchmarkReport(summarizeBenchmark(runs, personCost(options)))}\n`);
+  const summary = summarizeBenchmark(runs, personCost(options));
+  process.stdout.write(`${formatBenchmarkReport(summary)}\n`);
+  if (options.gate === undefined) return 0;
+  // A pre-registered phase gate: exit 3 when the rule can no longer be met, so the next phase is not run.
+  const reasons = summary.packs.flatMap(({ pack, receipts }) => receipts.filter((cell) => cell.harness === options.gate)
+    .flatMap((cell) => futility(cell, options.remaining!).map((reason) => `${pack}: ${reason}`)));
+  process.stdout.write(reasons.length ? `\nGate ${options.gate}: decided, the rule cannot be met — ${reasons.join("; ")}\n` : `\nGate ${options.gate}: still open with ${options.remaining} more runs\n`);
+  return reasons.length ? 3 : 0;
 }
 
 async function main(): Promise<void> {
   useCasperAgentStore(); // Eval runs keep the user's real credentials (Casper's own store).
   const options = parseArguments(process.argv.slice(2));
   if (options.help) { process.stdout.write(`${USAGE}\n`); return; }
-  if (options.reports.length) { await reprint(options); return; }
+  if (options.reports.length) { process.exitCode = await reprint(options); return; }
   if (options.list) {
     for (const task of EVAL_TASKS) process.stdout.write(`${task.id}  (${task.fixture}${task.setup ? ` + ${task.setup}` : ""})${task.pack ? ` [${task.pack} pack]` : ""}\n`);
     for (const id of EVAL_SCENARIOS) process.stdout.write(`${id}  (human-driven; --prepare --scenario ${id})\n`);
