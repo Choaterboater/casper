@@ -85,3 +85,14 @@ _Avoid_: Required interaction, automatic repair
 An evaluation attempt's independently checked result: accepted without rescue, accepted
 with rescue or not accepted. A later repair does not replace an earlier attempt's result.
 _Avoid_: Self-reported completion, test-suite pass
+
+**Verified**:
+The receipt outcome for a change whose configured checks passed fresh and whose tests fail
+without it and pass with it. It promises nothing about stated requirements no test covers;
+the receipt is to name those rather than stay silent (docs/adr/0001).
+_Avoid_: Correct, complete, done
+
+**Independent acceptance check**:
+Tests written from the request alone by a separate model call and run once against a
+proven change. Signal only: a failure makes the change not verified; nothing is repaired or kept.
+_Avoid_: Acceptance outcome, hidden tests
