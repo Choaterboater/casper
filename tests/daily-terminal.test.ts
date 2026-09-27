@@ -7,7 +7,7 @@ import path from "node:path";
 import { RuntimeEventView } from "../src/app/events";
 import { InteractiveTerminal } from "../src/tui/terminal";
 import { withLoginDisplay } from "../src/tui/login";
-import { getCapabilities, resetCapabilitiesCache, setCapabilityOverrides } from "@earendil-works/pi-tui";
+import { getCapabilities, resetCapabilitiesCache, setCapabilityOverrides, visibleWidth } from "@earendil-works/pi-tui";
 import { posixOnly } from "./support/platform";
 
 // The rich-surface path is gated on `TERM !== "dumb"`; a harness or CI shell that
@@ -155,6 +155,29 @@ test("streamed assistant Markdown renders lists and fences once, whole, and re-r
     expect(body[6]).toBe("Done.");
     expect(body[3]!.length).toBe(40);
     expect(screen.output).not.toContain("\x1b[?1049h");
+  } finally { terminal.close(); input.destroy(); }
+});
+
+test("tool, code and Working panels span the whole terminal width and follow it through a resize", async () => {
+  const input = Object.assign(new PassThrough(), { isTTY: true, setRawMode() {} });
+  const screen = fakeWriter(100, 40);
+  const terminal = new InteractiveTerminal(input, screen.writer, () => {}, () => {});
+  try {
+    terminal.setStatus("fixture"); terminal.start();
+    void terminal.readCommand();
+    terminal.writePanel("output", "tool output");
+    terminal.assistant("```ts\nconst x = 1;\n```\n"); terminal.endAssistant();
+    terminal.setActivity("Waiting for fixture/model");
+    await screen.until(output => output.includes("Working"));
+    for (const columns of [160, 100]) {
+      const repaints = screen.output.split(REPAINT).length;
+      screen.writer.columns = columns; screen.writer.emit("resize");
+      await screen.until(output => output.split(REPAINT).length > repaints && output.split(REPAINT).at(-1)!.includes("Working"));
+      const borders = plainLines(screen.output.split(REPAINT).at(-1)!).filter(line => /^[╭╰]/.test(line));
+      // Titles, with the Working panel's spinner frame (a braille cell) removed.
+      expect(borders.filter(line => line.startsWith("╭")).map(line => line.replace(/[╭─╮\u2800-\u28ff]/g, "").trim())).toEqual(["output", "ts", "Working"]);
+      expect(borders.map(line => visibleWidth(line))).toEqual(Array(6).fill(columns));
+    }
   } finally { terminal.close(); input.destroy(); }
 });
 

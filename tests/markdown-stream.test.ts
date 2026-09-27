@@ -104,14 +104,15 @@ test("streaming a list or quote with a nested fence matches the one-shot render 
   }
 });
 
-test("a long code line wraps once at the panel's inner width, leaving no orphan fragments", () => {
+test("a fenced block's panel spans the width and a long code line wraps once at its inner width", () => {
   const source = `const x = 1; // ${"word ".repeat(30)}END`;
   for (const width of [40, 80, 200]) {
     for (const doc of [`\`\`\`ts\n${source}\n\`\`\``, `1. Step:\n   \`\`\`ts\n   ${source}\n   \`\`\``]) {
       const lines = once(doc, width, false);
       const top = lines.findIndex(line => line.includes("╭─ ts "));
       const margin = lines[top]!.indexOf("╭");
-      const panel = Math.min(width - margin, 120);
+      const panel = width - margin;
+      expect(visibleWidth(lines[top]!)).toBe(width);
       const rows = lines.slice(top + 1, -1).map(line => line.slice(margin + 2, margin + panel - 2).trimEnd());
       expect(rows).toEqual(wrapTextWithAnsi(source, panel - 4).map(row => row.trimEnd()));
       for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(width);

@@ -6,7 +6,7 @@ import type { RuntimeModelPickerHost, RuntimePickerIO, RuntimePickerView } from 
 import { COMMANDS } from "./commands";
 import { BUSY_GLYPH, markdownTheme, paint, PROMPT_GLYPH, terminalText } from "./format";
 import { StreamingMarkdown } from "./markdown-stream";
-import { PANEL_MAX_COLUMNS, renderPanel } from "./presentation";
+import { renderPanel } from "./presentation";
 import { StreamTerminal } from "./stream-terminal";
 import { Transcript } from "./transcript";
 
@@ -147,7 +147,7 @@ export class TerminalSurface {
       render: width => {
         const editorLines = this.editor.render(width);
         const rule = this.muted("─".repeat(width));
-        const activity = this.activity ? renderPanel(`${SPINNER_FRAMES[this.spinnerFrame]} Working`, [this.activity], Math.min(width, PANEL_MAX_COLUMNS), this.io.color, "accent") : [];
+        const activity = this.activity ? renderPanel(`${SPINNER_FRAMES[this.spinnerFrame]} Working`, [this.activity], width, this.io.color, "accent") : [];
         const askLines = this.askPanel?.render(width) ?? [];
         const block = this.slot ? this.slot.render(width).map(line => truncateToWidth(line, width))
           : this.lending ? [rule, this.muted(truncateToWidth("  exclusive input in progress · Esc or Ctrl+C cancels", width)), rule]

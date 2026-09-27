@@ -1,6 +1,6 @@
 import { type Component, Markdown, type MarkdownTheme, visibleWidth } from "@earendil-works/pi-tui";
 import { stripVTControlCharacters } from "node:util";
-import { PANEL_MAX_COLUMNS, renderPanel } from "./presentation";
+import { renderPanel } from "./presentation";
 
 const INDENTED_CODE = /^(?: {4}|\t)/;
 const FENCE_OPEN = /^( {0,3})(`{3,}|~{3,})/;
@@ -198,7 +198,7 @@ function boxFences(lines: string[], code: readonly string[], width: number, colo
   };
   const flush = (closing: string) => {
     const rest = margin ?? closing;
-    const panel = renderPanel(title || "code", body, Math.min(width - visibleWidth(head), PANEL_MAX_COLUMNS), color, "muted");
+    const panel = renderPanel(title || "code", body, width - visibleWidth(head), color, "muted");
     out.push(...panel.map((row, index) => `${index ? rest : head}${row}`));
     body = [];
     title = undefined;
