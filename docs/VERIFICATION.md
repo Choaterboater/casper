@@ -102,6 +102,34 @@ The test command must accept a file argument (`bun test`, jest, vitest, pytest).
 configured (`modelRoles.review` in `~/.casper/settings.json`, docs/CONFIGURATION.md), the tests come from
 that model instead of the one that did the work; that role also serves delegated reviewer subagents.
 
+## Request checklist (experimental)
+
+Off by default. It targets the same failure as the acceptance check, from the other end: before the
+model starts, Casper lists the concrete cases the request states, so the model's own tests cover each one.
+
+```yaml
+verification:
+  checklist: true   # default false
+```
+
+Casper makes one separate model call outside the conversation, with the conversation's model (or the
+`review` role's) at low effort and an answer capped at 8,000 tokens. It sends only the request and asks
+for every concrete behavior case it states (inputs and outputs, errors, boundaries, orders, formats), one
+short line each quoting the request's specifics, leaving out process instructions such as which files to
+read. Casper keeps up to 40 cases of at most 200 characters, prints them and appends them to the task
+prompt, asking for one test per case that asserts exactly that case:
+
+```
+Casper checklist (2 cases from your request):
+  - limit(0) throws "limit must be positive"
+  - the 6th call within a minute is rejected
+```
+
+If the call fails or its answer has no JSON array of cases, Casper prints one line
+(`• Checklist not made: <reason>`) and the task runs unchanged. The checklist is guidance, not evidence:
+the receipt text and outcome do not change. The call's tokens join the task's usage, the JSON stream
+marks it with a `checklist` phase, and the JSON receipt carries `checklist` (the cases) or `null`.
+
 ## Requirements review
 
 The requirements review is **off by default**. In pinned benchmarks it added no first-time-right

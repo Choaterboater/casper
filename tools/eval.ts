@@ -49,8 +49,10 @@ Quality benchmark (Casper vs Pi, optionally OMP, through their real CLIs; --pack
                         or only the --task selection.
   --harness <name>      casper (as shipped: requirements review off), pi, omp (oh-my-pi),
                         casper-no-review (review explicitly off) or casper-review (review
-                        on), to measure what the round adds, or casper-acceptance (the
-                        independent acceptance check on) (repeatable). Default: casper and pi.
+                        on), to measure what the round adds, casper-acceptance (the
+                        independent acceptance check on) or casper-checklist (Casper gives
+                        the builder a checklist of the request's stated cases) (repeatable).
+                        Default: casper and pi.
   --model <ref>         Required: every harness runs this provider/model-id. Only that
                         provider's entry of ~/.casper/agent/auth.json is copied into each
                         run's temporary home (for OMP, into its agent.db).
@@ -389,7 +391,7 @@ async function benchmark(options: EvalOptions, repoRoot: string): Promise<number
   const omp = options.omp ? await executable(options.omp, "--omp") : Bun.which("omp");
   if (harnesses.includes("omp") && !omp) throw new Error("OMP is not on PATH; pass --omp <path>");
   const casper = options.casper ? [await executable(options.casper, "--casper")] : [process.execPath, path.join(repoRoot, "src/cli.ts")];
-  const commands: Record<HarnessName, string[]> = { casper, "casper-no-review": casper, "casper-review": casper, "casper-acceptance": casper, "casper-acceptance-cross": casper, pi: pi ? [pi] : [], omp: omp ? [omp] : [] };
+  const commands: Record<HarnessName, string[]> = { casper, "casper-no-review": casper, "casper-review": casper, "casper-acceptance": casper, "casper-acceptance-cross": casper, "casper-checklist": casper, pi: pi ? [pi] : [], omp: omp ? [omp] : [] };
   const acceptanceModel = options.acceptanceModel ? { model: options.acceptanceModel, ...(options.acceptanceRoute ? { route: options.acceptanceRoute } : {}) } : undefined;
 
   const ranAt = new Date().toISOString();

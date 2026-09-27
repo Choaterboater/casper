@@ -61,6 +61,9 @@ export interface TaskResult {
    * `verdict` mode (`true`) a failure makes the change not verified; in `warn` mode it only names what
    * is unconfirmed. The check never repairs and its test file is never kept. */
   acceptance?: Omit<AcceptanceResult, "usage"> & { mode: "verdict" | "warn" };
+  /** The cases the request states, listed by a separate model call before the model's turn
+   * (verification.checklist) and handed to the model to test one by one. Not evidence. */
+  checklist?: string[];
   /** The session's managed services at the end of the task (the origin while starting or ready). */
   services?: Array<{ name: string; origin?: string; state: ServiceState }>;
 }

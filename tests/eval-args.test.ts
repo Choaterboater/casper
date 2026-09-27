@@ -23,9 +23,9 @@ test("--route any is the explicit escape hatch: no hosts pinned, recorded as unp
   expect(() => parseArguments(bench("--model", "openrouter/z-ai/glm-5.3-flash", "--route", "Together,any"))).toThrow("--route any");
 });
 
-test("--harness takes the Casper variants: casper (as shipped, review off), casper-no-review and casper-review", () => {
-  const options = parseArguments(["--harness", "casper", "--harness", "casper-no-review", "--harness", "casper-review", "--model", "github-copilot/gpt-5-mini"]);
-  expect(options.harnesses).toEqual(["casper", "casper-no-review", "casper-review"]);
+test("--harness takes the Casper variants: casper (as shipped, review off), casper-no-review, casper-review and casper-checklist", () => {
+  const options = parseArguments(["--harness", "casper", "--harness", "casper-no-review", "--harness", "casper-review", "--harness", "casper-checklist", "--model", "github-copilot/gpt-5-mini"]);
+  expect(options.harnesses).toEqual(["casper", "casper-no-review", "casper-review", "casper-checklist"]);
   expect(() => parseArguments(["--harness", "casper-reviewed", "--model", "github-copilot/gpt-5-mini"])).toThrow("casper-no-review, casper-review, pi, omp");
 });
 

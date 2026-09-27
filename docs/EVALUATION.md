@@ -257,7 +257,7 @@ roughly 25-60% across both models), so the tasks are not tuned toward what Caspe
 to catch; the pack is then frozen before any decision run.
 
 Every pack with Casper runs gets a **receipt honesty** table per Casper harness (`casper`,
-`casper-review`, `casper-no-review`, `casper-acceptance`), computed from the saved runs:
+`casper-review`, `casper-no-review`, `casper-acceptance`, `casper-checklist`), computed from the saved runs:
 
 - **caught**: of the wrong runs (not accepted by the grader), those whose receipt outcome was not
   `verified` (`not_verified`, `failed` or `incomplete`), with a Wilson 95% interval;
@@ -332,7 +332,11 @@ add the same Casper CLI with `verification.review: false` (explicitly) or `verif
 in its run's user configuration, to measure what the requirements review round adds. `--harness casper-acceptance`
 writes `verification.acceptance: true` (the independent acceptance check, docs/VERIFICATION.md); `--harness casper-acceptance-cross`
 does the same with `--acceptance-model <provider/id>` (same provider, hosts via `--acceptance-route`) as the run's `review`
-role, so a different model writes the acceptance tests. `--harness omp` adds oh-my-pi (see
+role, so a different model writes the acceptance tests. `--harness casper-checklist` writes
+`verification.checklist: true`: before the model's turn one separate low-effort model call extracts the
+concrete cases the request states, Casper prints them and appends them to the task prompt with one test
+asked per case, to measure whether an explicit checklist cuts wrong runs that pass their own tests
+(its receipt carries the list as `checklist`). `--harness omp` adds oh-my-pi (see
 [OMP](#omp) below). Both harnesses run through their real CLIs
 (`evals/harness.ts`): Casper from this checkout (`bun src/cli.ts`, or `--casper <path>`, for
 example the release binary) with `--json --verify`, and Pi from `PATH` (or `--pi <path>`) with

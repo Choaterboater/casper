@@ -8,14 +8,16 @@ import { osSupportsProcessGroups, ownSpawnedTree, terminateTree } from "../src/p
 /** Harness observations are not independent acceptance evidence. */
 /** `casper` is Casper as it ships (its requirements review round is off by default). `casper-no-review`
  * writes `verification.review: false`, `casper-review` writes `verification.review: true` and
- * `casper-acceptance` writes `verification.acceptance: true` into the run's user configuration: the same
+ * `casper-acceptance` writes `verification.acceptance: true` and `casper-checklist` writes
+ * `verification.checklist: true` into the run's user configuration: the same
  * CLI and protocol, for measuring what the round or check adds.
  * `omp` is oh-my-pi, a Pi-based CLI with its own flags, store and subagents. */
-export type HarnessName = "casper" | "casper-no-review" | "casper-review" | "pi" | "omp" | "casper-acceptance" | "casper-acceptance-cross";
-export const HARNESS_NAMES: readonly HarnessName[] = ["casper", "casper-no-review", "casper-review", "pi", "omp", "casper-acceptance", "casper-acceptance-cross"];
+export type HarnessName = "casper" | "casper-no-review" | "casper-review" | "pi" | "omp" | "casper-acceptance" | "casper-acceptance-cross" | "casper-checklist";
+export const HARNESS_NAMES: readonly HarnessName[] = ["casper", "casper-no-review", "casper-review", "pi", "omp", "casper-acceptance", "casper-acceptance-cross", "casper-checklist"];
 /** The `verification` settings a Casper variant writes into its run's ~/.casper/config.yaml. */
 const VARIANT_SETTING: Partial<Record<HarnessName, string>> = {
   "casper-no-review": "review: false", "casper-review": "review: true", "casper-acceptance": "acceptance: true", "casper-acceptance-cross": "acceptance: true",
+  "casper-checklist": "checklist: true",
 };
 /** The JSON event protocol a harness speaks: OMP's `--mode json` is Pi's event stream (checked
  * against a recorded omp 18.2.11 run), so only its launch differs. */
@@ -92,8 +94,8 @@ export interface HarnessInput {
   signal?: AbortSignal;
 }
 
-export type PhaseName = "task" | "checks" | "smoke" | "review" | "proof" | "acceptance" | "repair";
-const PHASES: readonly unknown[] = ["task", "checks", "smoke", "review", "proof", "acceptance", "repair"] satisfies readonly PhaseName[];
+export type PhaseName = "task" | "checklist" | "checks" | "smoke" | "review" | "proof" | "acceptance" | "repair";
+const PHASES: readonly unknown[] = ["task", "checklist", "checks", "smoke", "review", "proof", "acceptance", "repair"] satisfies readonly PhaseName[];
 export interface HarnessPhase { phase: PhaseName; durationMs: number; unfinished?: true }
 export interface HarnessToolTime { tool: string; calls: number; ms: number; unfinished?: number }
 

@@ -295,7 +295,7 @@ test("--json streams v1 JSON Lines on stdout: session, text, tools, Casper's che
       repairAttempts: 0, turnLimit: null, usage: { turns: 3, tokens: 360, estimatedCost: "<cost>" },
       // The check fails on sum.js as it was, so it proves the fix.
       proof: { status: "proven", check: "test", command: "grep -q fixed sum.js", testsChanged: false, without: { exitCode: 1, ended: "fail" } },
-      review: { done: ["sum.js is fixed — the test check"], open: [] }, acceptance: null, services: [], smoke: null, text: "<receipt text>" },
+      review: { done: ["sum.js is fixed — the test check"], open: [] }, acceptance: null, checklist: null, services: [], smoke: null, text: "<receipt text>" },
   ]);
 }, 30_000);
 
@@ -490,6 +490,48 @@ test("verification.acceptance: tests written from the request alone decide betwe
     .toEqual({ exit: 0, outcome: "verified", proof: null, acceptance: { status: "fail", mode: "warn", unconfirmed: ["\"value is FIXED\""], output: undefined } });
   expect(warnedReceipt.text).toContain("⚠ Not confirmed by tests written from the request: \"value is FIXED\"");
 }, 120_000);
+
+const CHECKLIST = "Casper checklist.";
+const isChecklist = (payload: Payload) => payload.messages.some((message) => ["system", "developer"].includes(message.role) && JSON.stringify(message.content).includes(CHECKLIST));
+
+test("verification.checklist: a separate call lists the request's cases first; the task prompt asks for one test per case", async () => {
+  const listing = (answer: string) => fixture((_request, payload) => isChecklist(payload) ? { text: answer }
+    : afterTool(payload) ? { text: "Fixed." } : { tools: [{ name: "write", args: { path: "sum.js", content: "fixed\n" } }] });
+  const checklistOn = (f: Awaited<ReturnType<typeof fixture>>) => appendFile(path.join(f.project, ".casper/project.yaml"), "verification:\n  checklist: true\n");
+
+  const listed = await listing("The cases:\n```json\n[\"sum.js prints fixed\", \"sum(2, 3) returns 5\"]\n```");
+  await fixProject(listed);
+  await checklistOn(listed);
+  const result = await listed.run(["--json", "--verify", "Fix sum.js: it prints fixed and sum(2, 3) returns 5"]);
+  const receipt = JSON.parse(result.stdout.trim().split("\n").at(-1)!);
+  expect({ exit: result.exit, outcome: receipt.outcome, checklist: receipt.checklist })
+    .toEqual({ exit: 0, outcome: "verified", checklist: ["sum.js prints fixed", "sum(2, 3) returns 5"] });
+  expect(result.stderr).toContain("Casper checklist (2 cases from your request):\n  - sum.js prints fixed\n  - sum(2, 3) returns 5\n");
+  // The checklist call comes first, outside the conversation; its usage joins the task's (3 × 120 tokens).
+  expect(listed.payloads.map(isChecklist)).toEqual([true, false, false]);
+  expect(asked(listed.payloads[0], "Fix sum.js: it prints fixed and sum(2, 3) returns 5")).toBe(true);
+  expect(lastUser(listed.payloads[1])).toContain("write one test per case that asserts exactly that case:\\n- sum.js prints fixed\\n- sum(2, 3) returns 5");
+  expect(receipt.usage.tokens).toBe(360);
+  const phases = events(result.stdout, await realpath(listed.project)).filter((event) => event.type === "phase").map((event) => `${event.phase}:${event.state}`);
+  expect(phases.slice(0, 3)).toEqual(["checklist:start", "checklist:end", "task:start"]);
+
+  // An answer with no list is one line; the task goes on without a checklist.
+  const unlisted = await listing("The request states no cases.");
+  await fixProject(unlisted);
+  await checklistOn(unlisted);
+  const failed = await unlisted.run(["--json", "--verify", "Fix sum.js"]);
+  const failedReceipt = JSON.parse(failed.stdout.trim().split("\n").at(-1)!);
+  expect({ exit: failed.exit, outcome: failedReceipt.outcome, checklist: failedReceipt.checklist }).toEqual({ exit: 0, outcome: "verified", checklist: null });
+  expect(failed.stderr).toContain("• Checklist not made: the checklist answer had no JSON array\n");
+  expect(lastUser(unlisted.payloads[1])).not.toContain("Casper's checklist");
+
+  // Off by default: no extra call.
+  const off = await listing("[\"never asked\"]");
+  await fixProject(off);
+  const plain = JSON.parse((await off.run(["--json", "--verify", "Fix sum.js"])).stdout.trim().split("\n").at(-1)!);
+  expect({ outcome: plain.outcome, checklist: plain.checklist }).toEqual({ outcome: "verified", checklist: null });
+  expect(off.payloads.some(isChecklist)).toBe(false);
+}, 90_000);
 
 test("the review round fixes a gap the model finds; a gap it admits keeps the change unverified", async () => {
   // The review finds that sum.js also needs a newline marker and fixes it; the checks rerun and pass.

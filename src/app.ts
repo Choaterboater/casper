@@ -56,6 +56,7 @@ import { VerificationTask } from "./verify/task";
 import { ChangeBaseline, changesCode, proofRepairPrompt, type ChangeProof } from "./verify/proof";
 import { independentAcceptance } from "./verify/acceptance";
 import { parseChecklist, parseReview, requirementsReviewPrompt, ROUND_MAX_TURNS, type RequirementsReview } from "./task/review";
+import { extractChecklist, formatChecklistPrompt } from "./task/checklist";
 import { planAutoChecks, resolveVerificationMode, selectedChecks, type VerificationMode } from "./verify/mode";
 import { measuredCheckTime, recordCheckTimings } from "./verify/timings";
 import { MermaidProvider } from "./visualize/mermaid";
@@ -728,6 +729,10 @@ export class CasperApp {
     // Receipts describe the tree, not tool names: a read-only shell run is not a write.
     const before = await this.snapshotWorkspace(workspaceRoot, this.commandAbort?.signal);
     edits.before = before;
+    // verification.checklist: the cases the request states, listed before the model starts, so it tests each one.
+    const complete = context.verification.checklist === true ? session.complete?.bind(session) : undefined;
+    const checklist = complete ? await this.makeChecklist(complete, prompt) : undefined;
+    if (this.closing || this.commandAbort?.signal.aborted) return;
     // A code change in auto mode is reviewed and proven: the tests must fail without it. Only requests
     // that are clearly not behavior changes are exempt; the keyword intent is too coarse to decide more
     // ("add X; you may add new test files" reads as intent "test"), so the work itself decides later.
@@ -762,6 +767,7 @@ export class CasperApp {
         skillContext,
         formatTaskPrompt(prompt, classification, context.model, { verificationMode, proveChange: proving,
           reviewFollows: context.verification.review === true, afterContext: Boolean(memoryContext || skillContext) }),
+        checklist ? formatChecklistPrompt(checklist) : "",
       ].filter(Boolean).join("\n\n"), this.commandAbort?.signal, { request: prompt, maxTurns: this.maxTurns });
       this.onEvent?.(phaseEvent("task", "end"));
       // Repair, review and proof rounds follow the change.
@@ -828,7 +834,7 @@ export class CasperApp {
         // Smoke checks ran even without a configured command, so "no checks" no longer describes the task.
         verificationMode, ...(autoChecks?.skipped && !verification?.smoke ? { autoSkipped: autoChecks.skipped } : {}),
         ...(this.taskTurnLimit !== undefined ? { turnLimit: this.taskTurnLimit } : {}), ...(proof ? { proof } : {}), ...(review ? { review } : {}),
-        ...(acceptance ? { acceptance } : {}) };
+        ...(acceptance ? { acceptance } : {}), ...(checklist ? { checklist } : {}) };
       if (!this.closing) {
         this.terminal.endAssistant();
         this.events.ensureLineBreak();
@@ -841,6 +847,32 @@ export class CasperApp {
         modelStatus: execution, verification });
     }
     return verification;
+  }
+
+  /** verification.checklist: one separate model call lists the cases the request states; Casper prints
+   * them and the task prompt asks for one test per case. Its usage joins the task's. A failed call is
+   * one line on the transcript and the task goes on without a checklist. */
+  private async makeChecklist(complete: NonNullable<RuntimeSession["complete"]>, request: string): Promise<string[] | undefined> {
+    this.onEvent?.(phaseEvent("checklist", "start"));
+    let result: { cases: string[] } | { error: string };
+    try {
+      const made = await extractChecklist({ complete, request, signal: this.commandAbort?.signal });
+      this.observations.recordModelCall(made.usage);
+      result = made;
+    } catch (error) {
+      // The call may have reached the provider: its usage is unknown.
+      this.observations.recordUntrackedModelUse();
+      result = { error: `the checklist call failed: ${error instanceof Error ? error.message : String(error)}` };
+    } finally { this.onEvent?.(phaseEvent("checklist", "end")); }
+    if (this.closing || this.commandAbort?.signal.aborted) return undefined;
+    this.events.ensureLineBreak();
+    if ("error" in result) {
+      this.output.write(`• Checklist not made: ${result.error.replace(/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g, " ")}\n`);
+      return undefined;
+    }
+    const count = result.cases.length;
+    this.output.write(`Casper checklist (${count} ${count === 1 ? "case" : "cases"} from your request):\n${result.cases.map((item) => `  - ${item}\n`).join("")}`);
+    return result.cases;
   }
 
   /** verification.acceptance: tests written from the request alone by a separate model call, run once
