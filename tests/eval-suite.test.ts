@@ -72,7 +72,7 @@ function copyFromFixture(fixture: string, ...relative: string[]) {
 test("the catalog names existing fixtures and setups with unique ids", async () => {
   const ids = EVAL_TASKS.map((task) => task.id);
   expect(new Set(ids).size).toBe(ids.length);
-  expect(ids.length).toBe(38);
+  expect(ids.length).toBe(39);
   for (const task of EVAL_TASKS) {
     expect(await exists(path.join(repoRoot, "evals/fixtures", task.fixture))).toBe(true);
     if (task.setup) expect(await exists(path.join(repoRoot, "evals/setups", task.setup, "files"))).toBe(true);
