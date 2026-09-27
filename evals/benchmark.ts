@@ -314,7 +314,8 @@ export interface BenchmarkOptions {
   route?: readonly string[];
   /** casper-acceptance-cross's acceptance-test model (HarnessInput.acceptanceModel). */
   acceptanceModel?: HarnessInput["acceptanceModel"];
-  /** Copy each run's graded tree to `<keepWorkspaces>/<taskId>-<harness>-<repeat>/` (BenchmarkRun.workspace). */
+  /** Copy each run's graded tree to `<keepWorkspaces>/<model>-<taskId>-<harness>-<repeat>/` (BenchmarkRun.workspace); the
+   * model is in the name so runs of different models can share one directory. */
   keepWorkspaces?: string;
   /** Stop once this receipt harness's rule is decided (`decidedReasons`): no new jobs start, running ones are killed and dropped. */
   stopWhenDecided?: HarnessName;
@@ -437,7 +438,8 @@ async function runAttempt(options: BenchmarkOptions, task: EvalTask, harness: Ha
     // The rubric reads the tree the first attempt left, before any follow-up changes it.
     const evidence = await measureQuality({ task, repoRoot: options.repoRoot, workdir, graded: first.graded, run: first.run,
       reference: await reference(task), timeoutMs: options.verifyTimeoutMs });
-    const workspace = options.keepWorkspaces ? path.join(options.keepWorkspaces, `${task.id}-${harness}-${repeat}`) : undefined;
+    const workspace = options.keepWorkspaces
+      ? path.join(options.keepWorkspaces, `${options.model.replace(/[^a-zA-Z0-9._-]/g, "_")}-${task.id}-${harness}-${repeat}`) : undefined;
     if (workspace) {
       // An infrastructure rerun replaces its first attempt's copy.
       await rm(workspace, { recursive: true, force: true });

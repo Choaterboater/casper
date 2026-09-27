@@ -290,7 +290,7 @@ starts, running jobs are killed with their process trees and dropped (never scor
 the results document records `stopped: { reason, afterRuns }`, the console prints the reason and the exit code is 3.
 
 **Keeping workspaces.** `--keep-workspaces <dir>` copies each run's graded tree (the one the rubric read, before
-any follow-up, without `node_modules`) to `<dir>/<task>-<harness>-<repeat>/` and records it as the run's
+any follow-up, without `node_modules`) to `<dir>/<model>-<task>-<harness>-<repeat>/` and records it as the run's
 `workspace`. An infrastructure rerun replaces its first attempt's copy. The results document redacts paths under
 the home and temp directories (`<home>/…`, `<tmp>/…`); the replay restores them.
 
