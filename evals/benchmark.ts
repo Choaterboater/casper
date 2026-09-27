@@ -589,6 +589,19 @@ function receiptCell(harness: HarnessName, all: readonly BenchmarkRun[], piRuns:
   };
 }
 
+/** Why the rule can no longer be met with `remaining` more scored runs, even if every one of them goes the
+ * receipt's way; empty when it still can. Cost ratios over the bar count as final: each run pays the same
+ * extra work, so more runs do not bring a median ratio back under it. */
+export function futility(cell: ReceiptCell, remaining: number): string[] {
+  const reasons: string[] = [];
+  if (cell.flagged > RULE.flagged * (cell.right + remaining)) reasons.push(`flagged ${cell.flagged} of at most ${cell.right + remaining} right runs > ${RULE.flagged * 100}%`);
+  if (cell.wrong && cell.caught + remaining < RULE.caught * (cell.wrong + remaining)) reasons.push(`caught ${cell.caught}/${cell.wrong} cannot reach ${RULE.caught * 100}%`);
+  for (const [name, value] of [["wall", cell.wallRatio], ["tokens", cell.tokenRatio]] as const) {
+    if (value !== null && value > RULE.cost) reasons.push(`${name} ${value.toFixed(2)}× Pi > ${RULE.cost}×`);
+  }
+  return reasons;
+}
+
 const HARNESSES = HARNESS_NAMES;
 const DIMENSIONS = ["works", "complete", "tested", "clean", "conventional", "focused", "honest"] as const;
 

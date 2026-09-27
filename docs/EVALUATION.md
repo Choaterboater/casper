@@ -274,6 +274,14 @@ The **rule** is the agreed decision: *met* when caught ≥ 70%, flagged ≤ 20% 
 without Pi runs. The decision is taken on the shipped default (`casper`, review off);
 `casper-review` runs alongside as a diagnostic.
 
+**Stopping early.** A decision run is phased: the paired round (with Pi) first, and the volume phase only
+if the rule can still be met. `bun tools/eval.ts --report <paired files> --gate <harness> --remaining <n>`
+exits 3 when the rule can no longer be met with `n` more scored runs, even if all of them go the
+receipt's way. It stops when too many right runs are already flagged, when too few wrong runs are caught
+to reach 70%, or when a cost ratio is over 1.25×. Cost ratios count as final because every run pays the
+same extra work. The cross-model run (docs/evals/2026-09-27-cross-model-acceptance.md) could have stopped
+after its first 24 runs.
+
 `hard-conditional-http` is a server task: `docs-api` declares `services.api` and a `GET /docs/1`
 smoke check like `notes-api`, so Phase 6's smoke checks take part.
 
