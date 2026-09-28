@@ -75,7 +75,10 @@ estimate when available, and idle/working state. While a task runs, its stages
 lead the footer, each marked ✓ once done, then the elapsed time:
 `⠋ checklist ✓ · building ✓ · checks · 1m05s │ project…`. Each check Casper runs prints one line
 as it finishes (`✓ typecheck · 5.9s`, `✗ test · exit 1 · 2.3s`, `✗ test · timed out after 10m`), so a
-pass is never silent; `--verbose` prints the full evidence line instead. `—` means unavailable, `~`
+pass is never silent; `--verbose` prints the full evidence line instead. When a request that ran for 10 seconds or
+more finishes, or asks you something (a question, an approval, the checklist), Casper rings the
+terminal bell; your terminal decides whether that is a sound, a flash or a dock bounce. Scripts,
+one-shot runs and `--json` never ring. `—` means unavailable, `~`
 means estimated. Branch is the project inspection snapshot; `/status` refreshes
 it after external Git changes. Narrow terminals truncate the footer rather than
 wrapping over input. Cost is not an invoice or subscription charge.

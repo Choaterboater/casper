@@ -114,6 +114,10 @@ export class TerminalSurface {
   private started = false;
   private closed = false;
   private busy = false;
+  /** When the current request started; a bell rings when one that ran longer than attentionAfterMs
+   * finishes or asks something, so a person who looked away comes back. */
+  private busySince?: number;
+  private attentionAfterMs = 10_000;
   private spinnerFrame = 0;
   private spinnerTimer?: NodeJS.Timeout;
   /** When the current busy/activity stretch began; drives the footer's elapsed timer. */
@@ -163,7 +167,7 @@ export class TerminalSurface {
         return;
       }
       if (!value.trim()) { this.editor.setText(""); return; } // Enter on an empty box is not a transcript event.
-      const resolve = this.command; this.command = undefined; this.busy = true;
+      const resolve = this.command; this.command = undefined; this.busy = true; this.busySince = Date.now();
       this.updateSpinner();
       this.configureAutocomplete();
       this.editor.addToHistory(value); this.editor.setText("");
@@ -390,7 +394,15 @@ private updateSpinner(): void {
     this.message = undefined; this.source = "";
     this.render();
   }
+  /** The bell (BEL) a terminal turns into a sound, a flash or a dock bounce; rich surface only. */
+  private attention(): void {
+    if (this.busySince === undefined || this.closed || Date.now() - this.busySince < this.attentionAfterMs) return;
+    this.terminal.write("\x07");
+  }
+  setAttentionAfter(ms: number): void { this.attentionAfterMs = ms; }
+
   readCommand(): Promise<string | undefined> {
+    if (this.busy) { this.attention(); this.busySince = undefined; }
     this.endAssistant(); this.busy = false; this.note = ""; this.configureAutocomplete();
     this.updateSpinner();
     if (this.closed) return Promise.resolve(undefined);
@@ -413,6 +425,7 @@ private updateSpinner(): void {
       this.editor.setText(draft); this.configureAutocomplete(); this.render(); resolve(approved);
     };
     const cancel = () => finish(false);
+    this.attention();
     this.confirmation = finish; this.configureAutocomplete(); this.render();
     signal?.addEventListener("abort", cancel, { once: true });
     if (signal?.aborted) cancel();
@@ -446,6 +459,7 @@ private updateSpinner(): void {
       this.editor.setText(draft); this.configureAutocomplete(); this.render(); resolve(answer);
     };
     const cancel = () => finish(undefined);
+    this.attention();
     this.pendingAsk = finish; this.askQuestion = safeQuestion; this.askOptions = shown;
     this.askLabels = options.map(option => option.label); this.askMulti = multi;
     this.askSelections.clear(); this.askActiveIndex = 0;
@@ -471,6 +485,7 @@ private updateSpinner(): void {
       this.editor.setText(draft); this.configureAutocomplete(); this.render(); resolve(edited);
     };
     const cancel = () => finish(undefined);
+    this.attention();
     this.pendingEdit = finish;
     this.editHeading = [this.accent(terminalText(heading)), this.muted(terminalText(hint))];
     this.editor.setText(lines.map(line => terminalText(line).replace(/\s+/g, " ")).join("\n"));
