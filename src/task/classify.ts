@@ -66,7 +66,8 @@ export function classifyTask(text: string): TaskClassification {
     // An opening build verb decides over a keyword found later: "Add a tool that returns the running
     // configuration" builds a tool; only config or docs as the verb's own object keep those intents.
     : leading && (keyword === undefined || ["fix", "test", "configure", "document", "refactor"].includes(keyword))
-      ? leading.intent !== "fix" && leading.intent !== "test" && objectIntent ? objectIntent : leading.intent
+      // Only a build verb yields to its object: "Refactor the configuration loader" still refactors.
+      ? leading.intent === "implement" && objectIntent ? objectIntent : leading.intent
       : keyword ?? "general";
   const mode = intent === "inspect" || intent === "general" || intent === "visualize" ? "read" : "modify";
   const verification: ProjectCommand[] =
