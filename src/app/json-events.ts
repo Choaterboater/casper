@@ -154,8 +154,9 @@ export function receiptEvent(report: VerificationReport | undefined, task: TaskR
     checklist: task?.checklist ? task.checklist.map(redactPreview) : null,
     services: (task?.services ?? []).map((service) => ({ name: service.name, origin: service.origin ?? null, state: service.state })),
     smoke: verification?.smoke ? redactSmoke(verification.smoke) : null,
-    verdict: receipt ? receiptVerdict(receipt, { surface: "one-shot" }) ?? "" : "",
-    text: receipt ? formatReceipt(receipt, { surface: "one-shot" }) : "",
+    // The text quotes review items, acceptance gaps and bash commands the model ran: redact it too.
+    verdict: receipt ? redactPreview(receiptVerdict(receipt, { surface: "one-shot" }) ?? "") : "",
+    text: receipt ? redactPreview(formatReceipt(receipt, { surface: "one-shot" })) : "",
   };
 }
 
