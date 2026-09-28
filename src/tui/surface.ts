@@ -456,10 +456,19 @@ private updateSpinner(): void {
       description: option.description ? terminalText(option.description).replace(/\s+/g, " ").trim() : undefined,
     }));
     // The record re-wraps per width like the live panel, and commits after any open tail line.
-    const record: Component = { render: width => [
-      ...wrapTextWithAnsi(this.accent(safeQuestion), width),
-      ...shown.flatMap(option => askOptionLines("• ", option, width, { label: text => text, description: this.muted })),
-    ].map(line => truncateToWidth(line, width)), invalidate() {} };
+    // The record keeps the answer: a ✓ on each chosen option, a typed answer after →, or "skipped".
+    let chosen: string[] | undefined;
+    const picked = (index: number) => Boolean(chosen?.includes(options[index]!.label));
+    const record: Component = { render: width => {
+      const typed = chosen?.filter(answer => !options.some(option => option.label === answer)) ?? [];
+      return [
+        ...wrapTextWithAnsi(this.accent(safeQuestion), width),
+        ...shown.flatMap((option, index) => askOptionLines(picked(index) ? "✓ " : "• ", option, width,
+          { label: text => picked(index) ? this.accent(text) : text, description: this.muted })),
+        ...typed.flatMap(answer => wrapTextWithAnsi(`${this.accent("→")} ${terminalText(answer).replace(/\s+/g, " ")}`, width)),
+        ...(chosen === undefined ? [this.muted("  (skipped)")] : []),
+      ].map(line => truncateToWidth(line, width));
+    }, invalidate() {} };
     const { promise, resolve } = Promise.withResolvers<string[] | undefined>();
     let settled = false;
     const finish = (answer: string[] | undefined) => {
@@ -467,6 +476,7 @@ private updateSpinner(): void {
       signal?.removeEventListener("abort", cancel);
       this.pendingAsk = undefined; this.askQuestion = undefined; this.askOptions = undefined; this.askLabels = [];
       this.askMulti = false; this.askSelections.clear(); this.askActiveIndex = 0;
+      chosen = answer;
       this.writeBlock(record);
       this.editor.setText(draft); this.configureAutocomplete(); this.updateSpinner(); this.render(); resolve(answer);
     };
