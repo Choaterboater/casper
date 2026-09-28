@@ -428,6 +428,22 @@ async function checkReadOnlyState(options: RuntimeReadOnlyStartOptions, agentDir
   options.signal.throwIfAborted();
 }
 
+/** Pi's own rules for its read/edit/write tools. Pi drops its tool rules whenever a custom system prompt
+ * is set (as Casper's is), and these are not SDK exports, so Casper restores them in the addendum Pi
+ * always keeps. Pinned word for word against Pi's source by tests/tool-rules.test.ts. */
+export const PI_TOOL_RULES: readonly string[] = [
+  "Use read to examine files instead of cat or sed.",
+  "Use edit for precise changes (edits[].oldText must match exactly)",
+  "When changing multiple separate locations in one file, use one edit call with multiple entries in edits[] instead of multiple edit calls",
+  "Each edits[].oldText is matched against the original file, not after earlier edits are applied. Do not emit overlapping or nested edits. Merge nearby changes into one edit.",
+  "Keep edits[].oldText as small as possible while still being unique in the file. Do not pad with large unchanged regions.",
+  "Use write only for new files or complete rewrites.",
+];
+
+/** A bash timeout above this is capped: one hour, the longest a Casper check may run, so the cap never
+ * cuts short a command a check itself would allow, while a day-long timeout cannot hang a session. */
+export const BASH_TIMEOUT_CAP_SECONDS = 3600;
+
 export class PiRuntime implements AgentRuntime {
   private runtime?: AgentSessionRuntime;
   private models?: PiModels;
@@ -516,6 +532,7 @@ export class PiRuntime implements AgentRuntime {
         if (!readOnly) pi.on("tool_call", (event) => {
           // Keep Pi's native execution, output handling, and process-tree cleanup.
           if (event.toolName === "bash" && event.input.timeout === undefined) event.input.timeout = 120;
+          else if (event.toolName === "bash" && typeof event.input.timeout === "number" && event.input.timeout > BASH_TIMEOUT_CAP_SECONDS) event.input.timeout = BASH_TIMEOUT_CAP_SECONDS;
           if (options.beforeToolGate && ["edit", "write"].includes(event.toolName)) {
             const reason = options.beforeToolGate(event.toolName, event.input);
             if (reason) return { block: true, reason };
@@ -582,7 +599,8 @@ export class PiRuntime implements AgentRuntime {
               : basePrompt,
             appendSystemPromptOverride: (base) => readOnly ? base : [
               ...base,
-              "Casper applies a 120-second timeout to bash commands when timeout is omitted. Supply an explicit finite timeout in seconds for intentionally longer commands. After a search times out, narrow its scope rather than retrying the same broad search.",
+              `Casper applies a 120-second timeout to bash commands when timeout is omitted, and caps any timeout at ${BASH_TIMEOUT_CAP_SECONDS} seconds. Supply an explicit finite timeout in seconds for intentionally longer commands. After a search times out, narrow its scope rather than retrying the same broad search.`,
+              `Tool rules:\n${PI_TOOL_RULES.map((rule) => `- ${rule}`).join("\n")}`,
               "Keep repository searches rooted in the current workspace. Prefer the find, grep, and ls tools with explicit paths. Do not scan the filesystem root or unrelated directories to locate a missing project file; treat stale documentation as possible and inspect the current tree. Search outside the workspace only when the user's task requires it.",
             ],
           },
