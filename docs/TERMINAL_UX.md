@@ -195,8 +195,11 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   option wrap in full at the current width (a description that does not fit beside
   its label goes on indented lines under it); nothing is truncated. When all of it
   would be taller than the screen, only the highlighted option shows its description,
-  so the question stays in view. Use Up/Down and Enter to choose; Space toggles
-  multi-select choices. Typing still accepts a custom answer, and Esc skips.
+  so the question stays in view. Each choice shows its number: press 1-9 to pick it
+  (or toggle it in a multi-select), or use Up/Down and Enter; Space also toggles.
+  Typing still accepts a custom answer, and Esc skips. A number picks a choice only
+  while nothing is typed, so a custom answer cannot start with a choice's number
+  (type a letter first); a digit past the last choice is ordinary text.
 - Up/Down recalls current-process prompt history. Shift+Enter where the terminal
   supports it, or Ctrl+J, inserts a newline. Bracketed paste stays in the draft.
 - Shift+Tab cycles reasoning effort (`auto`, then the model's supported levels) without

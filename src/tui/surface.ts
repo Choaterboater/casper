@@ -224,6 +224,16 @@ export class TerminalSurface {
           this.render(); return { consume: true };
         }
         if (matchesKey(data, "enter")) { this.chooseAsk(); return { consume: true }; }
+        // A choice's number picks it (or toggles it) while nothing is typed; a digit past the last
+        // choice, or after typed text, is ordinary text.
+        const number = /^[1-9]$/.test(data) ? Number(data) : 0;
+        if (number && number <= Math.min(count, 9)) {
+          const index = number - 1;
+          if (!this.askMulti) { this.askActiveIndex = index; this.chooseAsk(); return { consume: true }; }
+          this.askActiveIndex = index;
+          if (this.askSelections.has(index)) this.askSelections.delete(index); else this.askSelections.add(index);
+          this.render(); return { consume: true };
+        }
         if (this.askMulti && matchesKey(data, "space")) {
           const index = this.askActiveIndex;
           if (this.askSelections.has(index)) this.askSelections.delete(index); else this.askSelections.add(index);
@@ -464,14 +474,17 @@ private updateSpinner(): void {
    * When that is taller than `height` rows, only the highlighted option keeps its description, so the
    * question itself stays on screen instead of scrolling away. */
   private renderAsk(width: number, height: number): string[] {
+    const count = Math.min(this.askOptions?.length ?? 0, 9);
+    const keys = count > 1 ? `1-${count}` : "1";
     const hint = this.askMulti
-      ? "Up/Down move · Space toggle · Enter answer · type to answer · Esc skip"
-      : "Up/Down move · Enter choose · type to answer · Esc skip";
+      ? `Press ${keys} or Space to toggle · Up/Down move · Enter answer · type to answer · Esc skip`
+      : `Press ${keys} or Up/Down + Enter · type to answer · Esc skip`;
     const lines = (compact: boolean) => [
       ...wrapTextWithAnsi(this.accent(this.askQuestion ?? ""), width),
       ...(this.askOptions ?? []).flatMap((option, index) => {
         const selected = index === this.askActiveIndex;
-        const marker = this.askMulti ? (this.askSelections.has(index) ? "[x] " : "[ ] ") : "";
+        const number = index < 9 ? `${index + 1} ` : "  ";
+        const marker = number + (this.askMulti ? (this.askSelections.has(index) ? "[x] " : "[ ] ") : "");
         return askOptionLines(selected ? this.accent("→ ") : "  ",
           { label: marker + option.label, description: compact && !selected ? undefined : option.description }, width,
           selected ? { label: this.accent, description: this.accent } : { label: text => text, description: this.muted });
@@ -489,7 +502,7 @@ private updateSpinner(): void {
     this.pendingAsk?.([...this.askSelections].sort((a, b) => a - b).map(index => this.askLabels[index]!));
   }
 
-  /** A nonempty editor submission is always free text; listed choices are selected with arrow keys. */
+  /** A nonempty editor submission is always free text; listed choices are picked by number or arrow keys. */
   private answerAsk(value: string): void {
     const text = value.trim();
     if (text) this.pendingAsk?.([text]);
