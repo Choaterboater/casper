@@ -81,9 +81,15 @@ repository's configured command. This is execution consent, not sandboxing — u
 only in trusted projects, or start with `--no-verify`. Each task ends with a plain receipt:
 
 ```text
+✓ Verified — the checks pass, and the tests fail without the change
 ✓ Changed 1 file: sum.js
-✓ Verified by Casper: test passed (npm run test, 0.3s)
+✓ test passed (npm run test, 0.3s)
+✓ Proven: test fails without this change (exit 1) and passes with it
 ```
+
+Line 1 is the verdict. `Verified` means the checks passed on the final files and a test fails
+without the change. Anything less says why, for example
+`• Checks passed — not proven: only non-code files changed`.
 
 A bash run of a check is reported but never counted as verification. `/receipt` shows
 the detailed evidence (scope, freshness). Native bash stays independent of

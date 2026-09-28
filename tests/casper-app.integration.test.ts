@@ -289,7 +289,7 @@ test("local skill commands work without starting an unavailable runtime", async 
         emit({ type: "message_end" });
       };
       await app.runOnce("hey");
-      expect(output).toContain("✓ Changed 1 file: notes.txt\n• Not verified — no checks configured. Add verify.test to .casper/project.yaml.\n");
+      expect(output).toContain("• Not verified — no checks configured. Add verify.test to .casper/project.yaml.\n✓ Changed 1 file: notes.txt\n");
       expect(output).toMatch(/notes\.txt \| 2 \+-/);
       expect(app.getLastTaskResult()).toMatchObject({ changedPaths: ["notes.txt"], possibleMutations: false });
 

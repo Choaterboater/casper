@@ -72,7 +72,7 @@ A run ends with exactly one `receipt` event, or, when Casper stops before it can
 | `tool_end` | `tool`, `id`, `ok`, `ms` | A tool call ends. `ok` is the tool status, not a check result. |
 | `check` | `name`, `command`, `status` (`pass`/`fail`/`skip`), `exit`, `ms`, `recordedBy`, `reused` | Casper recorded a check. `recordedBy` is `casper` (auto mode, `/verify`, repair) or `casper_check` (the model asked for it). |
 | `phase` | `phase` (`task`, `checks`, `smoke`, `review`, `proof`, `repair`), `state` (`start`/`end`), `atMs` | A stage of Casper's work starts or ends. `smoke` runs inside `checks`. |
-| `receipt` | `outcome`, `exitCode`, `execution`, `changed`, `changedDuringChecks`, `verificationMode`, `checks`, `repairAttempts`, `turnLimit`, `usage`, `proof`, `review`, `services`, `smoke`, `text` | The run finished. |
+| `receipt` | `outcome`, `exitCode`, `execution`, `changed`, `changedDuringChecks`, `verificationMode`, `checks`, `repairAttempts`, `turnLimit`, `usage`, `proof`, `proofSkipped`, `review`, `services`, `smoke`, `verdict`, `text` | The run finished. |
 | `error` | `message` | Something failed. |
 
 `receipt.outcome` is one of `verified`, `failed`, `incomplete`, `not_verified`, `unchanged`,
@@ -98,7 +98,10 @@ classifier), or automatic effort's classifier.
 `ended` is `pass` (unproven), `fail` (the tests failed), or weaker evidence for a proven change: `timeout`,
 `crash` (a signal or crash, exit above 128) or `no_start` (exit 126/127). `reason` is the runner's reason
 (for example `Timed out after 20000ms`); `output` is at most the last 500 characters of the failing run's output.
-An `unproven` change has the outcome `not_verified`. `review` is the model's requirements checklist, in one of
+An `unproven` change has the outcome `not_verified`. `proofSkipped` says why checks that passed on changed
+files came without a proof (for example `only non-code files changed`, or a refactor request), else `null`.
+`verdict` is line 1 of `text`: `✓ Verified — …` only when the tests fail without the change; otherwise
+`• Checks passed — not proven: …`, `✗ Failed — …`, `• Incomplete — …`, `• Not verified — …` or `✗ Stopped — …`. `review` is the model's requirements checklist, in one of
 two shapes. The review round's answer (`verification.review: true`) is `{ "fixed": [...], "open": [...],
 "covered": n, "total": m }`: `fixed` lists only the gaps the review added a test or fix for, `open` those still
 open, and `covered`/`total` come from its `Covered: n of m` line (both absent after a bare `Requirements
@@ -126,7 +129,7 @@ become `<redacted>`).
 
 ```json
 {"v":1,"type":"check","name":"test","command":"npm run test","status":"pass","exit":0,"ms":412,"recordedBy":"casper","reused":false}
-{"v":1,"type":"receipt","outcome":"verified","exitCode":0,"execution":"completed","changed":["sum.js"],"changedDuringChecks":[],"verificationMode":"auto","checks":[{"name":"test","command":"npm run test","status":"pass","exit":0,"ms":412,"fresh":true}],"repairAttempts":0,"turnLimit":null,"usage":{"turns":2,"tokens":18342,"estimatedCost":0.0041},"proof":{"status":"proven","check":"test","command":"npm run test","testsChanged":true,"without":{"exitCode":1,"ended":"fail","output":"expected 3, got 2"}},"text":"✓ Changed 1 file: sum.js\n✓ Verified by Casper: test passed (npm run test, 0.4s)\n✓ Proven: test fails without this change (exit 1) and passes with it"}
+{"v":1,"type":"receipt","outcome":"verified","exitCode":0,"execution":"completed","changed":["sum.js"],"changedDuringChecks":[],"verificationMode":"auto","checks":[{"name":"test","command":"npm run test","status":"pass","exit":0,"ms":412,"fresh":true}],"repairAttempts":0,"turnLimit":null,"usage":{"turns":2,"tokens":18342,"estimatedCost":0.0041},"proof":{"status":"proven","check":"test","command":"npm run test","testsChanged":true,"without":{"exitCode":1,"ended":"fail","output":"expected 3, got 2"}},"proofSkipped":null,"verdict":"✓ Verified — the checks pass, and the tests fail without the change","text":"✓ Verified — the checks pass, and the tests fail without the change\n✓ Changed 1 file: sum.js\n✓ test passed (npm run test, 0.4s)\n✓ Proven: test fails without this change (exit 1) and passes with it"}
 ```
 
 ### `jq` recipes

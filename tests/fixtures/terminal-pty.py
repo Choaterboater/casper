@@ -183,7 +183,7 @@ def exercise(bun, repo, root, no_color):
         s.pump()
         s.send("\x03")
         s.until("Cancelling active work")
-        s.until("Stopped: cancelled")
+        s.until("Stopped — cancelled")
         s.send("Q\n")
         s.until("Echo:")  # Pi wraps an overlong word after the label; exact draft checked below.
         assert s.requests()[-1] == "x" * 93 + "Qxx", s.requests()
@@ -212,7 +212,7 @@ def exercise(bun, repo, root, no_color):
         s.release("approval-cancel")
         s.until("Allow this exact external call? Type yes:")
         s.send("\x03")
-        s.until("Stopped: cancelled")
+        s.until("Stopped — cancelled")
         approval_lines = (s.root / "approvals.jsonl").read_text().splitlines()
         results = [json.loads(line) for line in approval_lines]
         # Cancellation may abort the runtime before its result is appended; it must never execute.

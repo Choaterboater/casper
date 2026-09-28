@@ -852,7 +852,7 @@ test("the task ends with the plain receipt; /receipt and verbose output keep the
   const { app, output } = createApp(root, async () => { await writeFile(path.join(root, "src/value"), "good\n"); }, "auto");
   await app.runOnce("Fix the value", root);
   expect(output()).toContain("… Casper checking: test\n");
-  expect(output()).toContain("✓ Changed 1 file: src/value\n✓ Verified by Casper: test passed (");
+  expect(output()).toContain("✓ Changed 1 file: src/value\n✓ test passed (");
   expect(output()).not.toMatch(/scope undeclared|reuse disabled|not independently certified|\[task\]/);
   await app.runOnce("/receipt", root);
   expect(output()).toContain("[task] Execution completed");

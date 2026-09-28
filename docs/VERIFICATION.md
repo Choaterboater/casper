@@ -49,11 +49,28 @@ reported but never counted as verification.
 
 ## Receipts
 
+Line 1 is the verdict, one of:
+
+```
+✓ Verified — the checks pass, and the tests fail without the change
+• Checks passed — not proven: a refactor should not change behavior, so no test is expected to fail without it
+✓ Checks passed — no files changed
+✗ Failed — test failed
+• Incomplete — stopped after 3 turns (--max-turns); changes so far are kept; send another request to go on
+• Not verified — the tests pass without the change too
+✗ Stopped — cancelled; changes already made are kept
+```
+
+`Verified` means the checks passed on the final files and a test fails without the change (ADR 0001).
+The JSON `outcome` and the exit code do not change with the verdict: a change whose checks pass but
+that was not proven still has the outcome `verified`, and the JSON receipt's `proofSkipped` says why.
+The lines below the verdict give the evidence:
+
 ```
 ✓ Changed 1 file: sum.js
-✓ Verified by Casper: test passed (npm run test, 0.3s)
-✓ Verified by Casper: test passed earlier in this task, reused (npm run test, 0.3s)
-✗ Verified by Casper: test failed (exit 1) — log above; /verify repair test to fix
+✓ test passed (npm run test, 0.3s)
+✓ test passed earlier in this task, reused (npm run test, 0.3s)
+✗ test failed (exit 1) — log above; /verify repair test to fix
 • Not verified — test ran via bash only (npm test: passed). Run /verify test to record a check.
 • Not verified — no checks configured. Add verify.test to .casper/project.yaml.
 • Not verified — stale: files changed after the last passing test. Run /verify test.
@@ -341,7 +358,7 @@ A tool returns execution evidence to Pi's ordinary edit/check loop; it never sta
 
 The terminal shows the plain receipt and the tail of a failing check's output, not full logs; `--verbose` adds one evidence line per check run. Programmatic `CasperApp.runOnce()` returns a `VerificationReport` for verification runs, including all rounds. `getLastTaskResult()` returns a detached result for the last normal request, separating execution (`completed`, `failed`, `cancelled`) from optional verification; local commands clear this result. Coding requests print the plain receipt; `/receipt` prints the detailed execution/verification receipt, including bounded observed native edit paths, possible tool writes (including failed/partial writes), and exact-command shell observations. Successful general conversation without observed effects or verification omits that terminal receipt; the structured task result and local outcome are still retained. Failures/cancellation always remain visible. **Shell tool status is diagnostic data, not process-exit evidence:** native shell checks are not reused or counted as verifier passes. Terminal model error/abort stops skip further checks and repair, retain already-executed managed evidence as blocked, and produce CLI exit codes 1/130 rather than success; an intermediate provider error recovered by Pi is not a terminal failure. Otherwise verification exit codes remain 0 for pass, 2 for incomplete, and 1 for failure/blocked; completion without verification exits 0 without claiming verified behavior. Evidence includes cwd, command, status, exit code/signal, duration, stdout/stderr, failure reason, and truncation. Each stream retains at most 8 KiB of original bytes (head/tail plus a truncation marker); this bounded evidence is what repair receives. No evidence database or unbounded raw-log artifact is created.
 
-**Command success, input freshness, declared scope, and behavioral coverage are separate facts.** Detailed reports (`/receipt`, `--verbose`) say `Checks pass (command execution)`; the plain receipt's "Verified by Casper" means the same: the named command passed on the files as they were when it ran, not that the requested behavior is certified. Stale or unavailable inputs remain explicitly unverified and cannot support reuse; they do not rewrite successful command exits or trigger a new repair/approval loop. Only actual check failures enter the existing bounded repair loop. Saved task outcomes and `/memory outcomes` retain exit codes, scope, freshness and a bounded freshness reason, without storing output or fingerprints. Human acceptance still starts unknown. Legacy outcomes remain readable, are labeled as legacy, and missing freshness stays unavailable.
+**Command success, input freshness, declared scope, and behavioral coverage are separate facts.** Detailed reports (`/receipt`, `--verbose`) say `Checks pass (command execution)`; the plain receipt's `✓ test passed` line means the same: the named command, run by Casper, passed on the files as they were when it ran, not that the requested behavior is certified. Only the verdict `✓ Verified` adds that a test fails without the change. Stale or unavailable inputs remain explicitly unverified and cannot support reuse; they do not rewrite successful command exits or trigger a new repair/approval loop. Only actual check failures enter the existing bounded repair loop. Saved task outcomes and `/memory outcomes` retain exit codes, scope, freshness and a bounded freshness reason, without storing output or fingerprints. Human acceptance still starts unknown. Legacy outcomes remain readable, are labeled as legacy, and missing freshness stays unavailable.
 
 `verification.scopes` is optional and project-local. Each check may declare literal relative `inputs` (files/directories, recursively; `.` means the project root) and optional `exclude` paths/subtrees. No globs, absolute paths, traversal, or fully excluded input roots; each list has at most 32 paths, each path at most 256 UTF-8 bytes, and each declaration at most 2 KiB. **No declaration means unavailable freshness and no reuse, not a command failure.** `.gitignore` is not an input contract: ignored files inside a declared scope are included unless explicitly excluded. Generated artifacts/coverage outside the input scope or explicitly excluded from it do not make a successful check stale.
 

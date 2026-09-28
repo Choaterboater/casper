@@ -13,7 +13,7 @@ if (runs < Number(failures)) {
   const limited = '429: {"message":"Provider returned error","code":429,"metadata":{"provider_name":"Together","limit_source":"upstream_provider_shared_pool"}}';
   // Casper's human output echoes the prompt to stderr, which mentions timeouts: never a provider error.
   const prompt = args.at(-1) === "-" ? await new Response(Bun.stdin.stream()).text() : args.at(-1);
-  process.stderr.write(`CASPER banner\n> ${prompt}\n[error] ${limited}\n✗ Stopped: the model run failed\n`);
+  process.stderr.write(`CASPER banner\n> ${prompt}\n[error] ${limited}\n✗ Failed — the model run failed; changes already made are kept\n`);
   emit({ v: 1, type: "session_start", session: `infra-${runs}` });
   for (let attempt = 0; attempt < 4; attempt++) emit({ v: 1, type: "error", message: limited });
   emit({ v: 1, type: "receipt", execution: "failed", outcome: "failed", exitCode: 1, usage: { turns: 4, tokens: 0, estimatedCost: 0 } });
