@@ -230,14 +230,15 @@ function withVerdict(task: TaskResult, body: string[], options: ReceiptOptions):
   const report = task.verification;
   const outcome = taskOutcome(report, task);
   const changed = Boolean(task.changedPaths?.length || task.changedDuringChecks?.length || (!task.changedPaths && task.possibleMutations));
-  const failedChecks = (report?.results ?? []).filter((result) => result.status === "fail").map((result) => result.name);
+  const failedChecks = (report?.results ?? []).filter((result) => result.status === "fail")
+    .map((result) => `${result.name} ${result.ended === "timeout" ? "timed out" : result.ended === "no_start" ? "could not start" : "failed"}`);
   let lines: string[];
   switch (outcome) {
     case "cancelled":
       lines = ["✗ Stopped — cancelled; changes already made are kept", ...body]; break;
     case "failed":
       if (task.execution === "failed") lines = ["✗ Failed — the model run failed; changes already made are kept", ...body];
-      else if (failedChecks.length) lines = [`✗ Failed — ${failedChecks.join(", ")} failed`, ...body];
+      else if (failedChecks.length) lines = [`✗ Failed — ${failedChecks.join(", ")}`, ...body];
       else if (report?.status === "blocked") lines = [`✗ Failed — checks stopped${report.reason ? `: ${safe(report.reason).replace(/\.$/, "").toLowerCase()}` : ""}`, ...body];
       else lines = ["✗ Failed — browser checks failed", ...body];
       break;
@@ -358,6 +359,13 @@ function checkLine(result: VerificationResult, safe: (text: string) => string, s
     return `✓ ${name} passed${result.reused ? " earlier in this task, reused" : ""} (${result.command ? `${safe(result.command)}, ` : ""}${duration(result.durationMs)})`;
   }
   const timeout = /^Timed out after (\d+)ms$/.exec(result.reason ?? "");
+  // Unfinished checks are not the code failing: Casper does not repair them, so it does not offer to.
+  if (result.ended === "timeout") {
+    return `✗ ${name} timed out${timeout ? ` after ${duration(Number(timeout[1]))}` : ""} — it did not finish, so Casper did not try to fix it; ${slash(`/verify ${name}`)} to run it again`;
+  }
+  if (result.ended === "no_start") {
+    return `✗ ${name} could not start (${typeof result.exitCode === "number" ? `exit ${result.exitCode}` : safe(result.reason ?? "no exit status").replace(/\.$/, "").toLowerCase()}) — check verify.${name} in .casper/project.yaml`;
+  }
   const why = typeof result.exitCode === "number" ? `exit ${result.exitCode}`
     : timeout ? `timed out after ${duration(Number(timeout[1]))}`
     : result.reason ? safe(result.reason).replace(/\.$/, "").toLowerCase()

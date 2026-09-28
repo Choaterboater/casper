@@ -23,6 +23,9 @@ export interface VerificationResult {
   freshnessReason?: string;
   /** True when a passing result with matching local filesystem evidence was reused. */
   reused?: boolean;
+  /** Set only when the command did not finish as a test run: it timed out, or it could not start
+   * (spawn error, bad folder, or the shell's 126/127). Such a failure is not the code failing. */
+  ended?: "timeout" | "no_start";
 }
 
 export interface VerificationReport {
