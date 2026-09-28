@@ -93,8 +93,8 @@ test("--version, --help and --licenses have no side effects: one version line, n
     const result = await run([cli, flag], home);
     expect({ flag, code: result.code, imported: result.stdout.includes("[auth]") }).toEqual({ flag, code: 0, imported: false });
   }
-  // Bun's own transpiler cache may appear under HOME; Casper's store must not.
-  expect((await readdir(home)).filter((name) => name !== "Library" && name !== ".cache")).toEqual([".pi"]);
+  // Bun's own caches (transpiler, install) may appear under HOME; Casper's store must not.
+  expect((await readdir(home)).filter((name) => !["Library", ".cache", ".bun"].includes(name))).toEqual([".pi"]);
 });
 
 test("a real session reports the one-time credential import on stderr, not stdout", async () => {
