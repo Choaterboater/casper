@@ -20,17 +20,34 @@ async function skipped(root: string, relative: string, name: string): Promise<bo
 }
 
 /** Tracked files plus untracked ones git does not ignore: what the user's repository is made of. Undefined
- * outside a git work tree (or when git is unavailable), so the caller walks the folder instead. */
+ * outside a git work tree (or when git is unavailable), and when git lists nothing (the folder itself is
+ * ignored by an enclosing repository), so the caller walks the folder instead. A nested repository or
+ * submodule is one listed folder entry, which the caller walks. */
 async function gitListed(root: string, signal?: AbortSignal): Promise<string[] | undefined> {
   try {
     const { stdout } = await execFileAsync("git", safeGitArgs(["ls-files", "-z", "--cached", "--others", "--exclude-standard"]),
       { cwd: root, timeout: 15_000, maxBuffer: 256 * 1024 * 1024, signal, encoding: "utf8" });
-    return [...new Set(stdout.split("\0").filter(Boolean))]
-      .filter((relative) => !relative.split("/").some((part) => part === ".git" || part === "node_modules" || part === ".casper"));
+    const listed = [...new Set(stdout.split("\0").filter(Boolean).map((relative) => relative.replace(/\/+$/, "")))];
+    const skips = new Map<string, Promise<boolean>>();
+    const kept = await Promise.all(listed.map(async (relative) => await insideSkipped(root, relative, skips) ? undefined : relative));
+    const files = kept.filter((relative): relative is string => relative !== undefined);
+    return files.length ? files : undefined;
   } catch {
     signal?.throwIfAborted();
     return undefined;
   }
+}
+
+/** A listed path under a folder the walk would skip (.venv, caches, node_modules, a real venv). */
+async function insideSkipped(root: string, relative: string, cache: Map<string, Promise<boolean>>): Promise<boolean> {
+  const parts = relative.split("/");
+  for (let index = 0; index < parts.length - 1; index++) {
+    const folder = parts.slice(0, index + 1).join("/");
+    let skip = cache.get(folder);
+    if (!skip) cache.set(folder, skip = skipped(root, folder, parts[index]!));
+    if (await skip) return true;
+  }
+  return false;
 }
 /** Removed between listing and inspection: absent from this snapshot, like any other missing path. */
 const VANISHED: Record<string, true> = { ENOENT: true, ENOTDIR: true };
@@ -68,12 +85,17 @@ export async function snapshotTree(root: string, signal?: AbortSignal, options: 
     }
   };
   const listed = options.git === false ? undefined : await gitListed(root, signal);
+  const pending = listed ? [] : [""];
   if (listed) {
     if (listed.length > limit) throw new RangeError(`Workspace exceeds ${limit} files`);
     await digestAll(listed);
-    return digests;
+    // A nested repository or submodule is listed as one folder: walk it like any other folder.
+    for (const relative of listed) {
+      if (digests.has(relative)) continue;
+      const stats = await lstat(path.join(root, relative)).catch(() => undefined);
+      if (stats?.isDirectory()) pending.push(relative);
+    }
   }
-  const pending = [""];
   while (pending.length) {
     signal?.throwIfAborted();
     const relative = pending.pop()!;
