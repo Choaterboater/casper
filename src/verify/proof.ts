@@ -197,6 +197,32 @@ export class ChangeBaseline {
     }
   }
 
+  /** Run `command` on the files from before the change, as they were (tests included), in a fresh copy:
+   * `fail` means the check was already failing before the change; undefined when it could not tell. */
+  async before(options: { root: string; check: ProjectCommand; command: string; timeoutMs: number; signal?: AbortSignal }): Promise<"pass" | "fail" | undefined> {
+    const copies = await mkdtemp(path.join(this.scratch, "before-"));
+    try {
+      const tree = path.join(copies, "before");
+      await cloneTree(this.tree, tree, this.limits, options.signal);
+      for (const relative of this.links) {
+        if (!await parentsStayInside(tree, relative)) continue;
+        const target = path.join(options.root, relative);
+        if (!await lstat(target).then((stats) => stats.isDirectory(), () => false)) continue;
+        await rm(path.join(tree, relative), { recursive: true, force: true });
+        await mkdir(path.dirname(path.join(tree, relative)), { recursive: true });
+        await symlink(target, path.join(tree, relative), "dir");
+      }
+      const result = await runCommandCheck({ name: options.check, command: options.command, cwd: tree, timeoutMs: options.timeoutMs,
+        signal: options.signal, env: { ...process.env, ...COPY_ENV } });
+      return result.ended ? undefined : result.status === "pass" ? "pass" : "fail";
+    } catch (error) {
+      if (options.signal?.aborted) throw error;
+      return undefined;
+    } finally {
+      await rm(copies, { recursive: true, force: true });
+    }
+  }
+
   async dispose(): Promise<void> {
     await rm(this.scratch, { recursive: true, force: true });
   }

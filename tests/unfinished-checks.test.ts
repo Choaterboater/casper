@@ -184,3 +184,15 @@ test("a longer limit the user gave stays with the check, so the model's own re-c
   await task.tool().execute({ check: "test" });
   expect(timeouts).toEqual([60_000, 60_000]);
 });
+
+test("before the first repair, the hook can leave a failure as it is", async () => {
+  const cwd = await dir();
+  const { registry } = scripted(cwd, { test: ["fail"] });
+  const repairs: string[] = [];
+  const seen: string[][] = [];
+  const left = await verifyAndRepair({ registry, checks: ["test"], cwd, request: "fix", repair: async (prompt) => { repairs.push(prompt); },
+    beforeRepair: async (failures) => { seen.push(failures.map((failure) => failure.name)); return false; } });
+  expect(seen).toEqual([["test"]]);
+  expect(repairs).toEqual([]);
+  expect(left.reason).toBe("test was already failing before this change; Casper left it as it is.");
+});
