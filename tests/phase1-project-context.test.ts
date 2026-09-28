@@ -191,6 +191,20 @@ describe("Phase 1 project context", () => {
     expect(overridden.model.conventions).toEqual(["Use the project override."]);
   });
 
+  test("git and destructive-operation policy reach the model as plain instructions, not enforcement claims", async () => {
+    const root = await temporaryDirectory("casper-git-policy-project-");
+    const homeDir = await temporaryDirectory("casper-git-policy-home-");
+    const project: ProjectInfo = { cwd: root, root, name: "policy", gitBranch: null, isGit: false };
+    await mkdir(path.join(root, ".casper"));
+    await writeFile(path.join(root, ".casper/project.yaml"), "policy:\n  git:\n    push: never\n");
+    const rendered = formatProjectContext(await loadProjectContext(project, { homeDir }));
+    expect(rendered).toContain("- git commit: only when the user asks");
+    expect(rendered).toContain("- git push: never");
+    expect(rendered).toContain("- destructive operations (deleting files, git reset, force-push): ask the user first");
+    expect(rendered).not.toContain("neverUnlessRequested");
+    expect(rendered).not.toContain("confirm destructive operations: true");
+  });
+
   test("classifies a task and supplies only detected relevant commands", () => {
     const classification = classifyTask("Fix the failing login flow");
     const prompt = formatTaskPrompt("Fix the failing login flow", classification, {
