@@ -1491,11 +1491,24 @@ export class CasperApp {
     if (this.effortSteps >= 12) return;
     this.effortSteps++;
     this.effortCycle = this.effortCycle.then(async () => {
-      try { if (!this.closing) await this.applyEffortCycle(); }
+      try {
+        if (!this.closing) await this.applyEffortCycle();
+        // What you pick sticks, like /effort: the level the presses stop at is saved once.
+        if (!this.closing && this.effortSteps === 1) await this.saveCycledEffort();
+      }
       catch (error) {
         if (!this.closing) this.terminal.flashNote(error instanceof Error ? error.message : String(error));
       } finally { this.effortSteps--; }
     });
+  }
+
+  private async saveCycledEffort(): Promise<void> {
+    const session = this.session;
+    const level = session?.getStatus?.().configuredEffort;
+    if (!session?.setEffort || !level) return;
+    const saved = await session.setEffort(level, true);
+    this.terminal.flashNote(`effort ${formatEffort(saved) ?? level} · saved`);
+    this.updateFooter();
   }
 
   private async applyEffortCycle(): Promise<void> {

@@ -132,8 +132,9 @@ popups/pickers, or a duplicated prompt box (`bun test tests/terminal-layout.test
 - `/model provider/id`: exact selection, remembered globally.
 - `/model --session [provider/id]`: explicitly temporary selection/picker.
 - `/effort`: automatic or supported fixed-effort picker in an interactive terminal, otherwise a list.
-  `auto` is always a choice. On a rich terminal, **Shift+Tab** cycles that same list for this
-  conversation only (it does not save). `/effort <level>` remembers; `--session` opts out.
+  `auto` is always a choice. On a rich terminal, **Shift+Tab** cycles that same list and remembers
+  the level it stops at (saved once, when you stop pressing). `/effort <level>` remembers too;
+  `--session` opts out.
 - `/effort high`: apply and remember for that model. Unsupported levels fail.
 - `/effort high --session`: do not change the saved preference. Effort also survives
   switching away from a model and back within the current conversation.
