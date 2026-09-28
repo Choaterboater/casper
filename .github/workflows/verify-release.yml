@@ -28,7 +28,8 @@ jobs:
           [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
           Invoke-RestMethod "https://github.com/Choaterboater/casper/releases/download/$env:RELEASE_TAG/install.ps1" | Invoke-Expression
           $version = casper --version
-          if ($LASTEXITCODE -ne 0 -or $version -ne "casper $($env:RELEASE_TAG.Substring(1))") { throw 'Published version failed' }
+          # `casper --version` prints the version, then the executable's path in parentheses.
+          if ($LASTEXITCODE -ne 0 -or $version -notmatch "^casper $([regex]::Escape($env:RELEASE_TAG.Substring(1))) \(") { throw "Published version failed: $version" }
           $null = casper --help
           if ($LASTEXITCODE -ne 0) { throw 'Published help failed' }
           $notices = casper --licenses
