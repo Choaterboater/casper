@@ -68,7 +68,8 @@ export function formatToolActivity(event: ToolEvent, elapsedMs?: number): string
   const status = event.isError ? "failed" : "completed";
   const detail = event.isError && event.output?.text
     ? `\n  ${redactPreview(event.output.text).replace(/\s+/g, " ").slice(0, 240)}${event.output.truncated ? " [truncated]" : ""}` : "";
-  return `${event.isError ? "✗" : "✓"} ${name}${preview} — ${status}${elapsed}${detail}`;
+  const size = event.lines ? ` · +${event.lines.added} -${event.lines.removed}` : "";
+  return `${event.isError ? "✗" : "✓"} ${name}${preview}${size} — ${status}${elapsed}${detail}`;
 }
 
 /** `auto` effort is Casper's setting; the level after the arrow is what the classifier chose (or the

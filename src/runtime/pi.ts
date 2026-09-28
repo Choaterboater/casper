@@ -22,7 +22,7 @@ import type {
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { nativeEditPath, observationInput, observationOutput, type ToolObservationInput } from "./observation";
+import { nativeEditPath, observationInput, observationOutput, patchLineCounts, type ToolObservationInput } from "./observation";
 import type {
   AgentRuntime,
   RuntimeAuthenticationOptions,
@@ -354,7 +354,9 @@ class PiRuntimeSession implements RuntimeSession {
         case "tool_execution_end": {
           const input = this.toolInputs.get(event.toolCallId);
           this.toolInputs.delete(event.toolCallId);
-          this.emit({ type: "tool_end", toolName: event.toolName, toolCallId: event.toolCallId, input, output: event.toolName === "bash" || event.isError ? observationOutput(event.result) : undefined, isError: event.isError });
+          const lines = event.toolName === "edit" && !event.isError ? patchLineCounts(event.result) : undefined;
+          this.emit({ type: "tool_end", toolName: event.toolName, toolCallId: event.toolCallId, input, output: event.toolName === "bash" || event.isError ? observationOutput(event.result) : undefined,
+            isError: event.isError, ...(lines ? { lines } : {}) });
           break;
         }
         case "agent_end":

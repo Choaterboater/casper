@@ -62,3 +62,20 @@ export function observationOutput(value: unknown): ToolObservationOutput {
   }
   return { text, truncated };
 }
+
+/** Lines an edit added and removed, from the unified patch Pi's edit tool returns in its details.
+ * Only lines inside hunks count, so a removed line that starts with "--" is still one removal.
+ * Undefined when the result has no patch (write returns none). */
+export function patchLineCounts(result: unknown): { added: number; removed: number } | undefined {
+  const details = typeof result === "object" && result !== null ? Reflect.get(result, "details") : undefined;
+  const patch = typeof details === "object" && details !== null ? Reflect.get(details, "patch") : undefined;
+  if (typeof patch !== "string") return undefined;
+  let added = 0, removed = 0, inHunk = false;
+  for (const line of patch.split("\n")) {
+    if (line.startsWith("@@")) { inHunk = true; continue; }
+    if (!inHunk) continue;
+    if (line.startsWith("+")) added++;
+    else if (line.startsWith("-")) removed++;
+  }
+  return { added, removed };
+}

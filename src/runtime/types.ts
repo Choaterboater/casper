@@ -171,7 +171,9 @@ export type RuntimeEvent =
   | { type: "assistant_progress"; kind: "thinking" | "tool_call"; toolName?: string; chars: number }
   | { type: "tool_start"; toolName: string; toolCallId?: string; input?: ToolObservationInput }
   /** Diagnostic tool status only: isError=false is not process-exit evidence. */
-  | { type: "tool_end"; toolName: string; toolCallId?: string; input?: ToolObservationInput; output?: ToolObservationOutput; isError: boolean }
+  | { type: "tool_end"; toolName: string; toolCallId?: string; input?: ToolObservationInput; output?: ToolObservationOutput; isError: boolean;
+      /** A successful edit's size, from the runtime's patch. */
+      lines?: { added: number; removed: number } }
   | { type: "message_end" }
   /** The prompt's `maxTurns` ended it after that many model turns, with the model still working. */
   | { type: "turn_limit"; turns: number }
