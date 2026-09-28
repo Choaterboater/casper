@@ -41,7 +41,7 @@ import type {
 } from "./runtime/types";
 import { SkillRegistry, formatSelectedSkills } from "./skills/registry";
 import { classifyTask, formatTaskPrompt, underSpecifiedTarget } from "./task/classify";
-import { formatReceipt, formatTaskResult, type TaskResult } from "./task/result";
+import { formatReceipt, liveCheckLine, formatTaskResult, type TaskResult } from "./task/result";
 import { TaskObservations } from "./task/observations";
 import { LifecycleRegistry } from "./app/lifecycle";
 import { RuntimeEventView } from "./app/events";
@@ -1416,8 +1416,10 @@ export class CasperApp {
   private writeCheckResult(result: VerificationResult): void {
     this.onEvent?.(checkEvent(result, this.modelCheckCalls > 0 ? "casper_check" : "casper"));
     this.events.ensureLineBreak();
-    // The receipt states each outcome plainly; verbose output keeps the per-run evidence line.
+    // Each check Casper runs shows as it finishes; verbose output keeps the per-run evidence line
+    // instead. A check the model ran with casper_check already has its tool line.
     if (this.verbose) this.output.write(`${formatVerificationResult(result)}\n`);
+    else if (this.modelCheckCalls === 0) this.output.write(`${liveCheckLine(result)}\n`);
     if (result.status !== "fail") return;
     for (const [stream, text] of [["stderr", result.stderr], ["stdout", result.stdout]] as const) {
       if (!text.trim()) continue;
