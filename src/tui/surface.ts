@@ -257,7 +257,12 @@ export class TerminalSurface {
     });
   }
 
+  /** A question, checklist or approval is open: Casper is waiting on the user, not working. */
+  private get waiting(): boolean { return Boolean(this.pendingAsk || this.pendingEdit || this.confirmation); }
+
   private footer(width: number): string {
+    // Waiting on the user: no spinner or running timer, so it never looks busy while it needs Enter.
+    if (this.waiting && !this.note) return truncateToWidth(`${this.accent("?")} ${this.accent("waiting for you")}${this.muted(` │ ${this.status || "Casper"}`)}`, width);
     const active = this.busy || this.activity !== undefined;
     const state = active ? this.accent(SPINNER_FRAMES[this.spinnerFrame]) : this.muted("○");
     // A transient note replaces the status line so it is never truncated away; elapsed time
@@ -273,8 +278,9 @@ export class TerminalSurface {
   /** While work runs (a prompt in flight or tool activity), the footer dot and Working panel
  * title cycle through braille frames; idle returns to the static ○. */
 private updateSpinner(): void {
-    const active = (this.busy || this.activity !== undefined) && !this.closed;
-    if (active) this.activeSince ??= Date.now();
+    const working = (this.busy || this.activity !== undefined) && !this.closed;
+    const active = working && !this.waiting;
+    if (working) this.activeSince ??= Date.now();
     else this.activeSince = undefined;
     if (active && this.spinnerTimer === undefined) {
       this.spinnerTimer = setInterval(() => {
@@ -422,11 +428,11 @@ private updateSpinner(): void {
       if (settled) return; settled = true;
       signal?.removeEventListener("abort", cancel);
       this.confirmation = undefined;
-      this.editor.setText(draft); this.configureAutocomplete(); this.render(); resolve(approved);
+      this.editor.setText(draft); this.configureAutocomplete(); this.updateSpinner(); this.render(); resolve(approved);
     };
     const cancel = () => finish(false);
     this.attention();
-    this.confirmation = finish; this.configureAutocomplete(); this.render();
+    this.confirmation = finish; this.configureAutocomplete(); this.updateSpinner(); this.render();
     signal?.addEventListener("abort", cancel, { once: true });
     if (signal?.aborted) cancel();
     return promise;
@@ -456,14 +462,14 @@ private updateSpinner(): void {
       this.pendingAsk = undefined; this.askQuestion = undefined; this.askOptions = undefined; this.askLabels = [];
       this.askMulti = false; this.askSelections.clear(); this.askActiveIndex = 0;
       this.writeBlock(record);
-      this.editor.setText(draft); this.configureAutocomplete(); this.render(); resolve(answer);
+      this.editor.setText(draft); this.configureAutocomplete(); this.updateSpinner(); this.render(); resolve(answer);
     };
     const cancel = () => finish(undefined);
     this.attention();
     this.pendingAsk = finish; this.askQuestion = safeQuestion; this.askOptions = shown;
     this.askLabels = options.map(option => option.label); this.askMulti = multi;
     this.askSelections.clear(); this.askActiveIndex = 0;
-    this.configureAutocomplete(); this.render();
+    this.configureAutocomplete(); this.updateSpinner(); this.render();
     signal?.addEventListener("abort", cancel, { once: true });
     if (signal?.aborted) cancel();
     return promise;
@@ -482,14 +488,14 @@ private updateSpinner(): void {
       if (settled) return; settled = true;
       signal?.removeEventListener("abort", cancel);
       this.pendingEdit = undefined; this.editHeading = [];
-      this.editor.setText(draft); this.configureAutocomplete(); this.render(); resolve(edited);
+      this.editor.setText(draft); this.configureAutocomplete(); this.updateSpinner(); this.render(); resolve(edited);
     };
     const cancel = () => finish(undefined);
     this.attention();
     this.pendingEdit = finish;
     this.editHeading = [this.accent(terminalText(heading)), this.muted(terminalText(hint))];
     this.editor.setText(lines.map(line => terminalText(line).replace(/\s+/g, " ")).join("\n"));
-    this.configureAutocomplete(); this.render();
+    this.configureAutocomplete(); this.updateSpinner(); this.render();
     signal?.addEventListener("abort", cancel, { once: true });
     if (signal?.aborted) cancel();
     return promise;

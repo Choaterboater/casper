@@ -149,6 +149,8 @@ test("in the terminal, a timed-out check asks what to do instead of starting a p
     expect(visible).toContain("1 Retry");
     expect(visible).toContain("2 Fix it anyway");
     expect(visible).toContain("3 Allow more time");
+    // While the question waits, the footer says so instead of spinning with a running timer.
+    await screen.until((output) => { const text = Bun.stripANSI(output); return text.slice(text.lastIndexOf("What now?")).includes("? waiting for you"); });
     // More time: the second run has double the limit, and the question says so without offering more again.
     input.write("3");
     const second = (output: string) => { const text = Bun.stripANSI(output); return text.slice(text.lastIndexOf("test timed out after 0.6s")); };
