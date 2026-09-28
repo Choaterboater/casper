@@ -47,11 +47,11 @@ import { RuntimeEventView } from "./app/events";
 import { diffSnapshots, snapshotTree, type TreeChanges } from "./task/changes";
 import { renderBanner, renderProjectSummary, wordmarkHeader } from "./tui/banner";
 import type { ProjectCommand } from "./project/model";
-import { CHECK_NAMES, formatVerificationReport, formatVerificationResult, type VerificationReport, type VerificationResult } from "./verify/evidence";
+import { CHECK_NAMES, formatDuration, formatVerificationReport, formatVerificationResult, type VerificationReport, type VerificationResult } from "./verify/evidence";
 import { ProcessCleanupError } from "./platform/processes";
 import { safeGitArgs } from "./platform/git";
 import { VerifierRegistry } from "./verify/registry";
-import { verifyAndRepair } from "./verify/repair-loop";
+import { verifyAndRepair, type UnfinishedChoice } from "./verify/repair-loop";
 import { VerificationTask } from "./verify/task";
 import { ChangeBaseline, changesCode, proofRepairPrompt, type ChangeProof } from "./verify/proof";
 import { independentAcceptance } from "./verify/acceptance";
@@ -1076,6 +1076,8 @@ export class CasperApp {
           }
         } : undefined,
         onRepair: (attempt, max) => { this.output.write(`↻ repair ${attempt}/${max}\n`); },
+        // Only a person can say whether a check that did not finish is worth a paid repair.
+        onUnfinished: this.interactive && this.terminal.rich ? (unfinished, signal) => this.askUnfinished(unfinished, context.verification.timeoutMs, signal) : undefined,
         // The task's smoke checks join its own verification (repairs and review reruns), never a standalone /verify.
         smoke: task && task === this.checkTask && this.smokeTask?.size ? this.smokeRun(this.smokeTask) : undefined,
       });
@@ -1093,6 +1095,22 @@ export class CasperApp {
       this.verificationAbort = undefined;
       this.verificationWork = undefined;
     }
+  }
+
+  /** "test timed out after 10m. 1 Retry · 2 Fix it anyway · 3 Allow more time" — Esc stops without a repair. */
+  private async askUnfinished(unfinished: VerificationResult[], timeoutMs: number, signal: AbortSignal): Promise<UnfinishedChoice | undefined> {
+    const what = unfinished.map((result) => result.ended === "timeout"
+      ? `${result.name} timed out after ${formatDuration(timeoutMs)}` : `${result.name} could not start`).join(", ");
+    const timedOut = unfinished.some((result) => result.ended === "timeout");
+    const options: Array<{ label: string; description: string; choice: UnfinishedChoice }> = [
+      { label: "Retry", description: "run it again as it is", choice: "retry" },
+      { label: "Fix it anyway", description: "ask the model to fix it (uses tokens)", choice: "repair" },
+      ...(timedOut && timeoutMs < 3_600_000 ? [{ label: "Allow more time", description: `run it once with ${formatDuration(Math.min(timeoutMs * 2, 3_600_000))}`, choice: "more-time" as const }] : []),
+    ];
+    this.events.ensureLineBreak();
+    const answer = await this.terminal.ask(`${what}. Casper did not try to fix it. What now?`,
+      options.map(({ label, description }) => ({ label, description })), false, signal);
+    return options.find((option) => option.label === answer?.[0])?.choice;
   }
 
   /** One smoke run against fresh services, timed as the `smoke` phase. Cancellation is reported by the loop. */

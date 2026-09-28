@@ -30,9 +30,10 @@ export async function measuredCheckTime(stateDirectory: string, checks: readonly
   return total;
 }
 
-/** Best-effort: executed runs only (not reused, skipped or cancelled). */
+/** Best-effort: executed runs only (not reused, skipped, cancelled, or a command that could not start). */
 export async function recordCheckTimings(stateDirectory: string, results: readonly VerificationResult[]): Promise<void> {
-  const executed = results.filter((result) => result.command && !result.reused && result.status !== "skip" && result.reason !== "Verification cancelled");
+  const executed = results.filter((result) => result.command && !result.reused && result.status !== "skip" && result.reason !== "Verification cancelled"
+    && result.ended !== "no_start");
   if (!executed.length) return;
   try {
     const timings = await read(stateDirectory);
