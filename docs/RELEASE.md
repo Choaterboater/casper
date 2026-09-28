@@ -20,7 +20,8 @@ to a paid repair. The terminal asks: 1 Retry · 2 Fix it anyway · 3 Allow more 
 limit each time, at most one hour), and the receipt says `✗ Not checked`, not `✗ Failed`. While a
 question or the checklist waits for you, the footer says `? waiting for you` instead of spinning.
 
-**Model errors:** when the model fails after editing, Casper still runs the checks on its edits (no
+**Model errors:** a provider failure such as an empty response is retried once on its own, and then
+the terminal asks whether to retry or stop. When the model fails after editing, Casper still runs the checks on its edits (no
 repair) and the receipt says how they fared and suggests another model.
 
 **Watching it work:** the footer shows the task's stages (`checklist ✓ · building ✓ · checks ·

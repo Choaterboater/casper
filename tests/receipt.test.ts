@@ -141,7 +141,7 @@ test("line 1 is the verdict: verified only when the tests fail without the chang
   expect(first(done({ ...changed, proof: { status: "unproven", check: "test", command: "npm run test", testsChanged: false, without: { exitCode: 0, ended: "pass" } } })))
     .toBe("• Not verified — the tests pass without the change too");
   expect(first(done({ ...changed, review: { done: [], open: ["handle empty input"] } }))).toBe("• Not verified — the model's review lists unfinished items");
-  expect(first({ execution: "failed", changedPaths: [] })).toBe("✗ Failed — the model run failed; changes already made are kept");
+  expect(first({ execution: "failed", changedPaths: [] })).toBe("✗ Failed — the model run failed before changing any files");
   expect(first(done({ changedPaths: ["a.js"], verification: report([], { status: "blocked", reason: "Task cancelled; no further checks." }) })))
     .toBe("✗ Failed — checks stopped: task cancelled; no further checks");
   // /verify with no task change: nothing to prove.
