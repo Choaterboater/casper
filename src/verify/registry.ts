@@ -6,9 +6,8 @@ import type { VerificationScope } from "./scope";
 export interface Verifier {
   name: ProjectCommand;
   scope?: VerificationScope;
-  /** `moreTime`: how many times the user chose to give an unfinished check longer; each doubles the
-   * limit, at most one hour. */
-  run(signal?: AbortSignal, options?: { moreTime?: number }): Promise<VerificationResult>;
+  /** `timeoutMs`: a longer limit the user gave an unfinished check ("Allow more time"), at most one hour. */
+  run(signal?: AbortSignal, options?: { timeoutMs?: number }): Promise<VerificationResult>;
 }
 
 export class VerifierRegistry {
@@ -26,7 +25,7 @@ export class VerifierRegistry {
 
   async run(
     names: readonly ProjectCommand[],
-    options: { signal?: AbortSignal; onResult?: (result: VerificationResult) => void; moreTime?: number } = {},
+    options: { signal?: AbortSignal; onResult?: (result: VerificationResult) => void; timeoutMs?: number } = {},
   ): Promise<VerificationResult[]> {
     const selected = [...new Set(names)].map((name) => {
       const verifier = this.verifiers.get(name);
@@ -35,7 +34,7 @@ export class VerifierRegistry {
     });
     const results: VerificationResult[] = [];
     for (const verifier of selected) {
-      const result = await verifier.run(options.signal, options.moreTime ? { moreTime: options.moreTime } : undefined);
+      const result = await verifier.run(options.signal, options.timeoutMs ? { timeoutMs: options.timeoutMs } : undefined);
       results.push(result);
       options.onResult?.(result);
       if (options.signal?.aborted) break;
@@ -56,7 +55,7 @@ export class VerifierRegistry {
         run: async (signal, options) => cleanupFailed
           ? { name, cwd, status: "fail", exitCode: null, signal: null, stdout: "", stderr: "", truncated: false, durationMs: 0, reason: "Owned process cleanup is unconfirmed; no further checks started" }
           : command?.trim()
-          ? runCommandCheck({ name, command, cwd, timeoutMs: options?.moreTime ? Math.min(timeoutMs * 2 ** options.moreTime, 3_600_000) : timeoutMs, signal, onCleanupFailure: () => { cleanupFailed = true; onCleanupFailure?.(); } })
+          ? runCommandCheck({ name, command, cwd, timeoutMs: options?.timeoutMs ? Math.min(Math.max(options.timeoutMs, timeoutMs), 3_600_000) : timeoutMs, signal, onCleanupFailure: () => { cleanupFailed = true; onCleanupFailure?.(); } })
           : { name, cwd, status: "skip", exitCode: null, signal: null, stdout: "", stderr: "", truncated: false, durationMs: 0, reason: "No command configured or detected" },
       });
     }

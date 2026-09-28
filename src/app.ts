@@ -52,7 +52,7 @@ import { CHECK_NAMES, formatDuration, formatVerificationReport, formatVerificati
 import { ProcessCleanupError } from "./platform/processes";
 import { safeGitArgs } from "./platform/git";
 import { VerifierRegistry } from "./verify/registry";
-import { verifyAndRepair, type UnfinishedChoice } from "./verify/repair-loop";
+import { longerLimit, timedOutAfter, verifyAndRepair, type UnfinishedChoice } from "./verify/repair-loop";
 import { VerificationTask } from "./verify/task";
 import { ChangeBaseline, changesCode, proofRepairPrompt, type ChangeProof } from "./verify/proof";
 import { independentAcceptance } from "./verify/acceptance";
@@ -1215,13 +1215,13 @@ export class CasperApp {
 
   /** "test timed out after 10m. 1 Retry · 2 Fix it anyway · 3 Allow more time" — Esc stops without a repair. */
   private async askUnfinished(unfinished: VerificationResult[], timeoutMs: number, signal: AbortSignal): Promise<UnfinishedChoice | undefined> {
-    // The limit the run actually had: after "Allow more time" it is the doubled one, not the configured one.
-    const limit = (result: VerificationResult) => Number(/^Timed out after (\d+)ms$/.exec(result.reason ?? "")?.[1] ?? timeoutMs);
+    // The limit the run actually had: after "Allow more time" it is the longer one, not the configured one.
+    const limit = (result: VerificationResult) => timedOutAfter(result) ?? timeoutMs;
     const what = unfinished.map((result) => result.ended === "timeout"
       ? `${result.name} timed out after ${formatDuration(limit(result))}` : `${result.name} could not start`).join(", ");
-    // More time doubles the limit the run just had, up to one hour, as often as it is chosen.
+    // More time: four times the limit the run just had (at least a minute, at most an hour), as often as it is chosen.
     const had = Math.max(0, ...unfinished.filter((result) => result.ended === "timeout").map(limit));
-    const longer = Math.min(had * 2, 3_600_000);
+    const longer = longerLimit(had);
     const options: Array<{ label: string; description: string; choice: UnfinishedChoice }> = [
       { label: "Retry", description: "run it again with the same limit", choice: "retry" },
       { label: "Fix it anyway", description: "ask the model to fix it (uses tokens)", choice: "repair" },

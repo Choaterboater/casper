@@ -22,6 +22,18 @@ export type UnfinishedChoice = "retry" | "more-time" | "repair";
 
 const UNFINISHED_ASKS = 8;
 
+/** The limit "Allow more time" gives a check that timed out after `ms`: four times as long, at least a
+ * minute, at most an hour, so a slow suite gets through in one or two answers rather than many. */
+export function longerLimit(ms: number): number {
+  return Math.min(Math.max(ms * 4, 60_000), 3_600_000);
+}
+
+/** The limit a timed-out run had, from its reason ("Timed out after 5000ms"). */
+export function timedOutAfter(result: VerificationResult): number | undefined {
+  const ms = /^Timed out after (\d+)ms$/.exec(result.reason ?? "")?.[1];
+  return result.ended === "timeout" && ms ? Number(ms) : undefined;
+}
+
 export type VerificationOptions = ({ registry: VerifierRegistry; task?: never } | { task: VerificationTask; registry?: never }) & {
   checks: readonly ProjectCommand[];
   cwd: string;
@@ -62,9 +74,8 @@ export async function verifyAndRepair(options: VerificationOptions): Promise<Ver
   let smoke: SmokeReport | undefined;
   const report = (status: VerificationReport["status"], reason?: string): VerificationReport =>
     ({ status, reason, results, rounds: task.rounds, repairAttempts, ...(smoke ? { smoke } : {}) });
-  const run = (names: readonly ProjectCommand[], options: { moreTime?: number } = {}) => task.run(names, signal, options);
+  const run = (names: readonly ProjectCommand[], options: { timeoutMs?: number } = {}) => task.run(names, signal, options);
   let unfinishedAsks = 0;
-  let moreTime = 0;
   const refresh = async () => { results = await task.refresh(signal); };
 
   // A tool failure is already real command evidence, not a request to execute
@@ -100,9 +111,9 @@ export async function verifyAndRepair(options: VerificationOptions): Promise<Ver
       unfinishedAsks++;
       if (signal.aborted) return report("blocked", "Verification cancelled.");
       if (choice === "retry" || choice === "more-time") {
-        // More time doubles the limit again each time it is chosen; a retry keeps the limit it had.
-        if (choice === "more-time") moreTime++;
-        await run(unfinished.map((result) => result.name), moreTime ? { moreTime } : {});
+        // More time: a limit the slow check can finish in (see longerLimit); a retry keeps the limit it had.
+        const timeoutMs = choice === "more-time" ? longerLimit(Math.max(0, ...unfinished.map((result) => timedOutAfter(result) ?? 0))) : undefined;
+        await run(unfinished.map((result) => result.name), timeoutMs ? { timeoutMs } : {});
         continue;
       }
       if (choice === "repair") repairable = failures;

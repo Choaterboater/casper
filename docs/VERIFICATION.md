@@ -82,7 +82,7 @@ The lines below the verdict give the evidence:
 ✓ test passed (npm run test, 0.3s)
 ✓ test passed earlier in this task, reused (npm run test, 0.3s)
 ✗ test failed (exit 1) — log above; /verify repair test to fix
-✗ test timed out after 10m — it did not finish, so Casper did not try to fix it; /verify test to run it again, or raise verification.timeoutMs in .casper/project.yaml
+✗ test timed out after 10m — it did not finish, so it was not checked; /verify test to run it again, or raise verification.timeoutMs in .casper/project.yaml
 ✗ lint could not start (exit 127) — check verify.lint in .casper/project.yaml
 • Not verified — test ran via bash only (npm test: passed). Run /verify test to record a check.
 • Not verified — no checks configured. Add verify.test to .casper/project.yaml.
@@ -98,9 +98,10 @@ The lines below the verdict give the evidence:
 A check that timed out or could not start did not fail as a test, so Casper never repairs it on its
 own: repair costs model tokens and cannot fix a slow suite or a missing tool. In an interactive terminal
 Casper asks `test timed out after 10m. Casper did not try to fix it. What now?` with `1 Retry`,
-`2 Fix it anyway` and `3 Allow more time` (a run at double the limit the check just had, up to one
-hour, and again each time you choose it; the choice names `verification.timeoutMs`, which keeps a longer
-limit); Esc stops. It asks at most eight times per round of checks (the review round, when on, is a
+`2 Fix it anyway` and `3 Allow more time` (four times the limit the check just had, at least a minute,
+at most an hour, and again each time you choose it; the longer limit also applies to the model's own
+runs of that check for the rest of the task; the choice names `verification.timeoutMs`, which keeps a
+longer limit); Esc stops. It asks at most eight times per round of checks (the review round, when on, is a
 second round). When the only failures are unfinished checks, the verdict is `✗ Not checked — test timed
 out, so the change was not tested`, not `✗ Failed`; the outcome and exit code stay `failed`/1. Scripts and one-shot runs report the check and repair only real
 test failures. A command that could not start is not saved as a check timing.
