@@ -26,7 +26,7 @@ export const HELP_TEXT = `Casper — your coding companion
 
 Type a request to work with the model. Native tools can execute code and edit files.
 Type / for fuzzy command discovery; Tab completes commands and file paths (@).
-Shift+Tab cycles reasoning effort for this conversation, including auto. /effort remembers a level.
+Shift+Tab cycles reasoning effort, including auto, and remembers where it stops, like /effort.
 Shift+Enter (when supported) or Ctrl+J inserts a newline; Up/Down recalls history.
 Esc stops active work. Ctrl-C cancels work; idle, it clears a draft; twice on empty exits.
 Ctrl+L redraws the screen. See docs/TERMINAL_UX.md for limits.
@@ -145,7 +145,7 @@ Unknown slash commands are rejected locally, never sent to a model.
 /model: Enter selects and saves ~/.casper/settings.json; Ctrl+S selects for this session only.
 Exact IDs are remembered too; /model --session <id> opts out.
 /effort remembers supported levels per model; /effort <level> --session opts out.
-Shift+Tab cycles auto and the model's supported levels for this conversation only; it does not save.
+Shift+Tab cycles auto and the model's supported levels and saves the level it stops at, like /effort. One-off --effort never saves.
 /effort auto lets Casper pick per request: low for reading/explaining/diagrams, medium for tests and
 configuration, high for fixes, features and refactors, from the model's supported levels.
 Context is estimated and may be unavailable; cost estimates are not subscription billing.

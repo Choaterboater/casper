@@ -133,7 +133,7 @@ test("Ctrl+C cancels the effort picker instead of arming exit behind it", async 
   }
 });
 
-test("interactive Shift+Tab selects auto then the next fixed level without saving", async () => {
+test("interactive Shift+Tab steps through levels and saves the one it settles on, once, like /effort", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-effort-cycle-"));
   const home = path.join(root, "home");
   const project = path.join(root, "project");
@@ -187,10 +187,15 @@ test("interactive Shift+Tab selects auto then the next fixed level without savin
   try {
     await until(text => Bun.stripANSI(text).includes("idle"));
     input.write("\x1b[Z");
-    await until(text => Bun.stripANSI(text).includes("effort auto → high (pending) · session"));
+    await until(text => Bun.stripANSI(text).includes("effort auto → high (pending) · saved"));
     input.write("\x1b[Z");
-    await until(text => Bun.stripANSI(text).includes("effort off · session"));
-    expect(changes).toEqual([{ level: "auto", persist: false }, { level: "off", persist: false }]);
+    await until(text => Bun.stripANSI(text).includes("effort off · saved"));
+    expect(changes).toEqual([{ level: "auto", persist: false }, { level: "auto", persist: true }, { level: "off", persist: false }, { level: "off", persist: true }]);
+    // Presses in quick succession step through levels and save only where they stop.
+    changes.length = 0;
+    input.write("\x1b[Z\x1b[Z");
+    await until(text => Bun.stripANSI(text).includes("effort medium · saved"));
+    expect(changes).toEqual([{ level: "low", persist: false }, { level: "medium", persist: false }, { level: "medium", persist: true }]);
     input.write("\x04");
     expect(await Promise.race([interactive.then(() => "ended"), Bun.sleep(1000).then(() => "stuck")])).toBe("ended");
   } finally {
