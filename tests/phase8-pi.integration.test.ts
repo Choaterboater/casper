@@ -6,6 +6,7 @@ import { pathToFileURL } from "node:url";
 import type { RuntimeEvent } from "../src/runtime/types";
 import type { VerificationReport } from "../src/verify/evidence";
 import type { TaskResult } from "../src/task/result";
+import { PI_TOOL_RULES } from "../src/runtime/pi";
 
 import { POSIX, needsSymlinks, posixOnly } from "./support/platform";
 import { checkCommand } from "./support/check-command";
@@ -227,6 +228,12 @@ test("the parent system prompt states Casper's identity exactly once, first, wit
   }
   expect(system(0)).not.toContain("USER_SYSTEM_PROMPT_LOADS");
   expect(system(1)).toContain("USER_SYSTEM_PROMPT_LOADS");
+  // Pi drops its own read/edit/write rules under a custom prompt; Casper sends them, once.
+  for (const index of [0, 1]) {
+    expect(system(index).split("Tool rules:")).toHaveLength(2);
+    for (const rule of PI_TOOL_RULES) expect(system(index)).toContain(`- ${rule}`);
+    expect(system(index)).toContain("caps any timeout at 3600 seconds");
+  }
 }, 30_000);
 
 test("read-only Pi refuses a source containing its active state before initialization", async () => {

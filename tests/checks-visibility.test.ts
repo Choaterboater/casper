@@ -13,7 +13,8 @@ afterEach(async () => { for (const dir of dirs.splice(0)) await rm(dir, { recurs
 
 test("the checks line says what runs and when, in plain words", () => {
   expect(describeChecksPlan({ mode: "auto", checks: ["typecheck", "test"] })).toBe("typecheck, test — run after each change");
-  expect(describeChecksPlan({ mode: "offer", checks: ["test"] })).toBe("test — offered with /verify (they take a minute or more)");
+  expect(describeChecksPlan({ mode: "offer", checks: ["test"], slow: true })).toBe("test — offered with /verify (they take a minute or more)");
+  expect(describeChecksPlan({ mode: "offer", checks: ["test"] })).toBe("test — offered with /verify (verification.mode: offer)");
   expect(describeChecksPlan({ mode: "off", checks: ["test"] })).toBe("off for this session (--no-verify or verification.mode: off)");
   expect(describeChecksPlan({ mode: "auto", checks: [] })).toBe("none found; add verify.test to .casper/project.yaml");
 });
@@ -36,4 +37,16 @@ test("/status says which checks run after a change", async () => {
     await app.runOnce("/status", project);
     expect(output).toContain(" checks    lint, test — run after each change");
   } finally { await app.close(); }
+
+  // Offer chosen in configuration is not described as slow checks.
+  await writeFile(path.join(project, ".casper/project.yaml"), "verify:\n  test: npm test\nverification:\n  mode: offer\n");
+  output = "";
+  const configured = new CasperApp({ runtimeFactory: () => { throw new Error("no runtime"); }, sessionHomeDir: path.join(home, ".casper"),
+    loadProjectContext: (info) => loadProjectContext(info, { homeDir: home }),
+    loadSkillRegistry: (context) => SkillRegistry.discover({ projectRoot: context.info.root, homeDir: home }),
+    output: { write(text: string) { output += text; } } });
+  try {
+    await configured.runOnce("/status", project);
+    expect(output).toContain(" checks    test — offered with /verify (verification.mode: offer)");
+  } finally { await configured.close(); }
 });
