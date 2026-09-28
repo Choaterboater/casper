@@ -65,15 +65,15 @@ test("app keeps status/connect local, replaces task surfaces, and denies one-sho
   await app.runOnce("/mcp connect fixture");
   expect(runtime.starts).toBe(0);
   await app.runOnce("Read site health metric");
-  expect(runtime.surfaces[0]).toHaveLength(10); // the nine before + ask
+  expect(runtime.surfaces[0]).toHaveLength(11); // the nine before + ask + casper_check (checking is on by default)
   expect(runtime.result).toContain("requires explicit interactive confirmation");
   await app.runOnce("Read quantum flux");
-  expect(runtime.surfaces[1]).toHaveLength(5);
+  expect(runtime.surfaces[1]).toHaveLength(6);
   expect(runtime.surfaces[1]?.some((name) => name.includes("inspect_quantum_flux"))).toBe(true);
   expect(runtime.starts).toBe(1);
   await app.runOnce("/mcp disconnect fixture");
   await app.runOnce("Read site health metric");
-  expect(runtime.surfaces[2]).toEqual(["find_capability", "call_capability", "delegate", "ask"]);
+  expect(runtime.surfaces[2]).toEqual(["find_capability", "call_capability", "delegate", "ask", "casper_check"]);
   expect(runtime.result).toContain("unavailable");
 });
 
@@ -210,7 +210,7 @@ test("real CLI and Pi adapter send a small surface and complete search/schema/ca
   expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });
   expect(stdout).toContain("FIXTURE_WORKFLOW_COMPLETE");
   expect(payloads).toHaveLength(4);
-  expect(payloads[0]?.tools).toHaveLength(17); // seven Pi built-ins + delegate + ask + eight broker tools
+  expect(payloads[0]?.tools).toHaveLength(18); // seven Pi built-ins + delegate + ask + casper_check + eight broker tools
   expect(JSON.stringify(payloads[0]?.tools)).not.toContain("inspect_quantum_flux");
   expect(payloads[0]?.tools.map((tool) => tool.function.name)).toContain("find_capability");
   expect(JSON.stringify(payloads[2]?.messages)).toContain("inputSchema");
@@ -236,7 +236,7 @@ try {
   const [, replayError, replayExit] = await Promise.all([new Response(replay.stdout).text(), new Response(replay.stderr).text(), replay.exited]);
   clearTimeout(replayTimer);
   expect({ exit: replayExit, stderr: replayError }).toEqual({ exit: 0, stderr: "" });
-  expect(payloads.slice(4).map((payload) => payload.tools.length)).toEqual([17, 12, 11]);
+  expect(payloads.slice(4).map((payload) => payload.tools.length)).toEqual([18, 13, 12]); // each includes casper_check
   expect(payloads[5]?.tools.some((tool) => tool.function.name.includes("inspect_quantum_flux"))).toBe(true);
   expect(payloads[5]?.tools.some((tool) => tool.function.name.includes("get_site_metric"))).toBe(false);
 }, 30_000);

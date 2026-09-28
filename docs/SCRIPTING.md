@@ -45,7 +45,7 @@ before any model request. Missing credentials for the chosen provider exit 1 wit
 |---|---|
 | 0 | Done. Changes, if any, were verified — or, without `--require-verification`, simply not disproven. A run that changed nothing exits 0. |
 | 1 | Failed: a check failed, checks were blocked, the model run failed, or Casper hit an error. |
-| 2 | Incomplete: checks could not finish, `--max-turns` stopped the model, or `--verify` found changes but no configured check. |
+| 2 | Incomplete: checks could not finish, `--max-turns` stopped the model, or checking was requested (`--verify` or `verification.mode: auto`) and found changes but no configured check. |
 | 3 | Not verified (only with `--require-verification`): files changed but Casper recorded no fresh passing check — checks off, none configured or covering the files, bash-only test runs, or a pass that went stale. |
 | 64 | Usage error: an unknown option, a bad value, conflicting flags, an unknown model or conversation. Nothing ran. |
 | 130 | Cancelled (Ctrl-C / SIGINT). |

@@ -47,6 +47,8 @@ export interface TaskResult {
   observedChecks?: ObservedCheck[];
   /** The verification mode this task ran under. */
   verificationMode?: VerificationMode;
+  /** Checking came from Casper's default, not a --verify flag or `verification.mode`. */
+  verificationDefaulted?: true;
   /** Why auto mode ran no check after the model turn. */
   autoSkipped?: AutoCheckSkip;
   /** `--max-turns` stopped the model after this many turns, before it finished. */
@@ -108,8 +110,9 @@ export function taskExitCode(report?: VerificationReport, task?: TaskResult, opt
     case "incomplete": return 2;
     case "not_verified":
       if (options.requireVerification) return 3;
-      // Casper was asked to verify changed files and had nothing to run: not a pass.
-      return task?.autoSkipped === "no-checks" ? 2 : 0;
+      // Casper was asked (flag or configuration) to verify changed files and had nothing to run: not a
+      // pass. Checking only by default in a project with no checks is not a failure of the run.
+      return task?.autoSkipped === "no-checks" && !task.verificationDefaulted ? 2 : 0;
     default: return 0;
   }
 }

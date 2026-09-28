@@ -24,18 +24,21 @@ export interface VerificationSettings {
    * never downgrades; the receipt names what the tests did not confirm. Unset or `false` means off
    * (experimental). */
   acceptance?: boolean | "warn";
-  /** `true`: before the model's turn, one separate low-effort model call lists the concrete cases the
-   * request states; Casper prints them and asks the model for one test per case. Unset or `false`
-   * means off (experimental). */
+  /** Before the model's turn, one separate low-effort model call lists the concrete cases the request
+   * states; Casper shows them (editable in an interactive session) and asks for one test per case.
+   * Unset: on for interactive implement/fix/test requests, off otherwise. `true` also covers one-shot
+   * runs and every request; `false` turns it off. */
   checklist?: boolean;
 }
 
-/** Checks this fast run automatically in an unconfigured interactive session. */
+/** Checks known to take at least this long are offered, not run after every change, in an interactive session. */
 export const FAST_CHECKS_MS = 60_000;
 
-/** A flag wins for its run, then configuration. Unconfigured interactive sessions run checks
- * automatically once they are known to be fast (`measuredMs`, the cached duration of the
- * selected checks), otherwise offer them. Unconfigured one-shot prompts opt in with --verify. */
+/** A flag wins for its run, then configuration. Otherwise Casper checks its own work: `auto`, so the
+ * first change runs the checks with no command from the user (and times them). An interactive session
+ * offers them instead (`/verify`) only once they are known to be slow (`measuredMs`, the cached duration
+ * of the selected checks, at least 60 s). One-shot cannot ask, so it stays `auto`; `--no-verify` or
+ * `verification.mode` turn it off. */
 export function resolveVerificationMode(input: {
   flag?: VerificationMode;
   configured?: VerificationMode;
@@ -44,8 +47,7 @@ export function resolveVerificationMode(input: {
 }): VerificationMode {
   if (input.flag) return input.flag;
   if (input.configured) return input.configured;
-  if (!input.interactive) return "off";
-  return input.measuredMs !== undefined && input.measuredMs < FAST_CHECKS_MS ? "auto" : "offer";
+  return input.interactive && input.measuredMs !== undefined && input.measuredMs >= FAST_CHECKS_MS ? "offer" : "auto";
 }
 
 /** `verification.checks`, or every check with a configured or detected command. */

@@ -20,6 +20,10 @@ work: up to 80 cases, a 24,000-token answer, bullet-list answers accepted, and a
 cases were left out. The requirements list no longer drops open items past its 50th line, so an
 admitted gap always makes the change not verified. See [VERIFICATION.md](VERIFICATION.md#request-checklist).
 
+**Casper checks its own work by default:** a new project's first change runs the checks and repairs
+failures with no command from the user (before, it only suggested `/verify` until the checks had been
+timed, and one-shot prompts needed `--verify`). `--no-verify` opts out for a run.
+
 ## v0.2.13: scripting surface
 
 Phase 2: one-shot runs are scriptable. `--model <provider/id[:effort]>` and `--effort` choose
@@ -35,8 +39,9 @@ exit **64** instead of 2 or 1, so 2 always means incomplete. See [SCRIPTING.md](
 Phase 1: after the model edits files, Casper runs the project's checks itself
 (`verification.mode: auto`), repairs failures within `repair.maxAttempts`, and ends each
 task with a plain receipt ("✓ Verified by Casper: test passed"). `--verify` now means
-`auto` for the run and `--no-verify` means `off`. Unconfigured interactive sessions use
-`auto` once the checks are measured under 60 seconds, else `offer`. The detailed evidence
+`auto` for the run and `--no-verify` means `off`. Unconfigured sessions, interactive and one-shot,
+use `auto` from the first change (Casper checks its own work by default); interactive sessions offer
+checks measured at 60 seconds or more instead. The detailed evidence
 receipt moved to `/receipt` and `--verbose`. `verification.checks` selects the checks, and
 the default per-check timeout is now 600 seconds. See [VERIFICATION.md](VERIFICATION.md).
 

@@ -35,11 +35,14 @@ test("--verify selects auto and --no-verify selects off for the run, over config
   expect(resolveVerificationMode({ configured: "offer", interactive: true, measuredMs: 1 })).toBe("offer");
 });
 
-test("unconfigured: interactive runs checks automatically only once they are measured under 60 s; one-shot needs --verify", () => {
-  expect(resolveVerificationMode({ interactive: true })).toBe("offer");
+test("unconfigured: Casper checks its own work by default; interactive offers instead only once checks are known to take 60 s or more", () => {
+  // Not yet timed: the first change runs the checks (and times them), with no command from the user.
+  expect(resolveVerificationMode({ interactive: true })).toBe("auto");
   expect(resolveVerificationMode({ interactive: true, measuredMs: 59_999 })).toBe("auto");
   expect(resolveVerificationMode({ interactive: true, measuredMs: 60_000 })).toBe("offer");
-  expect(resolveVerificationMode({ interactive: false, measuredMs: 1 })).toBe("off");
+  // One-shot cannot ask, so it always checks unless --no-verify or configuration says otherwise.
+  expect(resolveVerificationMode({ interactive: false })).toBe("auto");
+  expect(resolveVerificationMode({ interactive: false, measuredMs: 600_000 })).toBe("auto");
 });
 
 test("--verify --no-verify is rejected before any work starts", async () => {

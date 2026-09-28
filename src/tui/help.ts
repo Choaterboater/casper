@@ -1,7 +1,7 @@
 export const HELP_TEXT = `Casper — your coding companion
 
   casper                 Start interactive mode
-  casper <prompt>        Run one prompt and exit; --verify has Casper check the changes
+  casper <prompt>        Run one prompt and exit; Casper checks the changes (--no-verify skips)
   casper --verbose ...   Detailed evidence receipts instead of the plain receipt
   casper --json ...      Scripting: also --model, --continue, --require-verification (docs/SCRIPTING.md)
   /help all              All commands, options and safety details
@@ -32,9 +32,9 @@ Esc stops active work. Ctrl-C cancels work; idle, it clears a draft; twice on em
 Ctrl+L redraws the screen. See docs/TERMINAL_UX.md for limits.
 Enter during work retains your draft; it does not queue a request.
 Approvals require a fresh yes. Task completion is not verification.
-After the model edits files, Casper runs the project's checks itself (auto mode) once they are
-known to take under a minute; until then the receipt suggests /verify. --verify runs them for a
-one-shot prompt. See docs/VERIFICATION.md for verification.mode.
+After the model edits files, Casper runs the project's checks itself and repairs failures (auto
+mode), by default, with no command from you; slow checks (a minute or more) are offered as /verify
+in interactive sessions instead. --no-verify turns checking off. See docs/VERIFICATION.md.
 `;
 
 export const LOGIN_HELP = `Provider login requires an interactive Casper terminal.
@@ -158,8 +158,8 @@ The picker refreshes provider catalogs over the network when CASPER_OFFLINE=1 is
 Provider-defined credential checks may execute configured key-resolution commands.
 Checks: typecheck lint test build (all configured by default; verification.checks selects).
 verification.mode: auto (Casper runs the checks after edits, repairs failures within repair.maxAttempts),
-offer (the model may use casper_check; the receipt suggests /verify) or off. Unset, interactive
-sessions use auto once the checks are measured under 60 s, else offer; one-shot prompts use off.
+offer (the model may use casper_check; the receipt suggests /verify) or off. Unset: auto, except
+that interactive sessions use offer once the checks are measured at 60 s or more.
 --verify selects auto and --no-verify selects off for one run. Auto skips checks when no files
 changed, and checks whose declared scope misses every changed file. The receipt says why.
 Verification executes repository shell commands; use only in trusted projects.
