@@ -58,7 +58,7 @@ import { ChangeBaseline, changesCode, proofRepairPrompt, type ChangeProof } from
 import { independentAcceptance } from "./verify/acceptance";
 import { parseChecklist, parseReview, requirementsReviewPrompt, ROUND_MAX_TURNS, type RequirementsReview } from "./task/review";
 import { extractChecklist, formatChecklistPrompt, normalizeCases } from "./task/checklist";
-import { planAutoChecks, resolveVerificationMode, selectedChecks, type VerificationMode } from "./verify/mode";
+import { describeChecksPlan, planAutoChecks, resolveVerificationMode, selectedChecks, type ChecksPlan, type VerificationMode } from "./verify/mode";
 import { measuredCheckTime, recordCheckTimings } from "./verify/timings";
 import { MermaidProvider } from "./visualize/mermaid";
 import { MindMeshProvider } from "./visualize/mindmesh";
@@ -325,7 +325,8 @@ export class CasperApp {
     // The header picks art or text per width, so a later resize never wraps the art.
     const wordmark = this.interactive && this.terminal.rich;
     if (wordmark) this.terminal.writeTrusted(wordmarkHeader(this.terminal.color));
-    this.output.write(renderBanner(context, { wordmark, interactive: this.interactive }));
+    this.output.write(renderBanner(context, { wordmark, interactive: this.interactive,
+      ...(this.interactive ? { checks: describeChecksPlan(await this.checksPlan(context)) } : {}) }));
     // A returning user's saved default is known before the runtime starts; say so, not "not initialized".
     if (!this.session) this.savedModelDisplay = await modelPreference(this.sessionHomeDir ?? os.homedir());
     this.output.write(`${formatRuntimeStatus(this.session?.getStatus?.(), this.savedModelDisplay)}\n`);
@@ -724,9 +725,7 @@ export class CasperApp {
     if (this.closing || this.commandAbort?.signal.aborted) return;
     const flag = this.verificationFlag;
     const configured = context.verification.mode;
-    const verificationMode = resolveVerificationMode({ flag, configured, interactive: this.interactive,
-      measuredMs: flag || configured || !this.interactive ? undefined : await measuredCheckTime(context.stateDirectory,
-        selectedChecks(context.verification.checks, context.model.commands), context.model.commands) });
+    const verificationMode = (await this.checksPlan(context)).mode;
     if (verificationMode !== "off") this.checkTask = new VerificationTask(
       VerifierRegistry.forProject(context.model, context.verification.timeoutMs, this.blockOnCleanupFailure), this.activeWorkspaceRoot(),
       (result) => this.writeCheckResult(result),
@@ -1110,6 +1109,16 @@ export class CasperApp {
       this.verificationAbort = undefined;
       this.verificationWork = undefined;
     }
+  }
+
+  /** The mode and checks this session uses after a change; the banner, /status and every task share it. */
+  async checksPlan(context: ProjectContext): Promise<ChecksPlan> {
+    const flag = this.verificationFlag;
+    const configured = context.verification.mode;
+    const checks = selectedChecks(context.verification.checks, context.model.commands);
+    const mode = resolveVerificationMode({ flag, configured, interactive: this.interactive,
+      measuredMs: flag || configured || !this.interactive ? undefined : await measuredCheckTime(context.stateDirectory, checks, context.model.commands) });
+    return { mode, checks };
   }
 
   /** Before a request runs: with no model, pick one for a signed-in provider, or open sign-in (then pick);
