@@ -69,8 +69,8 @@ Before the first repair of a change, Casper runs each failing check on the files
 (the copy it keeps for the proof). A check that failed there too was already broken: Casper says so, and
 an interactive terminal asks `1 Fix it anyway · 2 Leave it` before paying for a repair (scripts repair).
 
-A provider failure that Pi does not retry itself (such as an empty response; never sign-in, quota or
-context errors, and never past Pi's own retry budget) is retried once; if it fails again, an interactive terminal asks `1 Retry · 2 Stop`.
+A provider that answers with nothing ("empty response", which Pi does not retry itself) is retried
+once; other errors are left to Pi's own retry budget; if it fails again, an interactive terminal asks `1 Retry · 2 Stop`.
 When the model run fails after it edited files (a provider error, for example), Casper still runs the
 checks on those edits, without a repair, and the verdict says how they fared (`✗ Failed — the model run
 failed; changes already made are kept; the checks pass on those changes`), followed by a `• Next:` line
