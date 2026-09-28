@@ -150,7 +150,9 @@ test("in the terminal, a timed-out check asks what to do instead of starting a p
     expect(visible).toContain("2 Fix it anyway");
     expect(visible).toContain("3 Allow more time");
     input.write("\x1b");
-    await screen.until((output) => Bun.stripANSI(output).includes("✗ Failed — test timed out"));
+    // Wait for idle after the receipt: /exit typed while the task is still finishing is kept as a draft.
+    await screen.until((output) => { const text = Bun.stripANSI(output); const receipt = text.lastIndexOf("✗ Failed — test timed out");
+      return receipt >= 0 && text.lastIndexOf("idle") > receipt; });
     expect(prompts).toBe(1);
     expect(app.getLastTaskResult()?.verification?.repairAttempts).toBe(0);
   } finally {
