@@ -36,7 +36,7 @@ test("the JSON check event carries ended only when set, and the receipt does not
   expect("ended" in checkEvent({ ...base, ended: undefined, reason: undefined, exitCode: 1 }, "casper")).toBe(false);
   const report = (result: VerificationResult) => ({ status: "fail" as const, repairAttempts: 0, rounds: [[result]], results: [result] });
   const timedOut = formatReceipt({ execution: "completed", changedPaths: ["a.js"], verification: report(base) });
-  expect(timedOut).toContain("✗ test timed out after 10m — it did not finish, so Casper did not try to fix it; /verify test to run it again");
+  expect(timedOut).toContain("✗ test timed out after 10m — it did not finish, so it was not checked; /verify test to run it again");
   expect(timedOut).not.toContain("repair");
   const noStart = formatReceipt({ execution: "completed", changedPaths: ["a.js"],
     verification: report({ ...base, exitCode: 127, reason: undefined, ended: "no_start", stderr: "sh: 1: jest: not found" }) });

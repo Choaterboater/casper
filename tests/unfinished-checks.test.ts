@@ -32,7 +32,7 @@ function scripted(cwd: string, scripts: Partial<Record<"test" | "lint", Outcome[
     const script = scripts[name];
     if (!script) continue;
     registry.register({ name, run: async (_signal, options) => {
-      const timeoutMs = 1000 * 2 ** (options?.moreTime ?? 0);
+      const timeoutMs = options?.timeoutMs ?? 1000;
       timeouts.push(timeoutMs);
       return result(name, script.length > 1 ? script.shift()! : script[0]!, cwd, timeoutMs);
     } });
@@ -62,7 +62,7 @@ test("real failures are still repaired, without the unfinished check in the repa
   expect(report.status).toBe("fail");
 });
 
-test("the user's choice decides: retry runs it again, more time doubles its limit, fix it anyway repairs it", async () => {
+test("the user's choice decides: retry runs it again, more time gives it a much longer limit, fix it anyway repairs it", async () => {
   const cwd = await dir();
   const asked: string[][] = [];
   const retry = scripted(cwd, { test: ["timeout", "pass"] });
@@ -73,14 +73,14 @@ test("the user's choice decides: retry runs it again, more time doubles its limi
   const longer = scripted(cwd, { test: ["timeout", "pass"] });
   expect((await verifyAndRepair({ registry: longer.registry, checks: ["test"], cwd, request: "fix", repair: async () => {},
     onUnfinished: async () => "more-time" })).status).toBe("pass");
-  expect(longer.timeouts).toEqual([1000, 2000]);
+  expect(longer.timeouts).toEqual([1000, 60_000]);
 
-  // More time again doubles again; a retry after that keeps the longer limit.
+  // More time again: four times that; a retry after that keeps the longer limit.
   const choices: Array<"more-time" | "retry"> = ["more-time", "more-time", "retry"];
   const again = scripted(cwd, { test: ["timeout", "timeout", "timeout", "pass"] });
   expect((await verifyAndRepair({ registry: again.registry, checks: ["test"], cwd, request: "fix", repair: async () => {},
     onUnfinished: async () => choices.shift()! })).status).toBe("pass");
-  expect(again.timeouts).toEqual([1000, 2000, 4000, 4000]);
+  expect(again.timeouts).toEqual([1000, 60_000, 240_000, 240_000]);
 
   const anyway = scripted(cwd, { test: ["timeout", "pass"] });
   const repairs: string[] = [];
@@ -158,12 +158,8 @@ test("in the terminal, a timed-out check asks what to do instead of starting a p
     expect(visible).toContain("3 Allow more time");
     // While the question waits, the footer says so instead of spinning with a running timer.
     await screen.until((output) => { const text = Bun.stripANSI(output); return text.slice(text.lastIndexOf("What now?")).includes("? waiting for you"); });
-    // More time: the second run has double the limit, and the question says so without offering more again.
-    input.write("3");
-    // More time again is offered at double that, with the setting that keeps a longer limit.
-    const second = (output: string) => { const text = Bun.stripANSI(output); return text.slice(text.lastIndexOf("test timed out after 0.6s")); };
-    await screen.until((output) => Bun.stripANSI(output).includes("test timed out after 0.6s") && second(output).includes("verification.timeoutMs"));
-    expect(second(screen.output)).toContain("run it with 1.2s");
+    // More time gives a limit a slow suite can finish in (four times, at least a minute), and names the setting.
+    expect(Bun.stripANSI(screen.output)).toContain("run it with 1m; to keep a longer limit, set verification.timeoutMs");
     input.write("\x1b");
     // Wait for idle after the receipt: /exit typed while the task is still finishing is kept as a draft.
     await screen.until((output) => { const text = Bun.stripANSI(output); const receipt = text.lastIndexOf("✗ Not checked — test timed out, so the change was not tested");
@@ -177,3 +173,14 @@ test("in the terminal, a timed-out check asks what to do instead of starting a p
     input.destroy();
   }
 }, 30_000);
+
+test("a longer limit the user gave stays with the check, so the model's own re-check gets it too", async () => {
+  const { VerificationTask } = await import("../src/verify/task");
+  const cwd = await dir();
+  const { registry, timeouts } = scripted(cwd, { test: ["timeout", "pass"] });
+  const task = new VerificationTask(registry, cwd);
+  cleanup.push(async () => task.close?.());
+  await task.run(["test"], undefined, { timeoutMs: 60_000 });
+  await task.tool().execute({ check: "test" });
+  expect(timeouts).toEqual([60_000, 60_000]);
+});

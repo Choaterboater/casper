@@ -16,8 +16,8 @@ See [VERIFICATION.md](VERIFICATION.md#receipts).
 
 **Unfinished checks:** a check that timed out or could not start is marked as unfinished (`--json`
 check events carry `ended: "timeout"` or `"no_start"`), not as the code failing, and it is never handed
-to a paid repair. The terminal asks: 1 Retry · 2 Fix it anyway · 3 Allow more time (doubles the
-limit each time, at most one hour), and the receipt says `✗ Not checked`, not `✗ Failed`. While a
+to a paid repair. The terminal asks: 1 Retry · 2 Fix it anyway · 3 Allow more time (four times the
+limit, at least a minute, at most an hour), and the receipt says `✗ Not checked`, not `✗ Failed`. While a
 question or the checklist waits for you, the footer says `? waiting for you` instead of spinning.
 
 **Model errors:** a provider failure such as an empty response is retried once on its own, and then
