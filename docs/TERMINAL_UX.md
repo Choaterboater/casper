@@ -71,7 +71,9 @@ command is working, `?` while an exact approval is pending. The box never shifts
 horizontally between states, so a draft keeps its wrapping. The footer shows a
 state glyph (braille spinner while working, `○` idle), then project/branch, provider/model, effort,
 estimated context occupancy, runtime-reported session tokens, a positive cost
-estimate when available, and idle/working state. `—` means unavailable, `~`
+estimate when available, and idle/working state. While a task runs, its stages
+lead the footer, each marked ✓ once done, then the elapsed time:
+`⠋ checklist ✓ · building ✓ · checks · 1m05s │ project…`. `—` means unavailable, `~`
 means estimated. Branch is the project inspection snapshot; `/status` refreshes
 it after external Git changes. Narrow terminals truncate the footer rather than
 wrapping over input. Cost is not an invoice or subscription charge.

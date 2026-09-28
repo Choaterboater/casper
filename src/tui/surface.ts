@@ -103,6 +103,8 @@ export class TerminalSurface {
   private readonly muted: (text: string) => string;
   private status = "";
   private activity?: string;
+  /** The task's stages for the footer while work runs; see StepRail. */
+  private steps?: string;
   private note = "";
   private noteTimer?: NodeJS.Timeout;
   private exitArmed?: NodeJS.Timeout;
@@ -258,7 +260,9 @@ export class TerminalSurface {
     // rides on the status line so a long-running request is measurable at a glance.
     const elapsed = active && this.activeSince !== undefined && !this.note
       ? this.muted(` · ${formatElapsed(Date.now() - this.activeSince)}`) : "";
-    const text = this.note ? this.accent(this.note) : this.muted(this.status || "Casper · / for commands") + elapsed;
+    // The stages lead, so a narrow window truncates the project and model details, not the progress.
+    const rail = active && this.steps && !this.note ? `${this.steps}${elapsed ? this.muted(elapsed) : ""}${this.muted(" │ ")}` : "";
+    const text = this.note ? this.accent(this.note) : rail ? rail + this.muted(this.status || "Casper") : this.muted(this.status || "Casper · / for commands") + elapsed;
     return truncateToWidth(`${state} ${text}`, width);
   }
 
@@ -334,6 +338,12 @@ private updateSpinner(): void {
     }
     // A note already covers the footer; the stored status appears when it expires.
     if (cwdChanged || !this.note) this.render();
+  }
+  setSteps(steps?: string): void {
+    const next = steps ? terminalText(steps).replace(/\s+/g, " ").trim() || undefined : undefined;
+    if (next === this.steps) return;
+    this.steps = next;
+    this.render();
   }
   setActivity(status?: string): void {
     const activity = status ? terminalText(status).replace(/\s+/g, " ").trim() : "";
