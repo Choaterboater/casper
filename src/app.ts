@@ -1135,9 +1135,9 @@ export class CasperApp {
     const flag = this.verificationFlag;
     const configured = context.verification.mode;
     const checks = selectedChecks(context.verification.checks, context.model.commands);
-    const mode = resolveVerificationMode({ flag, configured, interactive: this.interactive,
-      measuredMs: flag || configured || !this.interactive ? undefined : await measuredCheckTime(context.stateDirectory, checks, context.model.commands) });
-    return { mode, checks };
+    const measuredMs = flag || configured || !this.interactive ? undefined : await measuredCheckTime(context.stateDirectory, checks, context.model.commands);
+    const mode = resolveVerificationMode({ flag, configured, interactive: this.interactive, measuredMs });
+    return { mode, checks, ...(mode === "offer" && measuredMs !== undefined ? { slow: true } : {}) };
   }
 
   /** Before a request runs: with no model, pick one for a signed-in provider, or open sign-in (then pick);
@@ -1485,7 +1485,7 @@ export class CasperApp {
     this.events.writePrompt(prompt);
   }
 
-  /** Shift+Tab. Session-only: a held key walks the ring, and saving stays on `/effort`. */
+  /** Shift+Tab. A held key walks the ring; the level the presses stop at is saved once, like `/effort`. */
   private cycleEffort(): void {
     if (this.closing) return;
     if (this.commandActive || this.subagents.isBusy) {
