@@ -46,6 +46,9 @@ casper
 casper --no-verify   # without Casper-run checks
 ```
 
+Started from your home folder, or from a folder that only holds projects (such as `~/Projects`),
+Casper asks which project to open: press its number, or Esc to stay.
+
 Inside Casper:
 
 ```text

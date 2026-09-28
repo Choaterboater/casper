@@ -197,3 +197,45 @@ test("without a rich terminal the home-folder hint gives a command that actually
     expect(stdout).not.toContain("pass a path");
   } finally { await rm(home, { recursive: true, force: true }); }
 });
+
+test("launching from a folder of projects asks which one to open; a project or a git subfolder never asks", async () => {
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-folder-repos-")));
+  const home = path.join(root, "home");
+  const work = path.join(root, "work");
+  await mkdir(home, { recursive: true });
+  await mkdir(path.join(work, "repo-a", ".git"), { recursive: true });
+  await mkdir(path.join(work, "repo-b"), { recursive: true });
+  await writeFile(path.join(work, "repo-b", "requirements.txt"), "pytest\n");
+  await mkdir(path.join(work, "notes"), { recursive: true });
+  const harness = interactiveHarness(home, work);
+  const interactive = harness.app.runInteractive(work);
+  try {
+    await harness.until(text => Bun.stripANSI(text).includes("This folder holds several projects. Work in which one?"));
+    const visible = Bun.stripANSI(harness.output());
+    expect(visible).toContain("1 .  stay in work");
+    expect(visible).toContain("2 repo-a");
+    expect(visible).toContain("3 repo-b");
+    harness.input.write("3");
+    await harness.until(text => /\bproject\s+repo-b\b/.test(Bun.stripANSI(text)));
+    await harness.until(text => Bun.stripANSI(text).includes("idle"));
+  } finally {
+    harness.input.write("/exit\r");
+    await interactive;
+    await harness.app.close();
+    harness.input.destroy();
+  }
+  // A folder that is a project itself opens directly.
+  await writeFile(path.join(work, "package.json"), "{}");
+  const direct = interactiveHarness(home, work);
+  const running = direct.app.runInteractive(work);
+  try {
+    await direct.until(text => Bun.stripANSI(text).includes("idle"));
+    expect(Bun.stripANSI(direct.output())).not.toContain("several projects");
+  } finally {
+    direct.input.write("/exit\r");
+    await running;
+    await direct.app.close();
+    direct.input.destroy();
+    await rm(root, { recursive: true, force: true });
+  }
+});
