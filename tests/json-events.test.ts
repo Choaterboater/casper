@@ -36,3 +36,18 @@ test("the receipt carries the task's model usage, and null when no model task ra
   expect(receiptEvent(undefined, { execution: "completed", usage: { turns: 4, tokens: null, estimatedCost: null } }, 0).usage)
     .toEqual({ turns: 4, tokens: null, estimatedCost: null });
 });
+
+test("the JSON receipt redacts secrets in the proof's failing output and the review items, never the task's own evidence", () => {
+  const proof = { status: "proven" as const, check: "test" as const, command: "npm test", testsChanged: true,
+    without: { exitCode: 1, ended: "fail" as const, reason: "failed with token=abc123secret", output: "Authorization: Bearer sk-live-abcdefghijkl\nexpected 2" } };
+  const review = { done: ["uses password=hunter22 from env"], open: [] };
+  const task = { execution: "completed" as const, proof, review };
+  const event = receiptEvent(undefined, task, 0);
+  const text = JSON.stringify({ proof: event.proof, review: event.review });
+  expect(text).not.toContain("sk-live-abcdefghijkl");
+  expect(text).not.toContain("abc123secret");
+  expect(text).not.toContain("hunter22");
+  expect(text).toContain("expected 2");
+  expect(task.proof.without.output).toContain("sk-live-abcdefghijkl");
+  expect(task.review.done[0]).toContain("hunter22");
+});
