@@ -792,6 +792,7 @@ export class CasperApp {
           reviewFollows: context.verification.review === true, afterContext: Boolean(memoryContext || skillContext) }),
         checklist ? formatChecklistPrompt(checklist) : "",
       ].filter(Boolean).join("\n\n"), this.commandAbort?.signal, { request: prompt, maxTurns: this.maxTurns });
+      await this.retryModelFailure(session, prompt);
       this.phase("task", "end");
       // Repair, review and proof rounds follow the change.
       edits.turnEnded = true;
@@ -1185,6 +1186,31 @@ export class CasperApp {
     if (!this.interactive) throw new Error(blocked);
     this.output.write(`[model] ${blocked}\n`);
     return false;
+  }
+
+  /** A provider hiccup (an empty response, a dropped stream) ends a run for no reason of the task's: try once
+   * more on its own, then, in the terminal, ask. Sign-in, quota and context errors are not retried. */
+  private async retryModelFailure(session: RuntimeSession, request: string): Promise<void> {
+    for (let attempt = 1; ; attempt++) {
+      const error = this.events.lastError ?? "";
+      if (!this.taskRuntimeFailed || this.taskRuntimeCancelled || this.closing || this.commandAbort?.signal.aborted || this.taskTurnLimit !== undefined) return;
+      if (/auth|credential|api.?key|unauthori[sz]ed|forbidden|\b40[13]\b|quota|billing|context|too long|not found|no model/i.test(error)) return;
+      let retry = attempt === 1;
+      if (!retry && this.interactive && this.terminal.rich && attempt <= 4) {
+        this.events.ensureLineBreak();
+        const answer = await this.terminal.ask("The model failed again. What now?", [
+          { label: "Retry", description: "ask the same model to go on from where it stopped" },
+          { label: "Stop", description: "keep the changes so far; /model picks another model" },
+        ], false, this.commandAbort?.signal);
+        retry = answer?.[0] === "Retry";
+      }
+      if (!retry) return;
+      this.events.ensureLineBreak();
+      this.output.write(`[model] ${attempt === 1 ? "The model failed; trying once more." : "Trying again."}\n`);
+      this.taskRuntimeFailed = false;
+      await session.prompt("Your last response failed with a provider error. Continue the task from where you stopped.",
+        this.commandAbort?.signal, { request, maxTurns: this.maxTurns });
+    }
   }
 
   /** "test timed out after 10m. 1 Retry · 2 Fix it anyway · 3 Allow more time" — Esc stops without a repair. */
