@@ -72,9 +72,10 @@ changes. Usage errors exit 64. See [docs/SCRIPTING.md](docs/SCRIPTING.md).
 
 After the model edits files, Casper itself runs the project's configured checks
 (typecheck, lint, test, build) and repairs failures within a bounded budget, whatever
-tool the model used. Interactive sessions do this once the checks are known to take
-under a minute (until then the receipt suggests `/verify`); `--verify` does it for a
-one-shot prompt and `--no-verify` turns it off. `verification.mode` in
+tool the model used. It does this by default, from the first change, in interactive sessions
+and one-shot prompts alike, with no command from you; an interactive session offers slow checks
+(a minute or more) as `/verify` instead of running them after every change. `--no-verify`
+turns checking off for a run. `verification.mode` in
 `.casper/project.yaml` sets `auto`, `offer` or `off` explicitly. A check executes that
 repository's configured command. This is execution consent, not sandboxing — use it
 only in trusted projects, or start with `--no-verify`. Each task ends with a plain receipt:

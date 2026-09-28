@@ -831,19 +831,20 @@ test("auto mode with changes but no configured checks is incomplete (exit 2); ca
   expect(second.prompts).toHaveLength(1);
 });
 
-test("unconfigured interactive sessions offer checks until Casper has timed them under 60 s, then run them automatically", async () => {
+test("unconfigured sessions check the first change themselves, with no command, interactive and one-shot alike", async () => {
   const root = await fixture({ verify: { test: command } });
   const { app } = createApp(root, async () => { await writeFile(path.join(root, "src/value"), "good\n"); }, "default");
   // Behaves as the interactive prompt loop would; no terminal is driven here.
   app.interactive = true;
-  expect(await app.runOnce("Fix the value", root)).toBeUndefined();
-  expect(app.getLastTaskResult()?.verificationMode).toBe("offer");
-  expect(await Bun.file(path.join(root, "test-runs")).exists()).toBe(false);
-  expect((await app.runOnce("/verify test", root))?.status).toBe("pass");
-  await writeFile(path.join(root, "src/value"), "bad\n");
   expect((await app.runOnce("Fix the value", root))?.status).toBe("pass");
   expect(app.getLastTaskResult()?.verificationMode).toBe("auto");
-  expect(await readFile(path.join(root, "test-runs"), "utf8")).toBe("xx");
+  expect(await readFile(path.join(root, "test-runs"), "utf8")).toBe("x");
+
+  const oneShot = await fixture({ verify: { test: command } });
+  const { app: script } = createApp(oneShot, async () => { await writeFile(path.join(oneShot, "src/value"), "good\n"); }, "default");
+  expect((await script.runOnce("Fix the value", oneShot))?.status).toBe("pass");
+  expect(script.getLastTaskResult()?.verificationMode).toBe("auto");
+  expect(await readFile(path.join(oneShot, "test-runs"), "utf8")).toBe("x");
 });
 
 test("the task ends with the plain receipt; /receipt and verbose output keep the detailed evidence", async () => {

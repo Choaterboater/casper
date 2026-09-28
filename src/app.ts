@@ -836,7 +836,8 @@ export class CasperApp {
       this.lastTaskResult = { execution, verification, ...observations, ...(browser?.checks.length ? { browser } : {}),
         ...(services.length ? { services } : {}),
         // Smoke checks ran even without a configured command, so "no checks" no longer describes the task.
-        verificationMode, ...(autoChecks?.skipped && !verification?.smoke ? { autoSkipped: autoChecks.skipped } : {}),
+        verificationMode, ...(!flag && !configured && verificationMode === "auto" ? { verificationDefaulted: true as const } : {}),
+        ...(autoChecks?.skipped && !verification?.smoke ? { autoSkipped: autoChecks.skipped } : {}),
         ...(this.taskTurnLimit !== undefined ? { turnLimit: this.taskTurnLimit } : {}), ...(proof ? { proof } : {}), ...(review ? { review } : {}),
         ...(acceptance ? { acceptance } : {}), ...(checklist ? { checklist } : {}) };
       if (!this.closing) {

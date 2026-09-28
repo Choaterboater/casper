@@ -466,7 +466,7 @@ describe("Phase 8 bounded subagents", () => {
     await expect(app.runOnce("/delegate reviewer")).rejects.toThrow("Usage:");
     expect(parent.starts).toBe(0);
     await app.runOnce("Find the entry point");
-    expect(parent.tools.map((tool) => tool.name)).toEqual(["delegate", "ask"]);
+    expect(parent.tools.map((tool) => tool.name)).toEqual(["delegate", "ask", "casper_check"]);
     const result = await parent.tools[0]!.execute({ role: "reviewer", goal: "inspect" });
     expect(result.isError).toBe(true);
     await expect(app.runOnce("/delegate reviewer inspect")).rejects.toThrow("Delegation failed");

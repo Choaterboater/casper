@@ -10,18 +10,23 @@ of what changed and what was verified. Whether it does so depends on the **verif
 | `off` | No managed checks during tasks. `/verify` still works. |
 
 ```bash
-casper                               # interactive: auto once checks are known to be fast, else offer
-casper --verify "Fix the login flow" # auto for this run
+casper                               # interactive: auto, or offer once checks are known to be slow
+casper "Fix the login flow"          # one-shot: auto
+casper --verify "Fix the login flow" # auto for this run, even if configured otherwise
 casper --no-verify                   # off for this run
 casper "/verify"                     # all configured checks, no model
 casper "/verify typecheck test"      # selected checks, in this order
 casper "/verify repair test"         # start the model only if a check fails
 ```
 
-**Choosing the mode.** A flag wins for its run, then `verification.mode`, then the surface default.
-Unconfigured interactive sessions use `auto` once Casper has timed the selected checks under
-60 seconds in total (any `/verify` or managed check run records the timing, per project and exact
-command), and `offer` until then. Unconfigured one-shot prompts use `off`; pass `--verify`.
+**Choosing the mode.** A flag wins for its run, then `verification.mode`, then the default: Casper
+checks its own work. Unconfigured sessions use `auto`, so the first change runs the checks with no
+command from the user. An interactive session switches to `offer` once Casper has timed the selected
+checks at 60 seconds or more in total (every check run records the timing, per project and exact
+command), so a slow suite does not run after every change. Unconfigured one-shot prompts always use
+`auto` (they cannot be offered anything); `--no-verify` turns checking off. When checking is only the
+default and the project has no checks, a change is `not_verified` but exits 0; with `--verify` or
+`verification.mode: auto` it exits 2.
 Embedders pass `CasperApp({ verificationMode })`; `autoVerify: true|false` is shorthand for
 `offer`/`off`.
 
