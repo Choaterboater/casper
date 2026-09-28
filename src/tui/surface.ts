@@ -122,6 +122,9 @@ export class TerminalSurface {
   private spinnerTimer?: NodeJS.Timeout;
   /** When the current busy/activity stretch began; drives the footer's elapsed timer. */
   private activeSince?: number;
+  /** Time the work spent waiting on the user, left out of the footer's elapsed time. */
+  private waitedMs = 0;
+  private waitStart?: number;
   /** Component shown in place of the editor while a picker is mounted. */
   private slot?: Component;
   /** Raw input is on loan to a line-oriented flow; the surface keeps rendering. */
@@ -268,7 +271,7 @@ export class TerminalSurface {
     // A transient note replaces the status line so it is never truncated away; elapsed time
     // rides on the status line so a long-running request is measurable at a glance.
     const elapsed = active && this.activeSince !== undefined && !this.note
-      ? this.muted(` · ${formatElapsed(Date.now() - this.activeSince)}`) : "";
+      ? this.muted(` · ${formatElapsed(Date.now() - this.activeSince - this.waitedMs)}`) : "";
     // The stages lead, so a narrow window truncates the project and model details, not the progress.
     const rail = active && this.steps && !this.note ? `${this.steps}${elapsed ? this.muted(elapsed) : ""}${this.muted(" │ ")}` : "";
     const text = this.note ? this.accent(this.note) : rail ? rail + this.muted(this.status || "Casper") : this.muted(this.status || "Casper · / for commands") + elapsed;
@@ -281,7 +284,10 @@ private updateSpinner(): void {
     const working = (this.busy || this.activity !== undefined) && !this.closed;
     const active = working && !this.waiting;
     if (working) this.activeSince ??= Date.now();
-    else this.activeSince = undefined;
+    else { this.activeSince = undefined; this.waitedMs = 0; this.waitStart = undefined; }
+    // The timer pauses while a question waits for the user.
+    if (working && this.waiting) this.waitStart ??= Date.now();
+    else if (this.waitStart !== undefined) { this.waitedMs += Date.now() - this.waitStart; this.waitStart = undefined; }
     if (active && this.spinnerTimer === undefined) {
       this.spinnerTimer = setInterval(() => {
         this.spinnerFrame = (this.spinnerFrame + 1) % SPINNER_FRAMES.length;
