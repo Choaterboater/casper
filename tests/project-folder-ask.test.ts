@@ -175,6 +175,8 @@ test("folder selection rejects sibling paths that only share the home prefix", a
     harness.input.write("../home-other\r");
     await harness.until(text => Bun.stripANSI(text).includes("../home-other is outside your home directory"));
     await harness.until(text => new RegExp(`\\bproject\\s+${path.basename(home)}\\b`).test(Bun.stripANSI(text)));
+    // Enter while Casper is still starting keeps /exit as a draft; wait until it reads commands.
+    await harness.until(text => Bun.stripANSI(text).includes("idle"));
   } finally {
     harness.input.write("/exit\r");
     await interactive;
