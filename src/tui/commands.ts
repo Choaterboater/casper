@@ -14,6 +14,7 @@ export const COMMANDS: SlashCommand[] = [
   { name: "diff", description: "Inspect current workspace changes" },
   { name: "output", description: "Full retained output of a recent tool call (/output [n])" },
   { name: "verify", description: "Run repository verification checks" },
+  { name: "receipt", description: "Evidence behind the last task's receipt" },
   { name: "project", description: "Inspect project stack, configuration and checks" },
   { name: "skills", description: "Inspect skill metadata, trust and warnings" },
   { name: "mcp", description: "Inspect MCP status; connect or disconnect a server" },

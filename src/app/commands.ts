@@ -28,6 +28,7 @@ import { renderProjectSummary } from "../tui/banner";
 import { LifecycleRegistry } from "./lifecycle";
 import type { VisualizationRouter } from "../visualize/router";
 import type { RuntimeAuthProvider, RuntimeSession, RuntimeTool, AgentRuntime } from "../runtime/types";
+import { describeChecksPlan, type ChecksPlan } from "../verify/mode";
 import type { TaskObservations } from "../task/observations";
 import { formatTaskResult, type TaskResult } from "../task/result";
 import type { SessionWorkspaceManager } from "../sessions/manager";
@@ -48,6 +49,8 @@ export interface CommandHost {
   readonly subagents: SubagentManager;
   readonly lifecycle: LifecycleRegistry;
   readonly session?: RuntimeSession;
+  /** The mode and checks this session uses after a change (shared with the banner and tasks). */
+  checksPlan(context: ProjectContext): Promise<ChecksPlan>;
   /** The provider of the last successful /login, preferred when Casper picks a first model. */
   loginProvider?: RuntimeAuthProvider;
   readonly observations: TaskObservations;
@@ -257,7 +260,8 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       host.output.write(` debugger  ${host.debugSession?.status().state ?? "idle"}; explicit local DAP (/debug)\n`);
       const usage = host.session?.getUsage?.();
       host.output.write(` context   ${usage?.context?.percent == null ? "—" : `${usage.context.percent.toFixed(1)}%~`} · ${usage?.tokens.total ?? "—"} session tokens (/context, /usage)\n`);
-      host.output.write(" policy    native coding tools enabled; not sandboxed (/permissions)\n verify    explicit scoped checks only; completion is not verification (/verify)\n");
+      host.output.write(" policy    native coding tools enabled; not sandboxed (/permissions)\n");
+      host.output.write(` checks    ${describeChecksPlan(await host.checksPlan(host.projectContext!))}\n`);
       host.output.write(` visualize ${host.visualization!.providerNames().join(", ")} (/visualize)\n`);
       host.output.write(" memory    explicit facts and local task summaries (/memory)\n references read-only local sources (/references)\n");
       return;
