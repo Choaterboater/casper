@@ -61,6 +61,8 @@ export class InteractiveTerminal {
   setActivity(status?: string): void { this.surface?.setActivity(status); }
   /** The current task's stages ("checklist ✓ · building"), shown first in the footer while work runs. */
   setSteps(steps?: string): void { this.surface?.setSteps(steps); }
+  /** How long a request must run before its end or a question rings the terminal bell (default 10 s). */
+  setAttentionAfter(ms: number): void { this.surface?.setAttentionAfter(ms); }
   /** Rich terminal only. Shift+Tab cycles effort; plain line input has no equivalent key. */
   setEffortCycle(handler: (() => void) | undefined): void { this.surface?.setEffortCycle(handler); }
   flashNote(text: string): void { this.surface?.flashNote(text); }
