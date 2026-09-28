@@ -11,6 +11,9 @@ export interface RuntimeTool {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
+  /** Run one at a time: the tool asks the human or drives shared state, so parallel calls would
+   * clash. Pi then runs every call in that batch in order, so keep this off read-only tools. */
+  sequential?: boolean;
   execute(args: Record<string, unknown>, signal?: AbortSignal, context?: RuntimeToolContext): Promise<{ text: string; isError?: boolean }>;
 }
 

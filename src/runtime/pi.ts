@@ -558,6 +558,7 @@ export class PiRuntime implements AgentRuntime {
           label: tool.name,
           description: tool.description,
           parameters: Type.Unsafe<Record<string, unknown>>(tool.inputSchema),
+          ...(tool.sequential ? { executionMode: "sequential" as const } : {}),
           execute: async (_id, args, signal) => {
             const result = await tool.execute(args, signal, { withFileLocks });
             if (result.isError) throw new Error(result.text);
