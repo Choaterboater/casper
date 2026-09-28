@@ -2,6 +2,7 @@ import { constants } from "node:fs";
 import { copyFile, lstat, mkdir, mkdtemp, readdir, readlink, rm, symlink } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { parentsStayInside } from "../platform/files";
 import type { ProjectCommand } from "../project/model";
 import type { TreeChanges } from "../task/changes";
 import { runCommandCheck } from "./command";
@@ -144,6 +145,7 @@ export class ChangeBaseline {
       const linkDependencies = async (tree: string, links: readonly string[]) => {
         for (const relative of links) {
           const target = path.join(options.root, relative);
+          if (!await parentsStayInside(tree, relative)) continue;
           if (await lstat(target).then((stats) => stats.isDirectory(), () => false)) {
             await rm(path.join(tree, relative), { recursive: true, force: true });
             await mkdir(path.dirname(path.join(tree, relative)), { recursive: true });
@@ -157,6 +159,8 @@ export class ChangeBaseline {
       for (const relative of tests) {
         const from = path.join(options.root, relative);
         const to = path.join(without, relative);
+        // A folder the change turned into a link must not carry the copy's edits outside it.
+        if (!await parentsStayInside(without, relative)) continue;
         await rm(to, { recursive: true, force: true });
         const stats = await lstat(from).catch(() => undefined);
         if (!stats) continue;
