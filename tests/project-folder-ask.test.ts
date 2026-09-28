@@ -219,6 +219,8 @@ test("launching from a folder of projects asks which one to open; a project or a
     expect(visible).toContain("3 repo-b");
     harness.input.write("3");
     await harness.until(text => /\bproject\s+repo-b\b/.test(Bun.stripANSI(text)));
+    // The question's record keeps the choice.
+    expect(Bun.stripANSI(harness.output())).toContain("✓ repo-b");
     await harness.until(text => Bun.stripANSI(text).includes("idle"));
   } finally {
     harness.input.write("/exit\r");

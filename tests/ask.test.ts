@@ -283,7 +283,7 @@ test("an asked question is recorded on its own line, not appended to the running
     await screen.until(() => screen.output.split(REPAINT).length > repaints && lastFrame(screen.output).some(line => line.includes("ask — completed")));
     const frame = lastFrame(screen.output);
     const running = frame.findIndex(line => line.startsWith("• ask — running"));
-    expect(frame.slice(running, running + 6)).toEqual(["• ask — running", "Which database?", "• SQLite  file-based", "• Postgres", "[ask] SQLite", expect.stringMatching(/^✓ ask — completed/)]);
+    expect(frame.slice(running, running + 6)).toEqual(["• ask — running", "Which database?", "✓ SQLite  file-based", "• Postgres", "[ask] SQLite", expect.stringMatching(/^✓ ask — completed/)]);
   } finally {
     input.write("/exit\r");
     await interactive;
@@ -364,4 +364,25 @@ test("an under-specified modify request carries the clarification hint, others d
   expect(targeted).not.toContain("under-specified");
   const inspection = formatTaskPrompt("find the largest module", { intent: "inspect", mode: "read", verification: [] }, model);
   expect(inspection).not.toContain("under-specified");
+});
+
+test("an answered question's record shows the choice: a ✓ on the option, → a typed answer, or skipped", async () => {
+  const { interactiveTerminal } = await import("./support/tty");
+  process.env.TERM = "xterm-256color";
+  const session = interactiveTerminal();
+  try {
+    session.terminal.start();
+    const typed = session.terminal.ask("Name?", [{ label: "Ann" }, { label: "Bo" }], false);
+    await session.screen.until(output => output.includes("Name?"));
+    session.input.write("Cy\r");
+    expect(await typed).toEqual(["Cy"]);
+    const skipped = session.terminal.ask("Colour?", [{ label: "Red" }, { label: "Blue" }], false);
+    await session.screen.until(output => output.includes("Colour?"));
+    session.input.write("\x1b");
+    expect(await skipped).toBeUndefined();
+    await session.screen.until(output => Bun.stripANSI(output).includes("(skipped)"));
+    const text = Bun.stripANSI(session.screen.output);
+    expect(text).toContain("→ Cy");
+    expect(text).toContain("• Red");
+  } finally { session.close(); }
 });
