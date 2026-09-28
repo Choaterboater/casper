@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { diffSnapshots, snapshotTree } from "../src/task/changes";
@@ -127,4 +127,30 @@ test("the baseline and every comparison copy are removed", async () => {
 test("a workspace over the copy limits cannot be captured", async () => {
   const root = await project({ "a.txt": "a", "b.txt": "b", "c.txt": "c" });
   await expect(ChangeBaseline.capture(root, { fileLimit: 2 })).rejects.toThrow("more than 2 files");
+});
+
+test("a change that swaps a test folder for a link outside the project never lets the proof step delete or write there", async () => {
+  const outside = await mkdtemp(path.join(os.tmpdir(), "casper-proof-outside-"));
+  cleanup.push(() => rm(outside, { recursive: true, force: true }));
+  await write(outside, { "keep.test.js": "precious\n", "a.test.js": "precious too\n" });
+  const proof = await prove({ "src/code.js": "old\n", "tests/a/keep.test.js": "x\n", "tests/a/a.test.js": "x\n", "tests/check.sh": "grep -q new src/code.js\n" }, async (root) => {
+    await rm(path.join(root, "tests/a"), { recursive: true, force: true });
+    await symlink(outside, path.join(root, "tests/a"), "dir");
+    await write(root, { "src/code.js": "new\n" });
+  }, "sh tests/check.sh");
+  expect(proof).toBeDefined();
+  expect((await readdir(outside)).sort()).toEqual(["a.test.js", "keep.test.js"]);
+});
+
+test("a test file added under a folder the model turned into a link is not written through it", async () => {
+  const outside = await mkdtemp(path.join(os.tmpdir(), "casper-proof-outside-"));
+  cleanup.push(() => rm(outside, { recursive: true, force: true }));
+  const proof = await prove({ "src/code.js": "old\n", "tests/check.sh": "grep -q new src/code.js\n", "tests/unit/.keep": "" }, async (root) => {
+    await rm(path.join(root, "tests/unit"), { recursive: true, force: true });
+    await symlink(outside, path.join(root, "tests/unit"), "dir");
+    await write(outside, { "new.test.js": "planted\n" });
+    await write(root, { "src/code.js": "new\n" });
+  }, "sh tests/check.sh");
+  expect(proof).toBeDefined();
+  expect((await readdir(outside)).sort()).toEqual(["new.test.js"]);
 });
