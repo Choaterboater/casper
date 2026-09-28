@@ -187,11 +187,11 @@ export class VerificationTask {
     };
   }
 
-  run(names: readonly ProjectCommand[], signal?: AbortSignal, options: { moreTime?: boolean } = {}): Promise<VerificationResult[]> {
+  run(names: readonly ProjectCommand[], signal?: AbortSignal, options: { moreTime?: number } = {}): Promise<VerificationResult[]> {
     return this.enqueue(() => this.runChecks(names, signal, options));
   }
 
-  private async runChecks(names: readonly ProjectCommand[], signal?: AbortSignal, options: { moreTime?: boolean } = {}): Promise<VerificationResult[]> {
+  private async runChecks(names: readonly ProjectCommand[], signal?: AbortSignal, options: { moreTime?: number } = {}): Promise<VerificationResult[]> {
     const combined = signal ? AbortSignal.any([signal, this.signal]) : this.signal;
     const round: VerificationResult[] = [];
     for (const name of new Set(names)) {
@@ -205,7 +205,7 @@ export class VerificationTask {
       if (before.fingerprint && cached?.status === "pass" && cached.freshness === "fresh" && cached.workspaceState === before.fingerprint) {
         result = { ...cached, reused: true };
       } else {
-        const [executed] = await this.registry.run([name], { signal: combined, ...(options.moreTime ? { moreTime: true } : {}) });
+        const [executed] = await this.registry.run([name], { signal: combined, ...(options.moreTime ? { moreTime: options.moreTime } : {}) });
         if (!executed) break;
         const after = await workspaceState(this.cwd, scope, combined);
         const sameWorkspace = executed.cwd === this.cwd;
