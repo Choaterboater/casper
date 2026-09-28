@@ -72,7 +72,8 @@ import type { VisualizationProvider } from "./visualize/types";
 import { SessionWorkspaceManager, type ReturnAction } from "./sessions/manager";
 import { runLogin, runSlashCommand, type OutputWriter } from "./app/commands";
 import { UsageError } from "./cli-args";
-import { checkEvent, phaseEvent, RuntimeEventMapper, sessionStartEvent, type CasperEvent } from "./app/json-events";
+import { checkEvent, phaseEvent, RuntimeEventMapper, sessionStartEvent, type CasperEvent, type PhaseEvent } from "./app/json-events";
+import { StepRail } from "./app/steps";
 import { CASPER_VERSION } from "./version";
 
 export type { OutputWriter } from "./app/commands";
@@ -121,6 +122,8 @@ const LOGIN_PROVIDERS = ["openai-codex", "github-copilot", "anthropic", "openrou
 export class CasperApp {
   /** The provider of the last successful /login, preferred when Casper picks a first model. */
   loginProvider?: RuntimeAuthProvider;
+  /** The current task's stages for the footer. */
+  private readonly steps = new StepRail();
   private readonly runtimeFactory: () => AgentRuntime | Promise<AgentRuntime>;
   readonly subagents: SubagentManager;
   readonly inspectProjectFn: (cwd: string) => Promise<ProjectInfo>;
@@ -739,6 +742,7 @@ export class CasperApp {
     const session = await this.ensureRuntime();
     if (this.closing || this.commandAbort?.signal.aborted) return;
     if (!await this.ensureModel(session)) return;
+    this.clearSteps();
     const workspaceRoot = this.activeWorkspaceRoot();
     // Receipts describe the tree, not tool names: a read-only shell run is not a write.
     const before = await this.snapshotWorkspace(workspaceRoot, this.commandAbort?.signal);
@@ -780,7 +784,7 @@ export class CasperApp {
     const classifications = () => { try { return session.getUsage?.().effortClassification?.requests ?? 0; } catch { return undefined; } };
     const classifiedBefore = classifications();
     try {
-      this.onEvent?.(phaseEvent("task", "start"));
+      this.phase("task", "start");
       await session.prompt([
         memoryContext,
         skillContext,
@@ -788,7 +792,7 @@ export class CasperApp {
           reviewFollows: context.verification.review === true, afterContext: Boolean(memoryContext || skillContext) }),
         checklist ? formatChecklistPrompt(checklist) : "",
       ].filter(Boolean).join("\n\n"), this.commandAbort?.signal, { request: prompt, maxTurns: this.maxTurns });
-      this.onEvent?.(phaseEvent("task", "end"));
+      this.phase("task", "end");
       // Repair, review and proof rounds follow the change.
       edits.turnEnded = true;
       afterModel = before && !this.closing ? await this.snapshotWorkspace(workspaceRoot) : undefined;
@@ -866,6 +870,7 @@ export class CasperApp {
           if (observations.changedPaths?.length || observations.changedDuringChecks?.length) this.output.write(await this.diffStat());
         }
       }
+      this.clearSteps();
       await this.recordTaskOutcome({ task: prompt, skills: selected.map(({ skill }) => skill.id),
         modelStatus: execution, verification });
     }
@@ -876,7 +881,7 @@ export class CasperApp {
    * user may edit them first; Casper prints them and the task prompt asks for one test per case. Its
    * usage joins the task's. A failed call is one line on the transcript and the task goes on without a checklist. */
   private async makeChecklist(complete: NonNullable<RuntimeSession["complete"]>, request: string): Promise<string[] | undefined> {
-    this.onEvent?.(phaseEvent("checklist", "start"));
+    this.phase("checklist", "start");
     let result: { cases: string[]; dropped: number } | { error: string };
     try {
       const made = await extractChecklist({ complete, request, signal: this.commandAbort?.signal });
@@ -886,7 +891,7 @@ export class CasperApp {
       // The call may have reached the provider: its usage is unknown.
       this.observations.recordUntrackedModelUse();
       result = { error: `the checklist call failed: ${error instanceof Error ? error.message : String(error)}` };
-    } finally { this.onEvent?.(phaseEvent("checklist", "end")); }
+    } finally { this.phase("checklist", "end"); }
     if (this.closing || this.commandAbort?.signal.aborted) return undefined;
     this.events.ensureLineBreak();
     if ("error" in result) {
@@ -926,7 +931,7 @@ export class CasperApp {
     if (!now) return { status: "error", reason: "Casper could not compare the workspace", mode };
     this.events.ensureLineBreak();
     this.output.write("… Casper checking the change against tests written from the request alone\n");
-    this.onEvent?.(phaseEvent("acceptance", "start"));
+    this.phase("acceptance", "start");
     try {
       const { usage, ...result } = await independentAcceptance({ complete, request: input.request, root: input.root, changes: diffSnapshots(input.before, now),
         files: now, testCommand: input.command, timeoutMs: this.projectContext!.verification.timeoutMs, signal: this.commandAbort?.signal });
@@ -937,7 +942,7 @@ export class CasperApp {
       // The call may have reached the provider: its usage is unknown.
       this.observations.recordUntrackedModelUse();
       return { status: "error", reason: `the acceptance check failed: ${error instanceof Error ? error.message : String(error)}`, mode };
-    } finally { this.onEvent?.(phaseEvent("acceptance", "end")); }
+    } finally { this.phase("acceptance", "end"); }
   }
 
   /** After the checks pass on a fix or feature: with verification.review: true, one requirements-review
@@ -958,13 +963,13 @@ export class CasperApp {
     const initialReview = input.initialReview;
     if (context.verification.review !== true) {
       if (verification.status !== "pass" || stopped()) return { verification, review: initialReview };
-      this.onEvent?.(phaseEvent("proof", "start"));
+      this.phase("proof", "start");
       const result = await this.proveChange({ ...input, verification });
-      this.onEvent?.(phaseEvent("proof", "end"));
+      this.phase("proof", "end");
       return { ...result, review: initialReview };
     }
     this.events.ensureLineBreak();
-    this.onEvent?.(phaseEvent("review", "start"));
+    this.phase("review", "start");
     this.output.write("↻ review: checking the work against every requirement\n");
     this.lastAnswer = "";
     const unreviewed = await this.snapshotWorkspace(input.root);
@@ -980,11 +985,11 @@ export class CasperApp {
       const reviewed = await this.runVerification(input.checks, true, input.request, this.checkTask, Math.max(0, max - verification.repairAttempts));
       verification = { ...reviewed, repairAttempts: verification.repairAttempts + reviewed.repairAttempts };
     }
-    this.onEvent?.(phaseEvent("review", "end"));
+    this.phase("review", "end");
     if (verification.status !== "pass" || stopped()) return { verification, review };
-    this.onEvent?.(phaseEvent("proof", "start"));
+    this.phase("proof", "start");
     const result = await this.proveChange({ ...input, verification });
-    this.onEvent?.(phaseEvent("proof", "end"));
+    this.phase("proof", "end");
     return { ...result, review };
   }
 
@@ -1071,7 +1076,7 @@ export class CasperApp {
     this.verificationAbort = controller;
     this.verificationTask = evidence;
     this.events.ensureLineBreak();
-    this.onEvent?.(phaseEvent("checks", "start"));
+    this.phase("checks", "start");
     try {
       this.verificationWork = verifyAndRepair({
         task: evidence,
@@ -1085,7 +1090,9 @@ export class CasperApp {
           await this.prepareCapabilities(request);
           const session = await this.ensureRuntime();
           if (!controller.signal.aborted) {
-            await session.prompt(prompt, controller.signal, { request, maxTurns: this.maxTurns });
+            this.phase("repair", "start");
+            try { await session.prompt(prompt, controller.signal, { request, maxTurns: this.maxTurns }); }
+            finally { this.phase("repair", "end"); }
             if (this.taskRuntimeFailed && !this.taskRuntimeCancelled) throw new Error("Repair model stopped unsuccessfully; changes retained.");
           }
         } : undefined,
@@ -1102,13 +1109,25 @@ export class CasperApp {
       else if (!task) this.output.write(`${formatReceipt({ execution: "completed", verification: report }, { surface: this.receiptSurface() })}\n`);
       return report;
     } finally {
-      this.onEvent?.(phaseEvent("checks", "end"));
-      if (!task) await evidence.close();
+      this.phase("checks", "end");
+      if (!task) { await evidence.close(); this.clearSteps(); }
       this.commandAbort?.signal.removeEventListener("abort", cancel);
       this.verificationTask = undefined;
       this.verificationAbort = undefined;
       this.verificationWork = undefined;
     }
+  }
+
+  /** A stage of the work starts or ends: a JSON phase event for scripts, and the footer's step rail. */
+  private phase(phase: PhaseEvent["phase"], state: PhaseEvent["state"]): void {
+    this.onEvent?.(phaseEvent(phase, state));
+    this.steps.update(phase, state);
+    this.terminal.setSteps(this.steps.text());
+  }
+
+  private clearSteps(): void {
+    this.steps.clear();
+    this.terminal.setSteps(undefined);
   }
 
   /** The mode and checks this session uses after a change; the banner, /status and every task share it. */
@@ -1175,12 +1194,12 @@ export class CasperApp {
   /** One smoke run against fresh services, timed as the `smoke` phase. Cancellation is reported by the loop. */
   private smokeRun(smoke: SmokeChecks): (signal: AbortSignal) => Promise<SmokeReport> {
     return async (signal) => {
-      this.onEvent?.(phaseEvent("smoke", "start"));
+      this.phase("smoke", "start");
       try { return await smoke.run(signal); }
       catch (error) {
         if (signal.aborted) return { status: "incomplete", checks: [] };
         throw error;
-      } finally { this.onEvent?.(phaseEvent("smoke", "end")); }
+      } finally { this.phase("smoke", "end"); }
     };
   }
 
