@@ -182,7 +182,7 @@ jobs:
 `set -o pipefail` makes the step fail with Casper's exit code rather than `jq`'s. Provider API keys
 such as `OPENROUTER_API_KEY` are read from the environment. The flags on this page are newer than
 v0.1.0: they ship in v0.2.13 and later, so pin the installer to v0.2.13 or newer. A check runs
-the repository's own configured commands: that is execution consent, not sandboxing, so run it
-only on code you trust. Configure the checks in `.casper/project.yaml` (see
+the repository's own configured commands without asking, and they are not sandboxed, so run
+Casper only on code you trust (or pass `--no-verify`). Configure the checks in `.casper/project.yaml` (see
 [VERIFICATION.md](VERIFICATION.md)); `--require-verification` then fails the job when Casper
 could not prove the change.

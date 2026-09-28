@@ -42,8 +42,11 @@ changes nobody verified, still exit 0 and the receipt says "Not verified". Add
 `--require-verification` (which implies `--verify`) to make those exit 3. See
 [SCRIPTING.md](SCRIPTING.md) for the full table and `--json` events.
 
-`--verify`, `verification.mode: auto` and `/verify` are **explicit execution consent, not
-sandboxing or persisted repository trust**. Use them only in repositories whose commands you trust.
+Casper runs the repository's own check commands. That is **not sandboxing or persisted repository
+trust**, and it is not a separate yes/no: `auto` is the default, so asking for a change in a repository
+runs its test, lint and build commands (and a repository's `.casper/project.yaml` can itself choose
+`auto`). For a repository whose commands you do not trust, start Casper with `--no-verify`; a flag
+wins over every configuration file.
 Repair also authorizes model edits. **Native bash is unchanged:** a model's bash run of a check is
 reported but never counted as verification.
 

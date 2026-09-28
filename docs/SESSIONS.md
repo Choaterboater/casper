@@ -60,7 +60,7 @@ Worktrees are not created for ordinary edits. They are created only for an expli
 - Candidate capture includes tracked, deleted, executable-mode, binary, and untracked files through a temporary Git index. The repository index is not modified. Ignored candidate files cannot be represented by the exact patch, so automatic return refuses and preserves the worktree until they are manually preserved or removed. Existing ignored files in main do not invalidate applied-diff comparison and are left untouched.
 - Reviewed return patches are limited to 512 KiB and 200 changed files. Larger candidates remain intact for manual review/application. Terminal control/bidirectional characters are escaped in the preview; the displayed SHA-256 identifies the original patch bytes.
 - Candidate and applied-main SHA-256 identities must match. Candidate changes during approval prevent removal.
-- Apply never commits or pushes. Existing `git.commit`/`git.push` remain `neverUnlessRequested`; `git.confirmDestructive` remains mandatory.
+- Apply never commits or pushes. The `git.commit`/`git.push` policy (`neverUnlessRequested` by default) and "ask before destructive operations" are instructions in the model's prompt, not blocks: the model's bash can still run `git commit`, `git push` or `rm`.
 - A dirty/advanced main workspace prevents apply; both workspaces are preserved for manual recovery.
 - Branch/switch/worktree consent is process-local. Project files cannot answer approval prompts.
 - Pi's native shell/filesystem tools are not sandboxed. Worktrees isolate file state; they are not a security boundary.

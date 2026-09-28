@@ -81,9 +81,9 @@ tool the model used. It does this by default, from the first change, in interact
 and one-shot prompts alike, with no command from you; an interactive session offers slow checks
 (a minute or more) as `/verify` instead of running them after every change. `--no-verify`
 turns checking off for a run. `verification.mode` in
-`.casper/project.yaml` sets `auto`, `offer` or `off` explicitly. A check executes that
-repository's configured command. This is execution consent, not sandboxing — use it
-only in trusted projects, or start with `--no-verify`. Each task ends with a plain receipt:
+`.casper/project.yaml` sets `auto`, `offer` or `off` explicitly. A check runs that
+repository's configured command without asking first, and it is not sandboxed — use Casper
+this way only in trusted projects, or start with `--no-verify`. Each task ends with a plain receipt:
 
 ```text
 ✓ Verified — the checks pass, and the tests fail without the change
