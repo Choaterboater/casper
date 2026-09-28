@@ -136,7 +136,8 @@ test("the startup banner names a saved default model instead of saying no model 
   const home = path.join(root, "home"); const project = path.join(root, "project");
   await Promise.all([mkdir(path.join(home, ".casper"), { recursive: true }), mkdir(project)]);
   await writeFile(path.join(home, ".casper", "settings.json"), JSON.stringify({ defaultProvider: "fixture", defaultModel: "first", defaultThinkingLevel: "high" }));
-  const env = cleanEnv({ HOME: home, CASPER_PROFILE: "default" });
+  // Windows resolves the home directory from USERPROFILE, not HOME.
+  const env = cleanEnv({ HOME: home, USERPROFILE: home, CASPER_PROFILE: "default" });
   for (const args of [[], ["/exit"]]) {
     const child = Bun.spawn([process.execPath, path.resolve(import.meta.dir, "../src/cli.ts"), ...args], {
       cwd: project, env, stdin: new Blob(["/exit\n"]), stdout: "pipe", stderr: "pipe",
