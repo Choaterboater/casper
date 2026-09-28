@@ -102,6 +102,27 @@ function redactSmoke(smoke: SmokeReport): SmokeReport {
   return copy;
 }
 
+/** Proof output is the failing test run's tail and may echo env or tokens; redact a copy, never the evidence. */
+function redactProof(proof: ChangeProof): ChangeProof {
+  const copy = structuredClone(proof);
+  if (copy.status === "unavailable") copy.reason = redactPreview(copy.reason);
+  else {
+    if (copy.without.reason) copy.without.reason = redactPreview(copy.without.reason);
+    if (copy.without.output) copy.without.output = redactPreview(copy.without.output);
+  }
+  return copy;
+}
+
+/** Review items quote the model's answer, which may quote code or config with secrets in it. */
+function redactReview(review: RequirementsReview): RequirementsReview {
+  const copy = structuredClone(review);
+  for (const key of ["done", "fixed", "open"] as const) {
+    const items = (copy as Record<string, unknown>)[key];
+    if (Array.isArray(items)) (copy as Record<string, unknown>)[key] = items.map((item) => redactPreview(String(item)));
+  }
+  return copy;
+}
+
 /** Exactly one per one-shot run: what changed, what Casper proved, and the exit code it implies. */
 export function receiptEvent(report: VerificationReport | undefined, task: TaskResult | undefined, exitCode: number): ReceiptEvent {
   const verification = task?.verification ?? report;
@@ -119,8 +140,8 @@ export function receiptEvent(report: VerificationReport | undefined, task: TaskR
     repairAttempts: verification?.repairAttempts ?? 0,
     turnLimit: task?.turnLimit ?? null,
     usage: task?.usage ? { ...task.usage } : null,
-    proof: task?.proof ? structuredClone(task.proof) : null,
-    review: task?.review ? structuredClone(task.review) : null,
+    proof: task?.proof ? redactProof(task.proof) : null,
+    review: task?.review ? redactReview(task.review) : null,
     acceptance: task?.acceptance ? { ...task.acceptance, ...(task.acceptance.output !== undefined ? { output: redactPreview(task.acceptance.output) } : {}),
       ...(task.acceptance.unconfirmed ? { unconfirmed: task.acceptance.unconfirmed.map(redactPreview) } : {}) } : null,
     checklist: task?.checklist ? task.checklist.map(redactPreview) : null,
