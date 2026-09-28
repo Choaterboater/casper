@@ -1177,13 +1177,17 @@ export class CasperApp {
 
   /** "test timed out after 10m. 1 Retry · 2 Fix it anyway · 3 Allow more time" — Esc stops without a repair. */
   private async askUnfinished(unfinished: VerificationResult[], timeoutMs: number, signal: AbortSignal): Promise<UnfinishedChoice | undefined> {
+    // The limit the run actually had: after "Allow more time" it is the doubled one, not the configured one.
+    const limit = (result: VerificationResult) => Number(/^Timed out after (\d+)ms$/.exec(result.reason ?? "")?.[1] ?? timeoutMs);
     const what = unfinished.map((result) => result.ended === "timeout"
-      ? `${result.name} timed out after ${formatDuration(timeoutMs)}` : `${result.name} could not start`).join(", ");
-    const timedOut = unfinished.some((result) => result.ended === "timeout");
+      ? `${result.name} timed out after ${formatDuration(limit(result))}` : `${result.name} could not start`).join(", ");
+    const longer = Math.min(timeoutMs * 2, 3_600_000);
+    // More time is offered only while it is more than the run just had.
+    const moreTime = unfinished.some((result) => result.ended === "timeout" && limit(result) < longer);
     const options: Array<{ label: string; description: string; choice: UnfinishedChoice }> = [
       { label: "Retry", description: "run it again as it is", choice: "retry" },
       { label: "Fix it anyway", description: "ask the model to fix it (uses tokens)", choice: "repair" },
-      ...(timedOut && timeoutMs < 3_600_000 ? [{ label: "Allow more time", description: `run it once with ${formatDuration(Math.min(timeoutMs * 2, 3_600_000))}`, choice: "more-time" as const }] : []),
+      ...(moreTime ? [{ label: "Allow more time", description: `run it once with ${formatDuration(longer)}`, choice: "more-time" as const }] : []),
     ];
     this.events.ensureLineBreak();
     const answer = await this.terminal.ask(`${what}. Casper did not try to fix it. What now?`,

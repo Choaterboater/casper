@@ -149,6 +149,11 @@ test("in the terminal, a timed-out check asks what to do instead of starting a p
     expect(visible).toContain("1 Retry");
     expect(visible).toContain("2 Fix it anyway");
     expect(visible).toContain("3 Allow more time");
+    // More time: the second run has double the limit, and the question says so without offering more again.
+    input.write("3");
+    const second = (output: string) => { const text = Bun.stripANSI(output); return text.slice(text.lastIndexOf("test timed out after 0.6s")); };
+    await screen.until((output) => Bun.stripANSI(output).includes("test timed out after 0.6s") && second(output).includes("2 Fix it anyway"));
+    expect(second(screen.output)).not.toContain("Allow more time");
     input.write("\x1b");
     // Wait for idle after the receipt: /exit typed while the task is still finishing is kept as a draft.
     await screen.until((output) => { const text = Bun.stripANSI(output); const receipt = text.lastIndexOf("✗ Failed — test timed out");

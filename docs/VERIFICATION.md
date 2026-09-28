@@ -90,8 +90,9 @@ The lines below the verdict give the evidence:
 A check that timed out or could not start did not fail as a test, so Casper never repairs it on its
 own: repair costs model tokens and cannot fix a slow suite or a missing tool. In an interactive terminal
 Casper asks `test timed out after 10m. Casper did not try to fix it. What now?` with `1 Retry`,
-`2 Fix it anyway` and `3 Allow more time` (one run at double the limit, at most one hour); Esc stops.
-It asks at most three times per task. Scripts and one-shot runs report the check and repair only real
+`2 Fix it anyway` and `3 Allow more time` (one run at double the limit, at most one hour; not offered
+again once a run had it); Esc stops. It asks at most three times per round of checks (the review
+round, when on, is a second round). Scripts and one-shot runs report the check and repair only real
 test failures. A command that could not start is not saved as a check timing.
 
 A pass marked `reused` did not run again: its declared inputs are unchanged since it passed earlier in
