@@ -21,6 +21,8 @@ export interface CheckEvent {
   recordedBy: "casper" | "casper_check";
   /** A fresh earlier pass was reused instead of rerunning the command. */
   reused: boolean;
+  /** Present only when the check did not finish as a test run: "timeout" or "no_start". */
+  ended?: "timeout" | "no_start";
 }
 
 export interface PhaseEvent {
@@ -91,7 +93,7 @@ export function phaseEvent(phase: PhaseEvent["phase"], state: PhaseEvent["state"
 
 export function checkEvent(result: VerificationResult, recordedBy: CheckEvent["recordedBy"]): CheckEvent {
   return { type: "check", name: result.name, command: result.command ?? null, status: result.status, exit: result.exitCode,
-    ms: Math.round(result.durationMs), recordedBy, reused: result.reused === true };
+    ms: Math.round(result.durationMs), recordedBy, reused: result.reused === true, ...(result.ended ? { ended: result.ended } : {}) };
 }
 
 /** Service responses and logs may echo env or tokens: like other previews, they are redacted before script output. */

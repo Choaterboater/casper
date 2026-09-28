@@ -71,6 +71,8 @@ The lines below the verdict give the evidence:
 ✓ test passed (npm run test, 0.3s)
 ✓ test passed earlier in this task, reused (npm run test, 0.3s)
 ✗ test failed (exit 1) — log above; /verify repair test to fix
+✗ test timed out after 10m — it did not finish, so Casper did not try to fix it; /verify test to run it again
+✗ lint could not start (exit 127) — check verify.lint in .casper/project.yaml
 • Not verified — test ran via bash only (npm test: passed). Run /verify test to record a check.
 • Not verified — no checks configured. Add verify.test to .casper/project.yaml.
 • Not verified — stale: files changed after the last passing test. Run /verify test.
