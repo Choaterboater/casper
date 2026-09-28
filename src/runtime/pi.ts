@@ -1,4 +1,4 @@
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
 import { lstat, realpath } from "node:fs/promises";
 import path from "node:path";
 import { READ_ONLY_STATE_CONFLICT } from "./types";
@@ -22,7 +22,7 @@ import type {
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { nativeEditPath, observationInput, observationOutput, patchLineCounts, type ToolObservationInput } from "./observation";
+import { nativeEditPath, observationInput, observationOutput, patchLineCounts, writeLineCounts, type ToolObservationInput } from "./observation";
 import type {
   AgentRuntime,
   RuntimeAuthenticationOptions,
@@ -68,6 +68,7 @@ class PiToolController {
 class PiRuntimeSession implements RuntimeSession {
   private readonly listeners = new Set<RuntimeEventListener>();
   private readonly toolInputs = new Map<string, ToolObservationInput>();
+  private readonly writes = new Map<string, { before: string | undefined | null; after: string }>();
   private unsubscribePi?: () => void;
   private promptActive = false;
   private progressChars = 0;
@@ -313,6 +314,7 @@ class PiRuntimeSession implements RuntimeSession {
   private bind(session: AgentSession): void {
     this.unsubscribePi?.();
     this.toolInputs.clear();
+    this.writes.clear();
     this.unsubscribePi = session.subscribe((event) => {
       switch (event.type) {
         case "message_start":
@@ -348,13 +350,21 @@ class PiRuntimeSession implements RuntimeSession {
           const input = observationInput(event.args);
           if (["edit", "write"].includes(event.toolName) && input.path !== undefined) input.path = nativeEditPath(input.path);
           if (this.toolInputs.size < 64) this.toolInputs.set(event.toolCallId, input);
+          // A write reports no diff: keep the old text (small files only) to count +N -M when it ends.
+          const content = event.toolName === "write" ? Reflect.get(Object(event.args), "content") : undefined;
+          if (typeof content === "string" && input.path !== undefined && this.writes.size < 64) {
+            this.writes.set(event.toolCallId, { before: readSmallText(path.resolve(this.runtime.cwd, input.path)), after: content });
+          }
           this.emit({ type: "tool_start", toolName: event.toolName, toolCallId: event.toolCallId, input });
           break;
         }
         case "tool_execution_end": {
           const input = this.toolInputs.get(event.toolCallId);
           this.toolInputs.delete(event.toolCallId);
-          const lines = event.toolName === "edit" && !event.isError ? patchLineCounts(event.result) : undefined;
+          const write = this.writes.get(event.toolCallId);
+          this.writes.delete(event.toolCallId);
+          const lines = event.isError ? undefined : event.toolName === "edit" ? patchLineCounts(event.result)
+            : write && write.before !== null ? writeLineCounts(write.before, write.after) : undefined;
           this.emit({ type: "tool_end", toolName: event.toolName, toolCallId: event.toolCallId, input, output: event.toolName === "bash" || event.isError ? observationOutput(event.result) : undefined,
             isError: event.isError, ...(lines ? { lines } : {}) });
           break;
@@ -660,4 +670,13 @@ export class PiRuntime implements AgentRuntime {
     this.runtime = undefined;
     await runtime?.dispose();
   }
+}
+
+/** A file's text for a +N -M count: undefined when absent (a new file), null when unreadable or over 1 MiB. */
+function readSmallText(file: string): string | undefined | null {
+  try {
+    const stats = lstatSync(file);
+    if (!stats.isFile() || stats.size > 1024 * 1024) return null;
+    return readFileSync(file, "utf8");
+  } catch (error) { return (error as NodeJS.ErrnoException).code === "ENOENT" ? undefined : null; }
 }

@@ -342,6 +342,31 @@ try {
   expect(busy).toBe(false);
 }, 15_000);
 
+test("real Pi's write reports its size: a rewrite counts changed lines, a new file counts all", async () => {
+  let step = 0;
+  const f = await fixture(() => step++ === 0
+    ? calls([{ name: "write", args: { path: "fixture.txt", content: "LOCAL_EVIDENCE_8\nnew line\n" } }, { name: "write", args: { path: "fresh.txt", content: "one\ntwo\nthree\n" } }])
+    : answer("Done"));
+  const harness = path.join(f.agent, "write-size.ts");
+  await writeFile(harness, `import { PiRuntime } from ${JSON.stringify(path.join(import.meta.dir, "../src/runtime/pi.ts"))};
+const runtime = new PiRuntime();
+const ends = [];
+try {
+  const session = await runtime.start({ cwd: process.cwd() });
+  session.subscribe((event) => { if (event.type === "tool_end") ends.push({ path: event.input?.path, lines: event.lines }); });
+  await session.prompt("Write both.");
+  console.log("RESULT=" + JSON.stringify(ends));
+} finally { await runtime.dispose(); }
+`);
+  const result = await f.run([harness]);
+  expect({ exit: result.exit, stderr: result.stderr }).toEqual({ exit: 0, stderr: "" });
+  const ends: Array<{ path: string; lines?: { added: number; removed: number } }> = JSON.parse(result.stdout.split("RESULT=")[1]!);
+  expect(ends.sort((a, b) => a.path.localeCompare(b.path))).toEqual([
+    { path: "fixture.txt", lines: { added: 1, removed: 0 } },
+    { path: "fresh.txt", lines: { added: 3, removed: 0 } },
+  ]);
+}, 15_000);
+
 for (const sequential of [false, true]) test(`real Pi runs a batch ${sequential ? "one call at a time when a tool is marked sequential" : "in parallel by default"}`, async () => {
   let step = 0;
   const f = await fixture(() => step++ === 0
