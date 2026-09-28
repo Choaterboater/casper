@@ -32,7 +32,7 @@ import {
   loadProjectContext,
   type ProjectContext,
 } from "./project/context";
-import { findProjectCandidates, inspectProject, type ProjectInfo } from "./project/inspect";
+import { findProjectCandidates, hasProjectSignals, inspectProject, type ProjectInfo } from "./project/inspect";
 import type {
   AgentRuntime,
   RuntimeAuthProvider,
@@ -358,25 +358,36 @@ export class CasperApp {
     return this.handlePrompt(prompt.trim());
   }
 
-  /** Interactive startup from the home directory asks which project folder to open — a launch
-   * from ~ silently made the whole home directory the workspace (banner "project <user>"), and
-   * tasks then scanned all of it. A typed path is validated; Esc/empty keeps the home folder.
-   * Without a rich surface the question cannot render, so the launch folder is stated plainly. */
+  /** Interactive startup from the home directory, or from a folder that only holds projects (not a
+   * project itself and not inside a git repository), asks which project to open — a launch from ~
+   * silently made the whole home directory the workspace, and tasks then scanned all of it. A typed
+   * path is validated and must stay inside the launch folder; Esc/empty keeps it. Without a rich
+   * surface the question cannot render, so the launch folder is stated plainly. */
   private async openProjectFolder(cwd: string): Promise<string> {
     const home = this.sessionHomeDir ?? os.homedir();
-    if (path.resolve(cwd) !== path.resolve(home)) return cwd;
+    const fromHome = path.resolve(cwd) === path.resolve(home);
+    let candidates: string[] | undefined;
+    if (!fromHome) {
+      if (await hasProjectSignals(cwd) || (await inspectProject(cwd)).isGit) return cwd;
+      candidates = await findProjectCandidates(cwd, { homeDir: home });
+      if (!candidates.length) return cwd;
+    }
     if (!this.terminal.rich) {
       // The CLI takes no folder argument (`casper <path>` is a prompt), so only restarting works.
-      this.output.write(`[folder] Opened in your home directory; restart from a project folder: cd ~/Projects/myapp && casper\n`);
+      this.output.write(fromHome ? `[folder] Opened in your home directory; restart from a project folder: cd ~/Projects/myapp && casper\n`
+        : `[folder] This folder holds several projects; restart from one of them: cd ${terminalText(path.relative(cwd, candidates![0]!))} && casper\n`);
       return cwd;
     }
-    const candidates = await findProjectCandidates(cwd, { homeDir: home });
-    const folderLabel = (folder: string) => folder === home ? "~" : `~${folder.slice(home.length)}`;
+    candidates ??= await findProjectCandidates(cwd, { homeDir: home });
+    const base = fromHome ? home : cwd;
+    const folderLabel = (folder: string) => fromHome
+      ? folder === home ? "~" : `~${folder.slice(home.length)}`
+      : folder === cwd ? "." : path.relative(cwd, folder);
     const byLabel = new Map<string, string>(candidates.map(candidate => [folderLabel(candidate), candidate]));
     const answer = await this.terminal.ask(
-      "Opened from your home folder. Work in which project?",
+      fromHome ? "Opened from your home folder. Work in which project?" : "This folder holds several projects. Work in which one?",
       [
-        { label: folderLabel(cwd), description: "stay in the home folder" },
+        { label: folderLabel(cwd), description: fromHome ? "stay in the home folder" : ` stay in ${path.basename(cwd)}` },
         ...candidates.slice(0, 6).map(candidate => ({ label: folderLabel(candidate) })),
       ],
       false,
@@ -384,11 +395,9 @@ export class CasperApp {
     const choice = answer?.[0]?.trim();
     if (!choice) return cwd; // Esc, empty, or the plain-line fallback keeps the launch folder.
     const resolved = byLabel.get(choice) ?? path.resolve(cwd, choice.replace(/^~(?=\/|$)/, home));
-    const resolvedHome = path.resolve(home);
-    const resolvedChoice = path.resolve(resolved);
-    const homeRelative = path.relative(resolvedHome, resolvedChoice);
-    if (homeRelative === ".." || homeRelative.startsWith(`..${path.sep}`) || path.isAbsolute(homeRelative)) {
-      this.output.write(`[folder] ${terminalText(choice)} is outside your home directory; staying in ${folderLabel(cwd)}.\n`);
+    const relative = path.relative(path.resolve(base), path.resolve(resolved));
+    if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+      this.output.write(`[folder] ${terminalText(choice)} is outside ${fromHome ? "your home directory" : "the folder you opened"}; staying in ${folderLabel(cwd)}.\n`);
       return cwd;
     }
     try {
