@@ -287,12 +287,12 @@ try {
   expect(await readFile(path.join(f.project, "changed.txt"), "utf8")).toBe("EDIT_BODY_NOT_AN_OBSERVATION");
 }, 15_000);
 
-for (const mode of ["default", "explicit", "cancel"]) posixOnly(`real Pi releases a stuck shell and remains usable (${mode})`, async () => {
+for (const mode of ["default", "explicit", "cancel", "absurd"]) posixOnly(`real Pi releases a stuck shell and remains usable (${mode})`, async () => {
   let step = 0;
   const f = await fixture(() => {
     if (step++ === 0) return calls([{ name: "bash", args: {
       command: "printf BEFORE_WAIT; sleep 5; printf SHOULD_NOT_FINISH",
-      ...(mode === "explicit" ? { timeout: 0.1 } : {}),
+      ...(mode === "explicit" ? { timeout: 0.1 } : mode === "absurd" ? { timeout: 86_400 } : {}),
     } }]);
     return answer("Recovered");
   });
@@ -303,7 +303,8 @@ const events = [];
 const schedule = globalThis.setTimeout;
 // Accelerate the production deadline only in this isolated process. The actual
 // native shell, descendant termination, streaming, and provider loop still run.
-globalThis.setTimeout = (callback, ms, ...args) => schedule(callback, ${JSON.stringify(mode)} === "default" && ms === 120_000 ? 100 : ms, ...args);
+// "absurd": a day-long timeout is capped at one hour, which is accelerated the same way.
+globalThis.setTimeout = (callback, ms, ...args) => schedule(callback, (${JSON.stringify(mode)} === "default" && ms === 120_000) || (${JSON.stringify(mode)} === "absurd" && ms === 3_600_000) ? 100 : ms, ...args);
 try {
   const session = await runtime.start({ cwd: process.cwd() });
   const controller = new AbortController();
