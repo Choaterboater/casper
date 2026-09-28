@@ -52,6 +52,9 @@ MCP servers (user and profile config) start in your home folder unless their `cw
 and a project server's review names each variable it sends and where (`sends $TOKEN to
 https://example.com (header Authorization)`).
 
+**Git safety:** the model's bash may not run `git stash`, `git reset --hard`, `git checkout --`,
+`git restore`, `git switch -f` or `git clean`, which can set aside or discard your uncommitted work.
+
 **Docs:** git commit/push policy and "ask before destructive operations" are described as what
 they are, instructions in the model's prompt, and auto checks as running the repository's
 commands without asking (`--no-verify` opts out for a run).

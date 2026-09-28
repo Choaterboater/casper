@@ -103,6 +103,7 @@ export function formatProjectContext(context: ProjectContext): string {
     `- git commit: ${gitRule(policy.git.commit)}`,
     `- git push: ${gitRule(policy.git.push)}`,
     "- destructive operations (deleting files, git reset, force-push): ask the user first",
+    "- never set aside or discard uncommitted work: git stash, reset --hard, checkout --, restore and clean are blocked",
     `- isolate parallel agents: ${policy.workspace.isolateWhen.parallelAgents}`,
     `- isolate risky refactors: ${policy.workspace.isolateWhen.riskyRefactor}`,
     `- isolate experimental branches: ${policy.workspace.isolateWhen.experimentalBranch}`,
