@@ -393,9 +393,10 @@ export class CasperApp {
     const byLabel = new Map<string, string>(candidates.map(candidate => [folderLabel(candidate), candidate]));
     const answer = await this.terminal.ask(
       fromHome ? "Opened from your home folder. Work in which project?" : "This folder holds several projects. Work in which one?",
+      // The projects lead, so Enter opens the first; staying put is the last choice.
       [
-        { label: folderLabel(cwd), description: fromHome ? "stay in the home folder" : ` stay in ${path.basename(cwd)}` },
         ...candidates.slice(0, 6).map(candidate => ({ label: folderLabel(candidate) })),
+        { label: folderLabel(cwd), description: fromHome ? "stay in the home folder" : ` stay in ${path.basename(cwd)}` },
       ],
       false,
     );

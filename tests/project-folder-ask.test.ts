@@ -128,8 +128,7 @@ test("launching from the home folder asks which project to open and opens the ch
   const interactive = harness.app.runInteractive(home);
   try {
     await harness.until(text => Bun.stripANSI(text).includes("Work in which project?"));
-    // Arrow down to the detected candidate and confirm it.
-    harness.input.write("\x1b[B");
+    // The detected project is first, so Enter opens it.
     harness.input.write("\r");
     await harness.until(text => /\bproject\s+MyApp\b/.test(Bun.stripANSI(text)));
     await harness.until(text => Bun.stripANSI(text).includes("idle"));
@@ -214,10 +213,10 @@ test("launching from a folder of projects asks which one to open; a project or a
   try {
     await harness.until(text => Bun.stripANSI(text).includes("This folder holds several projects. Work in which one?"));
     const visible = Bun.stripANSI(harness.output());
-    expect(visible).toContain("1 .  stay in work");
-    expect(visible).toContain("2 repo-a");
-    expect(visible).toContain("3 repo-b");
-    harness.input.write("3");
+    expect(visible).toContain("3 .  stay in work");
+    expect(visible).toContain("1 repo-a");
+    expect(visible).toContain("2 repo-b");
+    harness.input.write("2");
     await harness.until(text => /\bproject\s+repo-b\b/.test(Bun.stripANSI(text)));
     // The question's record keeps the choice.
     expect(Bun.stripANSI(harness.output())).toContain("✓ repo-b");
