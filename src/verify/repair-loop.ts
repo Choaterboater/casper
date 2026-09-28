@@ -48,6 +48,9 @@ export type VerificationOptions = ({ registry: VerifierRegistry; task?: never } 
    * on its own. The host may ask the user: run it again, give it more time, or repair it anyway.
    * Undefined (no way to ask, or skipped) repairs only the real failures. Asked at most three times. */
   onUnfinished?: (checks: VerificationResult[], signal: AbortSignal) => Promise<UnfinishedChoice | undefined>;
+  /** Called once, before the first repair of real failures: false leaves them as they are (for example
+   * a check that was already failing before the change, when the user says to leave it). */
+  beforeRepair?: (failures: VerificationResult[], signal: AbortSignal) => Promise<boolean>;
   /** Runs the task's smoke checks against fresh services; called once the command checks pass. */
   smoke?: (signal: AbortSignal) => Promise<SmokeReport>;
 };
@@ -131,6 +134,11 @@ export async function verifyAndRepair(options: VerificationOptions): Promise<Ver
       // Say so rather than let the pending smoke checks vanish from the receipt.
       return failures.length && options.smoke ? { ...ended, smokeSkipped: "command checks failed" } : ended;
     }
+    if (!repairAttempts && repairable.length && options.beforeRepair && !await options.beforeRepair(repairable, signal)) {
+      if (signal.aborted) return report("blocked", "Verification cancelled.");
+      return report("fail", `${repairable.map((result) => result.name).join(", ")} was already failing before this change; Casper left it as it is.`);
+    }
+    if (signal.aborted) return report("blocked", "Verification cancelled.");
     repairAttempts++;
     options.onRepair?.(repairAttempts, maxAttempts);
     const prompt = [

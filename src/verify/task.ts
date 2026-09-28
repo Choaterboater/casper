@@ -139,6 +139,8 @@ export class VerificationTask {
 
   get checks(): ProjectCommand[] { return [...this.latest.keys()]; }
   get signal(): AbortSignal { return this.controller.signal; }
+  /** A longer limit the user gave this check, if any. */
+  limit(name: ProjectCommand): number | undefined { return this.limits.get(name); }
   abort(): void { this.controller.abort(); }
   async close(): Promise<void> { this.closed = true; this.abort(); await this.pending; }
 

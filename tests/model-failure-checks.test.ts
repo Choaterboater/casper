@@ -157,3 +157,53 @@ test("in the terminal, a second provider failure asks whether to retry or stop",
     await rm(root, { recursive: true, force: true });
   }
 }, 30_000);
+
+test("a check that was already failing before the change is named as such; in the terminal Casper asks before repairing it", async () => {
+  const { PassThrough } = await import("node:stream");
+  const { fakeWriter } = await import("./support/tty");
+  process.env.TERM = "xterm-256color";
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-preexisting-"));
+  const home = path.join(root, "home"); const project = path.join(root, "project");
+  await mkdir(home); await mkdir(path.join(project, ".casper"), { recursive: true });
+  await writeFile(path.join(project, "calc.py"), "def add(a, b):\n    return a - b\n");
+  await writeFile(path.join(project, ".casper/project.yaml"), `verify:\n  test: ${JSON.stringify(checkCommand("exit:1"))}\nverification:\n  mode: auto\n`);
+  let prompts = 0;
+  const runtime: AgentRuntime = {
+    async start() {
+      return {
+        getStatus: () => ({ provider: "fixture", model: "demo", auth: "configured" }),
+        getState: () => ({ cwd: project, isStreaming: false }),
+        subscribe: () => () => {}, abort: async () => {}, setTools: () => {},
+        prompt: async () => { prompts++; await writeFile(path.join(project, "calc.py"), `def add(a, b):\n    return a + b  # ${prompts}\n`); },
+      };
+    },
+    async dispose() {},
+  };
+  const input = Object.assign(new PassThrough(), { isTTY: true, setRawMode() {} });
+  const screen = fakeWriter();
+  const app = new CasperApp({
+    input, output: screen.writer, runtimeFactory: () => runtime, sessionHomeDir: home,
+    loadProjectContext: (info) => loadProjectContext(info, { homeDir: home }),
+    loadSkillRegistry: (context) => SkillRegistry.discover({ projectRoot: context.info.root, homeDir: home }),
+    loadMCPConfiguration: async () => ({ servers: [], diagnostics: [] }),
+    loadLSPConfiguration: async () => ({ servers: [], diagnostics: [] }),
+    loadReferenceConfiguration: async () => ({ sources: [], diagnostics: [] }),
+  });
+  const interactive = app.runInteractive(project);
+  try {
+    await screen.until((output) => output.includes("idle"));
+    input.write("fix the add function\r");
+    await screen.until((output) => Bun.stripANSI(output).includes("test was already failing before this change. Fix it anyway?"));
+    expect(Bun.stripANSI(screen.output)).toContain("• test was already failing before this change (Casper ran it on the files from before)");
+    input.write("2");
+    await screen.until((output) => { const text = Bun.stripANSI(output); const at = text.lastIndexOf("✗ Failed — test failed"); return at >= 0 && text.lastIndexOf("idle") > at; });
+    expect(prompts).toBe(1);
+    expect(app.getLastTaskResult()?.verification?.repairAttempts).toBe(0);
+  } finally {
+    input.write("/exit\r");
+    await interactive;
+    await app.close();
+    input.destroy();
+    await rm(root, { recursive: true, force: true });
+  }
+}, 30_000);
