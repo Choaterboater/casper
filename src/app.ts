@@ -1228,8 +1228,9 @@ export class CasperApp {
     for (let attempt = 1; ; attempt++) {
       const error = this.events.lastError ?? "";
       if (!this.taskRuntimeFailed || this.taskRuntimeCancelled || this.closing || this.commandAbort?.signal.aborted || this.taskTurnLimit !== undefined) return;
-      if (/auth|credential|api.?key|unauthori[sz]ed|forbidden|\b40[13]\b|quota|billing|context|too long|not found|no model/i.test(error)) return;
-      // Pi already retried what it counts as transient, within the user's retry budget: never go past it.
+      // Only a provider that answered with nothing; Pi already retried what it counts as transient,
+      // within the user's retry budget, so never go past that.
+      if (!/empty (?:response|completion|message|content)|no (?:content|response|output) (?:was )?returned|returned no (?:content|output)/i.test(error)) return;
       if (isRetryableAssistantError({ stopReason: "error", errorMessage: error } as Parameters<typeof isRetryableAssistantError>[0])) return;
       let retry = attempt === 1;
       if (!retry && this.interactive && this.terminal.rich && attempt <= 4) {
