@@ -79,3 +79,19 @@ export function patchLineCounts(result: unknown): { added: number; removed: numb
   }
   return { added, removed };
 }
+
+/** +N -M for a whole-file write: lines of the new text not in the old, and old lines not kept (each line
+ * matched once, order ignored). Pi's write tool reports no diff, so Casper compares the texts itself. */
+export function writeLineCounts(before: string | undefined, after: string): { added: number; removed: number } {
+  const split = (text: string) => text === "" ? [] : text.replace(/\r?\n$/, "").split(/\r?\n/);
+  const old = new Map<string, number>();
+  for (const line of split(before ?? "")) old.set(line, (old.get(line) ?? 0) + 1);
+  let added = 0;
+  for (const line of split(after)) {
+    const left = old.get(line) ?? 0;
+    if (left) old.set(line, left - 1); else added++;
+  }
+  let removed = 0;
+  for (const left of old.values()) removed += left;
+  return { added, removed };
+}

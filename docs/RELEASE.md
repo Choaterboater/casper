@@ -24,7 +24,7 @@ question or the checklist waits for you, the footer says `? waiting for you` ins
 repair) and the receipt says how they fared and suggests another model.
 
 **Watching it work:** the footer shows the task's stages (`checklist ✓ · building ✓ · checks ·
-1m05s`); each check prints one line as it finishes; the edit line shows its size (`+18 -4`); a
+1m05s`); each check prints one line as it finishes; edit and write lines show their size (`+18 -4`); a
 bell rings when a request that ran 10 seconds or more finishes or needs you (rich terminal only).
 Question choices show numbers, and pressing a number picks it. The banner and `/status` say which
 checks run after a change, and `/receipt` is in the command list. Shift+Tab remembers the effort
