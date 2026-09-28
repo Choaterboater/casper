@@ -20,6 +20,9 @@ to a paid repair. The terminal asks: 1 Retry · 2 Fix it anyway · 3 Allow more 
 limit each time, at most one hour), and the receipt says `✗ Not checked`, not `✗ Failed`. While a
 question or the checklist waits for you, the footer says `? waiting for you` instead of spinning.
 
+**Model errors:** when the model fails after editing, Casper still runs the checks on its edits (no
+repair) and the receipt says how they fared and suggests another model.
+
 **Watching it work:** the footer shows the task's stages (`checklist ✓ · building ✓ · checks ·
 1m05s`); each check prints one line as it finishes; the edit line shows its size (`+18 -4`); a
 bell rings when a request that ran 10 seconds or more finishes or needs you (rich terminal only).

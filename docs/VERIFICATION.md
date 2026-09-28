@@ -65,6 +65,11 @@ Line 1 is the verdict, one of:
 ✗ Stopped — cancelled; changes already made are kept
 ```
 
+When the model run fails after it edited files (a provider error, for example), Casper still runs the
+checks on those edits, without a repair, and the verdict says how they fared (`✗ Failed — the model run
+failed; changes already made are kept; the checks pass on those changes`), followed by a `• Next:` line
+to try another model.
+
 `Verified` means the checks passed on the final files and a test fails without the change (ADR 0001).
 The JSON `outcome` and the exit code do not change with the verdict: a change whose checks pass but
 that was not proven still has the outcome `verified`, and the JSON receipt's `proofSkipped` says why.

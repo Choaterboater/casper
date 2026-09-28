@@ -797,7 +797,19 @@ export class CasperApp {
       edits.turnEnded = true;
       afterModel = before && !this.closing ? await this.snapshotWorkspace(workspaceRoot) : undefined;
       // A request cut short by --max-turns is unfinished work: checking it would only start repairs.
-      const stopped = this.closing || this.commandAbort?.signal.aborted || this.taskRuntimeFailed || this.checkTask?.signal.aborted || this.taskTurnLimit !== undefined;
+      const cancelled = this.closing || this.commandAbort?.signal.aborted || this.taskRuntimeCancelled || this.checkTask?.signal.aborted || this.taskTurnLimit !== undefined;
+      const stopped = cancelled || this.taskRuntimeFailed;
+      // The model errored after editing: its edits are kept, so check them (no repair: the model just failed).
+      if (!cancelled && this.taskRuntimeFailed && this.checkTask && verificationMode === "auto") {
+        const edited = before && afterModel ? flatten(diffSnapshots(before, afterModel)) : undefined;
+        const failedChecks = edited?.length ? planAutoChecks({ selected: context.verification.checks, commands: context.model.commands,
+          scopes: context.model.verificationScopes, changedPaths: edited }).run : [];
+        if (failedChecks.length) {
+          this.events.ensureLineBreak();
+          this.output.write(`… Casper checking the edits the model made before it failed: ${failedChecks.join(", ")}\n`);
+          verification = await this.runVerification(failedChecks, false, prompt, this.checkTask);
+        }
+      }
       if (!stopped && this.checkTask && verificationMode === "auto") {
         autoChecks = planAutoChecks({
           selected: context.verification.checks, commands: context.model.commands, scopes: context.model.verificationScopes,

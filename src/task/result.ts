@@ -237,7 +237,14 @@ function withVerdict(task: TaskResult, body: string[], options: ReceiptOptions):
     case "cancelled":
       lines = ["✗ Stopped — cancelled; changes already made are kept", ...body]; break;
     case "failed":
-      if (task.execution === "failed") lines = ["✗ Failed — the model run failed; changes already made are kept", ...body];
+      if (task.execution === "failed") {
+        // Casper checked the edits the model left: say how they fared, then what to do next.
+        const checked = !report?.results.length ? "" : failedChecks.length ? `; on those changes ${failedChecks.join(", ")}` : "; the checks pass on those changes";
+        const next = task.changedPaths?.length || task.possibleMutations
+          ? `• Next: ${options.surface === "one-shot" ? "casper --model <provider/id> \"…\" to try another model" : "/model to try another model, then ask again"}`
+          : `• Nothing was changed. ${options.surface === "one-shot" ? "casper --model <provider/id> \"…\" tries another model" : "/model picks another model"}`;
+        lines = [`✗ Failed — the model run failed; changes already made are kept${checked}`, ...body, next];
+      }
       // Only unfinished checks: the change was not tested, which is not the same as the code being wrong.
       else if (failedChecks.length && report!.results.every((result) => result.status !== "fail" || result.ended)) {
         lines = [`✗ Not checked — ${failedChecks.join(", ")}, so the change was not tested`, ...body];
