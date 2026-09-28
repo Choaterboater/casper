@@ -375,6 +375,17 @@ function checkLine(result: VerificationResult, safe: (text: string) => string, s
 
 const duration = formatDuration;
 
+/** The line shown the moment a check Casper runs finishes, before the receipt: "✓ typecheck · 5.9s". */
+export function liveCheckLine(result: VerificationResult): string {
+  const name = result.name;
+  if (result.status === "skip") return `– ${name} · skipped${result.command ? "" : ", no command"}`;
+  if (result.status === "pass") return result.reused ? `✓ ${name} · passed earlier, reused` : `✓ ${name} · ${duration(result.durationMs)}`;
+  const timeout = /^Timed out after (\d+)ms$/.exec(result.reason ?? "");
+  if (result.ended === "timeout") return `✗ ${name} · timed out${timeout ? ` after ${duration(Number(timeout[1]))}` : ""}`;
+  if (result.ended === "no_start") return `✗ ${name} · could not start${typeof result.exitCode === "number" ? ` (exit ${result.exitCode})` : ""}`;
+  return `✗ ${name} · ${typeof result.exitCode === "number" ? `exit ${result.exitCode}` : result.signal ? `stopped by ${result.signal}` : "no exit status"} · ${duration(result.durationMs)}`;
+}
+
 function pathList(paths: string[], safe: (text: string) => string, count = true): string {
   const shown = paths.slice(0, RECEIPT_PATH_LIMIT).map(safe).join(", ");
   const more = paths.length > RECEIPT_PATH_LIMIT ? ` … +${paths.length - RECEIPT_PATH_LIMIT} more` : "";
