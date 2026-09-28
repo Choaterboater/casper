@@ -35,6 +35,27 @@ test("in a git repository the snapshot lists what git sees, so an ignored .venv 
   expect(diffSnapshots(before, await snapshotTree(root, undefined, { fileLimit: 100 }))).toEqual({ added: ["src/new.py"], modified: ["src/app.py"], removed: ["notes.txt"] });
 });
 
+test("git never hides a change: an ignored project folder, a nested repository and an un-ignored .venv", async () => {
+  // Opened inside a folder the enclosing repository ignores: git lists nothing, so the folder is walked.
+  const outer = await tree({ ".gitignore": "scratch/\n", "README.md": "outer\n", "scratch/app.py": "a\n" });
+  git(outer, "init", "-q");
+  const scratch = path.join(outer, "scratch");
+  const ignored = await snapshotTree(scratch, undefined, { fileLimit: 100 });
+  expect([...ignored.keys()]).toEqual(["app.py"]);
+  await writeFile(path.join(scratch, "app.py"), "b\n");
+  expect(diffSnapshots(ignored, await snapshotTree(scratch, undefined, { fileLimit: 100 }))).toEqual({ added: [], modified: ["app.py"], removed: [] });
+
+  // A nested repository is one folder entry to git; its files are walked, its .git is not.
+  const root = await tree({ "a.txt": "a\n", "nested/x.py": "x\n", "__pycache__/a.pyc": "x" });
+  git(path.join(root, "nested"), "init", "-q");
+  git(root, "init", "-q");
+  await manyFiles(root, ".venv/lib", 300);
+  const before = await snapshotTree(root, undefined, { fileLimit: 100 });
+  expect([...before.keys()].sort()).toEqual(["a.txt", "nested/x.py"]);
+  await writeFile(path.join(root, "nested/x.py"), "y\n");
+  expect(diffSnapshots(before, await snapshotTree(root, undefined, { fileLimit: 100 }))).toEqual({ added: [], modified: ["nested/x.py"], removed: [] });
+});
+
 test("outside git, the walk skips virtual environments and Python caches", async () => {
   const root = await tree({ "app.py": "a\n", "__pycache__/app.cpython-312.pyc": "x", ".mypy_cache/x.json": "{}", ".pytest_cache/v": "" });
   await manyFiles(root, ".venv/lib", 300);

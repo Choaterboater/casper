@@ -380,8 +380,9 @@ Freshness is observed before/after each check and at report time; checks also re
 
 The list of changed files comes from git in a git work tree: tracked files plus untracked files git does
 not ignore, so an ignored `.venv` or build folder of any size never stops the receipt (an edit to an
-ignored file, such as `.env`, is not listed). Outside git, Casper walks the folder without dependency
-trees, virtual environments and caches. Either way the limit is 20,000 files.
+ignored file, such as `.env`, is not listed). A nested repository or submodule is walked, and so is a
+folder git lists nothing for (one an enclosing repository ignores). Outside git, Casper walks the folder.
+Either way dependency trees, virtual environments and caches are left out, and the limit is 20,000 files.
 
 **Declared scope is an assumption, not discovered dependency coverage.** For example, the sample above does not observe installed `node_modules`, environment variables, external tools or services. A lockfile does not prove installed dependencies are unchanged. If a check depends on excluded/unlisted inputs, changes there can go undetected: include them or leave the scope undeclared to disable reuse. Even a fresh scoped result does not certify behavior. These bounded observations are not atomic snapshots, a sandbox, or a guarantee against transient changes during commands or edits after reporting.
 
