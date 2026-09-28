@@ -35,6 +35,7 @@ import {
 import { findProjectCandidates, inspectProject, type ProjectInfo } from "./project/inspect";
 import type {
   AgentRuntime,
+  RuntimeAuthProvider,
   RuntimeSession,
   RuntimeTool,
 } from "./runtime/types";
@@ -69,7 +70,7 @@ import { assembleTaskTools } from "./app/capabilities";
 import { systemPromptAppend } from "./app/prompt";
 import type { VisualizationProvider } from "./visualize/types";
 import { SessionWorkspaceManager, type ReturnAction } from "./sessions/manager";
-import { runSlashCommand, type OutputWriter } from "./app/commands";
+import { runLogin, runSlashCommand, type OutputWriter } from "./app/commands";
 import { UsageError } from "./cli-args";
 import { checkEvent, phaseEvent, RuntimeEventMapper, sessionStartEvent, type CasperEvent } from "./app/json-events";
 import { CASPER_VERSION } from "./version";
@@ -115,7 +116,11 @@ export interface CasperAppOptions {
   autoVerify?: boolean;
 }
 
+const LOGIN_PROVIDERS = ["openai-codex", "github-copilot", "anthropic", "openrouter"] as const;
+
 export class CasperApp {
+  /** The provider of the last successful /login, preferred when Casper picks a first model. */
+  loginProvider?: RuntimeAuthProvider;
   private readonly runtimeFactory: () => AgentRuntime | Promise<AgentRuntime>;
   readonly subagents: SubagentManager;
   readonly inspectProjectFn: (cwd: string) => Promise<ProjectInfo>;
@@ -725,6 +730,7 @@ export class CasperApp {
     if (this.closing || this.commandAbort?.signal.aborted) return;
     const session = await this.ensureRuntime();
     if (this.closing || this.commandAbort?.signal.aborted) return;
+    if (!await this.ensureModel(session)) return;
     const workspaceRoot = this.activeWorkspaceRoot();
     // Receipts describe the tree, not tool names: a read-only shell run is not a write.
     const before = await this.snapshotWorkspace(workspaceRoot, this.commandAbort?.signal);
@@ -1095,6 +1101,41 @@ export class CasperApp {
       this.verificationAbort = undefined;
       this.verificationWork = undefined;
     }
+  }
+
+  /** Before a request runs: with no model, pick one for a signed-in provider, or open sign-in (then pick);
+   * with the model's credentials missing, open sign-in for that provider. Never a fake "model failed"
+   * receipt: when no model can run, the terminal says why and nothing starts; scripts get an error. */
+  private async ensureModel(session: RuntimeSession): Promise<boolean> {
+    const status = session.getStatus?.();
+    if (!status?.blocked) return true;
+    const signal = this.commandAbort?.signal;
+    const canSignIn = this.interactive && this.terminal.rich;
+    const pickDefault = async (): Promise<boolean> => {
+      const picked = await session.selectDefaultModel?.({ provider: this.loginProvider, signal }).catch(() => undefined);
+      if (!picked?.selected) return false;
+      this.output.write(`[model] Casper picked ${picked.status.provider}/${picked.status.model} for your signed-in provider and saved it as your default. Use /model to choose another.\n`);
+      this.updateFooter();
+      return true;
+    };
+    if (!status.provider) {
+      if (await pickDefault()) return true;
+      if (canSignIn && !signal?.aborted) {
+        this.output.write("[model] No model yet. Sign in to a provider to start; Esc cancels.\n");
+        if (await runLogin(this) && await pickDefault()) return true;
+      }
+    } else if (status.auth === "missing" && canSignIn && !signal?.aborted) {
+      const provider = LOGIN_PROVIDERS.find((id) => id === status.provider);
+      if (provider) {
+        this.output.write(`[model] Credentials missing for ${provider}. Sign in to continue; Esc cancels.\n`);
+        if (await runLogin(this, provider) && !session.getStatus?.().blocked) return true;
+      }
+    }
+    const blocked = session.getStatus?.().blocked;
+    if (!blocked) return true;
+    if (!this.interactive) throw new Error(blocked);
+    this.output.write(`[model] ${blocked}\n`);
+    return false;
   }
 
   /** "test timed out after 10m. 1 Retry · 2 Fix it anyway · 3 Allow more time" — Esc stops without a repair. */

@@ -146,6 +146,12 @@ class PiRuntimeSession implements RuntimeSession {
     return this.models.select(this.runtime.session, options);
   }
 
+  selectDefaultModel(options: { provider?: string; signal?: AbortSignal } = {}): Promise<RuntimeModelSelection | undefined> {
+    if (this.busy || this.models.busy) throw new Error("Wait for active work before changing models.");
+    if (this.readOnly) return Promise.resolve(undefined);
+    return this.models.selectDefaultIfUnset(this.runtime.session, options);
+  }
+
   setEffort(level: string, persist: boolean): Promise<RuntimeStatus> {
     if (this.busy || this.readOnly || this.models.busy) throw new Error("Effort cannot be changed during active work or in a read-only child.");
     return this.models.setEffort(this.runtime.session, level, persist);

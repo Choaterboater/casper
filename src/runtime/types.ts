@@ -190,6 +190,8 @@ export interface RuntimeSession {
   appendContext?(text: string): Promise<void>;
   getStatus?(): RuntimeStatus;
   selectModel?(options: RuntimeModelSelectionOptions): Promise<RuntimeModelSelection>;
+  /** Pick a default model for a signed-in provider only when no model is selected; never overrides a choice. */
+  selectDefaultModel?(options?: { provider?: string; signal?: AbortSignal }): Promise<RuntimeModelSelection | undefined>;
   getModelRoles?(): Record<string, string>;
   setModelRole?(role: string, selector?: string): Promise<Record<string, string>>;
   setEffort?(level: string, persist: boolean): Promise<RuntimeStatus>;

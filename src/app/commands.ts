@@ -27,7 +27,7 @@ import { describeVisualization } from "../visualize/tools";
 import { renderProjectSummary } from "../tui/banner";
 import { LifecycleRegistry } from "./lifecycle";
 import type { VisualizationRouter } from "../visualize/router";
-import type { RuntimeSession, RuntimeTool, AgentRuntime } from "../runtime/types";
+import type { RuntimeAuthProvider, RuntimeSession, RuntimeTool, AgentRuntime } from "../runtime/types";
 import type { TaskObservations } from "../task/observations";
 import { formatTaskResult, type TaskResult } from "../task/result";
 import type { SessionWorkspaceManager } from "../sessions/manager";
@@ -48,6 +48,8 @@ export interface CommandHost {
   readonly subagents: SubagentManager;
   readonly lifecycle: LifecycleRegistry;
   readonly session?: RuntimeSession;
+  /** The provider of the last successful /login, preferred when Casper picks a first model. */
+  loginProvider?: RuntimeAuthProvider;
   readonly observations: TaskObservations;
   readonly skillRegistry?: SkillRegistry;
   readonly projectContext?: ProjectContext;
@@ -95,23 +97,7 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       if (argument && !provider) {
         host.output.write("Usage: /login [openai-codex|github-copilot|anthropic|openrouter]\n"); return;
       }
-      const picker = host.interactive ? host.terminal.exclusiveHost() : undefined;
-      if (!picker) { host.output.write(LOGIN_HELP); return; }
-      if (host.subagents.isBusy) throw new Error("Wait for active subagents before login.");
-      try {
-        const runtime = await host.acquireRuntime();
-        host.commandAbort?.signal.throwIfAborted();
-        if (!runtime.authenticate) { host.output.write("[login] This runtime does not support login.\n"); return; }
-        const result = await runtime.authenticate({ provider,
-          terminalHost: picker, signal: host.commandAbort?.signal });
-        if (result.status === "saved") host.output.write("[login] Credential saved. Local auth refreshed; typed API keys were verified with the provider; no model call was made. Model and defaults unchanged. Use /model to choose a model.\n");
-        else if (result.status === "saved-needs-refresh") host.output.write("[login] Credential saved, but local auth needs refresh. Restart Casper; do not repeat login blindly.\n");
-        else if ("effect" in result && result.effect === "unknown") host.output.write("[login] Login ended; credential save outcome unknown. Restart and inspect local auth before retrying.\n");
-        else if (result.status === "cancelled") host.output.write("[login] Cancelled; no credential saved.\n");
-        else host.output.write(result.reason === "destination"
-          ? `[login] Unsafe credential destination${result.detail ? `: ${terminalText(result.detail)}` : ""}. Requires a private, owner-held regular file in a real directory; no permissions were repaired.\n`
-          : "[login] Login unavailable or failed. No credential saved. Disable CASPER_TUI_WRITE_LOG if set. Check provider eligibility and loopback callback availability; no automatic method fallback.\n");
-      } catch { host.output.write("[login] Login could not complete. No provider diagnostics are displayed.\n"); }
+      await runLogin(host, provider);
       return;
     }
     if (/^\/model(?:\s|$)/.test(prompt)) {
@@ -632,3 +618,37 @@ async function handleSkillsCommand(host: CommandHost, prompt: string): Promise<v
       host.output.write(`[skills] ${error instanceof Error ? error.message : String(error)}\n`);
     }
   }
+
+/** The sign-in flow behind /login, also opened by Casper itself when no model can run. After a saved
+ * credential, a model is picked only when none is set yet (never replacing a choice). True when a
+ * credential was saved and refreshed. */
+export async function runLogin(host: CommandHost, provider?: RuntimeAuthProvider): Promise<boolean> {
+  const picker = host.interactive ? host.terminal.exclusiveHost() : undefined;
+  if (!picker) { host.output.write(LOGIN_HELP); return false; }
+  if (host.subagents.isBusy) throw new Error("Wait for active subagents before login.");
+  try {
+    const runtime = await host.acquireRuntime();
+    host.commandAbort?.signal.throwIfAborted();
+    if (!runtime.authenticate) { host.output.write("[login] This runtime does not support login.\n"); return false; }
+    const result = await runtime.authenticate({ provider,
+      terminalHost: picker, signal: host.commandAbort?.signal });
+    if (result.status === "saved") {
+      // Login never starts a conversation: with none open yet, the first request picks the model.
+      host.loginProvider = provider;
+      const picked = host.session ? await host.session.selectDefaultModel?.({ provider, signal: host.commandAbort?.signal }).catch(() => undefined) : undefined;
+      if (picked?.selected) {
+        host.output.write(`[login] Credential saved and verified; no model call was made. Casper picked ${picked.status.provider}/${picked.status.model} and saved it as your default. Use /model to choose another.\n`);
+        host.updateFooter();
+      } else host.output.write(`[login] Credential saved. Local auth refreshed; typed API keys were verified with the provider; no model call was made. ${host.session
+        ? "Model and defaults unchanged. Use /model to choose a model." : "If no model is set yet, Casper picks one for this provider on your first request; /model chooses another."}\n`);
+      return true;
+    }
+    if (result.status === "saved-needs-refresh") host.output.write("[login] Credential saved, but local auth needs refresh. Restart Casper; do not repeat login blindly.\n");
+    else if ("effect" in result && result.effect === "unknown") host.output.write("[login] Login ended; credential save outcome unknown. Restart and inspect local auth before retrying.\n");
+    else if (result.status === "cancelled") host.output.write("[login] Cancelled; no credential saved.\n");
+    else host.output.write(result.reason === "destination"
+      ? `[login] Unsafe credential destination${result.detail ? `: ${terminalText(result.detail)}` : ""}. Requires a private, owner-held regular file in a real directory; no permissions were repaired.\n`
+      : "[login] Login unavailable or failed. No credential saved. Disable CASPER_TUI_WRITE_LOG if set. Check provider eligibility and loopback callback availability; no automatic method fallback.\n");
+  } catch { host.output.write("[login] Login could not complete. No provider diagnostics are displayed.\n"); }
+  return false;
+}
