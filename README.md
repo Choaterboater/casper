@@ -16,7 +16,7 @@ No Bun installation or source checkout is required.
 **Windows x64 — PowerShell:**
 
 ```powershell
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.13/install.ps1 | iex
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.14/install.ps1 | iex
 ```
 
 Then run `casper` from your project folder. If an existing terminal does not find it,
@@ -26,15 +26,15 @@ Windows ARM64 does not have a release artifact yet.
 **macOS / Linux:**
 
 ```sh
-curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.13/install.sh | sh
+curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.14/install.sh | sh
 ```
 
 The installer verifies the executable's SHA-256 and runs the staged executable's
 `--version` successfully before replacing an existing installation; a rejected
 download leaves the previous installation untouched. It needs no administrator
-access. These commands pin **v0.2.13**: re-running reinstalls that preview. For a
+access. These commands pin **v0.2.14**: re-running reinstalls that preview. For a
 newer preview, use its release URL; GitHub's `latest/download` route excludes
-prereleases. Useful `install.sh` options: `--dir <path>`, `--version 0.2.13`,
+prereleases. Useful `install.sh` options: `--dir <path>`, `--version 0.2.14`,
 `--sha256 <hex>` and `--force` (replace a development symlink that leaves the
 install directory). [Installer details](docs/RELEASE.md).
 
@@ -67,7 +67,7 @@ callback codes only in the dedicated private login prompt, never in chat.
 ```sh
 casper "Explain this project"
 casper --verify "Fix the failing tests"
-casper --version     # casper 0.2.13 (/absolute/path/of/the/binary/or/cli.ts)
+casper --version     # casper 0.2.14 (/absolute/path/of/the/binary/or/cli.ts)
 ```
 
 For scripts and CI, `--model` and `--effort` pick the model for one run without changing
