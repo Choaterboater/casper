@@ -615,7 +615,7 @@ posixOnly("one-shot CLI returns meaningful exit codes without model credentials"
   await writeFile(path.join(root, ".casper/project.yaml"), `verify:\n  build: ${JSON.stringify(checkCommand("mkdir:dist", "write:dist/output.js=built"))}\nverification:\n  scopes:\n    build:\n      inputs: [source.ts]\n`);
   const built = await run("/verify build");
   expect(built.code).toBe(0);
-  expect(built.stdout).toContain("✓ Verified by Casper: build passed (");
+  expect(built.stdout).toContain("✓ build passed (");
   const detailed = await run("/verify build", "--verbose");
   expect(detailed.stdout).toContain("inputs fresh");
   expect(detailed.stdout).toContain('scope {"inputs":["source.ts"]}');

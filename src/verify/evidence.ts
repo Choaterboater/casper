@@ -38,6 +38,14 @@ export interface VerificationReport {
   smokeSkipped?: "command checks failed";
 }
 
+/** A plain duration: "0.3s", "1m 5s", "10m". */
+export function formatDuration(ms: number): string {
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
+  const minutes = Math.floor(ms / 60_000);
+  const seconds = Math.round((ms % 60_000) / 1000);
+  return seconds ? `${minutes}m ${seconds}s` : `${minutes}m`;
+}
+
 export function verificationStatus(results: VerificationResult[]): VerificationReport["status"] {
   if (results.some((result) => result.status === "fail")) return "fail";
   if (!results.length || results.some((result) => result.status === "skip")) return "incomplete";

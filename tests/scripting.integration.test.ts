@@ -216,7 +216,7 @@ test("--max-turns stops a model that keeps working, runs no checks and exits 2",
   const result = await f.run(["--max-turns", "2", "--verify", "keep writing files"]);
   expect({ exit: result.exit, stderr: result.stderr }).toEqual({ exit: 2, stderr: "" });
   expect(f.payloads).toHaveLength(2);
-  expect(result.stdout).toContain("✗ Stopped after 2 turns (--max-turns) — changes so far are kept; casper --continue to go on");
+  expect(result.stdout).toContain("• Incomplete — stopped after 2 turns (--max-turns); changes so far are kept; casper --continue to go on");
   expect(result.stdout).toContain("✓ Changed 2 files: turn-0.txt, turn-1.txt");
   expect(result.stdout).not.toContain("Casper checking");
 }, 30_000);
@@ -261,9 +261,9 @@ test("--json streams v1 JSON Lines on stdout: session, text, tools, Casper's che
   const result = await f.run(["--json", "--verify", "--require-verification", "Fix sum.js"]);
   expect(result.exit).toBe(0);
   // The transcript and the plain receipt a person reads moved to stderr.
-  expect(result.stderr).toContain("✓ Verified by Casper: test passed");
+  expect(result.stderr).toContain("✓ test passed");
   expect(result.stdout).not.toMatch(/[\x1b\u202e]/);
-  const receiptText = "✓ Changed 1 file: sum.js\n✓ Verified by Casper: test passed (grep -q fixed sum.js, ";
+  const receiptText = "✓ Verified — the checks pass, and the tests fail without the change\n✓ Changed 1 file: sum.js\n✓ test passed (grep -q fixed sum.js, ";
   const stream = events(result.stdout, await realpath(f.project));
   const receipt = stream.at(-1);
   expect(receipt.text).toStartWith(receiptText);
@@ -295,7 +295,9 @@ test("--json streams v1 JSON Lines on stdout: session, text, tools, Casper's che
       repairAttempts: 0, turnLimit: null, usage: { turns: 3, tokens: 360, estimatedCost: "<cost>" },
       // The check fails on sum.js as it was, so it proves the fix.
       proof: { status: "proven", check: "test", command: "grep -q fixed sum.js", testsChanged: false, without: { exitCode: 1, ended: "fail" } },
-      review: { done: ["sum.js is fixed — the test check"], open: [] }, acceptance: null, checklist: null, services: [], smoke: null, text: "<receipt text>" },
+      proofSkipped: null,
+      review: { done: ["sum.js is fixed — the test check"], open: [] }, acceptance: null, checklist: null, services: [], smoke: null,
+      verdict: "✓ Verified — the checks pass, and the tests fail without the change", text: "<receipt text>" },
   ]);
 }, 30_000);
 
@@ -593,7 +595,7 @@ test("a --max-turns below the review's budget still stops the task in the review
   const receipt = events(result.stdout, "").at(-1);
   expect({ exit: result.exit, outcome: receipt.outcome, turnLimit: receipt.turnLimit, proof: receipt.proof, review: receipt.review })
     .toEqual({ exit: 2, outcome: "incomplete", turnLimit: 3, proof: null, review: null });
-  expect(receipt.text).toContain("✗ Stopped after 3 turns (--max-turns)");
+  expect(receipt.text).toContain("• Incomplete — stopped after 3 turns (--max-turns)");
 }, 60_000);
 
 test("the proof repair round has the same 12-turn budget; the proof then decides", async () => {

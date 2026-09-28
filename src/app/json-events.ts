@@ -5,7 +5,7 @@ import { redactPreview } from "../tui/format";
 import type { VerificationReport, VerificationResult } from "../verify/evidence";
 import type { ChangeProof } from "../verify/proof";
 import type { RequirementsReview } from "../task/review";
-import { formatReceipt, taskOutcome, type TaskOutcome, type TaskResult, type TaskUsage } from "../task/result";
+import { formatReceipt, receiptVerdict, taskOutcome, type TaskOutcome, type TaskResult, type TaskUsage } from "../task/result";
 
 /** Bump only for a breaking change; new event types and fields are additive within a version. */
 export const JSON_EVENTS_VERSION = 1;
@@ -46,6 +46,8 @@ export interface ReceiptEvent {
   usage: TaskUsage | null;
   /** Whether the tests fail without the change and pass with it; null when Casper did not compare. */
   proof: ChangeProof | null;
+  /** Why checks that passed on changed files did not come with a proof; null otherwise. */
+  proofSkipped: string | null;
   /** The model's requirements checklist after its review round (its own claim); null when none ran. */
   review: RequirementsReview | null;
   /** Tests written from the request alone, run against the change; null when the check did not run. */
@@ -57,6 +59,8 @@ export interface ReceiptEvent {
   /** Casper's last smoke run against fresh services; null when none ran. */
   smoke: SmokeReport | null;
   /** The plain receipt a person would read. */
+  /** Line 1 of the receipt: what the run proved, in one line. */
+  verdict: string;
   text: string;
 }
 
@@ -141,12 +145,14 @@ export function receiptEvent(report: VerificationReport | undefined, task: TaskR
     turnLimit: task?.turnLimit ?? null,
     usage: task?.usage ? { ...task.usage } : null,
     proof: task?.proof ? redactProof(task.proof) : null,
+    proofSkipped: task?.proofSkipped ?? null,
     review: task?.review ? redactReview(task.review) : null,
     acceptance: task?.acceptance ? { ...task.acceptance, ...(task.acceptance.output !== undefined ? { output: redactPreview(task.acceptance.output) } : {}),
       ...(task.acceptance.unconfirmed ? { unconfirmed: task.acceptance.unconfirmed.map(redactPreview) } : {}) } : null,
     checklist: task?.checklist ? task.checklist.map(redactPreview) : null,
     services: (task?.services ?? []).map((service) => ({ name: service.name, origin: service.origin ?? null, state: service.state })),
     smoke: verification?.smoke ? redactSmoke(verification.smoke) : null,
+    verdict: receipt ? receiptVerdict(receipt, { surface: "one-shot" }) ?? "" : "",
     text: receipt ? formatReceipt(receipt, { surface: "one-shot" }) : "",
   };
 }

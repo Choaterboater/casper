@@ -57,7 +57,7 @@ test("a user cancel prints one cancel notice and the receipt, with no [error] li
     expect(app.interrupt()).toBe(true);
     await receipt.promise;
     expect(output.match(/\[cancel\]/g)).toHaveLength(1);
-    expect(output).toContain("✗ Stopped: cancelled — changes already made are kept");
+    expect(output).toContain("✗ Stopped — cancelled; changes already made are kept");
     expect(output).not.toContain("[error]");
     input.end();
     await interactive;

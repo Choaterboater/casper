@@ -754,6 +754,7 @@ export class CasperApp {
       }
     }
     let proof: ChangeProof | undefined;
+    let proofSkipped: string | undefined;
     let review: RequirementsReview | undefined;
     let acceptance: TaskResult["acceptance"];
     let afterModel: Map<string, string> | undefined;
@@ -793,6 +794,9 @@ export class CasperApp {
           this.output.write(`… Casper checking: ${pending.join(", ")}\n`);
           verification = await this.runVerification(autoChecks.run, true, prompt, this.checkTask);
           const changedCode = Boolean(before && afterModel && changesCode(diffSnapshots(before, afterModel)));
+          if (verification.status === "pass" && !(proving && changedCode)) {
+            proofSkipped = proofSkipReason({ intent: classification.intent, testCommand, snapshot: before !== undefined, changedCode });
+          }
           if (proving && verification.status === "pass" && changedCode) {
             const initialReview = parseChecklist(this.lastAnswer);
             ({ verification, proof, review } = await this.finishChange({ baseline, baselineUnavailable, before: before!, root: workspaceRoot,
@@ -838,7 +842,7 @@ export class CasperApp {
         // Smoke checks ran even without a configured command, so "no checks" no longer describes the task.
         verificationMode, ...(!flag && !configured && verificationMode === "auto" ? { verificationDefaulted: true as const } : {}),
         ...(autoChecks?.skipped && !verification?.smoke ? { autoSkipped: autoChecks.skipped } : {}),
-        ...(this.taskTurnLimit !== undefined ? { turnLimit: this.taskTurnLimit } : {}), ...(proof ? { proof } : {}), ...(review ? { review } : {}),
+        ...(this.taskTurnLimit !== undefined ? { turnLimit: this.taskTurnLimit } : {}), ...(proof ? { proof } : {}), ...(proofSkipped && !proof ? { proofSkipped } : {}), ...(review ? { review } : {}),
         ...(acceptance ? { acceptance } : {}), ...(checklist ? { checklist } : {}) };
       if (!this.closing) {
         this.terminal.endAssistant();
@@ -1450,4 +1454,14 @@ export class CasperApp {
     (this.checkTask ?? this.verificationTask)?.invalidateForEdit(path);
     this.observations.recordEdit(path);
   }
+}
+
+/** Why a change whose checks passed was not compared with and without it, in plain words for the receipt. */
+export function proofSkipReason(options: { intent: string; testCommand?: string; snapshot: boolean; changedCode: boolean }): string {
+  if (options.intent === "refactor") return "a refactor should not change behavior, so no test is expected to fail without it";
+  if (["document", "inspect", "visualize", "configure"].includes(options.intent)) return `Casper does not compare ${options.intent} requests with and without the change`;
+  if (!options.testCommand) return "there is no test command to compare with; add verify.test to .casper/project.yaml";
+  if (!options.snapshot) return "Casper could not record the workspace before the change";
+  if (!options.changedCode) return "only non-code files changed";
+  return "Casper did not compare the tests with and without the change";
 }

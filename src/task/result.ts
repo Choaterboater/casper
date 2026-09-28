@@ -1,4 +1,4 @@
-import { formatVerificationReport, type VerificationReport, type VerificationResult } from "../verify/evidence";
+import { formatDuration, formatVerificationReport, type VerificationReport, type VerificationResult } from "../verify/evidence";
 import type { ProjectCommand } from "../project/model";
 import type { BrowserReport } from "../browser/scenario";
 import type { ServiceState } from "../services/manager";
@@ -57,6 +57,9 @@ export interface TaskResult {
   /** Whether the tests fail without the change and pass with it (code changes in auto
    * mode). An unproven change is not verified: the passing checks do not exercise it. */
   proof?: ChangeProof;
+  /** Why Casper did not compare with and without the change, when checks passed on changed files
+   * without a proof (a refactor request, no test command, only non-code files changed...). */
+  proofSkipped?: string;
   /** The model's requirements checklist (its own claim). Admitted open items make the change not verified. */
   review?: RequirementsReview;
   /** Tests written from the request alone and run against the change (verification.acceptance). In
@@ -171,12 +174,6 @@ export function formatReceipt(task: TaskResult, options: ReceiptOptions = {}): s
   const safe = (text: string) => text.replace(/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g, " ");
   const slash = (command: string) => options.surface === "one-shot" ? `casper "${command}"` : command;
   const lines: string[] = [];
-  if (task.execution !== "completed") {
-    lines.push(`✗ Stopped: ${task.execution === "cancelled" ? "cancelled" : "the model run failed"} — changes already made are kept`);
-  } else if (task.turnLimit !== undefined) {
-    lines.push(`✗ Stopped after ${task.turnLimit} ${task.turnLimit === 1 ? "turn" : "turns"} (--max-turns) — changes so far are kept; ${options.surface === "one-shot" ? "casper --continue" : "send another request"} to go on`);
-  }
-
   if (task.changedPaths?.length) lines.push(`✓ Changed ${pathList(task.changedPaths, safe)}`);
   else if (task.changedPaths && task.autoSkipped === "no-changes" && !task.verification) lines.push("• No files changed, so Casper ran no checks");
   else if (task.changedPaths) lines.push("• No files changed");
@@ -214,7 +211,68 @@ export function formatReceipt(task: TaskResult, options: ReceiptOptions = {}): s
     lines.push(task.browser.status === "pass" ? `✓ Browser checks passed (${task.browser.checks.length})`
       : task.browser.status === "fail" ? `✗ Browser checks failed: ${failed.join(", ")}` : "• Browser checks incomplete");
   }
+  return withVerdict(task, lines, options);
+}
+
+/** Line 1 of every receipt: what the run proved, in one line. "Verified" means the checks passed on the
+ * final files and a test fails without the change (ADR 0001); anything less says why. The JSON outcome
+ * and exit code are unchanged by it. A reason already on its own line moves up instead of repeating. */
+export function receiptVerdict(task: TaskResult, options: ReceiptOptions = {}): string | undefined {
+  return formatReceipt(task, options).split("\n")[0] || undefined;
+}
+
+function withVerdict(task: TaskResult, body: string[], options: ReceiptOptions): string {
+  const safe = (text: string) => text.replace(/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g, " ");
+  const promote = (prefix: string, fallback: string): string[] => {
+    const index = body.findIndex((line) => line.startsWith(prefix));
+    return index < 0 ? [fallback, ...body] : [body[index]!, ...body.slice(0, index), ...body.slice(index + 1)];
+  };
+  const report = task.verification;
+  const outcome = taskOutcome(report, task);
+  const changed = Boolean(task.changedPaths?.length || task.changedDuringChecks?.length || (!task.changedPaths && task.possibleMutations));
+  const failedChecks = (report?.results ?? []).filter((result) => result.status === "fail").map((result) => result.name);
+  let lines: string[];
+  switch (outcome) {
+    case "cancelled":
+      lines = ["✗ Stopped — cancelled; changes already made are kept", ...body]; break;
+    case "failed":
+      if (task.execution === "failed") lines = ["✗ Failed — the model run failed; changes already made are kept", ...body];
+      else if (failedChecks.length) lines = [`✗ Failed — ${failedChecks.join(", ")} failed`, ...body];
+      else if (report?.status === "blocked") lines = [`✗ Failed — checks stopped${report.reason ? `: ${safe(report.reason).replace(/\.$/, "").toLowerCase()}` : ""}`, ...body];
+      else lines = ["✗ Failed — browser checks failed", ...body];
+      break;
+    case "incomplete":
+      lines = [task.turnLimit !== undefined
+        ? `• Incomplete — stopped after ${task.turnLimit} ${task.turnLimit === 1 ? "turn" : "turns"} (--max-turns); changes so far are kept; ${options.surface === "one-shot" ? "casper --continue" : "send another request"} to go on`
+        : "• Incomplete — not every check ran", ...body];
+      break;
+    case "verified": {
+      const proof = task.proof;
+      if (proof?.status === "proven") lines = ["✓ Verified — the checks pass, and the tests fail without the change", ...body];
+      else if (!changed) lines = [task.changedPaths ? "✓ Checks passed — no files changed" : "✓ Checks passed", ...body];
+      else {
+        const why = proof?.status === "unavailable" ? proof.reason : task.proofSkipped ?? "Casper did not compare the tests with and without the change";
+        lines = [`• Checks passed — not proven: ${safe(why).replace(/\.$/, "")}`, ...body];
+      }
+      break;
+    }
+    case "not_verified":
+      lines = promote("• Not verified", `• Not verified — ${notVerifiedReason(task)}`); break;
+    case "unchanged":
+      lines = body.length ? promote("• No files changed", "• No files changed") : body; break;
+  }
   return lines.join("\n");
+}
+
+function notVerifiedReason(task: TaskResult): string {
+  const report = task.verification;
+  if (report?.results.some((result) => result.status === "pass" && result.freshness === "stale")) return "files changed after the checks passed";
+  if (task.proof?.status === "unproven") return "the tests pass without the change too";
+  if (task.review && "open" in task.review && task.review.open.length) return "the model's review lists unfinished items";
+  if (task.acceptance?.status === "fail" && task.acceptance.mode === "verdict") return "tests written from the request fail";
+  if (report && !report.results.length) return "only observations ran, no checks";
+  if (!task.changedPaths && task.possibleMutations) return "Casper could not compare the workspace";
+  return "Casper ran no checks";
 }
 
 /** One line: each checked service's address, the smoke tally, what failed, and the model-declared checks with their baselines. */
@@ -297,22 +355,17 @@ function checkLine(result: VerificationResult, safe: (text: string) => string, s
   if (result.status === "pass") {
     if (result.freshness === "stale") return `• Not verified — stale: files changed after the last passing ${name}. Run ${slash(`/verify ${name}`)}.`;
     // A reused pass did not run again: the time shown is the earlier run's, so the receipt says so.
-    return `✓ Verified by Casper: ${name} passed${result.reused ? " earlier in this task, reused" : ""} (${result.command ? `${safe(result.command)}, ` : ""}${duration(result.durationMs)})`;
+    return `✓ ${name} passed${result.reused ? " earlier in this task, reused" : ""} (${result.command ? `${safe(result.command)}, ` : ""}${duration(result.durationMs)})`;
   }
   const timeout = /^Timed out after (\d+)ms$/.exec(result.reason ?? "");
   const why = typeof result.exitCode === "number" ? `exit ${result.exitCode}`
     : timeout ? `timed out after ${duration(Number(timeout[1]))}`
     : result.reason ? safe(result.reason).replace(/\.$/, "").toLowerCase()
     : result.signal ? `stopped by ${safe(result.signal)}` : "no exit status";
-  return `✗ Verified by Casper: ${name} failed (${why}) — log above; ${slash(`/verify repair ${name}`)} to fix`;
+  return `✗ ${name} failed (${why}) — log above; ${slash(`/verify repair ${name}`)} to fix`;
 }
 
-function duration(ms: number): string {
-  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
-  const minutes = Math.floor(ms / 60_000);
-  const seconds = Math.round((ms % 60_000) / 1000);
-  return seconds ? `${minutes}m ${seconds}s` : `${minutes}m`;
-}
+const duration = formatDuration;
 
 function pathList(paths: string[], safe: (text: string) => string, count = true): string {
   const shown = paths.slice(0, RECEIPT_PATH_LIMIT).map(safe).join(", ");
