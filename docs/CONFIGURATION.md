@@ -19,7 +19,11 @@ Profile selection precedence is the programmatic `profileName` option → `CASPE
 
 **Profile trust:** project-local `profile:` is intentionally allowed to select an existing user profile, including its rules, MCP/LSP definitions and reference sources. Inspect an unfamiliar repository's `.casper/project.yaml` before running Casper: selecting a profile can expose configured reference excerpts to model tasks. MCP/LSP discovery remains metadata-only and connection still requires explicit consent. Name validation prevents lexical traversal; it does not confine user-owned profile symlinks or sandbox native tools. Direct MCP/LSP/reference discovery skips invalid profile names rather than loading a profile file.
 
-Project model fields can be overridden in `.casper/project.yaml`. The `commands:` map (also supported under `project.commands`) admits only string values for `typecheck`, `lint`, `test` and `build`; unknown keys and non-string values are ignored rather than passed into the project model or prompts. Project-local `verify:` overrides these commands and retains stricter validation:
+Casper detects check commands from the repository. For Python it reads `pyproject.toml` and every
+`requirements*.txt` (pytest, ruff, mypy), and runs the tools through uv (`uv.lock`), poetry (`poetry.lock`
+or `[tool.poetry]`), the project's `.venv`/`venv` interpreter, or the system `python3`, always as
+`python -m tool` outside uv and poetry. When `[tool.mypy]` lists `files`, the check is bare `mypy`, which
+checks exactly those. Project model fields can be overridden in `.casper/project.yaml`. The `commands:` map (also supported under `project.commands`) admits only string values for `typecheck`, `lint`, `test` and `build`; unknown keys and non-string values are ignored rather than passed into the project model or prompts. Project-local `verify:` overrides these commands and retains stricter validation:
 
 ```yaml
 profile: default

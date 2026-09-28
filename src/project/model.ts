@@ -102,6 +102,13 @@ function sortedUnique(values: Iterable<string>): string[] {
   return [...new Set(values)].sort((left, right) => left.localeCompare(right));
 }
 
+/** Bump when detection changes what it derives from the same files, so cached models are rebuilt. */
+const DETECTION_VERSION = 2;
+/** requirements.txt, requirements-dev.txt, requirements_test.txt ...: Python projects without a pyproject. */
+const REQUIREMENTS = /^requirements[\w.-]*\.txt$/i;
+/** A project-local virtual environment decides which Python runs the tools. */
+const VIRTUALENVS = [".venv", "venv"];
+
 async function rootSignals(root: string): Promise<string[]> {
   let names: string[];
   try {
@@ -110,7 +117,7 @@ async function rootSignals(root: string): Promise<string[]> {
     return [];
   }
 
-  return names.filter((name) => PROJECT_SIGNAL_NAMES.has(name)).sort();
+  return names.filter((name) => PROJECT_SIGNAL_NAMES.has(name) || REQUIREMENTS.test(name)).sort();
 }
 
 async function fingerprint(
@@ -119,6 +126,7 @@ async function fingerprint(
   overrides: ProjectModelOverrides,
 ): Promise<string> {
   const hash = createHash("sha256");
+  hash.update(`detection:${DETECTION_VERSION}\n`);
   hash.update(JSON.stringify(overrides));
 
   for (const name of signals) {
@@ -129,7 +137,7 @@ async function fingerprint(
       hash.update(`${name}:missing\n`);
     }
   }
-  for (const relative of STRUCTURE_PROBES) {
+  for (const relative of [...STRUCTURE_PROBES, ...VIRTUALENVS]) {
     try {
       const details = await lstat(path.join(root, relative));
       const kind = details.isSymbolicLink() ? "link" : details.isDirectory() ? "dir" : "file";
@@ -261,18 +269,39 @@ function nodeCommands(
   return result;
 }
 
+/** Where Python tools run: the project's own runner (uv, poetry), else its virtual environment's
+ * interpreter, else the system Python, always as `python -m tool` so a missing script shim never matters. */
+function pythonRunner(names: Set<string>, pyproject: string, virtualenv: string | null): { tool: (name: string) => string; build: string } {
+  const poetry = names.has("poetry.lock") || /^\[tool\.poetry\]/m.test(pyproject);
+  if (names.has("uv.lock")) return { tool: (name) => `uv run ${name}`, build: "uv build" };
+  if (poetry) return { tool: (name) => `poetry run ${name}`, build: "poetry build" };
+  const python = virtualenv
+    ? process.platform === "win32" ? `${virtualenv}\\Scripts\\python.exe` : `${virtualenv}/bin/python`
+    : process.platform === "win32" ? "python" : "python3";
+  return { tool: (name) => `${python} -m ${name}`, build: `${python} -m build` };
+}
+
+/** The body of one TOML table, up to the next table header. */
+function tomlTable(source: string, name: string): string | null {
+  const start = source.search(new RegExp(`^\\[${name.replace(/\./g, "\\.")}\\]\\s*$`, "m"));
+  if (start < 0) return null;
+  const rest = source.slice(start).split("\n").slice(1);
+  const end = rest.findIndex((line) => /^\[/.test(line));
+  return (end < 0 ? rest : rest.slice(0, end)).join("\n");
+}
+
 function detectPythonCommands(
   pyproject: string,
-  packageManager: string | null,
+  requirements: string,
+  runner: ReturnType<typeof pythonRunner>,
 ): Partial<Record<ProjectCommand, string>> {
-  const prefix = packageManager === "uv" ? "uv run " : packageManager === "poetry" ? "poetry run " : "";
+  const sources = `${pyproject}\n${requirements}`;
   const commands: Partial<Record<ProjectCommand, string>> = {};
-  if (/\bpytest\b/i.test(pyproject)) commands.test = `${prefix}pytest`;
-  if (/\bruff\b/i.test(pyproject)) commands.lint = `${prefix}ruff check .`;
-  if (/\bmypy\b/i.test(pyproject)) commands.typecheck = `${prefix}mypy .`;
-  if (/\[build-system\]/.test(pyproject)) {
-    commands.build = packageManager === "uv" ? "uv build" : "python -m build";
-  }
+  if (/\bpytest\b/i.test(sources)) commands.test = runner.tool("pytest");
+  if (/\bruff\b/i.test(sources)) commands.lint = runner.tool("ruff check .");
+  // `mypy .` ignores the files list in [tool.mypy]; bare mypy checks exactly those.
+  if (/\bmypy\b/i.test(sources)) commands.typecheck = runner.tool(/^\s*files\s*=/m.test(tomlTable(pyproject, "tool.mypy") ?? "") ? "mypy" : "mypy .");
+  if (/\[build-system\]/.test(pyproject)) commands.build = runner.build;
   return commands;
 }
 
@@ -302,7 +331,8 @@ async function detectModel(
 
   if (names.has("tsconfig.json") || dependencies.has("typescript")) languages.add("typescript");
   else if (names.has("package.json")) languages.add("javascript");
-  if (names.has("pyproject.toml") || names.has("requirements.txt")) languages.add("python");
+  const requirementFiles = signals.filter((name) => REQUIREMENTS.test(name));
+  if (names.has("pyproject.toml") || requirementFiles.length) languages.add("python");
   if (names.has("Cargo.toml")) languages.add("rust");
   if (names.has("go.mod")) languages.add("go");
   if (names.has("Gemfile")) languages.add("ruby");
@@ -317,8 +347,11 @@ async function detectModel(
 
   let commands = nodeCommands(packageManager, packageScripts(packageJson));
   const pyproject = (await readText(project.root, "pyproject.toml")) ?? "";
-  if (pyproject) {
-    commands = { ...commands, ...detectPythonCommands(pyproject, packageManager) };
+  const requirements = (await Promise.all(requirementFiles.map((name) => readText(project.root, name)))).join("\n");
+  if (pyproject || requirements) {
+    const virtualenv = (await Promise.all(VIRTUALENVS.map(async (name) => (await lstat(path.join(project.root, name)).catch(() => undefined))?.isDirectory() ? name : null)))
+      .find(Boolean) ?? null;
+    commands = { ...commands, ...detectPythonCommands(pyproject, requirements, pythonRunner(names, pyproject, virtualenv)) };
     if (/\bfastapi\b/i.test(pyproject)) frameworks.add("fastapi");
     if (/\bdjango\b/i.test(pyproject)) frameworks.add("django");
     if (/\bflask\b/i.test(pyproject)) frameworks.add("flask");
