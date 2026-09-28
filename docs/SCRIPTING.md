@@ -101,7 +101,9 @@ classifier), or automatic effort's classifier.
 An `unproven` change has the outcome `not_verified`. `proofSkipped` says why checks that passed on changed
 files came without a proof (for example `only non-code files changed`, or a refactor request), else `null`.
 `verdict` is line 1 of `text`: `✓ Verified — …` only when the tests fail without the change; otherwise
-`• Checks passed — not proven: …`, `✗ Failed — …`, `• Incomplete — …`, `• Not verified — …` or `✗ Stopped — …`. `review` is the model's requirements checklist, in one of
+`• Checks passed — not proven: …`, `✗ Failed — …`, `• Incomplete — …`, `• Not verified — …` or `✗ Stopped — …`.
+`text`, `verdict`, the proof's `reason` and `output`, and review items are redacted like other previews
+(tokens, keys and passwords become `<redacted>`). `review` is the model's requirements checklist, in one of
 two shapes. The review round's answer (`verification.review: true`) is `{ "fixed": [...], "open": [...],
 "covered": n, "total": m }`: `fixed` lists only the gaps the review added a test or fix for, `open` those still
 open, and `covered`/`total` come from its `Covered: n of m` line (both absent after a bare `Requirements
