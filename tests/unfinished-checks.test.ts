@@ -143,14 +143,14 @@ test("in the terminal, a timed-out check asks what to do instead of starting a p
   try {
     await screen.until((output) => output.includes("idle"));
     input.write("hello there\r");
-    await screen.until((output) => output.includes("Casper did not try to fix it. What now?"), 15_000);
+    await screen.until((output) => output.includes("Casper did not try to fix it. What now?"));
     const visible = Bun.stripANSI(screen.output);
     expect(visible).toContain("test timed out after 0.3s");
     expect(visible).toContain("1 Retry");
     expect(visible).toContain("2 Fix it anyway");
     expect(visible).toContain("3 Allow more time");
     input.write("\x1b");
-    await screen.until((output) => Bun.stripANSI(output).includes("✗ Failed — test timed out"), 15_000);
+    await screen.until((output) => Bun.stripANSI(output).includes("✗ Failed — test timed out"));
     expect(prompts).toBe(1);
     expect(app.getLastTaskResult()?.verification?.repairAttempts).toBe(0);
   } finally {
