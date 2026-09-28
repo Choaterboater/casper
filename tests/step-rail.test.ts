@@ -33,3 +33,27 @@ test("while work runs the footer leads with the steps; idle, it shows the plain 
     session.terminal.setSteps(undefined); session.terminal.setActivity(undefined);
   } finally { session.close(); }
 });
+
+test("the footer timer pauses while a question waits for the user", async () => {
+  process.env.TERM = "xterm-256color";
+  const session = interactiveTerminal();
+  try {
+    session.terminal.setStatus("project │ fixture/demo │ idle"); session.terminal.start();
+    // A submitted request makes the surface busy, as during a real task.
+    const command = session.terminal.readCommand();
+    session.input.write("go\r");
+    await command;
+    session.terminal.setSteps("checklist ✓ · building");
+    const answered = session.terminal.ask("Which one?", [{ label: "A" }, { label: "B" }], false);
+    await session.screen.until(output => Bun.stripANSI(output).includes("? waiting for you"));
+    await Bun.sleep(2200);
+    session.input.write("1");
+    await answered;
+    const from = session.screen.output.length;
+    session.terminal.setSteps("checklist ✓ · building ✓");
+    await session.screen.until(output => Bun.stripANSI(output.slice(from)).includes("building ✓ · "));
+    // Over two seconds passed, all of it waiting: the timer still reads under two seconds.
+    expect(Bun.stripANSI(session.screen.output.slice(from))).toMatch(/building ✓ · [01]s/);
+    session.terminal.setSteps(undefined);
+  } finally { session.close(); }
+}, 15_000);
