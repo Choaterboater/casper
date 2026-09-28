@@ -66,9 +66,15 @@ export function changesCode(changes: TreeChanges): boolean {
     .some((relative) => isCodePath(relative) && !relative.split("/").some((part) => Object.hasOwn(SKIPPED, part)));
 }
 
-/** Never copied: VCS internals, Casper's state and installed dependencies (linked instead). */
-const SKIPPED: Record<string, true> = { ".git": true, node_modules: true, ".casper": true };
-const LINKED = "node_modules";
+/** Never copied: VCS internals, Casper's state, installed dependencies and virtual environments
+ * (linked instead), and Python caches (they rebuild). */
+const SKIPPED: Record<string, true> = { ".git": true, node_modules: true, ".casper": true, ".venv": true,
+  __pycache__: true, ".mypy_cache": true, ".pytest_cache": true, ".ruff_cache": true, ".tox": true };
+/** Linked into each copy from the workspace, never copied: `venv` only when it is a virtual environment. */
+const LINKED: Record<string, true> = { node_modules: true, ".venv": true, venv: true };
+/** Runs in the copies never change the user's environment: uv must not sync the linked .venv to the
+ * copy's (older) dependency list. */
+const COPY_ENV = { UV_NO_SYNC: "1" };
 const FILE_LIMIT = 20_000;
 const BYTE_LIMIT = 256 * 1024 * 1024;
 
@@ -90,8 +96,9 @@ async function cloneTree(source: string, destination: string, limits: Limits, si
       const from = path.join(source, next);
       const to = path.join(destination, next);
       if (entry.isDirectory()) {
-        if (entry.name === LINKED) links.push(next);
-        if (!Object.hasOwn(SKIPPED, entry.name)) pending.push(next);
+        const environment = entry.name === "venv" && Boolean(await lstat(path.join(from, "pyvenv.cfg")).catch(() => undefined));
+        if (Object.hasOwn(LINKED, entry.name) && (entry.name !== "venv" || environment)) links.push(next);
+        if (!Object.hasOwn(SKIPPED, entry.name) && !environment) pending.push(next);
       } else if (entry.isSymbolicLink()) {
         await symlink(await readlink(from), to);
       } else if (entry.isFile()) {
@@ -139,7 +146,8 @@ export class ChangeBaseline {
     const tests = changed.filter(isTestPath);
     if (!changesCode(options.changes)) return undefined;
     const { check, command } = options;
-    const run = (cwd: string) => runCommandCheck({ name: check, command, cwd, timeoutMs: options.timeoutMs, signal: options.signal, onCleanupFailure: options.onCleanupFailure });
+    const run = (cwd: string) => runCommandCheck({ name: check, command, cwd, timeoutMs: options.timeoutMs, signal: options.signal,
+      onCleanupFailure: options.onCleanupFailure, env: { ...process.env, ...COPY_ENV } });
     const copies = await mkdtemp(path.join(this.scratch, "compare-"));
     try {
       const linkDependencies = async (tree: string, links: readonly string[]) => {
