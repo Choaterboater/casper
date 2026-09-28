@@ -335,6 +335,30 @@ try {
   expect(busy).toBe(false);
 }, 15_000);
 
+for (const sequential of [false, true]) test(`real Pi runs a batch ${sequential ? "one call at a time when a tool is marked sequential" : "in parallel by default"}`, async () => {
+  let step = 0;
+  const f = await fixture(() => step++ === 0
+    ? calls([{ name: "slow", args: { id: "a" } }, { name: "slow", args: { id: "b" } }])
+    : answer("Done"));
+  const harness = path.join(f.agent, "sequential.ts");
+  await writeFile(harness, `import { PiRuntime } from ${JSON.stringify(path.join(import.meta.dir, "../src/runtime/pi.ts"))};
+const runtime = new PiRuntime();
+const log = [];
+const slow = { name: "slow", description: "Waits briefly.", inputSchema: { type: "object", properties: { id: { type: "string" } } },
+  ${sequential ? "sequential: true," : ""}
+  execute: async (args) => { log.push("start " + args.id); await new Promise((done) => setTimeout(done, 150)); log.push("end " + args.id); return { text: "ok" }; } };
+try {
+  const session = await runtime.start({ cwd: process.cwd(), tools: [slow] });
+  await session.prompt("Run both.");
+  console.log("RESULT=" + JSON.stringify(log));
+} finally { await runtime.dispose(); }
+`);
+  const result = await f.run([harness]);
+  expect({ exit: result.exit, stderr: result.stderr }).toEqual({ exit: 0, stderr: "" });
+  const log: string[] = JSON.parse(result.stdout.split("RESULT=")[1]!);
+  expect(log).toEqual(sequential ? ["start a", "end a", "start b", "end b"] : ["start a", "start b", "end a", "end b"]);
+}, 15_000);
+
 posixOnly("pinned Pi uses managed checks in its native edit loop, reuses scoped passes, and hands real failure to one repair owner", async () => {
   const native = "printf native > native-proof; kill -TERM $$";
   const command = checkCommand("append:test-runs", "require-line:src/value=good");

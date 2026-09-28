@@ -20,6 +20,7 @@ export function askTool(channel: AskChannel): RuntimeTool {
   let used = 0;
   return {
     name: "ask",
+    sequential: true,
     description: `Ask the human one clarifying question before acting on under-specified requirements. Provide 2–5 concrete options (labels plus short descriptions); the human picks one by its number or with Up/Down and Enter (a number or Space toggles options for multi-select), can type a free-text answer, or skip. The transcript records every question and answer. Budget: ${ASK_BUDGET} questions per task — when it runs out, state your assumptions in the reply instead.`,
     inputSchema: {
       type: "object", additionalProperties: false, required: ["question", "options"],
