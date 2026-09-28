@@ -65,8 +65,8 @@ Line 1 is the verdict, one of:
 ✗ Stopped — cancelled; changes already made are kept
 ```
 
-A provider failure (an empty response, a dropped stream; not sign-in, quota or context errors) is retried
-once on its own; if it fails again, an interactive terminal asks `1 Retry · 2 Stop`.
+A provider failure that Pi does not retry itself (such as an empty response; never sign-in, quota or
+context errors, and never past Pi's own retry budget) is retried once; if it fails again, an interactive terminal asks `1 Retry · 2 Stop`.
 When the model run fails after it edited files (a provider error, for example), Casper still runs the
 checks on those edits, without a repair, and the verdict says how they fared (`✗ Failed — the model run
 failed; changes already made are kept; the checks pass on those changes`), followed by a `• Next:` line

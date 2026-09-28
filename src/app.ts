@@ -52,6 +52,7 @@ import { CHECK_NAMES, formatDuration, formatVerificationReport, formatVerificati
 import { ProcessCleanupError } from "./platform/processes";
 import { safeGitArgs } from "./platform/git";
 import { VerifierRegistry } from "./verify/registry";
+import { isRetryableAssistantError } from "@earendil-works/pi-ai/utils/retry";
 import { longerLimit, timedOutAfter, verifyAndRepair, type UnfinishedChoice } from "./verify/repair-loop";
 import { VerificationTask } from "./verify/task";
 import { ChangeBaseline, changesCode, proofRepairPrompt, type ChangeProof } from "./verify/proof";
@@ -207,6 +208,8 @@ export class CasperApp {
   private workspaceTransition = false;
   private workspaceNeedsRebind = false;
   private taskRuntimeFailed = false;
+  /** The files from before the current task's change, while it runs: tells a failure the change caused from one already there. */
+  private taskBaseline?: { baseline: ChangeBaseline; root: string };
   private cleanupError?: ProcessCleanupError;
   private readonly blockOnCleanupFailure = () => {
     this.cleanupError = new ProcessCleanupError();
@@ -765,7 +768,7 @@ export class CasperApp {
     let baseline: ChangeBaseline | undefined;
     let baselineUnavailable: string | undefined;
     if (proving) {
-      try { baseline = await ChangeBaseline.capture(workspaceRoot, { signal: this.commandAbort?.signal }); }
+      try { baseline = await ChangeBaseline.capture(workspaceRoot, { signal: this.commandAbort?.signal }); this.taskBaseline = { baseline, root: workspaceRoot }; }
       catch (error) {
         if (this.commandAbort?.signal.aborted) return;
         baselineUnavailable = `Casper could not copy the workspace to compare: ${error instanceof Error ? error.message : String(error)}`;
@@ -848,6 +851,7 @@ export class CasperApp {
       this.taskRuntimeFailed = true;
       throw error;
     } finally {
+      this.taskBaseline = undefined;
       await baseline?.dispose();
       const execution = this.closing || this.commandAbort?.signal.aborted || this.taskRuntimeCancelled || this.checkTask?.signal.aborted ? "cancelled" : this.taskRuntimeFailed ? "failed" : "completed";
       // Keep already-executed evidence on terminal error/cancellation, but never
@@ -1110,6 +1114,8 @@ export class CasperApp {
           }
         } : undefined,
         onRepair: (attempt, max) => { this.output.write(`↻ repair ${attempt}/${max}\n`); },
+        // A check that was already failing before the change is not the change's doing: say so, and ask before paying to fix it.
+        beforeRepair: repair && task && task === this.checkTask && this.taskBaseline ? (failures, signal) => this.repairPreexisting(failures, signal) : undefined,
         // Only a person can say whether a check that did not finish is worth a paid repair.
         onUnfinished: this.interactive && this.terminal.rich ? (unfinished, signal) => this.askUnfinished(unfinished, context.verification.timeoutMs, signal) : undefined,
         // The task's smoke checks join its own verification (repairs and review reruns), never a standalone /verify.
@@ -1188,13 +1194,43 @@ export class CasperApp {
     return false;
   }
 
-  /** A provider hiccup (an empty response, a dropped stream) ends a run for no reason of the task's: try once
-   * more on its own, then, in the terminal, ask. Sign-in, quota and context errors are not retried. */
+  /** Before the first repair: run each failing check on the files from before the change. One that failed there
+   * too was already broken; the terminal asks whether to pay for a fix (Esc leaves it), scripts go on repairing. */
+  private async repairPreexisting(failures: VerificationResult[], signal: AbortSignal): Promise<boolean> {
+    const held = this.taskBaseline;
+    const context = this.projectContext;
+    if (!held || !context) return true;
+    const names = failures.map((failure) => failure.name).filter((name) => context.model.commands[name]?.trim());
+    if (!names.length) return true;
+    this.events.ensureLineBreak();
+    this.output.write(`… Casper checking whether ${names.join(", ")} failed before this change too\n`);
+    const before: string[] = [];
+    for (const name of names) {
+      const result = await held.baseline.before({ root: held.root, check: name, command: context.model.commands[name]!.trim(),
+        timeoutMs: this.verificationTask?.limit(name) ?? context.verification.timeoutMs, signal });
+      if (result === "fail") before.push(name);
+    }
+    if (!before.length || signal.aborted) return true;
+    const which = before.join(", ");
+    this.output.write(`• ${which} was already failing before this change (Casper ran it on the files from before)\n`);
+    if (!this.interactive || !this.terminal.rich) return true;
+    const answer = await this.terminal.ask(`${which} was already failing before this change. Fix it anyway?`, [
+      { label: "Fix it anyway", description: "ask the model to make it pass (uses tokens)" },
+      { label: "Leave it", description: "keep the change as it is; the receipt says the check fails" },
+    ], false, signal);
+    return answer?.[0] === "Fix it anyway";
+  }
+
+  /** A provider hiccup Pi does not retry (an empty response) ends a run for no reason of the task's: try once
+   * more on its own, then, in the terminal, ask. Sign-in, quota and context errors, and errors Pi already
+   * retried within its budget, are not retried again. */
   private async retryModelFailure(session: RuntimeSession, request: string): Promise<void> {
     for (let attempt = 1; ; attempt++) {
       const error = this.events.lastError ?? "";
       if (!this.taskRuntimeFailed || this.taskRuntimeCancelled || this.closing || this.commandAbort?.signal.aborted || this.taskTurnLimit !== undefined) return;
       if (/auth|credential|api.?key|unauthori[sz]ed|forbidden|\b40[13]\b|quota|billing|context|too long|not found|no model/i.test(error)) return;
+      // Pi already retried what it counts as transient, within the user's retry budget: never go past it.
+      if (isRetryableAssistantError({ stopReason: "error", errorMessage: error } as Parameters<typeof isRetryableAssistantError>[0])) return;
       let retry = attempt === 1;
       if (!retry && this.interactive && this.terminal.rich && attempt <= 4) {
         this.events.ensureLineBreak();
