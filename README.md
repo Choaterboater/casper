@@ -53,8 +53,10 @@ Inside Casper:
 /model
 ```
 
-Sign in with a supported provider, choose a model, then describe the work you want
-done. Frontend, design, and other domain work come from the repository. Casper does
+Sign in with a supported provider, then describe the work you want done. With no model
+set yet, Casper opens sign-in on your first request and then picks a model for that provider
+(OpenRouter: `deepseek/deepseek-v4.1-flash`; others: the provider's own default), saved as your
+default; `/model` chooses another, and Casper never replaces a model you chose. Frontend, design, and other domain work come from the repository. Casper does
 not need a skill pack for patterns the project already shows. Login supports OpenAI Codex, GitHub Copilot, Anthropic/Claude, and OpenRouter.
 Provider eligibility, subscriptions and usage charges still apply. Enter keys or
 callback codes only in the dedicated private login prompt, never in chat.

@@ -21,6 +21,16 @@ function withoutModels(settings: Settings): Settings {
 }
 
 /** Pi owns models, credentials and transcripts. Casper owns explicit routing policy. */
+/** The model Casper picks after a sign-in when none is set yet: the provider's own default in Pi's
+ * catalog, except OpenRouter, where a measured low-cost model is Casper's choice. Checked against the
+ * catalog by tests/default-models.test.ts. Order is the preference when several providers are signed in. */
+export const DEFAULT_MODELS: ReadonlyArray<{ provider: string; id: string }> = [
+  { provider: "openrouter", id: "deepseek/deepseek-v4.1-flash" },
+  { provider: "anthropic", id: "claude-opus-4-8" },
+  { provider: "openai-codex", id: "gpt-5.5" },
+  { provider: "github-copilot", id: "gpt-5.4" },
+];
+
 export class PiModels {
   private readonly selections = new WeakMap<AgentSession, Selection>();
   private readonly accounting = new WeakMap<AgentSession, NonNullable<RuntimeUsage["effortClassification"]>>();
@@ -356,6 +366,16 @@ export class PiModels {
       }
       return { status: this.status(session), selected: true, savedDefault: persist };
     } finally { this.selecting = false; this.selectionSignal = undefined; finish(); }
+  }
+
+  /** When no model is selected yet, pick one for a signed-in provider (`provider` first) and save it as the
+   * default. Never replaces a model the user chose. Undefined when nothing was picked. */
+  async selectDefaultIfUnset(session: AgentSession, options: { provider?: string; signal?: AbortSignal } = {}): Promise<RuntimeModelSelection | undefined> {
+    if (this.selections.get(session)?.reference) return undefined;
+    const candidates = [...DEFAULT_MODELS].sort((a, b) => Number(b.provider === options.provider) - Number(a.provider === options.provider));
+    const pick = candidates.find(({ provider, id }) => !this.staleAuth.has(provider) && this.catalog.hasConfiguredAuth(provider) && this.catalog.getModel(provider, id));
+    if (!pick) return undefined;
+    return this.select(session, { query: `${pick.provider}/${pick.id}`, persist: true, signal: options.signal });
   }
 
   /** A one-off request outside the transcript: the configured `review` role's model when set (so a check can
