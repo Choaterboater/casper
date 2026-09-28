@@ -1181,13 +1181,14 @@ export class CasperApp {
     const limit = (result: VerificationResult) => Number(/^Timed out after (\d+)ms$/.exec(result.reason ?? "")?.[1] ?? timeoutMs);
     const what = unfinished.map((result) => result.ended === "timeout"
       ? `${result.name} timed out after ${formatDuration(limit(result))}` : `${result.name} could not start`).join(", ");
-    const longer = Math.min(timeoutMs * 2, 3_600_000);
-    // More time is offered only while it is more than the run just had.
-    const moreTime = unfinished.some((result) => result.ended === "timeout" && limit(result) < longer);
+    // More time doubles the limit the run just had, up to one hour, as often as it is chosen.
+    const had = Math.max(0, ...unfinished.filter((result) => result.ended === "timeout").map(limit));
+    const longer = Math.min(had * 2, 3_600_000);
     const options: Array<{ label: string; description: string; choice: UnfinishedChoice }> = [
-      { label: "Retry", description: "run it again as it is", choice: "retry" },
+      { label: "Retry", description: "run it again with the same limit", choice: "retry" },
       { label: "Fix it anyway", description: "ask the model to fix it (uses tokens)", choice: "repair" },
-      ...(moreTime ? [{ label: "Allow more time", description: `run it once with ${formatDuration(longer)}`, choice: "more-time" as const }] : []),
+      ...(had && had < 3_600_000 ? [{ label: "Allow more time",
+        description: `run it with ${formatDuration(longer)}; to keep a longer limit, set verification.timeoutMs in .casper/project.yaml`, choice: "more-time" as const }] : []),
     ];
     this.events.ensureLineBreak();
     const answer = await this.terminal.ask(`${what}. Casper did not try to fix it. What now?`,

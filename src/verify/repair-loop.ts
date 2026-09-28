@@ -20,7 +20,7 @@ async function changedFiles(cwd: string, signal?: AbortSignal): Promise<string> 
 
 export type UnfinishedChoice = "retry" | "more-time" | "repair";
 
-const UNFINISHED_ASKS = 3;
+const UNFINISHED_ASKS = 8;
 
 export type VerificationOptions = ({ registry: VerifierRegistry; task?: never } | { task: VerificationTask; registry?: never }) & {
   checks: readonly ProjectCommand[];
@@ -62,8 +62,9 @@ export async function verifyAndRepair(options: VerificationOptions): Promise<Ver
   let smoke: SmokeReport | undefined;
   const report = (status: VerificationReport["status"], reason?: string): VerificationReport =>
     ({ status, reason, results, rounds: task.rounds, repairAttempts, ...(smoke ? { smoke } : {}) });
-  const run = (names: readonly ProjectCommand[], options: { moreTime?: boolean } = {}) => task.run(names, signal, options);
+  const run = (names: readonly ProjectCommand[], options: { moreTime?: number } = {}) => task.run(names, signal, options);
   let unfinishedAsks = 0;
+  let moreTime = 0;
   const refresh = async () => { results = await task.refresh(signal); };
 
   // A tool failure is already real command evidence, not a request to execute
@@ -99,7 +100,9 @@ export async function verifyAndRepair(options: VerificationOptions): Promise<Ver
       unfinishedAsks++;
       if (signal.aborted) return report("blocked", "Verification cancelled.");
       if (choice === "retry" || choice === "more-time") {
-        await run(unfinished.map((result) => result.name), { moreTime: choice === "more-time" });
+        // More time doubles the limit again each time it is chosen; a retry keeps the limit it had.
+        if (choice === "more-time") moreTime++;
+        await run(unfinished.map((result) => result.name), moreTime ? { moreTime } : {});
         continue;
       }
       if (choice === "repair") repairable = failures;

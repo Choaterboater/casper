@@ -16,8 +16,9 @@ See [VERIFICATION.md](VERIFICATION.md#receipts).
 
 **Unfinished checks:** a check that timed out or could not start is marked as unfinished (`--json`
 check events carry `ended: "timeout"` or `"no_start"`), not as the code failing, and it is never handed
-to a paid repair. The terminal asks: 1 Retry · 2 Fix it anyway · 3 Allow more time (after a
-timeout: double it, at most one hour).
+to a paid repair. The terminal asks: 1 Retry · 2 Fix it anyway · 3 Allow more time (doubles the
+limit each time, at most one hour), and the receipt says `✗ Not checked`, not `✗ Failed`. While a
+question or the checklist waits for you, the footer says `? waiting for you` instead of spinning.
 
 **Watching it work:** the footer shows the task's stages (`checklist ✓ · building ✓ · checks ·
 1m05s`); each check prints one line as it finishes; the edit line shows its size (`+18 -4`); a

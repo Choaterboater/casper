@@ -50,3 +50,15 @@ test("the verdict names how each failing check ended", () => {
   const text = formatReceipt({ execution: "completed", changedPaths: ["a.js"], verification: { status: "fail", repairAttempts: 0, rounds: [results], results } });
   expect(text.split("\n")[0]).toBe("✗ Failed — test timed out, lint could not start, build failed");
 });
+
+test("a receipt whose only failures are unfinished checks says the change was not checked, not that it failed", () => {
+  const base = { command: "npm test", cwd: "/p", signal: null, stdout: "", stderr: "", truncated: false, durationMs: 5000 };
+  const timedOut: VerificationResult = { ...base, name: "test", status: "fail", exitCode: null, reason: "Timed out after 5000ms", ended: "timeout" };
+  const failed: VerificationResult = { ...base, name: "lint", status: "fail", exitCode: 1 };
+  const receipt = (results: VerificationResult[]) => formatReceipt({ execution: "completed", changedPaths: ["a.py"],
+    verification: { status: "fail", results, repairAttempts: 0 } } as never, { surface: "interactive" });
+  const unfinished = receipt([timedOut]);
+  expect(unfinished.split("\n")[0]).toBe("✗ Not checked — test timed out, so the change was not tested");
+  expect(unfinished).toContain("or raise verification.timeoutMs in .casper/project.yaml");
+  expect(receipt([timedOut, failed]).split("\n")[0]).toBe("✗ Failed — test timed out, lint failed");
+});

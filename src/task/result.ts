@@ -238,7 +238,10 @@ function withVerdict(task: TaskResult, body: string[], options: ReceiptOptions):
       lines = ["✗ Stopped — cancelled; changes already made are kept", ...body]; break;
     case "failed":
       if (task.execution === "failed") lines = ["✗ Failed — the model run failed; changes already made are kept", ...body];
-      else if (failedChecks.length) lines = [`✗ Failed — ${failedChecks.join(", ")}`, ...body];
+      // Only unfinished checks: the change was not tested, which is not the same as the code being wrong.
+      else if (failedChecks.length && report!.results.every((result) => result.status !== "fail" || result.ended)) {
+        lines = [`✗ Not checked — ${failedChecks.join(", ")}, so the change was not tested`, ...body];
+      } else if (failedChecks.length) lines = [`✗ Failed — ${failedChecks.join(", ")}`, ...body];
       else if (report?.status === "blocked") lines = [`✗ Failed — checks stopped${report.reason ? `: ${safe(report.reason).replace(/\.$/, "").toLowerCase()}` : ""}`, ...body];
       else lines = ["✗ Failed — browser checks failed", ...body];
       break;
@@ -361,7 +364,7 @@ function checkLine(result: VerificationResult, safe: (text: string) => string, s
   const timeout = /^Timed out after (\d+)ms$/.exec(result.reason ?? "");
   // Unfinished checks are not the code failing: Casper does not repair them, so it does not offer to.
   if (result.ended === "timeout") {
-    return `✗ ${name} timed out${timeout ? ` after ${duration(Number(timeout[1]))}` : ""} — it did not finish, so Casper did not try to fix it; ${slash(`/verify ${name}`)} to run it again`;
+    return `✗ ${name} timed out${timeout ? ` after ${duration(Number(timeout[1]))}` : ""} — it did not finish, so Casper did not try to fix it; ${slash(`/verify ${name}`)} to run it again, or raise verification.timeoutMs in .casper/project.yaml`;
   }
   if (result.ended === "no_start") {
     return `✗ ${name} could not start (${typeof result.exitCode === "number" ? `exit ${result.exitCode}` : safe(result.reason ?? "no exit status").replace(/\.$/, "").toLowerCase()}) — check verify.${name} in .casper/project.yaml`;
