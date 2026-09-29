@@ -143,6 +143,37 @@ class PiRuntimeSession implements RuntimeSession {
     });
   }
 
+  conversationMark(): string | null {
+    return this.runtime.session.sessionManager.getLeafId();
+  }
+
+  async rewindTo(mark: string | null, expected: string | null): Promise<boolean> {
+    if (this.readOnly || this.busy || this.models.busy) return false;
+    const session = this.runtime.session;
+    const manager = session.sessionManager;
+    if (manager.getLeafId() !== expected) return false;
+    if (mark === expected) return true;
+    const branch = manager.getBranch();
+    const at = mark === null ? -1 : branch.findIndex((entry) => entry.id === mark);
+    if (mark !== null && at < 0) return false;
+    const next = branch[at + 1];
+    if (!next) return false;
+    // Navigating to a user or Casper message puts the conversation just before it, with no summary and no model
+    // call. The returned editor text is Casper's composed prompt, not the user's words, so it is not used.
+    const startsTurn = (entry: typeof next) => entry.type === "custom_message" || (entry.type === "message" && entry.message.role === "user");
+    let target: string | undefined;
+    if (startsTurn(next)) target = next.id;
+    else if (mark !== null && !startsTurn(branch[at]!)) target = mark;
+    if (!target) return false;
+    // Pi does nothing when asked to go to the entry it is already on: step onto the mark first, then onto the entry.
+    if (target === manager.getLeafId()) {
+      if (mark === null) return false;
+      if ((await session.navigateTree(mark, { summarize: false })).cancelled) return false;
+    }
+    const result = await session.navigateTree(target, { summarize: false });
+    return !result.cancelled && manager.getLeafId() === mark;
+  }
+
   get busy(): boolean { return this.promptActive || !this.runtime.session.isIdle; }
 
   selectModel(options: RuntimeModelSelectionOptions): Promise<RuntimeModelSelection> {
