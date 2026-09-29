@@ -132,6 +132,14 @@ export interface RuntimeModelSelection {
   models?: Array<{ provider: string; id: string; name: string }>;
 }
 
+export interface RuntimeModelInfo {
+  provider: string;
+  id: string;
+  contextWindow?: number;
+  /** Catalog price in dollars per million input tokens; an estimate, never a bill. */
+  inputCostPerMillion?: number;
+}
+
 export interface RuntimeUsage {
   context?: { tokens: number | null; contextWindow: number; percent: number | null };
   tokens: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number };
@@ -205,6 +213,9 @@ export interface RuntimeSession {
   /** Pick a default model for a signed-in provider only when no model is selected; never overrides a choice. */
   selectDefaultModel?(options?: { provider?: string; signal?: AbortSignal }): Promise<RuntimeModelSelection | undefined>;
   getModelRoles?(): Record<string, string>;
+  /** What a selector (`@reason`, `provider/id`) names, without selecting it: its context window and input price
+   * per million tokens, when the catalog knows them. Undefined when nothing matches. Makes no call. */
+  describeModel?(query: string): RuntimeModelInfo | undefined;
   setModelRole?(role: string, selector?: string): Promise<Record<string, string>>;
   setEffort?(level: string, persist: boolean): Promise<RuntimeStatus>;
   getUsage?(): RuntimeUsage;
