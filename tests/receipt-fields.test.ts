@@ -37,10 +37,13 @@ test("security tools show as counts only", () => {
   expect(receiptEvent(undefined, task, 0).security).toEqual(task.security!);
 });
 
-test("checksPassed is today's pass test, apart from the outcome", () => {
+test("checksPassed keeps the pass test; the outcome is verified only with a proven change", () => {
   const passed: TaskResult = { execution: "completed", changedPaths: ["a.ts"], verification: report() };
   expect(checksPassed(undefined, passed)).toBe(true);
-  expect(taskOutcome(undefined, passed)).toBe("verified");
+  expect(taskOutcome(undefined, passed)).toBe("not_verified");
+  expect(receiptEvent(undefined, passed, 3)).toMatchObject({ outcome: "not_verified", checksPassed: true });
+  expect(receiptEvent(undefined, passed, 3).verdict).toStartWith("• Checks passed — not proven");
+  expect(taskOutcome(undefined, { ...passed, changedPaths: [] })).toBe("unchanged");
   const stale: TaskResult = { ...passed, verification: report({ results: [check({ freshness: "stale" })] }) };
   expect(checksPassed(undefined, stale)).toBe(false);
   expect(checksPassed(undefined, { ...passed, execution: "cancelled" })).toBe(false);

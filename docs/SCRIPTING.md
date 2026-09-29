@@ -46,12 +46,18 @@ before any model request. Missing credentials for the chosen provider exit 1 wit
 | 0 | Done. Changes, if any, were verified — or, without `--require-verification`, simply not disproven. A run that changed nothing exits 0. |
 | 1 | Failed: a check failed, checks were blocked, the model run failed, or Casper hit an error. |
 | 2 | Incomplete: checks could not finish, `--max-turns` stopped the model, or checking was requested (`--verify` or `verification.mode: auto`) and found changes but no configured check. |
-| 3 | Not verified (only with `--require-verification`): files changed but Casper recorded no fresh passing check — checks off, none configured or covering the files, bash-only test runs, or a pass that went stale. |
+| 3 | Not verified (only with `--require-verification`): files changed but Casper did not prove them. That is checks off, none configured or covering the files, bash-only test runs, a pass that went stale, or (since v0.2.17) checks that passed without a proof (`• Checks passed — not proven`). `checksPassed` in the JSON receipt still says the checks passed. |
 | 64 | Usage error: an unknown option, a bad value, conflicting flags, an unknown model or conversation. Nothing ran. |
 | 130 | Cancelled (Ctrl-C / SIGINT). |
 | 143 | Terminated (SIGTERM). |
 
 Failure takes precedence over incompleteness, which takes precedence over "not verified".
+
+**Changes in v0.2.17.** `outcome: "verified"` now means only a proven change, the same as the receipt's
+`✓ Verified` line. Checks that passed on changed files without a proof were `verified` before and are
+`not_verified` now, so `--require-verification` exits 3 for them instead of 0. Checks that passed with no files
+changed are `unchanged` (exit 0). The new `checksPassed` field keeps the old signal: it is `true` whenever the
+checks passed. The receipt lines themselves did not change.
 
 `casper new <template> <name>` has its own codes: 0 ready, 1 created but not ready (or nothing
 created), 64 usage. It never calls a model. See [NEW.md](NEW.md).
@@ -79,7 +85,10 @@ A run ends with exactly one `receipt` event, or, when Casper stops before it can
 | `error` | `message` | Something failed. |
 
 `receipt.outcome` is one of `verified`, `failed`, `incomplete`, `not_verified`, `unchanged`,
-`cancelled`. `receipt.exitCode` is the process exit code. `changed` is the list of files the
+`cancelled`. `verified` means exactly what the receipt's first line calls `✓ Verified`: files changed, the
+checks pass, and a test fails without the change. Checks that passed on changed files without that proof are
+`not_verified`; checks that passed with nothing changed are `unchanged`. Read `checksPassed` to know whether the
+checks passed. `receipt.exitCode` is the process exit code. `changed` is the list of files the
 request changed, or `null` when Casper could not compare the workspace. Each entry of `checks`
 has `name`, `command`, `status`, `exit`, `ms` and `fresh`. `text` is the plain receipt a person
 would read.
@@ -135,11 +144,11 @@ become `<redacted>`).
 Fields added in v0.2.16 (all within `v: 1`; each is `null` when it does not apply): `pages` is Casper's last page
 check on the dev server (`status`, `pages` with `path`, `status`, `httpStatus`, `consoleErrors`, `failedRequests`,
 `overlay`?, `serverError`?, and `server`), with console text and logs redacted. `checksPassed` is `true` when the
-checks passed on the final files (the same test the `verified` outcome uses today). `repairModels` lists the model
+checks passed on the final files (proven or not). `repairModels` lists the model
 each repair used when Casper knows it; `bigModel` is `{ "model", "attempts" }` when the last repair ran on your big
 model. `security` holds counts only (`problems`, `notes`, `notRun`, and each tool's `status`), never finding
-text. `task` is the task's saved receipt number and `undo` is `{ "available", "reason" }`; both stay `null`
-until receipts and undo ship. `changedWhilePlanning` lists files that changed during a plan turn anyway
+text. `task` is the task's saved receipt number (`/receipt <n>`), and `undo` is `{ "available", "reason" }`: whether
+`casper /undo` can put this task's files back, and why not (see [UNDO.md](UNDO.md)). `changedWhilePlanning` lists files that changed during a plan turn anyway
 (`/plan`), and `pageNotes` says in plain words why changed pages were not opened (for example
 `node_modules is missing`); neither is ever a failure.
 

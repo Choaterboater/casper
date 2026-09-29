@@ -396,7 +396,9 @@ test("a feature worded like a test task is still reviewed and proven; a docs-onl
   await writeFile(path.join(docs.project, ".casper/project.yaml"), 'verify:\n  test: "test -f sum.js"\n');
   const documented = await docs.run(["--json", "--verify", "Add notes about sum.js"]);
   const docsReceipt = JSON.parse(documented.stdout.trim().split("\n").at(-1)!);
-  expect({ outcome: docsReceipt.outcome, proof: docsReceipt.proof, review: docsReceipt.review }).toEqual({ outcome: "verified", proof: null, review: null });
+  expect({ outcome: docsReceipt.outcome, proof: docsReceipt.proof, review: docsReceipt.review }).toEqual({ outcome: "not_verified", proof: null, review: null });
+  // The checks passed; the docs edit was not proven, so the outcome is not verified (and --require-verification exits 3).
+  expect({ checksPassed: docsReceipt.checksPassed, exit: documented.exit }).toEqual({ checksPassed: true, exit: 0 });
   expect(docs.payloads.some((payload) => lastUser(payload).includes(REVIEW))).toBe(false);
 }, 90_000);
 
@@ -488,13 +490,13 @@ test("verification.acceptance: tests written from the request alone decide betwe
   expect(crossed.payloads.map((payload) => [isAcceptance(payload), payload.model])).toEqual([[false, "first"], [false, "first"], [true, "second"]]);
 
   // warn: a request Casper does not prove (intent configure) is still checked, and a failure only names
-  // what the request's tests did not confirm: verified, exit 0 even when verification is required.
+  // what the request's tests did not confirm. Not proven, so not verified: exit 3 when verification is required.
   const warned = await accepting("expect(value).toBe(\"OTHER\")");
   await setUp(warned, "warn");
   const warnedRun = await warned.run(["--json", "--verify", "--require-verification", "Configure value to be FIXED"]);
   const warnedReceipt = JSON.parse(warnedRun.stdout.trim().split("\n").at(-1)!);
   expect({ exit: warnedRun.exit, outcome: warnedReceipt.outcome, proof: warnedReceipt.proof, acceptance: { ...warnedReceipt.acceptance, output: undefined } })
-    .toEqual({ exit: 0, outcome: "verified", proof: null, acceptance: { status: "fail", mode: "warn", unconfirmed: ["\"value is FIXED\""], output: undefined } });
+    .toEqual({ exit: 3, outcome: "not_verified", proof: null, acceptance: { status: "fail", mode: "warn", unconfirmed: ["\"value is FIXED\""], output: undefined } });
   expect(warnedReceipt.text).toContain("⚠ Not confirmed by tests written from the request: \"value is FIXED\"");
 }, 120_000);
 

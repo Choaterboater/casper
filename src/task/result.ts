@@ -103,8 +103,8 @@ export interface SecuritySummary {
 /** What a run proved, in the words scripts match on. */
 export type TaskOutcome = "verified" | "failed" | "incomplete" | "not_verified" | "unchanged" | "cancelled";
 
-/** Whether the checks passed on the final files: the pass test the outcome uses today. A later outcome may ask for
- * more (a proven change), so receipts and scripts that mean "the checks passed" read this, not the outcome. */
+/** Whether the checks passed on the final files. The outcome asks for more (a changed tree with a proven change), so
+ * receipts and scripts that mean "the checks passed" read this (JSON `checksPassed`), not the outcome. */
 export function checksPassed(report?: VerificationReport, task?: TaskResult): boolean {
   if (task?.execution === "cancelled" || task?.execution === "failed" || task?.turnLimit !== undefined) return false;
   if (task?.browser?.status === "fail" || task?.browser?.status === "incomplete") return false;
@@ -135,8 +135,14 @@ export function taskOutcome(report?: VerificationReport, task?: TaskResult): Tas
   const status = verification?.status;
   if (status === "fail" || status === "blocked" || task?.browser?.status === "fail") return "failed";
   if (status === "incomplete" || task?.browser?.status === "incomplete") return "incomplete";
-  if (status === "pass") return checksPassed(report, task) ? "verified" : "not_verified";
   const changed = Boolean(task?.changedPaths?.length || task?.changedDuringChecks?.length || (!task?.changedPaths && task?.possibleMutations));
+  // "verified" is what the verdict line calls Verified (ADR 0001): the checks pass on changed files and a test fails
+  // without the change. Checks that passed without that proof are not_verified; checksPassed still says they passed.
+  if (status === "pass") {
+    if (!checksPassed(report, task)) return "not_verified";
+    if (!changed) return "unchanged";
+    return task?.proof?.status === "proven" ? "verified" : "not_verified";
+  }
   return changed || task?.autoSkipped === "no-checks" ? "not_verified" : "unchanged";
 }
 
@@ -274,7 +280,7 @@ export function formatReceipt(task: TaskResult, options: ReceiptOptions = {}): s
 
 /** Line 1 of every receipt: what the run proved, in one line. "Verified" means the checks passed on the
  * final files and a test fails without the change (ADR 0001); anything less says why. The JSON outcome
- * and exit code are unchanged by it. A reason already on its own line moves up instead of repeating. */
+ * "verified" means exactly this line. A reason already on its own line moves up instead of repeating. */
 export function receiptVerdict(task: TaskResult, options: ReceiptOptions = {}): string | undefined {
   return formatReceipt(task, options).split("\n")[0] || undefined;
 }
@@ -286,7 +292,10 @@ function withVerdict(task: TaskResult, body: string[], options: ReceiptOptions):
     return index < 0 ? [fallback, ...body] : [body[index]!, ...body.slice(0, index), ...body.slice(index + 1)];
   };
   const report = task.verification;
-  const outcome = taskOutcome(report, task);
+  // The verdict lines for checks that passed are the same whatever the outcome calls them: "✓ Verified" only with
+  // proof, "✓ Checks passed" with nothing changed, "• Checks passed — not proven" otherwise.
+  const outcome = report?.status === "pass" && checksPassed(report, task) && !["cancelled", "failed", "incomplete"].includes(taskOutcome(report, task))
+    ? "passed" : taskOutcome(report, task);
   const changed = Boolean(task.changedPaths?.length || task.changedDuringChecks?.length || (!task.changedPaths && task.possibleMutations));
   const failedChecks = (report?.results ?? []).filter((result) => result.status === "fail" && result.kind !== "report")
     .map((result) => `${result.name} ${result.ended === "timeout" ? "timed out" : result.ended === "no_start" ? "could not start" : "failed"}`);
@@ -316,7 +325,8 @@ function withVerdict(task: TaskResult, body: string[], options: ReceiptOptions):
         ? `• Incomplete — stopped after ${task.turnLimit} ${task.turnLimit === 1 ? "turn" : "turns"} (--max-turns); changes so far are kept; ${options.surface === "one-shot" ? "casper --continue" : "send another request"} to go on`
         : "• Incomplete — not every check ran", ...body];
       break;
-    case "verified": {
+    case "verified":
+    case "passed": {
       const proof = task.proof;
       if (proof?.status === "proven") lines = [loadFailure(proof) ? "✓ Verified — the checks pass; without the change the tests could not even load"
         : "✓ Verified — the checks pass, and the tests fail without the change", ...body];
