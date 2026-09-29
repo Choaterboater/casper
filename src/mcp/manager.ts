@@ -355,9 +355,12 @@ export class MCPManager {
 
   /** Drop a remembered approval. The current connection stays until it ends. */
   async forget(name: string): Promise<boolean> {
-    const entry = this.entry(name);
+    if (this.closed) throw new Error("MCP manager is closed");
+    // A server no longer in any file can still be forgotten, so re-adding it later asks again.
+    const entry = this.entries.get(name);
     const forgotten = await this.consent?.forget(name) ?? false;
-    entry.consent = "none";
+    if (entry) entry.consent = "none";
+    else if (!forgotten) throw new Error("Unknown MCP server; use /mcp to list definitions");
     return forgotten;
   }
 
