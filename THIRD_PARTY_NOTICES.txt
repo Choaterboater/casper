@@ -95,6 +95,49 @@ and similar) are Casper's own. actlint's LICENSE is the unmodified Apache Licens
 full Apache License 2.0 text is reproduced below under @aws/lambda-invoke-store.
 
 ==============================================================================
+obra/superpowers (MIT) — the plan-first and prove-fix flow text
+Sources:
+https://github.com/obra/superpowers (commit 8ca22dba)
+
+Casper's bundled flows src/flows/plan-first/SKILL.md and
+src/flows/prove-fix/SKILL.md are trimmed adaptations of the writing-plans and
+test-driven-development skills, rewritten in Casper's plain words.
+
+MIT License
+
+Copyright (c) 2025 Jesse Vincent
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+==============================================================================
+Pi plan-mode example and Plandex — plan turn and big-model retry ideas
+Sources:
+npm package @earendil-works/pi-coding-agent@0.87.0, examples/extensions/plan-mode (MIT)
+https://github.com/plandex-ai/plandex (MIT)
+
+The plan turn's list of look-only shell commands and its "Plan:" step parsing
+(src/flows/plan.ts) follow the Pi plan-mode example's isSafeCommand and
+extractTodoItems; Pi's MIT notice appears below under @earendil-works. The idea
+of running the last repair on a stronger model (repair.bigModelLastTry) comes
+from Plandex; no Plandex code is used.
+
+==============================================================================
 Casper 0.1.0
 Sources:
 https://github.com/Choaterboater/casper/blob/main/LICENSE
