@@ -42,6 +42,7 @@ export function isDocsOnlyDefinition(definition: MCPServerDefinition): boolean {
 
 /** Env entries the docs-only copy keeps. Everything else (CREDS_PATH, vendor keys, HPE_MCP_*) is left out. */
 const DOCS_ENV = ["PYTHONPATH", "HPE_MCP_RAG_BACKEND"];
+const SETTING_WORDS = /env|token|secret|pass|key|cred|auth|user|login|config/i;
 
 export interface DocsOnlyEntry { command: string; args: string[]; cwd?: string; env: Record<string, string> }
 
@@ -55,6 +56,9 @@ export function docsOnlyDefinition(definition: MCPServerDefinition): DocsOnlyEnt
   const { command, args, env } = definition.transport;
   const last = args.at(-1);
   if (!last || !/(^|[\\/])mcp_servers[\\/]tool_router\.py$/.test(last)) return undefined;
+  // Only plain launcher words may come first (python -u, uv run python). Anything that could carry a
+  // setting or a secret (--env-file .env, --token=x) is not copied and never shown.
+  if (args.slice(0, -1).some((arg) => arg.includes("=") || (arg.startsWith("-") && SETTING_WORDS.test(arg)))) return undefined;
   const kept = Object.fromEntries(DOCS_ENV.filter((key) => typeof env[key] === "string").map((key) => [key, env[key]!]));
   return {
     command, args: [...args.slice(0, -1), last.replace(/tool_router\.py$/, "rag.py")], cwd: definition.cwd, env: kept,

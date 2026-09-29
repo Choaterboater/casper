@@ -676,7 +676,7 @@ async function handleMCPDocs(host: CommandHost): Promise<void> {
   }
   host.output.write(`Docs servers: ${docs.length ? docs.join(", ") : "none connected"}. ${docsOnly ? `Docs-only server: ${docsOnly}.` : "No docs-only server yet."}\n`);
   if (docsOnly) return;
-  if (!copyFrom) { host.output.write("No hpe-networking-mcp router (tool_router.py) found to copy a docs-only server from.\n"); return; }
+  if (!copyFrom) { host.output.write("No hpe-networking-mcp router (tool_router.py) that Casper can copy. A router started with extra settings (like --env-file) is not copied; add a docs-only server to ~/.casper/mcp.json yourself.\n"); return; }
   if (!host.interactive) { host.output.write("Run /mcp docs in an interactive session to add a docs-only copy.\n"); return; }
   const name = `${copyFrom.name}-docs`;
   const { entry } = copyFrom;
