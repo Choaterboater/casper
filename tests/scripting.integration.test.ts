@@ -671,7 +671,9 @@ test("--json --verify: the model records a smoke check, edits, and Casper replay
   // The model saw its check fail before the edit.
   const toolResult = JSON.parse(String(f.payloads[1]!.messages.at(-1)!.content));
   expect(toolResult.data.check).toMatchObject({ baseline: "fail", actual: { status: 404 } });
-  expect({ exit: result.exit, outcome: receipt.outcome, smoke: receipt.smoke }).toEqual({ exit: 0, outcome: "verified", smoke: { status: "pass", checks: [{
+  // The smoke check passed with a failing baseline, but no test was compared with and without the change: the checks
+  // passed, and the outcome is not "verified" (a proven change).
+  expect({ exit: result.exit, outcome: receipt.outcome, checksPassed: receipt.checksPassed, smoke: receipt.smoke }).toEqual({ exit: 0, outcome: "not_verified", checksPassed: true, smoke: { status: "pass", checks: [{
     id: "smoke-1", name: "create note", service: "api", source: "model", request: { method: "POST", path: "/notes" }, baseline: "fail", status: "pass",
     actual: { status: 201, body: '{"id":1,"title":"a"}' }, restarted: true, evidence: true }] } });
   expect(receipt.services).toEqual([{ name: "api", origin: expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+$/), state: "ready" }]);
