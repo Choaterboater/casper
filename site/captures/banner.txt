@@ -1,0 +1,14 @@
+# Casper 0.2.15 · the start screen in a 100-column terminal
+
+ ▄▄███▄▄    ██████  █████  ███████ ██████  ███████ ██████
+██ ███ ██  ██      ██   ██ ██      ██   ██ ██      ██   ██
+█████████  ██      ███████ ███████ ██████  █████   ██████
+█████████  ██      ██   ██      ██ ██      ██      ██   ██
+█▀██▀██▀█   ██████ ██   ██ ███████ ██      ███████ ██   ██
+
+ version   0.2.15 · your coding companion
+ project   project · branch master · profile default
+ checks    test — run after each change
+ /help · /status · /login · /model
+ model     none saved yet (/model picks one, or your first prompt offers sign-in)
+ auth      checked when the model starts (/login adds a provider)

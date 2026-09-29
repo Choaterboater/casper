@@ -1,0 +1,779 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tour · Casper</title>
+  <meta name="description" content="A walk through what Casper 0.2.15 does, with real terminal output for each feature.">
+  <meta name="color-scheme" content="light dark">
+  <link rel="icon" href="assets/logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="index.html"><img src="assets/logo.svg" alt="" width="32" height="32">Casper</a>
+      <button class="nav-toggle" type="button" aria-controls="site-nav" aria-expanded="false" hidden>Menu</button>
+      <nav id="site-nav" class="site-nav" aria-label="Main">
+        <ul>
+          <li><a href="index.html">Home</a></li>
+          <li><a href="tour.html" aria-current="page">Tour</a></li>
+          <li><a href="network.html">Network</a></li>
+          <li><a href="compare.html">Compare</a></li>
+          <li><a href="roadmap.html">Roadmap</a></li>
+          <li><a href="faq.html">FAQ</a></li>
+          <li><a class="nav-gh" href="https://github.com/Choaterboater/casper">GitHub</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <div class="container">
+      <h1>Feature tour</h1>
+      <p class="lead">Grab a coffee. This is every big thing Casper 0.2.15 does, one at a time, with the real text it prints.</p>
+
+      <aside class="callout note">
+        <strong class="callout-title">About the terminal boxes on this page</strong>
+        <p>Each dark box is text copied from a real Casper 0.2.15 run. No screenshots, no mock-ups.
+        To keep them free and repeatable, the "AI" in most of them is a small scripted stand-in: it
+        makes one real edit on disk, then says <code>No more changes.</code> Everything after that
+        (checks, proof, repairs, receipts, MCP, approvals) is Casper's own code doing its job.
+        Times like <code>0.0s</code> will differ on your machine.</p>
+      </aside>
+
+      <nav class="toc" aria-label="On this page">
+        <strong>On this page</strong>
+        <ul>
+          <li><a href="#receipts">Receipts and the verdict line</a></li>
+          <li><a href="#proof">Proof: tests fail without the change</a></li>
+          <li><a href="#repair">Auto checks and the repair loop</a></li>
+          <li><a href="#live">The live view</a></li>
+          <li><a href="#zero-tokens">Commands that use no tokens</a></li>
+          <li><a href="#mcp">MCP servers and asks</a></li>
+          <li><a href="#secrets">Secrets hidden from the AI</a></li>
+          <li><a href="#references">References search</a></li>
+          <li><a href="#scripting">Scripting: --json and exit codes</a></li>
+          <li><a href="#sessions">Sessions</a></li>
+          <li><a href="#choices">Numbered choices</a></li>
+          <li><a href="#terminal">Rich or plain terminal</a></li>
+        </ul>
+      </nav>
+
+      <section id="receipts" aria-labelledby="receipts-h">
+        <h2 id="receipts-h">Receipts and the verdict line</h2>
+        <p>Every coding task ends with a short receipt. Line 1 is the verdict. The lines under it are
+        the evidence: which files changed, which checks ran, and how long they took.</p>
+        <figure class="capture">
+          <pre class="term" tabindex="0" data-title="casper — ~/project"><span class="prompt">❯</span> <span class="you">fix the sum bug in src/sum.js</span>
+<span class="dim">[model]</span> scripted/site-capture · off · credentials configured
+<span class="ok">✓</span> edit · src/sum.js — completed · 0.2s
+<span class="ok">✓</span> edit · tests/sum.test.js — completed · 0.2s
+Fixed: sum subtracted instead of adding. Added a test for sum(2, 3).
+<span class="dim">… Casper checking: test</span>
+<span class="ok">✓</span> test · 0.0s
+<span class="dim">… Casper checking that the tests fail without the change</span>
+<span class="ok">✓</span> Verified — the checks pass, and the tests fail without the change
+<span class="ok">✓</span> Changed 2 files: src/sum.js, tests/sum.test.js
+<span class="ok">✓</span> test passed (bun test, 0.0s)
+<span class="ok">✓</span> Proven: test fails without this change (exit 1) and passes with it
+ src/sum.js        | 2 +-
+ tests/sum.test.js | 1 +
+ 2 files changed, 2 insertions(+), 1 deletion(-)</pre>
+          <figcaption>Asking Casper to fix a bug. The AI edits two files; Casper runs the test, proves
+          the fix, and prints the receipt. The last lines are a <code>git diff --stat</code>.</figcaption>
+        </figure>
+        <div class="grid two">
+          <article class="card">
+            <h3>What you see</h3>
+            <p>A green <code>✓ Verified</code> only when the checks pass <em>and</em> a test fails
+            without the change. Anything less says so, in words:</p>
+            <p class="verdict warn">• Not verified — the tests pass without the change too</p>
+            <p class="verdict bad">✗ Failed — test failed</p>
+            <p class="verdict bad">✗ Not checked — test timed out, so the change was not tested</p>
+          </article>
+          <article class="card">
+            <h3>Why it matters</h3>
+            <p>"Done" from the AI is a claim. The receipt is what really happened. You can skim
+            line 1 and move on, or type <code>/receipt</code> for the full detail behind it (how each
+            command ran, what it covered, and whether a pass was reused). <code>/receipt</code> makes no
+            model call.</p>
+          </article>
+        </div>
+      </section>
+
+      <section id="proof" aria-labelledby="proof-h">
+        <h2 id="proof-h">Proof: tests fail without the change</h2>
+        <p>A passing test suite is nice. But if the tests also pass <em>without</em> the change, they
+        did not test the change at all. So Casper checks.</p>
+        <ol class="steps">
+          <li>Before the AI starts, Casper keeps a copy of your project.</li>
+          <li>After the checks pass, it builds the project <strong>without the change</strong> (old code,
+          current tests) and runs the <code>test</code> check there.</li>
+          <li>If that fails, and the same check passes with the change, the change is
+          <strong>proven</strong>.</li>
+          <li>If it passes without the change too, the change is <strong>not proven</strong>. Casper spends
+          one repair round asking the AI to add a test that fails without the change, then checks again.</li>
+        </ol>
+        <figure class="capture">
+          <pre class="term" tabindex="0" data-title="casper — ~/project"><span class="prompt">❯</span> <span class="you">let sum take numeric strings too</span>
+<span class="dim">[model]</span> scripted/site-capture · off · credentials configured
+<span class="ok">✓</span> edit · src/sum.js — completed · 0.2s
+sum now turns its inputs into numbers first.
+<span class="dim">… Casper checking: test</span>
+<span class="ok">✓</span> test · 0.0s
+<span class="dim">… Casper checking that the tests fail without the change</span>
+<span class="accent">↻</span> repair 1/1: add a test that fails without the change
+(scripted model) No more changes.
+<span class="ok">✓</span> test · 0.0s
+<span class="dim">… Casper checking that the tests fail without the change</span>
+<span class="dim">•</span> Not verified — the tests pass without the change too
+<span class="ok">✓</span> Changed 1 file: src/sum.js
+<span class="accent">↻</span> Casper tried 1 repair
+<span class="ok">✓</span> test passed (bun test, 0.0s)
+<span class="warn">⚠</span> Not proven: test passes without this change too, and no test was added or changed
+ src/sum.js | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)</pre>
+          <figcaption>The tests pass with and without the change. Casper asks for a test once. The
+          scripted stand-in adds none, so the verdict stays "Not verified".</figcaption>
+        </figure>
+        <div class="grid two">
+          <article class="card">
+            <h3>What you see</h3>
+            <p><code>✓ Proven: test fails without this change (exit 1) and passes with it</code> in the
+            good case. Here, a plain <code>⚠ Not proven</code> line and the one repair round it tried.</p>
+          </article>
+          <article class="card">
+            <h3>Why it matters</h3>
+            <p>It catches the classic "all green, nothing tested" run. Test-only, docs-only and
+            refactor changes need no proof, and the receipt says why. The comparison runs the test
+            check once or twice more, so it adds that time.</p>
+          </article>
+        </div>
+      </section>
+
+      <section id="repair" aria-labelledby="repair-h">
+        <h2 id="repair-h">Auto checks and the repair loop</h2>
+        <p>After the AI edits files, Casper runs your project's own checks (test, lint, type check,
+        build) by itself. You don't have to ask. Real failures go back to the AI for a few repair
+        tries: 3 by default, set with <code>repair.maxAttempts</code> (0 to 10).</p>
+        <figure class="capture">
+          <pre class="term" tabindex="0" data-title="casper — ~/project"><span class="prompt">❯</span> <span class="you">speed up sum in src/sum.js</span>
+<span class="dim">[model]</span> scripted/site-capture · off · credentials configured
+<span class="ok">✓</span> edit · src/sum.js — completed · 0.2s
+Changed sum.
+<span class="dim">… Casper checking: test</span>
+<span class="bad">✗</span> test · exit 1 · 0.0s
+<span class="dim">╭─ test: stderr ───────────────────────────────────────────────────────────────────────────────────╮</span>
+│                                                                                                  │
+│ tests/sum.test.js:                                                                               │
+│ (pass) zero plus zero [0.05ms]                                                                   │
+│ error: expect(received).toBe(expected)                                                           │
+│                                                                                                  │
+│ Expected: 5                                                                                      │
+│ Received: 6                                                                                      │
+│                                                                                                  │
+│ (fail) two plus three [0.13ms]                                                                   │
+│                                                                                                  │
+│  1 pass                                                                                          │
+│  1 fail                                                                                          │
+│  2 expect() calls                                                                                │
+│ Ran 2 tests across 1 file. [5.00ms]                                                              │
+<span class="dim">╰──────────────────────────────────────────────────────────────────────────────────────────────────╯</span>
+<span class="dim">╭─ test: stdout ───────────────────────────────────────────────────────────────────────────────────╮</span>
+│ bun test v1.4.0 (34cbb9a40)                                                                      │
+<span class="dim">╰──────────────────────────────────────────────────────────────────────────────────────────────────╯</span>
+<span class="dim">… Casper checking whether test failed before this change too</span>
+<span class="accent">↻</span> repair 1/1
+(scripted model) No more changes.
+<span class="bad">✗</span> test · exit 1 · 0.0s
+<span class="dim">╭─ test: stderr ───────────────────────────────────────────────────────────────────────────────────╮</span>
+│                                                                                                  │
+│ tests/sum.test.js:                                                                               │
+│ (pass) zero plus zero [0.03ms]                                                                   │
+│ error: expect(received).toBe(expected)                                                           │
+│                                                                                                  │
+│ Expected: 5                                                                                      │
+│ Received: 6                                                                                      │
+│                                                                                                  │
+│ (fail) two plus three [0.12ms]                                                                   │
+│                                                                                                  │
+│  1 pass                                                                                          │
+│  1 fail                                                                                          │
+│  2 expect() calls                                                                                │
+│ Ran 2 tests across 1 file. [3.00ms]                                                              │
+<span class="dim">╰──────────────────────────────────────────────────────────────────────────────────────────────────╯</span>
+<span class="dim">╭─ test: stdout ───────────────────────────────────────────────────────────────────────────────────╮</span>
+│ bun test v1.4.0 (34cbb9a40)                                                                      │
+<span class="dim">╰──────────────────────────────────────────────────────────────────────────────────────────────────╯</span>
+<span class="bad">✗</span> Failed — test failed
+<span class="ok">✓</span> Changed 1 file: src/sum.js
+<span class="accent">↻</span> Casper tried 1 repair
+<span class="bad">✗</span> test failed (exit 1) — log above; /verify repair test to fix
+ src/sum.js | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)</pre>
+          <figcaption>A "speed up" that breaks a test. This project allows one repair try. The
+          stand-in makes no fix, so the receipt ends <code>✗ Failed</code> with the next step to take.</figcaption>
+        </figure>
+        <div class="grid two">
+          <article class="card">
+            <h3>What you see</h3>
+            <p>The failing check's real output in a box (the last 40 lines; the full log is kept),
+            a <code>↻ repair 1/1</code> line, the check running again, and a receipt that tells you
+            what to type next: <code>/verify repair test</code>.</p>
+          </article>
+          <article class="card">
+            <h3>Why it matters</h3>
+            <p>The AI gets the real error text, not a guess. Before the first repair, Casper also
+            runs a failing check on the old code. If it was already broken, Casper says so, and in a terminal it asks
+            <code>1 Fix it anyway · 2 Leave it</code> before spending tokens.</p>
+          </article>
+        </div>
+
+        <h3>No paid repair for timeouts</h3>
+        <p>A check that <strong>timed out</strong> or <strong>could not start</strong> did not fail as a
+        test. A repair costs tokens and cannot fix a slow suite or a missing tool, so Casper never
+        sends these to a repair on its own. In an interactive terminal it asks you instead:</p>
+        <ol>
+          <li><strong>Retry</strong>: run it again with the same limit.</li>
+          <li><strong>Fix it anyway</strong>: ask the AI to fix it (uses tokens).</li>
+          <li><strong>Allow more time</strong> (timeouts only): four times the limit it just had, at
+          least a minute and at most an hour.</li>
+        </ol>
+        <p>Esc skips. You can see the "could not start" version of this question in
+        <a href="#choices">Numbered choices</a> below. In a chat, checks that take a minute or more are
+        offered as <code>/verify</code> instead of running after every edit. <code>--no-verify</code>
+        turns checking off.</p>
+      </section>
+
+      <section id="live" aria-labelledby="live-h">
+        <h2 id="live-h">The live view</h2>
+        <p>While Casper works, the screen tells you what it is doing right now, without a wall of text.</p>
+        <figure class="capture">
+          <pre class="term" tabindex="0" data-title="casper — ~/project"><span class="prompt">❯</span> <span class="you">/verify</span>
+<span class="dim">–</span> typecheck · skipped, no command
+<span class="ok">✓</span> lint · 0.1s
+<span class="ok">✓</span> test · 0.0s
+<span class="ok">✓</span> build · 0.0s
+<span class="dim">•</span> Incomplete — not every check ran
+<span class="dim">•</span> Not verified — typecheck has no command. Add verify.typecheck to .casper/project.yaml.
+<span class="ok">✓</span> lint passed (node --check src/sum.js, 0.1s)
+<span class="ok">✓</span> test passed (bun test, 0.0s)
+<span class="ok">✓</span> build passed (bun build src/sum.js --outdir dist, 0.0s)</pre>
+          <figcaption><code>/verify</code> on a project with lint, test and build set up (no type check).
+          One line per check as it finishes, then the receipt. No model call.</figcaption>
+        </figure>
+        <div class="grid">
+          <article class="card">
+            <h3>Check lines</h3>
+            <p>Each check prints one line when it ends: <code>✓ lint · 0.1s</code>,
+            <code>✗ test · exit 1 · 2.3s</code> or <code>✗ test · timed out after 10m</code>. A pass is
+            never silent.</p>
+          </article>
+          <article class="card">
+            <h3>Tool lines with +N -M</h3>
+            <p>Each tool call is one line that turns from <code>• … — running</code> into
+            <code>✓</code> or <code>✗</code> in place. With a real model, an edit line also shows lines
+            added and removed, like <code>+9 -1</code>. (The stand-in above does not send those counts.)</p>
+          </article>
+          <article class="card">
+            <h3>The step rail</h3>
+            <p>The footer lists the stages of the task, each ticked when done, then the time:
+            <code>⠋ checklist ✓ · building ✓ · checks · 1m05s</code>. In a narrow window it shows only
+            the current stage.</p>
+          </article>
+          <article class="card">
+            <h3>A bell when it's your turn</h3>
+            <p>When a task that ran 10 seconds or more ends, or Casper needs an answer, it rings the
+            terminal bell. Your terminal decides if that is a sound, a flash or a bounce. Scripts
+            never ring.</p>
+          </article>
+        </div>
+        <p><strong>Why it matters:</strong> you can look away, come back, and know at a glance where
+        things are. "Tool finished" never pretends to mean "check passed".</p>
+      </section>
+
+      <section id="zero-tokens" aria-labelledby="zero-tokens-h">
+        <h2 id="zero-tokens-h">Commands that use no tokens</h2>
+        <p>Plenty of Casper runs on your machine alone. These make no model call, so they cost you
+        no tokens:</p>
+        <ul>
+          <li>the checks Casper runs by itself after an edit, and <code>/verify</code> to run them by hand</li>
+          <li><code>/mcp</code> to see and manage your MCP servers</li>
+          <li><code>/diff</code> to see your Git changes</li>
+          <li><code>/receipt</code> for the full detail behind the last receipt</li>
+          <li><code>/references search</code> over your local reference folders</li>
+        </ul>
+        <p>A repair is different: <code>/verify repair test</code> asks the AI to fix a check, and
+        that does use tokens.</p>
+      </section>
+
+      <section id="mcp" aria-labelledby="mcp-h">
+        <h2 id="mcp-h">MCP servers and asks</h2>
+        <p>MCP servers are tool servers the AI can call: think Aruba Central, Junos, Mist or NetBox.
+        In Casper every server starts with <strong>writes off</strong>. Write and delete tools are
+        hidden, and every other change still asks you.</p>
+        <figure class="capture">
+          <pre class="term" tabindex="0" data-title="casper — ~/project"><span class="dim"># (typed answers: 2, then 1)</span>
+
+<span class="prompt">❯</span> <span class="you">/mcp</span>
+fixture [stdio; disconnected] 0 tools · writes off
+  source: ~/.casper/mcp.json
+  limits: start 20 s · call 90 s
+Writes off: write and delete tools are hidden, and every other change still asks you. /mcp writes
+&lt;name&gt; turns writes on.
+<span class="prompt">❯</span> <span class="you">/mcp connect fixture</span>
+fixture [stdio; ready] 340 tools · writes off · access not checked
+  source: ~/.casper/mcp.json
+  limits: start 20 s · call 90 s
+Writes off: write and delete tools are hidden, and every other change still asks you. /mcp writes
+&lt;name&gt; turns writes on.
+Remember this server? Next time it connects on its own, with writes off. Every change still asks
+you.
+  <span class="accent">1</span> Remember
+  <span class="accent">2</span> Just this time
+Type 1 or 2:
+<span class="dim">[mcp]</span> Not remembered. fixture is connected for this session only.
+<span class="prompt">❯</span> <span class="you">/mcp writes fixture</span>
+fixture writes are off.
+  <span class="accent">1</span> Enable for this server
+  <span class="accent">2</span> Keep writes off
+Type 1 or 2:
+<span class="dim">[mcp]</span> Writes on for fixture. Each change still asks you. ctrl+o turns writes off.</pre>
+          <figcaption>Listing servers, connecting a local test server (it never talks to a device), and
+          turning its writes on. Note <code>access not checked</code>.</figcaption>
+        </figure>
+        <figure class="capture">
+          <pre class="term" tabindex="0" data-title="casper — ~/project"><span class="prompt">❯</span> <span class="you">set the lab site on the fixture server</span>
+<span class="dim">[model]</span> scripted/site-capture · off · credentials configured
+I will ask the fixture server to change the site.
+MCP · fixture · set_site  [write]
+Mode: EXECUTE (this makes the change)
+Arguments: {"site":"lab"}
+Run it? Type yes:
+
+<span class="dim"># (typed: no)</span>
+
+<span class="dim">[approval]</span> denied
+The change was not made.
+
+<span class="dim"># (pressed ctrl+o)</span>
+
+<span class="dim">[mcp]</span> Writes off for fixture. Write tools are hidden again.</pre>
+          <figcaption>Even with writes on, a change waits for a typed <code>yes</code>. Anything else
+          is a no. ctrl+o turns writes off for every server at once.</figcaption>
+        </figure>
+        <div class="grid two">
+          <article class="card">
+            <h3>What you see</h3>
+            <p>The tool, the server, <code>[write]</code>, the mode, the exact arguments, and
+            <code>Run it? Type yes:</code>. <code>/mcp writes &lt;name&gt;</code> is the only way to turn
+            writes on. A login shows as read-only only when the product itself says so; otherwise
+            it reads <code>access not checked</code>.</p>
+          </article>
+          <article class="card">
+            <h3>Why it matters</h3>
+            <p>A bad guess on a core switch is not a failed unit test. The AI cannot approve anything
+            for you, and text typed early cannot answer a later ask. More on this, with presets for
+            known network servers, on the <a href="network.html">Network page</a>.</p>
+          </article>
+        </div>
+
+        <h3>Check an MCP server you built</h3>
+        <p><code>casper mcp check</code> looks at your own server: its tests, whether its tool labels
+        match what the tools do, and whether its example configs keep writes off. It runs the repo's
+        code, so use it on repos you trust.</p>
+        <figure class="capture">
+          <pre class="term" tabindex="0" data-title="casper — ~/project/lab-mcp"><span class="dim"># (long lines wrapped at a space to fit 100 columns)</span>
+
+<span class="prompt">$</span> <span class="you">casper mcp check . --quick</span>
+Checking lab-mcp (~/project/lab-mcp)
+Offline: no tool calls. Credentials removed, web proxy blocked. Use --live to allow read calls.
+Offline is best effort: a program that reads its own .env or opens SSH itself can still reach the
+network.
+Starting lab: bun server.ts (from .mcp.json.example)
+Repo checks
+  <span class="dim">none</span>  doctor        No doctor found. Add a doctor script, or set it in .casper/mcp-check.json.
+  <span class="warn">warn</span>  safety tests  No safety tests found (names with write, gate, readonly, guard, block,
+redact, confirm, dry_run, annotation).
+  <span class="dim">skip</span>  tests         --quick
+Server
+  <span class="ok">ok</span>    starts        in 0.1 s, 6 tools
+  <span class="bad">fail</span>  label         delete_site is labeled read-only, but the name says it changes things.
+  <span class="bad">fail</span>  label         port_bounce is labeled write, but the name says it can cut service. Mark it
+destructiveHint: true.
+  <span class="bad">fail</span>  label         wipe_and_show says both read-only and destructive.
+  <span class="warn">warn</span>  label         show_config is labeled read-only but has a "dry_run" field.
+  <span class="dim">note</span>  dry_run       show_config: dry_run has no default in the schema. Make preview the default.
+Example configs
+  <span class="ok">ok</span>    .mcp.json.example  keeps writes off
+Result: 3 problems, 2 warnings, 1 note
+Exit codes: 0 no problems, 1 problems (or warnings with --strict), 64 usage mistake
+<span class="prompt">$</span> <span class="you">echo $?</span>
+1</pre>
+          <figcaption>A test server with wrong labels on purpose. <code>delete_site</code> claims to be
+          read-only; Casper flags it. Exit code 1 means problems were found.</figcaption>
+        </figure>
+      </section>
+
+      <section id="secrets" aria-labelledby="secrets-h">
+        <h2 id="secrets-h">Secrets hidden from the AI</h2>
+        <p>Device configs are full of passwords, RADIUS keys and SNMP communities. Casper swaps the
+        ones it knows for <code>&lt;secret hidden&gt;</code> before the AI reads the text, and tells the
+        AI how many it hid.</p>
+        <figure class="capture">
+          <pre class="term" tabindex="0" data-title="casper — ~/project"><span class="dim"># (all values are made up; netconan off, so this is Casper's built-in rules only)</span>
+
+<span class="prompt">$</span> <span class="you">bun site/captures/secrets-demo.ts</span>
+── backups/core-cx-01.cfg on disk ──
+hostname core-cx-01
+user admin group administrators password ciphertext AQBapFakeFakeFake0123==
+radius-server host 10.1.1.10 key plaintext NotARealKey1 vrf mgmt
+snmp-server community LabCommunity
+interface 1/1/1
+    description uplink to dist-01
+    no shutdown
+── backups/core-cx-01.cfg as the AI reads it ──
+hostname core-cx-01
+user admin group administrators password ciphertext &lt;secret hidden&gt;
+radius-server host 10.1.1.10 key plaintext &lt;secret hidden&gt; vrf mgmt
+snmp-server community &lt;secret hidden&gt;
+interface 1/1/1
+    description uplink to dist-01
+    no shutdown
+3 secrets hidden before the AI saw this (passwords, SNMP communities).
+
+── backups/edge-mx-01.set on disk ──
+set system host-name edge-mx-01
+set system root-authentication encrypted-password "$6$fakesalt$fakehashfakehash"
+set snmp community LabRO authorization read-only
+set interfaces ge-0/0/0 description "to core-cx-01"
+── backups/edge-mx-01.set as the AI reads it ──
+set system host-name edge-mx-01
+set system root-authentication encrypted-password "&lt;secret hidden&gt;"
+set snmp community &lt;secret hidden&gt; authorization read-only
+set interfaces ge-0/0/0 description "to core-cx-01"
+2 secrets hidden before the AI saw this (passwords, SNMP communities).
+
+<span class="dim"># And in an interactive Casper session:</span>
+
+<span class="prompt">❯</span> <span class="you">/secrets</span>
+Secrets: hidden in MCP results (always). Files and command output: on. Extra check: netconan not
+found (built-in only).</pre>
+          <figcaption>Two made-up backups, an AOS-CX <code>.cfg</code> and a Junos <code>.set</code>, on
+          disk and as the AI reads them. Then <code>/secrets</code> in a session.</figcaption>
+        </figure>
+        <div class="grid two">
+          <article class="card">
+            <h3>What gets scrubbed</h3>
+            <ul>
+              <li>MCP results: always.</li>
+              <li>Files read: config files only (<code>.cfg</code>, <code>.conf</code>, <code>.set</code>,
+              or files under <code>configs</code>, <code>backups</code> or <code>oxidized</code>).</li>
+              <li>Command and grep output: when it looks like a config.</li>
+              <li>Reference search excerpts.</li>
+            </ul>
+          </article>
+          <article class="card">
+            <h3>The honest part</h3>
+            <p>This is best effort. It hides <strong>known formats</strong>, not every secret. Odd
+            formats (EdgeConnect, ClearPass XML, JSON with strange key names) can slip through. Look at
+            what a tool returns before you share it.</p>
+          </article>
+        </div>
+      </section>
+
+      <section id="references" aria-labelledby="references-h">
+        <h2 id="references-h">References search</h2>
+        <p>Point Casper at folders on your disk (an SDK, a vendor API spec, Junos YANG models, your own
+        scripts) and search them with no model call. The AI gets a read-only
+        <code>search_references</code> tool for the same folders, so it can look at real examples
+        instead of guessing.</p>
+        <pre><code>/references                          list your sources
+/references search pycentral vlan    search one source
+/references search * schema routing  search all of them
+/references add pycentral            download a known spec repo (asks first)</code></pre>
+        <div class="grid two">
+          <article class="card">
+            <h3>What you get</h3>
+            <p>Up to 8 matching lines, each with its file, line number and the file's SHA-256. Every
+            word you type must be on the same line. It is plain text search: no regex, no "meaning"
+            search, no ranking. The output is JSON.</p>
+          </article>
+          <article class="card">
+            <h3>Handy for network folks</h3>
+            <p><code>/references add</code> knows three repos: <code>mist-openapi</code>,
+            <code>junos-yang</code> (pick a release, such as <code>23.4</code>) and
+            <code>pycentral</code>. It shows the exact <code>git</code> commands and runs them only after
+            you type <code>yes</code>.</p>
+          </article>
+        </div>
+        <p class="small muted">No capture here yet. The commands above are the ones from the
+        <a href="https://github.com/Choaterboater/casper/blob/main/docs/REFERENCES.md">references guide</a>.</p>
+      </section>
+
+      <section id="scripting" aria-labelledby="scripting-h">
+        <h2 id="scripting-h">Scripting: --json and exit codes</h2>
+        <p>Give Casper a prompt on the command line and it does that one task, then exits. Add
+        <code>--json</code> and every event is one JSON object per line on stdout. The last line is the
+        receipt.</p>
+        <figure class="capture">
+          <pre class="term" tabindex="0" data-title="bash — ~/project"><span class="dim"># (the model here is the scripted stand-in; checks, proof and receipt are real)</span>
+
+<span class="prompt">$</span> <span class="you">casper --json "fix the sum bug in src/sum.js" &gt; ../run.jsonl</span>
+<span class="prompt">$</span> <span class="you">echo $?</span>
+0
+<span class="prompt">$</span> <span class="you">jq -r .type ../run.jsonl</span>
+session_start
+phase
+tool_start
+tool_end
+tool_start
+tool_end
+assistant_delta
+assistant_message
+phase
+phase
+check
+phase
+phase
+phase
+receipt
+<span class="prompt">$</span> <span class="you">tail -1 ../run.jsonl |</span>
+<span class="prompt">&gt;</span> <span class="you">jq '{type, outcome, exitCode, changed, checks, proof: .proof.status, verdict}'</span>
+{
+  "type": "receipt",
+  "outcome": "verified",
+  "exitCode": 0,
+  "changed": [
+    "src/sum.js",
+    "tests/sum.test.js"
+  ],
+  "checks": [
+    {
+      "name": "test",
+      "command": "bun test",
+      "status": "pass",
+      "exit": 0,
+      "ms": 10,
+      "fresh": true
+    }
+  ],
+  "proof": "proven",
+  "verdict": "✓ Verified — the checks pass, and the tests fail without the change"
+}</pre>
+          <figcaption>A one-shot run with <code>--json</code>, then two <code>jq</code> commands to read it.</figcaption>
+        </figure>
+        <div class="table-wrap">
+          <table>
+            <caption>Exit codes a script can trust</caption>
+            <thead><tr><th scope="col">Code</th><th scope="col">Meaning</th></tr></thead>
+            <tbody>
+              <tr><td>0</td><td>Done. Changes were verified or, without <code>--require-verification</code>, not disproven.</td></tr>
+              <tr><td>1</td><td>Failed: a check failed, checks were blocked, or the model run failed.</td></tr>
+              <tr><td>2</td><td>Incomplete: a check could not finish, <code>--max-turns</code> stopped it, or checking was asked for and no check exists.</td></tr>
+              <tr><td>3</td><td>Not verified. Only with <code>--require-verification</code>.</td></tr>
+              <tr><td>64</td><td>Usage mistake, such as a typo in a flag. Nothing ran, and no paid prompt was sent.</td></tr>
+              <tr><td>130 / 143</td><td>Cancelled (Ctrl-C) / terminated.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p><strong>Why it matters:</strong> a CI job can fail on "not proven", not just on "tests red".
+        Handy flags: <code>--model</code>, <code>--continue</code>, <code>--verify</code>,
+        <code>--require-verification</code>, <code>--max-turns</code>. A lone <code>-</code> reads the
+        prompt from stdin, which keeps it out of <code>ps</code>.</p>
+      </section>
+
+      <section id="sessions" aria-labelledby="sessions-h">
+        <h2 id="sessions-h">Sessions</h2>
+        <p>Conversations are saved per folder, so you can pick up where you left off, or try a risky idea
+        on the side.</p>
+        <pre><code>casper --continue        carry on with this folder's last chat
+/resume                  list saved chats; /resume &lt;id&gt; brings one back
+/clear                   start fresh (the old chat stays resumable)
+/branch try-evpn         a named branch, in its own Git worktree
+/tree                    show main and every branch
+/switch main apply       check, review and apply the experiment to main
+/switch main discard     review, then drop it</code></pre>
+        <div class="grid two">
+          <article class="card">
+            <h3>What you see</h3>
+            <p>Branching and switching ask for a typed <code>yes</code>. <code>apply</code> runs your checks in the
+            experiment folder first, shows the full diff and its SHA-256, and applies that exact patch
+            to main <strong>without committing</strong>.</p>
+          </article>
+          <article class="card">
+            <h3>Worth knowing</h3>
+            <p>Bringing back a chat does not undo file changes. "Discard" means "do not apply": the
+            experiment's files are moved to a recovery folder under <code>~/.casper/worktrees/</code>,
+            and Casper never deletes those. Clean them up yourself.</p>
+          </article>
+        </div>
+      </section>
+
+      <section id="choices" aria-labelledby="choices-h">
+        <h2 id="choices-h">Numbered choices</h2>
+        <p>When Casper needs a decision, it shows numbered answers. Press the number. Or use Up/Down
+        and Enter, type your own answer, or press Esc to skip.</p>
+        <figure class="capture">
+          <pre class="term" tabindex="0" data-title="casper — ~/project"><span class="prompt">❯</span> <span class="you">/verify</span>
+<span class="dim">–</span> typecheck · skipped, no command
+<span class="bad">✗</span> lint · could not start (exit 127)
+<span class="dim">╭─ lint: stderr ───────────────────────────────────────────────────────────────────────────────────╮</span>
+│ /bin/sh: 1: node: not found                                                                      │
+<span class="dim">╰──────────────────────────────────────────────────────────────────────────────────────────────────╯</span>
+<span class="ok">✓</span> test · 0.0s
+<span class="ok">✓</span> build · 0.0s
+────────────────────────────────────────────────────────────────────────────────────────────────────
+lint could not start. Casper did not try to fix it. What now?
+<span class="accent">→</span> 1 Retry  run it again with the same limit
+  <span class="accent">2</span> Fix it anyway  ask the model to fix why it could not start (uses tokens)
+Press 1-2 or Up/Down + Enter · type to answer · Esc skip
+
+<span class="dim"># (Esc pressed: skip)</span>
+
+<span class="dim">•</span> Retry  run it again with the same limit
+<span class="dim">•</span> Fix it anyway  ask the model to fix why it could not start (uses tokens)
+  (skipped)
+<span class="bad">✗</span> Not checked — lint could not start, so the change was not tested
+<span class="dim">•</span> Not verified — typecheck has no command. Add verify.typecheck to .casper/project.yaml.
+<span class="bad">✗</span> lint could not start (exit 127) — check verify.lint in .casper/project.yaml
+<span class="ok">✓</span> test passed (bun test, 0.0s)
+<span class="ok">✓</span> build passed (bun build src/sum.js --outdir dist, 0.0s)</pre>
+          <figcaption><code>node</code> was left off <code>PATH</code> on purpose, so lint could not start.
+          Casper did not spend tokens on it; it asked. Esc skipped, and the receipt says the change was
+          not tested.</figcaption>
+        </figure>
+        <p><strong>Why it matters:</strong> one key, no typing out long answers, and nothing expensive
+        happens behind your back. Approvals that change things are different on purpose: those need a
+        typed <code>yes</code>, like the MCP ask above.</p>
+      </section>
+
+      <section id="terminal" aria-labelledby="terminal-h">
+        <h2 id="terminal-h">Rich or plain terminal</h2>
+        <p>On a rich terminal at least 58 columns wide, Casper opens with its ghost and wordmark.
+        Boo.</p>
+        <figure class="capture">
+          <pre class="term" tabindex="0" data-title="casper — ~/project"><b> ▄▄███▄▄ </b><span class="accent">   ██████  █████  ███████ ██████  ███████ ██████</span>
+<b>██ ███ ██</b><span class="accent">  ██      ██   ██ ██      ██   ██ ██      ██   ██</span>
+<b>█████████</b><span class="accent">  ██      ███████ ███████ ██████  █████   ██████</span>
+<b>█████████</b><span class="accent">  ██      ██   ██      ██ ██      ██      ██   ██</span>
+<b>█▀██▀██▀█</b><span class="accent">   ██████ ██   ██ ███████ ██      ███████ ██   ██</span>
+
+ version   0.2.15 · your coding companion
+ project   project · branch master · profile default
+ checks    test — run after each change
+ /help · /status · /login · /model
+ model     none saved yet (/model picks one, or your first prompt offers sign-in)
+ auth      checked when the model starts (/login adds a provider)</pre>
+          <figcaption>The start screen in a fresh project, 100 columns wide, before any model is picked.</figcaption>
+        </figure>
+        <div class="grid two">
+          <article class="card">
+            <h3>Rich</h3>
+            <p>Colors, a live footer, lines that update in place, and boxes for code, diffs and failed
+            check output. Color always comes with a readable symbol or word, so nothing is color-only.</p>
+          </article>
+          <article class="card">
+            <h3>Plain</h3>
+            <p><code>NO_COLOR</code> keeps the layout and drops the color. <code>TERM=dumb</code> or
+            redirected output gives plain text lines, and a narrow window gets a one-line
+            <code>CASPER 0.2.15 · your coding companion</code> header instead of the art.</p>
+          </article>
+        </div>
+        <details>
+          <summary>What does /status show?</summary>
+          <pre class="term" tabindex="0" data-title="casper — ~/project"><span class="prompt">❯</span> <span class="you">/status</span>
+ project   project
+ stack     javascript
+ package   npm
+ build     (not detected)
+ test      bun test
+ profile   default
+ branch    master
+ model     none saved yet (/model picks one, or your first prompt offers sign-in)
+ auth      checked when the model starts (/login adds a provider)
+ skills    0 indexed; imports: none (/skills diagnostics)
+ mcp       1 configured (/mcp for connection status)
+ lsp       0 configured (/lsp for connection status)
+ browser   idle; disposable local browser (/browser)
+ services  0 declared, 0 running (/services)
+ debugger  idle; explicit local DAP (/debug)
+ context   — · — session tokens (/context, /usage)
+ policy    native coding tools enabled; not sandboxed (/permissions)
+ checks    test — run after each change
+ visualize mermaid, mindmesh (/visualize)
+ memory    explicit facts and local task summaries (/memory)
+ references read-only local sources (/references)</pre>
+        </details>
+        <details>
+          <summary>What does /help show?</summary>
+          <pre class="term" tabindex="0" data-title="casper — ~/project"><span class="prompt">❯</span> <span class="you">/help</span>
+Casper — your coding companion
+
+  casper                 Start interactive mode
+  casper &lt;prompt&gt;        Run one prompt and exit; Casper checks the changes (--no-verify skips)
+  casper --verbose ...   Detailed evidence receipts instead of the plain receipt
+  casper --json ...      Scripting: also --model, --continue, --require-verification
+(docs/SCRIPTING.md)
+  casper mcp check [repo]  Check an MCP server you built: its tests, labels and configs (no tool
+calls unless --live)
+  /help all              All commands, options and safety details
+  /status                Model/auth, integrations and local storage
+  /model [model]         Pick a model; Enter remembers globally, Ctrl+S is session-only
+  /effort [level|auto]   Pick reasoning effort, or auto per request; --session for temporary
+  /context, /usage       Context estimate, session tokens and cost availability
+  /compact               Summarize context (sends a model request)
+  /clear, /resume        Fresh conversation or list/resume a saved conversation
+  /diff                  Current tracked changes and untracked file names
+  /output [n]            Full retained output of the last task's n-th most recent tool call
+  /receipt               Detailed evidence behind the last task's receipt
+  /permissions           Explain actual tool/approval boundaries
+  /login                 Provider sign-in or private API-key setup (interactive only)
+  /project               Project context and check commands
+  /skills                Skills and trust; /skills diagnostics for warnings
+  /verify [checks ...]   Run repository checks (trusted projects only); /verify repair fixes
+failures
+  /browser               Disposable browser status; website tasks can reproduce bugs
+  /services              Declared services: status, logs, start, restart, stop (no model)
+  /debug                 Local debugger targets/status; explicit launch approval
+  /exit, /quit           Exit
+
+Type a request to work with the model. Native tools can execute code and edit files.
+Type / for fuzzy command discovery; Tab completes commands and file paths (@).
+Shift+Tab cycles reasoning effort, including auto, and remembers where it stops, like /effort.
+Shift+Enter (when supported) or Ctrl+J inserts a newline; Up/Down recalls history.
+Esc stops active work. Ctrl-C cancels work; idle, it clears a draft; twice on empty exits.
+Ctrl+L redraws the screen. See docs/TERMINAL_UX.md for limits.
+Enter during work retains your draft; it does not queue a request.
+Approvals require a fresh yes. Task completion is not verification.
+After the model edits files, Casper runs the project's checks itself and repairs failures (auto
+mode), by default, with no command from you; slow checks (a minute or more) are offered as /verify
+in interactive sessions instead. --no-verify turns checking off. See docs/VERIFICATION.md.</pre>
+        </details>
+        <p>Want more? The <a href="network.html">Network page</a> goes deep on MCP and device safety,
+        and the <a href="roadmap.html">Roadmap</a> shows what is coming next (not released yet).</p>
+      </section>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <div>
+        <p><strong>Casper 0.2.15</strong> · early preview, unsigned</p>
+        <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
+        <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
+      </div>
+      <ul class="footer-links">
+        <li><a href="https://github.com/Choaterboater/casper">Source</a></li>
+        <li><a href="https://github.com/Choaterboater/casper/releases">Releases</a></li>
+        <li><a href="https://github.com/Choaterboater/casper/issues">Issues</a></li>
+      </ul>
+    </div>
+  </footer>
+
+  <script src="assets/site.js" defer></script>
+</body>
+</html>

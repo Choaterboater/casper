@@ -1,0 +1,20 @@
+# Casper 0.2.15 · checks pass, but the tests pass without the change too
+
+❯ let sum take numeric strings too
+[model] scripted/site-capture · off · credentials configured
+✓ edit · src/sum.js — completed · 0.2s
+sum now turns its inputs into numbers first.
+… Casper checking: test
+✓ test · 0.0s
+… Casper checking that the tests fail without the change
+↻ repair 1/1: add a test that fails without the change
+(scripted model) No more changes.
+✓ test · 0.0s
+… Casper checking that the tests fail without the change
+• Not verified — the tests pass without the change too
+✓ Changed 1 file: src/sum.js
+↻ Casper tried 1 repair
+✓ test passed (bun test, 0.0s)
+⚠ Not proven: test passes without this change too, and no test was added or changed
+ src/sum.js | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)

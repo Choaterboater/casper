@@ -1,0 +1,45 @@
+# Casper 0.2.15 · --json: one JSON object per line on stdout; the last line is the receipt
+# (the model here is the scripted stand-in; checks, proof and receipt are real)
+
+$ casper --json "fix the sum bug in src/sum.js" > ../run.jsonl
+$ echo $?
+0
+$ jq -r .type ../run.jsonl
+session_start
+phase
+tool_start
+tool_end
+tool_start
+tool_end
+assistant_delta
+assistant_message
+phase
+phase
+check
+phase
+phase
+phase
+receipt
+$ tail -1 ../run.jsonl |
+> jq '{type, outcome, exitCode, changed, checks, proof: .proof.status, verdict}'
+{
+  "type": "receipt",
+  "outcome": "verified",
+  "exitCode": 0,
+  "changed": [
+    "src/sum.js",
+    "tests/sum.test.js"
+  ],
+  "checks": [
+    {
+      "name": "test",
+      "command": "bun test",
+      "status": "pass",
+      "exit": 0,
+      "ms": 10,
+      "fresh": true
+    }
+  ],
+  "proof": "proven",
+  "verdict": "✓ Verified — the checks pass, and the tests fail without the change"
+}

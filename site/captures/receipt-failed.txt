@@ -1,0 +1,56 @@
+# Casper 0.2.15 · a change that breaks a test; one repair try; still failing
+
+❯ speed up sum in src/sum.js
+[model] scripted/site-capture · off · credentials configured
+✓ edit · src/sum.js — completed · 0.2s
+Changed sum.
+… Casper checking: test
+✗ test · exit 1 · 0.0s
+╭─ test: stderr ───────────────────────────────────────────────────────────────────────────────────╮
+│                                                                                                  │
+│ tests/sum.test.js:                                                                               │
+│ (pass) zero plus zero [0.05ms]                                                                   │
+│ error: expect(received).toBe(expected)                                                           │
+│                                                                                                  │
+│ Expected: 5                                                                                      │
+│ Received: 6                                                                                      │
+│                                                                                                  │
+│ (fail) two plus three [0.13ms]                                                                   │
+│                                                                                                  │
+│  1 pass                                                                                          │
+│  1 fail                                                                                          │
+│  2 expect() calls                                                                                │
+│ Ran 2 tests across 1 file. [5.00ms]                                                              │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭─ test: stdout ───────────────────────────────────────────────────────────────────────────────────╮
+│ bun test v1.4.0 (34cbb9a40)                                                                      │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+… Casper checking whether test failed before this change too
+↻ repair 1/1
+(scripted model) No more changes.
+✗ test · exit 1 · 0.0s
+╭─ test: stderr ───────────────────────────────────────────────────────────────────────────────────╮
+│                                                                                                  │
+│ tests/sum.test.js:                                                                               │
+│ (pass) zero plus zero [0.03ms]                                                                   │
+│ error: expect(received).toBe(expected)                                                           │
+│                                                                                                  │
+│ Expected: 5                                                                                      │
+│ Received: 6                                                                                      │
+│                                                                                                  │
+│ (fail) two plus three [0.12ms]                                                                   │
+│                                                                                                  │
+│  1 pass                                                                                          │
+│  1 fail                                                                                          │
+│  2 expect() calls                                                                                │
+│ Ran 2 tests across 1 file. [3.00ms]                                                              │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭─ test: stdout ───────────────────────────────────────────────────────────────────────────────────╮
+│ bun test v1.4.0 (34cbb9a40)                                                                      │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+✗ Failed — test failed
+✓ Changed 1 file: src/sum.js
+↻ Casper tried 1 repair
+✗ test failed (exit 1) — log above; /verify repair test to fix
+ src/sum.js | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)

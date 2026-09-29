@@ -1,0 +1,44 @@
+# Casper 0.2.15 · /help in a 100-column terminal
+
+❯ /help
+Casper — your coding companion
+
+  casper                 Start interactive mode
+  casper <prompt>        Run one prompt and exit; Casper checks the changes (--no-verify skips)
+  casper --verbose ...   Detailed evidence receipts instead of the plain receipt
+  casper --json ...      Scripting: also --model, --continue, --require-verification
+(docs/SCRIPTING.md)
+  casper mcp check [repo]  Check an MCP server you built: its tests, labels and configs (no tool
+calls unless --live)
+  /help all              All commands, options and safety details
+  /status                Model/auth, integrations and local storage
+  /model [model]         Pick a model; Enter remembers globally, Ctrl+S is session-only
+  /effort [level|auto]   Pick reasoning effort, or auto per request; --session for temporary
+  /context, /usage       Context estimate, session tokens and cost availability
+  /compact               Summarize context (sends a model request)
+  /clear, /resume        Fresh conversation or list/resume a saved conversation
+  /diff                  Current tracked changes and untracked file names
+  /output [n]            Full retained output of the last task's n-th most recent tool call
+  /receipt               Detailed evidence behind the last task's receipt
+  /permissions           Explain actual tool/approval boundaries
+  /login                 Provider sign-in or private API-key setup (interactive only)
+  /project               Project context and check commands
+  /skills                Skills and trust; /skills diagnostics for warnings
+  /verify [checks ...]   Run repository checks (trusted projects only); /verify repair fixes
+failures
+  /browser               Disposable browser status; website tasks can reproduce bugs
+  /services              Declared services: status, logs, start, restart, stop (no model)
+  /debug                 Local debugger targets/status; explicit launch approval
+  /exit, /quit           Exit
+
+Type a request to work with the model. Native tools can execute code and edit files.
+Type / for fuzzy command discovery; Tab completes commands and file paths (@).
+Shift+Tab cycles reasoning effort, including auto, and remembers where it stops, like /effort.
+Shift+Enter (when supported) or Ctrl+J inserts a newline; Up/Down recalls history.
+Esc stops active work. Ctrl-C cancels work; idle, it clears a draft; twice on empty exits.
+Ctrl+L redraws the screen. See docs/TERMINAL_UX.md for limits.
+Enter during work retains your draft; it does not queue a request.
+Approvals require a fresh yes. Task completion is not verification.
+After the model edits files, Casper runs the project's checks itself and repairs failures (auto
+mode), by default, with no command from you; slow checks (a minute or more) are offered as /verify
+in interactive sessions instead. --no-verify turns checking off. See docs/VERIFICATION.md.

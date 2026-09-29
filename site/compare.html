@@ -1,0 +1,444 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Compare · Casper</title>
+  <meta name="description" content="An honest look at what Casper adds on top of plain Pi, where plain Pi is the better pick, and how Casper differs from many AI coding tools.">
+  <meta name="color-scheme" content="light dark">
+  <link rel="icon" href="assets/logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="assets/style.css">
+  <style>
+    /* Loop diagram: colours come from the page tokens, so it follows light and dark mode. */
+    .loop { max-width: 26rem; margin: 1rem auto 0.5rem; display: block; }
+    .loop .box { fill: var(--surface); stroke: var(--border); stroke-width: 2; }
+    .loop .box.casper { stroke: var(--accent); fill: var(--accent-soft); }
+    .loop .box.fix { stroke: var(--warn); }
+    .loop text { fill: var(--text); font: 600 15px var(--font); }
+    .loop .lbl { fill: var(--muted); font: 500 13px var(--font); }
+    .loop .arrow { stroke: var(--muted); stroke-width: 2; fill: none; }
+    .loop .arrow.fail { stroke: var(--warn); stroke-dasharray: 5 4; }
+    .loop .head { fill: var(--muted); }
+    .loop .head.fail { fill: var(--warn); }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="index.html"><img src="assets/logo.svg" alt="" width="32" height="32">Casper</a>
+      <button class="nav-toggle" type="button" aria-controls="site-nav" aria-expanded="false" hidden>Menu</button>
+      <nav id="site-nav" class="site-nav" aria-label="Main">
+        <ul>
+          <li><a href="index.html">Home</a></li>
+          <li><a href="tour.html">Tour</a></li>
+          <li><a href="network.html">Network</a></li>
+          <li><a href="compare.html" aria-current="page">Compare</a></li>
+          <li><a href="roadmap.html">Roadmap</a></li>
+          <li><a href="faq.html">FAQ</a></li>
+          <li><a class="nav-gh" href="https://github.com/Choaterboater/casper">GitHub</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <div class="container">
+      <h1>Casper vs plain Pi</h1>
+      <p class="lead">Casper is built on the Pi SDK. So what does it add, and when is plain Pi the
+      better tool? Here is the honest version, with the good and the less good.</p>
+
+      <nav class="toc" aria-label="On this page">
+        <strong>On this page</strong>
+        <ul>
+          <li><a href="#loop">The Casper loop, in one picture</a></li>
+          <li><a href="#table">The table: plain Pi vs Casper</a></li>
+          <li><a href="#pi-wins">Where plain Pi is better</a></li>
+          <li><a href="#others">Casper and other AI coding tools</a></li>
+          <li><a href="#show">Two things you can see for yourself</a></li>
+          <li><a href="#numbers">What about numbers?</a></li>
+          <li><a href="#pick">Which one should I use?</a></li>
+        </ul>
+      </nav>
+
+      <section id="start" aria-labelledby="start-h">
+        <h2 id="start-h">First, what is Pi?</h2>
+        <div class="prose">
+          <p><a href="https://github.com/earendil-works/pi">Pi</a> is a small terminal coding agent.
+          Out of the box it gives the AI four tools: <code>read</code>, <code>write</code>,
+          <code>edit</code> and <code>bash</code>. Its idea is "keep the core small, add what you
+          want". It has no MCP, no permission pop-ups, no sub-agents and no plan mode built in. You
+          add those yourself with extensions, skills or Pi packages.</p>
+          <p>Casper uses Pi's SDK as a pinned library (Pi 0.87.0 in Casper 0.2.15). It is not a fork
+          and not a Pi extension. Casper wraps the AI's work in a loop of checks, proof and a
+          receipt, and adds guard rails for network gear.</p>
+        </div>
+      </section>
+
+      <section id="loop" aria-labelledby="loop-h">
+        <h2 id="loop-h">The Casper loop, in one picture</h2>
+        <p class="prose">The AI does the edits. Casper does the checking. "Done" is the AI's claim;
+        the receipt is what really happened.</p>
+        <figure class="capture">
+          <svg class="loop" viewBox="0 0 360 410" role="img" aria-labelledby="loop-title loop-desc">
+            <title id="loop-title">The Casper loop</title>
+            <desc id="loop-desc">You ask. The AI edits files. Casper runs your project's checks. If
+            a check fails, Casper sends the failure back to the AI for a repair try, then checks
+            again. When the checks pass, Casper tries to prove the change: the tests should fail
+            without it. Every task ends with a receipt.</desc>
+            <defs>
+              <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path class="head" d="M0,0 L10,5 L0,10 z"/>
+              </marker>
+              <marker id="ahf" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path class="head fail" d="M0,0 L10,5 L0,10 z"/>
+              </marker>
+            </defs>
+            <!-- main column -->
+            <rect class="box" x="20" y="10" width="200" height="48" rx="10"/>
+            <text x="120" y="39" text-anchor="middle">1 · You ask</text>
+            <rect class="box" x="20" y="94" width="200" height="48" rx="10"/>
+            <text x="120" y="123" text-anchor="middle">2 · AI edits files</text>
+            <rect class="box casper" x="20" y="178" width="200" height="48" rx="10"/>
+            <text x="120" y="207" text-anchor="middle">3 · Casper runs checks</text>
+            <rect class="box casper" x="20" y="262" width="200" height="48" rx="10"/>
+            <text x="120" y="291" text-anchor="middle">4 · Proof</text>
+            <rect class="box casper" x="20" y="346" width="200" height="48" rx="10"/>
+            <text x="120" y="375" text-anchor="middle">5 · Receipt</text>
+            <path class="arrow" d="M120,58 V92" marker-end="url(#ah)"/>
+            <path class="arrow" d="M120,142 V176" marker-end="url(#ah)"/>
+            <path class="arrow" d="M120,226 V260" marker-end="url(#ah)"/>
+            <text class="lbl" x="128" y="248">pass</text>
+            <path class="arrow" d="M120,310 V344" marker-end="url(#ah)"/>
+            <!-- repair branch -->
+            <rect class="box fix" x="250" y="136" width="96" height="44" rx="10"/>
+            <text x="298" y="163" text-anchor="middle">Repair</text>
+            <path class="arrow fail" d="M220,202 H298 V182" marker-end="url(#ahf)"/>
+            <text class="lbl" x="232" y="220">fail</text>
+            <path class="arrow fail" d="M298,136 V118 H222" marker-end="url(#ahf)"/>
+          </svg>
+          <figcaption class="center">Repair tries are limited (3 by default). If the checks still
+          fail, the receipt says <strong>Failed</strong>, not "done".</figcaption>
+        </figure>
+        <ol class="steps">
+          <li><strong>You ask.</strong> In plain words, like <code>fix the sum bug in src/sum.js</code>.
+          For code changes in a chat, Casper first lists the cases your request states, so the AI's
+          tests cover them. You can edit or skip that list.</li>
+          <li><strong>The AI edits files.</strong> Pi's engine does this part underneath.</li>
+          <li><strong>Casper runs your checks.</strong> Your project's own test, lint, type check and
+          build commands. It finds them by itself for Node, Python, Rust and Go projects, or reads
+          them from <code>.casper/project.yaml</code>. No model call for this part.</li>
+          <li><strong>Proof.</strong> Casper runs the tests on a copy of the project
+          <em>without</em> the change. If they fail there and pass with it, the change is proven.</li>
+          <li><strong>Receipt.</strong> Line 1 is the verdict: <code>Verified</code>,
+          <code>Not verified</code>, <code>Failed</code> and so on. The lines under it are the
+          evidence.</li>
+        </ol>
+      </section>
+
+      <section id="table" aria-labelledby="table-h">
+        <h2 id="table-h">The table: plain Pi vs Casper 0.2.15</h2>
+        <p class="prose">"Plain Pi" means Pi as it ships, with no extra packages. Many of Casper's
+        extras could be built on Pi with extensions. This table is about what you get without
+        building anything.</p>
+        <div class="table-wrap">
+          <table>
+            <caption>Checked against the Pi 0.87.0 README and Casper 0.2.15 docs. "Yes" means built in
+            and on or ready to use.</caption>
+            <thead>
+              <tr><th scope="col">What</th><th scope="col">Plain Pi</th><th scope="col">Casper 0.2.15</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">Runs your tests after the AI edits</th>
+                <td class="no">No. Only if the AI decides to run them with <code>bash</code>.</td>
+                <td class="yes">Yes, by default. Test, lint, type check, build. A slow suite (60&nbsp;s or more) is offered as <code>/verify</code> in a chat instead.</td>
+              </tr>
+              <tr>
+                <th scope="row">Proof that the tests test the change</th>
+                <td class="no">No</td>
+                <td class="yes">Yes. Tests must fail without the change and pass with it.</td>
+              </tr>
+              <tr>
+                <th scope="row">Receipt with a verdict</th>
+                <td class="no">No. The AI's own summary.</td>
+                <td class="yes">Yes. Every coding task ends with one. <code>/receipt</code> shows the detail.</td>
+              </tr>
+              <tr>
+                <th scope="row">Repair loop</th>
+                <td class="no">No. You paste the error back yourself.</td>
+                <td class="yes">Yes. Real failures go back to the AI, 3 tries by default. A check that timed out or could not start is never sent to a paid repair.</td>
+              </tr>
+              <tr>
+                <th scope="row">"AI ran the tests in bash" counts as checked?</th>
+                <td>Nothing is counted either way.</td>
+                <td class="yes">No, on purpose. The receipt says <code>test ran via bash only</code> and does not call it verified.</td>
+              </tr>
+              <tr>
+                <th scope="row">Finds your check commands</th>
+                <td class="no">No</td>
+                <td class="yes">Yes: Node, Python, Rust, Go. <code>/project</code> shows what it found.</td>
+              </tr>
+              <tr>
+                <th scope="row">Request checklist</th>
+                <td class="no">No</td>
+                <td class="yes">On by default for code changes in a chat. You see it and can edit or skip it.</td>
+              </tr>
+              <tr>
+                <th scope="row">MCP servers</th>
+                <td class="no">Not built in ("No MCP" is part of Pi's design). Add it with an extension.</td>
+                <td class="yes">Built in. Every server starts with writes off. Each change waits for your typed <code>yes</code>. <code>ctrl+o</code> turns writes off again.</td>
+              </tr>
+              <tr>
+                <th scope="row">"Read-only" label</th>
+                <td>n/a</td>
+                <td class="yes">Only when the product itself says so (its <code>access_check</code> tool). Otherwise: <code>access not checked</code>.</td>
+              </tr>
+              <tr>
+                <th scope="row">Hides device secrets from the AI</th>
+                <td class="no">No</td>
+                <td class="yes">Yes, best effort, known formats only: passwords, RADIUS/TACACS keys, Wi-Fi PSKs, SNMP communities become <code>&lt;secret hidden&gt;</code>.</td>
+              </tr>
+              <tr>
+                <th scope="row">Permission prompts</th>
+                <td class="no">None built in ("No permission popups"). Build your own or use a container.</td>
+                <td class="yes">Risky actions ask you, and the AI cannot approve for you. Still not a sandbox.</td>
+              </tr>
+              <tr>
+                <th scope="row">Questions to you</th>
+                <td>Arrow-key pickers (for example <code>/model</code>)</td>
+                <td class="yes">Numbered answers: press <kbd>1</kbd>, <kbd>2</kbd> … or <kbd>Esc</kbd> to skip.</td>
+              </tr>
+              <tr>
+                <th scope="row">Scripting</th>
+                <td class="yes"><code>-p</code> print mode, <code>--mode json</code> events, RPC mode, SDK</td>
+                <td class="yes"><code>--json</code> events ending in a receipt object, plus exit codes: 1 failed, 2 incomplete, 3 not verified (with <code>--require-verification</code>).</td>
+              </tr>
+              <tr>
+                <th scope="row">Things that cost zero tokens</th>
+                <td>Local commands</td>
+                <td class="yes">Checks, <code>/verify</code>, <code>/mcp</code>, <code>/diff</code>, <code>/receipt</code> and local reference search make no model call.</td>
+              </tr>
+              <tr>
+                <th scope="row">Sign-in choices</th>
+                <td class="yes">Many providers, by subscription or API key</td>
+                <td><code>/login</code> offers four: OpenAI Codex, GitHub Copilot, Anthropic, OpenRouter.</td>
+              </tr>
+              <tr>
+                <th scope="row">Extensions and Pi packages</th>
+                <td class="yes">Yes. A big part of Pi. <code>pi install</code> from npm or git.</td>
+                <td>Pi packages are not imported. A repo's own <code>.pi/</code> folder is ignored. User-level extensions in <code>~/.casper/agent/extensions/</code> still load.</td>
+              </tr>
+              <tr>
+                <th scope="row">Weight and speed</th>
+                <td class="yes">Small core, short prompt, nothing runs after the edit</td>
+                <td>Checks and proof add time. The proof runs the tests once or twice more.</td>
+              </tr>
+              <tr>
+                <th scope="row">Sandbox</th>
+                <td class="no">No</td>
+                <td class="no">No. File and shell tools run with your permissions.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="pi-wins" aria-labelledby="pi-wins-h">
+        <h2 id="pi-wins-h">Where plain Pi is better</h2>
+        <p class="prose">Casper is not the right tool for every job. Plain Pi wins here, and that is
+        fine.</p>
+        <div class="grid">
+          <article class="card">
+            <h3>Lighter</h3>
+            <p>Four tools, a short prompt, no extra steps. Nothing runs after the edit unless you
+            ask. Less to learn, less to go wrong.</p>
+          </article>
+          <article class="card">
+            <h3>Faster for tiny edits</h3>
+            <p>Fix a typo, rename a thing, tweak a comment: Pi is done when the edit is. Casper
+            runs checks and a proof run on top. (You can start Casper with <code>--no-verify</code>,
+            but then why not use Pi?)</p>
+          </article>
+          <article class="card">
+            <h3>Its own extensions</h3>
+            <p>Pi's whole idea is "build it your way". Custom tools, commands, UI, even games while
+            you wait. Pi packages install from npm or git. Casper does not import them.</p>
+          </article>
+          <article class="card">
+            <h3>More providers and modes</h3>
+            <p>Pi lists many model providers, plus RPC mode and a session tree (<code>/tree</code>,
+            <code>/fork</code>). Casper's <code>/login</code> offers four providers.</p>
+          </article>
+        </div>
+      </section>
+
+      <section id="others" aria-labelledby="others-h">
+        <h2 id="others-h">Casper and other AI coding tools</h2>
+        <p class="prose">We won't name other tools or guess at their insides. Here are fair,
+        general points instead.</p>
+        <ul class="prose">
+          <li><strong>Many tools report "done" without running your tests.</strong> Casper runs your
+          project's own checks after each code change, by default.</li>
+          <li><strong>A green test run does not always test the change.</strong> Casper checks that
+          the tests fail without it. If they don't, the receipt says <code>Not proven</code>.</li>
+          <li><strong>Many tools end with a friendly summary.</strong> Casper ends with a receipt
+          whose first line is a verdict, and it says "Failed" or "Not verified" when that is the
+          truth.</li>
+          <li><strong>Network gear is not a toy.</strong> Casper starts MCP servers with writes
+          off, asks before each change, and hides known device secrets from the AI.</li>
+          <li><strong>Some tools do some of this too.</strong> Casper does not claim to be the only
+          one. It is one careful way to do it, in the open, under the MIT licence.</li>
+        </ul>
+      </section>
+
+      <section id="show" aria-labelledby="show-h">
+        <h2 id="show-h">Two things you can see for yourself</h2>
+        <p class="prose">Real Casper 0.2.15 output. The AI here is a scripted stand-in (no model
+        key needed). Everything Casper does after the AI's edit is the real code.</p>
+
+        <h3>A script gets the verdict, not just text</h3>
+        <figure class="capture">
+          <pre class="term" tabindex="0" data-title="shell — ~/project"><span class="dim"># (the model here is the scripted stand-in; checks, proof and receipt are real)</span>
+
+<span class="prompt">$</span> <span class="you">casper --json "fix the sum bug in src/sum.js" &gt; ../run.jsonl</span>
+<span class="prompt">$</span> <span class="you">echo $?</span>
+0
+<span class="prompt">$</span> <span class="you">jq -r .type ../run.jsonl</span>
+session_start
+phase
+tool_start
+tool_end
+tool_start
+tool_end
+assistant_delta
+assistant_message
+phase
+phase
+check
+phase
+phase
+phase
+receipt
+<span class="prompt">$</span> <span class="you">tail -1 ../run.jsonl |</span>
+<span class="prompt">&gt;</span> <span class="you">jq '{type, outcome, exitCode, changed, checks, proof: .proof.status, verdict}'</span>
+{
+  "type": "receipt",
+  "outcome": "verified",
+  "exitCode": 0,
+  "changed": [
+    "src/sum.js",
+    "tests/sum.test.js"
+  ],
+  "checks": [
+    {
+      "name": "test",
+      "command": "bun test",
+      "status": "pass",
+      "exit": 0,
+      "ms": 10,
+      "fresh": true
+    }
+  ],
+  "proof": "proven",
+  "verdict": "<span class="ok">✓</span> Verified — the checks pass, and the tests fail without the change"
+}</pre>
+          <figcaption>One JSON object per line; the last one is the receipt. Plain Pi's
+          <code>--mode json</code> also streams events, but has no receipt or verdict to read.</figcaption>
+        </figure>
+
+        <h3>An MCP write asks first</h3>
+        <figure class="capture">
+          <pre class="term" tabindex="0" data-title="casper — ~/project"><span class="prompt">❯</span> <span class="you">set the lab site on the fixture server</span>
+<span class="dim">[model]</span> scripted/site-capture · off · credentials configured
+I will ask the fixture server to change the site.
+MCP · fixture · set_site  <span class="warn">[write]</span>
+Mode: EXECUTE (this makes the change)
+Arguments: {"site":"lab"}
+Run it? Type yes:
+
+<span class="dim"># (typed: no)</span>
+
+[approval] denied
+The change was not made.
+
+<span class="dim"># (pressed ctrl+o)</span>
+
+[mcp] Writes off for fixture. Write tools are hidden again.</pre>
+          <figcaption>A local test server, not a real device. Anything but <code>yes</code> means no.
+          <code>ctrl+o</code> turns writes off again.</figcaption>
+        </figure>
+      </section>
+
+      <section id="numbers" aria-labelledby="numbers-h">
+        <h2 id="numbers-h">What about numbers?</h2>
+        <aside class="callout warn">
+          <strong class="callout-title">No full, measured benchmark yet</strong>
+          <p>Casper has an evaluation suite (<code>evals/</code>) that can compare Casper and Pi on
+          the same model and the same tasks. It has not been run as a full, measured benchmark with a
+          real model across all its tasks. So this page makes no "X% better" claim.</p>
+        </aside>
+        <div class="prose">
+          <p>There are small trial runs with real models, written up in
+          <a href="https://github.com/Choaterboater/casper/tree/main/docs/evals">docs/evals</a>. They are
+          too small to call a result, but they taught us two honest things:</p>
+          <ul>
+            <li><strong>"Verified" is not "everything you asked is done".</strong> It means the checks
+            passed and the tests prove the change. On one hard set of tasks, Casper said
+            <code>Verified</code> on 12 runs that were still wrong: each skipped a case that no
+            test covered. That is why the request checklist exists. In the same test set it cut
+            wrong runs from 7 of 48 to 2 of 48. Plain Pi had 3 of 48 there, so that is "about the
+            same", not "better".</li>
+            <li><strong>Casper often takes longer than Pi.</strong> Checks, proof and the checklist
+            all cost time, and sometimes tokens. That is the trade.</li>
+          </ul>
+          <p>So: read the receipt, and still review important changes yourself.</p>
+        </div>
+      </section>
+
+      <section id="pick" aria-labelledby="pick-h">
+        <h2 id="pick-h">Which one should I use?</h2>
+        <div class="grid two">
+          <article class="card">
+            <h3>Pick plain Pi if…</h3>
+            <ul>
+              <li>you want a small, fast tool and like building your own extras;</li>
+              <li>most of your edits are tiny;</li>
+              <li>you use Pi packages or a provider Casper's <code>/login</code> does not offer.</li>
+            </ul>
+          </article>
+          <article class="card">
+            <h3>Pick Casper if…</h3>
+            <ul>
+              <li>you want your tests run and the change proven before you hear "done";</li>
+              <li>you connect MCP servers to network gear and want writes off until you say so;</li>
+              <li>you script runs and want a verdict and an exit code, not just text.</li>
+            </ul>
+          </article>
+        </div>
+        <p class="prose">Both can live on the same machine. Casper keeps its own sign-ins in
+        <code>~/.casper/agent/</code>, separate from Pi's. See the <a href="tour.html">tour</a> for
+        more, or the <a href="roadmap.html">roadmap</a> for what is coming next.</p>
+      </section>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <div>
+        <p><strong>Casper 0.2.15</strong> · early preview, unsigned</p>
+        <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
+        <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
+      </div>
+      <ul class="footer-links">
+        <li><a href="https://github.com/Choaterboater/casper">Source</a></li>
+        <li><a href="https://github.com/Choaterboater/casper/releases">Releases</a></li>
+        <li><a href="https://github.com/Choaterboater/casper/issues">Issues</a></li>
+      </ul>
+    </div>
+  </footer>
+
+  <script src="assets/site.js" defer></script>
+</body>
+</html>
