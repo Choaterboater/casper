@@ -8,11 +8,17 @@ are bundled.
 
 Casper reads optional JSON files, in this precedence order (later definitions replace earlier names):
 
-1. `~/.casper/mcp.json`
-2. `~/.casper/profiles/<selected-profile>/mcp.json`
-3. `<project>/mcp.json`
-4. `<project>/.mcp.json`
-5. `<project>/.casper/mcp.json`
+1. VS Code user settings: `mcp.json` (`"servers"`) and `settings.json` (`"mcp"."servers"`), stable and Insiders (`~/.config/Code/User` on Linux, `~/Library/Application Support/Code/User` on macOS)
+2. `~/.mcp.json` (skipped when the opened project is your home folder, where it is item 8)
+3. `~/.claude.json`: its top-level `mcpServers`, then the entry for this project (`projects["<project>"].mcpServers`)
+4. `~/.casper/mcp.json`
+5. `~/.casper/profiles/<selected-profile>/mcp.json`
+6. `<project>/.vscode/mcp.json` (`"servers"`)
+7. `<project>/mcp.json`
+8. `<project>/.mcp.json`
+9. `<project>/.casper/mcp.json`
+
+**Servers you already set up elsewhere.** Items 1-3 are Claude Code's and VS Code's files, so you don't have to copy anything. Only the server entries are read: `~/.claude.json` also holds history and account data, which Casper never keeps or prints (it may be up to 32 MB). Imported servers start in your home folder, never in the opened project (in `~/.casper` when the project is your home folder), and `/mcp` shows where each came from: `junos [stdio; disconnected] 0 tools · from ~/.claude.json · writes off` and `Found in ~/.claude.json. Not approved yet · /mcp connect junos`. An interactive session says once per new set of imported names: `[mcp] Found 3 servers in ~/.claude.json and VS Code. Run /mcp to see them.` VS Code variables are translated: `${env:X}` becomes `${X}` and `${userHome}` your home folder. Entries Casper can't fill in are skipped by name, and the others still load: `Skipped "netbox" from VS Code: it asks VS Code for a value (${input:token}). Put it in ~/.casper/mcp.json instead.`, and the same for `${workspaceFolder}` in a user file, `envFile` and SSE. A half-written `~/.claude.json` gives `Cannot read ~/.claude.json (it may be in use). Try /mcp reload.` A name found in several of these files is reported, and your own files win: `"junos" is in VS Code and ~/.claude.json; using ~/.casper/mcp.json`. `<project>/.vscode/mcp.json` is project content (`${workspaceFolder}` is the project) and gets the same review as the other project files.
 
 Common `mcpServers` maps are supported:
 
@@ -36,7 +42,7 @@ Common `mcpServers` maps are supported:
 
 The example URL is a placeholder, not a server to connect to. `type: "stdio"` is optional for command entries; URL entries accept `http` or `streamable-http`. Only HTTPS or loopback HTTP is accepted. URL userinfo, fragments, legacy SSE transport, and ambiguous command-plus-URL definitions are rejected. Stdio commands run directly (no implicit shell), with the SDK's minimal inherited environment plus the explicit `env` map. Your own servers (`~/.casper/mcp.json` and profile files) start in your home folder, so an opened repository cannot change what they load; set `"cwd"` to an absolute folder, `~/...`, or `${PROJECT_ROOT}` to choose another. Project-file servers start at the project root, or at a relative `"cwd"` inside it. Shell interpreters supplied as commands can still execute shell code.
 
-`${ENV_NAME}` references in command, arguments, environment values, and HTTP header values resolve only on connection. A missing variable fails the connection, and `/mcp` names it (never a value). Casper does not run secret-fetching commands, provision OAuth, install servers, or write MCP configuration/credentials. Use environment references instead of committing secrets. Review the resolved configuration source before connecting, especially when project definitions override user definitions. The review of a project-file server names every `${NAME}` it would send and where, for example `sends $ANTHROPIC_API_KEY to https://collector.example (header X-Key)`; literal values stay hidden.
+`${ENV_NAME}` (or Claude Code's `${ENV_NAME:-default}`, which uses the default when the variable is unset or empty) references in command, arguments, environment values, and HTTP header values resolve only on connection. A missing variable fails the connection, and `/mcp` names it (never a value). Casper does not run secret-fetching commands, provision OAuth, install servers, or write MCP configuration/credentials. Use environment references instead of committing secrets. Review the resolved configuration source before connecting, especially when project definitions override user definitions. The review of a project-file server names every `${NAME}` it would send and where, for example `sends $ANTHROPIC_API_KEY to https://collector.example (header X-Key)`; literal values stay hidden.
 
 ```text
 /mcp                          # local status; no connection or model
@@ -52,9 +58,62 @@ casper --mcp local-docs "Find the documentation for pagination"
 casper --mcp local-docs --mcp another-server
 ```
 
-**Discovery is not permission.** All servers, including user/profile servers, start disconnected. Neither a `trusted` flag in project JSON nor a skill can authorize connection. Only the user's local connect command/CLI option does so. `--mcp` and non-interactive runs connect only user/profile definitions; a project definition (including one that replaces a same-named user server) connects only through an interactive `/mcp connect <name>` that first shows its source file, the file it replaces, its command and arguments or URL origin, and environment/header names (never values). Consent lasts for this process; it is not persisted and is separate from skill trust. `/mcp` lists name, source file, transport, state, tool count, time limits, and plain error messages, never command arguments, URLs, header values, or environment values. When a server fails, `/mcp` shows what it said (see "Lifecycle and results").
+**Discovery is not permission.** All servers, including user/profile servers, start disconnected. Neither a `trusted` flag in project JSON nor a skill can authorize connection. Only the user's local connect command/CLI option does so. `--mcp` and non-interactive runs connect only user/profile definitions; a project definition (including one that replaces a same-named user server) connects only through an interactive `/mcp connect <name>` that first shows its source file, the file it replaces, its command and arguments or URL origin, and environment/header names (never values). Consent lasts for this process unless you remember it (see "Remembered servers"); it is separate from skill trust. `/mcp` lists name, source file, transport, state, tool count, time limits, and plain error messages, never command arguments, URLs, header values, or environment values. When a server fails, `/mcp` shows what it said (see "Lifecycle and results").
 
-Malformed entries produce diagnostics without taking down other entries. An invalid overriding entry removes that name rather than falling back to the lower-precedence executable. Files are limited to 1 MiB and the merged configuration to 64 servers. Structurally invalid entries are rejected; unknown per-server keys are ignored. `/mcp reload` re-reads the same layered files in place: new servers appear disconnected, removed servers disappear, and a server whose command, URL, arguments, or environment changed counts as a different program, so its connection closes and its process-local consent is revoked until `/mcp connect <name>` again. Unchanged approved servers keep their connection. Malformed reloaded entries produce diagnostics and take nothing else down.
+Malformed entries produce diagnostics without taking down other entries. An invalid overriding entry removes that name rather than falling back to the lower-precedence executable. Files are limited to 1 MiB and the merged configuration to 64 servers. Structurally invalid entries are rejected; unknown per-server keys are ignored. `/mcp reload` re-reads the same layered files in place: new servers appear disconnected, removed servers disappear, and a server whose command, URL, arguments, or environment changed counts as a different program, so its connection closes, its writes go off and its consent (also a remembered one) is revoked until `/mcp connect <name>` again. Unchanged approved servers keep their connection. Malformed reloaded entries produce diagnostics and take nothing else down.
+
+### Remembered servers
+
+After an interactive `/mcp connect` of your own or an imported server, Casper asks:
+
+```text
+Remember this server? Next time it connects on its own, with writes off. Every change still asks you.
+  1 Remember
+  2 Just this time
+Type 1 or 2:
+```
+
+`1` stores a keyed hash of the definition (name, start folder, command, arguments, env, URL, headers) in `~/.casper/mcp-consent.json`. The key is 32 random bytes in `~/.casper/mcp-consent.key`; both files are private (0600), and no definition value is stored. Next time the server connects on its own when a task needs it, always with writes off. Any change to the definition means Casper asks again: `/mcp` shows `Changed since you approved it. Run /mcp connect <name>.` Time limits and where the entry lives are not part of the hash. A literal token in the definition is part of it, so rotating it asks again; `${VAR}` references avoid that. Project servers are never remembered. Servers started through a package runner that can fetch new code later (`npx`, `bunx`, `pnpm dlx`, `uvx`, `uv tool run`, `pipx run`, `docker run` with `:latest` or no tag) are remembered only when pinned to a version: `Not remembered: central-mcp-server is not pinned to a version. An update could add write tools. Pin it (for example ==1.4.2 or a commit) and connect again.` `/mcp forget <name>` drops a remembered server. A damaged store counts as empty and says so.
+
+### Presets
+
+Casper recognises some network servers by what they run (never by their name) and adds restrictions. A preset can pin read-only settings, raise a tool's label, hide tools while writes are off, refuse arguments and add notes to the approval box. It never lowers a label, never skips an approval and never calls a server read-only.
+
+| Server | Recognised by | Pinned while writes are off | Hidden while writes are off |
+| --- | --- | --- | --- |
+| hpe-networking-mcp | `tool_router.py`, `hpe-mcp-router`, `hpe_networking_mcp`, `HPE_MCP_*` env, or its router tools | `HPE_MCP_ACCESS_PROFILE=safe-read-only`, `HPE_MCP_READONLY=1`, `HPE_MCP_PRODUCT_ACCESS=read-only`, every `HPE_MCP_*_WRITES=0` | `invoke_tool`, `invoke_tools_batch` |
+| centralmcp (`aruba-*`) | `centralmcp` in the command or `CENTRALMCP_*` env | `CENTRALMCP_READONLY=1` | write and delete tools |
+| central-mcp-server | `central-mcp-server` in the command | nothing (no setting exists); must be pinned to a version to be remembered | tools not marked read-only |
+| junos-mcp-server | `jmcp.py`, `junos-mcp-server`, or its tool names | nothing (no setting exists) | `load_and_commit_config`, `render_and_apply_j2_template` |
+| Mist hosted | a `mist.com` URL | nothing: `Access not checked. Use a read-only (Observer) org token for this server.` | write and delete tools |
+| NetBox | `netbox` in the command, `NETBOX_*` env or URL | nothing; use a read-only token | write and delete tools |
+| netmiko_mcp | `netmiko` in the command | nothing; never remembered | tools not marked read-only |
+| Oxidized / LibreNMS | the name in the command, env or URL | nothing | tools not marked read-only |
+| Grafana | `mcp-grafana` | `--disable-write` (added once) | write and delete tools |
+| ClearPass MCP | `clearpass` in the command or `CLEARPASS_*` env | `CLEARPASS_READ_ONLY=true` | write and delete tools |
+
+Pins are env values that beat your own (for docker and podman they go in as `-e NAME=VALUE` before the image) or arguments added once. `/mcp` shows `preset: hpe-networking-mcp (read-only pins sent, not confirmed: ...)` until the server itself reports its write gates off through `access_check`; then it reads `read-only pinned`. When Casper can't place a pin (an HTTP server, a shell wrapper, arguments after `--`), it says `Can't pin read-only for this server (it runs elsewhere). Write tools are hidden in Casper only.` A server recognised only by its tool list is started once more with the pins. A definition that matches but whose tools don't: `Looks different from the hpe-networking-mcp preset. Pins kept, and its extra checks still apply.`
+
+**Junos.** `execute_*` tools are `exec` and the two commit tools `destructive`. With writes off only plain show commands run; anything else gives `Not executed (Junos writes are off; only show commands run.)`. A plain show command starts with the literal word `show`, has no `;`, line break or redirection, and uses only the pipes `match`, `except`, `count`, `display`, `no-more`, `last`, `find` and `trim` (`| save` is refused). Show commands still ask, unless you type `/mcp junos-show <name> on` for that server in this session (`[mcp] Plain show commands on <name> run without asking.`); PFE commands always ask. The approval box for `load_and_commit_config` says `Note: load_and_commit_config commits right away. No preview and no auto-rollback.` and never offers `p`. A Junos call may go 400 s without an answer (the server allows 360 s for a commit) unless you set `callTimeout`.
+
+### Access check
+
+A server may offer a read-only tool named `access_check` (contract `casper/access-check v1`, see `docs/patches/hpe-networking-mcp-access-check.patch` for a proposal for hpe-networking-mcp). Casper calls it once per connection, only when the server marks it read-only, Casper labels it `read` and it needs no arguments, under the call limit (never longer than the start limit). Only the product's own answer can make a login read-only, and only when every product says so. Then `/mcp` shows `login: read-only (checked)`, every tool that is not a read is hidden and refused with `Not executed (<server> login is read-only.)`, writes can't be turned on (`This login is read-only (access_check). Writes can't be turned on here.`), and the model's `find_capability` description says `<server>: login is read-only. Write tools are hidden. Don't plan changes on it.` Any other answer, an error, a slow answer or no `access_check` at all is `access not checked`. A server that says its login can make changes (`login: can make changes (checked)`) unlocks nothing. Only the parsed state is used; the server's text never reaches the model.
+
+### Turning writes on
+
+Every server starts with writes off, including remembered ones. Writes off means write and delete tools are hidden from search, the `"*"` list and the task tools, and are refused with `Not executed (<server> writes are off. Only the user can turn them on with /mcp writes <server>.)`; the preset's pins are sent; and every other change (unannotated or `exec` tools) is still shown and still asks you each time. The model's `find_capability` description says `<server>: writes are off. Only the user can turn them on.`
+
+Turning writes on takes two steps that only you can do. Type `/mcp writes <server>`, then pick `1` in the box:
+
+```text
+Central writes are off.
+  1 Enable for this server
+  2 Keep writes off
+Type 1 or 2:
+```
+
+The box title uses the product name from the preset, else the server name. `1` waits for running calls, restarts the server without the pins and prints `[mcp] Writes on for <server>. Each change still asks you. ctrl+o turns writes off.` When your own settings still keep writes off, Casper says so: `Casper removed its read-only pins, but your own settings still keep writes off (HPE_MCP_ACCESS_PROFILE=safe-read-only in ~/.claude.json).` While any server has writes on, the footer starts with `WRITES: <servers> · ctrl+o`, which is never cut off. ctrl+o (or `/mcp writes off`) turns writes off for every server at once, even while Casper is working, and denies an open approval box: `[mcp] Writes off for <server>. Write tools are hidden again.` A server that was running without pins is restarted with them once its calls finish. The model's ask tool can't answer this box, and `/mcp writes` in a one-shot run gives `Writes can only be turned on in an interactive session.`
 
 ## Small model-facing surface
 
@@ -99,7 +158,7 @@ Provider-facing names are sanitized and hash-qualified; the broker retains exact
 - **The approval box.** It shows `MCP · <server> · <tool>  [label]`, the real tool behind a router (`Runs: port_bounce (through invoke_tool)`), and the mode: `Mode: EXECUTE (this makes the change)`, `Mode: preview (dry_run=true, nothing changes)`, or `Mode: may EXECUTE (dry_run is not set)` for a router. The mode uses the tool's schema default when the switch is left out. Passwords, PSKs, tokens and similar values show as `"wpa_passphrase":"••• 13 chars"` with a `Hidden:` line, and secrets inside config text show as `<secret hidden>`. This hides them on screen and in the transcript only: the server still gets the real value, and the model already had it. An AI-set confirm shows `⚠ The AI set confirm=true. That skips the server's own check. Only your yes here lets it run.` The last preview of the same call on the same connection is shown, masked and cut to about 1.5 KB.
 - **Only a freshly typed `yes` runs it.** The question is `Run it? Type yes: `, or `Run it? Type yes, or p to preview first: ` when the tool's own schema declares a preview switch. `p` runs the same call with the switch on (and confirm off), then shows the box again with `Last preview (just now)`. `p` is never offered through a router, because Casper can't see the real tool's schema and a server that ignores an unknown `dry_run` would make the change. After three previews the box is shown once more with the last one, and only `yes` runs it; `p` is no longer offered. Any other answer, Esc or Ctrl+C is no. The transcript records `[approval] allowed`, `denied` or `preview first`.
 - **Server questions reach only you.** Some servers ask before a risky action (MCP elicitation), for example `Confirm PORT BOUNCE on SG1 ports [1/1/1]?`. Casper tells servers it can answer when someone can. A question is shown as `<server> asks about the <tool> call you approved:` and answered only by your typed answer (`Answer? Type yes: `, or one of the server's options). The model never sees the question and has no tool to answer it; its ask tool can't answer an approval either. MCP does not say which call a question belongs to, so Casper answers only while exactly one call you approved is running on that server, and pauses that call's clock while you read. Everything else is declined without asking: questions outside an approved call (`[mcp] <server> asked a question outside a call you approved; declined.`), forms that are not one yes/no or pick-one field (`[mcp] <server> asked a question Casper can only answer yes/no; declined.`), links (URL mode), and more than three questions in one call. One-shot runs decline every question.
-- Without an interactive terminal (including one-shot runs), calls that need approval fail closed with `Not executed (needs your approval, and this run cannot ask)`. Arguments too large to show in full (over 4 KiB) are not run: `Too long to show in full (over 4 KB); not run.` No blanket write flag, remembered approval, or model-controlled approval token exists. Calls that may ask run one at a time, and approvals and server questions are shown one at a time. Arguments cannot be changed by the approval, and a changed tool or a reconnect cancels a pending approval.
+- Without an interactive terminal (including one-shot runs), calls that need approval fail closed with `Not executed (needs your approval, and this run cannot ask)`. Arguments too large to show in full (over 4 KiB) are not run: `Too long to show in full (over 4 KB); not run.` No blanket write flag or model-controlled approval token exists; a remembered server only connects on its own, with writes off, and each change still asks. Calls that may ask run one at a time, and approvals and server questions are shown one at a time. Arguments cannot be changed by the approval, and a changed tool or a reconnect cancels a pending approval.
 
 These are operational checks, **not a sandbox or proof of server behavior**. A trusted server can lie in its annotations or perform side effects from a nominal read. Stdio servers execute with the user's permissions. Existing Pi shell/filesystem tools are unsandboxed and could access MCP configuration or bypass this interface. Only connect servers you trust; use credentials scoped appropriately. MCP descriptions/results are external content, not trusted instructions.
 
