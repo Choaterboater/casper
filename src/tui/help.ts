@@ -2,6 +2,7 @@ export const HELP_TEXT = `Casper — your coding companion
 
   casper                 Start interactive mode
   casper <prompt>        Run one prompt and exit; Casper checks the changes (--no-verify skips)
+  casper <folder>        Open that folder
   casper --verbose ...   Detailed evidence receipts instead of the plain receipt
   casper --json ...      Scripting: also --model, --continue, --require-verification (docs/SCRIPTING.md)
   casper mcp check [repo]  Check an MCP server you built: its tests, labels and configs (no tool calls unless --live)
@@ -16,10 +17,11 @@ export const HELP_TEXT = `Casper — your coding companion
   /context, /usage       Context estimate, session tokens and cost availability
   /compact               Summarize context (sends a model request)
   /clear, /resume        Fresh conversation or list/resume a saved conversation
-  /diff                  Current tracked changes and untracked file names
+  /diff [n|list]         The last task's changes (also outside git); git's view before any task
+  /undo, /redo           Put the last task's files back, or back again (no model; docs/UNDO.md)
   /new [name]            Start a new project in ~/Projects (no model)
   /output [n]            Full retained output of the last task's n-th most recent tool call
-  /receipt               Detailed evidence behind the last task's receipt
+  /receipt [n|list]      The last receipt (also after a restart), receipt n, or the last 10
   /permissions           Explain actual tool/approval boundaries
   /login                 Provider sign-in or private API-key setup (interactive only)
   /project               Project context and check commands
@@ -57,7 +59,8 @@ export const FULL_HELP_TEXT = `Casper — your coding companion
 
 Usage:
   casper               Start interactive mode
-  casper <prompt>      Run one prompt and exit
+  casper <prompt>      Run one prompt and exit; options go before the prompt (put -- first to send them as words)
+  casper <folder>      Open that folder, like --cd <folder> with no prompt
   casper --version, -v Print the installed version and the path that is running
   casper learn <repo>  Propose inert learning drafts using a read-only model run
   casper learn list <repo>          List saved drafts locally (no model)
@@ -110,11 +113,15 @@ Local commands:
   /compact [instructions]           Summarize context using the model (not a local-only command)
   /clear                            New conversation; no file rollback
   /resume [exact-session-id]        List/resume conversations in the current workspace
-  /diff                             Git status plus tracked diff against HEAD
+  /diff [n|list]                    Task n's changes (default: the last task in this folder), also outside git; list picks one
+                                    Before any task in this folder: git status plus tracked diff against HEAD
+  /undo [n]                         Put back the files of the last task (or task n); files changed since are left alone
+  /redo [n]                         Put an undone task's files back as the task left them
   /new [name]                       Start a new project in ~/Projects (no model); before the model starts, Casper opens it
   /new <template> <name>            The same without questions; /new --list shows the templates
   /output [n]                       Full bounded output of a recent tool call (1 = latest; last 20 retained per task)
-  /receipt                          Detailed evidence receipt of the last model task (freshness, scope)
+  /receipt                          Detailed evidence receipt of the last model task (freshness, scope), also after a restart
+  /receipt <n>, /receipt list       A saved receipt, or the last 10 (saved with secrets hidden)
   /permissions                      Explain enforcement, not change permission presets
   /login [provider]                 Codex, Copilot, Anthropic or OpenRouter (Casper's credential store)
   /project                          Show project context

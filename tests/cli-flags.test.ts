@@ -295,3 +295,46 @@ test("mcp check usage mistakes are UsageErrors that print the usage", () => {
   }
   expect(() => parseCliArgs(["--json", "mcp", "check"])).toThrow("mcp check takes its own flags. Usage: casper mcp check");
 });
+
+test("a known option after the prompt is a usage mistake (64) found before anything runs; -v inside words and -- stay prompts", async () => {
+  for (const [args, shown] of [[["fix", "it", "--verify"], 'casper --verify "fix it"'], [["fix", "it", "--model", "x/y"], 'casper --model x/y "fix it"'],
+    [["fix", "--json"], 'casper --json "fix"'], [["fix", "it", "--model=x/y"], 'casper --model=x/y "fix it"']] as const) {
+    let error: unknown;
+    try { parseCliArgs([...args]); } catch (caught) { error = caught; }
+    expect(error).toBeInstanceOf(UsageError);
+    expect((error as Error).message).toBe(`Options go before the prompt: ${shown}. To send it as words, put -- first.`);
+  }
+  expect(parseCliArgs(["fix", "the", "-v", "flag"])).toMatchObject({ command: "prompt", rest: ["fix", "the", "-v", "flag"] });
+  expect(parseCliArgs(["--", "fix", "--verify"])).toMatchObject({ command: "prompt", rest: ["fix", "--verify"] });
+  expect(() => parseCliArgs(["-", "--json"])).toThrow(UsageError);
+
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-cli-trailing-"));
+  tempDirs.push(root);
+  const result = await run([cli, "fix", "the", "login", "bug", "--verify"], root);
+  expect({ code: result.code, stdout: result.stdout }).toEqual({ code: 64, stdout: "" });
+  expect(result.stderr).toContain('Options go before the prompt: casper --verify "fix the login bug". To send it as words, put -- first.');
+  expect(await readdir(root)).not.toContain(".casper");
+});
+
+test("casper <folder> opens that folder; a path that is not a folder exits 64", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-cli-folder-"));
+  tempDirs.push(root);
+  const project = path.join(root, "mist-mcp");
+  await mkdir(project);
+  await writeFile(path.join(project, "README.md"), "a project\n");
+  const child = Bun.spawn([process.execPath, cli, "./mist-mcp"], { cwd: root, env: cleanEnv({ HOME: root, CASPER_PROFILE: "default" }), stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+  child.stdin.write("/project\n"); child.stdin.end();
+  const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+  expect(code, stderr).toBe(0);
+  expect(stdout).toContain(" project   mist-mcp\n stack");
+  expect(stdout).not.toContain("[model]");
+
+  const missing = await run([cli, "./missing/"], root);
+  expect({ code: missing.code, stdout: missing.stdout }).toEqual({ code: 64, stdout: "" });
+  expect(missing.stderr).toContain("Not a folder: ./missing/");
+  const twice = await run([cli, "--cd", root, "./mist-mcp"], root);
+  expect(twice.code).toBe(64);
+  const trailing = await run([cli, "./mist-mcp", "--cd", root], root);
+  expect(trailing.code).toBe(64);
+  expect(parseCliArgs(["./mist-mcp"])).toMatchObject({ command: "prompt", folderCandidate: true });
+});

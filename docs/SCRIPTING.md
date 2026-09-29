@@ -57,7 +57,10 @@ Failure takes precedence over incompleteness, which takes precedence over "not v
 `✓ Verified` line. Checks that passed on changed files without a proof were `verified` before and are
 `not_verified` now, so `--require-verification` exits 3 for them instead of 0. Checks that passed with no files
 changed are `unchanged` (exit 0). The new `checksPassed` field keeps the old signal: it is `true` whenever the
-checks passed. The receipt lines themselves did not change.
+checks passed. The receipt lines themselves did not change. Also new: a known option after the prompt
+(`casper "fix the bug" --verify`) exits 64 before anything runs (put options first, or `--` before words that look
+like options), and a single folder argument (`casper ~/code/app`) opens that folder instead of sending its path as
+a prompt; a path that is not a folder exits 64 with `Not a folder: <path>`.
 
 `casper new <template> <name>` has its own codes: 0 ready, 1 created but not ready (or nothing
 created), 64 usage. It never calls a model. See [NEW.md](NEW.md).
