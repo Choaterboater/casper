@@ -32,7 +32,7 @@ test("the report groups findings by section in a fixed order, aligned, with esca
     "",
   ].join("\n"));
   expect(formatCheckReport(report(false), { header: false }).startsWith("Repo checks\n")).toBe(true);
-  expect(formatCheckReport(report(false))).toContain("Live: read-only calls to your real systems are allowed. Write tools are never called.");
+  expect(formatCheckReport(report(false))).toContain("Live: up to 3 tools the server labels read-only are called on your real systems. Write tools are never called.");
 });
 
 test("exit code: problems give 1; warnings give 1 only with --strict", () => {

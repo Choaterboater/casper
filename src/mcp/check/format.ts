@@ -14,7 +14,7 @@ export const OFFLINE_LINES = [
   "Offline: no tool calls. Credentials removed, web proxy blocked. Use --live to allow read calls.",
   "Offline is best effort: a program that reads its own .env or opens SSH itself can still reach the network.",
 ];
-export const LIVE_LINE = "Live: read-only calls to your real systems are allowed. Write tools are never called.";
+export const LIVE_LINE = "Live: up to 3 tools the server labels read-only are called on your real systems. Write tools are never called.";
 export const EXIT_CODES_LINE = "Exit codes: 0 no problems, 1 problems (or warnings with --strict), 64 usage mistake";
 
 /** "Checking <name> (<path>)" and what offline or live mode means. */
