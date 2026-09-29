@@ -168,6 +168,29 @@ answer causes fallback. Transport failures may consume unreported tokens; that
 missing usage stays unknown. Estimates are not bills. Explorer children use `fast`, reviewers use `review`, and unset roles use
 the Casper startup default; see [DELEGATION.md](DELEGATION.md).
 
+### Your big model
+
+`/model big <provider/model>` (the same as `/model role reason …`) sets your big model; `/model big
+clear` forgets it. When checks still fail after the last repair in an interactive session, Casper asks
+once: `test still fails after 3 repairs. What now?` with 1 Stop here and 2 Retry with your big model,
+which names the model and what it reads (`about 48k tokens, at least ≈ $0.72`; only the conversation it
+reads is counted, so the price is a lower bound). The free answer is first, so Enter or Esc never
+spends. Retry switches this conversation to the big model for one more repair, then back: `[model] Back
+on provider/model for your next request.` The receipt says `↻ Casper tried 4 repairs (the last on your
+big model provider/model)`. A big model that cannot hold the conversation is not offered. With no big
+model set, a rich terminal offers "Retry with a bigger model", opens the model picker and asks whether
+to remember your pick. One-shot runs and `--json` never ask.
+
+To run the last repair on the big model without being asked, set it in your own config (a project's
+`.casper/project.yaml` cannot, since it would choose to spend your money):
+
+```yaml
+# ~/.casper/config.yaml or a profile's config.yaml
+repair:
+  bigModelLastTry: true
+suggestions: false   # no suggested next steps anywhere
+```
+
 ## Skills
 
 Casper owns skill selection; Pi's independent skill discovery is disabled inside the Casper adapter.

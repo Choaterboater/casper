@@ -462,6 +462,14 @@ checks, and with `/verify migrations` or the AI's `casper_check`.
 A failure names the file and SQLite's error: `✗ migrations failed (002_devices.sql failed — no such table: sites)`.
 A project that names its own `verify.checks.migrations` keeps it instead.
 
+## When repairs run out
+
+After `repair.maxAttempts` repairs, an interactive session can offer one more try on your big model
+(see docs/CONFIGURATION.md, "Your big model"). It is never automatic unless you set
+`repair.bigModelLastTry: true` in your own config, and one-shot runs never ask. "Remember <command> as
+this project's test command" on the row under a receipt saves `verify.test` in `.casper/project.yaml`
+exactly as shown, keeping the file's comments (docs/TERMINAL_UX.md).
+
 ## Configuration
 
 `.casper/project.yaml` can specify canonical checks:
