@@ -123,17 +123,33 @@ function walk(value: unknown, visit: (key: string, value: unknown, path: string)
   }
 }
 
-/** Paths where confirm, confirmed or force is true, anywhere in the arguments (router inner arguments too). */
+/**
+ * A confirm value that a server may read as yes. Many servers turn "true", "yes", "on" or 1 into
+ * true (Python's pydantic does), so those count as the AI saying yes too.
+ */
+function saysYes(value: unknown): boolean {
+  if (value === true || value === 1) return true;
+  return typeof value === "string" && ["true", "1", "yes", "y", "on"].includes(value.trim().toLowerCase());
+}
+
+/** A preview switch that is set, but not to a plain true or false: servers read "false" or 0 differently. */
+function unclearSwitch(value: unknown): boolean {
+  return value !== undefined && value !== null && typeof value !== "boolean";
+}
+
+/** Paths where confirm, confirmed or force says yes, anywhere in the arguments (router inner arguments too). */
 export function aiConfirm(args: Record<string, unknown>): string[] {
   const paths: string[] = [];
-  walk(args, (key, value, path) => { if ((CONFIRM_KEYS as readonly string[]).includes(key) && value === true) paths.push(path); });
+  walk(args, (key, value, path) => { if ((CONFIRM_KEYS as readonly string[]).includes(key) && saysYes(value)) paths.push(path); });
   return paths;
 }
 
-/** Paths where a preview switch is explicitly false, anywhere in the arguments. */
+/** Paths where a preview switch is false, or set to something that is not plain true/false, anywhere in the arguments. */
 export function previewSwitchedOff(args: Record<string, unknown>): string[] {
   const paths: string[] = [];
-  walk(args, (key, value, path) => { if ((PREVIEW_KEYS as readonly string[]).includes(key) && value === false) paths.push(path); });
+  walk(args, (key, value, path) => {
+    if ((PREVIEW_KEYS as readonly string[]).includes(key) && (value === false || unclearSwitch(value))) paths.push(path);
+  });
   return paths;
 }
 
@@ -157,7 +173,7 @@ function allowsBoolean(property: unknown): boolean {
   return options.some(allowsBoolean);
 }
 
-interface ModeDetail { mode: CallMode; key: string; why: "set" | "default" | "hint" | "none" }
+interface ModeDetail { mode: CallMode; key: string; why: "set" | "default" | "hint" | "none" | "unclear" }
 
 function hintSaysPreview(hint: ApprovalHint | undefined, args: Record<string, unknown>): boolean {
   const when = hint?.previewWhen;
@@ -165,6 +181,8 @@ function hintSaysPreview(hint: ApprovalHint | undefined, args: Record<string, un
 }
 
 function directMode(schema: MCPTool["inputSchema"] | undefined, args: Record<string, unknown>, hint?: ApprovalHint): ModeDetail {
+  const unclear = PREVIEW_KEYS.find((key) => unclearSwitch(args[key]));
+  if (unclear) return { mode: "may-execute", key: unclear, why: "unclear" };
   const set = PREVIEW_KEYS.filter((key) => typeof args[key] === "boolean");
   const off = set.find((key) => args[key] === false);
   if (off) return { mode: "execute", key: off, why: "set" };
@@ -181,6 +199,8 @@ function directMode(schema: MCPTool["inputSchema"] | undefined, args: Record<str
 }
 
 function routedMode(call: RoutedCall): ModeDetail {
+  const unclear = PREVIEW_KEYS.find((key) => unclearSwitch(call.arguments[key]));
+  if (unclear) return { mode: "may-execute", key: unclear, why: "unclear" };
   const set = PREVIEW_KEYS.filter((key) => typeof call.arguments[key] === "boolean");
   const off = set.find((key) => call.arguments[key] === false);
   if (off) return { mode: "execute", key: off, why: "set" };
@@ -219,14 +239,29 @@ export function canPreview(plan: ApprovalPlan): boolean {
   return previewSwitch(plan) !== undefined && planMode(plan) !== "preview";
 }
 
-/** The same call with the preview switch on and confirm/confirmed/force turned off. */
+/**
+ * The same call with the preview switch on and confirm/confirmed/force turned off. Every other
+ * preview switch the call already sets is turned on too, so no switch still says "make the change".
+ */
 export function previewArguments(plan: ApprovalPlan): Record<string, unknown> {
   const key = previewSwitch(plan);
   if (!key) throw new Error("This call has no safe preview");
   const args = structuredClone(plan.arguments);
   args[key] = true;
-  for (const confirm of CONFIRM_KEYS) if (args[confirm] === true) args[confirm] = false;
+  for (const other of PREVIEW_KEYS) if (other in args && args[other] !== undefined) args[other] = true;
+  confirmOff(args, 0);
   return args;
+}
+
+/** Turns every confirm/confirmed/force that says yes into false, at any depth. */
+function confirmOff(value: unknown, depth: number): void {
+  if (depth > MAX_DEPTH) return;
+  if (Array.isArray(value)) { for (const item of value) confirmOff(item, depth + 1); return; }
+  if (!isRecord(value)) return;
+  for (const [key, item] of Object.entries(value)) {
+    if ((CONFIRM_KEYS as readonly string[]).includes(key) && saysYes(item)) value[key] = false;
+    else confirmOff(item, depth + 1);
+  }
 }
 
 function canonical(value: unknown, depth = 0): unknown {
@@ -341,7 +376,9 @@ function ago(at: number, now: number): string {
 
 function modeLine(detail: ModeDetail): string {
   if (detail.mode === "execute") return "Mode: EXECUTE (this makes the change)";
-  if (detail.mode === "may-execute") return `Mode: may EXECUTE (${detail.key} is not set)`;
+  if (detail.mode === "may-execute") {
+    return `Mode: may EXECUTE (${detail.key} ${detail.why === "unclear" ? "is not a plain true or false" : "is not set"})`;
+  }
   if (detail.why === "hint") return "Mode: preview (nothing changes)";
   if (detail.why === "default") return `Mode: preview (${detail.key} is on by default, nothing changes)`;
   return `Mode: preview (${detail.key}=true, nothing changes)`;

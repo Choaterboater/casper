@@ -225,6 +225,27 @@ test("names, keys and previews can't add fake lines to the box", () => {
   expect(box.trimEnd().split("\n")).toHaveLength(6);
 });
 
+test("a preview switch or confirm written as text is never read as safe", () => {
+  const readOnly = { readOnlyHint: true };
+  const quoted = plan("get_clients", { ssid: "x", dry_run: "false" }, setSsidSchema, readOnly);
+  expect(planLabel(quoted)).toBe("read");
+  expect(needsApproval(quoted)).toBe(true);
+  expect(planMode(quoted)).toBe("may-execute");
+  expect(formatApproval(quoted).preview).toContain("Mode: may EXECUTE (dry_run is not a plain true or false)");
+  for (const value of ["true", "yes", 1, "ON"]) {
+    expect(needsApproval(plan("get_clients", { ssid: "x", confirm: value }, setSsidSchema, readOnly))).toBe(true);
+  }
+});
+
+test("p turns every preview switch on and every AI confirm off, at any depth", () => {
+  const schema = { type: "object" as const, properties: { dry_run: { type: "boolean" }, validate_only: { type: "boolean" }, options: { type: "object" } } };
+  const p = plan("apply_policy", { validate_only: false, confirm: true, options: { force: "yes", keep: 1 } }, schema);
+  expect(canPreview(p)).toBe(true);
+  const args = previewArguments(p);
+  expect(args).toEqual({ dry_run: true, validate_only: true, confirm: false, options: { force: false, keep: 1 } });
+  expect(planMode({ ...p, arguments: args })).toBe("preview");
+});
+
 test("secrets written as pairs in text that is not clean JSON are hidden", () => {
   expect(maskText('Result: {"wpa_passphrase":"hunter2hunter","ssid":"corp"}')).toBe('Result: {"wpa_passphrase":"••• 13 chars","ssid":"corp"}');
   expect(maskText('{"ssid":"corp","wpa_passphrase":"hunter2hun')).not.toContain("hunter2");

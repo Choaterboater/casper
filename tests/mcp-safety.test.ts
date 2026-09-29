@@ -164,6 +164,18 @@ test("the user can ask for a preview at most three times", async () => {
   expect(toolCalls(await calls(file)).every((entry) => (entry.arguments as Record<string, unknown>).dry_run === true)).toBe(true);
 });
 
+test("the AI can't slip a yes past the user as text: confirm \"true\" through a read router asks", async () => {
+  const { confirm, boxes } = answering(false, false);
+  const { broker, file, id } = await setup({ confirm });
+  await expect(broker.invoke(id("invoke_read_tool"), { name: "get_clients", arguments: { site: "a", confirm: "true" } }))
+    .rejects.toThrow("Not executed (you said no)");
+  expect(boxes[0]).toContain("⚠ The AI set confirm=true.");
+  await expect(broker.invoke(id("invoke_read_tool"), { name: "get_clients", arguments: { site: "a", dry_run: "false" } }))
+    .rejects.toThrow("Not executed (you said no)");
+  expect(boxes[1]).toContain("Mode: may EXECUTE (dry_run is not a plain true or false)");
+  expect(toolCalls(await calls(file))).toEqual([]);
+});
+
 // --- server questions (MCP elicitation) --------------------------------------------------------
 
 function elicitor(answer: (question: ServerQuestion) => ServerQuestionAnswer | Promise<ServerQuestionAnswer>) {
