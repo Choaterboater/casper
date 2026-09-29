@@ -10,7 +10,7 @@ import { CasperApp } from "./app";
 import { agentStoreWarnings, importLegacyEngineState, useCasperAgentStore } from "./runtime/agent-store";
 import { CandidateLibrary, formatLearningResult } from "./learn/candidates";
 import { taskExitCode } from "./task/result";
-import { parseCliArgs, parseLearnArgs, UsageError } from "./cli-args";
+import { parseCliArgs, parseLearnArgs, parseMcpCheckArgs, UsageError, type McpCheckCommand } from "./cli-args";
 import type { VerificationMode } from "./verify/mode";
 
 import { redactPreview, terminalText } from "./tui/format";
@@ -67,6 +67,23 @@ async function stdinPrompt(): Promise<string> {
   return text.trim();
 }
 
+/** `casper mcp check`: the report goes to stdout (only JSON with --json). Progress and failing command
+ * output go to stdout too, or to stderr with --json. */
+async function runMcpCheckCommand(cmd: McpCheckCommand): Promise<void> {
+  const [{ McpCheck }, { checkReportJson, formatCheckReport }] = await Promise.all([import("./mcp/check/index"), import("./mcp/check/format")]);
+  const progress = (text: string) => { (cmd.json ? process.stderr : process.stdout).write(text); };
+  const check = new McpCheck(cmd, { write: progress });
+  const removeShutdownHandlers = installShutdownHandlers(check);
+  try {
+    const report = await check.run();
+    process.stdout.write(cmd.json ? `${JSON.stringify(checkReportJson(report))}\n` : formatCheckReport(report, { header: false }));
+    process.exitCode = report.exitCode;
+  } finally {
+    try { await check.close(); }
+    finally { removeShutdownHandlers(); }
+  }
+}
+
 export async function runCli(): Promise<void> {
   // Options are parsed before anything touches state; they have no side effects.
   const options = parseCliArgs(process.argv.slice(2));
@@ -87,6 +104,12 @@ export async function runCli(): Promise<void> {
     return;
   }
   const learn = options.command === "learn" ? parseLearnArgs(options.rest) : undefined;
+  const mcpCheck = options.command === "mcp-check" ? parseMcpCheckArgs(options.rest) : undefined;
+  if (mcpCheck) {
+    // No app, no model and no saved state: only the repo's own commands and its server run.
+    await runMcpCheckCommand(mcpCheck);
+    return;
+  }
   if (options.cd) {
     const folder = path.resolve(options.cd);
     if (!(await stat(folder).then((entry) => entry.isDirectory(), () => false))) throw new UsageError(`--cd: not a folder: ${options.cd}`);
