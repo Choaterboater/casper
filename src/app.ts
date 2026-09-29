@@ -943,8 +943,8 @@ export class CasperApp {
 
   /**
    * A build request outside a project, before the model starts: one numbered question, zero tokens.
-   * Yes builds the project and opens it, so the conversation and its checks start there. Use this folder
-   * or Esc changes nothing. One-shot and --json runs can't ask: they keep the folder and say so.
+   * Yes (2) builds the project and opens it, so the conversation and its checks start there. Use this folder
+   * (1, Enter) or Esc changes nothing. One-shot and --json runs can't ask: they keep the folder and say so.
    * "stop" when the project could not be built: nothing goes to the model.
    */
   private async offerNewProject(prompt: string): Promise<"stop" | undefined> {

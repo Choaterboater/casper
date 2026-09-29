@@ -136,7 +136,7 @@ async function finish(h: Harness, running: Promise<void>, rich = true) {
   h.input.destroy();
 }
 
-test("a build request outside a project asks before the model starts; 1 builds it and the model starts in the new folder", async () => {
+test("a build request outside a project asks before the model starts; 2 builds it and the model starts in the new folder", async () => {
   const dirs = await setup("casper-new-ask-yes-");
   const h = harness(dirs.home);
   const running = h.app.runInteractive(dirs.work);
@@ -145,13 +145,13 @@ test("a build request outside a project asks before the model starts; 1 builds i
     h.input.write(`${REQUEST}\r`);
     await h.until(text => text.includes("Build this as a new Mist Python project in ~/Projects/mist-aps?"));
     const shown = h.visible();
-    expect(shown).toContain("1 Yes");
-    expect(shown).toContain("2 Use this folder");
+    expect(shown).toContain("1 Use this folder");
+    expect(shown).toContain("2 Yes");
     expect(shown).toContain("3 Other kind");
     // Nothing reached a model before the answer.
     expect(h.starts).toEqual([]);
     expect(h.prompts).toEqual([]);
-    h.input.write("1");
+    h.input.write("2");
     await h.until(text => text.includes("[folder] Working in ~/Projects/mist-aps"));
     await h.until(() => h.prompts.length === 1);
     expect(h.created.map(({ parent, name, template }) => ({ parent, name, template })))
@@ -165,7 +165,7 @@ test("a build request outside a project asks before the model starts; 1 builds i
   } finally { await finish(h, running); await dirs.cleanup(); }
 });
 
-test("2 keeps this folder, and the question is not asked again in the session", async () => {
+test("Enter keeps this folder, and the question is not asked again in the session", async () => {
   const dirs = await setup("casper-new-ask-keep-");
   const h = harness(dirs.home);
   const running = h.app.runInteractive(dirs.work);
@@ -173,7 +173,7 @@ test("2 keeps this folder, and the question is not asked again in the session", 
     await h.until(text => text.includes("idle"));
     h.input.write(`${REQUEST}\r`);
     await h.until(text => text.includes("Build this as a new Mist Python project"));
-    h.input.write("2");
+    h.input.write("\r");
     await h.until(() => h.prompts.length === 1);
     expect(h.created).toEqual([]);
     expect(h.starts).toEqual([dirs.work]);
@@ -199,7 +199,7 @@ test("a typed name instead of a number builds the project under that name", asyn
   } finally { await finish(h, running); await dirs.cleanup(); }
 });
 
-test("3 Other kind shows the kinds, then the name question", async () => {
+test("3 Other kind shows Use this folder, then the kinds, then the name question", async () => {
   const dirs = await setup("casper-new-ask-kind-");
   const h = harness(dirs.home);
   const running = h.app.runInteractive(dirs.work);
@@ -209,7 +209,8 @@ test("3 Other kind shows the kinds, then the name question", async () => {
     await h.until(text => text.includes("Build this as a new Mist Python project"));
     h.input.write("3");
     await h.until(text => text.includes("What are you building?"));
-    h.input.write("1");
+    expect(h.visible().slice(h.visible().lastIndexOf("What are you building?"))).toContain("1 Use this folder");
+    h.input.write("2");
     await h.until(text => text.includes("Name it? (Enter for mist-aps)"));
     h.input.write("\r");
     await h.until(() => h.prompts.length === 1);
@@ -274,9 +275,9 @@ test("the plain terminal answers the same question with a typed number", async (
     await h.until(text => text.includes("> "));
     h.input.write(`${REQUEST}\n`);
     await h.until(text => text.includes("Type 1-3 (Enter for 1): "));
-    expect(h.visible()).toContain("Build this as a new Mist Python project in ~/Projects/mist-aps?\n  1 Yes\n  2 Use this folder\n  3 Other kind\n");
+    expect(h.visible()).toContain("Build this as a new Mist Python project in ~/Projects/mist-aps?\n  1 Use this folder\n  2 Yes\n  3 Other kind\n");
     expect(h.starts).toEqual([]);
-    h.input.write("1\n");
+    h.input.write("2\n");
     await h.until(() => h.prompts.length === 1);
     expect(h.starts).toEqual([path.join(dirs.home, "Projects", "mist-aps")]);
     expect(h.visible()).toContain("[folder] Working in ~/Projects/mist-aps");
@@ -319,7 +320,7 @@ test("a project that can't be built sends nothing to the model", async () => {
     await h.until(text => text.includes("idle"));
     h.input.write(`${REQUEST}\r`);
     await h.until(text => text.includes("Build this as a new Mist Python project"));
-    h.input.write("1");
+    h.input.write("2");
     await h.until(text => text.includes("Nothing was sent to the model."));
     expect(h.visible()).toContain("Not created: uv is missing.");
     expect(h.starts).toEqual([]);
@@ -337,15 +338,15 @@ test("starting in an empty folder offers a new project there, named after the fo
   const running = h.app.runInteractive(empty);
   try {
     await h.until(text => text.includes("This folder is empty. Start a new project here?"));
-    expect(h.visible()).toContain("Not now");
-    h.input.write("1");
+    expect(h.visible()).toContain("1 Not now");
+    h.input.write("2");
     await h.until(text => text.includes("idle"));
     expect(h.created.map(({ parent, name, template }) => ({ parent, name, template }))).toEqual([{ parent: root, name: "demo-app", template: "python-cli" }]);
     expect(h.visible()).toMatch(/\bproject\s+demo-app\b/);
   } finally { await finish(h, running); await rm(root, { recursive: true, force: true }); }
 });
 
-test("in an empty folder, Not now on the plain terminal builds nothing", async () => {
+test("in an empty folder, Enter (1 Not now) on the plain terminal builds nothing", async () => {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-new-empty-plain-")));
   const home = path.join(root, "home");
   const empty = path.join(root, "scratch");
@@ -356,8 +357,8 @@ test("in an empty folder, Not now on the plain terminal builds nothing", async (
   try {
     await h.until(text => text.includes("This folder is empty. Start a new project here?"));
     await h.until(text => text.includes("Type 1-"));
-    const count = (h.visible().match(/^ {2}\d+ /gm) ?? []).length;
-    h.input.write(`${count}\n`);
+    expect(h.visible()).toContain("  1 Not now · just work in this folder\n");
+    h.input.write("\n");
     await h.until(text => text.endsWith("> "));
     expect(h.created).toEqual([]);
     // Not now already answered it: a build request goes straight to work in this folder.
@@ -507,7 +508,7 @@ test("a number that isn't a choice asks again instead of becoming a name", async
     h.input.write("4\n");
     await h.until(text => text.includes("[new] Pick a number from 1 to 3.") && text.endsWith("Type 1-3 (Enter for 1): "));
     expect(h.visible()).not.toContain("Names use lowercase");
-    h.input.write("2\n");
+    h.input.write("1\n");
     await h.until(() => h.prompts.length === 1);
     expect(h.created).toEqual([]);
     expect(h.starts).toEqual([dirs.work]);
