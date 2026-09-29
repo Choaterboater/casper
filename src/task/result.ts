@@ -225,7 +225,7 @@ export function formatReceipt(task: TaskResult, options: ReceiptOptions = {}): s
 
   const report = task.verification;
   if (report?.repairAttempts) lines.push(`↻ Casper tried ${report.repairAttempts} ${report.repairAttempts === 1 ? "repair" : "repairs"}${task.bigModel ? ` (the last on ${task.bigModel.oneOff ? "" : "your big model "}${safe(task.bigModel.model)})` : ""}`);
-  for (const result of report?.results ?? []) lines.push(checkLine(result, safe, slash));
+  for (const result of report?.results ?? []) lines.push(checkLine(result, safe, slash, !!report?.repairAttempts));
   if (report?.status === "blocked" && report.reason) lines.push(`✗ Checks stopped — ${safe(report.reason).replace(/\.$/, "")}`);
 
   const recorded = new Set(report?.results.map((result) => result.name));
@@ -421,7 +421,7 @@ function proofLine(proof: ChangeProof, safe: (text: string) => string): string {
   return `• Not proven — ${safe(proof.reason).replace(/\.$/, "")}`;
 }
 
-function checkLine(result: VerificationResult, safe: (text: string) => string, slash: (command: string) => string): string {
+function checkLine(result: VerificationResult, safe: (text: string) => string, slash: (command: string) => string, repaired = false): string {
   const name = result.name;
   // A report is shown for reading: never a pass, a fail or a reason the change is not verified.
   if (result.kind === "report") return `• ${name}  ${reportText(result)} (a diff, not a pass/fail check)`;
@@ -451,7 +451,10 @@ function checkLine(result: VerificationResult, safe: (text: string) => string, s
     : result.reason ? safe(result.reason).replace(/\.$/, "").toLowerCase()
     : result.signal ? `stopped by ${safe(result.signal)}` : "no exit status";
   // A lab check touches lab devices: no one-key repair offer, only running it again (it asks first).
-  if (result.kind === "lab") return `✗ ${name} failed on the lab (${why}) — log above; Casper did not ask the model to fix it. ${slash(`/verify ${name}`)} runs it again (asks first)`;
+  // Once you chose "Ask the model to fix it", the repair line above says so; the receipt never says it did not.
+  if (result.kind === "lab") {
+    return `✗ ${name} failed on the lab (${why}) — log above;${repaired ? "" : " Casper did not ask the model to fix it."} ${slash(`/verify ${name}`)} runs it again (asks first)`;
+  }
   return `✗ ${name} failed (${why}) — log above; ${slash(`/verify repair ${name}`)} to fix`;
 }
 

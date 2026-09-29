@@ -155,3 +155,14 @@ test("line 1 is the verdict: verified only when the tests fail without the chang
   // Nothing to report stays empty.
   expect(formatReceipt(done({}))).toBe("");
 });
+
+test("a failed lab check's receipt line says the model was not asked only when no repair ran", () => {
+  const lab = check({ name: "junos-commit", status: "fail", exitCode: 2, kind: "lab", command: undefined });
+  const stopped = formatReceipt(done({ verification: report([lab], { status: "fail" }) }));
+  expect(stopped).toContain("✗ junos-commit failed on the lab (exit 2) — log above; Casper did not ask the model to fix it. /verify junos-commit runs it again (asks first)");
+  // You chose "Ask the model to fix it": the repair line says so, and the check line does not deny it.
+  const repaired = formatReceipt(done({ verification: report([lab], { status: "fail", repairAttempts: 1 }) }));
+  expect(repaired).toContain("↻ Casper tried 1 repair");
+  expect(repaired).toContain("✗ junos-commit failed on the lab (exit 2) — log above; /verify junos-commit runs it again (asks first)");
+  expect(repaired).not.toContain("did not ask the model");
+});
