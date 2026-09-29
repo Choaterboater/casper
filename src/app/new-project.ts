@@ -25,12 +25,26 @@ export interface NewProjectFlow {
   create?: (options: NewProjectOptions) => Promise<NewProjectResult>;
 }
 
-/** The question through the host, with a typed label ("yes") read as that choice on both terminals. */
+/** Tries at a question before Casper gives up on it. */
+const PICK_TRIES = 3;
+
+/** The question through the host, with a typed label ("yes") read as that choice on both terminals. A number
+ * that isn't one of the choices ("4" of three) is never read as typed text: the question is asked again. */
 async function choose(flow: NewProjectFlow, question: string, options: { label: string; description?: string }[]): Promise<string | undefined> {
-  const answer = await flow.pick(question, options, flow.signal);
-  if (answer === undefined) return undefined;
-  return options.find((option) => option.label.toLowerCase() === answer.trim().toLowerCase())?.label ?? answer;
+  for (let attempt = 0; attempt < PICK_TRIES; attempt++) {
+    const answer = await flow.pick(question, options, flow.signal);
+    if (answer === undefined) return undefined;
+    const label = options.find((option) => option.label.toLowerCase() === answer.trim().toLowerCase())?.label;
+    if (label) return label;
+    if (options.length > 1 && /^\d+$/.test(answer.trim())) { flow.write(`[new] Pick a number from 1 to ${options.length}.`); continue; }
+    return answer;
+  }
+  return undefined;
 }
+
+/** Short yes and no typed at "Build this as a new …?": they answer it and are never a project name. */
+const TYPED_YES = new Set(["y", "yes", "yep", "yeah", "ok", "okay", "sure"]);
+const TYPED_NO = new Set(["n", "no", "nope", "nah", "not now", "cancel", "skip"]);
 
 /** Tries for a name before Casper gives up. */
 const NAME_TRIES = 3;
@@ -143,9 +157,10 @@ export async function askBuildRequest(flow: NewProjectFlow, prompt: string): Pro
   if (picked) {
     const { question, choices } = newProjectQuestion(picked, parentDisplay);
     const answer = await choose(flow, question, choices.map((label) => ({ label })));
-    if (answer === undefined || answer === "Use this folder") return { keep: true };
+    const typed = answer?.trim().toLowerCase() ?? "";
+    if (answer === undefined || answer === "Use this folder" || TYPED_NO.has(typed)) return { keep: true };
     if (answer === "Other kind") picked = undefined;
-    else if (answer === "Yes") name = picked.name;
+    else if (answer === "Yes" || TYPED_YES.has(typed)) name = picked.name;
     else {
       const parsed = parseNameAnswer(answer, picked.name);
       const problem = "error" in parsed ? parsed.error : await nameProblem(parent, parsed.name, flow.homeDir);
