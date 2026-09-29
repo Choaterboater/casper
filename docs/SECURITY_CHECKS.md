@@ -42,8 +42,10 @@ Casper never downloads anything without asking:
 
 ```
 Security checks need 2 tools that aren't installed: gitleaks, zizmor (about 50 MB from github.com and pypi.org).
-1 Install them · 2 Run what's installed · 3 Stop
+1 Stop · 2 Run what's installed · 3 Install them
 ```
+
+Enter picks 1 Stop: nothing is downloaded and no tool runs. Installing takes a deliberate 3.
 
 Go programs are checked against the sha256 in Casper's source before they are
 unpacked; a mismatch installs nothing. Python tools install with `uv` from lock files
@@ -52,7 +54,8 @@ that carry a hash for every package.
 - `casper security` never installs. `casper security --install` installs what is missing first.
 - A `/security-review` that cannot ask (a one-shot run, `--json`, a pipe) installs
   nothing, runs what is installed and says so.
-- `/security-review update` downloads osv-scanner's advisory data, after asking.
+- `/security-review update` downloads osv-scanner's advisory data, after asking
+  (`1 Stop · 2 Download it`; Enter downloads nothing).
   The report shows how old it is.
 
 ## Ignores

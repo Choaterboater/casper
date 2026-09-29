@@ -120,7 +120,7 @@ test("your own copy on PATH is used and shown with its version next to Casper's 
 test("the install question is numbered and names the tools, the size and the hosts", () => {
   const question = installQuestion([SECURITY_TOOLS.gitleaks, SECURITY_TOOLS.semgrep, SECURITY_TOOLS.zizmor, SECURITY_TOOLS["osv-scanner"]]);
   expect(question.text).toBe("Security checks need 4 tools that aren't installed: gitleaks, semgrep, zizmor, osv-scanner (about 400 MB from github.com and pypi.org).");
-  expect(numberedChoices(question.choices)).toBe("1 Install them · 2 Run what's installed · 3 Stop");
+  expect(numberedChoices(question.choices)).toBe("1 Stop · 2 Run what's installed · 3 Install them");
 });
 
 test("a check with tools missing reports them and downloads nothing ('2 Run what's installed')", async () => {

@@ -317,7 +317,7 @@ export async function runSecurityCheck(options: SecurityCheckOptions): Promise<S
 
 /**
  * The tools this project needs that are not installed, found before anything runs, so the host can ask once
- * ("1 Install them · 2 Run what's installed · 3 Stop") before any download.
+ * ("1 Stop · 2 Run what's installed · 3 Install them") before any download.
  */
 export async function missingSecurityTools(options: Pick<SecurityCheckOptions, "root" | "homeDir" | "baseEnv" | "mcpScanner" | "mcpToolsJson" | "find" | "run" | "platform">): Promise<SecurityToolId[]> {
   const root = await realpath(path.resolve(options.root));

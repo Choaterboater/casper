@@ -5,7 +5,7 @@
  * nothing, and says so. The model review that could follow comes in a later version, after the shell sandbox.
  */
 import { formatQuestion, formatSecurityHeader, formatSecurityReport, IGNORE_APPROVE, IGNORE_CHOICES, IGNORE_FILE_CHOICES, IGNORE_FILE_USE, ignoreFileQuestion, ignoreQuestion } from "../security/format";
-import { findTool, INSTALL_CHOICES, installQuestion, installTools, OSV_UPDATE_QUESTION, updateOsvDb, type InstallOptions } from "../security/install";
+import { findTool, INSTALL_CHOICES, INSTALL_RUN, INSTALL_YES, installQuestion, installTools, OSV_UPDATE_QUESTION, updateOsvDb, type InstallOptions } from "../security/install";
 import { ignoreState, missingSecurityTools, readRepoText, SecurityCheck, type SecurityCheckOptions, type SecurityReport } from "../security/run";
 import { approveIgnore, approveIgnoreFile, removeApproval, removeFileApproval } from "../security/suppressions";
 import { SECURITY_TOOLS } from "../security/tools";
@@ -72,10 +72,10 @@ async function review(host: SecurityReviewHost): Promise<SecurityReport | undefi
     if (!host.canAsk()) host.write(`${question.text}\n${CANT_ASK_INSTALL}\n`);
     else {
       const answer = await ask(host, question.text, INSTALL_CHOICES);
-      if (answer === INSTALL_CHOICES[0]) {
+      if (answer === INSTALL_YES) {
         const results = await installTools(missing, { homeDir: host.homeDir, write: (text) => host.write(text), ...host.install });
         for (const result of results) host.write(`${terminalText(result.message)}\n`);
-      } else if (answer !== INSTALL_CHOICES[1]) {
+      } else if (answer !== INSTALL_RUN) {
         host.write("Stopped. Nothing was installed and no tool ran.\n");
         return undefined;
       }
@@ -149,7 +149,7 @@ async function updateAdvisories(host: SecurityReviewHost): Promise<void> {
   if (location.kind === "missing") { host.write("osv-scanner is not installed. /security-review offers to install it.\n"); return; }
   if (!host.canAsk()) { host.write(`${formatQuestion(OSV_UPDATE_QUESTION)}${CANT_ASK_UPDATE}\n`); return; }
   const answer = await ask(host, OSV_UPDATE_QUESTION.text, OSV_UPDATE_QUESTION.choices);
-  if (answer !== OSV_UPDATE_QUESTION.choices[0]) { host.write("Nothing was downloaded.\n"); return; }
+  if (answer !== OSV_UPDATE_QUESTION.choices[1]) { host.write("Nothing was downloaded.\n"); return; }
   const result = await updateOsvDb(host.root, location.path, { homeDir: host.homeDir, ...host.install, ...(host.signal ? { signal: host.signal } : {}) });
   host.write(`${terminalText(result.message)}\n`);
 }

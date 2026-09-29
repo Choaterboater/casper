@@ -8,7 +8,7 @@ import type { SecurityToolId } from "./types";
 
 /**
  * Finding and installing the pinned tools. Casper prefers its own pinned copy in ~/.casper/tools, and
- * otherwise uses a copy on PATH (shown with its version). Installing always follows the user's "1 Install
+ * otherwise uses a copy on PATH (shown with its version). Installing always follows the user's "3 Install
  * them"; the host asks, this module only downloads, checks and unpacks.
  */
 
@@ -91,7 +91,11 @@ export function ownCopyLine(spec: SecurityToolSpec, location: ToolLocation): str
 
 export interface NumberedQuestion { text: string; choices: string[] }
 
-export const INSTALL_CHOICES = ["Install them", "Run what's installed", "Stop"] as const;
+/** Stop comes first, so Enter never downloads or runs anything; installing takes a deliberate 3. */
+export const INSTALL_CHOICES = ["Stop", "Run what's installed", "Install them"] as const;
+export const INSTALL_STOP = INSTALL_CHOICES[0];
+export const INSTALL_RUN = INSTALL_CHOICES[1];
+export const INSTALL_YES = INSTALL_CHOICES[2];
 
 function joinHosts(specs: readonly SecurityToolSpec[]): string {
   const hosts = [...new Set(specs.flatMap((spec) => spec.hosts))];
@@ -110,7 +114,7 @@ export function installQuestion(specs: readonly SecurityToolSpec[]): NumberedQue
   };
 }
 
-/** The numbered line: "1 Install them · 2 Run what's installed · 3 Stop". */
+/** The numbered line: "1 Stop · 2 Run what's installed · 3 Install them". */
 export function numberedChoices(choices: readonly string[]): string {
   return choices.map((choice, index) => `${index + 1} ${choice}`).join(" · ");
 }
@@ -284,7 +288,8 @@ export async function osvDbState(homeDir: string, now = new Date()): Promise<Osv
 
 export const OSV_UPDATE_QUESTION: NumberedQuestion = {
   text: "osv-scanner downloads advisory data for this project's package types from osv-vulnerabilities.storage.googleapis.com (tens of MB).",
-  choices: ["Download it", "Stop"],
+  // Stop comes first, so Enter never downloads.
+  choices: ["Stop", "Download it"],
 };
 
 /**
