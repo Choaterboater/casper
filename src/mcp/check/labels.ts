@@ -109,8 +109,10 @@ export function checkLabels(tools: readonly CheckTool[], options: { callMs: numb
       findings.push({ section: "server", status: "fail", label: "label", text: words === "exec"
         ? `${tool.name} is labeled read-only, but the name says it runs commands.`
         : `${tool.name} is labeled read-only, but the name says it changes things.` });
-    } else if (hints?.readOnlyHint !== true && hints?.destructiveHint === false && words === "destructive") {
-      findings.push({ section: "server", status: "fail", label: "label", text: `${tool.name} is labeled write, but the name says it can cut service. Mark it destructiveHint: true.` });
+    } else if (hints?.readOnlyHint !== true && hints?.destructiveHint === false && (words === "destructive" || words === "exec")) {
+      findings.push({ section: "server", status: "fail", label: "label", text: words === "exec"
+        ? `${tool.name} is labeled write, but the name says it runs any command. Mark it destructiveHint: true.`
+        : `${tool.name} is labeled write, but the name says it can cut service. Mark it destructiveHint: true.` });
     }
     if (hints?.readOnlyHint === true) {
       const change = fields.find((field) => CHANGE_FIELD.test(field));
