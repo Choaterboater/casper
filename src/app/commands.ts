@@ -12,7 +12,9 @@ import { pickEffort } from "../tui/effort-picker";
 import { formatEffort, formatRuntimeStatus, redactPreview, terminalText } from "../tui/format";
 import type { InteractiveTerminal } from "../tui/terminal";
 import type { CapabilityBroker } from "../capabilities/broker";
-import type { MCPManager } from "../mcp/manager";
+import type { MCPManager, MCPStatus } from "../mcp/manager";
+import { READ_ONLY_LOGIN_ENABLE_TEXT } from "../mcp/access";
+import { ownSettingsNote, writesTitle } from "../mcp/presets";
 import type { MCPConfiguration } from "../mcp/config";
 import { formatDuration } from "../mcp/clock";
 import type { LSPManager } from "../lsp/manager";
@@ -80,6 +82,8 @@ export interface CommandHost {
   ensureSessionWorkspace(): Promise<SessionWorkspaceManager>;
   stopDebugger(): Promise<void>;
   confirmExact(preview: string, question: string, signal?: AbortSignal): Promise<boolean>;
+  /** One exact typed answer from the user (never the model), or undefined when nobody answered. */
+  chooseAnswer(preview: string, question: string, choices: readonly string[], signal?: AbortSignal): Promise<string | undefined>;
   git(args: string[]): Promise<string>;
   runVerification(checks: readonly ProjectCommand[], repair: boolean, request?: string, task?: VerificationTask): Promise<VerificationReport>;
   activeWorkspaceRoot(): string;
@@ -552,36 +556,120 @@ async function handleDelegateCommand(host: CommandHost, prompt: string): Promise
     if (result.status !== "completed") throw new Error(`Delegation ${result.status}; see the bounded report above`);
   }
 
+const MCP_USAGE = "Usage: /mcp | /mcp connect <name> | /mcp disconnect <name> | /mcp reload | /mcp writes <name> | /mcp writes off | /mcp forget <name> | /mcp junos-show <name> on|off";
+/** What "writes off" means, said once under the list: it hides write tools; other changes still ask. */
+const WRITES_OFF_TEXT = "Writes off: write and delete tools are hidden, and every other change still asks you. /mcp writes <name> turns writes on.";
+
 async function handleMCPCommand(host: CommandHost, prompt: string): Promise<void> {
     const [, action, name, ...extra] = prompt.trim().split(/\s+/);
-    const usage = "Usage: /mcp | /mcp connect <name> | /mcp disconnect <name> | /mcp reload";
+    const mcp = host.mcp!;
     if (action === "reload") {
-      if (name || extra.length) throw new Error(usage);
+      if (name || extra.length) throw new Error(MCP_USAGE);
       if (!host.reloadMCPConfiguration) throw new Error("MCP configuration cannot be re-read in this session");
-      const diff = await host.mcp!.reload(await host.reloadMCPConfiguration());
+      const diff = await mcp.reload(await host.reloadMCPConfiguration());
       host.output.write(`[mcp] reloaded: ${diff.added.length} added, ${diff.removed.length} removed, ${diff.changed.length} changed\n`);
-      for (const diagnostic of host.mcp!.diagnostics) host.output.write(`[mcp] ${diagnostic}\n`);
+      for (const diagnostic of mcp.diagnostics) host.output.write(`[mcp] ${terminalText(diagnostic)}\n`);
       // A changed command/URL is a different program; consent never carries over silently.
       if (diff.revoked.length) host.output.write(`[mcp] consent revoked for ${diff.revoked.join(", ")}; reconnect with /mcp connect <name>\n`);
+      host.updateFooter();
+    } else if (action === "writes") {
+      if (!name || extra.length) throw new Error(MCP_USAGE);
+      await handleMCPWrites(host, name);
+      return;
+    } else if (action === "forget") {
+      if (!name || extra.length) throw new Error(MCP_USAGE);
+      host.output.write(await mcp.forget(name)
+        ? `[mcp] Forgot ${name}. Casper asks again before it connects next time.\n`
+        : `[mcp] ${name} was not remembered.\n`);
+      return;
+    } else if (action === "junos-show") {
+      if (!name || extra.length !== 1 || !["on", "off"].includes(extra[0]!)) throw new Error(MCP_USAGE);
+      // Only the user types this; the model has no way to run a slash command.
+      mcp.setShowOptIn(name, extra[0] === "on");
+      host.output.write(extra[0] === "on"
+        ? `[mcp] Plain show commands on ${name} run without asking.\n`
+        : `[mcp] Show commands on ${name} ask you again.\n`);
+      return;
     } else if (action && (!name || extra.length || !["connect", "disconnect"].includes(action))) {
-      throw new Error(usage);
+      throw new Error(MCP_USAGE);
     }
-    if (action === "connect" && !await approveProjectDefinition(host, "mcp", name!, host.mcp!.review(name!))) return;
-    if (action === "connect") await host.mcp!.connect(name!);
-    if (action === "disconnect") await host.mcp!.disconnect(name!);
-    const statuses = host.mcp!.status();
+    if (action === "connect" && !await approveProjectDefinition(host, "mcp", name!, mcp.review(name!))) return;
+    if (action === "connect") await mcp.connect(name!);
+    if (action === "disconnect") await mcp.disconnect(name!);
+    const statuses = mcp.status();
     host.output.write(statuses.length ? statuses.map((status) => [
-      `${status.name} [${status.transport}; ${status.state}] ${status.toolCount} tools`,
+      `${status.name} [${status.transport}; ${status.state}] ${status.toolCount} tools${status.importedFrom ? ` · from ${status.importedFrom}` : ""}`
+        + `${status.preset ? ` · preset: ${status.preset.id}` : ""} · writes ${status.writes}${status.state === "ready" ? ` · ${status.access}` : ""}`,
       `  source: ${status.source}`,
       `  limits: start ${formatDuration(status.limits.connectS * 1000)} · call ${formatDuration(status.limits.callS * 1000)}`,
+      ...approvalLines(status),
+      ...(status.preset?.lines ?? []).map((line) => `  ${terminalText(line)}`),
+      ...(status.showOptIn ? ["  Plain show commands run without asking (/mcp junos-show " + status.name + " off)."] : []),
       ...(status.error ? [`  ${terminalText(status.error)}`] : []),
       // Already redacted by the manager (known secrets and token shapes); shown to you, never to the model.
       ...(status.serverOutput?.length ? ["  Last lines from the server:", ...status.serverOutput.map((line) => `    | ${terminalText(line)}`)] : []),
-    ].join("\n")).join("\n") + "\n" : "No MCP servers configured.\n");
+    ].join("\n")).join("\n") + `\n${statuses.some((status) => status.writes === "off") ? `${WRITES_OFF_TEXT}\n` : ""}` : "No MCP servers configured.\n");
     if (action === "connect" && statuses.find((status) => status.name === name)?.state !== "ready") {
       throw new Error("MCP connection failed; no tools exposed");
     }
+    if (action === "connect") await offerRemember(host, name!);
   }
+
+/** Plain lines about approval: not approved yet, changed since, or remembered. */
+function approvalLines(status: MCPStatus): string[] {
+  if (status.consent === "changed" && !status.approved) return [`  Changed since you approved it. Run /mcp connect ${status.name}.`];
+  if (status.consent === "remembered") return ["  Remembered: connects on its own, with writes off."];
+  if (status.importedFrom && !status.approved && status.state === "disconnected") {
+    return [`  Found in ${status.importedFrom}. Not approved yet · /mcp connect ${status.name}`];
+  }
+  return [];
+}
+
+/** After you connect your own or an imported server, offer to remember it (writes stay off). */
+async function offerRemember(host: CommandHost, name: string): Promise<void> {
+  const status = host.mcp!.status().find((entry) => entry.name === name);
+  if (!host.interactive || !status || status.scope === "project" || status.consent === "remembered") return;
+  const block = host.mcp!.rememberBlock(name);
+  if (block) { host.output.write(`[mcp] ${terminalText(block)}\n`); return; }
+  const answer = await host.chooseAnswer(
+    "Remember this server? Next time it connects on its own, with writes off. Every change still asks you.\n  1 Remember\n  2 Just this time\n",
+    "Type 1 or 2: ", ["1", "2"], host.commandAbort?.signal);
+  if (answer !== "1") { host.output.write(`[mcp] Not remembered. ${name} is connected for this session only.\n`); return; }
+  const result = await host.mcp!.remember(name);
+  host.output.write(result.remembered
+    ? `[mcp] Remembered ${name}. It connects on its own next time, with writes off. /mcp forget ${name} undoes this.\n`
+    : `[mcp] ${terminalText(result.reason)}\n`);
+}
+
+/**
+ * /mcp writes <name> and /mcp writes off. Turning writes on takes two steps that only you can do:
+ * this command, then "1" in the box. The model's ask tool never reaches this box.
+ */
+async function handleMCPWrites(host: CommandHost, name: string): Promise<void> {
+  const mcp = host.mcp!;
+  if (name === "off") {
+    const on = mcp.writesOn();
+    if (!on.length) { host.output.write("[mcp] Writes are already off for every server.\n"); return; }
+    await Promise.all(on.map((server) => mcp.setWrites(server, false)));
+    for (const server of on) host.output.write(`[mcp] Writes off for ${server}. Write tools are hidden again.\n`);
+    host.updateFooter();
+    return;
+  }
+  if (!host.interactive) throw new Error("Writes can only be turned on in an interactive session.");
+  const status = mcp.status().find((entry) => entry.name === name);
+  if (!status) throw new Error("Unknown MCP server; use /mcp to list definitions");
+  if (status.writes === "on") { host.output.write(`[mcp] Writes are already on for ${name}. ${host.terminal.rich ? "ctrl+o" : "/mcp writes off"} turns them off.\n`); return; }
+  if (status.access === "login: read-only (checked)") { host.output.write(`[mcp] ${READ_ONLY_LOGIN_ENABLE_TEXT}\n`); return; }
+  const policy = mcp.policy(name);
+  const answer = await host.chooseAnswer(`${terminalText(writesTitle(name, policy.match))}\n  1 Enable for this server\n  2 Keep writes off\n`,
+    "Type 1 or 2: ", ["1", "2"], host.commandAbort?.signal);
+  if (answer !== "1") { host.output.write(`[mcp] Writes stay off for ${name}.\n`); return; }
+  await mcp.setWrites(name, true);
+  host.output.write(`[mcp] Writes on for ${name}. Each change still asks you. ${host.terminal.rich ? "ctrl+o" : "/mcp writes off"} turns writes off.\n`);
+  const note = ownSettingsNote(mcp.definition(name), policy.match);
+  if (note) host.output.write(`[mcp] ${terminalText(note)}\n`);
+  host.updateFooter();
+}
 
 
 async function handleSkillsCommand(host: CommandHost, prompt: string): Promise<void> {

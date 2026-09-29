@@ -116,9 +116,13 @@ Local commands:
   /skills trust <id> <sha256>       Approve the exact reviewed skill content
   /skills block <id>                Prevent future skill injection
   /mcp                              Show redacted MCP status (no connection)
-  /mcp connect <name>               Authorize this server for this process
-  /mcp disconnect <name>            Disconnect and revoke process-local consent
+  /mcp connect <name>               Connect this server; your own or imported ones can be remembered
+  /mcp disconnect <name>            Disconnect and revoke consent for this process
   /mcp reload                       Re-read MCP files; changed servers need consent again
+  /mcp writes <name>                Turn writes on for one server (you pick 1 in the box)
+  /mcp writes off                   Writes off for every server (ctrl+o does the same)
+  /mcp forget <name>                Forget a remembered server; Casper asks again next time
+  /mcp junos-show <name> on|off     Let plain Junos show commands run without asking
   /lsp                              Show language-server status (no startup)
   /lsp connect <name>               Authorize this language server for this process
   /lsp disconnect <name>            Stop this language server
@@ -168,6 +172,9 @@ One-shot exit codes: 0 pass (or nothing to verify), 1 check failed or blocked, 2
 3 not verified (--require-verification only), 64 usage error, 130 cancelled.
 Exit 0 does not certify behavior beyond the checks; /receipt shows scope and freshness.
 MCP connection executes a configured program or contacts its URL. Review its source first.
+Servers from ~/.claude.json, ~/.mcp.json and VS Code are listed too; each needs /mcp connect once.
+Every MCP server starts with writes off: write and delete tools are hidden. /mcp writes <name>
+turns them on; ctrl+o turns them off again. A remembered server always starts with writes off.
 Non-read MCP calls require exact interactive confirmation; denied in one-shot mode.
 Cooked terminal input (TERM=dumb or redirected output) cannot grant exact approval.
 Piped line input discards unfinished input at approval transitions; NO_COLOR is supported.
