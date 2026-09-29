@@ -7,7 +7,7 @@
 import { formatQuestion, formatSecurityHeader, formatSecurityReport, IGNORE_CHOICES, IGNORE_FILE_CHOICES, ignoreFileQuestion, ignoreQuestion } from "../security/format";
 import { findTool, INSTALL_CHOICES, installQuestion, installTools, OSV_UPDATE_QUESTION, updateOsvDb, type InstallOptions } from "../security/install";
 import { ignoreState, missingSecurityTools, readRepoText, SecurityCheck, type SecurityCheckOptions, type SecurityReport } from "../security/run";
-import { approveIgnore, approveIgnoreFile, removeApproval } from "../security/suppressions";
+import { approveIgnore, approveIgnoreFile, removeApproval, removeFileApproval } from "../security/suppressions";
 import { SECURITY_TOOLS } from "../security/tools";
 import type { IgnoreEntry } from "../security/types";
 import { redactPreview, terminalText } from "../tui/format";
@@ -125,15 +125,20 @@ async function reviewIgnores(host: SecurityReviewHost): Promise<void> {
   for (const item of files) host.write(`  ${terminalText(item.file)}  whole file as it was (approved ${item.approvedAt.slice(0, 10)})\n`);
   if (state.fresh.length) host.write(`New ignores you didn't approve: ${state.fresh.length}\n`);
   await askAboutIgnores(host, state.fresh);
-  if (!markers.length || !host.canAsk()) return;
+  if ((!markers.length && !files.length) || !host.canAsk()) return;
   const keep = "Keep them all";
-  const options = markers.slice(0, 8).map((item) => `Remove ${item.file}  ${item.marker}`);
-  const answer = await ask(host, "Remove an approval? A removed ignore stops counting until you approve it again.", [keep, ...options]);
-  const index = answer ? options.indexOf(answer) : -1;
-  if (index >= 0) {
-    const item = markers[index]!;
-    await removeApproval(host.root, host.homeDir, item.file, item.lineHash);
-    host.write(`Removed the approval for ${terminalText(item.file)}  ${terminalText(item.marker)}.\n`);
+  // Both kinds can be taken back: a marker you approved, and a changed ignore file you chose to use.
+  const choices = [
+    ...markers.map((item) => ({ label: `Remove ${terminalText(item.file)}  ${terminalText(item.marker)}`,
+      remove: () => removeApproval(host.root, host.homeDir, item.file, item.lineHash), what: `${terminalText(item.file)}  ${terminalText(item.marker)}` })),
+    ...files.map((item) => ({ label: `Remove ${terminalText(item.file)}  whole file`,
+      remove: () => removeFileApproval(host.root, host.homeDir, item.file, item.contentHash), what: `${terminalText(item.file)} (whole file)` })),
+  ].slice(0, 8);
+  const answer = await ask(host, "Remove an approval? A removed ignore stops counting until you approve it again.", [keep, ...choices.map((choice) => choice.label)]);
+  const chosen = choices.find((choice) => choice.label === answer);
+  if (chosen) {
+    await chosen.remove();
+    host.write(`Removed the approval for ${chosen.what}.\n`);
   }
 }
 
