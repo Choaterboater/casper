@@ -155,6 +155,7 @@ test("in the terminal, a timed-out check asks what to do instead of starting a p
     expect(visible).toContain("test timed out after 0.3s");
     expect(visible).toContain("1 Retry");
     expect(visible).toContain("2 Fix it anyway");
+    expect(visible).toContain("ask the model to make it finish in time");
     expect(visible).toContain("3 Allow more time");
     // While the question waits, the footer says so instead of spinning with a running timer.
     await screen.until((output) => { const text = Bun.stripANSI(output); return text.slice(text.lastIndexOf("What now?")).includes("? waiting for you"); });
