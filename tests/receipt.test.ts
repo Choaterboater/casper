@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { formatReceipt, type TaskResult } from "../src/task/result";
+import { formatReceipt, taskOutcome, type TaskResult } from "../src/task/result";
 import type { VerificationReport, VerificationResult } from "../src/verify/evidence";
 
 function check(overrides: Partial<VerificationResult> = {}): VerificationResult {
@@ -165,4 +165,16 @@ test("a failed lab check's receipt line says the model was not asked only when n
   expect(repaired).toContain("↻ Casper tried 1 repair");
   expect(repaired).toContain("✗ junos-commit failed on the lab (exit 2) — log above; /verify junos-commit runs it again (asks first)");
   expect(repaired).not.toContain("did not ask the model");
+});
+
+test("a lab dry run that passed is shown, but it is never grounds for Checks passed or Verified", () => {
+  const dry = check({ name: "aoscx-check", kind: "lab", label: "dry run not guaranteed", command: undefined });
+  const only = done({ verification: report([dry]) });
+  expect(taskOutcome(undefined, only)).toBe("not_verified");
+  const text = formatReceipt(only);
+  expect(text).toContain("• Not verified — a dry run is not guaranteed, so its pass is not proof");
+  expect(text).toContain("✓ aoscx-check passed (dry run not guaranteed · ");
+  expect(text).not.toContain("Checks passed");
+  // Beside a real check the pass of that check still counts.
+  expect(taskOutcome(undefined, done({ verification: report([check(), dry]) }))).toBe("verified");
 });

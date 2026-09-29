@@ -64,7 +64,7 @@ verify:
 | `yanglint` | `yanglint -t config -p <models> <modules> <data>` | The data fits the YANG models. For AOS-CX the models for each release come from github.com/aruba/aoscx-yang (Apache-2.0). |
 | `hier-config` | A small Casper script that uses hier_config 3 from your project's Python | How many lines would change and how many would undo it. This is a report. It never passes or fails a task and never counts toward Verified. hier_config marks its Junos support as experimental. |
 | `junos-commit` | Juniper's `juniper.device.config` module with `check: true` and `commit: false` | Your lab routers accept the change (commit check). Juniper's module does not commit. |
-| `ansible-check` | `ansible-playbook --check --diff -i <inventory> <playbook>` | What the playbook would change on your lab switches. Labelled "dry run not guaranteed": some modules can still change devices in check mode. |
+| `ansible-check` | `ansible-playbook --check --diff -i <inventory> <playbook>` | What the playbook would change on your lab switches. Labelled "dry run not guaranteed": some modules can still change devices in check mode. Its pass is shown, but on its own it never counts as Checks passed or Verified. |
 
 Casper finds Ansible projects by itself: `ansible.cfg`, `galaxy.yml`,
 `collections/requirements.yml`, or playbooks (YAML lists of plays with `hosts:`). It
