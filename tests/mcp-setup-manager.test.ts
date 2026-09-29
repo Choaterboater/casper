@@ -242,3 +242,34 @@ test("the consent file keeps no definition values", async () => {
   expect(statusOf(again, "lab").approved).toBe(false);
   expect(again.diagnostics).toContain("~/.casper/mcp-consent.json is damaged. Casper will ask again for each server.");
 });
+
+test("with writes off, a write behind a read router is refused like the write tool itself, also after a yes", async () => {
+  const log = path.join(await tempDir(), "calls.log");
+  const mcp = manager([server("hpe", { FIXTURE_MODE: "hpe-router", FIXTURE_CALLS_FILE: log })]);
+  const boxes: string[] = [];
+  let answer: () => Promise<boolean> = async () => true;
+  const broker = new CapabilityBroker(mcp, async (call) => { boxes.push(call.plan.routed.map((routed) => routed.name).join(",")); return answer(); }, { writesGate: true });
+  await mcp.connect("hpe");
+  await expect(broker.invoke("mcp:hpe:invoke_read_tool", { name: "central_delete_site", arguments: { site: "lab" } }))
+    .rejects.toThrow("Not executed (hpe writes are off. Only the user can turn them on with /mcp writes hpe.)");
+  await expect(broker.invoke("mcp:hpe:invoke_read_tool", { name: "central_update_wlan", arguments: {} })).rejects.toThrow("Not executed (hpe writes are off.");
+  expect(boxes).toEqual([]);
+  await broker.invoke("mcp:hpe:invoke_read_tool", { name: "central_get_sites", arguments: {} });
+  await mcp.setWrites("hpe", true);
+  await broker.invoke("mcp:hpe:invoke_read_tool", { name: "central_delete_site", arguments: { site: "lab" } });
+  expect(boxes).toEqual(["central_delete_site"]);
+  const sent = (await readFile(log, "utf8")).trim().split("\n").filter((line) => line.startsWith("invoke_read_tool"));
+  expect(sent.map((line) => JSON.parse(line.slice("invoke_read_tool ".length)).name)).toEqual(["central_get_sites", "central_delete_site"]);
+});
+
+test("writes turned off while the box for a write behind a router is open: the yes no longer runs it", async () => {
+  const log = path.join(await tempDir(), "calls.log");
+  // A router on a server with no pins (so turning writes off does not restart it).
+  const mcp = manager([server("lab", { FIXTURE_MODE: "hpe-router", FIXTURE_CALLS_FILE: log }, ["jmcp.py"])]);
+  const broker = new CapabilityBroker(mcp, async () => { await mcp.setWrites("lab", false); return true; }, { writesGate: true });
+  await mcp.connect("lab");
+  await mcp.setWrites("lab", true);
+  await expect(broker.invoke("mcp:lab:invoke_read_tool", { name: "central_delete_site", arguments: {} }))
+    .rejects.toThrow("Not executed (lab writes are off. Only the user can turn them on with /mcp writes lab.)");
+  expect(await readFile(log, "utf8").catch(() => "")).not.toContain("central_delete_site");
+});
