@@ -1,5 +1,25 @@
 # Visualization
 
+**What this is:** Casper can draw a diagram of code or a system, as Mermaid text
+(a plain-text diagram format that GitHub and many editors display) and as a
+MindMesh JSON file. **When you'd use it:** to see how a project's files import
+each other, or to have the model sketch a flow, plan or troubleshooting tree.
+
+Try it:
+
+```text
+/visualize                 show providers and where files are saved
+/visualize repo            diagram of this project's TypeScript/JavaScript imports (no model)
+/visualize repo src        the same, for one folder
+```
+
+Or ask in plain words, for example `draw a flowchart of the login process` or
+`show me a diagram of how the config is loaded`.
+
+Diagrams only read. Making one never changes your files.
+
+## How it works
+
 Visualization is a capability category, not a special Casper mode. Casper reasons about a system in a small neutral **graph IR**, then renders it through configured **providers**. Provider file formats never shape reasoning output, and rendering is read-only: a diagram never authorizes code changes.
 
 ## Graph IR
@@ -41,8 +61,8 @@ Every result carries a `lossiness` list stating what the format could not draw. 
 
 ## Where results go
 
-- The **primary** (first configured) provider's content is returned inline to the model or printed by `/visualize`.
-- When `outputDir` is enabled, every provider's output is written as `<timestamp>-<title-slug>.<provider>.<ext>` with exclusive create (`wx`) — existing files are never overwritten; a name collision gets a `-2`, `-3`, … suffix.
+- The **primary** (first configured) provider's content is returned inline to the model or printed by `/visualize repo`.
+- By default both providers run (`mermaid`, then `mindmesh`) and files are saved. Unless `outputDir` is set to `false`, every provider's output is written as `<timestamp>-<title-slug>.<provider>.<ext>` with exclusive create (`wx`) — existing files are never overwritten; a name collision gets a `-2`, `-3`, … suffix.
 - Default directory: `~/.casper/visualizations/<project-name-slug>/`, **outside the code workspace**. Canonical destinations inside the workspace are refused, including symlinks. Relative user paths resolve under the user's home, not the shell cwd.
 - Artifact creation/cleanup is bound to an opened, validated directory descriptor with POSIX `openat`/`mkdirat`/`unlinkat`, including creation of missing output directories. A tiny fixed-arity C bridge (`artifacts.c`) is compiled once per process by Bun's built-in TinyCC; no compiler package or external service is installed. This avoids parent-symlink swaps between validation and creation and correctly handles macOS arm64's variadic ABI. Files are owner-only. Filesystem artifact output currently requires macOS or Linux; other platforms automatically retain inline output and disclose unavailable artifact files. macOS is tested here; Linux uses the supported POSIX path but has not been acceptance-tested in this environment.
 
@@ -55,13 +75,16 @@ visualize:
   outputDir: ~/diagrams            # path (~ expands) or false to keep results in-conversation only
 ```
 
+Defaults when nothing is set: `providers: [mermaid, mindmesh]` and
+`outputDir: ~/.casper/visualizations/<project-name-slug>/`.
+
 Precedence: global → profile → project. `providers` may be set at any layer. `outputDir` accepts a path only from user-owned global/profile files; a project's `.casper/project.yaml` may only set `outputDir: false`. This prevents a checked-in configuration from redirecting writes. Unknown provider names are reported at startup and ignored; if none remain usable, startup fails.
 
 ## Using it
 
-- Prompts classified with the `visualize` intent (`map out`, `diagram`, `mind map`, `flowchart`, `visualize`, `draw`, `chart`, `dependency graph`) are **read** mode with no verification, and expose the `visualize` tool for that turn. Other prompts do not carry it.
+- Prompts classified with the `visualize` intent (they start with, or ask to show/make, a `diagram`, `mind map`, `flowchart`, `dependency graph` or `chart`, or start with `visualize`, `map out` or `draw`) are **read** mode with no verification, and expose the `visualize` tool for that turn. Other prompts do not carry it.
 - The `visualize` tool accepts either a model-authored `graph`, or `source: "repo"` with an optional project-relative `scope` to build a deterministic relative-import dependency graph. Results are bounded by the shared 16 KiB / 50-item capability envelope with truncation disclosed.
-- `/visualize` prints providers and the artifact directory. `/visualize repo [directory]` renders the dependency graph locally and never starts a model session.
+- `/visualize` prints providers and the artifact directory. `/visualize repo [directory]` renders the dependency graph locally and never starts a model session. It prints the Mermaid text, notes, and the path of each file written.
 
 ## Repository dependency graph
 

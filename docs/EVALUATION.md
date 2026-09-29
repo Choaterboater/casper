@@ -1,9 +1,25 @@
 # Evaluation suite
 
-Casper's own tests for agent behavior. The suite runs real tasks
-against small fixture repositories and records numbers instead of impressions:
-task success, required interactions, rescue interventions, verification success,
-model responses, files touched, repair attempts, reported usage and elapsed time.
+**What this is:** Casper's own test bench for how well the AI does real coding work.
+It gives the AI small practice projects with a known right answer, then grades the
+result with checks the AI never touches. **When you'd use it:** to compare models, to
+see whether a Casper change helps or hurts, or to compare Casper with Pi on the same
+model. You do not need it to use Casper day to day.
+
+**It costs money.** Every run except `--list`, `--prepare`, `--grade`, `--report` and
+the harness self-test calls your model provider, and that provider's charges apply.
+
+Quick start (from a source checkout, after `bun install --frozen-lockfile`):
+
+```bash
+bun tools/eval.ts --list                         # see the tasks; no model call
+bun test tests/eval-suite.test.ts                # test the bench itself; no model call
+bun tools/eval.ts --task fix-failing-test        # one real task; PROVIDER CALLS
+```
+
+The suite records numbers instead of impressions: task success, required
+interactions, rescue interventions, verification success, model responses, files
+touched, repair attempts, reported usage and elapsed time.
 
 Status: **implemented, self-verified, measured as a distribution and across two models** —
 see the [recorded baseline](#recorded-baseline), the [second sample](#second-sample-variance)
@@ -13,8 +29,9 @@ fixture/setup matrix, measurement, grading, repeat aggregation, model selection)
 The recorded runs are not a competitive benchmark, provider matrix or proof of
 daily-driver reliability.
 
-The daily-driver preparation adds two multi-module repository tasks and two
-human-driven workflow protocols. These are **prepared**, not live-provider or
+The daily-driver preparation adds two multi-module repository tasks and three
+human-driven workflow protocols (cancel/resume, delegation, and a clarifying
+question before the first edit). These are **prepared**, not live-provider or
 native-platform acceptance. The recorded results below do not cover those tasks.
 
 ## Layout
@@ -24,12 +41,13 @@ evals/
 ├── fixtures/     solved baseline repositories (one per project shape)
 ├── setups/       overlays that turn a baseline into one task's unsolved state
 ├── tasks.ts      the task catalog (prompt, verification, acceptance)
-├── packs.ts      quality-benchmark packs: core (9 tasks), network (9 tasks) and hard (6 tasks)
+├── packs.ts      quality-benchmark packs: core (9 tasks), network (9), hard (6) and harder (6)
 ├── harness.ts    runs the Casper, Pi or OMP CLI with identical inputs and an isolated home
 ├── benchmark.ts  quality benchmark: runs both harnesses, measures rubric evidence, summarizes per pack
 ├── quality.ts    rubric scores from host evidence only
 ├── scenarios.ts  cancellation/restart/resume, delegation and clarify-loop protocols
 ├── runner.ts     prepare → run → measure → verify → grade
+├── replay.ts     reruns Casper's acceptance check on kept workspaces (--replay)
 └── report.ts     per-attempt outcomes (one per run, one per task under --repeat) and summary
 tools/eval.ts     CLI
 ```
@@ -264,7 +282,8 @@ roughly 25-60% across both models), so the tasks are not tuned toward what Caspe
 to catch; the pack is then frozen before any decision run.
 
 Every pack with Casper runs gets a **receipt honesty** table per Casper harness (`casper`,
-`casper-review`, `casper-no-review`, `casper-acceptance`, `casper-checklist`), computed from the saved runs:
+`casper-review`, `casper-no-review`, `casper-acceptance`, `casper-acceptance-cross`,
+`casper-checklist`), computed from the saved runs:
 
 - **caught**: of the wrong runs (not accepted by the grader), those whose receipt outcome was not
   `verified` (`not_verified`, `failed` or `incomplete`), with a Wilson 95% interval;
@@ -323,7 +342,10 @@ wall×Pi**: the median over runs of (saved wall − the run's own `acceptance` p
 Pi's median wall on the same tasks in the same documents. It is an estimate: the check never ran inside those runs.
 `--stop-when-decided` (no harness) stops once every replayed pack and harness is decided on caught and flagged
 (the replay has no cost ratio of its own): checks still running are aborted and dropped, `stopped` is recorded and
-the exit code is 3. The document (`kind: "acceptance-replay"`) keeps every replayed run with the grader's verdict,
+the exit code is 3. `--check trace` replays requirement-to-test tracing instead (each stated
+requirement needs a test that passes with the change and fails without it), and `--check mutation`
+replays mutation testing (small bugs put into the changed code must each fail a test; no model call).
+The default is `--check acceptance`. The document (`kind: "acceptance-replay"`) keeps every replayed run with the grader's verdict,
 the saved receipt, the check's status, unconfirmed tests, output tail, usage and time, and the replayed outcome.
 
 `hard-conditional-http` is a server task: `docs-api` declares `services.api` and a `GET /docs/1`
@@ -347,8 +369,9 @@ Each task's prompt states 30-35 concrete cases — an input and its output, an e
 message, a boundary, an order, a format — as **prose**, the way a person writes a request, never a
 numbered list; a numbered list would do the checklist's own job for it. 30 is a floor (the hard pack's
 prompts already state roughly 12-22 cases each, and Pi handles those); 35 is a ceiling, because the
-checklist keeps at most 40 cases (`CASE_COUNT` in `src/task/checklist.ts`), and a task near that cap
-would measure the cap rather than the checklist. Every case is stated in the prompt itself, never only
+checklist kept at most 40 cases when the pack was built, and a task near that cap would measure the
+cap rather than the checklist. The cap is now 80 (`CASE_COUNT` in `src/task/checklist.ts`), so the
+pack sits well under it. Every case is stated in the prompt itself, never only
 in `CONTEXT.md` or another project file, because the checklist call sees only the request text, not
 project files. Each task also carries several deliberate departures from a well-known convention —
 for example `harder-csv-reader`'s backslash escaping inside quotes, `harder-cron-next`'s day-of-month-
@@ -562,7 +585,8 @@ like: no response means no work was done.
 - The runner's temporary home redirects Casper-owned state (named-workspace
   records, memory, skills and MCP/LSP/reference configuration), so ambient Casper
   configuration cannot join a run and runs stay comparable. It does **not** change
-  process HOME or Pi's agent directory. Legacy one-shot provider runs can still
+  process HOME or the agent directory that holds sign-ins (`~/.casper/agent`, or
+  `CASPER_AGENT_DIR`): one-shot runs use your real stored credentials. Legacy one-shot provider runs can still
   load ambient Pi configuration/extensions and persist Pi conversation transcripts
   outside that temporary home; they are not isolated daily-driver evidence by
   default. Before any live evaluation, explicitly isolate HOME/XDG/Pi configuration
@@ -586,8 +610,8 @@ like: no response means no work was done.
 ## Running
 
 ```bash
-bun tools/eval.ts --list                                        # task ids
-bun tools/eval.ts                                               # every catalog task, once, Casper's default model; PROVIDER CALLS
+bun tools/eval.ts --list                                        # task ids and workflow scenarios; no model call
+bun tools/eval.ts                                               # every catalog task (all 44, pack tasks included), once, Casper's default model; PROVIDER CALLS
 bun tools/eval.ts --task rename-symbol                          # one task; PROVIDER CALLS
 bun tools/eval.ts --json /tmp/eval-new.json                     # new report only; refuses replacement
 bun tools/eval.ts --repeat 3 --json /tmp/eval-3x.json           # each task 3x; pass rate k/n, wall median (min–max), median tokens
@@ -615,7 +639,7 @@ grader verdict, failing checks, phases, Casper's smoke report, bounded answer). 
 observation carries Casper's `smoke` report when one ran.
 
 `bun test tests/eval-suite.test.ts` validates the harness itself without a model:
-catalog (32 tasks), fixture/setup matrix in both directions, measurement, grading,
+catalog (44 tasks: 14 of Casper's own plus 30 pack tasks), fixture/setup matrix in both directions, measurement, grading,
 the three harder tasks' shortcut/honesty cases, `--model` selection and recording,
 repeat aggregation.
 
@@ -698,6 +722,14 @@ behavioral pass/fail result; required interaction alone does not count as rescue
   an answer saying “I delegated” is insufficient. Primary runtime usage is not a
   total for separately billed children; keep child usage evidence separately and
   label unavailable totals.
+- **Clarify before building (`clarify-ambiguous-build`):** a deliberately vague
+  request ("add support for discounts") on the fulfillment service. In an interactive
+  session, the AI must ask at least one question with options (the ask tool's
+  numbered choices, or an equally recorded question) and get your answer **before its
+  first production edit**. Host evidence must show the question came first
+  (`ask-before-first-edit`) and that `src/` follows the chosen answer
+  (`clarified-decision-applied`). Answering the question is a required interaction,
+  not rescue. A one-shot run cannot pass this scenario; record it as not exercised.
 
 The reserved cleanup-repair pilot is closed. It is not the next experiment, and
 the defect is no longer kept open for a trial. `runEvalTask` and `prepareWorkdir`
@@ -717,7 +749,7 @@ retains a work directory only after preparation succeeds.
   and every task shape is preserved: the React fixture becomes a component
   registry, the FastAPI fixture an HTTP-shaped router, `typescript-mcp` a tool
   catalog. The nine §48 task shapes are all present; `python-cli` is not
-  represented because a Python interpreter is not guaranteed on an eval host.
+  represented because an eval host may not have a Python interpreter.
 - **`repair-type-error` has no in-fixture typecheck.** The fixture ships a
   `tsconfig.json` but no `node_modules`, so the model cannot run `tsc` there; the
   grader runs the repository's compiler instead. Grading stays independent of the
