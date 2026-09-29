@@ -133,11 +133,11 @@ def connect_with_writes(s):
     s.send("/mcp connect fixture\n")
     s.until("340 tools")
     s.until("Remember this server?")
-    s.send("2\n")
+    s.send("1\n")  # 1 Just this time
     s.until("fixture is connected for this session only")
     s.send("/mcp writes fixture\n")
     s.until("fixture writes are off.")
-    s.send("1\n")
+    s.send("2\n")  # 2 Enable for this server
     s.until("Writes on for fixture. Each change still asks you.")
     s.until("WRITES: fixture · ctrl+o")
 
