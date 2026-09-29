@@ -350,3 +350,43 @@ test("one-shot with --cd: the undo command names the task's folder, so it never 
     expect(made.output()).toContain(`Undo: casper --cd ${place.project} /undo 1 · Diff: casper --cd ${place.project} /diff 1\n`);
   } finally { process.chdir(started); await made.app.close(); }
 }, 30_000);
+
+test("a file the task made over 8 MB is not counted as deleted: undo puts back the other files and leaves it", async () => {
+  const place = await folder();
+  await writeFile(path.join(place.project, "capture.pcap"), "small\n");
+  const first = makeApp(place, [async (project) => {
+    await writeFile(path.join(project, "capture.pcap"), Buffer.alloc(8 * 1024 * 1024 + 1, 7));
+    await writeFile(path.join(project, "notes.py"), "print('two')\n");
+  }]);
+  try {
+    await first.app.runOnce("grow the capture", place.project);
+    expect(first.output()).toContain("• Undo can't put back: capture.pcap (over 8 MB)");
+    expect(first.output()).not.toContain("capture.pcap |");
+  } finally { await first.app.close(); }
+  const later = makeApp(place, []);
+  try {
+    await later.app.runOnce("/undo", place.project);
+    expect(later.output()).toContain("✓ Undone — 1 file is back as it was before task 1: notes.py\n");
+    expect((await stat(path.join(place.project, "capture.pcap"))).size).toBe(8 * 1024 * 1024 + 1);
+  } finally { await later.app.close(); }
+}, 30_000);
+
+test("files in a folder the task made into its own repository are not counted as deleted", async () => {
+  const place = await folder();
+  await mkdir(path.join(place.project, "lib"));
+  await writeFile(path.join(place.project, "lib", "a.py"), "a = 1\n");
+  const first = makeApp(place, [async (project) => {
+    execFileSync("git", ["init", "-q"], { cwd: path.join(project, "lib") });
+    await writeFile(path.join(project, "notes.py"), "print('two')\n");
+  }]);
+  try {
+    await first.app.runOnce("make lib its own repo", place.project);
+    expect(first.output()).not.toContain("lib/a.py |");
+  } finally { await first.app.close(); }
+  const later = makeApp(place, []);
+  try {
+    await later.app.runOnce("/undo", place.project);
+    expect(later.output()).toContain("✓ Undone — 1 file is back as it was before task 1: notes.py\n");
+    expect(await readFile(path.join(place.project, "lib", "a.py"), "utf8")).toBe("a = 1\n");
+  } finally { await later.app.close(); }
+}, 30_000);
