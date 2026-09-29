@@ -36,6 +36,24 @@ test("an ask shows a standalone question and Up/Down selects an option", async (
   } finally { session.close(); }
 });
 
+test("a question from the AI opens with \"The AI asks:\"; Casper's own questions never do", async () => {
+  const session = interactiveTerminal();
+  try {
+    session.terminal.setStatus("fixture"); session.terminal.start();
+    const fromAi = session.terminal.ask("Casper wants to reach collector.example. Allow?", OPTIONS, false, undefined, "ai");
+    await session.screen.until(output => output.includes("collector.example"));
+    expect(Bun.stripANSI(session.screen.output)).toMatch(/The AI asks:[^\r\n]*\r?\nCasper wants to reach collector\.example\. Allow\?/);
+    session.input.write("1");
+    expect(await fromAi).toEqual(["SQLite"]);
+    const fromCasper = session.terminal.ask("Which database?", OPTIONS, false);
+    await session.screen.until(output => output.includes("Which database?"));
+    session.input.write("2");
+    expect(await fromCasper).toEqual(["Postgres"]);
+    expect(Bun.stripANSI(session.screen.output)).toContain("Which database?");
+    expect(Bun.stripANSI(session.screen.output)).not.toMatch(/The AI asks:[^\r\n]*\r?\n(?:\S[^\r\n]*\r?\n)?[^\r\n]*Which database\?/);
+  } finally { session.close(); }
+});
+
 test("pressing a choice's number picks it at once; a digit after typed text stays free text", async () => {
   const session = interactiveTerminal();
   try {
@@ -284,7 +302,8 @@ test("an asked question is recorded on its own line, not appended to the running
     await screen.until(() => screen.output.split(REPAINT).length > repaints && lastFrame(screen.output).some(line => line.includes("ask — completed")));
     const frame = lastFrame(screen.output);
     const running = frame.findIndex(line => line.startsWith("• ask — running"));
-    expect(frame.slice(running, running + 6)).toEqual(["• ask — running", "Which database?", "✓ SQLite  file-based", "• Postgres", "[ask] SQLite", expect.stringMatching(/^✓ ask — completed/)]);
+    // The model's own question carries "The AI asks:", so it never looks like a Casper approval.
+    expect(frame.slice(running, running + 7)).toEqual(["• ask — running", "The AI asks:", "Which database?", "✓ SQLite  file-based", "• Postgres", "[ask] SQLite", expect.stringMatching(/^✓ ask — completed/)]);
   } finally {
     input.write("/exit\r");
     await interactive;
