@@ -1,6 +1,7 @@
 import { lstat, readdir, readFile } from "node:fs/promises";
 import path from "node:path";
-import { discoverMCPConfiguration, isRecord } from "../config";
+import { discoverMCPConfiguration, isRecord, type MCPServerDefinition } from "../config";
+import { matchPreset } from "../presets";
 import type { McpCheckCommand } from "../../cli-args";
 import type { Finding } from "./index";
 import { SECRET_ENV_NAME } from "./sandbox";
@@ -144,12 +145,38 @@ export function hasAccessSwitch(entries: Record<string, ExampleEntry>): boolean 
   return Object.values(entries).some((entry) => stringEntries(entry.env).some(([name, value]) => writeSwitchOn(name, value) || writeSwitchOff(name, value)));
 }
 
+/** For a server Casper has a preset for (WP4): the setting that keeps it read-only, when this entry
+ * does not set it. Casper sets it itself while writes are off, but other tools that use the example
+ * don't. Undefined when the entry keeps writes off, or when there is no such setting. */
+export function missingPresetSwitch(name: string, entry: ExampleEntry, file: string): string | undefined {
+  if (typeof entry.command !== "string") return undefined;
+  const definition: MCPServerDefinition = {
+    name, source: file, cwd: "", disabled: false,
+    transport: { type: "stdio", command: entry.command, args: Array.isArray(entry.args) ? entry.args.filter((arg): arg is string => typeof arg === "string") : [], env: Object.fromEntries(stringEntries(entry.env)) },
+  };
+  const preset = matchPreset(definition)?.preset;
+  const pins = preset?.pins;
+  if (!preset || !pins) return undefined;
+  if (preset.userKeepsWritesOff) {
+    if (preset.userKeepsWritesOff(definition).length) return undefined;
+  } else {
+    const transport = definition.transport as Extract<MCPServerDefinition["transport"], { type: "stdio" }>;
+    const envSet = Object.entries(pins.env).every(([key, value]) => transport.env[key] === value);
+    if (envSet && pins.appendArgs.every((arg) => transport.args.includes(arg))) return undefined;
+  }
+  const first = Object.entries(pins.env)[0];
+  return first ? `${first[0]}=${first[1]}` : pins.appendArgs.join(" ");
+}
+
 /** Problems in one example config: literal secrets (length only, never the value) and settings that turn
  * writes on. A write switch is a problem in a default example and a note in a file named for writes. */
 export function reviewExampleConfig(file: string, entries: Record<string, ExampleEntry>): Finding[] {
   const findings: Finding[] = [];
   const writes: string[] = [];
-  for (const entry of Object.values(entries)) {
+  const missing: string[] = [];
+  for (const [entryName, entry] of Object.entries(entries)) {
+    const setting = missingPresetSwitch(entryName, entry, file);
+    if (setting && !missing.includes(setting)) missing.push(setting);
     for (const [name, value] of stringEntries(entry.env)) {
       if (SECRET_ENV_NAME.test(name) && literalSecret(value)) {
         findings.push({ section: "examples", status: "fail", label: file, text: `has a secret in plain text (env ${name}, ${value.length} chars). Use \${${name}}.` });
@@ -167,6 +194,10 @@ export function reviewExampleConfig(file: string, entries: Record<string, Exampl
     findings.push(namedForWrites(file)
       ? { section: "examples", status: "note", label: file, text: "turns writes on (the name says so)" }
       : { section: "examples", status: "fail", label: file, text: `turns writes on (${shown}). The default example should be read-only.` });
+  } else if (missing.length) {
+    findings.push(namedForWrites(file)
+      ? { section: "examples", status: "note", label: file, text: `does not keep writes off (no ${missing[0]}; the name says so)` }
+      : { section: "examples", status: "warn", label: file, text: `does not set ${missing.join(" or ")}, the setting that keeps writes off. Casper sets it itself; other clients using this example don't.` });
   } else if (!findings.length) {
     findings.push({ section: "examples", status: "ok", label: file, text: hasAccessSwitch(entries) ? "keeps writes off" : "turns no writes on" });
   }

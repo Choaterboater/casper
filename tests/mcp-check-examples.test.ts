@@ -107,3 +107,17 @@ test(".casper/mcp-check.json with the wrong shape is named, not guessed", async 
   expect((await readCheckConfig(await repo({ ".casper/mcp-check.json": { start: "uv run x" } }))).error).toContain('"start" must be a command list');
   expect(await readCheckConfig(await repo({}))).toEqual({ config: {} });
 });
+
+test("an example for a server Casper has a preset for warns when it doesn't set the setting that keeps writes off", () => {
+  const hpe = (env: Record<string, string>) => ({ hpe: { command: "uv", args: ["run", "python", "src/hpe_networking_mcp/mcp_servers/tool_router.py"], env } });
+  expect(reviewExampleConfig(".mcp.json.example", hpe({ HPE_MCP_CENTRAL_WRITES: "0" }))).toEqual([
+    { section: "examples", status: "warn", label: ".mcp.json.example", text: "does not set HPE_MCP_ACCESS_PROFILE=safe-read-only, the setting that keeps writes off. Casper sets it itself; other clients using this example don't." },
+  ]);
+  expect(reviewExampleConfig(".mcp.json.example", hpe({ HPE_MCP_ACCESS_PROFILE: "safe-read-only" }))).toEqual([
+    { section: "examples", status: "ok", label: ".mcp.json.example", text: "keeps writes off" },
+  ]);
+  expect(reviewExampleConfig("examples/admin.mcp.json", hpe({}))[0]).toMatchObject({ status: "note", text: "does not keep writes off (no HPE_MCP_ACCESS_PROFILE=safe-read-only; the name says so)" });
+  const grafana = (args: string[]) => ({ grafana: { command: "mcp-grafana", args, env: {} } });
+  expect(reviewExampleConfig(".mcp.json", grafana([]))[0]).toMatchObject({ status: "warn", text: expect.stringContaining("does not set --disable-write") });
+  expect(reviewExampleConfig(".mcp.json", grafana(["--disable-write"]))[0]).toMatchObject({ status: "ok" });
+});
