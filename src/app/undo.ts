@@ -249,7 +249,12 @@ export class TaskUndo {
     if (!("tree" in redo)) { this.refuse(`Nothing was undone: Casper could not save a copy of the files first (${terminalText(redo.unavailable)}).`); return; }
     await store.keep(n, "redo", redo.tree);
     const applied = await store.apply(plan.ready, undo.before, signal);
-    await this.receipts()!.update(n, (saved) => ({ ...saved, undo: { ...(saved.undo as ReceiptUndo), undone: { at: new Date().toISOString(), restored: applied.restored, redo: redo.tree } } }));
+    // Marked undone only when something was put back: an undo that changed nothing can be tried again, and a second
+    // Casper's empty undo never replaces the files a first one put back (which /redo needs).
+    if (applied.restored.length) {
+      await this.receipts()!.update(n, (saved) => (saved.undo as ReceiptUndo).undone ? saved
+        : { ...saved, undo: { ...(saved.undo as ReceiptUndo), undone: { at: new Date().toISOString(), restored: applied.restored, redo: redo.tree } } });
+    }
     const lines = [applied.restored.length
       ? `✓ Undone — ${files(applied.restored.length)} ${applied.restored.length === 1 ? "is" : "are"} back as ${applied.restored.length === 1 ? "it was" : "they were"} before task ${n}: ${names(applied.restored)}`
       : `• Nothing was put back for task ${n}.`];
@@ -272,10 +277,13 @@ export class TaskUndo {
     const plan = await store.plan(undo.before, undo.undone.redo, undo.undone.restored);
     if (!(await this.confirmPartial("Redo", n, plan.changedSince, plan.ready.length, signal))) return;
     const applied = await store.apply(plan.ready, undo.undone.redo, signal);
-    await this.receipts()!.update(n, (saved) => {
-      const { undone: _undone, ...rest } = saved.undo as ReceiptUndo;
-      return { ...saved, undo: rest };
-    });
+    // A redo that put nothing back leaves the task undone, so it can be tried again.
+    if (applied.restored.length) {
+      await this.receipts()!.update(n, (saved) => {
+        const { undone: _undone, ...rest } = saved.undo as ReceiptUndo;
+        return { ...saved, undo: rest };
+      });
+    }
     const lines = [applied.restored.length
       ? `✓ Redone — ${files(applied.restored.length)} ${applied.restored.length === 1 ? "is" : "are"} back as task ${n} left ${applied.restored.length === 1 ? "it" : "them"}: ${names(applied.restored)}`
       : `• Nothing was put back for task ${n}.`];
