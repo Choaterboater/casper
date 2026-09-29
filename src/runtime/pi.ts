@@ -1,5 +1,6 @@
 import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
 import { lstat, realpath } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { READ_ONLY_STATE_CONFLICT } from "./types";
 import { PiModels } from "./pi-models";
@@ -23,6 +24,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { blockedGitCommand } from "./git-guard";
+import { fileToolGate, gitInternalsCommand } from "../platform/project-paths";
 import { nativeEditPath, observationInput, observationOutput, patchLineCounts, writeLineCounts, type ToolObservationInput } from "./observation";
 import type {
   AgentRuntime,
@@ -524,13 +526,14 @@ export class PiRuntime implements AgentRuntime {
 
     const createRuntime: CreateAgentSessionRuntimeFactory = async ({ cwd, sessionManager, sessionStartEvent }) => {
       readOnly?.signal.throwIfAborted();
+      const pathContext = { root: cwd, home: os.homedir(), agentDir };
       const extensionFactory = (pi: ExtensionAPI) => {
         // Runs after the runtime's own attribution, so Casper's identity replaces Pi's. With
         // CASPER_TELEMETRY=0 there is none to add, and the runtime's is off too (agent-store.ts).
         pi.on("before_provider_headers", (event, ctx) => {
           if (isOpenRouterModel(ctx.model)) Object.assign(event.headers, openRouterAttribution());
         });
-        if (readOnly) pi.on("tool_call", () => {
+        if (readOnly) pi.on("tool_call", (event) => {
           if (readOnly.signal.aborted) {
             limitReason = "Subagent cancelled";
             return { block: true, reason: limitReason, terminate: true };
@@ -543,6 +546,8 @@ export class PiRuntime implements AgentRuntime {
             // returns nothing at all.
             return { block: true, reason: `${limitReason}; reply now with your findings and stop calling tools` };
           }
+          const pathReason = fileToolGate(event.toolName, event.input, pathContext);
+          if (pathReason) return { block: true, reason: pathReason };
         });
         if (!readOnly) pi.on("tool_call", (event) => {
           // Keep Pi's native execution, output handling, and process-tree cleanup.
@@ -550,6 +555,12 @@ export class PiRuntime implements AgentRuntime {
           else if (event.toolName === "bash" && typeof event.input.timeout === "number" && event.input.timeout > BASH_TIMEOUT_CAP_SECONDS) event.input.timeout = BASH_TIMEOUT_CAP_SECONDS;
           const risky = event.toolName === "bash" && typeof event.input.command === "string" ? blockedGitCommand(event.input.command) : undefined;
           if (risky) return { block: true, reason: `Casper does not let the model run \`${risky}\`: it can set aside or discard the user's uncommitted work. Leave the working tree as it is, or ask the user to run it.` };
+          // Private files, links out of the project and git's own files (see src/platform/project-paths.ts).
+          const pathReason = fileToolGate(event.toolName, event.input, pathContext);
+          if (pathReason) return { block: true, reason: pathReason };
+          const gitInternals = (event.toolName === "bash" || event.toolName === "powershell") && typeof event.input.command === "string"
+            ? gitInternalsCommand(event.input.command, cwd, pathContext.home) : undefined;
+          if (gitInternals) return { block: true, reason: gitInternals };
           if (options.beforeToolGate && ["edit", "write", "bash", "powershell"].includes(event.toolName)) {
             const reason = options.beforeToolGate(event.toolName, event.input);
             if (reason) return { block: true, reason };

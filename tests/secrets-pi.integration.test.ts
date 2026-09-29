@@ -1,5 +1,5 @@
 import { afterEach, expect } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { posixOnly } from "./support/platform";
@@ -23,7 +23,8 @@ function calls(tools: Array<{ name: string; args: unknown }>): Response {
 const CONFIG = "hostname sw1\nsnmp-server community FixtureComm\n";
 
 /** Runs the Pi fixture once; the model makes the given tool calls in one turn, then answers. */
-async function run(tools: Array<{ name: string; args: unknown }>, extraEnv: Record<string, string> = {}) {
+async function run(tools: Array<{ name: string; args: unknown }>, extraEnv: Record<string, string> = {},
+  setup?: (dirs: { root: string; home: string; project: string }) => Promise<void>) {
   let step = 0;
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-pi-scrub-"));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
@@ -33,6 +34,7 @@ async function run(tools: Array<{ name: string; args: unknown }>, extraEnv: Reco
   await writeFile(path.join(project, "src/parser.test.ts"), `const sample = "snmp-server community FixtureComm";\n`);
   await writeFile(path.join(project, "notes.cfg"), "snmp-server community RealComm\n");
   await writeFile(path.join(project, ".env"), "MIST_APITOKEN=abc123\nCENTRAL_CLIENT_SECRET='s3cr3t-central'\nLOG_LEVEL=debug\n");
+  await setup?.({ root, home, project });
   const payloads: Payload[] = [];
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: async request => {
     payloads.push(await request.json());
@@ -52,7 +54,7 @@ async function run(tools: Array<{ name: string; args: unknown }>, extraEnv: Reco
   const result = JSON.parse(stdout.slice(stdout.indexOf("SCRUB_RESULT=") + "SCRUB_RESULT=".length).trim());
   // Only what the tools gave back (the model's own call arguments are left out).
   const toolMessages = (payloads[1]?.messages ?? []).filter((message) => message.role === "tool");
-  return { result, payloads, project, sent: JSON.stringify(toolMessages) };
+  return { result, payloads, project, root, home, sent: JSON.stringify(toolMessages) };
 }
 
 posixOnly("a config file read and config-looking command output reach the model with secrets hidden; source code is unchanged", async () => {
@@ -126,4 +128,64 @@ posixOnly("a read-only child (/delegate, the model review) never sees a .env val
   expect(sent).not.toContain("abc123");
   expect(sent).not.toContain("s3cr3t-central");
   expect(sent).toContain("CENTRAL_CLIENT_SECRET=");
+}, 30_000);
+
+/** A project with a link out, a home with private files, and git hooks. */
+async function linkedProject({ root, home, project }: { root: string; home: string; project: string }) {
+  await mkdir(path.join(root, "outside"), { recursive: true });
+  await writeFile(path.join(root, "outside/secret.txt"), "OUTSIDE_SECRET_TEXT\n");
+  await symlink(path.join(root, "outside/secret.txt"), path.join(project, "notes.md"));
+  await symlink(path.join(root, "outside"), path.join(project, "docs"));
+  await mkdir(path.join(home, ".ssh"), { recursive: true });
+  await writeFile(path.join(home, ".ssh/id_test"), "PRIVATE_SSH_KEY_TEXT\n");
+  await mkdir(path.join(project, ".git/hooks"), { recursive: true });
+  await writeFile(path.join(project, ".git/config"), "[core]\n\tbare = false\n");
+}
+
+posixOnly("the AI's file tools don't follow links out of the project or read private files", async () => {
+  const { sent, result } = await run([
+    { name: "read", args: { path: "notes.md" } },
+    { name: "read", args: { path: "~/.ssh/id_test" } },
+    { name: "grep", args: { pattern: "SECRET", path: "docs" } },
+    { name: "ls", args: { path: "docs" } },
+  ], {}, linkedProject);
+  expect(sent).not.toContain("OUTSIDE_SECRET_TEXT");
+  expect(sent).not.toContain("PRIVATE_SSH_KEY_TEXT");
+  expect(sent).not.toContain("secret.txt");
+  expect(sent).toContain("Not read: notes.md is a link to a place outside this project. Casper doesn't follow links out.");
+  expect(sent).toContain("Not read: ~/.ssh is private (keys and logins). Casper keeps it from the AI.");
+  expect((result.toolEnds as Array<{ isError: boolean }>).every((end) => end.isError)).toBe(true);
+}, 30_000);
+
+posixOnly("a read-only child gets the same file guard", async () => {
+  const { sent } = await run([
+    { name: "read", args: { path: "notes.md" } },
+    { name: "find", args: { pattern: "*", path: "~/.ssh" } },
+  ], { FIXTURE_READ_ONLY: "1" }, linkedProject);
+  expect(sent).not.toContain("OUTSIDE_SECRET_TEXT");
+  expect(sent).not.toContain("id_test");
+  expect(sent).toContain("Casper doesn't follow links out.");
+  expect(sent).toContain("~/.ssh is private");
+}, 30_000);
+
+posixOnly("the AI can't write git hooks or git config, by file tools or by shell; normal writes still work", async () => {
+  const { sent, project } = await run([
+    { name: "write", args: { path: ".git/hooks/pre-commit", content: "#!/bin/sh\necho pwned\n" } },
+    { name: "edit", args: { path: ".git/config", edits: [{ oldText: "bare = false", newText: "bare = false\n\tfsmonitor = ./x" }] } },
+    { name: "write", args: { path: "docs/new.md", content: "through the link" } },
+    { name: "bash", args: { command: "printf '#!/bin/sh\\n' > .git/hooks/post-checkout", timeout: 10 } },
+    { name: "bash", args: { command: "git config core.hooksPath .githooks", timeout: 10 } },
+    { name: "write", args: { path: "src/ok.md", content: "fine" } },
+  ], {}, linkedProject);
+  expect(sent).toContain("Not done: .git/hooks is git's own folder. Casper doesn't let the AI change it.");
+  expect(sent).toContain("Not done: .git/config is git's own folder.");
+  expect(sent).toContain("Not done: docs/new.md is a link to a place outside this project.");
+  expect(sent).toContain("Not run: this command changes .git/hooks");
+  expect(sent).toContain("Not run: `git config core.hooksPath` changes how git runs programs.");
+  const gone = async (file: string) => access(file).then(() => false, () => true);
+  expect(await gone(path.join(project, ".git/hooks/pre-commit"))).toBe(true);
+  expect(await gone(path.join(project, ".git/hooks/post-checkout"))).toBe(true);
+  expect(await gone(path.join(path.dirname(project), "outside/new.md"))).toBe(true);
+  expect(await readFile(path.join(project, ".git/config"), "utf8")).toBe("[core]\n\tbare = false\n");
+  expect(await readFile(path.join(project, "src/ok.md"), "utf8")).toBe("fine");
 }, 30_000);
