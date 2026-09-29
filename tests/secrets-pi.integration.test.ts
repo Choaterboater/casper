@@ -93,3 +93,9 @@ posixOnly("a read-only /delegate child reads config files with secrets hidden to
   expect(sent).toContain("snmp-server community <secret hidden>");
   expect(sent).not.toContain("FixtureComm");
 }, 30_000);
+
+posixOnly("when the secret check itself fails, the output is not shown to the model", async () => {
+  const { sent } = await run([{ name: "read", args: { path: "backups/sw1.cfg" } }], { FIXTURE_SCRUB_THROW: "1" });
+  expect(sent).not.toContain("FixtureComm");
+  expect(sent).toContain("Output not shown: Casper could not check it for device secrets.");
+}, 30_000);

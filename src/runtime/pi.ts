@@ -456,6 +456,7 @@ export const PI_TOOL_RULES: readonly string[] = [
 export const BASH_TIMEOUT_CAP_SECONDS = 3600;
 /** Native tools whose output may hold a device config (see scrubToolOutput). */
 const SCRUBBED_TOOLS = new Set(["read", "bash", "powershell", "grep"]);
+export const SCRUB_FAILED_TEXT = "Output not shown: Casper could not check it for device secrets. Try a smaller read or another command.";
 
 export class PiRuntime implements AgentRuntime {
   private runtime?: AgentSessionRuntime;
@@ -558,7 +559,10 @@ export class PiRuntime implements AgentRuntime {
           if (!SCRUBBED_TOOLS.has(event.toolName)) return;
           const texts = event.content.flatMap((block) => block.type === "text" ? [block.text] : []);
           if (!texts.length) return;
-          const scrubbed = await options.scrubToolOutput!(event.toolName, event.input, texts, ctx.signal);
+          let scrubbed: Awaited<ReturnType<NonNullable<RuntimeStartOptions["scrubToolOutput"]>>>;
+          // Pi passes the raw output on when a handler throws, so a failed check hides the output instead.
+          try { scrubbed = await options.scrubToolOutput!(event.toolName, event.input, texts, ctx.signal); }
+          catch { return { content: [{ type: "text" as const, text: SCRUB_FAILED_TEXT }] }; }
           if (!scrubbed) return;
           let index = 0;
           const content = event.content.map((block) => block.type === "text" ? { ...block, text: scrubbed.texts[index++] ?? "" } : block);
