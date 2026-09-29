@@ -618,7 +618,7 @@ async function handleMCPCommand(host: CommandHost, prompt: string): Promise<void
 /** Plain lines about approval: not approved yet, changed since, or remembered. */
 function approvalLines(status: MCPStatus): string[] {
   if (status.consent === "changed" && !status.approved) return [`  Changed since you approved it. Run /mcp connect ${status.name}.`];
-  if (status.consent === "remembered") return ["  Remembered: connects on its own, with writes off."];
+  if (status.consent === "remembered" && status.approved) return ["  Remembered: connects on its own, with writes off."];
   if (status.importedFrom && !status.approved && status.state === "disconnected") {
     return [`  Found in ${status.importedFrom}. Not approved yet · /mcp connect ${status.name}`];
   }

@@ -520,10 +520,12 @@ export class MCPManager {
         else delete entry.definition.limits;
         continue;
       }
-      if (entry.approved) revoked.push(name);
+      // Back to a definition you remembered: it connects on its own again (writes off), like at start.
+      const remembered = replacement.scope !== "project" && !replacement.disabled && (this.consent?.has(replacement) ?? false);
+      if (entry.approved && !remembered) revoked.push(name);
       await this.disconnect(name);
       entry.definition = replacement;
-      entry.approved = false;
+      entry.approved = remembered;
       // A different program starts over: writes off, no opt-ins, and its remembered approval no longer matches.
       entry.writes = "off";
       entry.showOptIn = false;
