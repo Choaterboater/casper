@@ -242,5 +242,9 @@ export function readBeforeWorkAnswer(panel: BeforeWorkPanel, answer: readonly st
   const option = panel.options.find((item) => item.label === first);
   if (option) return { kind: option.choice };
   const text = safe(first);
+  // A plain yes or no answers the question ("Suggested: plan first"); it is not one more case to test.
+  const word = text.toLowerCase().replace(/[.!]+$/, "");
+  if (/^(?:y|yes|yeah|ok|okay|sure|plan|plan it)$/.test(word)) return { kind: "plan-first" };
+  if (/^(?:n|no|nope|no thanks|not now|skip|build|just build it)$/.test(word)) return { kind: "build" };
   return text ? { kind: "typed", text } : { kind: "skipped" };
 }
