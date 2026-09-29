@@ -450,6 +450,8 @@ function checkLine(result: VerificationResult, safe: (text: string) => string, s
     : timeout ? `timed out after ${duration(Number(timeout[1]))}`
     : result.reason ? safe(result.reason).replace(/\.$/, "").toLowerCase()
     : result.signal ? `stopped by ${safe(result.signal)}` : "no exit status";
+  // A lab check touches lab devices: no one-key repair offer, only running it again (it asks first).
+  if (result.kind === "lab") return `✗ ${name} failed on the lab (${why}) — log above; Casper did not ask the model to fix it. ${slash(`/verify ${name}`)} runs it again (asks first)`;
   return `✗ ${name} failed (${why}) — log above; ${slash(`/verify repair ${name}`)} to fix`;
 }
 

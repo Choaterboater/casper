@@ -197,6 +197,7 @@ test("on the plain terminal the AOS-CX lab check asks with no Always choice, run
     // Enter picks Stop: no repair prompt reaches the model.
     t.input.write("\n");
     await t.until((text) => text.includes("✗ Failed — aoscx-check failed"));
+    expect(t.visible()).toContain("✗ aoscx-check failed on the lab (exit 2) — log above; Casper did not ask the model to fix it. /verify aoscx-check runs it again (asks first)");
     expect(t.prompts).toEqual([]);
     await t.until((text) => text.endsWith("> "));
   } finally {
