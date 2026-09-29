@@ -58,6 +58,13 @@ export interface FormatOptions extends MaskOptions { now?: number }
 
 export const PREVIEW_KEYS = ["dry_run", "dryRun", "preview", "check_only", "validate_only"] as const;
 export const CONFIRM_KEYS = ["confirm", "confirmed", "force"] as const;
+/** Any spelling of a key a server may read as confirm or as a preview switch: case, "-" and "_"
+ * don't matter (Confirm, CONFIRMED, dry-run, DryRun), and "confirmation" counts as confirm. */
+const CONFIRM_WORDS = new Set(["confirm", "confirmed", "confirmation", "force"]);
+const PREVIEW_WORDS = new Set(["dryrun", "preview", "checkonly", "validateonly"]);
+function keyWord(key: string): string { return key.toLowerCase().replace(/[^a-z0-9]/g, ""); }
+function isConfirmKey(key: string): boolean { return CONFIRM_WORDS.has(keyWord(key)); }
+function isPreviewKey(key: string): boolean { return PREVIEW_WORDS.has(keyWord(key)); }
 /** Raw arguments longer than this are not shown, so they are not run. */
 export const MAX_SHOWN_ARGUMENT_BYTES = 4096;
 export const TOO_LONG_TEXT = "Too long to show in full (over 4 KB); not run.";
@@ -140,7 +147,7 @@ function unclearSwitch(value: unknown): boolean {
 /** Paths where confirm, confirmed or force says yes, anywhere in the arguments (router inner arguments too). */
 export function aiConfirm(args: Record<string, unknown>): string[] {
   const paths: string[] = [];
-  walk(args, (key, value, path) => { if ((CONFIRM_KEYS as readonly string[]).includes(key) && saysYes(value)) paths.push(path); });
+  walk(args, (key, value, path) => { if (isConfirmKey(key) && saysYes(value)) paths.push(path); });
   return paths;
 }
 
@@ -148,7 +155,7 @@ export function aiConfirm(args: Record<string, unknown>): string[] {
 export function previewSwitchedOff(args: Record<string, unknown>): string[] {
   const paths: string[] = [];
   walk(args, (key, value, path) => {
-    if ((PREVIEW_KEYS as readonly string[]).includes(key) && (value === false || unclearSwitch(value))) paths.push(path);
+    if (isPreviewKey(key) && (value === false || unclearSwitch(value))) paths.push(path);
   });
   return paths;
 }
@@ -248,7 +255,7 @@ export function previewArguments(plan: ApprovalPlan): Record<string, unknown> {
   if (!key) throw new Error("This call has no safe preview");
   const args = structuredClone(plan.arguments);
   args[key] = true;
-  for (const other of PREVIEW_KEYS) if (other in args && args[other] !== undefined) args[other] = true;
+  for (const other of Object.keys(args)) if (isPreviewKey(other) && args[other] !== undefined) args[other] = true;
   confirmOff(args, 0);
   return args;
 }
@@ -259,7 +266,7 @@ function confirmOff(value: unknown, depth: number): void {
   if (Array.isArray(value)) { for (const item of value) confirmOff(item, depth + 1); return; }
   if (!isRecord(value)) return;
   for (const [key, item] of Object.entries(value)) {
-    if ((CONFIRM_KEYS as readonly string[]).includes(key) && saysYes(item)) value[key] = false;
+    if (isConfirmKey(key) && saysYes(item)) value[key] = false;
     else confirmOff(item, depth + 1);
   }
 }
@@ -270,7 +277,7 @@ function canonical(value: unknown, depth = 0): unknown {
   if (!isRecord(value)) return value;
   const out: Record<string, unknown> = {};
   for (const key of Object.keys(value).sort()) {
-    if ((PREVIEW_KEYS as readonly string[]).includes(key) || (CONFIRM_KEYS as readonly string[]).includes(key)) continue;
+    if (isPreviewKey(key) || isConfirmKey(key)) continue;
     out[key] = canonical(value[key], depth + 1);
   }
   return out;
