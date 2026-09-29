@@ -156,12 +156,24 @@ test("p is not offered without the switch, and answering it sends nothing", asyn
   expect(toolCalls(await calls(file))).toEqual([]);
 });
 
-test("the user can ask for a preview at most three times", async () => {
+test("the user can ask for a preview at most three times, and sees the third one", async () => {
   const { confirm, boxes } = answering("preview", "preview", "preview", "yes");
   const { broker, file, id } = await setup({ confirm });
+  expect(JSON.stringify(await broker.invoke(id("set_ssid"), { ssid: "corp" }))).toContain("applied");
+  expect(boxes).toHaveLength(4);
+  // The fourth box shows the third preview and no longer offers p.
+  expect(boxes[3]).toContain("Last preview (just now):");
+  expect(boxes[3]).toContain("Run it? Type yes: ");
+  expect(boxes[3]).not.toContain("p to preview first");
+  expect(toolCalls(await calls(file)).map((entry) => (entry.arguments as Record<string, unknown>).dry_run)).toEqual([true, true, true, undefined]);
+});
+
+test("a fourth p is a no, and no preview is sent that the user would never see", async () => {
+  const { confirm, boxes } = answering("preview", "preview", "preview", "preview");
+  const { broker, file, id } = await setup({ confirm });
   await expect(broker.invoke(id("set_ssid"), { ssid: "corp" })).rejects.toThrow("Not executed (you said no)");
-  expect(boxes).toHaveLength(3);
-  expect(toolCalls(await calls(file)).every((entry) => (entry.arguments as Record<string, unknown>).dry_run === true)).toBe(true);
+  expect(boxes).toHaveLength(4);
+  expect(toolCalls(await calls(file))).toHaveLength(3);
 });
 
 test("the AI can't slip a yes past the user as text: confirm \"true\" through a read router asks", async () => {
