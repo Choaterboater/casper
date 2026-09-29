@@ -19,6 +19,7 @@ export class InteractiveTerminal {
   private busy = false;
   private discardingInput = false;
   private assistantOpen = false;
+  private badgeText?: string;
   private command?: (line?: string) => void;
   private confirmation?: (answer: string | undefined) => void;
   /** Plain line input that arrived while idle but not yet reading (startup, before the first
@@ -58,6 +59,11 @@ export class InteractiveTerminal {
   }
 
   setStatus(status: string, cwd = process.cwd()): void { this.surface?.setStatus(status, cwd); }
+  /** The MCP writes badge ("WRITES: <servers> · ctrl+o"); kept here too, so the plain terminal can report it. */
+  setBadge(text?: string): void { this.badgeText = text; this.surface?.setBadge(text); }
+  get badge(): string | undefined { return this.badgeText; }
+  /** ctrl+o on the rich terminal: turn writes off everywhere. The handler returns true when any were on. */
+  setWritesRevert(handler: (() => boolean) | undefined): void { this.surface?.setWritesRevert(handler); }
   setActivity(status?: string): void { this.surface?.setActivity(status); }
   /** The current task's stages ("checklist ✓ · building"), shown first in the footer while work runs. */
   setSteps(steps?: string): void { this.surface?.setSteps(steps); }
@@ -66,6 +72,8 @@ export class InteractiveTerminal {
   /** Rich terminal only. Shift+Tab cycles effort; plain line input has no equivalent key. */
   setEffortCycle(handler: (() => void) | undefined): void { this.surface?.setEffortCycle(handler); }
   flashNote(text: string): void { this.surface?.flashNote(text); }
+  /** The rich footer at this width; undefined on the plain terminal. */
+  footerLine(width: number): string | undefined { return this.surface?.footerLine(width); }
 
   /** Rich surface present (TTY input and output, TERM not dumb) and its current width. */
   get rich(): boolean { return this.surface !== undefined; }
