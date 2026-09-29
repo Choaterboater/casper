@@ -510,7 +510,9 @@ export class MCPManager {
         removed.push(name);
         continue;
       }
-      if (sameDefinition(entry.definition, replacement)) {
+      // Moving into a project file is a trust change: the repository now owns it, so it needs the review.
+      const intoProject = replacement.scope === "project" && entry.definition.scope !== "project";
+      if (sameDefinition(entry.definition, replacement) && !intoProject) {
         // Same program from a different file: keep the connection, update the reported source.
         entry.definition.source = replacement.source;
         entry.definition.scope = replacement.scope;

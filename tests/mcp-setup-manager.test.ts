@@ -300,3 +300,20 @@ test("/mcp forget works for a remembered server that is no longer in any file", 
   await again.load();
   expect(statusOf(manager([old], { consent: again }), "old")).toMatchObject({ approved: false, consent: "none" });
 });
+
+test("a remembered server that moves into a project file needs the project review again", async () => {
+  const home = await tempDir();
+  const store = new ConsentStore(home);
+  await store.load();
+  const mine = server("lab", { FIXTURE_MODE: "access-bad" });
+  await store.remember(mine);
+  const mcp = manager([mine], { consent: store });
+  const broker = new CapabilityBroker(mcp, undefined, { writesGate: true });
+  await broker.prepare("status");
+  expect(statusOf(mcp, "lab")).toMatchObject({ approved: true, state: "ready" });
+  // The same program, now from the opened repository.
+  const diff = await mcp.reload({ servers: [{ ...mine, source: "/repo/.mcp.json", scope: "project" }], diagnostics: [] });
+  expect(diff.revoked).toEqual(["lab"]);
+  expect(statusOf(mcp, "lab")).toMatchObject({ approved: false, consent: "none", state: "disconnected", scope: "project" });
+  expect(mcp.review("lab")?.preview).toContain("(project file)");
+});
