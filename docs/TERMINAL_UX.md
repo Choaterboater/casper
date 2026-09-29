@@ -140,9 +140,9 @@ popups/pickers, or a duplicated prompt box (`bun test tests/terminal-layout.test
 - `/effort high --session`: do not change the saved preference. Effort also survives
   switching away from a model and back within the current conversation.
 - `/effort auto`: classify each raw request before generation. `/status`, the
-  `[model]` start line and the footer show `reasoning auto → <level>` plus the
-  classifier state while it is not simply classified (`pending` before the first
-  request, `fallback`/`unavailable` when it could not classify, with an `[effort]`
+  `[model]` start line and the footer show `effort auto → <level>`; before the first
+  request that reads `auto → <level> for now; your first request picks the level`,
+  and `(fallback)`/`(unavailable)` follows when it could not classify, with an `[effort]`
   notice in the transcript). A fixed level disables it.
 - `/model roles`: inspect optional `fast`, `build`, `reason`, `review` mappings.
 - `/model role review provider/id:high`: save a shortcut without selecting it.
