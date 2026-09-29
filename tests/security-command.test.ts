@@ -121,6 +121,17 @@ test("a changed ignore file counts only after a person says so", async () => {
   expect(store.files.map((item: { file: string }) => item.file)).toEqual([".gitleaks.toml"]);
   const recorded = await tools.recorded("gitleaks");
   expect(recorded?.args.join(" ")).toContain(path.join(await realpath(root), ".gitleaks.toml"));
+
+  // You can take that choice back: /security-review ignores offers to remove it, and then the default rules count again.
+  const list = scripted(root, home, tools.find, ["Remove .gitleaks.toml  whole file"]);
+  await runSecurityReview(list.host, ["ignores"]);
+  expect(list.asked.at(-1)).toContain("1 Keep them all · 2 Remove .gitleaks.toml  whole file");
+  expect(list.output()).toContain("Removed the approval for .gitleaks.toml (whole file).");
+  expect(JSON.parse(await readFile(approvalsPath(await realpath(root), home), "utf8")).files).toEqual([]);
+  const again = scripted(root, home, tools.find, ["Keep the default", "Leave it flagged"]);
+  await runSecurityReview(again.host, []);
+  expect(again.asked[0]).toBe(s.asked[0]!);
+  expect((await tools.recorded("gitleaks"))?.args.join(" ")).not.toContain(path.join(await realpath(root), ".gitleaks.toml"));
 });
 
 test("/security-review ignores lists approvals and can remove one; bad words are a usage mistake", async () => {

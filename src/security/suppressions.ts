@@ -200,6 +200,13 @@ export async function removeApproval(root: string, homeDir: string, file: string
   return saveApprovals(root, homeDir, store);
 }
 
+/** Removes the approval of a changed ignore file ("/security-review ignores" → remove): the committed one counts again. */
+export async function removeFileApproval(root: string, homeDir: string, file: string, contentHash: string): Promise<string> {
+  const store = await loadApprovals(root, homeDir);
+  store.files = store.files.filter((item) => !(item.file === file && item.contentHash === contentHash));
+  return saveApprovals(root, homeDir, store);
+}
+
 // ---------------------------------------------------------------------------------------------------------
 // Which ignores count
 
