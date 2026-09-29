@@ -27,3 +27,15 @@ test("a write's size compares the old and new text: a new file is all added, a r
   expect(writeLineCounts("same\r\n", "same\n")).toEqual({ added: 0, removed: 0 });
   expect(writeLineCounts("x\n", "")).toEqual({ added: 0, removed: 1 });
 });
+
+test("tool lines print paths relative to the project and fit one row of a narrow terminal", () => {
+  const edit = { type: "tool_end", toolName: "edit", input: { path: "/work/app/tests/test_calc.py" }, isError: false, lines: { added: 9, removed: 1 } } as const;
+  expect(formatToolActivity(edit, 12, { root: "/work/app", width: 100 })).toBe("✓ edit · tests/test_calc.py · +9 -1 — completed · 0.0s");
+  // Narrow: the words go first, then the path is shortened from the front, keeping its file name.
+  const narrow = formatToolActivity(edit, 12, { root: "/work/app", width: 40 });
+  expect(narrow).toBe("✓ edit · …s/test_calc.py · +9 -1 · 0.0s");
+  expect([...narrow].length).toBeLessThan(40);
+  // A command keeps its start.
+  const bash = { type: "tool_start", toolName: "bash", input: { command: "python3 -m pytest -q tests/test_calc.py --maxfail=1 -x" } } as const;
+  expect(formatToolActivity(bash, undefined, { width: 40 })).toBe("• bash · python3 -m pytest -q tests/te…");
+});

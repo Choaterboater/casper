@@ -15,6 +15,8 @@ export interface RuntimeEventCallbacks {
   turnLimitReached(turns: number): void;
   /** The person cancelled the current command; its abort errors are not news to them. */
   cancelled(): boolean;
+  /** The project root, so tool paths print relative to it. */
+  projectRoot?(): string | undefined;
 }
 
 /** Renders runtime events onto the terminal and owns the transcript-flow state that makes
@@ -32,6 +34,11 @@ export class RuntimeEventView {
 
   constructor(private readonly terminal: InteractiveTerminal, private readonly output: OutputWriter,
     private readonly callbacks: RuntimeEventCallbacks) {}
+
+  /** Tool lines: relative paths, and on a rich terminal one row at its current width. */
+  private fit(): { root?: string; width?: number } {
+    return { root: this.callbacks.projectRoot?.(), ...(this.terminal.rich && this.terminal.columns ? { width: this.terminal.columns } : {}) };
+  }
 
   /** Called by the app's output wrapper before every write to commit an open tool line. */
   beforeWrite(text: string): void {
@@ -156,7 +163,7 @@ export class RuntimeEventView {
         this.ensureLineBreak();
         if (event.toolCallId) this.toolStarted.set(event.toolCallId, performance.now());
         const inPlace = this.terminal.rich && event.toolCallId !== undefined;
-        this.output.write(`${formatToolActivity(event)}${inPlace ? "" : "\n"}`);
+        this.output.write(`${formatToolActivity(event, undefined, this.fit())}${inPlace ? "" : "\n"}`);
         if (inPlace) { this.openToolLine = true; this.openToolCallId = event.toolCallId; }
         this.endedWithNewline = true;
         break;
@@ -169,7 +176,7 @@ export class RuntimeEventView {
         if (event.toolCallId) this.toolStarted.delete(event.toolCallId);
         // A failed casper_check already printed its formatted result line; its JSON payload is for the model.
         const shown = event.toolName === "casper_check" ? { ...event, output: undefined } : event;
-        const line = `${formatToolActivity(shown, started === undefined ? undefined : performance.now() - started)}\n`;
+        const line = `${formatToolActivity(shown, started === undefined ? undefined : performance.now() - started, this.fit())}\n`;
         if (this.openToolLine && event.toolCallId === this.openToolCallId) { this.openToolLine = false; this.terminal.write(line, { rewriteLine: true }); }
         else this.output.write(line);
         this.endedWithNewline = true;

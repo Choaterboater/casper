@@ -282,6 +282,7 @@ export class CasperApp {
       markRuntimeFailed: () => { this.taskRuntimeFailed = true; },
       turnLimitReached: turns => { this.taskTurnLimit = turns; },
       cancelled: () => this.commandAbort?.signal.aborted === true,
+      projectRoot: () => this.projectContext ? this.activeWorkspaceRoot() : undefined,
     });
     this.verbose = options.verbose ?? false;
     this.startupWarnings = options.startupWarnings ?? [];
