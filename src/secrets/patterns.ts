@@ -49,8 +49,8 @@ export const SECRET_RULES: readonly SecretRule[] = [
     String.raw`\b(?:password|key|auth-pass|priv-pass|authentication-key|md5|sha1|sha256|sha512|message-digest-key\s+\d+\s+md5)\s+(?:plaintext|ciphertext)\s+${V}`,
     { strict: true }),
   // AOS 8 / Instant
-  rule("aos8-wpa-passphrase", "aos8", "psk", String.raw`\bwpa-passphrase\s+${V}`, { strict: true }),
-  rule("aos8-wpa-hexkey", "aos8", "psk", String.raw`\bwpa-hexkey\s+${V}`, { strict: true }),
+  rule("aos8-wpa-passphrase", "aos8", "psk", String.raw`\bwpa-passphrase\s+(?:(?:plaintext|ciphertext)\s+)?${V}`, { strict: true }),
+  rule("aos8-wpa-hexkey", "aos8", "psk", String.raw`\bwpa-hexkey\s+(?:(?:plaintext|ciphertext)\s+)?${V}`, { strict: true }),
   rule("aos8-auth-server-key", "aos8", "key", String.raw`^\s+key\s+(?:[0-9]\s+)?${V}`, { block: "auth-server" }),
   rule("aos8-mgmt-user", "aos8", "hash",
     String.raw`^\s*mgmt-user\s+(?!ssh-pubkey\b|localauth-disable\b|webui-cacert\b)\S+\s+\S+\s+${V}`, { strict: true }),

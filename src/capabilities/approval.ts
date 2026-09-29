@@ -10,11 +10,11 @@
  * - Secrets are hidden on screen only. The server still gets the real value, and the model already
  *   had it.
  *
- * Secret text inside config strings goes through a replaceable scrubber (`MaskOptions.scrubText`).
- * The built-in one is a stopgap with a few Junos and Aruba rules; the shared secret rules
- * (src/secrets/scrub.ts scrubText) plug in there, and then `interimConfigScrub` should be deleted.
+ * Secret text inside config strings goes through the shared secret rules (src/secrets/scrub.ts
+ * scrubText) by default; `MaskOptions.scrubText` can replace them.
  */
 import type { MCPTool } from "../mcp/manager";
+import { scrubText } from "../secrets/scrub";
 import { redactPreview, terminalText } from "../tui/format";
 import { nameLabel, strictest, type CapabilitySafety } from "./labels";
 
@@ -51,7 +51,7 @@ export interface LastPreview { text: string; at: number }
 
 export type TextScrubber = (text: string) => string;
 export interface MaskOptions {
-  /** Hides secrets inside free text. Defaults to the stopgap Junos/Aruba rules plus redactPreview. */
+  /** Hides secrets inside free text. Defaults to redactPreview plus the shared secret rules. */
   scrubText?: TextScrubber;
 }
 export interface FormatOptions extends MaskOptions { now?: number }
@@ -269,20 +269,9 @@ export function maskedLength(text: string): string {
   return `••• ${count} char${count === 1 ? "" : "s"}`;
 }
 
-const HIDDEN = "•••";
-/** Stopgap config rules, replaced by the shared secret rules. Junos: encrypted-password "...",
- * authentication-key, secret, pre-shared-key ascii-text. Aruba: wpa-passphrase, password
- * [plaintext|ciphertext] ..., key 7 ..., snmp community. */
-const CONFIG_SECRET = /\b(ascii-text|hexadecimal|encrypted-password|authentication-key|simple-password|wpa-passphrase|passphrase|password|secret|community)((?:\s+(?:plaintext|ciphertext|cipher|encrypted|clear|[05789]))?\s+)("[^"\n]*"|'[^'\n]*'|[^\s;{}"',]+)/gi;
-const CONFIG_KEY = /\b(key)(\s+(?:plaintext|ciphertext|[05789])\s+)("[^"\n]*"|'[^'\n]*'|[^\s;{}"',]+)/gi;
-function hideConfigValue(_match: string, word: string, gap: string, value: string): string {
-  const quote = value.startsWith("\"") || value.startsWith("'") ? value[0] : "";
-  return `${word}${gap}${quote}${HIDDEN}${quote}`;
-}
-export function interimConfigScrub(text: string): string {
-  return text.replace(CONFIG_SECRET, hideConfigValue).replace(CONFIG_KEY, hideConfigValue);
-}
-export const defaultScrubText: TextScrubber = (text) => redactPreview(interimConfigScrub(text));
+/** The shared secret rules (src/secrets/scrub.ts). Token shapes are redacted first, so the scrubber's
+ * "<secret hidden>" marker is never itself rewritten by the redaction. */
+export const defaultScrubText: TextScrubber = (text) => scrubText(redactPreview(text)).text;
 
 /**
  * A copy of `value` with secrets hidden for the screen. Strings under a secret-looking key become
