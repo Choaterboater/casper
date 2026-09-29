@@ -107,7 +107,7 @@ posixOnly("a .env read, cat and grep reach the model with values hidden, in the 
     { name: "bash", args: { command: "cat .env; printenv FIXTURE_PRODUCT_TOKEN", timeout: 10 } },
     { name: "grep", args: { pattern: "TOKEN", path: "." } },
   ];
-  for (const extra of [{}, { FIXTURE_FILES_OFF: "1" }]) {
+  for (const extra of [{}, { FIXTURE_FILES_OFF: "1" }] as Record<string, string>[]) {
     const { sent } = await run(tools, { FIXTURE_PRODUCT_TOKEN: "prod-token-0123456789", ...extra });
     expect(sent).not.toContain("abc123");
     expect(sent).not.toContain("s3cr3t-central");
