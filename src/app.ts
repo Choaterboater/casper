@@ -1640,6 +1640,10 @@ export class CasperApp {
   async saveFoundCheck(name: string): Promise<void> {
     const context = this.projectContext!;
     const spec = context.model.foundChecks?.[name];
+    if (!spec && context.model.namedChecks?.[name]) {
+      this.output.write(`[project] ${terminalText(name)} is already saved in ${PROJECT_YAML}; /verify ${terminalText(name)} runs it.\n`);
+      return;
+    }
     if (!spec) {
       const found = Object.keys(context.model.foundChecks ?? {});
       this.output.write(`[project] ${terminalText(name)} is not a check Casper found here.${found.length ? ` Found: ${found.join(", ")}.` : ""}\n`);

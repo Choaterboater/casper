@@ -79,6 +79,9 @@ test("Casper finds the Ansible check but never adds it: /status offers it, /veri
     expect(await ran(f, "ansible-playbook")).toBe(false);
     await first.app.runOnce("/verify add aruba-syntax", f.root);
     expect(first.output()).toContain("[project] Saved verify.checks.aruba-syntax: { preset: ansible-syntax, playbooks: [ site.yml ] } in .casper/project.yaml");
+    await first.app.runOnce("/verify add aruba-syntax", f.root);
+    expect(first.output()).toContain("[project] aruba-syntax is already saved in .casper/project.yaml; /verify aruba-syntax runs it.");
+    expect(first.output()).not.toContain("is not a check Casper found here");
   } finally { await first.app.close(); }
   expect(await readFile(path.join(f.root, ".casper/project.yaml"), "utf8")).toContain("aruba-syntax:\n      preset: ansible-syntax");
   expect(await ran(f, "ansible-playbook")).toBe(false);
