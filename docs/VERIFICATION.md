@@ -47,6 +47,9 @@ trust**, and it is not a separate yes/no: `auto` is the default, so asking for a
 runs its test, lint and build commands (and a repository's `.casper/project.yaml` can itself choose
 `auto`). For a repository whose commands you do not trust, start Casper with `--no-verify`; a flag
 wins over every configuration file.
+Checks run without AI provider keys (`OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` and the
+other names Pi reads) and without Casper's own secret variables; everything else in your environment,
+network product tokens such as `MIST_API_TOKEN` included, is still there. See [SECURITY.md](SECURITY.md).
 Repair also authorizes model edits. **Native bash is unchanged:** a model's bash run of a check is
 reported but never counted as verification.
 
@@ -381,7 +384,7 @@ repair:
 
 `verify:` is project-local and overrides `commands:` and detected commands by check name. Only nonempty typecheck/lint/test/build commands are accepted. `verification.mode`, `verification.checks`, timeout and repair settings also work in global/profile configuration, with project settings taking precedence. Commands and declared input scopes are loaded at startup and frozen during repair; restart after changing configuration or manifests.
 
-Managed checks run sequentially at the project root using the platform shell and inherited environment. The tool accepts only a check name (`typecheck`, `lint`, `test`, `build`), not a command, scope, cwd, or timeout override. No dependency installation or missing-tool fallback is attempted. Requested absent commands are visible **skips**, never passes; an unavailable configured executable is a failure. `/verify` still defaults to typecheck → lint → test → build. Unselected categories are not required checks; selecting a missing command produces incomplete evidence.
+Managed checks run sequentially at the project root using the platform shell and inherited environment (minus AI provider keys). The tool accepts only a check name (`typecheck`, `lint`, `test`, `build`), not a command, scope, cwd, or timeout override. No dependency installation or missing-tool fallback is attempted. Requested absent commands are visible **skips**, never passes; an unavailable configured executable is a failure. `/verify` still defaults to typecheck → lint → test → build. Unselected categories are not required checks; selecting a missing command produces incomplete evidence.
 
 Tool calls and post-task verification share one task-local evidence store. Concurrent managed calls serialize, and unchanged scoped passes are not executed again. At normal completion, selected passes with stale/unavailable freshness are rechecked once; known-invalidated failures are also rechecked before deciding on repair. Unknown/self-mutating inputs remain qualified rather than causing a freshness-seeking loop. Managed calls do not lock out native edits/bash or external writers: run checks after edits settle, and heed the non-atomic observation limits below.
 
