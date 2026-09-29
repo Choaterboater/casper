@@ -155,7 +155,12 @@ const NEW_PROJECT_CHOICE = "New project";
 const LOGIN_PROVIDERS = ["openai-codex", "github-copilot", "anthropic", "openrouter"] as const;
 
 /** A model for one repair: the selector Casper switches with, and the name it shows. */
-interface BigModelChoice { query: string; label: string }
+interface BigModelChoice {
+  query: string;
+  label: string;
+  /** Picked for this one repair and not saved: Casper never calls it "your big model". */
+  oneOff?: true;
+}
 
 export class CasperApp {
   /** The provider of the last successful /login, preferred when Casper picks a first model. */
@@ -287,7 +292,7 @@ export class CasperApp {
   /** The user said yes to one more try on the big model at the repair limit. */
   private bigModelGrant?: BigModelChoice;
   /** Repairs this task ran on the big model, for the receipt. */
-  private bigModelUse?: { model: string; attempts: number };
+  private bigModelUse?: { model: string; attempts: number; oneOff: boolean };
   /** The repair the current verification is on, for the question at the limit. */
   private repairsTried = 0;
   /** "repair.bigModelLastTry is on but no big model is set" is said once per session. */
@@ -1549,7 +1554,10 @@ export class CasperApp {
             this.phase("repair", "end");
             if (back) await this.restoreModel(session, back);
           }
-          if (back && big) this.bigModelUse = { model: big.label, attempts: (this.bigModelUse?.attempts ?? 0) + 1 };
+          if (back && big) {
+            this.bigModelUse = { model: big.label, attempts: (this.bigModelUse?.attempts ?? 0) + 1,
+              oneOff: Boolean(big.oneOff) && (this.bigModelUse?.oneOff ?? true) };
+          }
           if (this.taskRuntimeFailed && !this.taskRuntimeCancelled) throw new Error("Repair model stopped unsuccessfully; changes retained.");
           return back && big ? { model: big.label } : undefined;
         } : undefined,
@@ -1560,7 +1568,8 @@ export class CasperApp {
           this.bigModelGrant = undefined;
           const setting = attempt === max && context.repair.bigModelLastTry === true && this.session ? this.bigModel(this.session) : undefined;
           this.repairOnBigModel = granted ?? (setting ? { query: "@reason", label: setting.label } : undefined);
-          this.output.write(`↻ repair ${attempt}/${max}${this.repairOnBigModel ? ` on your big model ${terminalText(this.repairOnBigModel.label)}` : ""}\n`);
+          const on = this.repairOnBigModel;
+          this.output.write(`↻ repair ${attempt}/${max}${on ? ` on ${on.oneOff ? "" : "your big model "}${terminalText(on.label)}` : ""}\n`);
         },
         // Out of tries: one numbered offer to try once more on the big model. Only a person answers it; one-shot
         // and --json runs never get it, so they never spend on a bigger model on their own.
@@ -1723,7 +1732,8 @@ export class CasperApp {
 
   /** The receipt's big-model part: which model ran repairs, and how many. */
   private bigModelReceipt(): Pick<TaskResult, "bigModel"> {
-    return this.bigModelUse ? { bigModel: { ...this.bigModelUse } } : {};
+    const use = this.bigModelUse;
+    return use ? { bigModel: { model: use.model, attempts: use.attempts, ...(use.oneOff ? { oneOff: true as const } : {}) } } : {};
   }
 
   /** repair.bigModelLastTry without a big model does nothing; say so once per session. */
@@ -1837,6 +1847,15 @@ export class CasperApp {
     }
     this.updateFooter();
     if (!picked || picked === back || signal.aborted) return 0;
+    // The same size check as for a saved big model: a model that can't hold the conversation is not tried.
+    let pickedInfo: RuntimeModelInfo | undefined;
+    try { pickedInfo = session.describeModel?.(picked); } catch { pickedInfo = undefined; }
+    const pickedCost = this.bigModelCost(session, pickedInfo);
+    if (!pickedCost.fits) {
+      this.events.ensureLineBreak();
+      this.output.write(`• ${terminalText(picked)} can't hold this conversation (${pickedCost.words}), so Casper stopped here\n`);
+      return 0;
+    }
     const remember = await this.terminal.pick(`Use ${terminalText(picked)} as your big model from now on?`, [
       { label: "No", description: "only for this repair" },
       { label: "Yes", description: "save it as your big model (/model big clear forgets it)" },
@@ -1849,7 +1868,7 @@ export class CasperApp {
         this.output.write(`[model] Could not save your big model: ${terminalText(error instanceof Error ? error.message : String(error))}\n`);
       }
     }
-    this.bigModelGrant = { query: picked, label: picked };
+    this.bigModelGrant = { query: picked, label: picked, ...(remember === "Yes" ? {} : { oneOff: true as const }) };
     return 1;
   }
 

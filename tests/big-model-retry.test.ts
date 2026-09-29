@@ -53,6 +53,8 @@ interface Options {
   repairs?: number;
   /** A provider error on these prompt numbers (1-based). */
   failOn?: number[];
+  /** What the model picker returns when Casper opens it. */
+  pick?: string;
 }
 
 /**
@@ -92,8 +94,8 @@ async function fixture(options: Options = {}) {
     getUsage: () => ({ context: { tokens: options.tokens ?? null, contextWindow: 128_000, percent: null },
       tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }, messages: 1 }),
     selectModel: async (selection) => {
-      selections.push({ query: selection.query, persist: selection.persist });
-      const target = selection.query === "@reason" ? roles.reason! : selection.query!;
+      selections.push({ ...(selection.picker ? { picker: "opened" } : { query: selection.query }), persist: selection.persist } as RuntimeModelSelectionOptions);
+      const target = selection.picker ? options.pick! : selection.query === "@reason" ? roles.reason! : selection.query!;
       current = target;
       return { status: session.getStatus!(), selected: true, savedDefault: false };
     },
@@ -271,3 +273,65 @@ test("\"The model failed again\" offers the big model, which goes on there and t
     f.input.write("/exit\r"); await interactive; await app.close(); await f.cleanup();
   }
 }, 60_000);
+
+test("with no big model set, Retry opens the picker for this repair only; No keeps it unsaved and never calls it your big model", async () => {
+  const f = await fixture({ pick: "fixture/big" });
+  const app = f.make(true);
+  const interactive = app.runInteractive(f.project);
+  try {
+    await f.screen.until((output) => output.includes("idle"));
+    f.input.write("fix the add function in calc.py\r");
+    await f.screen.until(waiting("What now?"));
+    expect(f.text()).toContain("Retry with a bigger model");
+    f.input.write("2");
+    await f.screen.until(waiting("Use fixture/big as your big model from now on?"));
+    f.input.write("1");
+    await f.screen.until((output) => /Back on fixture\/demo[\s\S]*idle/.test(output) && idle(output));
+    const shown = f.text();
+    expect(shown).toContain("↻ repair 4/4 on fixture/big\n");
+    expect(shown).toContain("↻ Casper tried 4 repairs (the last on fixture/big)");
+    expect(shown).not.toContain("your big model fixture/big");
+    expect(f.roles).toEqual({});
+    expect(f.selections).toEqual([{ picker: "opened", persist: false }, { query: "fixture/demo", persist: false },
+      { query: "fixture/big", persist: false }, { query: "fixture/demo", persist: false }] as never);
+    expect(app.getLastTaskResult()?.bigModel).toEqual({ model: "fixture/big", attempts: 1, oneOff: true });
+  } finally {
+    f.input.write("/exit\r"); await interactive; await app.close(); await f.cleanup();
+  }
+}, 60_000);
+
+test("a model picked at the repair limit is saved as your big model on Yes, and is not tried when it can't hold the conversation", async () => {
+  const saved = await fixture({ pick: "fixture/big" });
+  const app = saved.make(true);
+  const interactive = app.runInteractive(saved.project);
+  try {
+    await saved.screen.until((output) => output.includes("idle"));
+    saved.input.write("fix the add function in calc.py\r");
+    await saved.screen.until(waiting("What now?"));
+    saved.input.write("2");
+    await saved.screen.until(waiting("Use fixture/big as your big model from now on?"));
+    saved.input.write("2");
+    await saved.screen.until((output) => /Back on fixture\/demo[\s\S]*idle/.test(output) && idle(output));
+    expect(saved.roles).toEqual({ reason: "fixture/big" });
+    expect(saved.text()).toContain("[model] Saved fixture/big as your big model.");
+    expect(saved.text()).toContain("↻ repair 4/4 on your big model fixture/big");
+  } finally {
+    saved.input.write("/exit\r"); await interactive; await app.close(); await saved.cleanup();
+  }
+  const small = await fixture({ pick: "fixture/big", tokens: 150_000, contextWindow: 100_000 });
+  const second = small.make(true);
+  const running = second.runInteractive(small.project);
+  try {
+    await small.screen.until((output) => output.includes("idle"));
+    small.input.write("fix the add function in calc.py\r");
+    await small.screen.until(waiting("What now?"));
+    small.input.write("2");
+    await small.screen.until(idle);
+    expect(small.text()).not.toContain("from now on?");
+    expect(small.text()).toContain("• fixture/big can't hold this conversation (about 150k tokens), so Casper stopped here");
+    expect(small.promptModels).not.toContain("fixture/big");
+    expect(second.getLastTaskResult()?.bigModel).toBeUndefined();
+  } finally {
+    small.input.write("/exit\r"); await running; await second.close(); await small.cleanup();
+  }
+}, 90_000);
