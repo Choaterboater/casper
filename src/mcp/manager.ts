@@ -3,7 +3,16 @@ import type { Readable } from "node:stream";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import type { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import { projectDefinitionReview, resolvedSecrets, resolveEnvironment, type MCPConfiguration, type MCPServerDefinition } from "./config";
+import { IMPORT_LABELS, projectDefinitionReview, resolvedSecrets, resolveEnvironment, type MCPConfiguration, type MCPServerDefinition } from "./config";
+import type { ConsentState, ConsentStore, RememberResult } from "./consent";
+import { definitionIdentity } from "./consent";
+import {
+  matchPreset, planPins, presetById, presetLine, rememberBlock, type PinPlan, type PresetMatch,
+} from "./presets";
+import {
+  accessCheckTool, accessStatusText, gatesConfirmedOff, parseAccessCheck, READ_ONLY_LOGIN_ENABLE_TEXT, type AccessCheck,
+} from "./access";
+import { toolLabel } from "../capabilities/labels";
 import { ownSpawnedTree, type OwnedProcesses, ProcessCleanupError, terminateTree } from "../platform/processes";
 import { CASPER_VERSION } from "../version";
 import { NotExecutedError, OutcomeUnknownError } from "../capabilities/result";
@@ -30,6 +39,29 @@ export interface MCPStatus {
   error?: string;
   /** The server's last stderr lines, redacted, only while the state is "failed". Shown to the user, never to the model. */
   serverOutput?: string[];
+  /** Where the definition was found when it came from another tool's file ("~/.claude.json", "VS Code"). */
+  importedFrom?: string;
+  scope?: MCPServerDefinition["scope"];
+  /** Allowed to connect in this process (connected by you, or remembered). */
+  approved: boolean;
+  /** Remembered approval: none, remembered, or changed since you approved it. */
+  consent: ConsentState;
+  /** "off": write and delete tools are hidden and the preset's read-only pins are sent. Always "off" at start. */
+  writes: "off" | "on";
+  /** "login: read-only (checked)", "login: can make changes (checked)" or "access not checked". */
+  access: string;
+  /** Recognised preset, and the /mcp lines about it. */
+  preset?: { id: string; lines: string[] };
+  /** Plain show commands on a Junos server run without asking (the user's own opt-in). */
+  showOptIn?: boolean;
+}
+
+/** What the broker needs to hide tools, guard arguments and word the model's notes, per server. */
+export interface ServerPolicy {
+  match?: PresetMatch;
+  writes: "off" | "on";
+  access?: AccessCheck;
+  showOptIn: boolean;
 }
 
 /** Casper's defaults: 20 s to start, 90 s per call without progress, 10 min for any call. */
@@ -72,6 +104,8 @@ export interface MCPManagerOptions {
   elicit?: ServerQuestionHandler;
   /** One plain line for the user, such as a declined server question. */
   onNote?: (text: string) => void;
+  /** Remembered approval. Only your own and imported servers can be remembered, never project ones. */
+  consent?: ConsentStore;
 }
 
 /** The call the user approved: its server questions may reach the user. */
@@ -121,6 +155,20 @@ interface Entry {
   inFlight: number;
   /** The one call the user approved that is running now, if any. */
   approvedCall?: RunningApprovedCall;
+  /** Always "off" at start and after a changed definition; only the user turns it on. */
+  writes: "off" | "on";
+  consent: ConsentState;
+  /** The parsed access_check answer for this connection (never its raw text). */
+  access?: AccessCheck;
+  /** A preset recognised from the tool list only (the definition did not match). */
+  toolPreset?: string;
+  /** Whether the tool list fits the preset recognised by the definition. */
+  mismatch: boolean;
+  /** The pin plan the current connection was started with. */
+  pins: PinPlan;
+  showOptIn: boolean;
+  /** Waiting to restart with pins once the running calls finish. */
+  repin?: Promise<void>;
 }
 
 interface RunningApprovedCall extends ApprovedCall {
@@ -134,19 +182,11 @@ interface RunningApprovedCall extends ApprovedCall {
 
 const MAX_WIRE_BYTES = 8 * 1024 * 1024;
 
-/** Key-order-independent serialization: reordered env/header maps are the same program. */
-function canonical(value: unknown): string {
-  return JSON.stringify(value, (_key, item: unknown) => item && typeof item === "object" && !Array.isArray(item)
-    ? Object.fromEntries(Object.entries(item).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0))
-    : item);
-}
-
-/** Identity of a loaded server: everything except which file it came from and its time limits
- * (changing a timeout is not a different program, so it never revokes consent). */
+/** Identity of a loaded server: name, start folder and transport, compared key-order-independently.
+ * Which file it came from and its time limits are not part of it (changing a timeout is not a
+ * different program, so it never revokes consent); preset pins are never in the definition. */
 function sameDefinition(a: MCPServerDefinition, b: MCPServerDefinition): boolean {
-  const { source: _a, scope: _sa, shadows: _ha, limits: _la, ...restA } = a;
-  const { source: _b, scope: _sb, shadows: _hb, limits: _lb, ...restB } = b;
-  return canonical(restA) === canonical(restB);
+  return definitionIdentity(a) === definitionIdentity(b) && a.disabled === b.disabled;
 }
 
 /** Record the child's exit through the SDK's private `_process` (see stdioChildAlive). */
@@ -182,10 +222,15 @@ function questionShape(schema: unknown): { field: string; kind: "boolean" | "cho
   return { field, kind: "choice", options: options as string[] };
 }
 
-function newEntry(definition: MCPServerDefinition): Entry {
+function newEntry(definition: MCPServerDefinition, consent?: ConsentStore): Entry {
+  const personal = definition.scope !== "project";
   return {
     definition, state: definition.disabled ? "disabled" : "disconnected",
-    tools: [], abort: new AbortController(), dirty: false, approved: false, attempts: [], generation: 0, secrets: [], inFlight: 0,
+    tools: [], abort: new AbortController(), dirty: false, attempts: [], generation: 0, secrets: [], inFlight: 0,
+    // Remembered approval only ever means "connect with writes off"; project servers always ask.
+    approved: personal && !definition.disabled && (consent?.has(definition) ?? false),
+    consent: personal ? consent?.state(definition) ?? "none" : "none",
+    writes: "off", mismatch: false, pins: { kind: "none" }, showOptIn: false,
   };
 }
 
@@ -210,11 +255,13 @@ export class MCPManager {
   private cleanupError?: ProcessCleanupError;
   private readonly elicit?: ServerQuestionHandler;
   private readonly onNote?: (text: string) => void;
+  private readonly consent?: ConsentStore;
 
   constructor(configuration: MCPConfiguration, options: MCPManagerOptions = {}) {
-    this.diagnostics = configuration.diagnostics;
+    this.diagnostics = [...configuration.diagnostics, ...options.consent?.diagnostics ?? []];
     this.elicit = options.elicit;
     this.onNote = options.onNote;
+    this.consent = options.consent;
     this.defaults = {
       connectMs: options.connectTimeoutMs ?? options.timeoutMs ?? MCP_LIMITS.connectMs,
       callMs: options.callTimeoutMs ?? options.timeoutMs ?? MCP_LIMITS.callMs,
@@ -222,14 +269,16 @@ export class MCPManager {
     };
     for (const definition of configuration.servers) {
       if (this.entries.has(definition.name)) throw new Error("Duplicate MCP server name");
-      this.entries.set(definition.name, newEntry(structuredClone(definition)));
+      this.entries.set(definition.name, newEntry(structuredClone(definition), this.consent));
     }
   }
 
   /** One server's limits: its own connectTimeout/callTimeout over the defaults. The hard cap is never below the call limit. */
   private limits(entry: Entry): { connectMs: number; callMs: number; hardMs: number } {
-    const connectMs = entry.definition.limits?.connectMs ?? this.defaults.connectMs;
-    const callMs = entry.definition.limits?.callMs ?? this.defaults.callMs;
+    // A preset's limits (Junos commits take minutes) come after the server's own and before Casper's.
+    const preset = this.match(entry)?.preset.limits;
+    const connectMs = entry.definition.limits?.connectMs ?? preset?.connectMs ?? this.defaults.connectMs;
+    const callMs = entry.definition.limits?.callMs ?? preset?.callMs ?? this.defaults.callMs;
     return { connectMs, callMs, hardMs: Math.max(this.defaults.hardCapMs, callMs) };
   }
 
@@ -239,12 +288,138 @@ export class MCPManager {
     return [...this.entries.values()].map((entry) => {
       const limits = this.limits(entry);
       const output = entry.state === "failed" ? entry.output?.tail(8, entry.secrets) : undefined;
+      const match = this.match(entry);
+      const importedFrom = entry.definition.importedFrom;
       return {
         name: entry.definition.name, source: entry.definition.source, transport: entry.definition.transport.type,
         state: entry.state, toolCount: entry.tools.length, limits: { connectS: limits.connectMs / 1000, callS: limits.callMs / 1000 },
         error: entry.error, ...(output?.length ? { serverOutput: output } : {}),
+        ...(importedFrom ? { importedFrom: IMPORT_LABELS[importedFrom] } : {}),
+        ...(entry.definition.scope ? { scope: entry.definition.scope } : {}),
+        approved: entry.approved, consent: entry.consent, writes: entry.writes,
+        access: entry.state === "ready" ? accessStatusText(entry.access) : "access not checked",
+        ...(match ? { preset: { id: match.preset.id, lines: this.presetLines(entry, match) } } : {}),
+        ...(entry.showOptIn ? { showOptIn: true } : {}),
       };
     });
+  }
+
+  /** The preset for this server: by its definition, else by the tool list it showed. */
+  private match(entry: Entry): PresetMatch | undefined {
+    const tools = entry.tools.length ? entry.tools : undefined;
+    const found = matchPreset(entry.definition, tools);
+    if (found) return found;
+    const byTools = presetById(entry.toolPreset);
+    return byTools ? { preset: byTools, by: "tools", mismatch: false } : undefined;
+  }
+
+  private presetLines(entry: Entry, match: PresetMatch): string[] {
+    // While writes are on no pins are sent; show what would be pinned only while they are off.
+    const plan: PinPlan = entry.writes === "off" ? (entry.state === "ready" ? entry.pins : planPins(entry.definition, match.preset)) : { kind: "none" };
+    const lines = presetLine({ ...match, mismatch: entry.mismatch }, plan, gatesConfirmedOff(entry.access));
+    return entry.writes === "on" ? lines.filter((line) => !line.startsWith("Can't pin")) : lines;
+  }
+
+  /** How the broker must treat this server's tools. */
+  policy(server: string): ServerPolicy {
+    const entry = this.entries.get(server);
+    if (!entry) return { writes: "off", showOptIn: false };
+    const match = this.match(entry);
+    return { ...(match ? { match } : {}), writes: entry.writes, ...(entry.access ? { access: entry.access } : {}), showOptIn: entry.showOptIn };
+  }
+
+  /** Servers with writes turned on, for the footer badge. */
+  writesOn(): string[] {
+    return [...this.entries.values()].filter((entry) => entry.writes === "on").map((entry) => entry.definition.name);
+  }
+
+  /** Why this server can't be remembered, or undefined when it can. */
+  rememberBlock(name: string): string | undefined {
+    const { definition } = this.entry(name);
+    if (definition.scope === "project") return `Not remembered: ${definition.name} comes from the project, so Casper asks each time.`;
+    if (!this.consent) return "Not remembered: this session can't keep approvals.";
+    return rememberBlock(definition, matchPreset(definition));
+  }
+
+  /** Remember this server's approval: next time it connects on its own, with writes off. */
+  async remember(name: string): Promise<RememberResult> {
+    const entry = this.entry(name);
+    if (!this.consent) return { remembered: false, reason: "Not remembered: this session can't keep approvals." };
+    const result = await this.consent.remember(entry.definition);
+    if (result.remembered) entry.consent = "remembered";
+    return result;
+  }
+
+  /** Drop a remembered approval. The current connection stays until it ends. */
+  async forget(name: string): Promise<boolean> {
+    const entry = this.entry(name);
+    const forgotten = await this.consent?.forget(name) ?? false;
+    entry.consent = "none";
+    return forgotten;
+  }
+
+  /** The user's opt-in: plain Junos show commands on this server run without asking. */
+  setShowOptIn(name: string, on: boolean): void {
+    const entry = this.entry(name);
+    if (this.match(entry)?.preset.id !== "junos-mcp-server") throw new Error(`${name} is not a Junos server.`);
+    entry.showOptIn = on;
+    this.catalogVersion++;
+  }
+
+  /**
+   * Turn writes on or off for one server. Only the user does this (/mcp writes, ctrl+o). Turning
+   * writes off takes effect at once in Casper; a server started without pins is restarted with
+   * them once its running calls finish. Turning writes on waits for running calls, then restarts
+   * the server without the preset's pins. A read-only login (from access_check) can't turn on.
+   */
+  async setWrites(name: string, on: boolean): Promise<void> {
+    const entry = this.entry(name);
+    if (!on) {
+      if (entry.writes === "off") return;
+      entry.writes = "off";
+      this.catalogVersion++;
+      await this.repin(entry);
+      return;
+    }
+    if (entry.access?.state === "read-only") throw new Error(READ_ONLY_LOGIN_ENABLE_TEXT);
+    if (entry.writes === "on") return;
+    await this.idle(entry);
+    // A reconnect while waiting may have checked the login again.
+    if ((entry.access as AccessCheck | undefined)?.state === "read-only") throw new Error(READ_ONLY_LOGIN_ENABLE_TEXT);
+    entry.writes = "on";
+    this.catalogVersion++;
+    if (entry.pins.kind === "pinned" && (entry.state === "ready" || entry.state === "connecting")) await this.restart(entry);
+  }
+
+  /** Restart with the read-only pins once no call is running, if the connection has none. */
+  private repin(entry: Entry): Promise<void> {
+    if (entry.repin) return entry.repin;
+    const match = this.match(entry);
+    if (!match || entry.pins.kind === "pinned" || planPins(entry.definition, match.preset).kind !== "pinned") return Promise.resolve();
+    if (entry.state !== "ready" && entry.state !== "connecting") return Promise.resolve();
+    entry.repin = (async () => {
+      await this.idle(entry);
+      if (!this.closed && entry.writes === "off" && entry.pins.kind !== "pinned") await this.restart(entry);
+    })().catch(() => {}).finally(() => { entry.repin = undefined; });
+    return entry.repin;
+  }
+
+  private async idle(entry: Entry): Promise<void> {
+    while (entry.inFlight > 0 && !this.closed) await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+
+  /** Close this connection and, when the server is still approved, open it again. */
+  private async restart(entry: Entry): Promise<void> {
+    entry.abort.abort();
+    await entry.work?.catch(() => {});
+    await entry.refresh;
+    await this.release(entry);
+    this.publish(entry, []);
+    entry.state = entry.definition.disabled ? "disabled" : "disconnected";
+    entry.error = undefined;
+    // Casper restarted it on purpose: that does not spend the reconnect budget.
+    entry.attempts = [];
+    if (entry.approved) await this.ensureConnected(entry);
   }
 
   /** Changes whenever routable metadata or connection identity changes. */
@@ -334,6 +509,9 @@ export class MCPManager {
         entry.definition.source = replacement.source;
         entry.definition.scope = replacement.scope;
         entry.definition.shadows = replacement.shadows;
+        if (replacement.importedFrom) entry.definition.importedFrom = replacement.importedFrom;
+        else delete entry.definition.importedFrom;
+        entry.consent = replacement.scope === "project" ? "none" : this.consent?.state(replacement) ?? "none";
         // New time limits apply to the next start or call; consent and the connection stay.
         if (replacement.limits) entry.definition.limits = replacement.limits;
         else delete entry.definition.limits;
@@ -343,6 +521,13 @@ export class MCPManager {
       await this.disconnect(name);
       entry.definition = replacement;
       entry.approved = false;
+      // A different program starts over: writes off, no opt-ins, and its remembered approval no longer matches.
+      entry.writes = "off";
+      entry.showOptIn = false;
+      entry.toolPreset = undefined;
+      entry.access = undefined;
+      entry.mismatch = false;
+      entry.consent = replacement.scope === "project" ? "none" : this.consent?.state(replacement) ?? "none";
       // A different program deserves a fresh burst budget.
       entry.attempts = [];
       entry.state = replacement.disabled ? "disabled" : "disconnected";
@@ -350,10 +535,10 @@ export class MCPManager {
       changed.push(name);
     }
     for (const definition of next.values()) {
-      this.entries.set(definition.name, newEntry(definition));
+      this.entries.set(definition.name, newEntry(definition, this.consent));
       added.push(definition.name);
     }
-    this.diagnostics = configuration.diagnostics;
+    this.diagnostics = [...configuration.diagnostics, ...this.consent?.diagnostics ?? []];
     await this.prepare();
     return { added, removed, changed, revoked };
   }
@@ -516,11 +701,14 @@ export class MCPManager {
       entry.error = "Connection retry limit reached; retry after 30 seconds";
       return;
     }
-    entry.work = this.open(entry).finally(() => { entry.work = undefined; });
+    entry.work = (async () => {
+      // A server recognised only by its tool list is started once more, with the preset's pins.
+      if (await this.open(entry) === "restart-with-pins") await this.open(entry);
+    })().finally(() => { entry.work = undefined; });
     return entry.work;
   }
 
-  private async open(entry: Entry): Promise<void> {
+  private async open(entry: Entry): Promise<"restart-with-pins" | void> {
     await this.release(entry);
     if (this.closed || !entry.approved) return;
     entry.abort = new AbortController();
@@ -535,6 +723,10 @@ export class MCPManager {
     entry.exitCode = undefined;
     entry.output = undefined;
     entry.secrets = resolvedSecrets(entry.definition);
+    entry.access = undefined;
+    // While writes are off, the preset's read-only settings go to the server (env beats the user's own).
+    const pinMatch = this.match(entry);
+    entry.pins = entry.writes === "off" && pinMatch ? planPins(entry.definition, pinMatch.preset) : { kind: "none" };
     let client: Client | undefined;
     const current = () => !this.closed && entry.approved && entry.client === client && !controller.signal.aborted && entry.state !== "failed";
     try {
@@ -573,7 +765,7 @@ export class MCPManager {
         entry.dirty = true;
         if (entry.state === "ready") this.scheduleRefresh(entry, connectedClient);
       });
-      const config = entry.definition.transport;
+      const config = entry.pins.kind === "pinned" ? entry.pins.transport : entry.definition.transport;
       let transport: Transport;
       if (config.type === "stdio") {
         const { StdioClientTransport } = await import("@modelcontextprotocol/sdk/client/stdio.js");
@@ -628,6 +820,25 @@ export class MCPManager {
       await client.connect(transport, this.requestOptions(entry));
       const tools = await this.listTools(entry, client);
       if (!current()) throw new Error("stale connection");
+      const match = matchPreset(entry.definition, tools);
+      entry.mismatch = match?.mismatch ?? false;
+      if (match?.by === "tools") {
+        const first = entry.toolPreset !== match.preset.id;
+        entry.toolPreset = match.preset.id;
+        // Started without pins because the definition did not show what it runs: restart once with them.
+        if (first && entry.writes === "off" && entry.pins.kind !== "pinned" && planPins(entry.definition, match.preset).kind === "pinned") {
+          clearTimeout(deadline);
+          controller.abort();
+          await this.release(entry);
+          entry.state = "disconnected";
+          return "restart-with-pins";
+        }
+      }
+      clearTimeout(deadline);
+      // Ask the login what it may do, once per connection, before any tool is shown.
+      const accessTool = accessCheckTool(tools, toolLabel);
+      if (accessTool) entry.access = await this.checkAccess(entry, client, accessTool.name, controller.signal);
+      if (!current()) throw new Error("stale connection");
       entry.state = "ready";
       this.publish(entry, tools);
       if (entry.dirty) this.scheduleRefresh(entry, client);
@@ -647,6 +858,23 @@ export class MCPManager {
       controller.abort();
       await this.release(entry);
     } finally { clearTimeout(deadline); }
+  }
+
+  /**
+   * Call the server's own read-only access_check once, under the call limit (and never longer
+   * than the start limit). Only the parsed answer is kept; any error or odd answer is "not checked".
+   */
+  private async checkAccess(entry: Entry, client: Client, tool: string, signal: AbortSignal): Promise<AccessCheck | undefined> {
+    const { callMs, connectMs } = this.limits(entry);
+    try {
+      const raw = await client.callTool({ name: tool, arguments: {} }, undefined, {
+        signal: AbortSignal.any([signal, AbortSignal.timeout(Math.min(callMs, connectMs))]), timeout: SDK_REQUEST_TIMEOUT_MS,
+      });
+      const parsed = parseAccessCheck(raw);
+      return parsed.state === "unknown" ? undefined : parsed;
+    } catch {
+      return undefined;
+    }
   }
 
   private async listTools(entry: Entry, client: Client): Promise<MCPTool[]> {
