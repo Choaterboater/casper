@@ -1703,7 +1703,7 @@ export class CasperApp {
       references: this.references!, visualization: this.visualization!, projectRoot: this.activeWorkspaceRoot(),
       browserReady: this.browser?.status().state === "ready", browser: () => this.browserSession(),
       browserSignal: this.commandAbort?.signal,
-      services: { declared: Object.keys(this.projectContext?.services ?? {}).length > 0, live: this.services?.live() ?? false },
+      services: { declared: Object.keys(this.projectContext?.services ?? {}).length > 0, live: this.services?.live({ detected: false }) ?? false },
       serviceTool: () => serviceTool(() => this.serviceManager(), this.commandAbort?.signal, () => this.smokeTask),
     });
     if (this.closing) return;
