@@ -162,3 +162,54 @@ test("a changed page that needs a value is listed, not opened", async () => {
   expect(f.text()).toContain("• /devices/[id] not opened: it needs a value for [id] (a fixed path can be set in .casper/project.yaml pages:)");
   expect(f.opener.urls).toEqual([]);
 }, 30_000);
+
+test("a Streamlit app's exception is caught from the server log and handed to the repair", async () => {
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-pages-streamlit-")));
+  cleanups.push(() => rm(root, { recursive: true, force: true }));
+  const home = path.join(root, "home"), project = path.join(root, "project");
+  await mkdir(home); await mkdir(path.join(project, ".casper"), { recursive: true });
+  await writeFile(path.join(root, "session.jsonl"), "");
+  await writeFile(path.join(project, "requirements.txt"), "streamlit==1.40.0\n");
+  await writeFile(path.join(project, "app.py"), "import streamlit as st\nst.title('Migration')\n");
+  // Streamlit stand-in: logs a Python traceback when the app it serves has the bug, as `streamlit run` does.
+  await writeFile(path.join(project, "server.ts"), `import { readFileSync } from "node:fs";
+Bun.serve({ hostname: process.env.HOST, port: Number(process.env.PORT), fetch() {
+  if (readFileSync("app.py", "utf8").includes("row['site']")) console.error("Traceback (most recent call last):\\n  File \\"app.py\\", line 3, in <module>\\n    site = row['site']\\nKeyError: 'site'");
+  return new Response("<html>streamlit</html>", { headers: { "content-type": "text/html" } });
+} });\n`);
+  await writeFile(path.join(project, ".casper", "project.yaml"), stringify({ verification: { mode: "auto" }, repair: { maxAttempts: 1 },
+    services: { web: { command: `"${process.execPath}" server.ts`, port: "auto", ready: { http: "/" }, timeoutMs: 10_000 } } }));
+  const runtime = new ScriptedRuntime();
+  const output: string[] = [];
+  const settles: string[] = [];
+  let app!: CasperApp;
+  const opener: PageOpener = { consoleChecked: true, async close() {},
+    async load(url, signal, options) {
+      settles.push(options?.settle ?? "none");
+      const response = await fetch(url, { signal });
+      await response.text();
+      // A real browser waits for the Streamlit script to finish; here, wait until the server's log has the traceback (or the page is clean).
+      const broken = (await readFile(path.join(project, "app.py"), "utf8")).includes("row['site']");
+      for (let tries = 0; broken && tries < 500 && !app.serviceManager().logs("web").text.includes("KeyError"); tries++) await Bun.sleep(10);
+      return { status: response.status, consoleChecked: true, consoleErrors: [], pageErrors: [], failedRequests: [] };
+    } };
+  app = new CasperApp({ runtimeFactory: () => runtime, output: { write: text => { output.push(text); } }, sessionHomeDir: home, pageOpener: async () => opener,
+    loadProjectContext: info => loadProjectContext(info, { homeDir: home }),
+    loadSkillRegistry: context => SkillRegistry.discover({ homeDir: home, projectRoot: context.info.root }),
+    loadMCPConfiguration: async () => ({ servers: [], diagnostics: [] }),
+    loadLSPConfiguration: async () => ({ servers: [], diagnostics: [] }),
+    loadReferenceConfiguration: async () => ({ sources: [], diagnostics: [] }),
+  });
+  cleanups.push(() => app.close().catch(() => {}));
+  await app.start(project);
+  runtime.turns.push(async r => { await r.write(path.join(project, "app.py"), "import streamlit as st\nrow = {}\nsite = row['site']\n"); });
+  runtime.turns.push(async () => {});
+  await app.runOnce("Show the site name on the summary page");
+  const text = output.join("");
+  expect(settles[0]).toBe("streamlit");
+  expect(text).toContain("… Casper opening changed pages: /");
+  expect(text).toContain("✗ / shows an error: KeyError: 'site'");
+  expect(text.split("\n").find(line => line.startsWith("✗ Failed"))).toBe("✗ Failed — / shows an error");
+  expect(runtime.prompts[1]).toContain("Page check evidence");
+  expect(runtime.prompts[1]).toContain("\"serverError\": \"KeyError: 'site'\"");
+}, 30_000);
