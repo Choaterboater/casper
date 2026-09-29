@@ -297,7 +297,7 @@ function undoLines(task: TaskResult, options: ReceiptOptions, safe: (text: strin
   const lines: string[] = [];
   if (undo.left?.length) lines.push(`• Undo can't put back: ${undo.left.slice(0, RECEIPT_PATH_LIMIT).map((entry) => `${safe(entry.path)} (${safe(entry.why)})`).join(", ")}${undo.left.length > RECEIPT_PATH_LIMIT ? ` … +${undo.left.length - RECEIPT_PATH_LIMIT} more` : ""}`);
   if (options.surface === "one-shot") {
-    const cd = options.folder ? `--cd ${/^[\w./~:@%+=,-]+$/.test(options.folder) ? options.folder : JSON.stringify(options.folder)} ` : "";
+    const cd = options.folder ? `--cd ${shellFolder(safe(options.folder))} ` : "";
     const n = task.receipt ? ` ${task.receipt}` : "";
     lines.push(`Undo: casper ${cd}/undo${n} · Diff: casper ${cd}/diff${n}`);
   }
@@ -526,4 +526,13 @@ function pathList(paths: string[], safe: (text: string) => string, count = true)
   const shown = paths.slice(0, RECEIPT_PATH_LIMIT).map(safe).join(", ");
   const more = paths.length > RECEIPT_PATH_LIMIT ? ` … +${paths.length - RECEIPT_PATH_LIMIT} more` : "";
   return `${count ? `${paths.length} ${paths.length === 1 ? "file" : "files"}: ` : ""}${shown}${more}`;
+}
+
+/** A folder as a shell runs it: plain when it needs no quotes; otherwise in single quotes, with a leading ~/ left
+ * outside them so the shell still expands it (a quoted "~" is a folder named ~, and "$x" would be expanded). */
+function shellFolder(folder: string): string {
+  if (/^[\w./~:@%+=,-]+$/.test(folder)) return folder;
+  if (process.platform === "win32") return JSON.stringify(folder);
+  const quote = (text: string) => `'${text.replace(/'/g, "'\\''")}'`;
+  return folder.startsWith("~/") ? `~/${quote(folder.slice(2))}` : quote(folder);
 }

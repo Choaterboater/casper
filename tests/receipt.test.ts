@@ -192,3 +192,11 @@ test("a lab dry run that passed is shown, but it is never grounds for Checks pas
   // Beside a real check the pass of that check still counts.
   expect(checksPassed(undefined, done({ verification: report([check(), dry]) }))).toBe(true);
 });
+
+test.skipIf(process.platform === "win32")("the one-shot undo command quotes a folder so a shell runs it as printed (~ still expands, $ does not)", () => {
+  const task = done({ changedPaths: ["sum.js"], verificationMode: "off", receipt: 4, undo: { available: true } });
+  const last = (folder: string) => formatReceipt(task, { surface: "one-shot", folder }).split("\n").at(-1);
+  expect(last("~/code/app")).toBe("Undo: casper --cd ~/code/app /undo 4 · Diff: casper --cd ~/code/app /diff 4");
+  expect(last("~/My Lab")).toBe("Undo: casper --cd ~/'My Lab' /undo 4 · Diff: casper --cd ~/'My Lab' /diff 4");
+  expect(last("/srv/a $HOME's")).toBe("Undo: casper --cd '/srv/a $HOME'\\''s' /undo 4 · Diff: casper --cd '/srv/a $HOME'\\''s' /diff 4");
+});
