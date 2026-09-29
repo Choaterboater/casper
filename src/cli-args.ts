@@ -35,9 +35,9 @@ export interface CliOptions {
    * prompt argument stays readable in the process list, and a model's `pkill -f <text from the prompt>` would
    * match Casper itself. */
   promptFromStdin?: boolean;
-  /** One-shot prompt, `casper learn …`, or an interactive session. */
-  command: "prompt" | "learn" | "interactive";
-  /** Prompt words, or the full `learn …` argument list. */
+  /** One-shot prompt, `casper learn …`, `casper mcp check …`, or an interactive session. */
+  command: "prompt" | "learn" | "mcp-check" | "interactive";
+  /** Prompt words, or the full `learn …` / `mcp check …` argument list. */
   rest: string[];
 }
 
@@ -114,6 +114,10 @@ export function parseCliArgs(argv: readonly string[]): CliOptions {
   } else if (args[0] === "learn") {
     if (optionCount) throw new UsageError("learn cannot be combined with options");
     options.command = "learn";
+  } else if (args[0] === "mcp" && args[1] === "check") {
+    // Only exactly `mcp check`: `casper mcp docs are wrong` stays a prompt.
+    if (optionCount) throw new UsageError(`mcp check takes its own flags. ${MCP_CHECK_USAGE}`);
+    options.command = "mcp-check";
   } else if (args.join(" ").trim()) options.command = "prompt";
   if (options.requireVerification && options.noVerify) throw new UsageError("--require-verification cannot be combined with --no-verify");
   if (options.json && options.command !== "prompt") throw new UsageError("--json needs a prompt: casper --json \"fix the failing test\"");
@@ -149,4 +153,68 @@ export function parseLearnArgs(rest: readonly string[]): LearnCommand {
   }
   if (action && !args.length && !["list", "inspect", "promote"].includes(action) && !action.startsWith("-")) return { action: "generate", repo: action };
   throw new UsageError(LEARN_USAGE);
+}
+
+export interface McpCheckCommand {
+  /** The repository folder; "." when not given. */
+  repo: string;
+  /** A configured server name to start instead of the repo's example config. */
+  server?: string;
+  /** Keep the real environment and allow a few read-only calls. Off by default. */
+  live: boolean;
+  /** Skip the full test run. */
+  quick: boolean;
+  /** Warnings also fail (exit 1). */
+  strict: boolean;
+  json: boolean;
+  /** Extra environment for the repo's commands and the server, applied last. */
+  env: Record<string, string>;
+  /** Everything after `--`: the command that starts the server. */
+  command?: string[];
+}
+
+export const MCP_CHECK_USAGE = "Usage: casper mcp check [repo] [--server <name>] [--live] [--quick] [--strict] [--json] [--env NAME=VALUE]... [-- <start command>...]";
+
+const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/** `rest` starts with "mcp", "check". A malformed form is a usage error (exit 64), never a failed check. */
+export function parseMcpCheckArgs(rest: readonly string[]): McpCheckCommand {
+  const args = rest.slice(2);
+  const result: McpCheckCommand = { repo: ".", live: false, quick: false, strict: false, json: false, env: {} };
+  let repo: string | undefined;
+  for (let index = 0; index < args.length; index++) {
+    let arg = args[index]!;
+    let value: string | undefined;
+    const equals = arg.startsWith("--") ? arg.indexOf("=") : -1;
+    if (equals > 0 && (arg.startsWith("--server=") || arg.startsWith("--env="))) {
+      value = arg.slice(equals + 1);
+      arg = arg.slice(0, equals);
+    } else if (arg === "--server" || arg === "--env") {
+      value = args[++index];
+    }
+    if (arg === "--") {
+      const command = args.slice(index + 1);
+      if (!command.length || !command[0]!.trim()) throw new UsageError(`Give the start command after --. ${MCP_CHECK_USAGE}`);
+      result.command = command;
+      break;
+    }
+    if (arg === "--live") result.live = true;
+    else if (arg === "--quick") result.quick = true;
+    else if (arg === "--strict") result.strict = true;
+    else if (arg === "--json") result.json = true;
+    else if (arg === "--server") {
+      if (!value || !SERVER_NAME.test(value)) throw new UsageError(`--server needs a configured server name. ${MCP_CHECK_USAGE}`);
+      result.server = value;
+    } else if (arg === "--env") {
+      const at = value?.indexOf("=") ?? -1;
+      const name = at > 0 ? value!.slice(0, at) : "";
+      if (!ENV_NAME.test(name)) throw new UsageError(`--env needs NAME=VALUE. ${MCP_CHECK_USAGE}`);
+      result.env[name] = value!.slice(at + 1);
+    } else if (arg.startsWith("-") || repo !== undefined || !arg.trim()) {
+      throw new UsageError(MCP_CHECK_USAGE);
+    } else repo = arg;
+  }
+  if (result.server && result.command) throw new UsageError(`--server and -- cannot be combined. ${MCP_CHECK_USAGE}`);
+  if (repo !== undefined) result.repo = repo;
+  return result;
 }

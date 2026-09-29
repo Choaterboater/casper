@@ -3,7 +3,7 @@ import { chmod, mkdir, mkdtemp, readdir, realpath, rm, symlink, writeFile } from
 import os from "node:os";
 import path from "node:path";
 import { verificationFlag } from "../src/cli";
-import { parseCliArgs, UsageError } from "../src/cli-args";
+import { parseCliArgs, parseMcpCheckArgs, UsageError } from "../src/cli-args";
 import { resolveVerificationMode } from "../src/verify/mode";
 import { CASPER_VERSION } from "../src/version";
 import { needsPosixModes, posixOnly } from "./support/platform";
@@ -273,4 +273,25 @@ test("a lone - reads the one-shot prompt from stdin, so it never appears in the 
   expect(parseCliArgs(["--", "-"])).toMatchObject({ command: "prompt", promptFromStdin: true });
   expect(parseCliArgs(["fix", "-"])).toMatchObject({ command: "prompt", rest: ["fix", "-"] });
   expect(parseCliArgs(["fix"]).promptFromStdin).toBeUndefined();
+});
+
+test("only `mcp check` selects the check command; other mcp prompts stay prompts", () => {
+  expect(parseCliArgs(["mcp", "check"])).toMatchObject({ command: "mcp-check", rest: ["mcp", "check"] });
+  expect(parseCliArgs(["mcp", "docs", "are", "wrong"])).toMatchObject({ command: "prompt" });
+  expect(parseMcpCheckArgs(["mcp", "check"])).toEqual({ repo: ".", live: false, quick: false, strict: false, json: false, env: {} });
+  expect(parseMcpCheckArgs(["mcp", "check", "./r", "--live", "--quick", "--strict", "--json", "--env", "A=1", "--env=B=x=y", "--", "uv", "run", "x", "--live"])).toEqual({
+    repo: "./r", live: true, quick: true, strict: true, json: true, env: { A: "1", B: "x=y" }, command: ["uv", "run", "x", "--live"],
+  });
+  expect(parseMcpCheckArgs(["mcp", "check", "--server=hpe"])).toMatchObject({ server: "hpe", repo: "." });
+});
+
+test("mcp check usage mistakes are UsageErrors that print the usage", () => {
+  for (const args of [["mcp", "check", "--bogus"], ["mcp", "check", "a", "b"], ["mcp", "check", "--env", "NOEQUALS"], ["mcp", "check", "--env", "1A=2"],
+    ["mcp", "check", "--server"], ["mcp", "check", "--server", "x", "--", "y"], ["mcp", "check", "--"]]) {
+    let error: unknown;
+    try { parseMcpCheckArgs(args); } catch (caught) { error = caught; }
+    expect({ args, usage: error instanceof UsageError }).toEqual({ args, usage: true });
+    expect((error as Error).message).toContain("Usage: casper mcp check");
+  }
+  expect(() => parseCliArgs(["--json", "mcp", "check"])).toThrow("mcp check takes its own flags. Usage: casper mcp check");
 });
