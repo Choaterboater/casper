@@ -216,3 +216,23 @@ test("the diff between two copies is a patch of this task's files only", async (
   expect(patch).not.toContain("other.py");
   expect(await store.diff(before, after, { stat: true })).toContain("a.py | 2 +-");
 });
+
+test("a file saved between the plan and the undo (while Casper asked) keeps the user's bytes", async () => {
+  const { root, store } = await setup();
+  await writeFile(path.join(root, "a.py"), "a1\n"); await writeFile(path.join(root, "b.py"), "b1\n");
+  const before = tree(await store.snapshot());
+  await writeFile(path.join(root, "a.py"), "a2\n"); await writeFile(path.join(root, "made.py"), "new\n"); await writeFile(path.join(root, "b.py"), "b2\n");
+  const after = tree(await store.snapshot());
+  const plan = await store.plan(after, before);
+  expect(plan.ready.map((change) => change.path)).toEqual(["a.py", "b.py", "made.py"]);
+  // The user saves two files after the plan was made: one edited, one the task made.
+  await writeFile(path.join(root, "a.py"), "the user's edit\n");
+  await writeFile(path.join(root, "made.py"), "the user kept working here\n");
+  const applied = await store.apply(plan.ready, before);
+  expect(applied.restored).toEqual(["b.py"]);
+  expect(applied.skipped.map((entry) => entry.path).sort()).toEqual(["a.py", "made.py"]);
+  expect(await readFile(path.join(root, "a.py"), "utf8")).toBe("the user's edit\n");
+  expect(await readFile(path.join(root, "made.py"), "utf8")).toBe("the user kept working here\n");
+  expect(await readFile(path.join(root, "b.py"), "utf8")).toBe("b1\n");
+});
+

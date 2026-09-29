@@ -329,9 +329,17 @@ export class UndoStore {
       const depth = (file: string) => file.split("/").length;
       const keptFolders = new Set((await this.text(["ls-tree", "-r", "-d", "-z", "--name-only", to])).split("\0").filter(Boolean));
       const skip = (file: string, error: unknown) => applied.skipped.push({ path: file, why: plainError(error) });
+      // Checked again here, inside the lock and just before each file: the user may have saved a file while Casper
+      // asked (or since the plan). A file that no longer matches is left as it is.
+      const unchanged = async (change: UndoChange) => {
+        if (sameEntry(await this.current(change.path), change.from)) return true;
+        applied.skipped.push({ path: change.path, why: "it changed just now; Casper left it as it is" });
+        return false;
+      };
       for (const change of [...changes].filter((entry) => !entry.to).sort((a, b) => depth(b.path) - depth(a.path))) {
         signal?.throwIfAborted();
         try {
+          if (!(await unchanged(change))) continue;
           await removeProjectFile(this.root, change.path);
           applied.restored.push(change.path);
           await this.removeEmptyFolders(change.path, keptFolders);
@@ -341,6 +349,7 @@ export class UndoStore {
         signal?.throwIfAborted();
         const target = change.to!;
         try {
+          if (!(await unchanged(change))) continue;
           const data = await this.readBlob(target.sha);
           const now = await lstat(path.join(this.root, change.path)).catch(() => undefined);
           if (target.mode === MODE_LINK) {
