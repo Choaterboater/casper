@@ -61,7 +61,7 @@ import { safeGitArgs } from "./platform/git";
 import { VerifierRegistry } from "./verify/registry";
 import { isRetryableAssistantError } from "@earendil-works/pi-ai/utils/retry";
 import { longerLimit, timedOutAfter, verifyAndRepair, type UnfinishedChoice } from "./verify/repair-loop";
-import { ALREADY_FAILING_CHOICES, modelFailedChoices, PLAN_CHOICES, REMEMBER_BIG_MODEL_CHOICES, REPAIR_LIMIT_STOP, unfinishedChoices } from "./app/safe-choices";
+import { ALREADY_FAILING_CHOICES, modelFailedChoices, PLAN_CHOICES, PLAN_QUESTION, REMEMBER_BIG_MODEL_CHOICES, REPAIR_LIMIT_STOP, unfinishedChoices } from "./app/safe-choices";
 import { VerificationTask } from "./verify/task";
 import { ChangeBaseline, changesCode, proofRepairPrompt, type ChangeProof } from "./verify/proof";
 import { independentAcceptance } from "./verify/acceptance";
@@ -1063,7 +1063,7 @@ export class CasperApp {
 
   /**
    * The plan turn of plan first. The model reads and answers with "Plan:" steps and "Tests:" cases; every tool but
-   * reading is refused meanwhile. The user edits the plan (rich terminal) or says Build (plain terminal); a run
+   * reading is refused meanwhile. The user edits the plan (rich terminal), then both terminals ask Stop or Build; a run
    * that cannot ask stops after showing the plan. "stop" when nothing is to be built.
    */
   private async runPlanTurn(session: RuntimeSession, request: string, cases: readonly string[] | undefined, root: string):
@@ -1111,10 +1111,11 @@ export class CasperApp {
         this.output.write("[plan] This run can't ask you to build, so Casper stopped after the plan. Nothing was built.\n");
         return "stop";
       }
-      // Stop comes first, so Enter never starts a build that uses tokens.
-      const answer = await this.terminal.pick("Build this plan?", PLAN_CHOICES.map((choice) => ({ ...choice })), signal);
-      if (answer !== "Build" || this.closing || signal?.aborted) { this.output.write("[plan] Stopped without building.\n"); return "stop"; }
     }
+    // Both terminals ask after the plan, Stop first, so Enter (also the editor's Enter) never starts a build that
+    // uses tokens.
+    const answer = await this.terminal.pick(PLAN_QUESTION, PLAN_CHOICES.map((choice) => ({ ...choice })), signal);
+    if (answer !== "Build" || this.closing || signal?.aborted) { this.output.write("[plan] Stopped without building.\n"); return "stop"; }
     this.output.write(`Casper plan (${plan.steps.length} ${plan.steps.length === 1 ? "step" : "steps"}, ${plan.tests.length} ${plan.tests.length === 1 ? "case" : "cases"}${edited ? ", edited by you" : ""}):\n`
       + `${plan.steps.map((step, index) => `  ${index + 1}. ${terminalText(step)}\n`).join("")}${plan.tests.map((item) => `  - ${terminalText(item)}\n`).join("")}`);
     return { plan, ...(changed?.length ? { changed } : {}) };

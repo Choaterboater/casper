@@ -84,7 +84,7 @@ describe("the plan", () => {
     const plan = extractPlan(answer);
     const lines = planEditorLines(plan);
     expect(lines.at(-1)).toBe("Test: \"r1 \" is trimmed to \"r1\"");
-    expect(planEditorHeading(plan)).toEqual({ heading: "Casper plan: 3 steps, 2 cases to test.", hint: "Enter builds this · edit lines · Esc stops without building" });
+    expect(planEditorHeading(plan)).toEqual({ heading: "Casper plan: 3 steps, 2 cases to test.", hint: "Enter goes on to 1 Stop · 2 Build · edit lines · Esc stops without building" });
     const edited = parsePlanLines(["1. Read the parser", "", "Test: empty host is an error", "Keep the old flag", "tests: port defaults to 22"]);
     expect(edited).toEqual({ steps: ["Read the parser", "Keep the old flag"], tests: ["empty host is an error", "port defaults to 22"] });
   });
