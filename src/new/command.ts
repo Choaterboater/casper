@@ -1,10 +1,10 @@
 import { lstat, mkdir } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { UsageError } from "../cli-args";
+import { NEW_USAGE, type NewCommand } from "../cli-args";
 import { formatNewProjectReceipt } from "./receipt";
 import { createProject, tildePath, type NewProjectResult, type ToolRunner } from "./scaffold";
-import { getTemplate, listTemplates, NAME_RULE, validName } from "./templates";
+import { listTemplates } from "./templates";
 
 /**
  * `casper new` from the command line. With a terminal the app asks for the kind and the name;
@@ -12,38 +12,8 @@ import { getTemplate, listTemplates, NAME_RULE, validName } from "./templates";
  * runtime: exit 0 ready, 1 created but not ready (or a tool failed), 64 usage.
  */
 
-export const NEW_USAGE = "Usage: casper new [name] | casper new <template> <name> | casper new --list";
+export { NEW_USAGE, parseNewArgs, type NewCommand } from "../cli-args";
 export const NEW_HELP_LINE = "casper new [name]    Start a new project (Python tool, MCP server, Mist scripts)";
-
-export interface NewCommand {
-  name?: string;
-  template?: string;
-  list: boolean;
-}
-
-/**
- * `rest` is everything after `new`. Only `new`, `new <name>`, `new <template> <name>` and
- * `new --list` are the command; anything else ("new ideas for the app") stays a prompt (null).
- * A single word that isn't a valid name ("new ../x") is a usage mistake.
- */
-export function parseNewArgs(rest: readonly string[]): NewCommand | null {
-  if (rest.length === 0) return { list: false };
-  if (rest.length === 1 && rest[0] === "--list") return { list: true };
-  if (rest.some((arg) => arg.startsWith("-"))) {
-    throw new UsageError(`new takes no other options. ${NEW_USAGE}`);
-  }
-  if (rest.length === 1) {
-    const name = rest[0]!;
-    if (!validName(name)) throw new UsageError(NAME_RULE);
-    return { name, list: false };
-  }
-  if (rest.length === 2 && getTemplate(rest[0]!)) {
-    const [template, name] = rest as [string, string];
-    if (!validName(name)) throw new UsageError(NAME_RULE);
-    return { template, name, list: false };
-  }
-  return null;
-}
 
 /** One plain line per ready template. */
 export function listLines(): string[] {

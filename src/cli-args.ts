@@ -1,4 +1,5 @@
 import { isEffortSelection } from "./runtime/model-routing";
+import { getTemplate, NAME_RULE, validName } from "./new/templates";
 
 /** A command-line mistake: exits 64 (EX_USAGE), distinct from task results 1, 2 and 3. */
 export class UsageError extends Error {
@@ -35,11 +36,31 @@ export interface CliOptions {
    * prompt argument stays readable in the process list, and a model's `pkill -f <text from the prompt>` would
    * match Casper itself. */
   promptFromStdin?: boolean;
-  /** One-shot prompt, `casper learn …`, `casper mcp check …`, or an interactive session. */
-  command: "prompt" | "learn" | "mcp-check" | "interactive";
-  /** Prompt words, or the full `learn …` / `mcp check …` argument list. */
+  /** One-shot prompt, a subcommand (`casper learn …`, `casper mcp check …`, `casper new …`,
+   * `casper security …`), or an interactive session. */
+  command: "prompt" | "interactive" | SubcommandName;
+  /** Prompt words, or the subcommand's full argument list (starting with its own words). */
   rest: string[];
 }
+
+export type SubcommandName = "learn" | "mcp-check" | "new" | "security";
+
+/**
+ * Casper's subcommands, matched in this order before anything is a prompt. Each one matches only its exact
+ * words, so `casper new ideas for the app` or `casper security review of the login code` stay prompts. A
+ * subcommand takes its own flags, so leading options are a usage mistake.
+ */
+export const SUBCOMMANDS: ReadonlyArray<{ name: SubcommandName; matches(args: readonly string[]): boolean; withOptions: string }> = [
+  { name: "learn", matches: (args) => args[0] === "learn", withOptions: "learn cannot be combined with options" },
+  // Only exactly `mcp check`: `casper mcp docs are wrong` stays a prompt.
+  { name: "mcp-check", matches: (args) => args[0] === "mcp" && args[1] === "check", withOptions: "mcp check takes its own flags. " },
+  { name: "new", matches: (args) => args[0] === "new" && parseNewArgs(args.slice(1)) !== null, withOptions: "new cannot be combined with options. " },
+  { name: "security", matches: (args) => args[0] === "security" && isSecurityCommand(args.slice(1)), withOptions: "security takes its own flags. " },
+];
+
+const USAGES: Record<SubcommandName, () => string> = {
+  learn: () => "", "mcp-check": () => MCP_CHECK_USAGE, new: () => NEW_USAGE, security: () => SECURITY_USAGE,
+};
 
 /** Every leading option the parser accepts; /help all must document each one. */
 export const CLI_OPTIONS = ["--json", "--max-turns", "--cd", "--continue", "--resume", "--model", "--effort", "--verify", "--no-verify", "--verbose", "--require-verification", "--mcp", "--lsp",
@@ -111,18 +132,19 @@ export function parseCliArgs(argv: readonly string[]): CliOptions {
     options.promptFromStdin = true;
     options.rest = [];
     options.command = "prompt";
-  } else if (args[0] === "learn") {
-    if (optionCount) throw new UsageError("learn cannot be combined with options");
-    options.command = "learn";
-  } else if (args[0] === "mcp" && args[1] === "check") {
-    // Only exactly `mcp check`: `casper mcp docs are wrong` stays a prompt.
-    if (optionCount) throw new UsageError(`mcp check takes its own flags. ${MCP_CHECK_USAGE}`);
-    options.command = "mcp-check";
+  } else if (subcommand(args)) {
+    const found = subcommand(args)!;
+    if (optionCount) throw new UsageError(`${found.withOptions}${USAGES[found.name]()}`.trim());
+    options.command = found.name;
   } else if (args.join(" ").trim()) options.command = "prompt";
   if (options.requireVerification && options.noVerify) throw new UsageError("--require-verification cannot be combined with --no-verify");
   if (options.json && options.command !== "prompt") throw new UsageError("--json needs a prompt: casper --json \"fix the failing test\"");
   if (options.requireVerification && options.command !== "prompt") throw new UsageError("--require-verification needs a prompt: casper --require-verification \"fix the failing test\"");
   return options;
+}
+
+function subcommand(args: readonly string[]): (typeof SUBCOMMANDS)[number] | undefined {
+  return SUBCOMMANDS.find((entry) => entry.matches(args));
 }
 
 function infoFlag(argument: string | undefined): InfoFlag | undefined {
@@ -215,6 +237,73 @@ export function parseMcpCheckArgs(rest: readonly string[]): McpCheckCommand {
     } else repo = arg;
   }
   if (result.server && result.command) throw new UsageError(`--server and -- cannot be combined. ${MCP_CHECK_USAGE}`);
+  if (repo !== undefined) result.repo = repo;
+  return result;
+}
+
+export interface NewCommand {
+  name?: string;
+  template?: string;
+  list: boolean;
+}
+
+export const NEW_USAGE = "Usage: casper new [name] | casper new <template> <name> | casper new --list";
+
+/**
+ * `rest` is everything after `new`. Only `new`, `new <name>`, `new <template> <name>` and `new --list` are the
+ * command; anything else ("new ideas for the app") stays a prompt (null). A single word that isn't a valid
+ * name ("new ../x") is a usage mistake.
+ */
+export function parseNewArgs(rest: readonly string[]): NewCommand | null {
+  if (rest.length === 0) return { list: false };
+  if (rest.length === 1 && rest[0] === "--list") return { list: true };
+  if (rest.some((arg) => arg.startsWith("-"))) {
+    throw new UsageError(`new takes no other options. ${NEW_USAGE}`);
+  }
+  if (rest.length === 1) {
+    const name = rest[0]!;
+    if (!validName(name)) throw new UsageError(NAME_RULE);
+    return { name, list: false };
+  }
+  if (rest.length === 2 && getTemplate(rest[0]!)) {
+    const [template, name] = rest as [string, string];
+    if (!validName(name)) throw new UsageError(NAME_RULE);
+    return { template, name, list: false };
+  }
+  return null;
+}
+
+export interface SecurityCommand {
+  /** The repository folder; "." when not given. */
+  repo: string;
+  json: boolean;
+  /** A check that did not run, or a new ignore, also exits 1. */
+  strict: boolean;
+  /** Install missing tools first. A run without it never installs anything. */
+  install: boolean;
+}
+
+export const SECURITY_USAGE = "Usage: casper security [repo] [--json] [--strict] [--install]";
+const SECURITY_FLAGS = new Set(["--json", "--strict", "--install"]);
+const PATH_LIKE = /^(?:\.{1,2}(?:[\\/]|$)|~(?:[\\/]|$)|[\\/]|[A-Za-z]:[\\/])|[\\/]/;
+
+/** `security` alone, with its flags, or with one folder that looks like a path is the command; other words are a prompt. */
+function isSecurityCommand(rest: readonly string[]): boolean {
+  const words = rest.filter((arg) => !arg.startsWith("-"));
+  return words.length === 0 || (words.length === 1 && PATH_LIKE.test(words[0]!));
+}
+
+/** `rest` starts with "security". A malformed form is a usage error (exit 64), never a failed check. */
+export function parseSecurityArgs(rest: readonly string[]): SecurityCommand {
+  const result: SecurityCommand = { repo: ".", json: false, strict: false, install: false };
+  let repo: string | undefined;
+  for (const arg of rest.slice(1)) {
+    if (arg.startsWith("-")) {
+      if (!SECURITY_FLAGS.has(arg)) throw new UsageError(`Unknown option ${arg}. ${SECURITY_USAGE}`);
+      result[arg.slice(2) as "json" | "strict" | "install"] = true;
+    } else if (repo !== undefined || !arg.trim()) throw new UsageError(SECURITY_USAGE);
+    else repo = arg;
+  }
   if (repo !== undefined) result.repo = repo;
   return result;
 }
