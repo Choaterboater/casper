@@ -15,6 +15,8 @@ export interface BoundedCapabilityResult {
   nextCursor?: { path: string; value: string };
   /** Each list that was cut. */
   lists?: CutList[];
+  /** MCP only: how many device secrets Casper hid before the model saw the result. */
+  secretsHidden?: number;
   /** MCP only: text blocks that repeated structuredContent were left out. */
   duplicateTextDropped?: true;
   data?: unknown;

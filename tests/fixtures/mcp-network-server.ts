@@ -32,6 +32,20 @@ function catalog(mode: string): Tool[] {
       { ...plain("update_site_name"), annotations: { readOnlyHint: false } },
       plain("assign_device_group"),
     ];
+    // hpe-networking-mcp router with the rag toolset: its docs tools sit next to the router tools.
+    case "hpe-docs": return [
+      read("find_tool"), read("invoke_read_tool"),
+      { ...plain("invoke_tool"), annotations: { readOnlyHint: false, destructiveHint: true } },
+      read("search_docs", { type: "object", properties: { query: { type: "string" } } }),
+      read("lookup_api", { type: "object", properties: { query: { type: "string" } } }),
+      read("ask_docs", { type: "object", properties: { question: { type: "string" } } }),
+      ...Array.from({ length: 20 }, (_, i) => read(`configure_vlan_uplink_helper_${i}`)),
+    ];
+    // A server that returns device configs with secrets in them (like get_device_running_config).
+    case "config": return [
+      read("get_running_config"), read("get_ssid"),
+      { ...plain("set_config", { type: "object", properties: { lines: { type: "string" } }, required: ["lines"] }), annotations: { readOnlyHint: false } },
+    ];
     case "access-args": return [{ ...read("access_check"), inputSchema: { type: "object", properties: { who: { type: "string" } }, required: ["who"] } }];
     case "access-unannotated": return [plain("access_check")];
     default: return [read("access_check"), read("get_status"), { ...plain("set_config"), annotations: { readOnlyHint: false } }];
@@ -55,6 +69,17 @@ function accessResult(mode: string) {
   }
 }
 
+/** A made-up AOS-CX / AOS 8 config with secrets in it. None of these values are real. */
+export const RUNNING_CONFIG = [
+  "hostname sw1",
+  "interface 1/1/1",
+  "user admin group administrators password ciphertext AQBapFixtureCipher",
+  "radius-server host 10.0.0.5 key plaintext RadKeyCX",
+  "snmp-server community FixtureComm",
+  "wlan ssid-profile corp",
+  "  wpa-passphrase SuperPSK123",
+].join("\n");
+
 /** FIXTURE_ENV_DUMP=1 adds get_env: the argv and the HPE_MCP_/CENTRALMCP_/CLEARPASS_ env it was started with. */
 function envDump() {
   const prefixes = ["HPE_MCP_", "CENTRALMCP_", "CLEARPASS_"];
@@ -71,6 +96,8 @@ export function networkFixtureServer(mode = "access-ro") {
     // FIXTURE_CALLS_FILE: one line per call, so tests can count what reached the server.
     if (process.env.FIXTURE_CALLS_FILE) appendFileSync(process.env.FIXTURE_CALLS_FILE, `${request.params.name} ${JSON.stringify(request.params.arguments ?? {})}\n`);
     if (request.params.name === "get_env") return envDump();
+    if (request.params.name === "get_running_config") return { content: [{ type: "text" as const, text: JSON.stringify({ config: RUNNING_CONFIG, next_cursor: "c1", _pagination: { list_key: "items" } }) }] };
+    if (request.params.name === "get_ssid") return { content: [{ type: "text" as const, text: JSON.stringify({ ssid: "corp", psk: "FixturePsk-77", token: "hpe_mcp_secret_0123456789abcdef0123456789abcdef" }) }] };
     if (request.params.name === "access_check") {
       // access-slow never answers in time.
       if (mode === "access-slow") await new Promise((resolve) => setTimeout(resolve, 30_000));
