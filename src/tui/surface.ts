@@ -93,6 +93,11 @@ class PromptEditor extends Editor {
 }
 
 /** Main-screen renderer: terminal scrollback, one editor, no autonomous input queue. */
+/** Who asked a numbered question: Casper itself (approvals, choices) or the AI through its ask tool. */
+export type AskOrigin = "ai" | "casper";
+/** The muted first line of every question the AI asks, so it never looks like a Casper approval. */
+export const AI_ASKS_LABEL = "The AI asks:";
+
 export class TerminalSurface {
   private readonly tui: TuiMainScreen;
   private readonly terminal: StreamTerminal;
@@ -139,6 +144,8 @@ export class TerminalSurface {
   private pendingAsk?: (answer: string[] | undefined) => void;
   /** The open question and its options sanitized for display; an answer is the caller's own label. */
   private askQuestion?: string;
+  /** Who is asking: the AI's own questions carry the "The AI asks:" line; Casper's never do. */
+  private askFrom: AskOrigin = "casper";
   private askOptions?: AskOption[];
   private askLabels: string[] = [];
   private askMulti = false;
@@ -489,7 +496,7 @@ private updateSpinner(): void {
   }
 
   /** One structured clarification with a standalone question, navigable choices and free-text input. */
-  ask(question: string, options: { label: string; description?: string }[], multi: boolean, signal?: AbortSignal): Promise<string[] | undefined> {
+  ask(question: string, options: { label: string; description?: string }[], multi: boolean, signal?: AbortSignal, from: AskOrigin = "casper"): Promise<string[] | undefined> {
     if (this.closed || this.slot || this.lending || this.confirmation || this.pendingAsk || this.pendingEdit || signal?.aborted) return Promise.resolve(undefined);
     this.endAssistant(); this.activity = undefined;
     const draft = this.editor.getExpandedText();
@@ -506,6 +513,7 @@ private updateSpinner(): void {
     const record: Component = { render: width => {
       const typed = chosen?.filter(answer => !options.some(option => option.label === answer)) ?? [];
       return [
+        ...(from === "ai" ? [this.muted(AI_ASKS_LABEL)] : []),
         ...wrapTextWithAnsi(this.accent(safeQuestion), width),
         ...shown.flatMap((option, index) => askOptionLines(picked(index) ? "✓ " : "• ", option, width,
           { label: text => picked(index) ? this.accent(text) : text, description: this.muted })),
@@ -518,7 +526,7 @@ private updateSpinner(): void {
     const finish = (answer: string[] | undefined) => {
       if (settled) return; settled = true;
       signal?.removeEventListener("abort", cancel);
-      this.pendingAsk = undefined; this.askQuestion = undefined; this.askOptions = undefined; this.askLabels = [];
+      this.pendingAsk = undefined; this.askQuestion = undefined; this.askOptions = undefined; this.askLabels = []; this.askFrom = "casper";
       this.askMulti = false; this.askSelections.clear(); this.askActiveIndex = 0;
       chosen = answer;
       this.writeBlock(record);
@@ -526,7 +534,7 @@ private updateSpinner(): void {
     };
     const cancel = () => finish(undefined);
     this.attention();
-    this.pendingAsk = finish; this.askQuestion = safeQuestion; this.askOptions = shown;
+    this.pendingAsk = finish; this.askQuestion = safeQuestion; this.askOptions = shown; this.askFrom = from;
     this.askLabels = options.map(option => option.label); this.askMulti = multi;
     this.askSelections.clear(); this.askActiveIndex = 0;
     this.configureAutocomplete(); this.updateSpinner(); this.render();
@@ -571,6 +579,7 @@ private updateSpinner(): void {
       ? `Press ${keys} or Space to toggle · Up/Down move · Enter answer · type to answer · Esc skip`
       : `Press ${keys} or Up/Down + Enter · type to answer · Esc skip`;
     const lines = (compact: boolean) => [
+      ...(this.askFrom === "ai" ? [this.muted(AI_ASKS_LABEL)] : []),
       ...wrapTextWithAnsi(this.accent(this.askQuestion ?? ""), width),
       ...(this.askOptions ?? []).flatMap((option, index) => {
         const selected = index === this.askActiveIndex;

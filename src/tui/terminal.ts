@@ -4,7 +4,7 @@ import type { Readable, Writable } from "node:stream";
 import type { RuntimeModelPickerHost, RuntimePickerIO } from "../runtime/types";
 import { paint, terminalText } from "./format";
 import { renderPanel, type PanelTone } from "./presentation";
-import { TerminalSurface } from "./surface";
+import { TerminalSurface, type AskOrigin } from "./surface";
 
 export type TerminalOutput = RuntimePickerIO["output"] & { isTTY?: boolean };
 
@@ -182,8 +182,8 @@ export class InteractiveTerminal {
   exclusiveHost(): RuntimeModelPickerHost | undefined { return this.surface?.exclusiveHost(); }
 
   /** Structured clarification on the rich surface; undefined when skipped or unavailable. */
-  ask(question: string, options: { label: string; description?: string }[], multi: boolean, signal?: AbortSignal): Promise<string[] | undefined> {
-    return this.surface ? this.surface.ask(question, options, multi, signal) : Promise.resolve(undefined);
+  ask(question: string, options: { label: string; description?: string }[], multi: boolean, signal?: AbortSignal, from: AskOrigin = "casper"): Promise<string[] | undefined> {
+    return this.surface ? this.surface.ask(question, options, multi, signal, from) : Promise.resolve(undefined);
   }
 
   /** Lines edited in place on the rich surface; undefined when skipped or unavailable. */
