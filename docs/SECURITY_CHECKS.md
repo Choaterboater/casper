@@ -1,0 +1,103 @@
+# Security checks for your projects
+
+Casper can run a set of well-known security tools on your project. This uses no
+model and costs no tokens. There are two ways to start it:
+
+- `/security-review` in a Casper session, for the project you are in.
+- `casper security [repo]` in a terminal or in CI.
+
+Casper reports what the tools found. It never calls the code "safe" or "secure":
+a clean report means these tools found nothing, not that nothing is wrong.
+
+## What runs
+
+| Tool | When | Licence | Pinned |
+| --- | --- | --- | --- |
+| gitleaks | always: passwords and keys in files (the value is hidden) | MIT | 8.30.1, sha256 in Casper's source |
+| ruff S | Python files: the bandit-style security rules | MIT | 0.16.9, hash-locked |
+| semgrep | MCP server or FastAPI code, with Casper's own rules only (never `auto` or the registry) | LGPL-2.1 (engine); Casper's rules are MIT | 1.178.0, hash-locked |
+| zizmor | GitHub workflows | MIT | 1.30.1, hash-locked |
+| osv-scanner | dependency lock files, with advisory data downloaded earlier | Apache-2.0 | sha256 in Casper's source |
+| ansible-lint | Ansible playbooks (it runs the repo's own Ansible plugins) | GPL-3.0, called, never copied | 26.9.0, hash-locked |
+| mcp-scanner | only with `--mcp-tools <file>`: the tool descriptions in a saved `tools/list` reply | Apache-2.0 | 4.8.4, hash-locked |
+
+A tool the project does not need reads "not needed". A tool that is missing, crashes
+or takes too long reads "not run" with the reason, and the other tools still run.
+
+Casper runs each tool with its own offline setting on, with a dead proxy, with an
+allowlist of environment variables (no passwords or tokens) and with a stand-in home
+folder. **This is not enforced yet**: a program can still open a network connection
+itself. That changes when the shell sandbox ships.
+
+## Installing the tools
+
+Casper looks for its own pinned copy in `~/.casper/tools`, then for your own copy on
+`PATH`. Your own copy is shown with its version:
+
+```
+gitleaks: using your 8.18.0 (Casper pins 8.30.1)
+```
+
+Casper never downloads anything without asking:
+
+```
+Security checks need 2 tools that aren't installed: gitleaks, zizmor (about 50 MB from github.com and pypi.org).
+1 Install them · 2 Run what's installed · 3 Stop
+```
+
+Go programs are checked against the sha256 in Casper's source before they are
+unpacked; a mismatch installs nothing. Python tools install with `uv` from lock files
+that carry a hash for every package.
+
+- `casper security` never installs. `casper security --install` installs what is missing first.
+- A `/security-review` that cannot ask (a one-shot run, `--json`, a pipe) installs
+  nothing, runs what is installed and says so.
+- `/security-review update` downloads osv-scanner's advisory data, after asking.
+  The report shows how old it is.
+
+## Ignores
+
+Tools let a file say "ignore this" (`# nosec`, `# noqa: S608`, `nosemgrep`,
+`gitleaks:allow`, `zizmor: ignore`, and files such as `.gitleaks.toml`). Casper turns
+those off in the tools and decides itself. An ignore counts only when:
+
+- you committed it (it is in the last commit), or
+- you approved it with a numbered choice:
+
+  ```
+  New ignore you didn't approve: src/x.py:12  # nosec B608
+  1 Keep it (I approve) · 2 Show the line · 3 Leave it flagged
+  ```
+
+A changed ignore file is not used until you say so:
+
+```
+.gitleaks.toml changed since your last commit, so Casper used the default rules.
+1 Use my changed file · 2 Keep the default
+```
+
+Approvals are kept in `~/.casper/projects/<project>/security-approved.json`, never in
+the repo. `/security-review ignores` lists them and can remove one. Only your answer
+writes that file: no model tool can. Until the shell sandbox ships, a shell command
+could still edit it, so treat this as best effort.
+
+## The report and exit codes
+
+```
+Security check: my-server (/home/me/my-server)
+Casper runs these tools with a dead proxy and no passwords or tokens. Not enforced until the shell sandbox ships.
+gitleaks      1 problem    config/.env.example:4  looks like an API key (value hidden)
+ruff S        ok
+zizmor        ok           online checks off (offline)
+osv-scanner   not run      no advisory data yet. /security-review update downloads it (asks first)
+Result: 1 problem, 1 check not run. This is what these tools found. It does not prove the code has no problems.
+```
+
+`casper security` exits **0** with no problems, **1** with problems, and **64** on a
+usage mistake. `--strict` also exits 1 when a check did not run or a new ignore was
+added. `--json` prints one versioned document (`version: 1`) with the same facts.
+
+## Not in this version
+
+A model review that reads the code for security bugs comes after the shell sandbox
+and the wider secret scrub (v0.2.17). This version runs the tools only.
