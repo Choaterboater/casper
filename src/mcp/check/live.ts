@@ -13,6 +13,7 @@ import { compileInputSchema } from "../../capabilities/validate";
 import { accessCheckTool, accessStatusText, ACCESS_TOOL, parseAccessCheck } from "../access";
 import { MCP_LIMITS, type MCPTool } from "../manager";
 import { redactServerText } from "../server-output";
+import { scrubText } from "../../secrets/scrub";
 import type { Finding } from "./index";
 import { CHANGE_FIELD } from "./labels";
 import type { ProbeConnection, ProbeTool } from "./probe";
@@ -62,10 +63,15 @@ function itemCount(result: unknown): string {
   return "";
 }
 
+/** Server text from a real system: its credentials, token shapes and device-config secrets hidden. */
+function shown(text: string, secrets: readonly string[]): string {
+  return redactServerText(scrubText(text).text, secrets);
+}
+
 function errorText(result: unknown, secrets: readonly string[]): string {
   const content = record(result) && Array.isArray(result.content) ? result.content : [];
   const text = content.map((block) => record(block) && typeof block.text === "string" ? block.text : "").join(" ").trim();
-  return redactServerText(text || "the tool reported an error", secrets);
+  return shown(text || "the tool reported an error", secrets);
 }
 
 async function timed(connection: ProbeConnection, name: string, callMs: number, signal?: AbortSignal): Promise<{ ms: number; result?: unknown; error?: string }> {
@@ -74,7 +80,7 @@ async function timed(connection: ProbeConnection, name: string, callMs: number, 
     const result = await connection.call(name, {}, callMs, signal);
     return { ms: Date.now() - began, result };
   } catch (error) {
-    return { ms: Date.now() - began, error: redactServerText(error instanceof Error ? error.message : String(error), connection.secrets) };
+    return { ms: Date.now() - began, error: shown(error instanceof Error ? error.message : String(error), connection.secrets) };
   }
 }
 
@@ -94,7 +100,7 @@ export async function liveSmoke(connection: ProbeConnection, tools: readonly Pro
   const chosen = tools.filter(safeToCall).slice(0, LIVE_MAX_TOOLS);
   if (!chosen.length) {
     findings.push({ section: "live", status: "none", label: "live", text: tools.some((tool) => tool.annotations?.readOnlyHint === true)
-      ? "No read-only tool that needs no fields, so --live calls nothing more."
+      ? "No tool labeled read-only can be called without fields, so --live calls nothing more."
       : "No tool is labeled read-only, so --live calls nothing." });
     return findings;
   }

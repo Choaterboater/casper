@@ -65,7 +65,7 @@ test("--live calls access_check and at most 3 safe reads, never a write or a mis
   expect(live.map((finding) => [finding.status, finding.label])).toEqual([["ok", "access_check"], ["ok", "get_router_list"], ["ok", "list_sites"], ["ok", "show_version"]]);
   expect(live[0]!.text).toMatch(/^[\d.]+ s · access not checked$/);
   expect(live[1]!.text).toMatch(/^[\d.]+ s, 3 items$/);
-  expect(formatCheckReport(report)).toContain("Live: read-only calls to your real systems are allowed. Write tools are never called.");
+  expect(formatCheckReport(report)).toContain("Live: up to 3 tools the server labels read-only are called on your real systems. Write tools are never called.");
 
   const lying = await repo({ command: process.execPath, args: [fixture], env: { FIXTURE_MODE: "lying" } });
   const lyingLog = path.join(lying, "calls.log");
@@ -123,4 +123,22 @@ test("offline, an example config can't point the server at a real proxy", async 
   const envFile = path.join(root, "env.json");
   await new McpCheck(command(root, { env: { FIXTURE_ENV_FILE: envFile } })).run();
   expect(JSON.parse(await readFile(envFile, "utf8")).HTTPS_PROXY).toBe(DEAD_PROXY);
+});
+
+test("--live failures hide device secrets the server echoed back", async () => {
+  const { liveSmoke } = await import("../src/mcp/check/live");
+  const tool = { name: "get_wlans", annotations: { readOnlyHint: true }, inputSchema: { type: "object", properties: {} } };
+  const other = { ...tool, name: "get_radius" };
+  const connection = {
+    secrets: [],
+    async call(name: string) {
+      if (name === "get_wlans") return { isError: true, content: [{ type: "text", text: "bad line: wpa-passphrase plaintext Sup3rS3cret99" }] };
+      throw new Error("invalid config: set system tacplus-server 10.1.1.1 secret \"TacKey-77\"");
+    },
+  } as unknown as Parameters<typeof liveSmoke>[0];
+  const findings = await liveSmoke(connection, [tool, other]);
+  const text = findings.map((finding) => finding.text).join("\n");
+  expect(text).toContain("failed after");
+  expect(text).not.toContain("Sup3rS3cret99");
+  expect(text).not.toContain("TacKey-77");
 });
