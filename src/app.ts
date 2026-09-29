@@ -10,6 +10,7 @@ import { BrowserSession } from "./browser/session";
 import { ServiceManager } from "./services/manager";
 import { SmokeChecks, type SmokeReport } from "./services/smoke";
 import { serviceTool } from "./services/tool";
+import { formatPagesNotChecked, formatSkippedPage, PageChecks, pageOpener, planPageCheck, type DevServerNotice, type PageCheckPlan, type PageOpener, type PageReport } from "./services/page-checks";
 import { formatTerminalJSON } from "./tui/json";
 import { InteractiveTerminal } from "./tui/terminal";
 import { askTool } from "./tui/ask";
@@ -135,6 +136,8 @@ export interface CasperAppOptions {
   newProject?: { template?: string; name?: string };
   /** Builds a new project (casper new, the new-project questions and /new); tests pass a fake. */
   createProject?: (options: NewProjectOptions) => Promise<NewProjectResult>;
+  /** Opens pages for the page check: Chrome when installed, else HTTP only. Tests pass a fake. */
+  pageOpener?: (options: { projectRoot: string; stateDirectory: string }) => Promise<PageOpener>;
 }
 
 /** The last choice of the home-folder and folder-of-projects question. */
@@ -222,6 +225,13 @@ export class CasperApp {
   private checkTask?: VerificationTask;
   /** This task's smoke checks (configured and model-recorded); run inside the task's verification. */
   private smokeTask?: SmokeChecks;
+  /** This task's page check: set when its changes reach a page of a web project in auto mode. */
+  private pageTask?: { context: ProjectContext; root: string; before: Map<string, string> };
+  /** The page opener of the current task (one disposable browser per task), closed when the task ends. */
+  private taskPageOpener?: PageOpener;
+  private readonly pageOpenerFn: NonNullable<CasperAppOptions["pageOpener"]>;
+  /** The dev-server lines are printed once per session. */
+  private readonly pageNotice: DevServerNotice = { shown: false };
   /** What may have changed this task's code since it started: a check the model records after that has no
    * before-the-change baseline. `before` is the task's starting tree, compared only after a shell command. */
   private taskEdits?: { before?: Map<string, string>; edited: boolean; shell: boolean; turnEnded: boolean };
@@ -267,6 +277,7 @@ export class CasperApp {
       return new PiRuntime();
     };
     this.runtimeFactory = options.runtimeFactory ?? freshPiRuntime;
+    this.pageOpenerFn = options.pageOpener ?? pageOpener;
     this.subagents = new SubagentManager({ runtimeFactory: async () => {
       if (this.workspaceTransition || this.workspaceNeedsRebind) throw new Error("Workspace transition is in progress; delegation is blocked");
       const child = await (options.subagentRuntimeFactory ?? freshPiRuntime)();
@@ -802,6 +813,9 @@ export class CasperApp {
       try {
         await this.checkTask?.close();
         if (!prompt.startsWith("/")) await this.browser?.close();
+        const opener = this.taskPageOpener;
+        this.taskPageOpener = undefined;
+        await opener?.close().catch(() => {});
       } catch (error) {
         if (error instanceof ProcessCleanupError) this.cleanupError = error;
         throw error;
@@ -809,6 +823,7 @@ export class CasperApp {
         // With the task's checks: the service tool must not record into them from a later, non-task prompt.
         this.checkTask = undefined;
         this.smokeTask = undefined;
+        this.pageTask = undefined;
         this.taskEdits = undefined;
         this.commandActive = false;
         this.workspaceTransition = false;
@@ -974,6 +989,7 @@ export class CasperApp {
     let afterModel: Map<string, string> | undefined;
     let verification: VerificationReport | undefined;
     let autoChecks: ReturnType<typeof planAutoChecks> | undefined;
+    let pageNotes: string[] | undefined;
     const flatten = (changes: TreeChanges) => [...changes.added, ...changes.modified, ...changes.removed].sort();
     // Automatic effort's classifier is a model call outside the conversation, so the task's usage
     // totals cannot include it: any classification (or an unreadable count) makes them unknown.
@@ -1008,21 +1024,29 @@ export class CasperApp {
         }
       }
       if (!stopped && this.checkTask && verificationMode === "auto") {
+        const changedByModel = before && afterModel ? flatten(diffSnapshots(before, afterModel)) : undefined;
         autoChecks = planAutoChecks({
           selected: context.verification.checks, commands: context.model.commands, scopes: context.model.verificationScopes,
-          named: context.model.namedChecks, changedPaths: before && afterModel ? flatten(diffSnapshots(before, afterModel)) : undefined,
+          named: context.model.namedChecks, changedPaths: changedByModel,
         });
         // Configured smoke checks run after a change; checks the model recorded always run.
         const smokeDue = Boolean(this.smokeTask?.recordedCount || (this.smokeTask?.size && autoChecks.skipped !== "no-changes"));
+        // Pages are opened when the project facts say so (a web project, changed files that reach a page), never the prompt.
+        // A removed page is not opened: only files that exist now can reach a page.
+        const pagePlan = before && afterModel ? await this.planPages(context, pagePaths(diffSnapshots(before, afterModel))) : undefined;
+        const pagesDue = Boolean(before && pagePlan && "service" in pagePlan && pagePlan.pages.open.length);
+        this.pageTask = pagesDue ? { context, root: workspaceRoot, before: before! } : undefined;
+        pageNotes = pagesDue ? undefined : this.pageNotes(pagePlan);
         // Fresh passes the model already recorded are reused, not rerun (VerificationTask).
-        if (autoChecks.run.length || this.checkTask.checks.length || smokeDue) {
-          const pending = [...new Set([...autoChecks.run, ...this.checkTask.checks]), ...(smokeDue ? ["smoke"] : [])];
+        if (autoChecks.run.length || this.checkTask.checks.length || smokeDue || pagesDue) {
+          const pending = [...new Set([...autoChecks.run, ...this.checkTask.checks]), ...(smokeDue ? ["smoke"] : []), ...(pagesDue ? ["pages"] : [])];
           this.events.ensureLineBreak();
           this.output.write(`… Casper checking: ${pending.join(", ")}\n`);
           verification = await this.runVerification(autoChecks.run, true, prompt, this.checkTask);
           const changedCode = Boolean(before && afterModel && changesCode(diffSnapshots(before, afterModel)));
           if (verification.status === "pass" && !(proving && changedCode)) {
-            proofSkipped = proofSkipReason({ intent: classification.intent, testCommand, snapshot: before !== undefined, changedCode });
+            proofSkipped = !verification.results.length && verification.pages && !verification.smoke?.checks.length ? PAGES_ONLY_PROOF
+              : proofSkipReason({ intent: classification.intent, testCommand, snapshot: before !== undefined, changedCode });
           }
           if (proving && verification.status === "pass" && changedCode) {
             const initialReview = parseChecklist(this.lastAnswer);
@@ -1069,7 +1093,8 @@ export class CasperApp {
         ...(services.length ? { services } : {}),
         // Smoke checks ran even without a configured command, so "no checks" no longer describes the task.
         verificationMode, ...(!flag && !configured && verificationMode === "auto" ? { verificationDefaulted: true as const } : {}),
-        ...(autoChecks?.skipped && !verification?.smoke ? { autoSkipped: autoChecks.skipped } : {}),
+        ...(autoChecks?.skipped && !verification?.smoke && !verification?.pages ? { autoSkipped: autoChecks.skipped } : {}),
+        ...(pageNotes?.length && !verification?.pages ? { pageNotes } : {}),
         ...(this.taskTurnLimit !== undefined ? { turnLimit: this.taskTurnLimit } : {}), ...(proof ? { proof } : {}), ...(proofSkipped && !proof ? { proofSkipped } : {}), ...(review ? { review } : {}),
         ...(acceptance ? { acceptance } : {}), ...(checklist ? { checklist } : {}) };
       if (!this.closing) {
@@ -1316,6 +1341,8 @@ export class CasperApp {
         onUnfinished: this.interactive && this.terminal.rich ? (unfinished, signal) => this.askUnfinished(unfinished, context.verification.timeoutMs, signal) : undefined,
         // The task's smoke checks join its own verification (repairs and review reruns), never a standalone /verify.
         smoke: task && task === this.checkTask && this.smokeTask?.size ? this.smokeRun(this.smokeTask) : undefined,
+        // So do its page checks: planned again from every change since the task started, after each repair too.
+        pages: task && task === this.checkTask && this.pageTask ? this.pageRun(this.pageTask) : undefined,
       });
       const report = await this.verificationWork;
       await recordCheckTimings(context.stateDirectory, report.rounds.flat());
@@ -1471,6 +1498,46 @@ export class CasperApp {
     const answer = await this.terminal.ask(`${what}. Casper did not try to fix it. What now?`,
       options.map(({ label, description }) => ({ label, description })), false, signal);
     return options.find((option) => option.label === answer?.[0])?.choice;
+  }
+
+  /** The page check for these changed files, from project facts only: undefined when this is not a web project,
+   * pages are off, or no change reaches a page; a reason when the dev server can't be started (a missing install). */
+  private async planPages(context: ProjectContext, changedPaths: readonly string[] | undefined): Promise<PageCheckPlan | undefined> {
+    if (!changedPaths?.length || context.pages === "off") return undefined;
+    try {
+      return await planPageCheck(this.activeWorkspaceRoot(), { frameworks: context.model.frameworks, packageManager: context.model.packageManager,
+        services: context.services ?? {} }, changedPaths, context.pages);
+    } catch { return undefined; }
+  }
+
+  /** The receipt lines for pages that were not opened: why the dev server can't start, or pages that need a value. */
+  private pageNotes(plan: PageCheckPlan | undefined): string[] | undefined {
+    if (!plan) return undefined;
+    if ("reason" in plan) return [formatPagesNotChecked(plan.reason)];
+    return plan.pages.skipped.length ? plan.pages.skipped.map(formatSkippedPage) : undefined;
+  }
+
+  /** One page check against the dev server, timed as the `pages` phase. The pages are planned again from every
+   * change since the task started, so a repair's edits count. Cancellation is reported by the loop. */
+  private pageRun(task: NonNullable<CasperApp["pageTask"]>): (signal: AbortSignal) => Promise<PageReport | undefined> {
+    return async (signal) => {
+      const now = await this.snapshotWorkspace(task.root, signal);
+      const plan = now ? await this.planPages(task.context, pagePaths(diffSnapshots(task.before, now))) : undefined;
+      if (signal.aborted || !plan || !("service" in plan) || !plan.pages.open.length) return undefined;
+      this.phase("pages", "start");
+      try {
+        this.taskPageOpener ??= await this.pageOpenerFn({ projectRoot: task.root, stateDirectory: task.context.stateDirectory });
+        this.events.ensureLineBreak();
+        const checks = new PageChecks(() => this.serviceManager(), plan.service, this.taskPageOpener, plan.pages,
+          { announce: (line) => { if (!this.closing) this.output.write(`${terminalText(line)}\n`); }, notice: this.pageNotice });
+        return await checks.run(signal);
+      } catch (error) {
+        if (signal.aborted) return undefined;
+        const { name, label, spec } = plan.service;
+        return { status: "incomplete", pages: [], skipped: plan.pages.skipped, server: { name, label, command: spec.command },
+          reason: `Casper could not open the pages: ${redactPreview(error instanceof Error ? error.message : String(error)).slice(0, 300)}` };
+      } finally { this.phase("pages", "end"); }
+    };
   }
 
   /** One smoke run against fresh services, timed as the `smoke` phase. Cancellation is reported by the loop. */
@@ -1949,6 +2016,12 @@ export class CasperApp {
 }
 
 /** Why a change whose checks passed was not compared with and without it, in plain words for the receipt. */
+/** The verdict's reason when only page checks passed: they show the pages load, not that the change works. */
+export const PAGES_ONLY_PROOF = "pages load, but no test fails without the change";
+
+/** The files a page check plans from: added and changed ones (a removed page is not opened). */
+function pagePaths(changes: TreeChanges): string[] { return [...changes.added, ...changes.modified].sort(); }
+
 export function proofSkipReason(options: { intent: string; testCommand?: string; snapshot: boolean; changedCode: boolean }): string {
   if (options.intent === "refactor") return "a refactor should not change behavior, so no test is expected to fail without it";
   if (["document", "inspect", "visualize", "configure"].includes(options.intent)) return `Casper does not compare ${options.intent} requests with and without the change`;

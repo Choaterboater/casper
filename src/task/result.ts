@@ -4,7 +4,7 @@ import type { ProjectCommand } from "../project/model";
 import type { BrowserReport } from "../browser/scenario";
 import type { ServiceState } from "../services/manager";
 import type { SmokeReport } from "../services/smoke";
-import { formatPageLine, pageFailureSummary } from "../services/page-report";
+import { formatPageReport, pageFailureSummary } from "../services/page-report";
 import type { AutoCheckSkip, VerificationMode } from "../verify/mode";
 import type { ChangeProof } from "../verify/proof";
 import type { AcceptanceResult } from "../verify/acceptance";
@@ -79,6 +79,9 @@ export interface TaskResult {
   security?: SecuritySummary;
   /** This task's saved receipt number (/receipt <n>), when receipts are kept. */
   receipt?: number;
+  /** Why the task's changed pages were not opened, as plain receipt lines: the dev server can't start (a missing
+   * install), or every changed page needs a value ("• /devices/[id] not opened: …"). Never a failure. */
+  pageNotes?: string[];
   /** Whether /undo can put this task's files back, and why not. */
   undo?: { available: true } | { available: false; reason: string };
 }
@@ -173,6 +176,7 @@ export function formatTaskResult(task: TaskResult): string {
       + `${check.status !== "pass" && check.reason ? ` — ${safe(check.reason)}` : ""}`).join("; ")}.${report.smoke.reason ? ` ${safe(report.smoke.reason)}` : ""}${crashNotes(report.smoke, safe).map((note) => ` ${note}.`).join("")} Model checks are the model's expectations, run by Casper.`));
   }
   if (report?.pages) lines.push(receiptLine("pages", `${report.pages.status}: ${report.pages.pages.map((page) => `${safe(page.path)} ${page.status}${page.httpStatus !== null ? ` (${page.httpStatus})` : ""}`).join("; ") || "none opened"}${report.pages.reason ? `. ${safe(report.pages.reason)}` : ""}`));
+  else if (task.pageNotes?.length) lines.push(receiptLine("pages", task.pageNotes.map((note) => safe(note.replace(/^• /, ""))).join("; ")));
   if (task.bigModel) lines.push(receiptLine("big model", `${safe(task.bigModel.model)} for ${task.bigModel.attempts} ${task.bigModel.attempts === 1 ? "repair" : "repairs"}`));
   if (task.security) lines.push(receiptLine("security", securityText(task.security)));
   if (task.browser) {
@@ -242,10 +246,9 @@ export function formatReceipt(task: TaskResult, options: ReceiptOptions = {}): s
   if (report?.smoke) lines.push(smokeLine(report.smoke, task.services, safe));
   else if (report?.smokeSkipped) lines.push(`• Smoke not run: ${report.smokeSkipped}`);
   // Page text is already scrubbed and cut short by the page check.
-  if (report?.pages) {
-    lines.push(...report.pages.pages.map((page) => safe(formatPageLine(page))));
-    if (report.pages.reason) lines.push(`• Pages not checked: ${safe(report.pages.reason).replace(/\.$/, "")}`);
-  } else if (report?.pagesSkipped) lines.push(`• Pages not checked: ${report.pagesSkipped}`);
+  if (report?.pages) lines.push(...formatPageReport(report.pages).flatMap((line) => line.split("\n")).map(safe));
+  else if (report?.pagesSkipped) lines.push(`• Pages not checked: ${report.pagesSkipped}`);
+  for (const note of task.pageNotes ?? []) lines.push(safe(note));
   if (task.security) lines.push(`• Security tools: ${securityText(task.security)} (what the tools found; not proof the code has no problems)`);
   if (task.browser) {
     const failed = task.browser.checks.filter((check) => check.status === "fail").map((check) => safe(check.name));

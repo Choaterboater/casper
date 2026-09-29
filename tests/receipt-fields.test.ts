@@ -75,3 +75,18 @@ test("a stored task keeps no check output and hides secrets in page text", () =>
   // The original evidence is untouched.
   expect(task.verification!.results[0]!.stdout).toBe("token=abc123secret");
 });
+
+test("pages the check did not open are listed, and a dev server that did not start shows its last lines", () => {
+  const withSkipped: TaskResult = { execution: "completed", changedPaths: ["app/devices/[id]/page.tsx", "app/page.tsx"],
+    verification: report({ pages: { ...pages("pass"), skipped: [{ path: "/devices/[id]", why: "it needs a value for [id]" }] } }) };
+  expect(formatReceipt(withSkipped)).toContain("• /devices/[id] not opened: it needs a value for [id] (a fixed path can be set in .casper/project.yaml pages:)");
+  const notStarted: TaskResult = { execution: "completed", changedPaths: ["app/page.tsx"], verification: report({ status: "incomplete",
+    pages: { status: "incomplete", pages: [], skipped: [], server: { name: "web", label: "bun run dev", command: "next dev" },
+      reason: "the dev server stopped before it was ready (exit 1)", logTail: "Error: Cannot find module 'next'" } }) };
+  const text = formatReceipt(notStarted);
+  expect(text).toContain("• Pages not checked: the dev server stopped before it was ready (exit 1). Last lines:\n    Error: Cannot find module 'next'");
+  expect(text.split("\n")[0]).toBe("• Incomplete — not every check ran");
+  const noted: TaskResult = { execution: "completed", changedPaths: ["src/App.tsx"], pageNotes: ["• Pages not checked: node_modules is missing. Run bun install first (Casper doesn't install packages)"] };
+  expect(formatReceipt(noted)).toContain("• Pages not checked: node_modules is missing.");
+  expect(formatTaskResult(noted)).toContain("pages        Pages not checked: node_modules is missing.");
+});
