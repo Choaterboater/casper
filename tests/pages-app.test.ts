@@ -232,3 +232,14 @@ test("the dev server Casper found and started for its page check never hands the
   expect(toolsAtPrompt[0]).not.toContain("service");
   expect(toolsAtPrompt[1]).not.toContain("service");
 }, 30_000);
+
+test("without Chrome, a page that answers is never said to load: the verdict says the console was not checked", async () => {
+  const f = await fixture();
+  const load = f.opener.load.bind(f.opener);
+  f.opener.load = async (url, signal) => ({ ...await load(url, signal), consoleChecked: false });
+  f.runtime.turns.push(async runtime => { await runtime.write(f.page, "export default function Page() { return <main>Dashboard</main>; }\n"); });
+  await f.app.runOnce("Add a dark mode toggle to the dashboard");
+  expect(f.text()).toContain("✓ /dashboard answers (HTTP 200) · console not checked");
+  expect(f.text()).toContain("• Checks passed — not proven: pages answer, but their console was not checked and no test fails without the change");
+  expect(f.text()).not.toContain("pages load");
+}, 30_000);

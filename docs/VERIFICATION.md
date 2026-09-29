@@ -410,7 +410,8 @@ failing page is the receipt's first line (`✗ Failed — /dashboard has 2 conso
 repair as page evidence (the console text, the error line and the server's last log lines, bounded and
 with secrets hidden); the pages are planned and opened again after each repair. A page that loads says
 **loads**, never "works": a pass never makes a change **Verified**. With only page checks, the receipt
-says `• Checks passed — not proven: pages load, but no test fails without the change`.
+says `• Checks passed — not proven: pages load, but no test fails without the change`; without Chrome it
+says `pages answer, but their console was not checked` instead.
 
 **Chrome.** Pages are opened in a fresh headless Chrome (`CASPER_BROWSER_EXECUTABLE`, else an installed
 Chrome or Chromium; Casper never downloads one). Without Chrome, Casper only fetches the page and says so:

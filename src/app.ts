@@ -1047,7 +1047,8 @@ export class CasperApp {
           verification = await this.runVerification(autoChecks.run, true, prompt, this.checkTask);
           const changedCode = Boolean(before && afterModel && changesCode(diffSnapshots(before, afterModel)));
           if (verification.status === "pass" && !(proving && changedCode)) {
-            proofSkipped = !verification.results.length && verification.pages && !verification.smoke?.checks.length ? PAGES_ONLY_PROOF
+            proofSkipped = !verification.results.length && verification.pages && !verification.smoke?.checks.length
+              ? verification.pages.pages.every((page) => page.consoleChecked) ? PAGES_ONLY_PROOF : PAGES_ANSWER_ONLY_PROOF
               : proofSkipReason({ intent: classification.intent, testCommand, snapshot: before !== undefined, changedCode });
           }
           if (proving && verification.status === "pass" && changedCode) {
@@ -2025,6 +2026,8 @@ export class CasperApp {
 /** Why a change whose checks passed was not compared with and without it, in plain words for the receipt. */
 /** The verdict's reason when only page checks passed: they show the pages load, not that the change works. */
 export const PAGES_ONLY_PROOF = "pages load, but no test fails without the change";
+/** The same without Chrome: a page that answers over HTTP may still fail once its scripts run. */
+export const PAGES_ANSWER_ONLY_PROOF = "pages answer, but their console was not checked and no test fails without the change";
 
 /** The files a page check plans from: added and changed ones (a removed page is not opened). */
 function pagePaths(changes: TreeChanges): string[] { return [...changes.added, ...changes.modified].sort(); }
