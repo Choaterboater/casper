@@ -84,3 +84,12 @@ posixOnly("a write or a shell command that carries <secret hidden> back is refus
   expect(ends.find((event) => event.toolName === "bash")).toMatchObject({ isError: true, output: { text: expect.stringContaining("Not run: the command has <secret hidden> in it.") } });
   expect(await readFile(path.join(project, "notes.cfg"), "utf8")).toBe("snmp-server community RealComm\n");
 }, 30_000);
+
+posixOnly("a read-only /delegate child reads config files with secrets hidden too", async () => {
+  const { sent } = await run([
+    { name: "read", args: { path: "backups/sw1.cfg" } },
+    { name: "grep", args: { pattern: "community", path: "backups" } },
+  ], { FIXTURE_READ_ONLY: "1" });
+  expect(sent).toContain("snmp-server community <secret hidden>");
+  expect(sent).not.toContain("FixtureComm");
+}, 30_000);

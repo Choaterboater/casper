@@ -496,7 +496,8 @@ export class PiRuntime implements AgentRuntime {
       if (!Number.isInteger(limit) || limit < 1) throw new Error("Invalid read-only runtime budget");
     }
     this.readOnly = true;
-    return this.create({ cwd: options.cwd, systemPromptAppend: options.systemPromptAppend }, options);
+    return this.create({ cwd: options.cwd, systemPromptAppend: options.systemPromptAppend,
+      ...(options.scrubToolOutput ? { scrubToolOutput: options.scrubToolOutput } : {}) }, options);
   }
 
   private async create(options: RuntimeStartOptions, readOnly?: RuntimeReadOnlyStartOptions): Promise<RuntimeSession> {

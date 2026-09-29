@@ -152,3 +152,34 @@ test("/mcp docs lists the docs server and adds a docs-only copy with no credenti
   expect(again.output).toContain("Docs-only server: hpe-docs.");
   expect(again.output).not.toContain("Add a docs-only copy");
 });
+
+test("a /delegate child gets the same scrubbing, and /secrets files off stops it there too", async () => {
+  const { home, project } = await fixture();
+  const seen: Array<Awaited<ReturnType<NonNullable<RuntimeStartOptions["scrubToolOutput"]>>> | "none"> = [];
+  const child: AgentRuntime = {
+    async start() { throw new Error("children start read-only"); },
+    async startReadOnly(options) {
+      return {
+        prompt: async () => {
+          seen.push(options.scrubToolOutput ? await options.scrubToolOutput("read", { path: "backups/sw1.cfg" }, ["snmp-server community ChildComm"]) : "none");
+        },
+        abort: async () => {}, subscribe: () => () => {}, getState: () => ({ cwd: options.cwd, isStreaming: false }),
+      };
+    },
+    async dispose() {},
+  };
+  for (const filesOn of [true, false]) {
+    const app = new CasperApp({
+      runtimeFactory: () => { throw new Error("the parent stays lazy"); }, subagentRuntimeFactory: () => child, sessionHomeDir: home,
+      scrubber: new Scrubber({ env: { CASPER_NETCONAN: "off" } }),
+      loadProjectContext: (info) => loadProjectContext(info, { homeDir: home }),
+      loadSkillRegistry: (context) => SkillRegistry.discover({ projectRoot: context.info.root, homeDir: home }),
+      loadMCPConfiguration: async () => ({ servers: [], diagnostics: [] }),
+      output: { write: () => {} },
+    });
+    cleanup.push(() => app.close());
+    app.scrubFiles = filesOn;
+    await app.runOnce("/delegate explorer Find the snmp settings", project).catch(() => {});
+  }
+  expect(seen).toEqual([{ texts: ["snmp-server community <secret hidden>"], note: "1 secret hidden before the AI saw this (SNMP communities)." }, undefined]);
+});

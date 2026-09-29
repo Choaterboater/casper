@@ -49,6 +49,8 @@ export interface RuntimeReadOnlyStartOptions {
   reportTurn?: boolean;
   /** Casper role for this child; unset roles use the Casper startup default. */
   modelRole?: "fast" | "review";
+  /** The same secret scrubbing as the main session: a child's reads reach a model too. */
+  scrubToolOutput?: RuntimeStartOptions["scrubToolOutput"];
 }
 
 export interface RuntimeStatus {
