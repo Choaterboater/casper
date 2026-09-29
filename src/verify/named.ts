@@ -11,7 +11,8 @@ import {
  *
  * Kinds: an ordinary check passes or fails. A report (a diff) is shown for reading and never makes a
  * run pass or fail. A lab check reaches the user's own lab devices: it never runs on its own, the AI
- * can never start it, and in this version Casper does not run it at all (it needs the shell sandbox).
+ * can never start it, and it runs only when the user starts it with /verify <name> and answers the
+ * numbered ask, against the lab list in their own ~/.casper/config.yaml.
  */
 
 /** A check's name: a built-in check, or a name the project gave under verify.checks. */
@@ -40,8 +41,8 @@ export function labNamedChecks(named: Record<string, NamedCheckSpec> | undefined
   return named ? Object.entries(named).filter(([, spec]) => spec.kind === "lab").map(([name]) => name) : [];
 }
 
-/** What Casper says for a lab check in this version. */
-export const LAB_NOT_YET = "lab checks are not run yet: Casper will run them on your own lab only once its shell sandbox ships";
+/** What a lab check says when something other than the user's own /verify <name> asks it to run. */
+export const labOnlyByYou = (name: string): string => `Lab checks run only when you start them: /verify ${name}`;
 
 /** Each check's command line by name, for timing: built-in commands and named `run` commands. */
 export function checkCommands(model: { commands: Partial<Record<ProjectCommand, string>>; namedChecks?: Record<string, NamedCheckSpec> }): Record<string, string> {

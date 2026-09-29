@@ -172,8 +172,8 @@ test("a failed lab check is never repaired on its own: the ask defaults to Stop"
   expect(repairClass(result)).toBe("ask");
   const ask = labFailureAsk("junos-commit");
   expect(`${ask.text} ${numberedChoices(ask.choices)}`).toBe(
-    "junos-commit failed on the lab. Casper did not ask the model to fix it, because each try touches lab devices. 1 Ask the model to fix it · 2 Stop");
-  expect(ask.defaultChoice).toBe(2);
+    "junos-commit failed on the lab. Casper did not ask the model to fix it, because each try touches lab devices. 1 Stop · 2 Ask the model to fix it");
+  expect(ask.defaultChoice).toBe(1);
 });
 
 test("on Windows lab checks read not run", async () => {

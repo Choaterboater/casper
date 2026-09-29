@@ -10,7 +10,7 @@ import { formatReceipt, liveCheckLine } from "../src/task/result";
 import { argvText, runCommandCheck } from "../src/verify/command";
 import { formatVerificationResult, repairClass, verificationStatus, type VerificationResult } from "../src/verify/evidence";
 import { describeChecksPlan, manualChecks, planAutoChecks, selectedChecks } from "../src/verify/mode";
-import { LAB_NOT_YET, type NamedCheckSpec } from "../src/verify/named";
+import { labOnlyByYou, type NamedCheckSpec } from "../src/verify/named";
 import { defaultVerifyNames, VerifierRegistry } from "../src/verify/registry";
 import { VerificationTask } from "../src/verify/task";
 
@@ -99,7 +99,7 @@ describe("running named checks", () => {
     expect(done).toMatchObject({ status: "pass", command: "exit 3" });
   });
 
-  test("the registry runs named checks: run commands, presets through the runner, and lab checks not at all", async () => {
+  test("the registry runs named checks: run commands, presets through the runner, and lab checks only through the lab runner", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "casper-registry-"));
     dirs.push(root);
     const calls: string[] = [];
@@ -116,7 +116,18 @@ describe("running named checks", () => {
     expect(docs).toMatchObject({ status: "pass", command: "echo named-docs" });
     expect(docs!.stdout).toContain("named-docs");
     expect(diff).toMatchObject({ kind: "report", summary: "2 lines to change · 2 to undo" });
-    expect(lab).toMatchObject({ status: "skip", kind: "lab", reason: LAB_NOT_YET });
+    expect(lab).toMatchObject({ status: "skip", kind: "lab", reason: labOnlyByYou("junos-commit") });
+    expect(calls).toEqual(["diff"]);
+    // Only the app's /verify <name> passes a lab runner; with one, the lab check goes there and nowhere else.
+    const labCalls: string[] = [];
+    const withLab = VerifierRegistry.forProject(model(root, {
+      "junos-commit": { kind: "lab", preset: "junos-commit", files: ["c.set"], inventory: "lab.yml" },
+    }), 10_000, undefined, {
+      runPreset: async (name) => { calls.push(name); return result({ name, cwd: root }); },
+      runLab: async (name) => { labCalls.push(name); return result({ name, cwd: root, kind: "lab", label: "commit check only; not committed" }); },
+    });
+    expect((await withLab.run(["junos-commit"]))[0]).toMatchObject({ status: "pass", kind: "lab" });
+    expect(labCalls).toEqual(["junos-commit"]);
     expect(calls).toEqual(["diff"]);
     expect(defaultVerifyNames(model(root, { docs: { kind: "offline", run: "x" }, lab: { kind: "lab", preset: "junos-commit", inventory: "i" } })))
       .toEqual(["typecheck", "lint", "test", "build", "docs"]);
