@@ -3,7 +3,7 @@ import type { JsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/t
 import { isRecord } from "../mcp/config";
 import type { MCPManager, MCPTool } from "../mcp/manager";
 import type { RuntimeTool } from "../runtime/types";
-import { boundCapabilityResult, type BoundedCapabilityResult } from "./result";
+import { boundCapabilityResult, capabilityErrorResult, NotExecutedError, type BoundedCapabilityResult } from "./result";
 
 export type CapabilitySafety = "read" | "diagnostic" | "write" | "destructive" | "exec" | "external-action";
 export interface CapabilityDescriptor {
@@ -35,8 +35,13 @@ let validatorLoad: Promise<NonNullable<typeof validatorModule>> | undefined;
 const MAX_SCHEMA_BYTES = 12_000;
 const MAX_DIRECT_SCHEMA_BYTES = 32_000;
 function requireSupportedSchema(capability: Capability): void {
-  if (capability.schemaBytes > MAX_SCHEMA_BYTES) throw new Error("Capability schema exceeds 12 KB exposure budget");
+  if (capability.schemaBytes > MAX_SCHEMA_BYTES) throw new NotExecutedError("schema not supported: over the 12 KB limit");
 }
+/** A cancelled call that was never sent reads "Not executed (cancelled)", whatever the abort reason was. */
+function notCancelled(signal: AbortSignal): void {
+  if (signal.aborted) throw new NotExecutedError("cancelled");
+}
+const MAX_ARGUMENT_BYTES = 16_384;
 
 function hash(value: string): string { return createHash("sha256").update(value).digest("hex"); }
 const STOP_WORDS = new Set(["the", "a", "an", "to", "of", "for", "and", "in", "with", "please", "tool", "tools", "read", "get", "show", "use"]);
@@ -80,14 +85,23 @@ export class CapabilityBroker {
     return structuredClone({ capability: capability.descriptor, inputSchema: capability.tool.inputSchema });
   }
 
+  /**
+   * Run one capability call. Every refusal before the call is sent throws NotExecutedError, so the
+   * model reads "Not executed (…)" and never "Complete result". The steps keep this order; later
+   * packages fill the marked seams in place:
+   *   size check -> validate (WP3) -> hidden/argGuard (WP4) -> secret-marker gate (WP6)
+   *   -> approval plan (WP2) -> call (call clock) -> scrub (WP6) -> bound the result.
+   */
   async invoke(id: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<BoundedCapabilityResult> {
     const combined = signal ? AbortSignal.any([signal, this.closed.signal]) : this.closed.signal;
-    combined.throwIfAborted();
+    notCancelled(combined);
     this.sync();
     const capability = this.get(id);
-    if (!isRecord(args) || Buffer.byteLength(JSON.stringify(args)) > 16_384) throw new Error("MCP arguments must be an object within 16 KB");
+    // 1. Size check.
+    if (!isRecord(args) || Buffer.byteLength(JSON.stringify(args)) > MAX_ARGUMENT_BYTES) throw new NotExecutedError("arguments over 16 KB");
     const frozenArgs = structuredClone(args);
     requireSupportedSchema(capability);
+    // 2. Validate (WP3 seam: field-named argument errors extend "bad arguments").
     // Also validate fallback calls; a generic invocation schema is not permission
     // to bypass the target tool's actual schema.
     let valid = false;
@@ -97,23 +111,32 @@ export class CapabilityBroker {
         capability.validate ??= new validatorModule.AjvJsonSchemaValidator().getValidator(capability.tool.inputSchema);
       }
       valid = capability.validate(frozenArgs).valid;
-    } catch { throw new Error("Unsupported MCP input schema; call blocked"); }
+    } catch { throw new NotExecutedError("schema not supported"); }
     // A first-use import yields: do not ask for approval using a cancelled call
     // or stale catalog, even before the existing post-approval identity check.
-    combined.throwIfAborted();
+    notCancelled(combined);
     this.sync();
-    if (this.get(id).fingerprint !== capability.fingerprint) throw new Error("MCP tool changed during validation; search and review again");
-    if (!valid) throw new Error("Invalid MCP arguments; inspect the capability schema");
+    if (this.get(id).fingerprint !== capability.fingerprint) throw new NotExecutedError("tool changed; search again");
+    if (!valid) throw new NotExecutedError("bad arguments");
+    // 3. Hidden capabilities and argument guards (WP4 seam).
+    // 4. Hidden-secret marker gate (WP6 seam).
+    // 5. Approval (WP2 seam: the approval plan replaces this block).
     if (capability.descriptor.safety !== "read") {
-      const approved = await this.confirm?.({
+      if (!this.confirm) throw new NotExecutedError("needs your approval, and this run cannot ask");
+      const approved = await this.confirm({
         capability: structuredClone(capability.descriptor), arguments: structuredClone(frozenArgs),
       }, combined);
-      if (!approved) throw new Error(`MCP ${capability.descriptor.safety} call requires explicit interactive confirmation; not executed`);
+      notCancelled(combined);
+      if (!approved) throw new NotExecutedError("you said no");
     }
-    combined.throwIfAborted();
+    notCancelled(combined);
     this.sync();
-    if (this.get(id).fingerprint !== capability.fingerprint) throw new Error("MCP tool changed during approval; search and review again");
-    return boundCapabilityResult(await this.manager.call(capability.descriptor.source, capability.tool.name, frozenArgs, combined));
+    if (this.get(id).fingerprint !== capability.fingerprint) throw new NotExecutedError("tool changed; search again");
+    // 6. Call, under the per-server call clock (the manager owns it; WP2 pauses it through onClock).
+    const raw = await this.manager.call(capability.descriptor.source, capability.tool.name, frozenArgs, combined);
+    // 7. Scrub device secrets from the raw result (WP6 seam).
+    // 8. Bound: per-list limits, the next-page cursor kept, duplicate text dropped.
+    return boundCapabilityResult(raw, 16_384, 50, { mcp: true });
   }
 
   close(): Promise<void> {
@@ -154,7 +177,7 @@ export class CapabilityBroker {
 
   private get(id: string): Capability {
     const capability = this.capabilities.get(id);
-    if (!capability) throw new Error("Unknown or unavailable capability; use find_capability");
+    if (!capability) throw new NotExecutedError("unknown capability; use find_capability");
     return capability;
   }
 
@@ -175,7 +198,8 @@ export class CapabilityBroker {
         try { return await execute(args, signal); }
         catch (error) {
           // Local errors are controlled strings; raw transport errors are removed by the manager.
-          return { text: JSON.stringify(boundCapabilityResult({ isError: true, message: error instanceof Error ? error.message : "Capability failed" })), isError: true };
+          // A refusal reads "Not executed (…)", never "Complete result".
+          return { text: JSON.stringify(capabilityErrorResult(error)), isError: true };
         }
       },
     });
@@ -185,14 +209,14 @@ export class CapabilityBroker {
       }, async (args) => {
         const id = typeof args.id === "string" ? args.id.trim() : "";
         const query = typeof args.query === "string" ? args.query.trim() : "";
-        if (Boolean(id) === Boolean(query)) throw new Error("Supply either a nonempty query or id; leave the other empty");
+        if (Boolean(id) === Boolean(query)) throw new NotExecutedError("supply either a nonempty query or id; leave the other empty");
         const result = id ? { id, inputSchemaJson: JSON.stringify(this.describe(id).inputSchema) } : this.search(query);
         return { text: JSON.stringify(boundCapabilityResult(result)) };
       }),
-      wrap("call_capability", "Call a capability by exact id and arguments after inspecting its schema with find_capability. Same safety checks as direct tools. Results bounded to 16 KB / 50 array items; never automatically retry consequential calls.", {
+      wrap("call_capability", "Call a capability by exact id and arguments after inspecting its schema with find_capability. Same safety checks as direct tools. Results bounded to 16 KB and 50 items per list; next_cursor is always kept. Never automatically retry consequential calls.", {
         type: "object", properties: { id: { type: "string" }, arguments: { type: "object", additionalProperties: true } }, required: ["id", "arguments"], additionalProperties: false,
       }, async (args, signal) => {
-        if (typeof args.id !== "string" || !isRecord(args.arguments)) throw new Error("Expected id and arguments object");
+        if (typeof args.id !== "string" || !isRecord(args.arguments)) throw new NotExecutedError("bad arguments: expected id and an arguments object");
         const result = await this.invoke(args.id, args.arguments, signal);
         return { text: JSON.stringify(result), isError: result.isError };
       }, true),

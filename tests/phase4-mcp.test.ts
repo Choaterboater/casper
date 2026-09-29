@@ -186,7 +186,7 @@ test("schema inspection preserves enum and required semantics beyond the result 
   expect(schema.properties.site.enum[79]).toBe("site-79");
   expect(envelope.truncated).toBe(false);
   expect(Buffer.byteLength(response.text)).toBeLessThanOrEqual(16_384);
-  await expect(broker.invoke("mcp:generic:inspect_quantum_flux", {})).rejects.toThrow("Invalid MCP arguments");
+  await expect(broker.invoke("mcp:generic:inspect_quantum_flux", {})).rejects.toThrow("Not executed (bad arguments");
   expect((await broker.invoke("mcp:generic:inspect_quantum_flux", { site: "site-79" })).isError).toBe(false);
 });
 
@@ -204,9 +204,9 @@ test("escaped schema budgets agree across inspection, direct selection, and fall
   expect(Buffer.byteLength(response.text)).toBeLessThanOrEqual(16_384);
   expect(JSON.parse(envelope.data.inputSchemaJson)).toEqual(broker.describe("mcp:generic:inspect_budget_in").inputSchema);
   expect((await broker.invoke("mcp:generic:inspect_budget_in", {})).isError).toBe(false);
-  expect(() => broker.describe("mcp:generic:inspect_budget_out")).toThrow("exposure budget");
+  expect(() => broker.describe("mcp:generic:inspect_budget_out")).toThrow("Not executed (schema not supported");
   expect((await find.execute({ id: "mcp:generic:inspect_budget_out" })).isError).toBe(true);
-  await expect(broker.invoke("mcp:generic:inspect_budget_out", {})).rejects.toThrow("exposure budget");
+  await expect(broker.invoke("mcp:generic:inspect_budget_out", {})).rejects.toThrow("Not executed (schema not supported");
 });
 
 test("router catalogs prefer native discovery and read dispatch, never generic dispatch permission", async () => {
@@ -223,7 +223,7 @@ test("router catalogs prefer native discovery and read dispatch, never generic d
   expect(JSON.stringify(found)).toContain("inspect_quantum_flux");
   const result = await broker.invoke("mcp:router-catalog:invoke_read_tool", { name: "inspect_quantum_flux", arguments: { site: "lab" } });
   expect(JSON.stringify(result)).toContain('"counter":42');
-  await expect(broker.invoke("mcp:router-catalog:invoke_tool", {})).rejects.toThrow("confirmation");
+  await expect(broker.invoke("mcp:router-catalog:invoke_tool", {})).rejects.toThrow("Not executed (needs your approval");
 });
 
 test("collision-safe names route to the exact server and non-read calls need immutable exact-call approval", async () => {
@@ -245,7 +245,7 @@ test("collision-safe names route to the exact server and non-read calls need imm
   expect((await fromUnderscore.execute({})).text).toContain('"identity":"a_b"');
   expect(JSON.stringify(await broker.invoke("mcp:a-b:set_site", { site: "reviewed" }))).toContain('"site":"reviewed"');
   const denied = new CapabilityBroker(mcp, async () => false);
-  await expect(denied.invoke("mcp:a-b:mystery", {})).rejects.toThrow("confirmation");
+  await expect(denied.invoke("mcp:a-b:mystery", {})).rejects.toThrow("Not executed (you said no)");
   expect(denied.search("mystery")[0]?.safety).toBe("external-action");
 });
 
@@ -259,9 +259,9 @@ test("invalid arguments never reach approval, and a tool changed during approval
     await until(() => broker.describe("mcp:generic:set_site").capability.description === "Changed site configuration tool");
     return true;
   });
-  await expect(broker.invoke("mcp:generic:set_site", { site: 123 })).rejects.toThrow("Invalid MCP arguments");
+  await expect(broker.invoke("mcp:generic:set_site", { site: 123 })).rejects.toThrow("Not executed (bad arguments");
   expect(approvals).toBe(0);
-  await expect(broker.invoke("mcp:generic:set_site", { site: "lab" })).rejects.toThrow("changed during approval");
+  await expect(broker.invoke("mcp:generic:set_site", { site: "lab" })).rejects.toThrow("Not executed (tool changed; search again)");
   expect(approvals).toBe(1);
 });
 
@@ -273,7 +273,7 @@ test("disconnect and reconnect revoke a pending approval even when the tool sche
     await mcp.connect("generic");
     return true;
   });
-  await expect(broker.invoke("mcp:generic:set_site", { site: "lab" })).rejects.toThrow("changed during approval");
+  await expect(broker.invoke("mcp:generic:set_site", { site: "lab" })).rejects.toThrow("Not executed (tool changed; search again)");
 });
 
 test("list-change notifications refresh and remove stale tools without restarting", async () => {
@@ -285,7 +285,7 @@ test("list-change notifications refresh and remove stale tools without restartin
   await until(() => broker.search("late arrival").length === 1);
   expect(broker.search("status")).toHaveLength(0);
   expect(JSON.stringify(await broker.invoke("mcp:generic:late_read", {}))).toContain("late_read");
-  await expect(broker.invoke("mcp:generic:status", {})).rejects.toThrow("unavailable");
+  await expect(broker.invoke("mcp:generic:status", {})).rejects.toThrow("Not executed (unknown capability");
 });
 
 test("cached descriptors, input validators, and safety decisions invalidate together after refresh", async () => {
@@ -301,11 +301,11 @@ test("cached descriptors, input validators, and safety decisions invalidate toge
   expect(broker.describe("mcp:generic:inspect_quantum_flux").capability.safety).toBe("read");
   await broker.invoke("mcp:generic:fixture_refresh", {});
   await until(() => broker.describe("mcp:generic:inspect_quantum_flux").capability.safety === "external-action");
-  expect((await direct.execute({ site: "lab" })).text).toContain("Invalid MCP arguments");
-  expect((await direct.execute({ site: 42 })).text).toContain("requires explicit interactive confirmation");
+  expect((await direct.execute({ site: "lab" })).text).toContain("Not executed (bad arguments");
+  expect((await direct.execute({ site: 42 })).text).toContain("Not executed (needs your approval");
   await mcp.disconnect("generic");
   expect(broker.search("quantum flux")).toEqual([]);
-  expect((await direct.execute({ site: 42 })).text).toContain("unavailable");
+  expect((await direct.execute({ site: 42 })).text).toContain("Not executed (unknown capability");
 });
 
 test("dead servers do not poison healthy ones; reconnect is bounded and does not replay calls", async () => {
@@ -314,12 +314,12 @@ test("dead servers do not poison healthy ones; reconnect is bounded and does not
   expect(mcp.status().find((status) => status.name === "good")?.state).toBe("ready");
   expect(mcp.status().find((status) => status.name === "bad")?.state).toBe("failed");
   const broker = new CapabilityBroker(mcp);
-  await expect(broker.invoke("mcp:good:crash_read", {})).rejects.toThrow("not retried");
+  await expect(broker.invoke("mcp:good:crash_read", {})).rejects.toThrow("Do not retry on your own");
   expect(mcp.catalog()).toEqual([]);
   await mcp.prepare();
   expect(mcp.status().find((status) => status.name === "good")?.state).toBe("ready");
   expect(JSON.stringify(await broker.invoke("mcp:good:status", {}))).toContain('"identity":"good"');
-  await expect(broker.invoke("mcp:good:crash_read", {})).rejects.toThrow("not retried");
+  await expect(broker.invoke("mcp:good:crash_read", {})).rejects.toThrow("Do not retry on your own");
   await mcp.prepare();
   // Each crash spends the burst budget, so a server that dies after its handshake is capped too.
   expect(mcp.status().find((status) => status.name === "good")?.error).toContain("retry limit");
@@ -362,7 +362,7 @@ test("timeouts, caller cancellation, and close during handshake settle without l
   await expect(work).rejects.toThrow("cancelled");
   expect(mcp.catalog()).toEqual([]);
   await broker.prepare("slow read"); // Cancellation invalidates the affected connection; no call is replayed.
-  await expect(broker.invoke("mcp:generic:slow_read", {})).rejects.toThrow("timed out");
+  await expect(broker.invoke("mcp:generic:slow_read", {})).rejects.toThrow("No answer from generic in 0.5 s. It may have run.");
   const stalled = manager([definition("stall", "stall")]);
   const connecting = stalled.connect("stall");
   await Bun.sleep(30);
@@ -567,7 +567,7 @@ test("HTTP catalog-refresh timeout closes its unanswered POST and removes stale 
   expect(mcp.status()[0]?.error).toContain("refresh failed");
 });
 
-test("HTTP redirects cannot forward configured secrets and failures do not echo server bodies", async () => {
+test("HTTP redirects cannot forward configured secrets, and failures show the status and body but never header values", async () => {
   let contacted = false;
   const target = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => { contacted = true; return new Response("sensitive-server-body", { status: 401 }); } });
   const redirect = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => Response.redirect(`http://127.0.0.1:${target.port}/mcp`, 307) });
@@ -581,7 +581,9 @@ test("HTTP redirects cannot forward configured secrets and failures do not echo 
   expect(contacted).toBe(false);
   await mcp.connect("failure");
   expect(mcp.status().map((status) => status.state)).toEqual(["failed", "failed"]);
-  expect(JSON.stringify(mcp.status())).not.toContain("sensitive-");
+  // What the server said is shown (redacted) so a 401 is understandable; header values never are.
+  expect(mcp.status()[1]?.error).toBe("The server said HTTP 401: sensitive-server-body");
+  expect(JSON.stringify(mcp.status())).not.toContain("sensitive-header");
 });
 
 test("your own MCP servers start in your home folder, not the opened repository, unless their definition names a folder", async () => {
