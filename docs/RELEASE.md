@@ -6,6 +6,35 @@ GitHub's `latest/download` route excludes prereleases. The first published previ
 was **v0.1.0**; its assets and tag stay as published, and every fix ships under a new
 version.
 
+## v0.2.17: undo and a real safety net
+
+**Not released yet.** The version number and the installers still say v0.2.14; the release step
+sets them and removes this line.
+
+**Undo, redo and diff per task.** Casper keeps a private copy of the folder before and after each
+task, in its own git folder under `~/.casper` (never your `.git`), also in folders that are not git
+repositories. The receipt row offers `1 Undo · 2 Show diff`; Enter runs nothing. `/undo` never
+touches a file you changed since the task (it asks, with `1 Cancel` first; a one-shot run changes
+nothing and exits 1), `/redo` puts the files back, and `/diff` shows only this task's changes. The
+conversation is rewound only when nothing was said since; otherwise the model gets one short note.
+Undo says what it can't reach: secret files and files over 8 MB (never copied), ignored files,
+nested repositories, MCP servers and devices. Saving a remembered test command is undoable. The
+change summary after a receipt now lists only the task's files, not your own earlier edits. See
+[UNDO.md](UNDO.md).
+
+**Saved receipts.** `/receipt` shows the last receipt after a restart, `/receipt 12` and
+`/receipt list` older ones. They are saved with no check output and with secrets hidden.
+
+**Stricter "verified" (owner decision).** The JSON `outcome` is `verified` only when the receipt's
+first line is `✓ Verified` (a proven change). "Checks passed — not proven" is now `not_verified`,
+so `--require-verification` exits 3 for it; `checksPassed` still says the checks passed. The JSON
+receipt fills `task` and `undo`. Evaluation scores that count `verified` move with it; re-score
+saved runs with a free replay. See [SCRIPTING.md](SCRIPTING.md).
+
+**Command-line traps.** An option after the prompt (`casper fix the bug --verify`) exits 64 before
+anything runs; put options first or `--` before the words. `casper <folder>` opens that folder, and a
+path that is not a folder exits 64 with "Not a folder".
+
 ## v0.2.16: build new things
 
 Start new projects, see pages load after edits, retry a stuck repair on a bigger model, and run

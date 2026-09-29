@@ -140,8 +140,9 @@ A request that asks for several things offers "plan first" inside the checklist 
 | `/security-review` | Run the pinned security tools on this project, with no model |
 | `/suggestions` | See or switch off the suggested next steps |
 | `/model big <model>` | Set the model offered for one more repair |
-| `/receipt` | Detailed evidence behind the last task's receipt |
-| `/diff` | Inspect Git changes |
+| `/receipt [n\|list]` | The last receipt (also after a restart), receipt n, or the last 10 |
+| `/undo`, `/redo` | Put the last task's files back, or back again ([docs/UNDO.md](docs/UNDO.md)) |
+| `/diff [n\|list]` | This task's changes, also outside git; git's view before any task |
 | `/output [n]` | Full retained output of the last task's n-th most recent tool call (20 retained) |
 | `/clear`, `/resume` | Start fresh or restore a conversation; not a file rollback |
 | `/context`, `/usage` | Runtime estimates and reported usage |
