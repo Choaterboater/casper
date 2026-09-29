@@ -248,7 +248,11 @@ export class CasperApp {
       const child = await (options.subagentRuntimeFactory ?? freshPiRuntime)();
       if (child === this.runtime) throw new Error("The main runtime cannot be reused as a subagent");
       return child;
-    } });
+    },
+    // A child's file reads reach a model too: same scrubbing, same /secrets files switch.
+    scrubToolOutput: (toolName, input, texts, signal) => this.scrubFiles
+      ? scrubToolOutput(this.scrubber, toolName, input, texts, signal) : Promise.resolve(undefined),
+    });
     this.lifecycle.add({ name: "subagents", close: () => this.subagents.close() });
     this.inspectProjectFn = options.inspectProject ?? inspectProject;
     this.loadProjectContextFn = options.loadProjectContext ?? loadProjectContext;

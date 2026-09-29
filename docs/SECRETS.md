@@ -109,5 +109,6 @@ are always scrubbed.
 
 - The approval box masks secrets on your screen, but the server still gets the
   real value you approve.
-- Subagents (`/delegate`) read files without this scrubbing.
+- Subagents (`/delegate`) get the same scrubbing for the files and output they
+  read, and `/secrets files off` turns it off for them too.
 - Scrubbing works line by line on known formats. It is best effort.
