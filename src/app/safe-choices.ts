@@ -9,7 +9,10 @@ import type { UnfinishedChoice } from "../verify/repair-loop";
 
 export interface Choice { label: string; description?: string }
 
-/** Plain terminal, after the plan: "Build this plan?" */
+/** Asked after the plan on both terminals (on the rich one, after the plan editor). */
+export const PLAN_QUESTION = "Build this plan?";
+
+/** The choices of PLAN_QUESTION. */
 export const PLAN_CHOICES = [
   { label: "Stop", description: "nothing is built" },
   { label: "Build", description: "the model builds these steps and tests these cases (uses tokens)" },

@@ -101,7 +101,7 @@ async function fixture(tty = true, setup: { planWrites?: boolean } = {}) {
 const waiting = (question: string) => (output: string) => output.includes(question) && output.slice(output.lastIndexOf(question)).includes("? waiting for you");
 const idleAfter = (marker: string) => (output: string) => output.includes(marker) && /idle\s*$/.test(output.slice(output.lastIndexOf(marker)));
 
-test("plan first is one numbered choice folded into the checklist panel; the plan turn refuses changes; Enter builds the plan", async () => {
+test("plan first is one numbered choice folded into the checklist panel; the plan turn refuses changes; after the editor, 2 builds the plan", async () => {
   const f = await fixture();
   try {
     f.input.write(`${REQUEST}\r`);
@@ -115,7 +115,7 @@ test("plan first is one numbered choice folded into the checklist panel; the pla
     expect(panel).not.toContain("Esc starts without a checklist");
     expect(f.prompts).toHaveLength(0);
     f.input.write("1");
-    await f.screen.until((output) => output.includes("Enter builds this · edit lines · Esc stops without building"));
+    await f.screen.until((output) => output.includes("Enter goes on to 1 Stop · 2 Build · edit lines · Esc stops without building"));
     expect(f.screen.output).toContain("Casper plan: 2 steps, 2 cases to test.");
     expect(f.prompts).toHaveLength(1);
     expect(f.prompts[0]).toContain(findFlow(bundledFlows(), "plan-first")!.body.trim());
@@ -127,6 +127,11 @@ test("plan first is one numbered choice folded into the checklist panel; the pla
     expect(reasons.mcp).toStartWith("Planning only");
     expect(reasons.read).toBeUndefined();
     f.input.write("\r");
+    await f.screen.until(waiting("Build this plan?"));
+    expect(f.screen.output).toContain("1 Stop");
+    expect(f.screen.output).toContain("2 Build");
+    expect(f.prompts).toHaveLength(1);
+    f.input.write("2");
     await f.screen.until(idleAfter("Built."));
     expect(f.prompts).toHaveLength(2);
     expect(f.prompts[1]).toContain("Casper plan (the user read and accepted it). Follow these steps in order:\n1. Add a Limiter class in limiter.py\n2. Call it from app.py");
@@ -166,6 +171,21 @@ test("Esc in the plan editor stops without building", async () => {
   } finally { await f.close(); }
 }, 60_000);
 
+test("Enter in the plan editor, then Enter at Build this plan?, stops without building (rich terminal)", async () => {
+  const f = await fixture();
+  try {
+    f.input.write(`/plan ${REQUEST}\r`);
+    await f.screen.until((output) => output.includes("Enter goes on to 1 Stop · 2 Build"));
+    f.input.write("\r");
+    await f.screen.until(waiting("Build this plan?"));
+    expect(f.prompts).toHaveLength(1);
+    f.input.write("\r");
+    await f.screen.until(idleAfter("[plan] Stopped without building."));
+    expect(f.prompts).toHaveLength(1);
+    expect(f.screen.output).not.toContain("Built.");
+  } finally { await f.close(); }
+}, 60_000);
+
 test("a short fix gets no plan-first choice", async () => {
   const f = await fixture();
   try {
@@ -193,9 +213,11 @@ test("a file that changes while planning anyway is named, and the receipt keeps 
   const f = await fixture(true, { planWrites: true });
   try {
     f.input.write(`/plan ${REQUEST}\r`);
-    await f.screen.until((output) => output.includes("Enter builds this"));
+    await f.screen.until((output) => output.includes("Enter goes on to 1 Stop · 2 Build"));
     expect(f.screen.output).toContain("• Changed while planning: notes.txt");
     f.input.write("\r");
+    await f.screen.until(waiting("Build this plan?"));
+    f.input.write("2");
     await f.screen.until(idleAfter("Built."));
     expect(f.app.getLastTaskResult()?.changedWhilePlanning).toEqual(["notes.txt"]);
     expect(f.screen.output.slice(f.screen.output.lastIndexOf("Built."))).toContain("• Changed while planning: notes.txt");

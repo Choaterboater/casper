@@ -201,7 +201,7 @@ const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one :
 export function planEditorHeading(plan: ParsedPlan): { heading: string; hint: string } {
   return {
     heading: `Casper plan: ${plural(plan.steps.length, "step", "steps")}, ${plural(plan.tests.length, "case", "cases")} to test.`,
-    hint: "Enter builds this · edit lines · Esc stops without building",
+    hint: "Enter goes on to 1 Stop · 2 Build · edit lines · Esc stops without building",
   };
 }
 

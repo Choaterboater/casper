@@ -3,9 +3,10 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
-  ALREADY_FAILING_CHOICES, MCP_REMEMBER_CHOICES, MCP_WRITES_CHOICES, modelFailedChoices, PLAN_CHOICES, REMEMBER_BIG_MODEL_CHOICES,
+  ALREADY_FAILING_CHOICES, MCP_REMEMBER_CHOICES, MCP_WRITES_CHOICES, modelFailedChoices, PLAN_CHOICES, PLAN_QUESTION, REMEMBER_BIG_MODEL_CHOICES,
   REPAIR_LIMIT_STOP, undoChangedChoices, unfinishedChoices,
 } from "../src/app/safe-choices";
+import { planEditorHeading } from "../src/flows/plan";
 import { askBuildRequest, newProjectInEmptyFolder, type NewProjectFlow } from "../src/app/new-project";
 import { labAskFor, labFailureAsk } from "../src/network/checks";
 import { newProjectQuestion } from "../src/new/pick";
@@ -21,6 +22,7 @@ const DOING = /^(?:build|yes|retry|fix|install|download|remember|enable|run|alwa
 
 const firsts: Array<[string, string, string]> = [
   ["Build this plan?", PLAN_CHOICES[0].label, "Stop"],
+  ["Build this plan? (rich terminal, after the plan editor)", PLAN_CHOICES[0].label, "Stop"],
   ["Fix it anyway?", ALREADY_FAILING_CHOICES[0].label, "Leave it"],
   ["The model failed again", modelFailedChoices()[0]!.label, "Stop"],
   ["The model failed again (big model set)", modelFailedChoices("fixture/big")[0]!.label, "Stop"],
@@ -58,6 +60,14 @@ test("the risky choices still exist, as a deliberate 2 or later", () => {
   expect([...INSTALL_CHOICES]).toEqual(["Stop", "Run what's installed", "Install them"]);
   expect(OSV_UPDATE_QUESTION.choices).toEqual(["Stop", "Download it"]);
   expect(undoChangedChoices("Undo", 2).map((choice) => choice.label)).toEqual(["Cancel", "Undo the other 2 files"]);
+});
+
+test("Enter in the rich terminal's plan editor goes on to Build this plan?, never straight to a build", () => {
+  const { hint } = planEditorHeading({ steps: ["Add a Limiter class"], tests: ["limit(0) throws"] });
+  expect(hint).toStartWith("Enter goes on to 1 Stop · 2 Build");
+  expect(hint).not.toMatch(/Enter builds/i);
+  expect(PLAN_QUESTION).toBe("Build this plan?");
+  // tests/plan-first.test.ts drives the rich terminal: Enter in the editor, then Enter again, builds nothing.
 });
 
 /** A flow whose person presses Enter at every question (Enter picks choice 1), and a create that must not run. */
