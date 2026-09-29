@@ -190,7 +190,8 @@ Bun.serve({ hostname: process.env.HOST, port: Number(process.env.PORT), fetch() 
       await response.text();
       // A real browser waits for the Streamlit script to finish; here, wait until the server's log has the traceback (or the page is clean).
       const broken = (await readFile(path.join(project, "app.py"), "utf8")).includes("row['site']");
-      for (let tries = 0; broken && tries < 500 && !app.serviceManager().logs("web").text.includes("KeyError"); tries++) await Bun.sleep(10);
+      // No try count: under load the log can take longer than any fixed budget; the test's own timeout bounds it.
+      while (broken && !signal?.aborted && !app.serviceManager().logs("web").text.includes("KeyError")) await Bun.sleep(10);
       return { status: response.status, consoleChecked: true, consoleErrors: [], pageErrors: [], failedRequests: [] };
     } };
   app = new CasperApp({ runtimeFactory: () => runtime, output: { write: text => { output.push(text); } }, sessionHomeDir: home, pageOpener: async () => opener,
