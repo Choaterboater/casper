@@ -168,6 +168,10 @@ test("Ctrl+C during a task leaves a ready service running, and during startup le
   expect(f.app.interrupt()).toBe(true);
   await until(() => f.text().includes("✗ Stopped"));
   expect((await fetch(`${url}/health`)).status).toBe(200);
+  // The stopped task is wrapped up and Casper reads commands again ("> " after the receipt), so the
+  // restart below starts now and the waits on it measure only the restart.
+  const stopped = f.text().indexOf("✗ Stopped");
+  await until(() => f.text().endsWith("> ") && f.text().lastIndexOf("> ") > stopped, 15_000);
   // A startup in progress is what Ctrl+C cancels.
   await rm(f.marker, { force: true });
   input.write("/services restart api\n");
