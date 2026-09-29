@@ -88,7 +88,7 @@ Security check: my-server (/home/me/my-server)
 Casper runs these tools with a dead proxy and no passwords or tokens. Not enforced until the shell sandbox ships.
 gitleaks      1 problem    config/.env.example:4  looks like an API key (value hidden)
 ruff S        ok
-zizmor        ok           online checks off (offline)
+zizmor        ok           its online checks off
 osv-scanner   not run      no advisory data yet. /security-review update downloads it (asks first)
 Result: 1 problem, 1 check not run. This is what these tools found. It does not prove the code has no problems.
 ```

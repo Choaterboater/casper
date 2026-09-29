@@ -59,9 +59,11 @@ test("Casper's own words never call the code safe or secure, even with nothing f
   for (const output of [text, json]) {
     expect(output).not.toMatch(/\bsafe\b/i);
     expect(output).not.toMatch(/\bsecure\b/i);
+    // Casper can't keep a tool off the network yet, so its own words never say "offline".
+    expect(output).not.toMatch(/\boffline\b/i);
   }
   expect(text).toContain("Result: 0 problems. This is what these tools found. It does not prove the code has no problems.");
-  expect(text).toContain("zizmor        ok           online checks off (offline)");
+  expect(text).toContain("zizmor        ok           its online checks off");
 });
 
 test("the header says what Casper does, and that it is not enforced yet", () => {

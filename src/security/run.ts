@@ -265,7 +265,7 @@ export class SecurityCheck {
       extraEnv.OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY = osvDbDir(this.options.homeDir);
       okText = osvAgeText(state.downloadedAt!, state.ageDays!);
     }
-    if (id === "zizmor") okText = "online checks off (offline)";
+    if (id === "zizmor") okText = "its online checks off";
     if (id === "ansible-lint") okText = "it runs this repo's own Ansible plugins";
     if (id === "ansible-lint" && args.ansibleCfg) extraEnv.ANSIBLE_CONFIG = args.ansibleCfg;
     if (id === "ansible-lint" && location.kind === "pinned") extraEnv.PATH = `${path.dirname(location.path)}${path.delimiter}${this.options.baseEnv?.PATH ?? process.env.PATH ?? ""}`;
