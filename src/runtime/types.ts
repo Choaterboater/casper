@@ -209,6 +209,11 @@ export interface RuntimeSession {
   switchSession?(options: RuntimeSwitchOptions): Promise<RuntimeSessionInfo>;
   /** Persist context in the active conversation without triggering a model turn. */
   appendContext?(text: string): Promise<void>;
+  /** Where the conversation is now (its last entry), or null when it is empty. Undo records it before a task. */
+  conversationMark?(): string | null;
+  /** Rewinds the conversation to `mark` at no token cost, only when it still ends at `expected` (nothing was said
+   * since). False, with nothing changed, when it can't. */
+  rewindTo?(mark: string | null, expected: string | null): Promise<boolean>;
   getStatus?(): RuntimeStatus;
   selectModel?(options: RuntimeModelSelectionOptions): Promise<RuntimeModelSelection>;
   /** Pick a default model for a signed-in provider only when no model is selected; never overrides a choice. */
