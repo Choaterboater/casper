@@ -115,6 +115,15 @@ managed verification: a model-issued bash call without `timeout` gets a 120-seco
 default and returns a tool error on expiry so the conversation can continue.
 A model saying “done” is not a passing test or human acceptance.
 
+When repairs run out, Casper asks once: `1 Stop here` or `2 Retry with your big model`, with the
+model and a lower-bound cost (`at least ≈ $0.72`); Enter stops. Under the receipt, a row of
+numbered next steps can include suggestions such as "Add a test that proves this bug stays fixed"
+or "Remember `uv run pytest` as this project's test command", each with its reason and the exact
+line it would save; nothing runs until you press its number, and `/suggestions off` hides them.
+A request that asks for several things offers "plan first" inside the checklist panel; `/plan
+<request>` plans one request with only look-only tools, then asks before it builds. See
+[docs/TERMINAL_UX.md](docs/TERMINAL_UX.md).
+
 ## Everyday commands
 
 | Command | Purpose |
@@ -125,6 +134,12 @@ A model saying “done” is not a passing test or human acceptance.
 | `/model roles` | Inspect optional `fast`, `build`, `reason`, `review` model shortcuts |
 | `/verify` | Run configured checks without a model |
 | `/verify repair test` | Authorize bounded repair of a failing test check |
+| `/verify add <name>` | Save a check Casper found (for example Ansible syntax) |
+| `/new [template] [name]` | Start a new project from a template, with no model |
+| `/plan <request>` | Plan one request before building it |
+| `/security-review` | Run the pinned security tools on this project, with no model |
+| `/suggestions` | See or switch off the suggested next steps |
+| `/model big <model>` | Set the model offered for one more repair |
 | `/receipt` | Detailed evidence behind the last task's receipt |
 | `/diff` | Inspect Git changes |
 | `/output [n]` | Full retained output of the last task's n-th most recent tool call (20 retained) |
