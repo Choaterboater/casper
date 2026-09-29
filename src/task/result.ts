@@ -79,7 +79,7 @@ export interface TaskResult {
   /** Files that changed during a plan turn anyway (Casper blocks the changes it can see; this names the rest). */
   changedWhilePlanning?: string[];
   /** Repairs that ran on the user's big model: the extra try the user chose, or repair.bigModelLastTry. */
-  bigModel?: { model: string; attempts: number };
+  bigModel?: { model: string; attempts: number; /** Picked for this task only, not saved as the big model. */ oneOff?: true };
   /** Casper's security tools ran for this task: counts only, never finding text. */
   security?: SecuritySummary;
   /** This task's saved receipt number (/receipt <n>), when receipts are kept. */
@@ -224,7 +224,7 @@ export function formatReceipt(task: TaskResult, options: ReceiptOptions = {}): s
   else if (task.possibleMutations) lines.push("• Changes unknown — Casper could not compare the workspace");
 
   const report = task.verification;
-  if (report?.repairAttempts) lines.push(`↻ Casper tried ${report.repairAttempts} ${report.repairAttempts === 1 ? "repair" : "repairs"}${task.bigModel ? ` (the last on your big model ${safe(task.bigModel.model)})` : ""}`);
+  if (report?.repairAttempts) lines.push(`↻ Casper tried ${report.repairAttempts} ${report.repairAttempts === 1 ? "repair" : "repairs"}${task.bigModel ? ` (the last on ${task.bigModel.oneOff ? "" : "your big model "}${safe(task.bigModel.model)})` : ""}`);
   for (const result of report?.results ?? []) lines.push(checkLine(result, safe, slash));
   if (report?.status === "blocked" && report.reason) lines.push(`✗ Checks stopped — ${safe(report.reason).replace(/\.$/, "")}`);
 
