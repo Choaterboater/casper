@@ -85,8 +85,35 @@ one-shot runs and `--json` never ring. `—` means unavailable, `~`
 means estimated. Branch is the project inspection snapshot; `/status` refreshes
 it after external Git changes. Narrow terminals truncate the footer rather than
 wrapping over input. Cost is not an invoice or subscription charge.
-No green permission/verification badge is invented, and no unimplemented
-ASK/PLAN/BUILD mode is implied.
+No green permission/verification badge is invented, and no ASK/BUILD mode is
+implied: `/plan` plans one request, it is not a mode.
+
+### Suggested next steps and plan first
+
+After an interactive receipt, the row under it can offer a next step from slot 3 on (1 and 2 stay for
+Undo and Show diff): `Next: 3 Add a test that proves this bug stays fixed (uses tokens)`. Each step's
+reason is on its own line, and a step that saves something shows the exact text it will write
+(`saves verify.test: uv run pytest in .casper/project.yaml`). Nothing waits: a lone number on the empty
+prompt picks the step, and anything else you type is simply your next request. Casper's rules are local
+and free; only a step marked "uses tokens" asks the model anything.
+
+Two steps ship: "Add a test that proves this bug stays fixed" (a fix whose tests pass without it too)
+and "Remember <command> as this project's test command" (the model ran a known test runner, such as
+`uv run pytest`, `python -m pytest` or `bun test` with plain test paths, while the project had no test
+command; any other command is never offered). A step you leave three times in a row in a project is
+hidden there for 14 days; picking it resets that. `/suggestions` lists each step as on, off or faded;
+`/suggestions off [name]` and `/suggestions on [name]` switch them; `suggestions: false` in
+`~/.casper/config.yaml` turns them all off. One-shot runs and `--json` never show them.
+
+Before work, a build request with several asks can get one extra choice folded into the checklist
+panel, so there is still one panel: `Suggested: plan first — this asks for 4 things` with 1 Plan first,
+2 Just build (with the listed cases) and 3 Edit the cases first. Plan first (or `/plan <request>`) runs a
+plan turn: the model may only read (read, grep, find, ls and look-only shell commands such as `ls`,
+`cat` or `git log`); every other tool, MCP and Casper's own tools included, is refused with "Planning
+only". This is Casper's gate, not a sandbox, and a file that changed anyway is named on the receipt
+(`• Changed while planning: …`). The plan and its cases open in the editor: Enter builds it, Esc stops
+without building. The plain terminal asks "Build this plan?" instead, and a run that cannot ask stops
+after showing the plan.
 
 ### Layout stability
 
