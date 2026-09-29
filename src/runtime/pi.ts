@@ -566,7 +566,8 @@ export class PiRuntime implements AgentRuntime {
           const gitInternals = (event.toolName === "bash" || event.toolName === "powershell") && typeof event.input.command === "string"
             ? gitInternalsCommand(event.input.command, cwd, pathContext.home) : undefined;
           if (gitInternals) return { block: true, reason: gitInternals };
-          if (options.beforeToolGate && ["edit", "write", "bash", "powershell"].includes(event.toolName)) {
+          // Every tool, Casper's own and MCP tools too, so a plan turn can refuse anything that changes state.
+          if (options.beforeToolGate) {
             const reason = options.beforeToolGate(event.toolName, event.input);
             if (reason) return { block: true, reason };
           }
