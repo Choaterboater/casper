@@ -4,6 +4,7 @@ import type { ProjectCommand } from "../project/model";
 import type { BrowserReport } from "../browser/scenario";
 import type { ServiceState } from "../services/manager";
 import type { SmokeReport } from "../services/smoke";
+import { formatPageLine, pageFailureSummary } from "../services/page-report";
 import type { AutoCheckSkip, VerificationMode } from "../verify/mode";
 import type { ChangeProof } from "../verify/proof";
 import type { AcceptanceResult } from "../verify/acceptance";
@@ -72,10 +73,41 @@ export interface TaskResult {
   checklist?: string[];
   /** The session's managed services at the end of the task (the origin while starting or ready). */
   services?: Array<{ name: string; origin?: string; state: ServiceState }>;
+  /** The last repair ran on the user's big model (repair.bigModelLastTry). */
+  bigModel?: { model: string; attempts: number };
+  /** Casper's security tools ran for this task: counts only, never finding text. */
+  security?: SecuritySummary;
+  /** This task's saved receipt number (/receipt <n>), when receipts are kept. */
+  receipt?: number;
+  /** Whether /undo can put this task's files back, and why not. */
+  undo?: { available: true } | { available: false; reason: string };
+}
+
+/** A security tools run in a receipt: how many problems, notes and checks not run, and each tool's state. */
+export interface SecuritySummary {
+  problems: number;
+  notes: number;
+  notRun: number;
+  tools: Array<{ id: string; status: "ok" | "problems" | "not-run" | "not-needed" | "off" }>;
 }
 
 /** What a run proved, in the words scripts match on. */
 export type TaskOutcome = "verified" | "failed" | "incomplete" | "not_verified" | "unchanged" | "cancelled";
+
+/** Whether the checks passed on the final files: the pass test the outcome uses today. A later outcome may ask for
+ * more (a proven change), so receipts and scripts that mean "the checks passed" read this, not the outcome. */
+export function checksPassed(report?: VerificationReport, task?: TaskResult): boolean {
+  if (task?.execution === "cancelled" || task?.execution === "failed" || task?.turnLimit !== undefined) return false;
+  if (task?.browser?.status === "fail" || task?.browser?.status === "incomplete") return false;
+  const verification = task?.verification ?? report;
+  if (verification?.status !== "pass") return false;
+  const stale = verification.results.some((result) => result.status === "pass" && result.freshness === "stale");
+  const admittedGaps = Boolean(task?.review && "open" in task.review && task.review.open.length);
+  // Smoke alone verifies only with evidence: a model check that passed before the change is an observation.
+  const observationsOnly = !verification.results.length && !verification.smoke?.checks.some((check) => check.evidence) && verification.pages?.status !== "pass";
+  const rejected = task?.acceptance?.status === "fail" && task.acceptance.mode === "verdict";
+  return !(stale || task?.proof?.status === "unproven" || admittedGaps || observationsOnly || rejected);
+}
 
 /** Failure dominates incompleteness; a pass counts only while its inputs are unchanged. */
 export function taskOutcome(report?: VerificationReport, task?: TaskResult): TaskOutcome {
@@ -87,14 +119,7 @@ export function taskOutcome(report?: VerificationReport, task?: TaskResult): Tas
   const status = verification?.status;
   if (status === "fail" || status === "blocked" || task?.browser?.status === "fail") return "failed";
   if (status === "incomplete" || task?.browser?.status === "incomplete") return "incomplete";
-  if (status === "pass") {
-    const stale = verification!.results.some((result) => result.status === "pass" && result.freshness === "stale");
-    const admittedGaps = Boolean(task?.review && "open" in task.review && task.review.open.length);
-    // Smoke alone verifies only with evidence: a model check that passed before the change is an observation.
-    const observationsOnly = !verification!.results.length && !verification!.smoke?.checks.some((check) => check.evidence);
-    const rejected = task?.acceptance?.status === "fail" && task.acceptance.mode === "verdict";
-    return stale || task?.proof?.status === "unproven" || admittedGaps || observationsOnly || rejected ? "not_verified" : "verified";
-  }
+  if (status === "pass") return checksPassed(report, task) ? "verified" : "not_verified";
   const changed = Boolean(task?.changedPaths?.length || task?.changedDuringChecks?.length || (!task?.changedPaths && task?.possibleMutations));
   return changed || task?.autoSkipped === "no-checks" ? "not_verified" : "unchanged";
 }
@@ -147,10 +172,19 @@ export function formatTaskResult(task: TaskResult): string {
       + `${check.actual ? ` (${check.actual.status})` : ""}${check.baseline ? `, baseline ${check.baseline}${check.baselineAfterEdits ? " (after edits)" : ""}` : ""}${check.status === "pass" && !check.evidence ? ", observation only" : ""}`
       + `${check.status !== "pass" && check.reason ? ` — ${safe(check.reason)}` : ""}`).join("; ")}.${report.smoke.reason ? ` ${safe(report.smoke.reason)}` : ""}${crashNotes(report.smoke, safe).map((note) => ` ${note}.`).join("")} Model checks are the model's expectations, run by Casper.`));
   }
+  if (report?.pages) lines.push(receiptLine("pages", `${report.pages.status}: ${report.pages.pages.map((page) => `${safe(page.path)} ${page.status}${page.httpStatus !== null ? ` (${page.httpStatus})` : ""}`).join("; ") || "none opened"}${report.pages.reason ? `. ${safe(report.pages.reason)}` : ""}`));
+  if (task.bigModel) lines.push(receiptLine("big model", `${safe(task.bigModel.model)} for ${task.bigModel.attempts} ${task.bigModel.attempts === 1 ? "repair" : "repairs"}`));
+  if (task.security) lines.push(receiptLine("security", securityText(task.security)));
   if (task.browser) {
     lines.push(receiptLine("browser", `assertions ${task.browser.status}: ${task.browser.checks.map(check => `${safe(check.name)}:${check.status}, inputs ${check.freshness}, baseline ${check.baseline}`).join("; ")}. Declared local scope only; server build/external state and overall acceptance not certified.`));
   }
   return lines.join("\n");
+}
+
+function securityText(security: SecuritySummary): string {
+  const count = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+  return [count(security.problems, "problem"), ...(security.notes ? [count(security.notes, "note")] : []),
+    ...(security.notRun ? [`${count(security.notRun, "check")} not run`] : [])].join(", ");
 }
 
 function receiptLine(label: string, value: string): string {
@@ -181,7 +215,7 @@ export function formatReceipt(task: TaskResult, options: ReceiptOptions = {}): s
   else if (task.possibleMutations) lines.push("• Changes unknown — Casper could not compare the workspace");
 
   const report = task.verification;
-  if (report?.repairAttempts) lines.push(`↻ Casper tried ${report.repairAttempts} ${report.repairAttempts === 1 ? "repair" : "repairs"}`);
+  if (report?.repairAttempts) lines.push(`↻ Casper tried ${report.repairAttempts} ${report.repairAttempts === 1 ? "repair" : "repairs"}${task.bigModel ? ` (the last on your big model ${safe(task.bigModel.model)})` : ""}`);
   for (const result of report?.results ?? []) lines.push(checkLine(result, safe, slash));
   if (report?.status === "blocked" && report.reason) lines.push(`✗ Checks stopped — ${safe(report.reason).replace(/\.$/, "")}`);
 
@@ -207,6 +241,12 @@ export function formatReceipt(task: TaskResult, options: ReceiptOptions = {}): s
 
   if (report?.smoke) lines.push(smokeLine(report.smoke, task.services, safe));
   else if (report?.smokeSkipped) lines.push(`• Smoke not run: ${report.smokeSkipped}`);
+  // Page text is already scrubbed and cut short by the page check.
+  if (report?.pages) {
+    lines.push(...report.pages.pages.map((page) => safe(formatPageLine(page))));
+    if (report.pages.reason) lines.push(`• Pages not checked: ${safe(report.pages.reason).replace(/\.$/, "")}`);
+  } else if (report?.pagesSkipped) lines.push(`• Pages not checked: ${report.pagesSkipped}`);
+  if (task.security) lines.push(`• Security tools: ${securityText(task.security)} (what the tools found; not proof the code has no problems)`);
   if (task.browser) {
     const failed = task.browser.checks.filter((check) => check.status === "fail").map((check) => safe(check.name));
     lines.push(task.browser.status === "pass" ? `✓ Browser checks passed (${task.browser.checks.length})`
@@ -250,6 +290,7 @@ function withVerdict(task: TaskResult, body: string[], options: ReceiptOptions):
       else if (failedChecks.length && report!.results.every((result) => result.status !== "fail" || result.kind === "report" || result.ended)) {
         lines = [`✗ Not checked — ${failedChecks.join(", ")}, so the change was not tested`, ...body];
       } else if (failedChecks.length) lines = [`✗ Failed — ${failedChecks.join(", ")}`, ...body];
+      else if (report?.pages?.status === "fail") lines = [`✗ Failed — ${safe(pageFailureSummary(report.pages) ?? "a page failed")}`, ...body];
       else if (report?.status === "blocked") lines = [`✗ Failed — checks stopped${report.reason ? `: ${safe(report.reason).replace(/\.$/, "").toLowerCase()}` : ""}`, ...body];
       else lines = ["✗ Failed — browser checks failed", ...body];
       break;

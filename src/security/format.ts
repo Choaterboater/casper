@@ -132,3 +132,8 @@ export const IGNORE_FILE_CHOICES = ["Use my changed file", "Keep the default"] a
 export function ignoreFileQuestion(file: IgnoreFile): NumberedQuestion {
   return { text: changedIgnoreFileLine(file), choices: [...IGNORE_FILE_CHOICES] };
 }
+
+/** The counts a task receipt keeps of a security run: never finding text. */
+export function securitySummary(report: SecurityReport): { problems: number; notes: number; notRun: number; tools: Array<{ id: string; status: ToolReport["status"] }> } {
+  return { problems: report.problems, notes: report.notes, notRun: report.notRun, tools: report.tools.map((tool) => ({ id: tool.id, status: tool.status })) };
+}

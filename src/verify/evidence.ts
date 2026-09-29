@@ -1,6 +1,6 @@
 import type { ProjectCommand } from "../project/model";
 import type { SmokeReport } from "../services/smoke";
-import type { PageReport } from "../services/page-checks";
+import type { PageReport } from "../services/page-report";
 import type { CheckName } from "./named";
 import type { VerificationScope } from "./scope";
 

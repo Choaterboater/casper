@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { safeGitArgs } from "../platform/git";
 import type { SmokeReport } from "../services/smoke";
-import type { PageReport } from "../services/page-checks";
+import type { PageReport } from "../services/page-report";
 import { scrubText } from "../secrets/scrub";
 import { repairClass, verificationStatus, type CheckName, type VerificationReport, type VerificationResult } from "./evidence";
 import { isBuiltinCheck } from "./named";
