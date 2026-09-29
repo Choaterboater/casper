@@ -38,6 +38,9 @@ import { describeChecksPlan, type ChecksPlan } from "../verify/mode";
 import { detectedMigrations, MIGRATIONS_CHECK } from "../verify/migrations-check";
 import type { TaskObservations } from "../task/observations";
 import { formatTaskResult, type TaskResult } from "../task/result";
+import { UndoStore } from "../task/undo";
+import { tildePath } from "../new/scaffold";
+import { stat } from "node:fs/promises";
 import type { SessionWorkspaceManager } from "../sessions/manager";
 import { formatProjectContext } from "../project/context";
 import { runSecurityReview, type SecurityReviewHost } from "./security-review";
@@ -292,6 +295,7 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       host.output.write(` checks    ${describeChecksPlan(await host.checksPlan(host.projectContext!))}\n`);
       host.output.write(` visualize ${host.visualization!.providerNames().join(", ")} (/visualize)\n`);
       host.output.write(" memory    explicit facts and local task summaries (/memory)\n references read-only local sources (/references)\n");
+      host.output.write(` undo      ${await undoCopiesLine(host.projectContext!.stateDirectory, host.homeDir())}\n`);
       return;
     }
     if (prompt === "/exit" || prompt === "/quit") return;
@@ -867,4 +871,14 @@ export async function runLogin(host: CommandHost, provider?: RuntimeAuthProvider
       : "[login] Login unavailable or failed. No credential saved. Disable CASPER_TUI_WRITE_LOG if set. Check provider eligibility and loopback callback availability; no automatic method fallback.\n");
   } catch { host.output.write("[login] Login could not complete. No provider diagnostics are displayed.\n"); }
   return false;
+}
+
+/** /status: how much disk the undo copies take, and where (no copy is made to find out). */
+async function undoCopiesLine(stateDirectory: string, home: string): Promise<string> {
+  const store = new UndoStore({ stateDirectory, root: stateDirectory });
+  const there = await stat(store.gitDir).then(() => true, () => false);
+  const bytes = there ? await store.size() : undefined;
+  if (bytes === undefined) return "no copies yet (a copy is made before each task; /undo, /diff)";
+  const size = bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `copies of recent tasks take ${size} in ${terminalText(tildePath(store.gitDir, home))} (/undo, /diff)`;
 }

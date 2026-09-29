@@ -321,3 +321,15 @@ test("files the task's tools edited that git ignores are named on the receipt as
     expect(first.output()).toContain("• Undo can't put back: .env (Casper keeps no copy of secret files), dist/app.js (git ignores it, so Casper keeps no copy)");
   } finally { await first.app.close(); }
 }, 30_000);
+
+test("/status says how much disk the undo copies take, and where", async () => {
+  const place = await folder();
+  const made = makeApp(place, [edit("notes.py", "print('two')\n")]);
+  try {
+    await made.app.runOnce("/status", place.project);
+    expect(made.output()).toContain(" undo      no copies yet (a copy is made before each task; /undo, /diff)\n");
+    await made.app.runOnce("fix the greeting", place.project);
+    await made.app.runOnce("/status", place.project);
+    expect(made.output()).toMatch(/ undo {6}copies of recent tasks take \d+(?:\.\d)? (?:KB|MB) in ~\/\.casper\/projects\/project-[0-9a-f]+\/undo\.git \(\/undo, \/diff\)\n/);
+  } finally { await made.app.close(); }
+}, 30_000);
