@@ -50,6 +50,12 @@ export function labCheckRunner(host: LabCheckHost): NamedCheckRunner {
   };
 }
 
+/** What each choice after a lab failure does; the repair costs tokens, and it says so before it is chosen. */
+export const LAB_FAILURE_WHY: Record<string, string> = {
+  "Stop": "keep the files as they are; nothing more runs on the lab",
+  "Ask the model to fix it": "the model changes the files (uses tokens), then the check runs on the lab again",
+};
+
 /**
  * A lab check failed: "junos-commit failed on the lab. Casper did not ask the model to fix it, because each try
  * touches lab devices." Stop comes first, so a stray Enter never starts a paid repair that touches the lab.
@@ -57,6 +63,6 @@ export function labCheckRunner(host: LabCheckHost): NamedCheckRunner {
 export async function askLabFailure(host: Pick<LabCheckHost, "pick">, failures: readonly VerificationResult[], signal?: AbortSignal): Promise<"repair" | "stop"> {
   const names = [...new Set(failures.map((failure) => failure.name))].join(", ");
   const ask = labFailureAsk(names);
-  const answer = await host.pick(ask.text, ask.choices.map((label) => ({ label })), signal);
+  const answer = await host.pick(ask.text, ask.choices.map((label) => ({ label, description: LAB_FAILURE_WHY[label] })), signal);
   return answer === "Ask the model to fix it" ? "repair" : "stop";
 }
