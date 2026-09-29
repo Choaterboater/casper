@@ -42,6 +42,8 @@ export interface CliOptions {
   command: "prompt" | "interactive" | SubcommandName;
   /** Prompt words, or the subcommand's full argument list (starting with its own words). */
   rest: string[];
+  /** A single word with no `--` before it: when it is a folder, `casper <folder>` opens it (cli.ts decides). */
+  folderCandidate?: boolean;
 }
 
 export type SubcommandName = "learn" | "mcp-check" | "new" | "security";
@@ -119,7 +121,8 @@ export function parseCliArgs(argv: readonly string[]): CliOptions {
 
   const info = infoFlag(args[0]);
   if (info) return { ...options, info };
-  if (args[0] === "--") args.shift();
+  const literal = args[0] === "--";
+  if (literal) args.shift();
   else if (args[0]?.startsWith("-") && !(args[0] === "-" && args.length === 1)) {
     // An unknown or misspelled option would otherwise become a (paid) model prompt.
     throw new UsageError(`Unknown option ${args[0]}. Run casper --help for usage; put -- before a prompt that starts with "-".`);
@@ -137,11 +140,33 @@ export function parseCliArgs(argv: readonly string[]): CliOptions {
     const found = subcommand(args)!;
     if (optionCount) throw new UsageError(`${found.withOptions}${USAGES[found.name]()}`.trim());
     options.command = found.name;
-  } else if (args.join(" ").trim()) options.command = "prompt";
+  } else if (args.join(" ").trim()) {
+    options.command = "prompt";
+    if (!literal) {
+      // `casper ~/code/app` opens the folder; a known option after the words would otherwise be paid prompt text.
+      if (args.length === 1) options.folderCandidate = true;
+      trailingOption(args);
+    }
+  }
   if (options.requireVerification && options.noVerify) throw new UsageError("--require-verification cannot be combined with --no-verify");
   if (options.json && options.command !== "prompt") throw new UsageError("--json needs a prompt: casper --json \"fix the failing test\"");
   if (options.requireVerification && options.command !== "prompt") throw new UsageError("--require-verification needs a prompt: casper --require-verification \"fix the failing test\"");
   return options;
+}
+
+/** A known long option at the end of the prompt (`casper fix the bug --verify`) is a mistake, found before anything
+ * runs. Short -v/-h and unknown dashes inside a prompt stay words ("explain the -v flag"). */
+function trailingOption(args: readonly string[]): void {
+  const last = args.at(-1)!;
+  const before = args.at(-2);
+  const known = (word: string) => (CLI_OPTIONS as readonly string[]).includes(word);
+  const valued = /^(--[a-z-]+)=/.exec(last)?.[1];
+  let options: string[] | undefined, words: readonly string[] = args;
+  if (before && VALUE_OPTIONS.has(before)) { options = [before, last]; words = args.slice(0, -2); }
+  else if (known(last) || (valued && VALUE_OPTIONS.has(valued))) { options = [last]; words = args.slice(0, -1); }
+  if (!options) return;
+  const quoted = (word: string) => /^[\w./:@%+=,-]+$/.test(word) ? word : JSON.stringify(word);
+  throw new UsageError(`Options go before the prompt: casper ${options.map(quoted).join(" ")} ${JSON.stringify(words.join(" "))}. To send it as words, put -- first.`);
 }
 
 function subcommand(args: readonly string[]): (typeof SUBCOMMANDS)[number] | undefined {
@@ -288,7 +313,7 @@ export interface SecurityCommand {
 
 export const SECURITY_USAGE = "Usage: casper security [repo] [--json] [--strict] [--install] [--mcp-tools <file>]";
 const SECURITY_FLAGS = new Set(["--json", "--strict", "--install"]);
-const PATH_LIKE = /^(?:\.{1,2}(?:[\\/]|$)|~(?:[\\/]|$)|[\\/]|[A-Za-z]:[\\/])|[\\/]/;
+export const PATH_LIKE = /^(?:\.{1,2}(?:[\\/]|$)|~(?:[\\/]|$)|[\\/]|[A-Za-z]:[\\/])|[\\/]/;
 
 /** `security` alone, with its flags, or with one folder is the command; other words are a prompt. The folder
  * looks like a path (./app, ~/code/app) or is a folder that is there (`casper security app`), so a folder

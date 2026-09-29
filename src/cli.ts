@@ -11,7 +11,7 @@ import { CasperApp } from "./app";
 import { agentStoreWarnings, importLegacyEngineState, useCasperAgentStore } from "./runtime/agent-store";
 import { CandidateLibrary, formatLearningResult } from "./learn/candidates";
 import { taskExitCode } from "./task/result";
-import { parseCliArgs, parseLearnArgs, parseMcpCheckArgs, parseNewArgs, parseSecurityArgs, UsageError, type McpCheckCommand,
+import { PATH_LIKE, parseCliArgs, parseLearnArgs, parseMcpCheckArgs, parseNewArgs, parseSecurityArgs, UsageError, type McpCheckCommand,
   type NewCommand, type SecurityCommand, type SubcommandName, type CliOptions } from "./cli-args";
 import type { VerificationMode } from "./verify/mode";
 
@@ -170,6 +170,20 @@ export async function runCli(): Promise<void> {
     // No app, no model and no saved state: only the subcommand's own tools run.
     await standalone(options.rest);
     return;
+  }
+  // `casper ~/code/mist-mcp` opens that folder, like --cd with no prompt, instead of sending the path as a paid prompt.
+  if (options.folderCandidate && options.command === "prompt") {
+    const word = options.rest[0]!;
+    const expanded = word === "~" || word.startsWith("~/") || word.startsWith("~\\") ? path.join(os.homedir(), word.slice(1)) : word;
+    const isFolder = await stat(expanded).then((entry) => entry.isDirectory(), () => false);
+    if (isFolder) {
+      if (options.cd) throw new UsageError(`Give the folder once: casper ${word}, or casper --cd <folder> "<prompt>"`);
+      if (options.json || options.requireVerification) throw new UsageError(`${options.json ? "--json" : "--require-verification"} needs a prompt: casper --cd ${word} ${options.json ? "--json" : "--require-verification"} "fix the failing test"`);
+      options.cd = expanded;
+      options.command = "interactive";
+      options.rest = [];
+    // A slash command (`casper /undo`) is not a path.
+    } else if (PATH_LIKE.test(word) && !/^\/[A-Za-z][\w-]*$/.test(word)) throw new UsageError(`Not a folder: ${word}`);
   }
   if (options.cd) {
     const folder = path.resolve(options.cd);
