@@ -68,11 +68,11 @@ export function describeChecksPlan(plan: ChecksPlan): string {
     : plan.slow ? "offered with /verify (they take a minute or more)" : "offered with /verify (verification.mode: offer)"}${manual}`;
 }
 
-/** `verification.checks`, or every check with a configured or detected command and every named check that
- * runs after each change. */
+/** `verification.checks`, or every check with a configured or detected command, every named check that
+ * runs after each change, and the checks Casper found in the project (`detected`: the SQL migrations check). */
 export function selectedChecks(selected: readonly CheckName[] | undefined, commands: Partial<Record<ProjectCommand, string>>,
-  named?: Record<string, NamedCheckSpec>): CheckName[] {
-  return selected ? [...selected] : [...CHECK_NAMES.filter((name) => commands[name]?.trim()), ...autoNamedChecks(named)];
+  named?: Record<string, NamedCheckSpec>, detected: readonly CheckName[] = []): CheckName[] {
+  return selected ? [...selected] : [...CHECK_NAMES.filter((name) => commands[name]?.trim()), ...autoNamedChecks(named), ...detected];
 }
 
 /** The named checks a plan lists as /verify-only: every one not selected to run after each change (set to "ask",
@@ -92,14 +92,17 @@ export function planAutoChecks(input: {
   commands: Partial<Record<ProjectCommand, string>>;
   scopes?: Partial<Record<ProjectCommand, VerificationScope>>;
   named?: Record<string, NamedCheckSpec>;
+  /** Checks Casper found in the project, each with the files that make it worth running (the migrations check). */
+  detected?: ReadonlyArray<{ name: CheckName; scope: VerificationScope }>;
   changedPaths?: readonly string[];
 }): { run: CheckName[]; skipped?: AutoCheckSkip } {
   if (input.changedPaths && !input.changedPaths.length) return { run: [], skipped: "no-changes" };
-  const candidates = selectedChecks(input.selected, input.commands, input.named);
+  const detected = input.detected ?? [];
+  const candidates = selectedChecks(input.selected, input.commands, input.named, detected.map((check) => check.name));
   if (!candidates.length) return { run: [], skipped: "no-checks" };
   const within = (file: string, entry: string) => entry === "." || file === entry || file.startsWith(`${entry}/`);
   const run = candidates.filter((name) => {
-    const scope = input.scopes?.[name as ProjectCommand];
+    const scope = input.scopes?.[name as ProjectCommand] ?? detected.find((check) => check.name === name)?.scope;
     if (!scope || !input.changedPaths) return true;
     return input.changedPaths.some((file) => scope.inputs.some((entry) => within(file, entry))
       && !scope.exclude?.some((entry) => within(file, entry)));

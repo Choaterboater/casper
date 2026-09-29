@@ -35,6 +35,7 @@ import { LifecycleRegistry } from "./lifecycle";
 import type { VisualizationRouter } from "../visualize/router";
 import type { RuntimeAuthProvider, RuntimeSession, RuntimeTool, AgentRuntime } from "../runtime/types";
 import { describeChecksPlan, type ChecksPlan } from "../verify/mode";
+import { detectedMigrations, MIGRATIONS_CHECK } from "../verify/migrations-check";
 import type { TaskObservations } from "../task/observations";
 import { formatTaskResult, type TaskResult } from "../task/result";
 import type { SessionWorkspaceManager } from "../sessions/manager";
@@ -356,7 +357,8 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       const repair = args[0] === "repair";
       if (repair) args.shift();
       const named = host.projectContext?.model.namedChecks ?? {};
-      if (args.some((arg) => !CHECK_NAMES.some((name) => name === arg) && !Object.hasOwn(named, arg))) {
+      const detected = host.projectContext && detectedMigrations(host.projectContext.model) ? [MIGRATIONS_CHECK] : [];
+      if (args.some((arg) => !CHECK_NAMES.some((name) => name === arg) && !Object.hasOwn(named, arg) && !detected.includes(arg))) {
         throw new Error("Usage: /verify [repair] [typecheck|lint|test|build|<named check> ...]");
       }
       return host.runVerification(args.length ? args : host.projectContext ? defaultVerifyNames(host.projectContext.model) : CHECK_NAMES, repair);

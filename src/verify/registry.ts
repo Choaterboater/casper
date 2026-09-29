@@ -3,6 +3,8 @@ import type { NetworkCheckResult } from "../network/spec";
 import { runCommandCheck, type CommandWrap } from "./command";
 import { CHECK_NAMES, type CheckName, type VerificationResult } from "./evidence";
 import { isBuiltinCheck, LAB_NOT_YET, modelNamedChecks, type NamedCheckSpec } from "./named";
+import { detectedMigrations, MIGRATIONS_CHECK, migrationsRunnable, runDetectedMigrations } from "./migrations-check";
+import { migrationsScope } from "./migrations";
 import type { VerificationScope } from "./scope";
 
 export interface Verifier {
@@ -125,11 +127,19 @@ export class VerifierRegistry {
         },
       });
     }
+    // The SQL migrations check Casper found in the project (unless the project named its own `migrations`).
+    const migrations = detectedMigrations(model);
+    if (migrations) {
+      const plan = structuredClone(migrations);
+      registry.register({ name: MIGRATIONS_CHECK, scope: migrationsScope(plan),
+        run: async (signal) => cleanupFailed ? blocked(MIGRATIONS_CHECK) : runDetectedMigrations(cwd, plan, signal) });
+    }
     return registry;
   }
 }
 
 /** The names /verify runs when none are given: the built-in checks and every named check but lab ones. */
-export function defaultVerifyNames(model: Pick<ProjectModel, "namedChecks">): CheckName[] {
-  return [...CHECK_NAMES, ...modelNamedChecks(model.namedChecks)];
+export function defaultVerifyNames(model: Pick<ProjectModel, "namedChecks" | "migrations">): CheckName[] {
+  const migrations = detectedMigrations(model);
+  return [...CHECK_NAMES, ...modelNamedChecks(model.namedChecks), ...(migrations && migrationsRunnable(migrations) ? [MIGRATIONS_CHECK] : [])];
 }

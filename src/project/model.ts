@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import type { ProjectInfo } from "./inspect";
 import type { NamedCheckSpec } from "../verify/named";
+import type { MigrationPlan } from "../verify/migrations";
 import type { VerificationScope } from "../verify/scope";
 import { detectRepositoryStructure, STRUCTURE_PROBES } from "./structure";
 
@@ -35,6 +36,8 @@ export interface ProjectModel {
   verificationScopes?: Partial<Record<ProjectCommand, VerificationScope>>;
   /** Checks the project named under verify.checks, next to the four built-in ones. */
   namedChecks?: Record<string, NamedCheckSpec>;
+  /** SQL migrations found in the project (the migrations check); found when the project is opened, never cached. */
+  migrations?: MigrationPlan;
   architecture: Record<string, string>;
   conventions: string[];
   detectedAt: string;

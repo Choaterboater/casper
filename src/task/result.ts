@@ -459,7 +459,9 @@ export function liveCheckLine(result: VerificationResult): string {
   const timeout = /^Timed out after (\d+)ms$/.exec(result.reason ?? "");
   if (result.ended === "timeout") return `✗ ${name} · timed out${timeout ? ` after ${duration(Number(timeout[1]))}` : ""}`;
   if (result.ended === "no_start") return `✗ ${name} · could not start${typeof result.exitCode === "number" ? ` (exit ${result.exitCode})` : ""}`;
-  return `✗ ${name} · ${typeof result.exitCode === "number" ? `exit ${result.exitCode}` : result.signal ? `stopped by ${result.signal}` : "no exit status"} · ${duration(result.durationMs)}`;
+  const why = typeof result.exitCode === "number" ? `exit ${result.exitCode}` : result.signal ? `stopped by ${result.signal}`
+    : result.reason ? result.reason.replace(/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g, " ") : "no exit status";
+  return `✗ ${name} · ${why} · ${duration(result.durationMs)}`;
 }
 
 function pathList(paths: string[], safe: (text: string) => string, count = true): string {
