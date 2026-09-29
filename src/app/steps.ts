@@ -10,7 +10,7 @@ const LABELS: Record<PhaseEvent["phase"], string> = {
  * it has ended (a stage that starts again, such as checks after a repair, is active again). Nested
  * stages (smoke inside checks) are counted, so an inner end never marks the outer one done. */
 export class StepRail {
-  private readonly steps: Array<{ phase: PhaseEvent["phase"]; active: number }> = [];
+  private readonly steps: Array<{ phase: PhaseEvent["phase"]; active: number; skipped?: boolean }> = [];
 
   update(phase: PhaseEvent["phase"], state: PhaseEvent["state"]): void {
     let step = this.steps.find((entry) => entry.phase === phase);
@@ -18,9 +18,15 @@ export class StepRail {
     step.active = Math.max(0, step.active + (state === "start" ? 1 : -1));
   }
 
+  /** A stage that ended without doing its job (no checklist was made): marked "skipped", never ✓. */
+  skip(phase: PhaseEvent["phase"]): void {
+    const step = this.steps.find((entry) => entry.phase === phase);
+    if (step) step.skipped = true;
+  }
+
   clear(): void { this.steps.length = 0; }
 
   text(): string | undefined {
-    return this.steps.length ? this.steps.map((step) => `${LABELS[step.phase]}${step.active ? "" : " ✓"}`).join(" · ") : undefined;
+    return this.steps.length ? this.steps.map((step) => `${LABELS[step.phase]}${step.active ? "" : step.skipped ? " skipped" : " ✓"}`).join(" · ") : undefined;
   }
 }
