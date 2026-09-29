@@ -186,7 +186,7 @@ test("schema inspection preserves enum and required semantics beyond the result 
   expect(schema.properties.site.enum[79]).toBe("site-79");
   expect(envelope.truncated).toBe(false);
   expect(Buffer.byteLength(response.text)).toBeLessThanOrEqual(16_384);
-  await expect(broker.invoke("mcp:generic:inspect_quantum_flux", {})).rejects.toThrow("Invalid MCP arguments");
+  await expect(broker.invoke("mcp:generic:inspect_quantum_flux", {})).rejects.toThrow("Not executed (bad arguments");
   expect((await broker.invoke("mcp:generic:inspect_quantum_flux", { site: "site-79" })).isError).toBe(false);
 });
 
@@ -204,9 +204,9 @@ test("escaped schema budgets agree across inspection, direct selection, and fall
   expect(Buffer.byteLength(response.text)).toBeLessThanOrEqual(16_384);
   expect(JSON.parse(envelope.data.inputSchemaJson)).toEqual(broker.describe("mcp:generic:inspect_budget_in").inputSchema);
   expect((await broker.invoke("mcp:generic:inspect_budget_in", {})).isError).toBe(false);
-  expect(() => broker.describe("mcp:generic:inspect_budget_out")).toThrow("exposure budget");
+  expect(() => broker.describe("mcp:generic:inspect_budget_out")).toThrow("Not executed (schema not supported");
   expect((await find.execute({ id: "mcp:generic:inspect_budget_out" })).isError).toBe(true);
-  await expect(broker.invoke("mcp:generic:inspect_budget_out", {})).rejects.toThrow("exposure budget");
+  await expect(broker.invoke("mcp:generic:inspect_budget_out", {})).rejects.toThrow("Not executed (schema not supported");
 });
 
 test("router catalogs prefer native discovery and read dispatch, never generic dispatch permission", async () => {
@@ -223,7 +223,7 @@ test("router catalogs prefer native discovery and read dispatch, never generic d
   expect(JSON.stringify(found)).toContain("inspect_quantum_flux");
   const result = await broker.invoke("mcp:router-catalog:invoke_read_tool", { name: "inspect_quantum_flux", arguments: { site: "lab" } });
   expect(JSON.stringify(result)).toContain('"counter":42');
-  await expect(broker.invoke("mcp:router-catalog:invoke_tool", {})).rejects.toThrow("confirmation");
+  await expect(broker.invoke("mcp:router-catalog:invoke_tool", {})).rejects.toThrow("Not executed (needs your approval");
 });
 
 test("collision-safe names route to the exact server and non-read calls need immutable exact-call approval", async () => {
@@ -245,7 +245,7 @@ test("collision-safe names route to the exact server and non-read calls need imm
   expect((await fromUnderscore.execute({})).text).toContain('"identity":"a_b"');
   expect(JSON.stringify(await broker.invoke("mcp:a-b:set_site", { site: "reviewed" }))).toContain('"site":"reviewed"');
   const denied = new CapabilityBroker(mcp, async () => false);
-  await expect(denied.invoke("mcp:a-b:mystery", {})).rejects.toThrow("confirmation");
+  await expect(denied.invoke("mcp:a-b:mystery", {})).rejects.toThrow("Not executed (you said no)");
   expect(denied.search("mystery")[0]?.safety).toBe("external-action");
 });
 
@@ -259,9 +259,9 @@ test("invalid arguments never reach approval, and a tool changed during approval
     await until(() => broker.describe("mcp:generic:set_site").capability.description === "Changed site configuration tool");
     return true;
   });
-  await expect(broker.invoke("mcp:generic:set_site", { site: 123 })).rejects.toThrow("Invalid MCP arguments");
+  await expect(broker.invoke("mcp:generic:set_site", { site: 123 })).rejects.toThrow("Not executed (bad arguments");
   expect(approvals).toBe(0);
-  await expect(broker.invoke("mcp:generic:set_site", { site: "lab" })).rejects.toThrow("changed during approval");
+  await expect(broker.invoke("mcp:generic:set_site", { site: "lab" })).rejects.toThrow("Not executed (tool changed; search again)");
   expect(approvals).toBe(1);
 });
 
@@ -273,7 +273,7 @@ test("disconnect and reconnect revoke a pending approval even when the tool sche
     await mcp.connect("generic");
     return true;
   });
-  await expect(broker.invoke("mcp:generic:set_site", { site: "lab" })).rejects.toThrow("changed during approval");
+  await expect(broker.invoke("mcp:generic:set_site", { site: "lab" })).rejects.toThrow("Not executed (tool changed; search again)");
 });
 
 test("list-change notifications refresh and remove stale tools without restarting", async () => {
@@ -285,7 +285,7 @@ test("list-change notifications refresh and remove stale tools without restartin
   await until(() => broker.search("late arrival").length === 1);
   expect(broker.search("status")).toHaveLength(0);
   expect(JSON.stringify(await broker.invoke("mcp:generic:late_read", {}))).toContain("late_read");
-  await expect(broker.invoke("mcp:generic:status", {})).rejects.toThrow("unavailable");
+  await expect(broker.invoke("mcp:generic:status", {})).rejects.toThrow("Not executed (unknown capability");
 });
 
 test("cached descriptors, input validators, and safety decisions invalidate together after refresh", async () => {
@@ -301,11 +301,11 @@ test("cached descriptors, input validators, and safety decisions invalidate toge
   expect(broker.describe("mcp:generic:inspect_quantum_flux").capability.safety).toBe("read");
   await broker.invoke("mcp:generic:fixture_refresh", {});
   await until(() => broker.describe("mcp:generic:inspect_quantum_flux").capability.safety === "external-action");
-  expect((await direct.execute({ site: "lab" })).text).toContain("Invalid MCP arguments");
-  expect((await direct.execute({ site: 42 })).text).toContain("requires explicit interactive confirmation");
+  expect((await direct.execute({ site: "lab" })).text).toContain("Not executed (bad arguments");
+  expect((await direct.execute({ site: 42 })).text).toContain("Not executed (needs your approval");
   await mcp.disconnect("generic");
   expect(broker.search("quantum flux")).toEqual([]);
-  expect((await direct.execute({ site: 42 })).text).toContain("unavailable");
+  expect((await direct.execute({ site: 42 })).text).toContain("Not executed (unknown capability");
 });
 
 test("dead servers do not poison healthy ones; reconnect is bounded and does not replay calls", async () => {
@@ -314,12 +314,12 @@ test("dead servers do not poison healthy ones; reconnect is bounded and does not
   expect(mcp.status().find((status) => status.name === "good")?.state).toBe("ready");
   expect(mcp.status().find((status) => status.name === "bad")?.state).toBe("failed");
   const broker = new CapabilityBroker(mcp);
-  await expect(broker.invoke("mcp:good:crash_read", {})).rejects.toThrow("not retried");
+  await expect(broker.invoke("mcp:good:crash_read", {})).rejects.toThrow("Do not retry on your own");
   expect(mcp.catalog()).toEqual([]);
   await mcp.prepare();
   expect(mcp.status().find((status) => status.name === "good")?.state).toBe("ready");
   expect(JSON.stringify(await broker.invoke("mcp:good:status", {}))).toContain('"identity":"good"');
-  await expect(broker.invoke("mcp:good:crash_read", {})).rejects.toThrow("not retried");
+  await expect(broker.invoke("mcp:good:crash_read", {})).rejects.toThrow("Do not retry on your own");
   await mcp.prepare();
   // Each crash spends the burst budget, so a server that dies after its handshake is capped too.
   expect(mcp.status().find((status) => status.name === "good")?.error).toContain("retry limit");
@@ -362,7 +362,7 @@ test("timeouts, caller cancellation, and close during handshake settle without l
   await expect(work).rejects.toThrow("cancelled");
   expect(mcp.catalog()).toEqual([]);
   await broker.prepare("slow read"); // Cancellation invalidates the affected connection; no call is replayed.
-  await expect(broker.invoke("mcp:generic:slow_read", {})).rejects.toThrow("timed out");
+  await expect(broker.invoke("mcp:generic:slow_read", {})).rejects.toThrow("No answer from generic in 0.5 s. It may have run.");
   const stalled = manager([definition("stall", "stall")]);
   const connecting = stalled.connect("stall");
   await Bun.sleep(30);
@@ -567,7 +567,7 @@ test("HTTP catalog-refresh timeout closes its unanswered POST and removes stale 
   expect(mcp.status()[0]?.error).toContain("refresh failed");
 });
 
-test("HTTP redirects cannot forward configured secrets and failures do not echo server bodies", async () => {
+test("HTTP redirects cannot forward configured secrets, and failures show the status and body but never header values", async () => {
   let contacted = false;
   const target = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => { contacted = true; return new Response("sensitive-server-body", { status: 401 }); } });
   const redirect = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => Response.redirect(`http://127.0.0.1:${target.port}/mcp`, 307) });
@@ -581,7 +581,9 @@ test("HTTP redirects cannot forward configured secrets and failures do not echo 
   expect(contacted).toBe(false);
   await mcp.connect("failure");
   expect(mcp.status().map((status) => status.state)).toEqual(["failed", "failed"]);
-  expect(JSON.stringify(mcp.status())).not.toContain("sensitive-");
+  // What the server said is shown (redacted) so a 401 is understandable; header values never are.
+  expect(mcp.status()[1]?.error).toBe("The server said HTTP 401: sensitive-server-body");
+  expect(JSON.stringify(mcp.status())).not.toContain("sensitive-header");
 });
 
 test("your own MCP servers start in your home folder, not the opened repository, unless their definition names a folder", async () => {
@@ -627,4 +629,166 @@ test("a project server's review names every variable it would send and where", a
   const local = mcp.review("local")!.preview;
   expect(local).toContain("passes $OPENAI_API_KEY to the command (env OPENAI_API_KEY)");
   expect(local).not.toContain("fast");
+});
+
+// find_capability and argument errors (network-shaped names; no device contact).
+function net() { return definition("net", "network-names"); }
+async function surfaceTools(broker: CapabilityBroker, task = "health") {
+  const surface = await broker.prepare(task);
+  return {
+    find: surface.find((tool) => tool.name === "find_capability")!,
+    call: surface.find((tool) => tool.name === "call_capability")!,
+  };
+}
+
+test("plural and stem search finds network tools", async () => {
+  const mcp = manager([net()]);
+  await mcp.connect("net");
+  const broker = new CapabilityBroker(mcp);
+  const ids = (query: string) => broker.search(query, 10).map((found) => found.id);
+  expect(ids("site")).toContain("mcp:net:mist_list_sites");
+  expect(ids("switch")).toContain("mcp:net:mist_list_switches");
+  expect(ids("policy")).toContain("mcp:net:clearpass_list_enforcement_policies");
+  expect(ids("routers")).toContain("mcp:net:get_router_list");
+  expect(ids("devices")).toContain("mcp:net:gather_device_facts");
+  const { find } = await surfaceTools(broker);
+  expect((await find.execute({ query: "configuration" })).text).toContain("mcp:net:get_junos_config");
+  // "config" matches the start of the name word "configuration" (5+ letters, search only).
+  expect((await find.execute({ query: "config" })).text).toContain("mcp:net:compare_configuration_versions");
+  // The start-of-word rule is for search only: direct tool choice stays exact.
+  const direct = (await broker.prepare("config")).filter((tool) => tool.name.startsWith("mcp_")).map((tool) => tool.description).join("\n");
+  expect(direct).toContain("mcp:net:get_junos_config");
+  expect(direct).not.toContain("mcp:net:compare_configuration_versions");
+});
+
+test('query "*" lists every tool in bounded pages', async () => {
+  const mcp = manager();
+  await mcp.connect("generic");
+  const broker = new CapabilityBroker(mcp);
+  const { find } = await surfaceTools(broker);
+  const seen: string[] = [];
+  let cursor: string | undefined;
+  let pages = 0;
+  do {
+    const response = await find.execute({ query: "*", ...(cursor ? { cursor } : {}) });
+    expect(response.isError).not.toBe(true);
+    expect(Buffer.byteLength(response.text)).toBeLessThanOrEqual(16_384);
+    const envelope = JSON.parse(response.text);
+    expect(envelope.truncated).toBe(false);
+    const page = envelope.data;
+    expect(page.total).toBe(340);
+    expect(page.items.length).toBeLessThanOrEqual(50);
+    if (pages === 0) expect(page.shown).toBe("1-50");
+    for (const item of page.items) {
+      expect(Object.keys(item)).toEqual(["id", "safety", "about"]);
+      expect(item.about.length).toBeLessThanOrEqual(80);
+      seen.push(item.id);
+    }
+    cursor = page.next_cursor;
+    pages++;
+  } while (cursor && pages < 20);
+  expect(cursor).toBeUndefined();
+  expect(new Set(seen).size).toBe(340);
+  const expected = mcp.catalog().flatMap(({ tools }) => tools.map((tool) => tool.name)).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  expect(seen).toEqual(expected.map((name) => `mcp:generic:${name}`));
+  expect(seen.find((id) => id.endsWith(":set_site"))).toBeDefined();
+});
+
+test("stale and bad cursors are refused in plain words", async () => {
+  const mcp = manager();
+  await mcp.connect("generic");
+  const broker = new CapabilityBroker(mcp);
+  const { find } = await surfaceTools(broker);
+  const cursor = JSON.parse((await find.execute({ query: "*" })).text).data.next_cursor as string;
+  const revision = mcp.catalogRevision;
+  await broker.invoke("mcp:generic:fixture_refresh", {});
+  await until(() => mcp.catalogRevision !== revision);
+  const stale = await find.execute({ query: "*", cursor });
+  expect(stale.isError).toBe(true);
+  expect(stale.text).toContain('The tool list changed since that page. Start again with query \\"*\\".');
+  const bad = await find.execute({ query: "*", cursor: "x" });
+  expect(bad.isError).toBe(true);
+  expect(bad.text).toContain('field \\"cursor\\" is not valid; use next_cursor from the last page');
+  const wrongQuery = await find.execute({ query: "site", cursor: "0.50" });
+  expect(wrongQuery.isError).toBe(true);
+  expect(wrongQuery.text).toContain("only works with query");
+  expect((await find.execute({ query: "site", id: "mcp:generic:status" })).text).toContain('Give either \\"query\\" or \\"id\\", not both.');
+  expect((await find.execute({})).text).toContain('Give a \\"query\\" (words, or \\"*\\") or an exact \\"id\\".');
+});
+
+test('query "*" on a router server says it cannot list the backend', async () => {
+  const mcp = manager([definition("router-catalog", "router")]);
+  await mcp.connect("router-catalog");
+  const broker = new CapabilityBroker(mcp);
+  const { find } = await surfaceTools(broker);
+  const response = await find.execute({ query: "*" });
+  expect(response.text).toContain("has its own search");
+  expect(response.text).toContain("mcp:router-catalog:find_tool");
+  const page = JSON.parse(response.text).data;
+  expect(page.total).toBe(340);
+  expect(page.routers).toEqual([{ server: "router-catalog", hint: expect.stringContaining("cannot list everything") }]);
+});
+
+test('an empty search suggests plain words or "*"', async () => {
+  const mcp = manager();
+  await mcp.connect("generic");
+  const { find } = await surfaceTools(new CapabilityBroker(mcp));
+  const response = await find.execute({ query: "zzqx" });
+  expect(response.isError).not.toBe(true);
+  expect(response.text).toContain("Nothing matched");
+  expect(response.text).toContain('\\"*\\"');
+  // Hits are still a plain list.
+  expect(Array.isArray(JSON.parse((await find.execute({ query: "quantum flux" })).text).data)).toBe(true);
+});
+
+test("argument errors name the field and never echo values", async () => {
+  const mcp = manager([net(), definition("generic", "schema-arrays")]);
+  await Promise.all([mcp.connect("net"), mcp.connect("generic")]);
+  let approvals = 0;
+  const broker = new CapabilityBroker(mcp, async () => { approvals++; return true; });
+  const failure = async (id: string, args: Record<string, unknown>) => {
+    const error = await broker.invoke(id, args).then(() => undefined, (caught: Error) => caught);
+    expect(error).toBeInstanceOf(Error);
+    expect(error!.message).toStartWith("Not executed (bad arguments: ");
+    expect(error!.message).toEndWith(`). Check the schema: find_capability({ id: "${id}" }).`);
+    expect(error!.message.length).toBeLessThan(800);
+    return error!.message;
+  };
+  const junos = await failure("mcp:net:execute_junos_command", { router: "r1", command: "show version" });
+  expect(junos).toContain('missing field "router_name"');
+  expect(junos).toContain('unknown field "router" (did you mean "router_name"?)');
+  expect(junos).not.toContain("show version");
+  const typed = await failure("mcp:generic:inspect_quantum_flux", { site: 5 });
+  expect(typed).toContain('field "site" must be one of: "site-0"');
+  const enumMessage = await failure("mcp:generic:inspect_quantum_flux", { site: "SECRET-VALUE-9" });
+  expect(enumMessage).toContain('must be one of: "site-0"');
+  expect(enumMessage).toContain("(+75 more)");
+  expect(enumMessage).not.toContain("SECRET-VALUE-9");
+  const nested = await failure("mcp:net:search_clients", { filter: { vlan: "ten" }, hosts: ["a", 2] });
+  expect(nested).toContain('field "filter.vlan" must be an integer');
+  expect(nested).toContain('field "hosts[1]" must be a string');
+  expect(nested).not.toContain("ten");
+  expect(approvals).toBe(0);
+});
+
+test("a plain type error names the field", async () => {
+  const mcp = manager();
+  await mcp.connect("generic");
+  const broker = new CapabilityBroker(mcp);
+  await expect(broker.invoke("mcp:generic:inspect_quantum_flux", { site: 5 })).rejects.toThrow('Not executed (bad arguments: field "site" must be a string)');
+});
+
+test("call_capability names the bad field, and the error list is capped", async () => {
+  const mcp = manager([net()]);
+  await mcp.connect("net");
+  const broker = new CapabilityBroker(mcp);
+  const { call } = await surfaceTools(broker);
+  expect((await call.execute({ id: "mcp:net:get_router_list" })).text).toContain('field \\"arguments\\" must be an object');
+  expect((await call.execute({ arguments: {} })).text).toContain('field \\"id\\" is missing');
+  const capped = await call.execute({ id: "mcp:net:check_many_fields", arguments: {} });
+  expect(capped.isError).toBe(true);
+  const summary = JSON.parse(capped.text).summary as string;
+  expect(summary.match(/missing field/g)).toHaveLength(5);
+  expect(summary).toContain("(and 7 more)");
+  expect(JSON.parse(capped.text).executed).toBe(false);
 });

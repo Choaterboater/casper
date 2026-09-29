@@ -27,6 +27,11 @@ export interface RuntimeStartOptions {
   /** Return a reason to block a native tool call before it executes (empty/undefined = allow).
    * Read as a closure each call, so per-task gate state can change between calls. */
   beforeToolGate?: (toolName: string, input: Record<string, unknown> | undefined) => string | undefined;
+  /** Hide device secrets in native tool output (read, bash, powershell, grep) before the model sees
+   * it. Gets every text block of one result; returns the replaced blocks and a note, or undefined
+   * to leave the result as it is. Also called for failed commands, whose output is still shown. */
+  scrubToolOutput?: (toolName: string, input: Record<string, unknown>, texts: string[], signal?: AbortSignal)
+    => Promise<{ texts: string[]; note?: string } | undefined>;
 }
 
 /** Safe preflight diagnostic; callers may surface this exact message without forwarding provider errors. */
@@ -44,6 +49,8 @@ export interface RuntimeReadOnlyStartOptions {
   reportTurn?: boolean;
   /** Casper role for this child; unset roles use the Casper startup default. */
   modelRole?: "fast" | "review";
+  /** The same secret scrubbing as the main session: a child's reads reach a model too. */
+  scrubToolOutput?: RuntimeStartOptions["scrubToolOutput"];
 }
 
 export interface RuntimeStatus {

@@ -27,6 +27,8 @@ async function fixture() {
 }
 
 class ToolRuntime implements AgentRuntime {
+  /** The capability the model calls; set_site is a write tool, hidden while writes are off. */
+  constructor(private readonly call = { id: "mcp:fixture:set_site", arguments: { site: "lab" } as Record<string, unknown> }) {}
   starts = 0;
   tools: RuntimeTool[] = [];
   surfaces: string[][] = [];
@@ -39,7 +41,7 @@ class ToolRuntime implements AgentRuntime {
       prompt: async () => {
         this.surfaces.push(this.tools.map((tool) => tool.name));
         const invoke = this.tools.find((tool) => tool.name === "call_capability");
-        if (invoke) this.result = (await invoke.execute({ id: "mcp:fixture:set_site", arguments: { site: "lab" } })).text;
+        if (invoke) this.result = (await invoke.execute(this.call)).text;
       },
       abort: async () => {}, subscribe: () => () => {}, getState: () => ({ cwd: options.cwd, isStreaming: false }),
     };
@@ -49,7 +51,8 @@ class ToolRuntime implements AgentRuntime {
 
 test("app keeps status/connect local, replaces task surfaces, and denies one-shot consequential MCP calls", async () => {
   const { home, project } = await fixture();
-  const runtime = new ToolRuntime();
+  // "mystery" has no annotations: it is not hidden while writes are off, but it always asks.
+  const runtime = new ToolRuntime({ id: "mcp:fixture:mystery", arguments: {} });
   let output = "";
   const app = new CasperApp({
     runtimeFactory: () => runtime,
@@ -66,7 +69,10 @@ test("app keeps status/connect local, replaces task surfaces, and denies one-sho
   expect(runtime.starts).toBe(0);
   await app.runOnce("Read site health metric");
   expect(runtime.surfaces[0]).toHaveLength(11); // the nine before + ask + casper_check (checking is on by default)
-  expect(runtime.result).toContain("requires explicit interactive confirmation");
+  // One-shot runs cannot ask, so the model is not told that you said no.
+  expect(runtime.result).toContain("Not executed (needs your approval, and this run cannot ask)");
+  expect(runtime.result).not.toContain("you said no");
+  expect(runtime.result).not.toContain("Complete result");
   await app.runOnce("Read quantum flux");
   expect(runtime.surfaces[1]).toHaveLength(6);
   expect(runtime.surfaces[1]?.some((name) => name.includes("inspect_quantum_flux"))).toBe(true);
@@ -74,7 +80,31 @@ test("app keeps status/connect local, replaces task surfaces, and denies one-sho
   await app.runOnce("/mcp disconnect fixture");
   await app.runOnce("Read site health metric");
   expect(runtime.surfaces[2]).toEqual(["find_capability", "call_capability", "delegate", "ask", "casper_check"]);
-  expect(runtime.result).toContain("unavailable");
+  expect(runtime.result).toContain("Not executed (unknown capability");
+});
+
+test("every server starts with writes off: a write tool is refused before anyone is asked", async () => {
+  const { home, project } = await fixture();
+  const runtime = new ToolRuntime();
+  let output = "";
+  const app = new CasperApp({
+    runtimeFactory: () => runtime, sessionHomeDir: home,
+    loadProjectContext: (info) => loadProjectContext(info, { homeDir: home }),
+    loadSkillRegistry: (context) => SkillRegistry.discover({ projectRoot: context.info.root, homeDir: home }),
+    loadMCPConfiguration: () => discoverMCPConfiguration({ projectRoot: project, homeDir: home }),
+    output: { write: (text) => { output += text; } },
+  });
+  cleanup.push(() => app.close());
+  await app.runOnce("/mcp connect fixture", project);
+  expect(output).toContain("fixture [stdio; ready] 340 tools · writes off · access not checked");
+  expect(output).toContain("Writes off: write and delete tools are hidden, and every other change still asks you. /mcp writes <name> turns writes on.");
+  await app.runOnce("Change site");
+  expect(runtime.result).toContain("Not executed (fixture writes are off. Only the user can turn them on with /mcp writes fixture.)");
+  expect(output).not.toContain("MCP · fixture · set_site");
+  // Turning writes on needs an interactive session.
+  output = "";
+  await app.runOnce("/mcp writes fixture").catch((error: Error) => { output += error.message; });
+  expect(output).toContain("Writes can only be turned on in an interactive session.");
 });
 
 test("closing during a lazy runtime factory drains it without starting a late model session", async () => {
@@ -156,17 +186,110 @@ test("interactive approval shows exact arguments and permits only an explicit ye
     loadMCPConfiguration: () => discoverMCPConfiguration({ projectRoot: project, homeDir: home }),
     output: { write: (text) => {
       output += text;
-      if (text === "> ") queueMicrotask(() => input.write(prompts++ === 0 ? "Change site\n" : "/exit\n"));
+      // Writes are off at start: turn them on for this server first (/mcp writes, then 1).
+      if (text === "> ") queueMicrotask(() => input.write(["/mcp writes fixture\n", "Change site\n"][prompts++] ?? "/exit\n"));
+      if (text.endsWith("Type 1 or 2: ")) queueMicrotask(() => input.write("1\n"));
       if (text.includes("Type yes:")) queueMicrotask(() => input.write("yes\n"));
     } },
   });
   cleanup.push(() => app.close());
   await app.runOnce("/mcp connect fixture", project);
   await app.runInteractive();
-  expect(output).toContain('MCP confirmation: "mcp:fixture:set_site" [write]');
+  expect(output).toContain("fixture writes are off.\n  1 Enable for this server\n  2 Keep writes off\n");
+  expect(output).toContain("[mcp] Writes on for fixture. Each change still asks you. /mcp writes off turns writes off.");
+  expect(output).toContain("MCP · fixture · set_site  [write]");
+  expect(output).toContain("Mode: EXECUTE (this makes the change)");
+  expect(output).toContain("Run it? Type yes: ");
   expect(output).toContain('Arguments: {"site":"lab"}');
   expect(runtime.result).toContain('"site":"lab"');
   expect(runtime.result).not.toContain('"isError":true');
+});
+
+/** An interactive run whose model calls one network tool; `answers` are typed at each question in order. */
+async function networkRun(answers: string[], call: { id: string; arguments: Record<string, unknown> }) {
+  const { home, project } = await fixture();
+  await writeFile(path.join(home, ".casper/mcp.json"), JSON.stringify({ mcpServers: {
+    net: { command: process.execPath, args: [path.join(import.meta.dir, "fixtures/mcp-server.ts")], env: { FIXTURE_MODE: "network" } },
+  } }));
+  let result = "";
+  const runtime: AgentRuntime = {
+    async start(options: RuntimeStartOptions) {
+      let tools = options.tools ?? [];
+      return {
+        setTools: (next: RuntimeTool[]) => { tools = next; },
+        prompt: async () => {
+          const invoke = tools.find((tool) => tool.name === "call_capability");
+          if (invoke) result = (await invoke.execute(call)).text;
+        },
+        abort: async () => {}, subscribe: () => () => {}, getState: () => ({ cwd: options.cwd, isStreaming: false }),
+      };
+    },
+    async dispose() {},
+  };
+  const input = new PassThrough();
+  let prompts = 0;
+  let output = "";
+  const app = new CasperApp({
+    runtimeFactory: () => runtime, input,
+    loadProjectContext: (info) => loadProjectContext(info, { homeDir: home }),
+    loadSkillRegistry: (context) => SkillRegistry.discover({ projectRoot: context.info.root, homeDir: home }),
+    loadMCPConfiguration: () => discoverMCPConfiguration({ projectRoot: project, homeDir: home }),
+    output: { write: (text) => {
+      output += text;
+      // Writes are off at start: turn them on for this server first (/mcp writes, then 1).
+      if (text === "> ") queueMicrotask(() => input.write(["/mcp writes net\n", "Bounce the port\n"][prompts++] ?? "/exit\n"));
+      if (text.endsWith("Type 1 or 2: ")) queueMicrotask(() => input.write("1\n"));
+      if (/Type (yes|one of)[^:]*: $/.test(text)) { const answer = answers.shift() ?? "no"; queueMicrotask(() => input.write(`${answer}\n`)); }
+    } },
+  });
+  cleanup.push(() => app.close());
+  await app.runOnce("/mcp connect net", project);
+  await app.runInteractive();
+  return { output, result };
+}
+
+test("interactive run: the server's question about an approved call is answered by the user", async () => {
+  const { output, result } = await networkRun(["yes", "yes"], { id: "mcp:net:port_bounce", arguments: { serial_number: "SG1" } });
+  const box = output.indexOf("MCP · net · port_bounce  [destructive]");
+  const question = output.indexOf("net asks about the port_bounce call you approved:");
+  expect(box).toBeGreaterThanOrEqual(0);
+  expect(question).toBeGreaterThan(box);
+  expect(output).toContain("Confirm PORT BOUNCE on SG1 ports [1/1/1]?");
+  expect(output).toContain("[approval] allowed");
+  expect(output).toContain("[server question] yes");
+  expect(result).toContain("bounced");
+});
+
+test("interactive run: no to the server's question cancels the approved call", async () => {
+  const { output, result } = await networkRun(["yes", "no"], { id: "mcp:net:port_bounce", arguments: { serial_number: "SG1" } });
+  expect(output).toContain("[server question] no");
+  expect(result).toContain("CANCELLED");
+  expect(result).not.toContain("bounced");
+});
+
+test("interactive run: p previews first, then the box shows the preview with the PSK hidden", async () => {
+  const { output, result } = await networkRun(["p", "yes"], { id: "mcp:net:set_ssid", arguments: { ssid: "corp", wpa_passphrase: "hunter2hunter" } });
+  expect(output).toContain("Run it? Type yes, or p to preview first: ");
+  expect(output).toContain("[approval] preview first");
+  expect(output).toContain("Last preview (just now):");
+  expect(output).toContain("\"wpa_passphrase\":\"••• 13 chars\"");
+  expect(output).not.toContain("hunter2hunter");
+  expect(result).toContain("applied");
+});
+
+test("interactive run: a long server question has secrets hidden before it is cut", async () => {
+  const { output, result } = await networkRun(["yes", "yes"], { id: "mcp:net:long_question", arguments: { serial_number: "SG1" } });
+  expect(output).toContain("net asks about the long_question call you approved:");
+  expect(output).toContain("… (more not shown)");
+  expect(output).not.toContain("ghp_");
+  expect(result).toContain("bounced");
+});
+
+test("interactive run: arguments too long to show are not run, and the user is told", async () => {
+  const { output, result } = await networkRun([], { id: "mcp:net:set_ssid", arguments: { ssid: "x".repeat(5000) } });
+  expect(output).toContain("MCP · net · set_ssid  [write]");
+  expect(output).toContain("Too long to show in full (over 4 KB); not run.");
+  expect(result).toContain("Not executed (arguments too long to show you for approval)");
 });
 
 test("real CLI and Pi adapter send a small surface and complete search/schema/call via a local model protocol fixture", async () => {

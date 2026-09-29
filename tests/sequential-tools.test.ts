@@ -21,6 +21,7 @@ test("MCP calls that may need approval run one at a time; reads and search stay 
   const manager = {
     catalogRevision: 1,
     prepare: async () => {},
+    policy: () => ({ writes: "on", showOptIn: false }),
     status: () => [{ name: "demo" }],
     catalog: () => [{ server: "demo", generation: 1, tools: [tool("list_sites", true), tool("update_site", false)] }],
   } as unknown as MCPManager;

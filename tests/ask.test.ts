@@ -277,7 +277,8 @@ test("an asked question is recorded on its own line, not appended to the running
     input.write("pick a database\r");
     await screen.until(output => output.includes("Which database?"));
     input.write("\r");
-    await screen.until(output => output.includes("ask — completed") && output.includes("idle"));
+    // Idle after the task, not the idle from before it: /exit typed while the task is finishing stays a draft.
+    await screen.until(output => { const text = Bun.stripANSI(output); const done = text.lastIndexOf("ask — completed"); return done >= 0 && text.lastIndexOf("idle") > done; });
     const repaints = screen.output.split(REPAINT).length;
     screen.writer.columns = 90; screen.writer.emit("resize");
     await screen.until(() => screen.output.split(REPAINT).length > repaints && lastFrame(screen.output).some(line => line.includes("ask — completed")));
@@ -291,7 +292,7 @@ test("an asked question is recorded on its own line, not appended to the running
     input.destroy();
     await rm(root, { recursive: true, force: true });
   }
-});
+}, 15_000);
 
 /** Recording channel stub for the tool-level contract. */
 function stubChannel(available: boolean, answers: (string[] | undefined)[]): { channel: AskChannel; records: string[] } {

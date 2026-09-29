@@ -454,6 +454,9 @@ export const PI_TOOL_RULES: readonly string[] = [
 /** A bash timeout above this is capped: one hour, the longest a Casper check may run, so the cap never
  * cuts short a command a check itself would allow, while a day-long timeout cannot hang a session. */
 export const BASH_TIMEOUT_CAP_SECONDS = 3600;
+/** Native tools whose output may hold a device config (see scrubToolOutput). */
+const SCRUBBED_TOOLS = new Set(["read", "bash", "powershell", "grep"]);
+export const SCRUB_FAILED_TEXT = "Output not shown: Casper could not check it for device secrets. Try a smaller read or another command.";
 
 export class PiRuntime implements AgentRuntime {
   private runtime?: AgentSessionRuntime;
@@ -494,7 +497,8 @@ export class PiRuntime implements AgentRuntime {
       if (!Number.isInteger(limit) || limit < 1) throw new Error("Invalid read-only runtime budget");
     }
     this.readOnly = true;
-    return this.create({ cwd: options.cwd, systemPromptAppend: options.systemPromptAppend }, options);
+    return this.create({ cwd: options.cwd, systemPromptAppend: options.systemPromptAppend,
+      ...(options.scrubToolOutput ? { scrubToolOutput: options.scrubToolOutput } : {}) }, options);
   }
 
   private async create(options: RuntimeStartOptions, readOnly?: RuntimeReadOnlyStartOptions): Promise<RuntimeSession> {
@@ -546,10 +550,23 @@ export class PiRuntime implements AgentRuntime {
           else if (event.toolName === "bash" && typeof event.input.timeout === "number" && event.input.timeout > BASH_TIMEOUT_CAP_SECONDS) event.input.timeout = BASH_TIMEOUT_CAP_SECONDS;
           const risky = event.toolName === "bash" && typeof event.input.command === "string" ? blockedGitCommand(event.input.command) : undefined;
           if (risky) return { block: true, reason: `Casper does not let the model run \`${risky}\`: it can set aside or discard the user's uncommitted work. Leave the working tree as it is, or ask the user to run it.` };
-          if (options.beforeToolGate && ["edit", "write"].includes(event.toolName)) {
+          if (options.beforeToolGate && ["edit", "write", "bash", "powershell"].includes(event.toolName)) {
             const reason = options.beforeToolGate(event.toolName, event.input);
             if (reason) return { block: true, reason };
           }
+        });
+        if (options.scrubToolOutput) pi.on("tool_result", async (event, ctx) => {
+          if (!SCRUBBED_TOOLS.has(event.toolName)) return;
+          const texts = event.content.flatMap((block) => block.type === "text" ? [block.text] : []);
+          if (!texts.length) return;
+          let scrubbed: Awaited<ReturnType<NonNullable<RuntimeStartOptions["scrubToolOutput"]>>>;
+          // Pi passes the raw output on when a handler throws, so a failed check hides the output instead.
+          try { scrubbed = await options.scrubToolOutput!(event.toolName, event.input, texts, ctx.signal); }
+          catch { return { content: [{ type: "text" as const, text: SCRUB_FAILED_TEXT }] }; }
+          if (!scrubbed) return;
+          let index = 0;
+          const content = event.content.map((block) => block.type === "text" ? { ...block, text: scrubbed.texts[index++] ?? "" } : block);
+          return { content: scrubbed.note ? [...content, { type: "text" as const, text: scrubbed.note }] : content };
         });
         pi.on("tool_result", async (event, ctx) => {
           if (event.isError || !["edit", "write"].includes(event.toolName) || typeof event.input.path !== "string" || !options.afterFileEdit) return;

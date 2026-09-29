@@ -4,6 +4,7 @@ export const HELP_TEXT = `Casper — your coding companion
   casper <prompt>        Run one prompt and exit; Casper checks the changes (--no-verify skips)
   casper --verbose ...   Detailed evidence receipts instead of the plain receipt
   casper --json ...      Scripting: also --model, --continue, --require-verification (docs/SCRIPTING.md)
+  casper mcp check [repo]  Check an MCP server you built: its tests, labels and configs (no tool calls unless --live)
   /help all              All commands, options and safety details
   /status                Model/auth, integrations and local storage
   /model [model]         Pick a model; Enter remembers globally, Ctrl+S is session-only
@@ -57,6 +58,9 @@ Usage:
   casper learn inspect <repo> <id>  Inspect a draft and its decisions locally
   casper learn promote <repo> <id> <sha256> <number> <disposition> [skill-name]
                                   Record one exact human promotion/ignore decision
+  casper mcp check [repo]  Check an MCP server you built: its tests, labels and configs (no tool calls unless --live)
+  casper mcp check [repo] [--server <name>] [--live] [--quick] [--strict] [--json] [--env NAME=VALUE]... [-- <start command>...]
+                                  Runs the repo's own doctor and tests; only run it on repos you trust
   casper --cd <path> ...  Work in that folder instead of the current directory
   casper --continue ...  Continue this folder's most recent conversation
   casper --resume <id-prefix> ...  Continue the saved conversation whose ID starts with this
@@ -104,6 +108,9 @@ Local commands:
   /memory accept <id> <yes|no>      Record human acceptance, not test evidence
   /references                       List configured local reference sources
   /references search <id|*> <query> Search reference text locally (no model)
+  /references add [name] [release]  Download a vendor spec repo to search locally (asks first)
+  /secrets                          Show what Casper hides from the AI
+  /secrets files on|off             Scrub config files and command output (MCP results always)
   /tree                             Show named session/workspace branches
   /branch <name>                    Clone this conversation (isolated by policy)
   /switch <branch>                  Switch session and workspace (confirmation required)
@@ -116,9 +123,14 @@ Local commands:
   /skills trust <id> <sha256>       Approve the exact reviewed skill content
   /skills block <id>                Prevent future skill injection
   /mcp                              Show redacted MCP status (no connection)
-  /mcp connect <name>               Authorize this server for this process
-  /mcp disconnect <name>            Disconnect and revoke process-local consent
+  /mcp connect <name>               Connect this server; your own or imported ones can be remembered
+  /mcp disconnect <name>            Disconnect and revoke consent for this process
   /mcp reload                       Re-read MCP files; changed servers need consent again
+  /mcp writes <name>                Turn writes on for one server (you pick 1 in the box)
+  /mcp writes off                   Writes off for every server (ctrl+o does the same)
+  /mcp forget <name>                Forget a remembered server; Casper asks again next time
+  /mcp junos-show <name> on|off     Let plain Junos show commands run without asking
+  /mcp docs                         Docs servers; add a docs-only copy with no credentials
   /lsp                              Show language-server status (no startup)
   /lsp connect <name>               Authorize this language server for this process
   /lsp disconnect <name>            Stop this language server
@@ -168,7 +180,14 @@ One-shot exit codes: 0 pass (or nothing to verify), 1 check failed or blocked, 2
 3 not verified (--require-verification only), 64 usage error, 130 cancelled.
 Exit 0 does not certify behavior beyond the checks; /receipt shows scope and freshness.
 MCP connection executes a configured program or contacts its URL. Review its source first.
-Non-read MCP calls require exact interactive confirmation; denied in one-shot mode.
+Servers from ~/.claude.json, ~/.mcp.json and VS Code are listed too; each needs /mcp connect once.
+Every MCP server starts with writes off: write and delete tools are hidden. /mcp writes <name>
+turns them on; ctrl+o turns them off again. A remembered server always starts with writes off.
+A login is read-only only when the product says so (access_check); labels only make things stricter.
+Non-read MCP calls require exact interactive confirmation; denied in one-shot mode. The AI can't approve.
+Known device secrets (passwords, keys, SNMP communities) in MCP results, config files and config-like
+command output are shown to the AI as <secret hidden> (best effort, known formats only); a change
+that carries the marker back is refused. See docs/SECRETS.md.
 Cooked terminal input (TERM=dumb or redirected output) cannot grant exact approval.
 Piped line input discards unfinished input at approval transitions; NO_COLOR is supported.
 LSP connection executes a configured program. Review .casper/lsp.json first.
@@ -188,7 +207,7 @@ Subagents get read/grep/find/ls only; no edit/write/bash/MCP/LSP or recursive de
 Limits: 2 concurrent, 4 delegations per parent prompt; 180 seconds/12 turns/48 tool calls per child.
 Children use Casper roles (explorer→fast, reviewer→review) or the startup default.
 Reports are advisory; read-only tools are not an OS sandbox.
-Learning uses the startup default; source text may reach the configured provider. No secret detector.
+Learning uses the startup default; source text may reach the configured provider. No secret scrubbing.
 Learning drafts are owner-only plaintext and inert. Promotion is a separate local,
 digest-bound human command; it never asks the model to choose or approve.
 Use local directories only; learn cannot be combined with --verify, --mcp or --lsp.

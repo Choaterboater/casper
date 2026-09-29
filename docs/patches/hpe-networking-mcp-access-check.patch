@@ -1,0 +1,387 @@
+Proposed patch for secure-ssid/hpe-networking-mcp. Casper does not apply it.
+
+Adds one router-level tool, access_check, that answers the
+"casper/access-check v1" contract Casper reads (src/mcp/access.ts):
+
+  {"contract": "casper/access-check v1",
+   "products": [{"product", "access": "read-only"|"read-write"|"unknown",
+                 "identity", "role", "server_gate": {"env_var", "state"}}]}
+
+- Always on (like catalog-core), annotations=READ_ONLY, no arguments.
+- Reports only the platforms whose backend is loaded.
+- Mist: GET /api/v1/self. Read-only only if every privilege role is "read"
+  ("helpdesk" counts as read-write until someone confirms what it can do).
+- ClearPass: GET /api/oauth/me and GET /api/oauth/privileges. Read-only only
+  if every privilege is a read-only ('#'-prefixed) one.
+- Central/GLP: role assignments for the token's principal, then each role's
+  permissions. Paths and the principal format are marked CONFIRM and must be
+  checked against vendor/openapi/glp before merging.
+- Every product also reports platform_write_gate_state() as server_gate, so a
+  client can confirm that its read-only settings took hold.
+- Never returns tokens. Any error or odd payload gives "unknown".
+
+The read-only settings need no change here: Casper sets
+HPE_MCP_ACCESS_PROFILE, HPE_MCP_READONLY, HPE_MCP_PRODUCT_ACCESS and every
+HPE_MCP_*_WRITES from outside, and load_dotenv(override=False) keeps them.
+
+Apply from the hpe-networking-mcp repository root:
+  git apply hpe-networking-mcp-access-check.patch
+
+diff --git a/src/hpe_networking_mcp/mcp_servers/access_check.py b/src/hpe_networking_mcp/mcp_servers/access_check.py
+new file mode 100644
+--- /dev/null
++++ b/src/hpe_networking_mcp/mcp_servers/access_check.py
+@@ -0,0 +1,225 @@
++"""Router-level ``access_check`` tool: what may the configured logins do?
++
++Answers the ``casper/access-check v1`` contract so an MCP client (Casper, for
++one) can show "login: read-only (checked)" and hide write tools before the
++model plans. The answer comes from each product's own API, never from this
++server's settings, and it only ever restricts a client: a "read-write" answer
++unlocks nothing on the client side.
++
++Shape::
++
++    {"contract": "casper/access-check v1",
++     "products": [{"product": "mist", "access": "read-only" | "read-write" | "unknown",
++                   "identity": "...", "role": "...",
++                   "server_gate": {"env_var": "HPE_MCP_MIST_WRITES", "state": "disabled"}}]}
++
++Only platforms whose backend is loaded are reported. Tokens, secrets and raw
++API payloads are never returned; identity and role are short display strings.
++Any error, timeout or unexpected payload gives ``"unknown"`` for that product.
++
++Endpoints marked CONFIRM below must be checked against ``vendor/openapi`` before
++this ships; until then those products report ``"unknown"`` on any mismatch.
++"""
++
++from __future__ import annotations
++
++import asyncio
++import re
++from collections.abc import Awaitable, Callable, Iterable
++from typing import Any
++
++from hpe_networking_mcp.mcp_servers.shared import READ_ONLY, platform_write_gate_state
++
++CONTRACT = "casper/access-check v1"
++_PER_PRODUCT_TIMEOUT_S = 10.0
++_PLAIN = re.compile(r"^[A-Za-z0-9 _.@:/+-]{1,64}$")
++
++#: Mist privilege roles that cannot change anything. CONFIRM: "helpdesk" can
++#: run some client actions (reauth, disconnect); it is left out until checked.
++MIST_READ_ONLY_ROLES = frozenset({"read"})
++#: GLP/Central permission verbs that mean a change.
++_WRITE_VERBS = ("create", "update", "delete", "write", "edit", "manage", "all", "*")
++
++
++def _plain(value: Any) -> str | None:
++    return value if isinstance(value, str) and _PLAIN.match(value) else None
++
++
++def _gate(platform: str) -> dict[str, str] | None:
++    try:
++        state = platform_write_gate_state(platform)
++    except ValueError:
++        return None
++    return {"env_var": str(state.get("env_var", "")), "state": str(state.get("state", "unknown"))}
++
++
++def _product(
++    platform: str, access: str, identity: Any = None, role: Any = None
++) -> dict[str, Any]:
++    entry: dict[str, Any] = {"product": platform, "access": access}
++    if _plain(identity):
++        entry["identity"] = identity
++    if _plain(role):
++        entry["role"] = role
++    gate = _gate(platform)
++    if gate:
++        entry["server_gate"] = gate
++    return entry
++
++
++# ---------------------------------------------------------------------------
++# Mist: GET /api/v1/self
++# ---------------------------------------------------------------------------
++
++
++def mist_access_from_self(payload: Any) -> tuple[str, str | None, str | None]:
++    """Read-only only when every privilege role is a read-only role."""
++    if not isinstance(payload, dict):
++        return "unknown", None, None
++    privileges = payload.get("privileges")
++    if not isinstance(privileges, list) or not privileges:
++        return "unknown", None, None
++    roles = [p.get("role") for p in privileges if isinstance(p, dict)]
++    if len(roles) != len(privileges) or not all(isinstance(r, str) for r in roles):
++        return "unknown", None, None
++    identity = payload.get("email") or payload.get("name")
++    role = ",".join(sorted(set(roles)))
++    if all(r in MIST_READ_ONLY_ROLES for r in roles):
++        return "read-only", identity, role
++    return "read-write", identity, role
++
++
++async def _mist() -> dict[str, Any]:
++    from hpe_networking_mcp.mcp_servers import mist
++
++    out = await mist._mist_get_request("/api/v1/self", bound=False)
++    access, identity, role = mist_access_from_self(out.get("data") if isinstance(out, dict) else None)
++    return _product("mist", access, identity, role)
++
++
++# ---------------------------------------------------------------------------
++# ClearPass: GET /api/oauth/me + GET /api/oauth/privileges
++# ---------------------------------------------------------------------------
++
++
++def clearpass_access_from_privileges(payload: Any) -> str:
++    """Read-only when no privilege grants write. ClearPass marks read-only
++    privileges with a leading '#' (e.g. '#cppm_config'); CONFIRM against 6.11+."""
++    if not isinstance(payload, dict):
++        return "unknown"
++    privileges = payload.get("privileges")
++    if not isinstance(privileges, list) or not privileges:
++        return "unknown"
++    if not all(isinstance(p, str) for p in privileges):
++        return "unknown"
++    return "read-only" if all(p.startswith("#") for p in privileges) else "read-write"
++
++
++async def _clearpass() -> dict[str, Any]:
++    from hpe_networking_mcp.mcp_servers import clearpass
++
++    me = await clearpass._clearpass_get_request("/api/oauth/me", bound=False)
++    privileges = await clearpass._clearpass_get_request("/api/oauth/privileges", bound=False)
++    me_data = me.get("data") if isinstance(me, dict) else None
++    identity = me_data.get("info") or me_data.get("client_id") if isinstance(me_data, dict) else None
++    access = clearpass_access_from_privileges(
++        privileges.get("data") if isinstance(privileges, dict) else None
++    )
++    return _product("clearpass", access, identity)
++
++
++# ---------------------------------------------------------------------------
++# Central / GLP: role assignments for the token's principal
++# ---------------------------------------------------------------------------
++
++
++def glp_access_from_roles(roles: Iterable[Any]) -> str:
++    """Read-only when no role grants a change on the Central or GLP apps."""
++    seen = False
++    for role in roles:
++        if not isinstance(role, dict) or not isinstance(role.get("permissions"), list):
++            return "unknown"
++        for permission in role["permissions"]:
++            if not isinstance(permission, str):
++                return "unknown"
++            seen = True
++            verb = permission.rsplit(".", 1)[-1].lower()
++            if any(word in verb for word in _WRITE_VERBS):
++                return "read-write"
++    return "read-only" if seen else "unknown"
++
++
++async def _central_glp() -> list[dict[str, Any]]:
++    from hpe_networking_mcp.mcp_servers import glp
++
++    # CONFIRM: principal format and the filter syntax in vendor/openapi/glp.
++    whoami = await asyncio.to_thread(glp.glp_get, "/identity/v1/users/me")
++    principal = whoami.get("data", {}).get("id") if isinstance(whoami, dict) else None
++    access = "unknown"
++    role_names: list[str] = []
++    if isinstance(principal, str) and _plain(principal):
++        assignments = await asyncio.to_thread(
++            glp.glp_get,
++            "/authorization/v1beta1/role-assignments",
++            {"filter": f"principal in ('{principal}')"},
++        )
++        items = assignments.get("data", {}).get("items") if isinstance(assignments, dict) else None
++        if isinstance(items, list) and items:
++            roles = []
++            for item in items[:20]:
++                role_id = item.get("roleId") if isinstance(item, dict) else None
++                if not isinstance(role_id, str) or not _plain(role_id):
++                    roles = [None]
++                    break
++                role = await asyncio.to_thread(glp.glp_get, f"/authorization/v1beta1/roles/{role_id}")
++                data = role.get("data") if isinstance(role, dict) else None
++                roles.append(data)
++                if isinstance(data, dict) and _plain(data.get("name")):
++                    role_names.append(data["name"])
++            access = glp_access_from_roles(roles)
++    role = ",".join(sorted(set(role_names)))[:64] or None
++    return [_product("central", access, principal, role), _product("glp", access, principal, role)]
++
++
++# ---------------------------------------------------------------------------
++# The tool
++# ---------------------------------------------------------------------------
++
++
++async def _bounded(platforms: list[str], check: Callable[[], Awaitable[Any]]) -> list[dict[str, Any]]:
++    try:
++        result = await asyncio.wait_for(check(), timeout=_PER_PRODUCT_TIMEOUT_S)
++    except Exception:  # noqa: BLE001 - any failure is "unknown", never an error payload
++        return [_product(platform, "unknown") for platform in platforms]
++    return result if isinstance(result, list) else [result]
++
++
++async def build_access_report(enabled_platforms: set[str]) -> dict[str, Any]:
++    checks: list[tuple[list[str], Callable[[], Awaitable[Any]]]] = []
++    if "central" in enabled_platforms or "glp" in enabled_platforms:
++        checks.append((["central", "glp"], _central_glp))
++    if "mist" in enabled_platforms:
++        checks.append((["mist"], _mist))
++    if "clearpass" in enabled_platforms:
++        checks.append((["clearpass"], _clearpass))
++    results = await asyncio.gather(*(_bounded(platforms, check) for platforms, check in checks))
++    products = [
++        product
++        for group in results
++        for product in group
++        if product.get("product") in enabled_platforms
++    ]
++    return {"contract": CONTRACT, "products": products}
++
++
++def register_access_check(mcp: Any, *, enabled_platforms: set[str]) -> None:
++    """Register ``access_check`` on the router. Always on, like catalog-core."""
++
++    @mcp.tool(annotations=READ_ONLY)
++    async def access_check() -> dict[str, Any]:
++        """Report whether each configured login is read-only, from each product's own API.
++
++        Takes no arguments. Returns the casper/access-check v1 contract. Never
++        returns tokens. Unknown or failed checks report access "unknown".
++        """
++        return await build_access_report(enabled_platforms)
+diff --git a/src/hpe_networking_mcp/mcp_servers/tool_router.py b/src/hpe_networking_mcp/mcp_servers/tool_router.py
+--- a/src/hpe_networking_mcp/mcp_servers/tool_router.py
++++ b/src/hpe_networking_mcp/mcp_servers/tool_router.py
+@@ -62,6 +62,7 @@
+ from pydantic import BaseModel, ConfigDict, Field
+ 
+ from hpe_networking_mcp.mcp_servers import _sdk_compat
++from hpe_networking_mcp.mcp_servers.access_check import register_access_check
+ from hpe_networking_mcp.mcp_servers.prompts import register_router_prompts
+ from hpe_networking_mcp.mcp_servers.shared import (
+     ACCESS_PROFILE_ENV_VAR,
+@@ -624,6 +625,18 @@
+ # tools from a disabled backend (AOS 8 today) are skipped rather than telling
+ # the model to call tools that are not in the tool list.
+ register_router_prompts(mcp, enabled_backends=_BACKENDS)
++
++# Always on, like catalog-core: lets a client check that the configured logins
++# are read-only before it plans (casper/access-check v1). Reports only the
++# platforms whose backend is loaded.
++register_access_check(
++    mcp,
++    enabled_platforms={
++        _SERVER_PLATFORMS[server_name]
++        for server_name in _BACKENDS
++        if server_name in _SERVER_PLATFORMS
++    },
++)
+ 
+ # Skills carry the same platform metadata prompts do, so gate them the same
+ # way. Ungated, the whole directory was listed regardless of backend, so
+diff --git a/tests/unit/test_access_check.py b/tests/unit/test_access_check.py
+new file mode 100644
+--- /dev/null
++++ b/tests/unit/test_access_check.py
+@@ -0,0 +1,93 @@
++"""access_check: the casper/access-check v1 contract, with every product API mocked."""
++
++from __future__ import annotations
++
++import asyncio
++import json
++
++import pytest
++
++from hpe_networking_mcp.mcp_servers import access_check as ac
++
++
++def test_mist_self_roles():
++    assert ac.mist_access_from_self({"email": "ro@example.net", "privileges": [{"role": "read"}]})[0] == "read-only"
++    assert ac.mist_access_from_self({"privileges": [{"role": "read"}, {"role": "admin"}]})[0] == "read-write"
++    assert ac.mist_access_from_self({"privileges": [{"role": "helpdesk"}]})[0] == "read-write"
++    assert ac.mist_access_from_self({"privileges": []})[0] == "unknown"
++    assert ac.mist_access_from_self("nope")[0] == "unknown"
++
++
++def test_clearpass_privileges():
++    assert ac.clearpass_access_from_privileges({"privileges": ["#cppm_config", "#guest_users"]}) == "read-only"
++    assert ac.clearpass_access_from_privileges({"privileges": ["#cppm_config", "cppm_endpoints"]}) == "read-write"
++    assert ac.clearpass_access_from_privileges({"privileges": []}) == "unknown"
++    assert ac.clearpass_access_from_privileges(None) == "unknown"
++
++
++def test_glp_roles():
++    assert ac.glp_access_from_roles([{"permissions": ["central.devices.read", "glp.devices.view"]}]) == "read-only"
++    assert ac.glp_access_from_roles([{"permissions": ["central.devices.read"]}, {"permissions": ["central.config.update"]}]) == "read-write"
++    assert ac.glp_access_from_roles([{"permissions": []}]) == "unknown"
++    assert ac.glp_access_from_roles([None]) == "unknown"
++
++
++def _patch_mist(monkeypatch, payload):
++    from hpe_networking_mcp.mcp_servers import mist
++
++    async def fake(path, params=None, **_kwargs):
++        assert path == "/api/v1/self"
++        if isinstance(payload, Exception):
++            raise payload
++        return {"data": payload}
++
++    monkeypatch.setattr(mist, "_mist_get_request", fake)
++
++
++def _patch_clearpass(monkeypatch, privileges):
++    from hpe_networking_mcp.mcp_servers import clearpass
++
++    async def fake(path, params=None, **_kwargs):
++        if path == "/api/oauth/me":
++            return {"data": {"info": "svc-casper", "access_token": "SECRET-TOKEN"}}
++        assert path == "/api/oauth/privileges"
++        return {"data": {"privileges": privileges}}
++
++    monkeypatch.setattr(clearpass, "_clearpass_get_request", fake)
++
++
++@pytest.mark.parametrize(
++    ("mist_payload", "privileges", "expected"),
++    [
++        ({"email": "ro@example.net", "privileges": [{"role": "read"}]}, ["#cppm_config"], {"mist": "read-only", "clearpass": "read-only"}),
++        ({"privileges": [{"role": "admin"}]}, ["cppm_config"], {"mist": "read-write", "clearpass": "read-write"}),
++        (RuntimeError("boom"), ["#cppm_config"], {"mist": "unknown", "clearpass": "read-only"}),
++    ],
++)
++def test_report_per_product(monkeypatch, mist_payload, privileges, expected):
++    monkeypatch.setenv("HPE_MCP_ACCESS_PROFILE", "safe-read-only")
++    _patch_mist(monkeypatch, mist_payload)
++    _patch_clearpass(monkeypatch, privileges)
++    report = asyncio.run(ac.build_access_report({"mist", "clearpass"}))
++    assert report["contract"] == "casper/access-check v1"
++    assert {p["product"]: p["access"] for p in report["products"]} == expected
++    for product in report["products"]:
++        assert product["server_gate"]["state"] == "disabled"
++    assert "SECRET-TOKEN" not in json.dumps(report)
++
++
++def test_only_loaded_platforms_are_reported(monkeypatch):
++    _patch_mist(monkeypatch, {"privileges": [{"role": "read"}]})
++    report = asyncio.run(ac.build_access_report({"mist"}))
++    assert [p["product"] for p in report["products"]] == ["mist"]
++
++
++def test_tool_is_read_only_and_present_in_minimal_router_mode():
++    from hpe_networking_mcp.mcp_servers import tool_router
++
++    tools = {tool.name: tool for tool in asyncio.run(tool_router.mcp.list_tools())}
++    assert "access_check" in tools
++    annotations = tools["access_check"].annotations
++    assert annotations.readOnlyHint is True
++    assert annotations.destructiveHint is False
++    assert not tools["access_check"].inputSchema.get("required")

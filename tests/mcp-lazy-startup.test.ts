@@ -58,7 +58,7 @@ test("a cold approved connection loads the real SDK and retains schema validatio
     try {
       await manager.connect("fixture");
       assert.equal(manager.status()[0].state, "ready");
-      await assert.rejects(broker.invoke("mcp:fixture:inspect_quantum_flux", {}), /Invalid MCP arguments/);
+      await assert.rejects(broker.invoke("mcp:fixture:inspect_quantum_flux", {}), /Not executed .bad arguments/);
       const result = await broker.invoke("mcp:fixture:inspect_quantum_flux", { site: "lab" });
       assert.equal(result.isError, false);
       assert.equal(result.data.content[0].data.arguments.site, "lab");
@@ -77,7 +77,7 @@ for (const action of ["cancel", "close", "refresh"] as const) {
       const loading = new Promise(resolve => entered = resolve);
       const gate = new Promise(resolve => release = resolve);
       Bun.plugin({ name: "delay-real-validator-import", setup(build) {
-        build.onLoad({ filter: /@modelcontextprotocol\\/sdk\\/dist\\/esm\\/validation\\/ajv-provider\\.js$/ }, async args => {
+        build.onLoad({ filter: /node_modules\\/ajv\\/dist\\/ajv\\.js$/ }, async args => {
           entered();
           await gate;
           return { contents: await Bun.file(args.path).text(), loader: "js" };
@@ -87,7 +87,7 @@ for (const action of ["cancel", "close", "refresh"] as const) {
       // existing MCP suites cover validation against real protocol servers.
       let calls = 0, approvals = 0;
       const manager = { catalogRevision: 1, catalog() { return [{ server: "fixture", generation: this.catalogRevision, tools: [{ name: "set_value", inputSchema: { type: "object" } }] }]; },
-        async call() { calls++; }, async close() {}, };
+        policy() { return { writes: "on", showOptIn: false }; }, async call() { calls++; }, async close() {}, };
       const broker = new CapabilityBroker(manager, async () => { approvals++; return true; });
       const abort = new AbortController();
       const pending = broker.invoke("mcp:fixture:set_value", {}, abort.signal).then(() => "executed", () => "rejected");
