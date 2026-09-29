@@ -166,10 +166,89 @@ test("interactive approval shows exact arguments and permits only an explicit ye
   cleanup.push(() => app.close());
   await app.runOnce("/mcp connect fixture", project);
   await app.runInteractive();
-  expect(output).toContain('MCP confirmation: "mcp:fixture:set_site" [write]');
+  expect(output).toContain("MCP · fixture · set_site  [write]");
+  expect(output).toContain("Mode: EXECUTE (this makes the change)");
+  expect(output).toContain("Run it? Type yes: ");
   expect(output).toContain('Arguments: {"site":"lab"}');
   expect(runtime.result).toContain('"site":"lab"');
   expect(runtime.result).not.toContain('"isError":true');
+});
+
+/** An interactive run whose model calls one network tool; `answers` are typed at each question in order. */
+async function networkRun(answers: string[], call: { id: string; arguments: Record<string, unknown> }) {
+  const { home, project } = await fixture();
+  await writeFile(path.join(home, ".casper/mcp.json"), JSON.stringify({ mcpServers: {
+    net: { command: process.execPath, args: [path.join(import.meta.dir, "fixtures/mcp-server.ts")], env: { FIXTURE_MODE: "network" } },
+  } }));
+  let result = "";
+  const runtime: AgentRuntime = {
+    async start(options: RuntimeStartOptions) {
+      let tools = options.tools ?? [];
+      return {
+        setTools: (next: RuntimeTool[]) => { tools = next; },
+        prompt: async () => {
+          const invoke = tools.find((tool) => tool.name === "call_capability");
+          if (invoke) result = (await invoke.execute(call)).text;
+        },
+        abort: async () => {}, subscribe: () => () => {}, getState: () => ({ cwd: options.cwd, isStreaming: false }),
+      };
+    },
+    async dispose() {},
+  };
+  const input = new PassThrough();
+  let prompts = 0;
+  let output = "";
+  const app = new CasperApp({
+    runtimeFactory: () => runtime, input,
+    loadProjectContext: (info) => loadProjectContext(info, { homeDir: home }),
+    loadSkillRegistry: (context) => SkillRegistry.discover({ projectRoot: context.info.root, homeDir: home }),
+    loadMCPConfiguration: () => discoverMCPConfiguration({ projectRoot: project, homeDir: home }),
+    output: { write: (text) => {
+      output += text;
+      if (text === "> ") queueMicrotask(() => input.write(prompts++ === 0 ? "Bounce the port\n" : "/exit\n"));
+      if (/Type (yes|one of)[^:]*: $/.test(text)) { const answer = answers.shift() ?? "no"; queueMicrotask(() => input.write(`${answer}\n`)); }
+    } },
+  });
+  cleanup.push(() => app.close());
+  await app.runOnce("/mcp connect net", project);
+  await app.runInteractive();
+  return { output, result };
+}
+
+test("interactive run: the server's question about an approved call is answered by the user", async () => {
+  const { output, result } = await networkRun(["yes", "yes"], { id: "mcp:net:port_bounce", arguments: { serial_number: "SG1" } });
+  const box = output.indexOf("MCP · net · port_bounce  [destructive]");
+  const question = output.indexOf("net asks about the port_bounce call you approved:");
+  expect(box).toBeGreaterThanOrEqual(0);
+  expect(question).toBeGreaterThan(box);
+  expect(output).toContain("Confirm PORT BOUNCE on SG1 ports [1/1/1]?");
+  expect(output).toContain("[approval] allowed");
+  expect(output).toContain("[server question] yes");
+  expect(result).toContain("bounced");
+});
+
+test("interactive run: no to the server's question cancels the approved call", async () => {
+  const { output, result } = await networkRun(["yes", "no"], { id: "mcp:net:port_bounce", arguments: { serial_number: "SG1" } });
+  expect(output).toContain("[server question] no");
+  expect(result).toContain("CANCELLED");
+  expect(result).not.toContain("bounced");
+});
+
+test("interactive run: p previews first, then the box shows the preview with the PSK hidden", async () => {
+  const { output, result } = await networkRun(["p", "yes"], { id: "mcp:net:set_ssid", arguments: { ssid: "corp", wpa_passphrase: "hunter2hunter" } });
+  expect(output).toContain("Run it? Type yes, or p to preview first: ");
+  expect(output).toContain("[approval] preview first");
+  expect(output).toContain("Last preview (just now):");
+  expect(output).toContain("\"wpa_passphrase\":\"••• 13 chars\"");
+  expect(output).not.toContain("hunter2hunter");
+  expect(result).toContain("applied");
+});
+
+test("interactive run: arguments too long to show are not run, and the user is told", async () => {
+  const { output, result } = await networkRun([], { id: "mcp:net:set_ssid", arguments: { ssid: "x".repeat(5000) } });
+  expect(output).toContain("MCP · net · set_ssid  [write]");
+  expect(output).toContain("Too long to show in full (over 4 KB); not run.");
+  expect(result).toContain("Not executed (arguments too long to show you for approval)");
 });
 
 test("real CLI and Pi adapter send a small surface and complete search/schema/call via a local model protocol fixture", async () => {

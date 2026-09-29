@@ -24,7 +24,8 @@ import { discoverLSPConfiguration, type LSPConfiguration } from "./lsp/config";
 import { LSPManager, type ConfirmRename } from "./lsp/manager";
 import { boundCapabilityResult, NotExecutedError } from "./capabilities/result";
 import { discoverMCPConfiguration, type MCPConfiguration } from "./mcp/config";
-import { MCPManager } from "./mcp/manager";
+import { MCPManager, type ServerQuestionHandler } from "./mcp/manager";
+import { formatApproval, maskText, planLabel, TOO_LONG_TEXT, tooLongToShow } from "./capabilities/approval";
 import { CapabilityBroker, type ConfirmCapability } from "./capabilities/broker";
 import type { Readable } from "node:stream";
 import {
@@ -311,7 +312,10 @@ export class CasperApp {
     this.references = new ReferenceLibrary(referenceConfiguration);
     this.projectContext = context;
     this.skillRegistry = registry;
-    this.mcp = new MCPManager(mcpConfiguration);
+    this.mcp = new MCPManager(mcpConfiguration, {
+      elicit: (question, signal) => this.answerServerQuestion(question, signal),
+      onNote: (text) => { if (!this.closing) this.output.write(`${text}\n`); },
+    });
     // Re-reads the same layered files the manager was built from; the manager diffs them.
     this.reloadMCPConfiguration = () => this.loadMCPConfigurationFn(context);
     this.lsp = new LSPManager(context.info.root, lspConfiguration);
@@ -1518,13 +1522,69 @@ export class CasperApp {
     }
   }
 
+  /** Approvals and server questions are shown one at a time, so two boxes never race for one answer. */
+  private approvalQueue: Promise<unknown> = Promise.resolve();
+  private oneAtATime<T>(work: () => Promise<T>): Promise<T> {
+    const next = this.approvalQueue.then(work, work);
+    this.approvalQueue = next.catch(() => {});
+    return next;
+  }
+
+  private approvalStopped(signal?: AbortSignal): boolean {
+    return this.closing || Boolean(signal?.aborted) || Boolean(this.commandAbort?.signal.aborted);
+  }
+
+  /**
+   * The approval box for one MCP call: the real tool, EXECUTE or preview, secrets hidden, an AI-set
+   * confirm flagged, and the last preview. Only the user's typed answer counts; the model's ask tool
+   * never reaches this prompt. Nobody asked (one-shot, too long, closing) is never "you said no".
+   */
   private confirmCapability: ConfirmCapability = async (call, signal) => {
-    const args = JSON.stringify(call.arguments);
-    // Never approve truncated arguments or implicitly accept in one-shot mode. Nobody was asked in
-    // these cases, so the model must not read "you said no".
-    if (Buffer.byteLength(args) > 4096) throw new NotExecutedError("arguments too long to show you for approval");
+    const header = `MCP · ${call.plan.server} · ${call.plan.tool}  [${planLabel(call.plan)}]`;
+    if (tooLongToShow(call.arguments)) {
+      if (this.interactive && !this.closing) this.output.write(`${terminalText(header)}\n${TOO_LONG_TEXT}\n`);
+      throw new NotExecutedError("arguments too long to show you for approval");
+    }
     if (!this.interactive) throw new NotExecutedError("needs your approval, and this run cannot ask");
-    return this.confirmExact(`MCP confirmation: ${JSON.stringify(call.capability.id)} [${call.capability.safety}]\nArguments: ${args}\n`, "Allow this exact external call? Type yes: ", signal);
+    return this.oneAtATime(async () => {
+      if (this.approvalStopped(signal)) throw new NotExecutedError("cancelled");
+      const box = formatApproval(call.plan, call.lastPreview);
+      const answer = await this.chooseExact(box.preview, box.question, box.choices, signal);
+      if (answer === undefined && this.approvalStopped(signal)) throw new NotExecutedError("cancelled");
+      const result = answer === "yes" ? "yes" : answer === "p" && box.choices.includes("p") ? "preview" : "no";
+      if (!this.closing) this.output.write(`[approval] ${result === "yes" ? "allowed" : result === "preview" ? "preview first" : "denied"}\n`);
+      return result;
+    });
+  };
+
+  /**
+   * A server asked about the call the user approved (MCP elicitation). Only the user answers, in the
+   * same kind of box; one-shot runs and a closing Casper decline without asking.
+   */
+  private answerServerQuestion: ServerQuestionHandler = async (question, signal) => {
+    if (!this.interactive || this.closing) return { action: "decline" };
+    return this.oneAtATime(async () => {
+      if (this.approvalStopped(signal)) return { action: "cancel" as const };
+      const shown = (text: string) => maskText(text).replace(/[\r\n\v\f\u0085\u2028\u2029]+/g, " ");
+      const options = question.options?.map(shown) ?? [];
+      // A choice Casper would have to hide or change can't be offered as typed.
+      if (question.kind === "choice" && options.some((option, index) => option !== question.options![index])) {
+        if (!this.closing) this.output.write(`[mcp] ${terminalText(question.server)} asked a question Casper can only answer yes/no; declined.\n`);
+        return { action: "decline" as const };
+      }
+      const preview = `${shown(question.server)} asks about the ${shown(question.realTool)} call you approved:\n  ${shown(question.message)}\n`;
+      const choices = question.kind === "boolean" ? ["yes"] : options;
+      const prompt = question.kind === "boolean" ? "Answer? Type yes: " : `Answer? Type one of ${options.join(", ")}: `;
+      const answer = await this.chooseExact(preview, prompt, choices, signal);
+      if (answer === undefined) {
+        if (!this.closing) this.output.write("[server question] no\n");
+        return { action: "cancel" as const };
+      }
+      const accepted = answer !== "no" || choices.includes("no");
+      if (!this.closing) this.output.write(`[server question] ${accepted ? answer : "no"}\n`);
+      if (!accepted) return { action: "decline" as const };
+      return { action: "accept" as const, value: question.kind === "boolean" ? true : answer };
+    });
   };
 
   /** beforeChanges gate: deny native edit/write until one ask attempt is recorded. */
@@ -1558,6 +1618,14 @@ export class CasperApp {
     // The answer itself is never echoed (it is a fresh keystroke, not a draft); record the outcome.
     if (!this.closing) this.output.write(`[approval] ${approved ? "allowed" : "denied"}\n`);
     return approved;
+  }
+
+  /** One exact typed answer from the user (undefined when nobody could answer). The caller records it. */
+  private async chooseExact(preview: string, question: string, choices: readonly string[], signal?: AbortSignal): Promise<string | undefined> {
+    if (!this.interactive || this.approvalStopped(signal)) return undefined;
+    const signals = [signal, this.commandAbort?.signal].filter((value): value is AbortSignal => Boolean(value));
+    this.output.write("");
+    return this.terminal.choose(preview, question, choices, signals.length ? AbortSignal.any(signals) : undefined);
   }
 
 
