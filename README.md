@@ -49,6 +49,16 @@ casper --no-verify   # without Casper-run checks
 Started from your home folder, or from a folder that only holds projects (such as `~/Projects`),
 Casper asks which project to open: press its number, or Esc to stay.
 
+Start a new project, with no model and zero tokens:
+
+```sh
+casper new            # asks the kind and the name, builds ~/Projects/<name>, opens Casper there
+casper new --list     # the templates: Python tool, MCP server, Mist scripts and more
+```
+
+In an empty folder, or on a request like "build a tool that lists Mist APs per site" outside a
+project, Casper asks once before the model starts. See [docs/NEW.md](docs/NEW.md).
+
 Inside Casper:
 
 ```text
