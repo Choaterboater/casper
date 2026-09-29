@@ -390,3 +390,39 @@ test("files in a folder the task made into its own repository are not counted as
     expect(await readFile(path.join(place.project, "lib", "a.py"), "utf8")).toBe("a = 1\n");
   } finally { await later.app.close(); }
 }, 30_000);
+
+test("an undo that put nothing back (you saved the file while Casper asked) can be tried again later", async () => {
+  const place = await folder();
+  const s = session(place, [async (project) => { await writeFile(path.join(project, "notes.py"), "print('two')\n"); await writeFile(path.join(project, "a.py"), "a = 1\n"); }]);
+  try {
+    await s.send("fix the greeting in notes.py and add a.py");
+    await writeFile(path.join(place.project, "notes.py"), "print('mine')\n");
+    await s.send("/undo", /Type 1-2 \(Enter for 1\): $/);
+    await writeFile(path.join(place.project, "a.py"), "a = 2\n");
+    const answered = await s.send("2");
+    expect(answered).toContain("• Nothing was put back for task 1.");
+    expect(answered).toContain("• Not put back: a.py (it changed just now; Casper left it as it is)");
+    expect(answered).not.toContain("Next: 1 Redo");
+    await writeFile(path.join(place.project, "a.py"), "a = 1\n");
+    await writeFile(path.join(place.project, "notes.py"), "print('two')\n");
+    const again = await s.send("/undo 1");
+    expect(again).not.toContain("already undone");
+    expect(again).toContain("✓ Undone — 2 files are back as they were before task 1: a.py, notes.py");
+  } finally { await s.close(); }
+}, 30_000);
+
+test("a redo that put nothing back leaves the task undone, so redo can be tried again", async () => {
+  const place = await folder();
+  const s = session(place, [async (project) => { await writeFile(path.join(project, "notes.py"), "print('two')\n"); await writeFile(path.join(project, "a.py"), "a = 1\n"); }]);
+  try {
+    await s.send("fix the greeting in notes.py and add a.py");
+    await s.send("/undo 1");
+    await writeFile(path.join(place.project, "notes.py"), "print('mine')\n");
+    await s.send("/redo 1", /Type 1-2 \(Enter for 1\): $/);
+    await writeFile(path.join(place.project, "a.py"), "a = 9\n");
+    expect(await s.send("2")).toContain("• Nothing was put back for task 1.");
+    await rm(path.join(place.project, "a.py"));
+    await writeFile(path.join(place.project, "notes.py"), "print('one')\n");
+    expect(await s.send("/redo 1")).toContain("✓ Redone — 2 files are back as task 1 left them: a.py, notes.py");
+  } finally { await s.close(); }
+}, 30_000);
