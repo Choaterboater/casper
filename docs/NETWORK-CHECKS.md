@@ -5,8 +5,15 @@ run on your machine and cost no model tokens. Casper builds each command's
 argument list itself and never runs it through a shell, so a file name can never
 become a command.
 
-These checks are not wired into `/verify` or the banner yet. This page covers the
-check code (`src/network/`) and the settings it reads.
+The banner and `/status` list them: the ones that run after each change, the lab
+checks you start yourself, and the ones Casper found but you have not saved:
+
+```
+checks    test, aruba-syntax — run after each change · lab: junos-commit, aoscx-check (you start these: /verify <name>) · found, not saved: junos-render (/verify add <name> saves one)
+```
+
+Run one with `/verify <name>`. The AI can run the ordinary ones and reports with
+`casper_check`, never a lab check.
 
 ## Named checks
 
@@ -61,8 +68,18 @@ verify:
 
 Casper finds Ansible projects by itself: `ansible.cfg`, `galaxy.yml`,
 `collections/requirements.yml`, or playbooks (YAML lists of plays with `hosts:`). It
-suggests `aruba-syntax`, `junos-syntax` and `junos-render` from the collections the
+finds `aruba-syntax`, `junos-syntax` and `junos-render` from the collections the
 playbooks use. Your own `verify.checks` entries win.
+
+Casper never adds a found check by itself, because each one runs Ansible on your
+project. It lists them as "found, not saved". To save one:
+
+- type `/verify add aruba-syntax`, or
+- pick "Save aruba-syntax" on the row under a receipt, shown after a task that changed YAML.
+
+Either one writes the setting into `.casper/project.yaml` and prints the exact line,
+for example `verify.checks.aruba-syntax: { preset: ansible-syntax, playbooks: [ site.yml ] }`.
+`/verify aruba-syntax` before that says the check is not saved and runs nothing.
 
 ### Not run
 
@@ -98,7 +115,12 @@ Lab checks reach real devices. They run only when all of these are true:
 
 1. You started them with `/verify <name>` and picked 1 in the numbered ask. The
    model can never start one, auto mode never runs one, and a failed lab check is
-   never repaired on its own.
+   never repaired on its own. A run that cannot ask (`casper -p`, `--json`, a pipe)
+   sends nothing and says so:
+
+   ```
+   – aoscx-check · not run: lab checks need your answer at the terminal, and this run cannot ask; nothing was sent
+   ```
 2. You declared your lab in `~/.casper/config.yaml` (or a profile):
 
    ```yaml
@@ -140,6 +162,17 @@ Run junos-commit on your lab? It loads the change on 2 lab routers, runs commit 
 Run aoscx-check on your lab? It uses ansible --check, and a dry run is not guaranteed: some modules can still change the switches. lab-sw1, lab-sw2, lab-sw3
 1 Run on the lab · 2 Skip
 ```
+
+When a lab check fails, Casper asks before anything else happens. Stop is first, so
+Enter never starts a repair:
+
+```
+junos-commit failed on the lab. Casper did not ask the model to fix it, because each try touches lab devices.
+1 Stop · 2 Ask the model to fix it
+```
+
+If you pick 2 and the model changes the files, the lab check asks again before it
+runs on the lab again.
 
 "Always for this project" exists only for `junos-commit`. It applies only while the
 inventory, its hosts and the change file stay the same. `ansible-check` always asks.
