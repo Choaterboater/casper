@@ -651,7 +651,7 @@ async function handleSecretsCommand(host: CommandHost, prompt: string): Promise<
   if (!args.length) { host.output.write(`${await host.scrubber.statusText(host.scrubFiles)}\n`); return; }
   if (args.length !== 2 || args[0] !== "files" || !["on", "off"].includes(args[1]!)) throw new Error("Usage: /secrets | /secrets files on|off");
   host.scrubFiles = args[1] === "on";
-  host.output.write(host.scrubFiles ? "Files and command output: on.\n" : "Files and command output: off for this session. MCP results are still scrubbed.\n");
+  host.output.write(host.scrubFiles ? "Device configs in files and command output: on.\n" : "Device configs in files and command output: off for this session. MCP results, .env and credential files are still scrubbed.\n");
 }
 
 /**

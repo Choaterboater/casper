@@ -32,6 +32,7 @@ async function run(tools: Array<{ name: string; args: unknown }>, extraEnv: Reco
   await writeFile(path.join(project, "backups/sw1.cfg"), CONFIG);
   await writeFile(path.join(project, "src/parser.test.ts"), `const sample = "snmp-server community FixtureComm";\n`);
   await writeFile(path.join(project, "notes.cfg"), "snmp-server community RealComm\n");
+  await writeFile(path.join(project, ".env"), "MIST_APITOKEN=abc123\nCENTRAL_CLIENT_SECRET='s3cr3t-central'\nLOG_LEVEL=debug\n");
   const payloads: Payload[] = [];
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: async request => {
     payloads.push(await request.json());
@@ -98,4 +99,31 @@ posixOnly("when the secret check itself fails, the output is not shown to the mo
   const { sent } = await run([{ name: "read", args: { path: "backups/sw1.cfg" } }], { FIXTURE_SCRUB_THROW: "1" });
   expect(sent).not.toContain("FixtureComm");
   expect(sent).toContain("Output not shown: Casper could not check it for device secrets.");
+}, 30_000);
+
+posixOnly("a .env read, cat and grep reach the model with values hidden, in the main session and with /secrets files off", async () => {
+  const tools = [
+    { name: "read", args: { path: ".env" } },
+    { name: "bash", args: { command: "cat .env; printenv FIXTURE_PRODUCT_TOKEN", timeout: 10 } },
+    { name: "grep", args: { pattern: "TOKEN", path: "." } },
+  ];
+  for (const extra of [{}, { FIXTURE_FILES_OFF: "1" }]) {
+    const { sent } = await run(tools, { FIXTURE_PRODUCT_TOKEN: "prod-token-0123456789", ...extra });
+    expect(sent).not.toContain("abc123");
+    expect(sent).not.toContain("s3cr3t-central");
+    expect(sent).not.toContain("prod-token-0123456789");
+    expect(sent).toContain("MIST_APITOKEN=<secret hidden>");
+    // Names and ordinary settings stay, so the AI still knows what the file holds.
+    expect(sent).toContain("LOG_LEVEL=debug");
+  }
+}, 60_000);
+
+posixOnly("a read-only child (/delegate, the model review) never sees a .env value", async () => {
+  const { sent } = await run([
+    { name: "read", args: { path: ".env" } },
+    { name: "grep", args: { pattern: "SECRET", path: "." } },
+  ], { FIXTURE_READ_ONLY: "1" });
+  expect(sent).not.toContain("abc123");
+  expect(sent).not.toContain("s3cr3t-central");
+  expect(sent).toContain("CENTRAL_CLIENT_SECRET=");
 }, 30_000);

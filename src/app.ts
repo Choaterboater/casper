@@ -249,9 +249,9 @@ export class CasperApp {
       if (child === this.runtime) throw new Error("The main runtime cannot be reused as a subagent");
       return child;
     },
-    // A child's file reads reach a model too: same scrubbing, same /secrets files switch.
-    scrubToolOutput: (toolName, input, texts, signal) => this.scrubFiles
-      ? scrubToolOutput(this.scrubber, toolName, input, texts, signal) : Promise.resolve(undefined),
+    // A child's file reads reach a model too: same scrubbing, same /secrets files switch (device
+    // configs only; .env, credential files and secret env values are always hidden).
+    scrubToolOutput: (toolName, input, texts, signal) => scrubToolOutput(this.scrubber, toolName, input, texts, signal, { configs: this.scrubFiles }),
     });
     this.lifecycle.add({ name: "subagents", close: () => this.subagents.close() });
     this.inspectProjectFn = options.inspectProject ?? inspectProject;
@@ -587,9 +587,9 @@ export class CasperApp {
           systemPromptAppend: systemPromptAppend(context),
           beforeToolGate: (toolName, input) => hiddenSecretGate(toolName, input)
             ?? (toolName === "edit" || toolName === "write" ? this.editGateReason(toolName) : undefined),
-          // Config files and config-looking command output; /secrets files off stops it for this session.
-          scrubToolOutput: (toolName, input, texts, signal) => this.scrubFiles
-            ? scrubToolOutput(this.scrubber, toolName, input, texts, signal) : Promise.resolve(undefined),
+          // Config files and config-looking command output (/secrets files off stops these for this
+          // session), plus .env, credential files and secret env values (always).
+          scrubToolOutput: (toolName, input, texts, signal) => scrubToolOutput(this.scrubber, toolName, input, texts, signal, { configs: this.scrubFiles }),
         });
         const resumeNotice = await (await this.ensureSessionWorkspace()).resumeActive(this.session);
         if (resumeNotice) this.output.write(`[sessions] ${resumeNotice}\n`);
