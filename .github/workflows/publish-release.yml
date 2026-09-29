@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Release tag to create; must match package.json (for example v0.2.14)
+        description: Release tag to create; must match package.json (for example v0.2.15)
         required: true
 permissions:
   contents: write
