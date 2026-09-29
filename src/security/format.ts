@@ -122,13 +122,16 @@ export function formatQuestion(question: NumberedQuestion): string {
 }
 
 /** The choice for one unapproved ignore: "1 Keep it (I approve) · 2 Show the line · 3 Leave it flagged". */
-export const IGNORE_CHOICES = ["Keep it (I approve)", "Show the line", "Leave it flagged"] as const;
+/** Leave it flagged comes first, so Enter never approves an ignore. */
+export const IGNORE_CHOICES = ["Leave it flagged", "Show the line", "Keep it (I approve)"] as const;
+export const IGNORE_APPROVE = IGNORE_CHOICES[2];
 export function ignoreQuestion(entry: IgnoreEntry): NumberedQuestion {
   return { text: `New ignore you didn't approve: ${ignoreLine(entry)}`, choices: [...IGNORE_CHOICES] };
 }
 
-/** The choice for a changed ignore file: "1 Use my changed file · 2 Keep the default". */
-export const IGNORE_FILE_CHOICES = ["Use my changed file", "Keep the default"] as const;
+/** The choice for a changed ignore file: "1 Keep the default · 2 Use my changed file" (Enter keeps the default). */
+export const IGNORE_FILE_CHOICES = ["Keep the default", "Use my changed file"] as const;
+export const IGNORE_FILE_USE = IGNORE_FILE_CHOICES[1];
 export function ignoreFileQuestion(file: IgnoreFile): NumberedQuestion {
   return { text: changedIgnoreFileLine(file), choices: [...IGNORE_FILE_CHOICES] };
 }

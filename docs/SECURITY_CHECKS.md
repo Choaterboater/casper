@@ -66,14 +66,16 @@ those off in the tools and decides itself. An ignore counts only when:
 
   ```
   New ignore you didn't approve: src/x.py:12  # nosec B608
-  1 Keep it (I approve) · 2 Show the line · 3 Leave it flagged
+  1 Leave it flagged · 2 Show the line · 3 Keep it (I approve)
   ```
+
+Enter picks 1, so it never approves anything.
 
 A changed ignore file is not used until you say so:
 
 ```
 .gitleaks.toml changed since your last commit, so Casper used the default rules.
-1 Use my changed file · 2 Keep the default
+1 Keep the default · 2 Use my changed file
 ```
 
 Approvals are kept in `~/.casper/projects/<project>/security-approved.json`, never in

@@ -32,7 +32,10 @@ function scripted(root: string, home: string, find: NonNullable<SecurityReviewHo
     canAsk: () => answers !== "cannot-ask",
     pick: async (question, options) => {
       asked.push(`${question}\n${options.map((option, index) => `${index + 1} ${option.label}`).join(" · ")}`);
-      return answers === "cannot-ask" ? undefined : answers.shift();
+      if (answers === "cannot-ask") return undefined;
+      const answer = answers.shift();
+      // "<enter>" is what Enter does on both terminals: it picks choice 1.
+      return answer === "<enter>" ? options[0]?.label : answer;
     },
     check: { find, timeouts: {} },
     install: { fetchBytes: async (url) => { fetched.push(url); throw new Error("no downloads in tests"); } },
@@ -40,7 +43,7 @@ function scripted(root: string, home: string, find: NonNullable<SecurityReviewHo
   return { host, asked, output: () => text, fetched };
 }
 
-test("a new ignore is approved only by a person's 1, and the approval is kept in ~/.casper, never in the repo", async () => {
+test("a new ignore is approved only by a person's 3, and the approval is kept in ~/.casper, never in the repo", async () => {
   const root = await fixtureRepo("casper-sr-approve-"); temps.push(root);
   const home = await temp("casper-sr-home-");
   await writeFile(path.join(root, "app", "extra.py"), "import subprocess\nsubprocess.call('ls', shell=True)  # nosec B602\n");
@@ -51,9 +54,9 @@ test("a new ignore is approved only by a person's 1, and the approval is kept in
   expect(s.output()).toContain(`Security check: ${path.basename(root)}`);
   expect(s.output()).toContain("Result: ");
   expect(s.output()).not.toMatch(/\bsecure\b|\bsafe\b/i);
-  expect(s.asked[0]).toBe("New ignore you didn't approve: app/extra.py:2  # nosec B602\n1 Keep it (I approve) · 2 Show the line · 3 Leave it flagged");
+  expect(s.asked[0]).toBe("New ignore you didn't approve: app/extra.py:2  # nosec B602\n1 Leave it flagged · 2 Show the line · 3 Keep it (I approve)");
   expect(s.output()).toContain("app/extra.py:2  subprocess.call('ls', shell=True)  # nosec B602");
-  expect(s.asked[1]).toBe("New ignore you didn't approve: app/extra.py:2  # nosec B602\n1 Keep it (I approve) · 2 Leave it flagged");
+  expect(s.asked[1]).toBe("New ignore you didn't approve: app/extra.py:2  # nosec B602\n1 Leave it flagged · 2 Keep it (I approve)");
   expect(s.output()).toContain("Approved 1 ignore. Casper keeps them in ~/.casper, not in the repo; they count from the next run.");
   const store = JSON.parse(await readFile(approvalsPath(await realpath(root), home), "utf8"));
   expect(store.markers).toHaveLength(1);
@@ -70,6 +73,22 @@ test("leaving an ignore flagged approves nothing", async () => {
   const s = scripted(root, home, tools.find, ["Leave it flagged"]);
   await runSecurityReview(s.host, []);
   expect(await stat(approvalsPath(await realpath(root), home)).then(() => true, () => false)).toBe(false);
+});
+
+test("Enter never approves: a new ignore stays flagged and a changed ignore file keeps the default", async () => {
+  const root = await fixtureRepo("casper-sr-enter-"); temps.push(root);
+  const home = await temp("casper-sr-home-");
+  await writeFile(path.join(root, ".gitleaks.toml"), "[extend]\nuseDefault = true\n");
+  gitIn(root, "add", "-A"); gitIn(root, "commit", "-qm", "ignores");
+  await writeFile(path.join(root, ".gitleaks.toml"), "[extend]\nuseDefault = true\n[[allowlists]]\npaths = ['''app/''']\n");
+  await writeFile(path.join(root, "app", "extra.py"), "import subprocess\nsubprocess.call('ls', shell=True)  # nosec B602\n");
+  const tools = await fakeTools(home);
+  const s = scripted(root, home, tools.find, ["<enter>", "<enter>"]);
+  await runSecurityReview(s.host, []);
+  expect(s.asked).toHaveLength(2);
+  expect(s.output()).not.toContain("Approved");
+  expect(await stat(approvalsPath(await realpath(root), home)).then(() => true, () => false)).toBe(false);
+  expect((await tools.recorded("gitleaks"))?.args.join(" ")).not.toContain(path.join(await realpath(root), ".gitleaks.toml"));
 });
 
 test("missing tools get one numbered ask before any download; Stop runs nothing and downloads nothing", async () => {
@@ -116,7 +135,7 @@ test("a changed ignore file counts only after a person says so", async () => {
   const tools = await fakeTools(home);
   const s = scripted(root, home, tools.find, ["Use my changed file", "Leave it flagged"]);
   await runSecurityReview(s.host, []);
-  expect(s.asked[0]).toBe(".gitleaks.toml changed since your last commit, so Casper used the default rules.\n1 Use my changed file · 2 Keep the default");
+  expect(s.asked[0]).toBe(".gitleaks.toml changed since your last commit, so Casper used the default rules.\n1 Keep the default · 2 Use my changed file");
   const store = JSON.parse(await readFile(approvalsPath(await realpath(root), home), "utf8"));
   expect(store.files.map((item: { file: string }) => item.file)).toEqual([".gitleaks.toml"]);
   const recorded = await tools.recorded("gitleaks");

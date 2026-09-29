@@ -287,7 +287,7 @@ export async function runNetworkCheck(name: string, spec: NetworkCheckSpec, cont
 export interface LabAsk {
   /** The question, then the hosts. */
   text: string;
-  /** Numbered choices, in order: "Run on the lab", then "Always for this project" (junos-commit only), then "Skip". */
+  /** Numbered choices, in order: "Skip" (so Enter never reaches a device), "Run on the lab", then "Always for this project" (junos-commit only). */
   choices: string[];
   /** Always the limit of what Casper checked. */
   note: string;
@@ -308,16 +308,16 @@ export function labAskFor(name: string, preset: NetworkPreset, hosts: readonly L
   if (preset === "junos-commit") {
     return {
       text: `Run ${name} on your lab? It loads the change on ${count} lab ${count === 1 ? "router" : "routers"}, runs commit check, then rolls back. ${formatHosts(hosts)}`,
-      choices: ["Run on the lab", "Always for this project", "Skip"], note: LAB_LIMIT_NOTE,
+      choices: ["Skip", "Run on the lab", "Always for this project"], note: LAB_LIMIT_NOTE,
     };
   }
   return {
     text: `Run ${name} on your lab? It uses ansible --check, and a dry run is not guaranteed: some modules can still change the switches. ${formatHosts(hosts)}`,
-    choices: ["Run on the lab", "Skip"], note: LAB_LIMIT_NOTE,
+    choices: ["Skip", "Run on the lab"], note: LAB_LIMIT_NOTE,
   };
 }
 
-/** "1 Run on the lab · 2 Skip" */
+/** "1 Skip · 2 Run on the lab" */
 export function numberedChoices(choices: readonly string[]): string {
   return choices.map((choice, index) => `${index + 1} ${choice}`).join(" · ");
 }
