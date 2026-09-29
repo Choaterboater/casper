@@ -70,9 +70,9 @@ A run ends with exactly one `receipt` event, or, when Casper stops before it can
 | `assistant_message` | `text` | One model response's complete text. |
 | `tool_start` | `tool`, `id`, `target` (path, command or pattern; redacted) | A tool call starts. |
 | `tool_end` | `tool`, `id`, `ok`, `ms` | A tool call ends. `ok` is the tool status, not a check result. |
-| `check` | `name`, `command`, `status` (`pass`/`fail`/`skip`), `exit`, `ms`, `recordedBy`, `reused` | Casper recorded a check. `recordedBy` is `casper` (auto mode, `/verify`, repair) or `casper_check` (the model asked for it). |
+| `check` | `name`, `command`, `status` (`pass`/`fail`/`skip`), `exit`, `ms`, `recordedBy`, `reused`, `ended`? | Casper recorded a check. `recordedBy` is `casper` (auto mode, `/verify`, repair) or `casper_check` (the model asked for it). `ended` appears only on a failure that was not the code failing: `timeout`, or `no_start` (could not execute, or the shell's exit 126/127). |
 | `phase` | `phase` (`task`, `checks`, `smoke`, `review`, `proof`, `repair`), `state` (`start`/`end`), `atMs` | A stage of Casper's work starts or ends. `smoke` runs inside `checks`. |
-| `receipt` | `outcome`, `exitCode`, `execution`, `changed`, `changedDuringChecks`, `verificationMode`, `checks`, `repairAttempts`, `turnLimit`, `usage`, `proof`, `review`, `services`, `smoke`, `text` | The run finished. |
+| `receipt` | `outcome`, `exitCode`, `execution`, `changed`, `changedDuringChecks`, `verificationMode`, `checks`, `repairAttempts`, `turnLimit`, `usage`, `proof`, `proofSkipped`, `review`, `services`, `smoke`, `verdict`, `text` | The run finished. |
 | `error` | `message` | Something failed. |
 
 `receipt.outcome` is one of `verified`, `failed`, `incomplete`, `not_verified`, `unchanged`,
@@ -98,7 +98,12 @@ classifier), or automatic effort's classifier.
 `ended` is `pass` (unproven), `fail` (the tests failed), or weaker evidence for a proven change: `timeout`,
 `crash` (a signal or crash, exit above 128) or `no_start` (exit 126/127). `reason` is the runner's reason
 (for example `Timed out after 20000ms`); `output` is at most the last 500 characters of the failing run's output.
-An `unproven` change has the outcome `not_verified`. `review` is the model's requirements checklist, in one of
+An `unproven` change has the outcome `not_verified`. `proofSkipped` says why checks that passed on changed
+files came without a proof (for example `only non-code files changed`, or a refactor request), else `null`.
+`verdict` is line 1 of `text`: `✓ Verified — …` only when the tests fail without the change; otherwise
+`• Checks passed — not proven: …`, `✗ Failed — …`, `✗ Not checked — …` (only unfinished checks), `• Incomplete — …`, `• Not verified — …` or `✗ Stopped — …`.
+`text`, `verdict`, the proof's `reason` and `output`, and review items are redacted like other previews
+(tokens, keys and passwords become `<redacted>`). `review` is the model's requirements checklist, in one of
 two shapes. The review round's answer (`verification.review: true`) is `{ "fixed": [...], "open": [...],
 "covered": n, "total": m }`: `fixed` lists only the gaps the review added a test or fix for, `open` those still
 open, and `covered`/`total` come from its `Covered: n of m` line (both absent after a bare `Requirements
@@ -126,7 +131,7 @@ become `<redacted>`).
 
 ```json
 {"v":1,"type":"check","name":"test","command":"npm run test","status":"pass","exit":0,"ms":412,"recordedBy":"casper","reused":false}
-{"v":1,"type":"receipt","outcome":"verified","exitCode":0,"execution":"completed","changed":["sum.js"],"changedDuringChecks":[],"verificationMode":"auto","checks":[{"name":"test","command":"npm run test","status":"pass","exit":0,"ms":412,"fresh":true}],"repairAttempts":0,"turnLimit":null,"usage":{"turns":2,"tokens":18342,"estimatedCost":0.0041},"proof":{"status":"proven","check":"test","command":"npm run test","testsChanged":true,"without":{"exitCode":1,"ended":"fail","output":"expected 3, got 2"}},"text":"✓ Changed 1 file: sum.js\n✓ Verified by Casper: test passed (npm run test, 0.4s)\n✓ Proven: test fails without this change (exit 1) and passes with it"}
+{"v":1,"type":"receipt","outcome":"verified","exitCode":0,"execution":"completed","changed":["sum.js"],"changedDuringChecks":[],"verificationMode":"auto","checks":[{"name":"test","command":"npm run test","status":"pass","exit":0,"ms":412,"fresh":true}],"repairAttempts":0,"turnLimit":null,"usage":{"turns":2,"tokens":18342,"estimatedCost":0.0041},"proof":{"status":"proven","check":"test","command":"npm run test","testsChanged":true,"without":{"exitCode":1,"ended":"fail","output":"expected 3, got 2"}},"proofSkipped":null,"verdict":"✓ Verified — the checks pass, and the tests fail without the change","text":"✓ Verified — the checks pass, and the tests fail without the change\n✓ Changed 1 file: sum.js\n✓ test passed (npm run test, 0.4s)\n✓ Proven: test fails without this change (exit 1) and passes with it"}
 ```
 
 ### `jq` recipes
@@ -159,7 +164,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install Casper
-        run: curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.13/install.sh | sh
+        run: curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.14/install.sh | sh
       - name: Fix the failing test
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
@@ -178,8 +183,9 @@ jobs:
 
 `set -o pipefail` makes the step fail with Casper's exit code rather than `jq`'s. Provider API keys
 such as `OPENROUTER_API_KEY` are read from the environment. The flags on this page are newer than
-v0.1.0: they ship in v0.2.13 and later, so pin the installer to v0.2.13 or newer. A check runs
-the repository's own configured commands: that is execution consent, not sandboxing, so run it
-only on code you trust. Configure the checks in `.casper/project.yaml` (see
+v0.1.0: they ship in v0.2.13 and later, so pin the installer to v0.2.13 or newer. The receipt's
+`verdict` and `proofSkipped` fields and a check's `ended` field ship in v0.2.14. A check runs
+the repository's own configured commands without asking, and they are not sandboxed, so run
+Casper only on code you trust (or pass `--no-verify`). Configure the checks in `.casper/project.yaml` (see
 [VERIFICATION.md](VERIFICATION.md)); `--require-verification` then fails the job when Casper
 could not prove the change.

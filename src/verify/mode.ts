@@ -50,6 +50,18 @@ export function resolveVerificationMode(input: {
   return input.interactive && input.measuredMs !== undefined && input.measuredMs >= FAST_CHECKS_MS ? "offer" : "auto";
 }
 
+/** What Casper checks after a change in this session: the mode and the selected checks. `slow`: the
+ * mode is `offer` only because the checks were timed at a minute or more (not a flag or configuration). */
+export interface ChecksPlan { mode: VerificationMode; checks: ProjectCommand[]; slow?: boolean }
+
+/** The banner's and /status's plain line for a ChecksPlan. */
+export function describeChecksPlan(plan: ChecksPlan): string {
+  if (plan.mode === "off") return "off for this session (--no-verify or verification.mode: off)";
+  if (!plan.checks.length) return "none found; add verify.test to .casper/project.yaml";
+  return `${plan.checks.join(", ")} — ${plan.mode === "auto" ? "run after each change"
+    : plan.slow ? "offered with /verify (they take a minute or more)" : "offered with /verify (verification.mode: offer)"}`;
+}
+
 /** `verification.checks`, or every check with a configured or detected command. */
 export function selectedChecks(selected: readonly ProjectCommand[] | undefined, commands: Partial<Record<ProjectCommand, string>>): ProjectCommand[] {
   return selected ? [...selected] : CHECK_NAMES.filter((name) => commands[name]?.trim());

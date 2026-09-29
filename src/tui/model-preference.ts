@@ -20,7 +20,7 @@ export async function modelPreference(home: string): Promise<string | undefined>
       if (typeof value?.defaultProvider !== "string" || typeof value?.defaultModel !== "string") return;
       const identity = `${value.defaultProvider}/${value.defaultModel}`;
       const effort = Array.isArray(value.autoEffortModels) && value.autoEffortModels.includes(identity)
-        ? "auto (pending)" : typeof value.defaultThinkingLevel === "string" ? value.defaultThinkingLevel : "effort default";
+        ? "effort auto (set on your first request)" : typeof value.defaultThinkingLevel === "string" ? `effort ${value.defaultThinkingLevel}` : "effort default";
       return `default ${identity} · ${effort}`;
     } finally { await file.close(); }
   } catch { return undefined; }

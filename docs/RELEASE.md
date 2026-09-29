@@ -1,10 +1,66 @@
 # Release process and installers
 
-Casper distributes an unsigned **v0.2.13 preview**, not a stable release. Installers
-default to `https://github.com/Choaterboater/casper/releases/download/v0.2.13` because
+Casper distributes an unsigned **v0.2.14 preview**, not a stable release. Installers
+default to `https://github.com/Choaterboater/casper/releases/download/v0.2.14` because
 GitHub's `latest/download` route excludes prereleases. The first published preview
 was **v0.1.0**; its assets and tag stay as published, and every fix ships under a new
 version.
+
+## v0.2.14: see it build, trust the result
+
+**Receipt:** line 1 is the verdict: `✓ Verified — the checks pass, and the tests fail without the
+change`, `✓ Checks passed — not proven: <why>`, `✗ Failed`, `Incomplete`, `Not verified`, or
+`✗ Stopped — cancelled; changes already made are kept`. Check lines read `✓ test passed (npm test,
+0.4s)`. `--json` receipts add `verdict` and `proofSkipped`; `outcome` and exit codes are unchanged.
+See [VERIFICATION.md](VERIFICATION.md#receipts).
+
+**Unfinished checks:** a check that timed out or could not start is marked as unfinished (`--json`
+check events carry `ended: "timeout"` or `"no_start"`), not as the code failing, and it is never handed
+to a paid repair. The terminal asks: 1 Retry · 2 Fix it anyway · 3 Allow more time (four times the
+limit, at least a minute, at most an hour), and the receipt says `✗ Not checked`, not `✗ Failed`. While a
+question or the checklist waits for you, the footer says `? waiting for you` instead of spinning.
+
+**Already failing:** before a repair, Casper checks whether the failing test also failed before the
+change; if so it says so, and the terminal asks before paying to fix it.
+
+**Model errors:** a provider failure such as an empty response is retried once on its own, and then
+the terminal asks whether to retry or stop. When the model fails after editing, Casper still runs the checks on its edits (no
+repair) and the receipt says how they fared and suggests another model.
+
+**Watching it work:** the footer shows the task's stages (`checklist ✓ · building ✓ · checks ·
+1m05s`); each check prints one line as it finishes; edit and write lines show their size (`+18 -4`); a
+bell rings when a request that ran 10 seconds or more finishes or needs you (rich terminal only).
+Question choices show numbers, and pressing a number picks it. The banner and `/status` say which
+checks run after a change, and `/receipt` is in the command list. Shift+Tab remembers the effort
+level it stops at, like `/effort`.
+
+**Sign-in:** with no model set, Casper opens sign-in on your first request instead of printing a
+failed receipt, then picks a model for that provider (OpenRouter: `deepseek/deepseek-v4.1-flash`).
+It never replaces a model you chose.
+
+**Repositories:** Python detection covers uv, poetry, `.venv`, `python3 -m`, `requirements*.txt`
+and `[tool.mypy] files`. In a git repository the change list comes from git, and the proof copy
+links `.venv`/`venv` like `node_modules` instead of copying it, so a 30,000-file virtualenv no
+longer slows every task. Launched from a folder of projects, Casper asks which one to open. A
+request that opens with a build verb ("add a config loader") is treated as building.
+
+**Tools:** Pi's own read/edit/write rules are back in the model's prompt (Pi drops them when a
+custom prompt is set). A bash timeout above one hour is capped at one hour. Calls that ask you or
+drive shared state (ask, MCP calls that may need approval, browser, LSP) run one at a time, and a
+delegate turned away as busy no longer spends the task's delegation budget.
+
+**Security:** the `--json` receipt redacts secrets in the proof's failing output and review items.
+The proof step never deletes or writes through a folder the change turned into a link. Your own
+MCP servers (user and profile config) start in your home folder unless their `cwd` says otherwise,
+and a project server's review names each variable it sends and where (`sends $TOKEN to
+https://example.com (header Authorization)`).
+
+**Git safety:** the model's bash may not run `git stash`, `git reset --hard`, `git checkout --`,
+`git restore`, `git switch -f` or `git clean`, which can set aside or discard your uncommitted work.
+
+**Docs:** git commit/push policy and "ask before destructive operations" are described as what
+they are, instructions in the model's prompt, and auto checks as running the repository's
+commands without asking (`--no-verify` opts out for a run).
 
 ## v0.2.13
 

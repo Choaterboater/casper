@@ -42,18 +42,53 @@ changes nobody verified, still exit 0 and the receipt says "Not verified". Add
 `--require-verification` (which implies `--verify`) to make those exit 3. See
 [SCRIPTING.md](SCRIPTING.md) for the full table and `--json` events.
 
-`--verify`, `verification.mode: auto` and `/verify` are **explicit execution consent, not
-sandboxing or persisted repository trust**. Use them only in repositories whose commands you trust.
+Casper runs the repository's own check commands. That is **not sandboxing or persisted repository
+trust**, and it is not a separate yes/no: `auto` is the default, so asking for a change in a repository
+runs its test, lint and build commands (and a repository's `.casper/project.yaml` can itself choose
+`auto`). For a repository whose commands you do not trust, start Casper with `--no-verify`; a flag
+wins over every configuration file.
 Repair also authorizes model edits. **Native bash is unchanged:** a model's bash run of a check is
 reported but never counted as verification.
 
 ## Receipts
 
+Line 1 is the verdict, one of:
+
+```
+✓ Verified — the checks pass, and the tests fail without the change
+✓ Verified — the checks pass; without the change the tests could not even load
+• Checks passed — not proven: a refactor should not change behavior, so no test is expected to fail without it
+✓ Checks passed — no files changed
+✗ Failed — test failed
+✗ Not checked — test timed out, so the change was not tested
+• Incomplete — stopped after 3 turns (--max-turns); changes so far are kept; send another request to go on
+• Not verified — the tests pass without the change too
+✗ Stopped — cancelled; changes already made are kept
+```
+
+Before the first repair of a change, Casper runs each failing check on the files from before the change
+(the copy it keeps for the proof). A check that failed there too was already broken: Casper says so, and
+an interactive terminal asks `1 Fix it anyway · 2 Leave it` before paying for a repair (scripts repair).
+
+A provider that answers with nothing ("empty response", which Pi does not retry itself) is retried
+once; other errors are left to Pi's own retry budget; if it fails again, an interactive terminal asks `1 Retry · 2 Stop`.
+When the model run fails after it edited files (a provider error, for example), Casper still runs the
+checks on those edits, without a repair, and the verdict says how they fared (`✗ Failed — the model run
+failed; changes already made are kept; the checks pass on those changes`), followed by a `• Next:` line
+to try another model.
+
+`Verified` means the checks passed on the final files and a test fails without the change (ADR 0001).
+The JSON `outcome` and the exit code do not change with the verdict: a change whose checks pass but
+that was not proven still has the outcome `verified`, and the JSON receipt's `proofSkipped` says why.
+The lines below the verdict give the evidence:
+
 ```
 ✓ Changed 1 file: sum.js
-✓ Verified by Casper: test passed (npm run test, 0.3s)
-✓ Verified by Casper: test passed earlier in this task, reused (npm run test, 0.3s)
-✗ Verified by Casper: test failed (exit 1) — log above; /verify repair test to fix
+✓ test passed (npm run test, 0.3s)
+✓ test passed earlier in this task, reused (npm run test, 0.3s)
+✗ test failed (exit 1) — log above; /verify repair test to fix
+✗ test timed out after 10m — it did not finish, so it was not checked; /verify test to run it again, or raise verification.timeoutMs in .casper/project.yaml
+✗ lint could not start (exit 127) — check verify.lint in .casper/project.yaml
 • Not verified — test ran via bash only (npm test: passed). Run /verify test to record a check.
 • Not verified — no checks configured. Add verify.test to .casper/project.yaml.
 • Not verified — stale: files changed after the last passing test. Run /verify test.
@@ -64,6 +99,17 @@ reported but never counted as verification.
 ✓ Service api at 127.0.0.1:53121; smoke 2/2 passed (model-declared, run by Casper: create note failed before the change)
 ✗ Service api at 127.0.0.1:53121; smoke 0/1 passed; failed: create note (status 404, expected 201)
 ```
+
+A check that timed out or could not start did not fail as a test, so Casper never repairs it on its
+own: repair costs model tokens and cannot fix a slow suite or a missing tool. In an interactive terminal
+Casper asks `test timed out after 10m. Casper did not try to fix it. What now?` with `1 Retry`,
+`2 Fix it anyway` and `3 Allow more time` (four times the limit the check just had, at least a minute,
+at most an hour, and again each time you choose it; the longer limit also applies to the model's own
+runs of that check for the rest of the task; the choice names `verification.timeoutMs`, which keeps a
+longer limit); Esc stops. It asks at most eight times per round of checks (the review round, when on, is a
+second round). When the only failures are unfinished checks, the verdict is `✗ Not checked — test timed
+out, so the change was not tested`, not `✗ Failed`; the outcome and exit code stay `failed`/1. Scripts and one-shot runs report the check and repair only real
+test failures. A command that could not start is not saved as a check timing.
 
 A pass marked `reused` did not run again: its declared inputs are unchanged since it passed earlier in
 the same task (often the model's own `casper_check`), and the time is that earlier run's.
@@ -227,7 +273,9 @@ configuration request. The work decides, not the wording: "add X; you may add te
 code change.
 
 1. Before the model starts, Casper copies the workspace (copy-on-write where the file system allows;
-   `.git`, `.casper` and `node_modules` are left out, and `node_modules` is linked back in).
+   `.git`, `.casper`, `node_modules`, `.venv` (and `venv` when it holds a `pyvenv.cfg`) and Python caches
+   are left out; `node_modules` and the virtual environment are linked back in). Runs in the copies set
+   `UV_NO_SYNC=1`, so `uv run` never changes your linked `.venv`.
 2. After the checks pass, it rebuilds the workspace **without the change**: the copy from before,
    with the tests (anything under a test directory, or named like a test) as they are now. It runs the
    `test` check there.
@@ -341,11 +389,17 @@ A tool returns execution evidence to Pi's ordinary edit/check loop; it never sta
 
 The terminal shows the plain receipt and the tail of a failing check's output, not full logs; `--verbose` adds one evidence line per check run. Programmatic `CasperApp.runOnce()` returns a `VerificationReport` for verification runs, including all rounds. `getLastTaskResult()` returns a detached result for the last normal request, separating execution (`completed`, `failed`, `cancelled`) from optional verification; local commands clear this result. Coding requests print the plain receipt; `/receipt` prints the detailed execution/verification receipt, including bounded observed native edit paths, possible tool writes (including failed/partial writes), and exact-command shell observations. Successful general conversation without observed effects or verification omits that terminal receipt; the structured task result and local outcome are still retained. Failures/cancellation always remain visible. **Shell tool status is diagnostic data, not process-exit evidence:** native shell checks are not reused or counted as verifier passes. Terminal model error/abort stops skip further checks and repair, retain already-executed managed evidence as blocked, and produce CLI exit codes 1/130 rather than success; an intermediate provider error recovered by Pi is not a terminal failure. Otherwise verification exit codes remain 0 for pass, 2 for incomplete, and 1 for failure/blocked; completion without verification exits 0 without claiming verified behavior. Evidence includes cwd, command, status, exit code/signal, duration, stdout/stderr, failure reason, and truncation. Each stream retains at most 8 KiB of original bytes (head/tail plus a truncation marker); this bounded evidence is what repair receives. No evidence database or unbounded raw-log artifact is created.
 
-**Command success, input freshness, declared scope, and behavioral coverage are separate facts.** Detailed reports (`/receipt`, `--verbose`) say `Checks pass (command execution)`; the plain receipt's "Verified by Casper" means the same: the named command passed on the files as they were when it ran, not that the requested behavior is certified. Stale or unavailable inputs remain explicitly unverified and cannot support reuse; they do not rewrite successful command exits or trigger a new repair/approval loop. Only actual check failures enter the existing bounded repair loop. Saved task outcomes and `/memory outcomes` retain exit codes, scope, freshness and a bounded freshness reason, without storing output or fingerprints. Human acceptance still starts unknown. Legacy outcomes remain readable, are labeled as legacy, and missing freshness stays unavailable.
+**Command success, input freshness, declared scope, and behavioral coverage are separate facts.** Detailed reports (`/receipt`, `--verbose`) say `Checks pass (command execution)`; the plain receipt's `✓ test passed` line means the same: the named command, run by Casper, passed on the files as they were when it ran, not that the requested behavior is certified. Only the verdict `✓ Verified` adds that a test fails without the change. Stale or unavailable inputs remain explicitly unverified and cannot support reuse; they do not rewrite successful command exits or trigger a new repair/approval loop. Only actual check failures enter the existing bounded repair loop. Saved task outcomes and `/memory outcomes` retain exit codes, scope, freshness and a bounded freshness reason, without storing output or fingerprints. Human acceptance still starts unknown. Legacy outcomes remain readable, are labeled as legacy, and missing freshness stays unavailable.
 
 `verification.scopes` is optional and project-local. Each check may declare literal relative `inputs` (files/directories, recursively; `.` means the project root) and optional `exclude` paths/subtrees. No globs, absolute paths, traversal, or fully excluded input roots; each list has at most 32 paths, each path at most 256 UTF-8 bytes, and each declaration at most 2 KiB. **No declaration means unavailable freshness and no reuse, not a command failure.** `.gitignore` is not an input contract: ignored files inside a declared scope are included unless explicitly excluded. Generated artifacts/coverage outside the input scope or explicitly excluded from it do not make a successful check stale.
 
 Freshness is observed before/after each check and at report time; checks also refresh earlier evidence so one check cannot silently invalidate another. Observed native edit/write paths invalidate matching declared scopes even if later work restores directory membership, including edits overlapping a check. Native path syntax is expanded once before matching filesystem identities (including file URLs, tilde paths and aliases); an actual `@`-prefixed filename is not stripped again. Declared input roots are resolved too, including case aliases on case-insensitive filesystems, while exclusions retain the scope observer's traversal spelling. Observed included symlink entries also invalidate evidence, even when their targets are excluded or outside the scope and the links are later removed. Excluded links do not hide writes to included targets. Failed native writes conservatively invalidate possible partial changes without claiming a completed edit; missing targets retain their path beneath the nearest existing canonical parent. Possible case/Unicode aliases of the first missing entry (including a named input's parent) invalidate conservatively, and a missing suffix cannot establish an exclusion's traversal spelling. This may cause extra executions for ambiguous absent names even on case-sensitive filesystems; resolved prefixes and literal exclusions are not case-folded. Unresolvable or over-budget path observations conservatively invalidate scoped evidence. Resolved observations with neither an included target nor included symlink traversal do not invalidate other scopes, and observations do not select additional checks. Included file bytes/metadata and directory membership/modes are fingerprinted; named input creation/deletion invalidates previous evidence. Directory timestamps caused by excluded outputs do not affect the fingerprint. Included symlinks (including parents of named paths), special files, I/O errors, or limits (1 MiB/file, 16 MiB total, 4,096 work items, 500 ms checked between I/O operations) disable reuse with a specific reason. An unavailable before/after observation cannot later become a fresh check merely because the final observation succeeds.
+
+The list of changed files comes from git in a git work tree: tracked files plus untracked files git does
+not ignore, so an ignored `.venv` or build folder of any size never stops the receipt (an edit to an
+ignored file, such as `.env`, is not listed). A nested repository or submodule is walked, and so is a
+folder git lists nothing for (one an enclosing repository ignores). Outside git, Casper walks the folder.
+Either way dependency trees, virtual environments and caches are left out, and the limit is 20,000 files.
 
 **Declared scope is an assumption, not discovered dependency coverage.** For example, the sample above does not observe installed `node_modules`, environment variables, external tools or services. A lockfile does not prove installed dependencies are unchanged. If a check depends on excluded/unlisted inputs, changes there can go undetected: include them or leave the scope undeclared to disable reuse. Even a fresh scoped result does not certify behavior. These bounded observations are not atomic snapshots, a sandbox, or a guarantee against transient changes during commands or edits after reporting.
 

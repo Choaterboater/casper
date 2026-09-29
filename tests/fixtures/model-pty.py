@@ -90,6 +90,8 @@ def exercise_saved_snapshot(bun, repo, root):
         s.until("default fixture/second")
         assert "high" in s.screen.text(), s.screen.text()
         assert not (s.root / "home/.pi/agent/auth.json").exists(), "footer snapshot initialized auth"
+        # Enter before Casper reads commands keeps /exit as a draft: wait until it is idle.
+        s.until("idle")
         s.send("/exit\n")
         deadline = time.monotonic() + 5
         while s.process.poll() is None and time.monotonic() < deadline: s.pump(0.05)
@@ -103,9 +105,15 @@ def exercise_empty_eof(bun, repo, root):
         s.until("/help · /status · /login")
         s.until("│ idle")
         s.send("hello\n")
-        s.until("Stopped: the model run failed")
+        # With no model, Casper opens sign-in itself instead of printing a fake failed receipt.
+        s.until("No model yet. Sign in to a provider to start")
+        s.until("Login · Choose provider")
+        s.send("\x1b")
+        s.until("[login] Cancelled; no credential saved.")
+        s.until("[model] No Casper model selected")
         s.pump(0.2)
-        assert s.screen.text().count("[error] No Casper model selected") == 1, s.screen.text()
+        assert "model run failed" not in s.screen.text(), s.screen.text()
+        assert s.screen.text().count("[model] No Casper model selected") == 1, s.screen.text()
         s.send("/model\n")
         s.until("No matching models")
         s.send("\x04")

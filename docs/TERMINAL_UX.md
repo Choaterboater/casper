@@ -69,9 +69,19 @@ provider's responses.
 The prompt box keeps a fixed two-column gutter: `❯` while idle, `…` while a
 command is working, `?` while an exact approval is pending. The box never shifts
 horizontally between states, so a draft keeps its wrapping. The footer shows a
-state glyph (braille spinner while working, `○` idle), then project/branch, provider/model, effort,
+state glyph (braille spinner while working, `○` idle, `? waiting for you` while a question,
+checklist or approval needs you, with the spinner stopped and the timer paused), then project/branch, provider/model, effort,
 estimated context occupancy, runtime-reported session tokens, a positive cost
-estimate when available, and idle/working state. `—` means unavailable, `~`
+estimate when available, and idle/working state. While a task runs, its stages
+lead the footer, each marked ✓ once done, then the elapsed time:
+`⠋ checklist ✓ · building ✓ · checks · 1m05s │ project…`; in a narrow window only the current stage
+and the time (`⠋ checks · 1m05s │ …`). Tool lines print paths relative to the project and fit one row:
+narrow, the words go and a path is shortened from the front (`✓ edit · …s/test_calc.py · +9 -1 · 0.0s`). Each check Casper runs prints one line
+as it finishes (`✓ typecheck · 5.9s`, `✗ test · exit 1 · 2.3s`, `✗ test · timed out after 10m`), so a
+pass is never silent; `--verbose` prints the full evidence line instead. When a request that ran for 10 seconds or
+more finishes, or asks you something (a question, an approval, the checklist), Casper rings the
+terminal bell; your terminal decides whether that is a sound, a flash or a dock bounce. Scripts,
+one-shot runs and `--json` never ring. `—` means unavailable, `~`
 means estimated. Branch is the project inspection snapshot; `/status` refreshes
 it after external Git changes. Narrow terminals truncate the footer rather than
 wrapping over input. Cost is not an invoice or subscription charge.
@@ -125,15 +135,16 @@ popups/pickers, or a duplicated prompt box (`bun test tests/terminal-layout.test
 - `/model provider/id`: exact selection, remembered globally.
 - `/model --session [provider/id]`: explicitly temporary selection/picker.
 - `/effort`: automatic or supported fixed-effort picker in an interactive terminal, otherwise a list.
-  `auto` is always a choice. On a rich terminal, **Shift+Tab** cycles that same list for this
-  conversation only (it does not save). `/effort <level>` remembers; `--session` opts out.
+  `auto` is always a choice. On a rich terminal, **Shift+Tab** cycles that same list and remembers
+  the level it stops at (saved once, when you stop pressing). `/effort <level>` remembers too;
+  `--session` opts out.
 - `/effort high`: apply and remember for that model. Unsupported levels fail.
 - `/effort high --session`: do not change the saved preference. Effort also survives
   switching away from a model and back within the current conversation.
 - `/effort auto`: classify each raw request before generation. `/status`, the
-  `[model]` start line and the footer show `reasoning auto → <level>` plus the
-  classifier state while it is not simply classified (`pending` before the first
-  request, `fallback`/`unavailable` when it could not classify, with an `[effort]`
+  `[model]` start line and the footer show `effort auto → <level>`; before the first
+  request that reads `auto → <level> for now; your first request picks the level`,
+  and `(fallback)`/`(unavailable)` follows when it could not classify, with an `[effort]`
   notice in the transcript). A fixed level disables it.
 - `/model roles`: inspect optional `fast`, `build`, `reason`, `review` mappings.
 - `/model role review provider/id:high`: save a shortcut without selecting it.
@@ -195,8 +206,11 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   option wrap in full at the current width (a description that does not fit beside
   its label goes on indented lines under it); nothing is truncated. When all of it
   would be taller than the screen, only the highlighted option shows its description,
-  so the question stays in view. Use Up/Down and Enter to choose; Space toggles
-  multi-select choices. Typing still accepts a custom answer, and Esc skips.
+  so the question stays in view. Each choice shows its number: press 1-9 to pick it
+  (or toggle it in a multi-select), or use Up/Down and Enter; Space also toggles.
+  Typing still accepts a custom answer, and Esc skips. A number picks a choice only
+  while nothing is typed, so a custom answer cannot start with a choice's number
+  (type a letter first); a digit past the last choice is ordinary text.
 - Up/Down recalls current-process prompt history. Shift+Enter where the terminal
   supports it, or Ctrl+J, inserts a newline. Bracketed paste stays in the draft.
 - Shift+Tab cycles reasoning effort (`auto`, then the model's supported levels) without

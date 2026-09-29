@@ -1,5 +1,6 @@
 import { constants } from "node:fs";
 import { lstat, open, type FileHandle } from "node:fs/promises";
+import path from "node:path";
 
 /**
  * Windows omits O_NOFOLLOW and O_NONBLOCK, so those flags degrade to 0 there and
@@ -25,3 +26,20 @@ export const openNoFollowUpdate = (filePath: string): Promise<FileHandle> =>
 /** Read-only open for configuration that is allowed to be a symlink to a regular file. */
 export const openFollowed = (filePath: string): Promise<FileHandle> =>
   openStateFile(filePath, constants.O_RDONLY, false);
+/**
+ * Whether every folder between `root` and `root/relative` is a real directory inside `root`, never a
+ * symlink. A path under a linked folder resolves somewhere else, so creating, copying or removing it
+ * would act outside the tree. A missing folder counts as safe: mkdir creates it as a real directory.
+ */
+export async function parentsStayInside(root: string, relative: string): Promise<boolean> {
+  const parts = relative.split(/[\\/]+/).filter(Boolean);
+  if (!parts.length || parts.some((part) => part === "..") || path.isAbsolute(relative)) return false;
+  let current = root;
+  for (const part of parts.slice(0, -1)) {
+    current = path.join(current, part);
+    const stats = await lstat(current).catch(() => undefined);
+    if (!stats) return true;
+    if (stats.isSymbolicLink() || !stats.isDirectory()) return false;
+  }
+  return true;
+}

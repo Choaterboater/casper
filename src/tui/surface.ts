@@ -103,6 +103,8 @@ export class TerminalSurface {
   private readonly muted: (text: string) => string;
   private status = "";
   private activity?: string;
+  /** The task's stages for the footer while work runs; see StepRail. */
+  private steps?: string;
   private note = "";
   private noteTimer?: NodeJS.Timeout;
   private exitArmed?: NodeJS.Timeout;
@@ -112,10 +114,17 @@ export class TerminalSurface {
   private started = false;
   private closed = false;
   private busy = false;
+  /** When the current request started; a bell rings when one that ran longer than attentionAfterMs
+   * finishes or asks something, so a person who looked away comes back. */
+  private busySince?: number;
+  private attentionAfterMs = 10_000;
   private spinnerFrame = 0;
   private spinnerTimer?: NodeJS.Timeout;
   /** When the current busy/activity stretch began; drives the footer's elapsed timer. */
   private activeSince?: number;
+  /** Time the work spent waiting on the user, left out of the footer's elapsed time. */
+  private waitedMs = 0;
+  private waitStart?: number;
   /** Component shown in place of the editor while a picker is mounted. */
   private slot?: Component;
   /** Raw input is on loan to a line-oriented flow; the surface keeps rendering. */
@@ -161,7 +170,7 @@ export class TerminalSurface {
         return;
       }
       if (!value.trim()) { this.editor.setText(""); return; } // Enter on an empty box is not a transcript event.
-      const resolve = this.command; this.command = undefined; this.busy = true;
+      const resolve = this.command; this.command = undefined; this.busy = true; this.busySince = Date.now();
       this.updateSpinner();
       this.configureAutocomplete();
       this.editor.addToHistory(value); this.editor.setText("");
@@ -224,6 +233,16 @@ export class TerminalSurface {
           this.render(); return { consume: true };
         }
         if (matchesKey(data, "enter")) { this.chooseAsk(); return { consume: true }; }
+        // A choice's number picks it (or toggles it) while nothing is typed; a digit past the last
+        // choice, or after typed text, is ordinary text.
+        const number = /^[1-9]$/.test(data) ? Number(data) : 0;
+        if (number && number <= Math.min(count, 9)) {
+          const index = number - 1;
+          if (!this.askMulti) { this.askActiveIndex = index; this.chooseAsk(); return { consume: true }; }
+          this.askActiveIndex = index;
+          if (this.askSelections.has(index)) this.askSelections.delete(index); else this.askSelections.add(index);
+          this.render(); return { consume: true };
+        }
         if (this.askMulti && matchesKey(data, "space")) {
           const index = this.askActiveIndex;
           if (this.askSelections.has(index)) this.askSelections.delete(index); else this.askSelections.add(index);
@@ -241,23 +260,36 @@ export class TerminalSurface {
     });
   }
 
+  /** A question, checklist or approval is open: Casper is waiting on the user, not working. */
+  private get waiting(): boolean { return Boolean(this.pendingAsk || this.pendingEdit || this.confirmation); }
+
   private footer(width: number): string {
+    // Waiting on the user: no spinner or running timer, so it never looks busy while it needs Enter.
+    if (this.waiting && !this.note) return truncateToWidth(`${this.accent("?")} ${this.accent("waiting for you")}${this.muted(` │ ${this.status || "Casper"}`)}`, width);
     const active = this.busy || this.activity !== undefined;
     const state = active ? this.accent(SPINNER_FRAMES[this.spinnerFrame]) : this.muted("○");
     // A transient note replaces the status line so it is never truncated away; elapsed time
     // rides on the status line so a long-running request is measurable at a glance.
     const elapsed = active && this.activeSince !== undefined && !this.note
-      ? this.muted(` · ${formatElapsed(Date.now() - this.activeSince)}`) : "";
-    const text = this.note ? this.accent(this.note) : this.muted(this.status || "Casper · / for commands") + elapsed;
+      ? this.muted(` · ${formatElapsed(Date.now() - this.activeSince - this.waitedMs)}`) : "";
+    // The stages lead, so a narrow window truncates the project and model details, not the progress.
+    // Narrow: only the current stage and the time, so neither is cut off.
+    const steps = this.steps && visibleWidth(`${this.steps}${elapsed} │ `) + 2 > width ? this.steps.split(" · ").at(-1)! : this.steps;
+    const rail = active && steps && !this.note ? `${steps}${elapsed ? this.muted(elapsed) : ""}${this.muted(" │ ")}` : "";
+    const text = this.note ? this.accent(this.note) : rail ? rail + this.muted(this.status || "Casper") : this.muted(this.status || "Casper · / for commands") + elapsed;
     return truncateToWidth(`${state} ${text}`, width);
   }
 
   /** While work runs (a prompt in flight or tool activity), the footer dot and Working panel
  * title cycle through braille frames; idle returns to the static ○. */
 private updateSpinner(): void {
-    const active = (this.busy || this.activity !== undefined) && !this.closed;
-    if (active) this.activeSince ??= Date.now();
-    else this.activeSince = undefined;
+    const working = (this.busy || this.activity !== undefined) && !this.closed;
+    const active = working && !this.waiting;
+    if (working) this.activeSince ??= Date.now();
+    else { this.activeSince = undefined; this.waitedMs = 0; this.waitStart = undefined; }
+    // The timer pauses while a question waits for the user.
+    if (working && this.waiting) this.waitStart ??= Date.now();
+    else if (this.waitStart !== undefined) { this.waitedMs += Date.now() - this.waitStart; this.waitStart = undefined; }
     if (active && this.spinnerTimer === undefined) {
       this.spinnerTimer = setInterval(() => {
         this.spinnerFrame = (this.spinnerFrame + 1) % SPINNER_FRAMES.length;
@@ -325,6 +357,12 @@ private updateSpinner(): void {
     // A note already covers the footer; the stored status appears when it expires.
     if (cwdChanged || !this.note) this.render();
   }
+  setSteps(steps?: string): void {
+    const next = steps ? terminalText(steps).replace(/\s+/g, " ").trim() || undefined : undefined;
+    if (next === this.steps) return;
+    this.steps = next;
+    this.render();
+  }
   setActivity(status?: string): void {
     const activity = status ? terminalText(status).replace(/\s+/g, " ").trim() : "";
     const next = activity || undefined;
@@ -370,7 +408,15 @@ private updateSpinner(): void {
     this.message = undefined; this.source = "";
     this.render();
   }
+  /** The bell (BEL) a terminal turns into a sound, a flash or a dock bounce; rich surface only. */
+  private attention(): void {
+    if (this.busySince === undefined || this.closed || Date.now() - this.busySince < this.attentionAfterMs) return;
+    this.terminal.write("\x07");
+  }
+  setAttentionAfter(ms: number): void { this.attentionAfterMs = ms; }
+
   readCommand(): Promise<string | undefined> {
+    if (this.busy) { this.attention(); this.busySince = undefined; }
     this.endAssistant(); this.busy = false; this.note = ""; this.configureAutocomplete();
     this.updateSpinner();
     if (this.closed) return Promise.resolve(undefined);
@@ -390,10 +436,11 @@ private updateSpinner(): void {
       if (settled) return; settled = true;
       signal?.removeEventListener("abort", cancel);
       this.confirmation = undefined;
-      this.editor.setText(draft); this.configureAutocomplete(); this.render(); resolve(approved);
+      this.editor.setText(draft); this.configureAutocomplete(); this.updateSpinner(); this.render(); resolve(approved);
     };
     const cancel = () => finish(false);
-    this.confirmation = finish; this.configureAutocomplete(); this.render();
+    this.attention();
+    this.confirmation = finish; this.configureAutocomplete(); this.updateSpinner(); this.render();
     signal?.addEventListener("abort", cancel, { once: true });
     if (signal?.aborted) cancel();
     return promise;
@@ -411,10 +458,19 @@ private updateSpinner(): void {
       description: option.description ? terminalText(option.description).replace(/\s+/g, " ").trim() : undefined,
     }));
     // The record re-wraps per width like the live panel, and commits after any open tail line.
-    const record: Component = { render: width => [
-      ...wrapTextWithAnsi(this.accent(safeQuestion), width),
-      ...shown.flatMap(option => askOptionLines("• ", option, width, { label: text => text, description: this.muted })),
-    ].map(line => truncateToWidth(line, width)), invalidate() {} };
+    // The record keeps the answer: a ✓ on each chosen option, a typed answer after →, or "skipped".
+    let chosen: string[] | undefined;
+    const picked = (index: number) => Boolean(chosen?.includes(options[index]!.label));
+    const record: Component = { render: width => {
+      const typed = chosen?.filter(answer => !options.some(option => option.label === answer)) ?? [];
+      return [
+        ...wrapTextWithAnsi(this.accent(safeQuestion), width),
+        ...shown.flatMap((option, index) => askOptionLines(picked(index) ? "✓ " : "• ", option, width,
+          { label: text => picked(index) ? this.accent(text) : text, description: this.muted })),
+        ...typed.flatMap(answer => wrapTextWithAnsi(`${this.accent("→")} ${terminalText(answer).replace(/\s+/g, " ")}`, width)),
+        ...(chosen === undefined ? [this.muted("  (skipped)")] : []),
+      ].map(line => truncateToWidth(line, width));
+    }, invalidate() {} };
     const { promise, resolve } = Promise.withResolvers<string[] | undefined>();
     let settled = false;
     const finish = (answer: string[] | undefined) => {
@@ -422,14 +478,16 @@ private updateSpinner(): void {
       signal?.removeEventListener("abort", cancel);
       this.pendingAsk = undefined; this.askQuestion = undefined; this.askOptions = undefined; this.askLabels = [];
       this.askMulti = false; this.askSelections.clear(); this.askActiveIndex = 0;
+      chosen = answer;
       this.writeBlock(record);
-      this.editor.setText(draft); this.configureAutocomplete(); this.render(); resolve(answer);
+      this.editor.setText(draft); this.configureAutocomplete(); this.updateSpinner(); this.render(); resolve(answer);
     };
     const cancel = () => finish(undefined);
+    this.attention();
     this.pendingAsk = finish; this.askQuestion = safeQuestion; this.askOptions = shown;
     this.askLabels = options.map(option => option.label); this.askMulti = multi;
     this.askSelections.clear(); this.askActiveIndex = 0;
-    this.configureAutocomplete(); this.render();
+    this.configureAutocomplete(); this.updateSpinner(); this.render();
     signal?.addEventListener("abort", cancel, { once: true });
     if (signal?.aborted) cancel();
     return promise;
@@ -448,13 +506,14 @@ private updateSpinner(): void {
       if (settled) return; settled = true;
       signal?.removeEventListener("abort", cancel);
       this.pendingEdit = undefined; this.editHeading = [];
-      this.editor.setText(draft); this.configureAutocomplete(); this.render(); resolve(edited);
+      this.editor.setText(draft); this.configureAutocomplete(); this.updateSpinner(); this.render(); resolve(edited);
     };
     const cancel = () => finish(undefined);
+    this.attention();
     this.pendingEdit = finish;
     this.editHeading = [this.accent(terminalText(heading)), this.muted(terminalText(hint))];
     this.editor.setText(lines.map(line => terminalText(line).replace(/\s+/g, " ")).join("\n"));
-    this.configureAutocomplete(); this.render();
+    this.configureAutocomplete(); this.updateSpinner(); this.render();
     signal?.addEventListener("abort", cancel, { once: true });
     if (signal?.aborted) cancel();
     return promise;
@@ -464,14 +523,17 @@ private updateSpinner(): void {
    * When that is taller than `height` rows, only the highlighted option keeps its description, so the
    * question itself stays on screen instead of scrolling away. */
   private renderAsk(width: number, height: number): string[] {
+    const count = Math.min(this.askOptions?.length ?? 0, 9);
+    const keys = count > 1 ? `1-${count}` : "1";
     const hint = this.askMulti
-      ? "Up/Down move · Space toggle · Enter answer · type to answer · Esc skip"
-      : "Up/Down move · Enter choose · type to answer · Esc skip";
+      ? `Press ${keys} or Space to toggle · Up/Down move · Enter answer · type to answer · Esc skip`
+      : `Press ${keys} or Up/Down + Enter · type to answer · Esc skip`;
     const lines = (compact: boolean) => [
       ...wrapTextWithAnsi(this.accent(this.askQuestion ?? ""), width),
       ...(this.askOptions ?? []).flatMap((option, index) => {
         const selected = index === this.askActiveIndex;
-        const marker = this.askMulti ? (this.askSelections.has(index) ? "[x] " : "[ ] ") : "";
+        const number = index < 9 ? `${index + 1} ` : "  ";
+        const marker = number + (this.askMulti ? (this.askSelections.has(index) ? "[x] " : "[ ] ") : "");
         return askOptionLines(selected ? this.accent("→ ") : "  ",
           { label: marker + option.label, description: compact && !selected ? undefined : option.description }, width,
           selected ? { label: this.accent, description: this.accent } : { label: text => text, description: this.muted });
@@ -489,7 +551,7 @@ private updateSpinner(): void {
     this.pendingAsk?.([...this.askSelections].sort((a, b) => a - b).map(index => this.askLabels[index]!));
   }
 
-  /** A nonempty editor submission is always free text; listed choices are selected with arrow keys. */
+  /** A nonempty editor submission is always free text; listed choices are picked by number or arrow keys. */
   private answerAsk(value: string): void {
     const text = value.trim();
     if (text) this.pendingAsk?.([text]);

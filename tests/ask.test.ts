@@ -28,11 +28,39 @@ test("an ask shows a standalone question and Up/Down selects an option", async (
     const answer = session.terminal.ask("Which database?", OPTIONS, false);
     await session.screen.until(output => output.includes("Which database?") && output.includes("SQLite") && output.includes("Postgres"));
     const visible = Bun.stripANSI(session.screen.output);
-    expect(visible).toMatch(/Which database\?[^\r\n]*\r?\n→ SQLite/);
-    expect(visible).not.toContain("1. SQLite");
+    expect(visible).toMatch(/Which database\?[^\r\n]*\r?\n→ 1 SQLite/);
+    expect(visible).toContain("  2 Postgres");
     session.input.write("\x1b[B\r");
     const result = await Promise.race([answer, new Promise<"timeout">(resolve => setTimeout(() => resolve("timeout"), 250))]);
     expect(result).toEqual(["Postgres"]);
+  } finally { session.close(); }
+});
+
+test("pressing a choice's number picks it at once; a digit after typed text stays free text", async () => {
+  const session = interactiveTerminal();
+  try {
+    session.terminal.setStatus("fixture"); session.terminal.start();
+    const byNumber = session.terminal.ask("Which database?", OPTIONS, false);
+    await session.screen.until(output => output.includes("2 Postgres"));
+    expect(Bun.stripANSI(session.screen.output)).toContain("Press 1-2 or Up/Down + Enter · type to answer · Esc skip");
+    session.input.write("2");
+    expect(await byNumber).toEqual(["Postgres"]);
+    // A digit past the last choice is ordinary text.
+    const outOfRange = session.terminal.ask("Replicas?", OPTIONS, false);
+    await session.screen.until(output => output.includes("Replicas?"));
+    session.input.write("3 replicas\r");
+    expect(await outOfRange).toEqual(["3 replicas"]);
+    const typed = session.terminal.ask("Which version?", OPTIONS, false);
+    await session.screen.until(output => output.includes("Which version?"));
+    session.input.write("v1\r");
+    expect(await typed).toEqual(["v1"]);
+    // In a multiple choice a number toggles its option.
+    const multi = session.terminal.ask("Pick layers?", OPTIONS, true);
+    await session.screen.until(output => output.includes("Pick layers?"));
+    session.input.write("2");
+    await session.screen.until(output => output.includes("[x] Postgres"));
+    session.input.write("\r");
+    expect(await multi).toEqual(["Postgres"]);
   } finally { session.close(); }
 });
 
@@ -193,13 +221,13 @@ test("a question taller than the screen stays on screen: only the highlighted op
     await session.screen.until(output => output.includes("skip"));
     let visible = await repaint(60);
     expect(visible).toContain(question);
-    expect(visible.join(" ").replace(/\s+/g, " ")).toContain(`→ Option 1 ${options[0]!.description}`);
-    expect(visible).toContain("  Option 2");
+    expect(visible.join(" ").replace(/\s+/g, " ")).toContain(`→ 1 Option 1 ${options[0]!.description}`);
+    expect(visible).toContain("  2 Option 2");
     expect(visible.join(" ")).not.toContain("Explanation 2");
     session.input.write("\x1b[B");
     visible = await repaint(61);
     expect(visible).toContain(question);
-    expect(visible.join(" ").replace(/\s+/g, " ")).toContain(`→ Option 2 ${options[1]!.description}`);
+    expect(visible.join(" ").replace(/\s+/g, " ")).toContain(`→ 2 Option 2 ${options[1]!.description}`);
     expect(visible.join(" ")).not.toContain("Explanation 1");
     session.input.write("\r");
     expect(await answer).toEqual(["Option 2"]);
@@ -255,7 +283,7 @@ test("an asked question is recorded on its own line, not appended to the running
     await screen.until(() => screen.output.split(REPAINT).length > repaints && lastFrame(screen.output).some(line => line.includes("ask — completed")));
     const frame = lastFrame(screen.output);
     const running = frame.findIndex(line => line.startsWith("• ask — running"));
-    expect(frame.slice(running, running + 6)).toEqual(["• ask — running", "Which database?", "• SQLite  file-based", "• Postgres", "[ask] SQLite", expect.stringMatching(/^✓ ask — completed/)]);
+    expect(frame.slice(running, running + 6)).toEqual(["• ask — running", "Which database?", "✓ SQLite  file-based", "• Postgres", "[ask] SQLite", expect.stringMatching(/^✓ ask — completed/)]);
   } finally {
     input.write("/exit\r");
     await interactive;
@@ -336,4 +364,25 @@ test("an under-specified modify request carries the clarification hint, others d
   expect(targeted).not.toContain("under-specified");
   const inspection = formatTaskPrompt("find the largest module", { intent: "inspect", mode: "read", verification: [] }, model);
   expect(inspection).not.toContain("under-specified");
+});
+
+test("an answered question's record shows the choice: a ✓ on the option, → a typed answer, or skipped", async () => {
+  const { interactiveTerminal } = await import("./support/tty");
+  process.env.TERM = "xterm-256color";
+  const session = interactiveTerminal();
+  try {
+    session.terminal.start();
+    const typed = session.terminal.ask("Name?", [{ label: "Ann" }, { label: "Bo" }], false);
+    await session.screen.until(output => output.includes("Name?"));
+    session.input.write("Cy\r");
+    expect(await typed).toEqual(["Cy"]);
+    const skipped = session.terminal.ask("Colour?", [{ label: "Red" }, { label: "Blue" }], false);
+    await session.screen.until(output => output.includes("Colour?"));
+    session.input.write("\x1b");
+    expect(await skipped).toBeUndefined();
+    await session.screen.until(output => Bun.stripANSI(output).includes("(skipped)"));
+    const text = Bun.stripANSI(session.screen.output);
+    expect(text).toContain("→ Cy");
+    expect(text).toContain("• Red");
+  } finally { session.close(); }
 });

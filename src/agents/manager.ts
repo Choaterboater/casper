@@ -173,7 +173,11 @@ export class SubagentManager {
           const context = args.context === undefined || args.context === "" ? undefined : requireString(args.context, "context", SUBAGENT_LIMITS.contextBytes);
           if (dispatched >= SUBAGENT_LIMITS.maxDelegationsPerTask) throw new Error("Delegation budget exhausted for this parent task");
           dispatched++;
-          const result = await this.run({ ...getContext(), role, goal, context, signal, reportTurn: true });
+          let result: SubagentResult;
+          // run() throws only before a child starts (busy, closed, bad context): that call is not
+          // spent, so a third parallel delegate turned away as busy can be sent again later.
+          try { result = await this.run({ ...getContext(), role, goal, context, signal, reportTurn: true }); }
+          catch (error) { dispatched--; throw error; }
           onUsage?.(result.usage);
           const isError = result.status !== "completed";
           // The caller already has the goal. Put outcome first so even a byte-

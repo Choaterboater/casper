@@ -124,6 +124,8 @@ export function editAffects(cwd: string, file: string): (scope?: VerificationSco
 export class VerificationTask {
   readonly rounds: VerificationResult[][] = [];
   private readonly latest = new Map<ProjectCommand, VerificationResult>();
+  /** Longer limits the user gave unfinished checks ("Allow more time"), kept for the rest of the task. */
+  private readonly limits = new Map<ProjectCommand, number>();
   private readonly inputEdits = new Map<ProjectCommand, number>();
   private readonly controller = new AbortController();
   private closed = false;
@@ -137,6 +139,8 @@ export class VerificationTask {
 
   get checks(): ProjectCommand[] { return [...this.latest.keys()]; }
   get signal(): AbortSignal { return this.controller.signal; }
+  /** A longer limit the user gave this check, if any. */
+  limit(name: ProjectCommand): number | undefined { return this.limits.get(name); }
   abort(): void { this.controller.abort(); }
   async close(): Promise<void> { this.closed = true; this.abort(); await this.pending; }
 
@@ -187,7 +191,9 @@ export class VerificationTask {
     };
   }
 
-  run(names: readonly ProjectCommand[], signal?: AbortSignal): Promise<VerificationResult[]> {
+  run(names: readonly ProjectCommand[], signal?: AbortSignal, options: { timeoutMs?: number } = {}): Promise<VerificationResult[]> {
+    // A longer limit the user gave stays with the check for the rest of the task, the model's own runs included.
+    if (options.timeoutMs) for (const name of names) this.limits.set(name, options.timeoutMs);
     return this.enqueue(() => this.runChecks(names, signal));
   }
 
@@ -205,7 +211,8 @@ export class VerificationTask {
       if (before.fingerprint && cached?.status === "pass" && cached.freshness === "fresh" && cached.workspaceState === before.fingerprint) {
         result = { ...cached, reused: true };
       } else {
-        const [executed] = await this.registry.run([name], { signal: combined });
+        const limit = this.limits.get(name);
+        const [executed] = await this.registry.run([name], { signal: combined, ...(limit ? { timeoutMs: limit } : {}) });
         if (!executed) break;
         const after = await workspaceState(this.cwd, scope, combined);
         const sameWorkspace = executed.cwd === this.cwd;

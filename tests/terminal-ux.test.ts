@@ -64,13 +64,13 @@ test("the startup wordmark gives way to the one-line header when the window narr
 });
 
 test("model and auth display distinguishes uninitialized, missing, configured and unknown", () => {
-  expect(formatRuntimeStatus()).toContain("not initialized");
+  expect(formatRuntimeStatus()).toContain("none saved yet");
   expect(formatRuntimeStatus({ provider: "fixture", model: "test", auth: "configured" })).toContain("not a connection test");
   expect(formatRuntimeStatus({ provider: "fixture", model: "test", auth: "missing" })).toContain("credentials missing");
   expect(formatRuntimeStatus({ auth: "unknown" })).toContain("none selected");
   expect(formatRuntimeStatus({ provider: "fixture", model: "test", auth: "configured", thinkingLevel: "high", configuredEffort: "auto", autoEffort: { state: "pending" }, modelRole: "fast" }))
-    .toContain("reasoning auto → high (pending) · role fast");
-  expect(formatRuntimeStatus({ provider: "fixture", model: "test", auth: "configured", thinkingLevel: "low", configuredEffort: "auto", autoEffort: { state: "classified" } })).toContain("reasoning auto → low\n");
+    .toContain("effort auto → high for now; your first request picks the level · role fast");
+  expect(formatRuntimeStatus({ provider: "fixture", model: "test", auth: "configured", thinkingLevel: "low", configuredEffort: "auto", autoEffort: { state: "classified" } })).toContain("effort auto → low\n");
 });
 
 test("plain line input typed before the first prompt is kept; lines typed during work are dropped", async () => {
@@ -144,8 +144,8 @@ test("the startup banner names a saved default model instead of saying no model 
     });
     const [stdout, code] = await Promise.all([new Response(child.stdout).text(), child.exited]);
     expect(code).toBe(0);
-    expect(stdout).toContain(" model     default fixture/first · high (starts on your first prompt");
-    expect(stdout).not.toContain("not initialized");
+    expect(stdout).toContain(" model     default fixture/first · effort high (starts on your first prompt");
+    expect(stdout).not.toContain("none saved yet");
     expect(stdout).not.toContain("/login to set up a provider");
   }
 }, 30_000);

@@ -62,3 +62,36 @@ export function observationOutput(value: unknown): ToolObservationOutput {
   }
   return { text, truncated };
 }
+
+/** Lines an edit added and removed, from the unified patch Pi's edit tool returns in its details.
+ * Only lines inside hunks count, so a removed line that starts with "--" is still one removal.
+ * Undefined when the result has no patch (write returns none). */
+export function patchLineCounts(result: unknown): { added: number; removed: number } | undefined {
+  const details = typeof result === "object" && result !== null ? Reflect.get(result, "details") : undefined;
+  const patch = typeof details === "object" && details !== null ? Reflect.get(details, "patch") : undefined;
+  if (typeof patch !== "string") return undefined;
+  let added = 0, removed = 0, inHunk = false;
+  for (const line of patch.split("\n")) {
+    if (line.startsWith("@@")) { inHunk = true; continue; }
+    if (!inHunk) continue;
+    if (line.startsWith("+")) added++;
+    else if (line.startsWith("-")) removed++;
+  }
+  return { added, removed };
+}
+
+/** +N -M for a whole-file write: lines of the new text not in the old, and old lines not kept (each line
+ * matched once, order ignored). Pi's write tool reports no diff, so Casper compares the texts itself. */
+export function writeLineCounts(before: string | undefined, after: string): { added: number; removed: number } {
+  const split = (text: string) => text === "" ? [] : text.replace(/\r?\n$/, "").split(/\r?\n/);
+  const old = new Map<string, number>();
+  for (const line of split(before ?? "")) old.set(line, (old.get(line) ?? 0) + 1);
+  let added = 0;
+  for (const line of split(after)) {
+    const left = old.get(line) ?? 0;
+    if (left) old.set(line, left - 1); else added++;
+  }
+  let removed = 0;
+  for (const left of old.values()) removed += left;
+  return { added, removed };
+}
