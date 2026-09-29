@@ -63,6 +63,18 @@ test("the AI can't skip approval on a read tool with confirm, force or a preview
   expect(aiConfirm(inner.arguments)).toEqual(["arguments.confirm"]);
 });
 
+test("the AI can't skip approval with another spelling of confirm or a preview switch", () => {
+  const readTool = { readOnlyHint: true };
+  for (const args of [{ Confirm: true }, { CONFIRMED: "yes" }, { confirmation: true }, { Force: 1 }, { "dry-run": false },
+    { DryRun: false }, { DRY_RUN: "false" }, { "check-only": false }, { ValidateOnly: false }]) {
+    expect([args, needsApproval(plan("get_site", args, { type: "object" }, readTool))]).toEqual([args, true]);
+  }
+  expect(needsApproval(plan("get_site", { Confirm: false, "Dry-Run": true }, { type: "object" }, readTool))).toBe(false);
+  // A preview never carries the AI's yes, whatever the spelling.
+  const withSwitch = plan("set_ssid", { ssid: "lab", Confirm: true, confirmation: "yes", DryRun: false }, setSsidSchema);
+  expect(previewArguments(withSwitch)).toMatchObject({ dry_run: true, DryRun: true, Confirm: false, confirmation: false });
+});
+
 test("router box names the real tool and says it may execute", () => {
   const box = formatApproval(plan("invoke_tool", { name: "port_bounce", arguments: { serial_number: "SG1" } }, routerSchema));
   expect(box.preview).toContain("MCP · network · invoke_tool  [destructive]");
