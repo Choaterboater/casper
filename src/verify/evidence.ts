@@ -1,5 +1,6 @@
 import type { ProjectCommand } from "../project/model";
 import type { SmokeReport } from "../services/smoke";
+import type { PageReport } from "../services/page-checks";
 import type { CheckName } from "./named";
 import type { VerificationScope } from "./scope";
 
@@ -71,6 +72,12 @@ export interface VerificationReport {
   smoke?: SmokeReport;
   /** The task had smoke checks but the loop ended with command failures, so they never ran (smoke runs only on passing commands). */
   smokeSkipped?: "command checks failed";
+  /** The last page check against the dev server, when the task had changed pages and the commands passed. */
+  pages?: PageReport;
+  /** The task had pages to check but the loop ended with command failures, so they never opened. */
+  pagesSkipped?: "command checks failed";
+  /** The model each repair used, in order, when the host said (for example the big model on the last try). */
+  repairModels?: string[];
 }
 
 /** A plain duration: "0.3s", "1m 5s", "10m". */
