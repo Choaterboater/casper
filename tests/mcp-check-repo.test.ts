@@ -86,6 +86,10 @@ test("repo command results become plain lines", () => {
     .toBe("make test: 3 failed (see output above)");
   expect(repoFinding("tests", { command: "uv run pytest", uv: true }, { ...base, status: "fail", exitCode: 1, stderr: "ModuleNotFoundError: No module named 'junos'" }).text)
     .toBe("Not set up: uv run pytest needs packages that are not installed. Run `uv sync` in the repo, then check again.");
+  // uv offline: "Network connectivity is disabled, but the requested data wasn't found in the cache".
+  expect(repoFinding("safety tests", { command: "uv run python -m unittest", uv: true }, { ...base, status: "fail", exitCode: 1,
+    stderr: "  × Failed to download `mcp==1.12.2`\n  ╰─▶ Network connectivity is disabled, but the\n      requested data wasn't found in the cache for:" }).text)
+    .toBe("Not set up: uv run python -m unittest needs packages that are not installed. Run `uv sync` in the repo, then check again.");
 });
 
 test("the check runs doctor, safety tests and tests in the repo; --quick skips the full tests", async () => {
