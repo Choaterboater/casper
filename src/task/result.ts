@@ -1,5 +1,6 @@
 import { formatDuration, formatVerificationReport, reportText, type VerificationReport, type VerificationResult } from "../verify/evidence";
 import { isBuiltinCheck } from "../verify/named";
+import { DRY_RUN_LABEL } from "../network/checks";
 import type { ProjectCommand } from "../project/model";
 import type { BrowserReport } from "../browser/scenario";
 import type { ServiceState } from "../services/manager";
@@ -114,7 +115,14 @@ export function checksPassed(report?: VerificationReport, task?: TaskResult): bo
   // Smoke alone verifies only with evidence: a model check that passed before the change is an observation.
   const observationsOnly = !verification.results.length && !verification.smoke?.checks.some((check) => check.evidence) && verification.pages?.status !== "pass";
   const rejected = task?.acceptance?.status === "fail" && task.acceptance.mode === "verdict";
-  return !(stale || task?.proof?.status === "unproven" || admittedGaps || observationsOnly || rejected);
+  return !(stale || task?.proof?.status === "unproven" || admittedGaps || observationsOnly || rejected || dryRunOnly(verification));
+}
+
+/** Every pass is a lab dry run ("dry run not guaranteed"): some modules still change devices in check mode,
+ * so such a pass is shown but is never grounds for Verified or Checks passed. */
+function dryRunOnly(report: VerificationReport): boolean {
+  const counted = report.results.filter((result) => result.kind !== "report");
+  return counted.length > 0 && counted.every((result) => result.status === "pass" && result.label === DRY_RUN_LABEL);
 }
 
 /** Failure dominates incompleteness; a pass counts only while its inputs are unchanged. */
@@ -333,6 +341,7 @@ function notVerifiedReason(task: TaskResult): string {
   if (task.proof?.status === "unproven") return "the tests pass without the change too";
   if (task.review && "open" in task.review && task.review.open.length) return "the model's review lists unfinished items";
   if (task.acceptance?.status === "fail" && task.acceptance.mode === "verdict") return "tests written from the request fail";
+  if (report && dryRunOnly(report)) return "a dry run is not guaranteed, so its pass is not proof";
   if (report && !report.results.length) return "only observations ran, no checks";
   if (!task.changedPaths && task.possibleMutations) return "Casper could not compare the workspace";
   return "Casper ran no checks";
