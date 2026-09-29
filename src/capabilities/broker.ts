@@ -5,7 +5,9 @@ import { accessModelLines, readOnlyLoginReason, writesOffReason } from "../mcp/a
 import { approvalNotes, guardArguments, hasNoPreview, isHidden, tightenSafety } from "../mcp/presets";
 import type { RuntimeTool } from "../runtime/types";
 import { redactPreview } from "../tui/format";
-import { scrubText } from "../secrets/scrub";
+import { containsHiddenSecret, scrubText, scrubValue, SECRET_MARKER } from "../secrets/scrub";
+import { scrubNote, type ScrubOutcome } from "../secrets/netconan";
+import { DOCS_TOOL_NAMES, DOCS_TOOL_NOTE, docsPinned } from "../mcp/docs";
 import {
   aiConfirm, buildPlan, canPreview, maskText, needsApproval, planLabel, planMode, previewArguments, previewKey, previewSwitchedOff,
   type ApprovalPlan, type LastPreview,
@@ -37,6 +39,8 @@ interface Capability {
   validate?: CompiledValidator;
   /** Left out of search, listings and task tools; a call is refused with this reason. */
   hidden?: string;
+  /** A docs tool of a recognised hpe-networking-mcp server: always offered to the model. */
+  docs?: true;
   policy: ServerPolicy;
 }
 /** One page of the `find_capability({ query: "*" })` listing. */
@@ -59,6 +63,17 @@ export type ConfirmCapability = (call: {
   /** The last preview of the same call on this connection, redacted. */
   lastPreview?: LastPreview;
 }, signal?: AbortSignal) => Promise<ApprovalAnswer>;
+
+/** Hides device secrets in an MCP result before the model sees it. The app passes its shared
+ * scrubber (Casper's rules plus netconan when installed); the default is Casper's rules only. */
+export interface ResultScrubber {
+  scrubValue<T>(value: T, signal?: AbortSignal): Promise<ScrubOutcome<T>>;
+}
+const BUILT_IN_SCRUBBER: ResultScrubber = { scrubValue: async (value) => ({ ...scrubValue(value), netconan: "off" }) };
+
+/** The refusal when the AI sends back a secret Casper hid from it. */
+export const HIDDEN_SECRET_REASON = `this change still has ${SECRET_MARKER} in it`;
+export const HIDDEN_SECRET_NEXT = "Casper hid that secret from the AI, so the AI can't send it back. Type the real value yourself or leave that line out.";
 
 /** The user can ask for a preview at most this many times for one call; then only yes or no is left. */
 const MAX_PREVIEWS = 3;
@@ -110,13 +125,16 @@ export class CapabilityBroker {
   /** Per-server lines for find_capability's description (read-only logins, writes off). */
   private modelLines: string[] = [];
   private readonly writesGate: boolean;
+  private readonly scrubber: ResultScrubber;
   /**
    * `writesGate`: honour each server's writes switch (the app turns this on, so every server starts
    * with writes off). Brokers built directly treat writes as on. Presets, read-only logins and
    * argument guards apply either way; they only ever restrict.
    */
-  constructor(private readonly manager: MCPManager, private readonly confirm?: ConfirmCapability, options: { writesGate?: boolean } = {}) {
+  constructor(private readonly manager: MCPManager, private readonly confirm?: ConfirmCapability,
+    options: { writesGate?: boolean; scrubber?: ResultScrubber } = {}) {
     this.writesGate = options.writesGate ?? false;
+    this.scrubber = options.scrubber ?? BUILT_IN_SCRUBBER;
   }
 
   async prepare(task: string): Promise<RuntimeTool[]> {
@@ -214,7 +232,8 @@ export class CapabilityBroker {
     const { policy } = capability;
     const guard = guardArguments(policy.match, capability.tool, frozenArgs, { writes: this.writes(policy), showOptIn: policy.showOptIn });
     if (typeof guard === "object") throw new NotExecutedError(guard.refuse);
-    // 4. Hidden-secret marker gate (WP6 seam).
+    // 4. Hidden-secret marker: the AI never saw the real secret, so it can't send it back.
+    if (containsHiddenSecret(frozenArgs)) throw new NotExecutedError(HIDDEN_SECRET_REASON, HIDDEN_SECRET_NEXT);
     // 5. Approval. The call is judged by the real tool behind a router, and the AI can never skip it:
     // confirm/force set to true or a preview switch set to false asks even for a read tool.
     const notes = approvalNotes(policy.match, capability.tool);
@@ -246,10 +265,22 @@ export class CapabilityBroker {
     // 6. Call, under the per-server call clock. Only an approved call may carry server questions to the user.
     const raw = await this.manager.call(capability.descriptor.source, capability.tool.name, frozenArgs, combined,
       approved ? { approved: { capabilityId: id, realTool: approved, label } } : {});
-    if (planMode(plan) === "preview") this.previews.set(this.previewSlot(capability, plan), { text: previewText(raw), at: Date.now() });
-    // 7. Scrub device secrets from the raw result (WP6 seam).
+    // 7. Hide device secrets (passwords, keys, SNMP communities) before anything else reads the result.
+    const scrubbed = await this.scrub(raw, combined);
+    if (planMode(plan) === "preview") this.previews.set(this.previewSlot(capability, plan), { text: previewText(scrubbed.value), at: Date.now() });
     // 8. Bound: per-list limits, the next-page cursor kept, duplicate text dropped.
-    return boundCapabilityResult(raw, 16_384, 50, { mcp: true });
+    const result = boundCapabilityResult(scrubbed.value, 16_384, 50, { mcp: true });
+    const note = scrubNote(scrubbed);
+    if (scrubbed.hidden > 0) result.secretsHidden = scrubbed.hidden;
+    if (note) result.summary = `${result.summary} ${note}`;
+    return result;
+  }
+
+  /** The call already ran, so scrubbing never fails it: any problem (or an abort during netconan)
+   * falls back to Casper's own rules. */
+  private async scrub(raw: unknown, signal: AbortSignal): Promise<ScrubOutcome<unknown>> {
+    try { return await this.scrubber.scrubValue(raw, signal); }
+    catch { return { ...scrubValue(raw), netconan: "failed" }; }
   }
 
   /**
@@ -328,6 +359,9 @@ export class CapabilityBroker {
       const access = policy.access?.state ?? "unknown";
       // Built from the server's name and Casper's parsed state only; never from server text.
       lines.push(...accessModelLines(server, policy.access, writes));
+      let definition: ReturnType<MCPManager["definition"]> | undefined;
+      try { definition = this.manager.definition(server); } catch { definition = undefined; }
+      const docsServer = docsPinned(definition, policy.match, tools);
       for (const tool of tools) {
         const id = `mcp:${encodeURIComponent(server)}:${encodeURIComponent(tool.name)}`;
         // A preset can only make the label stricter.
@@ -351,6 +385,7 @@ export class CapabilityBroker {
           nameWords: indexWords(`${descriptor.name} ${descriptor.source} ${descriptor.tags.join(" ")}`),
           descriptionWords: indexWords(descriptor.description),
           ...(hidden ? { hidden } : {}), policy,
+          ...(docsServer && !hidden && safety === "read" && (DOCS_TOOL_NAMES as readonly string[]).includes(tool.name) ? { docs: true as const } : {}),
         });
       }
     }
@@ -422,15 +457,22 @@ export class CapabilityBroker {
     // Native routers are intentionally preferred over flattening their catalog.
     const routers = [...this.capabilities.values()].filter((c) => c.router && !c.hidden).sort((a, b) => a.descriptor.id.localeCompare(b.descriptor.id));
     const routedServers = new Set(routers.map((c) => c.descriptor.source));
-    const candidates = [...routers, ...this.rank(task).filter((c) => !routedServers.has(c.descriptor.source))];
+    // Docs tools of a recognised hpe-networking-mcp server come right after the routers, whatever the task words.
+    const docs = [...this.capabilities.values()].filter((c) => c.docs && !c.hidden).sort((a, b) =>
+      DOCS_TOOL_NAMES.indexOf(a.descriptor.name as typeof DOCS_TOOL_NAMES[number]) - DOCS_TOOL_NAMES.indexOf(b.descriptor.name as typeof DOCS_TOOL_NAMES[number])
+      || a.descriptor.id.localeCompare(b.descriptor.id)).slice(0, 3);
+    const pinned = new Set([...routers, ...docs]);
+    const candidates = [...routers, ...docs, ...this.rank(task).filter((c) => !routedServers.has(c.descriptor.source) && !pinned.has(c))];
     let schemaBytes = 0;
     for (const capability of candidates) {
       if (tools.length >= 8) break;
       const bytes = capability.schemaBytes;
       if (bytes > MAX_SCHEMA_BYTES || schemaBytes + bytes > MAX_DIRECT_SCHEMA_BYTES) continue;
       schemaBytes += bytes;
+      const lead = capability.docs ? `[docs; ${capability.descriptor.safety}; ${capability.descriptor.id}] ${DOCS_TOOL_NOTE} `
+        : `[${capability.descriptor.safety}; ${capability.descriptor.id}] `;
       tools.push(wrap(capability.runtimeName,
-        `[${capability.descriptor.safety}; ${capability.descriptor.id}] ${capability.descriptor.description}\nBounded result; non-read calls require confirmation.`,
+        `${lead}${capability.descriptor.description}\nBounded result; non-read calls require confirmation.`,
         structuredClone(capability.tool.inputSchema), async (args, signal) => {
           const result = await this.invoke(capability.descriptor.id, args, signal);
           return { text: JSON.stringify(result), isError: result.isError };
