@@ -18,6 +18,8 @@ const SKIPPED_DIRECTORIES: Record<string, true> = { ".git": true, node_modules: 
 /** A `venv` folder is skipped only when it is a virtual environment, never a source folder of that name. */
 async function skipped(root: string, relative: string, name: string): Promise<boolean> {
   if (Object.hasOwn(SKIPPED_DIRECTORIES, name)) return true;
+  // Streamlit's own cache folder, written while a page check runs the app (never .streamlit's config files).
+  if (relative.replace(/\\/g, "/") === ".streamlit/cache") return true;
   return name === "venv" && Boolean(await lstat(path.join(root, relative, "pyvenv.cfg")).catch(() => undefined));
 }
 
