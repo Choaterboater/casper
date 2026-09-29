@@ -45,6 +45,8 @@ export function fixtureServer(mode = "generic") {
       read("summary_read", "Summary text plus different structuredContent"),
       read("two_lists_read", "Two long lists"),
       read("long_text_read", "One long text block like show configuration"),
+      read("rpc_config_error_read", "Answer with an error that quotes a config line"),
+      read("progress_then_silent_read", "Send one progress message, then go quiet"),
     );
   }
   if (mode === "schema-budget") {
@@ -89,6 +91,14 @@ export function fixtureServer(mode = "generic") {
       return { content: [] };
     }
     if (name === "rpc_error_read") throw new McpError(-32602, "site 'lab' not found");
+    if (name === "rpc_config_error_read") {
+      throw new McpError(-32603, "apply failed at: wlan ssid-profile corp wpa-passphrase Corp-Wifi-2026!");
+    }
+    if (name === "progress_then_silent_read") {
+      await progress(1, "waiting for token=abc123 on router1");
+      await new Promise<void>((resolve) => extra.signal.addEventListener("abort", () => resolve(), { once: true }));
+      return { content: [] };
+    }
     const records = (count: number) => Array.from({ length: count }, (_, i) => ({ id: i, name: `record-${i}` }));
     if (name === "dup_read") {
       const payload = { items: records(60), _pagination: { next_cursor: "c2" } };

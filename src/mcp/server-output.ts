@@ -134,6 +134,8 @@ export interface FailureContext {
   lastProgress?: string;
   /** The caller (user or task) cancelled the call. */
   cancelled?: boolean;
+  /** Extra scrubbing of server text before it is shortened and put into a sentence (model-facing call text). */
+  scrub?: (text: string) => string;
 }
 
 /** "(exit code N)" or nothing when the code is unknown. */
@@ -203,6 +205,12 @@ const DO_NOT_RETRY = "It may have run. Do not retry on your own; tell the user."
 export function describeFailure(error: unknown, context: FailureContext): string {
   const secrets = context.secrets ?? [];
   const server = context.server ?? "The server";
+  // Scrub each piece of server text on its own, so a hidden value never swallows the sentence around it.
+  const serverText = (text: string, maxChars: number) => {
+    const redacted = redactServerText(text, secrets, Number.MAX_SAFE_INTEGER);
+    const safe = context.scrub ? context.scrub(redacted) : redacted;
+    return safe.length > maxChars ? `${safe.slice(0, maxChars - 1)}…` : safe;
+  };
   if (error instanceof MissingEnvironmentError) return error.message;
   if (errorCode(error) === "ENOENT") {
     const command = context.command ?? (error as { path?: unknown }).path;
@@ -210,7 +218,7 @@ export function describeFailure(error: unknown, context: FailureContext): string
   }
   const http = httpError(error);
   if (http) {
-    const body = http.body ? `: ${redactServerText(http.body.replace(/\s+/g, " "), secrets, 300)}` : "";
+    const body = http.body ? `: ${serverText(http.body.replace(/\s+/g, " "), 300)}` : "";
     // A failed POST of a call may still have been acted on: the model is told not to retry.
     if (context.phase === "call") return `${server} said HTTP ${http.status}${body}. ${DO_NOT_RETRY}`;
     return `The server said HTTP ${http.status}${body || "."}`;
@@ -224,13 +232,13 @@ export function describeFailure(error: unknown, context: FailureContext): string
     }
     if (reason === "idle") {
       const limit = context.idleMs ?? clock?.limitMs ?? 0;
-      const progress = context.lastProgress ? ` Last progress: ${redactServerText(context.lastProgress, secrets, 120)}.` : "";
+      const progress = context.lastProgress ? ` Last progress: ${serverText(context.lastProgress, 120)}.` : "";
       return `No answer from ${server} in ${formatDuration(limit)}. ${DO_NOT_RETRY}${progress}`;
     }
     if (context.cancelled) return `The call to ${server} was cancelled. It may have run. Do not retry on your own; tell the user.`;
     if (context.exited) return `${server} stopped during the call${exitPart(context.exitCode)}. ${DO_NOT_RETRY}`;
     if (isMcpError(error) && classifyCallError(error) === "server-answered") {
-      return `${server} returned an error: ${redactServerText(mcpMessage(error), secrets, 500)}. It may or may not have run.`;
+      return `${server} returned an error: ${serverText(mcpMessage(error), 500)}. It may or may not have run.`;
     }
     return `The call to ${server} failed. ${DO_NOT_RETRY}`;
   }

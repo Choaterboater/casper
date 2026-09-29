@@ -397,3 +397,30 @@ test("an HTTP failure during a call names the status and says not to retry, with
   const failure = await mcp.call("central", "status", {}).then(() => undefined, (error: Error) => error.message);
   expect(failure).toBe(`central said HTTP 502: gateway lost the device; auth was ${HIDDEN}. It may have run. Do not retry on your own; tell the user.`);
 });
+
+test("server error text the model reads has device config secrets hidden", async () => {
+  const mcp = manager([definition()]);
+  await mcp.connect("generic");
+  const failure = await mcp.call("generic", "rpc_config_error_read", {}).then(() => undefined, (error: Error) => error.message);
+  expect(failure).toBe("generic returned an error: apply failed at: wlan ssid-profile corp wpa-passphrase <secret hidden>. It may or may not have run.");
+  expect(failure).not.toContain("Corp-Wifi-2026");
+  expect(mcp.status()[0]?.state).toBe("ready");
+});
+
+test("a timeout after progress names the last progress message, with secrets hidden", async () => {
+  const mcp = manager([definition()], { callTimeoutMs: 400 });
+  await mcp.connect("generic");
+  const failure = await mcp.call("generic", "progress_then_silent_read", {}).then(() => undefined, (error: Error) => error.message);
+  expect(failure).toStartWith("No answer from generic in 0.4 s. It may have run. Do not retry on your own; tell the user. Last progress: waiting for token=");
+  expect(failure).toEndWith(" on router1.");
+  expect(failure).not.toContain("abc123");
+});
+
+test("/mcp says plainly when a server gives no answer while starting, or stops after it was ready", async () => {
+  const mcp = manager([definition("stall", "stall"), definition()], { connectTimeoutMs: 400 });
+  await mcp.connect("stall");
+  expect(mcp.status()[0]).toMatchObject({ state: "failed", error: "No answer in 0.4 s while starting." });
+  await mcp.connect("generic");
+  await mcp.call("generic", "crash_read", {}).catch(() => {});
+  expect(mcp.status()[1]?.error).toBe("The server stopped (exit code 0). Next task may restart it.");
+});
