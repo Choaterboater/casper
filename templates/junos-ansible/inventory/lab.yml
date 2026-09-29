@@ -1,0 +1,16 @@
+---
+# Lab devices only. The addresses are documentation examples (192.0.2.0/24): put your lab's here.
+# Credentials come from your shell (JUNOS_USER, JUNOS_PASSWORD), never from this file.
+all:
+  children:
+    junos:
+      hosts:
+        lab-srx-1:
+          ansible_host: 192.0.2.21
+        lab-ex-1:
+          ansible_host: 192.0.2.22
+      vars:
+        ansible_connection: ansible.netcommon.netconf
+        ansible_network_os: junipernetworks.junos.junos
+        ansible_user: "{{ lookup('env', 'JUNOS_USER') }}"
+        ansible_password: "{{ lookup('env', 'JUNOS_PASSWORD') }}"

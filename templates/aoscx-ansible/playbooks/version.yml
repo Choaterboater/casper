@@ -1,0 +1,15 @@
+---
+# Read-only: prints the software version of each lab switch.
+- name: Aruba CX versions
+  hosts: aoscx
+  gather_facts: false
+  tasks:
+    - name: Run show version
+      arubanetworks.aoscx.aoscx_command:
+        commands:
+          - show version
+      register: version
+
+    - name: Print the version
+      ansible.builtin.debug:
+        var: version.stdout_lines[0]

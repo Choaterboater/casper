@@ -1,0 +1,17 @@
+---
+# Read-only: runs show commands on the lab devices and prints the output.
+- name: Junos show commands
+  hosts: junos
+  gather_facts: false
+  tasks:
+    - name: Run show commands
+      junipernetworks.junos.junos_command:
+        commands:
+          - show version
+          - show interfaces terse
+          - show lldp neighbors
+      register: shown
+
+    - name: Print the output
+      ansible.builtin.debug:
+        var: shown.stdout_lines

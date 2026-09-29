@@ -1,0 +1,14 @@
+{
+  "id": "noc-dashboard",
+  "version": 1,
+  "kind": "NOC dashboard",
+  "title": "NOC dashboard (Streamlit, Mist first)",
+  "description": "A Streamlit NOC dashboard: Mist devices up and down, sample data until you set a read-only token.",
+  "defaultName": "noc-dashboard",
+  "tool": "uv",
+  "init": ["uv", "init", "--package", "--app", "--no-workspace", "--vcs", "none", "--name", "{{name}}", "."],
+  "add": ["streamlit", "mistapi>=0.64"],
+  "addDev": ["pytest", "ruff"],
+  "replace": ["README.md", "src/__module__/__init__.py"],
+  "ready": true
+}

@@ -1,0 +1,14 @@
+{
+  "id": "network-mcp",
+  "version": 1,
+  "kind": "MCP server",
+  "title": "MCP server for your network",
+  "description": "An MCP server in Python (official MCP SDK 2.x), read-only by default, with in-memory tests.",
+  "defaultName": "my-mcp",
+  "tool": "uv",
+  "init": ["uv", "init", "--package", "--app", "--no-workspace", "--vcs", "none", "--name", "{{name}}", "."],
+  "add": ["mcp>=2,<3", "httpx"],
+  "addDev": ["pytest", "ruff", "pytest-recording", "respx"],
+  "replace": ["README.md", "src/__module__/__init__.py"],
+  "ready": true
+}

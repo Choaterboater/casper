@@ -1,0 +1,19 @@
+# Sample data, not from your org. Record your own with:
+#   uv run pytest --record-mode=once   (uses a read-only token)
+# The authorization header is never saved. Look through recorded files before you commit them.
+interactions:
+- request:
+    body: null
+    headers: {}
+    method: GET
+    uri: https://api.mist.com/api/v1/orgs/00000000-0000-0000-0000-00000000000a/sites?limit=1000
+  response:
+    body:
+      string: '[{"id":"00000000-0000-0000-0000-000000000001","org_id":"00000000-0000-0000-0000-00000000000a","name":"HQ","timezone":"America/New_York","country_code":"US"},{"id":"00000000-0000-0000-0000-000000000002","org_id":"00000000-0000-0000-0000-00000000000a","name":"Branch 12","timezone":"America/Chicago","country_code":"US"}]'
+    headers:
+      Content-Type:
+      - application/json
+    status:
+      code: 200
+      message: OK
+version: 1

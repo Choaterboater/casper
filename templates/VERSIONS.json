@@ -1,0 +1,30 @@
+{
+  "aoscx-ansible": {
+    "version": 1,
+    "sha256": "f906783b85e2efc08b2de8a41b94604024b425631988d0ab158a2ddb6cbd1f8d"
+  },
+  "junos-ansible": {
+    "version": 1,
+    "sha256": "36c57a119e5a095adcbdd2fcd0d0017ad6cff6c48490ae6e04f50391179be4e6"
+  },
+  "mist-python": {
+    "version": 1,
+    "sha256": "4d063b17be8c6332c979d45b8951c56a697c0ce1b8e4d6d0b8de02d90430381a"
+  },
+  "network-mcp": {
+    "version": 1,
+    "sha256": "332bea12ee31d5d9dc7d9b9217ce06e9b319aed1ca3ec78edb7d0600ce4b09ce"
+  },
+  "noc-dashboard": {
+    "version": 1,
+    "sha256": "ecad3a9ab35a98c9522e74fa243c6a0851354dd6df5ac29de7f313227aebe6c3"
+  },
+  "python-cli": {
+    "version": 1,
+    "sha256": "21b759377ab8afb9f2f957cb9bc669eeb15f9e5bdfe051cc7668424479a68fee"
+  },
+  "web-app": {
+    "version": 1,
+    "sha256": "659deb6a2b5d0360ff729fc720fd8ab4cac79f9efa4b5becbcfd14eca3b9c7e6"
+  }
+}

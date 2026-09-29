@@ -1,0 +1,5 @@
+---
+# Install with: uv run ansible-galaxy collection install -r collections/requirements.yml -p collections
+collections:
+  - name: arubanetworks.aoscx
+  - name: ansible.netcommon
