@@ -458,3 +458,51 @@ test("/new is in the command palette and both help texts; casper new is in the s
   expect(FULL_HELP_TEXT).toContain("/new <template> <name>");
   expect(FULL_HELP_TEXT).toContain("casper new [name]");
 });
+
+test("typed no or yes answers the build question and is never a project name", async () => {
+  const dirs = await setup("casper-new-ask-typed-no-");
+  const h = harness(dirs.home);
+  const running = h.app.runInteractive(dirs.work);
+  try {
+    await h.until(text => text.includes("idle"));
+    h.input.write(`${REQUEST}\r`);
+    await h.until(text => text.includes("Build this as a new Mist Python project"));
+    h.input.write("no\r");
+    await h.until(() => h.prompts.length === 1);
+    expect(h.created).toEqual([]);
+    expect(h.starts).toEqual([dirs.work]);
+    await h.until(settled);
+  } finally { await finish(h, running); await dirs.cleanup(); }
+
+  const again = await setup("casper-new-ask-typed-yes-");
+  const yes = harness(again.home, { surface: "plain" });
+  const yesRunning = yes.app.runInteractive(again.work);
+  try {
+    await yes.until(text => text.includes("> "));
+    yes.input.write(`${REQUEST}\n`);
+    await yes.until(text => text.includes("Type 1-3 (Enter for 1): "));
+    yes.input.write("y\n");
+    await yes.until(() => yes.prompts.length === 1);
+    expect(yes.created.map(entry => entry.name)).toEqual(["mist-aps"]);
+    await yes.until(text => text.endsWith("> "));
+  } finally { await finish(yes, yesRunning, false); await again.cleanup(); }
+});
+
+test("a number that isn't a choice asks again instead of becoming a name", async () => {
+  const dirs = await setup("casper-new-ask-range-");
+  const h = harness(dirs.home, { surface: "plain" });
+  const running = h.app.runInteractive(dirs.work);
+  try {
+    await h.until(text => text.includes("> "));
+    h.input.write(`${REQUEST}\n`);
+    await h.until(text => text.includes("Type 1-3 (Enter for 1): "));
+    h.input.write("4\n");
+    await h.until(text => text.includes("[new] Pick a number from 1 to 3.") && text.endsWith("Type 1-3 (Enter for 1): "));
+    expect(h.visible()).not.toContain("Names use lowercase");
+    h.input.write("2\n");
+    await h.until(() => h.prompts.length === 1);
+    expect(h.created).toEqual([]);
+    expect(h.starts).toEqual([dirs.work]);
+    await h.until(text => text.endsWith("> "));
+  } finally { await finish(h, running, false); await dirs.cleanup(); }
+});
