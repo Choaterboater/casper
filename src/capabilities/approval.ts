@@ -273,7 +273,22 @@ export function maskedLength(text: string): string {
 
 /** The shared secret rules (src/secrets/scrub.ts). Token shapes are redacted first, so the scrubber's
  * "<secret hidden>" marker is never itself rewritten by the redaction. */
-export const defaultScrubText: TextScrubber = (text) => scrubText(redactPreview(text)).text;
+export const defaultScrubText: TextScrubber = (text) => maskSecretPairs(scrubText(redactPreview(text)).text);
+
+const QUOTED_PAIR = /"([^"\\\n]{1,64})"(\s*:\s*)"((?:[^"\\\n]|\\.)*)("|$)/g;
+const PLAIN_PAIR = /(^|[\s,;{(&?])([A-Za-z][A-Za-z0-9_.-]{0,63})([ \t]*[=:][ \t]*)([^\s,;"'&}<•][^\s,;"'&}]*)/gm;
+
+/**
+ * Secrets written as pairs inside free text: "wpa_passphrase":"..." in JSON that did not parse (a
+ * cut or wrapped result), and psk=... or password: ... in plain text. Values already hidden are kept.
+ */
+export function maskSecretPairs(text: string): string {
+  return text
+    .replace(QUOTED_PAIR, (match, key: string, gap: string, value: string, end: string) =>
+      isSecretKey(key) && value !== "" && !MASKED.test(value) && !value.startsWith("<") ? `"${key}"${gap}"${maskedLength(value)}${end}` : match)
+    .replace(PLAIN_PAIR, (match, before: string, key: string, gap: string, value: string) =>
+      isSecretKey(key) ? `${before}${key}${gap}${maskedLength(value)}` : match);
+}
 
 /**
  * A copy of `value` with secrets hidden for the screen. Strings under a secret-looking key become
