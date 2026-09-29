@@ -50,3 +50,31 @@ test("/status says which checks run after a change", async () => {
     expect(output).toContain(" checks    test — offered with /verify (verification.mode: offer)");
   } finally { await configured.close(); }
 });
+
+test("the checks line names the dev server Casper starts for page checks, and the migrations check", () => {
+  expect(describeChecksPlan({ mode: "auto", checks: ["test"], pages: "bun run dev" })).toBe("test, pages (bun run dev) — run after each change");
+  expect(describeChecksPlan({ mode: "auto", checks: [], pages: "streamlit run app.py" })).toBe("pages (streamlit run app.py) — run after each change");
+  expect(describeChecksPlan({ mode: "auto", checks: ["test", "migrations"] })).toBe("test, migrations — run after each change");
+  // Casper opens pages only when it checks each change itself.
+  expect(describeChecksPlan({ mode: "offer", checks: ["test"], pages: "bun run dev" })).toBe("test — offered with /verify (verification.mode: offer)");
+});
+
+test("/status names the dev server of a web project before it ever runs; pages: off leaves it out", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-checks-")); dirs.push(root);
+  const home = path.join(root, "home"); const project = path.join(root, "project");
+  await mkdir(home); await mkdir(path.join(project, ".casper"), { recursive: true }); await mkdir(path.join(project, "node_modules"));
+  await writeFile(path.join(project, "package.json"), JSON.stringify({ name: "web", scripts: { dev: "vite" }, devDependencies: { vite: "6.0.0" } }));
+  await writeFile(path.join(project, "bun.lock"), "");
+  const status = async (yaml: string) => {
+    await writeFile(path.join(project, ".casper/project.yaml"), yaml);
+    let output = "";
+    const app = new CasperApp({ runtimeFactory: () => { throw new Error("no runtime"); }, sessionHomeDir: path.join(home, ".casper"),
+      loadProjectContext: (info) => loadProjectContext(info, { homeDir: home }),
+      loadSkillRegistry: (context) => SkillRegistry.discover({ projectRoot: context.info.root, homeDir: home }),
+      output: { write(text: string) { output += text; } } });
+    try { await app.runOnce("/status", project); } finally { await app.close(); }
+    return output;
+  };
+  expect(await status("verify:\n  test: bun test\n")).toContain(" checks    test, pages (bun run dev) — run after each change");
+  expect(await status("verify:\n  test: bun test\npages: off\n")).toContain(" checks    test — run after each change");
+});

@@ -10,6 +10,7 @@ import { BrowserSession } from "./browser/session";
 import { ServiceManager } from "./services/manager";
 import { SmokeChecks, type SmokeReport } from "./services/smoke";
 import { serviceTool } from "./services/tool";
+import { detectWebService, isDetectedWebService } from "./services/detect";
 import { formatPagesNotChecked, formatSkippedPage, PageChecks, pageOpener, planPageCheck, type DevServerNotice, type PageCheckPlan, type PageOpener, type PageReport } from "./services/page-checks";
 import { formatTerminalJSON } from "./tui/json";
 import { InteractiveTerminal } from "./tui/terminal";
@@ -1382,7 +1383,11 @@ export class CasperApp {
     const measuredMs = flag || configured || !this.interactive ? undefined : await measuredCheckTime(context.stateDirectory, checks, checkCommands(context.model));
     const mode = resolveVerificationMode({ flag, configured, interactive: this.interactive, measuredMs });
     const manual = manualChecks(checks, context.model.namedChecks);
-    return { mode, checks, ...(mode === "offer" && measuredMs !== undefined ? { slow: true } : {}), ...(manual.length ? { manual } : {}) };
+    // The dev server is named before it first runs, since it runs the project's own code.
+    const web = mode === "auto" && context.pages !== "off" ? await detectWebService(this.activeWorkspaceRoot(), { frameworks: context.model.frameworks,
+      packageManager: context.model.packageManager, services: context.services ?? {} }).catch(() => undefined) : undefined;
+    return { mode, checks, ...(mode === "offer" && measuredMs !== undefined ? { slow: true } : {}), ...(manual.length ? { manual } : {}),
+      ...(isDetectedWebService(web) ? { pages: redactPreview(terminalText(web.label)).slice(0, 120) } : {}) };
   }
 
   /** Before a request runs: with no model, pick one for a signed-in provider, or open sign-in (then pick);
