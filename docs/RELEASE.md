@@ -437,10 +437,15 @@ Linux artifacts are cross-compiled but still require real-host verification.
 ## Publish
 
 **From GitHub Actions:** run the [Publish release](../.github/workflows/publish-release.yml) workflow
-on `main` with the tag (for example `v0.2.14`). It checks the tag matches `package.json` and is new,
-typechecks, builds all five targets, verifies the checksums, runs the Linux executable, rejects
-personal build paths, and publishes a prerelease with every file in `dist/release` and the notes
-from this file's section for the tag. Then run the published-release check below. By hand:
+on `main` with the tag (for example `v0.2.14`). It has two jobs. The **build** job can only read: it
+checks the tag matches `package.json` and is new, stops unless the Linux and Windows preview
+workflows passed on this exact commit (run them first), stops while the tag's section below still
+says "Not released yet", typechecks, builds all five targets, verifies the checksums, runs the
+Linux executable and rejects personal build paths. The **publish** job is the only one that can
+write; it runs no project code, checks the files again and publishes a prerelease with every file
+in `dist/release` and the notes from this file's section for the tag. Every action in every
+workflow is pinned to a full commit (`tests/release-workflows.test.ts` fails otherwise). Then run
+the published-release check below. By hand:
 
 1. Run the gates above and review source/notice changes. Build from a neutral path;
    scan final binaries for personal build paths before uploading them.
