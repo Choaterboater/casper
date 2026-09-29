@@ -20,7 +20,9 @@ conversation is rewound only when nothing was said since; otherwise the model ge
 Undo says what it can't reach: secret files and files over 8 MB (never copied), ignored files,
 nested repositories, MCP servers and devices. A file that was there before the task but had no copy
 (git ignored it then, or it was over 8 MB) is never deleted, a file saved while Casper asks is left as
-it is, and a file made again gets your usual permissions. `/status` shows the copies' disk size. Saving a remembered test command is undoable. The
+it is, and a file made again gets your usual permissions. A file the task made over 8 MB is named, not
+counted as deleted, and an undo or redo that put nothing back can be tried again. `casper --json /undo`
+lists the files it put back. `/status` shows the copies' disk size. Saving a remembered test command is undoable. The
 change summary after a receipt now lists only the task's files, not your own earlier edits. See
 [UNDO.md](UNDO.md).
 
