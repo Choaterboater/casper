@@ -69,6 +69,8 @@ test("--model and --effort choose this run's model and effort without touching t
   const result = await f.run(["--model", "fixture/second", "--effort", "low", "Answer without tools"]);
   expect({ exit: result.exit, stderr: result.stderr }).toEqual({ exit: 0, stderr: "" });
   expect(result.stdout).toContain("LOCAL_RESPONSE");
+  // The banner names the model this run uses, not the saved default it overrides.
+  expect(result.stdout).toContain(" model     fixture/second for this run (--model)");
   expect(f.payloads.map((payload) => [payload.model, payload.reasoning_effort])).toEqual([["second", "low"]]);
   const suffix = await f.run(["--model", "fixture/second:minimal", "Answer without tools"]);
   expect(suffix.exit).toBe(0);
