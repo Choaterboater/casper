@@ -117,7 +117,7 @@ export function toolNeeds(facts: ProjectFacts, options: NeedOptions = {}): Recor
     "osv-scanner": facts.lockfiles.length ? { needed: true, reason: "dependency lock files" } : { needed: false, reason: "no dependency lock files" },
     "ansible-lint": facts.ansible.length ? { needed: true, reason: "Ansible playbooks" } : { needed: false, reason: "no Ansible files" },
     "mcp-scanner": !facts.mcpServer && !options.mcpToolsJson ? { needed: false, reason: "no MCP server" }
-      : !options.mcpScanner ? { needed: false, reason: "turn it on to check tool descriptions (large install)", off: true }
+      : !options.mcpScanner ? { needed: false, reason: "off; casper security --mcp-tools <file> checks the tool descriptions (large install)", off: true }
       : { needed: true, reason: "MCP server tool descriptions" },
   };
 }
