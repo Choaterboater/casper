@@ -40,6 +40,7 @@ import type { TaskObservations } from "../task/observations";
 import { formatTaskResult, type TaskResult } from "../task/result";
 import type { SessionWorkspaceManager } from "../sessions/manager";
 import { formatProjectContext } from "../project/context";
+import { runSecurityReview, type SecurityReviewHost } from "./security-review";
 
 /** Output sink for the app; lives here so the command host stays import-cycle-free. */
 export interface OutputWriter {
@@ -105,6 +106,8 @@ export interface CommandHost {
   handleBranchCommand(prompt: string): Promise<void>;
   handleSwitchCommand(prompt: string): Promise<void>;
   getLastTaskResult(): TaskResult | undefined;
+  /** Test seams for /security-review: fake tools and downloads. */
+  readonly securitySeams?: Pick<SecurityReviewHost, "check" | "install">;
   /** `/verify add <name>`: save a ready-made check Casper found (never called without the owner asking). */
   saveFoundCheck(name: string): Promise<void>;
 }
@@ -355,6 +358,18 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
     }
     if (/^\/skills(?:\s|$)/.test(prompt)) {
       await handleSkillsCommand(host, prompt);
+      return;
+    }
+    if (/^\/security-review(?:\s|$)/.test(prompt)) {
+      // The security tools only: no model call. Every question is numbered; a run that cannot ask downloads and approves nothing.
+      await runSecurityReview({
+        root: host.activeWorkspaceRoot(), homeDir: host.homeDir(),
+        write: (text) => { if (!host.closing) host.output.write(text); },
+        canAsk: () => host.interactive && host.terminal.canAsk && !host.closing,
+        pick: (question, options, signal) => host.terminal.pick(question, options, signal),
+        ...(host.commandAbort ? { signal: host.commandAbort.signal } : {}),
+        ...host.securitySeams,
+      }, prompt.trim().split(/\s+/).slice(1));
       return;
     }
     if (/^\/verify(?:\s|$)/.test(prompt)) {

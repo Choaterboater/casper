@@ -139,7 +139,7 @@ export function osvAgeText(downloadedAt: Date, ageDays: number): string {
 }
 
 export const OSV_NO_DATA = "no advisory data yet. /security-review update downloads it (asks first)";
-export const MCP_NEEDS_TOOLS = "needs the server's tool list: run casper mcp check first";
+export const MCP_NEEDS_TOOLS = "needs the server's tool list: save its tools/list reply to a file, then casper security --mcp-tools <file>";
 
 export class SecurityCheck {
   private readonly write: (text: string) => void;
@@ -309,4 +309,41 @@ function dedupe(entries: IgnoreEntry[]): IgnoreEntry[] {
 
 export async function runSecurityCheck(options: SecurityCheckOptions): Promise<SecurityReport> {
   return new SecurityCheck(options).run();
+}
+
+/**
+ * The tools this project needs that are not installed, found before anything runs, so the host can ask once
+ * ("1 Install them · 2 Run what's installed · 3 Stop") before any download.
+ */
+export async function missingSecurityTools(options: Pick<SecurityCheckOptions, "root" | "homeDir" | "baseEnv" | "mcpScanner" | "mcpToolsJson" | "find" | "run" | "platform">): Promise<SecurityToolId[]> {
+  const root = await realpath(path.resolve(options.root));
+  const platform = options.platform ?? process.platform;
+  const facts = await detectProject(root, await gitState(root));
+  const needs = toolNeeds(facts, { mcpScanner: options.mcpScanner, mcpToolsJson: options.mcpToolsJson });
+  const missing: SecurityToolId[] = [];
+  for (const id of SECURITY_TOOL_ORDER) {
+    if (!needs[id].needed || (id === "semgrep" && platform === "win32") || (id === "mcp-scanner" && !options.mcpToolsJson)) continue;
+    const spec = SECURITY_TOOLS[id];
+    const location = await (options.find ?? ((toolSpec) => findTool(toolSpec, { homeDir: options.homeDir, env: options.baseEnv, run: options.run })))(spec);
+    if (location.kind === "missing") missing.push(id);
+  }
+  return missing;
+}
+
+export interface IgnoreState {
+  /** The tools' own ignore files and whether each would be used now. */
+  files: Array<IgnoreFile & { text: string }>;
+  /** Ignores added since the last commit that the user has not approved. */
+  fresh: IgnoreEntry[];
+  approvals: Awaited<ReturnType<typeof loadApprovals>>;
+}
+
+/** Which ignores count right now, with no tool run: for the questions before a run and /security-review ignores. */
+export async function ignoreState(rootFolder: string, homeDir: string): Promise<IgnoreState> {
+  const root = await realpath(path.resolve(rootFolder));
+  const git = await gitState(root);
+  const changes = await changesSinceHead(root, git);
+  const approvals = await loadApprovals(root, homeDir);
+  const context: IgnoreContext = { root, git, changed: changes?.changed, untracked: changes?.untracked, approvals, readText: (file) => readRepoText(root, file) };
+  return { files: await judgeIgnoreFiles(context), fresh: dedupe(await newIgnores(context)), approvals };
 }
