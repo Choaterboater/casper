@@ -26,7 +26,8 @@ export function formatCheckHeader(report: Pick<CheckReport, "target" | "offline"
 /** One aligned line: status, label, text. Labels and text can quote repo or server text, so both are escaped. */
 export function formatFinding(finding: Finding): string {
   const label = terminalText(finding.label);
-  return `  ${finding.status.padEnd(6)}${label.length < 14 ? label.padEnd(14) : `${label}  `}${terminalText(finding.text)}`;
+  const line = `  ${finding.status.padEnd(6)}${label.length < 14 ? label.padEnd(14) : `${label}  `}${terminalText(finding.text)}`;
+  return [line, ...(finding.detail ?? []).map((detail) => `        | ${terminalText(detail)}`)].join("\n");
 }
 
 function plural(count: number, word: string): string {

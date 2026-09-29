@@ -2,10 +2,11 @@ import { realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { UsageError, type McpCheckCommand } from "../../cli-args";
 import { redactPreview } from "../../tui/format";
-import { findExampleConfigs, readCheckConfig, reviewExampleConfigs, startLine, startDefinition, type CheckConfig, type ExampleConfig, type StartDefinition } from "./examples";
+import { findExampleConfigs, readCheckConfig, reviewExampleConfigs, startDefinition, type CheckConfig, type ExampleConfig, type StartDefinition } from "./examples";
 import { formatCheckHeader } from "./format";
 import { findRepoCommands, REPO_TIMEOUTS, repoFinding, runRepoCommand, type RepoCommand, type RepoCommands } from "./repo";
 import { checkEnv } from "./sandbox";
+import { serverSteps } from "./server";
 
 export type FindingStatus = "ok" | "fail" | "warn" | "note" | "skip" | "none";
 /** Report sections, in print order. */
@@ -18,6 +19,8 @@ export interface Finding {
   label: string;
   /** One plain sentence. Server and repo text is untrusted: it is escaped when printed. */
   text: string;
+  /** Extra lines printed under the finding, such as the last lines a server printed (secrets hidden). */
+  detail?: string[];
 }
 
 export interface CheckReport {
@@ -58,11 +61,12 @@ export interface McpCheckOptions {
   baseEnv?: NodeJS.ProcessEnv;
   timeouts?: Partial<typeof REPO_TIMEOUTS>;
   homeDir?: string;
-  /** Starts the server and checks startup, stdout, labels, schemas and the router. */
+  /** Starts the server and checks startup, stdout, labels, schemas and the router. Defaults to
+   * serverSteps(); give it together with `live`, which uses the connection it opens. */
   serverChecks?: CheckStep;
-  /** A second-client cross-check; skipped when not given. */
+  /** A second-client cross-check (such as the MCP Inspector CLI); skipped when not given. */
   inspector?: CheckStep;
-  /** Read-only calls; runs only with --live. */
+  /** Read-only calls; runs only with --live. Defaults to serverSteps(). */
   live?: CheckStep;
 }
 
@@ -97,9 +101,14 @@ export class McpCheck {
   private readonly cleanups: Array<() => Promise<void> | void> = [];
   private readonly write: (text: string) => void;
   private running?: Promise<CheckReport>;
+  private readonly serverChecks: CheckStep;
+  private readonly live: CheckStep;
 
   constructor(private readonly cmd: McpCheckCommand, private readonly options: McpCheckOptions = {}) {
     this.write = options.write ?? (() => {});
+    const defaults = serverSteps();
+    this.serverChecks = options.serverChecks ?? defaults.serverChecks;
+    this.live = options.live ?? defaults.live;
   }
 
   run(): Promise<CheckReport> {
@@ -170,19 +179,10 @@ export class McpCheck {
       root, cmd: this.cmd, env, config, repo, examples, start, signal,
       write: this.write, onClose: (cleanup) => { this.cleanups.push(cleanup); },
     };
-    if (start) {
-      const definition = start;
-      await step({ section: "server", label: "starts" }, async () => this.options.serverChecks
-        ? this.options.serverChecks(context)
-        : [{ section: "server", status: "skip", label: "starts", text: `Server checks are not in this build yet (would start: ${redactPreview(startLine(definition))})` }]);
-    }
+    if (start) await step({ section: "server", label: "starts" }, () => this.serverChecks(context));
     await step({ section: "examples", label: "examples" }, async () => reviewExampleConfigs(examples));
     if (this.options.inspector) await step({ section: "inspector", label: "inspector" }, () => this.options.inspector!(context));
-    if (this.cmd.live) {
-      await step({ section: "live", label: "live" }, async () => this.options.live
-        ? this.options.live(context)
-        : [{ section: "live", status: "skip", label: "live", text: "Live calls are not in this build yet." }]);
-    }
+    if (this.cmd.live) await step({ section: "live", label: "live" }, () => this.live(context));
     for (const cleanup of this.cleanups.splice(0).reverse()) {
       try { await cleanup(); } catch { /* keep cleaning up */ }
     }
