@@ -337,4 +337,7 @@ test("casper <folder> opens that folder; a path that is not a folder exits 64", 
   const trailing = await run([cli, "./mist-mcp", "--cd", root], root);
   expect(trailing.code).toBe(64);
   expect(parseCliArgs(["./mist-mcp"])).toMatchObject({ command: "prompt", folderCandidate: true });
+  // A slash command given as one word, with or without its arguments, is still a command, not a path.
+  const slash = await run([cli, "/help all"], root);
+  expect({ code: slash.code, stderr: slash.stderr }).toEqual({ code: 0, stderr: "" });
 });

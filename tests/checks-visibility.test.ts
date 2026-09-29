@@ -20,7 +20,7 @@ test("the checks line says what runs and when, in plain words", () => {
 });
 
 test("/receipt is in the command list", () => {
-  expect(COMMANDS.find((command) => command.name === "receipt")?.description).toBe("Evidence behind the last task's receipt");
+  expect(COMMANDS.find((command) => command.name === "receipt")?.description).toBe("A saved receipt: /receipt 12, /receipt list");
 });
 
 test("/status says which checks run after a change", async () => {
