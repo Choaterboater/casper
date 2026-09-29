@@ -72,8 +72,12 @@ export class ServiceManager {
 
   get closed(): boolean { return this.closing !== undefined; }
   names(): string[] { return [...this.slots.keys()]; }
-  /** Whether any service is starting or ready. */
-  live(): boolean { return [...this.slots.values()].some(slot => slot.work !== undefined || slot.state === "starting" || slot.state === "ready"); }
+  /** Whether any service is starting or ready. `detected: false` leaves out the dev server Casper started for its
+   * own page check, so that server alone never hands the model the service tool (and its tokens) on later tasks. */
+  live(options: { detected?: boolean } = {}): boolean {
+    return [...this.slots.values()].some(slot => (options.detected !== false || !this.detected.has(slot.name))
+      && (slot.work !== undefined || slot.state === "starting" || slot.state === "ready"));
+  }
   /** Crashes after readiness not yet reported, each returned once (with its exit and log tail) for the next tool call. */
   takeCrashes(): ServiceStatus[] {
     const replaced = this.replacedCrashes.splice(0);

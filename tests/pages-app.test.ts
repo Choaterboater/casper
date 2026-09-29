@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { stringify } from "yaml";
@@ -212,4 +212,23 @@ Bun.serve({ hostname: process.env.HOST, port: Number(process.env.PORT), fetch() 
   expect(text.split("\n").find(line => line.startsWith("✗ Failed"))).toBe("✗ Failed — / shows an error");
   expect(runtime.prompts[1]).toContain("Page check evidence");
   expect(runtime.prompts[1]).toContain("\"serverError\": \"KeyError: 'site'\"");
+}, 30_000);
+
+test("the dev server Casper found and started for its page check never hands the model the service tool on later tasks", async () => {
+  const f = await fixture({}, { declare: false, manifest: { name: "web", scripts: { dev: "vite" }, devDependencies: { vite: "6.0.0", react: "19.0.0" } } });
+  // A stand-in for the project's vite: serves on the port Casper passes with --port.
+  await mkdir(path.join(f.project, "node_modules/.bin"), { recursive: true });
+  const vite = path.join(f.project, "node_modules/.bin/vite");
+  await writeFile(vite, `#!${process.execPath}\nconst args = process.argv.slice(2);\nBun.serve({ hostname: "127.0.0.1", port: Number(args[args.indexOf("--port") + 1]), fetch: () => new Response("<html>ok</html>", { headers: { "content-type": "text/html" } }) });\n`);
+  await chmod(vite, 0o755);
+  const toolsAtPrompt: string[][] = [];
+  f.runtime.turns.push(async runtime => { toolsAtPrompt.push(runtime.tools.map(tool => tool.name)); await runtime.write(path.join(f.project, "src/App.tsx"), "export default 1;\n"); });
+  await f.app.runOnce("Make the sidebar collapse on small screens");
+  expect(f.text()).toContain("✓ / loads · 0 console errors");
+  expect(f.app.serviceManager().status().find(service => service.name === "web")?.state).toBe("ready");
+  f.runtime.turns.push(async runtime => { toolsAtPrompt.push(runtime.tools.map(tool => tool.name)); });
+  await f.app.runOnce("Rename the sidebar title");
+  expect(toolsAtPrompt).toHaveLength(2);
+  expect(toolsAtPrompt[0]).not.toContain("service");
+  expect(toolsAtPrompt[1]).not.toContain("service");
 }, 30_000);
