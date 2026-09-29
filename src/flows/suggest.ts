@@ -83,8 +83,10 @@ export const rememberTestRule: SuggestionRule = {
     if (task.execution !== "completed" || project.commands.test) return undefined;
     const observed = [...(task.observedChecks ?? [])].reverse()
       .find((check) => check.name === "test" && check.toolStatus === "success" && rememberableTestCommand(check.command));
-    if (!observed) return undefined;
-    const command = rememberableTestCommand(observed.command)!;
+    // Or the shell run the task saw while no test command was set (only known runner shapes are recorded).
+    const ran = observed?.command ?? task.testRunner;
+    const command = ran ? rememberableTestCommand(ran) : undefined;
+    if (!command) return undefined;
     const line = projectCommandLine("test", command);
     return {
       id: "remember-test",
