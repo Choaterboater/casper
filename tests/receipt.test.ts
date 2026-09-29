@@ -113,6 +113,12 @@ test("the receipt says whether the tests prove the change, and never calls an un
     passed({ status: "proven", check: "test", command: "npm run test", testsChanged: true, without });
   expect(proven({ exitCode: 1, ended: "fail", output: "expected 3, got 2" }))
     .toBe("✓ Proven: test fails without this change (exit 1) and passes with it");
+  // Tests that could not load without the change (the import it adds) are weaker than a failing assertion.
+  expect(proven({ exitCode: 2, ended: "fail", output: "E   ImportError: cannot import name 'mul' from 'calc'" }))
+    .toBe("✓ Proven, weakly: without this change test could not load (exit 2, ImportError), and it passes with the change");
+  expect(formatReceipt(done({ changedPaths: ["calc.py"], verificationMode: "auto", verification: report([check()]),
+    proof: { status: "proven", check: "test", command: "pytest", testsChanged: true, without: { exitCode: 2, ended: "fail", output: "ModuleNotFoundError: x" } } })).split("\n")[0])
+    .toBe("✓ Verified — the checks pass; without the change the tests could not even load");
   // A run that did not fail as a test fails is weaker evidence, and says so.
   expect(proven({ exitCode: 143, ended: "timeout", reason: "Timed out after 20000ms" }))
     .toBe("✓ Proven, weakly: test passes with this change; without it test timed out after 20.0s instead of failing");
