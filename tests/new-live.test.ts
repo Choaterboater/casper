@@ -8,7 +8,7 @@ import { createProject } from "../src/new/scaffold";
 
 /**
  * Real `casper new` runs: real uv, bun and git, packages from pypi.org and npm. Off by default
- * (no network in the normal suite); CI's live job sets TEST_LIVE_NEW=1 with uv installed. Each test
+ * (no network in the normal suite); .github/workflows/live-checks.yml sets TEST_LIVE_NEW=1 with uv installed. Each test
  * fails when its template is broken. (CASPER_* variables are stripped by the test preload, so the
  * switch has a plain name.)
  */
