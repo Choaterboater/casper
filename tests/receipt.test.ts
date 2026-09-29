@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { formatReceipt, taskOutcome, type TaskResult } from "../src/task/result";
+import { checksPassed, formatReceipt, taskOutcome, type TaskResult } from "../src/task/result";
 import type { VerificationReport, VerificationResult } from "../src/verify/evidence";
 
 function check(overrides: Partial<VerificationResult> = {}): VerificationResult {
@@ -15,6 +15,20 @@ const done = (task: Omit<TaskResult, "execution">): TaskResult => ({ execution: 
 test("a Casper-run pass names the check, command and time", () => {
   expect(formatReceipt(done({ changedPaths: ["sum.js"], verificationMode: "auto", verification: report([check()]) })))
     .toBe("• Checks passed — not proven: Casper did not compare the tests with and without the change\n✓ Changed 1 file: sum.js\n✓ test passed (npm run test, 0.3s)");
+});
+
+test("the outcome is verified only when line 1 is Verified; the Checks passed lines stay the same", () => {
+  const proven = done({ changedPaths: ["sum.js"], verificationMode: "auto", verification: report([check()]),
+    proof: { status: "proven", check: "test", command: "npm run test", testsChanged: true, without: { exitCode: 1, ended: "fail" } } });
+  expect(taskOutcome(undefined, proven)).toBe("verified");
+  expect(formatReceipt(proven).split("\n")[0]).toBe("✓ Verified — the checks pass, and the tests fail without the change");
+  const skipped = done({ changedPaths: ["README.md"], verificationMode: "auto", verification: report([check()]), proofSkipped: "only docs changed" });
+  expect(taskOutcome(undefined, skipped)).toBe("not_verified");
+  expect(checksPassed(undefined, skipped)).toBe(true);
+  expect(formatReceipt(skipped).split("\n")[0]).toBe("• Checks passed — not proven: only docs changed");
+  const nothing = done({ changedPaths: [], verificationMode: "auto", verification: report([check()]) });
+  expect(taskOutcome(undefined, nothing)).toBe("unchanged");
+  expect(formatReceipt(nothing).split("\n")[0]).toBe("✓ Checks passed — no files changed");
 });
 
 test("a pass reused from earlier in the task says so, and that its time is the earlier run's", () => {
@@ -176,5 +190,5 @@ test("a lab dry run that passed is shown, but it is never grounds for Checks pas
   expect(text).toContain("✓ aoscx-check passed (dry run not guaranteed · ");
   expect(text).not.toContain("Checks passed");
   // Beside a real check the pass of that check still counts.
-  expect(taskOutcome(undefined, done({ verification: report([check(), dry]) }))).toBe("verified");
+  expect(checksPassed(undefined, done({ verification: report([check(), dry]) }))).toBe(true);
 });
