@@ -130,7 +130,8 @@ export function checkEvent(result: VerificationResult, recordedBy: CheckEvent["r
  * What leaves Casper about a task (JSON events, saved receipts) and how each part is made safe:
  * - check output (stdout, stderr) and rounds: never included;
  * - smoke bodies, reasons and crash logs; proof output; review items; acceptance output; page console text,
- *   overlays, server errors and log tails; named check labels and summaries: redactPreview;
+ *   overlays, server errors and log tails; named check labels and summaries; browser URLs, reasons and what an
+ *   assertion saw (cut to 512 characters): redactPreview;
  * - security: counts and tool states only, never finding text.
  */
 
@@ -201,6 +202,11 @@ export function storedTaskResult(task: TaskResult): TaskResult {
   if (copy.acceptance) copy.acceptance = { ...copy.acceptance, ...(copy.acceptance.output !== undefined ? { output: redactPreview(copy.acceptance.output) } : {}),
     ...(copy.acceptance.unconfirmed ? { unconfirmed: copy.acceptance.unconfirmed.map(redactPreview) } : {}) };
   if (copy.checklist) copy.checklist = copy.checklist.map(redactPreview);
+  // Browser assertions keep what the page showed, and a URL may carry a token in its query.
+  if (copy.browser) copy.browser = { ...copy.browser, guidance: redactPreview(copy.browser.guidance), checks: copy.browser.checks.map((check) => ({ ...check,
+    url: redactPreview(check.url), ...(check.reason ? { reason: redactPreview(check.reason) } : {}),
+    assertions: check.assertions.map((assertion) => ({ ...assertion, actual: redactPreview(typeof assertion.actual === "string" ? assertion.actual
+      : JSON.stringify(assertion.actual) ?? "").slice(0, 512) })) })) };
   if (copy.proofSkipped) copy.proofSkipped = redactPreview(copy.proofSkipped);
   return copy;
 }
