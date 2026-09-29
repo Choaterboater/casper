@@ -76,10 +76,11 @@ posixOnly("removes a link itself, never what it points to", async () => {
 test("a folder snapshot leaves dev server build caches out, so they never show as changes", async () => {
   const { root } = await folders();
   await writeFile(path.join(root, "page.tsx"), "export default 1\n");
-  for (const cache of [".next", ".nuxt", ".svelte-kit", ".astro", ".vite"]) {
-    await mkdir(path.join(root, cache));
+  for (const cache of [".next", ".nuxt", ".svelte-kit", ".astro", ".vite", "node_modules/.vite", "__pycache__", ".streamlit/cache"]) {
+    await mkdir(path.join(root, cache), { recursive: true });
     await writeFile(path.join(root, cache, "build.js"), "x");
   }
+  await writeFile(path.join(root, ".streamlit/config.toml"), "[server]\n");
   const { snapshotTree } = await import("../src/task/changes");
-  expect([...(await snapshotTree(root, undefined, { git: false })).keys()]).toEqual(["page.tsx"]);
+  expect([...(await snapshotTree(root, undefined, { git: false })).keys()].sort()).toEqual([".streamlit/config.toml", "page.tsx"]);
 });
