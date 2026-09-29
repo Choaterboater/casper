@@ -23,8 +23,9 @@ export interface BoundedCapabilityResult {
 
 /** A call Casper refused or stopped before anything was sent. It did not run. */
 export class NotExecutedError extends Error {
-  constructor(readonly reason: string) {
-    super(`Not executed (${reason})`);
+  /** `next`, when given, is one more plain sentence after the reason, such as what to do instead. */
+  constructor(readonly reason: string, readonly next?: string) {
+    super(`Not executed (${reason})${next ? `. ${next}` : ""}`);
     this.name = "NotExecutedError";
   }
 }
