@@ -1,3 +1,4 @@
+import { realpathSync } from "node:fs";
 import { openFollowed } from "../platform/files";
 import os from "node:os";
 import path from "node:path";
@@ -72,10 +73,13 @@ export function startFolder(value: unknown, scope: ServerDefinitionScope, projec
     const outside = path.resolve(projectRoot) === path.resolve(home) ? path.join(home, ".casper") : home;
     if (value === undefined) return outside;
     const wanted = personalFolder(value, projectRoot, home);
-    const inside = path.relative(path.resolve(projectRoot), wanted);
-    const inProject = path.resolve(projectRoot) === path.resolve(home)
-      ? inside === ""
-      : inside === "" || !(inside === ".." || inside.startsWith(`..${path.sep}`) || path.isAbsolute(inside));
+    // Compared as real folders too, so a link that points into the project counts as the project.
+    const inProject = [[projectRoot, wanted], [realFolder(projectRoot), realFolder(wanted)]].some(([root, folder]) => {
+      const inside = path.relative(root!, folder!);
+      return path.resolve(projectRoot) === path.resolve(home)
+        ? inside === ""
+        : inside === "" || !(inside === ".." || inside.startsWith(`..${path.sep}`) || path.isAbsolute(inside));
+    });
     if (!inProject) return wanted;
     report?.diagnostics.push(`${report.name}: starts in your home folder, not in this project.`);
     return outside;
@@ -89,6 +93,11 @@ export function startFolder(value: unknown, scope: ServerDefinitionScope, projec
     return resolved;
   }
   return personalFolder(value, projectRoot, home);
+}
+
+/** The folder with links resolved, or the plain path when it does not exist (yet). */
+function realFolder(folder: string): string {
+  try { return realpathSync.native(folder); } catch { return path.resolve(folder); }
 }
 
 function personalFolder(value: unknown, projectRoot: string, home: string): string {
