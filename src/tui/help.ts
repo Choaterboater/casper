@@ -104,6 +104,9 @@ Local commands:
   /memory accept <id> <yes|no>      Record human acceptance, not test evidence
   /references                       List configured local reference sources
   /references search <id|*> <query> Search reference text locally (no model)
+  /references add <name>            Download a vendor spec repo to search locally (asks first)
+  /secrets                          Show what Casper hides from the AI
+  /secrets files on|off             Scrub config files and command output (MCP results always)
   /tree                             Show named session/workspace branches
   /branch <name>                    Clone this conversation (isolated by policy)
   /switch <branch>                  Switch session and workspace (confirmation required)
@@ -123,6 +126,7 @@ Local commands:
   /mcp writes off                   Writes off for every server (ctrl+o does the same)
   /mcp forget <name>                Forget a remembered server; Casper asks again next time
   /mcp junos-show <name> on|off     Let plain Junos show commands run without asking
+  /mcp docs                         Docs servers; add a docs-only copy with no credentials
   /lsp                              Show language-server status (no startup)
   /lsp connect <name>               Authorize this language server for this process
   /lsp disconnect <name>            Stop this language server
@@ -176,6 +180,8 @@ Servers from ~/.claude.json, ~/.mcp.json and VS Code are listed too; each needs 
 Every MCP server starts with writes off: write and delete tools are hidden. /mcp writes <name>
 turns them on; ctrl+o turns them off again. A remembered server always starts with writes off.
 Non-read MCP calls require exact interactive confirmation; denied in one-shot mode.
+Known device secrets (passwords, keys, SNMP communities) in MCP results and config files are shown
+to the AI as <secret hidden>; a change that carries the marker back is refused. See docs/SECRETS.md.
 Cooked terminal input (TERM=dumb or redirected output) cannot grant exact approval.
 Piped line input discards unfinished input at approval transitions; NO_COLOR is supported.
 LSP connection executes a configured program. Review .casper/lsp.json first.
