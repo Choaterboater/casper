@@ -1,4 +1,4 @@
-import { afterEach, expect } from "bun:test";
+import { afterEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile, lstat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -57,4 +57,15 @@ posixOnly("removes a link itself, never what it points to", async () => {
   await expect(removeProjectFile(root, "out/secret.txt")).rejects.toThrow("goes through a link");
   await mkdir(path.join(root, "folder"));
   await expect(removeProjectFile(root, "folder")).rejects.toThrow("is a folder");
+});
+
+test("a folder snapshot leaves dev server build caches out, so they never show as changes", async () => {
+  const { root } = await folders();
+  await writeFile(path.join(root, "page.tsx"), "export default 1\n");
+  for (const cache of [".next", ".nuxt", ".svelte-kit", ".astro", ".vite"]) {
+    await mkdir(path.join(root, cache));
+    await writeFile(path.join(root, cache, "build.js"), "x");
+  }
+  const { snapshotTree } = await import("../src/task/changes");
+  expect([...(await snapshotTree(root, undefined, { git: false })).keys()]).toEqual(["page.tsx"]);
 });

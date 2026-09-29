@@ -11,7 +11,9 @@ const execFileAsync = promisify(execFile);
 /** Never descended: VCS internals, dependency trees, Casper's own state, and Python environments and
  * caches (a project's .venv alone can hold tens of thousands of files). */
 const SKIPPED_DIRECTORIES: Record<string, true> = { ".git": true, node_modules: true, ".casper": true,
-  ".venv": true, __pycache__: true, ".mypy_cache": true, ".pytest_cache": true, ".ruff_cache": true, ".tox": true };
+  ".venv": true, __pycache__: true, ".mypy_cache": true, ".pytest_cache": true, ".ruff_cache": true, ".tox": true,
+  // Dev server build caches: a page check writes them, and they are never the user's change.
+  ".next": true, ".nuxt": true, ".svelte-kit": true, ".astro": true, ".vite": true };
 
 /** A `venv` folder is skipped only when it is a virtual environment, never a source folder of that name. */
 async function skipped(root: string, relative: string, name: string): Promise<boolean> {
