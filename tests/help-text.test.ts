@@ -34,3 +34,9 @@ test("help says CLI server flags cover only the user's own definitions", async (
   expect(FULL_HELP_TEXT).toContain("--mcp <name>  Authorize and connect your own (user/profile) MCP server");
   expect(FULL_HELP_TEXT).toContain("Project-defined servers need interactive /mcp or /lsp connect review");
 });
+
+test("help lists casper mcp check", () => {
+  expect(HELP_TEXT).toContain("casper mcp check [repo]  Check an MCP server you built: its tests, labels and configs (no tool calls unless --live)");
+  expect(FULL_HELP_TEXT).toContain("casper mcp check [repo] [--server <name>] [--live]");
+  expect(FULL_HELP_TEXT).toContain("only run it on repos you trust");
+});
