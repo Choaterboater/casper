@@ -101,3 +101,10 @@ describe("user flows", () => {
     expect(catalog.warnings[0]).toContain("disable-model-invocation");
   });
 });
+
+test("the notices credit obra/superpowers for the bundled flow text and Pi for the plan gate", async () => {
+  const notices = await Bun.file(new URL("../THIRD_PARTY_NOTICES.txt", import.meta.url)).text();
+  expect(notices).toContain("obra/superpowers (MIT) — the plan-first and prove-fix flow text");
+  expect(notices).toContain("Copyright (c) 2025 Jesse Vincent");
+  expect(notices).toContain("examples/extensions/plan-mode");
+});
