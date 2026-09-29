@@ -1,10 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { lstat, mkdir, realpath, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { isMap, parseDocument, stringify } from "yaml";
+import { isMap, isNode, parseDocument, stringify } from "yaml";
 import { openNoFollow } from "../platform/files";
 import { CHECK_NAMES } from "../verify/evidence";
 import type { ProjectCommand } from "./model";
+import { namedCheckNameError, parseNetworkChecks } from "../network/spec";
+import type { NamedCheckSpec } from "../verify/named";
 
 /** The same bound the configuration loader applies to .casper/project.yaml. */
 const MAX_PROJECT_YAML_BYTES = 256 * 1024;
@@ -80,20 +82,58 @@ export async function saveProjectCommand(root: string, name: ProjectCommand, com
   checkCommand(name, command);
   const value = command.trim();
   const line = projectCommandLine(name, value);
+  return setProjectSetting(root, ["verify", name], value, line, (current) => current === value, `verify.${name} is already set in ${PROJECT_YAML}; change it there yourself`);
+}
+
+/** A named check as it is saved: the defaults (an ordinary check that runs after each change) left out. */
+export function savedNamedCheck(spec: NamedCheckSpec): Record<string, unknown> {
+  const saved: Record<string, unknown> = {};
+  if (spec.kind !== "offline" && !spec.preset) saved.kind = spec.kind;
+  for (const key of ["run", "preset", "playbooks", "files", "inventory", "platform", "running", "intended", "models", "modules", "timeout"] as const) {
+    if (spec[key] !== undefined) saved[key] = structuredClone(spec[key]);
+  }
+  if (spec.after === "ask") saved.after = "ask";
+  return saved;
+}
+
+/** The setting exactly as it will be written, on one line: `verify.checks.aruba-syntax: {preset: ansible-syntax, playbooks: [site.yml]}`. */
+export function namedCheckLine(name: string, spec: NamedCheckSpec): string {
+  const error = namedCheckNameError("verify.checks", name);
+  if (error) throw new Error(error);
+  return `verify.checks.${name}: ${stringify(savedNamedCheck(spec), { collectionStyle: "flow" }).trim()}`;
+}
+
+/**
+ * Save a ready-made check under `verify.checks.<name>` in .casper/project.yaml, the same careful way as
+ * saveProjectCommand. Only the owner's own choice calls this (/verify add <name>, or a suggestion they picked).
+ */
+export async function saveNamedCheck(root: string, name: string, spec: NamedCheckSpec): Promise<ProjectCommandWrite> {
+  const line = namedCheckLine(name, spec);
+  const value = savedNamedCheck(spec);
+  // What is saved must read back as the same check.
+  parseNetworkChecks({ [name]: value });
+  return setProjectSetting(root, ["verify", "checks", name], value, line,
+    (current) => JSON.stringify(current) === JSON.stringify(value), `verify.checks.${name} is already set in ${PROJECT_YAML}; change it there yourself`);
+}
+
+async function setProjectSetting(root: string, keys: string[], value: unknown, line: string, same: (current: unknown) => boolean, taken: string): Promise<ProjectCommandWrite> {
   const folder = await casperFolder(root);
   const file = path.join(folder, "project.yaml");
   const existing = await readExisting(file);
   const document = parseDocument(existing?.text ?? "");
   if (document.errors.length) throw new Error(`${PROJECT_YAML} does not parse (${document.errors[0]!.message.split("\n")[0]}); fix it first`);
   if (document.contents !== null && !isMap(document.contents)) throw new Error(`${PROJECT_YAML} is not a mapping; refusing to change it`);
-  const verify = document.get("verify");
-  if (verify !== undefined && verify !== null && !isMap(verify)) throw new Error(`verify in ${PROJECT_YAML} is not a mapping; refusing to change it`);
-  const current = document.getIn(["verify", name]);
-  if (current !== undefined && current !== null) {
-    if (current === value) return { file, line, before: existing?.text ?? null, after: existing?.text ?? "" };
-    throw new Error(`verify.${name} is already set in ${PROJECT_YAML}; change it there yourself`);
+  for (let depth = 1; depth < keys.length; depth++) {
+    const parent = document.getIn(keys.slice(0, depth));
+    if (parent !== undefined && parent !== null && !isMap(parent)) throw new Error(`${keys.slice(0, depth).join(".")} in ${PROJECT_YAML} is not a mapping; refusing to change it`);
   }
-  document.setIn(["verify", name], value);
+  const node = document.getIn(keys, true);
+  const current = node === undefined || node === null ? undefined : (isNode(node) ? node.toJSON() : node);
+  if (current !== undefined && current !== null) {
+    if (same(current)) return { file, line, before: existing?.text ?? null, after: existing?.text ?? "" };
+    throw new Error(taken);
+  }
+  document.setIn(keys, document.createNode(value));
   const after = document.toString();
   const temporary = path.join(folder, `.project.yaml.${randomUUID()}.tmp`);
   try {

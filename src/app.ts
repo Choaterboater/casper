@@ -66,14 +66,14 @@ import { ChangeBaseline, changesCode, proofRepairPrompt, type ChangeProof } from
 import { independentAcceptance } from "./verify/acceptance";
 import { parseChecklist, parseReview, requirementsReviewPrompt, ROUND_MAX_TURNS, type RequirementsReview } from "./task/review";
 import { extractChecklist, formatChecklistPrompt, normalizeCases } from "./task/checklist";
-import { checkCommands, isBuiltinCheck } from "./verify/named";
+import { checkCommands, isBuiltinCheck, labNamedChecks } from "./verify/named";
 import { autoDetectedChecks } from "./verify/migrations-check";
 import { buildNextRow, type NextItem } from "./tui/next-row";
 import { SuggestionController, SUGGESTION_COMMAND } from "./app/suggestions";
 import { findFlow, formatFlowPrompt, loadFlowCatalog, type Flow, type FlowRule } from "./flows/catalog";
 import { beforeWorkPanel, readBeforeWorkAnswer, suggestBeforeWork } from "./flows/suggest";
 import { extractPlan, formatBuildPrompt, parsePlanLines, planEditorHeading, planEditorLines, planToolGate, type ParsedPlan } from "./flows/plan";
-import { PROJECT_YAML, saveProjectCommand } from "./project/config-write";
+import { PROJECT_YAML, saveNamedCheck, saveProjectCommand } from "./project/config-write";
 import type { TaskClassification } from "./task/classify";
 import type { ProjectCommand } from "./project/model";
 import { describeChecksPlan, manualChecks, planAutoChecks, resolveVerificationMode, selectedChecks, type ChecksPlan, type VerificationMode } from "./verify/mode";
@@ -988,6 +988,7 @@ export class CasperApp {
       }
       return undefined;
     }
+    if (action.kind === "save-check") { await this.saveFoundCheck(action.name); return undefined; }
     if (action.kind === "run") {
       const text = await action.run();
       if (text && !this.closing) this.output.write(`${terminalText(text)}\n`);
@@ -1612,6 +1613,25 @@ export class CasperApp {
     this.terminal.setSteps(undefined);
   }
 
+  /** `/verify add <name>` or a picked suggestion: save a check Casper found in .casper/project.yaml, then use it. */
+  async saveFoundCheck(name: string): Promise<void> {
+    const context = this.projectContext!;
+    const spec = context.model.foundChecks?.[name];
+    if (!spec) {
+      const found = Object.keys(context.model.foundChecks ?? {});
+      this.output.write(`[project] ${terminalText(name)} is not a check Casper found here.${found.length ? ` Found: ${found.join(", ")}.` : ""}\n`);
+      return;
+    }
+    try {
+      const written = await saveNamedCheck(context.info.root, name, spec);
+      this.output.write(`[project] Saved ${terminalText(written.line)} in ${PROJECT_YAML}\n`);
+      try { this.projectContext = await this.loadProjectContextFn(context.info); }
+      catch (error) { this.output.write(`[project] ${PROJECT_YAML} could not be read again (${terminalText(error instanceof Error ? error.message : String(error))}); restart Casper to use it.\n`); }
+    } catch (error) {
+      this.output.write(`[project] Not saved: ${terminalText(error instanceof Error ? error.message : String(error))}\n`);
+    }
+  }
+
   /** The mode and checks this session uses after a change; the banner, /status and every task share it. */
   async checksPlan(context: ProjectContext): Promise<ChecksPlan> {
     const flag = this.verificationFlag;
@@ -1621,10 +1641,13 @@ export class CasperApp {
     const measuredMs = flag || configured || !this.interactive ? undefined : await measuredCheckTime(context.stateDirectory, checks, checkCommands(context.model));
     const mode = resolveVerificationMode({ flag, configured, interactive: this.interactive, measuredMs });
     const manual = manualChecks(checks, context.model.namedChecks);
+    const lab = labNamedChecks(context.model.namedChecks);
+    const found = Object.keys(context.model.foundChecks ?? {});
     // The dev server is named before it first runs, since it runs the project's own code.
     const web = mode === "auto" && context.pages !== "off" ? await detectWebService(this.activeWorkspaceRoot(), { frameworks: context.model.frameworks,
       packageManager: context.model.packageManager, services: context.services ?? {} }).catch(() => undefined) : undefined;
     return { mode, checks, ...(mode === "offer" && measuredMs !== undefined ? { slow: true } : {}), ...(manual.length ? { manual } : {}),
+      ...(lab.length ? { lab } : {}), ...(found.length ? { found } : {}),
       ...(isDetectedWebService(web) ? { pages: redactPreview(terminalText(web.label)).slice(0, 120) } : {}) };
   }
 
