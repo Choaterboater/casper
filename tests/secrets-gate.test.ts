@@ -31,3 +31,14 @@ test("grep output from configs is scrubbed; source files and plain output are le
   const junos = await scrubToolOutput(scrubber, "read", { path: "oxidized/r1" }, ["set system root-authentication encrypted-password \"$6$abc$def\""]);
   expect(junos?.texts[0]).not.toContain("$6$abc$def");
 });
+
+test("reading back Pi's saved output of a long command is scrubbed like command output", async () => {
+  const config = "hostname sw1\nsnmp-server community SavedComm RO\n";
+  const saved = await scrubToolOutput(scrubber, "read", { path: "/tmp/pi-bash-0123456789abcdef.log" }, [config]);
+  expect(saved?.texts[0]).toBe("hostname sw1\nsnmp-server community <secret hidden> RO\n");
+  const shell = await scrubToolOutput(scrubber, "read", { path: "C:\\Temp\\pi-powershell-00ff.log", offset: 1 }, [config]);
+  expect(shell?.texts[0]).not.toContain("SavedComm");
+  // Plain command output in that file, and other .log files, are left alone.
+  expect(await scrubToolOutput(scrubber, "read", { path: "/tmp/pi-bash-0123456789abcdef.log" }, ["build ok\n"])).toBeUndefined();
+  expect(await scrubToolOutput(scrubber, "read", { path: "logs/app.log" }, [config])).toBeUndefined();
+});
