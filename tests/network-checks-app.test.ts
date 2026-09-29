@@ -133,11 +133,14 @@ test("a lab check that would reach a device off the lab list is refused by name,
 
 test("a run that cannot ask sends nothing to the lab and says so", async () => {
   const f = fixture = await labProject({ "lab-sw1": { ansible_host: "10.99.0.11" } }, "aoscx-check");
-  const { app, output } = makeApp(f);
+  const { app, output, events } = makeApp(f);
   try {
     await app.runOnce("/verify aoscx-check", f.root);
     expect(output()).toContain("aoscx-check · not run: lab checks need your answer at the terminal, and this run cannot ask; nothing was sent");
     expect(await ran(f, "ansible-playbook")).toBe(false);
+    // The JSON check event keeps the lab fields even when nothing was sent.
+    const check = events.find((event) => event.type === "check" && (event as { name?: string }).name === "aoscx-check");
+    expect(check).toMatchObject({ kind: "lab", label: "dry run not guaranteed", hosts: ["lab-sw1"] });
   } finally { await app.close(); }
 });
 
