@@ -147,7 +147,11 @@ Nothing here requires installing or connecting a server automatically.
 
 - [Project configuration, model roles and skills](docs/CONFIGURATION.md)
 - [Verification, freshness and repair](docs/VERIFICATION.md)
-- [MCP tools](docs/MCP.md) and [language servers](docs/LSP.md)
+- [MCP tools](docs/MCP.md) and [language servers](docs/LSP.md). Network MCP servers start with
+  writes off; only the product itself can make a server read-only, and only you can turn writes on
+  (`/mcp writes <name>`). `casper mcp check` checks a server you built.
+- [Device secrets](docs/SECRETS.md): known passwords, keys and SNMP communities in MCP results and
+  config files are hidden from the AI (best effort)
 - [Browser-assisted debugging](docs/BROWSER.md) and [local DAP debugging](docs/DEBUGGER.md)
 - [Managed services](docs/SERVICES.md): declared development servers Casper runs and stops
 - [Diagram export](docs/VISUALIZATION.md)
@@ -163,8 +167,9 @@ consent do not provide OS isolation.
 
 Source text, tool output and conversation history may reach your selected model
 provider or remain in local plaintext state. Do not use sensitive repositories
-without an appropriate provider and environment. There is no comprehensive secret
-detector or enforced parent-task spending cap.
+without an appropriate provider and environment. Casper hides known device secret
+formats from the AI ([SECRETS.md](docs/SECRETS.md)), but there is no comprehensive
+secret detector or enforced parent-task spending cap.
 
 Checks establish command results, not complete behavioral correctness. Missing or
 stale evidence is not a pass. Review important changes yourself.

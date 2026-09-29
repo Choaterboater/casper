@@ -29,11 +29,15 @@ through. Check what a tool returns before you share it.
   `.yaml`, `.md` and so on) is never changed, even under those folders, so test
   fixtures stay as they are.
 - **Command and grep output: only when it looks like a config.** Output from
-  `bash` or `grep` is scrubbed when it has two config lines such as `hostname`,
+  `bash`, `powershell` or `grep` (failed commands too) is scrubbed when it has two config lines such as `hostname`,
   `version 23.4;`, `## Last commit` or `interface 1/1/1`, or any line that
   clearly carries a secret (`snmp-server community X`, `wpa-passphrase X`).
+  When a command prints a lot, Pi saves the whole output to a
+  `pi-bash-<id>.log` (or `pi-powershell-<id>.log`) file; reading that file back
+  gets the same check. Other `.log` files are left alone.
+- **Subagents** (`/delegate`) get the same scrubbing for what they read.
 - **Reference search excerpts** (`/references search`, `search_references`)
-  are scrubbed, and a line that only matches inside a hidden secret is not
+  are scrubbed with Casper's own rules (not netconan), and a line that only matches inside a hidden secret is not
   returned.
 
 The note `N secrets hidden before the AI saw this (...)` is added to the result
@@ -60,6 +64,8 @@ designed.
 
 The AI never saw the real value, so it must not write the marker over it:
 
+The same goes for `<line hidden: secret>`.
+
 - An MCP call whose arguments contain `<secret hidden>` is refused before you
   are asked: `Not executed (this change still has <secret hidden> in it). Casper
   hid that secret from the AI, so the AI can't send it back. Type the real value
@@ -67,12 +73,14 @@ The AI never saw the real value, so it must not write the marker over it:
 - A native `edit` or `write` whose new text contains it is refused: `Not
   written: the new text has <secret hidden> in it. That would replace a real
   secret in the file. Keep the original line.`
-- A `bash` command that contains it is refused: `Not run: the command has
-  <secret hidden> in it. ...`
+- A `bash` or `powershell` command that contains it is refused: `Not run: the
+  command has <secret hidden> in it. It could write the marker over a real
+  secret. Keep the original line, or ask the user to make this change.`
 
 A shell command can still change a config file in other ways (for example a
 script that writes a file from scratch). These checks stop the marker itself,
-not every rewrite.
+not every rewrite. The check is literal: it also stops a source file edit or a
+`grep` command that only mentions the marker text.
 
 ## netconan: an extra check, not the main one
 
@@ -107,8 +115,15 @@ are always scrubbed.
 
 ## Limits
 
-- The approval box masks secrets on your screen, but the server still gets the
-  real value you approve.
-- Subagents (`/delegate`) get the same scrubbing for the files and output they
-  read, and `/secrets files off` turns it off for them too.
-- Scrubbing works line by line on known formats. It is best effort.
+- Scrubbing works line by line on known formats. It is best effort: a secret in
+  a format Casper doesn't know reaches the AI.
+- The approval box, `/mcp` and server questions mask secrets on your screen, but
+  the server still gets the real value you approve.
+- Secrets the AI already had (for example ones you typed in a request, or ones
+  in a file that is not a config file) stay in the conversation and the saved
+  session like any other text.
+- `/secrets files off` turns file and command scrubbing off for subagents too.
+- `casper learn` reads repo text without this scrubbing.
+- If the check itself fails on a tool's output, the AI gets `Output not shown:
+  Casper could not check it for device secrets. Try a smaller read or another
+  command.` instead of the raw text.

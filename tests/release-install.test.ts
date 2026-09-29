@@ -231,5 +231,7 @@ test("every place that names the release agrees on one version", async () => {
   expect(readme).toContain(`# casper ${CASPER_VERSION} (`);
   const release = await read("docs/RELEASE.md");
   expect(release).toContain(`unsigned **${tag} preview**`);
-  expect(release.match(/^## (v\S+?):?\s/m)?.[1]).toBe(tag);
+  // The newest released section names this version; a section still marked "Not released yet" is skipped.
+  const released = release.split(/^(?=## v)/m).filter((section) => section.startsWith("## v") && !section.includes("**Not released yet.**"));
+  expect(released[0]?.match(/^## (v\S+?):?\s/)?.[1]).toBe(tag);
 });
