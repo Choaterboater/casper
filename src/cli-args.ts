@@ -313,14 +313,20 @@ export interface SecurityCommand {
 
 export const SECURITY_USAGE = "Usage: casper security [repo] [--json] [--strict] [--install] [--mcp-tools <file>]";
 const SECURITY_FLAGS = new Set(["--json", "--strict", "--install"]);
-export const PATH_LIKE = /^(?:\.{1,2}(?:[\\/]|$)|~(?:[\\/]|$)|[\\/]|[A-Za-z]:[\\/])|[\\/]/;
+/** One word that can only be a path: it starts with / ./ ../ ~ or a drive (C:\\), or ends with a slash, and has no
+ * spaces. `casper "fix src/app.py"` or `casper "Add POST /notes"` are prompts, never paths. */
+export function looksLikePath(word: string): boolean {
+  if (/\s/.test(word)) return false;
+  return /^(?:\.{1,2}(?:[\\/]|$)|~(?:[\\/]|$)|[\\/]|[A-Za-z]:[\\/])/.test(word) || /[\\/]$/.test(word);
+}
+const PATH_LIKE = /^(?:\.{1,2}(?:[\\/]|$)|~(?:[\\/]|$)|[\\/]|[A-Za-z]:[\\/])|[\\/]/;
 
 /** `security` alone, with its flags, or with one folder is the command; other words are a prompt. The folder
  * looks like a path (./app, ~/code/app) or is a folder that is there (`casper security app`), so a folder
  * name never turns into a paid prompt. */
 function isSecurityCommand(rest: readonly string[]): boolean {
   const words = rest.filter((arg, index) => !arg.startsWith("-") && rest[index - 1] !== "--mcp-tools");
-  return words.length === 0 || (words.length === 1 && (PATH_LIKE.test(words[0]!) || isFolder(words[0]!)));
+  return words.length === 0 || (words.length === 1 && ((!/\s/.test(words[0]!) && PATH_LIKE.test(words[0]!)) || isFolder(words[0]!)));
 }
 
 function isFolder(word: string): boolean {

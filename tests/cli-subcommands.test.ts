@@ -30,6 +30,8 @@ test("subcommands are matched first, in one fixed order", () => {
 test("ordinary sentences that start with a subcommand's word stay prompts", () => {
   expect(parseCliArgs(["new", "ideas", "for", "the", "app"]).command).toBe("prompt");
   expect(parseCliArgs(["security", "review", "of", "the", "login", "code"]).command).toBe("prompt");
+  // One quoted request with a slash in it is words, not a folder.
+  expect(parseCliArgs(["security", "review the /login handler"]).command).toBe("prompt");
   expect(parseCliArgs(["mcp", "docs", "are", "wrong"]).command).toBe("prompt");
 });
 

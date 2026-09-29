@@ -11,7 +11,7 @@ import { CasperApp } from "./app";
 import { agentStoreWarnings, importLegacyEngineState, useCasperAgentStore } from "./runtime/agent-store";
 import { CandidateLibrary, formatLearningResult } from "./learn/candidates";
 import { taskExitCode } from "./task/result";
-import { PATH_LIKE, parseCliArgs, parseLearnArgs, parseMcpCheckArgs, parseNewArgs, parseSecurityArgs, UsageError, type McpCheckCommand,
+import { looksLikePath, parseCliArgs, parseLearnArgs, parseMcpCheckArgs, parseNewArgs, parseSecurityArgs, UsageError, type McpCheckCommand,
   type NewCommand, type SecurityCommand, type SubcommandName, type CliOptions } from "./cli-args";
 import type { VerificationMode } from "./verify/mode";
 
@@ -183,7 +183,7 @@ export async function runCli(): Promise<void> {
       options.command = "interactive";
       options.rest = [];
     // A slash command (`casper /undo`) is not a path.
-    } else if (PATH_LIKE.test(word) && !/^\/[A-Za-z][\w-]*(?:\s|$)/.test(word)) throw new UsageError(`Not a folder: ${word}`);
+    } else if (looksLikePath(word) && !/^\/[A-Za-z][\w-]*$/.test(word)) throw new UsageError(`Not a folder: ${word}`);
   }
   if (options.cd) {
     const folder = path.resolve(options.cd);
