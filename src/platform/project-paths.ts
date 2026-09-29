@@ -177,8 +177,11 @@ export function classifyPath(absolute: string, context: PathContext, write: bool
   const realInside = roots.some((root) => within(root, real));
   if (namedInside && !realInside) return "linksOut";
   // Where the write lands decides; a name under ~/.pi that is a link into the project is the project.
+  // A project that itself lives in one of these places (Casper's own worktrees are in ~/.casper/worktrees)
+  // is still the project: only the parts outside it are protected.
   if (write && PROTECTED_WRITE_PATHS.some((entry) => variants(path.join(home, entry))
-    .some((place) => within(place, real) || (!realInside && within(place, absolute))))) return "protected";
+    .some((place) => !(realInside && roots.some((root) => within(place, root)))
+      && (within(place, real) || (!realInside && within(place, absolute)))))) return "protected";
   return realInside ? "inside" : "outside";
 }
 
