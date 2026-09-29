@@ -236,3 +236,13 @@ test("a file saved between the plan and the undo (while Casper asked) keeps the 
   expect(await readFile(path.join(root, "b.py"), "utf8")).toBe("b1\n");
 });
 
+test("a copy lists what git ignores (a whole ignored folder as one entry), which the copy does not hold", async () => {
+  const { root, store } = await setup();
+  await writeFile(path.join(root, ".gitignore"), "local.cfg\nbuild/\n");
+  await writeFile(path.join(root, "local.cfg"), "mine\n");
+  await mkdir(path.join(root, "build", "deep"), { recursive: true });
+  await writeFile(path.join(root, "build", "deep", "out.js"), "x\n");
+  const snapshot = await store.snapshot();
+  if (!("tree" in snapshot)) throw new Error(snapshot.unavailable);
+  expect(snapshot.ignored.sort()).toEqual(["build/", "local.cfg"]);
+});

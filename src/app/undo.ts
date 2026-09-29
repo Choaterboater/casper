@@ -11,7 +11,9 @@ import { readProjectText, removeProjectFile, writeProjectFile } from "../platfor
 import type { RuntimeSession } from "../runtime/types";
 import { ReceiptStore, type ReceiptUndo, type StoredReceipt } from "../task/receipts";
 import { formatTaskResult, receiptVerdict, UNDO_NOTHING_CHANGED, type TaskResult } from "../task/result";
-import { leftOutWhy, UndoStore, type UndoSnapshot } from "../task/undo";
+import path from "node:path";
+import { coveredBy, leftOutWhy, UndoStore, type LeftOut, type UndoSnapshot } from "../task/undo";
+import { isSecretFile } from "../secrets/files";
 import { redactPreview, terminalText } from "../tui/format";
 import { buildNextRow, type NextRow } from "../tui/next-row";
 import type { InteractiveTerminal } from "../tui/terminal";
@@ -117,14 +119,41 @@ export class TaskUndo {
         task.undo = { available: false, reason: after.unavailable };
         undo = { unavailable: after.unavailable };
       } else {
-        const paths = (await store.changes(start.snapshot.tree, after.tree).catch(() => [])).map((change) => change.path);
-        const leftByPath = new Map([...start.snapshot.left, ...after.left].map((entry) => [entry.path, entry]));
-        const left = changed.filter((file) => leftByPath.has(file)).map((file) => ({ path: file, why: leftOutWhy(leftByPath.get(file)!) }));
+        const before = start.snapshot;
+        // A file in the second copy but not the first is one the task made, unless it was already there and simply
+        // not copied (git ignored it, it was over 8 MB, or it was inside a nested repository). Undo would delete
+        // such a file, so it is left out of the task's files and named as one undo can't put back.
+        const notCopiedBefore = (file: string): LeftOut | undefined => {
+          const left = before.left.find((entry) => entry.path === file || coveredBy([entry.path], file));
+          if (left) return { path: file, why: left.why };
+          return coveredBy(before.ignored, file) ? { path: file, why: isSecretFile(file) ? "secret" : "not copied" } : undefined;
+        };
+        const kept: LeftOut[] = [];
+        const paths = (await store.changes(before.tree, after.tree).catch(() => [])).flatMap((change) => {
+          const already = !change.from && change.to ? notCopiedBefore(change.path) : undefined;
+          if (already) { kept.push(already); return []; }
+          return [change.path];
+        });
+        // Files the task's own tools edited that no copy holds (ignored, secret): undo can't put them back either.
+        const edited = (task.observedEdits ?? []).flatMap((file) => {
+          const relative = path.relative(start.root, path.resolve(start.root, file)).split(path.sep).join("/");
+          return relative && !relative.startsWith("..") && !path.isAbsolute(relative) ? [relative] : [];
+        });
+        const all = [...before.left, ...after.left, ...kept];
+        for (const file of edited) {
+          if (paths.includes(file) || all.some((entry) => entry.path === file)) continue;
+          const ignored = coveredBy(before.ignored, file) ?? coveredBy(after.ignored, file);
+          if (ignored !== undefined || isSecretFile(file)) all.push({ path: file, why: isSecretFile(file) ? "secret" : "ignored" });
+        }
+        const wanted = new Set([...changed, ...edited, ...kept.map((entry) => entry.path)]);
+        const unique = [...new Map(all.filter((entry) => wanted.has(entry.path)).map((entry) => [entry.path, entry])).values()]
+          .sort((a, b) => a.path.localeCompare(b.path));
+        const left = unique.map((entry) => ({ path: entry.path, why: leftOutWhy(entry) }));
         if (paths.length) {
           task.undo = { available: true, ...(left.length ? { left } : {}) };
-          stat = await store.diff(start.snapshot.tree, after.tree, { stat: true }).catch(() => "");
+          stat = await store.diff(before.tree, after.tree, { stat: true, ...(kept.length ? { paths } : {}) }).catch(() => "");
         } else task.undo = { available: false, reason: left.length ? `Casper keeps no copy of ${names(left.map((entry) => entry.path))}` : UNDO_NOTHING_CHANGED };
-        undo = { before: start.snapshot.tree, after: after.tree, paths, left: [...start.snapshot.left, ...after.left].filter((entry) => changed.includes(entry.path)),
+        undo = { before: before.tree, after: after.tree, paths, left: unique,
           ...(input.servers.length ? { servers: [...input.servers] } : {}) };
       }
     }

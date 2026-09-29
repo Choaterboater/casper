@@ -15,7 +15,7 @@ import { posixOnly } from "./support/platform";
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
 
-interface Turn { (project: string): Promise<void> }
+interface Turn { (project: string, edited: (file: string) => Promise<unknown>): Promise<void> }
 
 /** A folder, a HOME, and a fake model whose turns write files. The fake conversation records marks, rewinds and notes. */
 async function folder(options: { git?: boolean } = {}) {
@@ -40,7 +40,7 @@ function makeApp(place: { home: string; project: string }, turns: Turn[], option
   const rewinds: Array<[string | null, string | null]> = [];
   const notes: string[] = [];
   const runtime: AgentRuntime = {
-    async start() {
+    async start(startOptions) {
       return {
         getStatus: () => ({ provider: "fixture", model: "demo", auth: "configured" }),
         getState: () => ({ cwd: place.project, isStreaming: false }),
@@ -58,7 +58,7 @@ function makeApp(place: { home: string; project: string }, turns: Turn[], option
         prompt: async () => {
           conversation.push(`turn-${conversation.length}`);
           emit({ type: "assistant_response_start", provider: "fixture", model: "demo" });
-          await turns.shift()?.(place.project);
+          await turns.shift()?.(place.project, async (file) => startOptions.afterFileEdit?.(file, new AbortController().signal));
           emit({ type: "assistant_text_delta", delta: "Done.\n" });
           emit({ type: "assistant_response_end", stopReason: "stop" });
         },
@@ -268,4 +268,56 @@ posixOnly("with git missing, the receipt says undo is not available and why", as
     expect(made.output()).toContain("• Undo not available: git is not installed\n");
     expect(made.output()).not.toContain("Undo: casper /undo");
   } finally { process.env.PATH = saved; await made.app.close(); }
+}, 30_000);
+
+test("a file git ignored before the task is never deleted by undo, even when the task stopped ignoring it", async () => {
+  const place = await folder();
+  await writeFile(path.join(place.project, ".gitignore"), "local.cfg\n");
+  await writeFile(path.join(place.project, "local.cfg"), "my own settings\n");
+  const first = makeApp(place, [edit(".gitignore", "# nothing ignored\n")]);
+  try {
+    await first.app.runOnce("stop ignoring files", place.project);
+    // The change summary lists the task's own file; local.cfg was there before, so it is named as one undo can't reach.
+    expect(first.output()).toContain(" .gitignore | 2 +-");
+    expect(first.output()).not.toContain("local.cfg |");
+    expect(first.output()).toContain("• Undo can't put back: local.cfg (it was there before the task, but git ignored it then, so Casper has no copy)");
+  } finally { await first.app.close(); }
+  const later = makeApp(place, []);
+  try {
+    await later.app.runOnce("/undo", place.project);
+    expect(later.output()).toContain("✓ Undone — 1 file is back as it was before task 1: .gitignore\n");
+    expect(await readFile(path.join(place.project, "local.cfg"), "utf8")).toBe("my own settings\n");
+    expect(await readFile(path.join(place.project, ".gitignore"), "utf8")).toBe("local.cfg\n");
+  } finally { await later.app.close(); }
+}, 30_000);
+
+test("a file over 8 MB before the task is never deleted by undo when the task made it small", async () => {
+  const place = await folder();
+  await writeFile(path.join(place.project, "capture.pcap"), Buffer.alloc(8 * 1024 * 1024 + 1, 7));
+  const first = makeApp(place, [async (project) => { await writeFile(path.join(project, "capture.pcap"), "trimmed\n"); await writeFile(path.join(project, "notes.py"), "print('two')\n"); }]);
+  try {
+    await first.app.runOnce("trim the capture", place.project);
+    expect(first.output()).toContain("• Undo can't put back: capture.pcap (over 8 MB)");
+  } finally { await first.app.close(); }
+  const later = makeApp(place, []);
+  try {
+    await later.app.runOnce("/undo", place.project);
+    expect(later.output()).toContain("✓ Undone — 1 file is back as it was before task 1: notes.py\n");
+    expect(await readFile(path.join(place.project, "capture.pcap"), "utf8")).toBe("trimmed\n");
+  } finally { await later.app.close(); }
+}, 30_000);
+
+test("files the task's tools edited that git ignores are named on the receipt as ones undo can't put back", async () => {
+  const place = await folder();
+  await writeFile(path.join(place.project, ".gitignore"), "dist/\n.env\n");
+  const first = makeApp(place, [async (project, edited) => {
+    await mkdir(path.join(project, "dist"), { recursive: true });
+    await writeFile(path.join(project, "dist", "app.js"), "built\n"); await edited("dist/app.js");
+    await writeFile(path.join(project, ".env"), "TOKEN=abc\n"); await edited(path.join(project, ".env"));
+    await writeFile(path.join(project, "notes.py"), "print('two')\n"); await edited("notes.py");
+  }]);
+  try {
+    await first.app.runOnce("build it", place.project);
+    expect(first.output()).toContain("• Undo can't put back: .env (Casper keeps no copy of secret files), dist/app.js (git ignores it, so Casper keeps no copy)");
+  } finally { await first.app.close(); }
 }, 30_000);
