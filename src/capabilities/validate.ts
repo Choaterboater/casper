@@ -122,7 +122,8 @@ function describe(error: ErrorObject, schema: unknown): string | undefined {
       return `${subject(segments)} does not match any allowed form`;
     default: {
       // Ajv's own messages describe the rule (like "must be <= 100"), not the value sent.
-      const message = clean(error.message ?? "is not valid").slice(0, MAX_LINE_CHARS);
+      // Some quote the server's schema (a pattern, say), so hide secret-looking text there too.
+      const message = clean(scrubText(error.message ?? "is not valid").text).slice(0, MAX_LINE_CHARS);
       return `${subject(segments)} ${message}`;
     }
   }
