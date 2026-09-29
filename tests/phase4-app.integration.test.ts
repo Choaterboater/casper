@@ -186,16 +186,16 @@ test("interactive approval shows exact arguments and permits only an explicit ye
     loadMCPConfiguration: () => discoverMCPConfiguration({ projectRoot: project, homeDir: home }),
     output: { write: (text) => {
       output += text;
-      // Writes are off at start: turn them on for this server first (/mcp writes, then 1).
+      // Writes are off at start: turn them on for this server first (/mcp writes, then 2).
       if (text === "> ") queueMicrotask(() => input.write(["/mcp writes fixture\n", "Change site\n"][prompts++] ?? "/exit\n"));
-      if (text.endsWith("Type 1 or 2: ")) queueMicrotask(() => input.write("1\n"));
+      if (text.endsWith("Type 1 or 2: ")) queueMicrotask(() => input.write("2\n"));
       if (text.includes("Type yes:")) queueMicrotask(() => input.write("yes\n"));
     } },
   });
   cleanup.push(() => app.close());
   await app.runOnce("/mcp connect fixture", project);
   await app.runInteractive();
-  expect(output).toContain("fixture writes are off.\n  1 Enable for this server\n  2 Keep writes off\n");
+  expect(output).toContain("fixture writes are off.\n  1 Keep writes off\n  2 Enable for this server\n");
   expect(output).toContain("[mcp] Writes on for fixture. Each change still asks you. /mcp writes off turns writes off.");
   expect(output).toContain("MCP · fixture · set_site  [write]");
   expect(output).toContain("Mode: EXECUTE (this makes the change)");
@@ -236,9 +236,9 @@ async function networkRun(answers: string[], call: { id: string; arguments: Reco
     loadMCPConfiguration: () => discoverMCPConfiguration({ projectRoot: project, homeDir: home }),
     output: { write: (text) => {
       output += text;
-      // Writes are off at start: turn them on for this server first (/mcp writes, then 1).
+      // Writes are off at start: turn them on for this server first (/mcp writes, then 2).
       if (text === "> ") queueMicrotask(() => input.write(["/mcp writes net\n", "Bounce the port\n"][prompts++] ?? "/exit\n"));
-      if (text.endsWith("Type 1 or 2: ")) queueMicrotask(() => input.write("1\n"));
+      if (text.endsWith("Type 1 or 2: ")) queueMicrotask(() => input.write("2\n"));
       if (/Type (yes|one of)[^:]*: $/.test(text)) { const answer = answers.shift() ?? "no"; queueMicrotask(() => input.write(`${answer}\n`)); }
     } },
   });

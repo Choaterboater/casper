@@ -59,7 +59,7 @@ async function session(home: string, project: string, commands: string[], option
     output: { write: (text) => {
       output += text;
       if (text === "> ") queueMicrotask(() => input.write(`${pending.shift() ?? "/exit"}\n`));
-      if (text.endsWith("Type 1 or 2: ")) queueMicrotask(() => input.write(`${answers.shift() ?? "2"}\n`));
+      if (text.endsWith("Type 1 or 2: ")) queueMicrotask(() => input.write(`${answers.shift() ?? "1"}\n`));
       if (text.endsWith("Type yes: ")) queueMicrotask(() => input.write(`${yes.shift() ?? "yes"}\n`));
     } },
   });
