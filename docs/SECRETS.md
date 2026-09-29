@@ -39,15 +39,20 @@ through. Check what a tool returns before you share it.
   other settings (`MIST_HOST=api.mist.com`) stay, so the AI still knows what
   the file holds.
 - **Secret-named values in any output: always.** In what `read`, `grep`,
-  `bash` and `powershell` return, a value after a secret-looking name
-  (`password=hunter2`, `"client_secret": "..."`, `api_key: ...`,
-  `Authorization: Bearer ...`) is hidden when it looks like a real value.
-  Code such as `token = getToken()` or `password: str` is left alone.
+  `bash`, `powershell` and the `service` tool (dev server logs and replies)
+  return, a value after a secret-looking name (`password=hunter2`,
+  `"client_secret": "..."`, `api_key: ...`, `SLACK_WEBHOOK_URL=...`,
+  `SENTRY_DSN=...`, `Authorization: Bearer ...`) is hidden when it looks like
+  a real value, and so is the password inside an address
+  (`postgres://app:<secret hidden>@db/app`). Code such as
+  `token = getToken()` or `password: str` is left alone.
 - **Your own secret environment values: always.** Exact copies of the values of
   Casper's secret-named environment variables (`OPENROUTER_API_KEY`,
   `MIST_API_TOKEN`, `CENTRAL_CLIENT_SECRET` ...; 8 characters or longer, not
   paths) are hidden wherever they turn up, so `printenv` shows the AI
-  `<secret hidden>`.
+  `<secret hidden>`. The keys and sign-in tokens in Casper's login file
+  (`~/.casper/agent/auth.json`) are hidden the same way, so `cat` of that file
+  in the AI's shell shows none of them.
 - **Command and grep output: only when it looks like a config.** Output from
   `bash`, `powershell` or `grep` (failed commands too) is scrubbed when it has two config lines such as `hostname`,
   `version 23.4;`, `## Last commit` or `interface 1/1/1`, or any line that

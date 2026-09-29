@@ -1,7 +1,9 @@
 import { scrubNote, type Scrubber } from "./netconan";
 import { KIND_ORDER, type SecretKind } from "./patterns";
-import { isSecretFile, scrubPlainSecrets } from "./files";
-import { scrubText, shouldScrubCommandOutput, shouldScrubRead } from "./scrub";
+import path from "node:path";
+import { isSecretFile, loginFileValues, scrubPlainSecrets } from "./files";
+import { casperAgentDir } from "../runtime/agent-store";
+import { scrubText, shouldScrubCommandOutput, shouldScrubRead, type ScrubTextResult } from "./scrub";
 
 /**
  * Pi keeps the whole output of a long command in <tmp>/pi-bash-<id>.log (or pi-powershell-) and tells
@@ -16,6 +18,8 @@ export interface ToolOutputScrubOptions {
   configs?: boolean;
   /** Environment whose secret-named values are hidden; defaults to Casper's own. */
   env?: NodeJS.ProcessEnv;
+  /** Casper's login file, whose keys are hidden wherever they show up; defaults to <agent dir>/auth.json. */
+  loginFile?: string;
 }
 
 /**
@@ -35,13 +39,15 @@ export async function scrubToolOutput(scrubber: Pick<Scrubber, "scrubText">, too
     if (typeof input.path !== "string") return undefined;
     secretFile = isSecretFile(input.path);
     device = configs && (shouldScrubRead(input.path) || (isSavedCommandOutput(input.path) && shouldScrubCommandOutput(texts.join("\n"))));
-  } else if (["bash", "powershell", "grep"].includes(toolName)) {
+  } else if (["bash", "powershell", "grep", "service"].includes(toolName)) {
+    // service: a dev server's logs, crash tails and HTTP replies are command output too.
     device = configs && shouldScrubCommandOutput(texts.join("\n"));
   } else return undefined;
   let hidden = 0;
   let failed = false;
   const kinds = new Set<SecretKind>();
   const out: string[] = [];
+  const values = loginFileValues(options.loginFile ?? path.join(casperAgentDir(), "auth.json"));
   for (const text of texts) {
     let next = text;
     if (device) {
@@ -52,7 +58,9 @@ export async function scrubToolOutput(scrubber: Pick<Scrubber, "scrubText">, too
       for (const kind of result.kinds) kinds.add(kind);
       next = result.text;
     }
-    const plain = scrubPlainSecrets(next, { secretFile, ...(options.env ? { env: options.env } : {}) });
+    const plainOptions = { secretFile, values, ...(options.env ? { env: options.env } : {}) };
+    // The service tool answers in JSON: check each string as it reads, not with its \n escapes.
+    const plain = toolName === "service" ? scrubJsonStrings(next, (value) => scrubPlainSecrets(value, plainOptions)) : scrubPlainSecrets(next, plainOptions);
     hidden += plain.hidden;
     for (const kind of plain.kinds) kinds.add(kind);
     out.push(plain.text);
@@ -60,4 +68,25 @@ export async function scrubToolOutput(scrubber: Pick<Scrubber, "scrubText">, too
   if (!hidden && !failed) return undefined;
   const note = scrubNote({ hidden, kinds: KIND_ORDER.filter((kind) => kinds.has(kind)), ...(failed ? { netconan: "failed" } : {}) });
   return { texts: out, ...(note ? { note } : {}) };
+}
+
+/** Scrub every string inside a JSON text; text that isn't JSON is scrubbed as it is. */
+function scrubJsonStrings(text: string, scrub: (value: string) => ScrubTextResult): ScrubTextResult {
+  let data: unknown;
+  try { data = JSON.parse(text); } catch { return scrub(text); }
+  let hidden = 0;
+  const kinds = new Set<SecretKind>();
+  const walk = (value: unknown): unknown => {
+    if (typeof value === "string") {
+      const result = scrub(value);
+      hidden += result.hidden;
+      for (const kind of result.kinds) kinds.add(kind);
+      return result.text;
+    }
+    if (Array.isArray(value)) return value.map(walk);
+    if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, inner]) => [key, walk(inner)]));
+    return value;
+  };
+  const next = walk(data);
+  return { text: hidden ? JSON.stringify(next) : text, hidden, kinds: KIND_ORDER.filter((kind) => kinds.has(kind)) };
 }
