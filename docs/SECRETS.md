@@ -26,11 +26,28 @@ through. Check what a tool returns before you share it.
   `list_key`, `key`, `public_key`, paging tokens (`next_token`, `page_token`)
   and anything under `_pagination` are left alone, so paging keeps working. The result says
   `secretsHidden: N`.
-- **Files you or the AI read: config files only.** A native `read` is scrubbed
+- **Files you or the AI read: config files for device secrets.** A native `read` is scrubbed
   for `.cfg`, `.conf` and `.set` files, and for files under a folder named
   `configs`, `backups` or `oxidized`. Source code (`.ts`, `.py`, `.json`,
-  `.yaml`, `.md` and so on) is never changed, even under those folders, so test
+  `.yaml`, `.md` and so on) is never changed by the device rules, even under those folders, so test
   fixtures stay as they are.
+- **`.env`, INI and credential files: always.** In `.env`, `.env.*`, `*.env`,
+  `.envrc`, `.netrc`, `.npmrc`, `.pypirc`, `.pgpass`, `credentials*`,
+  `secrets.*`, `*.ini`, `*.properties`, `*.tfvars`, `*.tfstate`, `*.pem`,
+  `*.key` and `id_rsa`-style files, every value whose name looks secret is
+  hidden, and so are private keys: `MIST_APITOKEN=<secret hidden>`. Names and
+  other settings (`MIST_HOST=api.mist.com`) stay, so the AI still knows what
+  the file holds.
+- **Secret-named values in any output: always.** In what `read`, `grep`,
+  `bash` and `powershell` return, a value after a secret-looking name
+  (`password=hunter2`, `"client_secret": "..."`, `api_key: ...`,
+  `Authorization: Bearer ...`) is hidden when it looks like a real value.
+  Code such as `token = getToken()` or `password: str` is left alone.
+- **Your own secret environment values: always.** Exact copies of the values of
+  Casper's secret-named environment variables (`OPENROUTER_API_KEY`,
+  `MIST_API_TOKEN`, `CENTRAL_CLIENT_SECRET` ...; 8 characters or longer, not
+  paths) are hidden wherever they turn up, so `printenv` shows the AI
+  `<secret hidden>`.
 - **Command and grep output: only when it looks like a config.** Output from
   `bash`, `powershell` or `grep` (failed commands too) is scrubbed when it has two config lines such as `hostname`,
   `version 23.4;`, `## Last commit` or `interface 1/1/1`, or any line that
@@ -38,7 +55,8 @@ through. Check what a tool returns before you share it.
   When a command prints a lot, Pi saves the whole output to a
   `pi-bash-<id>.log` (or `pi-powershell-<id>.log`) file; reading that file back
   gets the same check. Other `.log` files are left alone.
-- **Subagents** (`/delegate`) get the same scrubbing for what they read.
+- **Subagents** (`/delegate`) and other read-only helpers, such as the security
+  check's model review, get the same scrubbing for what they read.
 - **Reference search excerpts** (`/references search`, `search_references`)
   are scrubbed with Casper's own rules (not netconan), and a line that only matches inside a hidden secret is not
   returned.
@@ -104,14 +122,18 @@ is used and `/secrets` says `netconan did not finish; built-in scrub used.`
 
 ```text
 /secrets
-Secrets: hidden in MCP results (always). Files and command output: on. Extra check: netconan not found (built-in only).
+Secrets: hidden in MCP results, .env and credential files (always). Device configs in files and command output: on. Extra check: netconan not found (built-in only).
 
 /secrets files off
-Files and command output: off for this session. MCP results are still scrubbed.
+Device configs in files and command output: off for this session. MCP results, .env and credential files are still scrubbed.
 
 /secrets files on
-Files and command output: on.
+Device configs in files and command output: on.
 ```
+
+`/secrets files off` turns off the device config rules only. `.env` and
+credential files, secret-named values and your secret environment values stay
+hidden.
 
 Only you can type these; the AI has no way to turn scrubbing off. MCP results
 are always scrubbed.
@@ -125,7 +147,9 @@ are always scrubbed.
 - Secrets the AI already had (for example ones you typed in a request, or ones
   in a file that is not a config file) stay in the conversation and the saved
   session like any other text.
-- `/secrets files off` turns file and command scrubbing off for subagents too.
+- `/secrets files off` turns device config scrubbing off for subagents too.
+- The AI's file tools can't open private places such as `~/.ssh` at all, but its
+  shell can. See [SECURITY.md](SECURITY.md) for what is blocked and what is not.
 - `casper learn` reads repo text without this scrubbing.
 - If the check itself fails on a tool's output, the AI gets `Output not shown:
   Casper could not check it for device secrets. Try a smaller read or another

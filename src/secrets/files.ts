@@ -1,5 +1,5 @@
 import path from "node:path";
-import { KIND_ORDER, keepLiterally, type SecretKind } from "./patterns";
+import { KIND_ORDER, keepLiterally, PEM_BEGIN, type SecretKind } from "./patterns";
 import { SECRET_MARKER, scrubText, snakeKey, type ScrubTextResult } from "./scrub";
 
 /**
@@ -191,7 +191,8 @@ export function scrubPlainSecrets(text: string, options: PlainScrubOptions = {})
   let out = text;
   const add = (result: ScrubTextResult) => { out = result.text; hidden += result.hidden; for (const kind of result.kinds) kinds.add(kind); };
   add(scrubExactValues(out, secretEnvValues(options.env)));
-  if (options.secretFile) add(scrubText(out));
+  // Private keys are hidden in any output, with or without the device config rules.
+  if (options.secretFile || PEM_BEGIN.test(out)) add(scrubText(out));
   add(scrubAssignments(out, options.secretFile === true));
   return { text: out, hidden, kinds: KIND_ORDER.filter((kind) => kinds.has(kind)) };
 }

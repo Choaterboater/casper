@@ -46,6 +46,8 @@ services:
   `PATH`, package installs disabled). Casper sets `PORT` and `HOST` (`127.0.0.1`) itself,
   and owns `PATH`, `HOME`, `TMPDIR`, `BUN_INSTALL_AUTO` and `npm_config_offline`, so `env`
   may not set any of them (in any letter case). The service should listen on `HOST:PORT`.
+  AI provider keys (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY` and the rest) are dropped even when
+  `env` sets them.
 
 A project declares at most 4 services. Names are a letter followed by up to 31 letters,
 digits, `_` or `-`. `adhoc-<n>` is reserved for services started by command. Services

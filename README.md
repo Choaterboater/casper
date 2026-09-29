@@ -151,7 +151,8 @@ Nothing here requires installing or connecting a server automatically.
   writes off; only the product itself can make a server read-only, and only you can turn writes on
   (`/mcp writes <name>`). `casper mcp check` checks a server you built.
 - [Device secrets](docs/SECRETS.md): known passwords, keys and SNMP communities in MCP results and
-  config files are hidden from the AI (best effort)
+  config files, and values in `.env` and credential files, are hidden from the AI (best effort)
+- [Security](docs/SECURITY.md): what Casper keeps from the AI now, and what waits for the sandbox
 - [Browser-assisted debugging](docs/BROWSER.md) and [local DAP debugging](docs/DEBUGGER.md)
 - [Managed services](docs/SERVICES.md): declared development servers Casper runs and stops
 - [Diagram export](docs/VISUALIZATION.md)
@@ -163,7 +164,10 @@ Nothing here requires installing or connecting a server automatically.
 
 Casper is **not a sandbox**. Native coding tools can read/write files and run shell
 commands with your permissions. Worktrees, read-only agent roles and integration
-consent do not provide OS isolation.
+consent do not provide OS isolation. The AI's file tools don't open private
+places such as `~/.ssh`, don't follow links out of the project and can't change
+git hooks, and checks run without your AI provider keys; the AI's shell is not
+held back yet. See [SECURITY.md](docs/SECURITY.md) for what is and isn't blocked.
 
 Source text, tool output and conversation history may reach your selected model
 provider or remain in local plaintext state. Do not use sensitive repositories
