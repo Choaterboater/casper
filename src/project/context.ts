@@ -18,6 +18,8 @@ export interface ProjectContext {
   services?: LoadedConfiguration["services"];
   /** Configured smoke checks, run after every change (see docs/VERIFICATION.md). */
   smoke?: LoadedConfiguration["smoke"];
+  /** The pages: setting: pages the page check always opens, or off (see docs/VERIFICATION.md). */
+  pages?: LoadedConfiguration["pages"];
   rules: {
     profile: string | null;
     project: string | null;
@@ -58,6 +60,7 @@ export async function loadProjectContext(
     visualize: configuration.visualize,
     services: configuration.services,
     smoke: configuration.smoke,
+    ...(configuration.pages ? { pages: configuration.pages } : {}),
     rules: {
       profile: configuration.profileRules,
       project: configuration.projectRules,
