@@ -92,12 +92,12 @@ class PromptEditor extends Editor {
   }
 }
 
-/** Main-screen renderer: terminal scrollback, one editor, no autonomous input queue. */
 /** Who asked a numbered question: Casper itself (approvals, choices) or the AI through its ask tool. */
 export type AskOrigin = "ai" | "casper";
 /** The muted first line of every question the AI asks, so it never looks like a Casper approval. */
 export const AI_ASKS_LABEL = "The AI asks:";
 
+/** Main-screen renderer: terminal scrollback, one editor, no autonomous input queue. */
 export class TerminalSurface {
   private readonly tui: TuiMainScreen;
   private readonly terminal: StreamTerminal;
