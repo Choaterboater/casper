@@ -1,0 +1,97 @@
+[
+  {
+    "cell": null,
+    "code": "S105",
+    "end_location": {
+      "column": 58,
+      "row": 8
+    },
+    "filename": "/work/repo/app/server.py",
+    "fix": null,
+    "location": {
+      "column": 16,
+      "row": 8
+    },
+    "message": "Possible hardcoded password assigned to: \"GITHUB_TOKEN\"",
+    "name": "hardcoded-password-string",
+    "noqa_row": 8,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/hardcoded-password-string"
+  },
+  {
+    "cell": null,
+    "code": "S602",
+    "end_location": {
+      "column": 26,
+      "row": 13
+    },
+    "filename": "/work/repo/app/server.py",
+    "fix": null,
+    "location": {
+      "column": 12,
+      "row": 13
+    },
+    "message": "`subprocess` call with `shell=True` identified, security issue",
+    "name": "subprocess-popen-with-shell-equals-true",
+    "noqa_row": 13,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/subprocess-popen-with-shell-equals-true"
+  },
+  {
+    "cell": null,
+    "code": "S324",
+    "end_location": {
+      "column": 23,
+      "row": 17
+    },
+    "filename": "/work/repo/app/server.py",
+    "fix": null,
+    "location": {
+      "column": 12,
+      "row": 17
+    },
+    "message": "Probable use of insecure hash functions in `hashlib`: `md5`",
+    "name": "hashlib-insecure-hash-function",
+    "noqa_row": 17,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/hashlib-insecure-hash-function"
+  },
+  {
+    "cell": null,
+    "code": "S608",
+    "end_location": {
+      "column": 15,
+      "row": 23
+    },
+    "filename": "/work/repo/app/server.py",
+    "fix": null,
+    "location": {
+      "column": 9,
+      "row": 22
+    },
+    "message": "Possible SQL injection vector through string-based query construction",
+    "name": "hardcoded-sql-expression",
+    "noqa_row": 22,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/hardcoded-sql-expression"
+  },
+  {
+    "cell": null,
+    "code": "S608",
+    "end_location": {
+      "column": 62,
+      "row": 28
+    },
+    "filename": "/work/repo/app/server.py",
+    "fix": null,
+    "location": {
+      "column": 23,
+      "row": 28
+    },
+    "message": "Possible SQL injection vector through string-based query construction",
+    "name": "hardcoded-sql-expression",
+    "noqa_row": 28,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/hardcoded-sql-expression"
+  }
+]

@@ -1,0 +1,164 @@
+# Casper's own semgrep rules for Python MCP servers.
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Casper contributors. Written for Casper; no Semgrep Registry rules are copied.
+# Tested with `semgrep --test --metrics=off src/security/rules` against mcp.py next to this file.
+rules:
+  - id: casper.mcp-tool-shell-from-input
+    languages: [python]
+    severity: ERROR
+    message: A tool argument goes into a shell command, eval or exec. A caller can run any command.
+    metadata:
+      casper-severity: high
+    mode: taint
+    options:
+      taint_assume_safe_numbers: true
+      taint_assume_safe_booleans: true
+    pattern-sources:
+      - patterns:
+          - pattern-either:
+              - pattern-inside: |
+                  @$APP.tool(...)
+                  def $F(..., $P, ...): ...
+              - pattern-inside: |
+                  @$APP.tool
+                  def $F(..., $P, ...): ...
+              - pattern-inside: |
+                  @$APP.tool(...)
+                  async def $F(..., $P, ...): ...
+              - pattern-inside: |
+                  @$APP.tool
+                  async def $F(..., $P, ...): ...
+              - pattern-inside: |
+                  @$APP.call_tool(...)
+                  async def $F(..., $P, ...): ...
+              - pattern-inside: |
+                  @$APP.call_tool(...)
+                  def $F(..., $P, ...): ...
+          - pattern: $P
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: subprocess.$RUN($CMD, ..., shell=True, ...)
+              - pattern: os.system($CMD)
+              - pattern: os.popen($CMD, ...)
+              - pattern: asyncio.create_subprocess_shell($CMD, ...)
+              - pattern: eval($CMD, ...)
+              - pattern: exec($CMD, ...)
+          - focus-metavariable: $CMD
+
+  - id: casper.mcp-tool-sql-from-input
+    languages: [python]
+    severity: ERROR
+    message: A tool argument is pasted into SQL text. Pass it as a query parameter instead.
+    metadata:
+      casper-severity: high
+    mode: taint
+    options:
+      taint_assume_safe_numbers: true
+      taint_assume_safe_booleans: true
+    pattern-sources:
+      - patterns:
+          - pattern-either:
+              - pattern-inside: |
+                  @$APP.tool(...)
+                  def $F(..., $P, ...): ...
+              - pattern-inside: |
+                  @$APP.tool
+                  def $F(..., $P, ...): ...
+              - pattern-inside: |
+                  @$APP.tool(...)
+                  async def $F(..., $P, ...): ...
+              - pattern-inside: |
+                  @$APP.tool
+                  async def $F(..., $P, ...): ...
+              - pattern-inside: |
+                  @$APP.call_tool(...)
+                  async def $F(..., $P, ...): ...
+          - pattern: $P
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $CUR.execute($Q, ...)
+              - pattern: $CUR.executemany($Q, ...)
+              - pattern: $CUR.executescript($Q)
+              - pattern: sqlalchemy.text($Q)
+              - pattern: text($Q)
+          - focus-metavariable: $Q
+          - pattern-either:
+              - pattern: f"..."
+              - pattern: $A + $B
+              - pattern: $S.format(...)
+              - pattern: $S % $V
+
+  - id: casper.tls-verify-off
+    languages: [python]
+    severity: WARNING
+    message: TLS certificate checks are turned off. Anyone on the path can read or change the traffic.
+    metadata:
+      casper-severity: medium
+    pattern-either:
+      - pattern: requests.$M(..., verify=False, ...)
+      - pattern: httpx.$M(..., verify=False, ...)
+      - pattern: aiohttp.TCPConnector(..., ssl=False, ...)
+      - pattern: ssl._create_unverified_context(...)
+
+  - id: casper.yaml-load-unsafe
+    languages: [python]
+    severity: WARNING
+    message: yaml.load without SafeLoader can build any Python object from the file. Use yaml.safe_load.
+    metadata:
+      casper-severity: medium
+    pattern-either:
+      - patterns:
+          - pattern: yaml.load(...)
+          - pattern-not: yaml.load(..., Loader=yaml.SafeLoader, ...)
+          - pattern-not: yaml.load(..., Loader=SafeLoader, ...)
+          - pattern-not: yaml.load(..., Loader=yaml.CSafeLoader, ...)
+          - pattern-not: yaml.load(..., Loader=CSafeLoader, ...)
+      - pattern: yaml.unsafe_load(...)
+
+  - id: casper.mcp-http-bind-all
+    languages: [python]
+    severity: WARNING
+    message: The server listens on every network interface (0.0.0.0). Anyone who can reach this machine can call its tools unless it asks for a login.
+    metadata:
+      casper-severity: medium
+    pattern-either:
+      - pattern: $APP.run(..., host="0.0.0.0", ...)
+      - pattern: uvicorn.run(..., host="0.0.0.0", ...)
+      - pattern: FastMCP(..., host="0.0.0.0", ...)
+      - pattern: $APP.settings.host = "0.0.0.0"
+
+  - id: casper.mcp-tool-returns-secrets
+    languages: [python]
+    severity: ERROR
+    message: A tool returns the process environment or a secret value to the caller.
+    metadata:
+      casper-severity: high
+    patterns:
+      - pattern-either:
+          - pattern-inside: |
+              @$APP.tool(...)
+              def $F(...): ...
+          - pattern-inside: |
+              @$APP.tool
+              def $F(...): ...
+          - pattern-inside: |
+              @$APP.tool(...)
+              async def $F(...): ...
+          - pattern-inside: |
+              @$APP.tool
+              async def $F(...): ...
+      - pattern-either:
+          - pattern: return os.environ
+          - pattern: return dict(os.environ)
+          - pattern: return os.environ.copy()
+          - pattern: return {**os.environ}
+          - patterns:
+              - pattern-either:
+                  - pattern: return os.environ[$K]
+                  - pattern: return os.environ.get($K, ...)
+                  - pattern: return os.getenv($K, ...)
+              - metavariable-regex:
+                  metavariable: $K
+                  regex: (?i).*(token|secret|password|passwd|api_?key|private_?key|credential).*
