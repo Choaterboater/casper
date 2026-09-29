@@ -113,8 +113,8 @@ plan turn: the model may only read (read, grep, find, ls and look-only shell com
 `cat` or `git log`); every other tool, MCP and Casper's own tools included, is refused with "Planning
 only". This is Casper's gate, not a sandbox, and a file that changed anyway is named on the receipt
 (`• Changed while planning: …`). The plan and its cases open in the editor: Enter builds it, Esc stops
-without building. The plain terminal asks "Build this plan?" instead, and a run that cannot ask stops
-after showing the plan.
+without building. The plain terminal asks "Build this plan?" instead (1 Stop · 2 Build, so Enter
+builds nothing), and a run that cannot ask stops after showing the plan.
 
 ### Layout stability
 

@@ -1063,9 +1063,10 @@ export class CasperApp {
         this.output.write("[plan] This run can't ask you to build, so Casper stopped after the plan. Nothing was built.\n");
         return "stop";
       }
+      // Stop comes first, so Enter never starts a build that uses tokens.
       const answer = await this.terminal.pick("Build this plan?", [
-        { label: "Build", description: "the model builds these steps and tests these cases (uses tokens)" },
         { label: "Stop", description: "nothing is built" },
+        { label: "Build", description: "the model builds these steps and tests these cases (uses tokens)" },
       ], signal);
       if (answer !== "Build" || this.closing || signal?.aborted) { this.output.write("[plan] Stopped without building.\n"); return "stop"; }
     }
@@ -1733,9 +1734,10 @@ export class CasperApp {
     const which = before.join(", ");
     this.output.write(`• ${which} was already failing before this change (Casper ran it on the files from before)\n`);
     if (!this.interactive || !this.terminal.rich) return true;
+    // Leave it comes first, so Enter never starts a repair that uses tokens.
     const answer = await this.terminal.ask(`${which} was already failing before this change. Fix it anyway?`, [
-      { label: "Fix it anyway", description: "ask the model to make it pass (uses tokens)" },
       { label: "Leave it", description: "keep the change as it is; the receipt says the check fails" },
+      { label: "Fix it anyway", description: "ask the model to make it pass (uses tokens)" },
     ], false, signal);
     return answer?.[0] === "Fix it anyway";
   }
@@ -1760,9 +1762,10 @@ export class CasperApp {
       if (!retry && this.interactive && this.terminal.rich && attempt <= 4) {
         this.events.ensureLineBreak();
         const bigModel = this.bigModel(session);
+        // Stop comes first, so Enter never spends more tokens.
         const answer = await this.terminal.ask("The model failed again. What now?", [
-          { label: "Retry", description: "ask the same model to go on from where it stopped" },
           { label: "Stop", description: "keep the changes so far; /model picks another model" },
+          { label: "Retry", description: "ask the same model to go on from where it stopped (uses tokens)" },
           ...(bigModel ? [{ label: "Retry with your big model", description: `go on from where it stopped on ${terminalText(bigModel.label)} (uses tokens)` }] : []),
         ], false, this.commandAbort?.signal);
         if (bigModel && answer?.[0] === "Retry with your big model") big = bigModel;
@@ -1923,7 +1926,8 @@ export class CasperApp {
     return 1;
   }
 
-  /** "test timed out after 10m. 1 Retry · 2 Fix it anyway · 3 Allow more time" — Esc stops without a repair. */
+  /** "test timed out after 10m. 1 Stop · 2 Retry · 3 Fix it anyway · 4 Allow more time". Stop comes first, so Enter
+   * never runs anything or starts a repair; Esc is the same as Stop. */
   private async askUnfinished(unfinished: VerificationResult[], timeoutMs: number, signal: AbortSignal): Promise<UnfinishedChoice | undefined> {
     // The limit the run actually had: after "Allow more time" it is the longer one, not the configured one.
     const limit = (result: VerificationResult) => timedOutAfter(result) ?? timeoutMs;
@@ -1932,7 +1936,8 @@ export class CasperApp {
     // More time: four times the limit the run just had (at least a minute, at most an hour), as often as it is chosen.
     const had = Math.max(0, ...unfinished.filter((result) => result.ended === "timeout").map(limit));
     const longer = longerLimit(had);
-    const options: Array<{ label: string; description: string; choice: UnfinishedChoice }> = [
+    const options: Array<{ label: string; description: string; choice: UnfinishedChoice | undefined }> = [
+      { label: "Stop", description: "keep the changes; the receipt says it did not finish", choice: undefined },
       { label: "Retry", description: "run it again with the same limit", choice: "retry" },
       { label: "Fix it anyway", description: had ? "ask the model to make it finish in time, for example a hanging or slow test (uses tokens)"
         : "ask the model to fix why it could not start (uses tokens)", choice: "repair" },
