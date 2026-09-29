@@ -173,7 +173,7 @@ async function saveApprovals(root: string, homeDir: string, store: ApprovalStore
 }
 
 /**
- * Records the user's "1 Keep it (I approve)" for one marker. The host calls this only with the user's
+ * Records the user's "Keep it (I approve)" for one marker. The host calls this only with the user's
  * own answer to a numbered question; no model tool reaches it. Returns the file it wrote.
  */
 export async function approveIgnore(root: string, homeDir: string, marker: IgnoreMarker, lineText: string, now = new Date()): Promise<string> {
@@ -358,7 +358,7 @@ export function pythonIgnoreTables(file: string, text: string | undefined): stri
 }
 
 export interface IgnoreFileOptions {
-  /** Changed files the user chose to use for this run ("1 Use my changed file"). */
+  /** Changed files the user chose to use for this run ("Use my changed file"). */
   useChanged?: readonly string[];
 }
 

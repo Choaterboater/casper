@@ -183,7 +183,7 @@ function plainTerminal(f: NetworkFixture) {
   return { ...made, input, visible, until };
 }
 
-test("on the plain terminal the AOS-CX lab check asks with no Always choice, runs on 1, and a failure asks Stop first", async () => {
+test("on the plain terminal the AOS-CX lab check asks with no Always choice, runs on 2, and a failure asks Stop first", async () => {
   const f = fixture = await labProject({ "lab-sw1": { ansible_host: "10.99.0.11" } }, "aoscx-check", `echo "fatal: lab-sw1 unreachable" >&2; exit 2`);
   const t = plainTerminal(f);
   const running = t.app.runInteractive(f.root);
@@ -192,10 +192,10 @@ test("on the plain terminal the AOS-CX lab check asks with no Always choice, run
     t.input.write("/verify aoscx-check\n");
     await t.until((text) => text.includes("Type 1-2 (Enter for 1): "));
     expect(t.visible()).toContain("Run aoscx-check on your lab? It uses ansible --check, and a dry run is not guaranteed: some modules can still change the switches. lab-sw1\n");
-    expect(t.visible()).toContain("  1 Run on the lab\n  2 Skip\n");
+    expect(t.visible()).toContain("  1 Skip\n  2 Run on the lab\n");
     expect(t.visible()).not.toContain("Always for this project");
     expect(await ran(f, "ansible-playbook")).toBe(false);
-    t.input.write("1\n");
+    t.input.write("2\n");
     await t.until((text) => text.includes("failed on the lab. Casper did not ask the model to fix it"));
     expect(await ran(f, "ansible-playbook")).toBe(true);
     expect(t.visible()).toContain("✗ aoscx-check · dry run not guaranteed ·");
@@ -216,7 +216,7 @@ test("on the plain terminal the AOS-CX lab check asks with no Always choice, run
   }
 });
 
-test("Skip at the lab ask sends nothing", async () => {
+test("Skip at the lab ask sends nothing, and so does Enter", async () => {
   const f = fixture = await labProject({ "lab-sw1": { ansible_host: "10.99.0.11" } }, "aoscx-check");
   const t = plainTerminal(f);
   const running = t.app.runInteractive(f.root);
@@ -224,7 +224,8 @@ test("Skip at the lab ask sends nothing", async () => {
     await t.until((text) => text.endsWith("> "));
     t.input.write("/verify aoscx-check\n");
     await t.until((text) => text.includes("Type 1-2 (Enter for 1): "));
-    t.input.write("2\n");
+    // Enter picks 1, which is Skip: a stray Enter never reaches a device.
+    t.input.write("\n");
     await t.until((text) => text.includes("aoscx-check · not run: you chose Skip; nothing was sent"));
     expect(await ran(f, "ansible-playbook")).toBe(false);
     await t.until((text) => text.endsWith("> "));

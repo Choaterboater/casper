@@ -157,11 +157,13 @@ The asks:
 
 ```
 Run junos-commit on your lab? It loads the change on 2 lab routers, runs commit check, then rolls back. lab-r1, lab-r2
-1 Run on the lab · 2 Always for this project · 3 Skip
+1 Skip · 2 Run on the lab · 3 Always for this project
 
 Run aoscx-check on your lab? It uses ansible --check, and a dry run is not guaranteed: some modules can still change the switches. lab-sw1, lab-sw2, lab-sw3
-1 Run on the lab · 2 Skip
+1 Skip · 2 Run on the lab
 ```
+
+Skip is first, so Enter never reaches a device.
 
 When a lab check fails, Casper asks before anything else happens. Stop is first, so
 Enter never starts a repair:

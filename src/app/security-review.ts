@@ -4,7 +4,7 @@
  * ignore, downloading advisory data. A run that cannot ask takes the choice that downloads nothing and approves
  * nothing, and says so. The model review that could follow comes in a later version, after the shell sandbox.
  */
-import { formatQuestion, formatSecurityHeader, formatSecurityReport, IGNORE_CHOICES, IGNORE_FILE_CHOICES, ignoreFileQuestion, ignoreQuestion } from "../security/format";
+import { formatQuestion, formatSecurityHeader, formatSecurityReport, IGNORE_APPROVE, IGNORE_CHOICES, IGNORE_FILE_CHOICES, IGNORE_FILE_USE, ignoreFileQuestion, ignoreQuestion } from "../security/format";
 import { findTool, INSTALL_CHOICES, installQuestion, installTools, OSV_UPDATE_QUESTION, updateOsvDb, type InstallOptions } from "../security/install";
 import { ignoreState, missingSecurityTools, readRepoText, SecurityCheck, type SecurityCheckOptions, type SecurityReport } from "../security/run";
 import { approveIgnore, approveIgnoreFile, removeApproval, removeFileApproval } from "../security/suppressions";
@@ -59,7 +59,7 @@ async function review(host: SecurityReviewHost): Promise<SecurityReport | undefi
     if (!host.canAsk()) break;
     const question = ignoreFileQuestion(file);
     const answer = await ask(host, question.text, IGNORE_FILE_CHOICES);
-    if (answer === IGNORE_FILE_CHOICES[0]) {
+    if (answer === IGNORE_FILE_USE) {
       await approveIgnoreFile(host.root, host.homeDir, file.file, file.text);
       host.write(`Using ${terminalText(file.file)} as it is now. Casper keeps that choice in ~/.casper, not in the repo.\n`);
     }
@@ -89,7 +89,7 @@ async function review(host: SecurityReviewHost): Promise<SecurityReport | undefi
   return result;
 }
 
-/** "1 Keep it (I approve) · 2 Show the line · 3 Leave it flagged" for each new ignore. Only a person's 1 approves. */
+/** "1 Leave it flagged · 2 Show the line · 3 Keep it (I approve)" for each new ignore. Only a person's 3 approves; Enter never does. */
 async function askAboutIgnores(host: SecurityReviewHost, fresh: readonly IgnoreEntry[]): Promise<void> {
   if (!fresh.length) return;
   if (!host.canAsk()) { host.write(`${CANT_ASK_IGNORES}\n`); return; }
@@ -101,9 +101,9 @@ async function askAboutIgnores(host: SecurityReviewHost, fresh: readonly IgnoreE
     const lineText = (await readRepoText(host.root, entry.file))?.split(/\r?\n/)[entry.line - 1];
     if (answer === IGNORE_CHOICES[1]) {
       host.write(`${terminalText(entry.file)}:${entry.line}  ${lineText === undefined ? "(the line could not be read)" : redactPreview(terminalText(lineText.trim()))}\n`);
-      answer = await ask(host, question.text, [IGNORE_CHOICES[0], IGNORE_CHOICES[2]]);
+      answer = await ask(host, question.text, [IGNORE_CHOICES[0], IGNORE_APPROVE]);
     }
-    if (answer === IGNORE_CHOICES[0] && lineText !== undefined) {
+    if (answer === IGNORE_APPROVE && lineText !== undefined) {
       await approveIgnore(host.root, host.homeDir, entry, lineText);
       approved++;
     }

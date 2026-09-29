@@ -55,7 +55,7 @@ test("an all-lab inventory gives a numbered ask with no Always choice for ansibl
   if (plan.state !== "ready") return;
   expect(plan.allowAlways).toBe(false);
   expect(plan.ask.text).toBe("Run aoscx-check on your lab? It uses ansible --check, and a dry run is not guaranteed: some modules can still change the switches. lab-sw1, lab-sw2, lab-sw3");
-  expect(numberedChoices(plan.ask.choices)).toBe("1 Run on the lab · 2 Skip");
+  expect(numberedChoices(plan.ask.choices)).toBe("1 Skip · 2 Run on the lab");
   expect(plan.ask.note).toBe(LAB_LIMIT_NOTE);
   // Preparing asked nothing of the devices: only the inventory was read.
   expect(await ran(f)).toBe(false);
@@ -135,7 +135,7 @@ test("junos-commit asks with an Always choice and runs Juniper's config module w
   if (plan.state !== "ready") return;
   expect(plan.allowAlways).toBe(true);
   expect(plan.ask.text).toBe("Run junos-commit on your lab? It loads the change on 2 lab routers, runs commit check, then rolls back. lab-r1, lab-r2");
-  expect(numberedChoices(plan.ask.choices)).toBe("1 Run on the lab · 2 Always for this project · 3 Skip");
+  expect(numberedChoices(plan.ask.choices)).toBe("1 Skip · 2 Run on the lab · 3 Always for this project");
   const result = await plan.run();
   expect(result.status).toBe("pass");
   const argv = (await readFile(path.join(f.records, "ansible-playbook.argv"), "utf8")).trim().split("\n");

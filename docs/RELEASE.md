@@ -57,14 +57,15 @@ that changes anyway is named on the receipt. The plan opens in the editor: Enter
 syntax, Junos render); they run only after you save one with `/verify add <name>`, and never with
 the repo's own `ansible.cfg`. Junoser, yanglint and hier_config checks can be named under
 `verify.checks`. hier_config gives a report (a diff), never a pass. **Lab checks** (`junos-commit`,
-AOS-CX `ansible --check`) run only when you type `/verify <name>` and pick 1; the hosts must be in
+AOS-CX `ansible --check`) run only when you type `/verify <name>` and pick Run on the lab (Skip is 1, so Enter
+sends nothing); the hosts must be in
 the lab list in `~/.casper/config.yaml`. A lab dry run that passes is shown but never makes a run
 Verified. The AI can't start a lab check.
 
 **Security checks.** `/security-review` and `casper security [folder]` run gitleaks, ruff S,
 semgrep with Casper's own rules, zizmor, osv-scanner and ansible-lint on your project, with no
 model call. Missing tools are installed only after you pick Install, from pinned hashes. An ignore
-added since the last commit counts only after you approve it, and approvals are kept in
+added since the last commit counts only after you approve it (Enter leaves it flagged), and approvals are kept in
 `~/.casper`, never in the repo. The report says what the tools found; it never calls code safe or
 secure. `casper security` exits 0 with no problems, 1 with problems, 64 on a usage mistake;
 `--mcp-tools <file>` turns on mcp-scanner.

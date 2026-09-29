@@ -74,7 +74,7 @@ export interface SecurityCheckOptions {
   mcpScanner?: boolean;
   /** The server's tools/list JSON for mcp-scanner (from `casper mcp check`). */
   mcpToolsJson?: string;
-  /** Changed ignore files the user chose to use this run ("1 Use my changed file"). */
+  /** Changed ignore files the user chose to use this run ("Use my changed file"). */
   useChangedIgnoreFiles?: string[];
   /** Run only these tools (tests, `casper security --only`). */
   only?: SecurityToolId[];
