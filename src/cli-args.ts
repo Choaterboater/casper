@@ -1,3 +1,4 @@
+import { statSync } from "node:fs";
 import { isEffortSelection } from "./runtime/model-routing";
 import { getTemplate, NAME_RULE, validName } from "./new/templates";
 
@@ -287,10 +288,16 @@ export const SECURITY_USAGE = "Usage: casper security [repo] [--json] [--strict]
 const SECURITY_FLAGS = new Set(["--json", "--strict", "--install"]);
 const PATH_LIKE = /^(?:\.{1,2}(?:[\\/]|$)|~(?:[\\/]|$)|[\\/]|[A-Za-z]:[\\/])|[\\/]/;
 
-/** `security` alone, with its flags, or with one folder that looks like a path is the command; other words are a prompt. */
+/** `security` alone, with its flags, or with one folder is the command; other words are a prompt. The folder
+ * looks like a path (./app, ~/code/app) or is a folder that is there (`casper security app`), so a folder
+ * name never turns into a paid prompt. */
 function isSecurityCommand(rest: readonly string[]): boolean {
   const words = rest.filter((arg) => !arg.startsWith("-"));
-  return words.length === 0 || (words.length === 1 && PATH_LIKE.test(words[0]!));
+  return words.length === 0 || (words.length === 1 && (PATH_LIKE.test(words[0]!) || isFolder(words[0]!)));
+}
+
+function isFolder(word: string): boolean {
+  try { return statSync(word).isDirectory(); } catch { return false; }
 }
 
 /** `rest` starts with "security". A malformed form is a usage error (exit 64), never a failed check. */
