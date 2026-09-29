@@ -1,6 +1,17 @@
 # Language-server support
 
-Casper owns the LSP client, workspace policy, and tool surface. Pi only translates runtime-neutral tools and native-edit callbacks. OMP is reference material, not a dependency.
+**What this is:** a *language server* (LSP) is a helper program, the same kind
+your code editor uses, that knows a programming language. Through it the model
+can see compile errors, jump to where a name is defined, find every place a name
+is used, and rename a name across files (you approve each rename). **When you'd use it:** on a
+TypeScript or Python project (or any language with a server) where you want
+errors caught right after each edit.
+
+Nothing is installed or started for you. You point Casper at a server you
+already have, then connect it.
+
+Casper has its own LSP client and rules; Pi only passes the tool through. OMP
+was used as reference material, not as a dependency.
 
 ## Configure and connect
 
@@ -30,12 +41,15 @@ Optional metadata files, lowest to highest precedence:
 `disabled: true` removes an inherited definition. Invalid named overrides also remove the earlier definition rather than silently starting it. Configuration is frozen at startup; restart after changing it. Use absolute executable paths where possible. No server is bundled into user configuration, automatically installed, or automatically started. The test-only language-server packages in devDependencies do not enable any server.
 
 ```text
-/lsp
-/lsp connect typescript
-/lsp disconnect typescript
+/lsp                         list servers and their state (starts nothing)
+/lsp connect typescript      start this server for this Casper process
+/lsp disconnect typescript   stop it
 ```
 
-Or use a leading, repeatable `--lsp <name>` flag. `--lsp` and non-interactive runs connect only user/profile definitions; a project `.casper/lsp.json` definition connects only through an interactive `/lsp connect <name>` that first shows its source file, the file it replaces, and its command and arguments. Local commands do not start Pi or require model credentials. Connection consent lasts only for the process. The command executes at the project root without a shell, with the inherited environment. **Review the executable and configuration before connecting. This is execution consent, not sandboxing.** A language server can itself execute project plugins or other programs.
+To find the absolute path of a server you installed, run for example
+`which typescript-language-server` or `which pyright-langserver`.
+
+Or put `--lsp <name>` before the prompt on the command line (repeat it for more servers), for example `casper --lsp typescript "fix the type errors"`. `--lsp` and non-interactive runs connect only user/profile definitions; a project `.casper/lsp.json` definition connects only through an interactive `/lsp connect <name>` that first shows its source file, the file it replaces, and its command and arguments. Local commands do not start Pi or require model credentials. Connection consent lasts only for the process. The command executes at the project root without a shell, with the inherited environment. **Review the executable and configuration before connecting. This is execution consent, not sandboxing.** A language server can itself execute project plugins or other programs.
 
 ## Model tools
 
@@ -49,7 +63,7 @@ A connected server exposes one `lsp` tool with an explicit `server` and `operati
 
 Positions are **zero-based UTF-16**, not byte offsets. Only UTF-16 servers are supported. Definition/reference results are server-provided navigation data, not authorization to read/write their targets. The tool is removed on the next prompt after disconnect; retained stale handlers still fail closed.
 
-Successful native Pi `write`/`edit` results append LSP diagnostics before the next model request. Casper asks the model to repair new errors before continuing. It does not silently undo writes, guarantee the model repairs them, or start a second repair loop. Use `/verify` for project-wide checks. Shell writes are not intercepted. Queries and diagnostics resynchronize previously opened files from disk. Changed open dependencies invalidate cached diagnostic evidence and force new versions for all open documents after contents synchronize; unsupported/missing files fail visibly. Closed or unconfigured dependencies are subject to the server's own disk/watch behavior, so use project-wide checks for authoritative repository verification.
+Successful native Pi `write`/`edit` results append LSP diagnostics before the next model request. Casper asks the model to repair new errors before continuing. It does not silently undo writes, cannot make the model repair them, and does not start a second repair loop. Project-wide checks are separate: Casper runs them after edits by default, or you run `/verify` (see [VERIFICATION.md](VERIFICATION.md)). Shell writes are not intercepted. Queries and diagnostics resynchronize previously opened files from disk. Changed open dependencies invalidate cached diagnostic evidence and force new versions for all open documents after contents synchronize; unsupported/missing files fail visibly. Closed or unconfigured dependencies are subject to the server's own disk/watch behavior, so use project-wide checks for authoritative repository verification.
 
 ## Diagnostics are evidence, not silence
 
@@ -81,5 +95,5 @@ Multi-file filesystem writes are **not atomic**. Each file is rechecked immediat
 - Model output: 16 KiB and 50 array items with explicit truncation; no raw artifact.
 - Default request/diagnostic deadline: 10 seconds. A post-rename diagnostic batch shares that wait budget rather than multiplying it by the number of files. Each serialized operation has a 60-second cancellation deadline including approval and post-edit diagnostics; queued operations start their budget when dequeued, but caller cancellation settles even while queued and prevents later execution. Approval and pre-mutation lock waits are abort-raced, so a late callback cannot start writes. Filesystem operations already in progress are drained rather than abandoned; their OS-level I/O cannot be forcibly time-bounded.
 - Timeout/cancellation sends `$/cancelRequest`, removes local pending state, ignores late replies, and never replays a request. Cooperation is required to stop server-side analysis; disconnect kills the server.
-- Startup consent is cancellable before process creation; immediate disconnect cannot launch a late server. Explicit reconnect only, no background healing. Shutdown attempts `shutdown`/`exit`, then kills the POSIX process group; Windows awaits verified-descendant cleanup; real-host validation is pending. Escaped/daemonized descendants are not guaranteed to be cleaned up.
+- Startup consent is cancellable before process creation; immediate disconnect cannot launch a late server. Explicit reconnect only, no background healing. Shutdown attempts `shutdown`/`exit`, then kills the POSIX process group; Windows awaits verified-descendant cleanup; real-host validation is pending. Escaped/daemonized descendants may be left running.
 - No dynamic registration, server-initiated workspace writes, command execution, code actions, formatting, remote transport, or automatic installation.

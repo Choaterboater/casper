@@ -1,5 +1,58 @@
 # Terminal UX — daily-use interface
 
+**What this is:** a guide to Casper's terminal screen: what you see, the keys,
+and the `/` commands. **When you'd use it:** when you are learning Casper, or
+want to know what a symbol, key or command does. `/help` shows a short list in
+Casper, and `/help all` the full one.
+
+## Quick reference
+
+### Keys
+
+| Key | What it does |
+| --- | --- |
+| Enter | Send the request (during work, keeps your draft; nothing is queued) |
+| Shift+Enter or Ctrl+J | New line in the prompt (Shift+Enter only where the terminal supports it) |
+| Up / Down | Earlier prompts from this session |
+| `/` | Command list with fuzzy search; Tab completes |
+| `@` then Tab | Complete a file path (inserts the path only; it does not attach the file) |
+| Shift+Tab | Cycle reasoning effort (`auto`, then the model's levels) and remember it |
+| Esc | Stop the current work |
+| Ctrl+C | Cancel work; when idle, clear the draft; twice on an empty prompt exits |
+| Ctrl+D | Exit when the prompt is empty |
+| Ctrl+L | Redraw the screen |
+| Ctrl+O | Turn MCP writes off for every server at once (see [MCP.md](MCP.md)) |
+
+### Commands
+
+These commands run on your machine. Only `/compact`, `/delegate` and
+`/verify repair` send a model request. `/model` may fetch provider model lists
+over the network, and `/references add` downloads files after asking you.
+
+| Command | What it does |
+| --- | --- |
+| `/help`, `/help all` | Short help, or the full reference |
+| `/status` | Model, login, integrations and local storage |
+| `/model`, `/effort` | Pick a model or reasoning effort (see [Model and effort](#model-and-effort)) |
+| `/login [provider]` | Sign in to a provider (see [Provider login](#provider-login)) |
+| `/context`, `/usage` | Context estimate; session tokens and estimated cost |
+| `/compact [instructions]` | Summarize the conversation (**makes a model request**) |
+| `/clear`, `/resume [id]` | New conversation; list or reopen a saved one |
+| `/diff` | Git status and tracked changes against HEAD |
+| `/output [n]` | Full output of a recent tool call from the last task |
+| `/receipt` | Detailed evidence behind the last task's receipt |
+| `/verify [checks]`, `/verify repair` | Run the project's checks; repair failures |
+| `/project`, `/permissions` | Project context; what is and is not enforced |
+| `/skills`, `/references`, `/memory`, `/secrets` | Skills; local reference search; saved facts ([MEMORY.md](MEMORY.md)); secret hiding ([SECRETS.md](SECRETS.md)) |
+| `/mcp`, `/lsp` | MCP servers ([MCP.md](MCP.md)); language servers ([LSP.md](LSP.md)) |
+| `/browser`, `/services`, `/debug` | Browser ([BROWSER.md](BROWSER.md)); dev servers ([SERVICES.md](SERVICES.md)); debugger ([DEBUGGER.md](DEBUGGER.md)) |
+| `/tree`, `/branch`, `/switch` | Named sessions and worktrees ([SESSIONS.md](SESSIONS.md)) |
+| `/delegate <explorer\|reviewer> <goal>` | Read-only helper agent ([DELEGATION.md](DELEGATION.md)) |
+| `/visualize [repo [dir]]` | Diagrams ([VISUALIZATION.md](VISUALIZATION.md)) |
+| `/exit`, `/quit` | Exit |
+
+An unknown `/` command is rejected on your machine. It is never sent to a model.
+
 ## Current interface
 
 Run `casper` in your project. The interactive terminal uses Pi's main-screen
@@ -63,8 +116,7 @@ assistant text streams.
 Help and results group related facts instead of one long paragraph. Assistant
 instructions favor the answer or action first, numbered human steps when needed,
 and one concrete next action when work remains. Unknown checks, estimates and
-remaining uncertainty stay explicit. This is guidance, not a guarantee of any
-provider's responses.
+remaining uncertainty stay explicit. This is guidance to the model; a provider's replies may not follow it.
 
 The prompt box keeps a fixed two-column gutter: `❯` while idle, `…` while a
 command is working, `?` while an exact approval is pending. The box never shifts
@@ -185,9 +237,8 @@ pasted text cannot grant consent or submit a private credential.
 All login panels render through the host surface; terminal-control bytes never
 pass through the untrusted-text sanitizer or get appended as transcript text.
 
-This picker correction is in source, not the published v0.1.0 binaries. macOS PTY
-coverage exercises rendering and complete synthetic login flows; Windows-host
-verification of this correction is still pending.
+macOS PTY tests cover rendering and complete synthetic login flows; this picker
+has not yet been checked on a real Windows machine.
 
 Copilot login may enable account model policies. Pi documents Claude subscription
 auth as billed extra usage. OpenRouter API usage is billed from credits, and its
@@ -214,8 +265,9 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
 - Up/Down recalls current-process prompt history. Shift+Enter where the terminal
   supports it, or Ctrl+J, inserts a newline. Bracketed paste stays in the draft.
 - Shift+Tab cycles reasoning effort (`auto`, then the model's supported levels) without
-  opening `/effort` and without changing the saved preference. It does nothing while work,
-  an approval, or a clarification is in progress, and it is unavailable on a plain terminal.
+  opening `/effort`, and saves the level it stops at, like `/effort`. While work, an
+  approval or a question is in progress it only shows `effort unchanged · wait until idle`.
+  It is not available on a plain terminal.
 - Escape stops active work. Ctrl+C cancels work; when idle it clears a draft. On an
   empty editor the first Ctrl+C only shows `Ctrl-C again to exit`; a second within two
   seconds exits, any other key disarms it. Ctrl+D exits an empty editor at once.
@@ -258,7 +310,7 @@ approvals remain in force. Verification is still separate from tool completion.
 `variables <handle>`, `continue <thread>` and `stop` provide bounded local inspection.
 Handles expire when execution resumes. Values may contain secrets; they are neither
 verification nor automatic model context. Use `/debug stop` when the editor is idle;
-active-command cancellation and session/workspace/model transitions revoke debugging.
+active-command cancellation, session/workspace/model transitions and sending a normal model request stop debugging.
 See [DEBUGGER.md](DEBUGGER.md). No adapter installation, remote attach or evaluate.
 
 ### Offline interactive demo

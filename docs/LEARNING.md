@@ -1,6 +1,22 @@
 # Learning candidates and human promotion
 
-`casper learn` proposes reusable patterns from an explicitly supplied local
+**What this is:** `casper learn <folder>` asks a read-only helper model to read a
+local repository and suggest up to four reusable patterns, each with exact
+quoted lines as evidence. Nothing is used until you look at a draft and promote
+it yourself. **When you'd use it:** to turn a good example project (for
+instance a clean automation script repo) into a reference or skill Casper can
+use later.
+
+A typical run:
+
+```sh
+casper learn ~/Projects/example                    # draft (uses a model)
+casper learn list ~/Projects/example               # see drafts (local)
+casper learn inspect ~/Projects/example <draft-id> # read one draft (local)
+casper learn promote ~/Projects/example <draft-id> <draft-sha256> 1 reference
+```
+
+In more detail: `casper learn` proposes reusable patterns from an explicitly supplied local
 repository. Generation produces **unpromoted drafts**, never active guidance.
 A separate local command lets a human bind one exact draft candidate to an
 explicit reference, project-skill, global-skill, or ignore decision. The model
@@ -53,9 +69,10 @@ observations, not refreshed source evidence. Records are keyed by source root,
 not the caller's workspace. Moving a source does not migrate its drafts.
 
 These are top-level CLI commands, not an interactive `/learn` command or a
-model-facing learning or promotion tool. `learn` cannot be combined with `--verify`, `--mcp`
-or `--lsp`; invalid learning syntax fails locally rather than becoming an
-unrestricted parent prompt.
+model-facing learning or promotion tool. `learn` cannot be combined with any
+other option (such as `--verify`, `--mcp`, `--lsp`, `--model` or `--cd`); put
+`learn` first. Wrong learning syntax fails locally with a usage message (exit
+64) rather than becoming a normal prompt.
 
 ## Candidate contents and evidence meaning
 
@@ -90,7 +107,7 @@ remain authoritative. Even a structurally valid proposal can contain mistaken or
 hostile guidance: nothing consumes these drafts automatically.
 
 The reads are bounded, non-atomic observations, not a repository snapshot or a
-freshness guarantee. Concurrent external edits can make evidence stale immediately.
+proof that the evidence is still current. Concurrent external edits can make evidence stale immediately.
 A saved digest identifies bytes, not a commit, trust grant or correctness proof.
 
 ## Runtime and resource limits
@@ -120,7 +137,7 @@ other runtime/cache destinations outside sources too.
 sensitive/generated files is an explorer instruction, not native read confinement.
 The stricter path and byte checks above govern **saved evidence**, not every
 native read the model could attempt. Source content is untrusted data, never
-permission to alter the task. No guarantee is made against a hostile process with
+permission to alter the task. Nothing here protects against a hostile process with
 the same user's filesystem privileges. Windows remains unvalidated.
 
 Per invocation:
@@ -174,7 +191,7 @@ output, or whole repository is copied into the draft store.
 Persistence uses a per-source directory lock (up to 100 attempts / approximately
 two seconds of waiting), reload-under-lock, exclusive `0600` temporary files and
 atomic rename. New directories use `0700`. Publication is atomic visibility, not
-a crash-durability/fsync guarantee. Concurrent processes preserve each other's
+a promise that data survives a crash (no fsync). Concurrent processes preserve each other's
 records. Interrupted locks are not stolen; preserve/inspect state before manual
 recovery. No automatic deletion, pruning or reset is performed.
 
@@ -208,4 +225,4 @@ terminal controls escaped. Exit 0 means a local command completed (`saved`,
 `no-candidates`, `listed`, `inspected`, `promoted`, `ignored`,
 `already-decided`), not pattern correctness, repository-wide
 coverage, verification or human acceptance. Failures exit 1 and publish no partial
-batch; prior drafts are preserved.
+batch; prior drafts are preserved. A malformed command line exits 64.

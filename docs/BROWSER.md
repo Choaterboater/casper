@@ -1,46 +1,71 @@
 # Browser-assisted debugging
 
-Casper uses pinned `puppeteer-core@25.11.0` and an **already installed** Chrome,
-Chromium or Edge. No browser download, personal profile or remote attachment is
-performed. Set `CASPER_BROWSER_EXECUTABLE` to an absolute executable path to
-override discovery: `/Applications/…` on macOS, `/usr/bin/…` and `/snap/bin` on
-Linux, and the `ProgramFiles`, `ProgramFiles(x86)` and `LOCALAPPDATA` Chrome/Edge
-locations on Windows. Cleanup uses the shared ownership layer, so Windows
-terminates verified descendants where POSIX signals the process group; a real-host
-Windows run is still pending. Without a discoverable browser, the session fails with
-the executable-path guidance instead of downloading anything.
+**What this is:** Casper can open your web app in a throwaway browser, read the
+page, click and type, take screenshots, and record a small repeatable check.
+**When you'd use it:** to reproduce a web page bug (for example a button that
+does nothing, or a layout that overflows on a phone), fix it, and replay the
+same check to see the fix.
+
+## Which browser
+
+Casper uses `puppeteer-core@25.11.0` (a library that drives Chrome) with a
+Chrome, Chromium or Edge that is **already installed**. It never downloads a
+browser, never uses your personal browser profile, and never attaches to a
+browser you have open.
+
+It looks in these places, in order:
+
+- macOS: `/Applications/Google Chrome.app/…`, then `/Applications/Microsoft Edge.app/…`
+- Linux: `/usr/bin/google-chrome`, `/usr/bin/google-chrome-stable`,
+  `/usr/bin/chromium`, `/usr/bin/chromium-browser`, `/snap/bin/chromium`
+- Windows: Chrome under `ProgramFiles`, `ProgramFiles(x86)` and `LOCALAPPDATA`,
+  then Edge under `ProgramFiles` and `ProgramFiles(x86)`
+
+To use another browser, set `CASPER_BROWSER_EXECUTABLE` to its full path; that
+always wins. If no browser is found, the browser step fails with a message about
+that setting. Nothing is downloaded.
+
+Stopping the browser uses Casper's shared process cleanup: on macOS and Linux it
+signals the browser's process group, on Windows it ends the child processes it
+has checked. Windows has not yet been tested on a real machine.
 
 ## Use
 
-From a trusted local project, ask Casper to debug a website, browser interaction,
-responsive layout or overflow problem. Browser tools are selected for those
-keywords or an HTTP(S) URL, and when a locally opened browser is ready. Ordinary
-chat and `/browser` status do not launch a browser or initialize a model.
+From a trusted local project, ask Casper to debug a website, a browser
+interaction, a responsive layout or an overflow problem. The model gets the
+`browser` tool only when your request has an `http://` or `https://` URL or one
+of these words: browser, website, webpage, frontend, layout, responsive,
+overflow, css, puppeteer, playwright. It also gets it when a browser you opened
+with `/browser open` is ready. Ordinary chat and `/browser` status do not start a
+browser or a model.
 
 ```text
-/browser
-/browser open http://127.0.0.1:3000
-/browser inspect
-/browser diagnostics
-/browser screenshot
-/browser close
+/browser                              status (starts nothing)
+/browser open http://127.0.0.1:3000   open a page in a throwaway browser
+/browser inspect                      page text and controls
+/browser diagnostics                  recent console and network entries
+/browser screenshot                   save a PNG of the visible part of the page
+/browser close                        close the browser Casper opened
 ```
 
-Local commands do not use a model. Natural-language debugging uses the configured
-model, existing edit/shell tools and one `browser` custom tool. Its actions are
+These commands do not use a model. When you ask in plain words, the model uses
+its normal edit and shell tools plus one `browser` tool. Its actions are
 `open`, `inspect`, `diagnostics`, `screenshot`, `viewport`, `click`, `fill`, `press`,
 `serve`, `check` and `replay`. There is no arbitrary JavaScript/CDP endpoint.
 Inspection supplies bounded text and control metadata, including selectors for
 IDs; controls without IDs require an explicit CSS selector. Selectors must match
 exactly one element for interactions and element assertions.
 
-`fill` replaces text in text/search/tel/url inputs and textareas; other input types
-are unsupported. Values must be nonempty, single-line text, up to 1,024 bytes.
-`press` supports Enter, Tab, Escape, arrows, Space and Backspace.
+`fill` replaces the text in a text, search, tel or url input, or a textarea;
+other input types are not supported. Values must be nonempty, single-line text, up
+to 1,024 bytes.
+`press` supports `Enter`, `Tab`, `Escape`, `ArrowUp`, `ArrowDown`, `ArrowLeft`,
+`ArrowRight`, `Space` and `Backspace`.
 
 ## Reproduce, fix, replay
 
-Record a `check` **before editing**, for example:
+The model records a `check` **before editing**. You do not write this JSON
+yourself; it shows what a check holds:
 
 ```json
 {
@@ -80,13 +105,17 @@ Assertions poll for up to one second each. Complex navigation, shadow DOM,
 iframes, uploads, authenticated workflows and slow asynchronous readiness are not
 comprehensive browser-test-framework replacements.
 
-Browser results appear separately from repository verification in task receipts.
-Failed assertions produce exit 1; incomplete/stale browser check evidence produces
-exit 2 unless a higher-priority execution/repository result applies. Inspection
-alone is not a check. Run relevant repository checks too (for example
-`casper --verify "fix this website ..."`); no new automatic repair loop was added.
-A passing browser receipt certifies only the listed assertions, not overall
-acceptance, all user requirements or the correctness of the model's final prose.
+Browser results get their own `browser` line in the task receipt, apart from
+the project checks. In one-shot mode a failed assertion makes the exit code 1,
+and an incomplete or stale browser check makes it 2, unless a failed or cancelled
+task already set a stronger result. Inspecting a page alone is not a check.
+
+Casper still runs the project's own checks after edits, as usual (see
+[VERIFICATION.md](VERIFICATION.md)). A failed browser check does not start
+Casper's repair loop; ask the model to fix it and replay the check. A passing
+browser check proves only its listed assertions. It does not prove the whole
+page is right, that every requirement is met, or that the model's summary is
+correct.
 
 Freshness compares declared local inputs before/after replay and at task reporting.
 Observed native writes/shell actions invalidate earlier evidence. Missing,
@@ -112,6 +141,10 @@ scripts can themselves cause side effects; localhost and HTTP methods do not
 establish safety. Labels and model-declared impact are not complete effect
 analysis. Page content is untrusted data, not instructions or consent.
 
+`serve` is the browser tool's own small way to start a dev server. For a server
+that should stay up between requests, declare a [managed service](SERVICES.md)
+instead.
+
 `serve` runs the exact trusted project's `package.json` `dev` or `start` command
 through a shell, with project `node_modules/.bin` on PATH, isolated temporary HOME,
 PORT/HOST from the explicit unprivileged loopback HTTP URL, no inherited credential
@@ -126,7 +159,7 @@ not application correctness or an atomic proof of port ownership. Only Casper-ow
 Windows uses verified descendants. Unconfirmed cleanup blocks replacement. One server is allowed per session. Model-task end,
 cancellation, workspace revocation and shutdown close owned resources; manually
 opened browsers remain until closed, adopted by a model task or application exit.
-Forced host SIGKILL/power loss is not a cleanup guarantee.
+After a forced SIGKILL of Casper or a power loss, cleanup may not happen.
 
 ## Bounds and artifacts
 

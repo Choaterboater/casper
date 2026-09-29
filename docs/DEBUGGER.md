@@ -1,7 +1,17 @@
 # Local DAP debugger
 
-Validated locally with installed debugpy on macOS. Other adapters and Windows/Linux
-require host validation; no adapter is installed automatically.
+**What this is:** a step debugger you drive with `/debug` commands. It uses the
+Debug Adapter Protocol (DAP), the same protocol code editors use, through a
+debug *adapter* you already have, such as Python's `debugpy`. **When you'd use
+it:** to stop a program at a line and look at its threads, call stack and
+variables, without adding print statements.
+
+The model does not drive it and does not see its values. Only you run these
+commands.
+
+It has been tested with an installed `debugpy` on macOS. Other adapters, Linux
+and Windows have not been tested on a real machine yet. Casper does not install
+any adapter.
 
 ## User contract
 
@@ -19,7 +29,10 @@ paths to one-based line arrays. Unknown fields fail closed. Resolve paths and sh
 the exact normalized definition before consent; re-read it after consent. This is
 non-atomic inspection, not a filesystem sandbox or a digest of every executable.
 
-Example using an already installed Python/debugpy adapter (replace both paths):
+Example using an already installed Python/debugpy adapter (replace both paths).
+To find them, run `which python3` and
+`python3 -c "import debugpy, os; print(os.path.dirname(debugpy.__file__))"`;
+the adapter is the `adapter` folder inside that directory.
 
 ```json
 {
@@ -38,7 +51,8 @@ Example using an already installed Python/debugpy adapter (replace both paths):
 Commands:
 
 - `/debug` — targets and actual session state.
-- `/debug start <target>` — confirm exact execution and start with stop-on-entry.
+- `/debug start <target>` — shows exactly what will run; type `yes` to start. The
+  program stops at its first line (stop-on-entry).
 - `/debug breakpoints <relative path> <line,line|clear>` — replace that file's list.
 - `/debug threads` and `/debug stack <thread-id>` — bounded thread/stack inspection.
 - `/debug scopes <frame-handle>` and `/debug variables <variable-handle>` — explicit
@@ -62,8 +76,9 @@ References are valid only for the current stop; late responses must not revive
 stale state. Launch must not wait for its response before sending configuration:
 some adapters respond only after `initialized` and `configurationDone`.
 
-Requests serialize (busy calls reject). Launch/operations have a 15-second deadline;
-configuration requests each have 5 seconds. At most 256 operations per session,
+Requests run one at a time (a second call while one is running is refused). Each
+command has a 15-second deadline, and each single DAP request inside it has 5
+seconds. At most 256 operations per session,
 32 threads, 32 frames, 16 scopes, 64 variables, 32 breakpoint files/128 lines per file.
 Protocol frames at most 1 MiB, header at most 8 KiB, cumulative adapter stdout at
 most 16 MiB. Delivered JSON at most 16 KiB after terminal escaping, with truncation
@@ -72,8 +87,8 @@ explicit. Adapter stderr/output events are discarded, not printed or persisted.
 Cancellation during an active command, EOF, shutdown and workspace/conversation
 transitions revoke the session and clean up owned resources. When the editor is
 idle with a live debug session, use `/debug stop` explicitly. A normal model task
-cannot inherit an active debugger: it must be stopped before handing execution
-back to the model. No adapter starts
+cannot inherit an active debugger: sending a normal request to the model stops
+the debug session first. No adapter starts
 at ordinary application startup. Adapter environment uses a temporary HOME and an
 allowlist, not inherited provider credentials; this does not prevent project code
 from reading files or making network requests.
