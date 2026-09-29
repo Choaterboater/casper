@@ -32,13 +32,15 @@ async function fixture(options: { command?: string; frameworks?: string[]; timeo
 }
 
 /** A scripted browser: fetches the page for real (so the server sees it), then reports what the script says. */
-function fakeOpener(script: (url: URL) => Partial<PageLoad> = () => ({})): PageOpener & { urls: string[] } {
+function fakeOpener(script: (url: URL) => Partial<PageLoad> = () => ({}), settled?: (url: URL) => Promise<void>): PageOpener & { urls: string[] } {
   const urls: string[] = [];
   return { consoleChecked: true, urls, async close() {},
     async load(url, signal) {
       urls.push(url);
       const response = await fetch(url, { signal });
       await response.text();
+      // A real browser settles a Streamlit page for a while; here, wait until the server's log line has arrived.
+      await settled?.(new URL(url));
       return { status: response.status, consoleChecked: true, consoleErrors: [], pageErrors: [], failedRequests: [], ...script(new URL(url)) };
     } };
 }
@@ -101,7 +103,8 @@ test("secrets in console text never reach the report", async () => {
 
 test("a Streamlit exception in the server log fails the page, even with a clean console", async () => {
   const f = await fixture({ frameworks: ["streamlit"] });
-  const report = await new PageChecks(() => f.manager, { ...f.service, label: "streamlit run app.py" }, fakeOpener(), { open: ["/boom"], skipped: [] }).run(signal());
+  const logged = async () => { for (let tries = 0; tries < 500 && !f.manager.logs("web").text.includes("KeyError"); tries++) await Bun.sleep(10); };
+  const report = await new PageChecks(() => f.manager, { ...f.service, label: "streamlit run app.py" }, fakeOpener(undefined, logged), { open: ["/boom"], skipped: [] }).run(signal());
   expect(report.status).toBe("fail");
   expect(formatPageLine(report.pages[0]!)).toBe("✗ /boom shows an error: KeyError: 'site'");
   expect(pageFailureSummary(report)).toBe("/boom shows an error");
