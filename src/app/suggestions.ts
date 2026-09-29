@@ -51,11 +51,13 @@ export class SuggestionController {
     taken: number }): Promise<{ items: NextItem[]; hint?: string }> {
     this.offered = undefined;
     if (!input.interactive) return { items: [] };
+    // Most receipts fire no rule: then the saved state is not even read, so the prompt comes back at once.
+    const context = { request: input.request, task: input.task, classification: input.classification, project: input.context.model, interactive: true };
+    if (!this.rules.afterReceipt(context).length) return { items: [] };
     const state = await this.state(input.context);
     if (!state || state.allOff) return { items: [] };
     const room = LAST_SLOT - (FIRST_EXTRA_SLOT - 1) - input.taken;
-    const choices = this.rules.afterReceipt({ request: input.request, task: input.task, classification: input.classification,
-      project: input.context.model, interactive: true }, state).slice(0, Math.max(0, room));
+    const choices = this.rules.afterReceipt(context, state).slice(0, Math.max(0, room));
     if (!choices.length) return { items: [] };
     const hint = state.hintDue ? SUGGESTION_HINT : undefined;
     this.offered = { choices, request: input.request };
