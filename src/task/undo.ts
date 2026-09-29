@@ -16,7 +16,7 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
-import { chmod, lstat, mkdir, open, readlink, rmdir, stat, unlink, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, open, readFile, readlink, rmdir, stat, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { openNoFollow, parentsStayInside, removeProjectFile, writeProjectFile, writeProjectLink } from "../platform/files";
@@ -213,7 +213,7 @@ export class UndoStore {
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
         const held = await lstat(lock).catch(() => undefined);
-        if (held && Date.now() - held.mtimeMs > STALE_LOCK_MS) { await unlink(lock).catch(() => {}); continue; }
+        if (held && (Date.now() - held.mtimeMs > STALE_LOCK_MS || await holderGone(lock))) { await unlink(lock).catch(() => {}); continue; }
         if (Date.now() > deadline) throw new GitError("another Casper is saving a copy", "ELOCKED");
         await new Promise((resolve) => setTimeout(resolve, 50));
       }
@@ -437,6 +437,13 @@ export class UndoStore {
       return (kib("size") + kib("size-pack")) * 1024;
     } catch { return undefined; }
   }
+}
+
+/** The Casper that wrote the lock has stopped (killed, or the machine restarted): its lock need not be waited out. */
+async function holderGone(lock: string): Promise<boolean> {
+  const pid = Number((await readFile(lock, "utf8").catch(() => "")).trim());
+  if (!Number.isSafeInteger(pid) || pid <= 0 || pid === process.pid) return false;
+  try { process.kill(pid, 0); return false; } catch (error) { return (error as NodeJS.ErrnoException).code === "ESRCH"; }
 }
 
 function sameEntry(now: TreeEntry | undefined, copy: TreeEntry | undefined): boolean {

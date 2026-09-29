@@ -278,3 +278,14 @@ test("a copy is still made after git's clean-up dropped a file that only this fo
   const after = tree(await store.snapshot());
   expect((await store.readBlob(execFileSync("git", ["--git-dir", store.gitDir, "rev-parse", `${after}:a.py`]).toString().trim())).toString()).toBe("a = 1\n");
 });
+
+posixOnly("a lock left by a Casper that stopped is taken over at once, not waited out", async () => {
+  const { root, store } = await setup();
+  await writeFile(path.join(root, "a.py"), "a = 1\n");
+  tree(await store.snapshot());
+  const dead = execFileSync(process.execPath, ["-e", "console.log(process.pid)"]).toString().trim();
+  await writeFile(path.join(store.gitDir, "undo.lock"), dead);
+  const started = Date.now();
+  tree(await store.snapshot());
+  expect(Date.now() - started).toBeLessThan(10_000);
+}, 40_000);
