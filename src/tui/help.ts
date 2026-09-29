@@ -10,10 +10,10 @@ export const HELP_TEXT = `Casper — your coding companion
   /status                Model/auth, integrations and local storage
   /model [model]         Pick a model; Enter remembers globally, Ctrl+S is session-only
   /effort [level|auto]   Pick reasoning effort, or auto per request; --session for temporary
-  /model big <model>     Set your big model: one key retries on it when repairs run out
+  /model big <model>     Set your big model: Casper offers it when repairs run out
   /plan <request>        Plan first: the model writes a plan and the cases to test, you edit it, then build
   /suggestions [on|off]  List the suggested next steps, or turn them on or off
-  /context, /usage      Context estimate, session tokens and cost availability
+  /context, /usage       Context estimate, session tokens and cost availability
   /compact               Summarize context (sends a model request)
   /clear, /resume        Fresh conversation or list/resume a saved conversation
   /diff                  Current tracked changes and untracked file names
