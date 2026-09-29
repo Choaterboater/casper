@@ -153,6 +153,8 @@ export class TerminalSurface {
   private askActiveIndex = 0;
   /** An open list edit: the editor holds the lines; Enter returns them, Esc/Ctrl+C/close return undefined. */
   private pendingEdit?: (lines: string[] | undefined) => void;
+  /** The row under the last receipt: a lone key on an empty, idle prompt submits its command. Any other key clears it. */
+  private nextKeys?: Map<string, string>;
   private editHeading: string[] = [];
   private message?: StreamingMarkdown;
   private source = "";
@@ -182,6 +184,7 @@ export class TerminalSurface {
         return;
       }
       if (!value.trim()) { this.editor.setText(""); return; } // Enter on an empty box is not a transcript event.
+      this.nextKeys = undefined;
       const resolve = this.command; this.command = undefined; this.busy = true; this.busySince = Date.now();
       this.updateSpinner();
       this.configureAutocomplete();
@@ -245,6 +248,12 @@ export class TerminalSurface {
         else if (this.pendingEdit) this.pendingEdit(undefined);
         else this.cancel();
         return { consume: true };
+      }
+      if (this.nextKeys) {
+        // Only a key pressed at the idle, empty prompt picks from the row; the row never answers a question.
+        const offered = this.command && !this.waiting && !this.busy && !this.editor.getText() ? this.nextKeys.get(data) : undefined;
+        this.nextKeys = undefined;
+        if (offered !== undefined) { this.editor.onSubmit?.(offered); return { consume: true }; }
       }
       if (this.pendingAsk && this.askOptions && !this.editor.getText()) {
         const count = this.askOptions.length;
@@ -452,6 +461,9 @@ private updateSpinner(): void {
     this.terminal.write("\x07");
   }
   setAttentionAfter(ms: number): void { this.attentionAfterMs = ms; }
+
+  /** Offer the receipt's next-step row: until another key or command, a lone key from `keys` submits its command. */
+  offerNext(keys: ReadonlyMap<string, string> | undefined): void { this.nextKeys = keys?.size ? new Map(keys) : undefined; }
 
   readCommand(): Promise<string | undefined> {
     if (this.busy) { this.attention(); this.busySince = undefined; }

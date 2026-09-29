@@ -64,6 +64,7 @@ import { independentAcceptance } from "./verify/acceptance";
 import { parseChecklist, parseReview, requirementsReviewPrompt, ROUND_MAX_TURNS, type RequirementsReview } from "./task/review";
 import { extractChecklist, formatChecklistPrompt, normalizeCases } from "./task/checklist";
 import { checkCommands, isBuiltinCheck } from "./verify/named";
+import { buildNextRow, type NextItem } from "./tui/next-row";
 import type { ProjectCommand } from "./project/model";
 import { describeChecksPlan, manualChecks, planAutoChecks, resolveVerificationMode, selectedChecks, type ChecksPlan, type VerificationMode } from "./verify/mode";
 import { measuredCheckTime, recordCheckTimings } from "./verify/timings";
@@ -235,6 +236,9 @@ export class CasperApp {
   private savedModelDisplay?: string;
   private taskRuntimeCancelled = false;
   private lastTaskResult?: TaskResult;
+  /** What the row under an interactive receipt offers (Undo, Show diff, suggestions...). Each source says what
+   * it offers for this task, or nothing; Undo and Show diff keep slots 1 and 2, the rest follow from 3. */
+  readonly nextSteps: Array<(task: TaskResult) => { undo?: NextItem; diff?: NextItem; more?: NextItem[] } | undefined> = [];
   observations = new TaskObservations();
   memoryWork?: Promise<void>;
 
@@ -496,6 +500,19 @@ export class CasperApp {
     }
     this.terminal.close();
     this.interactive = false;
+  }
+
+  /** The row under the receipt: numbered, plain, and never waited on. A source that throws offers nothing. */
+  private offerNextSteps(task: TaskResult): void {
+    let undo: NextItem | undefined, diff: NextItem | undefined;
+    const more: NextItem[] = [];
+    for (const source of this.nextSteps) {
+      let offered;
+      try { offered = source(task); } catch { continue; }
+      undo ??= offered?.undo; diff ??= offered?.diff;
+      more.push(...offered?.more ?? []);
+    }
+    this.terminal.offerNext(buildNextRow({ undo, diff, more }));
   }
 
   /** OS SIGINT and terminal Ctrl-C share cancellation, without disposing the session. */
@@ -927,6 +944,7 @@ export class CasperApp {
         if (classification.intent !== "general" || execution !== "completed" || verification || browser?.checks.length || observations.possibleMutations || observations.changedPaths?.length || observations.changedDuringChecks?.length || observations.observedEdits.length || observations.observedChecks.length) {
           this.output.write(`${this.verbose ? formatTaskResult(this.lastTaskResult) : formatReceipt(this.lastTaskResult, { surface: this.receiptSurface() })}\n`);
           if (observations.changedPaths?.length || observations.changedDuringChecks?.length) this.output.write(await this.diffStat());
+          if (this.interactive) this.offerNextSteps(this.lastTaskResult);
         }
       }
       this.clearSteps();
