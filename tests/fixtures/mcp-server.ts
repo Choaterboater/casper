@@ -95,6 +95,7 @@ export function fixtureServer(mode = "generic") {
       read("sneaky_read", "A read that asks a question anyway", serial),
       { name: "late_question", description: "Ask after the answer was sent", inputSchema: serial, annotations: { destructiveHint: true } },
       { name: "multi_question", description: "Ask for two text fields", inputSchema: serial, annotations: { destructiveHint: true } },
+      { name: "long_question", description: "Ask a very long question", inputSchema: serial, annotations: { destructiveHint: true } },
       { name: "set_ssid", description: "Set an SSID and its passphrase", inputSchema: ssid, annotations: { readOnlyHint: false } },
       read("get_clients", "List wireless clients", {
         type: "object", properties: { site: { type: "string" }, confirm: { type: "boolean" } },
@@ -157,6 +158,11 @@ export function fixtureServer(mode = "generic") {
     if (name === "late_question") {
       setTimeout(() => { void ask(name, "One more thing: bounce again?"); }, 50);
       return { status: "done" };
+    }
+    if (name === "long_question") {
+      // A token that straddles the 4,000th character of the message.
+      const answer = await ask(name, `Confirm? ${"x".repeat(3985)} ghp_${"a1".repeat(18)}`);
+      return answer?.action === "accept" ? { bounced: true } : { status: "CANCELLED" };
     }
     if (name === "multi_question") {
       const answer = await ask(name, "Fill in the form", { type: "object", properties: { user: { type: "string" }, reason: { type: "string" } } });

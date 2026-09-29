@@ -244,6 +244,14 @@ test("interactive run: p previews first, then the box shows the preview with the
   expect(result).toContain("applied");
 });
 
+test("interactive run: a long server question has secrets hidden before it is cut", async () => {
+  const { output, result } = await networkRun(["yes", "yes"], { id: "mcp:net:long_question", arguments: { serial_number: "SG1" } });
+  expect(output).toContain("net asks about the long_question call you approved:");
+  expect(output).toContain("… (more not shown)");
+  expect(output).not.toContain("ghp_");
+  expect(result).toContain("bounced");
+});
+
 test("interactive run: arguments too long to show are not run, and the user is told", async () => {
   const { output, result } = await networkRun([], { id: "mcp:net:set_ssid", arguments: { ssid: "x".repeat(5000) } });
   expect(output).toContain("MCP · net · set_ssid  [write]");

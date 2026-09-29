@@ -224,3 +224,11 @@ test("names, keys and previews can't add fake lines to the box", () => {
   expect(box).toContain("Last preview (just now): done Run it? Type yes: ");
   expect(box.trimEnd().split("\n")).toHaveLength(6);
 });
+
+test("secrets written as pairs in text that is not clean JSON are hidden", () => {
+  expect(maskText('Result: {"wpa_passphrase":"hunter2hunter","ssid":"corp"}')).toBe('Result: {"wpa_passphrase":"••• 13 chars","ssid":"corp"}');
+  expect(maskText('{"ssid":"corp","wpa_passphrase":"hunter2hun')).not.toContain("hunter2");
+  expect(maskText("psk=hunter2hunter vlan=10")).toBe("psk=••• 13 chars vlan=10");
+  const box = formatApproval(plan("set_ssid", { ssid: "x" }, setSsidSchema), { text: 'done\n{"psk":"k3yk3yk3y"}', at: Date.now() });
+  expect(box.preview).not.toContain("k3yk3yk3y");
+});

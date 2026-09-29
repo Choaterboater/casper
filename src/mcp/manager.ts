@@ -46,7 +46,7 @@ export interface ServerQuestion {
   tool: string;
   /** The real tool the user approved (the tool behind a router). */
   realTool: string;
-  /** The server's own words, unredacted: the caller hides secrets before showing them. */
+  /** The server's own words, unredacted and up to 16,000 characters: the caller hides secrets, then cuts it. */
   message: string;
   /** The one form field the answer goes into. */
   field: string;
@@ -455,7 +455,8 @@ export class MCPManager {
     if (++call.questions > MAX_SERVER_QUESTIONS) return decline(`asked more than ${MAX_SERVER_QUESTIONS} questions in one call`);
     const shape = questionShape(params.requestedSchema);
     if (!shape) return decline("asked a question Casper can only answer yes/no");
-    const message = typeof params.message === "string" ? params.message.slice(0, 4000) : "";
+    // Kept long enough that the caller can hide secrets first and cut the shown text after.
+    const message = typeof params.message === "string" ? params.message.slice(0, 16_000) : "";
     const question: ServerQuestion = { server, tool: call.tool, realTool: call.realTool, message, ...shape };
     // The user's reading time is not the server's time: hold the call clock while they answer.
     call.clock.pause();

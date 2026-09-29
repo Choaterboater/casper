@@ -1572,7 +1572,10 @@ export class CasperApp {
         if (!this.closing) this.output.write(`[mcp] ${terminalText(question.server)} asked a question Casper can only answer yes/no; declined.\n`);
         return { action: "decline" as const };
       }
-      const preview = `${shown(question.server)} asks about the ${shown(question.realTool)} call you approved:\n  ${shown(question.message)}\n`;
+      // Secrets are hidden before the message is cut, so a cut never shows part of one.
+      const message = shown(question.message);
+      const cut = message.length > 4000 ? `${message.slice(0, 4000)} … (more not shown)` : message;
+      const preview = `${shown(question.server)} asks about the ${shown(question.realTool)} call you approved:\n  ${cut}\n`;
       const choices = question.kind === "boolean" ? ["yes"] : options;
       const prompt = question.kind === "boolean" ? "Answer? Type yes: " : `Answer? Type one of ${options.join(", ")}: `;
       const answer = await this.chooseExact(preview, prompt, choices, signal);
