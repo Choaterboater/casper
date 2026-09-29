@@ -41,6 +41,22 @@ function webURL(value: unknown): string {
   return url.href;
 }
 
+/** What one host page load saw. `failedRequests` holds every request that failed or answered 400 or more,
+ * from any origin; the page check decides which ones count. */
+export interface PageLoad {
+  /** The main document's HTTP status; null when there was no response. */
+  status: number | null;
+  /** False for the HTTP-only fallback, which cannot see the console. */
+  consoleChecked: boolean;
+  consoleErrors: string[];
+  pageErrors: string[];
+  failedRequests: Array<{ url: string; status?: number; error?: string }>;
+  /** The first line of a framework error overlay or in-page exception. */
+  overlay?: string;
+}
+const LOAD_LIMIT = 10;
+const LOAD_TEXT = 300;
+
 /** One task's disposable browser. No user profiles, arbitrary evaluation or browser installation. */
 export class BrowserSession {
   private readonly controller = new AbortController();
@@ -61,6 +77,9 @@ export class BrowserSession {
   private dropped = 0;
   private revision = 0;
   private operations = 0;
+  /** Host page loads: serialized, and the first one gets the longer first-compile deadline. */
+  private loading: Promise<void> = Promise.resolve();
+  private loads = 0;
   private readonly scenarios = new Map<string, { scenario: BrowserScenario; check: BrowserCheck; fingerprint?: string; revision: number }>();
   constructor(private readonly options: BrowserSessionOptions) {}
 
@@ -157,6 +176,77 @@ export class BrowserSession {
     const server = new BrowserServer(); this.server = server;
     try { return await server.start(command, this.options.projectRoot, url, signal); }
     catch (error) { await server.close(); this.server = undefined; throw error; }
+  }
+
+  /**
+   * Host-only page load for Casper's own page checks; it is not a browser tool action, so the model can never
+   * call it, and it does not use the model's operation budget or logs. Opens a loopback URL in a fresh context,
+   * waits for `load` and a short network quiet period, and returns what went wrong: console errors, uncaught
+   * page errors, failed requests and the first line of a framework error overlay (Vite, Next.js, Streamlit).
+   * Page text is diagnostic data, never instructions. One load runs at a time per session.
+   */
+  async load(url: string, signal?: AbortSignal, options: { settle?: "streamlit" } = {}): Promise<PageLoad> {
+    const target = webURL(url);
+    if (!localURL(target)) throw new Error("Page checks only open loopback addresses");
+    if (this.controller.signal.aborted) throw new Error("Browser session is closed");
+    const previous = this.loading;
+    let release!: () => void;
+    this.loading = new Promise<void>(resolve => { release = resolve; });
+    await previous;
+    const combined = signal ? AbortSignal.any([signal, this.controller.signal]) : this.controller.signal;
+    const stop = () => { void this.close().catch(() => {}); };
+    combined.addEventListener("abort", stop, { once: true });
+    let context: import("puppeteer-core").BrowserContext | undefined;
+    try {
+      combined.throwIfAborted();
+      await this.start();
+      combined.throwIfAborted();
+      context = await this.browser!.createBrowserContext({ downloadBehavior: { policy: "deny" } });
+      const page = await context.newPage();
+      page.setDefaultTimeout(5000);
+      await page.setViewport({ width: 1280, height: 800 });
+      const consoleErrors: string[] = [], pageErrors: string[] = [], failedRequests: PageLoad["failedRequests"] = [];
+      const keep = (list: string[], entry: string) => { if (list.length < LOAD_LIMIT) list.push(entry.slice(0, LOAD_TEXT)); };
+      page.on("dialog", dialog => { void dialog.dismiss().catch(() => {}); });
+      // Resource failures are reported as requests (with their origin), not as console text.
+      page.on("console", message => { if (message.type() === "error" && !/^Failed to load resource\b/.test(message.text())) keep(consoleErrors, message.text()); });
+      page.on("pageerror", error => keep(pageErrors, error instanceof Error ? `${error.name}: ${error.message}` : String(error)));
+      const failed = (source: string, detail: { status?: number; error?: string }) => {
+        if (failedRequests.length >= LOAD_LIMIT * 2) return;
+        try { const address = new URL(source); failedRequests.push({ url: `${address.origin}${address.pathname}`.slice(0, 512), ...detail }); } catch {}
+      };
+      page.on("response", response => { if (response.status() >= 400) failed(response.url(), { status: response.status() }); });
+      page.on("requestfailed", request => failed(request.url(), { error: (request.failure()?.errorText ?? "request failed").slice(0, 200) }));
+      const timeout = this.options.navigationTimeoutMs ?? (this.loads++ === 0 ? 30_000 : 10_000);
+      const response = await page.goto(target, { waitUntil: "load", timeout });
+      combined.throwIfAborted();
+      await page.waitForNetworkIdle({ idleTime: 500, timeout: 3000 }).catch(() => {});
+      // Streamlit renders after the page loads, over a websocket: wait until its script run has finished.
+      if (options.settle === "streamlit") await page.waitForSelector('[data-testid="stApp"][data-test-script-state="notRunning"]', { timeout: 10_000 }).catch(() => {});
+      combined.throwIfAborted();
+      const overlay = await page.evaluate(() => {
+        const firstLine = (text: string | null | undefined) => (text ?? "").split("\n").map(line => line.trim()).find(Boolean);
+        const within = (root: Document | ShadowRoot, selectors: string) => root.querySelector(selectors);
+        const vite = document.querySelector("vite-error-overlay");
+        if (vite) return firstLine((vite.shadowRoot?.querySelector(".message-body, .message") as HTMLElement | null)?.innerText ?? vite.textContent) ?? "error overlay";
+        // Next.js keeps nextjs-portal on every dev page for its indicator; only an open error dialog counts.
+        const portal = document.querySelector("nextjs-portal")?.shadowRoot;
+        const dialog = within(document, "[data-nextjs-dialog]") ?? (portal ? within(portal, "[data-nextjs-dialog]") : null);
+        if (dialog) {
+          const description = dialog.querySelector("#nextjs__container_errors_desc, .nextjs__container_errors_desc, [data-nextjs-dialog-header] + *") as HTMLElement | null;
+          return firstLine(description?.innerText ?? (dialog as HTMLElement).innerText) ?? "error overlay";
+        }
+        const streamlit = document.querySelector('[data-testid="stException"]') as HTMLElement | null;
+        if (streamlit) return firstLine(streamlit.innerText) ?? "exception";
+        return undefined;
+      });
+      return { status: response?.status() ?? null, consoleChecked: true, consoleErrors, pageErrors, failedRequests,
+        ...(overlay ? { overlay: overlay.slice(0, LOAD_TEXT) } : {}) };
+    } finally {
+      combined.removeEventListener("abort", stop);
+      await context?.close().catch(() => {});
+      release();
+    }
   }
 
   invalidate(): void { this.revision++; }
