@@ -1,6 +1,6 @@
 import { afterAll, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
-import { mkdtemp, mkdir, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -78,7 +78,7 @@ test("Ctrl+C cancels the effort picker instead of arming exit behind it", async 
   const home = path.join(root, "home");
   const project = path.join(root, "project");
   await mkdir(home, { recursive: true });
-  await mkdir(project, { recursive: true });
+  await mkdir(project, { recursive: true }); await writeFile(path.join(project, "notes.txt"), "An empty folder would ask about a new project.\n");
   const runtime: AgentRuntime = {
     async start() {
       return {
@@ -138,7 +138,7 @@ test("interactive Shift+Tab steps through levels and saves the one it settles on
   const home = path.join(root, "home");
   const project = path.join(root, "project");
   await mkdir(home, { recursive: true });
-  await mkdir(project, { recursive: true });
+  await mkdir(project, { recursive: true }); await writeFile(path.join(project, "notes.txt"), "An empty folder would ask about a new project.\n");
   const changes: { level: string; persist: boolean }[] = [];
   let status: RuntimeStatus = {
     provider: "fixture", model: "demo", auth: "configured", thinkingLevel: "high", configuredEffort: "high",

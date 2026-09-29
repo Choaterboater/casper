@@ -1,5 +1,5 @@
 import { afterAll, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -256,7 +256,7 @@ test("an asked question is recorded on its own line, not appended to the running
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-ask-record-"));
   const home = path.join(root, "home");
   const project = path.join(root, "project");
-  await mkdir(home, { recursive: true }); await mkdir(project, { recursive: true });
+  await mkdir(home, { recursive: true }); await mkdir(project, { recursive: true }); await writeFile(path.join(project, "notes.txt"), "An empty folder would ask about a new project.\n");
   const listeners = new Set<RuntimeEventListener>();
   const emit = (event: RuntimeEvent) => { for (const listener of listeners) listener(event); };
   let tools: RuntimeTool[] = [];

@@ -115,7 +115,7 @@ test("in the terminal, a second provider failure asks whether to retry or stop",
   process.env.TERM = "xterm-256color";
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-model-ask-"));
   const home = path.join(root, "home"); const project = path.join(root, "project");
-  await mkdir(home); await mkdir(project);
+  await mkdir(home); await mkdir(project); await writeFile(path.join(project, "notes.txt"), "An empty folder would ask about a new project.\n");
   const listeners = new Set<RuntimeEventListener>();
   let prompts = 0;
   const runtime: AgentRuntime = {

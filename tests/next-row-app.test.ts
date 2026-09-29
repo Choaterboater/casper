@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -11,7 +11,7 @@ import { SkillRegistry } from "../src/skills/registry";
 test("the row under an interactive receipt runs the step whose number is typed next", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-next-row-"));
   const home = path.join(root, "home"); const project = path.join(root, "project");
-  await Promise.all([mkdir(home), mkdir(project)]);
+  await Promise.all([mkdir(home), mkdir(project)]); await writeFile(path.join(project, "notes.txt"), "An empty folder would ask about a new project.\n");
   const listeners = new Set<RuntimeEventListener>();
   const emit = (event: Parameters<RuntimeEventListener>[0]) => { for (const listener of listeners) listener(event); };
   const runtime: AgentRuntime = {
