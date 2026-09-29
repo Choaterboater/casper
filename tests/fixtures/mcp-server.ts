@@ -49,6 +49,32 @@ export function fixtureServer(mode = "generic") {
       read("progress_then_silent_read", "Send one progress message, then go quiet"),
     );
   }
+  if (mode === "network-names") {
+    // Names like hpe-networking-mcp and junos-mcp-server tools, for search and argument errors. No device contact.
+    const junosCommand: Tool["inputSchema"] = {
+      type: "object", properties: { router_name: { type: "string" }, command: { type: "string" } },
+      required: ["router_name", "command"], additionalProperties: false,
+    };
+    tools = [
+      read("mist_list_sites", "List sites in the organization"),
+      read("mist_list_switches", "List switch inventory"),
+      read("clearpass_list_enforcement_policies", "List enforcement rules"),
+      read("get_junos_config", "Get the configuration of a router"),
+      read("compare_configuration_versions", "Compare two saved versions"),
+      read("get_router_list", "List known routers"),
+      read("gather_device_facts", "Collect facts from each device"),
+      { name: "execute_junos_command", description: "Run one command on a router", inputSchema: junosCommand },
+      read("search_clients", "Find wireless clients", {
+        type: "object", properties: {
+          filter: { type: "object", properties: { vlan: { type: "integer" } } },
+          hosts: { type: "array", items: { type: "string" } },
+        },
+      }),
+      read("check_many_fields", "Twelve required fields", {
+        type: "object", properties: {}, required: Array.from({ length: 12 }, (_, i) => `field_${i}`),
+      }),
+    ];
+  }
   if (mode === "schema-budget") {
     const schemaAt = (bytes: number): Tool["inputSchema"] => {
       const schema = { ...empty, description: '"'.repeat(2000) };

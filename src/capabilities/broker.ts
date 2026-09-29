@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto";
-import type { JsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/types.js";
 import { isRecord } from "../mcp/config";
 import type { MCPManager, MCPTool } from "../mcp/manager";
 import type { RuntimeTool } from "../runtime/types";
 import { boundCapabilityResult, capabilityErrorResult, NotExecutedError, type BoundedCapabilityResult } from "./result";
+import { indexWords, termScore, tokenize } from "./search";
+import type { CompiledValidator } from "./validate";
 
 export type CapabilitySafety = "read" | "diagnostic" | "write" | "destructive" | "exec" | "external-action";
 export interface CapabilityDescriptor {
@@ -24,7 +25,15 @@ interface Capability {
   schemaBytes: number;
   nameWords: Set<string>;
   descriptionWords: Set<string>;
-  validate?: JsonSchemaValidator<unknown>;
+  validate?: CompiledValidator;
+}
+/** One page of the `find_capability({ query: "*" })` listing. */
+export interface CapabilityListPage {
+  total: number;
+  shown: string;
+  items: { id: string; safety: CapabilitySafety; about: string }[];
+  routers?: { server: string; hint: string }[];
+  next_cursor?: string;
 }
 /** Ask the user about one exact call. It resolves true only on their yes; it may throw NotExecutedError
  * when nobody can be asked (a one-shot run), so the model is never told "you said no" by mistake. */
@@ -32,7 +41,8 @@ export type ConfirmCapability = (call: {
   capability: CapabilityDescriptor; arguments: Record<string, unknown>;
 }, signal?: AbortSignal) => Promise<boolean>;
 
-let validatorModule: typeof import("@modelcontextprotocol/sdk/validation/ajv-provider.js") | undefined;
+// Ajv is loaded only on the first call, so local commands never pay for it.
+let validatorModule: typeof import("./validate") | undefined;
 let validatorLoad: Promise<NonNullable<typeof validatorModule>> | undefined;
 const MAX_SCHEMA_BYTES = 12_000;
 const MAX_DIRECT_SCHEMA_BYTES = 32_000;
@@ -46,10 +56,14 @@ function notCancelled(signal: AbortSignal): void {
 const MAX_ARGUMENT_BYTES = 16_384;
 
 function hash(value: string): string { return createHash("sha256").update(value).digest("hex"); }
-const STOP_WORDS = new Set(["the", "a", "an", "to", "of", "for", "and", "in", "with", "please", "tool", "tools", "read", "get", "show", "use"]);
-function words(text: string): string[] {
-  return [...new Set(text.toLowerCase().split(/[^a-z0-9]+/).filter((word) => word.length > 1 && !STOP_WORDS.has(word)))];
-}
+/** Plain code-point order, the same on every machine. */
+function order(a: string, b: string): number { return a < b ? -1 : a > b ? 1 : 0; }
+const LIST_PAGE_ITEMS = 50;
+const LIST_PAGE_BYTES = 12_000;
+const LIST_ABOUT_CHARS = 80;
+const CURSOR_PATTERN = /^\d{1,9}\.\d{1,6}$/;
+const ROUTER_HINT = "This server has its own search. Call its find_tool with a few words; it cannot list everything.";
+const EMPTY_SEARCH_HINT = 'Nothing matched. Try one plain word (like site or vlan), or query "*" to list every tool.';
 function safety(tool: MCPTool): CapabilitySafety {
   // Names can only tighten policy, never grant read permission.
   if (tool.name === "invoke_tool" || tool.name === "invoke_tools_batch" || tool.annotations?.destructiveHint === true) return "destructive";
@@ -77,7 +91,40 @@ export class CapabilityBroker {
 
   search(query: string, limit = 5): CapabilityDescriptor[] {
     this.sync();
-    return this.rank(query).slice(0, Math.min(10, Math.max(1, limit))).map((c) => structuredClone(c.descriptor));
+    return this.rank(query, { prefix: true }).slice(0, Math.min(10, Math.max(1, limit))).map((c) => structuredClone(c.descriptor));
+  }
+
+  /**
+   * One page of every connected tool, sorted by server then tool name: at most 50 short lines and
+   * about 12 KB. The cursor is `<catalog revision>.<offset>`, so a page from an older tool list is refused.
+   */
+  list(cursor?: string): CapabilityListPage {
+    this.sync();
+    let offset = 0;
+    if (cursor !== undefined) {
+      if (!CURSOR_PATTERN.test(cursor)) throw new NotExecutedError('bad arguments: field "cursor" is not valid; use next_cursor from the last page');
+      const [revision, start] = cursor.split(".").map(Number) as [number, number];
+      if (revision !== this.indexedRevision) throw new NotExecutedError("old page", 'The tool list changed since that page. Start again with query "*".');
+      offset = start;
+    }
+    const all = [...this.capabilities.values()].sort((a, b) => order(a.descriptor.source, b.descriptor.source) || order(a.descriptor.name, b.descriptor.name));
+    if (offset > all.length || (offset === all.length && offset > 0)) throw new NotExecutedError('bad arguments: field "cursor" is not valid; use next_cursor from the last page');
+    const routers = [...new Set(all.filter((c) => c.router).map((c) => c.descriptor.source))].map((server) => ({ server, hint: ROUTER_HINT }));
+    const page: CapabilityListPage = { total: all.length, shown: "", items: [], ...(routers.length ? { routers } : {}) };
+    const room = (next: number) => {
+      const draft = { ...page, shown: `${offset + 1}-${next}`, next_cursor: `${this.indexedRevision}.${next}` };
+      return Buffer.byteLength(JSON.stringify(draft)) <= LIST_PAGE_BYTES;
+    };
+    for (const capability of all.slice(offset, offset + LIST_PAGE_ITEMS)) {
+      const { id, safety, description } = capability.descriptor;
+      page.items.push({ id, safety, about: (description.split(/\r?\n/, 1)[0] ?? "").trim().slice(0, LIST_ABOUT_CHARS) });
+      // Always keep at least one line, so every page moves forward.
+      if (page.items.length > 1 && !room(offset + page.items.length)) { page.items.pop(); break; }
+    }
+    const end = offset + page.items.length;
+    page.shown = page.items.length ? `${offset + 1}-${end}` : "0";
+    if (end < all.length) page.next_cursor = `${this.indexedRevision}.${end}`;
+    return page;
   }
 
   describe(id: string): { capability: CapabilityDescriptor; inputSchema: MCPTool["inputSchema"] } {
@@ -106,20 +153,24 @@ export class CapabilityBroker {
     // 2. Validate (WP3 seam: field-named argument errors extend "bad arguments").
     // Also validate fallback calls; a generic invocation schema is not permission
     // to bypass the target tool's actual schema.
-    let valid = false;
+    let checked: ReturnType<CompiledValidator>;
     try {
       if (!capability.validate) {
-        validatorModule ??= await (validatorLoad ??= import("@modelcontextprotocol/sdk/validation/ajv-provider.js"));
-        capability.validate ??= new validatorModule.AjvJsonSchemaValidator().getValidator(capability.tool.inputSchema);
+        validatorModule ??= await (validatorLoad ??= import("./validate"));
+        capability.validate ??= validatorModule.compileInputSchema(capability.tool.inputSchema);
       }
-      valid = capability.validate(frozenArgs).valid;
+      checked = capability.validate(frozenArgs);
     } catch { throw new NotExecutedError("schema not supported"); }
     // A first-use import yields: do not ask for approval using a cancelled call
     // or stale catalog, even before the existing post-approval identity check.
     notCancelled(combined);
     this.sync();
     if (this.get(id).fingerprint !== capability.fingerprint) throw new NotExecutedError("tool changed; search again");
-    if (!valid) throw new NotExecutedError("bad arguments");
+    if (!checked.valid) {
+      // Field names only; the values the model sent are never repeated.
+      const { reason, next } = validatorModule!.argumentProblem(id, checked.problems);
+      throw new NotExecutedError(reason, next);
+    }
     // 3. Hidden capabilities and argument guards (WP4 seam).
     // 4. Hidden-secret marker gate (WP6 seam).
     // 5. Approval (WP2 seam: the approval plan replaces this block).
@@ -168,8 +219,8 @@ export class CapabilityBroker {
           // Budget the escaped representation too, so lossless schema inspection
           // fits the result envelope without truncating enum/required arrays.
           schemaBytes: Buffer.byteLength(JSON.stringify(JSON.stringify(tool.inputSchema))),
-          nameWords: new Set(words(`${descriptor.name} ${descriptor.source} ${descriptor.tags.join(" ")}`)),
-          descriptionWords: new Set(words(descriptor.description)),
+          nameWords: indexWords(`${descriptor.name} ${descriptor.source} ${descriptor.tags.join(" ")}`),
+          descriptionWords: indexWords(descriptor.description),
         });
       }
     }
@@ -183,10 +234,11 @@ export class CapabilityBroker {
     return capability;
   }
 
-  private rank(query: string): Capability[] {
-    const terms = words(query);
+  /** Plural-aware word match. `prefix` (search only) also lets a 5+ letter word match the start of a name word. */
+  private rank(query: string, options: { prefix?: boolean } = {}): Capability[] {
+    const terms = tokenize(query);
     return [...this.capabilities.values()].map((capability) => {
-      return { capability, score: terms.reduce((score, term) => score + (capability.nameWords.has(term) ? 4 : capability.descriptionWords.has(term) ? 1 : 0), 0) };
+      return { capability, score: terms.reduce((score, term) => score + termScore(term, capability.nameWords, capability.descriptionWords, options), 0) };
     }).filter(({ score }) => score > 0).sort((a, b) => b.score - a.score || a.capability.descriptor.id.localeCompare(b.capability.descriptor.id))
       .map(({ capability }) => capability);
   }
@@ -206,19 +258,28 @@ export class CapabilityBroker {
       },
     });
     const tools: RuntimeTool[] = [
-      wrap("find_capability", "Search connected MCP capability metadata by query, or inspect one exact id to load its complete input schema as a JSON string in inputSchemaJson (parse it before calling). Omit the unused field or leave it empty. No server calls. Results bounded to 16 KB. If none are connected, ask the user to /mcp connect a server.", {
-        type: "object", properties: { query: { type: "string" }, id: { type: "string" } }, additionalProperties: false,
+      wrap("find_capability", 'Search connected MCP tools by words, or use query "*" to list every tool, 50 at a time (pass next_cursor to see more). Or give one exact id to get its full input schema as a JSON string in inputSchemaJson (parse it before calling). Leave unused fields empty. No server calls. Results stay under 16 KB. If nothing is connected, ask the user to /mcp connect a server.', {
+        type: "object", properties: { query: { type: "string" }, id: { type: "string" }, cursor: { type: "string" } }, additionalProperties: false,
       }, async (args) => {
         const id = typeof args.id === "string" ? args.id.trim() : "";
         const query = typeof args.query === "string" ? args.query.trim() : "";
-        if (Boolean(id) === Boolean(query)) throw new NotExecutedError("supply either a nonempty query or id; leave the other empty");
-        const result = id ? { id, inputSchemaJson: JSON.stringify(this.describe(id).inputSchema) } : this.search(query);
+        const cursor = typeof args.cursor === "string" ? args.cursor.trim() : "";
+        if (id && query) throw new NotExecutedError("bad arguments", 'Give either "query" or "id", not both.');
+        if (!id && !query) throw new NotExecutedError("bad arguments", 'Give a "query" (words, or "*") or an exact "id".');
+        if (cursor && query !== "*") throw new NotExecutedError('bad arguments: field "cursor" only works with query "*"');
+        if (query === "*") {
+          // The page caps itself at 50 lines and 12 KB; the result bound is only a backstop.
+          return { text: JSON.stringify(boundCapabilityResult(this.list(cursor || undefined), 16_384, 200)) };
+        }
+        const found = id ? { id, inputSchemaJson: JSON.stringify(this.describe(id).inputSchema) } : this.search(query);
+        const result = Array.isArray(found) && found.length === 0 ? { matches: [], hint: EMPTY_SEARCH_HINT } : found;
         return { text: JSON.stringify(boundCapabilityResult(result)) };
       }),
       wrap("call_capability", "Call a capability by exact id and arguments after inspecting its schema with find_capability. Same safety checks as direct tools. Results bounded to 16 KB and 50 items per list; next_cursor is always kept. Never automatically retry consequential calls.", {
         type: "object", properties: { id: { type: "string" }, arguments: { type: "object", additionalProperties: true } }, required: ["id", "arguments"], additionalProperties: false,
       }, async (args, signal) => {
-        if (typeof args.id !== "string" || !isRecord(args.arguments)) throw new NotExecutedError("bad arguments: expected id and an arguments object");
+        if (typeof args.id !== "string" || !args.id.trim()) throw new NotExecutedError('bad arguments: field "id" is missing');
+        if (!isRecord(args.arguments)) throw new NotExecutedError('bad arguments: field "arguments" must be an object');
         const result = await this.invoke(args.id, args.arguments, signal);
         return { text: JSON.stringify(result), isError: result.isError };
       }, true),
