@@ -13,6 +13,8 @@ export const COMMANDS: SlashCommand[] = [
   { name: "resume", description: "List or resume saved conversations in this workspace" },
   { name: "diff", description: "Inspect current workspace changes" },
   { name: "new", description: "Start a new project in ~/Projects (no model)" },
+  { name: "plan", description: "Plan first: the model writes a plan and cases to test, then you build" },
+  { name: "suggestions", description: "Suggested next steps: list, or turn on or off" },
   { name: "output", description: "Full retained output of a recent tool call (/output [n])" },
   { name: "verify", description: "Run repository verification checks" },
   { name: "receipt", description: "Evidence behind the last task's receipt" },

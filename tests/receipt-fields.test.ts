@@ -90,3 +90,9 @@ test("pages the check did not open are listed, and a dev server that did not sta
   expect(formatReceipt(noted)).toContain("• Pages not checked: node_modules is missing.");
   expect(formatTaskResult(noted)).toContain("pages        Pages not checked: node_modules is missing.");
 });
+
+test("files a plan turn changed anyway are named on the receipt", () => {
+  expect(formatReceipt({ execution: "completed", changedPaths: ["notes.md"], changedWhilePlanning: ["notes.md"] }))
+    .toContain("• Changed while planning: notes.md");
+  expect(formatReceipt({ execution: "completed", changedPaths: ["notes.md"] })).not.toContain("while planning");
+});
