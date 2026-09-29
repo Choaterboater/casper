@@ -97,3 +97,16 @@ test("a server that can't import its packages says to install them", async () =>
     detail: ["ModuleNotFoundError: No module named 'mcp'"],
   });
 });
+
+test("--live failures never show the credential the server was given", async () => {
+  const secret = "Zq8xLmP4vT2wKdR7";
+  for (const failure of ["result", "throw"]) {
+    const root = await repo({ command: process.execPath, args: [fixture], env: { FIXTURE_MODE: "good", FIXTURE_CALL_ERROR: failure } });
+    const report = await new McpCheck(command(root, { live: true }), { baseEnv: { ...process.env, MIST_API_TOKEN: secret } }).run();
+    const live = report.findings.filter((finding) => finding.section === "live");
+    expect(live.map((finding) => finding.status)).toEqual(["fail", "fail", "fail", "fail"]);
+    expect(live[1]!.text).toContain("rejected •••");
+    expect(formatCheckReport(report)).not.toContain(secret);
+    expect(JSON.stringify(report)).not.toContain(secret);
+  }
+});
