@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { parseCliArgs, parseSecurityArgs, SUBCOMMANDS, UsageError } from "../src/cli-args";
@@ -31,6 +31,20 @@ test("ordinary sentences that start with a subcommand's word stay prompts", () =
   expect(parseCliArgs(["new", "ideas", "for", "the", "app"]).command).toBe("prompt");
   expect(parseCliArgs(["security", "review", "of", "the", "login", "code"]).command).toBe("prompt");
   expect(parseCliArgs(["mcp", "docs", "are", "wrong"]).command).toBe("prompt");
+});
+
+test("casper security <folder> is the command when the folder is there, even without ./", async () => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), "casper-security-folder-"));
+  temps.push(cwd);
+  await mkdir(path.join(cwd, "app"));
+  const before = process.cwd();
+  process.chdir(cwd);
+  try {
+    expect(parseCliArgs(["security", "app"])).toMatchObject({ command: "security", rest: ["security", "app"] });
+    expect(parseCliArgs(["security", "app", "--json"]).command).toBe("security");
+    // A word that is not a folder here stays part of a prompt.
+    expect(parseCliArgs(["security", "audit"]).command).toBe("prompt");
+  } finally { process.chdir(before); }
 });
 
 test("a subcommand takes its own flags, never Casper's leading options", () => {
