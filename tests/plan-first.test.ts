@@ -38,7 +38,7 @@ function plainScreen() {
 
 /** The fake model: on a plan turn it tries an edit and two shell commands through Casper's gate, then answers
  * with PLAN; otherwise it writes a file. */
-async function fixture(tty = true) {
+async function fixture(tty = true, setup: { planWrites?: boolean } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-plan-first-"));
   const home = path.join(root, "home"); const project = path.join(root, "project");
   await mkdir(home, { recursive: true }); await mkdir(path.join(project, ".casper"), { recursive: true });
@@ -66,7 +66,11 @@ async function fixture(tty = true) {
             ["bash", { command: "ls -la && git log --oneline" }], ["mcp", { server: "central", tool: "delete_site" }], ["read", { path: "app.py" }]] as const) {
             gate.push({ tool: `${tool} ${JSON.stringify(input)}`, reason: options?.beforeToolGate?.(tool, input as Record<string, unknown>) });
           }
-          if (text.includes('Casper flow "plan-first"')) emit({ type: "assistant_text_delta", delta: PLAN });
+          if (text.includes('Casper flow "plan-first"')) {
+            // A change Casper's gate cannot see (a tool that says nothing about writing, say).
+            if (setup.planWrites) await writeFile(path.join(project, "notes.txt"), "written while planning\n");
+            emit({ type: "assistant_text_delta", delta: PLAN });
+          }
           else { await writeFile(path.join(project, "limiter.py"), `# ${prompts.length}\n`); emit({ type: "assistant_text_delta", delta: "Built.\n" }); }
           emit({ type: "assistant_response_end", stopReason: "stop" });
         },
@@ -85,10 +89,11 @@ async function fixture(tty = true) {
     loadLSPConfiguration: async () => ({ servers: [], diagnostics: [] }),
     loadReferenceConfiguration: async () => ({ sources: [], diagnostics: [] }),
   });
+  const plainTerminal = process.env.TERM === "dumb";
   const interactive = tty ? app.runInteractive(project) : undefined;
-  if (tty) await screen.until((output) => output.includes("idle"));
+  if (tty) await screen.until((output) => output.includes(process.env.TERM === "dumb" ? "> " : "idle"));
   return { app, input, screen, prompts, gate, project, plain: () => plain, checklistCalls: () => checklistCalls, close: async () => {
-    if (interactive) { input.write("/exit\r"); await interactive; }
+    if (interactive) { if (plainTerminal) input.end(); else input.write("/exit\r"); await interactive; }
     await app.close(); input.destroy(); await rm(root, { recursive: true, force: true });
   } };
 }
@@ -183,3 +188,37 @@ test("/plan in a run that cannot ask shows the plan and builds nothing", async (
     expect(f.checklistCalls()).toBe(0);
   } finally { await f.close(); }
 }, 60_000);
+
+test("a file that changes while planning anyway is named, and the receipt keeps it", async () => {
+  const f = await fixture(true, { planWrites: true });
+  try {
+    f.input.write(`/plan ${REQUEST}\r`);
+    await f.screen.until((output) => output.includes("Enter builds this"));
+    expect(f.screen.output).toContain("• Changed while planning: notes.txt");
+    f.input.write("\r");
+    await f.screen.until(idleAfter("Built."));
+    expect(f.app.getLastTaskResult()?.changedWhilePlanning).toEqual(["notes.txt"]);
+    expect(f.screen.output.slice(f.screen.output.lastIndexOf("Built."))).toContain("• Changed while planning: notes.txt");
+  } finally { await f.close(); }
+}, 60_000);
+
+test("the plain terminal asks Build this plan? with numbers: 2 stops and builds nothing, Enter builds", async () => {
+  const term = process.env.TERM;
+  process.env.TERM = "dumb";
+  try {
+    for (const [answer, builds] of [["2", false], ["", true]] as const) {
+      const f = await fixture(true);
+      try {
+        f.input.write(`/plan ${REQUEST}\n`);
+        await f.screen.until((output) => output.includes("Build this plan?") && output.trimEnd().endsWith("(Enter for 1):"));
+        expect(f.screen.output).toContain("Casper plan: 2 steps, 2 cases to test.");
+        expect(f.screen.output).toContain("  1 Build · the model builds these steps and tests these cases (uses tokens)");
+        expect(f.screen.output).toContain("  2 Stop · nothing is built");
+        f.input.write(`${answer}\n`);
+        if (builds) await f.screen.until((output) => output.includes("Built."));
+        else await f.screen.until((output) => output.includes("[plan] Stopped without building."));
+        expect(f.prompts).toHaveLength(builds ? 2 : 1);
+      } finally { await f.close(); }
+    }
+  } finally { process.env.TERM = term; }
+}, 90_000);
