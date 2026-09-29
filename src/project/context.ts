@@ -13,7 +13,9 @@ export interface ProjectContext {
   policy: CasperPolicy;
   skills: LoadedConfiguration["skills"];
   verification: LoadedConfiguration["verification"];
-  repair: { maxAttempts: number };
+  repair: LoadedConfiguration["repair"];
+  /** `suggestions: false` in the user's config: no suggestions anywhere. */
+  suggestions?: boolean;
   visualize: VisualizationSettings;
   /** Managed services declared in .casper/project.yaml (see docs/SERVICES.md). */
   services?: LoadedConfiguration["services"];
@@ -61,6 +63,7 @@ export async function loadProjectContext(
     skills: configuration.skills,
     verification: configuration.verification,
     repair: configuration.repair,
+    ...(configuration.suggestions !== undefined ? { suggestions: configuration.suggestions } : {}),
     visualize: configuration.visualize,
     services: configuration.services,
     smoke: configuration.smoke,
