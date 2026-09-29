@@ -40,3 +40,8 @@ test("help lists casper mcp check", () => {
   expect(FULL_HELP_TEXT).toContain("casper mcp check [repo] [--server <name>] [--live]");
   expect(FULL_HELP_TEXT).toContain("only run it on repos you trust");
 });
+
+test("help says only access_check makes a login read-only", () => {
+  expect(FULL_HELP_TEXT).not.toContain("Read-only comes from the product (readOnlyHint");
+  expect(FULL_HELP_TEXT).toContain("A login is read-only only when the product says so (access_check); labels only make things stricter.");
+});
