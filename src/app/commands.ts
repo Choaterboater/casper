@@ -741,16 +741,17 @@ function approvalLines(status: MCPStatus): string[] {
   return [];
 }
 
-/** After you connect your own or an imported server, offer to remember it (writes stay off). */
+/** After you connect your own or an imported server, offer to remember it (writes stay off). Just this time is 1,
+ * so a habitual 1 never remembers a server. */
 async function offerRemember(host: CommandHost, name: string): Promise<void> {
   const status = host.mcp!.status().find((entry) => entry.name === name);
   if (!host.interactive || !status || status.scope === "project" || status.consent === "remembered") return;
   const block = host.mcp!.rememberBlock(name);
   if (block) { host.output.write(`[mcp] ${terminalText(block)}\n`); return; }
   const answer = await host.chooseAnswer(
-    "Remember this server? Next time it connects on its own, with writes off. Every change still asks you.\n  1 Remember\n  2 Just this time\n",
+    "Remember this server? Next time it connects on its own, with writes off. Every change still asks you.\n  1 Just this time\n  2 Remember\n",
     "Type 1 or 2: ", ["1", "2"], host.commandAbort?.signal);
-  if (answer !== "1") { host.output.write(`[mcp] Not remembered. ${name} is connected for this session only.\n`); return; }
+  if (answer !== "2") { host.output.write(`[mcp] Not remembered. ${name} is connected for this session only.\n`); return; }
   const result = await host.mcp!.remember(name);
   host.output.write(result.remembered
     ? `[mcp] Remembered ${name}. It connects on its own next time, with writes off. /mcp forget ${name} undoes this.\n`
@@ -759,7 +760,7 @@ async function offerRemember(host: CommandHost, name: string): Promise<void> {
 
 /**
  * /mcp writes <name> and /mcp writes off. Turning writes on takes two steps that only you can do:
- * this command, then "1" in the box. The model's ask tool never reaches this box.
+ * this command, then "2" in the box (1 keeps writes off). The model's ask tool never reaches this box.
  */
 async function handleMCPWrites(host: CommandHost, name: string): Promise<void> {
   const mcp = host.mcp!;
@@ -777,9 +778,9 @@ async function handleMCPWrites(host: CommandHost, name: string): Promise<void> {
   if (status.writes === "on") { host.output.write(`[mcp] Writes are already on for ${name}. ${host.terminal.rich ? "ctrl+o" : "/mcp writes off"} turns them off.\n`); return; }
   if (status.access === "login: read-only (checked)") { host.output.write(`[mcp] ${READ_ONLY_LOGIN_ENABLE_TEXT}\n`); return; }
   const policy = mcp.policy(name);
-  const answer = await host.chooseAnswer(`${terminalText(writesTitle(name, policy.match))}\n  1 Enable for this server\n  2 Keep writes off\n`,
+  const answer = await host.chooseAnswer(`${terminalText(writesTitle(name, policy.match))}\n  1 Keep writes off\n  2 Enable for this server\n`,
     "Type 1 or 2: ", ["1", "2"], host.commandAbort?.signal);
-  if (answer !== "1") { host.output.write(`[mcp] Writes stay off for ${name}.\n`); return; }
+  if (answer !== "2") { host.output.write(`[mcp] Writes stay off for ${name}.\n`); return; }
   await mcp.setWrites(name, true);
   host.output.write(`[mcp] Writes on for ${name}. Each change still asks you. ${host.terminal.rich ? "ctrl+o" : "/mcp writes off"} turns writes off.\n`);
   const note = ownSettingsNote(mcp.definition(name), policy.match);

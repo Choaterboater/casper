@@ -143,7 +143,7 @@ Local commands:
   /mcp connect <name>               Connect this server; your own or imported ones can be remembered
   /mcp disconnect <name>            Disconnect and revoke consent for this process
   /mcp reload                       Re-read MCP files; changed servers need consent again
-  /mcp writes <name>                Turn writes on for one server (you pick 1 in the box)
+  /mcp writes <name>                Turn writes on for one server (you pick 2 in the box)
   /mcp writes off                   Writes off for every server (ctrl+o does the same)
   /mcp forget <name>                Forget a remembered server; Casper asks again next time
   /mcp junos-show <name> on|off     Let plain Junos show commands run without asking

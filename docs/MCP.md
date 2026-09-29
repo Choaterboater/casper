@@ -59,7 +59,7 @@ The example URL is a placeholder, not a server to connect to. `type: "stdio"` is
 /mcp connect local-docs        # authorize this loaded definition for this process
 /mcp disconnect local-docs     # disconnect and revoke process-local consent
 /mcp reload                    # re-read the layered files without restarting
-/mcp writes <name>             # turn writes on for one server (you pick 1 in the box)
+/mcp writes <name>             # turn writes on for one server (you pick 2 in the box)
 /mcp writes off                # writes off for every server (ctrl+o does the same)
 /mcp forget <name>             # forget a remembered server
 /mcp junos-show <name> on|off  # let plain Junos show commands run without asking
@@ -83,12 +83,12 @@ After an interactive `/mcp connect` of your own or an imported server, Casper as
 
 ```text
 Remember this server? Next time it connects on its own, with writes off. Every change still asks you.
-  1 Remember
-  2 Just this time
+  1 Just this time
+  2 Remember
 Type 1 or 2:
 ```
 
-`1` stores a keyed hash of the definition (name, start folder, command, arguments, env, URL, headers) in `~/.casper/mcp-consent.json`. The key is 32 random bytes in `~/.casper/mcp-consent.key`; both files are private (0600), and no definition value is stored. Next time the server connects on its own when a task needs it, always with writes off. Any change to the definition means Casper asks again: `/mcp` shows `Changed since you approved it. Run /mcp connect <name>.` Time limits and where the entry lives are not part of the hash. A literal token in the definition is part of it, so rotating it asks again; `${VAR}` references avoid that. Project servers are never remembered. Servers started through a package runner that can fetch new code later (`npx`, `bunx`, `pnpm dlx`, `uvx`, `uv tool run`, `pipx run`, `docker run` with `:latest` or no tag) are remembered only when pinned to a version: `Not remembered: central-mcp-server is not pinned to a version. An update could add write tools. Pin it (for example ==1.4.2 or a commit) and connect again.` `/mcp forget <name>` drops a remembered server. A damaged store counts as empty and says so.
+`1` (or anything other than `2`) connects it for this session only. `2` stores a keyed hash of the definition (name, start folder, command, arguments, env, URL, headers) in `~/.casper/mcp-consent.json`. The key is 32 random bytes in `~/.casper/mcp-consent.key`; both files are private (0600), and no definition value is stored. Next time the server connects on its own when a task needs it, always with writes off. Any change to the definition means Casper asks again: `/mcp` shows `Changed since you approved it. Run /mcp connect <name>.` Time limits and where the entry lives are not part of the hash. A literal token in the definition is part of it, so rotating it asks again; `${VAR}` references avoid that. Project servers are never remembered. Servers started through a package runner that can fetch new code later (`npx`, `bunx`, `pnpm dlx`, `uvx`, `uv tool run`, `pipx run`, `docker run` with `:latest` or no tag) are remembered only when pinned to a version: `Not remembered: central-mcp-server is not pinned to a version. An update could add write tools. Pin it (for example ==1.4.2 or a commit) and connect again.` `/mcp forget <name>` drops a remembered server. A damaged store counts as empty and says so.
 
 ### Presets
 
@@ -119,16 +119,16 @@ A server may offer a read-only tool named `access_check` (contract `casper/acces
 
 Every server starts with writes off, including remembered ones. Writes off means write and delete tools are hidden from search, the `"*"` list and the task tools, and are refused with `Not executed (<server> writes are off. Only the user can turn them on with /mcp writes <server>.)`; the preset's pins are sent; and every other change (unannotated or `exec` tools) is still shown and still asks you each time. The model's `find_capability` description says `<server>: writes are off. Only the user can turn them on.`
 
-Turning writes on takes two steps that only you can do. Type `/mcp writes <server>`, then pick `1` in the box:
+Turning writes on takes two steps that only you can do. Type `/mcp writes <server>`, then pick `2` in the box:
 
 ```text
 Central writes are off.
-  1 Enable for this server
-  2 Keep writes off
+  1 Keep writes off
+  2 Enable for this server
 Type 1 or 2:
 ```
 
-The box title uses the product name from the preset, else the server name. `1` waits for running calls, restarts the server without the pins and prints `[mcp] Writes on for <server>. Each change still asks you. ctrl+o turns writes off.` When your own settings still keep writes off, Casper says so: `Casper removed its read-only pins, but your own settings still keep writes off (HPE_MCP_ACCESS_PROFILE=safe-read-only in ~/.claude.json).` While any server has writes on, the footer starts with `WRITES: <servers> · ctrl+o`, which is never cut off. ctrl+o (or `/mcp writes off`) turns writes off for every server at once, even while Casper is working, and denies an open approval box: `[mcp] Writes off for <server>. Write tools are hidden again.` A server that was running without pins is restarted with them once its calls finish. The model's ask tool can't answer this box, and `/mcp writes` in a one-shot run gives `Writes can only be turned on in an interactive session.`
+The box title uses the product name from the preset, else the server name. `1` (or anything other than `2`) keeps writes off. `2` waits for running calls, restarts the server without the pins and prints `[mcp] Writes on for <server>. Each change still asks you. ctrl+o turns writes off.` When your own settings still keep writes off, Casper says so: `Casper removed its read-only pins, but your own settings still keep writes off (HPE_MCP_ACCESS_PROFILE=safe-read-only in ~/.claude.json).` While any server has writes on, the footer starts with `WRITES: <servers> · ctrl+o`, which is never cut off. ctrl+o (or `/mcp writes off`) turns writes off for every server at once, even while Casper is working, and denies an open approval box: `[mcp] Writes off for <server>. Write tools are hidden again.` A server that was running without pins is restarted with them once its calls finish. The model's ask tool can't answer this box, and `/mcp writes` in a one-shot run gives `Writes can only be turned on in an interactive session.`
 
 ## Small model-facing surface
 
