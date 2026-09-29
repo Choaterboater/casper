@@ -286,3 +286,17 @@ test("/mcp reload back to a remembered definition connects on its own again, and
   expect(diff.revoked).toEqual([]);
   expect(statusOf(mcp, "lab")).toMatchObject({ approved: true, consent: "remembered", writes: "off" });
 });
+
+test("/mcp forget works for a remembered server that is no longer in any file", async () => {
+  const home = await tempDir();
+  const store = new ConsentStore(home);
+  await store.load();
+  const old = server("old", { FIXTURE_MODE: "access-bad" });
+  await store.remember(old);
+  const mcp = manager([], { consent: store });
+  expect(await mcp.forget("old")).toBe(true);
+  await expect(mcp.forget("old")).rejects.toThrow("Unknown MCP server");
+  const again = new ConsentStore(home);
+  await again.load();
+  expect(statusOf(manager([old], { consent: again }), "old")).toMatchObject({ approved: false, consent: "none" });
+});
