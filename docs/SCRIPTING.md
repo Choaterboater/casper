@@ -151,7 +151,8 @@ checks passed on the final files (proven or not). `repairModels` lists the model
 each repair used when Casper knows it; `bigModel` is `{ "model", "attempts" }` when the last repair ran on your big
 model. `security` holds counts only (`problems`, `notes`, `notRun`, and each tool's `status`), never finding
 text. `task` is the task's saved receipt number (`/receipt <n>`), and `undo` is `{ "available", "reason" }`: whether
-`casper /undo` can put this task's files back, and why not (see [UNDO.md](UNDO.md)). `changedWhilePlanning` lists files that changed during a plan turn anyway
+`casper /undo` can put this task's files back, and why not (see [UNDO.md](UNDO.md)). After `casper --json /undo` or
+`/redo`, `changed` lists the files it put back and `outcome` is `not_verified` (nothing checked them). `changedWhilePlanning` lists files that changed during a plan turn anyway
 (`/plan`), and `pageNotes` says in plain words why changed pages were not opened (for example
 `node_modules is missing`); neither is ever a failure.
 
