@@ -41,6 +41,21 @@ describe("the plan turn's tool gate", () => {
       "rg --pre ./x foo", "fd -x rm", "sleep 100 &", "ls\nrm x", "cat <<EOF", "npm install", "ls \\; rm x", "",
     ]) expect({ command, ok: isPlanningCommand(command) }).toEqual({ command, ok: false });
   });
+
+  test("look commands with an option that writes or runs something are refused", () => {
+    for (const command of [
+      "sed -n 1p -i app.py", "sed -n 1p --in-place app.py", "sort -uo out.txt in.txt", "tree -R -H . src", "tree -ao out.txt",
+      "fd -Hx rm", "bat --pager='sh -c id' README.md", "rg --hostname-bin=./evil foo", "file -C -m magic", "date -us 2020-01-01",
+    ]) expect({ command, ok: isPlanningCommand(command) }).toEqual({ command, ok: false });
+    for (const command of ["gci (Remove-Item x)", "Get-Content @args", "gc x -Path {rm y}", "gci [System.IO.File]::Delete('x')"]) {
+      expect({ command, ok: isPlanningCommand(command, "powershell") }).toEqual({ command, ok: false });
+    }
+    // The same commands without those options still run.
+    for (const command of ["sed -n 1p app.py", "sort -u in.txt", "tree -a src", "fd -H name", "bat README.md", "file app.py"]) {
+      expect({ command, ok: isPlanningCommand(command) }).toEqual({ command, ok: true });
+    }
+    expect(isPlanningCommand("Get-Content README.md", "powershell")).toBe(true);
+  });
 });
 
 describe("the plan", () => {
