@@ -472,6 +472,11 @@ export async function loadConfiguration(
     checklist = checklistSetting ?? checklist;
     timeoutMs = boundedSetting(document, "verification", "timeoutMs", timeoutMs, 1, 3_600_000);
     const selection = verificationSelection(document);
+    // Named checks belong to one project: your own config picking one would break every other project.
+    const foreign = document === projectDocument ? undefined : selection.checks?.find((name) => !CHECK_NAMES.some((check) => check === name));
+    if (foreign) {
+      throw new Error(`${document === globalDocument ? labels.global : labels.profile}: verification.checks can only pick ${alternatives(CHECK_NAMES)} here; pick ${foreign} in that project's .casper/project.yaml`);
+    }
     mode = selection.mode ?? mode;
     checks = selection.checks ?? checks;
     maxAttempts = boundedSetting(document, "repair", "maxAttempts", maxAttempts, 0, 10);
