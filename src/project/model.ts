@@ -107,7 +107,7 @@ const DETECTION_VERSION = 2;
 /** requirements.txt, requirements-dev.txt, requirements_test.txt ...: Python projects without a pyproject. */
 const REQUIREMENTS = /^requirements[\w.-]*\.txt$/i;
 /** A project-local virtual environment decides which Python runs the tools. */
-const VIRTUALENVS = [".venv", "venv"];
+export const VIRTUALENVS = [".venv", "venv"];
 
 async function rootSignals(root: string): Promise<string[]> {
   let names: string[];
@@ -271,7 +271,7 @@ function nodeCommands(
 
 /** Where Python tools run: the project's own runner (uv, poetry), else its virtual environment's
  * interpreter, else the system Python, always as `python -m tool` so a missing script shim never matters. */
-function pythonRunner(names: Set<string>, pyproject: string, virtualenv: string | null): { tool: (name: string) => string; build: string } {
+export function pythonRunner(names: Set<string>, pyproject: string, virtualenv: string | null): { tool: (name: string) => string; build: string } {
   const poetry = names.has("poetry.lock") || /^\[tool\.poetry\]/m.test(pyproject);
   if (names.has("uv.lock")) return { tool: (name) => `uv run ${name}`, build: "uv build" };
   if (poetry) return { tool: (name) => `poetry run ${name}`, build: "poetry build" };
@@ -290,7 +290,7 @@ function tomlTable(source: string, name: string): string | null {
   return (end < 0 ? rest : rest.slice(0, end)).join("\n");
 }
 
-function detectPythonCommands(
+export function detectPythonCommands(
   pyproject: string,
   requirements: string,
   runner: ReturnType<typeof pythonRunner>,

@@ -82,6 +82,19 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ==============================================================================
+actlint (Apache-2.0) — tool-name verb vocabulary
+Sources:
+https://github.com/formael/actlint
+npm package actlint@0.3.0 (vocabulary version 0.5.0), author Formael
+
+Casper's MCP safety labels (src/capabilities/labels.ts) use word lists checked
+against, and partly taken from, actlint's read, create, mutate, delete, send and
+execute verb families. The network words (bounce, reload, halt, deauth, zeroize
+and similar) are Casper's own. actlint's LICENSE is the unmodified Apache License
+2.0 with no copyright line filled in, and the package ships no NOTICE file. The
+full Apache License 2.0 text is reproduced below under @aws/lambda-invoke-store.
+
+==============================================================================
 Casper 0.1.0
 Sources:
 https://github.com/Choaterboater/casper/blob/main/LICENSE

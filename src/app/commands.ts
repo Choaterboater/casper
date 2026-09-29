@@ -12,8 +12,14 @@ import { pickEffort } from "../tui/effort-picker";
 import { formatEffort, formatRuntimeStatus, redactPreview, terminalText } from "../tui/format";
 import type { InteractiveTerminal } from "../tui/terminal";
 import type { CapabilityBroker } from "../capabilities/broker";
-import type { MCPManager } from "../mcp/manager";
+import type { MCPManager, MCPStatus } from "../mcp/manager";
+import { READ_ONLY_LOGIN_ENABLE_TEXT } from "../mcp/access";
+import { ownSettingsNote, writesTitle } from "../mcp/presets";
 import type { MCPConfiguration } from "../mcp/config";
+import { addUserServer, DOCS_TOOL_NAMES, docsOnlyDefinition, docsPinned, isDocsOnlyDefinition, MCP_FILE_LABEL } from "../mcp/docs";
+import type { Scrubber } from "../secrets/netconan";
+import { defaultRunGit, runReferenceAdd } from "../references/catalog";
+import { formatDuration } from "../mcp/clock";
 import type { LSPManager } from "../lsp/manager";
 import type { SkillRegistry } from "../skills/registry";
 import type { ProjectContext } from "../project/context";
@@ -63,6 +69,14 @@ export interface CommandHost {
   readonly reloadMCPConfiguration?: () => Promise<MCPConfiguration>;
   readonly lsp?: LSPManager;
   readonly references?: ReferenceLibrary;
+  /** The shared secret scrubber, for /secrets. */
+  readonly scrubber: Scrubber;
+  /** /secrets files on|off: scrub config files and config-looking command output (MCP results always). */
+  scrubFiles: boolean;
+  /** Runs git by argv for /references add (tests pass a stub). */
+  readonly runGit?: (argv: string[], signal?: AbortSignal) => Promise<{ code: number | null }>;
+  /** The home folder that holds ~/.casper. */
+  homeDir(): string;
   readonly visualization?: VisualizationRouter;
   readonly inspectProjectFn: (cwd: string) => Promise<ProjectInfo>;
   commandAbort?: AbortController;
@@ -79,6 +93,8 @@ export interface CommandHost {
   ensureSessionWorkspace(): Promise<SessionWorkspaceManager>;
   stopDebugger(): Promise<void>;
   confirmExact(preview: string, question: string, signal?: AbortSignal): Promise<boolean>;
+  /** One exact typed answer from the user (never the model), or undefined when nobody answered. */
+  chooseAnswer(preview: string, question: string, choices: readonly string[], signal?: AbortSignal): Promise<string | undefined>;
   git(args: string[]): Promise<string>;
   runVerification(checks: readonly ProjectCommand[], repair: boolean, request?: string, task?: VerificationTask): Promise<VerificationReport>;
   activeWorkspaceRoot(): string;
@@ -291,6 +307,10 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       await handleReferencesCommand(host, prompt);
       return;
     }
+    if (/^\/secrets(?:\s|$)/.test(prompt)) {
+      await handleSecretsCommand(host, prompt);
+      return;
+    }
     if (prompt === "/project") {
       host.output.write(`${renderProjectSummary(host.projectContext!)}\n`);
       return;
@@ -373,8 +393,19 @@ async function handleReferencesCommand(host: CommandHost, prompt: string): Promi
       host.output.write(`[references] ${formatReferenceResult(listing)}\n`);
       return;
     }
+    const add = prompt.trim().match(/^\/references\s+add(?:\s+(\S+))?(?:\s+(\S+))?$/);
+    if (add) {
+      const signal = host.commandAbort?.signal;
+      await runReferenceAdd(add[1], add[2], host.homeDir(), {
+        print: (line) => { if (!host.closing) host.output.write(`${terminalText(line)}\n`); },
+        // Only the user's own typed yes downloads anything; one-shot runs never do.
+        confirmExact: (question) => host.confirmExact("", question, signal),
+        runGit: (argv) => (host.runGit ?? defaultRunGit)(argv, signal),
+      });
+      return;
+    }
     const match = prompt.match(/^\/references\s+search\s+(\S+)\s+([\s\S]+)$/);
-    if (!match) throw new Error("Usage: /references | /references search <source-id|*> <literal query>");
+    if (!match) throw new Error("Usage: /references | /references search <source-id|*> <literal query> | /references add [name] [release]");
     const result = await host.references!.search({ query: match[2]!, ...(match[1] === "*" ? {} : { source: match[1]! }) });
     if (!host.closing) host.output.write(`[references] ${formatReferenceResult(result)}\n`);
   }
@@ -551,33 +582,175 @@ async function handleDelegateCommand(host: CommandHost, prompt: string): Promise
     if (result.status !== "completed") throw new Error(`Delegation ${result.status}; see the bounded report above`);
   }
 
+const MCP_USAGE = "Usage: /mcp | /mcp connect <name> | /mcp disconnect <name> | /mcp reload | /mcp writes <name> | /mcp writes off | /mcp forget <name> | /mcp junos-show <name> on|off | /mcp docs";
+/** What "writes off" means, said once under the list: it hides write tools; other changes still ask. */
+const WRITES_OFF_TEXT = "Writes off: write and delete tools are hidden, and every other change still asks you. /mcp writes <name> turns writes on.";
+
 async function handleMCPCommand(host: CommandHost, prompt: string): Promise<void> {
     const [, action, name, ...extra] = prompt.trim().split(/\s+/);
-    const usage = "Usage: /mcp | /mcp connect <name> | /mcp disconnect <name> | /mcp reload";
+    const mcp = host.mcp!;
     if (action === "reload") {
-      if (name || extra.length) throw new Error(usage);
+      if (name || extra.length) throw new Error(MCP_USAGE);
       if (!host.reloadMCPConfiguration) throw new Error("MCP configuration cannot be re-read in this session");
-      const diff = await host.mcp!.reload(await host.reloadMCPConfiguration());
+      const diff = await mcp.reload(await host.reloadMCPConfiguration());
       host.output.write(`[mcp] reloaded: ${diff.added.length} added, ${diff.removed.length} removed, ${diff.changed.length} changed\n`);
-      for (const diagnostic of host.mcp!.diagnostics) host.output.write(`[mcp] ${diagnostic}\n`);
+      for (const diagnostic of mcp.diagnostics) host.output.write(`[mcp] ${terminalText(diagnostic)}\n`);
       // A changed command/URL is a different program; consent never carries over silently.
       if (diff.revoked.length) host.output.write(`[mcp] consent revoked for ${diff.revoked.join(", ")}; reconnect with /mcp connect <name>\n`);
+      host.updateFooter();
+    } else if (action === "writes") {
+      if (!name || extra.length) throw new Error(MCP_USAGE);
+      await handleMCPWrites(host, name);
+      return;
+    } else if (action === "docs") {
+      if (name) throw new Error(MCP_USAGE);
+      await handleMCPDocs(host);
+      return;
+    } else if (action === "forget") {
+      if (!name || extra.length) throw new Error(MCP_USAGE);
+      host.output.write(await mcp.forget(name)
+        ? `[mcp] Forgot ${name}. Casper asks again before it connects next time.\n`
+        : `[mcp] ${name} was not remembered.\n`);
+      return;
+    } else if (action === "junos-show") {
+      if (!name || extra.length !== 1 || !["on", "off"].includes(extra[0]!)) throw new Error(MCP_USAGE);
+      // Only the user types this; the model has no way to run a slash command.
+      mcp.setShowOptIn(name, extra[0] === "on");
+      host.output.write(extra[0] === "on"
+        ? `[mcp] Plain show commands on ${name} run without asking.\n`
+        : `[mcp] Show commands on ${name} ask you again.\n`);
+      return;
     } else if (action && (!name || extra.length || !["connect", "disconnect"].includes(action))) {
-      throw new Error(usage);
+      throw new Error(MCP_USAGE);
     }
-    if (action === "connect" && !await approveProjectDefinition(host, "mcp", name!, host.mcp!.review(name!))) return;
-    if (action === "connect") await host.mcp!.connect(name!);
-    if (action === "disconnect") await host.mcp!.disconnect(name!);
-    const statuses = host.mcp!.status();
+    if (action === "connect" && !await approveProjectDefinition(host, "mcp", name!, mcp.review(name!))) return;
+    if (action === "connect") await mcp.connect(name!);
+    if (action === "disconnect") await mcp.disconnect(name!);
+    const statuses = mcp.status();
     host.output.write(statuses.length ? statuses.map((status) => [
-      `${status.name} [${status.transport}; ${status.state}] ${status.toolCount} tools`,
+      `${status.name} [${status.transport}; ${status.state}] ${status.toolCount} tools${status.importedFrom ? ` · from ${status.importedFrom}` : ""}`
+        + `${status.preset ? ` · preset: ${status.preset.id}` : ""} · writes ${status.writes}${status.state === "ready" ? ` · ${status.access}` : ""}`,
       `  source: ${status.source}`,
-      ...(status.error ? [`  ${status.error}`] : []),
-    ].join("\n")).join("\n") + "\n" : "No MCP servers configured.\n");
+      `  limits: start ${formatDuration(status.limits.connectS * 1000)} · call ${formatDuration(status.limits.callS * 1000)}`,
+      ...approvalLines(status),
+      ...(status.preset?.lines ?? []).map((line) => `  ${terminalText(line)}`),
+      ...(status.showOptIn ? ["  Plain show commands run without asking (/mcp junos-show " + status.name + " off)."] : []),
+      ...(status.error ? [`  ${terminalText(status.error)}`] : []),
+      // Already redacted by the manager (known secrets and token shapes); shown to you, never to the model.
+      ...(status.serverOutput?.length ? ["  Last lines from the server:", ...status.serverOutput.map((line) => `    | ${terminalText(line)}`)] : []),
+    ].join("\n")).join("\n") + `\n${statuses.some((status) => status.writes === "off") ? `${WRITES_OFF_TEXT}\n` : ""}` : "No MCP servers configured.\n");
     if (action === "connect" && statuses.find((status) => status.name === name)?.state !== "ready") {
       throw new Error("MCP connection failed; no tools exposed");
     }
+    if (action === "connect") await offerRemember(host, name!);
   }
+
+/** /secrets and /secrets files on|off. Only the user types these; the model can't run slash commands. */
+async function handleSecretsCommand(host: CommandHost, prompt: string): Promise<void> {
+  const args = prompt.trim().split(/\s+/).slice(1);
+  if (!args.length) { host.output.write(`${await host.scrubber.statusText(host.scrubFiles)}\n`); return; }
+  if (args.length !== 2 || args[0] !== "files" || !["on", "off"].includes(args[1]!)) throw new Error("Usage: /secrets | /secrets files on|off");
+  host.scrubFiles = args[1] === "on";
+  host.output.write(host.scrubFiles ? "Files and command output: on.\n" : "Files and command output: off for this session. MCP results are still scrubbed.\n");
+}
+
+/**
+ * /mcp docs: the docs servers Casper keeps in front of the model, and an offer to add a docs-only
+ * copy of an hpe-networking-mcp router (rag.py only, no credentials) to ~/.casper/mcp.json.
+ */
+async function handleMCPDocs(host: CommandHost): Promise<void> {
+  const mcp = host.mcp!;
+  const tools = new Map(mcp.catalog().map((entry) => [entry.server, entry.tools]));
+  const docs: string[] = [];
+  let docsOnly: string | undefined;
+  let copyFrom: { name: string; entry: NonNullable<ReturnType<typeof docsOnlyDefinition>> } | undefined;
+  for (const status of mcp.status()) {
+    const definition = mcp.definition(status.name);
+    const list = tools.get(status.name) ?? [];
+    if (docsPinned(definition, mcp.policy(status.name).match, list)) {
+      docs.push(`${status.name} (${DOCS_TOOL_NAMES.filter((tool) => list.some((entry) => entry.name === tool)).join(", ")})`);
+    }
+    if (isDocsOnlyDefinition(definition)) docsOnly ??= status.name;
+    const entry = docsOnlyDefinition(definition);
+    if (entry && !copyFrom) copyFrom = { name: status.name, entry };
+  }
+  host.output.write(`Docs servers: ${docs.length ? docs.join(", ") : "none connected"}. ${docsOnly ? `Docs-only server: ${docsOnly}.` : "No docs-only server yet."}\n`);
+  if (docsOnly) return;
+  if (!copyFrom) { host.output.write("No hpe-networking-mcp router (tool_router.py) that Casper can copy. A router started with extra settings (like --env-file) is not copied; add a docs-only server to ~/.casper/mcp.json yourself.\n"); return; }
+  if (!host.interactive) { host.output.write("Run /mcp docs in an interactive session to add a docs-only copy.\n"); return; }
+  const name = `${copyFrom.name}-docs`;
+  const { entry } = copyFrom;
+  const preview = [
+    `Will add ${name} to ${MCP_FILE_LABEL}:`,
+    `  runs: ${terminalText([entry.command, ...entry.args].join(" "))}`,
+    `  env: ${Object.keys(entry.env).join(", ") || "none"} (no credentials, no device settings)`,
+    "It only answers docs questions. Casper passes it no passwords.",
+    "",
+  ].join("\n");
+  if (!await host.confirmExact(preview, "Add a docs-only copy (no passwords, no device access)? Type yes: ", host.commandAbort?.signal)) {
+    host.output.write("Nothing added.\n");
+    return;
+  }
+  try { await addUserServer(host.homeDir(), name, entry); }
+  catch (error) { host.output.write(`${error instanceof Error ? terminalText(error.message) : "Nothing added."}\n`); return; }
+  host.output.write(`Added ${name} to ${MCP_FILE_LABEL}. Run /mcp reload, then /mcp connect ${name}.\n`);
+}
+
+/** Plain lines about approval: not approved yet, changed since, or remembered. */
+function approvalLines(status: MCPStatus): string[] {
+  if (status.consent === "changed" && !status.approved) return [`  Changed since you approved it. Run /mcp connect ${status.name}.`];
+  if (status.consent === "remembered" && status.approved) return ["  Remembered: connects on its own, with writes off."];
+  if (status.importedFrom && !status.approved && status.state === "disconnected") {
+    return [`  Found in ${status.importedFrom}. Not approved yet · /mcp connect ${status.name}`];
+  }
+  return [];
+}
+
+/** After you connect your own or an imported server, offer to remember it (writes stay off). */
+async function offerRemember(host: CommandHost, name: string): Promise<void> {
+  const status = host.mcp!.status().find((entry) => entry.name === name);
+  if (!host.interactive || !status || status.scope === "project" || status.consent === "remembered") return;
+  const block = host.mcp!.rememberBlock(name);
+  if (block) { host.output.write(`[mcp] ${terminalText(block)}\n`); return; }
+  const answer = await host.chooseAnswer(
+    "Remember this server? Next time it connects on its own, with writes off. Every change still asks you.\n  1 Remember\n  2 Just this time\n",
+    "Type 1 or 2: ", ["1", "2"], host.commandAbort?.signal);
+  if (answer !== "1") { host.output.write(`[mcp] Not remembered. ${name} is connected for this session only.\n`); return; }
+  const result = await host.mcp!.remember(name);
+  host.output.write(result.remembered
+    ? `[mcp] Remembered ${name}. It connects on its own next time, with writes off. /mcp forget ${name} undoes this.\n`
+    : `[mcp] ${terminalText(result.reason)}\n`);
+}
+
+/**
+ * /mcp writes <name> and /mcp writes off. Turning writes on takes two steps that only you can do:
+ * this command, then "1" in the box. The model's ask tool never reaches this box.
+ */
+async function handleMCPWrites(host: CommandHost, name: string): Promise<void> {
+  const mcp = host.mcp!;
+  if (name === "off") {
+    const on = mcp.writesOn();
+    if (!on.length) { host.output.write("[mcp] Writes are already off for every server.\n"); return; }
+    await Promise.all(on.map((server) => mcp.setWrites(server, false)));
+    for (const server of on) host.output.write(`[mcp] Writes off for ${server}. Write tools are hidden again.\n`);
+    host.updateFooter();
+    return;
+  }
+  if (!host.interactive) throw new Error("Writes can only be turned on in an interactive session.");
+  const status = mcp.status().find((entry) => entry.name === name);
+  if (!status) throw new Error("Unknown MCP server; use /mcp to list definitions");
+  if (status.writes === "on") { host.output.write(`[mcp] Writes are already on for ${name}. ${host.terminal.rich ? "ctrl+o" : "/mcp writes off"} turns them off.\n`); return; }
+  if (status.access === "login: read-only (checked)") { host.output.write(`[mcp] ${READ_ONLY_LOGIN_ENABLE_TEXT}\n`); return; }
+  const policy = mcp.policy(name);
+  const answer = await host.chooseAnswer(`${terminalText(writesTitle(name, policy.match))}\n  1 Enable for this server\n  2 Keep writes off\n`,
+    "Type 1 or 2: ", ["1", "2"], host.commandAbort?.signal);
+  if (answer !== "1") { host.output.write(`[mcp] Writes stay off for ${name}.\n`); return; }
+  await mcp.setWrites(name, true);
+  host.output.write(`[mcp] Writes on for ${name}. Each change still asks you. ${host.terminal.rich ? "ctrl+o" : "/mcp writes off"} turns writes off.\n`);
+  const note = ownSettingsNote(mcp.definition(name), policy.match);
+  if (note) host.output.write(`[mcp] ${terminalText(note)}\n`);
+  host.updateFooter();
+}
 
 
 async function handleSkillsCommand(host: CommandHost, prompt: string): Promise<void> {

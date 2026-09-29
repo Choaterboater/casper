@@ -109,6 +109,10 @@ export class TerminalSurface {
   private noteTimer?: NodeJS.Timeout;
   private exitArmed?: NodeJS.Timeout;
   private onCycleEffort?: () => void;
+  /** "WRITES: <servers> · ctrl+o" while any MCP server has writes on; drawn first, never cut off. */
+  private badge?: string;
+  /** ctrl+o: turn writes off everywhere. True when something was on. */
+  private onWritesRevert?: () => boolean;
   private cwd = "";
   private autocomplete?: AutocompleteProvider;
   private started = false;
@@ -130,7 +134,8 @@ export class TerminalSurface {
   /** Raw input is on loan to a line-oriented flow; the surface keeps rendering. */
   private lending = false;
   private command?: (text?: string) => void;
-  private confirmation?: (approved: boolean) => void;
+  /** An open approval or server question: resolves the typed answer, or undefined for Esc/Ctrl+C/close. */
+  private confirmation?: (answer: string | undefined) => void;
   private pendingAsk?: (answer: string[] | undefined) => void;
   /** The open question and its options sanitized for display; an answer is the caller's own label. */
   private askQuestion?: string;
@@ -162,7 +167,7 @@ export class TerminalSurface {
     this.editor.onSubmit = value => {
       if (this.pendingEdit) { this.pendingEdit(value.split("\n")); return; }
       if (this.pendingAsk) { this.answerAsk(value); return; }
-      if (this.confirmation) { this.confirmation(value.trim() === "yes"); return; }
+      if (this.confirmation) { this.confirmation(value.trim()); return; }
       if (!this.command) {
         this.editor.setText(value);
         this.note = "draft retained · Enter again when idle";
@@ -203,6 +208,14 @@ export class TerminalSurface {
     this.tui.setFocus(this.editor);
     this.tui.addInputListener(data => {
       if (this.exitArmed && !matchesKey(data, "ctrl+c")) this.disarmExit();
+      // ctrl+o turns MCP writes off at once, even while busy or while a question is open; an open
+      // approval is denied, so a change can't slip through while writes go off.
+      if (matchesKey(data, "ctrl+o")) {
+        const reverted = this.onWritesRevert?.() ?? false;
+        if (reverted) this.confirmation?.(undefined);
+        else this.flashNote("writes are already off");
+        return { consume: true };
+      }
       if (this.slot || this.lending) {
         // A slot-mounted picker cancels itself on Ctrl+C (its own listener below);
         // interrupting here would clear an editor that is not even visible.
@@ -220,7 +233,7 @@ export class TerminalSurface {
       if (matchesKey(data, "ctrl+c")) { this.interrupt(); return { consume: true }; }
       if (matchesKey(data, "ctrl+d") && !this.editor.getText()) { this.close(); return { consume: true }; }
       if (matchesKey(data, "escape") && (this.busy || this.confirmation || this.pendingAsk || this.pendingEdit)) {
-        if (this.confirmation) this.confirmation(false);
+        if (this.confirmation) this.confirmation(undefined);
         else if (this.pendingAsk) this.pendingAsk(undefined);
         else if (this.pendingEdit) this.pendingEdit(undefined);
         else this.cancel();
@@ -264,6 +277,15 @@ export class TerminalSurface {
   private get waiting(): boolean { return Boolean(this.pendingAsk || this.pendingEdit || this.confirmation); }
 
   private footer(width: number): string {
+    if (!this.badge) return this.footerText(width);
+    // The badge leads and is never cut off; a window too narrow for it gets the short form.
+    const text = visibleWidth(this.badge) + 1 < width ? this.badge : "WRITES · ctrl+o";
+    const rest = width - visibleWidth(text) - 1;
+    const badge = paint(text, "1;33", this.io.color);
+    return rest > 2 ? `${badge} ${this.footerText(rest)}` : truncateToWidth(badge, width);
+  }
+
+  private footerText(width: number): string {
     // Waiting on the user: no spinner or running timer, so it never looks busy while it needs Enter.
     if (this.waiting && !this.note) return truncateToWidth(`${this.accent("?")} ${this.accent("waiting for you")}${this.muted(` │ ${this.status || "Casper"}`)}`, width);
     const active = this.busy || this.activity !== undefined;
@@ -314,6 +336,15 @@ private updateSpinner(): void {
   }
   /** Shift+Tab. Absent on the plain-line terminal; the key is still consumed so it cannot edit the draft. */
   setEffortCycle(handler: (() => void) | undefined): void { this.onCycleEffort = handler; }
+  setWritesRevert(handler: (() => boolean) | undefined): void { this.onWritesRevert = handler; }
+  setBadge(text?: string): void {
+    const next = text ? terminalText(text).replace(/\s+/g, " ").trim() || undefined : undefined;
+    if (next === this.badge) return;
+    this.badge = next;
+    this.render();
+  }
+  /** The footer line at this width (for tests and the layout checks). */
+  footerLine(width: number): string { return this.footer(width); }
   /** Footer note that expires on its own and never clears a newer note (including the exit arm). */
   flashNote(text: string, ms = 1600): void {
     if (this.closed) return;
@@ -424,21 +455,32 @@ private updateSpinner(): void {
     this.command = resolve; this.render();
     return promise;
   }
-  confirm(preview: string, question: string, signal?: AbortSignal): Promise<boolean> {
-    if (this.closed || this.slot || this.lending || this.confirmation || this.pendingEdit || signal?.aborted) return Promise.resolve(false);
+  /** Exact yes/no approval: only a freshly typed "yes" approves. */
+  async confirm(preview: string, question: string, signal?: AbortSignal): Promise<boolean> {
+    return (await this.choose(preview, question, ["yes"], signal)) === "yes";
+  }
+
+  /**
+   * One approval or server question with a few exact typed answers. It resolves one of `choices`
+   * as typed, "no" for any other text, and undefined for Esc, Ctrl+C, close or abort. A pretyped
+   * draft never answers. This channel is the user's alone: the model's ask tool never reaches it.
+   */
+  choose(preview: string, question: string, choices: readonly string[], signal?: AbortSignal): Promise<string | undefined> {
+    if (this.closed || this.slot || this.lending || this.confirmation || this.pendingEdit || signal?.aborted) return Promise.resolve(undefined);
     this.endAssistant();
     const draft = this.editor.getExpandedText();
     this.editor.setText(""); // Pretyped drafts never answer approval.
     this.write(terminalText(preview + question) + "\n");
-    const { promise, resolve } = Promise.withResolvers<boolean>();
+    const { promise, resolve } = Promise.withResolvers<string | undefined>();
     let settled = false;
-    const finish = (approved: boolean) => {
+    const finish = (answer: string | undefined) => {
       if (settled) return; settled = true;
       signal?.removeEventListener("abort", cancel);
       this.confirmation = undefined;
-      this.editor.setText(draft); this.configureAutocomplete(); this.updateSpinner(); this.render(); resolve(approved);
+      this.editor.setText(draft); this.configureAutocomplete(); this.updateSpinner(); this.render();
+      resolve(answer === undefined ? undefined : choices.includes(answer) ? answer : "no");
     };
-    const cancel = () => finish(false);
+    const cancel = () => finish(undefined);
     this.attention();
     this.confirmation = finish; this.configureAutocomplete(); this.updateSpinner(); this.render();
     signal?.addEventListener("abort", cancel, { once: true });
@@ -591,7 +633,7 @@ private updateSpinner(): void {
   }
   interrupt(): void {
     if (this.closed) return;
-    if (this.confirmation) this.confirmation(false);
+    if (this.confirmation) this.confirmation(undefined);
     if (this.pendingAsk) this.pendingAsk(undefined);
     if (this.pendingEdit) this.pendingEdit(undefined);
     if (this.busy) { this.cancel(); return; }
@@ -616,7 +658,7 @@ private updateSpinner(): void {
     clearInterval(this.spinnerTimer);
     this.spinnerTimer = undefined;
     this.endAssistant(); this.closed = true;
-    this.confirmation?.(false); this.pendingAsk?.(undefined); this.pendingEdit?.(undefined); this.command?.(); this.command = undefined;
+    this.confirmation?.(undefined); this.pendingAsk?.(undefined); this.pendingEdit?.(undefined); this.command?.(); this.command = undefined;
     if (this.started) this.tui.stop();
     this.eof();
   }

@@ -1,5 +1,5 @@
 import { boundCapabilityResult } from "../capabilities/result";
-import type { AgentRuntime, RuntimeEvent, RuntimeSession, RuntimeTool } from "../runtime/types";
+import type { AgentRuntime, RuntimeEvent, RuntimeSession, RuntimeStartOptions, RuntimeTool } from "../runtime/types";
 
 export const SUBAGENT_LIMITS = Object.freeze({
   maxConcurrent: 2,
@@ -57,6 +57,8 @@ export interface SubagentManagerOptions {
   /** Embedders/tests may tighten deadlines, never relax the shipped upper bounds. */
   timeoutMs?: number;
   cleanupGraceMs?: number;
+  /** Hides device secrets in what a child reads, as in the main session (the app passes its scrubber). */
+  scrubToolOutput?: RuntimeStartOptions["scrubToolOutput"];
 }
 
 function prefix(value: string, maxBytes: number): string {
@@ -299,6 +301,7 @@ export class SubagentManager {
           modelRole: options.role === "explorer" ? "fast" : "review",
           maxTurns: SUBAGENT_LIMITS.maxTurns, maxToolCalls: SUBAGENT_LIMITS.maxToolCalls,
           reportTurn: options.reportTurn,
+          ...(this.options.scrubToolOutput ? { scrubToolOutput: this.options.scrubToolOutput } : {}),
           systemPromptAppend: `You are Casper ${options.role}, a bounded read-only subagent. Be concise.\n\n${options.projectContext}`,
         });
         controller.signal.throwIfAborted();

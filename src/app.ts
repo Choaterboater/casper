@@ -22,10 +22,15 @@ import { formatReferenceResult, ReferenceLibrary } from "./references/library";
 import { formatSubagentReport, SubagentManager, type SubagentRole } from "./agents/manager";
 import { discoverLSPConfiguration, type LSPConfiguration } from "./lsp/config";
 import { LSPManager, type ConfirmRename } from "./lsp/manager";
-import { boundCapabilityResult } from "./capabilities/result";
+import { boundCapabilityResult, NotExecutedError } from "./capabilities/result";
 import { discoverMCPConfiguration, type MCPConfiguration } from "./mcp/config";
-import { MCPManager } from "./mcp/manager";
+import { MCPManager, type ServerQuestionHandler } from "./mcp/manager";
+import { ConsentStore } from "./mcp/consent";
+import { formatApproval, maskText, planLabel, TOO_LONG_TEXT, tooLongToShow } from "./capabilities/approval";
 import { CapabilityBroker, type ConfirmCapability } from "./capabilities/broker";
+import { Scrubber } from "./secrets/netconan";
+import { hiddenSecretGate } from "./secrets/gate";
+import { scrubToolOutput } from "./secrets/tool-output";
 import type { Readable } from "node:stream";
 import {
   formatProjectContext,
@@ -93,6 +98,10 @@ export interface CasperAppOptions {
   visualizationProviders?: VisualizationProvider[];
   /** Override ~/.casper for named-session/worktree state (primarily tests/embedders). */
   sessionHomeDir?: string;
+  /** The secret scrubber (Casper's rules, plus netconan when installed); tests pass their own. */
+  scrubber?: Scrubber;
+  /** Runs git for /references add, by argv only (tests pass a stub). */
+  runGit?: (argv: string[], signal?: AbortSignal) => Promise<{ code: number | null }>;
   output?: OutputWriter;
   input?: Readable;
   /** This run's verification mode (`--verify` = auto, `--no-verify` = off), over configuration.
@@ -144,9 +153,15 @@ export class CasperApp {
   visualizationWork?: Promise<void>;
   private readonly visualizationProviders: VisualizationProvider[];
   mcp?: MCPManager;
+  private mcpConsent?: ConsentStore;
   /** Re-reads MCP configuration from disk for /mcp reload; set with the loaded workspace. */
   reloadMCPConfiguration?: () => Promise<MCPConfiguration>;
   private broker?: CapabilityBroker;
+  /** One shared scrubber: MCP results always, config files and command output while scrubFiles is on. */
+  readonly scrubber: Scrubber;
+  /** /secrets files on|off: scrub native reads of config files and config-looking command output. */
+  scrubFiles = true;
+  readonly runGit?: CasperAppOptions["runGit"];
   /** Owned-subsystem teardown bookkeeping: idempotent per subsystem, drained at close. */
   readonly lifecycle = new LifecycleRegistry();
   runtimeTools: RuntimeTool[] = [];
@@ -233,7 +248,11 @@ export class CasperApp {
       const child = await (options.subagentRuntimeFactory ?? freshPiRuntime)();
       if (child === this.runtime) throw new Error("The main runtime cannot be reused as a subagent");
       return child;
-    } });
+    },
+    // A child's file reads reach a model too: same scrubbing, same /secrets files switch.
+    scrubToolOutput: (toolName, input, texts, signal) => this.scrubFiles
+      ? scrubToolOutput(this.scrubber, toolName, input, texts, signal) : Promise.resolve(undefined),
+    });
     this.lifecycle.add({ name: "subagents", close: () => this.subagents.close() });
     this.inspectProjectFn = options.inspectProject ?? inspectProject;
     this.loadProjectContextFn = options.loadProjectContext ?? loadProjectContext;
@@ -255,6 +274,8 @@ export class CasperApp {
     this.terminal = new InteractiveTerminal(this.input, options.output ?? process.stdout,
       () => this.cancelCurrent(), () => { if (this.commandActive && !this.closing) void this.close().catch(() => {}); });
     this.terminal.setEffortCycle(() => this.cycleEffort());
+    // ctrl+o: MCP writes off everywhere, at once, even while work runs.
+    this.terminal.setWritesRevert(() => this.revertWrites());
     // A tool's "running" line is left open on a rich surface so its completion can redraw it in
     // place (`\r`); any other output first commits that line, so nothing appends to it. The boxed
     // activity status stays out of the transcript and is cleared as streamed text arrives.
@@ -295,6 +316,8 @@ export class CasperApp {
       ?? (options.autoVerify === undefined ? undefined : options.autoVerify ? "offer" : "off");
     this.visualizationProviders = options.visualizationProviders ?? [new MermaidProvider(), new MindMeshProvider()];
     this.sessionHomeDir = options.sessionHomeDir;
+    this.scrubber = options.scrubber ?? new Scrubber();
+    this.runGit = options.runGit;
   }
 
   /** Load all workspace metadata before publishing it. No connections or model startup. */
@@ -311,12 +334,21 @@ export class CasperApp {
     this.references = new ReferenceLibrary(referenceConfiguration);
     this.projectContext = context;
     this.skillRegistry = registry;
-    this.mcp = new MCPManager(mcpConfiguration);
+    // Remembered approval (keyed hashes only). A damaged or missing file means Casper asks again.
+    const consent = new ConsentStore(this.sessionHomeDir ?? os.homedir());
+    await consent.load().catch(() => {});
+    this.mcpConsent = consent;
+    this.mcp = new MCPManager(mcpConfiguration, {
+      consent,
+      elicit: (question, signal) => this.answerServerQuestion(question, signal),
+      onNote: (text) => { if (!this.closing) this.output.write(`${text}\n`); },
+    });
     // Re-reads the same layered files the manager was built from; the manager diffs them.
     this.reloadMCPConfiguration = () => this.loadMCPConfigurationFn(context);
     this.lsp = new LSPManager(context.info.root, lspConfiguration);
     this.visualization = new VisualizationRouter({ providers: this.visualizationProviders, settings: context.visualize, workspaceRoot: context.info.root });
-    this.broker = new CapabilityBroker(this.mcp, (call, signal) => this.confirmCapability(call, signal));
+    // Every server starts with writes off; only the user turns them on (/mcp writes <name>).
+    this.broker = new CapabilityBroker(this.mcp, (call, signal) => this.confirmCapability(call, signal), { writesGate: true, scrubber: this.scrubber });
     this.lifecycle.add({ name: "references", close: () => this.references!.close() });
     this.lifecycle.add({ name: "mcp", close: () => this.broker!.close() });
     this.lifecycle.add({ name: "lsp", close: () => this.lsp!.close() });
@@ -342,7 +374,8 @@ export class CasperApp {
     for (const warning of [...this.startupWarnings, ...context.warnings ?? []]) this.output.write(`[config] ${terminalText(warning)}\n`);
     for (const diagnostic of referenceConfiguration.diagnostics) this.output.write(`[references] ${formatReferenceResult(diagnostic)}\n`);
     this.reportSkillWarnings();
-    for (const diagnostic of mcp.diagnostics) this.output.write(`[mcp] ${diagnostic}\n`);
+    for (const diagnostic of mcp.diagnostics) this.output.write(`[mcp] ${terminalText(diagnostic)}\n`);
+    if (this.interactive) await this.reportImports();
     for (const diagnostic of lspConfiguration.diagnostics) this.output.write(`[lsp] ${diagnostic}\n`);
     for (const diagnostic of visualization.diagnostics) this.output.write(`[visualize] ${diagnostic}\n`);
     if (this.interactive) this.output.write("\n");
@@ -552,7 +585,11 @@ export class CasperApp {
             return reports.length ? `LSP diagnostics after edit: ${JSON.stringify(boundCapabilityResult(reports))}\nRepair new errors before continuing; unavailable or unversioned reports are not proof of a clean file.` : undefined;
           },
           systemPromptAppend: systemPromptAppend(context),
-          beforeToolGate: toolName => this.editGateReason(toolName),
+          beforeToolGate: (toolName, input) => hiddenSecretGate(toolName, input)
+            ?? (toolName === "edit" || toolName === "write" ? this.editGateReason(toolName) : undefined),
+          // Config files and config-looking command output; /secrets files off stops it for this session.
+          scrubToolOutput: (toolName, input, texts, signal) => this.scrubFiles
+            ? scrubToolOutput(this.scrubber, toolName, input, texts, signal) : Promise.resolve(undefined),
         });
         const resumeNotice = await (await this.ensureSessionWorkspace()).resumeActive(this.session);
         if (resumeNotice) this.output.write(`[sessions] ${resumeNotice}\n`);
@@ -1230,6 +1267,8 @@ export class CasperApp {
   /** A provider hiccup Pi does not retry (an empty response) ends a run for no reason of the task's: try once
    * more on its own, then, in the terminal, ask. Sign-in, quota and context errors, and errors Pi already
    * retried within its budget, are not retried again. */
+  homeDir(): string { return this.sessionHomeDir ?? os.homedir(); }
+
   async savedModel(): Promise<string | undefined> { return modelPreference(this.sessionHomeDir ?? os.homedir()); }
 
   private async retryModelFailure(session: RuntimeSession, request: string): Promise<void> {
@@ -1518,11 +1557,99 @@ export class CasperApp {
     }
   }
 
+  /** Approvals and server questions are shown one at a time, so two boxes never race for one answer. */
+  private approvalQueue: Promise<unknown> = Promise.resolve();
+  private oneAtATime<T>(work: () => Promise<T>): Promise<T> {
+    const next = this.approvalQueue.then(work, work);
+    this.approvalQueue = next.catch(() => {});
+    return next;
+  }
+
+  /** Once per new set of imported servers: say where they were found. Interactive sessions only. */
+  private async reportImports(): Promise<void> {
+    const imported = this.mcp?.status().filter((status) => status.importedFrom && status.scope === "imported") ?? [];
+    const names = imported.map((status) => status.name);
+    if (!this.mcpConsent?.importSetIsNew(names)) return;
+    const places = [...new Set(imported.map((status) => (status.importedFrom ?? "").replace(/ \(this project\)$/, "")))];
+    const where = places.length > 1 ? `${places.slice(0, -1).join(", ")} and ${places.at(-1)}` : places[0];
+    this.output.write(`[mcp] Found ${names.length} server${names.length === 1 ? "" : "s"} in ${where}. Run /mcp to see them.\n`);
+    await this.mcpConsent.markImportSet(names).catch(() => {});
+  }
+
+  /** ctrl+o: writes off for every server at once. Returns whether any were on. */
+  private revertWrites(): boolean {
+    const on = this.mcp?.writesOn() ?? [];
+    if (!on.length || this.closing) return false;
+    // The gate flips at once; servers restart with their pins once their running calls finish.
+    for (const server of on) void this.mcp!.setWrites(server, false).catch(() => {});
+    for (const server of on) this.output.write(`[mcp] Writes off for ${server}. Write tools are hidden again.\n`);
+    this.updateFooter();
+    return true;
+  }
+
+  /** One exact typed answer from the user, in the same one-at-a-time queue as approvals. */
+  chooseAnswer(preview: string, question: string, choices: readonly string[], signal?: AbortSignal): Promise<string | undefined> {
+    return this.oneAtATime(() => this.chooseExact(preview, question, choices, signal));
+  }
+
+  private approvalStopped(signal?: AbortSignal): boolean {
+    return this.closing || Boolean(signal?.aborted) || Boolean(this.commandAbort?.signal.aborted);
+  }
+
+  /**
+   * The approval box for one MCP call: the real tool, EXECUTE or preview, secrets hidden, an AI-set
+   * confirm flagged, and the last preview. Only the user's typed answer counts; the model's ask tool
+   * never reaches this prompt. Nobody asked (one-shot, too long, closing) is never "you said no".
+   */
   private confirmCapability: ConfirmCapability = async (call, signal) => {
-    const args = JSON.stringify(call.arguments);
-    // Never approve truncated arguments or implicitly accept in one-shot mode.
-    if (Buffer.byteLength(args) > 4096) return false;
-    return this.confirmExact(`MCP confirmation: ${JSON.stringify(call.capability.id)} [${call.capability.safety}]\nArguments: ${args}\n`, "Allow this exact external call? Type yes: ", signal);
+    const header = `MCP · ${call.plan.server} · ${call.plan.tool}  [${planLabel(call.plan)}]`;
+    if (tooLongToShow(call.arguments)) {
+      if (this.interactive && !this.closing) this.output.write(`${terminalText(header)}\n${TOO_LONG_TEXT}\n`);
+      throw new NotExecutedError("arguments too long to show you for approval");
+    }
+    if (!this.interactive) throw new NotExecutedError("needs your approval, and this run cannot ask");
+    return this.oneAtATime(async () => {
+      if (this.approvalStopped(signal)) throw new NotExecutedError("cancelled");
+      const box = formatApproval(call.plan, call.lastPreview);
+      const answer = await this.chooseExact(box.preview, box.question, box.choices, signal);
+      if (answer === undefined && this.approvalStopped(signal)) throw new NotExecutedError("cancelled");
+      const result = answer === "yes" ? "yes" : answer === "p" && box.choices.includes("p") ? "preview" : "no";
+      if (!this.closing) this.output.write(`[approval] ${result === "yes" ? "allowed" : result === "preview" ? "preview first" : "denied"}\n`);
+      return result;
+    });
+  };
+
+  /**
+   * A server asked about the call the user approved (MCP elicitation). Only the user answers, in the
+   * same kind of box; one-shot runs and a closing Casper decline without asking.
+   */
+  private answerServerQuestion: ServerQuestionHandler = async (question, signal) => {
+    if (!this.interactive || this.closing) return { action: "decline" };
+    return this.oneAtATime(async () => {
+      if (this.approvalStopped(signal)) return { action: "cancel" as const };
+      const shown = (text: string) => maskText(text).replace(/[\r\n\v\f\u0085\u2028\u2029]+/g, " ");
+      const options = question.options?.map(shown) ?? [];
+      // A choice Casper would have to hide or change can't be offered as typed.
+      if (question.kind === "choice" && options.some((option, index) => option !== question.options![index])) {
+        if (!this.closing) this.output.write(`[mcp] ${terminalText(question.server)} asked a question Casper can only answer yes/no; declined.\n`);
+        return { action: "decline" as const };
+      }
+      // Secrets are hidden before the message is cut, so a cut never shows part of one.
+      const message = shown(question.message);
+      const cut = message.length > 4000 ? `${message.slice(0, 4000)} … (more not shown)` : message;
+      const preview = `${shown(question.server)} asks about the ${shown(question.realTool)} call you approved:\n  ${cut}\n`;
+      const choices = question.kind === "boolean" ? ["yes"] : options;
+      const prompt = question.kind === "boolean" ? "Answer? Type yes: " : `Answer? Type one of ${options.join(", ")}: `;
+      const answer = await this.chooseExact(preview, prompt, choices, signal);
+      if (answer === undefined) {
+        if (!this.closing) this.output.write("[server question] no\n");
+        return { action: "cancel" as const };
+      }
+      const accepted = answer !== "no" || choices.includes("no");
+      if (!this.closing) this.output.write(`[server question] ${accepted ? answer : "no"}\n`);
+      if (!accepted) return { action: "decline" as const };
+      return { action: "accept" as const, value: question.kind === "boolean" ? true : answer };
+    });
   };
 
   /** beforeChanges gate: deny native edit/write until one ask attempt is recorded. */
@@ -1556,6 +1683,14 @@ export class CasperApp {
     // The answer itself is never echoed (it is a fresh keystroke, not a draft); record the outcome.
     if (!this.closing) this.output.write(`[approval] ${approved ? "allowed" : "denied"}\n`);
     return approved;
+  }
+
+  /** One exact typed answer from the user (undefined when nobody could answer). The caller records it. */
+  private async chooseExact(preview: string, question: string, choices: readonly string[], signal?: AbortSignal): Promise<string | undefined> {
+    if (!this.interactive || this.approvalStopped(signal)) return undefined;
+    const signals = [signal, this.commandAbort?.signal].filter((value): value is AbortSignal => Boolean(value));
+    this.output.write("");
+    return this.terminal.choose(preview, question, choices, signals.length ? AbortSignal.any(signals) : undefined);
   }
 
 
@@ -1626,6 +1761,8 @@ export class CasperApp {
 
   updateFooter(): void {
     if (!this.projectContext) return;
+    const writes = this.mcp?.writesOn() ?? [];
+    this.terminal.setBadge(writes.length ? `WRITES: ${writes.join(", ")} · ${this.terminal.rich ? "ctrl+o" : "/mcp writes off"}` : undefined);
     try {
       const project = this.projectContext.info;
       const status = this.session?.getStatus?.();
