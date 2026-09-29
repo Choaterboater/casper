@@ -55,8 +55,9 @@ export type VerificationOptions = ({ registry: VerifierRegistry; task?: never } 
   /** A lab check failed. Casper never repairs one on its own, because each try touches lab devices; "repair"
    * only when the user says so. Unset stops. */
   onLabFailure?: (failures: VerificationResult[], signal: AbortSignal) => Promise<"repair" | "stop" | undefined>;
-  /** Opens the changed pages on the dev server; called once the command checks (and smoke) pass. */
-  pages?: (signal: AbortSignal) => Promise<PageReport>;
+  /** Opens the changed pages on the dev server; called once the command checks (and smoke) pass. Undefined:
+   * no change reaches a page any more (the pages are planned again after each repair). */
+  pages?: (signal: AbortSignal) => Promise<PageReport | undefined>;
   signal?: AbortSignal;
   onResult?: (result: VerificationResult) => void;
   onRepair?: (attempt: number, maxAttempts: number) => void;

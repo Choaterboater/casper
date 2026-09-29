@@ -42,7 +42,7 @@ export function namedCheckFields(result: Pick<VerificationResult, "kind" | "labe
 
 export interface PhaseEvent {
   type: "phase";
-  phase: "task" | "checklist" | "checks" | "smoke" | "review" | "proof" | "acceptance" | "repair";
+  phase: "task" | "checklist" | "checks" | "smoke" | "pages" | "review" | "proof" | "acceptance" | "repair";
   state: "start" | "end";
   atMs: number;
 }
