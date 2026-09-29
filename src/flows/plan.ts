@@ -46,25 +46,35 @@ function words(segment: string): string[] | undefined {
 }
 
 const flag = (word: string, ...names: string[]) => names.some((name) => word === name || word.startsWith(`${name}=`));
+/** A short-option word (`-uo`, `-Hx`) that holds any of these letters: most tools accept options bunched together. */
+const short = (word: string, letters: string) => /^-[^-]/.test(word) && [...word.slice(1)].some((letter) => letters.includes(letter));
 
 /** Look commands, and the arguments that would make each one write, run or fetch something. */
 const BASH_COMMANDS: Record<string, (args: string[]) => boolean> = {
-  cat: () => true, head: () => true, tail: () => true, wc: () => true, file: () => true, stat: () => true,
+  cat: () => true, head: () => true, tail: () => true, wc: () => true, stat: () => true,
+  // file -C compiles a magic file and writes it.
+  file: (args) => !args.some((arg) => flag(arg, "--compile") || short(arg, "C")),
   du: () => true, df: () => true, pwd: () => true, ls: () => true, which: () => true, type: () => true,
-  uname: () => true, whoami: () => true, date: (args) => !args.some((arg) => flag(arg, "-s", "--set")),
+  uname: () => true, whoami: () => true, date: (args) => !args.some((arg) => flag(arg, "--set") || short(arg, "s")),
   echo: () => true, printf: (args) => !args.includes("-v"), diff: () => true, basename: () => true,
   dirname: () => true, realpath: () => true, readlink: () => true, nl: () => true, cut: () => true,
-  tr: () => true, column: () => true, jq: () => true, bat: () => true, eza: () => true,
+  tr: () => true, column: () => true, jq: () => true, eza: () => true,
+  // bat runs the pager it is given.
+  bat: (args) => !args.some((arg) => flag(arg, "--pager", "--paging")),
   grep: () => true, egrep: () => true, fgrep: () => true,
-  rg: (args) => !args.some((arg) => flag(arg, "--pre", "--pre-glob")),
-  fd: (args) => !args.some((arg) => flag(arg, "-x", "-X", "--exec", "--exec-batch")),
-  tree: (args) => !args.some((arg) => flag(arg, "-o")),
-  sort: (args) => !args.some((arg) => arg.startsWith("-o") || flag(arg, "--output", "--compress-program")),
+  // --pre and --hostname-bin run a program.
+  rg: (args) => !args.some((arg) => flag(arg, "--pre", "--pre-glob", "--hostname-bin")),
+  fd: (args) => !args.some((arg) => flag(arg, "--exec", "--exec-batch") || short(arg, "xX")),
+  // tree -o writes its output to a file, and -R writes a 00Tree.html into every folder.
+  tree: (args) => !args.some((arg) => short(arg, "oR")),
+  sort: (args) => !args.some((arg) => short(arg, "o") || flag(arg, "--output", "--compress-program")),
   // uniq writes its second file argument.
   uniq: (args) => args.filter((arg) => !arg.startsWith("-")).length <= 1,
   find: (args) => !args.some((arg) => ["-exec", "-execdir", "-ok", "-okdir", "-delete", "-fprint", "-fprint0", "-fprintf", "-fls"].includes(arg)),
   // Only printing a line range or a pattern's lines: sed scripts can also write (w) and run (e) things.
-  sed: (args) => args[0] === "-n" && args.length >= 2 && /^(?:\d+(?:,\d+)?|\$|\/[^/]*\/)p$/.test(args[1]!),
+  // Nothing after the script may be an option: `sed -n 1p -i f` rewrites f.
+  sed: (args) => args[0] === "-n" && args.length >= 2 && /^(?:\d+(?:,\d+)?|\$|\/[^/]*\/)p$/.test(args[1]!)
+    && !args.slice(2).some((arg) => arg.startsWith("-")),
   git: (args) => {
     const [sub, ...rest] = args;
     const noOutput = !rest.some((arg) => flag(arg, "--output", "--open-files-in-pager", "--ext-diff", "--textconv") || /^-O/.test(arg));
@@ -105,7 +115,8 @@ export function isPlanningCommand(command: string, shell: "bash" | "powershell" 
   const parts = segments(command);
   if (!parts) return false;
   return parts.every(([name, ...args]) => {
-    if (shell === "powershell") return POWERSHELL_COMMANDS.has(name!.toLowerCase());
+    // PowerShell runs anything in brackets inside an argument, `gci (Remove-Item x)`, and @ splats.
+    if (shell === "powershell") return POWERSHELL_COMMANDS.has(name!.toLowerCase()) && !/[(){}[\]@]/.test(command);
     const check = Object.hasOwn(BASH_COMMANDS, name!) ? BASH_COMMANDS[name!] : undefined;
     return Boolean(check?.(args));
   });
