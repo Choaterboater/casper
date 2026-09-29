@@ -360,6 +360,104 @@ detailed receipt lists every check with its source, response status and baseline
 report (see [SCRIPTING.md](SCRIPTING.md)). A passing smoke check shows what one request returned; it
 does not certify the requested behavior as a whole.
 
+## Page checks
+
+In a web project, after a change Casper opens the changed pages itself and reports what each one
+showed. It costs no model tokens, and it is decided by project facts only, never by the words of
+the request:
+
+- **A web project**: a declared `services.web` in `.casper/project.yaml`; a Next.js, Nuxt,
+  SvelteKit, Astro, Angular, Vite, Vue or React project whose `dev` (else `start`) script runs a dev
+  server Casper knows (Casper adds its own port flags, for example `vite --port $PORT --strictPort
+  --host 127.0.0.1`); or a Streamlit app (`requirements*.txt` or `pyproject.toml` names streamlit,
+  and `app.py` or `streamlit_app.py` imports it), run with the project's own `.venv` Python.
+- **Changed files that reach a page**: file-routed frameworks map a changed page file to its address
+  (`app/dashboard/page.tsx` opens `/dashboard`; Next.js `pages/`, SvelteKit `src/routes/`, Nuxt
+  `pages/` and Astro `src/pages/` too). Other front-end changes (components, styles, an SPA's router,
+  a Streamlit app) open `/`. A route that needs a value (`/devices/[id]`) is listed, not opened. At
+  most 5 pages are opened per check. Docs-only changes open nothing.
+
+Page checks run only when Casper checks each change itself (`auto`), after the command checks and
+smoke checks pass, inside the same verify-and-repair loop. Casper starts the dev server through
+[managed services](SERVICES.md) and keeps it for the session, so later tasks reuse it; an edit makes
+it restart before the next check. The first start in a session prints the command, because it runs
+the project's own code:
+
+```text
+… Casper checking: typecheck, pages
+… Starting dev server: bun run dev (it runs your project's code)
+Dev server: bun run dev · http://127.0.0.1:41733 (stops when you leave Casper)
+… Casper opening changed pages: /dashboard
+```
+
+The banner and `/status` name it too: `checks    typecheck, pages (bun run dev) — run after each change`.
+
+Each page gets one receipt line:
+
+```text
+✓ /dashboard loads · 0 console errors
+✗ /dashboard · 2 console errors: TypeError: Cannot read properties of undefined (reading 'map')
+✗ /dashboard returned 500
+✗ /dashboard shows an error: KeyError: 'site'
+• /devices/[id] not opened: it needs a value for [id] (a fixed path can be set in .casper/project.yaml pages:)
+```
+
+A page fails on a console error or an uncaught page error, an HTTP status of 400 or more, a failed
+request to the same site (500 or more, or no answer; other sites never count), or an error overlay:
+Vite's and Next.js's, or Streamlit's in-page exception. Streamlit shows app exceptions in the page, not
+the console, so Casper also reads the traceback the Streamlit server logs while the page loads. A
+failing page is the receipt's first line (`✗ Failed — /dashboard has 2 console errors`) and goes to the
+repair as page evidence (the console text, the error line and the server's last log lines, bounded and
+with secrets hidden); the pages are planned and opened again after each repair. A page that loads says
+**loads**, never "works": a pass never makes a change **Verified**. With only page checks, the receipt
+says `• Checks passed — not proven: pages load, but no test fails without the change`.
+
+**Chrome.** Pages are opened in a fresh headless Chrome (`CASPER_BROWSER_EXECUTABLE`, else an installed
+Chrome or Chromium; Casper never downloads one). Without Chrome, Casper only fetches the page and says so:
+`✓ /dashboard answers (HTTP 200) · console not checked: no Chrome found (install Chrome or set
+CASPER_BROWSER_EXECUTABLE)`. That is never a failure.
+
+**When pages are not checked.** A project Casper can't start is a note, never a failure:
+`• Pages not checked: node_modules is missing. Run bun install first (Casper doesn't install packages)`.
+A dev server that stops before it is ready, or doesn't answer on its port in time (45 s for one Casper found), makes the check
+incomplete, with the server's last lines. When the command checks still fail after the last repair, the
+pages never opened: `• Pages not checked: command checks failed`.
+
+**Settings** (`.casper/project.yaml` only; your own config can't set them):
+
+```yaml
+pages: [/, /dashboard]   # always open these after a code change (at most 8)
+# pages: off             # never open pages
+services:
+  web: { command: bun run dev, port: auto, ready: { http: / } }   # how to start the dev server, if Casper can't tell
+```
+
+Only routes are found from files; for single-page apps and Streamlit, list the pages you care about.
+The dev server runs the project's code with Casper's reduced environment (no provider keys, a separate
+HOME), but it is not sandboxed yet and a page it serves can still reach the network: use page checks only
+in projects you trust, or set `pages: off`.
+
+## SQL migrations check
+
+When the project has SQL migrations, Casper finds a `migrations` check: it applies the migrations, in
+order, to a throwaway SQLite database that is deleted afterwards. The project's own database files are
+never opened. It runs after each change to the migrations (or the Prisma schema), next to the other
+checks, and with `/verify migrations` or the AI's `casper_check`.
+
+- Folders: `migrations/`, `db/migrations/`, `sql/migrations/`, `drizzle/`, `supabase/migrations/`, and
+  Prisma's `prisma/migrations/`. Plain ordered `.sql`, golang-migrate `.up.sql` (never `.down.sql`),
+  dbmate `-- migrate:up` sections and drizzle's `--> statement-breakpoint` are understood.
+- The database type comes only from the project: `schema.prisma`'s provider, `drizzle.config`'s dialect,
+  or a SQLite driver dependency. Casper never guesses. Postgres (including `supabase/migrations`), MySQL
+  or an unknown database is never run after changes; `/verify migrations` says why:
+  `• Not verified — migrations not run: these are Postgres migrations (supabase/migrations), and Casper only has a throwaway SQLite`.
+- Prisma runs `prisma migrate deploy` from the project's `node_modules` only when the schema reads its
+  address from a variable; Casper points that variable at the throwaway file.
+- Statements that could reach other files (`ATTACH`, `VACUUM INTO`, `load_extension`) are refused.
+
+A failure names the file and SQLite's error: `✗ migrations failed (002_devices.sql failed — no such table: sites)`.
+A project that names its own `verify.checks.migrations` keeps it instead.
+
 ## Configuration
 
 `.casper/project.yaml` can specify canonical checks:
