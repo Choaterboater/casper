@@ -55,7 +55,9 @@ On the command line: `casper /undo`, `casper /redo`, `casper /diff 12`, `casper 
 - **Undo can be undone.** Just before undoing, Casper copies the files once more, so `/redo` (or `1` on the
   row after an undo) puts them back.
 - **Files it creates, it may remove.** A file the task added is removed; a file the task did not create is never
-  deleted. A folder is removed only when it is empty and did not exist before.
+  deleted. A file that was already there but had no copy (git ignored it then, it was over 8 MB, or it was inside
+  a nested repository) is never deleted, even if the task made it one Casper copies. A folder is removed only
+  when it is empty and did not exist before.
 - **Links are never followed.** A link is put back or removed as a link. If the task replaced a folder with a
   link, the link is removed and a real folder comes back; nothing is written or removed outside your folder.
 - **The conversation.** If nothing was said since the task, in the same conversation, Casper rewinds the
@@ -67,7 +69,8 @@ On the command line: `casper /undo`, `casper /redo`, `casper /diff 12`, `casper 
 
 ## What undo can't put back
 
-Casper says so every time it applies:
+The receipt names these files when the task's own tools edited them, or when they changed between the two copies;
+a file changed only by a shell command that git ignores is not named:
 
 - files git ignores, dependency folders (`node_modules`, `.venv`), caches and build folders (`.next`,
   `__pycache__`, and the like);
@@ -87,16 +90,17 @@ When undo can't be offered at all, the receipt says why on one line:
 • Undo not available: Casper could not save a copy (<reason>)
 ```
 
-There is a short gap between Casper checking a file and putting it back; an editor that saves in that moment
-can lose that save.
+Casper checks each file again just before putting it back, so a file you saved while Casper asked is left as
+you saved it. An editor that saves in the same instant can still lose that save.
 
 ## Where the copies live
 
-`~/.casper/projects/<project>-<id>/undo.git` holds the copies and `receipts/<n>.json` the receipts. Both are
-private to you (folders 0700, files 0600). Casper runs git there with no system or global git settings, no
+`~/.casper/projects/<project>-<id>/undo.git` holds the copies and `receipts/<n>.json` the receipts. Both
+folders are private to you (0700), and each receipt file is 0600. `/status` shows how much disk the copies take. Casper runs git there with no system or global git settings, no
 hooks and no project filters, so your repository's `.git`, its hooks and its settings are never read or
-changed. The newest 100 tasks are kept. In a folder that is not a git repository, files that are not secret
-files are copied there too, so treat `~/.casper` like the folder itself.
+changed. The newest 100 tasks are kept. Every file in the folder that git does not ignore and that is not a secret file
+is copied there, including files that are not committed (and every such file in a folder that is not a git
+repository), so treat `~/.casper` like the folder itself.
 
 Saved receipts hold no check output, and secrets in them are shown as `<redacted>`, like the JSON receipt.
 
