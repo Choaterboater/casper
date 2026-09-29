@@ -95,3 +95,14 @@ test("shell commands that write git hooks or risky git settings are refused; rea
     expect([safe, gitInternalsCommand(safe, project, home)]).toEqual([safe, undefined]);
   }
 });
+
+test("a session in Casper's own worktree folder can still edit its project files", async () => {
+  const tree = path.join(home, ".casper/worktrees/abc123/fix-login");
+  await mkdir(path.join(tree, "src"), { recursive: true });
+  const treeContext = { root: tree, home };
+  expect(fileToolGate("write", { path: "src/a.ts", content: "x" }, treeContext)).toBeUndefined();
+  expect(fileToolGate("edit", { path: path.join(tree, "src/a.ts"), edits: [] }, treeContext)).toBeUndefined();
+  // The rest of ~/.casper stays off limits from there.
+  expect(fileToolGate("write", { path: "~/.casper/settings.json", content: "x" }, treeContext)).toContain("Casper doesn't let the AI change it.");
+  expect(fileToolGate("write", { path: "../other/src/a.ts", content: "x" }, treeContext)).toContain("Casper doesn't let the AI change it.");
+});
