@@ -207,6 +207,9 @@ export class ProbeConnection {
   private readonly pending = new Map<number, Pending>();
   private closedError?: Error;
 
+  /** Values to hide in anything shown from this server (the credentials it was started with). */
+  secrets: readonly string[] = [];
+
   constructor(readonly transport: Transport) {
     transport.onmessage = (message) => this.receive(message);
     transport.onclose = () => this.fail(new Error("the server closed the connection"));
@@ -334,6 +337,7 @@ export async function probeServer(definition: StartDefinition, options: ProbeOpt
     });
   }
   const connection = new ProbeConnection(transport);
+  connection.secrets = secrets;
   const result: ProbeResult = { started: false, ms: 0, tools: [], stdoutNoise: [], stderrTail: [] };
   const deadline = began + options.connectMs;
   const left = () => deadline - Date.now();

@@ -62,10 +62,10 @@ function itemCount(result: unknown): string {
   return "";
 }
 
-function errorText(result: unknown): string {
+function errorText(result: unknown, secrets: readonly string[]): string {
   const content = record(result) && Array.isArray(result.content) ? result.content : [];
   const text = content.map((block) => record(block) && typeof block.text === "string" ? block.text : "").join(" ").trim();
-  return redactServerText(text || "the tool reported an error");
+  return redactServerText(text || "the tool reported an error", secrets);
 }
 
 async function timed(connection: ProbeConnection, name: string, callMs: number, signal?: AbortSignal): Promise<{ ms: number; result?: unknown; error?: string }> {
@@ -74,7 +74,7 @@ async function timed(connection: ProbeConnection, name: string, callMs: number, 
     const result = await connection.call(name, {}, callMs, signal);
     return { ms: Date.now() - began, result };
   } catch (error) {
-    return { ms: Date.now() - began, error: redactServerText(error instanceof Error ? error.message : String(error)) };
+    return { ms: Date.now() - began, error: redactServerText(error instanceof Error ? error.message : String(error), connection.secrets) };
   }
 }
 
@@ -86,7 +86,7 @@ export async function liveSmoke(connection: ProbeConnection, tools: readonly Pro
   if (access) {
     const answer = await timed(connection, access.name, callMs, options.signal);
     if (answer.error) findings.push({ section: "live", status: "fail", label: "access_check", text: `failed after ${seconds(answer.ms)}: ${answer.error}` });
-    else if (record(answer.result) && answer.result.isError === true) findings.push({ section: "live", status: "fail", label: "access_check", text: `failed after ${seconds(answer.ms)}: ${errorText(answer.result)}` });
+    else if (record(answer.result) && answer.result.isError === true) findings.push({ section: "live", status: "fail", label: "access_check", text: `failed after ${seconds(answer.ms)}: ${errorText(answer.result, connection.secrets)}` });
     else findings.push({ section: "live", status: "ok", label: "access_check", text: `${seconds(answer.ms)} · ${accessStatusText(parseAccessCheck(answer.result))}` });
   } else if (tools.some((tool) => tool.name === ACCESS_TOOL)) {
     findings.push({ section: "live", status: "note", label: "access_check", text: "not called: it must be labeled read-only and need no fields." });
@@ -102,7 +102,7 @@ export async function liveSmoke(connection: ProbeConnection, tools: readonly Pro
     if (options.signal?.aborted) break;
     const answer = await timed(connection, tool.name, callMs, options.signal);
     if (answer.error) findings.push({ section: "live", status: "fail", label: tool.name, text: `failed after ${seconds(answer.ms)}: ${answer.error}` });
-    else if (record(answer.result) && answer.result.isError === true) findings.push({ section: "live", status: "fail", label: tool.name, text: `failed after ${seconds(answer.ms)}: ${errorText(answer.result)}` });
+    else if (record(answer.result) && answer.result.isError === true) findings.push({ section: "live", status: "fail", label: tool.name, text: `failed after ${seconds(answer.ms)}: ${errorText(answer.result, connection.secrets)}` });
     else findings.push({ section: "live", status: "ok", label: tool.name, text: `${seconds(answer.ms)}${itemCount(answer.result)}` });
   }
   return findings;

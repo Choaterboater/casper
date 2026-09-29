@@ -12,6 +12,8 @@ import { CallToolRequestSchema, ListToolsRequestSchema, type Tool } from "@model
  * FIXTURE_ENV_FILE: at startup the server writes what it sees of its environment (credential present or not,
  *   proxy values), so the offline guard can be tested without any tool call.
  * FIXTURE_START_DELAY_MS: slow-start waits this long before serving (default 5000).
+ * FIXTURE_CALL_ERROR: "result" makes every call answer isError, "throw" makes it a JSON-RPC error; both
+ *   echo MIST_API_TOKEN, like a server that repeats the rejected credential.
  */
 
 type Schema = Tool["inputSchema"];
@@ -103,6 +105,9 @@ export function checkFixtureServer(mode = "good"): Server {
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools }));
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     logCall(request.params.name);
+    const failure = process.env.FIXTURE_CALL_ERROR;
+    if (failure === "throw") throw new Error(`rejected ${process.env.MIST_API_TOKEN ?? ""}`);
+    if (failure === "result") return { isError: true, content: [{ type: "text", text: `rejected ${process.env.MIST_API_TOKEN ?? ""}` }] };
     const items = request.params.name === "access_check"
       ? [{ product: "fixture", access: "read-only" }]
       : [{ name: "r1" }, { name: "r2" }, { name: "r3" }];
