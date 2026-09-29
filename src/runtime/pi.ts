@@ -43,6 +43,7 @@ import type {
   RuntimeSwitchOptions,
   RuntimeTool,
   RuntimeUsage,
+  RuntimeModelInfo,
   RuntimeConversation,
 } from "./types";
 
@@ -163,6 +164,10 @@ class PiRuntimeSession implements RuntimeSession {
 
   getModelRoles(): Record<string, string> {
     return this.models.getRoles();
+  }
+
+  describeModel(query: string): RuntimeModelInfo | undefined {
+    return this.models.describe(query);
   }
 
   setModelRole(role: string, selector?: string): Promise<Record<string, string>> {
