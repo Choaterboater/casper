@@ -16,6 +16,7 @@ import { startLine, type StartDefinition } from "./examples";
 import { checkLabels, routerContract } from "./labels";
 import { liveSmoke } from "./live";
 import { isLoopbackUrl, probeServer, type ProbeConnection, type ProbeTool } from "./probe";
+import { MISSING_PACKAGES } from "./repo";
 import { checkSchemas } from "./schemas";
 
 /** Casper's own per-server tool limit (manager.ts listTools). */
@@ -117,8 +118,13 @@ export function serverSteps(options: ServerStepOptions = {}): { serverChecks: Ch
       : [];
     if (!probe.started) {
       const tail = probe.stderrTail;
+      let setup = "";
+      if (MISSING_PACKAGES.test(tail.join("\n"))) {
+        const uv = await lstat(path.join(context.root, "uv.lock")).then(() => true, () => false);
+        setup = ` Not set up: it needs packages that are not installed. ${uv ? "Run `uv sync` in the repo" : "Install the repo's packages"}, then check again.`;
+      }
       findings.push({ section: "server", status: "fail", label: "starts",
-        text: `${probe.error ?? "Did not start."}${tail.length ? " Last lines it printed (secrets hidden):" : ""}`, ...(tail.length ? { detail: tail } : {}) });
+        text: `${probe.error ?? "Did not start."}${setup}${tail.length ? " Last lines it printed (secrets hidden):" : ""}`, ...(tail.length ? { detail: tail } : {}) });
       return [...findings, ...noise];
     }
     started = true;

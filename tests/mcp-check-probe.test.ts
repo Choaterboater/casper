@@ -51,3 +51,11 @@ test("a command that does not exist is a plain start failure", async () => {
   expect(result.started).toBe(false);
   expect(result.error).toBe("Did not start: casper-no-such-server not found.");
 });
+
+test("stderr hides values given under credential names, but not plain paths", async () => {
+  const script = "console.error('path ' + process.env.PYTHONPATH + ' key ' + process.env.MY_TOKEN); process.exit(1)";
+  const result = await probeServer({ ...definition("good"), args: ["-e", script], env: { PYTHONPATH: "/repo/src", MY_TOKEN: "tok-12345" } },
+    { connectMs: 5000, env: process.env, live: true });
+  expect(result.stderrTail.join("\n")).toContain("path /repo/src key •••");
+  expect(result.stderrTail.join("\n")).not.toContain("tok-12345");
+});
