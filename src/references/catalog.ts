@@ -122,6 +122,8 @@ export function planReferenceAdd(name: string, release: string | undefined, home
 
 export const REFERENCE_ADD_PROMPT = "Download now? Type yes: ";
 export const referenceAddedText = (id: string) => `Added ${id} to ~/.casper/references.yaml. Restart Casper to search it.`;
+export const REFERENCE_DOWNLOADING_TEXT = "Downloading (up to 5 minutes; Ctrl+C stops it)...";
+
 export const referenceDownloadFailedText = (code: number | null) =>
   `Download failed (git exit ${code ?? "unknown"}). Nothing was added.`;
 
@@ -155,6 +157,8 @@ export async function runReferenceAdd(name: string | undefined, release: string 
   }
   for (const line of plan.shown) host.print(line);
   if (!(await host.confirmExact(REFERENCE_ADD_PROMPT))) { host.print("Nothing downloaded."); return false; }
+  // git prints nothing here and may take minutes: say it started and how to stop it.
+  host.print(REFERENCE_DOWNLOADING_TEXT);
   for (const argv of plan.commands) {
     const { code } = await host.runGit(argv).catch(() => ({ code: null }));
     if (code !== 0) {
