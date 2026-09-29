@@ -1,0 +1,57 @@
+name: Publish release
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to create; must match package.json (for example v0.2.14)
+        required: true
+permissions:
+  contents: write
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      RELEASE_TAG: ${{ inputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.0'
+      - name: Check the tag names this commit's version
+        run: |
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Invalid release tag: $RELEASE_TAG"; exit 1; }
+          version="v$(jq -r .version package.json)"
+          [ "$RELEASE_TAG" = "$version" ] || { echo "Tag $RELEASE_TAG does not match package.json $version"; exit 1; }
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then echo "Release $RELEASE_TAG already exists"; exit 1; fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - name: Build every release target
+        run: bun run build:release -- --all
+      - name: Verify the build
+        run: |
+          cd dist/release
+          sha256sum -c SHA256SUMS
+          ./casper-linux-x64 --version | grep -F "casper ${RELEASE_TAG#v} ("
+          ls install.sh install.ps1 VERSION LICENSE THIRD_PARTY_NOTICES.txt
+          # Personal build paths must not be embedded in the executables.
+          ! grep -a -l -E "/home/runner/work|/Users/" casper-*
+      - name: Release notes from docs/RELEASE.md
+        run: |
+          awk -v tag="$RELEASE_TAG" '
+            index($0, "## " tag) == 1 { on = 1; next }
+            on && /^## v/ { exit }
+            on { print }
+          ' docs/RELEASE.md > notes.md
+          [ -s notes.md ] || { echo "No docs/RELEASE.md section for $RELEASE_TAG"; exit 1; }
+          printf '\n## Install\n\nmacOS / Linux:\n```sh\ncurl -fsSL https://github.com/%s/releases/download/%s/install.sh | sh\n```\n\nWindows (PowerShell):\n```powershell\n[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/%s/releases/download/%s/install.ps1 | iex\n```\n' \
+            "$GITHUB_REPOSITORY" "$RELEASE_TAG" "$GITHUB_REPOSITORY" "$RELEASE_TAG" >> notes.md
+      - name: Publish the prerelease with every file in dist/release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$RELEASE_TAG" dist/release/* --prerelease --target "$GITHUB_SHA" \
+            --title "Casper $RELEASE_TAG — preview" --notes-file notes.md
+          gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' | sort
