@@ -1,0 +1,5 @@
+---
+# Installed collections and the Python environment aren't this project's code.
+exclude_paths:
+  - collections/
+  - .venv/

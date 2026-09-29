@@ -1,0 +1,25 @@
+---
+# Render-only: turns the settings below into Junos config text on this machine. Every task uses
+# state: rendered, which builds the config without contacting a device. The address is a
+# documentation example that is never reached.
+- name: Render Junos settings
+  hosts: localhost
+  gather_facts: false
+  vars:
+    ansible_connection: ansible.netcommon.netconf
+    ansible_network_os: junipernetworks.junos.junos
+    ansible_host: 192.0.2.1
+  tasks:
+    - name: Render interfaces
+      junipernetworks.junos.junos_interfaces:
+        config:
+          - name: ge-0/0/1
+            description: uplink to core
+            enabled: true
+        state: rendered
+      register: interfaces
+
+    - name: Check the rendered config
+      ansible.builtin.assert:
+        that:
+          - "'uplink to core' in interfaces.rendered"

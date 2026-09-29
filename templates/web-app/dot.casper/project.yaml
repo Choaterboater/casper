@@ -1,0 +1,6 @@
+# Casper settings for this project. See Casper's docs/SERVICES.md.
+services:
+  web:
+    command: bun dev    # Bun's dev server; it listens on $PORT
+    port: auto
+    ready: { http: / }
