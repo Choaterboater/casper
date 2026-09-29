@@ -39,18 +39,58 @@ export const MCP_LIMITS = { connectMs: 20_000, callMs: 90_000, hardCapMs: 600_00
  * CallClock owns cancellation through the abort signal (a paused approval prompt must not trip it). */
 const SDK_REQUEST_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 
+/** A yes/no or pick-one question a server asked during the one call the user approved. */
+export interface ServerQuestion {
+  server: string;
+  /** The MCP tool Casper called (a router such as invoke_tool, or the tool itself). */
+  tool: string;
+  /** The real tool the user approved (the tool behind a router). */
+  realTool: string;
+  /** The server's own words, unredacted: the caller hides secrets before showing them. */
+  message: string;
+  /** The one form field the answer goes into. */
+  field: string;
+  /** "boolean": a yes answers true. "choice": the answer is one of `options`. */
+  kind: "boolean" | "choice";
+  options?: string[];
+}
+/** The user's answer: "accept" with the value, or a refusal. Only the user answers; never the model. */
+export type ServerQuestionAnswer = { action: "accept"; value: boolean | string } | { action: "decline" | "cancel" };
+export type ServerQuestionHandler = (question: ServerQuestion, signal: AbortSignal) => Promise<ServerQuestionAnswer>;
+
 export interface MCPManagerOptions {
   connectTimeoutMs?: number;
   callTimeoutMs?: number;
   hardCapMs?: number;
   /** Shorthand that sets both the start and the call limit (kept for tests and older callers). */
   timeoutMs?: number;
+  /**
+   * Answers server questions (MCP elicitation). When set, Casper tells servers it can answer
+   * questions, but only one asked while exactly one call the user approved is running on that
+   * server reaches this handler. Every other question is declined without asking.
+   */
+  elicit?: ServerQuestionHandler;
+  /** One plain line for the user, such as a declined server question. */
+  onNote?: (text: string) => void;
+}
+
+/** The call the user approved: its server questions may reach the user. */
+export interface ApprovedCall {
+  capabilityId: string;
+  /** The real tool behind a router, or the tool itself. */
+  realTool: string;
+  label: string;
 }
 
 export interface MCPCallOptions {
   /** Receives the call's clock before the request is sent, so an approval or question prompt can pause it. */
   onClock?: (clock: CallClock) => void;
+  /** Set only for a call the user said yes (or p) to. */
+  approved?: ApprovedCall;
 }
+
+/** At most this many server questions are answered during one approved call. */
+export const MAX_SERVER_QUESTIONS = 3;
 
 interface Entry {
   definition: MCPServerDefinition;
@@ -77,6 +117,19 @@ interface Entry {
   /** Exit code of the current child, once it has exited (null when it was killed by a signal). */
   exitCode?: number | null;
   exited?: boolean;
+  /** Calls sent on this connection that have not finished yet. */
+  inFlight: number;
+  /** The one call the user approved that is running now, if any. */
+  approvedCall?: RunningApprovedCall;
+}
+
+interface RunningApprovedCall extends ApprovedCall {
+  tool: string;
+  client: Client;
+  generation: number;
+  signal: AbortSignal;
+  clock: CallClock;
+  questions: number;
 }
 
 const MAX_WIRE_BYTES = 8 * 1024 * 1024;
@@ -108,10 +161,31 @@ function modelText(text: string): string {
   return scrubText(text).text;
 }
 
+/**
+ * The one form field Casper can answer: a single boolean (yes/no) or a single string enum (pick
+ * one). Anything else (several fields, free text, numbers) is not a yes/no question.
+ */
+function questionShape(schema: unknown): { field: string; kind: "boolean" | "choice"; options?: string[] } | undefined {
+  if (!schema || typeof schema !== "object") return undefined;
+  const properties = (schema as { properties?: unknown }).properties;
+  if (!properties || typeof properties !== "object" || Array.isArray(properties)) return undefined;
+  const entries = Object.entries(properties as Record<string, unknown>);
+  if (entries.length !== 1) return undefined;
+  const [field, property] = entries[0]!;
+  if (!property || typeof property !== "object") return undefined;
+  const { type, enum: values, oneOf } = property as { type?: unknown; enum?: unknown; oneOf?: unknown };
+  if (type === "boolean") return { field, kind: "boolean" };
+  if (type !== "string") return undefined;
+  const options = Array.isArray(values) ? values
+    : Array.isArray(oneOf) ? oneOf.map((option) => (option as { const?: unknown })?.const) : undefined;
+  if (!options?.length || options.length > 10 || !options.every((option) => typeof option === "string" && option.length > 0 && option.length <= 64)) return undefined;
+  return { field, kind: "choice", options: options as string[] };
+}
+
 function newEntry(definition: MCPServerDefinition): Entry {
   return {
     definition, state: definition.disabled ? "disabled" : "disconnected",
-    tools: [], abort: new AbortController(), dirty: false, approved: false, attempts: [], generation: 0, secrets: [],
+    tools: [], abort: new AbortController(), dirty: false, approved: false, attempts: [], generation: 0, secrets: [], inFlight: 0,
   };
 }
 
@@ -134,9 +208,13 @@ export class MCPManager {
   private readonly defaults: { connectMs: number; callMs: number; hardCapMs: number };
   private catalogVersion = 0;
   private cleanupError?: ProcessCleanupError;
+  private readonly elicit?: ServerQuestionHandler;
+  private readonly onNote?: (text: string) => void;
 
   constructor(configuration: MCPConfiguration, options: MCPManagerOptions = {}) {
     this.diagnostics = configuration.diagnostics;
+    this.elicit = options.elicit;
+    this.onNote = options.onNote;
     this.defaults = {
       connectMs: options.connectTimeoutMs ?? options.timeoutMs ?? MCP_LIMITS.connectMs,
       callMs: options.callTimeoutMs ?? options.timeoutMs ?? MCP_LIMITS.callMs,
@@ -309,9 +387,15 @@ export class MCPManager {
       clock.dispose();
       throw new NotExecutedError("could not prepare the call");
     }
+    const callSignal = AbortSignal.any([...(signal ? [signal] : []), entry.abort.signal, clock.signal]);
+    const running: RunningApprovedCall | undefined = options.approved ? {
+      ...options.approved, tool: name, client, generation: entry.generation, signal: callSignal, clock, questions: 0,
+    } : undefined;
+    entry.inFlight++;
+    if (running) entry.approvedCall = running;
     try {
       return await client.callTool({ name, arguments: args }, undefined, {
-        signal: AbortSignal.any([...(signal ? [signal] : []), entry.abort.signal, clock.signal]),
+        signal: callSignal,
         timeout: SDK_REQUEST_TIMEOUT_MS,
         // Passing onprogress makes the SDK send a progress token; each message restarts the idle timer.
         onprogress: (progress) => {
@@ -345,7 +429,46 @@ export class MCPManager {
         exited: entry.exited, exitCode: entry.exitCode,
       })));
     } finally {
+      entry.inFlight = Math.max(0, entry.inFlight - 1);
+      if (running && entry.approvedCall === running) entry.approvedCall = undefined;
       clock.dispose();
+    }
+  }
+
+  /**
+   * A server asked a question (MCP elicitation). MCP does not say which call it belongs to, so it is
+   * tied to a call by timing: it reaches the user only while exactly one call is running on this
+   * server and that call is one the user approved. Everything else is declined without asking.
+   */
+  private async serverQuestion(entry: Entry, client: Client, generation: number, params: Record<string, unknown>, requestSignal: AbortSignal): Promise<ServerQuestionAnswer> {
+    const server = entry.definition.name;
+    const call = entry.approvedCall;
+    const decline = (note?: string): ServerQuestionAnswer => {
+      if (note && !this.closed) this.onNote?.(`[mcp] ${server} ${note}; declined.`);
+      return { action: "decline" };
+    };
+    if (this.closed || !this.elicit || entry.client !== client || entry.generation !== generation) return decline();
+    if (!call || call.client !== client || call.generation !== generation || entry.inFlight !== 1 || call.signal.aborted) {
+      return decline("asked a question outside a call you approved");
+    }
+    if (params.mode === "url" || params.task !== undefined) return decline("asked a question Casper can only answer yes/no");
+    if (++call.questions > MAX_SERVER_QUESTIONS) return decline(`asked more than ${MAX_SERVER_QUESTIONS} questions in one call`);
+    const shape = questionShape(params.requestedSchema);
+    if (!shape) return decline("asked a question Casper can only answer yes/no");
+    const message = typeof params.message === "string" ? params.message.slice(0, 4000) : "";
+    const question: ServerQuestion = { server, tool: call.tool, realTool: call.realTool, message, ...shape };
+    // The user's reading time is not the server's time: hold the call clock while they answer.
+    call.clock.pause();
+    try {
+      const answer = await this.elicit(question, AbortSignal.any([call.signal, entry.abort.signal, requestSignal]));
+      if (call.signal.aborted || entry.client !== client) return { action: "cancel" };
+      if (answer.action !== "accept") return answer;
+      if (shape.kind === "boolean" ? answer.value !== true : !shape.options?.includes(String(answer.value))) return { action: "decline" };
+      return { action: "accept", value: answer.value };
+    } catch {
+      return { action: "cancel" };
+    } finally {
+      call.clock.resume();
     }
   }
 
@@ -414,14 +537,15 @@ export class MCPManager {
     let client: Client | undefined;
     const current = () => !this.closed && entry.approved && entry.client === client && !controller.signal.aborted && entry.state !== "failed";
     try {
-      const [{ Client }, { ToolListChangedNotificationSchema }] = await Promise.all([
+      const [{ Client }, { ToolListChangedNotificationSchema, ElicitRequestSchema }] = await Promise.all([
         import("@modelcontextprotocol/sdk/client/index.js"),
         import("@modelcontextprotocol/sdk/types.js"),
       ]);
       // Module loading cannot be aborted. Recheck consent/deadline before any
       // client or transport is created, including after the transport import.
       if (!current()) throw new Error("stale connection");
-      const connectedClient = new Client({ name: "casper", version: CASPER_VERSION }, { capabilities: {} });
+      // Servers learn Casper can answer questions only when someone can answer them (form mode, no URLs).
+      const connectedClient = new Client({ name: "casper", version: CASPER_VERSION }, { capabilities: this.elicit ? { elicitation: { form: {} } } : {} });
       client = connectedClient;
       entry.client = connectedClient;
       connectedClient.onerror = () => { /* Raw transport errors can contain headers/URLs. */ };
@@ -434,6 +558,15 @@ export class MCPManager {
         entry.state = "failed";
         entry.error = stoppedMessage(entry.exited ? entry.exitCode : undefined);
       };
+      if (this.elicit) {
+        const generation = entry.generation;
+        connectedClient.setRequestHandler(ElicitRequestSchema, async (request, extra) => {
+          const answer = await this.serverQuestion(entry, connectedClient, generation, request.params as Record<string, unknown>, extra.signal);
+          if (answer.action !== "accept") return { action: answer.action };
+          const field = questionShape((request.params as Record<string, unknown>).requestedSchema)!.field;
+          return { action: "accept", content: { [field]: answer.value } };
+        });
+      }
       connectedClient.setNotificationHandler(ToolListChangedNotificationSchema, () => {
         if (entry.client !== connectedClient || controller.signal.aborted) return;
         entry.dirty = true;
