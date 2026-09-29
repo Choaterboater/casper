@@ -18,7 +18,7 @@ import { CASPER_VERSION } from "../../version";
 import { redactServerText, ServerOutput } from "../server-output";
 import type { StartDefinition } from "./examples";
 import type { CheckTool } from "./labels";
-import { SECRET_ENV_NAME } from "./sandbox";
+import { OFFLINE_GUARD_NAME, SECRET_ENV_NAME } from "./sandbox";
 
 export const PROBE_LIMITS = { maxTools: 20_000, maxBytes: 64 * 1024 * 1024 } as const;
 const PROTOCOL_VERSION = "2025-06-18";
@@ -52,6 +52,8 @@ export interface ProbeOptions {
   env: NodeJS.ProcessEnv;
   /** False: only loopback HTTP servers may be contacted. */
   live: boolean;
+  /** The owner's --env values: they win over the definition's own env. */
+  overrides?: Record<string, string>;
   keepOpen?: boolean;
   maxTools?: number;
   maxBytes?: number;
@@ -282,12 +284,13 @@ class TimeoutError extends Error {
 }
 
 /** The environment a stdio server starts with: the check's environment plus the definition's own env,
- * `${NAME}` filled from the check's environment. Offline, credential-looking names are dropped here too. */
-export function serverEnv(definition: Extract<StartDefinition, { type: "stdio" }>, env: NodeJS.ProcessEnv, live: boolean): NodeJS.ProcessEnv {
+ * `${NAME}` filled from the check's environment, then the owner's --env values, which always win.
+ * Offline, the definition may not add credential-looking names or change the proxy and offline settings. */
+export function serverEnv(definition: Extract<StartDefinition, { type: "stdio" }>, env: NodeJS.ProcessEnv, live: boolean, overrides: Record<string, string> = {}): NodeJS.ProcessEnv {
   const own = Object.fromEntries(Object.entries(definition.env)
-    .filter(([name]) => live || !SECRET_ENV_NAME.test(name))
+    .filter(([name]) => live || !(SECRET_ENV_NAME.test(name) || OFFLINE_GUARD_NAME.test(name)))
     .map(([name, value]) => [name, fillEnvironment(value, env)]));
-  return { ...env, ...own };
+  return { ...env, ...own, ...overrides };
 }
 
 /** Values to hide in anything the server printed: every value it was given under a credential-looking name. */
@@ -316,7 +319,7 @@ export async function probeServer(definition: StartDefinition, options: ProbeOpt
   let stdio: ProbeStdioTransport | undefined;
   let secrets: string[];
   if (definition.type === "stdio") {
-    const env = serverEnv(definition, options.env, options.live);
+    const env = serverEnv(definition, options.env, options.live, options.overrides);
     secrets = knownSecrets(env, definition);
     transport = stdio = new ProbeStdioTransport(fillEnvironment(definition.command, env), definition.args.map((arg) => fillEnvironment(arg, env)), definition.cwd, env, maxBytes);
   } else {
