@@ -166,6 +166,10 @@ Nothing here requires installing or connecting a server automatically.
 - [Device secrets](docs/SECRETS.md): known passwords, keys and SNMP communities in MCP results and
   config files, and values in `.env` and credential files, are hidden from the AI (best effort)
 - [Security](docs/SECURITY.md): what Casper keeps from the AI now, and what waits for the sandbox
+- [Security checks](docs/SECURITY_CHECKS.md): `/security-review` and `casper security` run pinned tools
+  (gitleaks, ruff S, semgrep, zizmor, osv-scanner and more) on your project with no model; only you can add ignores
+- [Network checks](docs/NETWORK-CHECKS.md): Ansible syntax, Junos render, Junoser and hier_config checks, and lab
+  checks that run only when you start them on your own lab
 - [Browser-assisted debugging](docs/BROWSER.md) and [local DAP debugging](docs/DEBUGGER.md)
 - [Managed services](docs/SERVICES.md): declared development servers Casper runs and stops
 - [Diagram export](docs/VISUALIZATION.md)
