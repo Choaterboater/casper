@@ -200,6 +200,8 @@ def exercise(bun, repo, root, no_color):
         s.send("Q\n")
         s.until("Echo:")  # Pi wraps an overlong word after the label; exact draft checked below.
         assert s.requests()[-1] == "x" * 93 + "Qxx", s.requests()
+        # Enter while the echo task still runs only keeps the draft: wait for the prompt to be idle again.
+        s.until("│ idle")
         # Clear separation between a pretyped draft and an exact confirmation.
         connect_with_writes(s)
         s.send("approval-deny\n")
