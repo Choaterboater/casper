@@ -128,6 +128,19 @@ class Session:
         os.close(self.master)
 
 
+def connect_with_writes(s):
+    """Connect the fixture, decline remembering it, and turn its writes on (they start off)."""
+    s.send("/mcp connect fixture\n")
+    s.until("340 tools")
+    s.until("Remember this server?")
+    s.send("2\n")
+    s.until("fixture is connected for this session only")
+    s.send("/mcp writes fixture\n")
+    s.until("fixture writes are off.")
+    s.send("1\n")
+    s.until("Writes on for fixture. Each change still asks you.")
+    s.until("WRITES: fixture · ctrl+o")
+
 def exercise(bun, repo, root, no_color):
     s = Session(bun, repo, root, no_color)
     try:
@@ -188,8 +201,7 @@ def exercise(bun, repo, root, no_color):
         s.until("Echo:")  # Pi wraps an overlong word after the label; exact draft checked below.
         assert s.requests()[-1] == "x" * 93 + "Qxx", s.requests()
         # Clear separation between a pretyped draft and an exact confirmation.
-        s.send("/mcp connect fixture\n")
-        s.until("340 tools")
+        connect_with_writes(s)
         s.send("approval-deny\n")
         s.until("Preparing approval.")
         s.send("yes")
@@ -218,6 +230,11 @@ def exercise(bun, repo, root, no_color):
         # Cancellation may abort the runtime before its result is appended; it must never execute.
         assert len(results) in (2, 3), results
         assert sum(not result["isError"] for result in results) == 1, results
+        # ctrl+o turns writes off at once, and the footer badge goes away.
+        s.send("\x0f")
+        s.until("[mcp] Writes off for fixture. Write tools are hidden again.")
+        s.pump(0.3)
+        assert "WRITES" not in s.screen.text().splitlines()[-1], s.screen.text()[-500:]
         s.send("/login\n")
         s.until("This runtime does not support login")
         assert not any(request.startswith("/") for request in s.requests())
@@ -240,8 +257,7 @@ def exercise_eof(bun, repo, root):
     try:
         s.until("/help · /status · /login")
         s.until("│ idle")  # Banner output precedes raw editor ownership.
-        s.send("/mcp connect fixture\n")
-        s.until("340 tools")
+        connect_with_writes(s)
         s.send("approval-eof\n")
         s.pump()
         s.release("approval-eof")

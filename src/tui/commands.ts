@@ -17,7 +17,7 @@ export const COMMANDS: SlashCommand[] = [
   { name: "receipt", description: "Evidence behind the last task's receipt" },
   { name: "project", description: "Inspect project stack, configuration and checks" },
   { name: "skills", description: "Inspect skill metadata, trust and warnings" },
-  { name: "mcp", description: "Inspect MCP status; connect or disconnect a server" },
+  { name: "mcp", description: "MCP status; connect, disconnect, writes on/off, forget a server" },
   { name: "lsp", description: "Inspect language-server status; connect or disconnect" },
   { name: "browser", description: "Inspect a disposable browser; capture a screenshot" },
   { name: "services", description: "Declared services: status, logs, start, restart, stop" },

@@ -25,6 +25,7 @@ import { LSPManager, type ConfirmRename } from "./lsp/manager";
 import { boundCapabilityResult, NotExecutedError } from "./capabilities/result";
 import { discoverMCPConfiguration, type MCPConfiguration } from "./mcp/config";
 import { MCPManager, type ServerQuestionHandler } from "./mcp/manager";
+import { ConsentStore } from "./mcp/consent";
 import { formatApproval, maskText, planLabel, TOO_LONG_TEXT, tooLongToShow } from "./capabilities/approval";
 import { CapabilityBroker, type ConfirmCapability } from "./capabilities/broker";
 import type { Readable } from "node:stream";
@@ -145,6 +146,7 @@ export class CasperApp {
   visualizationWork?: Promise<void>;
   private readonly visualizationProviders: VisualizationProvider[];
   mcp?: MCPManager;
+  private mcpConsent?: ConsentStore;
   /** Re-reads MCP configuration from disk for /mcp reload; set with the loaded workspace. */
   reloadMCPConfiguration?: () => Promise<MCPConfiguration>;
   private broker?: CapabilityBroker;
@@ -256,6 +258,8 @@ export class CasperApp {
     this.terminal = new InteractiveTerminal(this.input, options.output ?? process.stdout,
       () => this.cancelCurrent(), () => { if (this.commandActive && !this.closing) void this.close().catch(() => {}); });
     this.terminal.setEffortCycle(() => this.cycleEffort());
+    // ctrl+o: MCP writes off everywhere, at once, even while work runs.
+    this.terminal.setWritesRevert(() => this.revertWrites());
     // A tool's "running" line is left open on a rich surface so its completion can redraw it in
     // place (`\r`); any other output first commits that line, so nothing appends to it. The boxed
     // activity status stays out of the transcript and is cleared as streamed text arrives.
@@ -312,7 +316,12 @@ export class CasperApp {
     this.references = new ReferenceLibrary(referenceConfiguration);
     this.projectContext = context;
     this.skillRegistry = registry;
+    // Remembered approval (keyed hashes only). A damaged or missing file means Casper asks again.
+    const consent = new ConsentStore(this.sessionHomeDir ?? os.homedir());
+    await consent.load().catch(() => {});
+    this.mcpConsent = consent;
     this.mcp = new MCPManager(mcpConfiguration, {
+      consent,
       elicit: (question, signal) => this.answerServerQuestion(question, signal),
       onNote: (text) => { if (!this.closing) this.output.write(`${text}\n`); },
     });
@@ -320,7 +329,8 @@ export class CasperApp {
     this.reloadMCPConfiguration = () => this.loadMCPConfigurationFn(context);
     this.lsp = new LSPManager(context.info.root, lspConfiguration);
     this.visualization = new VisualizationRouter({ providers: this.visualizationProviders, settings: context.visualize, workspaceRoot: context.info.root });
-    this.broker = new CapabilityBroker(this.mcp, (call, signal) => this.confirmCapability(call, signal));
+    // Every server starts with writes off; only the user turns them on (/mcp writes <name>).
+    this.broker = new CapabilityBroker(this.mcp, (call, signal) => this.confirmCapability(call, signal), { writesGate: true });
     this.lifecycle.add({ name: "references", close: () => this.references!.close() });
     this.lifecycle.add({ name: "mcp", close: () => this.broker!.close() });
     this.lifecycle.add({ name: "lsp", close: () => this.lsp!.close() });
@@ -346,7 +356,8 @@ export class CasperApp {
     for (const warning of [...this.startupWarnings, ...context.warnings ?? []]) this.output.write(`[config] ${terminalText(warning)}\n`);
     for (const diagnostic of referenceConfiguration.diagnostics) this.output.write(`[references] ${formatReferenceResult(diagnostic)}\n`);
     this.reportSkillWarnings();
-    for (const diagnostic of mcp.diagnostics) this.output.write(`[mcp] ${diagnostic}\n`);
+    for (const diagnostic of mcp.diagnostics) this.output.write(`[mcp] ${terminalText(diagnostic)}\n`);
+    if (this.interactive) await this.reportImports();
     for (const diagnostic of lspConfiguration.diagnostics) this.output.write(`[lsp] ${diagnostic}\n`);
     for (const diagnostic of visualization.diagnostics) this.output.write(`[visualize] ${diagnostic}\n`);
     if (this.interactive) this.output.write("\n");
@@ -1530,6 +1541,33 @@ export class CasperApp {
     return next;
   }
 
+  /** Once per new set of imported servers: say where they were found. Interactive sessions only. */
+  private async reportImports(): Promise<void> {
+    const imported = this.mcp?.status().filter((status) => status.importedFrom && status.scope === "imported") ?? [];
+    const names = imported.map((status) => status.name);
+    if (!this.mcpConsent?.importSetIsNew(names)) return;
+    const places = [...new Set(imported.map((status) => (status.importedFrom ?? "").replace(/ \(this project\)$/, "")))];
+    const where = places.length > 1 ? `${places.slice(0, -1).join(", ")} and ${places.at(-1)}` : places[0];
+    this.output.write(`[mcp] Found ${names.length} server${names.length === 1 ? "" : "s"} in ${where}. Run /mcp to see them.\n`);
+    await this.mcpConsent.markImportSet(names).catch(() => {});
+  }
+
+  /** ctrl+o: writes off for every server at once. Returns whether any were on. */
+  private revertWrites(): boolean {
+    const on = this.mcp?.writesOn() ?? [];
+    if (!on.length || this.closing) return false;
+    // The gate flips at once; servers restart with their pins once their running calls finish.
+    for (const server of on) void this.mcp!.setWrites(server, false).catch(() => {});
+    for (const server of on) this.output.write(`[mcp] Writes off for ${server}. Write tools are hidden again.\n`);
+    this.updateFooter();
+    return true;
+  }
+
+  /** One exact typed answer from the user, in the same one-at-a-time queue as approvals. */
+  chooseAnswer(preview: string, question: string, choices: readonly string[], signal?: AbortSignal): Promise<string | undefined> {
+    return this.oneAtATime(() => this.chooseExact(preview, question, choices, signal));
+  }
+
   private approvalStopped(signal?: AbortSignal): boolean {
     return this.closing || Boolean(signal?.aborted) || Boolean(this.commandAbort?.signal.aborted);
   }
@@ -1699,6 +1737,8 @@ export class CasperApp {
 
   updateFooter(): void {
     if (!this.projectContext) return;
+    const writes = this.mcp?.writesOn() ?? [];
+    this.terminal.setBadge(writes.length ? `WRITES: ${writes.join(", ")} · ${this.terminal.rich ? "ctrl+o" : "/mcp writes off"}` : undefined);
     try {
       const project = this.projectContext.info;
       const status = this.session?.getStatus?.();

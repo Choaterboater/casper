@@ -328,6 +328,9 @@ export class MCPManager {
     return { ...(match ? { match } : {}), writes: entry.writes, ...(entry.access ? { access: entry.access } : {}), showOptIn: entry.showOptIn };
   }
 
+  /** A copy of one loaded definition (for the user's own notes; never shown to the model). */
+  definition(name: string): MCPServerDefinition { return structuredClone(this.entry(name).definition); }
+
   /** Servers with writes turned on, for the footer badge. */
   writesOn(): string[] {
     return [...this.entries.values()].filter((entry) => entry.writes === "on").map((entry) => entry.definition.name);
