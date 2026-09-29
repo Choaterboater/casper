@@ -56,6 +56,7 @@ Line 1 is the verdict, one of:
 
 ```
 ✓ Verified — the checks pass, and the tests fail without the change
+✓ Verified — the checks pass; without the change the tests could not even load
 • Checks passed — not proven: a refactor should not change behavior, so no test is expected to fail without it
 ✓ Checks passed — no files changed
 ✗ Failed — test failed

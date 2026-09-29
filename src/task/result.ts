@@ -259,7 +259,8 @@ function withVerdict(task: TaskResult, body: string[], options: ReceiptOptions):
       break;
     case "verified": {
       const proof = task.proof;
-      if (proof?.status === "proven") lines = ["✓ Verified — the checks pass, and the tests fail without the change", ...body];
+      if (proof?.status === "proven") lines = [loadFailure(proof) ? "✓ Verified — the checks pass; without the change the tests could not even load"
+        : "✓ Verified — the checks pass, and the tests fail without the change", ...body];
       else if (!changed) lines = [task.changedPaths ? "✓ Checks passed — no files changed" : "✓ Checks passed", ...body];
       else {
         const why = proof?.status === "unavailable" ? proof.reason : task.proofSkipped ?? "Casper did not compare the tests with and without the change";
@@ -342,9 +343,20 @@ function acceptanceLine(acceptance: NonNullable<TaskResult["acceptance"]>, safe:
   return `• Independent acceptance not run: ${safe(acceptance.reason ?? "unknown reason")}`;
 }
 
+/** The error that kept the tests from loading without the change (an import of what the change adds). */
+function loadFailure(proof: ChangeProof): RegExpExecArray | null {
+  if (proof.status !== "proven" || proof.without.ended !== "fail") return null;
+  return /ImportError|ModuleNotFoundError|errors? (?:during|while) collect|error collecting|Cannot find module|is not exported|SyntaxError|NameError|has no exported member/i
+    .exec(proof.without.output ?? "");
+}
+
 function proofLine(proof: ChangeProof, safe: (text: string) => string): string {
   if (proof.status === "proven") {
     const { exitCode, ended, reason } = proof.without;
+    // Tests that could not even load without the change (a missing function to import) are weaker evidence
+    // than a failing assertion: say which it was.
+    const load = loadFailure(proof);
+    if (ended === "fail" && load) return `✓ Proven, weakly: without this change ${proof.check} could not load (exit ${exitCode}, ${load[0]}), and it passes with the change`;
     if (ended === "fail") return `✓ Proven: ${proof.check} fails without this change (exit ${exitCode}) and passes with it`;
     // A timeout, crash or missing command shows the old code did not pass, not that a test caught it.
     const timeout = /^Timed out after (\d+)ms$/.exec(reason ?? "");
