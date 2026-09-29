@@ -301,6 +301,7 @@ test("--json streams v1 JSON Lines on stdout: session, text, tools, Casper's che
       review: { done: ["sum.js is fixed — the test check"], open: [] }, acceptance: null, checklist: null, services: [], smoke: null,
       // Added in v0.2.16, within v1.
       pages: null, checksPassed: true, repairModels: null, bigModel: null, security: null, task: null, undo: null,
+      changedWhilePlanning: null, pageNotes: null,
       verdict: "✓ Verified — the checks pass, and the tests fail without the change", text: "<receipt text>" },
   ]);
 }, 30_000);

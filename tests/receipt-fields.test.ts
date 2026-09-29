@@ -57,7 +57,16 @@ test("the JSON receipt adds the new fields without changing the old ones", () =>
     undo: { available: false, reason: "not a git folder and no copy was kept" }, bigModel: null, security: null });
   expect(JSON.stringify(event.pages)).not.toContain("abc123secret");
   const plain = receiptEvent(undefined, { execution: "completed", changedPaths: [], verification: report() }, 0);
-  expect(plain).toMatchObject({ pages: null, task: null, undo: null, repairModels: null, checksPassed: true });
+  expect(plain).toMatchObject({ pages: null, task: null, undo: null, repairModels: null, checksPassed: true, changedWhilePlanning: null, pageNotes: null });
+});
+
+test("the JSON receipt names files changed while planning and why pages were not opened", () => {
+  const task: TaskResult = { execution: "completed", changedPaths: [], verification: report(), changedWhilePlanning: ["notes.md"],
+    pageNotes: ["• /devices/[id] not opened: it needs a value", "• node_modules is missing token=abc123secret"] };
+  const event = receiptEvent(undefined, task, 0);
+  expect(event.changedWhilePlanning).toEqual(["notes.md"]);
+  expect(event.pageNotes![0]).toBe("/devices/[id] not opened: it needs a value");
+  expect(JSON.stringify(event.pageNotes)).not.toContain("abc123secret");
 });
 
 test("a stored task keeps no check output and hides secrets in page text", () => {

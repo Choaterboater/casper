@@ -75,7 +75,7 @@ A run ends with exactly one `receipt` event, or, when Casper stops before it can
 | `tool_end` | `tool`, `id`, `ok`, `ms` | A tool call ends. `ok` is the tool status, not a check result. |
 | `check` | `name`, `command`, `status` (`pass`/`fail`/`skip`), `exit`, `ms`, `recordedBy`, `reused`, `ended`?, `kind`?, `label`?, `hosts`?, `summary`? | Casper recorded a check. `recordedBy` is `casper` (auto mode, `/verify`, repair) or `casper_check` (the model asked for it). `ended` appears only on a failure that was not the code failing: `timeout`, or `no_start` (could not execute, or the shell's exit 126/127). Named checks (`verify.checks.<name>`) may add `kind` (`report`: a diff that never passes or fails; `lab`: your own lab devices), `label` (a few words such as `dry run not guaranteed`), `hosts` (lab checks) and `summary` (reports). |
 | `phase` | `phase` (`task`, `checklist`, `checks`, `smoke`, `pages`, `review`, `proof`, `acceptance`, `repair`), `state` (`start`/`end`), `atMs` | A stage of Casper's work starts or ends. `smoke` and `pages` run inside `checks`. |
-| `receipt` | `outcome`, `exitCode`, `execution`, `changed`, `changedDuringChecks`, `verificationMode`, `checks`, `repairAttempts`, `turnLimit`, `usage`, `proof`, `proofSkipped`, `review`, `services`, `smoke`, `pages`, `checksPassed`, `repairModels`, `bigModel`, `security`, `task`, `undo`, `verdict`, `text` | The run finished. |
+| `receipt` | `outcome`, `exitCode`, `execution`, `changed`, `changedDuringChecks`, `verificationMode`, `checks`, `repairAttempts`, `turnLimit`, `usage`, `proof`, `proofSkipped`, `review`, `services`, `smoke`, `pages`, `checksPassed`, `repairModels`, `bigModel`, `security`, `task`, `undo`, `changedWhilePlanning`, `pageNotes`, `verdict`, `text` | The run finished. |
 | `error` | `message` | Something failed. |
 
 `receipt.outcome` is one of `verified`, `failed`, `incomplete`, `not_verified`, `unchanged`,
@@ -139,7 +139,9 @@ checks passed on the final files (the same test the `verified` outcome uses toda
 each repair used when Casper knows it; `bigModel` is `{ "model", "attempts" }` when the last repair ran on your big
 model. `security` holds counts only (`problems`, `notes`, `notRun`, and each tool's `status`), never finding
 text. `task` is the task's saved receipt number and `undo` is `{ "available", "reason" }`; both stay `null`
-until receipts and undo ship.
+until receipts and undo ship. `changedWhilePlanning` lists files that changed during a plan turn anyway
+(`/plan`), and `pageNotes` says in plain words why changed pages were not opened (for example
+`node_modules is missing`); neither is ever a failure.
 
 ```json
 {"v":1,"type":"check","name":"test","command":"npm run test","status":"pass","exit":0,"ms":412,"recordedBy":"casper","reused":false}

@@ -90,6 +90,10 @@ export interface ReceiptEvent {
   task: number | null;
   /** Whether /undo can put this task's files back; null when undo is not known for this run. */
   undo: { available: boolean; reason: string | null } | null;
+  /** Files that changed during a plan turn anyway (paths redacted); null when none did. */
+  changedWhilePlanning: string[] | null;
+  /** Why changed pages were not opened, in plain words (never a failure); null when there are none. */
+  pageNotes: string[] | null;
   /** The plain receipt a person would read. */
   /** Line 1 of the receipt: what the run proved, in one line. */
   verdict: string;
@@ -243,6 +247,8 @@ export function receiptEvent(report: VerificationReport | undefined, task: TaskR
     security: task?.security ? structuredClone(task.security) : null,
     task: task?.receipt ?? null,
     undo: task?.undo ? { available: task.undo.available, reason: task.undo.available ? null : redactPreview(task.undo.reason) } : null,
+    changedWhilePlanning: task?.changedWhilePlanning?.length ? task.changedWhilePlanning.map(redactPreview) : null,
+    pageNotes: task?.pageNotes?.length ? task.pageNotes.map((note) => redactPreview(note.replace(/^• /, ""))) : null,
     // The text quotes review items, acceptance gaps and bash commands the model ran: redact it too.
     verdict: receipt ? redactPreview(receiptVerdict(receipt, { surface: "one-shot" }) ?? "") : "",
     text: receipt ? redactPreview(formatReceipt(receipt, { surface: "one-shot" })) : "",
