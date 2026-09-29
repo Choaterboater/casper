@@ -109,19 +109,36 @@ export async function writeProjectFile(root: string, relative: string, data: str
   const existing = await lstat(file).catch(() => undefined);
   if (existing?.isSymbolicLink()) throw new Error(`${relative} is a link; Casper won't write through it`);
   if (existing && !existing.isFile()) throw new Error(`${relative} exists and isn't a file`);
-  const flags = constants.O_WRONLY | NO_FOLLOW | NONBLOCK | (options.mode === "append" ? constants.O_APPEND | constants.O_CREAT
-    : options.mode === "replace" ? constants.O_CREAT | constants.O_TRUNC : constants.O_CREAT | constants.O_EXCL);
-  let handle: FileHandle;
-  try { handle = await open(file, flags, options.fileMode ?? 0o644); } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code === "EEXIST") return "kept";
-    if (code === "ELOOP" || code === "EMLINK") throw new Error(`${relative} is a link; Casper won't write through it`);
-    throw error;
-  }
+  // No O_TRUNC here: a file with a second name (a hard link) may be someone else's file, and truncating on open
+  // would empty it before Casper could look.
+  const base = constants.O_WRONLY | NO_FOLLOW | NONBLOCK;
+  const flags = base | (options.mode === "append" ? constants.O_APPEND | constants.O_CREAT
+    : options.mode === "replace" ? constants.O_CREAT : constants.O_CREAT | constants.O_EXCL);
+  const openFile = async (how: number): Promise<FileHandle | "kept"> => {
+    try { return await open(file, how, options.fileMode ?? 0o644); } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === "EEXIST" && options.mode === "create") return "kept";
+      if (code === "ELOOP" || code === "EMLINK") throw new Error(`${relative} is a link; Casper won't write through it`);
+      throw error;
+    }
+  };
+  let handle = await openFile(flags);
+  if (handle === "kept") return "kept";
   try {
-    if (!(await handle.stat()).isFile()) throw new Error(`${relative} isn't a regular file`);
+    const info = await handle.stat();
+    if (!info.isFile()) throw new Error(`${relative} isn't a regular file`);
+    if (info.nlink > 1) {
+      // A hard link shares its content with a file that may be outside the project (~/.bashrc): never write into it.
+      if (options.mode === "append") throw new Error(`${relative} is a hard link to another file; Casper won't write through it`);
+      // Replace puts a new file under this name and leaves the other name's content alone.
+      await handle.close();
+      await unlink(file);
+      const fresh = await openFile(base | constants.O_CREAT | constants.O_EXCL);
+      if (fresh === "kept") throw new Error(`${relative} changed while Casper was writing it`);
+      handle = fresh;
+    } else if (options.mode === "replace") await handle.truncate(0);
     await handle.writeFile(data);
-  } finally { await handle.close(); }
+  } finally { await handle.close().catch(() => {}); }
   return "written";
 }
 

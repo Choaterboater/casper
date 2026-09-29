@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile, lstat } from "node:fs/promises";
+import { link, mkdir, mkdtemp, readFile, rm, symlink, writeFile, lstat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { readProjectText, removeProjectFile, writeProjectFile } from "../src/platform/files";
@@ -45,6 +45,20 @@ posixOnly("writes new files and folders, keeps existing ones in create mode, and
   await expect(writeProjectFile(root, "out/new.txt", "x", { mode: "create" })).rejects.toThrow("goes through a link");
   expect(await readFile(path.join(outside, "secret.txt"), "utf8")).toBe("outside text");
   await expect(lstat(path.join(outside, "new.txt"))).rejects.toThrow();
+});
+
+posixOnly("never writes into a hard link's shared content: replace makes a new file, append refuses", async () => {
+  const { root, outside } = await folders();
+  await link(path.join(outside, "secret.txt"), path.join(root, "hard.txt"));
+  await expect(writeProjectFile(root, "hard.txt", "added", { mode: "append" })).rejects.toThrow("is a hard link to another file");
+  expect(await readFile(path.join(outside, "secret.txt"), "utf8")).toBe("outside text");
+  expect(await writeProjectFile(root, "hard.txt", "restored", { mode: "replace" })).toBe("written");
+  expect(await readFile(path.join(root, "hard.txt"), "utf8")).toBe("restored");
+  expect(await readFile(path.join(outside, "secret.txt"), "utf8")).toBe("outside text");
+  // An ordinary file is still replaced in place.
+  await writeFile(path.join(root, "plain.txt"), "a long first version");
+  expect(await writeProjectFile(root, "plain.txt", "short", { mode: "replace" })).toBe("written");
+  expect(await readFile(path.join(root, "plain.txt"), "utf8")).toBe("short");
 });
 
 posixOnly("removes a link itself, never what it points to", async () => {
