@@ -179,7 +179,9 @@ spends. Retry switches this conversation to the big model for one more repair, t
 on provider/model for your next request.` The receipt says `↻ Casper tried 4 repairs (the last on your
 big model provider/model)`. A big model that cannot hold the conversation is not offered. With no big
 model set, a rich terminal offers "Retry with a bigger model", opens the model picker and asks whether
-to remember your pick. One-shot runs and `--json` never ask.
+to remember your pick. A pick you do not save is named plainly (`↻ repair 4/4 on provider/model`), never
+called your big model, and a pick that cannot hold the conversation is not tried. One-shot runs and
+`--json` never ask.
 
 To run the last repair on the big model without being asked, set it in your own config (a project's
 `.casper/project.yaml` cannot, since it would choose to spend your money):
