@@ -287,6 +287,13 @@ def exercise_dumb(bun, repo, root):
         s.release("approval-dumb")
         s.until("approval denied")
         s.until("Approval result: denied")
+        # A line typed while the task still finishes is dropped: wait for the prompt after the result first.
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline:
+            s.pump(0.03)
+            text = s.screen.text()
+            if text[text.rindex("Approval result: denied"):].rstrip().endswith(">"): break
+        else: raise AssertionError("No prompt after the approval task\nSCREEN:\n" + s.screen.text()[-3000:])
         s.send("\x15/exit\n")  # Clear the cooked draft before submitting exit.
         deadline = time.monotonic() + 5
         while s.process.poll() is None and time.monotonic() < deadline: s.pump(0.05)
