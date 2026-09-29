@@ -157,6 +157,8 @@ test("/references add pycentral: nothing is downloaded or written unless the use
   const request = planReferenceAdd("pycentral", undefined, home);
   if (!("plan" in request)) throw new Error(request.error);
   expect(yes.calls).toEqual(request.plan.commands); // what was shown is what ran, argv only
+  expect(yes.lines).toContain("Downloading (up to 5 minutes; Ctrl+C stops it)...");
+  expect(no.lines).not.toContain("Downloading (up to 5 minutes; Ctrl+C stops it)...");
   expect(yes.lines.at(-1)).toBe("Added pycentral to ~/.casper/references.yaml. Restart Casper to search it.");
   const { discovered } = await library(home);
   expect(discovered.sources.map((entry) => entry.id)).toEqual(["pycentral"]);
