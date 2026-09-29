@@ -61,6 +61,7 @@ import { safeGitArgs } from "./platform/git";
 import { VerifierRegistry } from "./verify/registry";
 import { isRetryableAssistantError } from "@earendil-works/pi-ai/utils/retry";
 import { longerLimit, timedOutAfter, verifyAndRepair, type UnfinishedChoice } from "./verify/repair-loop";
+import { ALREADY_FAILING_CHOICES, modelFailedChoices, PLAN_CHOICES, REMEMBER_BIG_MODEL_CHOICES, REPAIR_LIMIT_STOP, unfinishedChoices } from "./app/safe-choices";
 import { VerificationTask } from "./verify/task";
 import { ChangeBaseline, changesCode, proofRepairPrompt, type ChangeProof } from "./verify/proof";
 import { independentAcceptance } from "./verify/acceptance";
@@ -1064,10 +1065,7 @@ export class CasperApp {
         return "stop";
       }
       // Stop comes first, so Enter never starts a build that uses tokens.
-      const answer = await this.terminal.pick("Build this plan?", [
-        { label: "Stop", description: "nothing is built" },
-        { label: "Build", description: "the model builds these steps and tests these cases (uses tokens)" },
-      ], signal);
+      const answer = await this.terminal.pick("Build this plan?", PLAN_CHOICES.map((choice) => ({ ...choice })), signal);
       if (answer !== "Build" || this.closing || signal?.aborted) { this.output.write("[plan] Stopped without building.\n"); return "stop"; }
     }
     this.output.write(`Casper plan (${plan.steps.length} ${plan.steps.length === 1 ? "step" : "steps"}, ${plan.tests.length} ${plan.tests.length === 1 ? "case" : "cases"}${edited ? ", edited by you" : ""}):\n`
@@ -1735,10 +1733,8 @@ export class CasperApp {
     this.output.write(`• ${which} was already failing before this change (Casper ran it on the files from before)\n`);
     if (!this.interactive || !this.terminal.rich) return true;
     // Leave it comes first, so Enter never starts a repair that uses tokens.
-    const answer = await this.terminal.ask(`${which} was already failing before this change. Fix it anyway?`, [
-      { label: "Leave it", description: "keep the change as it is; the receipt says the check fails" },
-      { label: "Fix it anyway", description: "ask the model to make it pass (uses tokens)" },
-    ], false, signal);
+    const answer = await this.terminal.ask(`${which} was already failing before this change. Fix it anyway?`,
+      ALREADY_FAILING_CHOICES.map((choice) => ({ ...choice })), false, signal);
     return answer?.[0] === "Fix it anyway";
   }
 
@@ -1763,11 +1759,8 @@ export class CasperApp {
         this.events.ensureLineBreak();
         const bigModel = this.bigModel(session);
         // Stop comes first, so Enter never spends more tokens.
-        const answer = await this.terminal.ask("The model failed again. What now?", [
-          { label: "Stop", description: "keep the changes so far; /model picks another model" },
-          { label: "Retry", description: "ask the same model to go on from where it stopped (uses tokens)" },
-          ...(bigModel ? [{ label: "Retry with your big model", description: `go on from where it stopped on ${terminalText(bigModel.label)} (uses tokens)` }] : []),
-        ], false, this.commandAbort?.signal);
+        const answer = await this.terminal.ask("The model failed again. What now?",
+          modelFailedChoices(bigModel ? terminalText(bigModel.label) : undefined), false, this.commandAbort?.signal);
         if (bigModel && answer?.[0] === "Retry with your big model") big = bigModel;
         retry = answer?.[0] === "Retry" || Boolean(big);
       }
@@ -1864,7 +1857,7 @@ export class CasperApp {
     const names = [...new Set(failures.map((failure) => failure.name))].join(", ") || "the checks";
     const tried = this.repairsTried;
     const question = `${names} still ${failures.length > 1 ? "fail" : "fails"} after ${tried} ${tried === 1 ? "repair" : "repairs"}. What now?`;
-    const stop = { label: "Stop here", description: "keep the changes; the receipt says what fails" };
+    const stop = { ...REPAIR_LIMIT_STOP };
     const big = this.bigModel(session);
     let hasRole = false;
     try { hasRole = Boolean(session.getModelRoles?.().reason?.trim()); } catch { hasRole = false; }
@@ -1910,10 +1903,8 @@ export class CasperApp {
       this.output.write(`• ${terminalText(picked)} can't hold this conversation (${pickedCost.words}), so Casper stopped here\n`);
       return 0;
     }
-    const remember = await this.terminal.pick(`Use ${terminalText(picked)} as your big model from now on?`, [
-      { label: "No", description: "only for this repair" },
-      { label: "Yes", description: "save it as your big model (/model big clear forgets it)" },
-    ], signal);
+    const remember = await this.terminal.pick(`Use ${terminalText(picked)} as your big model from now on?`,
+      REMEMBER_BIG_MODEL_CHOICES.map((choice) => ({ ...choice })), signal);
     if (remember === "Yes" && session.setModelRole) {
       try {
         await session.setModelRole("reason", picked);
@@ -1936,14 +1927,7 @@ export class CasperApp {
     // More time: four times the limit the run just had (at least a minute, at most an hour), as often as it is chosen.
     const had = Math.max(0, ...unfinished.filter((result) => result.ended === "timeout").map(limit));
     const longer = longerLimit(had);
-    const options: Array<{ label: string; description: string; choice: UnfinishedChoice | undefined }> = [
-      { label: "Stop", description: "keep the changes; the receipt says it did not finish", choice: undefined },
-      { label: "Retry", description: "run it again with the same limit", choice: "retry" },
-      { label: "Fix it anyway", description: had ? "ask the model to make it finish in time, for example a hanging or slow test (uses tokens)"
-        : "ask the model to fix why it could not start (uses tokens)", choice: "repair" },
-      ...(had && had < 3_600_000 ? [{ label: "Allow more time",
-        description: `run it with ${formatDuration(longer)}; to keep a longer limit, set verification.timeoutMs in .casper/project.yaml`, choice: "more-time" as const }] : []),
-    ];
+    const options = unfinishedChoices(had, longer);
     this.events.ensureLineBreak();
     const answer = await this.terminal.ask(`${what}. Casper did not try to fix it. What now?`,
       options.map(({ label, description }) => ({ label, description })), false, signal);
