@@ -37,6 +37,8 @@ test("labels that don't fit the name are problems", () => {
   expect(findings).toContain("fail wipe_and_show says both read-only and destructive.");
   expect(findings).toContain('warn show_config is labeled read-only but has a "dry_run" field.');
   expect(texts(checkLabels([tool("execute_command", RO)], limits))).toEqual(["fail execute_command is labeled read-only, but the name says it runs commands."]);
+  expect(texts(checkLabels([tool("execute_junos_command", { readOnlyHint: false, destructiveHint: false })], limits)))
+    .toEqual(["fail execute_junos_command is labeled write, but the name says it runs any command. Mark it destructiveHint: true."]);
 });
 
 test("status readers with change words in their names pass (glp_write_status reads a status)", () => {
