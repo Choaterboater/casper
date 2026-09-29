@@ -1,3 +1,4 @@
+import { readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { KIND_ORDER, keepLiterally, PEM_BEGIN, type SecretKind } from "./patterns";
 import { SECRET_MARKER, scrubText, snakeKey, type ScrubTextResult } from "./scrub";
@@ -35,6 +36,8 @@ export function isSecretName(name: string): boolean {
   const parts = key.split("_").filter(Boolean);
   // The shell's working folder, not a password.
   if (!parts.length || key === "pwd" || key === "oldpwd") return false;
+  // A webhook or DSN address is itself the login: SLACK_WEBHOOK_URL, SENTRY_DSN.
+  if (parts.some((part) => part === "webhook" || part === "dsn") && ["webhook", "dsn", "url", "uri"].includes(parts.at(-1)!)) return true;
   if (NOT_SECRET_LAST.has(parts.at(-1)!) || NOT_SECRET_ANY.test(key)) return false;
   if (parts.some((part) => SECRET_PARTS.has(part))) return true;
   if (SECRET_PAIRS.test(key)) return true;
@@ -177,10 +180,42 @@ export function scrubExactValues(text: string, values: readonly string[]): Scrub
   return { text: out, hidden, kinds: hidden ? ["key"] : [] };
 }
 
+/** The password in an address such as postgres://admin:PASSWORD@db:5432/app. */
+const URL_PASSWORD = /\b([a-z][a-z0-9+.-]*:\/\/[^\s/@:'"]+:)([^\s/@'"]+)@/gi;
+
+/** Hide the password part of every user:password@ address, in any output. */
+export function scrubUrlPasswords(text: string): ScrubTextResult {
+  let hidden = 0;
+  const out = text.replace(URL_PASSWORD, (whole, head: string, password: string) => {
+    if (keepLiterally(password) || /^\$\{?\w+\}?$/.test(password) || password.includes(SECRET_MARKER)) return whole;
+    hidden++;
+    return `${head}${SECRET_MARKER}@`;
+  });
+  return { text: hidden ? out : text, hidden, kinds: hidden ? ["password"] : [] };
+}
+
+/**
+ * The keys and sign-in tokens in Casper's login file (auth.json), so `cat` of it in the AI's shell
+ * shows none of them. Short strings (provider names, "api_key") are left out.
+ */
+export function loginFileValues(file: string): string[] {
+  let data: unknown;
+  try { if (statSync(file).size > 1024 * 1024) return []; data = JSON.parse(readFileSync(file, "utf8")); } catch { return []; }
+  const values: string[] = [];
+  const walk = (value: unknown, depth: number) => {
+    if (typeof value === "string") { if (value.length >= 16 && !/\s/.test(value)) values.push(value); }
+    else if (value && typeof value === "object" && depth < 6) for (const inner of Object.values(value)) walk(inner, depth + 1);
+  };
+  walk(data, 0);
+  return values;
+}
+
 export interface PlainScrubOptions {
   /** The text is a .env, INI or credential file: every secret-named value goes. */
   secretFile?: boolean;
   env?: NodeJS.ProcessEnv;
+  /** More exact values to hide (the keys in Casper's login file). */
+  values?: readonly string[];
 }
 
 /** The always-on pass for native read, grep and shell output: env values, secret-named keys, and in a
@@ -190,9 +225,11 @@ export function scrubPlainSecrets(text: string, options: PlainScrubOptions = {})
   let hidden = 0;
   let out = text;
   const add = (result: ScrubTextResult) => { out = result.text; hidden += result.hidden; for (const kind of result.kinds) kinds.add(kind); };
-  add(scrubExactValues(out, secretEnvValues(options.env)));
+  const exact = [...new Set([...secretEnvValues(options.env), ...(options.values ?? [])])].sort((a, b) => b.length - a.length);
+  add(scrubExactValues(out, exact));
   // Private keys are hidden in any output, with or without the device config rules.
   if (options.secretFile || PEM_BEGIN.test(out)) add(scrubText(out));
+  add(scrubUrlPasswords(out));
   add(scrubAssignments(out, options.secretFile === true));
   return { text: out, hidden, kinds: KIND_ORDER.filter((kind) => kinds.has(kind)) };
 }

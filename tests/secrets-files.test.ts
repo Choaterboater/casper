@@ -79,3 +79,34 @@ test("a private key printed by a command is hidden even with /secrets files off"
   const out = await scrubToolOutput(scrubber, "bash", { command: "cat deploy_key" }, [key], undefined, { configs: false, env: {} });
   expect(out!.texts[0]).not.toContain("b3BlbnNzaC1rZXktdjEAAAA");
 });
+
+test("passwords inside addresses and webhook or DSN addresses are hidden", async () => {
+  const env = "DATABASE_URL=postgres://admin:Sup3rS3cret@db.local:5432/app\nSLACK_WEBHOOK_URL=https://hooks.slack.com/services/T0/B0/abcd1234\nSENTRY_DSN=https://k3y@o1.ingest.sentry.io/1\nAPP_URL=https://example.com\n";
+  const read = await scrubToolOutput(scrubber, "read", { path: ".env" }, [env], undefined, { configs: false, env: {} });
+  expect(read!.texts[0]).toBe("DATABASE_URL=postgres://admin:<secret hidden>@db.local:5432/app\nSLACK_WEBHOOK_URL=<secret hidden>\nSENTRY_DSN=<secret hidden>\nAPP_URL=https://example.com\n");
+  // git remote -v and similar command output: the password part goes, the rest stays.
+  const shell = await scrubToolOutput(scrubber, "bash", { command: "git remote -v" }, ["origin\thttps://bot:ghp_abcdef012345@github.com/o/r.git (fetch)\norigin\tssh://git@github.com/o/r.git (push)"], undefined, { configs: false, env: {} });
+  expect(shell!.texts[0]).toBe("origin\thttps://bot:<secret hidden>@github.com/o/r.git (fetch)\norigin\tssh://git@github.com/o/r.git (push)");
+  expect(isSecretName("webhook_url")).toBe(true);
+  expect(isSecretName("webhook_enabled")).toBe(false);
+});
+
+test("keys in Casper's login file are hidden wherever they show up", async () => {
+  const { mkdtemp, writeFile, rm } = await import("node:fs/promises");
+  const os = await import("node:os"); const path = await import("node:path");
+  const dir = await mkdtemp(path.join(os.tmpdir(), "casper-login-values-"));
+  try {
+    const loginFile = path.join(dir, "auth.json");
+    await writeFile(loginFile, JSON.stringify({ openrouter: { type: "api_key", key: "sk-or-v1-0123456789abcdef" }, other: { type: "oauth", access: "eyJhbGciOiJIUzI1NiJ9.abcdefghijkl", expires: 1 } }));
+    const result = await scrubToolOutput(scrubber, "bash", { command: "cat auth.json" }, [`key sk-or-v1-0123456789abcdef and eyJhbGciOiJIUzI1NiJ9.abcdefghijkl`], undefined, { configs: false, env: {}, loginFile });
+    expect(result!.texts[0]).toBe("key <secret hidden> and <secret hidden>");
+    // A missing login file hides nothing extra.
+    expect(await scrubToolOutput(scrubber, "bash", { command: "echo" }, ["sk-or-v1-0123456789abcdef"], undefined, { configs: false, env: {}, loginFile: path.join(dir, "none.json") })).toBeUndefined();
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test("service tool JSON is checked string by string", async () => {
+  const text = JSON.stringify({ data: { service: "web", logs: "ready\nAPI_TOKEN=tok-live-778899\n" } });
+  const result = await scrubToolOutput(scrubber, "service", { action: "logs" }, [text], undefined, { configs: false, env: {} });
+  expect(JSON.parse(result!.texts[0]!)).toEqual({ data: { service: "web", logs: "ready\nAPI_TOKEN=<secret hidden>\n" } });
+});

@@ -21,7 +21,9 @@ try {
   const session = process.env.FIXTURE_READ_ONLY === "1"
     ? await runtime.startReadOnly({ cwd, signal: new AbortController().signal, maxTurns: 4, maxToolCalls: 4, scrubToolOutput: scrub })
     : await runtime.start({
-      cwd, tools: [],
+      // A stand-in for Casper's service tool: its logs are command output too.
+      cwd, tools: [{ name: "service", description: "Service logs", inputSchema: { type: "object", properties: { action: { type: "string" } } },
+        execute: async () => ({ text: JSON.stringify({ service: "web", logs: "listening on 3000\nconnecting postgres://app:DbPassw0rd99@db/app\nAPI_TOKEN=tok-live-778899\n" }) }) }],
       systemPromptAppend: "Casper secret scrub fixture",
       beforeToolGate: (toolName, input) => hiddenSecretGate(toolName, input),
       scrubToolOutput: scrub,

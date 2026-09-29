@@ -189,3 +189,19 @@ posixOnly("the AI can't write git hooks or git config, by file tools or by shell
   expect(await readFile(path.join(project, ".git/config"), "utf8")).toBe("[core]\n\tbare = false\n");
   expect(await readFile(path.join(project, "src/ok.md"), "utf8")).toBe("fine");
 }, 30_000);
+
+posixOnly("service logs and a cat of Casper's login file reach the model with the secrets hidden", async () => {
+  const loginKey = "sk-or-v1-fixture0123456789abcdef";
+  const { sent } = await run([
+    { name: "service", args: { action: "logs" } },
+    { name: "bash", args: { command: "cat ~/.casper/agent/auth.json", timeout: 10 } },
+  ], {}, async ({ home }) => {
+    await mkdir(path.join(home, ".casper/agent"), { recursive: true });
+    await writeFile(path.join(home, ".casper/agent/auth.json"), JSON.stringify({ openrouter: { type: "api_key", key: loginKey } }));
+  });
+  expect(sent).toContain("listening on 3000");
+  expect(sent).not.toContain("DbPassw0rd99");
+  expect(sent).not.toContain("tok-live-778899");
+  expect(sent).toContain("openrouter");
+  expect(sent).not.toContain(loginKey);
+}, 30_000);
