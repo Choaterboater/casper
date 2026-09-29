@@ -183,7 +183,7 @@ export async function runCli(): Promise<void> {
       options.command = "interactive";
       options.rest = [];
     // A slash command (`casper /undo`) is not a path.
-    } else if (PATH_LIKE.test(word) && !/^\/[A-Za-z][\w-]*$/.test(word)) throw new UsageError(`Not a folder: ${word}`);
+    } else if (PATH_LIKE.test(word) && !/^\/[A-Za-z][\w-]*(?:\s|$)/.test(word)) throw new UsageError(`Not a folder: ${word}`);
   }
   if (options.cd) {
     const folder = path.resolve(options.cd);
