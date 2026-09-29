@@ -57,14 +57,18 @@ export interface ChecksPlan {
   mode: VerificationMode; checks: CheckName[]; slow?: boolean;
   /** Named checks that run only with /verify <name> (set to "ask", and reports). */
   manual?: string[];
+  /** The dev server Casper starts to open changed pages after each change ("bun run dev"); auto mode only. */
+  pages?: string;
 }
 
 /** The banner's and /status's plain line for a ChecksPlan. */
 export function describeChecksPlan(plan: ChecksPlan): string {
   if (plan.mode === "off") return "off for this session (--no-verify or verification.mode: off)";
   const manual = plan.manual?.length ? ` · with /verify <name> only: ${plan.manual.join(", ")}` : "";
-  if (!plan.checks.length) return `none found; add verify.test to .casper/project.yaml${manual}`;
-  return `${plan.checks.join(", ")} — ${plan.mode === "auto" ? "run after each change"
+  // Pages run only in auto mode (Casper opens them itself after a change).
+  const checks = [...plan.checks, ...(plan.pages && plan.mode === "auto" ? [`pages (${plan.pages})`] : [])];
+  if (!checks.length) return `none found; add verify.test to .casper/project.yaml${manual}`;
+  return `${checks.join(", ")} — ${plan.mode === "auto" ? "run after each change"
     : plan.slow ? "offered with /verify (they take a minute or more)" : "offered with /verify (verification.mode: offer)"}${manual}`;
 }
 
