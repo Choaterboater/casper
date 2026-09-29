@@ -301,7 +301,7 @@ export class MCPManager {
     const client = entry.client;
     const limits = this.limits(entry);
     const clock = new CallClock(limits.callMs, limits.hardMs);
-    const context = { phase: "call" as const, server, secrets: entry.secrets, idleMs: limits.callMs, hardMs: limits.hardMs };
+    const context = { phase: "call" as const, server, secrets: entry.secrets, idleMs: limits.callMs, hardMs: limits.hardMs, scrub: modelText };
     try {
       options.onClock?.(clock);
       return await client.callTool({ name, arguments: args }, undefined, {
