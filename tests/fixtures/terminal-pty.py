@@ -188,6 +188,8 @@ def exercise(bun, repo, root, no_color):
         s.until("╭─ sh ")
         assert "╭─ ts " in s.screen.text() and "return a + b;" in s.screen.text(), s.screen.text()
         assert "```" not in s.screen.text(), s.screen.text()
+        # A line typed while the code task still finishes is only kept as a draft: wait for idle first.
+        s.until("│ idle")
         # A wrapped draft with the cursor in its middle must survive activity.
         s.send("hold\n")
         s.until("Waiting for cancellation.")
