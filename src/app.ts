@@ -939,8 +939,11 @@ export class CasperApp {
    * session's last task, as before. */
   private async undoCommand(command: "undo" | "redo" | "diff" | "receipt", argument: string): Promise<undefined> {
     const signal = this.commandAbort?.signal;
-    if (command === "undo") await this.taskUndo.undo(argument, signal);
-    else if (command === "redo") await this.taskUndo.redo(argument, signal);
+    if (command === "undo" || command === "redo") {
+      await this.taskUndo[command](argument, signal);
+      // A one-shot run's receipt (--json) names the files undo or redo changed; nothing checked them.
+      if (!this.interactive && this.taskUndo.lastRestored.length) this.lastTaskResult = { execution: "completed", changedPaths: [...this.taskUndo.lastRestored] };
+    }
     else if (command === "diff") { if (!(await this.taskUndo.diff(argument, signal))) await runSlashCommand(this, "/diff"); }
     else if (!argument && this.lastTaskResult) await runSlashCommand(this, "/receipt");
     else if (!(await this.taskUndo.receipt(argument))) await runSlashCommand(this, "/receipt");
