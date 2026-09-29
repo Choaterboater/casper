@@ -64,6 +64,9 @@ test("a stored task keeps no check output and hides secrets in page text", () =>
   const task: TaskResult = { execution: "completed", changedPaths: ["a.ts"],
     verification: report({ status: "fail", results: [check({ status: "fail", stdout: "token=abc123secret", stderr: "boom" })], rounds: [[check()]], pages: pages("fail") }),
     observedChecks: [{ name: "test", command: "bun test", toolStatus: "error", output: "secret output", truncated: false }] };
+  task.browser = { status: "fail", guidance: "g", checks: [{ id: "b1", name: "login", scenarioSha256: "0", url: "http://127.0.0.1:3000/?token=abc123secret",
+    viewport: { width: 800, height: 600 }, status: "fail", baseline: "pass", freshness: "fresh",
+    assertions: [{ kind: "text", status: "fail", actual: "Welcome, api_key=abc123secret" }] }] };
   const stored = storedTaskResult(task);
   expect(stored.verification!.results[0]).toMatchObject({ stdout: "", stderr: "" });
   expect(stored.verification!.rounds).toEqual([]);
