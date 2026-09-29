@@ -74,7 +74,9 @@ checklist or approval needs you, with the spinner stopped and the timer paused),
 estimated context occupancy, runtime-reported session tokens, a positive cost
 estimate when available, and idle/working state. While a task runs, its stages
 lead the footer, each marked ✓ once done, then the elapsed time:
-`⠋ checklist ✓ · building ✓ · checks · 1m05s │ project…`. Each check Casper runs prints one line
+`⠋ checklist ✓ · building ✓ · checks · 1m05s │ project…`; in a narrow window only the current stage
+and the time (`⠋ checks · 1m05s │ …`). Tool lines print paths relative to the project and fit one row:
+narrow, the words go and a path is shortened from the front (`✓ edit · …s/test_calc.py · +9 -1 · 0.0s`). Each check Casper runs prints one line
 as it finishes (`✓ typecheck · 5.9s`, `✗ test · exit 1 · 2.3s`, `✗ test · timed out after 10m`), so a
 pass is never silent; `--verbose` prints the full evidence line instead. When a request that ran for 10 seconds or
 more finishes, or asks you something (a question, an approval, the checklist), Casper rings the

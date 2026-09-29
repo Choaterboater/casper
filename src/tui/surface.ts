@@ -273,7 +273,9 @@ export class TerminalSurface {
     const elapsed = active && this.activeSince !== undefined && !this.note
       ? this.muted(` · ${formatElapsed(Date.now() - this.activeSince - this.waitedMs)}`) : "";
     // The stages lead, so a narrow window truncates the project and model details, not the progress.
-    const rail = active && this.steps && !this.note ? `${this.steps}${elapsed ? this.muted(elapsed) : ""}${this.muted(" │ ")}` : "";
+    // Narrow: only the current stage and the time, so neither is cut off.
+    const steps = this.steps && visibleWidth(`${this.steps}${elapsed} │ `) + 2 > width ? this.steps.split(" · ").at(-1)! : this.steps;
+    const rail = active && steps && !this.note ? `${steps}${elapsed ? this.muted(elapsed) : ""}${this.muted(" │ ")}` : "";
     const text = this.note ? this.accent(this.note) : rail ? rail + this.muted(this.status || "Casper") : this.muted(this.status || "Casper · / for commands") + elapsed;
     return truncateToWidth(`${state} ${text}`, width);
   }

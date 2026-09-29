@@ -63,3 +63,18 @@ test("a stage that ended without doing its job reads skipped, never ✓", () => 
   rail.update("checklist", "start"); rail.update("checklist", "end"); rail.skip("checklist"); rail.update("task", "start");
   expect(rail.text()).toBe("checklist skipped · building");
 });
+
+test("in a narrow terminal the footer keeps the current stage and the time", async () => {
+  process.env.TERM = "xterm-256color";
+  const session = interactiveTerminal();
+  try {
+    session.screen.writer.columns = 40;
+    session.terminal.setStatus("casper-uxtest │ openrouter/some-long-model │ idle"); session.terminal.start();
+    const command = session.terminal.readCommand();
+    session.input.write("go\r");
+    await command;
+    session.terminal.setSteps("checklist ✓ · building ✓ · checks");
+    await session.screen.until(output => /checks · \ds │/.test(Bun.stripANSI(output)));
+    session.terminal.setSteps(undefined);
+  } finally { session.close(); }
+}, 15_000);
