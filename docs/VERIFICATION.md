@@ -37,8 +37,8 @@ workspace, it runs every selected check. Changes but no configured checks is **i
 (one-shot exit 2). Cancellation rules are unchanged.
 
 **Exit codes.** A one-shot run exits 0 when done, 1 when a check or the run failed, 2 when
-checks were incomplete, and 130 when cancelled. By default a pass that later went stale, or
-changes nobody verified, still exit 0 and the receipt says "Not verified". Add
+checks were incomplete, and 130 when cancelled. By default a pass that later went stale, checks that passed
+without proving the change, or changes nobody verified, still exit 0 and the receipt says why. Add
 `--require-verification` (which implies `--verify`) to make those exit 3. See
 [SCRIPTING.md](SCRIPTING.md) for the full table and `--json` events.
 
@@ -81,8 +81,9 @@ failed; changes already made are kept; the checks pass on those changes`), follo
 to try another model.
 
 `Verified` means the checks passed on the final files and a test fails without the change (ADR 0001).
-The JSON `outcome` and the exit code do not change with the verdict: a change whose checks pass but
-that was not proven still has the outcome `verified`, and the JSON receipt's `proofSkipped` says why.
+Since v0.2.17 the JSON `outcome` follows the verdict: `verified` only for `✓ Verified`. A change whose
+checks pass but that was not proven has the outcome `not_verified` (exit 3 with `--require-verification`),
+`checksPassed` is `true`, and the JSON receipt's `proofSkipped` says why it was not proven.
 The lines below the verdict give the evidence:
 
 ```
