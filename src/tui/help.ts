@@ -183,7 +183,7 @@ MCP connection executes a configured program or contacts its URL. Review its sou
 Servers from ~/.claude.json, ~/.mcp.json and VS Code are listed too; each needs /mcp connect once.
 Every MCP server starts with writes off: write and delete tools are hidden. /mcp writes <name>
 turns them on; ctrl+o turns them off again. A remembered server always starts with writes off.
-Read-only comes from the product (readOnlyHint, access_check); Casper's labels only make it stricter.
+A login is read-only only when the product says so (access_check); labels only make things stricter.
 Non-read MCP calls require exact interactive confirmation; denied in one-shot mode. The AI can't approve.
 Known device secrets (passwords, keys, SNMP communities) in MCP results, config files and config-like
 command output are shown to the AI as <secret hidden> (best effort, known formats only); a change
