@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import type { MCPTool } from "../src/mcp/manager";
 import {
-  aiConfirm, buildPlan, callMode, canPreview, formatApproval, interimConfigScrub, maskSecrets, maskText, needsApproval,
+  aiConfirm, buildPlan, callMode, canPreview, formatApproval, maskSecrets, maskText, needsApproval,
   planLabel, planMode, previewArguments, previewKey, routedCalls, tooLongToShow, type ApprovalHint,
 } from "../src/capabilities/approval";
 import { toolLabel } from "../src/capabilities/labels";
@@ -134,7 +134,9 @@ test("secrets inside Junos and Aruba config text are hidden", () => {
   for (const secret of ["$6$abc", "k3y", "Sup3rS3cret", "rad1us", "privcomm"]) expect(box).not.toContain(secret);
   expect(box).toContain("host-name r1");
   expect(box).toContain("Hidden: parts of config_text.");
-  expect(interimConfigScrub("encrypted-password \"$6$abc\";")).toBe("encrypted-password \"•••\";");
+  // The shared secret rules do the hiding, so the box shows the same marker as everything else.
+  expect(box).toContain("encrypted-password <secret hidden>");
+  expect(box).toContain("wpa-passphrase plaintext <secret hidden>");
 });
 
 test("the text scrubber is a hook: shared secret rules can replace the built-in ones", () => {

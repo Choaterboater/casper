@@ -55,6 +55,13 @@ test("AOS 8: PSK, RADIUS key inside an aaa server block and mgmt-user hash are h
   expect(result.hidden).toBe(5);
 });
 
+test("AOS 8: a PSK written with a plaintext or ciphertext word is hidden too", () => {
+  const result = scrubText("wpa-passphrase plaintext Sup3rS3cret\nwpa-hexkey ciphertext 0a1b2c3d");
+  expectHidden(result.text, ["Sup3rS3cret", "0a1b2c3d"]);
+  expect(result.text).toContain(`wpa-passphrase plaintext ${SECRET_MARKER}`);
+  expect(result.hidden).toBe(2);
+});
+
 test("AOS 8: a key line outside an aaa server block is left alone", () => {
   const text = [
     "aaa authentication-server radius \"nps1\"",
