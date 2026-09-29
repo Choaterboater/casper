@@ -244,8 +244,10 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
 - Casper's own numbered questions (a new project, one more repair on your big model, a lab check,
   security tools and ignores, Build this plan?) also work on the plain terminal: it prints the
   choices as numbered lines and reads `Type 1-3 (Enter for 1)`; a number or a choice's words pick
-  it. At the repair-limit, lab-failure, lab and ignore questions, choice 1 (Stop, Skip, Leave it
-  flagged, Keep the default) spends nothing and changes nothing, so a stray Enter is harmless.
+  it. Enter picks choice 1, and at every Casper question choice 1 is the one that does nothing
+  risky (Stop, Skip, Not now, Use this folder, Leave it, No, Just this time, Keep writes off, Keep the
+  default): building, installing, downloading, spending tokens, running a check again, saving a
+  choice, approving or reaching a lab always takes a deliberate 2 or 3, so a stray Enter is harmless.
   One-shot runs, `--json` and piped input never get these questions: each takes the safe answer,
   and the new-project, lab and security ones say what they did instead.
 - Up/Down recalls current-process prompt history. Shift+Enter where the terminal
