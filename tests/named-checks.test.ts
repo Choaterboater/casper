@@ -60,6 +60,14 @@ describe("configuration", () => {
     await expect(loadConfiguration({ projectRoot: lab.root, homeDir: lab.homeDir })).rejects.toThrow("lab checks run only when you start them");
   });
 
+  test("your own config picks only built-in checks; a named check is picked in its project", async () => {
+    const { root, homeDir } = await project("verify:\n  checks:\n    docs: echo docs\n", "verification:\n  checks: [test, docs]\n");
+    await expect(loadConfiguration({ projectRoot: root, homeDir }))
+      .rejects.toThrow("~/.casper/config.yaml: verification.checks can only pick typecheck, lint, test or build here; pick docs in that project's .casper/project.yaml");
+    const builtins = await project("", "verification:\n  checks: [test]\n");
+    expect((await loadConfiguration({ projectRoot: builtins.root, homeDir: builtins.homeDir })).verification.checks).toEqual(["test"]);
+  });
+
   test("the lab list is the user's setting, never the project's", async () => {
     const user = await project("", "lab:\n  hosts: [lab-r1, 10.99.0.0/24]\n");
     expect((await loadConfiguration({ projectRoot: user.root, homeDir: user.homeDir })).lab).toEqual({ hosts: ["lab-r1", "10.99.0.0/24"] });
