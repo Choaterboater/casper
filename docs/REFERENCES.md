@@ -75,6 +75,7 @@ pycentral     Aruba Central Python SDK (Apache-2.0)
 Will run: git -c core.hooksPath=/dev/null clone --depth 1 --filter=blob:none --sparse https://github.com/aruba/pycentral.git ~/.casper/reference-repos/pycentral
 Will run: git -c core.hooksPath=/dev/null -C ~/.casper/reference-repos/pycentral sparse-checkout set pycentral docs
 Download now? Type yes:
+Downloading (up to 5 minutes; Ctrl+C stops it)...
 Added pycentral to ~/.casper/references.yaml. Restart Casper to search it.
 ```
 
