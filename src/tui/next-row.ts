@@ -19,10 +19,12 @@ export interface NextItem {
   command: string;
   /** A few words after the label: "uses tokens", "free". */
   note?: string;
+  /** Why it is offered, or exactly what it will write; printed on its own line under the row. */
+  why?: string;
 }
 
 export interface NextRow {
-  /** The line to print under the receipt. */
+  /** The text to print under the receipt: the row, then one line per step that says why. */
   line: string;
   /** Which key submits which command. */
   keys: Map<string, string>;
@@ -31,7 +33,7 @@ export interface NextRow {
 const plain = (text: string) => text.replace(/[\x00-\x1f\x7f-\x9f‪-‮⁦-⁩]/g, " ").replace(/\s+/g, " ").trim();
 
 /** The row, or undefined when there is nothing to offer. Steps past 9 are left out: one key picks a step. */
-export function buildNextRow(input: { undo?: NextItem; diff?: NextItem; more?: readonly NextItem[] }): NextRow | undefined {
+export function buildNextRow(input: { undo?: NextItem; diff?: NextItem; more?: readonly NextItem[]; hint?: string }): NextRow | undefined {
   const slots: Array<[number, NextItem]> = [];
   if (input.undo) slots.push([UNDO_SLOT, input.undo]);
   if (input.diff) slots.push([DIFF_SLOT, input.diff]);
@@ -39,6 +41,8 @@ export function buildNextRow(input: { undo?: NextItem; diff?: NextItem; more?: r
   const shown = slots.filter(([key, item]) => key <= LAST_SLOT && plain(item.label) && item.command.trim());
   if (!shown.length) return undefined;
   const keys = new Map(shown.map(([key, item]) => [String(key), item.command.trim()]));
-  const line = `Next: ${shown.map(([key, item]) => `${key} ${plain(item.label)}${item.note ? ` (${plain(item.note)})` : ""}`).join(" · ")}`;
-  return { line, keys };
+  const row = `Next: ${shown.map(([key, item]) => `${key} ${plain(item.label)}${item.note ? ` (${plain(item.note)})` : ""}`).join(" · ")}`;
+  const why = shown.filter(([, item]) => item.why && plain(item.why)).map(([key, item]) => `  ${key}: ${plain(item.why!)}`);
+  const hint = input.hint && plain(input.hint) ? [`  ${plain(input.hint)}`] : [];
+  return { line: [row, ...why, ...hint].join("\n"), keys };
 }

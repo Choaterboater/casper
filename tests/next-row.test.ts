@@ -22,6 +22,12 @@ test("slots 1 and 2 are Undo and Show diff; other steps start at 3, in plain wor
   expect(buildNextRow({ more: Array.from({ length: 9 }, (_, i) => ({ label: `s${i}`, command: `/s${i}` })) })!.keys.size).toBe(7);
 });
 
+test("a step's reason and the hint print under the row, one line each, with the step's number", () => {
+  const row = buildNextRow({ more: [{ label: "Remember uv run pytest", command: "/suggestion remember-test", note: "free",
+    why: "saves verify.test: uv run pytest\u001b[2J in .casper/project.yaml" }], hint: "A number picks one" })!;
+  expect(row.line).toBe("Next: 3 Remember uv run pytest (free)\n  3: saves verify.test: uv run pytest [2J in .casper/project.yaml\n  A number picks one");
+});
+
 function plainTerminal() {
   const input = new PassThrough();
   let output = "";
