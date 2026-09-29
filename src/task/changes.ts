@@ -10,7 +10,7 @@ const execFileAsync = promisify(execFile);
 
 /** Never descended: VCS internals, dependency trees, Casper's own state, and Python environments and
  * caches (a project's .venv alone can hold tens of thousands of files). */
-const SKIPPED_DIRECTORIES: Record<string, true> = { ".git": true, node_modules: true, ".casper": true,
+export const SKIPPED_DIRECTORIES: Record<string, true> = { ".git": true, node_modules: true, ".casper": true,
   ".venv": true, __pycache__: true, ".mypy_cache": true, ".pytest_cache": true, ".ruff_cache": true, ".tox": true,
   // Dev server build caches: a page check writes them, and they are never the user's change.
   ".next": true, ".nuxt": true, ".svelte-kit": true, ".astro": true, ".vite": true };
@@ -56,7 +56,7 @@ async function insideSkipped(root: string, relative: string, cache: Map<string, 
 /** Removed between listing and inspection: absent from this snapshot, like any other missing path. */
 const VANISHED: Record<string, true> = { ENOENT: true, ENOTDIR: true };
 /** Beyond this a file is identified by size and mtime; hashing it would stall the receipt. */
-const HASH_LIMIT = 8 * 1024 * 1024;
+export const HASH_LIMIT = 8 * 1024 * 1024;
 /** A tree larger than this reports "unknown" rather than making the user wait. */
 export const SNAPSHOT_FILE_LIMIT = 20_000;
 const CHUNK = 64 * 1024;

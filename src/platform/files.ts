@@ -1,5 +1,5 @@
 import { constants } from "node:fs";
-import { lstat, mkdir, open, unlink, type FileHandle } from "node:fs/promises";
+import { lstat, mkdir, open, symlink, unlink, type FileHandle } from "node:fs/promises";
 import path from "node:path";
 
 /**
@@ -94,18 +94,10 @@ export type ProjectWriteMode =
 /** Write a project file without following links: missing folders are made as real folders; an existing link, or
  * a folder or special file in its place, is refused. */
 export async function writeProjectFile(root: string, relative: string, data: string | Uint8Array,
-  options: { mode: ProjectWriteMode; fileMode?: number }): Promise<"written" | "kept"> {
+  options: { mode: ProjectWriteMode; fileMode?: number; /** Set these permission bits after writing (undo's exec bit). */ chmod?: number }): Promise<"written" | "kept"> {
   const file = projectPath(root, relative);
   await checkParents(root, relative);
-  // Make each missing folder one at a time and check it is still a real folder, never a link.
-  const parts = path.relative(root, path.dirname(file)).split(path.sep).filter(Boolean);
-  let current = root;
-  for (const part of parts) {
-    current = path.join(current, part);
-    await mkdir(current).catch((error: NodeJS.ErrnoException) => { if (error.code !== "EEXIST") throw error; });
-    const info = await lstat(current);
-    if (info.isSymbolicLink() || !info.isDirectory()) throw new Error(`${relative} goes through a link or a file; Casper won't follow it`);
-  }
+  await makeFolders(root, relative, file);
   const existing = await lstat(file).catch(() => undefined);
   if (existing?.isSymbolicLink()) throw new Error(`${relative} is a link; Casper won't write through it`);
   if (existing && !existing.isFile()) throw new Error(`${relative} exists and isn't a file`);
@@ -138,8 +130,31 @@ export async function writeProjectFile(root: string, relative: string, data: str
       handle = fresh;
     } else if (options.mode === "replace") await handle.truncate(0);
     await handle.writeFile(data);
+    if (options.chmod !== undefined) await handle.chmod(options.chmod);
   } finally { await handle.close().catch(() => {}); }
   return "written";
+}
+
+/** Make each missing folder above `file` one at a time and check it is still a real folder, never a link. */
+async function makeFolders(root: string, relative: string, file: string): Promise<void> {
+  const parts = path.relative(root, path.dirname(file)).split(path.sep).filter(Boolean);
+  let current = root;
+  for (const part of parts) {
+    current = path.join(current, part);
+    await mkdir(current).catch((error: NodeJS.ErrnoException) => { if (error.code !== "EEXIST") throw error; });
+    const info = await lstat(current);
+    if (info.isSymbolicLink() || !info.isDirectory()) throw new Error(`${relative} goes through a link or a file; Casper won't follow it`);
+  }
+}
+
+/** Make a symbolic link inside the project (undo putting a link back). The link is made, never followed; its folders
+ * are real folders; anything already at the path is refused (remove it first). */
+export async function writeProjectLink(root: string, relative: string, target: string): Promise<void> {
+  const file = projectPath(root, relative);
+  await checkParents(root, relative);
+  await makeFolders(root, relative, file);
+  if (await lstat(file).catch(() => undefined)) throw new Error(`${relative} is already there`);
+  await symlink(target, file);
 }
 
 /** Remove a project file: a link is removed itself, never what it points to; a folder is refused. Missing is fine. */
