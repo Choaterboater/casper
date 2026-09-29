@@ -786,7 +786,9 @@ export function summarizeBenchmark(runs: readonly BenchmarkRun[], options: Summa
 const tallyText = (tally: Tally) => `${tally.yes}/${tally.yes + tally.no}${tally.unknown ? ` ?${tally.unknown}` : ""}`;
 function spreadText(value: Spread | null, format: (number: number) => string): string {
   if (!value) return "–";
-  return value.min === value.max ? format(value.median) : `${format(value.median)} (${format(value.min)}–${format(value.max)})`;
+  // Runs a few milliseconds apart print the same text: show one value, not "0.0s (0.0s–0.0s)".
+  const min = format(value.min), max = format(value.max);
+  return min === max ? format(value.median) : `${format(value.median)} (${min}–${max})`;
 }
 const decimal = (digits: number) => (value: number) => value.toFixed(digits);
 const tokensText = (value: number) => value >= 1000 ? `${Math.round(value / 1000)}k` : String(Math.round(value));
