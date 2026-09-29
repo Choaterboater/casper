@@ -36,13 +36,6 @@ export function modelNamedChecks(named: Record<string, NamedCheckSpec> | undefin
   return named ? modelNetworkCheckNames(named) : [];
 }
 
-/** Named checks that only run when the user starts them: ordinary checks set to "ask", and reports. */
-export function manualNamedChecks(named: Record<string, NamedCheckSpec> | undefined): string[] {
-  if (!named) return [];
-  const auto = new Set(autoNamedChecks(named));
-  return modelNamedChecks(named).filter((name) => !auto.has(name));
-}
-
 export function labNamedChecks(named: Record<string, NamedCheckSpec> | undefined): string[] {
   return named ? Object.entries(named).filter(([, spec]) => spec.kind === "lab").map(([name]) => name) : [];
 }

@@ -9,7 +9,7 @@ import type { ProjectModel } from "../src/project/model";
 import { formatReceipt, liveCheckLine } from "../src/task/result";
 import { argvText, runCommandCheck } from "../src/verify/command";
 import { formatVerificationResult, repairClass, verificationStatus, type VerificationResult } from "../src/verify/evidence";
-import { describeChecksPlan, planAutoChecks, selectedChecks } from "../src/verify/mode";
+import { describeChecksPlan, manualChecks, planAutoChecks, selectedChecks } from "../src/verify/mode";
 import { LAB_NOT_YET, type NamedCheckSpec } from "../src/verify/named";
 import { defaultVerifyNames, VerifierRegistry } from "../src/verify/registry";
 import { VerificationTask } from "../src/verify/task";
@@ -187,5 +187,8 @@ describe("what a named check means for the run", () => {
     expect(planAutoChecks({ commands: { test: "t" }, named, changedPaths: ["a"] }).run).toEqual(["test", "syntax"]);
     expect(describeChecksPlan({ mode: "auto", checks: ["test", "syntax"], manual: ["slow", "diff"] }))
       .toBe("test, syntax — run after each change · with /verify <name> only: slow, diff");
+    expect(manualChecks(selectedChecks(undefined, { test: "t" }, named), named)).toEqual(["slow", "diff"]);
+    // verification.checks leaves syntax out: it no longer runs after each change, so the banner says where it went.
+    expect(manualChecks(selectedChecks(["test"], { test: "t" }, named), named)).toEqual(["syntax", "slow", "diff"]);
   });
 });
