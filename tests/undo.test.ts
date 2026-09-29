@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile, lstat } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, utimes, writeFile, lstat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { UndoStore } from "../src/task/undo";
@@ -261,4 +261,20 @@ posixOnly("a file the task deleted comes back with your umask's permissions, not
     expect((await stat(path.join(root, "private.yaml"))).mode & 0o777).toBe(0o600);
     expect((await stat(path.join(root, "run.sh"))).mode & 0o777).toBe(0o700);
   } finally { process.umask(saved); }
+});
+
+test("a copy is still made after git's clean-up dropped a file that only this folder's index named", async () => {
+  const { root, store } = await setup();
+  await writeFile(path.join(root, "a.py"), "a = 1\n");
+  // An old file (not "racily clean"), so git trusts the index and does not read it again.
+  const old = new Date(Date.now() - 2 * 3600_000);
+  await utimes(path.join(root, "a.py"), old, old);
+  tree(await store.snapshot());
+  // No task kept that copy; git's clean-up run from another work tree (another index) drops its objects.
+  await new Promise((resolve) => setTimeout(resolve, 1100));
+  const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith("GIT_")));
+  execFileSync("git", ["--git-dir", store.gitDir, "prune", "--expire=now"], { env: { ...env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: os.devNull } });
+  await writeFile(path.join(root, "b.py"), "b = 2\n");
+  const after = tree(await store.snapshot());
+  expect((await store.readBlob(execFileSync("git", ["--git-dir", store.gitDir, "rev-parse", `${after}:a.py`]).toString().trim())).toString()).toBe("a = 1\n");
 });
