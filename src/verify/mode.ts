@@ -1,6 +1,6 @@
 import type { ProjectCommand } from "../project/model";
 import { CHECK_NAMES, type CheckName } from "./evidence";
-import { autoNamedChecks, manualNamedChecks, type NamedCheckSpec } from "./named";
+import { autoNamedChecks, modelNamedChecks, type NamedCheckSpec } from "./named";
 import type { VerificationScope } from "./scope";
 
 /** `auto`: Casper runs the selected checks after the model's edits. `offer`: the model may use
@@ -75,9 +75,10 @@ export function selectedChecks(selected: readonly CheckName[] | undefined, comma
   return selected ? [...selected] : [...CHECK_NAMES.filter((name) => commands[name]?.trim()), ...autoNamedChecks(named)];
 }
 
-/** The named checks a plan lists as /verify-only: never ones already selected, never lab checks. */
+/** The named checks a plan lists as /verify-only: every one not selected to run after each change (set to "ask",
+ * a report, or left out of verification.checks), never lab checks. */
 export function manualChecks(selected: readonly CheckName[], named?: Record<string, NamedCheckSpec>): string[] {
-  return manualNamedChecks(named).filter((name) => !selected.includes(name));
+  return modelNamedChecks(named).filter((name) => !selected.includes(name));
 }
 
 /** Why auto mode ran nothing after a model turn. */
