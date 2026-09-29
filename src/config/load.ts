@@ -55,7 +55,10 @@ export interface LoadedConfiguration {
   projectOverrides: ProjectModelOverrides;
   skills: { maxActive: number; imports: SkillImport[] };
   verification: VerificationSettings;
-  repair: { maxAttempts: number };
+  /** bigModelLastTry: the last repair runs on the user's big model (the reason role); user or profile only. */
+  repair: { maxAttempts: number; bigModelLastTry?: boolean };
+  /** `suggestions: false` turns every suggestion off (user or profile only). */
+  suggestions?: boolean;
   visualize: VisualizationSettings;
   /** Declared managed services (project layer only), by name. */
   services: Record<string, ServiceSpec>;
@@ -200,7 +203,7 @@ const POLICY_KEYS = {
 } as const;
 const ISOLATE_KEYS = ["parallelAgents", "riskyRefactor", "experimentalBranch"];
 const TOP_LEVEL_KEYS = new Set(["profile", "project", "languages", "frameworks", "packageManager", "commands", "architecture",
-  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", ...Object.keys(POLICY_KEYS)]);
+  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", ...Object.keys(POLICY_KEYS)]);
 
 /** Typos used to fall back silently to the defaults; the loader names them instead. */
 function unknownKeys(document: Mapping, label: string): string[] {
@@ -319,6 +322,8 @@ function stringArray(value: unknown): string[] | undefined {
   const strings = value.filter((item): item is string => typeof item === "string");
   return strings.length === value.length ? strings : undefined;
 }
+
+export const BIG_MODEL_IN_PROJECT_ERROR = "repair.bigModelLastTry is a user setting (~/.casper/config.yaml); a project cannot choose to spend on your big model";
 
 function boundedSetting(document: Mapping, section: string, key: string, fallback: number, min: number, max: number): number {
   const settings = document[section];
@@ -459,6 +464,22 @@ export async function loadConfiguration(
   let maxActive = 6;
   let timeoutMs = 600_000;
   let maxAttempts = 3;
+  // Spending on the big model is the user's own choice: a project file never makes it.
+  if (isMapping(projectDocument.repair) && projectDocument.repair.bigModelLastTry !== undefined) throw new Error(BIG_MODEL_IN_PROJECT_ERROR);
+  if (projectDocument.suggestions !== undefined) throw new Error("suggestions is a user setting (~/.casper/config.yaml); a project cannot turn suggestions on or off");
+  let bigModelLastTry: boolean | undefined;
+  let suggestions: boolean | undefined;
+  for (const [document, label] of [[globalDocument, labels.global], [profileDocument, labels.profile]] as const) {
+    const setting = isMapping(document.repair) ? document.repair.bigModelLastTry : undefined;
+    if (setting !== undefined && setting !== null) {
+      if (typeof setting !== "boolean") throw new Error(`${label}: repair.bigModelLastTry must be true or false`);
+      bigModelLastTry = setting;
+    }
+    if (document.suggestions !== undefined && document.suggestions !== null) {
+      if (typeof document.suggestions !== "boolean") throw new Error(`${label}: suggestions must be true or false`);
+      suggestions = document.suggestions;
+    }
+  }
   let mode: VerificationMode | undefined;
   let checks: CheckName[] | undefined;
   let review: boolean | undefined;
@@ -512,7 +533,8 @@ export async function loadConfiguration(
     skills: { maxActive, imports },
     verification: { timeoutMs, ...(mode ? { mode } : {}), ...(checks ? { checks } : {}), ...(review !== undefined ? { review } : {}), ...(acceptance !== undefined ? { acceptance } : {}),
       ...(checklist !== undefined ? { checklist } : {}) },
-    repair: { maxAttempts },
+    repair: { maxAttempts, ...(bigModelLastTry !== undefined ? { bigModelLastTry } : {}) },
+    ...(suggestions !== undefined ? { suggestions } : {}),
     services,
     smoke: parseSmoke(projectDocument.smoke, Object.keys(services), labels.project),
     ...(pages ? { pages } : {}),
