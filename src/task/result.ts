@@ -88,8 +88,8 @@ export interface TaskResult {
   /** Why the task's changed pages were not opened, as plain receipt lines: the dev server can't start (a missing
    * install), or every changed page needs a value ("• /devices/[id] not opened: …"). Never a failure. */
   pageNotes?: string[];
-  /** Whether /undo can put this task's files back, and why not. */
-  undo?: { available: true } | { available: false; reason: string };
+  /** Whether /undo can put this task's files back, and why not. `left` names changed files Casper keeps no copy of. */
+  undo?: { available: true; left?: Array<{ path: string; why: string }> } | { available: false; reason: string };
 }
 
 /** A security tools run in a receipt: how many problems, notes and checks not run, and each tool's state. */
@@ -198,6 +198,9 @@ export function formatTaskResult(task: TaskResult): string {
   else if (task.pageNotes?.length) lines.push(receiptLine("pages", task.pageNotes.map((note) => safe(note.replace(/^• /, ""))).join("; ")));
   if (task.bigModel) lines.push(receiptLine("big model", `${safe(task.bigModel.model)} for ${task.bigModel.attempts} ${task.bigModel.attempts === 1 ? "repair" : "repairs"}`));
   if (task.security) lines.push(receiptLine("security", securityText(task.security)));
+  if (task.undo && !(!task.undo.available && task.undo.reason === UNDO_NOTHING_CHANGED)) {
+    lines.push(receiptLine("undo", task.undo.available ? `available${task.receipt ? ` (/undo ${task.receipt})` : ""}${task.undo.left?.length ? `; no copy of ${task.undo.left.map((entry) => safe(entry.path)).join(", ")}` : ""}` : `not available: ${safe(task.undo.reason)}`));
+  }
   if (task.browser) {
     lines.push(receiptLine("browser", `assertions ${task.browser.status}: ${task.browser.checks.map(check => `${safe(check.name)}:${check.status}, inputs ${check.freshness}, baseline ${check.baseline}`).join("; ")}. Declared local scope only; server build/external state and overall acceptance not certified.`));
   }
@@ -275,7 +278,23 @@ export function formatReceipt(task: TaskResult, options: ReceiptOptions = {}): s
     lines.push(task.browser.status === "pass" ? `✓ Browser checks passed (${task.browser.checks.length})`
       : task.browser.status === "fail" ? `✗ Browser checks failed: ${failed.join(", ")}` : "• Browser checks incomplete");
   }
-  return withVerdict(task, lines, options);
+  const verdict = withVerdict(task, lines, options);
+  return [...(verdict ? [verdict] : []), ...undoLines(task, options, safe)].join("\n");
+}
+
+/** The undo reason when a task changed nothing: nothing to say on the receipt. */
+export const UNDO_NOTHING_CHANGED = "no files changed";
+
+/** The receipt's last lines about undo: what it can't put back, why it is not available, and (one-shot) the commands.
+ * The interactive receipt's "Next: 1 Undo · 2 Show diff" row is printed by the app. */
+function undoLines(task: TaskResult, options: ReceiptOptions, safe: (text: string) => string): string[] {
+  const undo = task.undo;
+  if (!undo) return [];
+  if (!undo.available) return undo.reason === UNDO_NOTHING_CHANGED ? [] : [`• Undo not available: ${safe(undo.reason).replace(/\.$/, "")}`];
+  const lines: string[] = [];
+  if (undo.left?.length) lines.push(`• Undo can't put back: ${undo.left.slice(0, RECEIPT_PATH_LIMIT).map((entry) => `${safe(entry.path)} (${safe(entry.why)})`).join(", ")}${undo.left.length > RECEIPT_PATH_LIMIT ? ` … +${undo.left.length - RECEIPT_PATH_LIMIT} more` : ""}`);
+  if (options.surface === "one-shot") lines.push(`Undo: casper /undo${task.receipt ? ` ${task.receipt}` : ""} · Diff: casper /diff${task.receipt ? ` ${task.receipt}` : ""}`);
+  return lines;
 }
 
 /** Line 1 of every receipt: what the run proved, in one line. "Verified" means the checks passed on the

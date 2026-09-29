@@ -128,3 +128,32 @@ test("rich terminal: the row never answers a question that is open", async () =>
     expect(await answer).toEqual(["Drop it"]);
   } finally { terminal.close(); input.destroy(); }
 });
+
+test("rich terminal: Enter on the empty prompt never picks from the row (not even Undo in slot 1)", async () => {
+  const { input, terminal, until } = richTerminal();
+  try {
+    terminal.start();
+    terminal.offerNext(buildNextRow({ undo, diff }));
+    await until((text) => Bun.stripANSI(text).includes("Next: 1 Undo · 2 Show diff"));
+    const first = terminal.readCommand();
+    input.write("\r");
+    input.write("x");
+    input.write("\r");
+    // Enter on an empty prompt submits nothing; the row is gone, so the next line is just a request.
+    expect(await first).toBe("x");
+  } finally { terminal.close(); input.destroy(); }
+});
+
+test("plain terminal: an empty line after the row runs nothing, and uses the row up", async () => {
+  const { input, terminal } = plainTerminal();
+  try {
+    terminal.start();
+    terminal.offerNext(buildNextRow({ undo, diff }));
+    const first = terminal.readCommand();
+    input.write("\n");
+    expect(await first).toBe("");
+    const second = terminal.readCommand();
+    input.write("1\n");
+    expect(await second).toBe("1");
+  } finally { terminal.close(); input.destroy(); }
+});

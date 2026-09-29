@@ -71,6 +71,7 @@ import { checkCommands, isBuiltinCheck, labNamedChecks } from "./verify/named";
 import { autoDetectedChecks } from "./verify/migrations-check";
 import type { NetworkToolContext } from "./verify/registry";
 import { buildNextRow, type NextItem } from "./tui/next-row";
+import { TaskUndo, type TaskUndoStart } from "./app/undo";
 import { SuggestionController, SUGGESTION_COMMAND } from "./app/suggestions";
 import { findFlow, formatFlowPrompt, loadFlowCatalog, type Flow, type FlowRule } from "./flows/catalog";
 import { beforeWorkPanel, readBeforeWorkAnswer, suggestBeforeWork } from "./flows/suggest";
@@ -282,6 +283,20 @@ export class CasperApp {
   private savedModelDisplay?: string;
   private taskRuntimeCancelled = false;
   private lastTaskResult?: TaskResult;
+  /** Undo, redo, /diff and saved receipts: a copy before and after each task. */
+  private readonly taskUndo = ((app: CasperApp) => new TaskUndo({
+    output: { write: (text) => app.output.write(text) },
+    get terminal() { return app.terminal; },
+    get interactive() { return app.interactive; },
+    get liveSession() { return app.session; },
+    get homeDir() { return app.sessionHomeDir ?? os.homedir(); },
+    stateDirectory: () => app.projectContext?.stateDirectory,
+    activeRoot: () => app.activeWorkspaceRoot(),
+    reloadProject: async () => { if (app.projectContext) app.projectContext = await app.loadProjectContextFn(app.projectContext.info); },
+    lastTask: () => app.lastTaskResult,
+  }))(this);
+  /** MCP servers this task changed things through (calls you approved that were not read-only). */
+  private taskChangeServers = new Set<string>();
   /** What the row under an interactive receipt offers (Undo, Show diff, suggestions...). Each source says what
    * it offers for this task, or nothing; Undo and Show diff keep slots 1 and 2, the rest follow from 3. */
   readonly nextSteps: Array<(task: TaskResult) => { undo?: NextItem; diff?: NextItem; more?: NextItem[] } | undefined> = [];
@@ -646,6 +661,9 @@ export class CasperApp {
       hint = suggested.hint;
     }
     if (this.closing) return;
+    // Undo and Show diff of this task, unless a source offered its own.
+    const own = this.taskUndo.nextItems(task);
+    undo ??= own.undo; diff ??= own.diff;
     this.terminal.offerNext(buildNextRow({ undo, diff, more, ...(hint ? { hint } : {}) }));
   }
 
@@ -846,8 +864,8 @@ export class CasperApp {
     }
     const transition = /^\/(?:branch|switch)(?:\s|$)/.test(prompt);
     if (transition && this.subagents.isBusy) throw new Error("Wait for active subagents before changing workspaces");
-    // /receipt reads the last task's receipt; every other command starts without one.
-    if (prompt !== "/receipt") this.lastTaskResult = undefined;
+    // /receipt, /undo, /redo and /diff read the last task; every other command starts without it.
+    if (!/^\/(?:receipt|undo|redo|diff)(?:\s|$)/.test(prompt)) this.lastTaskResult = undefined;
     this.taskRuntimeFailed = false;
     this.taskTurnLimit = undefined;
     this.events.clearError();
@@ -899,12 +917,26 @@ export class CasperApp {
       return this.suggestions.command(prompt.slice(12).trim(), this.projectContext).then((text) => { this.output.write(text); return undefined; });
     }
     if (prompt.startsWith(`${SUGGESTION_COMMAND} `) || prompt === SUGGESTION_COMMAND) return this.runSuggestion(prompt.slice(SUGGESTION_COMMAND.length).trim());
+    const undoCommand = /^\/(undo|redo|diff|receipt)(?:\s+(.*))?$/.exec(prompt);
+    if (undoCommand) return this.undoCommand(undoCommand[1] as "undo" | "redo" | "diff" | "receipt", (undoCommand[2] ?? "").trim());
     if (/^\/plan(?:\s|$)/.test(prompt)) {
       const request = prompt.slice(5).trim();
       if (!request) { this.output.write("Usage: /plan <request>. The model plans first; nothing is built until you choose Build.\n"); return Promise.resolve(undefined); }
       return this.runModelTask(request, { planFirst: true });
     }
     return runSlashCommand(this, prompt);
+  }
+
+  /** /undo, /redo, /diff and /receipt. With no task in this folder yet, /diff shows git's view and /receipt the
+   * session's last task, as before. */
+  private async undoCommand(command: "undo" | "redo" | "diff" | "receipt", argument: string): Promise<undefined> {
+    const signal = this.commandAbort?.signal;
+    if (command === "undo") await this.taskUndo.undo(argument, signal);
+    else if (command === "redo") await this.taskUndo.redo(argument, signal);
+    else if (command === "diff") { if (!(await this.taskUndo.diff(argument, signal))) await runSlashCommand(this, "/diff"); }
+    else if (!argument && this.lastTaskResult) await runSlashCommand(this, "/receipt");
+    else if (!(await this.taskUndo.receipt(argument))) await runSlashCommand(this, "/receipt");
+    return undefined;
   }
 
   /** The workspace can move only before the model starts: the conversation's folder is fixed once it exists. */
@@ -991,7 +1023,11 @@ export class CasperApp {
       const context = this.projectContext!;
       try {
         const written = await saveProjectCommand(context.info.root, action.name, action.command);
-        this.output.write(`[project] Saved ${terminalText(written.line)} in ${PROJECT_YAML}\n`);
+        // The write is undoable: its own receipt holds the file's text before and after.
+        const saved = await this.taskUndo.recordSetting(context.info.root, `Remember ${action.command} as this project's ${action.name} command`,
+          { file: PROJECT_YAML, line: written.line, before: written.before, after: written.after }).catch(() => undefined);
+        this.output.write(`[project] Saved ${terminalText(written.line)} in ${PROJECT_YAML}${saved ? `. /undo ${saved} takes it back` : ""}\n`);
+        if (saved && this.interactive) this.terminal.offerNext(buildNextRow({ undo: { label: "Undo", command: `/undo ${saved}` } }));
         // The next task checks with it.
         try { this.projectContext = await this.loadProjectContextFn(context.info); }
         catch (error) { this.output.write(`[project] ${PROJECT_YAML} could not be read again (${terminalText(error instanceof Error ? error.message : String(error))}); restart Casper to use it.\n`); }
@@ -1080,6 +1116,7 @@ export class CasperApp {
     if (await this.offerNewProject(prompt) === "stop" || this.closing || this.commandAbort?.signal.aborted) return;
     this.observations = new TaskObservations();
     this.bigModelUse = undefined;
+    this.taskChangeServers = new Set();
     const context = this.projectContext!;
     const classification = classifyTask(prompt);
     // beforeChanges policy: under-specified implement/configure work must see one recorded
@@ -1131,8 +1168,10 @@ export class CasperApp {
     this.bigModelNotice(session);
     this.clearSteps();
     const workspaceRoot = this.activeWorkspaceRoot();
-    // Receipts describe the tree, not tool names: a read-only shell run is not a write.
-    const before = await this.snapshotWorkspace(workspaceRoot, this.commandAbort?.signal);
+    // Receipts describe the tree, not tool names: a read-only shell run is not a write. Undo's own copy is made
+    // alongside, with the conversation's position (the plan turn and repairs are part of the task).
+    const [before, undoStart] = await Promise.all([this.snapshotWorkspace(workspaceRoot, this.commandAbort?.signal),
+      this.taskUndo.begin(workspaceRoot, session, this.commandAbort?.signal)]);
     edits.before = before;
     // verification.checklist: the cases the request states, listed before the model starts, so it tests each one.
     // Unset, it is on for interactive code changes (the user sees and can edit or skip the list) and off
@@ -1318,8 +1357,10 @@ export class CasperApp {
         this.terminal.endAssistant();
         this.events.ensureLineBreak();
         if (classification.intent !== "general" || execution !== "completed" || verification || browser?.checks.length || observations.possibleMutations || observations.changedPaths?.length || observations.changedDuringChecks?.length || observations.observedEdits.length || observations.observedChecks.length) {
+          // The second copy and the saved receipt; the change summary lists only this task's files.
+          const { stat } = await this.taskUndo.finish(undoStart, { request: prompt, task: this.lastTaskResult, session, servers: [...this.taskChangeServers] });
           this.output.write(`${this.verbose ? formatTaskResult(this.lastTaskResult) : formatReceipt(this.lastTaskResult, { surface: this.receiptSurface() })}\n`);
-          if (observations.changedPaths?.length || observations.changedDuringChecks?.length) this.output.write(await this.diffStat());
+          if (stat.trim()) this.output.write(stat.endsWith("\n") ? stat : `${stat}\n`);
           if (this.interactive) await this.offerNextSteps(this.lastTaskResult, prompt, classification);
         }
       }
@@ -2111,12 +2152,6 @@ export class CasperApp {
     }
   }
 
-  /** Tracked changes against HEAD after a task that changed files; silent outside a git history. */
-  private async diffStat(): Promise<string> {
-    try { return await this.git(["diff", "--stat", "--no-ext-diff", "--no-textconv", "HEAD", "--"]); }
-    catch { return ""; }
-  }
-
   /** Undefined when the tree is too large, unreadable or the task was cancelled mid-walk. */
   private async snapshotWorkspace(root: string, signal?: AbortSignal): Promise<Map<string, string> | undefined> {
     try { return await snapshotTree(root, signal); }
@@ -2269,6 +2304,8 @@ export class CasperApp {
       const answer = await this.chooseExact(box.preview, box.question, box.choices, signal);
       if (answer === undefined && this.approvalStopped(signal)) throw new NotExecutedError("cancelled");
       const result = answer === "yes" ? "yes" : answer === "p" && box.choices.includes("p") ? "preview" : "no";
+      // A call you allowed that can change things: undo can't reach it, and /undo says so.
+      if (result === "yes" && planLabel(call.plan) !== "read") this.taskChangeServers.add(call.plan.server);
       if (!this.closing) this.output.write(`[approval] ${result === "yes" ? "allowed" : result === "preview" ? "preview first" : "denied"}\n`);
       return result;
     });

@@ -1,0 +1,271 @@
+import { afterEach, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { PassThrough } from "node:stream";
+import { CasperApp } from "../src/app";
+import { receiptEvent } from "../src/app/json-events";
+import { loadProjectContext } from "../src/project/context";
+import type { AgentRuntime, RuntimeEventListener } from "../src/runtime/types";
+import { SkillRegistry } from "../src/skills/registry";
+import { taskExitCode } from "../src/task/result";
+import { posixOnly } from "./support/platform";
+
+const roots: string[] = [];
+afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
+
+interface Turn { (project: string): Promise<void> }
+
+/** A folder, a HOME, and a fake model whose turns write files. The fake conversation records marks, rewinds and notes. */
+async function folder(options: { git?: boolean } = {}) {
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-undo-app-"));
+  roots.push(root);
+  const home = path.join(root, "home"), project = path.join(root, "project");
+  await mkdir(home, { recursive: true }); await mkdir(project, { recursive: true });
+  await writeFile(path.join(project, "notes.py"), "print('one')\n");
+  if (options.git) {
+    const git = (...args: string[]) => execFileSync("git", args, { cwd: project, env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: os.devNull } });
+    git("init", "-q"); git("config", "user.email", "t@example.com"); git("config", "user.name", "t");
+    await writeFile(path.join(project, "other.py"), "x = 1\n");
+    git("add", "-A"); git("commit", "-qm", "first");
+  }
+  return { root, home, project };
+}
+
+function makeApp(place: { home: string; project: string }, turns: Turn[], options: { interactive?: boolean; input?: PassThrough; sessionId?: string } = {}) {
+  const listeners = new Set<RuntimeEventListener>();
+  const emit = (event: Parameters<RuntimeEventListener>[0]) => { for (const listener of listeners) listener(event); };
+  const conversation: string[] = [];
+  const rewinds: Array<[string | null, string | null]> = [];
+  const notes: string[] = [];
+  const runtime: AgentRuntime = {
+    async start() {
+      return {
+        getStatus: () => ({ provider: "fixture", model: "demo", auth: "configured" }),
+        getState: () => ({ cwd: place.project, isStreaming: false }),
+        getSessionInfo: () => ({ cwd: place.project, sessionId: options.sessionId ?? "conversation-1", sessionFile: "/dev/null" }),
+        conversationMark: () => conversation.at(-1) ?? null,
+        rewindTo: async (mark: string | null, expected: string | null) => {
+          if ((conversation.at(-1) ?? null) !== expected) return false;
+          rewinds.push([mark, expected]);
+          conversation.splice(mark === null ? 0 : conversation.indexOf(mark) + 1);
+          return true;
+        },
+        appendContext: async (text: string) => { notes.push(text); conversation.push(`note-${conversation.length}`); },
+        subscribe: (listener: RuntimeEventListener) => { listeners.add(listener); return () => listeners.delete(listener); },
+        abort: async () => {}, setTools: () => {},
+        prompt: async () => {
+          conversation.push(`turn-${conversation.length}`);
+          emit({ type: "assistant_response_start", provider: "fixture", model: "demo" });
+          await turns.shift()?.(place.project);
+          emit({ type: "assistant_text_delta", delta: "Done.\n" });
+          emit({ type: "assistant_response_end", stopReason: "stop" });
+        },
+      };
+    },
+    async dispose() {},
+  };
+  let output = "";
+  const waiters: Array<{ test: () => boolean; resolve: () => void }> = [];
+  const app = new CasperApp({
+    ...(options.input ? { input: options.input } : {}),
+    output: { write: (text: string) => {
+      output += text;
+      for (const waiter of [...waiters]) if (waiter.test()) { waiters.splice(waiters.indexOf(waiter), 1); waiter.resolve(); }
+    } },
+    runtimeFactory: () => runtime, sessionHomeDir: place.home,
+    loadProjectContext: (info) => loadProjectContext(info, { homeDir: place.home }),
+    loadSkillRegistry: (context) => SkillRegistry.discover({ projectRoot: context.info.root, homeDir: place.home }),
+    loadMCPConfiguration: async () => ({ servers: [], diagnostics: [] }),
+    loadLSPConfiguration: async () => ({ servers: [], diagnostics: [] }),
+    loadReferenceConfiguration: async () => ({ sources: [], diagnostics: [] }),
+  });
+  const until = (test: () => boolean) => {
+    if (test()) return Promise.resolve();
+    const { promise, resolve } = Promise.withResolvers<void>();
+    waiters.push({ test, resolve });
+    return promise;
+  };
+  return { app, rewinds, notes, output: () => output, until };
+}
+
+const edit = (file: string, text: string): Turn => async (project) => { await mkdir(path.dirname(path.join(project, file)), { recursive: true }); await writeFile(path.join(project, file), text); };
+
+/** An interactive session on the plain terminal: `send` types a line and waits until Casper is back at the prompt. */
+function session(place: { home: string; project: string }, turns: Turn[], sessionId?: string) {
+  const input = new PassThrough();
+  const made = makeApp(place, turns, { input, ...(sessionId ? { sessionId } : {}) });
+  const running = made.app.runInteractive(place.project);
+  const send = async (line: string, done: RegExp = /\n> $/) => {
+    const from = made.output().length;
+    input.write(`${line}\n`);
+    await made.until(() => done.test(made.output().slice(from)));
+    return made.output().slice(from);
+  };
+  const close = async () => { input.end(); await running; await made.app.close(); };
+  return { ...made, input, send, close };
+}
+
+test("one-shot: the receipt says how to undo; casper /undo in a later run puts the file back", async () => {
+  const place = await folder();
+  const first = makeApp(place, [edit("notes.py", "print('two')\n")]);
+  try {
+    await first.app.runOnce("fix the greeting in notes.py", place.project);
+    expect(first.output()).toContain("Undo: casper /undo 1 · Diff: casper /diff 1\n");
+    const task = first.app.getLastTaskResult()!;
+    expect(receiptEvent(undefined, task, taskExitCode(undefined, task))).toMatchObject({ task: 1, undo: { available: true, reason: null } });
+  } finally { await first.app.close(); }
+  const later = makeApp(place, []);
+  try {
+    await later.app.runOnce("/undo", place.project);
+    expect(later.output()).toContain("✓ Undone — 1 file is back as it was before task 1: notes.py\n");
+    expect(later.output()).toContain("• The conversation is not changed: only files were put back.");
+    expect(await readFile(path.join(place.project, "notes.py"), "utf8")).toBe("print('one')\n");
+  } finally { await later.app.close(); }
+}, 30_000);
+
+test("/diff shows this task's patch, also in a folder that is not a git repository", async () => {
+  const place = await folder();
+  const made = makeApp(place, [edit("notes.py", "print('two')\n")]);
+  try {
+    await made.app.runOnce("fix the greeting in notes.py", place.project);
+    await made.app.runOnce("/diff", place.project);
+    const out = made.output();
+    expect(out).toContain("Changes in task 1\n");
+    expect(out).toContain("-print('one')\n+print('two')");
+    expect(out).not.toContain("Not a Git repository");
+  } finally { await made.app.close(); }
+}, 30_000);
+
+test("the change summary after the receipt lists only this task's files, not your own earlier edits", async () => {
+  const place = await folder({ git: true });
+  await writeFile(path.join(place.project, "other.py"), "x = 2  # my own edit, not committed\n");
+  const made = makeApp(place, [edit("notes.py", "print('two')\n")]);
+  try {
+    await made.app.runOnce("fix the greeting in notes.py", place.project);
+    const out = made.output();
+    expect(out).toContain(" notes.py | 2 +-");
+    expect(out).not.toContain("other.py |");
+  } finally { await made.app.close(); }
+}, 30_000);
+
+test("undo rewinds the conversation when nothing was said since; after a later request it keeps it and tells the model", async () => {
+  const place = await folder();
+  const s = session(place, [edit("notes.py", "print('two')\n"), edit("b.py", "b = 1\n")]);
+  try {
+    expect(await s.send("fix the greeting in notes.py")).toContain("Next: 1 Undo · 2 Show diff");
+    const undone = await s.send("/undo");
+    expect(undone).toContain("✓ Undone — 1 file is back as it was before task 1: notes.py\n• Conversation rewound to before task 1.\nNext: 1 Redo\n");
+    expect(s.rewinds).toEqual([[null, "turn-0"]]);
+    await s.send("add b.py");
+    await s.send("what does notes.py do?");
+    const kept = await s.send("/undo 2");
+    expect(kept).toContain("• Conversation kept — you've talked since, so Casper told the model the files were put back.");
+    expect(s.rewinds).toHaveLength(1);
+    expect(s.notes).toEqual(["The user undid task 2. These files are back as they were before it: b.py."]);
+    expect(await readdir(place.project)).not.toContain("b.py");
+  } finally { await s.close(); }
+}, 30_000);
+
+test("redo puts the task's files back; a second undo says it is already undone", async () => {
+  const place = await folder();
+  const s = session(place, [edit("notes.py", "print('two')\n")]);
+  try {
+    await s.send("fix the greeting in notes.py");
+    await s.send("/undo");
+    expect(await s.send("/undo 1")).toContain("Task 1 is already undone. 1 Redo\nNext: 1 Redo\n");
+    const redone = await s.send("1");
+    expect(redone).toContain("✓ Redone — 1 file is back as task 1 left it: notes.py");
+    expect(await readFile(path.join(place.project, "notes.py"), "utf8")).toBe("print('two')\n");
+    expect(await s.send("/redo 1")).toContain("Task 1 is not undone, so there is nothing to redo.");
+  } finally { await s.close(); }
+}, 30_000);
+
+test("the row under the receipt does nothing on Enter; only the typed number runs Undo", async () => {
+  const place = await folder();
+  const s = session(place, [edit("notes.py", "print('two')\n")]);
+  try {
+    expect(await s.send("fix the greeting in notes.py")).toContain("Next: 1 Undo · 2 Show diff\n");
+    // Enter on the empty prompt: nothing runs, and the row is used up.
+    const from = s.output().length;
+    s.input.write("\n");
+    await s.send("/status");
+    expect(s.output().slice(from)).not.toContain("Undone");
+    expect(await readFile(path.join(place.project, "notes.py"), "utf8")).toBe("print('two')\n");
+    // A lone number typed later is an ordinary line, not a pick from a row that is gone.
+    expect(await s.send("/undo 1")).toContain("✓ Undone");
+  } finally { await s.close(); }
+}, 30_000);
+
+test("a file you changed after the task: Enter at the question keeps everything; 2 undoes the other files", async () => {
+  const place = await folder();
+  const s = session(place, [async (project) => { await writeFile(path.join(project, "notes.py"), "print('two')\n"); await writeFile(path.join(project, "a.py"), "a = 1\n"); }]);
+  try {
+    await s.send("fix the greeting in notes.py and add a.py");
+    await writeFile(path.join(place.project, "notes.py"), "print('mine')\n");
+    const asked = await s.send("/undo", /Type 1-2 \(Enter for 1\): $/);
+    expect(asked).toContain("notes.py changed after task 1.\n  1 Cancel · nothing is changed\n  2 Undo the other 1 file · the files you changed since stay as they are\n");
+    expect(await s.send("")).toContain("Nothing was changed.");
+    expect(await readdir(place.project)).toContain("a.py");
+    await s.send("/undo", /Type 1-2 \(Enter for 1\): $/);
+    const partial = await s.send("2");
+    expect(partial).toContain("✓ Undone — 1 file is back as it was before task 1: a.py\n• Left as you changed them: notes.py");
+    expect(await readFile(path.join(place.project, "notes.py"), "utf8")).toBe("print('mine')\n");
+    expect(await readdir(place.project)).not.toContain("a.py");
+  } finally { await s.close(); }
+}, 30_000);
+
+test("one-shot: a file changed after the task makes /undo change nothing and fail", async () => {
+  const place = await folder();
+  const first = makeApp(place, [edit("notes.py", "print('two')\n")]);
+  try { await first.app.runOnce("fix the greeting", place.project); } finally { await first.app.close(); }
+  await writeFile(path.join(place.project, "notes.py"), "print('mine')\n");
+  const later = makeApp(place, []);
+  try {
+    await expect(later.app.runOnce("/undo", place.project)).rejects.toThrow("notes.py changed after task 1, so Casper left everything as it is.");
+    expect(await readFile(path.join(place.project, "notes.py"), "utf8")).toBe("print('mine')\n");
+    await expect(later.app.runOnce("/undo 7", place.project)).rejects.toThrow("No receipt 7. /receipt list shows recent ones.");
+  } finally { await later.app.close(); }
+}, 30_000);
+
+test("nothing to undo yet is said plainly", async () => {
+  const place = await folder();
+  const s = session(place, []);
+  try { expect(await s.send("/undo")).toContain("Nothing to undo in this folder yet."); }
+  finally { await s.close(); }
+}, 30_000);
+
+test("receipts are kept across restarts, with no check output and secrets hidden", async () => {
+  const place = await folder();
+  const first = makeApp(place, [edit("notes.py", "print('two')\n")]);
+  try { await first.app.runOnce("fix notes.py with token ghp_abcdefghijklmnopqrstuvwxyz0123456789", place.project); } finally { await first.app.close(); }
+  const later = makeApp(place, []);
+  try {
+    await later.app.runOnce("/receipt 1", place.project);
+    expect(later.output()).toMatch(/Task 1 · \d\d:\d\d · fix notes\.py with token <redacted>\n• Not verified — /);
+    await later.app.runOnce("/receipt list", place.project);
+    expect(later.output()).toMatch(/ {2}1 {2}\d\d:\d\d {2}• Not verified/);
+    await later.app.runOnce("/receipt 9", place.project);
+    expect(later.output()).toContain("No receipt 9. /receipt list shows recent ones.");
+    const stateRoot = path.join(place.home, ".casper", "projects");
+    const [projectState] = await readdir(stateRoot);
+    const saved = await readFile(path.join(stateRoot, projectState!, "receipts", "1.json"), "utf8");
+    expect(saved).not.toContain("ghp_abcdefghijklmnopqrstuvwxyz0123456789");
+    expect(saved).toContain("<redacted>");
+    if (process.platform !== "win32") expect((await stat(path.join(stateRoot, projectState!, "receipts", "1.json"))).mode & 0o777).toBe(0o600);
+  } finally { await later.app.close(); }
+}, 30_000);
+
+posixOnly("with git missing, the receipt says undo is not available and why", async () => {
+  const place = await folder();
+  const made = makeApp(place, [edit("notes.py", "print('two')\n")]);
+  const saved = process.env.PATH;
+  try {
+    await made.app.start(place.project);
+    process.env.PATH = path.join(place.root, "no-git-here");
+    await made.app.runOnce("fix the greeting", place.project);
+    expect(made.output()).toContain("• Undo not available: git is not installed\n");
+    expect(made.output()).not.toContain("Undo: casper /undo");
+  } finally { process.env.PATH = saved; await made.app.close(); }
+}, 30_000);

@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import {
   ALREADY_FAILING_CHOICES, MCP_REMEMBER_CHOICES, MCP_WRITES_CHOICES, modelFailedChoices, PLAN_CHOICES, REMEMBER_BIG_MODEL_CHOICES,
-  REPAIR_LIMIT_STOP, unfinishedChoices,
+  REPAIR_LIMIT_STOP, undoChangedChoices, unfinishedChoices,
 } from "../src/app/safe-choices";
 import { askBuildRequest, newProjectInEmptyFolder, type NewProjectFlow } from "../src/app/new-project";
 import { labAskFor, labFailureAsk } from "../src/network/checks";
@@ -38,6 +38,8 @@ const firsts: Array<[string, string, string]> = [
   ["lab check (ansible)", labAskFor("aoscx-check", "ansible-check", [{ name: "sw1", address: "10.0.0.1" }]).choices[0]!, "Skip"],
   ["lab check (junos commit)", labAskFor("junos-commit", "junos-commit", [{ name: "r1", address: "10.0.0.2" }]).choices[0]!, "Skip"],
   ["lab failure", labFailureAsk("junos-commit").choices[0]!, "Stop"],
+  ["undo with a file changed since", undoChangedChoices("Undo", 2)[0]!.label, "Cancel"],
+  ["redo with a file changed since", undoChangedChoices("Redo", 1)[0]!.label, "Cancel"],
 ];
 
 test.each(firsts)("choice 1 at %s is the safe one", (_question, first, expected) => {
@@ -55,6 +57,7 @@ test("the risky choices still exist, as a deliberate 2 or later", () => {
   expect([...MCP_WRITES_CHOICES]).toEqual(["Keep writes off", "Enable for this server"]);
   expect([...INSTALL_CHOICES]).toEqual(["Stop", "Run what's installed", "Install them"]);
   expect(OSV_UPDATE_QUESTION.choices).toEqual(["Stop", "Download it"]);
+  expect(undoChangedChoices("Undo", 2).map((choice) => choice.label)).toEqual(["Cancel", "Undo the other 2 files"]);
 });
 
 /** A flow whose person presses Enter at every question (Enter picks choice 1), and a create that must not run. */
