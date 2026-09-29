@@ -15,9 +15,9 @@ others) without letting the AI change a device on its own. See [MCP.md](MCP.md) 
 **Not released yet.** The version number and the installers still say v0.2.14; the release step
 sets them and removes this line.
 
-**Read-only comes from the product.** Casper calls a server or tool read-only only when the product
-itself says so: the tool's `readOnlyHint: true`, or an `access_check` tool that reports a read-only
-login. Casper's labels, word lists, presets and guesses only make things stricter (ask more, hide
+**Read-only comes from the product.** Casper calls a login read-only only when the product itself
+says so, through an `access_check` tool. A tool marked `readOnlyHint: true` runs without asking, as
+in 0.2.14, but that is the server's word, not a check. Casper's labels, word lists, presets and guesses only make things stricter (ask more, hide
 more). They never skip an approval and never claim read-only. No answer from the product reads
 `access not checked`.
 
@@ -38,7 +38,7 @@ and unpinned `npx`/`uvx`-style servers are never remembered.
 **Approvals.** Each tool gets the strictest of the server's labels, Casper's word rules and the
 0.2.14 label: `bounce`, `reboot`, `delete`, `rollback` and similar words always ask, even on a tool
 marked read-only. A router call is judged by the real tool behind it. When the AI sets `confirm`,
-`force` or `dry_run=false` itself, Casper asks. The approval box shows the mode (`EXECUTE` or
+`force` or `dry_run=false` itself, in any spelling, Casper asks. The approval box shows the mode (`EXECUTE` or
 `preview`), hides passwords and keys, and offers `p` to run a preview first when the tool has a
 preview switch. Only your typed `yes` runs a call. Server questions (MCP elicitation) reach only
 you, and only during a call you approved.
