@@ -57,6 +57,12 @@ describe("after-receipt rules", () => {
     expect(fired[0]!.why).toContain("saves verify.test: uv run pytest in .casper/project.yaml");
   });
 
+  test("remember-test also offers a known runner the model ran while no test command was set", () => {
+    expect(rules.afterReceipt(context({ testRunner: "python -m pytest tests" })).map((choice) => choice.label))
+      .toEqual(["Remember python -m pytest tests as this project's test command"]);
+    expect(rules.afterReceipt(context({ testRunner: "pytest -p evil" }))).toEqual([]);
+  });
+
   test("remember-test does not fire for unknown shapes, failed runs or a project that has a test command", () => {
     for (const command of ["pytest; rm -rf x", "python -c 'import os'", "uv run --with evil pytest", "pytest -p plugin", "bash -c pytest"]) {
       expect(rules.afterReceipt(context({ observedChecks: [observed(command)] }))).toEqual([]);
