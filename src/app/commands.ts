@@ -14,6 +14,7 @@ import type { InteractiveTerminal } from "../tui/terminal";
 import type { CapabilityBroker } from "../capabilities/broker";
 import type { MCPManager } from "../mcp/manager";
 import type { MCPConfiguration } from "../mcp/config";
+import { formatDuration } from "../mcp/clock";
 import type { LSPManager } from "../lsp/manager";
 import type { SkillRegistry } from "../skills/registry";
 import type { ProjectContext } from "../project/context";
@@ -572,7 +573,10 @@ async function handleMCPCommand(host: CommandHost, prompt: string): Promise<void
     host.output.write(statuses.length ? statuses.map((status) => [
       `${status.name} [${status.transport}; ${status.state}] ${status.toolCount} tools`,
       `  source: ${status.source}`,
-      ...(status.error ? [`  ${status.error}`] : []),
+      `  limits: start ${formatDuration(status.limits.connectS * 1000)} · call ${formatDuration(status.limits.callS * 1000)}`,
+      ...(status.error ? [`  ${terminalText(status.error)}`] : []),
+      // Already redacted by the manager (known secrets and token shapes); shown to you, never to the model.
+      ...(status.serverOutput?.length ? ["  Last lines from the server:", ...status.serverOutput.map((line) => `    | ${terminalText(line)}`)] : []),
     ].join("\n")).join("\n") + "\n" : "No MCP servers configured.\n");
     if (action === "connect" && statuses.find((status) => status.name === name)?.state !== "ready") {
       throw new Error("MCP connection failed; no tools exposed");
