@@ -43,6 +43,8 @@ export interface OutputWriter {
  * owner of all state; this interface makes the (wide) coupling explicit instead of private. */
 export interface CommandHost {
   readonly output: OutputWriter;
+  /** The saved default model and effort, for /status before the model starts. */
+  savedModel(): Promise<string | undefined>;
   readonly terminal: InteractiveTerminal;
   readonly interactive: boolean;
   readonly closing: boolean;
@@ -250,7 +252,7 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       const info = await host.inspectProjectFn(host.activeWorkspaceRoot());
       host.projectContext!.info.gitBranch = info.gitBranch; host.projectContext!.info.isGit = info.isGit;
       host.output.write(`${renderProjectSummary(host.projectContext!)}\n`);
-      host.output.write(`${formatRuntimeStatus(host.session ? host.session.getStatus?.() ?? { auth: "unknown" } : undefined)}\n`);
+      host.output.write(`${formatRuntimeStatus(host.session ? host.session.getStatus?.() ?? { auth: "unknown" } : undefined, host.session ? undefined : await host.savedModel())}\n`);
       host.output.write(` skills    ${host.skillRegistry!.list().length} indexed; imports: ${host.projectContext!.skills.imports?.join(", ") || "none"} (/skills diagnostics)\n`);
       host.output.write(` mcp       ${host.mcp!.status().length} configured (/mcp for connection status)\n`);
       host.output.write(` lsp       ${host.lsp!.status().length} configured (/lsp for connection status)\n`);

@@ -187,7 +187,7 @@ test("interactive Shift+Tab steps through levels and saves the one it settles on
   try {
     await until(text => Bun.stripANSI(text).includes("idle"));
     input.write("\x1b[Z");
-    await until(text => Bun.stripANSI(text).includes("effort auto → high (pending) · saved"));
+    await until(text => Bun.stripANSI(text).includes("effort auto → high for now; your first request picks the level · saved"));
     input.write("\x1b[Z");
     await until(text => Bun.stripANSI(text).includes("effort off · saved"));
     expect(changes).toEqual([{ level: "auto", persist: false }, { level: "auto", persist: true }, { level: "off", persist: false }, { level: "off", persist: true }]);

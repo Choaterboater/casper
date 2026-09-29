@@ -1225,6 +1225,8 @@ export class CasperApp {
   /** A provider hiccup Pi does not retry (an empty response) ends a run for no reason of the task's: try once
    * more on its own, then, in the terminal, ask. Sign-in, quota and context errors, and errors Pi already
    * retried within its budget, are not retried again. */
+  async savedModel(): Promise<string | undefined> { return modelPreference(this.sessionHomeDir ?? os.homedir()); }
+
   private async retryModelFailure(session: RuntimeSession, request: string): Promise<void> {
     for (let attempt = 1; ; attempt++) {
       const error = this.events.lastError ?? "";
