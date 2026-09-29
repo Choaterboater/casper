@@ -37,10 +37,13 @@ const MODE_GITLINK = "160000";
 /** A file left out of the copy, so undo can't put it back. */
 export interface LeftOut {
   path: string;
-  why: "secret" | "big" | "nested repo";
+  /** "ignored": git ignores it; "not copied": it was there before the task, but no copy was kept (git ignored it then). */
+  why: "secret" | "big" | "nested repo" | "ignored" | "not copied";
 }
 
-export type UndoSnapshot = { tree: string; left: LeftOut[] } | { unavailable: string };
+/** A copy, what it left out, and what git ignores in the folder (a folder ends with "/"): files that were there but
+ * are not in the copy, so undo must never treat them as new files the task made. */
+export type UndoSnapshot = { tree: string; left: LeftOut[]; ignored: string[] } | { unavailable: string };
 
 export interface TreeEntry { mode: string; sha: string }
 
@@ -67,7 +70,20 @@ export interface UndoApplied {
 
 /** The plain reason for "Undo not available: …". */
 export function leftOutWhy(entry: LeftOut): string {
-  return entry.why === "secret" ? "Casper keeps no copy of secret files" : entry.why === "big" ? "over 8 MB" : "a nested repository";
+  return entry.why === "secret" ? "Casper keeps no copy of secret files" : entry.why === "big" ? "over 8 MB"
+    : entry.why === "ignored" ? "git ignores it, so Casper keeps no copy"
+    : entry.why === "not copied" ? "it was there before the task, but git ignored it then, so Casper has no copy" : "a nested repository";
+}
+
+/** The entry of `list` (a file, or a folder ending in "/") that holds `file`, if any. */
+export function coveredBy(list: readonly string[], file: string): string | undefined {
+  const set = new Set(list.map((entry) => entry.replace(/\/+$/, "")));
+  const parts = file.split("/");
+  for (let end = parts.length; end > 0; end--) {
+    const prefix = parts.slice(0, end).join("/");
+    if (set.has(prefix)) return prefix;
+  }
+  return undefined;
 }
 
 class GitError extends Error {
@@ -238,7 +254,12 @@ export class UndoStore {
           { input: [".", ...left.map((entry) => `:(exclude,literal)${entry.path}`)].join("\0"), signal });
         const tree = (await this.text(["write-tree"])).trim();
         if (!/^[0-9a-f]{40}$/.test(tree)) throw new GitError("no copy was written");
-        return { tree, left };
+        // What git ignores here (a whole ignored folder is one entry). Those files are there but not copied: an undo
+        // must never delete one because a later copy has it (the task stopped ignoring it).
+        const ignored = (await this.git(["ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory"], { signal })).stdout
+          .toString("utf8").split("\0").filter(Boolean);
+        if (ignored.length > this.fileLimit) return { unavailable: `this folder has more than ${this.fileLimit.toLocaleString("en-US")} files` };
+        return { tree, left, ignored };
       }, signal);
     } catch (error) {
       return { unavailable: unavailableReason(error) };
