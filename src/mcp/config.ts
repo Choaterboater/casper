@@ -3,8 +3,25 @@ import os from "node:os";
 import path from "node:path";
 import { isValidProfileName } from "../config/profile";
 
-/** Where a discovered definition came from; programmatic definitions carry none. */
-export type ServerDefinitionScope = "user" | "profile" | "project";
+/** Where a discovered definition came from; programmatic definitions carry none.
+ * "imported" definitions come from other tools' files (WP4) and always start outside the project. */
+export type ServerDefinitionScope = "user" | "profile" | "project" | "imported";
+
+/** Per-server time limits. They are not part of a server's identity: changing one keeps consent. */
+export interface MCPServerLimits {
+  /** How long starting (handshake plus tool list) may take. */
+  connectMs?: number;
+  /** How long a call may go without any answer or progress from the server. */
+  callMs?: number;
+}
+
+/** Thrown when a server definition names ${VAR} and VAR is not set. The message names it, never a value. */
+export class MissingEnvironmentError extends Error {
+  constructor(readonly variable: string) {
+    super(`Missing environment variable ${variable}`);
+    this.name = "MissingEnvironmentError";
+  }
+}
 
 export interface MCPServerDefinition {
   name: string;
@@ -15,6 +32,8 @@ export interface MCPServerDefinition {
   shadows?: string;
   cwd: string;
   disabled: boolean;
+  /** Optional "connectTimeout"/"callTimeout" from the file, in ms. */
+  limits?: MCPServerLimits;
   transport: { type: "stdio"; command: string; args: string[]; env: Record<string, string> }
     | { type: "http"; url: string; headers: Record<string, string> };
 }
@@ -39,26 +58,63 @@ function stringMap(value: unknown): Record<string, string> {
  * so an opened repository cannot change what they load; `cwd` may name an absolute folder, `~/...`,
  * or `${PROJECT_ROOT}` to opt back in. Project servers are repository content and start at the
  * project root, or at a relative `cwd` that stays inside it.
+ *
+ * Imported servers (from other tools' files) never start in the opened project: with no `cwd` they
+ * start in your home folder, and a `cwd` inside the project is replaced by the home folder and
+ * reported. When the opened project IS your home folder, they start in ~/.casper instead.
  */
-function startFolder(value: unknown, scope: ServerDefinitionScope, projectRoot: string, home: string): string {
+export function startFolder(value: unknown, scope: ServerDefinitionScope, projectRoot: string, home: string,
+  report?: { name: string; diagnostics: string[] }): string {
+  if (scope === "imported") {
+    const outside = path.resolve(projectRoot) === path.resolve(home) ? path.join(home, ".casper") : home;
+    if (value === undefined) return outside;
+    const wanted = personalFolder(value, projectRoot, home);
+    const inside = path.relative(path.resolve(projectRoot), wanted);
+    const inProject = path.resolve(projectRoot) === path.resolve(home)
+      ? inside === ""
+      : inside === "" || !(inside === ".." || inside.startsWith(`..${path.sep}`) || path.isAbsolute(inside));
+    if (!inProject) return wanted;
+    report?.diagnostics.push(`${report.name}: starts in your home folder, not in this project.`);
+    return outside;
+  }
   if (value === undefined) return scope === "project" ? projectRoot : home;
-  if (typeof value !== "string" || !value.trim()) throw new Error("invalid cwd");
   if (scope === "project") {
+    if (typeof value !== "string" || !value.trim()) throw new Error("invalid cwd");
     const resolved = path.resolve(projectRoot, value);
     const inside = path.relative(projectRoot, resolved);
     if (path.isAbsolute(value) || inside === ".." || inside.startsWith(`..${path.sep}`) || path.isAbsolute(inside)) throw new Error("cwd outside the project");
     return resolved;
   }
+  return personalFolder(value, projectRoot, home);
+}
+
+function personalFolder(value: unknown, projectRoot: string, home: string): string {
+  if (typeof value !== "string" || !value.trim()) throw new Error("invalid cwd");
   if (value === "${PROJECT_ROOT}") return projectRoot;
   if (value === "~" || value.startsWith("~/")) return path.join(home, value.slice(1));
   if (!path.isAbsolute(value)) throw new Error("cwd must be absolute, ~/..., or ${PROJECT_ROOT}");
   return path.normalize(value);
 }
 
+/** Optional whole-second limit keys: "connectTimeout" (1-120) and "callTimeout" (1-1800). */
+function limits(value: Record<string, unknown>): MCPServerLimits | undefined {
+  const seconds = (key: string, max: number): number | undefined => {
+    const raw = value[key];
+    if (raw === undefined) return undefined;
+    if (typeof raw !== "number" || !Number.isInteger(raw) || raw < 1 || raw > max) throw new Error(`invalid ${key}`);
+    return raw * 1000;
+  };
+  const connectMs = seconds("connectTimeout", 120);
+  const callMs = seconds("callTimeout", 1800);
+  if (connectMs === undefined && callMs === undefined) return undefined;
+  return { ...(connectMs !== undefined ? { connectMs } : {}), ...(callMs !== undefined ? { callMs } : {}) };
+}
+
 function definition(name: string, value: unknown, source: string, cwd: string): MCPServerDefinition {
   if (!/^[a-zA-Z0-9_.-]{1,64}$/.test(name) || !isRecord(value)) throw new Error("invalid definition");
   if (value.disabled !== undefined && typeof value.disabled !== "boolean") throw new Error("invalid disabled flag");
-  const base = { name, source, cwd, disabled: value.disabled === true };
+  const limit = limits(value);
+  const base = { name, source, cwd, disabled: value.disabled === true, ...(limit ? { limits: limit } : {}) };
   if (value.url !== undefined) {
     if (value.type !== undefined && value.type !== "http" && value.type !== "streamable-http") throw new Error("unsupported transport");
     if (typeof value.url !== "string" || value.command !== undefined) throw new Error("invalid URL");
@@ -115,7 +171,7 @@ export async function discoverMCPConfiguration(options: {
       try {
         if (servers.size >= 64) throw new Error("too many servers");
         const shadows = scope === "project" ? personal.get(name) : undefined;
-        const cwd = startFolder(isRecord(value) ? value.cwd : undefined, scope, options.projectRoot, home);
+        const cwd = startFolder(isRecord(value) ? value.cwd : undefined, scope, options.projectRoot, home, { name, diagnostics });
         servers.set(name, { ...definition(name, value, source, cwd), scope, ...(shadows ? { shadows } : {}) });
         if (scope !== "project") personal.set(name, source);
       } catch {
@@ -167,7 +223,31 @@ export function projectDefinitionReview(definition: MCPServerDefinition): string
 export function resolveEnvironment(value: string): string {
   return value.replace(REFERENCE, (_, name: string) => {
     const resolved = process.env[name];
-    if (resolved === undefined) throw new Error("Required MCP environment variable is missing");
+    if (resolved === undefined) throw new MissingEnvironmentError(name);
     return resolved;
   });
+}
+
+/**
+ * The secret-like values a server is given, for hiding them in its output: every resolved env and
+ * header value, each ${VAR} value they name, and ${VAR}-resolved argument values. Only values of 4+
+ * characters (shorter ones would hide ordinary text). Missing variables are skipped.
+ */
+export function resolvedSecrets(definition: MCPServerDefinition): string[] {
+  const values = new Set<string>();
+  const add = (value: string | undefined) => { if (value !== undefined && value.length >= 4) values.add(value); };
+  const take = (value: string, whole: boolean) => {
+    const named = references(value);
+    for (const name of named) add(process.env[name]);
+    if (!whole && !named.length) return;
+    try { add(resolveEnvironment(value)); } catch { /* a missing variable has no value to hide */ }
+  };
+  const transport = definition.transport;
+  if (transport.type === "stdio") {
+    for (const value of Object.values(transport.env)) take(value, true);
+    for (const value of transport.args) take(value, false);
+  } else {
+    for (const value of Object.values(transport.headers)) take(value, true);
+  }
+  return [...values];
 }
