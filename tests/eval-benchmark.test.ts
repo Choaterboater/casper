@@ -272,6 +272,12 @@ test("the smoke column counts Casper's passing smoke runs, the model checks they
   expect(report).toMatch(/all 1 tasks\s+casper\s.*\s2\/3, 1 proved, 2\.0s \(1\.0s–3\.0s\)\n/);
   expect(report).toMatch(/all 1 tasks\s+pi\s.*\s–$/m);
   expect(report).toContain("smoke = Casper's runs whose smoke checks passed");
+  // Runs milliseconds apart print one time, not "0.0s (0.0s–0.0s)".
+  const close = formatBenchmarkReport(summarizeBenchmark([
+    smoked({ status: "pass", checks: [check("model", "fail", "pass", true)] }, 12),
+    smoked({ status: "pass", checks: [check("model", "fail", "pass", true)] }, 40),
+  ]));
+  expect(close).toMatch(/core-a\s+casper\s.*\s2\/2, 2 proved, 0\.0s$/m);
   // Casper runs without any smoke run read as none, not as a failure.
   expect(formatBenchmarkReport(summarizeBenchmark([smoked(undefined)]))).toMatch(/core-a\s+casper\s.*\snone$/m);
 });
