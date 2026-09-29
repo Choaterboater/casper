@@ -76,6 +76,7 @@ import { beforeWorkPanel, readBeforeWorkAnswer, suggestBeforeWork } from "./flow
 import { extractPlan, formatBuildPrompt, parsePlanLines, planEditorHeading, planEditorLines, planToolGate, type ParsedPlan } from "./flows/plan";
 import { PROJECT_YAML, saveNamedCheck, saveProjectCommand } from "./project/config-write";
 import { askLabFailure, labCheckRunner } from "./app/lab-checks";
+import type { SecurityReviewHost } from "./app/security-review";
 import type { TaskClassification } from "./task/classify";
 import type { ProjectCommand } from "./project/model";
 import { describeChecksPlan, manualChecks, planAutoChecks, resolveVerificationMode, selectedChecks, type ChecksPlan, type VerificationMode } from "./verify/mode";
@@ -151,6 +152,8 @@ export interface CasperAppOptions {
   pageOpener?: (options: { projectRoot: string; stateDirectory: string }) => Promise<PageOpener>;
   /** Where network checks find their tools (PATH), temp folders and home; tests point these at fakes. */
   networkTools?: NetworkToolContext;
+  /** Fake security tools and downloads for /security-review (tests). */
+  securitySeams?: Pick<SecurityReviewHost, "check" | "install">;
 }
 
 /** The last choice of the home-folder and folder-of-projects question. */
@@ -286,6 +289,7 @@ export class CasperApp {
   private readonly newProjectRequest?: CasperAppOptions["newProject"];
   private readonly createProjectFn?: CasperAppOptions["createProject"];
   private readonly networkTools?: NetworkToolContext;
+  readonly securitySeams?: Pick<SecurityReviewHost, "check" | "install">;
   /** `casper new` on a terminal: the exit code when no project was opened (1 when nothing was created). */
   newProjectExitCode?: number;
   /** The build-request question is asked at most once per session. */
@@ -317,6 +321,7 @@ export class CasperApp {
     this.runtimeFactory = options.runtimeFactory ?? freshPiRuntime;
     this.pageOpenerFn = options.pageOpener ?? pageOpener;
     this.networkTools = options.networkTools;
+    this.securitySeams = options.securitySeams;
     this.subagents = new SubagentManager({ runtimeFactory: async () => {
       if (this.workspaceTransition || this.workspaceNeedsRebind) throw new Error("Workspace transition is in progress; delegation is blocked");
       const child = await (options.subagentRuntimeFactory ?? freshPiRuntime)();

@@ -25,6 +25,7 @@ export const HELP_TEXT = `Casper — your coding companion
   /project               Project context and check commands
   /skills                Skills and trust; /skills diagnostics for warnings
   /verify [checks ...]   Run repository checks (trusted projects only); /verify repair fixes failures
+  /security-review       Run the pinned security tools here (no model); asks before installing
   /browser               Disposable browser status; website tasks can reproduce bugs
   /services              Declared services: status, logs, start, restart, stop (no model)
   /debug                 Local debugger targets/status; explicit launch approval
@@ -68,8 +69,9 @@ Usage:
                                   Runs the repo's own doctor and tests; only run it on repos you trust
   casper new [name]    Start a new project (Python tool, MCP server, Mist scripts); asks what is missing, then opens Casper there
   casper new <template> <name>  Start a new project in ~/Projects without questions (scripts; casper new --list shows templates)
-  casper security [repo] [--json] [--strict] [--install]
+  casper security [repo] [--json] [--strict] [--install] [--mcp-tools <file>]
                                   Run the security tools on a repo (no model); installs tools only with --install
+                                  Exit 0 no problems, 1 problems, 64 usage mistake
   casper --cd <path> ...  Work in that folder instead of the current directory
   casper --continue ...  Continue this folder's most recent conversation
   casper --resume <id-prefix> ...  Continue the saved conversation whose ID starts with this
@@ -166,6 +168,11 @@ Local commands:
   /visualize repo [dir]             Render repository dependencies locally (no model)
   /verify [checks ...]              Run project checks without a model
   /verify repair [checks ...]       Run checks and authorize bounded repair
+  /verify add <name>                Save a ready-made check Casper found (Ansible) in .casper/project.yaml
+  /verify <lab check>               Run a lab check on your own lab (lab.hosts); asks first, never auto
+  /security-review                  Run the pinned security tools here (no model); asks before installing
+  /security-review update           Download osv-scanner's advisory data (asks first)
+  /security-review ignores          List ignores you approved; approve or remove them
   /exit, /quit                      Exit interactive mode; no-op in one-shot mode
 
 Unknown slash commands are rejected locally, never sent to a model.
