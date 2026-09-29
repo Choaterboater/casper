@@ -55,6 +55,8 @@ interface Options {
   failOn?: number[];
   /** What the model picker returns when Casper opens it. */
   pick?: string;
+  /** Switching to the big model fails (its sign-in expired, say). */
+  switchFails?: boolean;
 }
 
 /**
@@ -96,6 +98,7 @@ async function fixture(options: Options = {}) {
     selectModel: async (selection) => {
       selections.push({ ...(selection.picker ? { picker: "opened" } : { query: selection.query }), persist: selection.persist } as RuntimeModelSelectionOptions);
       const target = selection.picker ? options.pick! : selection.query === "@reason" ? roles.reason! : selection.query!;
+      if (options.switchFails && selection.query === "@reason") throw new Error("no credentials for fixture");
       current = target;
       return { status: session.getStatus!(), selected: true, savedDefault: false };
     },
@@ -335,3 +338,21 @@ test("a model picked at the repair limit is saved as your big model on Yes, and 
     small.input.write("/exit\r"); await running; await second.close(); await small.cleanup();
   }
 }, 90_000);
+
+test("when the switch to the big model fails, Casper says so instead of quietly trying on the same model", async () => {
+  const f = await fixture({ reason: "fixture/big", failOn: [1, 2], repairs: 0, switchFails: true });
+  const app = f.make(true);
+  const interactive = app.runInteractive(f.project);
+  try {
+    await f.screen.until((output) => output.includes("idle"));
+    f.input.write("fix the add function in calc.py\r");
+    await f.screen.until(waiting("The model failed again. What now?"));
+    f.input.write("3");
+    await f.screen.until((output) => output.includes("trying again on the current model"));
+    expect(f.text()).toContain("[model] Casper could not switch to your big model fixture/big; trying again on the current model.");
+    await f.screen.until(idle);
+    expect(f.promptModels.slice(0, 3)).toEqual(["fixture/demo", "fixture/demo", "fixture/demo"]);
+  } finally {
+    f.input.write("/exit\r"); await interactive; await app.close(); await f.cleanup();
+  }
+}, 60_000);
