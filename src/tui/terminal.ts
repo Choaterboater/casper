@@ -20,7 +20,7 @@ export class InteractiveTerminal {
   private discardingInput = false;
   private assistantOpen = false;
   private command?: (line?: string) => void;
-  private confirmation?: (approved: boolean) => void;
+  private confirmation?: (answer: string | undefined) => void;
   /** Plain line input that arrived while idle but not yet reading (startup, before the first
    * prompt). Lines typed during work are still dropped, and approvals never read this. */
   private readonly earlyLines: string[] = [];
@@ -41,7 +41,7 @@ export class InteractiveTerminal {
     let sameChunk = false;
     this.rl.on("line", line => {
       if (this.closed || this.discardingInput) return;
-      if (this.confirmation) { this.confirmation(line.trim() === "yes"); return; }
+      if (this.confirmation) { this.confirmation(line.trim()); return; }
       if (this.command) {
         const resolve = this.command; this.command = undefined; this.busy = true;
         sameChunk = true; queueMicrotask(() => { sameChunk = false; });
@@ -53,7 +53,7 @@ export class InteractiveTerminal {
       this.closed = true; this.command?.(); this.command = undefined;
       // A pipe that ends with lines still queued is not a hang-up: the command loop drains
       // them and then reads EOF itself.
-      this.confirmation?.(false); if (!this.earlyLines.length) this.onEOF();
+      this.confirmation?.(undefined); if (!this.earlyLines.length) this.onEOF();
     });
   }
 
@@ -129,28 +129,40 @@ export class InteractiveTerminal {
     try { this.rl?.write("\n"); } finally { this.discardingInput = false; }
   }
 
-  confirm(preview: string, question: string, signal?: AbortSignal): Promise<boolean> {
-    if (this.surface) return this.surface.confirm(preview, question, signal);
+  /** Exact yes/no approval: only a freshly typed "yes" approves. */
+  async confirm(preview: string, question: string, signal?: AbortSignal): Promise<boolean> {
+    return (await this.choose(preview, question, ["yes"], signal)) === "yes";
+  }
+
+  /**
+   * One approval or server question with a few exact typed answers, on the rich surface or plain
+   * line input. It resolves one of `choices` as typed, "no" for any other text, and undefined for
+   * Ctrl+C, EOF or abort. Lines typed before the question appeared never answer it. The model's ask
+   * tool never reaches this channel.
+   */
+  choose(preview: string, question: string, choices: readonly string[], signal?: AbortSignal): Promise<string | undefined> {
+    if (this.surface) return this.surface.choose(preview, question, choices, signal);
     // Lines queued ahead of an approval were written before its preview existed: they can neither
     // answer it nor, once it settles, silently become later commands or paid prompts.
     if (this.earlyLines.length) {
       this.write(`[input] Discarded ${this.earlyLines.length} line(s) entered before this approval appeared.\n`);
       this.earlyLines.length = 0;
     }
-    if (!this.rl || this.closed || this.confirmation || signal?.aborted) return Promise.resolve(false);
+    if (!this.rl || this.closed || this.confirmation || signal?.aborted) return Promise.resolve(undefined);
     if ((this.input as NodeJS.ReadStream).isTTY) {
       this.write("[input] Exact approval denied: use an interactive terminal with TERM other than dumb and output not redirected.\n");
-      return Promise.resolve(false);
+      return Promise.resolve(undefined);
     }
     this.endAssistant(); this.discardPartialLine(); this.write(preview);
     return new Promise(resolve => {
       let settled = false;
-      const finish = (approved: boolean) => {
+      const finish = (answer: string | undefined) => {
         if (settled) return; settled = true;
         signal?.removeEventListener("abort", cancel);
-        this.confirmation = undefined; this.discardPartialLine(); resolve(approved);
+        this.confirmation = undefined; this.discardPartialLine();
+        resolve(answer === undefined ? undefined : choices.includes(answer) ? answer : "no");
       };
-      const cancel = () => finish(false);
+      const cancel = () => finish(undefined);
       this.confirmation = finish;
       signal?.addEventListener("abort", cancel, { once: true });
       if (signal?.aborted) { cancel(); return; }
@@ -174,7 +186,7 @@ export class InteractiveTerminal {
   interrupt(): void {
     if (this.surface) { this.surface.interrupt(); return; }
     if (this.closed) return;
-    this.confirmation?.(false);
+    this.confirmation?.(undefined);
     if (this.busy) this.onInterrupt(); else this.close();
   }
 

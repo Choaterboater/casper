@@ -78,3 +78,64 @@ test("lines piped ahead of an approval are discarded, never answering it or beco
     expect(await terminal.readCommand()).toBeUndefined();
   } finally { terminal.close(); input.destroy(); }
 });
+
+test("plain choose resolves an offered answer, and 'no' for any other text", async () => {
+  const { input, terminal, output } = terminalFixture();
+  try {
+    const command = terminal.readCommand(); input.write("task\n"); await command;
+    const preview = terminal.choose("Box\n", "Run it? Type yes, or p to preview first: ", ["yes", "p"]);
+    input.write(" p \n");
+    expect(await preview).toBe("p");
+    const other = terminal.choose("Box\n", "Run it? Type yes: ", ["yes"]);
+    input.write("p\n");
+    expect(await other).toBe("no");
+    const yes = terminal.choose("Box\n", "Run it? Type yes: ", ["yes"]);
+    input.write("yes\n");
+    expect(await yes).toBe("yes");
+    expect(output()).toContain("Run it? Type yes, or p to preview first: ");
+  } finally { terminal.close(); input.destroy(); }
+});
+
+test("plain choose resolves undefined on abort or end of input, never an answer", async () => {
+  const { input, terminal } = terminalFixture();
+  try {
+    const command = terminal.readCommand(); input.write("task\n"); await command;
+    const controller = new AbortController();
+    const aborted = terminal.choose("Box\n", "Run it? Type yes: ", ["yes"], controller.signal);
+    controller.abort();
+    expect(await aborted).toBeUndefined();
+    const ended = terminal.choose("Box\n", "Run it? Type yes: ", ["yes"]);
+    input.end();
+    expect(await ended).toBeUndefined();
+  } finally { terminal.close(); input.destroy(); }
+});
+
+test("rich choose resolves 'p' when offered, and a pretyped draft 'p' never answers", async () => {
+  const previousTerm = process.env.TERM;
+  process.env.TERM = "xterm-256color";
+  const input = Object.assign(new PassThrough(), { isTTY: true, setRawMode() {} });
+  const terminal = new InteractiveTerminal(input, { isTTY: true, columns: 80, rows: 24, write: () => {} }, () => {}, () => {});
+  const tick = () => new Promise(resolve => setTimeout(resolve, 60));
+  try {
+    terminal.setStatus("fixture"); terminal.start();
+    const pending = terminal.readCommand();
+    input.write("work\r");
+    expect(await pending).toBe("work");
+    await tick();
+    input.write("p"); await tick();
+    const first = terminal.choose("Box\n", "Run it? Type yes, or p to preview first: ", ["yes", "p"]);
+    input.write("\r");
+    expect(await first).toBe("no");
+    const second = terminal.choose("Box\n", "Run it? Type yes, or p to preview first: ", ["yes", "p"]);
+    await tick();
+    input.write("p\r");
+    expect(await second).toBe("p");
+    const third = terminal.choose("Box\n", "Run it? Type yes: ", ["yes"]);
+    await tick();
+    input.write("\x1b"); await tick();
+    expect(await third).toBeUndefined();
+  } finally {
+    terminal.close(); input.destroy();
+    if (previousTerm === undefined) delete process.env.TERM; else process.env.TERM = previousTerm;
+  }
+});
