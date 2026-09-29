@@ -239,6 +239,15 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   Typing still accepts a custom answer, and Esc skips. A number picks a choice only
   while nothing is typed, so a custom answer cannot start with a choice's number
   (type a letter first); a digit past the last choice is ordinary text.
+- A question from the AI's `ask` tool starts with a muted `The AI asks:` line. Casper's own
+  questions and approvals never do, so the AI can't pass off a question as a Casper approval.
+- Casper's own numbered questions (a new project, one more repair on your big model, a lab check,
+  security tools and ignores, Build this plan?) also work on the plain terminal: it prints the
+  choices as numbered lines and reads `Type 1-3 (Enter for 1)`; a number or a choice's words pick
+  it. At the repair-limit, lab-failure, lab and ignore questions, choice 1 (Stop, Skip, Leave it
+  flagged, Keep the default) spends nothing and changes nothing, so a stray Enter is harmless.
+  One-shot runs, `--json` and piped input never get these questions: each takes the safe answer,
+  and the new-project, lab and security ones say what they did instead.
 - Up/Down recalls current-process prompt history. Shift+Enter where the terminal
   supports it, or Ctrl+J, inserts a newline. Bracketed paste stays in the draft.
 - Shift+Tab cycles reasoning effort (`auto`, then the model's supported levels) without
