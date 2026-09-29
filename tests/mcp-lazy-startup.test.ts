@@ -77,7 +77,7 @@ for (const action of ["cancel", "close", "refresh"] as const) {
       const loading = new Promise(resolve => entered = resolve);
       const gate = new Promise(resolve => release = resolve);
       Bun.plugin({ name: "delay-real-validator-import", setup(build) {
-        build.onLoad({ filter: /@modelcontextprotocol\\/sdk\\/dist\\/esm\\/validation\\/ajv-provider\\.js$/ }, async args => {
+        build.onLoad({ filter: /node_modules\\/ajv\\/dist\\/ajv\\.js$/ }, async args => {
           entered();
           await gate;
           return { contents: await Bun.file(args.path).text(), loader: "js" };
