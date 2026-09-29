@@ -70,6 +70,12 @@ added since the last commit counts only after you approve it (Enter leaves it fl
 secure. `casper security` exits 0 with no problems, 1 with problems, 64 on a usage mistake;
 `--mcp-tools <file>` turns on mcp-scanner.
 
+**Enter is the safe choice.** Enter picks choice 1 at Casper's numbered questions, and choice 1
+now never builds, installs, downloads, spends tokens, remembers or reaches a lab: Stop, Not now, Use
+this folder, Leave it, Just this time or Keep writes off. `Build this plan?`, the new-project, model
+failure, timeout, already-failing and security-install questions were reordered, and in the `/mcp`
+boxes `2` now remembers a server or turns writes on. The AI's own questions are unchanged.
+
 **Safety fixes.** The AI's file tools no longer open private places (`~/.ssh`, login files),
 follow links out of the project or change git's own files. Values in `.env` and credential files
 are hidden from the AI. Repo checks, services and dev servers run without AI provider keys.
