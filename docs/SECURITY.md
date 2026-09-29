@@ -19,6 +19,21 @@ isolation. Each row names the test that fails without it.
 | Repo checks (`/verify`, auto checks, proof and trace copies), services and dev servers run without AI provider keys (`OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` and the rest Pi reads) or Casper's own secret variables. Network product tokens such as `MIST_API_TOKEN` stay, so your own tests still work. | nothing to see: the key is not there | `tests/shell-env.test.ts` |
 | A question the AI asks with its `ask` tool starts with a muted `The AI asks:` line. Casper's own questions and approvals never do, so the AI can't pass off a question as a Casper approval. | `The AI asks:` | `tests/ask.test.ts` |
 
+## What v0.2.16 adds, and how each part is held back
+
+v0.2.16 adds new things that run code or reach devices. None of them is sandboxed yet.
+
+| What | What Casper does | Test |
+| --- | --- | --- |
+| `casper new` runs `uv`, `bun` and `git` to build a project. | They run without AI provider keys. No model is called. The first commit uses your own git settings and hooks, and nothing is committed when the new folder is inside another repository. | `tests/new-scaffold.test.ts`, `tests/new-project-ask.test.ts` |
+| Page checks start the project's dev server after edits. | The dev server runs the repository's own code, so Casper prints `Starting dev server … (it runs your project's code)` before the first start in a session, and `/status` names the command. It gets no provider keys. `pages: off` in `.casper/project.yaml` turns it off. It never runs when checks are off. | `tests/pages-app.test.ts`, `tests/checks-visibility.test.ts` |
+| Ansible checks Casper finds are only offered. | They never run until you save one with `/verify add <name>`. When they run, Ansible gets Casper's own `ansible.cfg` (never the repo's, so no vault password script runs), a private home folder and no provider keys. | `tests/network-checks-app.test.ts`, `tests/ansible-syntax-preset.test.ts` |
+| Lab checks (`junos-commit`, AOS-CX `ansible --check`) reach your lab devices. | Only you start them, with `/verify <name>`, and only after a numbered question. The lab list comes only from `~/.casper/config.yaml`. The inventory and playbook text are checked against it before every run. A run that can't ask sends nothing. The AI's `casper_check` can't run them. | `tests/lab-checks.test.ts`, `tests/network-checks-app.test.ts` |
+| `/security-review` and `casper security` run pinned tools. | Downloads are checked against a sha256 or a hash-locked list before use, and only after you pick Install. Each tool runs with a dead proxy, no passwords or tokens and a stand-in home folder. ansible-lint gets Casper's own `ansible.cfg`. An ignore added since the last commit counts only after you approve it. | `tests/security-command.test.ts`, `tests/security-args.test.ts`, `tests/tool-pins.test.ts` |
+| Plan first (`/plan`) lets the model look before it builds. | While planning, Casper asks its tool gate about every tool: only `read`, `grep`, `find`, `ls` and a short list of look-only shell commands run. Edits, MCP tools and Casper's own tools are refused. Files that change anyway are named on the receipt. | `tests/flows-plan.test.ts`, `tests/plan-first.test.ts` |
+| Remember a test command. | Offered only for a known test-runner shape the model ran and passed, with the exact line it saves. Nothing is saved until you press its number. | `tests/flows-suggest.test.ts`, `tests/suggestions-app.test.ts` |
+| Casper's release workflow. | Every action is pinned to a commit. The job that can publish runs no project code, and a release waits for the Linux and Windows previews to pass on the same commit. | `tests/release-workflows.test.ts` |
+
 ## What is still not blocked (until the v0.2.17 sandbox)
 
 - **The AI's shell can still read private files.** `cat ~/.ssh/id_ed25519` in
@@ -42,3 +57,14 @@ isolation. Each row names the test that fails without it.
   key or credential file format.
 - MCP servers, language servers, the debugger and the browser run as your user
   and are not covered by any of this.
+- **Dev servers, found checks and lab checks can reach the network.** A page can call
+  any address, and Casper checks a lab check's inventory and playbook text but can't
+  block other traffic. The critique moved lab checks to v0.2.18, behind the sandbox's
+  network allowlist; v0.2.16 ships them started by you only, and the question says so.
+- **The plan turn's look-only list is not a sandbox.** For example `git diff` and
+  `git log` follow a repository's own `diff.external` and `textconv` settings, which
+  can run a program. A file that changes is still named on the receipt.
+- **The AI's shell can write the files that hold your choices** in `~/.casper`:
+  security approvals and lab "Always" answers. Only the sandbox can stop that.
+- **ansible-lint loads the repository's own Ansible plugins** (`library/`,
+  `filter_plugins/`). Only `ansible.cfg` is kept out.
