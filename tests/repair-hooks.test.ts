@@ -46,6 +46,17 @@ test("at the repair limit the host may grant more tries, once; without it the li
   expect(stopped).toMatchObject({ status: "fail", reason: "Repair limit reached.", repairAttempts: 1 });
 });
 
+test("with repair turned off (repair.maxAttempts: 0) nobody is asked for more tries", async () => {
+  const { registry } = scripted({ test: [failing, {}] });
+  let asked = 0;
+  let repairs = 0;
+  const report = await verifyAndRepair({ registry, checks: ["test"], cwd, request: "fix", maxAttempts: 0, repair: async () => { repairs++; },
+    onRepairLimit: async () => { asked++; return 3; } });
+  expect(asked).toBe(0);
+  expect(repairs).toBe(0);
+  expect(report).toMatchObject({ status: "fail", reason: "Repair limit reached.", repairAttempts: 0 });
+});
+
 test("a lab check failure is never handed to the model unless the user says so", async () => {
   const lab = { ...failing, kind: "lab" as const };
   const { registry } = scripted({ "junos-commit": [lab] });
