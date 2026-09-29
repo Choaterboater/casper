@@ -55,8 +55,8 @@ export type ConfirmCapability = (call: {
   lastPreview?: LastPreview;
 }, signal?: AbortSignal) => Promise<ApprovalAnswer>;
 
-/** The user can ask for a preview at most this many times before one call is refused. */
-const MAX_APPROVAL_ROUNDS = 3;
+/** The user can ask for a preview at most this many times for one call; then only yes or no is left. */
+const MAX_PREVIEWS = 3;
 const LAST_PREVIEW_BYTES = 4096;
 
 /** A preview result as the user may see it: token shapes and config secrets hidden, keys masked, cut short. */
@@ -223,20 +223,25 @@ export class CapabilityBroker {
     if (!this.confirm) throw new NotExecutedError("needs your approval, and this run cannot ask");
     const realTool = plan.routed.length ? plan.routed.map((call) => call.name).join(", ") : plan.tool;
     const slot = this.previewSlot(capability, plan);
-    for (let round = 0; round < MAX_APPROVAL_ROUNDS; round++) {
+    for (let previews = 0; ; previews++) {
       const lastPreview = this.previews.get(slot);
+      // After the last allowed preview the box is shown once more, without "p", so the user sees it.
+      const shown: ApprovalPlan = previews < MAX_PREVIEWS ? plan : { ...plan, hint: { ...plan.hint, noPreview: true } };
       const answer = await this.confirm({
         capability: structuredClone(capability.descriptor), arguments: structuredClone(plan.arguments),
-        plan: structuredClone(plan), ...(lastPreview ? { lastPreview: { ...lastPreview } } : {}),
+        plan: structuredClone(shown), ...(lastPreview ? { lastPreview: { ...lastPreview } } : {}),
       }, signal);
       notCancelled(signal);
       if (answer === true || answer === "yes") return realTool;
-      if (answer !== "preview" || !canPreview(plan)) break;
+      if (answer !== "preview" || !canPreview(shown)) break;
+      // Only send what Casper itself reads as a preview.
+      const previewArgs = previewArguments(plan);
+      if (planMode({ ...plan, arguments: previewArgs }) !== "preview") break;
       this.sync();
       if (this.get(capability.descriptor.id).fingerprint !== capability.fingerprint) throw new NotExecutedError("tool changed; search again");
       let text: string;
       try {
-        const raw = await this.manager.call(plan.server, plan.tool, previewArguments(plan), signal, {
+        const raw = await this.manager.call(plan.server, plan.tool, previewArgs, signal, {
           approved: { capabilityId: capability.descriptor.id, realTool, label: planLabel(plan) },
         });
         text = previewText(raw);
@@ -252,7 +257,9 @@ export class CapabilityBroker {
   }
 
   private previewSlot(capability: Capability, plan: ApprovalPlan): string {
-    return `${capability.fingerprint.split(":", 1)[0]}|${previewKey(plan)}`;
+    // The whole fingerprint (connection and tool definition): a reconnect or a changed tool never
+    // shows an old preview, even when the preview finished after the tool list changed.
+    return `${capability.fingerprint}|${previewKey(plan)}`;
   }
 
   close(): Promise<void> {
