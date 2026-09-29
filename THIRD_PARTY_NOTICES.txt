@@ -138,6 +138,35 @@ of running the last repair on a stronger model (repair.bigModelLastTry) comes
 from Plandex; no Plandex code is used.
 
 ==============================================================================
+Tools Casper runs but does not ship
+Sources: each tool's own release, pinned in Casper's source
+
+Casper downloads or calls these programs; none of their code is in Casper's
+executable, and each keeps its own licence.
+
+Security checks (src/security/tools.ts), installed only after you pick Install:
+- gitleaks 8.30.1 (MIT), sha256-pinned GitHub release
+- ruff 0.16.9 (MIT; its S rules port bandit, Apache-2.0), hash-locked uv install
+- semgrep 1.178.0 (LGPL-2.1-or-later, engine only; Casper's rules in
+  src/security/rules are Casper's own, MIT, and copy no Semgrep Registry rule)
+- zizmor 1.30.1 (MIT), hash-locked uv install
+- osv-scanner 2.6.0 (Apache-2.0), sha256-pinned GitHub release
+- ansible-lint 26.9.0 (GPL-3.0-or-later), hash-locked uv install
+- cisco-ai-mcp-scanner 4.8.4 (Apache-2.0), opt-in, hash-locked uv install
+
+Network checks (src/network), run from your own install:
+- ansible-core (GPL-3.0-or-later)
+- Junoser (Ruby gem; its licence as published with the gem)
+- yanglint from libyang (BSD-3-Clause)
+- hier_config (MIT), imported by Casper's own script
+  src/network/assets/hier_config_diff.py from your project's Python
+
+casper new templates (templates/) are Casper's own files (MIT). The packages
+they list (for example mistapi, the MCP Python SDK, Streamlit, pytest, ruff,
+React) are installed by uv or bun into your new project from pypi.org or npm;
+Casper ships none of their code.
+
+==============================================================================
 Casper 0.1.0
 Sources:
 https://github.com/Choaterboater/casper/blob/main/LICENSE
