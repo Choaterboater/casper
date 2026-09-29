@@ -63,7 +63,12 @@ test("every tool ran with its offline flags and with its own inline ignores turn
   expect(osv.args).toContain("--offline");
   expect(osv.env.OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY).toBe(path.join(home, ".casper", "security", "osv-db"));
 
-  expect((await tools.recorded("ansible-lint"))!.args).toContain("--offline");
+  const lint = (await tools.recorded("ansible-lint"))!;
+  expect(lint.args).toContain("--offline");
+  // Casper's own ansible.cfg, never the repo's (a vault_password_file there is a script Ansible runs).
+  expect(lint.env.ANSIBLE_CONFIG).toBeDefined();
+  expect(lint.env.ANSIBLE_CONFIG!.startsWith(root)).toBe(false);
+  expect(path.basename(lint.env.ANSIBLE_CONFIG!)).toBe("ansible.cfg");
   const scanner = (await tools.recorded("mcp-scanner"))!.args;
   expect(scanner.slice(0, 2)).toEqual(["--analyzers", "yara"]);
   expect(scanner).toContain("static");

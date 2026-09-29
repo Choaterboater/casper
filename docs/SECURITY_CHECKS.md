@@ -18,7 +18,7 @@ a clean report means these tools found nothing, not that nothing is wrong.
 | semgrep | MCP server or FastAPI code, with Casper's own rules only (never `auto` or the registry) | LGPL-2.1 (engine); Casper's rules are MIT | 1.178.0, hash-locked |
 | zizmor | GitHub workflows | MIT | 1.30.1, hash-locked |
 | osv-scanner | dependency lock files, with advisory data downloaded earlier | Apache-2.0 | sha256 in Casper's source |
-| ansible-lint | Ansible playbooks (it runs the repo's own Ansible plugins) | GPL-3.0, called, never copied | 26.9.0, hash-locked |
+| ansible-lint | Ansible playbooks (it runs the repo's own Ansible plugins, with Casper's own ansible.cfg, never the repo's) | GPL-3.0, called, never copied | 26.9.0, hash-locked |
 | mcp-scanner | only with `--mcp-tools <file>`: the tool descriptions in a saved `tools/list` reply | Apache-2.0 | 4.8.4, hash-locked |
 
 A tool the project does not need reads "not needed". A tool that is missing, crashes

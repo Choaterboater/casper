@@ -222,6 +222,8 @@ export class SecurityCheck {
     await writeFile(path.join(scratch, "osv-scanner.toml"), "# Casper: the repo's osv-scanner.toml changed since the last commit, so none is used.\n");
     await writeFile(path.join(scratch, "ansible-lint.yml"), "# Casper: the repo's ansible-lint config changed since the last commit, so none is used.\nskip_list: []\n");
     await writeFile(path.join(scratch, "ansible-lint-ignore"), "");
+    // ansible-lint runs Ansible, which reads ./ansible.cfg: a vault_password_file there is a script it would run.
+    await writeFile(path.join(scratch, "ansible.cfg"), "# Written by Casper for one run. The repo's own ansible.cfg is not read.\n[defaults]\nretry_files_enabled = False\n\n[inventory]\nenable_plugins = host_list, yaml, ini\n");
     const ansibleConfigs = [".ansible-lint", ".ansible-lint.yml", ".ansible-lint.yaml", ".config/ansible-lint.yml", ".config/ansible-lint.yaml"];
     const ansibleIgnores = [".ansible-lint-ignore", ".config/ansible-lint-ignore.txt"];
     const exists = async (file: string) => (await readRepoText(root, file)) !== undefined;
@@ -238,6 +240,7 @@ export class SecurityCheck {
       ansibleConfig: await anyUnused(ansibleConfigs) ? path.join(scratch, "ansible-lint.yml") : undefined,
       ansibleIgnore: await anyUnused(ansibleIgnores) ? path.join(scratch, "ansible-lint-ignore") : undefined,
       ansibleTargets: facts.ansible.filter((file) => file !== "."),
+      ansibleCfg: path.join(scratch, "ansible.cfg"),
       mcpToolsJson: this.options.mcpToolsJson,
     };
   }
@@ -264,6 +267,7 @@ export class SecurityCheck {
     }
     if (id === "zizmor") okText = "online checks off (offline)";
     if (id === "ansible-lint") okText = "it runs this repo's own Ansible plugins";
+    if (id === "ansible-lint" && args.ansibleCfg) extraEnv.ANSIBLE_CONFIG = args.ansibleCfg;
     if (id === "ansible-lint" && location.kind === "pinned") extraEnv.PATH = `${path.dirname(location.path)}${path.delimiter}${this.options.baseEnv?.PATH ?? process.env.PATH ?? ""}`;
     const timeoutMs = this.options.timeouts?.[id] ?? spec.timeoutMs;
     this.write(`Running ${spec.label}…\n`);
