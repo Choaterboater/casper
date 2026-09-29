@@ -1,9 +1,8 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { safeGitArgs } from "../platform/git";
-import type { ProjectCommand } from "../project/model";
 import type { SmokeReport } from "../services/smoke";
-import { verificationStatus, type VerificationReport, type VerificationResult } from "./evidence";
+import { verificationStatus, type CheckName, type VerificationReport, type VerificationResult } from "./evidence";
 import type { VerifierRegistry } from "./registry";
 import { VerificationTask } from "./task";
 
@@ -35,7 +34,7 @@ export function timedOutAfter(result: VerificationResult): number | undefined {
 }
 
 export type VerificationOptions = ({ registry: VerifierRegistry; task?: never } | { task: VerificationTask; registry?: never }) & {
-  checks: readonly ProjectCommand[];
+  checks: readonly CheckName[];
   cwd: string;
   request: string;
   constraints?: string;
@@ -77,7 +76,7 @@ export async function verifyAndRepair(options: VerificationOptions): Promise<Ver
   let smoke: SmokeReport | undefined;
   const report = (status: VerificationReport["status"], reason?: string): VerificationReport =>
     ({ status, reason, results, rounds: task.rounds, repairAttempts, ...(smoke ? { smoke } : {}) });
-  const run = (names: readonly ProjectCommand[], options: { timeoutMs?: number } = {}) => task.run(names, signal, options);
+  const run = (names: readonly CheckName[], options: { timeoutMs?: number } = {}) => task.run(names, signal, options);
   let unfinishedAsks = 0;
   const refresh = async () => { results = await task.refresh(signal); };
 

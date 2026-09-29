@@ -24,8 +24,8 @@ import type { LSPManager } from "../lsp/manager";
 import type { SkillRegistry } from "../skills/registry";
 import type { ProjectContext } from "../project/context";
 import type { ProjectInfo } from "../project/inspect";
-import type { ProjectCommand } from "../project/model";
-import { CHECK_NAMES, type VerificationReport } from "../verify/evidence";
+import { CHECK_NAMES, type CheckName, type VerificationReport } from "../verify/evidence";
+import { defaultVerifyNames } from "../verify/registry";
 import type { VerificationTask } from "../verify/task";
 import { artifactFilesystemSupported } from "../visualize/artifacts";
 import { buildRepoGraph } from "../visualize/repo";
@@ -96,7 +96,7 @@ export interface CommandHost {
   /** One exact typed answer from the user (never the model), or undefined when nobody answered. */
   chooseAnswer(preview: string, question: string, choices: readonly string[], signal?: AbortSignal): Promise<string | undefined>;
   git(args: string[]): Promise<string>;
-  runVerification(checks: readonly ProjectCommand[], repair: boolean, request?: string, task?: VerificationTask): Promise<VerificationReport>;
+  runVerification(checks: readonly CheckName[], repair: boolean, request?: string, task?: VerificationTask): Promise<VerificationReport>;
   activeWorkspaceRoot(): string;
   browserSession(): BrowserSession;
   serviceManager(): ServiceManager;
@@ -355,10 +355,11 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       const args = prompt.trim().split(/\s+/).slice(1);
       const repair = args[0] === "repair";
       if (repair) args.shift();
-      if (args.some((arg) => !CHECK_NAMES.some((name) => name === arg))) {
-        throw new Error("Usage: /verify [repair] [typecheck|lint|test|build ...]");
+      const named = host.projectContext?.model.namedChecks ?? {};
+      if (args.some((arg) => !CHECK_NAMES.some((name) => name === arg) && !Object.hasOwn(named, arg))) {
+        throw new Error("Usage: /verify [repair] [typecheck|lint|test|build|<named check> ...]");
       }
-      return host.runVerification(args.length ? args as ProjectCommand[] : CHECK_NAMES, repair);
+      return host.runVerification(args.length ? args : host.projectContext ? defaultVerifyNames(host.projectContext.model) : CHECK_NAMES, repair);
     }
     throw new Error(`Unknown command ${JSON.stringify(prompt.split(/\s+/)[0])}. Type /help for local commands.`);
   }

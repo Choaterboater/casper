@@ -1,4 +1,5 @@
-import { formatDuration, formatVerificationReport, type VerificationReport, type VerificationResult } from "../verify/evidence";
+import { formatDuration, formatVerificationReport, reportText, type VerificationReport, type VerificationResult } from "../verify/evidence";
+import { isBuiltinCheck } from "../verify/named";
 import type { ProjectCommand } from "../project/model";
 import type { BrowserReport } from "../browser/scenario";
 import type { ServiceState } from "../services/manager";
@@ -230,7 +231,7 @@ function withVerdict(task: TaskResult, body: string[], options: ReceiptOptions):
   const report = task.verification;
   const outcome = taskOutcome(report, task);
   const changed = Boolean(task.changedPaths?.length || task.changedDuringChecks?.length || (!task.changedPaths && task.possibleMutations));
-  const failedChecks = (report?.results ?? []).filter((result) => result.status === "fail")
+  const failedChecks = (report?.results ?? []).filter((result) => result.status === "fail" && result.kind !== "report")
     .map((result) => `${result.name} ${result.ended === "timeout" ? "timed out" : result.ended === "no_start" ? "could not start" : "failed"}`);
   let lines: string[];
   switch (outcome) {
@@ -246,7 +247,7 @@ function withVerdict(task: TaskResult, body: string[], options: ReceiptOptions):
         lines = [verdict, ...body, next];
       }
       // Only unfinished checks: the change was not tested, which is not the same as the code being wrong.
-      else if (failedChecks.length && report!.results.every((result) => result.status !== "fail" || result.ended)) {
+      else if (failedChecks.length && report!.results.every((result) => result.status !== "fail" || result.kind === "report" || result.ended)) {
         lines = [`✗ Not checked — ${failedChecks.join(", ")}, so the change was not tested`, ...body];
       } else if (failedChecks.length) lines = [`✗ Failed — ${failedChecks.join(", ")}`, ...body];
       else if (report?.status === "blocked") lines = [`✗ Failed — checks stopped${report.reason ? `: ${safe(report.reason).replace(/\.$/, "").toLowerCase()}` : ""}`, ...body];
@@ -372,18 +373,25 @@ function proofLine(proof: ChangeProof, safe: (text: string) => string): string {
 
 function checkLine(result: VerificationResult, safe: (text: string) => string, slash: (command: string) => string): string {
   const name = result.name;
+  // A report is shown for reading: never a pass, a fail or a reason the change is not verified.
+  if (result.kind === "report") return `• ${name}  ${reportText(result)} (a diff, not a pass/fail check)`;
+  // A named check that could not run (a missing tool, a lab check) says why in its own words.
+  if (result.status === "skip" && !isBuiltinCheck(name)) return `• Not verified — ${name} not run: ${safe(result.reason ?? "skipped").replace(/\.$/, "")}`;
   if (result.status === "skip") {
     return result.command ? `• Not verified — ${name} was skipped.` : `• Not verified — ${name} has no command. Add verify.${name} to .casper/project.yaml.`;
   }
   if (result.status === "pass") {
     if (result.freshness === "stale") return `• Not verified — stale: files changed after the last passing ${name}. Run ${slash(`/verify ${name}`)}.`;
     // A reused pass did not run again: the time shown is the earlier run's, so the receipt says so.
-    return `✓ ${name} passed${result.reused ? " earlier in this task, reused" : ""} (${result.command ? `${safe(result.command)}, ` : ""}${duration(result.durationMs)})`;
+    return `✓ ${name} passed${result.reused ? " earlier in this task, reused" : ""} (${result.label ? `${safe(result.label)} · ` : ""}${result.command ? `${safe(result.command)}, ` : ""}${duration(result.durationMs)})`;
   }
   const timeout = /^Timed out after (\d+)ms$/.exec(result.reason ?? "");
   // Unfinished checks are not the code failing: Casper does not repair them, so it does not offer to.
   if (result.ended === "timeout") {
     return `✗ ${name} timed out${timeout ? ` after ${duration(Number(timeout[1]))}` : ""} — it did not finish, so it was not checked; ${slash(`/verify ${name}`)} to run it again, or raise verification.timeoutMs in .casper/project.yaml`;
+  }
+  if (result.ended === "no_start" && !isBuiltinCheck(name)) {
+    return `✗ ${name} could not start (${typeof result.exitCode === "number" ? `exit ${result.exitCode}` : safe(result.reason ?? "no exit status").replace(/\.$/, "").toLowerCase()}) — check verify.checks.${name} in .casper/project.yaml`;
   }
   if (result.ended === "no_start") {
     return `✗ ${name} could not start (${typeof result.exitCode === "number" ? `exit ${result.exitCode}` : safe(result.reason ?? "no exit status").replace(/\.$/, "").toLowerCase()}) — check verify.${name} in .casper/project.yaml`;
@@ -400,6 +408,8 @@ const duration = formatDuration;
 /** The line shown the moment a check Casper runs finishes, before the receipt: "✓ typecheck · 5.9s". */
 export function liveCheckLine(result: VerificationResult): string {
   const name = result.name;
+  if (result.kind === "report") return `• ${name} · ${reportText(result)} (a diff, not a pass/fail check)`;
+  if (result.status === "skip" && !isBuiltinCheck(name)) return `– ${name} · not run${result.reason ? `: ${result.reason.replace(/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g, " ")}` : ""}`;
   if (result.status === "skip") return `– ${name} · skipped${result.command ? "" : ", no command"}`;
   if (result.status === "pass") return result.reused ? `✓ ${name} · passed earlier, reused` : `✓ ${name} · ${duration(result.durationMs)}`;
   const timeout = /^Timed out after (\d+)ms$/.exec(result.reason ?? "");

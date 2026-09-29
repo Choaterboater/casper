@@ -23,6 +23,20 @@ export interface CheckEvent {
   reused: boolean;
   /** Present only when the check did not finish as a test run: "timeout" or "no_start". */
   ended?: "timeout" | "no_start";
+  /** Named checks only: "report" (a diff, never a pass or a fail) or "lab" (the user's own lab devices). */
+  kind?: "report" | "lab";
+  /** A few plain words shown beside the result, e.g. "dry run not guaranteed". */
+  label?: string;
+  /** Lab checks only: the devices the check was pointed at. */
+  hosts?: string[];
+  /** Reports only: the one-line summary. */
+  summary?: string;
+}
+
+/** The additive fields a named check adds to a check event or a receipt check. */
+export function namedCheckFields(result: Pick<VerificationResult, "kind" | "label" | "hosts" | "summary">): Pick<CheckEvent, "kind" | "label" | "hosts" | "summary"> {
+  return { ...(result.kind ? { kind: result.kind } : {}), ...(result.label ? { label: redactPreview(result.label) } : {}),
+    ...(result.hosts ? { hosts: [...result.hosts] } : {}), ...(result.summary ? { summary: redactPreview(result.summary) } : {}) };
 }
 
 export interface PhaseEvent {
@@ -41,7 +55,8 @@ export interface ReceiptEvent {
   changed: string[] | null;
   changedDuringChecks: string[];
   verificationMode: TaskResult["verificationMode"] | null;
-  checks: Array<{ name: string; command: string | null; status: VerificationResult["status"]; exit: number | null; ms: number; fresh: boolean }>;
+  checks: Array<{ name: string; command: string | null; status: VerificationResult["status"]; exit: number | null; ms: number; fresh: boolean }
+    & Pick<CheckEvent, "kind" | "label" | "hosts" | "summary">>;
   repairAttempts: number;
   turnLimit: number | null;
   /** This task's model use; null when no model task ran (a local command). */
@@ -93,7 +108,7 @@ export function phaseEvent(phase: PhaseEvent["phase"], state: PhaseEvent["state"
 
 export function checkEvent(result: VerificationResult, recordedBy: CheckEvent["recordedBy"]): CheckEvent {
   return { type: "check", name: result.name, command: result.command ?? null, status: result.status, exit: result.exitCode,
-    ms: Math.round(result.durationMs), recordedBy, reused: result.reused === true, ...(result.ended ? { ended: result.ended } : {}) };
+    ms: Math.round(result.durationMs), recordedBy, reused: result.reused === true, ...(result.ended ? { ended: result.ended } : {}), ...namedCheckFields(result) };
 }
 
 /** Service responses and logs may echo env or tokens: like other previews, they are redacted before script output. */
@@ -142,7 +157,7 @@ export function receiptEvent(report: VerificationReport | undefined, task: TaskR
     changedDuringChecks: task?.changedDuringChecks ?? [],
     verificationMode: task?.verificationMode ?? null,
     checks: (verification?.results ?? []).map((result) => ({ name: result.name, command: result.command ?? null, status: result.status,
-      exit: result.exitCode, ms: Math.round(result.durationMs), fresh: result.status === "pass" && result.freshness !== "stale" })),
+      exit: result.exitCode, ms: Math.round(result.durationMs), fresh: result.status === "pass" && result.freshness !== "stale", ...namedCheckFields(result) })),
     repairAttempts: verification?.repairAttempts ?? 0,
     turnLimit: task?.turnLimit ?? null,
     usage: task?.usage ? { ...task.usage } : null,

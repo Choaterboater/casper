@@ -3,6 +3,7 @@ import { lstat, mkdir, readFile, readdir, rename, stat, writeFile } from "node:f
 import os from "node:os";
 import path from "node:path";
 import type { ProjectInfo } from "./inspect";
+import type { NamedCheckSpec } from "../verify/named";
 import type { VerificationScope } from "../verify/scope";
 import { detectRepositoryStructure, STRUCTURE_PROBES } from "./structure";
 
@@ -14,6 +15,8 @@ export interface ProjectModelOverrides {
   packageManager?: string;
   commands?: Partial<Record<ProjectCommand, string>>;
   verificationScopes?: Partial<Record<ProjectCommand, VerificationScope>>;
+  /** verify.checks: the project's named checks. */
+  namedChecks?: Record<string, NamedCheckSpec>;
   architecture?: Record<string, string>;
   conventions?: string[];
 }
@@ -30,6 +33,8 @@ export interface ProjectModel {
   packageManager: string | null;
   commands: Partial<Record<ProjectCommand, string>>;
   verificationScopes?: Partial<Record<ProjectCommand, VerificationScope>>;
+  /** Checks the project named under verify.checks, next to the four built-in ones. */
+  namedChecks?: Record<string, NamedCheckSpec>;
   architecture: Record<string, string>;
   conventions: string[];
   detectedAt: string;
@@ -372,6 +377,7 @@ async function detectModel(
     packageManager,
     commands: { ...commands, ...(overrides.commands ?? {}) },
     verificationScopes: overrides.verificationScopes,
+    ...(overrides.namedChecks && Object.keys(overrides.namedChecks).length ? { namedChecks: overrides.namedChecks } : {}),
     architecture: overrides.architecture ?? structure.architecture,
     conventions: overrides.conventions ?? structure.conventions,
     detectedAt: new Date().toISOString(),

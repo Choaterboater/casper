@@ -1,11 +1,10 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { ProjectCommand } from "../project/model";
-import type { VerificationResult } from "./evidence";
+import type { CheckName, VerificationResult } from "./evidence";
 
 /** Last measured duration of each check, keyed by its exact command so an edited command is
  * unmeasured again. A cache for choosing a default mode, never verification evidence. */
-type Timings = Partial<Record<ProjectCommand, { command: string; ms: number }>>;
+type Timings = Partial<Record<CheckName, { command: string; ms: number }>>;
 
 const FILE = "check-timings.json";
 
@@ -17,8 +16,8 @@ async function read(stateDirectory: string): Promise<Timings> {
 }
 
 /** Total measured time of `checks`, or undefined while any of them is unmeasured. */
-export async function measuredCheckTime(stateDirectory: string, checks: readonly ProjectCommand[],
-  commands: Partial<Record<ProjectCommand, string>>): Promise<number | undefined> {
+export async function measuredCheckTime(stateDirectory: string, checks: readonly CheckName[],
+  commands: Partial<Record<CheckName, string>>): Promise<number | undefined> {
   if (!checks.length) return undefined;
   const timings = await read(stateDirectory);
   let total = 0;

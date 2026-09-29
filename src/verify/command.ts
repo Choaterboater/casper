@@ -1,6 +1,5 @@
 import { spawn } from "node:child_process";
-import type { ProjectCommand } from "../project/model";
-import type { VerificationResult } from "./evidence";
+import type { CheckName, VerificationResult } from "./evidence";
 import { withoutProviderKeys } from "../platform/environment";
 import { osSupportsProcessGroups, ownSpawnedTree, type OwnedProcesses, terminateTree } from "../platform/processes";
 
@@ -29,9 +28,27 @@ class OutputCapture {
   }
 }
 
+/** How a check starts: a shell command line (`shell: true`, `file` is the whole line) or a program and its
+ * argument list, never through a shell. */
+export interface SpawnPlan { file: string; args: string[]; shell: boolean }
+
+/** Rewrites how a check starts, e.g. to run it inside the shell sandbox. It sees the plan and the folder and
+ * returns the plan to spawn. The check's shown command stays the one the project gave. */
+export type CommandWrap = (plan: SpawnPlan, context: { cwd: string; name: CheckName }) => SpawnPlan | Promise<SpawnPlan>;
+
+/** An argument list as one readable line: plain words stay bare, anything else is single-quoted. */
+export function argvText(argv: readonly string[]): string {
+  return argv.map((arg) => /^[\w@%+=:,./-]+$/.test(arg) ? arg : `'${arg.replace(/'/g, `'\\''`)}'`).join(" ");
+}
+
 export interface CommandCheckOptions {
-  name: ProjectCommand;
-  command: string;
+  name: CheckName;
+  /** A shell command line, run the way verify.test always has been. Give this or `argv`. */
+  command?: string;
+  /** A program and its arguments, run without a shell: a file named `$(touch x)` is only ever a file name. */
+  argv?: readonly string[];
+  /** The start hook for the shell sandbox; unset starts the plan as it is. */
+  wrap?: CommandWrap;
   cwd: string;
   timeoutMs: number;
   signal?: AbortSignal;
@@ -49,10 +66,14 @@ export function checkEnded(exitCode: number | null, reason?: string): Verificati
 }
 
 export async function runCommandCheck(options: CommandCheckOptions): Promise<VerificationResult> {
-  const { name, command, cwd, timeoutMs, signal } = options;
+  const { name, cwd, timeoutMs, signal } = options;
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 3_600_000) {
     throw new Error("Verification timeout must be between 1 and 3600000ms");
   }
+  if ((options.command === undefined) === (options.argv === undefined)) throw new Error("A check needs either a command or an argument list");
+  if (options.argv && (!options.argv.length || !options.argv[0])) throw new Error("A check's argument list needs a program");
+  const command = options.command ?? argvText(options.argv!);
+  const direct: SpawnPlan = options.argv ? { file: options.argv[0]!, args: options.argv.slice(1), shell: false } : { file: command, args: [], shell: true };
   const started = performance.now();
   const stdout = new OutputCapture();
   const stderr = new OutputCapture();
@@ -65,6 +86,10 @@ export async function runCommandCheck(options: CommandCheckOptions): Promise<Ver
   if (signal?.aborted) {
     return { ...base(), status: "fail", exitCode: null, signal: null, reason: "Verification cancelled" };
   }
+  let plan: SpawnPlan;
+  try { plan = options.wrap ? await options.wrap({ ...direct, args: [...direct.args] }, { cwd, name }) : direct; } catch (error) {
+    return { ...base(), status: "fail", exitCode: null, signal: null, reason: `Could not execute: ${error instanceof Error ? error.message : String(error)}`, ended: "no_start" };
+  }
 
   return new Promise((resolve) => {
     let reason: string | undefined;
@@ -73,7 +98,7 @@ export async function runCommandCheck(options: CommandCheckOptions): Promise<Ver
     let child;
     let owner: OwnedProcesses | undefined;
     try {
-      child = spawn(command, { cwd, shell: true, detached: osSupportsProcessGroups, stdio: ["ignore", "pipe", "pipe"], env: withoutProviderKeys(options.env ?? process.env) });
+      child = spawn(plan.file, plan.args, { cwd, shell: plan.shell, windowsHide: true, detached: osSupportsProcessGroups, stdio: ["ignore", "pipe", "pipe"], env: withoutProviderKeys(options.env ?? process.env) });
       owner = ownSpawnedTree(child.pid, () => child!.exitCode === null && child!.signalCode === null);
     } catch (error) {
       resolve({ ...base(), status: "fail", exitCode: null, signal: null, reason: `Could not execute: ${error instanceof Error ? error.message : String(error)}`, ended: "no_start" });

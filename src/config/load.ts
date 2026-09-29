@@ -5,7 +5,9 @@ import { parse } from "yaml";
 import { isValidProfileName } from "./profile";
 import { readReferenceFile } from "../references/files";
 import type { ProjectCommand, ProjectModelOverrides } from "../project/model";
-import { CHECK_NAMES } from "../verify/evidence";
+import { CHECK_NAMES, type CheckName } from "../verify/evidence";
+import { labNamedChecks, parseNamedChecks } from "../verify/named";
+import { LAB_IN_PROJECT_ERROR, mergeLabSettings, parseLabSettings, type LabSettings } from "../network/spec";
 import { SKILL_IMPORTS, type SkillImport } from "../skills/registry";
 import { isVerificationScope, type VerificationScope } from "../verify/scope";
 import { VERIFICATION_MODES, type VerificationMode, type VerificationSettings } from "../verify/mode";
@@ -58,6 +60,8 @@ export interface LoadedConfiguration {
   services: Record<string, ServiceSpec>;
   /** Configured smoke checks against those services (project layer only). */
   smoke: SmokeCheck[];
+  /** The owner's lab devices (lab.hosts), from ~/.casper/config.yaml or the profile only; never a project file. */
+  lab?: LabSettings;
   /** Unknown keys, by file; shown at startup and otherwise ignored. */
   warnings: string[];
 }
@@ -193,7 +197,7 @@ const POLICY_KEYS = {
 } as const;
 const ISOLATE_KEYS = ["parallelAgents", "riskyRefactor", "experimentalBranch"];
 const TOP_LEVEL_KEYS = new Set(["profile", "project", "languages", "frameworks", "packageManager", "commands", "architecture",
-  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", ...Object.keys(POLICY_KEYS)]);
+  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "lab", ...Object.keys(POLICY_KEYS)]);
 
 /** Typos used to fall back silently to the defaults; the loader names them instead. */
 function unknownKeys(document: Mapping, label: string): string[] {
@@ -326,7 +330,9 @@ function boundedSetting(document: Mapping, section: string, key: string, fallbac
 }
 
 /** verification.mode / verification.checks from one layer; undefined when the layer is silent. */
-function verificationSelection(document: Mapping): { mode?: VerificationMode; checks?: ProjectCommand[] } {
+const CHECK_NAME = /^[a-z][a-z0-9-]{0,31}$/;
+
+function verificationSelection(document: Mapping): { mode?: VerificationMode; checks?: CheckName[] } {
   const settings = document.verification;
   if (!isMapping(settings)) return {};
   const { mode, checks } = settings;
@@ -334,24 +340,34 @@ function verificationSelection(document: Mapping): { mode?: VerificationMode; ch
     throw new Error(`verification.mode must be ${alternatives(VERIFICATION_MODES)}`);
   }
   if (checks !== undefined && checks !== null && (!Array.isArray(checks) || !checks.length
-    || !checks.every((name) => CHECK_NAMES.some((check) => check === name)))) {
-    throw new Error(`verification.checks must be a nonempty list of ${alternatives(CHECK_NAMES)}`);
+    || !checks.every((name) => typeof name === "string" && CHECK_NAME.test(name)))) {
+    throw new Error(`verification.checks must be a nonempty list of ${alternatives(CHECK_NAMES)} or names from verify.checks`);
   }
   return {
     mode: mode ?? undefined,
-    checks: checks ? [...new Set(checks as ProjectCommand[])] : undefined,
-  } as { mode?: VerificationMode; checks?: ProjectCommand[] };
+    checks: checks ? [...new Set(checks as CheckName[])] : undefined,
+  } as { mode?: VerificationMode; checks?: CheckName[] };
 }
 
 function verificationCommands(document: Mapping): Record<string, string> {
   if (document.verify === undefined) return {};
   if (!isMapping(document.verify)) throw new Error("verify must be a mapping of check names to commands");
+  const commands: Record<string, string> = {};
   for (const [name, command] of Object.entries(document.verify)) {
+    if (name === "checks") continue; // Named checks: see namedChecks.
     if (!CHECK_NAMES.some((check) => check === name) || typeof command !== "string" || !command.trim()) {
-      throw new Error(`Invalid verify.${name}: expected a nonempty typecheck/lint/test/build command`);
+      throw new Error(`Invalid verify.${name}: expected a nonempty typecheck/lint/test/build command, or verify.checks for named checks`);
     }
+    commands[name] = command;
   }
-  return document.verify as Record<string, string>;
+  return commands;
+}
+
+/** verify.checks: the project's named checks. */
+function namedChecks(document: Mapping): ProjectModelOverrides["namedChecks"] {
+  if (!isMapping(document.verify) || document.verify.checks === undefined) return undefined;
+  const checks = parseNamedChecks(document.verify.checks, "verify.checks");
+  return Object.keys(checks).length ? checks : undefined;
 }
 
 function verificationScopes(document: Mapping): Partial<Record<ProjectCommand, VerificationScope>> | undefined {
@@ -382,7 +398,9 @@ function projectOverrides(document: Mapping): ProjectModelOverrides {
       )
     : undefined;
 
+  const named = namedChecks(document);
   return {
+    ...(named ? { namedChecks: named } : {}),
     languages: stringArray(project.languages),
     frameworks: stringArray(project.frameworks),
     packageManager: stringValue(project.packageManager),
@@ -438,7 +456,7 @@ export async function loadConfiguration(
   let timeoutMs = 600_000;
   let maxAttempts = 3;
   let mode: VerificationMode | undefined;
-  let checks: ProjectCommand[] | undefined;
+  let checks: CheckName[] | undefined;
   let review: boolean | undefined;
   let acceptance: boolean | "warn" | undefined;
   let checklist: boolean | undefined;
@@ -466,6 +484,20 @@ export async function loadConfiguration(
   }
 
   const services = parseServices(projectDocument.services, labels.project);
+  const overrides = projectOverrides(projectDocument);
+  if (checks) {
+    // A selected name must be a built-in check or one the project named; lab checks never run on their own.
+    const declared = overrides.namedChecks ?? {};
+    const labs = new Set(labNamedChecks(declared));
+    for (const name of checks) {
+      if (labs.has(name)) throw new Error(`verification.checks: ${name} is a lab check; lab checks run only when you start them (/verify ${name})`);
+      if (!CHECK_NAMES.some((check) => check === name) && !declared[name]) {
+        throw new Error(`verification.checks: ${name} is not a check. Use ${alternatives(CHECK_NAMES)} or a name from verify.checks in .casper/project.yaml`);
+      }
+    }
+  }
+  if (projectDocument.lab !== undefined) throw new Error(LAB_IN_PROJECT_ERROR);
+  const lab = mergeLabSettings(parseLabSettings(globalDocument.lab, "user", `${labels.global}: lab`), parseLabSettings(profileDocument.lab, "profile", `${labels.profile}: lab`));
   return {
     skills: { maxActive, imports },
     verification: { timeoutMs, ...(mode ? { mode } : {}), ...(checks ? { checks } : {}), ...(review !== undefined ? { review } : {}), ...(acceptance !== undefined ? { acceptance } : {}),
@@ -495,6 +527,7 @@ export async function loadConfiguration(
     ],
     profileRules: await readOptionalText(path.join(profileDir, "rules.md")),
     projectRules: (await readProjectFile(options.projectRoot, ".casper/rules.md", MAX_PROJECT_RULES_BYTES))?.trim() || null,
-    projectOverrides: projectOverrides(projectDocument),
+    projectOverrides: overrides,
+    ...(lab ? { lab } : {}),
   };
 }
