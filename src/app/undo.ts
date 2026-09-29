@@ -70,6 +70,9 @@ function hasCopies(receipt: StoredReceipt): receipt is StoredReceipt & { undo: R
 }
 
 export class TaskUndo {
+  /** The files the last /undo or /redo put back (a one-shot --json run reports them as changed). */
+  lastRestored: string[] = [];
+
   constructor(private readonly host: UndoHost) {}
 
   private receipts(): ReceiptStore | undefined {
@@ -227,6 +230,7 @@ export class TaskUndo {
   }
 
   async undo(argument: string, signal?: AbortSignal): Promise<void> {
+    this.lastRestored = [];
     const receipt = await this.pickReceipt("undo", argument);
     if (!receipt || !this.sameFolder(receipt)) return;
     if (receipt.setting) { await this.undoSetting(receipt, "undo"); return; }
@@ -249,6 +253,7 @@ export class TaskUndo {
     if (!("tree" in redo)) { this.refuse(`Nothing was undone: Casper could not save a copy of the files first (${terminalText(redo.unavailable)}).`); return; }
     await store.keep(n, "redo", redo.tree);
     const applied = await store.apply(plan.ready, undo.before, signal);
+    this.lastRestored = applied.restored;
     // Marked undone only when something was put back: an undo that changed nothing can be tried again, and a second
     // Casper's empty undo never replaces the files a first one put back (which /redo needs).
     if (applied.restored.length) {
@@ -267,6 +272,7 @@ export class TaskUndo {
   }
 
   async redo(argument: string, signal?: AbortSignal): Promise<void> {
+    this.lastRestored = [];
     const receipt = await this.pickReceipt("redo", argument);
     if (!receipt || !this.sameFolder(receipt)) return;
     if (receipt.setting) { await this.undoSetting(receipt, "redo"); return; }
@@ -277,6 +283,7 @@ export class TaskUndo {
     const plan = await store.plan(undo.before, undo.undone.redo, undo.undone.restored);
     if (!(await this.confirmPartial("Redo", n, plan.changedSince, plan.ready.length, signal))) return;
     const applied = await store.apply(plan.ready, undo.undone.redo, signal);
+    this.lastRestored = applied.restored;
     // A redo that put nothing back leaves the task undone, so it can be tried again.
     if (applied.restored.length) {
       await this.receipts()!.update(n, (saved) => {
@@ -352,6 +359,7 @@ export class TaskUndo {
     if (now !== expected) { this.refuse(`${setting.file} changed after task ${n}, so Casper left it as it is.`); return; }
     if (wanted === undefined) await removeProjectFile(receipt.root, setting.file);
     else await writeProjectFile(receipt.root, setting.file, wanted, { mode: "replace", fileMode: 0o644 });
+    this.lastRestored = [setting.file];
     await this.receipts()!.update(n, (saved) => ({ ...saved, setting: kind === "undo" ? { ...saved.setting!, undone: { at: new Date().toISOString() } } : { ...saved.setting!, undone: undefined } }));
     await this.host.reloadProject().catch(() => {});
     this.write(kind === "undo" ? `✓ Undone — ${setting.file} is back as it was before task ${n} (${terminalText(setting.line)} is no longer saved).\n`

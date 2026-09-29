@@ -426,3 +426,18 @@ test("a redo that put nothing back leaves the task undone, so redo can be tried 
     expect(await s.send("/redo 1")).toContain("✓ Redone — 2 files are back as task 1 left them: a.py, notes.py");
   } finally { await s.close(); }
 }, 30_000);
+
+test("one-shot --json: the receipt after casper /undo names the files it put back, never 'unchanged'", async () => {
+  const place = await folder();
+  const first = makeApp(place, [edit("notes.py", "print('two')\n")]);
+  try { await first.app.runOnce("fix the greeting", place.project); } finally { await first.app.close(); }
+  const later = makeApp(place, []);
+  try {
+    const report = await later.app.runOnce("/undo 1", place.project);
+    const task = later.app.getLastTaskResult();
+    const event = receiptEvent(report, task, taskExitCode(report, task));
+    expect(event.changed).toEqual(["notes.py"]);
+    expect(event.outcome).toBe("not_verified");
+    expect(event.verdict).toBe("• Not verified — Casper ran no checks");
+  } finally { await later.app.close(); }
+}, 30_000);
