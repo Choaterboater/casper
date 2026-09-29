@@ -375,7 +375,10 @@ the request:
   (`app/dashboard/page.tsx` opens `/dashboard`; Next.js `pages/`, SvelteKit `src/routes/`, Nuxt
   `pages/` and Astro `src/pages/` too). Other front-end changes (components, styles, an SPA's router,
   a Streamlit app) open `/`. A route that needs a value (`/devices/[id]`) is listed, not opened. At
-  most 5 pages are opened per check. Docs-only changes open nothing.
+  most 5 pages are opened per check. Docs-only changes open nothing. With no front-end framework
+  (a declared `services.web` of an API), script edits are server code and open nothing; HTML, styles
+  and files in `public/`, `static/` or `assets/` open `/`, and the `pages:` list is opened after any
+  code change.
 
 Page checks run only when Casper checks each change itself (`auto`), after the command checks and
 smoke checks pass, inside the same verify-and-repair loop. Casper starts the dev server through

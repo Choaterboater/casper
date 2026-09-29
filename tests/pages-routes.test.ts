@@ -64,3 +64,14 @@ test("the pages setting accepts off or up to eight site paths, and names the bad
   expect(() => parsePagesSetting("on")).toThrow("pages must be off or a list");
   expect(() => parsePagesSetting(Array.from({ length: 9 }, (_, index) => `/p${index}`))).toThrow("at most 8");
 });
+
+test("with no front-end framework (a declared services.web of an API), a server script edit opens no page", () => {
+  // An API may not serve / at all: opening it after every edit would fail the task and send the model to "fix" it.
+  expect(changedPages([], ["src/server.ts", "routes/devices.js"])).toEqual({ open: [], skipped: [] });
+  // Pages of a plain site still count, and so do the user's own listed pages after a code change.
+  expect(changedPages([], ["views/index.html"]).open).toEqual(["/"]);
+  expect(changedPages([], ["public/app.js"]).open).toEqual(["/"]);
+  expect(changedPages([], ["src/server.ts"], ["/health"]).open).toEqual(["/health"]);
+  // In a front-end framework, scripts are front-end code.
+  expect(changedPages(["react", "vite"], ["src/App.tsx"]).open).toEqual(["/"]);
+});
