@@ -143,6 +143,9 @@ export interface ToolArgsContext {
   ansibleConfig?: string;
   ansibleIgnore?: string;
   ansibleTargets?: string[];
+  /** Casper's own ansible.cfg for ansible-lint, so the repo's ansible.cfg (vault password scripts, inventory
+   * scripts) is never read. */
+  ansibleCfg?: string;
   /** The tools/list JSON for mcp-scanner. */
   mcpToolsJson?: string;
 }
