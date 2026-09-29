@@ -1,11 +1,19 @@
 import type { ProjectCommand } from "../project/model";
 import type { SmokeReport } from "../services/smoke";
+import type { CheckName } from "./named";
 import type { VerificationScope } from "./scope";
+
+export type { CheckName } from "./named";
 
 export const CHECK_NAMES: readonly ProjectCommand[] = ["typecheck", "lint", "test", "build"];
 
+/** How a failed check may be repaired. "repairable": Casper hands it to the model. "ask": only after the
+ * user says so (a check that did not finish, a lab check). "never": not a code failure to fix (a report,
+ * a check that could not run for a missing tool). */
+export type RepairClass = "repairable" | "ask" | "never";
+
 export interface VerificationResult {
-  name: ProjectCommand;
+  name: CheckName;
   status: "pass" | "fail" | "skip";
   command?: string;
   cwd: string;
@@ -26,6 +34,30 @@ export interface VerificationResult {
   /** Set only when the command did not finish as a test run: it timed out, or it could not start
    * (spawn error, bad folder, or the shell's 126/127). Such a failure is not the code failing. */
   ended?: "timeout" | "no_start";
+  /** Named checks only. Absent: an ordinary pass/fail check. "report": a diff shown for reading, never a pass
+   * or a fail. "lab": a check on the user's own lab devices, run only when the user starts it. */
+  kind?: "report" | "lab";
+  /** A few plain words shown beside the result, e.g. "dry run not guaranteed". */
+  label?: string;
+  /** Lab checks only: the devices the check was pointed at. */
+  hosts?: string[];
+  /** Reports only: the one-line summary ("12 lines to change · 12 to undo"). Secrets already hidden. */
+  summary?: string;
+  /** Set by the check itself when its failure must not go to the model on its own (see repairClass). */
+  repair?: RepairClass;
+}
+
+/** How this result may be repaired. Only failures are; reports never are; an unfinished or lab check only
+ * after asking the user; a check may also say so itself. */
+export function repairClass(result: Pick<VerificationResult, "status" | "kind" | "ended" | "repair">): RepairClass {
+  if (result.status !== "fail" || result.kind === "report") return "never";
+  if (result.repair) return result.repair;
+  return result.kind === "lab" || result.ended ? "ask" : "repairable";
+}
+
+/** Results that decide a run's status: reports never do. */
+export function countedResults<T extends Pick<VerificationResult, "kind">>(results: readonly T[]): T[] {
+  return results.filter((result) => result.kind !== "report");
 }
 
 export interface VerificationReport {
@@ -49,19 +81,24 @@ export function formatDuration(ms: number): string {
   return seconds ? `${minutes}m ${seconds}s` : `${minutes}m`;
 }
 
-export function verificationStatus(results: VerificationResult[]): VerificationReport["status"] {
+export function verificationStatus(all: VerificationResult[]): VerificationReport["status"] {
+  // A report (a diff) never makes a run pass, fail or incomplete.
+  const results = countedResults(all);
   if (results.some((result) => result.status === "fail")) return "fail";
   if (!results.length || results.some((result) => result.status === "skip")) return "incomplete";
   return "pass";
 }
 
 export interface VerificationCheckSummary {
-  name: ProjectCommand;
+  name: CheckName;
   status: VerificationResult["status"];
   exitCode: number | null;
   scope?: VerificationScope;
   freshness: NonNullable<VerificationResult["freshness"]>;
   freshnessReason?: string;
+  kind?: VerificationResult["kind"];
+  label?: string;
+  hosts?: string[];
 }
 
 /** One compact projection for receipts and durable history. No raw command output,
@@ -71,7 +108,9 @@ export function summarizeVerificationCheck(result: Pick<VerificationResult, "nam
   return { name: result.name, status: result.status, exitCode: result.exitCode ?? null,
     scope: result.scope ? structuredClone(result.scope) : undefined, freshness,
     freshnessReason: result.freshnessReason?.slice(0, 512) ?? (freshness === "fresh" ? undefined
-      : freshness === "stale" ? "Declared inputs changed." : "Input freshness was not recorded or scope was not declared.") };
+      : freshness === "stale" ? "Declared inputs changed." : "Input freshness was not recorded or scope was not declared."),
+    ...(result.kind ? { kind: result.kind } : {}), ...(result.label ? { label: result.label.slice(0, 200) } : {}),
+    ...(result.hosts ? { hosts: result.hosts.slice(0, 256) } : {}) };
 }
 
 export function summarizeVerification(report: VerificationReport) {
@@ -95,30 +134,39 @@ function terminalText(value: string): string {
 }
 
 export function formatVerificationResult(result: VerificationResult): string {
+  if (result.kind === "report") return `• ${result.name}  ${reportText(result)} (a diff, not a pass/fail check)`;
   // Nothing ran for a skip, so input freshness and scope carry no information.
-  if (result.status === "skip") return `– ${result.name}  skipped${result.reason ? `: ${terminalText(result.reason)}` : ""}`;
+  if (result.status === "skip") return `– ${result.name}  ${result.kind || result.label ? "not run" : "skipped"}${result.reason ? `: ${terminalText(result.reason)}` : ""}`;
   const mark = result.status === "pass" ? "✓" : "✗";
   const detail = result.reason ?? (result.exitCode === null ? result.signal : `exit ${result.exitCode}`);
-  const source = result.reused ? "reused declared-input evidence; " : "";
+  const source = (result.label ? `${terminalText(result.label)}; ` : "") + (result.reused ? "reused declared-input evidence; " : "");
   return `${mark} ${result.name}${result.command ? `  ${terminalText(result.command)}` : ""}  (${source}${detail ? terminalText(detail) + "; " : ""}${result.durationMs}ms${result.truncated ? "; output truncated" : ""}; ${formatQualification(summarizeVerificationCheck(result))})`;
+}
+
+/** A report's summary, or why it has none. */
+export function reportText(result: Pick<VerificationResult, "summary" | "reason" | "status">): string {
+  if (result.summary) return terminalText(result.summary);
+  return `no diff: ${terminalText(result.reason ?? (result.status === "skip" ? "not run" : "the tool failed"))}`;
 }
 
 /** `compact` keeps the outcome, counts and only the qualifications that limit what a pass means
  * (checks whose inputs were not fresh); skip reasons and fresh-check detail were printed above. */
 export function formatVerificationReport(report: VerificationReport, options: { compact?: boolean } = {}): string {
   const summary = summarizeVerification(report);
+  const counted = countedResults(summary.checks);
+  const reports = summary.checks.length - counted.length;
   const counts = ["pass", "fail", "skip"].map((status) =>
-    `${summary.checks.filter((check) => check.status === status).length} ${status}`,
-  ).join(", ");
+    `${counted.filter((check) => check.status === status).length} ${status}`,
+  ).join(", ") + (reports ? `, ${reports} ${reports === 1 ? "report" : "reports"}` : "");
   const head = `Checks ${summary.status} (command execution): ${counts}; ${summary.repairAttempts} repair attempt(s).`
     + (report.reason ? ` ${terminalText(report.reason)}` : "");
   if (options.compact) {
-    const limits = summary.checks.filter((check) => check.status === "pass" && check.freshness !== "fresh").map((check) => `${check.name}: ${formatQualification(check)}`).join(" | ");
+    const limits = counted.filter((check) => check.status === "pass" && check.freshness !== "fresh").map((check) => `${check.name}: ${formatQualification(check)}`).join(" | ");
     return `${head}${limits ? ` ${limits}.` : ""} Requested behavior is not independently certified.`;
   }
-  const qualifications = summary.checks.filter((check) => check.status !== "skip").map((check) => `${check.name}: ${formatQualification(check)}`).join(" | ");
-  const skipped = new Map<string, ProjectCommand[]>();
-  for (const result of report.results) if (result.status === "skip") skipped.set(result.reason ?? "skipped", [...(skipped.get(result.reason ?? "skipped") ?? []), result.name]);
+  const qualifications = counted.filter((check) => check.status !== "skip").map((check) => `${check.name}: ${formatQualification(check)}`).join(" | ");
+  const skipped = new Map<string, CheckName[]>();
+  for (const result of countedResults(report.results)) if (result.status === "skip") skipped.set(result.reason ?? "skipped", [...(skipped.get(result.reason ?? "skipped") ?? []), result.name]);
   const skips = [...skipped].map(([reason, names]) => `Skipped ${names.join(", ")}: ${terminalText(reason).replace(/\.$/, "")}.`).join(" ");
   return `${head}${qualifications ? ` ${qualifications}.` : ""}${skips ? ` ${skips}` : ""} Requested behavior is not independently certified.`;
 }

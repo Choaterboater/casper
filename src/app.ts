@@ -52,8 +52,7 @@ import { LifecycleRegistry } from "./app/lifecycle";
 import { RuntimeEventView } from "./app/events";
 import { diffSnapshots, snapshotTree, type TreeChanges } from "./task/changes";
 import { renderBanner, renderProjectSummary, wordmarkHeader } from "./tui/banner";
-import type { ProjectCommand } from "./project/model";
-import { CHECK_NAMES, formatDuration, formatVerificationReport, formatVerificationResult, type VerificationReport, type VerificationResult } from "./verify/evidence";
+import { CHECK_NAMES, type CheckName, formatDuration, formatVerificationReport, formatVerificationResult, type VerificationReport, type VerificationResult } from "./verify/evidence";
 import { ProcessCleanupError } from "./platform/processes";
 import { safeGitArgs } from "./platform/git";
 import { VerifierRegistry } from "./verify/registry";
@@ -64,7 +63,9 @@ import { ChangeBaseline, changesCode, proofRepairPrompt, type ChangeProof } from
 import { independentAcceptance } from "./verify/acceptance";
 import { parseChecklist, parseReview, requirementsReviewPrompt, ROUND_MAX_TURNS, type RequirementsReview } from "./task/review";
 import { extractChecklist, formatChecklistPrompt, normalizeCases } from "./task/checklist";
-import { describeChecksPlan, planAutoChecks, resolveVerificationMode, selectedChecks, type ChecksPlan, type VerificationMode } from "./verify/mode";
+import { checkCommands, isBuiltinCheck } from "./verify/named";
+import type { ProjectCommand } from "./project/model";
+import { describeChecksPlan, manualChecks, planAutoChecks, resolveVerificationMode, selectedChecks, type ChecksPlan, type VerificationMode } from "./verify/mode";
 import { measuredCheckTime, recordCheckTimings } from "./verify/timings";
 import { MermaidProvider } from "./visualize/mermaid";
 import { MindMeshProvider } from "./visualize/mindmesh";
@@ -848,7 +849,7 @@ export class CasperApp {
       if (!cancelled && this.taskRuntimeFailed && this.checkTask && verificationMode === "auto") {
         const edited = before && afterModel ? flatten(diffSnapshots(before, afterModel)) : undefined;
         const failedChecks = edited?.length ? planAutoChecks({ selected: context.verification.checks, commands: context.model.commands,
-          scopes: context.model.verificationScopes, changedPaths: edited }).run : [];
+          scopes: context.model.verificationScopes, named: context.model.namedChecks, changedPaths: edited }).run : [];
         if (failedChecks.length) {
           this.events.ensureLineBreak();
           this.output.write(`… Casper checking the edits the model made before it failed: ${failedChecks.join(", ")}\n`);
@@ -858,7 +859,7 @@ export class CasperApp {
       if (!stopped && this.checkTask && verificationMode === "auto") {
         autoChecks = planAutoChecks({
           selected: context.verification.checks, commands: context.model.commands, scopes: context.model.verificationScopes,
-          changedPaths: before && afterModel ? flatten(diffSnapshots(before, afterModel)) : undefined,
+          named: context.model.namedChecks, changedPaths: before && afterModel ? flatten(diffSnapshots(before, afterModel)) : undefined,
         });
         // Configured smoke checks run after a change; checks the model recorded always run.
         const smokeDue = Boolean(this.smokeTask?.recordedCount || (this.smokeTask?.size && autoChecks.skipped !== "no-changes"));
@@ -1010,7 +1011,7 @@ export class CasperApp {
    * then the proof. */
   private async finishChange(input: {
     baseline?: ChangeBaseline; baselineUnavailable?: string; before: Map<string, string>; root: string; command: string;
-    request: string; checks: readonly ProjectCommand[]; verification: VerificationReport; session: RuntimeSession;
+    request: string; checks: readonly CheckName[]; verification: VerificationReport; session: RuntimeSession;
     initialReview?: { done: string[]; open: string[] };
   }): Promise<{ verification: VerificationReport; proof?: ChangeProof; review?: RequirementsReview }> {
     const context = this.projectContext!;
@@ -1057,7 +1058,7 @@ export class CasperApp {
    * within the repair budget, to add a test that fails without it; checks and comparison rerun. */
   private async proveChange(input: {
     baseline?: ChangeBaseline; baselineUnavailable?: string; before: Map<string, string>; root: string; command: string;
-    request: string; checks: readonly ProjectCommand[]; verification: VerificationReport; session: RuntimeSession;
+    request: string; checks: readonly CheckName[]; verification: VerificationReport; session: RuntimeSession;
   }): Promise<{ verification: VerificationReport; proof?: ChangeProof }> {
     const context = this.projectContext!;
     const compare = async (): Promise<ChangeProof | undefined> => {
@@ -1114,7 +1115,7 @@ export class CasperApp {
 
 
   async runVerification(
-    checks: readonly ProjectCommand[],
+    checks: readonly CheckName[],
     repair: boolean,
     request = `Make the selected verification checks pass: ${checks.join(", ")}.`,
     task?: VerificationTask,
@@ -1196,10 +1197,11 @@ export class CasperApp {
   async checksPlan(context: ProjectContext): Promise<ChecksPlan> {
     const flag = this.verificationFlag;
     const configured = context.verification.mode;
-    const checks = selectedChecks(context.verification.checks, context.model.commands);
-    const measuredMs = flag || configured || !this.interactive ? undefined : await measuredCheckTime(context.stateDirectory, checks, context.model.commands);
+    const checks = selectedChecks(context.verification.checks, context.model.commands, context.model.namedChecks);
+    const measuredMs = flag || configured || !this.interactive ? undefined : await measuredCheckTime(context.stateDirectory, checks, checkCommands(context.model));
     const mode = resolveVerificationMode({ flag, configured, interactive: this.interactive, measuredMs });
-    return { mode, checks, ...(mode === "offer" && measuredMs !== undefined ? { slow: true } : {}) };
+    const manual = manualChecks(checks, context.model.namedChecks);
+    return { mode, checks, ...(mode === "offer" && measuredMs !== undefined ? { slow: true } : {}), ...(manual.length ? { manual } : {}) };
   }
 
   /** Before a request runs: with no model, pick one for a signed-in provider, or open sign-in (then pick);
@@ -1243,7 +1245,7 @@ export class CasperApp {
     const held = this.taskBaseline;
     const context = this.projectContext;
     if (!held || !context) return true;
-    const names = failures.map((failure) => failure.name).filter((name) => context.model.commands[name]?.trim());
+    const names = failures.map((failure) => failure.name).filter((name): name is ProjectCommand => isBuiltinCheck(name) && Boolean(context.model.commands[name]?.trim()));
     if (!names.length) return true;
     this.events.ensureLineBreak();
     this.output.write(`… Casper checking whether ${names.join(", ")} failed before this change too\n`);
