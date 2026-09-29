@@ -225,6 +225,9 @@ export class CapabilityBroker {
       ...(notes.length || noPreview ? { hint: { ...(notes.length ? { executeNote: notes.join(" ") } : {}), ...(noPreview ? { noPreview } : {}) } } : {}),
     });
     const label = planLabel(plan);
+    // A router call is judged by the real tools it runs: a write behind a read router is refused
+    // like the write tool itself while writes are off (or for a read-only login).
+    this.refuseByPolicy(capability, label);
     // The one opt-in: the user let plain Junos show commands run without asking. Anything the AI
     // set to skip a check still asks.
     const optedIn = guard === "allow" && !plan.routed.length && !plan.routerUnclear
@@ -236,6 +239,7 @@ export class CapabilityBroker {
     if (current.fingerprint !== capability.fingerprint) throw new NotExecutedError("tool changed; search again");
     // Writes turned off (ctrl+o) while the box was open: the yes no longer counts.
     if (current.hidden) throw new NotExecutedError(current.hidden);
+    this.refuseByPolicy(current, label);
     if (typeof guardArguments(current.policy.match, current.tool, frozenArgs, { writes: this.writes(current.policy), showOptIn: current.policy.showOptIn }) === "object") {
       throw new NotExecutedError(writesOffReason(capability.descriptor.source));
     }
@@ -302,6 +306,15 @@ export class CapabilityBroker {
   }
 
   private writes(policy: ServerPolicy): "off" | "on" { return this.writesGate ? policy.writes : "on"; }
+
+  /** The same hiding rule as sync(), applied to the label a call is judged by (a router's real tools). */
+  private refuseByPolicy(capability: Capability, label: CapabilitySafety): void {
+    const { policy, tool } = capability;
+    const server = capability.descriptor.source;
+    const access = policy.access?.state ?? "unknown";
+    if (access === "read-only" && isHidden(undefined, tool, label, { writes: "on", access })) throw new NotExecutedError(readOnlyLoginReason(server));
+    if (isHidden(undefined, tool, label, { writes: this.writes(policy), access: "unknown" })) throw new NotExecutedError(writesOffReason(server));
+  }
 
   private sync(): void {
     const revision = this.manager.catalogRevision;
