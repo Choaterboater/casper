@@ -123,6 +123,15 @@ the task mentions a dev, HTTP or web server, `localhost`, an endpoint or `curl`.
 tasks it is left out, so it costs no prompt tokens. Services the model starts belong to
 the session like declared ones, and `/services` lists and controls them too.
 
+## Dev servers for page checks
+
+In a web project Casper starts the dev server itself to open changed pages after a change (see
+[page checks](VERIFICATION.md#page-checks)). A declared `services.web` (or the only declared service of
+a web project) is used as it is. Otherwise Casper runs the package.json `dev` script with its own port
+flags, or a Streamlit app with the project's `.venv` Python, in a `web` slot of its own. Casper never
+installs packages for it. That slot lives for the session like a declared service and shows in
+`/services`.
+
 ## Lifetime
 
 Services belong to the session, not to one task. They keep running between prompts, so a
