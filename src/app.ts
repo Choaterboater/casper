@@ -916,6 +916,7 @@ export class CasperApp {
     this.events.ensureLineBreak();
     if ("error" in result) {
       this.output.write(`• Checklist not made: ${result.error.replace(/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g, " ")}\n`);
+      this.steps.skip("checklist"); this.terminal.setSteps(this.steps.text());
       return undefined;
     }
     let cases = result.cases;
@@ -931,6 +932,7 @@ export class CasperApp {
       const kept = answer ? normalizeCases(answer) : [];
       if (!kept.length) {
         this.output.write("[checklist] skipped; the task starts without one\n");
+        this.steps.skip("checklist"); this.terminal.setSteps(this.steps.text());
         return undefined;
       }
       edited = kept.join("\n") !== cases.join("\n");

@@ -57,3 +57,9 @@ test("the footer timer pauses while a question waits for the user", async () => 
     session.terminal.setSteps(undefined);
   } finally { session.close(); }
 }, 15_000);
+
+test("a stage that ended without doing its job reads skipped, never ✓", () => {
+  const rail = new StepRail();
+  rail.update("checklist", "start"); rail.update("checklist", "end"); rail.skip("checklist"); rail.update("task", "start");
+  expect(rail.text()).toBe("checklist skipped · building");
+});
