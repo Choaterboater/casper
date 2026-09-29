@@ -282,9 +282,11 @@ export interface SecurityCommand {
   strict: boolean;
   /** Install missing tools first. A run without it never installs anything. */
   install: boolean;
+  /** A saved tools/list reply of an MCP server: turns on mcp-scanner, which checks the tool descriptions. */
+  mcpTools?: string;
 }
 
-export const SECURITY_USAGE = "Usage: casper security [repo] [--json] [--strict] [--install]";
+export const SECURITY_USAGE = "Usage: casper security [repo] [--json] [--strict] [--install] [--mcp-tools <file>]";
 const SECURITY_FLAGS = new Set(["--json", "--strict", "--install"]);
 const PATH_LIKE = /^(?:\.{1,2}(?:[\\/]|$)|~(?:[\\/]|$)|[\\/]|[A-Za-z]:[\\/])|[\\/]/;
 
@@ -292,7 +294,7 @@ const PATH_LIKE = /^(?:\.{1,2}(?:[\\/]|$)|~(?:[\\/]|$)|[\\/]|[A-Za-z]:[\\/])|[\\
  * looks like a path (./app, ~/code/app) or is a folder that is there (`casper security app`), so a folder
  * name never turns into a paid prompt. */
 function isSecurityCommand(rest: readonly string[]): boolean {
-  const words = rest.filter((arg) => !arg.startsWith("-"));
+  const words = rest.filter((arg, index) => !arg.startsWith("-") && rest[index - 1] !== "--mcp-tools");
   return words.length === 0 || (words.length === 1 && (PATH_LIKE.test(words[0]!) || isFolder(words[0]!)));
 }
 
@@ -304,8 +306,14 @@ function isFolder(word: string): boolean {
 export function parseSecurityArgs(rest: readonly string[]): SecurityCommand {
   const result: SecurityCommand = { repo: ".", json: false, strict: false, install: false };
   let repo: string | undefined;
-  for (const arg of rest.slice(1)) {
-    if (arg.startsWith("-")) {
+  const args = rest.slice(1);
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index]!;
+    if (arg === "--mcp-tools") {
+      const file = args[++index];
+      if (!file || file.startsWith("-") || result.mcpTools !== undefined) throw new UsageError(SECURITY_USAGE);
+      result.mcpTools = file;
+    } else if (arg.startsWith("-")) {
       if (!SECURITY_FLAGS.has(arg)) throw new UsageError(`Unknown option ${arg}. ${SECURITY_USAGE}`);
       result[arg.slice(2) as "json" | "strict" | "install"] = true;
     } else if (repo !== undefined || !arg.trim()) throw new UsageError(SECURITY_USAGE);

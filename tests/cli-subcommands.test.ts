@@ -49,9 +49,12 @@ test("casper security <folder> is the command when the folder is there, even wit
 
 test("a subcommand takes its own flags, never Casper's leading options", () => {
   expect(() => parseCliArgs(["--verbose", "new", "--list"])).toThrow(UsageError);
-  expect(() => parseCliArgs(["--json", "security"])).toThrow("security takes its own flags. Usage: casper security [repo] [--json] [--strict] [--install]");
+  expect(() => parseCliArgs(["--json", "security"])).toThrow("security takes its own flags. Usage: casper security [repo] [--json] [--strict] [--install] [--mcp-tools <file>]");
   expect(() => parseSecurityArgs(["security", "--bogus"])).toThrow("Unknown option --bogus");
   expect(parseSecurityArgs(["security", "../app", "--strict", "--install"])).toEqual({ repo: "../app", json: false, strict: true, install: true });
+  expect(parseSecurityArgs(["security", "--mcp-tools", "tools.json"])).toEqual({ repo: ".", json: false, strict: false, install: false, mcpTools: "tools.json" });
+  expect(parseCliArgs(["security", "--mcp-tools", "tools.json"]).command).toBe("security");
+  expect(() => parseSecurityArgs(["security", "--mcp-tools"])).toThrow("Usage: casper security");
 });
 
 test("casper new --list prints the templates with no model and no saved state", async () => {

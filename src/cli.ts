@@ -108,7 +108,11 @@ async function runSecuritySubcommand(cmd: SecurityCommand): Promise<void> {
   const controller = new AbortController();
   const removeShutdownHandlers = installShutdownHandlers({ close: async () => { controller.abort(); } });
   try {
-    const options = { root: folder, homeDir: os.homedir(), strict: cmd.strict, signal: controller.signal, write: progress };
+    // --mcp-tools turns on mcp-scanner with a saved tools/list reply; it is off otherwise (a large install).
+    const mcpTools = cmd.mcpTools ? path.resolve(cmd.mcpTools) : undefined;
+    if (mcpTools && !(await stat(mcpTools).then((entry) => entry.isFile(), () => false))) throw new UsageError(`security: not a file: ${cmd.mcpTools}`);
+    const options = { root: folder, homeDir: os.homedir(), strict: cmd.strict, signal: controller.signal, write: progress,
+      ...(mcpTools ? { mcpScanner: true, mcpToolsJson: mcpTools } : {}) };
     let report = await runSecurityCheck(options);
     if (cmd.install && report.missing.length && !controller.signal.aborted) {
       const installed = await installTools(report.missing, { homeDir: os.homedir(), write: progress });
