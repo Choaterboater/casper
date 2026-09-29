@@ -214,14 +214,32 @@ export function reviewExampleConfigs(configs: ExampleConfig[]): Finding[] {
   return findings;
 }
 
-/** Replaces `${workspaceFolder}` and `/path/to/<repo folder name>` with the real repo path. */
-export function fillPlaceholders(value: string, root: string): string {
-  const base = path.basename(root).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return value.replace(/\$\{workspaceFolder\}/g, root).replace(new RegExp(`/path/to/${base}(?![\\w.-])`, "g"), root);
+/** Replaces `${workspaceFolder}` and `/path/to/<name>` with the real repo path. `<name>` is the repo
+ * folder's name, or the project's own name from pyproject.toml or package.json (a copy of the repo
+ * may sit in a folder with another name). */
+export function fillPlaceholders(value: string, root: string, projectNames: readonly string[] = []): string {
+  const names = [path.basename(root), ...projectNames].filter(Boolean).map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  return value.replace(/\$\{workspaceFolder\}/g, root).replace(new RegExp(`/path/to/(?:${names.join("|")})(?![\\w.-])`, "g"), root);
 }
 
-function fromEntry(name: string, entry: ExampleEntry, source: string, root: string): StartDefinition | undefined {
-  const fill = (value: string) => fillPlaceholders(value, root);
+/** The project's own name, from pyproject.toml `[project] name` or package.json `name`. */
+export async function projectNames(root: string): Promise<string[]> {
+  const names: string[] = [];
+  try {
+    const pyproject = await readFile(path.join(root, "pyproject.toml"), "utf8");
+    const project = /^\[project\]\s*$([\s\S]*?)(?=^\[|(?![\s\S]))/m.exec(pyproject)?.[1] ?? "";
+    const name = /^\s*name\s*=\s*["']([A-Za-z0-9_.-]+)["']/m.exec(project)?.[1];
+    if (name) names.push(name);
+  } catch { /* no pyproject */ }
+  try {
+    const name = (JSON.parse(await readFile(path.join(root, "package.json"), "utf8")) as { name?: unknown }).name;
+    if (typeof name === "string" && /^[A-Za-z0-9_.-]+$/.test(name)) names.push(name);
+  } catch { /* no package.json */ }
+  return names;
+}
+
+function fromEntry(name: string, entry: ExampleEntry, source: string, root: string, names: readonly string[] = []): StartDefinition | undefined {
+  const fill = (value: string) => fillPlaceholders(value, root, names);
   const cwdValue = typeof entry.cwd === "string" ? fill(entry.cwd) : undefined;
   const cwd = cwdValue ? path.resolve(root, cwdValue) : root;
   if (typeof entry.url === "string") {
@@ -254,8 +272,8 @@ export async function startDefinition(root: string, cmd: McpCheckCommand, config
   }
   if (config.start) {
     const definition = Array.isArray(config.start)
-      ? fromEntry(name, { command: config.start[0], args: config.start.slice(1) }, ".casper/mcp-check.json", root)
-      : fromEntry(name, config.start, ".casper/mcp-check.json", root);
+      ? fromEntry(name, { command: config.start[0], args: config.start.slice(1) }, ".casper/mcp-check.json", root, await projectNames(root))
+      : fromEntry(name, config.start, ".casper/mcp-check.json", root, await projectNames(root));
     if (definition) return definition;
   }
   const all = configs ?? await findExampleConfigs(root);
@@ -265,9 +283,10 @@ export async function startDefinition(root: string, cmd: McpCheckCommand, config
     .sort((a, b) => preferred(a.file) - preferred(b.file) || a.file.localeCompare(b.file));
   const ordered = [...START_FILES.map((file) => byFile.get(file)).filter((entry): entry is ExampleConfig => Boolean(entry)), ...examples];
   let http: StartDefinition | undefined;
+  const names = await projectNames(root);
   for (const example of ordered) {
     for (const [entryName, entry] of Object.entries(example.entries)) {
-      const definition = fromEntry(entryName, entry, example.file, root);
+      const definition = fromEntry(entryName, entry, example.file, root, names);
       if (definition?.type === "stdio") return definition;
       http ??= definition;
     }

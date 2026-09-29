@@ -82,6 +82,16 @@ test("the start definition replaces /path/to/<repo> and ${workspaceFolder} with 
   });
 });
 
+test("a copy of the repo in another folder still fills /path/to/<project name>", async () => {
+  const root = await repo({
+    "pyproject.toml": '[build-system]\nrequires = ["x"]\n\n[project]\nname = "hpe-networking-mcp"\nversion = "1"\n',
+    ".mcp.json.example": { mcpServers: { hpe: { command: "/path/to/hpe-networking-mcp/.venv/bin/python3", args: ["/path/to/hpe-networking-mcp/src/tool_router.py", "/path/to/other/file"] } } },
+  }, "hpe-copy");
+  expect(await startDefinition(root, command(), {})).toMatchObject({
+    command: `${root}/.venv/bin/python3`, args: [`${root}/src/tool_router.py`, "/path/to/other/file"],
+  });
+});
+
 test("the start definition order: --, then .casper/mcp-check.json, then example files", async () => {
   const root = await repo({
     ".mcp.json.example": server({}),
