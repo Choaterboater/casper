@@ -70,9 +70,9 @@ A run ends with exactly one `receipt` event, or, when Casper stops before it can
 | `assistant_message` | `text` | One model response's complete text. |
 | `tool_start` | `tool`, `id`, `target` (path, command or pattern; redacted) | A tool call starts. |
 | `tool_end` | `tool`, `id`, `ok`, `ms` | A tool call ends. `ok` is the tool status, not a check result. |
-| `check` | `name`, `command`, `status` (`pass`/`fail`/`skip`), `exit`, `ms`, `recordedBy`, `reused`, `ended`? | Casper recorded a check. `recordedBy` is `casper` (auto mode, `/verify`, repair) or `casper_check` (the model asked for it). `ended` appears only on a failure that was not the code failing: `timeout`, or `no_start` (could not execute, or the shell's exit 126/127). |
+| `check` | `name`, `command`, `status` (`pass`/`fail`/`skip`), `exit`, `ms`, `recordedBy`, `reused`, `ended`?, `kind`?, `label`?, `hosts`?, `summary`? | Casper recorded a check. `recordedBy` is `casper` (auto mode, `/verify`, repair) or `casper_check` (the model asked for it). `ended` appears only on a failure that was not the code failing: `timeout`, or `no_start` (could not execute, or the shell's exit 126/127). Named checks (`verify.checks.<name>`) may add `kind` (`report`: a diff that never passes or fails; `lab`: your own lab devices), `label` (a few words such as `dry run not guaranteed`), `hosts` (lab checks) and `summary` (reports). |
 | `phase` | `phase` (`task`, `checks`, `smoke`, `review`, `proof`, `repair`), `state` (`start`/`end`), `atMs` | A stage of Casper's work starts or ends. `smoke` runs inside `checks`. |
-| `receipt` | `outcome`, `exitCode`, `execution`, `changed`, `changedDuringChecks`, `verificationMode`, `checks`, `repairAttempts`, `turnLimit`, `usage`, `proof`, `proofSkipped`, `review`, `services`, `smoke`, `verdict`, `text` | The run finished. |
+| `receipt` | `outcome`, `exitCode`, `execution`, `changed`, `changedDuringChecks`, `verificationMode`, `checks`, `repairAttempts`, `turnLimit`, `usage`, `proof`, `proofSkipped`, `review`, `services`, `smoke`, `pages`, `checksPassed`, `repairModels`, `bigModel`, `security`, `task`, `undo`, `verdict`, `text` | The run finished. |
 | `error` | `message` | Something failed. |
 
 `receipt.outcome` is one of `verified`, `failed`, `incomplete`, `not_verified`, `unchanged`,
@@ -128,6 +128,15 @@ task or during a repair round, whose baseline is therefore not "before the chang
 passes now), and when available `actual` (`status` and at most 512 characters of body), `reason` and
 `restarted`. Bodies, reasons and crash tails are redacted like other previews (tokens, keys and passwords
 become `<redacted>`).
+
+Fields added in v0.2.16 (all within `v: 1`; each is `null` when it does not apply): `pages` is Casper's last page
+check on the dev server (`status`, `pages` with `path`, `status`, `httpStatus`, `consoleErrors`, `failedRequests`,
+`overlay`?, `serverError`?, and `server`), with console text and logs redacted. `checksPassed` is `true` when the
+checks passed on the final files (the same test the `verified` outcome uses today). `repairModels` lists the model
+each repair used when Casper knows it; `bigModel` is `{ "model", "attempts" }` when the last repair ran on your big
+model. `security` holds counts only (`problems`, `notes`, `notRun`, and each tool's `status`), never finding
+text. `task` is the task's saved receipt number and `undo` is `{ "available", "reason" }`; both stay `null`
+until receipts and undo ship.
 
 ```json
 {"v":1,"type":"check","name":"test","command":"npm run test","status":"pass","exit":0,"ms":412,"recordedBy":"casper","reused":false}

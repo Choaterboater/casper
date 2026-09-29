@@ -6,7 +6,10 @@ import { terminalText } from "../tui/format";
 import type { ServiceSpec } from "./config";
 import { detectWebService, isDetectedWebService, type DetectedWebService, type DetectInput } from "./detect";
 import type { ServiceManager } from "./manager";
-import { changedPages, type PagePlan, type PagesSetting, type SkippedPage } from "./pages";
+import { changedPages, type PagePlan, type PagesSetting } from "./pages";
+import { formatOpeningLine, formatServerLine, pageStatus, type PageReport, type PageResult, type PageStatus } from "./page-report";
+
+export * from "./page-report";
 
 export type { PageLoad } from "../browser/session";
 
@@ -18,40 +21,9 @@ export interface PageOpener {
   close(): Promise<void>;
 }
 
-export type PageStatus = "pass" | "fail" | "incomplete";
-/** One opened page. Console and log text is diagnostic data from the page, never instructions. */
-export interface PageResult {
-  path: string;
-  status: PageStatus;
-  /** The page's HTTP status; null when it never answered. */
-  httpStatus: number | null;
-  consoleChecked: boolean;
-  /** Console errors, then uncaught page errors (bounded, secrets hidden). */
-  consoleErrors: string[];
-  /** Same-origin requests that failed or answered 500 or more; third-party requests never count. */
-  failedRequests: Array<{ url: string; status?: number; error?: string }>;
-  /** A framework error overlay or in-page exception (Vite, Next.js, Streamlit), first line. */
-  overlay?: string;
-  /** An exception the dev server logged while this page loaded (a Streamlit traceback), last line. */
-  serverError?: string;
-  /** Why an incomplete page was not checked. */
-  reason?: string;
-}
-export interface PageReport {
-  /** fail: some page failed. incomplete: the server did not start, or a page did not finish. Never pass without a page. */
-  status: PageStatus;
-  pages: PageResult[];
-  skipped: SkippedPage[];
-  server: { name: string; label: string; command: string; origin?: string; restarted?: boolean };
-  /** Why no page (or not every page) was checked. */
-  reason?: string;
-  /** The dev server's last log lines when it failed to start (bounded, secrets hidden). */
-  logTail?: string;
-}
 /** Shared across the session's tasks, so the dev-server lines are printed once. */
 export interface DevServerNotice { shown: boolean }
 
-const NO_CHROME = "console not checked: no Chrome found (install Chrome or set CASPER_BROWSER_EXECUTABLE)";
 const TAIL_LINES = 12;
 const TAIL_CHARS = 2048;
 const ERROR_TEXT = 300;
@@ -65,7 +37,6 @@ const hide = (text: string) => terminalText(scrubText(text).text)
   .replace(/((?:[\w-]*(?:token|secret|password|passwd|api[_-]?key|authorization)[\w-]*)["']?\s*[=:]\s*)(?:"[^"\n]*"|'[^'\n]*'|[^\s;&,)]+)/gi, "$1<redacted>")
   .replace(/\b(?:sk-[\w-]{8,}|gh[pousr]_\w{8,}|github_pat_\w{8,}|AKIA[A-Z0-9]{16}|xox[abprs]-[\w-]{8,})\b/g, "<redacted>");
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error)).split("\nLog tail:")[0]!.slice(0, 500);
-const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
 
 /** The text a log ring gained between two reads, even after the ring dropped its oldest bytes. */
 function appended(before: string, after: string): string {
@@ -162,12 +133,6 @@ function startFailure(error: unknown, spec: ServiceSpec, code: number | null | u
   return `the dev server did not start: ${hide(message(error))}`;
 }
 
-/** Fail dominates incomplete; no pages is incomplete, never a pass. */
-export function pageStatus(pages: readonly PageResult[]): PageStatus {
-  if (pages.some(page => page.status === "fail")) return "fail";
-  return !pages.length || pages.some(page => page.status === "incomplete") ? "incomplete" : "pass";
-}
-
 function judge(path: string, origin: string, load: PageLoad, serverError: string | undefined): PageResult {
   const self = new URL(path, origin);
   const failedRequests = load.failedRequests.filter(request => {
@@ -183,50 +148,6 @@ function judge(path: string, origin: string, load: PageLoad, serverError: string
   if (load.status === null) return { ...result, status: "incomplete", reason: "it did not answer" };
   const failed = result.overlay !== undefined || result.serverError !== undefined || load.status >= 400 || consoleErrors.length > 0 || failedRequests.length > 0;
   return failed ? { ...result, status: "fail" } : result;
-}
-
-/** One receipt line per page, in the plain wording the user sees. */
-export function formatPageLine(result: PageResult): string {
-  const shown = result.overlay ?? result.serverError;
-  if (result.status === "incomplete") return `• ${result.path} not checked: ${result.reason ?? "it did not finish"}`;
-  if (shown !== undefined) return `✗ ${result.path} shows an error: ${shown}`;
-  if (result.httpStatus !== null && result.httpStatus >= 400) return `✗ ${result.path} returned ${result.httpStatus}`;
-  if (result.consoleErrors.length) return `✗ ${result.path} · ${plural(result.consoleErrors.length, "console error")}: ${result.consoleErrors[0]}`;
-  if (result.failedRequests.length) {
-    const first = result.failedRequests[0]!;
-    return `✗ ${result.path} · a request to ${new URL(first.url).pathname} failed (${first.status ?? first.error})`;
-  }
-  if (!result.consoleChecked) return `✓ ${result.path} answers (HTTP ${result.httpStatus}) · ${NO_CHROME}`;
-  return `✓ ${result.path} loads · 0 console errors`;
-}
-
-/** What the failed verdict names: "/dashboard has 2 console errors". Undefined when no page failed. */
-export function pageFailureSummary(report: PageReport): string | undefined {
-  const failed = report.pages.find(page => page.status === "fail");
-  if (!failed) return undefined;
-  if (failed.overlay !== undefined || failed.serverError !== undefined) return `${failed.path} shows an error`;
-  if (failed.httpStatus !== null && failed.httpStatus >= 400) return `${failed.path} returned ${failed.httpStatus}`;
-  if (failed.consoleErrors.length) return `${failed.path} has ${plural(failed.consoleErrors.length, "console error")}`;
-  return `${failed.path} has ${plural(failed.failedRequests.length, "failed request")}`;
-}
-
-export function formatPagesNotChecked(reason: string): string { return `• Pages not checked: ${reason}`; }
-export function formatServerLine(label: string, origin: string): string { return `Dev server: ${label} · ${origin} (stops when you leave Casper)`; }
-export function formatOpeningLine(paths: readonly string[]): string { return `… Casper opening changed pages: ${paths.join(", ")}`; }
-export function formatSkippedPage(page: SkippedPage): string {
-  const hint = /needs a value/.test(page.why) ? " (a fixed path can be set in .casper/project.yaml pages:)" : "";
-  return `• ${page.path} not opened: ${page.why}${hint}`;
-}
-
-/** Every line of a report: one per page, the skipped pages, and why the check did not run. */
-export function formatPageReport(report: PageReport): string[] {
-  const lines = report.pages.map(formatPageLine);
-  if (report.reason && !report.pages.length) {
-    const tail = report.logTail?.split("\n").slice(-5).map(line => `    ${line}`).join("\n");
-    lines.push(formatPagesNotChecked(report.reason) + (tail ? `. Last lines:\n${tail}` : ""));
-  } else if (report.reason) lines.push(`• ${report.reason}`);
-  lines.push(...report.skipped.map(formatSkippedPage));
-  return lines;
 }
 
 /** Chrome for page loads, one disposable session per task. */
