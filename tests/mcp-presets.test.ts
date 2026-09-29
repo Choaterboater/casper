@@ -1,10 +1,10 @@
 import { afterEach, expect, test } from "bun:test";
 import path from "node:path";
 import type { CapabilitySafety } from "../src/capabilities/broker";
-import { CapabilityBroker } from "../src/capabilities/broker";
 import type { MCPServerDefinition } from "../src/mcp/config";
 import { MCPManager, type MCPTool } from "../src/mcp/manager";
 import { gatesConfirmedOff, parseAccessCheck } from "../src/mcp/access";
+import { toolLabel } from "../src/capabilities/labels";
 import {
   PRESETS, SAFETY_ORDER, approvalNotes, guardArguments, hasNoPreview, isHidden, isPlainJunosShow, matchPreset, ownSettingsNote,
   planPins, presetById, presetLine, rememberBlock, runnerPin, safetyRank, tightenSafety, writesTitle, type PresetMatch,
@@ -41,13 +41,9 @@ async function fixtureTools(mode: string): Promise<{ tools: MCPTool[]; labels: M
   cleanup.push(() => manager.close());
   await manager.connect("net");
   const tools = manager.catalog()[0]!.tools;
-  const broker = new CapabilityBroker(manager);
-  const labels = new Map<string, CapabilitySafety>();
-  for (const item of tools) {
-    const found = broker.search(item.name.replaceAll("_", " "), 10).find((descriptor) => descriptor.name === item.name);
-    if (!found) throw new Error(`no label for ${item.name}`);
-    labels.set(item.name, found.safety);
-  }
+  // The label before any preset: what the broker's label pipeline gives each tool. (Search can't be
+  // used here: a read-only login from access_check hides the non-read tools.)
+  const labels = new Map<string, CapabilitySafety>(tools.map((item) => [item.name, toolLabel(item)]));
   return { tools, labels };
 }
 

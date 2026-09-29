@@ -1,11 +1,13 @@
 import { createHash } from "node:crypto";
 import { isRecord } from "../mcp/config";
-import type { MCPManager, MCPTool } from "../mcp/manager";
+import type { MCPManager, MCPTool, ServerPolicy } from "../mcp/manager";
+import { accessModelLines, readOnlyLoginReason, writesOffReason } from "../mcp/access";
+import { approvalNotes, guardArguments, hasNoPreview, isHidden, tightenSafety } from "../mcp/presets";
 import type { RuntimeTool } from "../runtime/types";
 import { redactPreview } from "../tui/format";
 import { scrubText } from "../secrets/scrub";
 import {
-  buildPlan, canPreview, maskText, needsApproval, planLabel, planMode, previewArguments, previewKey,
+  aiConfirm, buildPlan, canPreview, maskText, needsApproval, planLabel, planMode, previewArguments, previewKey, previewSwitchedOff,
   type ApprovalPlan, type LastPreview,
 } from "./approval";
 import { toolLabel } from "./labels";
@@ -33,6 +35,9 @@ interface Capability {
   nameWords: Set<string>;
   descriptionWords: Set<string>;
   validate?: CompiledValidator;
+  /** Left out of search, listings and task tools; a call is refused with this reason. */
+  hidden?: string;
+  policy: ServerPolicy;
 }
 /** One page of the `find_capability({ query: "*" })` listing. */
 export interface CapabilityListPage {
@@ -102,7 +107,17 @@ export class CapabilityBroker {
   private readonly closed = new AbortController();
   /** The last preview of each call (server, real tool, arguments without the preview switch), per connection. */
   private previews = new Map<string, LastPreview>();
-  constructor(private readonly manager: MCPManager, private readonly confirm?: ConfirmCapability) {}
+  /** Per-server lines for find_capability's description (read-only logins, writes off). */
+  private modelLines: string[] = [];
+  private readonly writesGate: boolean;
+  /**
+   * `writesGate`: honour each server's writes switch (the app turns this on, so every server starts
+   * with writes off). Brokers built directly treat writes as on. Presets, read-only logins and
+   * argument guards apply either way; they only ever restrict.
+   */
+  constructor(private readonly manager: MCPManager, private readonly confirm?: ConfirmCapability, options: { writesGate?: boolean } = {}) {
+    this.writesGate = options.writesGate ?? false;
+  }
 
   async prepare(task: string): Promise<RuntimeTool[]> {
     if (this.closed.signal.aborted) return [];
@@ -129,7 +144,7 @@ export class CapabilityBroker {
       if (revision !== this.indexedRevision) throw new NotExecutedError("old page", 'The tool list changed since that page. Start again with query "*".');
       offset = start;
     }
-    const all = [...this.capabilities.values()].sort((a, b) => order(a.descriptor.source, b.descriptor.source) || order(a.descriptor.name, b.descriptor.name));
+    const all = [...this.capabilities.values()].filter((c) => !c.hidden).sort((a, b) => order(a.descriptor.source, b.descriptor.source) || order(a.descriptor.name, b.descriptor.name));
     if (offset > all.length || (offset === all.length && offset > 0)) throw new NotExecutedError('bad arguments: field "cursor" is not valid; use next_cursor from the last page');
     const routers = [...new Set(all.filter((c) => c.router).map((c) => c.descriptor.source))].map((server) => ({ server, hint: ROUTER_HINT }));
     const page: CapabilityListPage = { total: all.length, shown: "", items: [], ...(routers.length ? { routers } : {}) };
@@ -152,6 +167,7 @@ export class CapabilityBroker {
   describe(id: string): { capability: CapabilityDescriptor; inputSchema: MCPTool["inputSchema"] } {
     this.sync();
     const capability = this.get(id);
+    if (capability.hidden) throw new NotExecutedError(capability.hidden);
     requireSupportedSchema(capability);
     return structuredClone({ capability: capability.descriptor, inputSchema: capability.tool.inputSchema });
   }
@@ -193,19 +209,36 @@ export class CapabilityBroker {
       const { reason, next } = validatorModule!.argumentProblem(id, checked.problems);
       throw new NotExecutedError(reason, next);
     }
-    // 3. Hidden capabilities and argument guards (WP4 seam).
+    // 3. Hidden capabilities and argument guards: writes off, a read-only login, a preset's rules.
+    if (capability.hidden) throw new NotExecutedError(capability.hidden);
+    const { policy } = capability;
+    const guard = guardArguments(policy.match, capability.tool, frozenArgs, { writes: this.writes(policy), showOptIn: policy.showOptIn });
+    if (typeof guard === "object") throw new NotExecutedError(guard.refuse);
     // 4. Hidden-secret marker gate (WP6 seam).
     // 5. Approval. The call is judged by the real tool behind a router, and the AI can never skip it:
     // confirm/force set to true or a preview switch set to false asks even for a read tool.
+    const notes = approvalNotes(policy.match, capability.tool);
+    const noPreview = hasNoPreview(policy.match, capability.tool);
     const plan = buildPlan({
       server: capability.descriptor.source, tool: capability.tool.name, label: capability.descriptor.safety,
       schema: capability.tool.inputSchema, arguments: frozenArgs,
+      ...(notes.length || noPreview ? { hint: { ...(notes.length ? { executeNote: notes.join(" ") } : {}), ...(noPreview ? { noPreview } : {}) } } : {}),
     });
     const label = planLabel(plan);
-    const approved = needsApproval(plan) ? await this.approve(capability, plan, combined) : undefined;
+    // The one opt-in: the user let plain Junos show commands run without asking. Anything the AI
+    // set to skip a check still asks.
+    const optedIn = guard === "allow" && !plan.routed.length && !plan.routerUnclear
+      && aiConfirm(plan.arguments).length === 0 && previewSwitchedOff(plan.arguments).length === 0;
+    const approved = needsApproval(plan) && !optedIn ? await this.approve(capability, plan, combined) : undefined;
     notCancelled(combined);
     this.sync();
-    if (this.get(id).fingerprint !== capability.fingerprint) throw new NotExecutedError("tool changed; search again");
+    const current = this.get(id);
+    if (current.fingerprint !== capability.fingerprint) throw new NotExecutedError("tool changed; search again");
+    // Writes turned off (ctrl+o) while the box was open: the yes no longer counts.
+    if (current.hidden) throw new NotExecutedError(current.hidden);
+    if (typeof guardArguments(current.policy.match, current.tool, frozenArgs, { writes: this.writes(current.policy), showOptIn: current.policy.showOptIn }) === "object") {
+      throw new NotExecutedError(writesOffReason(capability.descriptor.source));
+    }
     // 6. Call, under the per-server call clock. Only an approved call may carry server questions to the user.
     const raw = await this.manager.call(capability.descriptor.source, capability.tool.name, frozenArgs, combined,
       approved ? { approved: { capabilityId: id, realTool: approved, label } } : {});
@@ -268,18 +301,31 @@ export class CapabilityBroker {
     return this.manager.close();
   }
 
+  private writes(policy: ServerPolicy): "off" | "on" { return this.writesGate ? policy.writes : "on"; }
+
   private sync(): void {
     const revision = this.manager.catalogRevision;
     if (revision === this.indexedRevision) return;
     const next = new Map<string, Capability>();
+    const lines: string[] = [];
     if (!this.closed.signal.aborted) for (const { server, generation, tools } of this.manager.catalog()) {
       const routed = tools.some((tool) => tool.name === "find_tool") && tools.some((tool) => tool.name === "invoke_read_tool");
+      const policy = this.manager.policy(server);
+      const writes = this.writes(policy);
+      const access = policy.access?.state ?? "unknown";
+      // Built from the server's name and Casper's parsed state only; never from server text.
+      lines.push(...accessModelLines(server, policy.access, writes));
       for (const tool of tools) {
         const id = `mcp:${encodeURIComponent(server)}:${encodeURIComponent(tool.name)}`;
+        // A preset can only make the label stricter.
+        const safety = tightenSafety(policy.match, tool, toolLabel(tool));
         const descriptor: CapabilityDescriptor = {
           id, source: server, name: tool.name, description: (tool.description ?? "").slice(0, 1024),
-          tags: [], safety: toolLabel(tool), schemaRef: id,
+          tags: [], safety, schemaRef: id,
         };
+        const hidden = access === "read-only" && isHidden(policy.match, tool, safety, { writes: "on", access })
+          ? readOnlyLoginReason(server)
+          : isHidden(policy.match, tool, safety, { writes, access: "unknown" }) ? writesOffReason(server) : undefined;
         const tags = tool._meta?.tags;
         if (Array.isArray(tags)) descriptor.tags = tags.filter((tag): tag is string => typeof tag === "string").slice(0, 8).map((tag) => tag.slice(0, 64));
         next.set(id, {
@@ -291,10 +337,12 @@ export class CapabilityBroker {
           schemaBytes: Buffer.byteLength(JSON.stringify(JSON.stringify(tool.inputSchema))),
           nameWords: indexWords(`${descriptor.name} ${descriptor.source} ${descriptor.tags.join(" ")}`),
           descriptionWords: indexWords(descriptor.description),
+          ...(hidden ? { hidden } : {}), policy,
         });
       }
     }
     this.capabilities = next;
+    this.modelLines = lines.sort(order);
     this.indexedRevision = revision;
     // A reconnect or a changed tool list makes old previews stale.
     this.previews.clear();
@@ -309,7 +357,7 @@ export class CapabilityBroker {
   /** Plural-aware word match. `prefix` (search only) also lets a 5+ letter word match the start of a name word. */
   private rank(query: string, options: { prefix?: boolean } = {}): Capability[] {
     const terms = tokenize(query);
-    return [...this.capabilities.values()].map((capability) => {
+    return [...this.capabilities.values()].filter((capability) => !capability.hidden).map((capability) => {
       return { capability, score: terms.reduce((score, term) => score + termScore(term, capability.nameWords, capability.descriptionWords, options), 0) };
     }).filter(({ score }) => score > 0).sort((a, b) => b.score - a.score || a.capability.descriptor.id.localeCompare(b.capability.descriptor.id))
       .map(({ capability }) => capability);
@@ -317,6 +365,8 @@ export class CapabilityBroker {
 
   private toolsForTask(task: string): RuntimeTool[] {
     if (!this.manager.status().length) return [];
+    // Stable per-server lines (sorted, parsed state only), so the prompt stays the same between tasks.
+    const serverNotes = this.modelLines.length ? ` ${this.modelLines.join(" ")}` : "";
     // A call that may need approval runs one at a time, so two approval prompts never race.
     const wrap = (name: string, description: string, inputSchema: Record<string, unknown>, execute: RuntimeTool["execute"], sequential = false): RuntimeTool => ({
       name, description, inputSchema, ...(sequential ? { sequential } : {}),
@@ -330,7 +380,7 @@ export class CapabilityBroker {
       },
     });
     const tools: RuntimeTool[] = [
-      wrap("find_capability", 'Search connected MCP tools by words, or use query "*" to list every tool, 50 at a time (pass next_cursor to see more). Or give one exact id to get its full input schema as a JSON string in inputSchemaJson (parse it before calling). Leave unused fields empty. No server calls. Results stay under 16 KB. If nothing is connected, ask the user to /mcp connect a server.', {
+      wrap("find_capability", `Search connected MCP tools by words, or use query "*" to list every tool, 50 at a time (pass next_cursor to see more). Or give one exact id to get its full input schema as a JSON string in inputSchemaJson (parse it before calling). Leave unused fields empty. No server calls. Results stay under 16 KB. If nothing is connected, ask the user to /mcp connect a server.${serverNotes}`, {
         type: "object", properties: { query: { type: "string" }, id: { type: "string" }, cursor: { type: "string" } }, additionalProperties: false,
       }, async (args) => {
         const id = typeof args.id === "string" ? args.id.trim() : "";
@@ -357,7 +407,7 @@ export class CapabilityBroker {
       }, true),
     ];
     // Native routers are intentionally preferred over flattening their catalog.
-    const routers = [...this.capabilities.values()].filter((c) => c.router).sort((a, b) => a.descriptor.id.localeCompare(b.descriptor.id));
+    const routers = [...this.capabilities.values()].filter((c) => c.router && !c.hidden).sort((a, b) => a.descriptor.id.localeCompare(b.descriptor.id));
     const routedServers = new Set(routers.map((c) => c.descriptor.source));
     const candidates = [...routers, ...this.rank(task).filter((c) => !routedServers.has(c.descriptor.source))];
     let schemaBytes = 0;
