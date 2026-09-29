@@ -110,12 +110,16 @@ function session(place: { home: string; project: string }, turns: Turn[], sessio
 test("one-shot: the receipt says how to undo; casper /undo in a later run puts the file back", async () => {
   const place = await folder();
   const first = makeApp(place, [edit("notes.py", "print('two')\n")]);
+  const started = process.cwd();
   try {
+    // Started in the project's own folder (here a subfolder of it), the command needs no folder.
+    await mkdir(path.join(place.project, "sub"));
+    process.chdir(path.join(place.project, "sub"));
     await first.app.runOnce("fix the greeting in notes.py", place.project);
     expect(first.output()).toContain("Undo: casper /undo 1 · Diff: casper /diff 1\n");
     const task = first.app.getLastTaskResult()!;
     expect(receiptEvent(undefined, task, taskExitCode(undefined, task))).toMatchObject({ task: 1, undo: { available: true, reason: null } });
-  } finally { await first.app.close(); }
+  } finally { process.chdir(started); await first.app.close(); }
   const later = makeApp(place, []);
   try {
     await later.app.runOnce("/undo", place.project);
@@ -266,7 +270,7 @@ posixOnly("with git missing, the receipt says undo is not available and why", as
     process.env.PATH = path.join(place.root, "no-git-here");
     await made.app.runOnce("fix the greeting", place.project);
     expect(made.output()).toContain("• Undo not available: git is not installed\n");
-    expect(made.output()).not.toContain("Undo: casper /undo");
+    expect(made.output()).not.toContain("Undo: casper");
   } finally { process.env.PATH = saved; await made.app.close(); }
 }, 30_000);
 
@@ -332,4 +336,17 @@ test("/status says how much disk the undo copies take, and where", async () => {
     await made.app.runOnce("/status", place.project);
     expect(made.output()).toMatch(/ undo {6}copies of recent tasks take \d+(?:\.\d)? (?:KB|MB) in ~\/\.casper\/projects\/project-[0-9a-f]+\/undo\.git \(\/undo, \/diff\)\n/);
   } finally { await made.app.close(); }
+}, 30_000);
+
+test("one-shot with --cd: the undo command names the task's folder, so it never undoes another project's task", async () => {
+  const place = await folder();
+  const elsewhere = path.join(place.root, "elsewhere");
+  await mkdir(elsewhere);
+  const made = makeApp(place, [edit("notes.py", "print('two')\n")]);
+  const started = process.cwd();
+  try {
+    process.chdir(elsewhere);
+    await made.app.runOnce("fix the greeting in notes.py", place.project);
+    expect(made.output()).toContain(`Undo: casper --cd ${place.project} /undo 1 · Diff: casper --cd ${place.project} /diff 1\n`);
+  } finally { process.chdir(started); await made.app.close(); }
 }, 30_000);

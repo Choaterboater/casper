@@ -495,6 +495,14 @@ export class CasperApp {
     return this.interactive ? "interactive" : "one-shot";
   }
 
+  /** A one-shot run in another folder (`--cd`): its undo command names that folder. */
+  private receiptFolder(root: string): { folder?: string } {
+    if (this.interactive) return {};
+    const relative = path.relative(root, process.cwd());
+    const inside = relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+    return inside ? {} : { folder: tildePath(root, this.sessionHomeDir ?? os.homedir()) };
+  }
+
   /** Last normal coding/chat request; local commands other than /receipt clear it. Not acceptance evidence. */
   getLastTaskResult(): TaskResult | undefined {
     return this.lastTaskResult ? structuredClone(this.lastTaskResult) : undefined;
@@ -1359,7 +1367,7 @@ export class CasperApp {
         if (classification.intent !== "general" || execution !== "completed" || verification || browser?.checks.length || observations.possibleMutations || observations.changedPaths?.length || observations.changedDuringChecks?.length || observations.observedEdits.length || observations.observedChecks.length) {
           // The second copy and the saved receipt; the change summary lists only this task's files.
           const { stat } = await this.taskUndo.finish(undoStart, { request: prompt, task: this.lastTaskResult, session, servers: [...this.taskChangeServers] });
-          this.output.write(`${this.verbose ? formatTaskResult(this.lastTaskResult) : formatReceipt(this.lastTaskResult, { surface: this.receiptSurface() })}\n`);
+          this.output.write(`${this.verbose ? formatTaskResult(this.lastTaskResult) : formatReceipt(this.lastTaskResult, { surface: this.receiptSurface(), ...this.receiptFolder(workspaceRoot) })}\n`);
           if (stat.trim()) this.output.write(stat.endsWith("\n") ? stat : `${stat}\n`);
           if (this.interactive) await this.offerNextSteps(this.lastTaskResult, prompt, classification);
         }

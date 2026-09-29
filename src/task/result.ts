@@ -227,6 +227,9 @@ function formatChangedPaths(paths: string[], safe: (text: string) => string): st
 export interface ReceiptOptions {
   /** Where the next command is typed: a slash command in a session, or a casper invocation. */
   surface?: "interactive" | "one-shot";
+  /** One-shot: the folder the task ran in, when it is not where casper was started (`--cd`), so the printed undo
+   * command acts on this task's folder and never on another project's task of the same number. */
+  folder?: string;
 }
 
 /** The default, plain-language receipt: what changed, what Casper proved, and what to do next.
@@ -293,7 +296,11 @@ function undoLines(task: TaskResult, options: ReceiptOptions, safe: (text: strin
   if (!undo.available) return undo.reason === UNDO_NOTHING_CHANGED ? [] : [`• Undo not available: ${safe(undo.reason).replace(/\.$/, "")}`];
   const lines: string[] = [];
   if (undo.left?.length) lines.push(`• Undo can't put back: ${undo.left.slice(0, RECEIPT_PATH_LIMIT).map((entry) => `${safe(entry.path)} (${safe(entry.why)})`).join(", ")}${undo.left.length > RECEIPT_PATH_LIMIT ? ` … +${undo.left.length - RECEIPT_PATH_LIMIT} more` : ""}`);
-  if (options.surface === "one-shot") lines.push(`Undo: casper /undo${task.receipt ? ` ${task.receipt}` : ""} · Diff: casper /diff${task.receipt ? ` ${task.receipt}` : ""}`);
+  if (options.surface === "one-shot") {
+    const cd = options.folder ? `--cd ${/^[\w./~:@%+=,-]+$/.test(options.folder) ? options.folder : JSON.stringify(options.folder)} ` : "";
+    const n = task.receipt ? ` ${task.receipt}` : "";
+    lines.push(`Undo: casper ${cd}/undo${n} · Diff: casper ${cd}/diff${n}`);
+  }
   return lines;
 }
 
