@@ -61,6 +61,9 @@ Usage:
   casper mcp check [repo]  Check an MCP server you built: its tests, labels and configs (no tool calls unless --live)
   casper mcp check [repo] [--server <name>] [--live] [--quick] [--strict] [--json] [--env NAME=VALUE]... [-- <start command>...]
                                   Runs the repo's own doctor and tests; only run it on repos you trust
+  casper new <template> <name>  Start a new project in ~/Projects (no model; casper new --list shows templates)
+  casper security [repo] [--json] [--strict] [--install]
+                                  Run the security tools on a repo (no model); installs tools only with --install
   casper --cd <path> ...  Work in that folder instead of the current directory
   casper --continue ...  Continue this folder's most recent conversation
   casper --resume <id-prefix> ...  Continue the saved conversation whose ID starts with this
