@@ -12,7 +12,7 @@ import { agentStoreWarnings, importLegacyEngineState, useCasperAgentStore } from
 import { CandidateLibrary, formatLearningResult } from "./learn/candidates";
 import { taskExitCode } from "./task/result";
 import { parseCliArgs, parseLearnArgs, parseMcpCheckArgs, parseNewArgs, parseSecurityArgs, UsageError, type McpCheckCommand,
-  type NewCommand, type SecurityCommand, type SubcommandName } from "./cli-args";
+  type NewCommand, type SecurityCommand, type SubcommandName, type CliOptions } from "./cli-args";
 import type { VerificationMode } from "./verify/mode";
 
 import { redactPreview, terminalText } from "./tui/format";
@@ -122,6 +122,14 @@ async function runSecuritySubcommand(cmd: SecurityCommand): Promise<void> {
   } finally { removeShutdownHandlers(); }
 }
 
+/** `casper new` that opens the app: a person at a terminal (stdin is a TTY, rich or plain) who did not ask
+ * for --list. Undefined for every other command, and for scripts, which get the standalone command. */
+export function terminalNewProject(options: CliOptions, stdinTTY: boolean): NewCommand | undefined {
+  if (options.command !== "new" || !stdinTTY) return undefined;
+  const command = parseNewArgs(options.rest.slice(1));
+  return command && !command.list ? command : undefined;
+}
+
 /** Subcommands that run with no app, no model and no saved state, in one place. `learn` needs Casper's agent store
  * and runs after it is set up. */
 const STANDALONE: Partial<Record<SubcommandName, (rest: string[]) => Promise<void>>> = {
@@ -150,7 +158,10 @@ export async function runCli(): Promise<void> {
     return;
   }
   const learn = options.command === "learn" ? parseLearnArgs(options.rest) : undefined;
-  const standalone = options.command === "prompt" || options.command === "interactive" ? undefined : STANDALONE[options.command];
+  // `casper new` at a terminal asks what is missing and then opens Casper in the new project; scripts
+  // (no terminal) and --list stay standalone, with no app and no model.
+  const newProject = terminalNewProject(options, Boolean(process.stdin.isTTY));
+  const standalone = options.command === "prompt" || options.command === "interactive" || newProject ? undefined : STANDALONE[options.command];
   if (standalone) {
     // No app, no model and no saved state: only the subcommand's own tools run.
     await standalone(options.rest);
@@ -198,12 +209,13 @@ export async function runCli(): Promise<void> {
     }
     return;
   }
-  const prompt = options.promptFromStdin ? await stdinPrompt() : options.rest.join(" ").trim();
+  const prompt = newProject ? "" : options.promptFromStdin ? await stdinPrompt() : options.rest.join(" ").trim();
   // --json: stdout carries only JSON Lines; the banner, transcript and receipt a person reads go to stderr.
   const emit = options.json ? (event: CasperEvent) => { process.stdout.write(formatJsonEvent(event)); } : undefined;
   const app = new CasperApp({ verificationMode: verificationFlag(options), verbose: options.verbose,
     model: options.model, effort: options.effort, maxTurns: options.maxTurns, startupWarnings,
     conversation: options.resume ? { resume: options.resume } : options.continueConversation ? { continue: true } : undefined,
+    ...(newProject ? { newProject: { ...(newProject.template ? { template: newProject.template } : {}), ...(newProject.name ? { name: newProject.name } : {}) } } : {}),
     ...(emit ? { onEvent: emit, output: { write: (text: string) => { process.stderr.write(text); } } } : {}) });
   const removeShutdownHandlers = installShutdownHandlers(app);
 
@@ -220,6 +232,7 @@ export async function runCli(): Promise<void> {
     }
 
     await app.runInteractive();
+    if (app.newProjectExitCode !== undefined) process.exitCode = app.newProjectExitCode;
   } catch (error) {
     // A run ends with a receipt or, when Casper itself stopped, an error event.
     emit?.({ type: "error", message: redactPreview(error instanceof Error ? error.message : String(error)) });

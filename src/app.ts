@@ -79,10 +79,14 @@ import { systemPromptAppend } from "./app/prompt";
 import type { VisualizationProvider } from "./visualize/types";
 import { SessionWorkspaceManager, type ReturnAction } from "./sessions/manager";
 import { runLogin, runSlashCommand, type OutputWriter } from "./app/commands";
-import { UsageError } from "./cli-args";
+import { NEW_USAGE, parseNewArgs, UsageError } from "./cli-args";
 import { checkEvent, phaseEvent, RuntimeEventMapper, sessionStartEvent, type CasperEvent, type PhaseEvent } from "./app/json-events";
 import { StepRail } from "./app/steps";
 import { CASPER_VERSION } from "./version";
+import { askBuildRequest, buildRequestNote, isEmptyFolder, newProjectFromQuestions, newProjectInEmptyFolder, opened,
+  type NewProjectFlow } from "./app/new-project";
+import { listLines } from "./new/command";
+import { tildePath, type NewProjectOptions, type NewProjectResult } from "./new/scaffold";
 
 export type { OutputWriter } from "./app/commands";
 
@@ -127,7 +131,14 @@ export interface CasperAppOptions {
   /** Embedder shorthand: true = "offer" (model-selected casper_check plus bounded repair),
    * false = "off". Ignored when verificationMode is set. */
   autoVerify?: boolean;
+  /** `casper new` on a terminal: ask what is missing, build the project in ~/Projects and open Casper there. */
+  newProject?: { template?: string; name?: string };
+  /** Builds a new project (casper new, the new-project questions and /new); tests pass a fake. */
+  createProject?: (options: NewProjectOptions) => Promise<NewProjectResult>;
 }
+
+/** The last choice of the home-folder and folder-of-projects question. */
+const NEW_PROJECT_CHOICE = "New project";
 
 const LOGIN_PROVIDERS = ["openai-codex", "github-copilot", "anthropic", "openrouter"] as const;
 
@@ -241,6 +252,14 @@ export class CasperApp {
   readonly nextSteps: Array<(task: TaskResult) => { undo?: NextItem; diff?: NextItem; more?: NextItem[] } | undefined> = [];
   observations = new TaskObservations();
   memoryWork?: Promise<void>;
+  private readonly newProjectRequest?: CasperAppOptions["newProject"];
+  private readonly createProjectFn?: CasperAppOptions["createProject"];
+  /** `casper new` on a terminal: the exit code when no project was opened (1 when nothing was created). */
+  newProjectExitCode?: number;
+  /** The build-request question is asked at most once per session. */
+  private newProjectOffered = false;
+  /** This task already showed its one question before work (the new-project question): no checklist panel. */
+  private beforeWorkAsked = false;
 
   constructor(options: CasperAppOptions = {}) {
     const freshPiRuntime = async () => {
@@ -323,6 +342,19 @@ export class CasperApp {
     this.sessionHomeDir = options.sessionHomeDir;
     this.scrubber = options.scrubber ?? new Scrubber();
     this.runGit = options.runGit;
+    this.newProjectRequest = options.newProject;
+    this.createProjectFn = options.createProject;
+  }
+
+  /** The new-project questions go through Casper's own numbered question, on the rich or the plain terminal. */
+  private newProjectFlow(): NewProjectFlow {
+    return {
+      pick: (question, options, signal) => this.terminal.pick(question, options, signal),
+      write: (line) => { if (!this.closing) this.output.write(`${line}\n`); },
+      homeDir: this.sessionHomeDir ?? os.homedir(),
+      ...(this.createProjectFn ? { create: this.createProjectFn } : {}),
+      ...(this.commandAbort ? { signal: this.commandAbort.signal } : {}),
+    };
   }
 
   /** Load all workspace metadata before publishing it. No connections or model startup. */
@@ -418,12 +450,20 @@ export class CasperApp {
     if (!fromHome) {
       if (await hasProjectSignals(cwd) || (await inspectProject(cwd)).isGit) return cwd;
       candidates = await findProjectCandidates(cwd, { homeDir: home });
+      // An empty folder: one numbered question, on either terminal, offers to start a project right here.
+      // Piped input can't answer it, so a pipe gets the command instead.
+      if (!candidates.length && await isEmptyFolder(cwd)) {
+        if (!this.terminal.canAsk) { this.output.write("[folder] This folder is empty. To start a new project here: casper new\n"); return cwd; }
+        const result = await this.newProjectFlowWithAbort((flow) => newProjectInEmptyFolder(flow, cwd));
+        return opened(result) ? result.dir : cwd;
+      }
       if (!candidates.length) return cwd;
     }
     if (!this.terminal.rich) {
       // The CLI takes no folder argument (`casper <path>` is a prompt), so only restarting works.
       this.output.write(fromHome ? `[folder] Opened in your home directory; restart from a project folder: cd ~/Projects/myapp && casper\n`
         : `[folder] This folder holds several projects; restart from one of them: cd ${terminalText(path.relative(cwd, candidates![0]!))} && casper\n`);
+      this.output.write("[folder] To start a new project instead: casper new\n");
       return cwd;
     }
     candidates ??= await findProjectCandidates(cwd, { homeDir: home });
@@ -438,11 +478,16 @@ export class CasperApp {
       [
         ...candidates.slice(0, 6).map(candidate => ({ label: folderLabel(candidate) })),
         { label: folderLabel(cwd), description: fromHome ? "stay in the home folder" : ` stay in ${path.basename(cwd)}` },
+        { label: NEW_PROJECT_CHOICE, description: fromHome ? "start one in ~/Projects" : ` start one in ${path.basename(cwd)}` },
       ],
       false,
     );
     const choice = answer?.[0]?.trim();
     if (!choice) return cwd; // Esc, empty, or the plain-line fallback keeps the launch folder.
+    if (choice === NEW_PROJECT_CHOICE) {
+      const result = await this.newProjectFlowWithAbort((flow) => newProjectFromQuestions(flow, {}, fromHome ? undefined : cwd));
+      return opened(result) ? result.dir : cwd;
+    }
     const resolved = byLabel.get(choice) ?? path.resolve(cwd, choice.replace(/^~(?=\/|$)/, home));
     const relative = path.relative(path.resolve(base), path.resolve(resolved));
     if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
@@ -458,13 +503,33 @@ export class CasperApp {
     return resolved;
   }
 
+  /** Startup questions run before any command, so they get their own cancel (Ctrl+C, close). */
+  private async newProjectFlowWithAbort<T>(work: (flow: NewProjectFlow) => Promise<T>): Promise<T> {
+    const outer = { active: this.commandActive, abort: this.commandAbort };
+    this.commandActive = true;
+    this.commandAbort = outer.abort ?? new AbortController();
+    try { return await work(this.newProjectFlow()); }
+    finally { this.commandActive = outer.active; this.commandAbort = outer.abort; }
+  }
+
   async runInteractive(cwd = process.cwd()): Promise<void> {
     // Own the terminal before the banner so startup output is transcript, not
     // loose text a later redraw would drop.
     this.interactive = true;
     this.terminal.start();
     let workspace = cwd;
-    if (!this.projectContext) workspace = await this.openProjectFolder(cwd);
+    if (!this.projectContext && this.newProjectRequest) {
+      // `casper new` on a terminal: the project first, then Casper opens there. Nothing built: no session.
+      const result = await this.newProjectFlowWithAbort((flow) => newProjectFromQuestions(flow, this.newProjectRequest!));
+      if (!opened(result)) {
+        if (!result && !this.closing) this.output.write("Nothing was created.\n");
+        this.newProjectExitCode = result?.exitCode ?? 1;
+        this.terminal.close();
+        this.interactive = false;
+        return;
+      }
+      workspace = result.dir;
+    } else if (!this.projectContext) workspace = await this.openProjectFolder(cwd);
     if (!this.projectContext) {
       await this.start(workspace);
     }
@@ -750,11 +815,75 @@ export class CasperApp {
 
   /** Local command dispatch moved to app/commands.ts; the app is the command host. */
   private handleSlashCommand(prompt: string): Promise<VerificationReport | undefined> {
+    if (/^\/new(?:\s|$)/.test(prompt)) return this.newProjectCommand(prompt.slice(4).trim()).then(() => undefined);
     return runSlashCommand(this, prompt);
+  }
+
+  /** The workspace can move only before the model starts: the conversation's folder is fixed once it exists. */
+  private canMoveWorkspace(): boolean {
+    return !this.session && !this.runtimeStart && !this.sessionWorkspace && !this.sessionWorkspaceStart && !this.runConversation
+      && !this.runtimeTools.length;
+  }
+
+  /** Opens a new project's folder as the workspace before any model runtime exists, so the conversation starts there. */
+  private async openWorkspaceBeforeRuntime(dir: string): Promise<void> {
+    await this.revokeWorkspaceCapabilities();
+    const { context } = await this.loadWorkspace(dir);
+    this.workspaceNeedsRebind = false;
+    this.output.write(`[folder] Working in ${terminalText(tildePath(context.info.root, this.sessionHomeDir ?? os.homedir()))}\n`);
+    this.updateFooter();
+  }
+
+  /** /new [name] | /new <template> <name> | /new --list: the same local build as `casper new`, no model. */
+  private async newProjectCommand(args: string): Promise<void> {
+    const words = args ? args.split(/\s+/) : [];
+    const usage = NEW_USAGE.replace(/casper new/g, "/new");
+    const command = parseNewArgs(words);
+    if (!command) { this.output.write(`${usage}\n`); return; }
+    if (command.list) { this.output.write(`${listLines().join("\n")}\n`); return; }
+    if ((!this.interactive || !this.terminal.canAsk) && (!command.template || !command.name)) {
+      this.output.write(`/new needs a template and a name when Casper can't ask. ${usage}\n`);
+      return;
+    }
+    const result = await newProjectFromQuestions(this.newProjectFlow(), command);
+    if (this.closing) return;
+    if (!result) { this.output.write("Nothing was created.\n"); return; }
+    if (!opened(result) || this.commandAbort?.signal.aborted) return;
+    if (this.canMoveWorkspace()) { await this.openWorkspaceBeforeRuntime(result.dir); return; }
+    this.output.write(`[folder] This conversation stays in ${terminalText(tildePath(this.activeWorkspaceRoot(), this.sessionHomeDir ?? os.homedir()))}. `
+      + `Open the new project with: cd ${terminalText(result.displayDir)} && casper\n`);
+  }
+
+  /**
+   * A build request outside a project, before the model starts: one numbered question, zero tokens.
+   * Yes builds the project and opens it, so the conversation and its checks start there. Use this folder
+   * or Esc changes nothing. One-shot and --json runs can't ask: they keep the folder and say so.
+   * "stop" when the project could not be built: nothing goes to the model.
+   */
+  private async offerNewProject(prompt: string): Promise<"stop" | undefined> {
+    if (this.newProjectOffered || !this.canMoveWorkspace()) return undefined;
+    const context = this.projectContext!;
+    if (context.info.isGit || await hasProjectSignals(context.info.root)) return undefined;
+    if (!this.interactive || !this.terminal.canAsk) {
+      const note = buildRequestNote(prompt);
+      if (note) { this.newProjectOffered = true; this.output.write(`${note}\n`); }
+      return undefined;
+    }
+    const answer = await askBuildRequest(this.newProjectFlow(), prompt);
+    if (!answer) return undefined;
+    this.newProjectOffered = true;
+    this.beforeWorkAsked = true;
+    if (this.closing || this.commandAbort?.signal.aborted) return "stop";
+    if ("keep" in answer) return undefined;
+    if ("stopped" in answer) { this.output.write("Nothing was sent to the model.\n"); return "stop"; }
+    await this.openWorkspaceBeforeRuntime(answer.result.dir);
+    return undefined;
   }
 
   private async runModelTask(prompt: string): Promise<VerificationReport | undefined> {
     if (this.closing) return;
+    this.beforeWorkAsked = false;
+    if (await this.offerNewProject(prompt) === "stop" || this.closing || this.commandAbort?.signal.aborted) return;
     this.observations = new TaskObservations();
     const context = this.projectContext!;
     const classification = classifyTask(prompt);
@@ -812,8 +941,9 @@ export class CasperApp {
     // verification.checklist: the cases the request states, listed before the model starts, so it tests each one.
     // Unset, it is on for interactive code changes (the user sees and can edit or skip the list) and off
     // otherwise: questions, docs, refactors and one-shot runs.
-    const checklistOn = context.verification.checklist
-      ?? (this.interactive && ["implement", "fix", "test"].includes(classification.intent));
+    // At most one question before work: after the new-project question there is no checklist panel.
+    const checklistOn = !this.beforeWorkAsked && (context.verification.checklist
+      ?? (this.interactive && ["implement", "fix", "test"].includes(classification.intent)));
     const complete = checklistOn ? session.complete?.bind(session) : undefined;
     const checklist = complete ? await this.makeChecklist(complete, prompt) : undefined;
     if (this.closing || this.commandAbort?.signal.aborted) return;
