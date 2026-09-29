@@ -1721,7 +1721,8 @@ export class CasperApp {
       if (!retry) return;
       this.events.ensureLineBreak();
       const back = big ? await this.switchToBigModel(session, { query: "@reason", label: big.label }) : undefined;
-      this.output.write(`[model] ${attempt === 1 ? "The model failed; trying once more." : back ? `Trying again on your big model ${terminalText(big!.label)}.` : "Trying again."}\n`);
+      this.output.write(`[model] ${attempt === 1 ? "The model failed; trying once more." : back ? `Trying again on your big model ${terminalText(big!.label)}.`
+        : big ? `Casper could not switch to your big model ${terminalText(big.label)}; trying again on the current model.` : "Trying again."}\n`);
       this.taskRuntimeFailed = false;
       try {
         await session.prompt("Your last response failed with a provider error. Continue the task from where you stopped.",
