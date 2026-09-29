@@ -264,6 +264,8 @@ export function isSecretKey(key: string): boolean {
   return !NOT_SECRET_KEYS.has(snake) && SECRET_KEY.test(snake);
 }
 
+const MASKED = /^••• \d+ chars?$/;
+
 export function maskedLength(text: string): string {
   const count = [...text].length;
   return `••• ${count} char${count === 1 ? "" : "s"}`;
@@ -283,7 +285,11 @@ export function maskSecrets(value: unknown, options: MaskOptions = {}): { value:
   const mask = (item: unknown, key: string | undefined, secret: boolean, depth: number): unknown => {
     if (depth > MAX_DEPTH) return "[too deep]";
     if (typeof item === "string") {
-      if (secret && item !== "") { hidden.add(key ?? "value"); return maskedLength(item); }
+      if (secret && item !== "") {
+        hidden.add(key ?? "value");
+        // Already hidden (a stored preview): keep the count of the real value.
+        return MASKED.test(item) ? item : maskedLength(item);
+      }
       const scrubbed = scrub(item);
       if (scrubbed !== item && scrubbed !== terminalText(item)) hidden.add(`parts of ${key ?? "value"}`);
       return scrubbed;

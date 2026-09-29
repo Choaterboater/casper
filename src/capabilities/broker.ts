@@ -2,7 +2,14 @@ import { createHash } from "node:crypto";
 import { isRecord } from "../mcp/config";
 import type { MCPManager, MCPTool } from "../mcp/manager";
 import type { RuntimeTool } from "../runtime/types";
-import { boundCapabilityResult, capabilityErrorResult, NotExecutedError, type BoundedCapabilityResult } from "./result";
+import { redactPreview } from "../tui/format";
+import { scrubText } from "../secrets/scrub";
+import {
+  buildPlan, canPreview, maskText, needsApproval, planLabel, planMode, previewArguments, previewKey,
+  type ApprovalPlan, type LastPreview,
+} from "./approval";
+import { toolLabel } from "./labels";
+import { boundCapabilityResult, capabilityErrorResult, NotExecutedError, OutcomeUnknownError, type BoundedCapabilityResult } from "./result";
 import { indexWords, termScore, tokenize } from "./search";
 import type { CompiledValidator } from "./validate";
 
@@ -35,11 +42,35 @@ export interface CapabilityListPage {
   routers?: { server: string; hint: string }[];
   next_cursor?: string;
 }
-/** Ask the user about one exact call. It resolves true only on their yes; it may throw NotExecutedError
- * when nobody can be asked (a one-shot run), so the model is never told "you said no" by mistake. */
+/** The user's answer to one approval: yes, no, or "preview" (run the preview first, then ask again).
+ * `true`/`false` mean yes/no. */
+export type ApprovalAnswer = boolean | "yes" | "no" | "preview";
+/** Ask the user about one exact call. Only their yes runs it; it may throw NotExecutedError when
+ * nobody can be asked (a one-shot run), so the model is never told "you said no" by mistake. */
 export type ConfirmCapability = (call: {
   capability: CapabilityDescriptor; arguments: Record<string, unknown>;
-}, signal?: AbortSignal) => Promise<boolean>;
+  /** What the call really runs, its mode and hidden secrets are built from this. */
+  plan: ApprovalPlan;
+  /** The last preview of the same call on this connection, redacted. */
+  lastPreview?: LastPreview;
+}, signal?: AbortSignal) => Promise<ApprovalAnswer>;
+
+/** The user can ask for a preview at most this many times before one call is refused. */
+const MAX_APPROVAL_ROUNDS = 3;
+const LAST_PREVIEW_BYTES = 4096;
+
+/** A preview result as the user may see it: token shapes and config secrets hidden, keys masked, cut short. */
+function previewText(raw: unknown): string {
+  let text: string;
+  if (raw && typeof raw === "object" && "structuredContent" in raw && (raw as { structuredContent?: unknown }).structuredContent !== undefined) {
+    text = JSON.stringify((raw as { structuredContent: unknown }).structuredContent);
+  } else if (raw && typeof raw === "object" && Array.isArray((raw as { content?: unknown }).content)) {
+    text = ((raw as { content: unknown[] }).content).map((block) => block && typeof block === "object" && (block as { type?: unknown }).type === "text"
+      ? String((block as { text?: unknown }).text ?? "") : "").filter(Boolean).join("\n");
+  } else text = JSON.stringify(raw) ?? "";
+  const scrub = (value: string) => scrubText(redactPreview(value)).text;
+  return maskText(text.slice(0, LAST_PREVIEW_BYTES * 4), { scrubText: scrub }).slice(0, LAST_PREVIEW_BYTES);
+}
 
 // Ajv is loaded only on the first call, so local commands never pay for it.
 let validatorModule: typeof import("./validate") | undefined;
@@ -64,22 +95,13 @@ const LIST_ABOUT_CHARS = 80;
 const CURSOR_PATTERN = /^\d{1,9}\.\d{1,6}$/;
 const ROUTER_HINT = "This server has its own search. Call its find_tool with a few words; it cannot list everything.";
 const EMPTY_SEARCH_HINT = 'Nothing matched. Try one plain word (like site or vlan), or query "*" to list every tool.';
-function safety(tool: MCPTool): CapabilitySafety {
-  // Names can only tighten policy, never grant read permission.
-  if (tool.name === "invoke_tool" || tool.name === "invoke_tools_batch" || tool.annotations?.destructiveHint === true) return "destructive";
-  if (/\b(delete|destroy|remove|reset|reboot|wipe)\b/.test(tool.name.replaceAll("_", " "))) return "destructive";
-  if (/\b(exec|execute|shell|run)\b/.test(tool.name.replaceAll("_", " "))) return "exec";
-  if (/\b(create|update|set|write|deploy)\b/.test(tool.name.replaceAll("_", " "))) return "write";
-  const declared = tool._meta?.["casper/safety"];
-  if (typeof declared === "string" && ["diagnostic", "write", "destructive", "exec", "external-action"].includes(declared)) return declared as CapabilitySafety;
-  return tool.annotations?.readOnlyHint === true ? "read" : "external-action";
-}
-
 /** Index locally; send schemas only for selected tools or explicit inspection. */
 export class CapabilityBroker {
   private capabilities = new Map<string, Capability>();
   private indexedRevision = -1;
   private readonly closed = new AbortController();
+  /** The last preview of each call (server, real tool, arguments without the preview switch), per connection. */
+  private previews = new Map<string, LastPreview>();
   constructor(private readonly manager: MCPManager, private readonly confirm?: ConfirmCapability) {}
 
   async prepare(task: string): Promise<RuntimeTool[]> {
@@ -173,23 +195,64 @@ export class CapabilityBroker {
     }
     // 3. Hidden capabilities and argument guards (WP4 seam).
     // 4. Hidden-secret marker gate (WP6 seam).
-    // 5. Approval (WP2 seam: the approval plan replaces this block).
-    if (capability.descriptor.safety !== "read") {
-      if (!this.confirm) throw new NotExecutedError("needs your approval, and this run cannot ask");
-      const approved = await this.confirm({
-        capability: structuredClone(capability.descriptor), arguments: structuredClone(frozenArgs),
-      }, combined);
-      notCancelled(combined);
-      if (!approved) throw new NotExecutedError("you said no");
-    }
+    // 5. Approval. The call is judged by the real tool behind a router, and the AI can never skip it:
+    // confirm/force set to true or a preview switch set to false asks even for a read tool.
+    const plan = buildPlan({
+      server: capability.descriptor.source, tool: capability.tool.name, label: capability.descriptor.safety,
+      schema: capability.tool.inputSchema, arguments: frozenArgs,
+    });
+    const label = planLabel(plan);
+    const approved = needsApproval(plan) ? await this.approve(capability, plan, combined) : undefined;
     notCancelled(combined);
     this.sync();
     if (this.get(id).fingerprint !== capability.fingerprint) throw new NotExecutedError("tool changed; search again");
-    // 6. Call, under the per-server call clock (the manager owns it; WP2 pauses it through onClock).
-    const raw = await this.manager.call(capability.descriptor.source, capability.tool.name, frozenArgs, combined);
+    // 6. Call, under the per-server call clock. Only an approved call may carry server questions to the user.
+    const raw = await this.manager.call(capability.descriptor.source, capability.tool.name, frozenArgs, combined,
+      approved ? { approved: { capabilityId: id, realTool: approved, label } } : {});
+    if (planMode(plan) === "preview") this.previews.set(this.previewSlot(capability, plan), { text: previewText(raw), at: Date.now() });
     // 7. Scrub device secrets from the raw result (WP6 seam).
     // 8. Bound: per-list limits, the next-page cursor kept, duplicate text dropped.
     return boundCapabilityResult(raw, 16_384, 50, { mcp: true });
+  }
+
+  /**
+   * Ask the user until they say yes (returns the real tool name for the approved call) or no (throws).
+   * "p" runs the preview, when the tool's own schema declares one, and asks again with its result.
+   */
+  private async approve(capability: Capability, plan: ApprovalPlan, signal: AbortSignal): Promise<string> {
+    if (!this.confirm) throw new NotExecutedError("needs your approval, and this run cannot ask");
+    const realTool = plan.routed.length ? plan.routed.map((call) => call.name).join(", ") : plan.tool;
+    const slot = this.previewSlot(capability, plan);
+    for (let round = 0; round < MAX_APPROVAL_ROUNDS; round++) {
+      const lastPreview = this.previews.get(slot);
+      const answer = await this.confirm({
+        capability: structuredClone(capability.descriptor), arguments: structuredClone(plan.arguments),
+        plan: structuredClone(plan), ...(lastPreview ? { lastPreview: { ...lastPreview } } : {}),
+      }, signal);
+      notCancelled(signal);
+      if (answer === true || answer === "yes") return realTool;
+      if (answer !== "preview" || !canPreview(plan)) break;
+      this.sync();
+      if (this.get(capability.descriptor.id).fingerprint !== capability.fingerprint) throw new NotExecutedError("tool changed; search again");
+      let text: string;
+      try {
+        const raw = await this.manager.call(plan.server, plan.tool, previewArguments(plan), signal, {
+          approved: { capabilityId: capability.descriptor.id, realTool, label: planLabel(plan) },
+        });
+        text = previewText(raw);
+      } catch (error) {
+        notCancelled(signal);
+        // The preview failed; the change itself was not sent. Show why, and ask again.
+        if (!(error instanceof NotExecutedError || error instanceof OutcomeUnknownError)) throw error;
+        text = `The preview failed: ${error.message}`;
+      }
+      this.previews.set(slot, { text, at: Date.now() });
+    }
+    throw new NotExecutedError("you said no");
+  }
+
+  private previewSlot(capability: Capability, plan: ApprovalPlan): string {
+    return `${capability.fingerprint.split(":", 1)[0]}|${previewKey(plan)}`;
   }
 
   close(): Promise<void> {
@@ -208,7 +271,7 @@ export class CapabilityBroker {
         const id = `mcp:${encodeURIComponent(server)}:${encodeURIComponent(tool.name)}`;
         const descriptor: CapabilityDescriptor = {
           id, source: server, name: tool.name, description: (tool.description ?? "").slice(0, 1024),
-          tags: [], safety: safety(tool), schemaRef: id,
+          tags: [], safety: toolLabel(tool), schemaRef: id,
         };
         const tags = tool._meta?.tags;
         if (Array.isArray(tags)) descriptor.tags = tags.filter((tag): tag is string => typeof tag === "string").slice(0, 8).map((tag) => tag.slice(0, 64));
@@ -226,6 +289,8 @@ export class CapabilityBroker {
     }
     this.capabilities = next;
     this.indexedRevision = revision;
+    // A reconnect or a changed tool list makes old previews stale.
+    this.previews.clear();
   }
 
   private get(id: string): Capability {
@@ -299,7 +364,8 @@ export class CapabilityBroker {
         structuredClone(capability.tool.inputSchema), async (args, signal) => {
           const result = await this.invoke(capability.descriptor.id, args, signal);
           return { text: JSON.stringify(result), isError: result.isError };
-        }, capability.descriptor.safety !== "read"));
+        // Routers and non-read tools may ask; a read tool asks only when the AI set confirm itself (the app queues those).
+        }, capability.descriptor.safety !== "read" || capability.router));
     }
     return tools;
   }

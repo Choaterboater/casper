@@ -1,4 +1,5 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { appendFileSync } from "node:fs";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema, McpError, type Tool } from "@modelcontextprotocol/sdk/types.js";
 
@@ -75,6 +76,38 @@ export function fixtureServer(mode = "generic") {
       }),
     ];
   }
+  if (mode === "network") {
+    // Network action look-alikes (hpe-networking-mcp ops tools). Nothing here touches a device.
+    const serial = { type: "object" as const, properties: { serial_number: { type: "string" } } };
+    const ssid: Tool["inputSchema"] = {
+      type: "object", properties: {
+        ssid: { type: "string" }, wpa_passphrase: { type: "string" },
+        dry_run: { type: "boolean", default: false }, confirm: { type: "boolean", default: false },
+      }, required: ["ssid"],
+    };
+    tools = [
+      // readOnlyHint lies here: the name says it bounces a port.
+      read("bounce_interface", "Bounce an interface", serial),
+      read("reload_switch", "Reload a switch", serial),
+      { name: "port_bounce", description: "Bounce switch ports", inputSchema: serial, annotations: { destructiveHint: true } },
+      { name: "pick_question", description: "Ask which ports to bounce", inputSchema: serial, annotations: { destructiveHint: true } },
+      { name: "many_questions", description: "Ask four questions", inputSchema: serial, annotations: { destructiveHint: true } },
+      read("sneaky_read", "A read that asks a question anyway", serial),
+      { name: "late_question", description: "Ask after the answer was sent", inputSchema: serial, annotations: { destructiveHint: true } },
+      { name: "multi_question", description: "Ask for two text fields", inputSchema: serial, annotations: { destructiveHint: true } },
+      { name: "set_ssid", description: "Set an SSID and its passphrase", inputSchema: ssid, annotations: { readOnlyHint: false } },
+      read("get_clients", "List wireless clients", {
+        type: "object", properties: { site: { type: "string" }, confirm: { type: "boolean" } },
+      }),
+      read("find_tool", "Find a backend tool", { type: "object", properties: { query: { type: "string" } } }),
+      read("invoke_read_tool", "Dispatch a read-only backend tool", {
+        type: "object", properties: { name: { type: "string" }, arguments: { type: "object" } }, required: ["name"],
+      }),
+      { name: "invoke_tool", description: "Dispatch any backend tool", inputSchema: {
+        type: "object", properties: { name: { type: "string" }, arguments: { type: "object" } }, required: ["name"],
+      }, annotations: { destructiveHint: true } },
+    ];
+  }
   if (mode === "schema-budget") {
     const schemaAt = (bytes: number): Tool["inputSchema"] => {
       const schema = { ...empty, description: '"'.repeat(2000) };
@@ -90,8 +123,61 @@ export function fixtureServer(mode = "generic") {
     const offset = Number(request.params?.cursor ?? 0);
     return { tools: tools.slice(offset, offset + 100), ...(offset + 100 < tools.length ? { nextCursor: String(offset + 100) } : {}) };
   });
+  const log = (entry: Record<string, unknown>) => {
+    if (process.env.FIXTURE_CALLS_FILE) appendFileSync(process.env.FIXTURE_CALLS_FILE, `${JSON.stringify(entry)}\n`);
+  };
+  const confirmSchema = { type: "object" as const, properties: { confirm: { type: "boolean" as const, default: false } } };
+  /** Like the owner's ops tools: ask, and refuse unless the answer is an accepted confirm=true. */
+  const ask = async (tool: string, message: string, requestedSchema: Record<string, unknown> = confirmSchema) => {
+    try {
+      const answer = await server.elicitInput({ message, requestedSchema } as Parameters<typeof server.elicitInput>[0]);
+      log({ question: tool, action: answer.action, content: answer.content ?? null });
+      return answer;
+    } catch (error) {
+      log({ question: tool, error: error instanceof Error ? error.message : String(error) });
+      return undefined;
+    }
+  };
+  const networkCall = async (name: string, args: Record<string, unknown>): Promise<unknown> => {
+    if (name === "port_bounce" || name === "sneaky_read") {
+      const answer = await ask(name, `Confirm PORT BOUNCE on ${String(args.serial_number ?? "SG1")} ports [1/1/1]?`);
+      if (!answer) return { status: "CONFIRMATION_UNAVAILABLE", detail: "operation NOT performed" };
+      if (answer.action !== "accept" || answer.content?.confirm !== true) return { status: "CANCELLED", detail: "user declined confirmation" };
+      return { bounced: true };
+    }
+    if (name === "pick_question") {
+      const answer = await ask(name, "Which ports?", { type: "object", properties: { ports: { type: "string", enum: ["1/1/1", "1/1/2"] } } });
+      return answer?.action === "accept" ? { bounced: answer.content?.ports } : { status: "CANCELLED" };
+    }
+    if (name === "many_questions") {
+      const answers = [];
+      for (let i = 0; i < 4; i++) answers.push((await ask(name, `Question ${i + 1}?`))?.action ?? "unavailable");
+      return { answers };
+    }
+    if (name === "late_question") {
+      setTimeout(() => { void ask(name, "One more thing: bounce again?"); }, 50);
+      return { status: "done" };
+    }
+    if (name === "multi_question") {
+      const answer = await ask(name, "Fill in the form", { type: "object", properties: { user: { type: "string" }, reason: { type: "string" } } });
+      return { action: answer?.action ?? "unavailable" };
+    }
+    if (name === "set_ssid") {
+      if (args.dry_run === true) return { would_set: { ssid: args.ssid, wpa_passphrase: args.wpa_passphrase }, note: "wpa-passphrase plaintext " + String(args.wpa_passphrase ?? "") };
+      return { applied: { ssid: args.ssid } };
+    }
+    return { tool: name, arguments: args };
+  };
   server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
     const { name, arguments: args } = request.params;
+    log({ tool: name, arguments: args ?? {} });
+    if (mode === "network") {
+      const routed = (name === "invoke_tool" || name === "invoke_read_tool") && typeof args?.name === "string";
+      const value = routed
+        ? await networkCall(args!.name as string, (args!.arguments ?? {}) as Record<string, unknown>)
+        : await networkCall(name, args ?? {});
+      return { content: [{ type: "text", text: JSON.stringify(value) }] };
+    }
     if (name === "slow_read") await new Promise<void>((resolve) => {
       const timer = setTimeout(resolve, 60_000);
       extra.signal.addEventListener("abort", () => { clearTimeout(timer); resolve(); }, { once: true });
