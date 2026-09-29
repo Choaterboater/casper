@@ -125,3 +125,11 @@ test("allowed values come from the server and have secrets hidden", () => {
   expect(found.join(" ")).toContain("<secret hidden>");
   expect(found.join(" ")).not.toContain("Corp-Wifi-2026!");
 });
+
+test("a rule quoted from the server's schema has secrets hidden", () => {
+  const schema = { type: "object", properties: { line: { type: "string", pattern: "^enable secret 5 $1$abcd$Xy9Zk2LmNoPqRsTuVw$" } } };
+  const found = problems(compileInputSchema(schema)({ line: "other" })).join(" ");
+  expect(found).toContain('field "line" must match pattern');
+  expect(found).toContain("<secret hidden>");
+  expect(found).not.toContain("Xy9Zk2LmNoPqRsTuVw");
+});
