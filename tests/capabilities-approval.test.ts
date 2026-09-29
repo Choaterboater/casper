@@ -133,6 +133,12 @@ test("passwords and PSKs are hidden on screen; the plan keeps the real value", (
   expect(nested.hidden).toEqual(["sharedKey", "apiKey", "password", "community"]);
 });
 
+test("the approval box hides every key the AI-side scrubber hides", () => {
+  const masked = maskSecrets({ tacacs_key: "Tk-key-9", wep_key: "0123456789", snmp_community: "public", ospf: { md5_key: "m5" } });
+  expect(masked.value).toEqual({ tacacs_key: "••• 8 chars", wep_key: "••• 10 chars", snmp_community: "••• 6 chars", ospf: { md5_key: "••• 2 chars" } });
+  expect(formatApproval(plan("set_aaa", { tacacs_key: "Tk-key-9" })).preview).not.toContain("Tk-key-9");
+});
+
 test("secrets inside Junos and Aruba config text are hidden", () => {
   const config = [
     "set system root-authentication encrypted-password \"$6$abc\"",

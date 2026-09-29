@@ -14,7 +14,7 @@
  * scrubText) by default; `MaskOptions.scrubText` can replace them.
  */
 import type { MCPTool } from "../mcp/manager";
-import { scrubText } from "../secrets/scrub";
+import { isSecretKey as isScrubbedKey, scrubText } from "../secrets/scrub";
 import { redactPreview, terminalText } from "../tui/format";
 import { nameLabel, strictest, type CapabilitySafety } from "./labels";
 
@@ -303,7 +303,8 @@ function snakeKey(key: string): string {
 /** A key whose value is a secret: password, passphrase, psk, secret, token, api key, community, and similar. */
 export function isSecretKey(key: string): boolean {
   const snake = snakeKey(key);
-  return !NOT_SECRET_KEYS.has(snake) && SECRET_KEY.test(snake);
+  // Never looser than what is hidden from the AI (src/secrets/scrub.ts).
+  return !NOT_SECRET_KEYS.has(snake) && (SECRET_KEY.test(snake) || isScrubbedKey(key));
 }
 
 const MASKED = /^••• \d+ chars?$/;
