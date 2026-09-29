@@ -50,11 +50,11 @@ test.skipIf(!POSIX)("links out of the project are refused; a link to a private p
 });
 
 test("git's own files can't be written by edit or write, but can be read", () => {
-  expect(fileToolGate("write", { path: ".git/hooks/pre-commit", content: "x" }, context)).toBe("Not done: .git/hooks is git's own folder. Casper doesn't let the AI change it.");
-  expect(fileToolGate("edit", { path: ".git/config", edits: [] }, context)).toBe("Not done: .git/config is git's own folder. Casper doesn't let the AI change it.");
-  expect(fileToolGate("write", { path: "vendor/lib/.git", content: "gitdir: /tmp/x" }, context)).toContain(".git is git's own folder");
+  expect(fileToolGate("write", { path: ".git/hooks/pre-commit", content: "x" }, context)).toBe("Not done: .git/hooks belongs to git itself. Casper doesn't let the AI change it.");
+  expect(fileToolGate("edit", { path: ".git/config", edits: [] }, context)).toBe("Not done: .git/config belongs to git itself. Casper doesn't let the AI change it.");
+  expect(fileToolGate("write", { path: "vendor/lib/.git", content: "gitdir: /tmp/x" }, context)).toContain(".git belongs to git itself");
   expect(hooksPathTargets(project, home)).toEqual([path.join(project, ".githooks")]);
-  expect(fileToolGate("write", { path: ".githooks/pre-push", content: "x" }, context)).toBe("Not done: .githooks is git's own folder. Casper doesn't let the AI change it.");
+  expect(fileToolGate("write", { path: ".githooks/pre-push", content: "x" }, context)).toBe("Not done: .githooks belongs to git itself. Casper doesn't let the AI change it.");
   expect(fileToolGate("read", { path: ".git/config" }, context)).toBeUndefined();
   expect(fileToolGate("write", { path: ".gitignore", content: "x" }, context)).toBeUndefined();
   expect(fileToolGate("write", { path: ".github/workflows/ci.yml", content: "x" }, context)).toBeUndefined();
@@ -66,7 +66,7 @@ test("a worktree's shared git folder counts as git's own", async () => {
   await writeFile(path.join(tree, ".git"), `gitdir: ${path.join(main, "gitdata/worktrees/tree")}\n`);
   await writeFile(path.join(main, "gitdata/worktrees/tree/commondir"), "../..\n");
   const treeContext = { root: tree, home };
-  expect(fileToolGate("write", { path: path.join(main, "gitdata/hooks/pre-commit"), content: "x" }, treeContext)).toContain("git's own folder");
+  expect(fileToolGate("write", { path: path.join(main, "gitdata/hooks/pre-commit"), content: "x" }, treeContext)).toContain("belongs to git itself");
 });
 
 test("shell start-up files, git settings and Casper's own folder can't be written", () => {
@@ -85,7 +85,13 @@ test("shell commands that write git hooks or risky git settings are refused; rea
   expect(gitInternalsCommand("git config --local core.fsmonitor ./x", project, home)).toContain("core.fsmonitor");
   expect(gitInternalsCommand("git config alias.st '!sh -c evil'", project, home)).toContain("alias.st");
   expect(gitInternalsCommand("git config --global user.name bot", project, home)).toContain("your own git settings");
-  for (const safe of ["cat .git/config", "ls -la .git/hooks", "git config --get core.hooksPath", "git config user.email a@b.c", "git log --oneline > log.txt", "git status"]) {
+  // Quotes, a full path to git, git inside sh -c, a read flag hidden in the value and cd into .git don't get past it.
+  for (const risky of [`git config "core.hooksPath" /tmp/h`, `git config 'alias.x' '!sh evil'`, `sh -c "git config core.hooksPath /tmp/h"`,
+    "/usr/bin/git config core.hooksPath /tmp/h", `git config core.hooksPath "/tmp/x -l "`, `git config alias.x "!sh --list "`,
+    "git --git-dir .git config core.hooksPath /tmp/h", "git config set pager.log ./x", "git config --edit", "cd .git && echo x > hooks/pre-commit"]) {
+    expect([risky, gitInternalsCommand(risky, project, home)]).toEqual([risky, expect.stringMatching(/^Not run:/)]);
+  }
+  for (const safe of ["cat .git/config", "ls -la .git/hooks", "git config --get core.hooksPath", "git config --global --get user.name", "git config user.email a@b.c", "cat .gitignore > x", "git log --oneline > log.txt", "git status"]) {
     expect([safe, gitInternalsCommand(safe, project, home)]).toEqual([safe, undefined]);
   }
 });

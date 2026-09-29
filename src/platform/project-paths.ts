@@ -211,7 +211,7 @@ export function fileToolGate(toolName: string, input: Record<string, unknown> | 
     if (place) return `${verb}: ${place} is private (keys and logins). Casper keeps it from the AI.`;
     const kind = classifyPath(candidate, context, write);
     if (kind === "linksOut") return `${verb}: ${given} is a link to a place outside this project. Casper doesn't follow links out.`;
-    if (kind === "gitInternal") return `Not done: ${gitInternalPart(candidate, context.root, home)} is git's own folder. Casper doesn't let the AI change it.`;
+    if (kind === "gitInternal") return `Not done: ${gitInternalPart(candidate, context.root, home)} belongs to git itself. Casper doesn't let the AI change it.`;
     if (kind === "protected") return `Not done: ${displayPath(candidate, context.root, home)} holds your shell, git or Casper settings. Casper doesn't let the AI change it.`;
   }
   // grep reads every file under its folder, hidden ones too.
@@ -225,7 +225,67 @@ export function fileToolGate(toolName: string, input: Record<string, unknown> | 
 const WRITE_WORDS = /(?:^|[\s;&|(`])(?:tee|cp|mv|ln|install|chmod|chown|touch|dd|rsync|curl|wget|unzip|tar|rm|mkdir|truncate|patch|sed\s+(?:-\w*i|--in-place)|perl\s+-\w*i|python[\d.]*|node|bun|ruby|perl|sh|bash|zsh|git\s+(?:apply|checkout|restore))(?=\s|$)/;
 const REDIRECT = /(?:^|[^<>&\d])>{1,2}(?!&)|&>/;
 /** git config keys that make git run a program, or point it somewhere else. */
-const RISKY_GIT_KEY = /(?:^|\s)(?:core\.(?:hookspath|fsmonitor|sshcommand|pager|editor|askpass|gitproxy|worktree|attributesfile|excludesfile)|alias\.|filter\.|diff\.\S+\.(?:textconv|command)|merge\.\S+\.driver|credential\.|credential\b|include\.|includeif\.|gpg\.|sequence\.editor|uploadpack\.|receivepack\.|protocol\.|url\.|remote\.\S+\.(?:uploadpack|receivepack|proxy))/i;
+const RISKY_GIT_KEY = /^(?:core\.(?:hookspath|fsmonitor|sshcommand|pager|editor|askpass|gitproxy|worktree|attributesfile|excludesfile)$|alias\.|filter\.|pager\.|diff\..+\.(?:textconv|command)$|merge\..+\.driver$|(?:difftool|mergetool|browser|man)\..+\.(?:cmd|path)$|interactive\.difffilter$|credential(?:\.|$)|include\.|includeif\.|gpg\.|sequence\.editor$|uploadpack\.|receivepack\.|protocol\.|url\.|remote\..+\.(?:uploadpack|receivepack|proxy)$)/i;
+/** git options before the command word that take the next word as their value. */
+const GIT_VALUE_OPTIONS = new Set(["-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env", "--exec-path", "--super-prefix"]);
+/** git config options that take the next word as their value. */
+const CONFIG_VALUE_OPTIONS = new Set(["-f", "--file", "--blob", "--type", "--default", "--comment", "--value", "--url"]);
+const CONFIG_READS = new Set(["--get", "--get-all", "--get-regexp", "--get-urlmatch", "--get-color", "--get-colorbool", "--list", "-l", "get", "list"]);
+
+/** The words of a piece of shell text with quotes taken off. A text check, not a shell parser. */
+function shellWords(text: string): string[] {
+  const words: string[] = [];
+  let current = "";
+  let started = false;
+  let quote: string | undefined;
+  for (let index = 0; index < text.length; index++) {
+    const char = text[index]!;
+    if (quote) {
+      if (char === quote) quote = undefined;
+      else if (char === "\\" && quote === "\"" && index + 1 < text.length) current += text[++index];
+      else current += char;
+      continue;
+    }
+    if (char === "'" || char === "\"") { quote = char; started = true; continue; }
+    if (char === "\\" && index + 1 < text.length) { current += text[++index]; started = true; continue; }
+    if (/\s/.test(char)) { if (started) words.push(current); current = ""; started = false; continue; }
+    current += char; started = true;
+  }
+  if (started) words.push(current);
+  return words;
+}
+
+/** Why `git config ...` in this shell text changes git's settings in a risky way, if it does. Looks
+ * inside quoted words too, so `sh -c "git config core.hooksPath x"` counts. */
+function riskyGitConfig(text: string, depth = 0): string | undefined {
+  if (depth > 3) return undefined;
+  for (const segment of text.split(/;|&&|\|\||\||\n|\$\(|[()`]/)) {
+    const words = shellWords(segment);
+    for (const word of words) if (/\s/.test(word)) { const inner = riskyGitConfig(word, depth + 1); if (inner) return inner; }
+    let index = words.findIndex((word) => /^git(?:\.exe)?$/i.test(path.basename(word.replaceAll("\\", "/"))));
+    if (index < 0) continue;
+    for (index++; index < words.length && words[index]!.startsWith("-"); index++) if (GIT_VALUE_OPTIONS.has(words[index]!)) index++;
+    if (words[index] !== "config") continue;
+    const args = words.slice(index + 1);
+    let outside = false;
+    let key: string | undefined;
+    let read = false;
+    for (let at = 0; at < args.length; at++) {
+      const arg = args[at]!;
+      if (CONFIG_READS.has(arg) || /^--get(?:-\w+)?=/.test(arg)) { read = true; break; }
+      if (arg === "-e" || arg === "--edit" || arg === "edit") { key = "--edit"; break; }
+      if (arg === "--global" || arg === "--system" || arg === "-f" || arg === "--file" || /^--file=/.test(arg)) outside = true;
+      if (arg.startsWith("-")) { if (CONFIG_VALUE_OPTIONS.has(arg)) at++; continue; }
+      key = ["set", "unset", "unset-all", "rename-section", "remove-section"].includes(arg) ? args.slice(at + 1).find((next) => !next.startsWith("-")) : arg;
+      break;
+    }
+    if (read) continue;
+    if (key === "--edit") return "Not run: `git config --edit` changes git's settings in an editor. Casper doesn't let the AI change them. Ask the user to run it.";
+    if (key && RISKY_GIT_KEY.test(key)) return `Not run: \`git config ${key}\` changes how git runs programs. Casper doesn't let the AI change it. Ask the user to run it.`;
+    if (outside) return "Not run: `git config` outside this repo changes your own git settings. Casper doesn't let the AI change them. Ask the user to run it.";
+  }
+  return undefined;
+}
 
 /**
  * A shell command that would change git's own files: a write to .git/hooks, .git/config or a
@@ -233,18 +293,11 @@ const RISKY_GIT_KEY = /(?:^|\s)(?:core\.(?:hookspath|fsmonitor|sshcommand|pager|
  * not a sandbox: a script can still get past it until the shell sandbox ships.
  */
 export function gitInternalsCommand(command: string, root: string, home = os.homedir()): string | undefined {
-  for (const segment of command.split(/;|&&|\|\||\n/)) {
-    const match = /(?:^|[\s(`])git((?:\s+(?:-C\s+\S+|-c\s+\S+|--[\w-]+(?:=\S+)?))*)\s+config\b(.*)$/.exec(segment);
-    if (!match) continue;
-    const args = match[2]!.trim();
-    const reads = /(?:^|\s)(?:--get|--get-all|--get-regexp|--list|-l|get|list)(?:\s|=|$)/.test(args);
-    if (reads) continue;
-    if (RISKY_GIT_KEY.test(args)) return `Not run: \`git config ${args.split(/\s+/).find((arg) => RISKY_GIT_KEY.test(` ${arg}`)) ?? args}\` changes how git runs programs. Casper doesn't let the AI change it. Ask the user to run it.`;
-    if (/(?:^|\s)(?:--global|--system|--file|-f)(?:\s|=|$)/.test(args)) return "Not run: `git config` outside this repo changes your own git settings. Casper doesn't let the AI change them. Ask the user to run it.";
-  }
+  const config = riskyGitConfig(command);
+  if (config) return config;
   const hooks = hooksPathTargets(root, home).flatMap((target) => [target, displayPath(target, root, home)]);
-  const names = [/\.git[\\/]+(?:hooks|config(?:\.worktree)?|info)\b/, ...hooks.filter((name) => name && name !== ".").map((name) => new RegExp(`(?:^|[\\s'"=:(])${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:[\\\\/]|\\s|$|['"])`))];
-  const named = names.map((pattern) => pattern.exec(command)?.[0]?.trim().replace(/^['"=:(]/, "")).find(Boolean);
+  const names = [/(?:^|[\s'"=:(/\\])\.git(?:[\\/]+(?:hooks|config(?:\.worktree)?|info)\b|[\\/]*(?=$|[\s'";&|)]))/, ...hooks.filter((name) => name && name !== ".").map((name) => new RegExp(`(?:^|[\\s'"=:(])${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:[\\\\/]|\\s|$|['"])`))];
+  const named = names.map((pattern) => pattern.exec(command)?.[0]?.trim().replace(/^['"=:(/\\]/, "")).find(Boolean);
   if (named && (REDIRECT.test(command) || WRITE_WORDS.test(command))) {
     return `Not run: this command changes ${named.replace(/[\\/]+$/, "")}, git's own files. Casper doesn't let the AI change them. Ask the user to run it.`;
   }

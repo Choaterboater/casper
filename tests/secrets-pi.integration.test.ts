@@ -177,8 +177,8 @@ posixOnly("the AI can't write git hooks or git config, by file tools or by shell
     { name: "bash", args: { command: "git config core.hooksPath .githooks", timeout: 10 } },
     { name: "write", args: { path: "src/ok.md", content: "fine" } },
   ], {}, linkedProject);
-  expect(sent).toContain("Not done: .git/hooks is git's own folder. Casper doesn't let the AI change it.");
-  expect(sent).toContain("Not done: .git/config is git's own folder.");
+  expect(sent).toContain("Not done: .git/hooks belongs to git itself. Casper doesn't let the AI change it.");
+  expect(sent).toContain("Not done: .git/config belongs to git itself.");
   expect(sent).toContain("Not done: docs/new.md is a link to a place outside this project.");
   expect(sent).toContain("Not run: this command changes .git/hooks");
   expect(sent).toContain("Not run: `git config core.hooksPath` changes how git runs programs.");
