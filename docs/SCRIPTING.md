@@ -53,6 +53,9 @@ before any model request. Missing credentials for the chosen provider exit 1 wit
 
 Failure takes precedence over incompleteness, which takes precedence over "not verified".
 
+`casper new <template> <name>` has its own codes: 0 ready, 1 created but not ready (or nothing
+created), 64 usage. It never calls a model. See [NEW.md](NEW.md).
+
 ## JSON events
 
 With `--json`, stdout carries one JSON object per line and nothing else. Every event has
