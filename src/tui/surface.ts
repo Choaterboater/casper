@@ -109,6 +109,10 @@ export class TerminalSurface {
   private noteTimer?: NodeJS.Timeout;
   private exitArmed?: NodeJS.Timeout;
   private onCycleEffort?: () => void;
+  /** "WRITES: <servers> · ctrl+o" while any MCP server has writes on; drawn first, never cut off. */
+  private badge?: string;
+  /** ctrl+o: turn writes off everywhere. True when something was on. */
+  private onWritesRevert?: () => boolean;
   private cwd = "";
   private autocomplete?: AutocompleteProvider;
   private started = false;
@@ -204,6 +208,14 @@ export class TerminalSurface {
     this.tui.setFocus(this.editor);
     this.tui.addInputListener(data => {
       if (this.exitArmed && !matchesKey(data, "ctrl+c")) this.disarmExit();
+      // ctrl+o turns MCP writes off at once, even while busy or while a question is open; an open
+      // approval is denied, so a change can't slip through while writes go off.
+      if (matchesKey(data, "ctrl+o")) {
+        const reverted = this.onWritesRevert?.() ?? false;
+        if (reverted) this.confirmation?.(undefined);
+        else this.flashNote("writes are already off");
+        return { consume: true };
+      }
       if (this.slot || this.lending) {
         // A slot-mounted picker cancels itself on Ctrl+C (its own listener below);
         // interrupting here would clear an editor that is not even visible.
@@ -265,6 +277,15 @@ export class TerminalSurface {
   private get waiting(): boolean { return Boolean(this.pendingAsk || this.pendingEdit || this.confirmation); }
 
   private footer(width: number): string {
+    if (!this.badge) return this.footerText(width);
+    // The badge leads and is never cut off; a window too narrow for it gets the short form.
+    const text = visibleWidth(this.badge) + 1 < width ? this.badge : "WRITES · ctrl+o";
+    const rest = width - visibleWidth(text) - 1;
+    const badge = paint(text, "1;33", this.io.color);
+    return rest > 2 ? `${badge} ${this.footerText(rest)}` : truncateToWidth(badge, width);
+  }
+
+  private footerText(width: number): string {
     // Waiting on the user: no spinner or running timer, so it never looks busy while it needs Enter.
     if (this.waiting && !this.note) return truncateToWidth(`${this.accent("?")} ${this.accent("waiting for you")}${this.muted(` │ ${this.status || "Casper"}`)}`, width);
     const active = this.busy || this.activity !== undefined;
@@ -315,6 +336,15 @@ private updateSpinner(): void {
   }
   /** Shift+Tab. Absent on the plain-line terminal; the key is still consumed so it cannot edit the draft. */
   setEffortCycle(handler: (() => void) | undefined): void { this.onCycleEffort = handler; }
+  setWritesRevert(handler: (() => boolean) | undefined): void { this.onWritesRevert = handler; }
+  setBadge(text?: string): void {
+    const next = text ? terminalText(text).replace(/\s+/g, " ").trim() || undefined : undefined;
+    if (next === this.badge) return;
+    this.badge = next;
+    this.render();
+  }
+  /** The footer line at this width (for tests and the layout checks). */
+  footerLine(width: number): string { return this.footer(width); }
   /** Footer note that expires on its own and never clears a newer note (including the exit arm). */
   flashNote(text: string, ms = 1600): void {
     if (this.closed) return;
