@@ -41,6 +41,11 @@ single word that can only be a path but is not a folder exits 64 with "Not a fol
 request such as `casper "fix src/app.py"` is still a prompt). A one-shot receipt run with `--cd`
 prints its undo command with the same `--cd`.
 
+**Plan editor asks before it builds.** On the rich terminal, Enter in the plan editor (plan first
+or `/plan`) no longer builds straight away: it goes on to "Build this plan?" with `1 Stop · 2 Build`,
+as the plain terminal already did, so Enter never starts a build that uses tokens. Esc still stops.
+One-shot and `--json` runs are unchanged: they show the plan and build nothing.
+
 ## v0.2.16: build new things
 
 Start new projects, see pages load after edits, retry a stuck repair on a bigger model, and run
