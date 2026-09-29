@@ -45,3 +45,10 @@ test("help says only access_check makes a login read-only", () => {
   expect(FULL_HELP_TEXT).not.toContain("Read-only comes from the product (readOnlyHint");
   expect(FULL_HELP_TEXT).toContain("A login is read-only only when the product says so (access_check); labels only make things stricter.");
 });
+
+test("the short help's slash commands line up in one column", () => {
+  const rows = HELP_TEXT.split("\n").filter((line) => /^  \/[a-z]/.test(line) && / {2,}\S/.test(line.slice(3)));
+  const columns = new Set(rows.map((line) => line.search(/(?<=\S) {2,}\S/) + line.slice(line.search(/(?<=\S) {2,}\S/)).search(/\S/)));
+  expect(rows.length).toBeGreaterThan(5);
+  expect([...columns]).toHaveLength(1);
+});
