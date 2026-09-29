@@ -201,7 +201,7 @@ casper mcp check [repo] [--server <name>] [--live] [--quick] [--strict] [--json]
 
 What it does, in order (one failing step never stops the others):
 
-1. **Repo checks.** The repo's own doctor (`[project.scripts]` named doctor/selfcheck, `scripts/doctor.py`, `make doctor` or `npm run doctor`), then its safety tests (pytest `-m safety` when that marker exists, else test files named for write gates, read-only, guards, redaction, confirm or dry_run), then the full tests (`uv run pytest`, `make test` or `npm test`; `--quick` skips them). Missing packages show `Not set up: … Run \`uv sync\` in the repo, then check again. This also shows when the server itself can't start for that reason.
+1. **Repo checks.** The repo's own doctor (`[project.scripts]` named doctor/selfcheck, `scripts/doctor.py`, `make doctor` or `npm run doctor`), then its safety tests (pytest `-m safety` when that marker exists, else test files named for write gates, read-only, guards, redaction, confirm or dry_run), then the full tests (`uv run pytest`, `make test` or `npm test`; `--quick` skips them). Missing packages show `Not set up: … Run \`uv sync\` in the repo, then check again.` This also shows when the server itself can't start for that reason.
 2. **Server.** It starts the server once and lists its tools. It never calls a tool here. It checks:
    - that it starts in time (20 s, or the preset's limit), and shows the last lines it printed, secrets hidden, when it does not;
    - that stdout carries only MCP messages (`Server wrote plain text to stdout: "…" In stdio mode stdout is only for MCP messages. Print to stderr.`);
