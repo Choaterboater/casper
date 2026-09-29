@@ -16,6 +16,9 @@ import type { MCPManager, MCPStatus } from "../mcp/manager";
 import { READ_ONLY_LOGIN_ENABLE_TEXT } from "../mcp/access";
 import { ownSettingsNote, writesTitle } from "../mcp/presets";
 import type { MCPConfiguration } from "../mcp/config";
+import { addUserServer, DOCS_TOOL_NAMES, docsOnlyDefinition, docsPinned, isDocsOnlyDefinition, MCP_FILE_LABEL } from "../mcp/docs";
+import type { Scrubber } from "../secrets/netconan";
+import { defaultRunGit, runReferenceAdd } from "../references/catalog";
 import { formatDuration } from "../mcp/clock";
 import type { LSPManager } from "../lsp/manager";
 import type { SkillRegistry } from "../skills/registry";
@@ -66,6 +69,14 @@ export interface CommandHost {
   readonly reloadMCPConfiguration?: () => Promise<MCPConfiguration>;
   readonly lsp?: LSPManager;
   readonly references?: ReferenceLibrary;
+  /** The shared secret scrubber, for /secrets. */
+  readonly scrubber: Scrubber;
+  /** /secrets files on|off: scrub config files and config-looking command output (MCP results always). */
+  scrubFiles: boolean;
+  /** Runs git by argv for /references add (tests pass a stub). */
+  readonly runGit?: (argv: string[], signal?: AbortSignal) => Promise<{ code: number | null }>;
+  /** The home folder that holds ~/.casper. */
+  homeDir(): string;
   readonly visualization?: VisualizationRouter;
   readonly inspectProjectFn: (cwd: string) => Promise<ProjectInfo>;
   commandAbort?: AbortController;
@@ -296,6 +307,10 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       await handleReferencesCommand(host, prompt);
       return;
     }
+    if (/^\/secrets(?:\s|$)/.test(prompt)) {
+      await handleSecretsCommand(host, prompt);
+      return;
+    }
     if (prompt === "/project") {
       host.output.write(`${renderProjectSummary(host.projectContext!)}\n`);
       return;
@@ -378,8 +393,19 @@ async function handleReferencesCommand(host: CommandHost, prompt: string): Promi
       host.output.write(`[references] ${formatReferenceResult(listing)}\n`);
       return;
     }
+    const add = prompt.trim().match(/^\/references\s+add(?:\s+(\S+))?(?:\s+(\S+))?$/);
+    if (add) {
+      const signal = host.commandAbort?.signal;
+      await runReferenceAdd(add[1], add[2], host.homeDir(), {
+        print: (line) => { if (!host.closing) host.output.write(`${terminalText(line)}\n`); },
+        // Only the user's own typed yes downloads anything; one-shot runs never do.
+        confirmExact: (question) => host.confirmExact("", question, signal),
+        runGit: (argv) => (host.runGit ?? defaultRunGit)(argv, signal),
+      });
+      return;
+    }
     const match = prompt.match(/^\/references\s+search\s+(\S+)\s+([\s\S]+)$/);
-    if (!match) throw new Error("Usage: /references | /references search <source-id|*> <literal query>");
+    if (!match) throw new Error("Usage: /references | /references search <source-id|*> <literal query> | /references add [name] [release]");
     const result = await host.references!.search({ query: match[2]!, ...(match[1] === "*" ? {} : { source: match[1]! }) });
     if (!host.closing) host.output.write(`[references] ${formatReferenceResult(result)}\n`);
   }
@@ -556,7 +582,7 @@ async function handleDelegateCommand(host: CommandHost, prompt: string): Promise
     if (result.status !== "completed") throw new Error(`Delegation ${result.status}; see the bounded report above`);
   }
 
-const MCP_USAGE = "Usage: /mcp | /mcp connect <name> | /mcp disconnect <name> | /mcp reload | /mcp writes <name> | /mcp writes off | /mcp forget <name> | /mcp junos-show <name> on|off";
+const MCP_USAGE = "Usage: /mcp | /mcp connect <name> | /mcp disconnect <name> | /mcp reload | /mcp writes <name> | /mcp writes off | /mcp forget <name> | /mcp junos-show <name> on|off | /mcp docs";
 /** What "writes off" means, said once under the list: it hides write tools; other changes still ask. */
 const WRITES_OFF_TEXT = "Writes off: write and delete tools are hidden, and every other change still asks you. /mcp writes <name> turns writes on.";
 
@@ -575,6 +601,10 @@ async function handleMCPCommand(host: CommandHost, prompt: string): Promise<void
     } else if (action === "writes") {
       if (!name || extra.length) throw new Error(MCP_USAGE);
       await handleMCPWrites(host, name);
+      return;
+    } else if (action === "docs") {
+      if (name) throw new Error(MCP_USAGE);
+      await handleMCPDocs(host);
       return;
     } else if (action === "forget") {
       if (!name || extra.length) throw new Error(MCP_USAGE);
@@ -614,6 +644,57 @@ async function handleMCPCommand(host: CommandHost, prompt: string): Promise<void
     }
     if (action === "connect") await offerRemember(host, name!);
   }
+
+/** /secrets and /secrets files on|off. Only the user types these; the model can't run slash commands. */
+async function handleSecretsCommand(host: CommandHost, prompt: string): Promise<void> {
+  const args = prompt.trim().split(/\s+/).slice(1);
+  if (!args.length) { host.output.write(`${await host.scrubber.statusText(host.scrubFiles)}\n`); return; }
+  if (args.length !== 2 || args[0] !== "files" || !["on", "off"].includes(args[1]!)) throw new Error("Usage: /secrets | /secrets files on|off");
+  host.scrubFiles = args[1] === "on";
+  host.output.write(host.scrubFiles ? "Files and command output: on.\n" : "Files and command output: off for this session. MCP results are still scrubbed.\n");
+}
+
+/**
+ * /mcp docs: the docs servers Casper keeps in front of the model, and an offer to add a docs-only
+ * copy of an hpe-networking-mcp router (rag.py only, no credentials) to ~/.casper/mcp.json.
+ */
+async function handleMCPDocs(host: CommandHost): Promise<void> {
+  const mcp = host.mcp!;
+  const tools = new Map(mcp.catalog().map((entry) => [entry.server, entry.tools]));
+  const docs: string[] = [];
+  let docsOnly: string | undefined;
+  let copyFrom: { name: string; entry: NonNullable<ReturnType<typeof docsOnlyDefinition>> } | undefined;
+  for (const status of mcp.status()) {
+    const definition = mcp.definition(status.name);
+    const list = tools.get(status.name) ?? [];
+    if (docsPinned(definition, mcp.policy(status.name).match, list)) {
+      docs.push(`${status.name} (${DOCS_TOOL_NAMES.filter((tool) => list.some((entry) => entry.name === tool)).join(", ")})`);
+    }
+    if (isDocsOnlyDefinition(definition)) docsOnly ??= status.name;
+    const entry = docsOnlyDefinition(definition);
+    if (entry && !copyFrom) copyFrom = { name: status.name, entry };
+  }
+  host.output.write(`Docs servers: ${docs.length ? docs.join(", ") : "none connected"}. ${docsOnly ? `Docs-only server: ${docsOnly}.` : "No docs-only server yet."}\n`);
+  if (docsOnly) return;
+  if (!copyFrom) { host.output.write("No hpe-networking-mcp router (tool_router.py) found to copy a docs-only server from.\n"); return; }
+  if (!host.interactive) { host.output.write("Run /mcp docs in an interactive session to add a docs-only copy.\n"); return; }
+  const name = `${copyFrom.name}-docs`;
+  const { entry } = copyFrom;
+  const preview = [
+    `Will add ${name} to ${MCP_FILE_LABEL}:`,
+    `  runs: ${terminalText([entry.command, ...entry.args].join(" "))}`,
+    `  env: ${Object.keys(entry.env).join(", ") || "none"} (no credentials, no device settings)`,
+    "It only answers docs questions. Casper passes it no passwords.",
+    "",
+  ].join("\n");
+  if (!await host.confirmExact(preview, "Add a docs-only copy (no passwords, no device access)? Type yes: ", host.commandAbort?.signal)) {
+    host.output.write("Nothing added.\n");
+    return;
+  }
+  try { await addUserServer(host.homeDir(), name, entry); }
+  catch (error) { host.output.write(`${error instanceof Error ? terminalText(error.message) : "Nothing added."}\n`); return; }
+  host.output.write(`Added ${name} to ${MCP_FILE_LABEL}. Run /mcp reload, then /mcp connect ${name}.\n`);
+}
 
 /** Plain lines about approval: not approved yet, changed since, or remembered. */
 function approvalLines(status: MCPStatus): string[] {
