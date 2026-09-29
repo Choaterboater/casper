@@ -71,10 +71,10 @@ Line 1 is the verdict, one of:
 
 Before the first repair of a change, Casper runs each failing check on the files from before the change
 (the copy it keeps for the proof). A check that failed there too was already broken: Casper says so, and
-an interactive terminal asks `1 Fix it anyway · 2 Leave it` before paying for a repair (scripts repair).
+an interactive terminal asks `1 Leave it · 2 Fix it anyway` before paying for a repair (Enter leaves it; scripts repair).
 
 A provider that answers with nothing ("empty response", which Pi does not retry itself) is retried
-once; other errors are left to Pi's own retry budget; if it fails again, an interactive terminal asks `1 Retry · 2 Stop`.
+once; other errors are left to Pi's own retry budget; if it fails again, an interactive terminal asks `1 Stop · 2 Retry` (Enter stops).
 When the model run fails after it edited files (a provider error, for example), Casper still runs the
 checks on those edits, without a repair, and the verdict says how they fared (`✗ Failed — the model run
 failed; changes already made are kept; the checks pass on those changes`), followed by a `• Next:` line
@@ -105,11 +105,11 @@ The lines below the verdict give the evidence:
 
 A check that timed out or could not start did not fail as a test, so Casper never repairs it on its
 own: repair costs model tokens and cannot fix a slow suite or a missing tool. In an interactive terminal
-Casper asks `test timed out after 10m. Casper did not try to fix it. What now?` with `1 Retry`,
-`2 Fix it anyway` and `3 Allow more time` (four times the limit the check just had, at least a minute,
+Casper asks `test timed out after 10m. Casper did not try to fix it. What now?` with `1 Stop`, `2 Retry`,
+`3 Fix it anyway` and `4 Allow more time` (four times the limit the check just had, at least a minute,
 at most an hour, and again each time you choose it; the longer limit also applies to the model's own
 runs of that check for the rest of the task; the choice names `verification.timeoutMs`, which keeps a
-longer limit); Esc stops. It asks at most eight times per round of checks (the review round, when on, is a
+longer limit); Enter or Esc stops. It asks at most eight times per round of checks (the review round, when on, is a
 second round). When the only failures are unfinished checks, the verdict is `✗ Not checked — test timed
 out, so the change was not tested`, not `✗ Failed`; the outcome and exit code stay `failed`/1. Scripts and one-shot runs report the check and repair only real
 test failures. A command that could not start is not saved as a check timing.

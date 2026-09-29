@@ -202,18 +202,18 @@ test("a file that changes while planning anyway is named, and the receipt keeps 
   } finally { await f.close(); }
 }, 60_000);
 
-test("the plain terminal asks Build this plan? with numbers: 2 stops and builds nothing, Enter builds", async () => {
+test("the plain terminal asks Build this plan? with numbers: Enter stops and builds nothing, 2 builds", async () => {
   const term = process.env.TERM;
   process.env.TERM = "dumb";
   try {
-    for (const [answer, builds] of [["2", false], ["", true]] as const) {
+    for (const [answer, builds] of [["", false], ["2", true]] as const) {
       const f = await fixture(true);
       try {
         f.input.write(`/plan ${REQUEST}\n`);
         await f.screen.until((output) => output.includes("Build this plan?") && output.trimEnd().endsWith("(Enter for 1):"));
         expect(f.screen.output).toContain("Casper plan: 2 steps, 2 cases to test.");
-        expect(f.screen.output).toContain("  1 Build · the model builds these steps and tests these cases (uses tokens)");
-        expect(f.screen.output).toContain("  2 Stop · nothing is built");
+        expect(f.screen.output).toContain("  1 Stop · nothing is built");
+        expect(f.screen.output).toContain("  2 Build · the model builds these steps and tests these cases (uses tokens)");
         f.input.write(`${answer}\n`);
         if (builds) await f.screen.until((output) => output.includes("Built."));
         else await f.screen.until((output) => output.includes("[plan] Stopped without building."));
