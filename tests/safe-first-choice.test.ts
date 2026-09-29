@@ -1,0 +1,104 @@
+import { expect, test } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import {
+  ALREADY_FAILING_CHOICES, MCP_REMEMBER_CHOICES, MCP_WRITES_CHOICES, modelFailedChoices, PLAN_CHOICES, REMEMBER_BIG_MODEL_CHOICES,
+  REPAIR_LIMIT_STOP, unfinishedChoices,
+} from "../src/app/safe-choices";
+import { askBuildRequest, newProjectInEmptyFolder, type NewProjectFlow } from "../src/app/new-project";
+import { labAskFor, labFailureAsk } from "../src/network/checks";
+import { newProjectQuestion } from "../src/new/pick";
+import { IGNORE_CHOICES, IGNORE_FILE_CHOICES } from "../src/security/format";
+import { INSTALL_CHOICES, OSV_UPDATE_QUESTION } from "../src/security/install";
+
+/**
+ * Enter picks choice 1 on both terminals, so choice 1 of every Casper question is the one that does nothing risky.
+ * A choice that builds, installs, downloads, spends tokens, runs again, remembers, approves or reaches a lab must
+ * never come back to slot 1.
+ */
+const DOING = /^(?:build|yes|retry|fix|install|download|remember|enable|run|always|keep it|use my|ask the model|allow more)/i;
+
+const firsts: Array<[string, string, string]> = [
+  ["Build this plan?", PLAN_CHOICES[0].label, "Stop"],
+  ["Fix it anyway?", ALREADY_FAILING_CHOICES[0].label, "Leave it"],
+  ["The model failed again", modelFailedChoices()[0]!.label, "Stop"],
+  ["The model failed again (big model set)", modelFailedChoices("fixture/big")[0]!.label, "Stop"],
+  ["timed out", unfinishedChoices(600_000, 2_400_000)[0]!.label, "Stop"],
+  ["could not start", unfinishedChoices(0, 60_000)[0]!.label, "Stop"],
+  ["repair limit", REPAIR_LIMIT_STOP.label, "Stop here"],
+  ["Use it as your big model?", REMEMBER_BIG_MODEL_CHOICES[0].label, "No"],
+  ["Remember this server?", MCP_REMEMBER_CHOICES[0], "Just this time"],
+  ["/mcp writes", MCP_WRITES_CHOICES[0], "Keep writes off"],
+  ["security tools install", INSTALL_CHOICES[0], "Stop"],
+  ["advisory download", OSV_UPDATE_QUESTION.choices[0]!, "Stop"],
+  ["new ignore", IGNORE_CHOICES[0], "Leave it flagged"],
+  ["changed ignore file", IGNORE_FILE_CHOICES[0], "Keep the default"],
+  ["build request", newProjectQuestion({ template: "mist-python", name: "mist-aps", kind: "Mist Python project" }, "~/Projects").choices[0]!, "Use this folder"],
+  ["lab check (ansible)", labAskFor("aoscx-check", "ansible-check", [{ name: "sw1", address: "10.0.0.1" }]).choices[0]!, "Skip"],
+  ["lab check (junos commit)", labAskFor("junos-commit", "junos-commit", [{ name: "r1", address: "10.0.0.2" }]).choices[0]!, "Skip"],
+  ["lab failure", labFailureAsk("junos-commit").choices[0]!, "Stop"],
+];
+
+test.each(firsts)("choice 1 at %s is the safe one", (_question, first, expected) => {
+  expect(first).toBe(expected);
+  expect(first).not.toMatch(DOING);
+});
+
+test("the risky choices still exist, as a deliberate 2 or later", () => {
+  expect(PLAN_CHOICES.map((choice) => choice.label)).toEqual(["Stop", "Build"]);
+  expect(ALREADY_FAILING_CHOICES.map((choice) => choice.label)).toEqual(["Leave it", "Fix it anyway"]);
+  expect(modelFailedChoices("fixture/big").map((choice) => choice.label)).toEqual(["Stop", "Retry", "Retry with your big model"]);
+  expect(unfinishedChoices(600_000, 2_400_000).map((choice) => choice.label)).toEqual(["Stop", "Retry", "Fix it anyway", "Allow more time"]);
+  expect(unfinishedChoices(600_000, 2_400_000)[0]!.choice).toBeUndefined();
+  expect([...MCP_REMEMBER_CHOICES]).toEqual(["Just this time", "Remember"]);
+  expect([...MCP_WRITES_CHOICES]).toEqual(["Keep writes off", "Enable for this server"]);
+  expect([...INSTALL_CHOICES]).toEqual(["Stop", "Run what's installed", "Install them"]);
+  expect(OSV_UPDATE_QUESTION.choices).toEqual(["Stop", "Download it"]);
+});
+
+/** A flow whose person presses Enter at every question (Enter picks choice 1), and a create that must not run. */
+function enterFlow(home: string) {
+  const asked: Array<{ question: string; labels: string[] }> = [];
+  let created = 0;
+  const flow: NewProjectFlow = {
+    homeDir: home,
+    write: () => {},
+    pick: async (question, options) => { asked.push({ question, labels: options.map((option) => option.label) }); return options[0]?.label; },
+    create: async () => { created++; throw new Error("Enter must never build a project"); },
+  };
+  return { flow, asked, created: () => created };
+}
+
+test("Enter at the empty-folder question builds nothing: Not now is choice 1", async () => {
+  const home = await mkdtemp(path.join(os.tmpdir(), "casper-safe-empty-"));
+  try {
+    const { flow, asked, created } = enterFlow(home);
+    expect(await newProjectInEmptyFolder(flow, path.join(home, "demo"))).toBeUndefined();
+    expect(asked[0]!.labels[0]).toBe("Not now");
+    expect(created()).toBe(0);
+  } finally { await rm(home, { recursive: true, force: true }); }
+});
+
+test("Enter at the build-request question, and at its Other kind list, keeps the folder", async () => {
+  const home = await mkdtemp(path.join(os.tmpdir(), "casper-safe-build-"));
+  try {
+    const enter = enterFlow(home);
+    expect(await askBuildRequest(enter.flow, "build a tool that lists Mist APs per site")).toEqual({ keep: true });
+    expect(enter.asked[0]!.labels[0]).toBe("Use this folder");
+    expect(enter.created()).toBe(0);
+
+    // "Other kind" is a deliberate 3; Enter at the kinds that follow still builds nothing.
+    const other = enterFlow(home);
+    let first = true;
+    const pick = other.flow.pick;
+    other.flow.pick = async (question, options, signal) => {
+      if (first) { first = false; other.asked.push({ question, labels: options.map((option) => option.label) }); return "Other kind"; }
+      return pick(question, options, signal);
+    };
+    expect(await askBuildRequest(other.flow, "build a tool that lists Mist APs per site")).toEqual({ keep: true });
+    expect(other.asked[1]!.question).toBe("What are you building?");
+    expect(other.asked[1]!.labels[0]).toBe("Use this folder");
+    expect(other.created()).toBe(0);
+  } finally { await rm(home, { recursive: true, force: true }); }
+});

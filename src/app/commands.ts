@@ -41,6 +41,7 @@ import { formatTaskResult, type TaskResult } from "../task/result";
 import type { SessionWorkspaceManager } from "../sessions/manager";
 import { formatProjectContext } from "../project/context";
 import { runSecurityReview, type SecurityReviewHost } from "./security-review";
+import { MCP_REMEMBER_CHOICES, MCP_WRITES_CHOICES, numberedLines } from "./safe-choices";
 
 /** Output sink for the app; lives here so the command host stays import-cycle-free. */
 export interface OutputWriter {
@@ -749,7 +750,7 @@ async function offerRemember(host: CommandHost, name: string): Promise<void> {
   const block = host.mcp!.rememberBlock(name);
   if (block) { host.output.write(`[mcp] ${terminalText(block)}\n`); return; }
   const answer = await host.chooseAnswer(
-    "Remember this server? Next time it connects on its own, with writes off. Every change still asks you.\n  1 Just this time\n  2 Remember\n",
+    `Remember this server? Next time it connects on its own, with writes off. Every change still asks you.\n${numberedLines(MCP_REMEMBER_CHOICES)}`,
     "Type 1 or 2: ", ["1", "2"], host.commandAbort?.signal);
   if (answer !== "2") { host.output.write(`[mcp] Not remembered. ${name} is connected for this session only.\n`); return; }
   const result = await host.mcp!.remember(name);
@@ -778,7 +779,7 @@ async function handleMCPWrites(host: CommandHost, name: string): Promise<void> {
   if (status.writes === "on") { host.output.write(`[mcp] Writes are already on for ${name}. ${host.terminal.rich ? "ctrl+o" : "/mcp writes off"} turns them off.\n`); return; }
   if (status.access === "login: read-only (checked)") { host.output.write(`[mcp] ${READ_ONLY_LOGIN_ENABLE_TEXT}\n`); return; }
   const policy = mcp.policy(name);
-  const answer = await host.chooseAnswer(`${terminalText(writesTitle(name, policy.match))}\n  1 Keep writes off\n  2 Enable for this server\n`,
+  const answer = await host.chooseAnswer(`${terminalText(writesTitle(name, policy.match))}\n${numberedLines(MCP_WRITES_CHOICES)}`,
     "Type 1 or 2: ", ["1", "2"], host.commandAbort?.signal);
   if (answer !== "2") { host.output.write(`[mcp] Writes stay off for ${name}.\n`); return; }
   await mcp.setWrites(name, true);
