@@ -22,7 +22,7 @@ import { formatReferenceResult, ReferenceLibrary } from "./references/library";
 import { formatSubagentReport, SubagentManager, type SubagentRole } from "./agents/manager";
 import { discoverLSPConfiguration, type LSPConfiguration } from "./lsp/config";
 import { LSPManager, type ConfirmRename } from "./lsp/manager";
-import { boundCapabilityResult } from "./capabilities/result";
+import { boundCapabilityResult, NotExecutedError } from "./capabilities/result";
 import { discoverMCPConfiguration, type MCPConfiguration } from "./mcp/config";
 import { MCPManager } from "./mcp/manager";
 import { CapabilityBroker, type ConfirmCapability } from "./capabilities/broker";
@@ -1520,8 +1520,10 @@ export class CasperApp {
 
   private confirmCapability: ConfirmCapability = async (call, signal) => {
     const args = JSON.stringify(call.arguments);
-    // Never approve truncated arguments or implicitly accept in one-shot mode.
-    if (Buffer.byteLength(args) > 4096) return false;
+    // Never approve truncated arguments or implicitly accept in one-shot mode. Nobody was asked in
+    // these cases, so the model must not read "you said no".
+    if (Buffer.byteLength(args) > 4096) throw new NotExecutedError("arguments too long to show you for approval");
+    if (!this.interactive) throw new NotExecutedError("needs your approval, and this run cannot ask");
     return this.confirmExact(`MCP confirmation: ${JSON.stringify(call.capability.id)} [${call.capability.safety}]\nArguments: ${args}\n`, "Allow this exact external call? Type yes: ", signal);
   };
 

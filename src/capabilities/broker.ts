@@ -26,6 +26,8 @@ interface Capability {
   descriptionWords: Set<string>;
   validate?: JsonSchemaValidator<unknown>;
 }
+/** Ask the user about one exact call. It resolves true only on their yes; it may throw NotExecutedError
+ * when nobody can be asked (a one-shot run), so the model is never told "you said no" by mistake. */
 export type ConfirmCapability = (call: {
   capability: CapabilityDescriptor; arguments: Record<string, unknown>;
 }, signal?: AbortSignal) => Promise<boolean>;
