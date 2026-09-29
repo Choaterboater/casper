@@ -156,6 +156,9 @@ describe("before-work plan-first suggestion", () => {
     expect(readBeforeWorkAnswer(panel, ["Edit the cases first"])).toEqual({ kind: "edit" });
     expect(readBeforeWorkAnswer(panel, undefined)).toEqual({ kind: "skipped" });
     expect(readBeforeWorkAnswer(panel, ["also keep the old flag"])).toEqual({ kind: "typed", text: "also keep the old flag" });
+    // A typed yes or no answers the question: "no" never becomes a case to test.
+    for (const typed of ["no", "No.", "n", "not now", "skip"]) expect(readBeforeWorkAnswer(panel, [typed])).toEqual({ kind: "build" });
+    for (const typed of ["yes", "y", "OK"]) expect(readBeforeWorkAnswer(panel, [typed])).toEqual({ kind: "plan-first" });
   });
 });
 
