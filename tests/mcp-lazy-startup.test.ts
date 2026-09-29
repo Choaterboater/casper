@@ -58,7 +58,7 @@ test("a cold approved connection loads the real SDK and retains schema validatio
     try {
       await manager.connect("fixture");
       assert.equal(manager.status()[0].state, "ready");
-      await assert.rejects(broker.invoke("mcp:fixture:inspect_quantum_flux", {}), /Invalid MCP arguments/);
+      await assert.rejects(broker.invoke("mcp:fixture:inspect_quantum_flux", {}), /Not executed .bad arguments/);
       const result = await broker.invoke("mcp:fixture:inspect_quantum_flux", { site: "lab" });
       assert.equal(result.isError, false);
       assert.equal(result.data.content[0].data.arguments.site, "lab");

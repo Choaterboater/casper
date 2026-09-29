@@ -365,7 +365,7 @@ test("visualize tool validates arguments, bounds results, and reports repo scans
   expect(bounded.isError).toBe(false);
   expect(bounded.truncated).toBe(true);
   expect(Buffer.byteLength(JSON.stringify(bounded))).toBeLessThanOrEqual(16_384);
-  expect(bounded.summary).toContain("truncated");
+  expect(bounded.summary).toContain("Partial result");
 });
 
 test("task classification recognizes visualization requests as read-only without verification", () => {

@@ -1,6 +1,6 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { CallToolRequestSchema, ListToolsRequestSchema, type Tool } from "@modelcontextprotocol/sdk/types.js";
+import { CallToolRequestSchema, ListToolsRequestSchema, McpError, type Tool } from "@modelcontextprotocol/sdk/types.js";
 
 const empty = { type: "object" as const, properties: {}, additionalProperties: false };
 const site = { type: "object" as const, properties: { site: { type: "string" } }, required: ["site"], additionalProperties: false };
@@ -34,6 +34,19 @@ export function fixtureServer(mode = "generic") {
     read("status", "Read fixture identity"),
     read("env_read", "Read explicitly provided fixture variable"),
   ];
+  if (mode === "runtime") {
+    // Slow network servers and real-world result shapes (hpe-networking-mcp, junos-mcp-server).
+    tools.push(
+      read("progress_read", "Poll a long job with progress messages"),
+      read("progress_forever", "Report progress and never finish"),
+      read("rpc_error_read", "Answer with a JSON-RPC error"),
+      read("dup_read", "List records as text and structuredContent"),
+      read("fanout_read", "List records as one text block per record"),
+      read("summary_read", "Summary text plus different structuredContent"),
+      read("two_lists_read", "Two long lists"),
+      read("long_text_read", "One long text block like show configuration"),
+    );
+  }
   if (mode === "schema-budget") {
     const schemaAt = (bytes: number): Tool["inputSchema"] => {
       const schema = { ...empty, description: '"'.repeat(2000) };
@@ -56,6 +69,45 @@ export function fixtureServer(mode = "generic") {
       extra.signal.addEventListener("abort", () => { clearTimeout(timer); resolve(); }, { once: true });
     });
     if (name === "crash_read") { await server.close(); return { content: [] }; }
+    const progressToken = request.params._meta?.progressToken;
+    const progress = async (step: number, message: string) => {
+      if (progressToken === undefined) return;
+      await extra.sendNotification({ method: "notifications/progress", params: { progressToken, progress: step, message } });
+    };
+    if (name === "progress_read") {
+      for (let step = 1; step <= 6; step++) {
+        await Bun.sleep(150);
+        await progress(step, `polling job ${step}/6`);
+      }
+      return { content: [{ type: "text", text: JSON.stringify({ job: "done", steps: 6 }) }] };
+    }
+    if (name === "progress_forever") {
+      for (let step = 1; !extra.signal.aborted; step++) {
+        await Bun.sleep(100);
+        await progress(step, `still working ${step}`).catch(() => {});
+      }
+      return { content: [] };
+    }
+    if (name === "rpc_error_read") throw new McpError(-32602, "site 'lab' not found");
+    const records = (count: number) => Array.from({ length: count }, (_, i) => ({ id: i, name: `record-${i}` }));
+    if (name === "dup_read") {
+      const payload = { items: records(60), _pagination: { next_cursor: "c2" } };
+      return { content: [{ type: "text", text: JSON.stringify(payload) }], structuredContent: payload };
+    }
+    if (name === "fanout_read") {
+      const list = records(60);
+      return { content: list.map((item) => ({ type: "text", text: JSON.stringify(item) })), structuredContent: { result: list } };
+    }
+    if (name === "summary_read") {
+      return { content: [{ type: "text", text: "Summary: 3 sites" }], structuredContent: { sites: ["a", "b", "c"], checked: true } };
+    }
+    if (name === "two_lists_read") {
+      return { content: [{ type: "text", text: JSON.stringify({ sites: records(60), devices: records(60) }) }] };
+    }
+    if (name === "long_text_read") {
+      const lines = Array.from({ length: 2000 }, (_, i) => `set interfaces ge-0/0/${i % 48} unit ${i} description "line ${i}"`);
+      return { content: [{ type: "text", text: lines.join("\n").slice(0, 80_000) }] };
+    }
     if (name === "fixture_refresh") {
       tools = [
         ...tools.filter((tool) => tool.name !== "status").map((tool) => {
@@ -72,7 +124,8 @@ export function fixtureServer(mode = "generic") {
     if (name === "find_tool") value = [{ name: "inspect_quantum_flux", capability: "read", recommended_dispatcher: "invoke_read_tool", ...(args?.include_schema ? { inputSchema: site } : {}) }];
     if (name === "invoke_read_tool") value = { counter: 42, tool: args?.name };
     if (name === "env_read") value = { supplied: process.env.FIXTURE_VALUE ?? "absent" };
-    if (name === "large_read") value = { items: Array.from({ length: 2000 }, (_, i) => ({ i, text: "👻".repeat(1000) })), next_cursor: "provider-read-cursor" };
+    // Like hpe-networking-mcp list_devices: the cursor sits under _pagination, after the items.
+    if (name === "large_read") value = { items: Array.from({ length: 2000 }, (_, i) => ({ i, text: "👻".repeat(1000) })), _pagination: { next_cursor: "provider-read-cursor" } };
     if (name === "error_read") return { isError: true, content: [{ type: "text", text: "Fixture rejected the read" }] };
     return { content: [{ type: "text", text: JSON.stringify(value) }] };
   });
@@ -80,7 +133,22 @@ export function fixtureServer(mode = "generic") {
 }
 
 if (import.meta.main) {
-  if (process.env.FIXTURE_MODE === "stall") {
+  if (process.env.FIXTURE_CHATTY) {
+    // A server that logs a lot (INFO logging): Casper must keep draining stderr.
+    const line = `INFO poll ${"x".repeat(200)}\n`;
+    for (let i = 0; i < Number(process.env.FIXTURE_CHATTY); i++) process.stderr.write(line);
+  }
+  if (process.env.FIXTURE_MODE === "fail-start") {
+    // A Python-like start failure: a traceback on stderr (with a secret in it), then exit 1.
+    process.stderr.write([
+      "Traceback (most recent call last):",
+      '  File "/srv/mcp/server.py", line 12, in <module>',
+      `    client = connect("${process.env.FIXTURE_SECRET ?? ""}", retries=3)`,
+      "    login(token=abc123)",
+      "KeyError: 'CENTRAL_BASE_URL'",
+      "",
+    ].join("\n"), () => process.exit(1));
+  } else if (process.env.FIXTURE_MODE === "stall") {
     process.stdin.resume();
   } else {
     if (process.env.FIXTURE_MODE === "stubborn") {
