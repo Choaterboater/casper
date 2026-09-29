@@ -118,3 +118,10 @@ test("a schema that cannot compile gives a plain error", () => {
   expect(() => compileInputSchema({ type: "object", properties: { a: { $ref: "#/nowhere/secret-schema-text" } } }))
     .toThrow("Tool input schema could not be compiled");
 });
+
+test("allowed values come from the server and have secrets hidden", () => {
+  const schema = { type: "object", properties: { line: { enum: ["wpa-passphrase Corp-Wifi-2026!", "plain"] } } };
+  const found = problems(compileInputSchema(schema)({ line: "other" }));
+  expect(found.join(" ")).toContain("<secret hidden>");
+  expect(found.join(" ")).not.toContain("Corp-Wifi-2026!");
+});

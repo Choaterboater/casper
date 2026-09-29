@@ -5,6 +5,7 @@
 // Ajv runs without `verbose`, so errors do not carry the data at all.
 import Ajv, { type ErrorObject } from "ajv";
 import addFormats from "ajv-formats";
+import { scrubText } from "../secrets/scrub";
 import { suggestField } from "./search";
 
 export type ValidationResult = { valid: true } | { valid: false; problems: string[] };
@@ -50,11 +51,17 @@ export function compileInputSchema(schema: unknown): CompiledValidator {
   };
 }
 
-/** One plain message for bad arguments, in the agreed "Not executed" form. */
-export function formatArgumentError(id: string, problems: readonly string[]): string {
+/** The parts of a bad-arguments refusal: the reason inside "Not executed (...)" and the sentence after it. */
+export function argumentProblem(id: string, problems: readonly string[]): { reason: string; next: string } {
   const shown = clean(id).slice(0, MAX_ID_CHARS);
   const list = problems.length ? problems.join("; ") : "arguments do not match the schema";
-  return `Not executed (bad arguments: ${list}). Check the schema: find_capability({ id: "${shown}" }).`;
+  return { reason: `bad arguments: ${list}`, next: `Check the schema: find_capability({ id: "${shown}" }).` };
+}
+
+/** One plain message for bad arguments, in the agreed "Not executed" form. */
+export function formatArgumentError(id: string, problems: readonly string[]): string {
+  const { reason, next } = argumentProblem(id, problems);
+  return `Not executed (${reason}). ${next}`;
 }
 
 /**
@@ -161,7 +168,8 @@ function withArticle(type: string): string {
 function enumValue(value: unknown): string {
   let text: string;
   try { text = JSON.stringify(value) ?? String(value); } catch { text = String(value); }
-  text = clean(text);
+  // Allowed values come from the server's schema: hide secret-looking text before the model sees it.
+  text = clean(scrubText(text).text);
   return text.length > MAX_ENUM_VALUE_CHARS ? `${text.slice(0, MAX_ENUM_VALUE_CHARS - 3)}...` : text;
 }
 
