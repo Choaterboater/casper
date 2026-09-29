@@ -1,9 +1,8 @@
 import { lstatSync, opendirSync, readlinkSync, realpathSync } from "node:fs";
 import path from "node:path";
 import type { RuntimeTool } from "../runtime/types";
-import { scrubText } from "../secrets/scrub";
 import type { CheckName, VerificationResult } from "./evidence";
-import { isBuiltinCheck } from "./named";
+import { checkResultForModel } from "./model-output";
 import type { VerifierRegistry } from "./registry";
 import type { VerificationScope } from "./scope";
 import { workspaceState } from "./workspace-state";
@@ -189,8 +188,8 @@ export class VerificationTask {
         signal?.addEventListener("abort", abort, { once: true });
         try {
           const [result] = await this.run([name], signal);
-          // Named checks read device configs and playbooks: their output is scrubbed of secrets for the model.
-          const shown = result && !isBuiltinCheck(result.name) ? { ...result, stdout: scrubText(result.stdout).text, stderr: scrubText(result.stderr).text } : result;
+          // Check output can print tokens and passwords (and named checks read device configs): hidden for the model.
+          const shown = result ? checkResultForModel(result) : undefined;
           return shown ? { text: JSON.stringify({ ...shown, coverage: "not-certified" }), isError: shown.status !== "pass" }
             : { text: "Check cancelled before execution.", isError: true };
         } finally { signal?.removeEventListener("abort", abort); }
