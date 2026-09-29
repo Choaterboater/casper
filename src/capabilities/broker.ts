@@ -95,7 +95,7 @@ function previewText(raw: unknown): string {
 // Ajv is loaded only on the first call, so local commands never pay for it.
 let validatorModule: typeof import("./validate") | undefined;
 let validatorLoad: Promise<NonNullable<typeof validatorModule>> | undefined;
-const MAX_SCHEMA_BYTES = 12_000;
+export const MAX_SCHEMA_BYTES = 12_000;
 const MAX_DIRECT_SCHEMA_BYTES = 32_000;
 function requireSupportedSchema(capability: Capability): void {
   if (capability.schemaBytes > MAX_SCHEMA_BYTES) throw new NotExecutedError("schema not supported: over the 12 KB limit");
