@@ -69,7 +69,7 @@ posixOnly("beforeToolGate is consulted for every tool, reading included", async 
   await writeFile(path.join(project, "notes.txt"), "secret plan\n");
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: async request => {
     await request.json();
-    return step++ === 0 ? calls([{ name: "read", args: { path: "notes.txt" } }]) : answer("done");
+    return step++ === 0 ? calls([{ name: "read", args: { path: "notes.txt" } }, { name: "casper_probe", args: {} }]) : answer("done");
   } });
   cleanup.push(async () => { server.stop(true); });
   await writeFile(path.join(agent, "models.json"), JSON.stringify({ providers: { fixture: {
@@ -83,8 +83,11 @@ posixOnly("beforeToolGate is consulted for every tool, reading included", async 
   const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });
   const result = JSON.parse(stdout.slice(stdout.indexOf("GATE_RESULT=") + "GATE_RESULT=".length).trim());
-  expect(result.consulted).toEqual(["read"]);
-  expect(result.toolEnds).toHaveLength(1);
-  expect(result.toolEnds[0].isError).toBe(true);
-  expect(result.toolEnds[0].output?.text).toBe("blocked read");
+  expect(result.consulted.sort()).toEqual(["casper_probe", "read"]);
+  expect(result.ran).toEqual([]);
+  expect(result.toolEnds).toHaveLength(2);
+  for (const end of result.toolEnds) {
+    expect(end.isError).toBe(true);
+    expect(end.output?.text).toBe(`blocked ${end.toolName}`);
+  }
 }, 20_000);
