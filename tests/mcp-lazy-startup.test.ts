@@ -87,7 +87,7 @@ for (const action of ["cancel", "close", "refresh"] as const) {
       // existing MCP suites cover validation against real protocol servers.
       let calls = 0, approvals = 0;
       const manager = { catalogRevision: 1, catalog() { return [{ server: "fixture", generation: this.catalogRevision, tools: [{ name: "set_value", inputSchema: { type: "object" } }] }]; },
-        async call() { calls++; }, async close() {}, };
+        policy() { return { writes: "on", showOptIn: false }; }, async call() { calls++; }, async close() {}, };
       const broker = new CapabilityBroker(manager, async () => { approvals++; return true; });
       const abort = new AbortController();
       const pending = broker.invoke("mcp:fixture:set_value", {}, abort.signal).then(() => "executed", () => "rejected");

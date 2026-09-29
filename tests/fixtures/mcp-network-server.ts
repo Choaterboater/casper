@@ -1,3 +1,4 @@
+import { appendFileSync } from "node:fs";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema, type Tool } from "@modelcontextprotocol/sdk/types.js";
@@ -54,12 +55,27 @@ function accessResult(mode: string) {
   }
 }
 
+/** FIXTURE_ENV_DUMP=1 adds get_env: the argv and the HPE_MCP_/CENTRALMCP_/CLEARPASS_ env it was started with. */
+function envDump() {
+  const prefixes = ["HPE_MCP_", "CENTRALMCP_", "CLEARPASS_"];
+  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => prefixes.some((prefix) => key.startsWith(prefix))));
+  return { content: [{ type: "text" as const, text: JSON.stringify({ argv: process.argv.slice(2), env }) }] };
+}
+
 export function networkFixtureServer(mode = "access-ro") {
   const server = new Server({ name: "casper-network-fixture", version: "1" }, { capabilities: { tools: {} } });
   const tools = catalog(mode);
+  if (process.env.FIXTURE_ENV_DUMP === "1") tools.push(read("get_env"));
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools }));
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
-    if (request.params.name === "access_check") return accessResult(mode);
+    // FIXTURE_CALLS_FILE: one line per call, so tests can count what reached the server.
+    if (process.env.FIXTURE_CALLS_FILE) appendFileSync(process.env.FIXTURE_CALLS_FILE, `${request.params.name} ${JSON.stringify(request.params.arguments ?? {})}\n`);
+    if (request.params.name === "get_env") return envDump();
+    if (request.params.name === "access_check") {
+      // access-slow never answers in time.
+      if (mode === "access-slow") await new Promise((resolve) => setTimeout(resolve, 30_000));
+      return accessResult(mode);
+    }
     return { content: [{ type: "text", text: `called ${request.params.name}` }] };
   });
   return server;
