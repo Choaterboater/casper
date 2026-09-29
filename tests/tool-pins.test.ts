@@ -35,3 +35,13 @@ test("a download missing from the checksum file, or a file that can't be fetched
   const failed = await pinProblems(tools, async () => { throw new Error("HTTP 404"); });
   expect(failed).toContain("gitleaks: couldn't get gitleaks_8.30.1_checksums.txt: HTTP 404");
 });
+
+test("the notices name every pinned security tool with its version and licence", async () => {
+  const notices = await Bun.file(new URL("../THIRD_PARTY_NOTICES.txt", import.meta.url)).text();
+  const section = notices.slice(notices.indexOf("Tools Casper runs but does not ship"));
+  for (const tool of tools) {
+    const name = tool.source.kind === "uv-lock" ? tool.source.package : tool.id;
+    const licence = tool.licence.split(" ")[0]!;
+    expect(section).toContain(`${name} ${tool.version} (${licence}`);
+  }
+});
