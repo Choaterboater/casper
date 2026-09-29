@@ -38,7 +38,7 @@ test("the question and the menu use numbered plain choices", () => {
   if (!suggestion || suggestion === "ask") throw new Error("expected a suggestion");
   expect(newProjectQuestion(suggestion, "~/Projects")).toEqual({
     question: "Build this as a new Mist Python project in ~/Projects/mist-aps?",
-    choices: ["Yes", "Use this folder", "Other kind"],
+    choices: ["Use this folder", "Yes", "Other kind"],
   });
   const menu = templateMenu();
   expect(menu.question).toBe("What are you building?");

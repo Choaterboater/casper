@@ -2,8 +2,8 @@ import { listTemplates, NAME_RULE, projectSlug, validName, type TemplateManifest
 
 /**
  * Which template a build request looks like, from the words alone: local, zero tokens. Used only
- * outside a project, before any model call, to ask once: "Build this as a new … ? 1 Yes · 2 Use
- * this folder · 3 Other kind". A wrong guess costs one key press.
+ * outside a project, before any model call, to ask once: "Build this as a new … ? 1 Use this folder ·
+ * 2 Yes · 3 Other kind". A wrong guess costs one key press, and Enter builds nothing.
  */
 
 export interface NewProjectSuggestion {
@@ -68,11 +68,12 @@ export function newProjectSuggestion(prompt: string, templates: readonly Templat
   return { template: id, name, kind: template.kind };
 }
 
-/** "Build this as a new Mist Python project in ~/Projects/mist-aps?" */
+/** "Build this as a new Mist Python project in ~/Projects/mist-aps?" Use this folder comes first, so Enter never
+ * builds a project. */
 export function newProjectQuestion(suggestion: NewProjectSuggestion, parentDisplay: string): { question: string; choices: string[] } {
   return {
     question: `Build this as a new ${suggestion.kind} in ${parentDisplay.replace(/\/$/, "")}/${suggestion.name}?`,
-    choices: ["Yes", "Use this folder", "Other kind"],
+    choices: ["Use this folder", "Yes", "Other kind"],
   };
 }
 

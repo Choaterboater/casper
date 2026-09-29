@@ -24,8 +24,8 @@ Python scripts, web app, NOC dashboard (Streamlit), Aruba CX Ansible and Junos A
 line says `Ready: … tests passed`, never "verified". Exit codes: 0 ready, 1 created but not ready
 (or nothing created), 64 usage. Inside Casper, `/new` does the same. Started in an empty folder,
 Casper asks once whether to start a project there. A request like "build a tool that lists Mist
-APs per site" outside a project asks `Build this as a new … in ~/Projects/<name>? 1 Yes · 2 Use
-this folder · 3 Other kind` before the model starts. One-shot, `--json` and piped runs never ask:
+APs per site" outside a project asks `Build this as a new … in ~/Projects/<name>? 1 Use this folder
+· 2 Yes · 3 Other kind` before the model starts (Enter keeps the folder). One-shot, `--json` and piped runs never ask:
 they keep the folder and print the `casper new` command.
 
 **Page checks.** In a web or Streamlit project, after the model edits files that reach a page,

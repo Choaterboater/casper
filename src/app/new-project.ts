@@ -49,11 +49,12 @@ const TYPED_NO = new Set(["n", "no", "nope", "nah", "not now", "cancel", "skip"]
 /** Tries for a name before Casper gives up. */
 const NAME_TRIES = 3;
 
-/** "What are you building?" One numbered choice per ready template, plus `extra` last. The template id,
- * "extra", or undefined for Esc. Typed text that names a template picks it. */
+/** "What are you building?" One numbered choice per ready template, with `extra` (a way out that builds
+ * nothing) first, so Enter never picks a kind. The template id, "extra", or undefined for Esc. Typed text
+ * that names a template picks it. */
 export async function askTemplate(flow: NewProjectFlow, extra?: string): Promise<string | "extra" | undefined> {
   const menu = templateMenu();
-  const options = [...menu.choices.map((label) => ({ label })), ...(extra ? [{ label: extra }] : [])];
+  const options = [...(extra ? [{ label: extra }] : []), ...menu.choices.map((label) => ({ label }))];
   const answer = await choose(flow, menu.question, options);
   if (answer === undefined) return undefined;
   if (extra && answer === extra) return "extra";
@@ -122,12 +123,13 @@ export async function isEmptyFolder(dir: string): Promise<boolean> {
   try { return (await readdir(dir)).length === 0; } catch { return false; }
 }
 
-/** Started in an empty folder: "This folder is empty. Start a new project here?" The kinds, then "Not now".
+/** Started in an empty folder: "This folder is empty. Start a new project here?" "Not now" first (so Enter builds
+ * nothing), then the kinds.
  * The folder's own name is used when it is a valid name; otherwise Casper asks one and builds inside it. */
 export async function newProjectInEmptyFolder(flow: NewProjectFlow, dir: string): Promise<NewProjectResult | undefined> {
   const menu = templateMenu();
   const answer = await choose(flow, "This folder is empty. Start a new project here?",
-    [...menu.choices.map((label) => ({ label })), { label: "Not now", description: "just work in this folder" }]);
+    [{ label: "Not now", description: "just work in this folder" }, ...menu.choices.map((label) => ({ label }))]);
   const index = answer === undefined ? -1 : menu.choices.indexOf(answer);
   if (index < 0) {
     if (answer !== undefined && answer !== "Not now") flow.write(`[new] ${answer.trim()} isn't one of the choices; nothing was created.`);
@@ -144,8 +146,8 @@ export type BuildRequestAnswer = { result: NewProjectResult } | { keep: true; sa
 
 /**
  * The question before the model starts, on a build request outside a project: "Build this as a new Mist
- * Python project in ~/Projects/mist-aps? 1 Yes · 2 Use this folder · 3 Other kind". A typed name means
- * Yes with that name. "Use this folder" and Esc keep the folder. Undefined when the request isn't one.
+ * Python project in ~/Projects/mist-aps? 1 Use this folder · 2 Yes · 3 Other kind". A typed name means
+ * Yes with that name. "Use this folder" (Enter) and Esc keep the folder. Undefined when the request isn't one.
  */
 export async function askBuildRequest(flow: NewProjectFlow, prompt: string): Promise<BuildRequestAnswer | undefined> {
   const suggestion = newProjectSuggestion(prompt, listTemplates());
