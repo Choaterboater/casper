@@ -107,7 +107,7 @@ export function serverSteps(options: ServerStepOptions = {}): { serverChecks: Ch
     }
     const connectMs = options.connectMs ?? preset?.preset.limits?.connectMs ?? MCP_LIMITS.connectMs;
     context.write(`Starting ${start.name}: ${redactPreview(startLine(start))} (from ${start.source})\n`);
-    const probe = await probeServer(start, { connectMs, env: context.env, live, keepOpen: live, signal: context.signal, ...(options.fetch ? { fetch: options.fetch } : {}) });
+    const probe = await probeServer(start, { connectMs, env: context.env, overrides: context.cmd.env, live, keepOpen: live, signal: context.signal, ...(options.fetch ? { fetch: options.fetch } : {}) });
     if (probe.connection) {
       connection = probe.connection;
       context.onClose(() => connection?.close());

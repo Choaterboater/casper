@@ -110,3 +110,17 @@ test("--live failures never show the credential the server was given", async () 
     expect(JSON.stringify(report)).not.toContain(secret);
   }
 });
+
+test("--env wins over the example's own env, so the router's direct-mode hint works", async () => {
+  const root = await repo({ command: process.execPath, args: [fixture], env: { FIXTURE_MODE: "good", FIXTURE_EXTRA: "from-example" } });
+  const envFile = path.join(root, "env.json");
+  await new McpCheck(command(root, { env: { FIXTURE_EXTRA: "from-flag", FIXTURE_ENV_FILE: envFile } })).run();
+  expect(JSON.parse(await readFile(envFile, "utf8")).FIXTURE_EXTRA).toBe("from-flag");
+});
+
+test("offline, an example config can't point the server at a real proxy", async () => {
+  const root = await repo({ command: process.execPath, args: [fixture], env: { FIXTURE_MODE: "good", HTTPS_PROXY: "http://corp:8080" } });
+  const envFile = path.join(root, "env.json");
+  await new McpCheck(command(root, { env: { FIXTURE_ENV_FILE: envFile } })).run();
+  expect(JSON.parse(await readFile(envFile, "utf8")).HTTPS_PROXY).toBe(DEAD_PROXY);
+});

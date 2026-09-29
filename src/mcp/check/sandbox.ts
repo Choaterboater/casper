@@ -12,6 +12,8 @@ export const SECRET_ENV_NAME = /(TOKEN|SECRET|PASSWORD|PASSWD|API_?KEY|PRIVATE_K
 export const DEAD_PROXY = "http://127.0.0.1:9";
 
 const PROXY_NAMES = ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"];
+/** The names offline mode sets itself. An example config may not change them (only --env may). */
+export const OFFLINE_GUARD_NAME = /^((https?|all|no)_proxy|uv_offline|pip_no_index|npm_config_offline)$/i;
 
 export function offlineEnv(base: NodeJS.ProcessEnv, extra: Record<string, string> = {}): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
