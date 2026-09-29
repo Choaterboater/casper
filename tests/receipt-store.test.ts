@@ -3,7 +3,7 @@ import { mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { RECEIPTS_KEPT, ReceiptStore, type StoredReceipt } from "../src/task/receipts";
-import { needsPosixModes } from "./support/platform";
+import { posixOnly } from "./support/platform";
 
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
@@ -44,7 +44,7 @@ test(`only the newest ${RECEIPTS_KEPT} receipts are kept`, async () => {
   expect(names).not.toContain("2.json");
 });
 
-needsPosixModes("receipts are private: the folder is 0700 and each file 0600", async () => {
+posixOnly("receipts are private: the folder is 0700 and each file 0600", async () => {
   const receipts = await store();
   await receipts.add(receipt("first"));
   expect((await stat(receipts.directory)).mode & 0o777).toBe(0o700);
