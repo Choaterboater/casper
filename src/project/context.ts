@@ -4,6 +4,9 @@ import type { VisualizationSettings } from "../visualize/router";
 import type { ProjectInfo } from "./inspect";
 import { loadProjectModel, projectStateDirectory, type ProjectModel } from "./model";
 import { detectMigrations } from "../verify/migrations";
+import { detectAnsible } from "../network/ansible";
+import type { LabSettings } from "../network/spec";
+import type { NamedCheckSpec } from "../verify/named";
 
 export interface ProjectContext {
   info: ProjectInfo;
@@ -29,6 +32,8 @@ export interface ProjectContext {
   };
   /** Configuration keys that were ignored, by file (see LoadedConfiguration.warnings). */
   warnings?: string[];
+  /** The owner's lab list (lab.hosts), from ~/.casper/config.yaml or the profile only. */
+  lab?: LabSettings;
 }
 
 export interface LoadProjectContextOptions {
@@ -52,7 +57,20 @@ export async function loadProjectContext(
   });
   // The migrations check is found from the project's own files each time it is opened.
   const migrations = await detectMigrations(info.root).catch(() => undefined);
-  const model = migrations ? { ...detected, migrations } : detected;
+  // So are Ansible playbooks: the language and platforms, and ready-made checks to offer (never saved or run on their own).
+  const ansible = await detectAnsible(info.root).catch(() => undefined);
+  let model = migrations ? { ...detected, migrations } : detected;
+  if (ansible) {
+    const found: Record<string, NamedCheckSpec> = {};
+    for (const [name, spec] of Object.entries(ansible.checks)) if (!model.namedChecks?.[name]) found[name] = spec;
+    const overrides = configuration.projectOverrides;
+    model = {
+      ...model,
+      languages: overrides.languages ? model.languages : [...new Set([...model.languages, "ansible"])].sort(),
+      frameworks: overrides.frameworks ? model.frameworks : [...new Set([...model.frameworks, ...ansible.frameworks])].sort(),
+      ...(Object.keys(found).length ? { foundChecks: found } : {}),
+    };
+  }
 
   return {
     info,
@@ -73,6 +91,7 @@ export async function loadProjectContext(
       project: configuration.projectRules,
     },
     warnings: configuration.warnings,
+    ...(configuration.lab ? { lab: configuration.lab } : {}),
   };
 }
 

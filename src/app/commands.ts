@@ -105,7 +105,11 @@ export interface CommandHost {
   handleBranchCommand(prompt: string): Promise<void>;
   handleSwitchCommand(prompt: string): Promise<void>;
   getLastTaskResult(): TaskResult | undefined;
+  /** `/verify add <name>`: save a ready-made check Casper found (never called without the owner asking). */
+  saveFoundCheck(name: string): Promise<void>;
 }
+
+export const VERIFY_USAGE = "Usage: /verify [repair] [typecheck|lint|test|build|<named check> ...] | /verify add <found check>";
 
 export async function runSlashCommand(host: CommandHost, prompt: string): Promise<VerificationReport | undefined> {
     if (host.closing) return;
@@ -355,12 +359,24 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
     }
     if (/^\/verify(?:\s|$)/.test(prompt)) {
       const args = prompt.trim().split(/\s+/).slice(1);
+      // `/verify add <name>`: the owner saves a ready-made check Casper found. Casper never adds one by itself.
+      if (args[0] === "add") {
+        if (args.length !== 2 || !host.projectContext) throw new Error(VERIFY_USAGE);
+        await host.saveFoundCheck(args[1]!);
+        return;
+      }
       const repair = args[0] === "repair";
       if (repair) args.shift();
       const named = host.projectContext?.model.namedChecks ?? {};
+      const found = host.projectContext?.model.foundChecks ?? {};
       const detected = host.projectContext && detectedMigrations(host.projectContext.model) ? [MIGRATIONS_CHECK] : [];
+      const unsaved = args.find((arg) => Object.hasOwn(found, arg) && !Object.hasOwn(named, arg));
+      if (unsaved) {
+        host.output.write(`[verify] ${unsaved} is a check Casper found but you have not saved, so it does not run. /verify add ${unsaved} saves it in .casper/project.yaml.\n`);
+        return;
+      }
       if (args.some((arg) => !CHECK_NAMES.some((name) => name === arg) && !Object.hasOwn(named, arg) && !detected.includes(arg))) {
-        throw new Error("Usage: /verify [repair] [typecheck|lint|test|build|<named check> ...]");
+        throw new Error(VERIFY_USAGE);
       }
       return host.runVerification(args.length ? args : host.projectContext ? defaultVerifyNames(host.projectContext.model) : CHECK_NAMES, repair);
     }

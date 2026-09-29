@@ -9,7 +9,7 @@
  * Nothing here calls a model. A suggestion that costs tokens says so before it is chosen.
  */
 import type { ProjectCommand, ProjectModel } from "../project/model";
-import { projectCommandLine, PROJECT_YAML } from "../project/config-write";
+import { namedCheckLine, projectCommandLine, PROJECT_YAML } from "../project/config-write";
 import type { TaskClassification } from "../task/classify";
 import { underSpecifiedTarget } from "../task/classify";
 import type { TaskResult } from "../task/result";
@@ -25,6 +25,8 @@ export type NextAction =
   | { kind: "flow"; flow: FlowRule }
   /** Save a check command in .casper/project.yaml, exactly as `line` shows it (free). */
   | { kind: "remember-command"; name: ProjectCommand; command: string; line: string }
+  /** Save a ready-made check Casper found (verify.checks.<name>) in .casper/project.yaml, exactly as `line` shows it (free). */
+  | { kind: "save-check"; name: string; line: string }
   /** A local step another part of Casper registered (a page check, a lab check...). */
   | { kind: "run"; run: () => Promise<string | void> };
 
@@ -98,7 +100,30 @@ export const rememberTestRule: SuggestionRule = {
   },
 };
 
-export const BUILT_IN_RULES: readonly SuggestionRule[] = [proveFixRule, rememberTestRule];
+/** "Save aruba-syntax so Casper checks your playbooks after each change": the task changed YAML in a project where
+ * Casper found Ansible playbooks, and the project has not saved that ready-made check. Only the owner's pick saves it. */
+export const saveFoundCheckRule: SuggestionRule = {
+  id: "save-network-check",
+  priority: 30,
+  evaluate({ task, project }) {
+    const found = Object.entries(project.foundChecks ?? {});
+    if (task.execution !== "completed" || !found.length) return undefined;
+    const changed = (task.changedPaths ?? []).map((file) => file.replace(/\\/g, "/"));
+    if (!changed.some((file) => /\.ya?ml$/i.test(file))) return undefined;
+    const [name, spec] = found.find(([, entry]) => entry.playbooks?.some((playbook) => changed.includes(playbook))) ?? found[0]!;
+    const line = namedCheckLine(name, spec);
+    const what = spec.preset === "ansible-render" ? "renders your Junos playbooks" : "checks your playbooks with ansible-playbook --syntax-check";
+    return {
+      id: "save-network-check",
+      label: `Save ${name}: it ${what} after each change`,
+      why: `Casper found Ansible playbooks here; saves ${line} in ${PROJECT_YAML}`,
+      cost: "free",
+      action: { kind: "save-check", name, line },
+    };
+  },
+};
+
+export const BUILT_IN_RULES: readonly SuggestionRule[] = [proveFixRule, rememberTestRule, saveFoundCheckRule];
 
 /** The rules Casper runs after a receipt. Other parts of Casper register theirs (page checks, lab checks). */
 export class SuggestionRules {

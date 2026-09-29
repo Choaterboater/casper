@@ -71,6 +71,18 @@ describe("after-receipt rules", () => {
     expect(rules.afterReceipt(context({ observedChecks: [observed("uv run pytest")] }, undefined, { project: project({ test: "make test" }) }))).toEqual([]);
   });
 
+  test("save-network-check offers a found Ansible check after a YAML change, and shows the exact setting it saves", () => {
+    const found = { ...project(), foundChecks: { "aruba-syntax": { kind: "offline" as const, preset: "ansible-syntax" as const, playbooks: ["site.yml"], after: "each-change" as const } } };
+    const fired = rules.afterReceipt(context({ changedPaths: ["site.yml"] }, "Add VLAN 30 to the access switches", { project: found }));
+    expect(fired).toHaveLength(1);
+    expect(fired[0]).toMatchObject({ id: "save-network-check", cost: "free",
+      label: "Save aruba-syntax: it checks your playbooks with ansible-playbook --syntax-check after each change",
+      action: { kind: "save-check", name: "aruba-syntax", line: "verify.checks.aruba-syntax: { preset: ansible-syntax, playbooks: [ site.yml ] }" } });
+    // No YAML changed, or nothing found: nothing is offered.
+    expect(rules.afterReceipt(context({ changedPaths: ["README.md"] }, "Add VLAN 30 to the access switches", { project: found }))).toEqual([]);
+    expect(rules.afterReceipt(context({ changedPaths: ["site.yml"] }, "Add VLAN 30 to the access switches"))).toEqual([]);
+  });
+
   test("one-shot and --json runs get no suggestions", () => {
     expect(rules.afterReceipt(context({ verification: passed, proof: unproven }, undefined, { interactive: false }))).toEqual([]);
   });

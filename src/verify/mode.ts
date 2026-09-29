@@ -57,6 +57,10 @@ export interface ChecksPlan {
   mode: VerificationMode; checks: CheckName[]; slow?: boolean;
   /** Named checks that run only with /verify <name> (set to "ask", and reports). */
   manual?: string[];
+  /** Lab checks: they reach the owner's lab devices and run only when the owner starts them (/verify <name>). */
+  lab?: string[];
+  /** Ready-made checks Casper found (Ansible) that the project has not saved; /verify add <name> saves one. */
+  found?: string[];
   /** The dev server Casper starts to open changed pages after each change ("bun run dev"); auto mode only. */
   pages?: string;
 }
@@ -64,7 +68,9 @@ export interface ChecksPlan {
 /** The banner's and /status's plain line for a ChecksPlan. */
 export function describeChecksPlan(plan: ChecksPlan): string {
   if (plan.mode === "off") return "off for this session (--no-verify or verification.mode: off)";
-  const manual = plan.manual?.length ? ` · with /verify <name> only: ${plan.manual.join(", ")}` : "";
+  const manual = (plan.manual?.length ? ` · with /verify <name> only: ${plan.manual.join(", ")}` : "")
+    + (plan.lab?.length ? ` · lab: ${plan.lab.join(", ")} (you start these: /verify <name>)` : "")
+    + (plan.found?.length ? ` · found, not saved: ${plan.found.join(", ")} (/verify add <name> saves one)` : "");
   // Pages run only in auto mode (Casper opens them itself after a change).
   const checks = [...plan.checks, ...(plan.pages && plan.mode === "auto" ? [`pages (${plan.pages})`] : [])];
   if (!checks.length) return `none found; add verify.test to .casper/project.yaml${manual}`;
