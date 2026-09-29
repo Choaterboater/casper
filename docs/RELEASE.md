@@ -12,9 +12,6 @@ MCP that works with network servers (hpe-networking-mcp, junos-mcp-server, Mist,
 others) without letting the AI change a device on its own. See [MCP.md](MCP.md) and
 [SECRETS.md](SECRETS.md).
 
-v0.2.14 was never published, so this is the first release with its changes too. They are listed
-under v0.2.14 below.
-
 **Read-only comes from the product.** Casper calls a login read-only only when the product itself
 says so, through an `access_check` tool. A tool marked `readOnlyHint: true` runs without asking, as
 in 0.2.14, but that is the server's word, not a check. Casper's labels, word lists, presets and guesses only make things stricter (ask more, hide
