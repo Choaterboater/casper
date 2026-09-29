@@ -250,9 +250,17 @@ export class UndoStore {
           await this.git(["rm", "--cached", "-f", "-r", "-q", "--ignore-unmatch", "--pathspec-from-file=-", "--pathspec-file-nul"],
             { input: left.map((entry) => `:(literal)${entry.path}`).join("\0"), signal });
         }
-        await this.git(["add", "--all", "--pathspec-from-file=-", "--pathspec-file-nul"],
+        const addAll = () => this.git(["add", "--all", "--pathspec-from-file=-", "--pathspec-file-nul"],
           { input: [".", ...left.map((entry) => `:(exclude,literal)${entry.path}`)].join("\0"), signal });
-        const tree = (await this.text(["write-tree"])).trim();
+        await addAll();
+        let tree: string;
+        try { tree = (await this.text(["write-tree"])).trim(); } catch {
+          // git's clean-up from another work tree's copies can drop a file this index still names (its copy was
+          // old and no task kept it). The index is only a cache: start it again, reading every file.
+          await unlink(this.index).catch(() => {});
+          await addAll();
+          tree = (await this.text(["write-tree"])).trim();
+        }
         if (!/^[0-9a-f]{40}$/.test(tree)) throw new GitError("no copy was written");
         // What git ignores here (a whole ignored folder is one entry). Those files are there but not copied: an undo
         // must never delete one because a later copy has it (the task stopped ignoring it).
