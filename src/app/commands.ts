@@ -126,7 +126,8 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       if (host.subagents.isBusy) throw new Error("Wait for active subagents before changing models.");
       const session = await host.ensureRuntime();
       host.commandAbort?.signal.throwIfAborted();
-      const argument = prompt.slice(6).trim();
+      // /model big <selector|clear> is plain words for the reason role: the model Casper offers when repairs run out.
+      const argument = prompt.slice(6).trim().replace(/^big(?=\s|$)/, "role reason");
       if (/^(?:roles|role)(?:\s|$)/.test(argument)) {
         const args = argument.split(/\s+/);
         let roles: Record<string, string>;
@@ -136,8 +137,8 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
         } else if (args[0] === "role" && args.length === 3 && ["fast", "build", "reason", "review"].includes(args[1]!)) {
           if (!session.setModelRole) throw new Error("This runtime does not support model roles.");
           roles = await session.setModelRole(args[1]!, args[2] === "clear" ? undefined : args[2]);
-        } else throw new Error("Usage: /model roles or /model role <fast|build|reason|review> <selector|clear>");
-        host.output.write(`${["fast", "build", "reason", "review"].map(role => ` ${role.padEnd(9)} ${roles[role] ?? "not configured"}`).join("\n")}\n[model] Role mappings are saved globally; the current model is unchanged. Use /model @role[:effort] to select a configured role.\n`);
+        } else throw new Error("Usage: /model roles, /model big <selector|clear> or /model role <fast|build|reason|review> <selector|clear>");
+        host.output.write(`${["fast", "build", "reason", "review"].map(role => ` ${role.padEnd(9)} ${roles[role] ?? "not configured"}${role === "reason" ? " (your big model)" : ""}`).join("\n")}\n[model] Role mappings are saved globally; the current model is unchanged. Use /model @role[:effort] to select a configured role.\n`);
         return;
       }
       if (!session.selectModel) throw new Error("This runtime does not support model selection.");

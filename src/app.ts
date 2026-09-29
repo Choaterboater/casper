@@ -44,6 +44,7 @@ import type {
   AgentRuntime,
   RuntimeAuthProvider,
   RuntimeSession,
+  RuntimeModelInfo,
   RuntimeTool,
 } from "./runtime/types";
 import { SkillRegistry, formatSelectedSkills } from "./skills/registry";
@@ -146,6 +147,9 @@ export interface CasperAppOptions {
 const NEW_PROJECT_CHOICE = "New project";
 
 const LOGIN_PROVIDERS = ["openai-codex", "github-copilot", "anthropic", "openrouter"] as const;
+
+/** A model for one repair: the selector Casper switches with, and the name it shows. */
+interface BigModelChoice { query: string; label: string }
 
 export class CasperApp {
   /** The provider of the last successful /login, preferred when Casper picks a first model. */
@@ -272,6 +276,16 @@ export class CasperApp {
   private newProjectOffered = false;
   /** This task already showed its one question before work (the new-project question): no checklist panel. */
   private beforeWorkAsked = false;
+  /** The next repair runs on this model (the big model), then Casper switches back. */
+  private repairOnBigModel?: BigModelChoice;
+  /** The user said yes to one more try on the big model at the repair limit. */
+  private bigModelGrant?: BigModelChoice;
+  /** Repairs this task ran on the big model, for the receipt. */
+  private bigModelUse?: { model: string; attempts: number };
+  /** The repair the current verification is on, for the question at the limit. */
+  private repairsTried = 0;
+  /** "repair.bigModelLastTry is on but no big model is set" is said once per session. */
+  private bigModelNoticeShown = false;
 
   constructor(options: CasperAppOptions = {}) {
     const freshPiRuntime = async () => {
@@ -906,6 +920,7 @@ export class CasperApp {
     this.beforeWorkAsked = false;
     if (await this.offerNewProject(prompt) === "stop" || this.closing || this.commandAbort?.signal.aborted) return;
     this.observations = new TaskObservations();
+    this.bigModelUse = undefined;
     const context = this.projectContext!;
     const classification = classifyTask(prompt);
     // beforeChanges policy: under-specified implement/configure work must see one recorded
@@ -954,6 +969,7 @@ export class CasperApp {
     const session = await this.ensureRuntime();
     if (this.closing || this.commandAbort?.signal.aborted) return;
     if (!await this.ensureModel(session)) return;
+    this.bigModelNotice(session);
     this.clearSteps();
     const workspaceRoot = this.activeWorkspaceRoot();
     // Receipts describe the tree, not tool names: a read-only shell run is not a write.
@@ -1099,7 +1115,7 @@ export class CasperApp {
         ...(autoChecks?.skipped && !verification?.smoke && !verification?.pages ? { autoSkipped: autoChecks.skipped } : {}),
         ...(pageNotes?.length && !verification?.pages ? { pageNotes } : {}),
         ...(this.taskTurnLimit !== undefined ? { turnLimit: this.taskTurnLimit } : {}), ...(proof ? { proof } : {}), ...(proofSkipped && !proof ? { proofSkipped } : {}), ...(review ? { review } : {}),
-        ...(acceptance ? { acceptance } : {}), ...(checklist ? { checklist } : {}) };
+        ...(acceptance ? { acceptance } : {}), ...(checklist ? { checklist } : {}), ...this.bigModelReceipt() };
       if (!this.closing) {
         this.terminal.endAssistant();
         this.events.ensureLineBreak();
@@ -1316,6 +1332,9 @@ export class CasperApp {
     if (this.commandAbort?.signal.aborted) cancel();
     this.verificationAbort = controller;
     this.verificationTask = evidence;
+    this.repairOnBigModel = undefined;
+    this.bigModelGrant = undefined;
+    if (!task) this.bigModelUse = undefined;
     this.events.ensureLineBreak();
     this.phase("checks", "start");
     try {
@@ -1330,14 +1349,34 @@ export class CasperApp {
         repair: repair ? async (prompt) => {
           await this.prepareCapabilities(request);
           const session = await this.ensureRuntime();
-          if (!controller.signal.aborted) {
-            this.phase("repair", "start");
-            try { await session.prompt(prompt, controller.signal, { request, maxTurns: this.maxTurns }); }
-            finally { this.phase("repair", "end"); }
-            if (this.taskRuntimeFailed && !this.taskRuntimeCancelled) throw new Error("Repair model stopped unsuccessfully; changes retained.");
+          // This try runs on the big model: the user chose it at the repair limit, or set repair.bigModelLastTry.
+          const big = this.repairOnBigModel;
+          this.repairOnBigModel = undefined;
+          if (controller.signal.aborted) return;
+          const back = big ? await this.switchToBigModel(session, big) : undefined;
+          if (big && !back) this.output.write(`[model] Casper could not switch to your big model ${terminalText(big.label)}; this repair runs on the current model.\n`);
+          this.phase("repair", "start");
+          try { await session.prompt(prompt, controller.signal, { request, maxTurns: this.maxTurns }); }
+          finally {
+            this.phase("repair", "end");
+            if (back) await this.restoreModel(session, back);
           }
+          if (back && big) this.bigModelUse = { model: big.label, attempts: (this.bigModelUse?.attempts ?? 0) + 1 };
+          if (this.taskRuntimeFailed && !this.taskRuntimeCancelled) throw new Error("Repair model stopped unsuccessfully; changes retained.");
+          return back && big ? { model: big.label } : undefined;
         } : undefined,
-        onRepair: (attempt, max) => { this.output.write(`↻ repair ${attempt}/${max}\n`); },
+        onRepair: (attempt, max) => {
+          this.repairsTried = attempt;
+          // The granted extra try, or the last one with repair.bigModelLastTry on, runs on the big model.
+          const granted = this.bigModelGrant;
+          this.bigModelGrant = undefined;
+          const setting = attempt === max && context.repair.bigModelLastTry === true && this.session ? this.bigModel(this.session) : undefined;
+          this.repairOnBigModel = granted ?? (setting ? { query: "@reason", label: setting.label } : undefined);
+          this.output.write(`↻ repair ${attempt}/${max}${this.repairOnBigModel ? ` on your big model ${terminalText(this.repairOnBigModel.label)}` : ""}\n`);
+        },
+        // Out of tries: one numbered offer to try once more on the big model. Only a person answers it; one-shot
+        // and --json runs never get it, so they never spend on a bigger model on their own.
+        onRepairLimit: repair && this.interactive && this.terminal.canAsk ? (failures, signal) => this.askBigModelRetry(failures, signal) : undefined,
         // A check that was already failing before the change is not the change's doing: say so, and ask before paying to fix it.
         beforeRepair: repair && task && task === this.checkTask && this.taskBaseline ? (failures, signal) => this.repairPreexisting(failures, signal) : undefined,
         // Only a person can say whether a check that did not finish is worth a paid repair.
@@ -1351,7 +1390,8 @@ export class CasperApp {
       await recordCheckTimings(context.stateDirectory, report.rounds.flat());
       // A model task's receipt summarizes its checks; a standalone run gets its own summary.
       if (this.verbose) this.output.write(`${formatVerificationReport(report)}\n`);
-      else if (!task) this.output.write(`${formatReceipt({ execution: "completed", verification: report }, { surface: this.receiptSurface() })}\n`);
+      else if (!task) this.output.write(`${formatReceipt({ execution: "completed", verification: report, ...this.bigModelReceipt() },
+        { surface: this.receiptSurface() })}\n`);
       return report;
     } finally {
       this.phase("checks", "end");
@@ -1469,21 +1509,160 @@ export class CasperApp {
       if (!/empty (?:response|completion|message|content)|no (?:content|response|output) (?:was )?returned|returned no (?:content|output)/i.test(error)) return;
       if (isRetryableAssistantError({ stopReason: "error", errorMessage: error } as Parameters<typeof isRetryableAssistantError>[0])) return;
       let retry = attempt === 1;
+      let big: { label: string } | undefined;
       if (!retry && this.interactive && this.terminal.rich && attempt <= 4) {
         this.events.ensureLineBreak();
+        const bigModel = this.bigModel(session);
         const answer = await this.terminal.ask("The model failed again. What now?", [
           { label: "Retry", description: "ask the same model to go on from where it stopped" },
           { label: "Stop", description: "keep the changes so far; /model picks another model" },
+          ...(bigModel ? [{ label: "Retry with your big model", description: `go on from where it stopped on ${terminalText(bigModel.label)} (uses tokens)` }] : []),
         ], false, this.commandAbort?.signal);
-        retry = answer?.[0] === "Retry";
+        if (bigModel && answer?.[0] === "Retry with your big model") big = bigModel;
+        retry = answer?.[0] === "Retry" || Boolean(big);
       }
       if (!retry) return;
       this.events.ensureLineBreak();
-      this.output.write(`[model] ${attempt === 1 ? "The model failed; trying once more." : "Trying again."}\n`);
+      const back = big ? await this.switchToBigModel(session, { query: "@reason", label: big.label }) : undefined;
+      this.output.write(`[model] ${attempt === 1 ? "The model failed; trying once more." : back ? `Trying again on your big model ${terminalText(big!.label)}.` : "Trying again."}\n`);
       this.taskRuntimeFailed = false;
-      await session.prompt("Your last response failed with a provider error. Continue the task from where you stopped.",
-        this.commandAbort?.signal, { request, maxTurns: this.maxTurns });
+      try {
+        await session.prompt("Your last response failed with a provider error. Continue the task from where you stopped.",
+          this.commandAbort?.signal, { request, maxTurns: this.maxTurns });
+      } finally { if (back) await this.restoreModel(session, back); }
     }
+  }
+
+  /** The receipt's big-model part: which model ran repairs, and how many. */
+  private bigModelReceipt(): Pick<TaskResult, "bigModel"> {
+    return this.bigModelUse ? { bigModel: { ...this.bigModelUse } } : {};
+  }
+
+  /** repair.bigModelLastTry without a big model does nothing; say so once per session. */
+  private bigModelNotice(session: RuntimeSession): void {
+    if (this.bigModelNoticeShown || this.projectContext?.repair.bigModelLastTry !== true) return;
+    this.bigModelNoticeShown = true;
+    let role: string | undefined;
+    try { role = session.getModelRoles?.().reason?.trim(); } catch { role = undefined; }
+    if (!role) this.output.write("[model] repair.bigModelLastTry is on but no big model is set. Use /model big <provider/model>.\n");
+  }
+
+  /** The user's big model (the reason role), when one is set, the catalog knows it, and it is not the model in
+   * use now. Reading it makes no model call. */
+  private bigModel(session: RuntimeSession): { label: string; info?: RuntimeModelInfo } | undefined {
+    let role: string | undefined;
+    try { role = session.getModelRoles?.().reason?.trim(); } catch { return undefined; }
+    if (!role || !session.selectModel) return undefined;
+    let info: RuntimeModelInfo | undefined;
+    if (session.describeModel) {
+      try { info = session.describeModel("@reason"); } catch { info = undefined; }
+      if (!info) return undefined;
+    }
+    const label = info ? `${info.provider}/${info.id}` : role.replace(/:[a-z]+$/, "");
+    const status = session.getStatus?.();
+    if (status?.provider && status.model && `${status.provider}/${status.model}` === label) return undefined;
+    return { label, ...(info ? { info } : {}) };
+  }
+
+  /** Switch this conversation to the big model for one step; the model to go back to, or undefined when the
+   * switch did not happen. Nothing is saved as a default. */
+  private async switchToBigModel(session: RuntimeSession, big: BigModelChoice): Promise<string | undefined> {
+    const status = session.getStatus?.();
+    const back = status?.provider && status.model ? `${status.provider}/${status.model}` : undefined;
+    if (!back || !session.selectModel) return undefined;
+    try {
+      const result = await session.selectModel({ query: big.query, persist: false });
+      if (!result.selected) return undefined;
+    } catch { return undefined; }
+    this.updateFooter();
+    return back;
+  }
+
+  /** Back to the model the user was on, with its own effort. */
+  private async restoreModel(session: RuntimeSession, back: string): Promise<void> {
+    try {
+      await session.selectModel!({ query: back, persist: false });
+      if (!this.closing) this.output.write(`[model] Back on ${terminalText(back)} for your next request.\n`);
+    } catch (error) {
+      if (!this.closing) this.output.write(`[model] Casper could not switch back to ${terminalText(back)} (${terminalText(error instanceof Error ? error.message : String(error))}); /model ${terminalText(back)} switches back.\n`);
+    }
+    this.updateFooter();
+  }
+
+  /** What a big-model try costs, in plain words: "about 48k tokens, at least ≈ $0.72". Only the conversation it
+   * reads is counted, so the price is a lower bound; without a price only the tokens are named. */
+  private bigModelCost(session: RuntimeSession, info?: RuntimeModelInfo): { words: string; fits: boolean } {
+    let tokens: number | null | undefined;
+    try { tokens = session.getUsage?.().context?.tokens; } catch { tokens = undefined; }
+    if (typeof tokens !== "number" || !Number.isFinite(tokens) || tokens <= 0) return { words: "uses tokens", fits: true };
+    const fits = !info?.contextWindow || tokens < info.contextWindow;
+    const count = tokens >= 1000 ? `${Math.round(tokens / 1000)}k` : String(tokens);
+    const price = info?.inputCostPerMillion ? tokens * info.inputCostPerMillion / 1e6 : undefined;
+    return { fits, words: `about ${count} tokens${price !== undefined ? `, at least ≈ $${price < 0.01 ? price.toFixed(4) : price.toFixed(2)}` : ""}` };
+  }
+
+  /**
+   * The repair limit is reached and checks still fail: one numbered question. The free answer comes first, so a
+   * stray Enter never spends; Esc is the same as Stop. With no big model set, a rich terminal can pick one and
+   * remember it. The extra tries granted (1 or 0).
+   */
+  private async askBigModelRetry(failures: VerificationResult[], signal: AbortSignal): Promise<number> {
+    const session = this.session;
+    if (!session?.selectModel || this.closing || signal.aborted) return 0;
+    const names = [...new Set(failures.map((failure) => failure.name))].join(", ") || "the checks";
+    const tried = this.repairsTried;
+    const question = `${names} still ${failures.length > 1 ? "fail" : "fails"} after ${tried} ${tried === 1 ? "repair" : "repairs"}. What now?`;
+    const stop = { label: "Stop here", description: "keep the changes; the receipt says what fails" };
+    const big = this.bigModel(session);
+    let hasRole = false;
+    try { hasRole = Boolean(session.getModelRoles?.().reason?.trim()); } catch { hasRole = false; }
+    if (!big && hasRole) return 0; // You are already on your big model.
+    const picker = !big ? this.terminal.modelPickerHost() : undefined;
+    if (!big && !picker) {
+      this.events.ensureLineBreak();
+      this.output.write("• /model big <provider/model> sets a big model Casper can offer when repairs run out\n");
+      return 0;
+    }
+    const cost = big ? this.bigModelCost(session, big.info) : undefined;
+    if (big && cost && !cost.fits) {
+      this.events.ensureLineBreak();
+      this.output.write(`• Your big model ${terminalText(big.label)} can't hold this conversation (${cost.words}), so it was not offered\n`);
+      return 0;
+    }
+    const retry = big
+      ? { label: "Retry with your big model", description: `${terminalText(big.label)} reads this conversation (${cost!.words}), then tries 1 more fix` }
+      : { label: "Retry with a bigger model", description: "pick one (uses tokens); Casper can remember it as your big model" };
+    this.events.ensureLineBreak();
+    const answer = await this.terminal.pick(question, [stop, retry], signal);
+    if (answer !== retry.label || signal.aborted || this.closing) return 0;
+    if (big) { this.bigModelGrant = { query: "@reason", label: big.label }; return 1; }
+    // No big model yet: the picker selects one for this conversation only, then Casper goes back until the repair.
+    const status = session.getStatus?.();
+    const back = status?.provider && status.model ? `${status.provider}/${status.model}` : undefined;
+    let picked: string | undefined;
+    try {
+      const result = await session.selectModel({ picker, persist: false, signal });
+      if (result.selected && result.status.provider && result.status.model) picked = `${result.status.provider}/${result.status.model}`;
+    } catch { picked = undefined; }
+    if (back && picked && picked !== back) {
+      try { await session.selectModel({ query: back, persist: false }); } catch { /* the repair switch reports it */ }
+    }
+    this.updateFooter();
+    if (!picked || picked === back || signal.aborted) return 0;
+    const remember = await this.terminal.pick(`Use ${terminalText(picked)} as your big model from now on?`, [
+      { label: "No", description: "only for this repair" },
+      { label: "Yes", description: "save it as your big model (/model big clear forgets it)" },
+    ], signal);
+    if (remember === "Yes" && session.setModelRole) {
+      try {
+        await session.setModelRole("reason", picked);
+        this.output.write(`[model] Saved ${terminalText(picked)} as your big model.\n`);
+      } catch (error) {
+        this.output.write(`[model] Could not save your big model: ${terminalText(error instanceof Error ? error.message : String(error))}\n`);
+      }
+    }
+    this.bigModelGrant = { query: picked, label: picked };
+    return 1;
   }
 
   /** "test timed out after 10m. 1 Retry · 2 Fix it anyway · 3 Allow more time" — Esc stops without a repair. */
