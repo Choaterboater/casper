@@ -1,5 +1,5 @@
 import { constants } from "node:fs";
-import { lstat, open, type FileHandle } from "node:fs/promises";
+import { lstat, mkdir, open, unlink, type FileHandle } from "node:fs/promises";
 import path from "node:path";
 
 /**
@@ -42,4 +42,96 @@ export async function parentsStayInside(root: string, relative: string): Promise
     if (stats.isSymbolicLink() || !stats.isDirectory()) return false;
   }
   return true;
+}
+
+/**
+ * The shared no-follow file helpers for work inside a project folder (a new project's files, undo restoring
+ * files, security findings, the file guard). Every part of the path below `root` must be a real folder, never
+ * a link; the file itself is never followed; a FIFO or device never blocks. `relative` uses / or \\ and may
+ * not climb out with "..".
+ */
+
+function projectPath(root: string, relative: string): string {
+  const parts = relative.split(/[\\/]+/).filter(Boolean);
+  if (!parts.length || path.isAbsolute(relative) || parts.includes("..") || relative.includes("\0")) throw new Error(`${relative} is not a path inside the project`);
+  return path.join(root, ...parts);
+}
+
+async function checkParents(root: string, relative: string): Promise<void> {
+  if (!(await parentsStayInside(root, relative))) throw new Error(`${relative} goes through a link or a file; Casper won't follow it`);
+}
+
+/** A project file's text, or undefined when it is not there. A link, a folder, a special file or one over
+ * `maxBytes` is an error: Casper never reads through a link. */
+export async function readProjectText(root: string, relative: string, maxBytes: number): Promise<string | undefined> {
+  const file = projectPath(root, relative);
+  await checkParents(root, relative);
+  let handle: FileHandle;
+  try { handle = await openNoFollow(file); } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") return undefined;
+    if (code === "ELOOP" || code === "EMLINK" || /symlink/i.test((error as Error).message)) throw new Error(`${relative} is a link; Casper won't read through it`);
+    throw error;
+  }
+  try {
+    const info = await handle.stat();
+    if (!info.isFile()) throw new Error(`${relative} isn't a regular file`);
+    if (info.size > maxBytes) throw new Error(`${relative} is over ${maxBytes} bytes`);
+    const text = await handle.readFile("utf8");
+    if (Buffer.byteLength(text) > maxBytes) throw new Error(`${relative} is over ${maxBytes} bytes`);
+    return text;
+  } finally { await handle.close(); }
+}
+
+export type ProjectWriteMode =
+  /** Only a new file: an existing one is kept ("kept"). */
+  | "create"
+  /** Create or overwrite. */
+  | "replace"
+  /** Add to the end, creating the file when missing. */
+  | "append";
+
+/** Write a project file without following links: missing folders are made as real folders; an existing link, or
+ * a folder or special file in its place, is refused. */
+export async function writeProjectFile(root: string, relative: string, data: string | Uint8Array,
+  options: { mode: ProjectWriteMode; fileMode?: number }): Promise<"written" | "kept"> {
+  const file = projectPath(root, relative);
+  await checkParents(root, relative);
+  // Make each missing folder one at a time and check it is still a real folder, never a link.
+  const parts = path.relative(root, path.dirname(file)).split(path.sep).filter(Boolean);
+  let current = root;
+  for (const part of parts) {
+    current = path.join(current, part);
+    await mkdir(current).catch((error: NodeJS.ErrnoException) => { if (error.code !== "EEXIST") throw error; });
+    const info = await lstat(current);
+    if (info.isSymbolicLink() || !info.isDirectory()) throw new Error(`${relative} goes through a link or a file; Casper won't follow it`);
+  }
+  const existing = await lstat(file).catch(() => undefined);
+  if (existing?.isSymbolicLink()) throw new Error(`${relative} is a link; Casper won't write through it`);
+  if (existing && !existing.isFile()) throw new Error(`${relative} exists and isn't a file`);
+  const flags = constants.O_WRONLY | NO_FOLLOW | NONBLOCK | (options.mode === "append" ? constants.O_APPEND | constants.O_CREAT
+    : options.mode === "replace" ? constants.O_CREAT | constants.O_TRUNC : constants.O_CREAT | constants.O_EXCL);
+  let handle: FileHandle;
+  try { handle = await open(file, flags, options.fileMode ?? 0o644); } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "EEXIST") return "kept";
+    if (code === "ELOOP" || code === "EMLINK") throw new Error(`${relative} is a link; Casper won't write through it`);
+    throw error;
+  }
+  try {
+    if (!(await handle.stat()).isFile()) throw new Error(`${relative} isn't a regular file`);
+    await handle.writeFile(data);
+  } finally { await handle.close(); }
+  return "written";
+}
+
+/** Remove a project file: a link is removed itself, never what it points to; a folder is refused. Missing is fine. */
+export async function removeProjectFile(root: string, relative: string): Promise<"removed" | "missing"> {
+  const file = projectPath(root, relative);
+  await checkParents(root, relative);
+  const info = await lstat(file).catch(() => undefined);
+  if (!info) return "missing";
+  if (info.isDirectory()) throw new Error(`${relative} is a folder; Casper removes files only`);
+  await unlink(file);
+  return "removed";
 }

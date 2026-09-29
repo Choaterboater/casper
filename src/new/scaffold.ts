@@ -1,9 +1,8 @@
 import { spawn } from "node:child_process";
-import { constants } from "node:fs";
-import { lstat, mkdir, open, readdir, stat } from "node:fs/promises";
+import { lstat, mkdir, readdir, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { openNoFollowUpdate, parentsStayInside } from "../platform/files";
+import { openNoFollowUpdate, writeProjectFile } from "../platform/files";
 import { safeGitArgs } from "../platform/git";
 import { loadProjectModel, type ProjectCommand } from "../project/model";
 import { runCommandCheck } from "../verify/command";
@@ -181,24 +180,7 @@ async function isEmptyDir(dir: string): Promise<boolean> {
 
 /** Writes one template file inside the target without following links out. */
 async function writeTemplateFile(target: string, relative: string, text: string, mode: "new" | "replace" | "append"): Promise<"written" | "kept"> {
-  if (!(await parentsStayInside(target, relative))) throw new Error(`${relative} would be written outside the project`);
-  const file = path.join(target, ...relative.split("/"));
-  await mkdir(path.dirname(file), { recursive: true });
-  const existing = await lstat(file).catch(() => undefined);
-  if (existing?.isSymbolicLink()) throw new Error(`${relative} is a link; Casper won't write through it`);
-  if (existing && !existing.isFile()) throw new Error(`${relative} exists and isn't a file`);
-  const noFollow = constants.O_NOFOLLOW ?? 0;
-  let flags: number;
-  if (mode === "append" && existing) flags = constants.O_WRONLY | constants.O_APPEND | noFollow;
-  else if (mode === "replace") flags = constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | noFollow;
-  else flags = constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | noFollow;
-  let handle;
-  try { handle = await open(file, flags, 0o644); } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "EEXIST") return "kept";
-    throw error;
-  }
-  try { await handle.writeFile(text, "utf8"); } finally { await handle.close(); }
-  return "written";
+  return writeProjectFile(target, relative, text, { mode: mode === "new" ? "create" : mode });
 }
 
 /** Sets the package name and adds scripts in package.json (bun templates). */
