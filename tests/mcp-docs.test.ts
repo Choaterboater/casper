@@ -22,6 +22,12 @@ test("the docs-only copy of a router runs rag.py with only PYTHONPATH; anything 
     command: "/repo/.venv/bin/python3", args: ["/repo/src/hpe_networking_mcp/mcp_servers/rag.py"], cwd: "/repo", env: { PYTHONPATH: "/repo/src" },
   });
   expect(docsOnlyDefinition(stdio(["/srv/junos-mcp-server/jmcp.py", "-f", "devices.json"]))).toBeUndefined();
+  // Plain launcher words are kept; a flag that could carry settings or a secret is never copied.
+  const uv = stdio(["run", "--project", "/home/user/hpe", "python", "-u", "/repo/src/hpe_networking_mcp/mcp_servers/tool_router.py"]);
+  expect(docsOnlyDefinition(uv)?.args).toEqual(["run", "--project", "/home/user/hpe", "python", "-u", "/repo/src/hpe_networking_mcp/mcp_servers/rag.py"]);
+  for (const extra of [["--env-file", "/repo/.env"], ["--token=abc123"], ["--with-credentials", "c.yaml"], ["-X", "MIST_KEY=abc"]]) {
+    expect(docsOnlyDefinition(stdio(["run", ...extra, "/repo/src/hpe_networking_mcp/mcp_servers/tool_router.py"]))).toBeUndefined();
+  }
   expect(docsOnlyDefinition({ ...router, transport: { type: "http", url: "https://example.net/mcp", headers: {} } })).toBeUndefined();
 });
 

@@ -183,3 +183,14 @@ test("a /delegate child gets the same scrubbing, and /secrets files off stops it
   }
   expect(seen).toEqual([{ texts: ["snmp-server community <secret hidden>"], note: "1 secret hidden before the AI saw this (SNMP communities)." }, undefined]);
 });
+
+test("/mcp docs does not copy a router started with extra settings, and says why", async () => {
+  const { home, project } = await fixture({ mcpServers: {
+    hpe: { command: "uv", args: ["run", "--env-file", "/repo/.env", "/repo/src/hpe_networking_mcp/mcp_servers/tool_router.py"], env: { PYTHONPATH: "/repo/src" } },
+  } });
+  const { output } = await session(home, project, ["/mcp docs"]);
+  expect(output).toContain("No docs-only server yet.");
+  expect(output).toContain("A router started with extra settings (like --env-file) is not copied");
+  expect(output).not.toContain("Type yes");
+  expect(Object.keys(JSON.parse(await readFile(path.join(home, ".casper/mcp.json"), "utf8")).mcpServers)).toEqual(["hpe"]);
+});
