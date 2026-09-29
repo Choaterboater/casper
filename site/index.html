@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Casper · a terminal coding helper that checks its work</title>
+  <meta name="description" content="Casper is a coding helper for your terminal that runs your checks and proves the change before it says done.">
+  <meta name="color-scheme" content="light dark">
+  <link rel="icon" href="assets/logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="index.html"><img src="assets/logo.svg" alt="" width="32" height="32">Casper</a>
+      <button class="nav-toggle" type="button" aria-controls="site-nav" aria-expanded="false" hidden>Menu</button>
+      <nav id="site-nav" class="site-nav" aria-label="Main">
+        <ul>
+          <li><a href="index.html" aria-current="page">Home</a></li>
+          <li><a href="tour.html">Tour</a></li>
+          <li><a href="network.html">Network</a></li>
+          <li><a href="compare.html">Compare</a></li>
+          <li><a href="roadmap.html">Roadmap</a></li>
+          <li><a href="faq.html">FAQ</a></li>
+          <li><a class="nav-gh" href="https://github.com/Choaterboater/casper">GitHub</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <div class="container">
+      <section class="hero" aria-labelledby="hero-title">
+        <img class="hero-logo" src="assets/logo.svg" alt="Casper's ghost logo" width="88" height="88">
+        <h1 id="hero-title">Casper</h1>
+        <p class="lead">A coding helper for your terminal that checks the AI's work before it tells you "done".</p>
+        <p class="muted small">Version 0.2.15 · early preview, not signed · MIT licence</p>
+
+        <div class="cmd"><span class="cmd-label">macOS / Linux</span><pre><code>curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.15/install.sh | sh</code></pre></div>
+        <div class="cmd"><span class="cmd-label">Windows x64 · PowerShell</span><pre><code>[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.15/install.ps1 | iex</code></pre></div>
+        <p class="small muted">No Bun or source checkout needed. The installer checks the file's SHA-256 and runs the new program's <code>--version</code> before it replaces an older install. Then run <code>casper</code> in your project folder.</p>
+
+        <div class="actions">
+          <a class="btn" href="tour.html">Take the tour</a>
+          <a class="btn secondary" href="network.html">For network engineers</a>
+          <a class="btn secondary" href="https://github.com/Choaterboater/casper">Source on GitHub</a>
+        </div>
+      </section>
+
+      <section aria-labelledby="why">
+        <h2 id="why">Why Casper</h2>
+        <ul>
+          <li>It does not take the AI's word for "done". It runs your project's own tests, lint and build.</li>
+          <li>Where it can, it proves the change: the tests fail without it and pass with it.</li>
+          <li>Every coding task ends with a short receipt. Line 1 is the verdict.</li>
+          <li>It is careful around network gear: MCP servers start with writes off, and risky actions ask you first.</li>
+          <li>Known device secrets become <code>&lt;secret hidden&gt;</code> before the AI sees them (best effort, known formats only).</li>
+          <li>Sign in with OpenAI Codex, GitHub Copilot, Anthropic (Claude) or OpenRouter. You are not tied to one model company.</li>
+        </ul>
+      </section>
+
+      <section aria-labelledby="highlights">
+        <h2 id="highlights">Highlights</h2>
+        <p>The short version. Each card opens that part of the tour.</p>
+        <div class="grid">
+          <a class="card" href="tour.html#receipts">
+            <span class="icon" aria-hidden="true">✓</span>
+            <h3>Receipts with a verdict</h3>
+            <p>Each task ends with a receipt: <code>Verified</code>, <code>Checks passed — not proven</code>, <code>Failed</code> and so on. <code>/receipt</code> shows the detail.</p>
+          </a>
+          <a class="card" href="tour.html#proof">
+            <span class="icon" aria-hidden="true">⇄</span>
+            <h3>Proof, not just a pass</h3>
+            <p><code>Verified</code> means the checks pass and a test fails without the change. A green test that was green before is not proof.</p>
+          </a>
+          <a class="card" href="tour.html#repair">
+            <span class="icon" aria-hidden="true">↻</span>
+            <h3>Checks and repair</h3>
+            <p>After edits, Casper runs your checks and sends real failures back for a few repair tries (3 by default). A check that timed out or could not start is never sent to a paid repair.</p>
+          </a>
+          <a class="card" href="tour.html#mcp">
+            <span class="icon" aria-hidden="true">⌁</span>
+            <h3>MCP, writes off</h3>
+            <p>Every MCP server starts with writes off. <code>/mcp writes &lt;name&gt;</code> is the only way to turn them on. The AI cannot approve anything for you.</p>
+          </a>
+          <a class="card" href="tour.html#secrets">
+            <span class="icon" aria-hidden="true">✱</span>
+            <h3>Secrets hidden</h3>
+            <p>Passwords, RADIUS and TACACS keys, PSKs and SNMP communities in known formats are swapped for <code>&lt;secret hidden&gt;</code>. Not every secret, so still look before you share.</p>
+          </a>
+          <a class="card" href="tour.html#zero-tokens">
+            <span class="icon" aria-hidden="true">0</span>
+            <h3>Zero-token commands</h3>
+            <p><code>/verify</code>, <code>/mcp</code>, <code>/diff</code>, <code>/receipt</code> and local reference search make no model call, so they use no tokens.</p>
+          </a>
+          <a class="card" href="tour.html#references">
+            <span class="icon" aria-hidden="true">⌕</span>
+            <h3>Local references</h3>
+            <p>Search your own copies of vendor specs (Mist OpenAPI, Junos YANG, pycentral) with <code>/references search</code>. The AI can search them too.</p>
+          </a>
+          <a class="card" href="tour.html#choices">
+            <span class="icon" aria-hidden="true">1</span>
+            <h3>Numbered choices</h3>
+            <p>Questions show numbered answers. Press the number to pick, or Esc to skip.</p>
+          </a>
+          <a class="card" href="tour.html#scripting">
+            <span class="icon" aria-hidden="true">{}</span>
+            <h3>Scripts and CI</h3>
+            <p><code>--json</code> streams events. Exit codes tell a script what happened, for example 3 = not verified with <code>--require-verification</code>.</p>
+          </a>
+          <a class="card" href="tour.html#sessions">
+            <span class="icon" aria-hidden="true">⑂</span>
+            <h3>Sessions and branches</h3>
+            <p>Pick up a past chat with <code>--continue</code> or <code>/resume</code>, or try an idea in a named branch with its own Git worktree.</p>
+          </a>
+        </div>
+      </section>
+
+      <section aria-labelledby="receipt">
+        <h2 id="receipt">What "done" looks like</h2>
+        <p>A real Casper 0.2.15 run. The AI here is a scripted stand-in so the capture is repeatable, but its edit is real, and every line after it is the real Casper code: the check, the proof and the receipt.</p>
+        <figure class="capture">
+<pre class="term" data-title="casper — ~/project"><span class="prompt">❯</span> <span class="you">fix the sum bug in src/sum.js</span>
+<span class="dim">[model] scripted/site-capture · off · credentials configured</span>
+<span class="ok">✓</span> edit · src/sum.js — completed · 0.2s
+<span class="ok">✓</span> edit · tests/sum.test.js — completed · 0.2s
+Fixed: sum subtracted instead of adding. Added a test for sum(2, 3).
+<span class="dim">… Casper checking: test</span>
+<span class="ok">✓</span> test · 0.0s
+<span class="dim">… Casper checking that the tests fail without the change</span>
+<span class="ok">✓ Verified — the checks pass, and the tests fail without the change</span>
+<span class="ok">✓</span> Changed 2 files: src/sum.js, tests/sum.test.js
+<span class="ok">✓</span> test passed (bun test, 0.0s)
+<span class="ok">✓</span> Proven: test fails without this change (exit 1) and passes with it
+ src/sum.js        | 2 +-
+ tests/sum.test.js | 1 +
+ 2 files changed, 2 insertions(+), 1 deletion(-)</pre>
+          <figcaption>Line 1 of the receipt is the verdict. Anything less than <code>Verified</code> says why.</figcaption>
+        </figure>
+        <p class="small muted">A passing check shows a command passed, not that the code is fully right. Review important changes yourself.</p>
+      </section>
+
+      <section aria-labelledby="network">
+        <aside class="callout tip">
+          <strong class="callout-title" id="network">Made for network engineers</strong>
+          <p>Casper works with MCP servers such as hpe-networking-mcp, junos-mcp-server, Mist and NetBox. Writes start off. A login counts as read-only only when the product itself says so; anything else shows <code>access not checked</code>. Building your own MCP server? <code>casper mcp check</code> runs its tests and checks its labels, schemas and example configs.</p>
+          <p><a href="network.html">See the network page →</a></p>
+        </aside>
+      </section>
+
+      <section aria-labelledby="safety">
+        <h2 id="safety">Good to know</h2>
+        <p>Casper is <strong>not a sandbox</strong>. Its file and shell tools run with your permissions, and checks run your project's own commands without asking. Use it in projects you trust, or start with <code>--no-verify</code>. Your code and chat may go to the model provider you picked. The <a href="faq.html">FAQ</a> has more.</p>
+      </section>
+
+      <section aria-labelledby="next">
+        <h2 id="next">Coming next</h2>
+        <p>Templates, page checks, undo and a sandbox are planned, but they are <span class="badge soon">coming, not released</span>. <a href="roadmap.html">See the roadmap</a>.</p>
+      </section>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <div>
+        <p><strong>Casper 0.2.15</strong> · early preview, unsigned</p>
+        <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
+        <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
+      </div>
+      <ul class="footer-links">
+        <li><a href="https://github.com/Choaterboater/casper">Source</a></li>
+        <li><a href="https://github.com/Choaterboater/casper/releases">Releases</a></li>
+        <li><a href="https://github.com/Choaterboater/casper/issues">Issues</a></li>
+      </ul>
+    </div>
+  </footer>
+
+  <script src="assets/site.js" defer></script>
+</body>
+</html>

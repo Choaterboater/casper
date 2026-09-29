@@ -1,0 +1,446 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FAQ · Casper</title>
+  <meta name="description" content="Plain answers to common Casper questions, plus a short list of fixes for common problems.">
+  <meta name="color-scheme" content="light dark">
+  <link rel="icon" href="assets/logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="index.html"><img src="assets/logo.svg" alt="" width="32" height="32">Casper</a>
+      <button class="nav-toggle" type="button" aria-controls="site-nav" aria-expanded="false" hidden>Menu</button>
+      <nav id="site-nav" class="site-nav" aria-label="Main">
+        <ul>
+          <li><a href="index.html">Home</a></li>
+          <li><a href="tour.html">Tour</a></li>
+          <li><a href="network.html">Network</a></li>
+          <li><a href="compare.html">Compare</a></li>
+          <li><a href="roadmap.html">Roadmap</a></li>
+          <li><a href="faq.html" aria-current="page">FAQ</a></li>
+          <li><a class="nav-gh" href="https://github.com/Choaterboater/casper">GitHub</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <div class="container">
+      <h1>Questions and answers</h1>
+      <p class="lead">Straight answers about Casper 0.2.15. Click a question to open it. If something
+      breaks, jump to <a href="#troubleshooting">troubleshooting</a>.</p>
+
+      <nav class="toc" aria-label="On this page">
+        <strong>On this page</strong>
+        <ul>
+          <li><a href="#basics">The basics</a></li>
+          <li><a href="#privacy">Your code and your network</a></li>
+          <li><a href="#verdicts">Checks and verdicts</a></li>
+          <li><a href="#install">Install, update, uninstall</a></li>
+          <li><a href="#more">Everything else</a></li>
+          <li><a href="#troubleshooting">Troubleshooting</a></li>
+        </ul>
+      </nav>
+
+      <section id="basics" class="prose" aria-labelledby="basics-h">
+        <h2 id="basics-h">The basics</h2>
+
+        <details>
+          <summary>Is Casper free?</summary>
+          <p>Casper itself is free and open source, under the
+          <a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a>.
+          The AI model is not Casper's. You sign in with a model provider, and that provider's plans
+          and charges still apply. There is no hard spending cap in Casper.</p>
+          <p>Lots of things cost zero tokens: the checks Casper runs, <code>/verify</code>,
+          <code>/mcp</code>, <code>/diff</code>, <code>/receipt</code> and local reference search make
+          no model call. When a choice will spend tokens, Casper's question says so, for example
+          <code>Fix it anyway … (uses tokens)</code>.</p>
+        </details>
+
+        <details>
+          <summary>Which AI models can I use?</summary>
+          <p>Type <code>/login</code> and pick a provider:</p>
+          <ul>
+            <li>OpenAI Codex</li>
+            <li>GitHub Copilot</li>
+            <li>Anthropic (Claude)</li>
+            <li>OpenRouter (many model makers behind one sign-in)</li>
+          </ul>
+          <p>If you skip <code>/login</code>, Casper opens sign-in on your first request and picks that
+          provider's default model (for OpenRouter, <code>deepseek/deepseek-v4.1-flash</code>).
+          <code>/model</code> picks another one. Casper never replaces a model you chose. Type keys or
+          codes only in the private login prompt, never in the chat.</p>
+        </details>
+
+        <details>
+          <summary>How is Casper different from Pi?</summary>
+          <p>Pi is the engine under the hood. Casper embeds the Pi SDK as a pinned library. It is not
+          a fork, and not a Pi extension. It is its own program, with its own command line and exit
+          codes.</p>
+          <p>What Casper adds on top:</p>
+          <ul>
+            <li>It runs your project's checks after the AI edits, repairs real failures, and ends
+            with a receipt.</li>
+            <li>It tries to <em>prove</em> the change: a test should fail without it.</li>
+            <li>MCP servers start with writes off, and risky calls ask you.</li>
+            <li>Known device secrets are hidden from the AI (best effort).</li>
+          </ul>
+          <p>Casper keeps its own sign-ins and chats in <code>~/.casper/agent/</code>, apart from Pi's.
+          On first run it copies a Pi install's API keys once. It does not copy Pi's OAuth sign-ins
+          (they would sign each other out), so run <code>/login</code> for those. It also ignores a
+          repository's own <code>.pi/</code> folder. For a side-by-side view, see
+          <a href="compare.html">Compare</a>.</p>
+        </details>
+
+        <details>
+          <summary>Which systems does it run on?</summary>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th scope="col">System</th><th scope="col">What is tested</th></tr></thead>
+              <tbody>
+                <tr><td>macOS (Apple silicon, Intel)</td><td>Tested by hand, plus the full test suite</td></tr>
+                <tr><td>Windows x64</td><td>Install and startup, in CI, under PowerShell 5.1 and 7. The interactive screen is not yet tested on a real desktop.</td></tr>
+                <tr><td>Linux (x64, arm64)</td><td>The release build runs <code>casper-linux-x64 --version</code> on Ubuntu. No full run on a real Linux machine yet.</td></tr>
+                <tr><td>Windows ARM64</td><td>No release file</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>Details: <a href="https://github.com/Choaterboater/casper/blob/main/docs/PLATFORM_SUPPORT.md">PLATFORM_SUPPORT.md</a>.</p>
+        </details>
+      </section>
+
+      <section id="privacy" class="prose" aria-labelledby="privacy-h">
+        <h2 id="privacy-h">Your code and your network</h2>
+
+        <details>
+          <summary>Does it send my code anywhere?</summary>
+          <p>Yes, to the model provider you picked. Your code, tool output and chat may go there, the
+          same as with any AI coding tool. Chats may also stay on your disk as plain text.</p>
+          <ul>
+            <li>Known secrets (device passwords, keys, SNMP communities and similar) are swapped for
+            <code>&lt;secret hidden&gt;</code> before the AI sees them. This is best effort. It knows
+            common formats only, and it will miss some.</li>
+            <li>Requests Casper sends to OpenRouter carry a fixed app name (Casper), so usage is filed
+            under Casper's app. No prompt, file or user data is in those headers. Set
+            <code>CASPER_TELEMETRY=0</code> to turn them off.</li>
+            <li>Checks, <code>/verify</code>, <code>/diff</code>, <code>/receipt</code> and reference
+            search run locally, with no model call.</li>
+          </ul>
+        </details>
+
+        <details>
+          <summary>Will it change my switches?</summary>
+          <p>Not through MCP on its own. Every MCP server starts with <strong>writes off</strong>:
+          write and delete tools are hidden from the AI. Only you can turn them on, with
+          <code>/mcp writes &lt;server&gt;</code>. Even then, each change shows a box and runs only if
+          you type <code>yes</code>. The AI cannot approve anything for you. <kbd>ctrl+o</kbd> turns
+          writes off again at once.</p>
+          <figure class="capture">
+            <pre class="term" tabindex="0" data-title="casper — ~/project"><span class="prompt">❯</span> <span class="you">set the lab site on the fixture server</span>
+<span class="dim">[model]</span> scripted/site-capture · off · credentials configured
+I will ask the fixture server to change the site.
+MCP · fixture · set_site  [write]
+Mode: EXECUTE (this makes the change)
+Arguments: {"site":"lab"}
+Run it? Type yes:
+
+<span class="dim"># (typed: no)</span>
+
+<span class="dim">[approval]</span> denied
+The change was not made.
+
+<span class="dim"># (pressed ctrl+o)</span>
+
+<span class="dim">[mcp]</span> Writes off for fixture. Write tools are hidden again.</pre>
+            <figcaption>A local test server (it never touches a device), with writes turned on first
+            by hand. The AI asks to change a site. Anything but <code>yes</code> means no.</figcaption>
+          </figure>
+          <p>Be honest with yourself about the limits, though:</p>
+          <ul>
+            <li>Casper is <strong>not a sandbox</strong>. The AI's own shell runs with your
+            permissions, and there is no "ask before every shell command" gate. If your laptop can SSH
+            or run Ansible against a switch, so can that shell.</li>
+            <li>A login counts as read-only only when the product itself says so (through an
+            <code>access_check</code> tool). Otherwise <code>/mcp</code> shows
+            <code>access not checked</code>.</li>
+            <li>A server that labels a tool that changes things as read-only is trusted on that
+            label, unless the tool's name has a risky word such as <code>bounce</code>,
+            <code>reboot</code> or <code>delete</code>.</li>
+          </ul>
+          <p>A read-only account on the device side is still the best seat belt. More on the
+          <a href="network.html">Network page</a>.</p>
+        </details>
+
+        <details>
+          <summary>Does it ask before running every command?</summary>
+          <p>No. Casper's approvals cover specific things: MCP calls that may change something,
+          connecting a server, the browser, the debugger and a few downloads. The AI's file and shell
+          tools run with your permissions and are not sandboxed. Checks run your project's own
+          commands without asking first.</p>
+          <p>So use Casper in projects you trust, or start with <code>--no-verify</code> (no
+          Casper-run checks). <code>/permissions</code> shows what Casper can and cannot do.</p>
+        </details>
+      </section>
+
+      <section id="verdicts" class="prose" aria-labelledby="verdicts-h">
+        <h2 id="verdicts-h">Checks and verdicts</h2>
+
+        <details>
+          <summary>What does "not proven" mean?</summary>
+          <p>Your checks passed. But the tests <em>also</em> pass without the change. So the tests
+          did not really test it.</p>
+          <p>When that happens, Casper spends one repair round asking the AI to add a test that fails
+          without the change, then checks again. If it still can't prove it, the receipt says so and
+          the change counts as not verified.</p>
+          <figure class="capture">
+            <pre class="term" tabindex="0" data-title="casper — ~/project"><span class="prompt">❯</span> <span class="you">let sum take numeric strings too</span>
+<span class="dim">[model]</span> scripted/site-capture · off · credentials configured
+<span class="ok">✓</span> edit · src/sum.js — completed · 0.2s
+sum now turns its inputs into numbers first.
+<span class="dim">… Casper checking: test</span>
+<span class="ok">✓</span> test · 0.0s
+<span class="dim">… Casper checking that the tests fail without the change</span>
+<span class="accent">↻</span> repair 1/1: add a test that fails without the change
+(scripted model) No more changes.
+<span class="ok">✓</span> test · 0.0s
+<span class="dim">… Casper checking that the tests fail without the change</span>
+<span class="dim">•</span> Not verified — the tests pass without the change too
+<span class="ok">✓</span> Changed 1 file: src/sum.js
+<span class="accent">↻</span> Casper tried 1 repair
+<span class="ok">✓</span> test passed (bun test, 0.0s)
+<span class="warn">⚠</span> Not proven: test passes without this change too, and no test was added or changed
+ src/sum.js | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)</pre>
+            <figcaption>A real run with a scripted stand-in for the AI. It adds no test, so the
+            verdict stays "Not verified".</figcaption>
+          </figure>
+          <p>Some changes need no proof: test-only, docs-only and refactor changes. The receipt says
+          why, for example <code>Checks passed — not proven: a refactor should not change
+          behavior…</code>.</p>
+        </details>
+
+        <details>
+          <summary>Does "Verified" mean my code is right?</summary>
+          <p>It means two things: the checks passed, and a test fails without the change. That is a
+          lot better than "the AI said so". But it does not prove the tests ask for the right
+          thing. If a test checks the wrong behaviour, the change can be wrong and still verified.</p>
+          <p>A passing check shows a command passed, nothing more. Missing or old results never count
+          as a pass. Review important changes yourself.</p>
+        </details>
+
+        <details>
+          <summary>Why did it ask me something?</summary>
+          <p>Casper stops and asks when the next step is yours to decide. In 0.2.15 that includes:</p>
+          <ul>
+            <li>an MCP call that may change something (you type <code>yes</code>);</li>
+            <li>connecting an MCP server the first time, or turning its writes on;</li>
+            <li>a check that timed out or could not start: retry, fix it anyway (uses tokens), or
+            allow more time;</li>
+            <li>a test that was <em>already</em> failing before the change, before paying to fix
+            it;</li>
+            <li>a model error that repeated, to retry or stop;</li>
+            <li>the request checklist before a code change (edit it, or <kbd>Esc</kbd> to skip);</li>
+            <li>which project to open, when you start in your home folder.</li>
+          </ul>
+          <p>Answers are numbered: press the number. <kbd>Esc</kbd> skips.</p>
+          <figure class="capture">
+            <pre class="term" tabindex="0" data-title="casper — ~/project"><span class="prompt">❯</span> <span class="you">/verify</span>
+<span class="dim">–</span> typecheck · skipped, no command
+<span class="bad">✗</span> lint · could not start (exit 127)
+<span class="dim">╭─ lint: stderr ───────────────────────────────────────────────────────────────────────────────────╮</span>
+│ /bin/sh: 1: node: not found                                                                      │
+<span class="dim">╰──────────────────────────────────────────────────────────────────────────────────────────────────╯</span>
+<span class="ok">✓</span> test · 0.0s
+<span class="ok">✓</span> build · 0.0s
+<span class="dim">────────────────────────────────────────────────────────────────────────────────────────────────────</span>
+lint could not start. Casper did not try to fix it. What now?
+<span class="accent">→ 1 Retry</span>  run it again with the same limit
+  2 Fix it anyway  ask the model to fix why it could not start (uses tokens)
+<span class="dim">Press 1-2 or Up/Down + Enter · type to answer · Esc skip</span>
+
+<span class="dim"># (Esc pressed: skip)</span>
+
+• Retry  run it again with the same limit
+• Fix it anyway  ask the model to fix why it could not start (uses tokens)
+  (skipped)
+<span class="bad">✗</span> Not checked — lint could not start, so the change was not tested
+<span class="dim">•</span> Not verified — typecheck has no command. Add verify.typecheck to .casper/project.yaml.
+<span class="bad">✗</span> lint could not start (exit 127) — check verify.lint in .casper/project.yaml
+<span class="ok">✓</span> test passed (bun test, 0.0s)
+<span class="ok">✓</span> build passed (bun build src/sum.js --outdir dist, 0.0s)</pre>
+            <figcaption><code>node</code> was left off the PATH on purpose. The lint check could not
+            start, so Casper asks instead of paying the AI to "fix" your code.</figcaption>
+          </figure>
+        </details>
+      </section>
+
+      <section id="install" class="prose" aria-labelledby="install-h">
+        <h2 id="install-h">Install, update, uninstall</h2>
+
+        <details>
+          <summary>My Mac or Windows warns me about the download. Is that normal?</summary>
+          <p>Casper's programs are <strong>not signed</strong> yet. So Windows SmartScreen or macOS
+          Gatekeeper may warn you. That part is expected for this preview.</p>
+          <ul>
+            <li>On macOS, the <code>install.sh</code> command clears the quarantine flag for you (best
+            effort), so the first run is not blocked.</li>
+            <li>Both installers check the file's SHA-256 against the release's
+            <code>SHA256SUMS</code>. A mismatch stops the install, and nothing is installed.</li>
+            <li>Do not click past a warning you did not expect. Check the file came from
+            <a href="https://github.com/Choaterboater/casper/releases">github.com/Choaterboater/casper/releases</a>.</li>
+          </ul>
+        </details>
+
+        <details>
+          <summary>How do I update?</summary>
+          <p>Run the install command from the newer release. The install commands pin a version:
+          running the v0.2.15 command again just reinstalls v0.2.15. There is no auto-updater. On
+          Windows, close a running Casper first.</p>
+          <p>If a new download fails any check, your old install stays as it was.</p>
+        </details>
+
+        <details>
+          <summary>How do I uninstall it?</summary>
+          <p>There is no uninstaller. Nothing is installed system-wide and no admin rights were used,
+          so removing it by hand is quick.</p>
+          <p><strong>macOS / Linux:</strong> delete the program. The installer puts it in
+          <code>~/.local/bin</code> unless you picked another folder with <code>--dir</code>.</p>
+          <div class="cmd"><span class="cmd-label">macOS / Linux</span><pre><code>rm ~/.local/bin/casper</code></pre></div>
+          <p><strong>Windows:</strong> delete the folder <code>%LOCALAPPDATA%\Programs\casper</code>,
+          then remove it from your <em>user</em> PATH (the installer added it there).</p>
+          <p><strong>Settings, sign-ins and saved chats</strong> live in the <code>.casper</code>
+          folder in your home folder. Delete it too if you want them gone. Projects you set up may
+          also have their own <code>.casper/</code> folder.</p>
+          <div class="cmd"><span class="cmd-label">macOS / Linux, optional</span><pre><code>rm -rf ~/.casper</code></pre></div>
+        </details>
+
+        <details>
+          <summary>Where are the settings?</summary>
+          <p>All optional. Casper works with none of them.</p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th scope="col">File</th><th scope="col">What it is for</th></tr></thead>
+              <tbody>
+                <tr><td><code>~/.casper/config.yaml</code></td><td>Your global settings</td></tr>
+                <tr><td><code>~/.casper/profiles/&lt;name&gt;/</code></td><td>A named set of settings, for example one for work and one for the lab</td></tr>
+                <tr><td><code>&lt;project&gt;/.casper/project.yaml</code></td><td>One repository: check commands, verification mode, repairs</td></tr>
+                <tr><td><code>&lt;project&gt;/.casper/rules.md</code></td><td>Extra instructions for the AI in that repository</td></tr>
+                <tr><td><code>~/.casper/mcp.json</code></td><td>Your MCP servers</td></tr>
+                <tr><td><code>~/.casper/agent/</code></td><td>Sign-ins and chats (Casper manages this)</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>Later ones win: defaults, then global, then profile, then project. A bad value
+          stops loading with an error that names the file and key. Full list:
+          <a href="https://github.com/Choaterboater/casper/blob/main/docs/CONFIGURATION.md">CONFIGURATION.md</a>.</p>
+        </details>
+      </section>
+
+      <section id="more" class="prose" aria-labelledby="more-h">
+        <h2 id="more-h">Everything else</h2>
+
+        <details>
+          <summary>Can I use it in scripts or CI?</summary>
+          <p>Yes. <code>casper "your request"</code> runs once and exits. <code>--json</code> streams
+          events as JSON Lines. Exit codes tell the script what happened: for example, with
+          <code>--require-verification</code> a change Casper could not verify exits
+          <code>3</code>, and a command-line mistake exits <code>64</code>. See
+          <a href="https://github.com/Choaterboater/casper/blob/main/docs/SCRIPTING.md">SCRIPTING.md</a>.</p>
+        </details>
+
+        <details>
+          <summary>How do I report a bug?</summary>
+          <p>Open an <a href="https://github.com/Choaterboater/casper/issues">issue on GitHub</a>.
+          Please include:</p>
+          <ul>
+            <li>your OS (and Windows or macOS version);</li>
+            <li>the command you ran, and what <code>casper --version</code> prints;</li>
+            <li>the exact error;</li>
+            <li>whether a browser or debugger was installed.</li>
+          </ul>
+          <aside class="callout warn">
+            <strong class="callout-title">Clean your logs first</strong>
+            <p>Remove secrets and private paths before you paste anything. Casper's secret hiding is
+            for the AI, not for your bug report.</p>
+          </aside>
+        </details>
+      </section>
+
+      <section id="troubleshooting" class="prose" aria-labelledby="troubleshooting-h">
+        <h2 id="troubleshooting-h">Troubleshooting</h2>
+        <p>Quick fixes for the usual bumps.</p>
+        <dl>
+          <dt><code>casper: command not found</code> right after install</dt>
+          <dd>Open a new terminal. On macOS/Linux, if <code>~/.local/bin</code> is not on your PATH,
+          the installer printed the exact <code>export PATH=…</code> line to add.</dd>
+
+          <dt><code>casper --version</code> shows an odd path</dt>
+          <dd>It prints <code>casper &lt;version&gt; (&lt;path&gt;)</code>, so you can see which copy
+          runs. An old copy or a source-checkout link may come first on your PATH. The installer will
+          not replace such a link unless you add <code>--force</code>. On Windows, try
+          <code>Get-Command casper</code>.</dd>
+
+          <dt>The installer stopped with a checksum or version error</dt>
+          <dd>Nothing was installed and your old copy is untouched. Try again later, and check the
+          URL points at the Casper releases page.</dd>
+
+          <dt>The receipt says <code>Not verified — no configured check covers …</code></dt>
+          <dd>Casper found no check for those files. <code>/project</code> shows the commands it
+          found. Add yours under <code>commands:</code> in <code>.casper/project.yaml</code>.</dd>
+
+          <dt>A check says <code>could not start (exit 127)</code></dt>
+          <dd>The tool it needs is not on your PATH. Install it, then pick Retry. Casper does not
+          send this to a paid repair unless you pick "Fix it anyway".</dd>
+
+          <dt>The AI got <code>Not executed (… writes are off …)</code></dt>
+          <dd>Working as designed. If you really want that change, type
+          <code>/mcp writes &lt;server&gt;</code> yourself.</dd>
+
+          <dt><code>/mcp</code> shows <code>access not checked</code></dt>
+          <dd>Not an error. The server has no <code>access_check</code> tool, or its answer did not
+          say read-only, so Casper will not call the login read-only.</dd>
+
+          <dt>My Pi sign-in did not carry over</dt>
+          <dd>OAuth sign-ins are never copied from Pi. Run <code>/login &lt;provider&gt;</code> to give
+          Casper its own.</dd>
+
+          <dt>No diagram files on Windows</dt>
+          <dd>On Windows, diagrams show in the chat instead. Diagram files need macOS or Linux.</dd>
+
+          <dt>Casper asks which project to open</dt>
+          <dd>You started it in your home folder or a folder of projects. Press a number, or
+          <kbd>Esc</kbd> to stay.</dd>
+
+          <dt>No colours or live footer</dt>
+          <dd>Casper switches to plain text with <code>NO_COLOR</code>, <code>TERM=dumb</code> or
+          when output is redirected.</dd>
+        </dl>
+        <p class="muted small">Still stuck? <a href="https://github.com/Choaterboater/casper/issues">Open an issue</a>.</p>
+      </section>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <div>
+        <p><strong>Casper 0.2.15</strong> · early preview, unsigned</p>
+        <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
+        <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
+      </div>
+      <ul class="footer-links">
+        <li><a href="https://github.com/Choaterboater/casper">Source</a></li>
+        <li><a href="https://github.com/Choaterboater/casper/releases">Releases</a></li>
+        <li><a href="https://github.com/Choaterboater/casper/issues">Issues</a></li>
+      </ul>
+    </div>
+  </footer>
+
+  <script src="assets/site.js" defer></script>
+</body>
+</html>

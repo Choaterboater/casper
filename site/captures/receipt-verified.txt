@@ -1,0 +1,17 @@
+# Casper 0.2.15 · a change Casper could prove (tests fail without it, pass with it)
+
+❯ fix the sum bug in src/sum.js
+[model] scripted/site-capture · off · credentials configured
+✓ edit · src/sum.js — completed · 0.2s
+✓ edit · tests/sum.test.js — completed · 0.2s
+Fixed: sum subtracted instead of adding. Added a test for sum(2, 3).
+… Casper checking: test
+✓ test · 0.0s
+… Casper checking that the tests fail without the change
+✓ Verified — the checks pass, and the tests fail without the change
+✓ Changed 2 files: src/sum.js, tests/sum.test.js
+✓ test passed (bun test, 0.0s)
+✓ Proven: test fails without this change (exit 1) and passes with it
+ src/sum.js        | 2 +-
+ tests/sum.test.js | 1 +
+ 2 files changed, 2 insertions(+), 1 deletion(-)
