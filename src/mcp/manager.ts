@@ -1,10 +1,15 @@
 import type { ChildProcess } from "node:child_process";
+import type { Readable } from "node:stream";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import type { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import { projectDefinitionReview, resolveEnvironment, type MCPConfiguration, type MCPServerDefinition } from "./config";
+import { projectDefinitionReview, resolvedSecrets, resolveEnvironment, type MCPConfiguration, type MCPServerDefinition } from "./config";
 import { ownSpawnedTree, type OwnedProcesses, ProcessCleanupError, terminateTree } from "../platform/processes";
 import { CASPER_VERSION } from "../version";
+import { NotExecutedError, OutcomeUnknownError } from "../capabilities/result";
+import { scrubText } from "../secrets/scrub";
+import { CallClock } from "./clock";
+import { classifyCallError, describeFailure, redactServerText, ServerOutput, stoppedMessage } from "./server-output";
 
 export interface MCPTool {
   name: string;
@@ -20,7 +25,31 @@ export interface MCPStatus {
   transport: "stdio" | "http";
   state: "disconnected" | "connecting" | "ready" | "failed" | "disabled";
   toolCount: number;
+  /** The time limits in whole or decimal seconds, as /mcp shows them. */
+  limits: { connectS: number; callS: number };
   error?: string;
+  /** The server's last stderr lines, redacted, only while the state is "failed". Shown to the user, never to the model. */
+  serverOutput?: string[];
+}
+
+/** Casper's defaults: 20 s to start, 90 s per call without progress, 10 min for any call. */
+export const MCP_LIMITS = { connectMs: 20_000, callMs: 90_000, hardCapMs: 600_000 } as const;
+
+/** The SDK's own request timeout cannot be paused, so it sits far above any call limit: Casper's
+ * CallClock owns cancellation through the abort signal (a paused approval prompt must not trip it). */
+const SDK_REQUEST_TIMEOUT_MS = 24 * 60 * 60 * 1000;
+
+export interface MCPManagerOptions {
+  connectTimeoutMs?: number;
+  callTimeoutMs?: number;
+  hardCapMs?: number;
+  /** Shorthand that sets both the start and the call limit (kept for tests and older callers). */
+  timeoutMs?: number;
+}
+
+export interface MCPCallOptions {
+  /** Receives the call's clock before the request is sent, so an approval or question prompt can pause it. */
+  onClock?: (clock: CallClock) => void;
 }
 
 interface Entry {
@@ -41,6 +70,13 @@ interface Entry {
   attempts: number[];
   generation: number;
   error?: string;
+  /** Last lines of the server's stderr (stdio only), kept across a failed start for /mcp. */
+  output?: ServerOutput;
+  /** Resolved secret values of this definition, hidden from any server text. */
+  secrets: string[];
+  /** Exit code of the current child, once it has exited (null when it was killed by a signal). */
+  exitCode?: number | null;
+  exited?: boolean;
 }
 
 const MAX_WIRE_BYTES = 8 * 1024 * 1024;
@@ -52,11 +88,31 @@ function canonical(value: unknown): string {
     : item);
 }
 
-/** Identity of a loaded server: everything except which file it came from. */
+/** Identity of a loaded server: everything except which file it came from and its time limits
+ * (changing a timeout is not a different program, so it never revokes consent). */
 function sameDefinition(a: MCPServerDefinition, b: MCPServerDefinition): boolean {
-  const { source: _a, scope: _sa, shadows: _ha, ...restA } = a;
-  const { source: _b, scope: _sb, shadows: _hb, ...restB } = b;
+  const { source: _a, scope: _sa, shadows: _ha, limits: _la, ...restA } = a;
+  const { source: _b, scope: _sb, shadows: _hb, limits: _lb, ...restB } = b;
   return canonical(restA) === canonical(restB);
+}
+
+/** Record the child's exit through the SDK's private `_process` (see stdioChildAlive). */
+function watchExit(stdio: StdioClientTransport, onExit: (code: number | null) => void): void {
+  const child = (stdio as unknown as { _process?: ChildProcess })._process;
+  child?.once("exit", (code) => onExit(code));
+}
+
+/** Model-facing call text also goes through the device-config secret scrubber: server error and
+ * progress text can carry config lines that the token-shape redaction does not know. */
+function modelText(text: string): string {
+  return scrubText(text).text;
+}
+
+function newEntry(definition: MCPServerDefinition): Entry {
+  return {
+    definition, state: definition.disabled ? "disabled" : "disconnected",
+    tools: [], abort: new AbortController(), dirty: false, approved: false, attempts: [], generation: 0, secrets: [],
+  };
 }
 
 /** Liveness of the spawned child itself. The SDK's `pid` getter reads `_process`, which
@@ -75,29 +131,42 @@ export class MCPManager {
   private readonly entries = new Map<string, Entry>();
   private closed = false;
   private closeWork?: Promise<void>;
-  private readonly timeoutMs: number;
+  private readonly defaults: { connectMs: number; callMs: number; hardCapMs: number };
   private catalogVersion = 0;
   private cleanupError?: ProcessCleanupError;
 
-  constructor(configuration: MCPConfiguration, options: { timeoutMs?: number } = {}) {
+  constructor(configuration: MCPConfiguration, options: MCPManagerOptions = {}) {
     this.diagnostics = configuration.diagnostics;
-    this.timeoutMs = options.timeoutMs ?? 10_000;
+    this.defaults = {
+      connectMs: options.connectTimeoutMs ?? options.timeoutMs ?? MCP_LIMITS.connectMs,
+      callMs: options.callTimeoutMs ?? options.timeoutMs ?? MCP_LIMITS.callMs,
+      hardCapMs: options.hardCapMs ?? MCP_LIMITS.hardCapMs,
+    };
     for (const definition of configuration.servers) {
       if (this.entries.has(definition.name)) throw new Error("Duplicate MCP server name");
-      this.entries.set(definition.name, {
-        definition: structuredClone(definition), state: definition.disabled ? "disabled" : "disconnected",
-        tools: [], abort: new AbortController(), dirty: false, approved: false, attempts: [], generation: 0,
-      });
+      this.entries.set(definition.name, newEntry(structuredClone(definition)));
     }
+  }
+
+  /** One server's limits: its own connectTimeout/callTimeout over the defaults. The hard cap is never below the call limit. */
+  private limits(entry: Entry): { connectMs: number; callMs: number; hardMs: number } {
+    const connectMs = entry.definition.limits?.connectMs ?? this.defaults.connectMs;
+    const callMs = entry.definition.limits?.callMs ?? this.defaults.callMs;
+    return { connectMs, callMs, hardMs: Math.max(this.defaults.hardCapMs, callMs) };
   }
 
   assertCleanup(): void { if (this.cleanupError) throw this.cleanupError; }
 
   status(): MCPStatus[] {
-    return [...this.entries.values()].map((entry) => ({
-      name: entry.definition.name, source: entry.definition.source, transport: entry.definition.transport.type,
-      state: entry.state, toolCount: entry.tools.length, error: entry.error,
-    }));
+    return [...this.entries.values()].map((entry) => {
+      const limits = this.limits(entry);
+      const output = entry.state === "failed" ? entry.output?.tail(8, entry.secrets) : undefined;
+      return {
+        name: entry.definition.name, source: entry.definition.source, transport: entry.definition.transport.type,
+        state: entry.state, toolCount: entry.tools.length, limits: { connectS: limits.connectMs / 1000, callS: limits.callMs / 1000 },
+        error: entry.error, ...(output?.length ? { serverOutput: output } : {}),
+      };
+    });
   }
 
   /** Changes whenever routable metadata or connection identity changes. */
@@ -187,6 +256,9 @@ export class MCPManager {
         entry.definition.source = replacement.source;
         entry.definition.scope = replacement.scope;
         entry.definition.shadows = replacement.shadows;
+        // New time limits apply to the next start or call; consent and the connection stay.
+        if (replacement.limits) entry.definition.limits = replacement.limits;
+        else delete entry.definition.limits;
         continue;
       }
       if (entry.approved) revoked.push(name);
@@ -200,10 +272,7 @@ export class MCPManager {
       changed.push(name);
     }
     for (const definition of next.values()) {
-      this.entries.set(definition.name, {
-        definition, state: definition.disabled ? "disabled" : "disconnected",
-        tools: [], abort: new AbortController(), dirty: false, approved: false, attempts: [], generation: 0,
-      });
+      this.entries.set(definition.name, newEntry(definition));
       added.push(definition.name);
     }
     this.diagnostics = configuration.diagnostics;
@@ -211,19 +280,47 @@ export class MCPManager {
     return { added, removed, changed, revoked };
   }
 
-  async call(server: string, name: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
-    this.assertCleanup();
-    const entry = this.entry(server);
-    signal?.throwIfAborted();
-    if (entry.state !== "ready" || !entry.client || !entry.tools.some((tool) => tool.name === name)) {
-      throw new Error("MCP capability is unavailable; reconnect or search again");
-    }
-    const client = entry.client;
+  /**
+   * Call one tool. Nothing is retried: a lost answer does not prove an action did not run.
+   *
+   * Throws NotExecutedError when nothing was sent, and OutcomeUnknownError when the call was sent but
+   * did not finish cleanly. A JSON-RPC error answer from the server keeps the connection; a timeout,
+   * cancel or lost connection releases it (the next task reconnects, within the retry budget).
+   */
+  async call(server: string, name: string, args: Record<string, unknown>, signal?: AbortSignal, options: MCPCallOptions = {}): Promise<unknown> {
+    let entry: Entry;
     try {
-      // No retry: a lost response does not prove an external action did not run.
-      return await client.callTool({ name, arguments: args }, undefined, this.requestOptions(entry, signal));
+      this.assertCleanup();
+      entry = this.entry(server);
     } catch {
-      const cancelled = signal?.aborted || entry.abort.signal.aborted;
+      throw new NotExecutedError("server not connected");
+    }
+    if (signal?.aborted) throw new NotExecutedError("cancelled");
+    if (entry.state !== "ready" || !entry.client) throw new NotExecutedError("server not connected");
+    if (!entry.tools.some((tool) => tool.name === name)) throw new NotExecutedError("tool changed; search again");
+    const client = entry.client;
+    const limits = this.limits(entry);
+    const clock = new CallClock(limits.callMs, limits.hardMs);
+    const context = { phase: "call" as const, server, secrets: entry.secrets, idleMs: limits.callMs, hardMs: limits.hardMs };
+    try {
+      options.onClock?.(clock);
+      return await client.callTool({ name, arguments: args }, undefined, {
+        signal: AbortSignal.any([...(signal ? [signal] : []), entry.abort.signal, clock.signal]),
+        timeout: SDK_REQUEST_TIMEOUT_MS,
+        // Passing onprogress makes the SDK send a progress token; each message restarts the idle timer.
+        onprogress: (progress) => {
+          const message = typeof progress.message === "string" ? progress.message.slice(0, 1000) : undefined;
+          clock.progress(message === undefined ? undefined : redactServerText(message, entry.secrets, 1000));
+        },
+      });
+    } catch (error) {
+      const kind = classifyCallError(error);
+      if (kind === "not-sent") throw new NotExecutedError("the tool needs a mode Casper does not support");
+      if (kind === "server-answered") {
+        // The server answered: the connection is fine and stays ready (and nothing is released).
+        throw new OutcomeUnknownError(modelText(describeFailure(error, context)));
+      }
+      const cancelled = !clock.reason() && (signal?.aborted || entry.abort.signal.aborted);
       if (entry.client === client) {
         if (entry.state === "ready") {
           // A failing call spends the automatic-reconnect budget once (onclose already counted a
@@ -231,15 +328,18 @@ export class MCPManager {
           if (!cancelled && !this.closed && entry.approved) entry.attempts.push(Date.now());
           entry.state = "failed";
           this.publish(entry, []);
-          entry.error = "Call failed or cancelled; connection will be re-established on demand, without replay";
+          entry.error = "The last call did not finish. The next task reconnects; the call is not repeated.";
         }
         // Protocol cancellation alone does not abort the SDK's pending HTTP POST.
         // Invalidate this connection and abort its I/O; never replay its calls.
         await this.release(entry);
       }
-      throw new Error(cancelled
-        ? "MCP call cancelled; execution may have occurred"
-        : "MCP call failed or timed out; execution may have occurred; not retried");
+      throw new OutcomeUnknownError(modelText(describeFailure(error, {
+        ...context, clockReason: clock.reason(), lastProgress: clock.lastProgress, cancelled: Boolean(cancelled),
+        exited: entry.exited, exitCode: entry.exitCode,
+      })));
+    } finally {
+      clock.dispose();
     }
   }
 
@@ -268,10 +368,12 @@ export class MCPManager {
     return entry;
   }
 
+  /** Options for starting and listing tools: bounded by the server's start limit. */
   private requestOptions(entry: Entry, signal?: AbortSignal) {
+    const { connectMs } = this.limits(entry);
     return {
       signal: signal ? AbortSignal.any([signal, entry.abort.signal]) : entry.abort.signal,
-      timeout: this.timeoutMs, maxTotalTimeout: this.timeoutMs,
+      timeout: connectMs, maxTotalTimeout: connectMs,
     };
   }
 
@@ -293,10 +395,16 @@ export class MCPManager {
     if (this.closed || !entry.approved) return;
     entry.abort = new AbortController();
     const controller = entry.abort;
-    const deadline = setTimeout(() => controller.abort(), this.timeoutMs);
+    const { connectMs } = this.limits(entry);
+    let timedOut = false;
+    const deadline = setTimeout(() => { timedOut = true; controller.abort(); }, connectMs);
     entry.state = "connecting";
     entry.error = undefined;
     entry.generation++;
+    entry.exited = false;
+    entry.exitCode = undefined;
+    entry.output = undefined;
+    entry.secrets = resolvedSecrets(entry.definition);
     let client: Client | undefined;
     const current = () => !this.closed && entry.approved && entry.client === client && !controller.signal.aborted && entry.state !== "failed";
     try {
@@ -312,12 +420,13 @@ export class MCPManager {
       entry.client = connectedClient;
       connectedClient.onerror = () => { /* Raw transport errors can contain headers/URLs. */ };
       connectedClient.onclose = () => {
-        if (!current()) return;
+        // While starting, the pending handshake or tool list fails too; the catch below describes it.
+        if (!current() || entry.state === "connecting") return;
         // A server that handshakes and then dies must not respawn on every task.
         if (!this.closed && entry.approved) entry.attempts.push(Date.now());
         this.publish(entry, []);
         entry.state = "failed";
-        entry.error = "Connection closed; next task may reconnect (bounded)";
+        entry.error = stoppedMessage(entry.exited ? entry.exitCode : undefined);
       };
       connectedClient.setNotificationHandler(ToolListChangedNotificationSchema, () => {
         if (entry.client !== connectedClient || controller.signal.aborted) return;
@@ -332,8 +441,10 @@ export class MCPManager {
         transport = entry.stdio = new StdioClientTransport({
           command: resolveEnvironment(config.command), args: config.args.map(resolveEnvironment),
           env: Object.fromEntries(Object.entries(config.env).map(([k, v]) => [k, resolveEnvironment(v)])),
-          cwd: entry.definition.cwd, stderr: "ignore", maxBufferSize: MAX_WIRE_BYTES,
+          cwd: entry.definition.cwd, stderr: "pipe", maxBufferSize: MAX_WIRE_BYTES,
         });
+        // Attached before start: the pipe always drains, so a chatty server never blocks on stderr.
+        entry.output = new ServerOutput().attach(entry.stdio.stderr as Readable | null);
       } else {
         const { StreamableHTTPClientTransport } = await import("@modelcontextprotocol/sdk/client/streamableHttp.js");
         if (!current()) throw new Error("stale connection");
@@ -364,6 +475,9 @@ export class MCPManager {
         const start = stdio.start.bind(stdio);
         stdio.start = async () => {
           await start();
+          const generation = entry.generation;
+          // The child's "exit" comes before the SDK's "close" (onclose), so failure text can name the code.
+          watchExit(stdio, (code) => { if (entry.generation === generation) { entry.exited = true; entry.exitCode = code; } });
           const pid = stdio.pid;
           // Own the child before the protocol handshake, which can fail or stall.
           entry.alive = stdioChildAlive(stdio);
@@ -377,13 +491,14 @@ export class MCPManager {
       entry.state = "ready";
       this.publish(entry, tools);
       if (entry.dirty) this.scheduleRefresh(entry, client);
-    } catch {
-      if (current()) {
+    } catch (error) {
+      if (!this.closed && entry.approved) {
         entry.state = "failed";
-        entry.error = "Connection or tool discovery failed (check configuration, environment, and server)";
-      } else if (!this.closed && entry.approved) {
-        entry.state = "failed";
-        entry.error ??= "Connection or tool discovery timed out";
+        entry.error = describeFailure(error, {
+          phase: "start", secrets: entry.secrets,
+          command: entry.definition.transport.type === "stdio" ? entry.definition.transport.command : undefined,
+          connectMs, timedOut, exited: entry.exited, exitCode: entry.exitCode,
+        });
       }
       // Failed opens, server-side closes and failed calls spend the burst budget; a
       // reconnect after a cancelled call, or an open abandoned by disconnect/close, does not.
@@ -396,7 +511,7 @@ export class MCPManager {
 
   private async listTools(entry: Entry, client: Client): Promise<MCPTool[]> {
     const tools: MCPTool[] = [];
-    const deadline = AbortSignal.timeout(this.timeoutMs);
+    const deadline = AbortSignal.timeout(this.limits(entry).connectMs);
     const cursors = new Set<string>();
     let catalogBytes = 0;
     const names = new Set<string>();

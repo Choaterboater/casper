@@ -3,27 +3,24 @@
  *
  * Server output is shown to the user only (never to the model), redacted best effort: every known
  * secret value of that server becomes "•••", and redactPreview hides common token shapes.
+ *
+ * This module never loads the MCP SDK (the manager imports it on the first connection only), so SDK
+ * errors are recognised by shape: McpError is "MCP error <code>: …" with a numeric code, and
+ * StreamableHTTPError is "Streamable HTTP error: …" with the HTTP status as its code.
  */
 import { StringDecoder } from "node:string_decoder";
 import type { Readable } from "node:stream";
-import { McpError, ErrorCode } from "@modelcontextprotocol/sdk/types.js";
-import { StreamableHTTPError } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { redactPreview } from "../tui/format";
 import { CallClockTimeout, formatDuration, type ClockReason } from "./clock";
+import { MissingEnvironmentError } from "./config";
+
+export { MissingEnvironmentError };
 
 export const HIDDEN = "•••";
 const MAX_BYTES = 8 * 1024;
 const MAX_LINES = 40;
 const LINE_CHARS = 200;
 const MIN_SECRET = 4;
-
-/** Thrown when a server definition names ${VAR} and VAR is not set. The message names it, never a value. */
-export class MissingEnvironmentError extends Error {
-  constructor(readonly variable: string) {
-    super(`Missing environment variable ${variable}`);
-    this.name = "MissingEnvironmentError";
-  }
-}
 
 /** Replace every known secret (4+ chars, longest first) with "•••". */
 export function hideSecrets(text: string, secrets: readonly string[] = []): string {
@@ -149,21 +146,26 @@ export function stoppedMessage(exitCode?: number | null): string {
   return `The server stopped${exitPart(exitCode)}. Next task may restart it.`;
 }
 
+/** JSON-RPC error codes used by the MCP SDK (sdk types.js ErrorCode). */
+const ErrorCode = { ConnectionClosed: -32000, RequestTimeout: -32001, InvalidRequest: -32600 } as const;
+
+type McpError = Error & { code: number };
+
 /** Text of an McpError without the SDK's "MCP error -32602: " prefix. */
 function mcpMessage(error: McpError): string {
-  return error.message.replace(/^MCP error -?\d+:\s*/, "");
+  // A server built on the SDK sends its own "MCP error N: …" text, which the client wraps again.
+  return error.message.replace(/^(?:MCP error -?\d+:\s*)+/, "");
 }
 
 function isMcpError(error: unknown): error is McpError {
-  return error instanceof McpError
-    || (error instanceof Error && error.name === "McpError" && typeof (error as { code?: unknown }).code === "number");
+  return error instanceof Error && typeof (error as { code?: unknown }).code === "number"
+    && (error.name === "McpError" || /^MCP error -?\d+:/.test(error.message));
 }
 
 function httpError(error: unknown): { status: number; body: string } | undefined {
-  const matches = error instanceof StreamableHTTPError
-    || (error instanceof Error && typeof (error as { code?: unknown }).code === "number" && error.message.startsWith("Streamable HTTP error: "));
+  const matches = (error instanceof Error && typeof (error as { code?: unknown }).code === "number" && error.message.startsWith("Streamable HTTP error: "));
   if (!matches) return undefined;
-  const status = (error as { code: number }).code;
+  const status = (error as unknown as { code: number }).code;
   const text = (error as Error).message.replace(/^Streamable HTTP error: /, "");
   const body = text.startsWith("Error POSTing to endpoint:") ? text.slice("Error POSTing to endpoint:".length).trim() : text.trim();
   return { status, body };
