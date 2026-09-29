@@ -4,7 +4,7 @@ import { connect, createServer } from "node:net";
 import os from "node:os";
 import path from "node:path";
 
-import { isolatedEnvironment } from "./environment";
+import { isolatedEnvironment, withoutProviderKeys } from "./environment";
 import { osSupportsProcessGroups, ownSpawnedTree, OwnedProcesses, ProcessCleanupError, terminateTree, type ProcessPlatform } from "./processes";
 
 export type ManagedProcessState = "starting" | "ready" | "exited" | "stopped";
@@ -149,7 +149,7 @@ export class ManagedProcess {
     if (signal.aborted) return aborted();
     if (this.stopWork) return fail("closed", `${this.label} was closed during startup`);
     const { cwd, command } = this.options;
-    const child = this.child = spawn(command, { cwd, shell: true, detached: osSupportsProcessGroups, stdio: ["ignore", "pipe", "pipe"], env: { ...this.options.env, ...isolatedEnvironment(this.home, {
+    const child = this.child = spawn(command, { cwd, shell: true, detached: osSupportsProcessGroups, stdio: ["ignore", "pipe", "pipe"], env: { ...withoutProviderKeys(this.options.env ?? {}), ...isolatedEnvironment(this.home, {
       PATH: `${path.join(cwd, "node_modules", ".bin")}${path.delimiter}${process.env.PATH ?? ""}`,
       // Never let a started project fetch or install packages on its own.
       BUN_INSTALL_AUTO: "disable", npm_config_offline: "true",
