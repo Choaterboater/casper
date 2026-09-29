@@ -107,7 +107,8 @@ hidden there for 14 days; picking it resets that. `/suggestions` lists each step
 
 Before work, a build request with several asks can get one extra choice folded into the checklist
 panel, so there is still one panel: `Suggested: plan first — this asks for 4 things` with 1 Plan first,
-2 Just build (with the listed cases) and 3 Edit the cases first. Plan first (or `/plan <request>`) runs a
+2 Just build (with the listed cases) and 3 Edit the cases first. A typed yes plans first and a typed
+no just builds; other typed text is one more case to test. Plan first (or `/plan <request>`) runs a
 plan turn: the model may only read (read, grep, find, ls and look-only shell commands such as `ls`,
 `cat` or `git log`); every other tool, MCP and Casper's own tools included, is refused with "Planning
 only". This is Casper's gate, not a sandbox, and a file that changed anyway is named on the receipt
