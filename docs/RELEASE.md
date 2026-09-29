@@ -18,7 +18,9 @@ touches a file you changed since the task (it asks, with `1 Cancel` first; a one
 nothing and exits 1), `/redo` puts the files back, and `/diff` shows only this task's changes. The
 conversation is rewound only when nothing was said since; otherwise the model gets one short note.
 Undo says what it can't reach: secret files and files over 8 MB (never copied), ignored files,
-nested repositories, MCP servers and devices. Saving a remembered test command is undoable. The
+nested repositories, MCP servers and devices. A file that was there before the task but had no copy
+(git ignored it then, or it was over 8 MB) is never deleted, a file saved while Casper asks is left as
+it is, and a file made again gets your usual permissions. `/status` shows the copies' disk size. Saving a remembered test command is undoable. The
 change summary after a receipt now lists only the task's files, not your own earlier edits. See
 [UNDO.md](UNDO.md).
 
@@ -33,7 +35,9 @@ saved runs with a free replay. See [SCRIPTING.md](SCRIPTING.md).
 
 **Command-line traps.** An option after the prompt (`casper fix the bug --verify`) exits 64 before
 anything runs; put options first or `--` before the words. `casper <folder>` opens that folder, and a
-path that is not a folder exits 64 with "Not a folder".
+single word that can only be a path but is not a folder exits 64 with "Not a folder" (a quoted
+request such as `casper "fix src/app.py"` is still a prompt). A one-shot receipt run with `--cd`
+prints its undo command with the same `--cd`.
 
 ## v0.2.16: build new things
 
