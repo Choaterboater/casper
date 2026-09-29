@@ -64,7 +64,8 @@ function fakeCreate(created: NewProjectOptions[], status: NewProjectResult["stat
 /** rich: TTY in and out. plain: typed at a terminal that can't draw the panel. piped: lines from a pipe. */
 type Surface = "rich" | "plain" | "piped";
 
-function harness(home: string, options: { surface?: Surface; newProject?: { template?: string; name?: string }; status?: NewProjectResult["status"] } = {}): Harness {
+function harness(home: string, options: { surface?: Surface; newProject?: { template?: string; name?: string }; status?: NewProjectResult["status"];
+  conversation?: { continue: true } } = {}): Harness {
   const surface = options.surface ?? "rich";
   const rich = surface === "rich";
   const created: NewProjectOptions[] = [];
@@ -112,6 +113,7 @@ function harness(home: string, options: { surface?: Surface; newProject?: { temp
     loadReferenceConfiguration: async () => ({ sources: [], diagnostics: [] }),
     createProject: fakeCreate(created, options.status),
     ...(options.newProject ? { newProject: options.newProject } : {}),
+    ...(options.conversation ? { conversation: options.conversation } : {}),
   });
   return { app, input, until, visible, created, starts, prompts, get completes() { return state.completes; } };
 }
@@ -304,7 +306,7 @@ test("piped input can't answer: the session keeps the folder and names the comma
   const again = piped.app.runInteractive(empty);
   try {
     await piped.until(text => text.endsWith("> "));
-    expect(piped.visible()).toContain("[folder] This folder is empty. To start a new project here: casper new");
+    expect(piped.visible()).toContain("[folder] This folder is empty. To start a new project in ~/Projects: casper new");
     expect(piped.visible()).not.toContain("Start a new project here?");
   } finally { await finish(piped, again, false); await rm(root, { recursive: true, force: true }); }
 });
@@ -358,6 +360,12 @@ test("in an empty folder, Not now on the plain terminal builds nothing", async (
     h.input.write(`${count}\n`);
     await h.until(text => text.endsWith("> "));
     expect(h.created).toEqual([]);
+    // Not now already answered it: a build request goes straight to work in this folder.
+    h.input.write(`${REQUEST}\n`);
+    await h.until(() => h.prompts.length === 1);
+    expect(h.visible()).not.toContain("Build this as a new");
+    expect(h.starts).toEqual([empty]);
+    await h.until(text => text.endsWith("> "));
   } finally { await finish(h, running, false); await rm(root, { recursive: true, force: true }); }
 });
 
@@ -505,4 +513,19 @@ test("a number that isn't a choice asks again instead of becoming a name", async
     expect(h.starts).toEqual([dirs.work]);
     await h.until(text => text.endsWith("> "));
   } finally { await finish(h, running, false); await dirs.cleanup(); }
+});
+
+test("casper --continue in an empty folder resumes there without the new-project question", async () => {
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-new-empty-continue-")));
+  const home = path.join(root, "home");
+  const empty = path.join(root, "demo");
+  await mkdir(home, { recursive: true });
+  await mkdir(empty);
+  const h = harness(home, { conversation: { continue: true } });
+  const running = h.app.runInteractive(empty);
+  try {
+    await h.until(text => text.includes("idle"));
+    expect(h.visible()).not.toContain("Start a new project here?");
+    expect(h.visible()).toMatch(/\bproject\s+demo\b/);
+  } finally { await finish(h, running); await rm(root, { recursive: true, force: true }); }
 });

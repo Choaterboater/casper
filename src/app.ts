@@ -452,10 +452,14 @@ export class CasperApp {
       candidates = await findProjectCandidates(cwd, { homeDir: home });
       // An empty folder: one numbered question, on either terminal, offers to start a project right here.
       // Piped input can't answer it, so a pipe gets the command instead.
-      if (!candidates.length && await isEmptyFolder(cwd)) {
-        if (!this.terminal.canAsk) { this.output.write("[folder] This folder is empty. To start a new project here: casper new\n"); return cwd; }
+      // A resumed conversation already belongs to this folder: no question.
+      if (!candidates.length && !this.runConversation && await isEmptyFolder(cwd)) {
+        if (!this.terminal.canAsk) { this.output.write("[folder] This folder is empty. To start a new project in ~/Projects: casper new\n"); return cwd; }
         const result = await this.newProjectFlowWithAbort((flow) => newProjectInEmptyFolder(flow, cwd));
-        return opened(result) ? result.dir : cwd;
+        if (opened(result)) return result.dir;
+        // "Not now" means this folder: a later build request doesn't ask again.
+        this.newProjectOffered = true;
+        return cwd;
       }
       if (!candidates.length) return cwd;
     }
