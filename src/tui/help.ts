@@ -5,6 +5,7 @@ export const HELP_TEXT = `Casper — your coding companion
   casper --verbose ...   Detailed evidence receipts instead of the plain receipt
   casper --json ...      Scripting: also --model, --continue, --require-verification (docs/SCRIPTING.md)
   casper mcp check [repo]  Check an MCP server you built: its tests, labels and configs (no tool calls unless --live)
+  casper new [name]      Start a new project (Python tool, MCP server, Mist scripts)
   /help all              All commands, options and safety details
   /status                Model/auth, integrations and local storage
   /model [model]         Pick a model; Enter remembers globally, Ctrl+S is session-only
@@ -13,6 +14,7 @@ export const HELP_TEXT = `Casper — your coding companion
   /compact               Summarize context (sends a model request)
   /clear, /resume        Fresh conversation or list/resume a saved conversation
   /diff                  Current tracked changes and untracked file names
+  /new [name]            Start a new project in ~/Projects (no model)
   /output [n]            Full retained output of the last task's n-th most recent tool call
   /receipt               Detailed evidence behind the last task's receipt
   /permissions           Explain actual tool/approval boundaries
@@ -61,7 +63,8 @@ Usage:
   casper mcp check [repo]  Check an MCP server you built: its tests, labels and configs (no tool calls unless --live)
   casper mcp check [repo] [--server <name>] [--live] [--quick] [--strict] [--json] [--env NAME=VALUE]... [-- <start command>...]
                                   Runs the repo's own doctor and tests; only run it on repos you trust
-  casper new <template> <name>  Start a new project in ~/Projects (no model; casper new --list shows templates)
+  casper new [name]    Start a new project (Python tool, MCP server, Mist scripts); asks what is missing, then opens Casper there
+  casper new <template> <name>  Start a new project in ~/Projects without questions (scripts; casper new --list shows templates)
   casper security [repo] [--json] [--strict] [--install]
                                   Run the security tools on a repo (no model); installs tools only with --install
   casper --cd <path> ...  Work in that folder instead of the current directory
@@ -99,6 +102,8 @@ Local commands:
   /clear                            New conversation; no file rollback
   /resume [exact-session-id]        List/resume conversations in the current workspace
   /diff                             Git status plus tracked diff against HEAD
+  /new [name]                       Start a new project in ~/Projects (no model); before the model starts, Casper opens it
+  /new <template> <name>            The same without questions; /new --list shows the templates
   /output [n]                       Full bounded output of a recent tool call (1 = latest; last 20 retained per task)
   /receipt                          Detailed evidence receipt of the last model task (freshness, scope)
   /permissions                      Explain enforcement, not change permission presets
