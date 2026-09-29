@@ -189,7 +189,8 @@ export async function verifyAndRepair(options: VerificationOptions): Promise<Ver
     if (!repairable.length && !hostFailures) {
       return report("fail", `${failures.map((result) => result.name).join(", ")} did not pass, and it is not a failure Casper asks the model to fix.`);
     }
-    if (options.repair && repairAttempts >= budget && !limitAsked && options.onRepairLimit) {
+    // repair.maxAttempts: 0 turns repair off: nobody is asked for more tries then.
+    if (options.repair && maxAttempts > 0 && repairAttempts >= budget && !limitAsked && options.onRepairLimit) {
       limitAsked = true;
       const extra = await options.onRepairLimit(repairable, signal);
       if (signal.aborted) return report("blocked", "Verification cancelled.");
