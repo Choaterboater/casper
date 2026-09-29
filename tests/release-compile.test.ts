@@ -42,6 +42,22 @@ test("the compiled binary embeds the OAuth flow of every /login provider", async
   }
 }, 120_000);
 
+test("the compiled binary carries the bundled flows (plan first, prove the fix)", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-compiled-flows-"));
+  try {
+    const binary = path.join(root, process.platform === "win32" ? "probe.exe" : "probe");
+    await compileExecutable(path.join(import.meta.dir, "fixtures/compiled-flows.ts"), binary);
+    const child = Bun.spawn([binary], { cwd: root, env: cleanEnv({ HOME: root, USERPROFILE: root }), stdout: "pipe", stderr: "pipe" });
+    const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+    expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });
+    const flows = JSON.parse(stdout) as Array<{ name: string; bytes: number }>;
+    expect(flows.map((flow) => flow.name)).toEqual(["plan-first", "prove-fix"]);
+    for (const flow of flows) expect(flow.bytes).toBeGreaterThan(500);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}, 120_000);
+
 function chunk(kind: string, bytes: Buffer): Buffer {
   const tag = Buffer.from(kind);
   const length = Buffer.alloc(4); length.writeUInt32BE(bytes.length);
