@@ -19,9 +19,12 @@ through. Check what a tool returns before you share it.
   is cut to size and before the AI sees it. Text blocks that hold JSON are opened,
   scrubbed and written back as JSON. Values under keys such as `password`,
   `psk`, `secret`, `community`, `api_key`, `access_token`, `wpa_passphrase`, or
-  any key ending in `_password`, `_secret`, `_psk` or `_passphrase`, are hidden
-  too. `next_cursor`, `cursor`, `list_key`, `key`, `public_key` and anything
-  under `_pagination` are left alone, so paging keeps working. The result says
+  any key ending in `_password`, `_secret`, `_psk`, `_passphrase` or
+  `_community`, device keys such as `pre_shared_key`, `tacacs_key`,
+  `radius_key`, `wep_key` and `secret_key`, and login tokens (`token`,
+  `api_token`, `bearer_token`), are hidden too. `next_cursor`, `cursor`,
+  `list_key`, `key`, `public_key`, paging tokens (`next_token`, `page_token`)
+  and anything under `_pagination` are left alone, so paging keeps working. The result says
   `secretsHidden: N`.
 - **Files you or the AI read: config files only.** A native `read` is scrubbed
   for `.cfg`, `.conf` and `.set` files, and for files under a folder named

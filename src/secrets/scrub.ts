@@ -137,8 +137,14 @@ export function snakeKey(name: string): string {
 export function isSecretKey(name: string): boolean {
   const key = snakeKey(name);
   if (NEVER_SECRET_KEYS.has(key)) return false;
-  return SECRET_KEYS.has(key) || /_(?:password|secret|psk|passphrase)$/.test(key);
+  if (SECRET_KEYS.has(key) || /_(?:password|secret|psk|passphrase|community)$/.test(key)) return true;
+  // Device keys under their own names: pre_shared_key, tacacs_key, wep_key, secret_key, ...
+  if (SECRET_KEY_SUFFIX.test(key)) return true;
+  // Login tokens (token, api_token, bearer_token), but not paging tokens (next_token, page_token).
+  return /(^|_)token$/.test(key) && !PAGING_TOKEN.test(key);
 }
+const SECRET_KEY_SUFFIX = /(^|_)(?:pre_?shared|shared|psk|wpa|wep|tacacs|radius|md5|auth|authentication|encryption|secret|private|priv|api|server)_key$/;
+const PAGING_TOKEN = /(^|_)(?:next|page|continuation|pagination|cursor|sync|resume|start|continue)(_|$)/;
 
 const MAX_DEPTH = 64;
 

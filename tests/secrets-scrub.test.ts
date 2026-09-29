@@ -233,6 +233,28 @@ test("secret key names", () => {
   for (const name of ["next_cursor", "cursor", "list_key", "key", "public_key", "password_policy", "ssid"]) expect(isSecretKey(name)).toBe(false);
 });
 
+test("device keys and tokens under their own names are hidden from the AI; paging tokens are kept", () => {
+  for (const name of ["pre_shared_key", "preSharedKey", "psk_key", "shared_key", "tacacs_key", "radius_key", "wep_key", "wpa_key",
+    "md5_key", "authentication_key", "secret_key", "encryption_key", "token", "api_token", "auth_token", "bearerToken",
+    "session_token", "enable_secret", "snmp_community"]) {
+    expect([name, isSecretKey(name)]).toEqual([name, true]);
+  }
+  for (const name of ["next_token", "nextPageToken", "page_token", "continuation_token", "token_type", "token_expiry", "key_id",
+    "ssh_public_key", "list_key"]) {
+    expect([name, isSecretKey(name)]).toEqual([name, false]);
+  }
+  const result = scrubValue({ content: [{ type: "text", text: JSON.stringify({
+    wlan: { ssid: "corp", pre_shared_key: "Corp-PSK-2024!" }, tacacs: [{ host: "10.0.0.5", tacacs_key: "Tk-key-9" }],
+    api_token: "abcd1234efgh5678", next_token: "page-2",
+  }) }] });
+  const text = (result.value as { content: { text: string }[] }).content[0]!.text;
+  expect(text).not.toContain("Corp-PSK-2024!");
+  expect(text).not.toContain("Tk-key-9");
+  expect(text).not.toContain("abcd1234efgh5678");
+  expect(text).toContain("page-2");
+  expect(result.hidden).toBe(3);
+});
+
 test("containsHiddenSecret finds a marker anywhere in tool arguments", () => {
   expect(containsHiddenSecret({ commands: ["set snmp community x", `set system root-authentication encrypted-password "${SECRET_MARKER}"`] })).toBe(true);
   expect(containsHiddenSecret({ line: LINE_MARKER })).toBe(true);
