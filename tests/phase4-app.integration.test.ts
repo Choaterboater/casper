@@ -66,7 +66,9 @@ test("app keeps status/connect local, replaces task surfaces, and denies one-sho
   expect(runtime.starts).toBe(0);
   await app.runOnce("Read site health metric");
   expect(runtime.surfaces[0]).toHaveLength(11); // the nine before + ask + casper_check (checking is on by default)
-  expect(runtime.result).toContain("Not executed (you said no)");
+  // One-shot runs cannot ask, so the model is not told that you said no.
+  expect(runtime.result).toContain("Not executed (needs your approval, and this run cannot ask)");
+  expect(runtime.result).not.toContain("you said no");
   expect(runtime.result).not.toContain("Complete result");
   await app.runOnce("Read quantum flux");
   expect(runtime.surfaces[1]).toHaveLength(6);
