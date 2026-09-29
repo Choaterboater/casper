@@ -61,3 +61,11 @@ export const MCP_WRITES_CHOICES = ["Keep writes off", "Enable for this server"] 
 export function numberedLines(choices: readonly string[]): string {
   return choices.map((choice, index) => `  ${index + 1} ${choice}\n`).join("");
 }
+
+/** /undo or /redo when some files changed after the task: "notes.py changed after task 12." Cancel changes nothing. */
+export function undoChangedChoices(verb: "Undo" | "Redo", others: number): Choice[] {
+  return [
+    { label: "Cancel", description: "nothing is changed" },
+    { label: `${verb} the other ${others} ${others === 1 ? "file" : "files"}`, description: "the files you changed since stay as they are" },
+  ];
+}
