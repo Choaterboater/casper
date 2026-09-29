@@ -98,5 +98,27 @@ test("rich terminal: one key on the empty prompt runs the step; any other key fi
     input.write("2");
     input.write("\r");
     expect(await second).toBe("x2");
+
+    // Starting to type and then erasing it still used up the row: the number on the empty prompt is text.
+    terminal.offerNext(buildNextRow({ undo, diff }));
+    const third = terminal.readCommand();
+    input.write("x");
+    input.write("\x7f");
+    input.write("2");
+    input.write("\r");
+    expect(await third).toBe("2");
+  } finally { terminal.close(); input.destroy(); }
+});
+
+test("rich terminal: the row never answers a question that is open", async () => {
+  const { input, terminal, until } = richTerminal();
+  try {
+    terminal.start();
+    terminal.offerNext(buildNextRow({ undo, diff }));
+    const answer = terminal.ask("Which one?", [{ label: "Keep it" }, { label: "Drop it" }], false);
+    await until((text) => Bun.stripANSI(text).includes("Drop it"));
+    input.write("2");
+    input.write("\r");
+    expect(await answer).toEqual(["Drop it"]);
   } finally { terminal.close(); input.destroy(); }
 });
