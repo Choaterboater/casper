@@ -4,6 +4,7 @@ export const HELP_TEXT = `Casper — your coding companion
   casper <prompt>        Run one prompt and exit; Casper checks the changes (--no-verify skips)
   casper --verbose ...   Detailed evidence receipts instead of the plain receipt
   casper --json ...      Scripting: also --model, --continue, --require-verification (docs/SCRIPTING.md)
+  casper mcp check [repo]  Check an MCP server you built: its tests, labels and configs (no tool calls unless --live)
   /help all              All commands, options and safety details
   /status                Model/auth, integrations and local storage
   /model [model]         Pick a model; Enter remembers globally, Ctrl+S is session-only
@@ -57,6 +58,9 @@ Usage:
   casper learn inspect <repo> <id>  Inspect a draft and its decisions locally
   casper learn promote <repo> <id> <sha256> <number> <disposition> [skill-name]
                                   Record one exact human promotion/ignore decision
+  casper mcp check [repo]  Check an MCP server you built: its tests, labels and configs (no tool calls unless --live)
+  casper mcp check [repo] [--server <name>] [--live] [--quick] [--strict] [--json] [--env NAME=VALUE]... [-- <start command>...]
+                                  Runs the repo's own doctor and tests; only run it on repos you trust
   casper --cd <path> ...  Work in that folder instead of the current directory
   casper --continue ...  Continue this folder's most recent conversation
   casper --resume <id-prefix> ...  Continue the saved conversation whose ID starts with this

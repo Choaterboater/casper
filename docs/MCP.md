@@ -190,3 +190,42 @@ These are operational checks, **not a sandbox or proof of server behavior**. A t
 - **Summaries say what happened.** `Complete result.`; `Partial result: <path> shows 50 of 2000. More: call again with next_cursor.` (or `The server gave no next page; narrow the request.`); `Partial result: too big to show, first part only.`; `The server said the call failed.` when the server set `isError`. A call Casper refused or stopped before sending reads `Not executed (<reason>).`, for example `you said no`, `needs your approval, and this run cannot ask` (a one-shot run), `cancelled`, `bad arguments`, `tool changed; search again`, `server not connected`, `arguments over 16 KB`, `schema not supported`, or `unknown capability; use find_capability`. `executed` is `true` when the server answered, `false` when nothing was sent, and `"unknown"` when the call may have run. Never replay a consequential operation just to obtain more output.
 
 Configured credentials are absent from status/errors, but **server results and arguments may themselves contain secrets** and can persist in the Pi conversation. Known device secret formats in results are hidden (see Secrets and docs servers); there is no general-purpose secret detector or output declassification mechanism.
+
+## Check a server you built
+
+`casper mcp check [repo]` checks an MCP server repo before you connect it. It is a command-line command, not a slash command, and the model has no tool for it. It runs code from the repo (its doctor and its tests), so **only run it on repos you trust**.
+
+```
+casper mcp check [repo] [--server <name>] [--live] [--quick] [--strict] [--json] [--env NAME=VALUE]... [-- <start command>...]
+```
+
+What it does, in order (one failing step never stops the others):
+
+1. **Repo checks.** The repo's own doctor (`[project.scripts]` named doctor/selfcheck, `scripts/doctor.py`, `make doctor` or `npm run doctor`), then its safety tests (pytest `-m safety` when that marker exists, else test files named for write gates, read-only, guards, redaction, confirm or dry_run), then the full tests (`uv run pytest`, `make test` or `npm test`; `--quick` skips them). Missing packages show `Not set up: … Run \`uv sync\` in the repo, then check again.`
+2. **Server.** It starts the server once and lists its tools. It never calls a tool here. It checks:
+   - that it starts in time (20 s, or the preset's limit), and shows the last lines it printed, secrets hidden, when it does not;
+   - that stdout carries only MCP messages (`Server wrote plain text to stdout: "…" In stdio mode stdout is only for MCP messages. Print to stderr.`);
+   - that every tool has `readOnlyHint` or `destructiveHint`, and that the label fits the name. A tool labeled read-only whose name changes things, a write tool whose name can cut service (bounce, reboot, delete …), or read-only plus destructive is a problem. The name check uses Casper's own word rules, so status readers pass: `glp_write_status`, `get_config_rollback_status` and `junos_config_diff` read something. Unlabeled tools get a hint (`get_router_list looks read-only: add readOnlyHint: true.`);
+   - confirm, dry_run and commit fields: a read-only tool with one warns, a preview or apply switch without a default gets a note, a description that tells the AI to "retry with confirm=true" is a problem (only the user may confirm), and a change tool with a confirm field warns when the repo never asks the user through MCP elicitation;
+   - that each schema is valid JSON Schema (compiled with the same validator Casper uses for calls), has `"type": "object"`, declares every required field, and stays under Casper's 12 KB schema limit;
+   - for routers (`find_tool` + `invoke_read_tool`): the finder and read dispatcher are read-only, `invoke_tool` and non-read `*_batch` dispatchers are destructive, and a repo test shows `invoke_read_tool` refuses write tools. The refusal is found by searching the test files, never by calling the router;
+   - more than 5,000 tools (Casper's own limit per server), and whether an `access_check` tool exists.
+3. **Example configs.** `.mcp.json*`, `mcp.json*`, `.vscode/mcp.json*`, `.cursor/mcp*.json` and `examples/**` (files only). A plain-text secret is a problem, shown by length only. A setting that turns writes on is a problem in a default example and a note in a file whose name says full, write, rw, admin or unsafe. For a server Casper has a preset for, an example that does not set its read-only setting (for example `HPE_MCP_ACCESS_PROFILE=safe-read-only`) warns: Casper sets it itself, other clients don't.
+4. **Live** (only with `--live`): see below.
+
+The server is started from, in order: `--server <name>` (your MCP settings, including imported ones), the command after `--`, `start` in `.casper/mcp-check.json`, then the first stdio entry of `.mcp.json.example`, `.vscode/mcp.json.example`, `.mcp.json` or `examples/**` (minimal or read-only names first). `${workspaceFolder}` and `/path/to/<repo folder>` become the repo path. Casper never guesses from README text or package scripts; without a source it says `Can't tell how to start this server. Add .mcp.json.example, or pass the command: casper mcp check . -- <command>`.
+
+**Offline is the default, and it is best effort.** Everything the check starts gets an environment without credential-looking names (TOKEN, SECRET, PASSWORD, API_KEY …, also from the example's own env), web proxies pointed at a dead local port, and `UV_OFFLINE=1`, `PIP_NO_INDEX=1`, `npm_config_offline=true`. An HTTP server is contacted only on localhost; a remote one gives `Remote server: needs --live`. A program that reads its own `.env` file or opens SSH itself can still reach the network, and the report says so. Use `--env NAME=VALUE` to pass a setting on purpose.
+
+**`--live`** keeps your real environment and makes a few read calls: `access_check` (only when Casper itself would call it: labeled read-only and needing no fields), then at most 3 tools that are labeled read-only, pass Casper's label and the name check, need no fields and have no confirm, dry_run or commit field. Write, destructive, run-command, unlabeled and router tools are never called. The report shows the time and an item count, never what came back.
+
+`.casper/mcp-check.json` (optional):
+
+```json
+{ "start": ["uv", "run", "python", "jmcp.py", "-f", "devices-template.json", "-t", "stdio"],
+  "doctor": "uv run hpe-mcp-doctor", "safetyTests": "uv run pytest -m safety", "tests": "make test" }
+```
+
+`start` may also be a server entry like in `.mcp.json`. Exit codes: 0 no problems, 1 problems (or warnings with `--strict`), 64 usage mistake. `--json` prints one `{version: 1, …}` report on stdout and progress on stderr.
+
+Not in this build: a cross-check with the MCP Inspector CLI as a second client. It is a planned follow-up; Casper will never download it with npx.
