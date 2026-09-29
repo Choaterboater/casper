@@ -131,10 +131,11 @@ function parseOne(label: string, value: unknown): NetworkCheckSpec {
   const derived: NetworkCheckKind = typedPreset && LAB_PRESETS.includes(typedPreset) ? "lab"
     : typedPreset && REPORT_PRESETS.includes(typedPreset) ? "report" : value.kind === "lab" ? "lab" : "offline";
   if (value.kind !== undefined && value.kind !== "offline" && value.kind !== "lab" && value.kind !== "report") {
-    throw new Error(`${label}.kind: expected offline, lab or report`);
+    throw new Error(`${label}.kind: expected lab or report, or leave kind out for an ordinary check`);
   }
   if (value.kind !== undefined && value.kind !== derived) {
-    throw new Error(`${label}.kind: the ${typedPreset ?? "run"} check is a ${derived} check`);
+    // Casper never calls a check "offline" to the user: nothing stops one reaching the network yet.
+    throw new Error(`${label}.kind: the ${typedPreset ?? "run"} check is ${derived === "offline" ? "an ordinary check; leave kind out" : `a ${derived} check`}`);
   }
   const spec: NetworkCheckSpec = { kind: derived };
   if (typedPreset) spec.preset = typedPreset;

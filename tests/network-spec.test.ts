@@ -67,3 +67,17 @@ test("a profile's lab list replaces the user file's list instead of adding to it
   expect(mergeLabSettings({ hosts: ["lab-a"] }, { hosts: ["lab-b"] })).toEqual({ hosts: ["lab-b"] });
   expect(mergeLabSettings({ hosts: ["lab-a"] }, undefined)).toEqual({ hosts: ["lab-a"] });
 });
+
+test("kind mistakes in verify.checks never call a check offline", () => {
+  const messages: string[] = [];
+  for (const value of [{ kind: "sandboxed", run: "make lint" }, { kind: "report", preset: "junoser", files: ["a.conf"] },
+    { kind: "report", run: "make lint" }]) {
+    try { parseNetworkChecks({ docs: value }); } catch (error) { messages.push((error as Error).message); }
+  }
+  expect(messages).toEqual([
+    "verify.checks.docs.kind: expected lab or report, or leave kind out for an ordinary check",
+    "verify.checks.docs.kind: the junoser check is an ordinary check; leave kind out",
+    "verify.checks.docs.kind: the run check is an ordinary check; leave kind out",
+  ]);
+  for (const message of messages) expect(message).not.toContain("offline");
+});
