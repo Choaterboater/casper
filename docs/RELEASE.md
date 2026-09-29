@@ -361,6 +361,12 @@ Linux artifacts are cross-compiled but still require real-host verification.
 
 ## Publish
 
+**From GitHub Actions:** run the [Publish release](../.github/workflows/publish-release.yml) workflow
+on `main` with the tag (for example `v0.2.14`). It checks the tag matches `package.json` and is new,
+typechecks, builds all five targets, verifies the checksums, runs the Linux executable, rejects
+personal build paths, and publishes a prerelease with every file in `dist/release` and the notes
+from this file's section for the tag. Then run the published-release check below. By hand:
+
 1. Run the gates above and review source/notice changes. Build from a neutral path;
    scan final binaries for personal build paths before uploading them.
 2. Keep `package.json`, `src/version.ts`, both installer defaults and documented
