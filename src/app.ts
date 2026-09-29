@@ -28,6 +28,9 @@ import { MCPManager, type ServerQuestionHandler } from "./mcp/manager";
 import { ConsentStore } from "./mcp/consent";
 import { formatApproval, maskText, planLabel, TOO_LONG_TEXT, tooLongToShow } from "./capabilities/approval";
 import { CapabilityBroker, type ConfirmCapability } from "./capabilities/broker";
+import { Scrubber } from "./secrets/netconan";
+import { hiddenSecretGate } from "./secrets/gate";
+import { scrubToolOutput } from "./secrets/tool-output";
 import type { Readable } from "node:stream";
 import {
   formatProjectContext,
@@ -95,6 +98,10 @@ export interface CasperAppOptions {
   visualizationProviders?: VisualizationProvider[];
   /** Override ~/.casper for named-session/worktree state (primarily tests/embedders). */
   sessionHomeDir?: string;
+  /** The secret scrubber (Casper's rules, plus netconan when installed); tests pass their own. */
+  scrubber?: Scrubber;
+  /** Runs git for /references add, by argv only (tests pass a stub). */
+  runGit?: (argv: string[], signal?: AbortSignal) => Promise<{ code: number | null }>;
   output?: OutputWriter;
   input?: Readable;
   /** This run's verification mode (`--verify` = auto, `--no-verify` = off), over configuration.
@@ -150,6 +157,11 @@ export class CasperApp {
   /** Re-reads MCP configuration from disk for /mcp reload; set with the loaded workspace. */
   reloadMCPConfiguration?: () => Promise<MCPConfiguration>;
   private broker?: CapabilityBroker;
+  /** One shared scrubber: MCP results always, config files and command output while scrubFiles is on. */
+  readonly scrubber: Scrubber;
+  /** /secrets files on|off: scrub native reads of config files and config-looking command output. */
+  scrubFiles = true;
+  readonly runGit?: CasperAppOptions["runGit"];
   /** Owned-subsystem teardown bookkeeping: idempotent per subsystem, drained at close. */
   readonly lifecycle = new LifecycleRegistry();
   runtimeTools: RuntimeTool[] = [];
@@ -300,6 +312,8 @@ export class CasperApp {
       ?? (options.autoVerify === undefined ? undefined : options.autoVerify ? "offer" : "off");
     this.visualizationProviders = options.visualizationProviders ?? [new MermaidProvider(), new MindMeshProvider()];
     this.sessionHomeDir = options.sessionHomeDir;
+    this.scrubber = options.scrubber ?? new Scrubber();
+    this.runGit = options.runGit;
   }
 
   /** Load all workspace metadata before publishing it. No connections or model startup. */
@@ -330,7 +344,7 @@ export class CasperApp {
     this.lsp = new LSPManager(context.info.root, lspConfiguration);
     this.visualization = new VisualizationRouter({ providers: this.visualizationProviders, settings: context.visualize, workspaceRoot: context.info.root });
     // Every server starts with writes off; only the user turns them on (/mcp writes <name>).
-    this.broker = new CapabilityBroker(this.mcp, (call, signal) => this.confirmCapability(call, signal), { writesGate: true });
+    this.broker = new CapabilityBroker(this.mcp, (call, signal) => this.confirmCapability(call, signal), { writesGate: true, scrubber: this.scrubber });
     this.lifecycle.add({ name: "references", close: () => this.references!.close() });
     this.lifecycle.add({ name: "mcp", close: () => this.broker!.close() });
     this.lifecycle.add({ name: "lsp", close: () => this.lsp!.close() });
@@ -567,7 +581,11 @@ export class CasperApp {
             return reports.length ? `LSP diagnostics after edit: ${JSON.stringify(boundCapabilityResult(reports))}\nRepair new errors before continuing; unavailable or unversioned reports are not proof of a clean file.` : undefined;
           },
           systemPromptAppend: systemPromptAppend(context),
-          beforeToolGate: toolName => this.editGateReason(toolName),
+          beforeToolGate: (toolName, input) => hiddenSecretGate(toolName, input)
+            ?? (toolName === "edit" || toolName === "write" ? this.editGateReason(toolName) : undefined),
+          // Config files and config-looking command output; /secrets files off stops it for this session.
+          scrubToolOutput: (toolName, input, texts, signal) => this.scrubFiles
+            ? scrubToolOutput(this.scrubber, toolName, input, texts, signal) : Promise.resolve(undefined),
         });
         const resumeNotice = await (await this.ensureSessionWorkspace()).resumeActive(this.session);
         if (resumeNotice) this.output.write(`[sessions] ${resumeNotice}\n`);
