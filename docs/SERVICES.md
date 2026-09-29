@@ -130,7 +130,8 @@ In a web project Casper starts the dev server itself to open changed pages after
 a web project) is used as it is. Otherwise Casper runs the package.json `dev` script with its own port
 flags, or a Streamlit app with the project's `.venv` Python, in a `web` slot of its own. Casper never
 installs packages for it. That slot lives for the session like a declared service and shows in
-`/services`.
+`/services`. It is Casper's own: a running page-check server never adds the service tool to the AI's
+later tasks.
 
 ## Lifetime
 

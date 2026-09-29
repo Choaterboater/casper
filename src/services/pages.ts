@@ -94,12 +94,18 @@ function astro(file: string): Route | "not-page" {
   return routeFrom(segments);
 }
 
-/** Whether a changed file can change what a page shows (so `/` is opened when no route matches it). */
-function frontEndFile(file: string, streamlit: boolean): boolean {
+/** Script files: front-end code in a front-end framework, but server code in a project without one. */
+const SCRIPT = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
+
+/** Whether a changed file can change what a page shows (so `/` is opened when no route matches it). With no
+ * front-end framework (a declared services.web of an API or a plain site), scripts outside public/, static/
+ * and assets/ are server code: an API edit never opens `/`, which an API may not even serve. */
+function frontEndFile(file: string, streamlit: boolean, framework: boolean): boolean {
   if (NOT_PAGES.test(file) || TEST_FILE.test(file)) return false;
   const ext = EXT(file);
   if (streamlit) return ext === ".py" || ext === ".css" || /^\.streamlit\/[^/]+\.toml$/.test(file) || /^(static|assets)\//.test(file);
-  return FRONTEND.has(ext) || /^(public|static|assets)\//.test(file);
+  if (/^(public|static|assets)\//.test(file)) return true;
+  return FRONTEND.has(ext) && (framework || !SCRIPT.has(ext));
 }
 
 /**
@@ -134,7 +140,7 @@ export function changedPages(frameworks: readonly string[], changedPaths: readon
       continue;
     }
     if (route) { if (!found.includes(route.path)) found.push(route.path); continue; }
-    if (frontEndFile(file, streamlit)) fallback = true;
+    if (frontEndFile(file, streamlit, frameworks.some(name => name !== "streamlit"))) fallback = true;
   }
   if (fallback && !found.includes("/")) found.push("/");
 
