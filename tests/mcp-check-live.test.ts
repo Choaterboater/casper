@@ -86,3 +86,14 @@ test("only read-only, read-named tools without fields that change things are saf
   expect(safe("router-good")).toEqual([]);
   expect(safe("unlabeled")).toEqual([]);
 });
+
+test("a server that can't import its packages says to install them", async () => {
+  const root = await repo({ command: process.execPath, args: ["-e", "console.error(\"ModuleNotFoundError: No module named 'mcp'\"); process.exit(1)"] });
+  await writeFile(path.join(root, "uv.lock"), "");
+  const report = await new McpCheck(command(root)).run();
+  expect(report.findings.find((finding) => finding.label === "starts")).toMatchObject({
+    status: "fail",
+    text: "Stopped before it was ready (exit code 1). Not set up: it needs packages that are not installed. Run `uv sync` in the repo, then check again. Last lines it printed (secrets hidden):",
+    detail: ["ModuleNotFoundError: No module named 'mcp'"],
+  });
+});

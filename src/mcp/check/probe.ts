@@ -287,11 +287,16 @@ export function serverEnv(definition: Extract<StartDefinition, { type: "stdio" }
   return { ...env, ...own };
 }
 
-/** Values to hide in anything the server printed: every credential-looking value it was given. */
+/** Values to hide in anything the server printed: every value it was given under a credential-looking name. */
 function knownSecrets(env: NodeJS.ProcessEnv, definition: StartDefinition): string[] {
   const values = Object.entries(env).filter(([name, value]) => value && SECRET_ENV_NAME.test(name)).map(([, value]) => value!);
-  if (definition.type === "stdio") values.push(...Object.values(definition.env).map((value) => fillEnvironment(value, env)));
-  else values.push(...Object.values(definition.headers).map((value) => fillEnvironment(value, env).replace(/^(Bearer|Basic|Token)\s+/i, "")));
+  // Only values under credential-looking names: hiding every value would also hide plain paths.
+  if (definition.type === "stdio") {
+    values.push(...Object.entries(definition.env).filter(([name]) => SECRET_ENV_NAME.test(name)).map(([, value]) => fillEnvironment(value, env)));
+  } else {
+    values.push(...Object.entries(definition.headers).filter(([name]) => SECRET_ENV_NAME.test(name) || /^(authorization|x-api-key|cookie)$/i.test(name))
+      .map(([, value]) => fillEnvironment(value, env).replace(/^(Bearer|Basic|Token)\s+/i, "")));
+  }
   return values.filter((value) => value.length >= 4);
 }
 

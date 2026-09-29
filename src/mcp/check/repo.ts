@@ -165,7 +165,7 @@ export function seconds(ms: number): string {
   return ms < 10_000 ? `${(ms / 1000).toFixed(1)} s` : `${Math.round(ms / 1000)} s`;
 }
 
-const MISSING_PACKAGES = /ModuleNotFoundError|No module named|not found in the cache|wasn't found in the cache|Network connectivity is disabled|not found in cache|Failed to spawn: `|command not found|: not found\b/;
+export const MISSING_PACKAGES = /ModuleNotFoundError|No module named|not found in the cache|wasn't found in the cache|Network connectivity is disabled|not found in cache|Failed to spawn: `|command not found|: not found\b/;
 
 /** One plain line for a finished repo command. */
 export function repoFinding(label: string, command: RepoCommand, result: VerificationResult): Finding {
