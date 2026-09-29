@@ -24,7 +24,8 @@ export interface RuntimeStartOptions {
   /** Append diagnostics to successful native edit/write results before the next model turn.
    * Path is literal (native input syntax expanded once), absolute or relative to cwd. */
   afterFileEdit?: (path: string, signal?: AbortSignal) => Promise<string | undefined>;
-  /** Return a reason to block a native tool call before it executes (empty/undefined = allow).
+  /** Return a reason to block a tool call before it executes (empty/undefined = allow). Called for every
+   * tool: built-in, Casper's own and MCP tools.
    * Read as a closure each call, so per-task gate state can change between calls. */
   beforeToolGate?: (toolName: string, input: Record<string, unknown> | undefined) => string | undefined;
   /** Hide device secrets in native tool output (read, bash, powershell, grep) before the model sees
