@@ -246,3 +246,19 @@ test("a copy lists what git ignores (a whole ignored folder as one entry), which
   if (!("tree" in snapshot)) throw new Error(snapshot.unavailable);
   expect(snapshot.ignored.sort()).toEqual(["build/", "local.cfg"]);
 });
+
+posixOnly("a file the task deleted comes back with your umask's permissions, not wider ones", async () => {
+  const { root, store } = await setup();
+  const saved = process.umask(0o077);
+  try {
+    await writeFile(path.join(root, "private.yaml"), "site: lab\n", { mode: 0o600 });
+    await writeFile(path.join(root, "run.sh"), "#!/bin/sh\n", { mode: 0o700 });
+    const before = tree(await store.snapshot());
+    await rm(path.join(root, "private.yaml")); await rm(path.join(root, "run.sh"));
+    const after = tree(await store.snapshot());
+    const applied = await store.apply((await store.plan(after, before)).ready, before);
+    expect(applied.restored).toEqual(["private.yaml", "run.sh"]);
+    expect((await stat(path.join(root, "private.yaml"))).mode & 0o777).toBe(0o600);
+    expect((await stat(path.join(root, "run.sh"))).mode & 0o777).toBe(0o700);
+  } finally { process.umask(saved); }
+});

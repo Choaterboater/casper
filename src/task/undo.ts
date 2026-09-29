@@ -378,9 +378,17 @@ export class UndoStore {
             await writeProjectLink(this.root, change.path, data.toString("utf8"));
           } else {
             if (now?.isSymbolicLink()) await removeProjectFile(this.root, change.path);
-            const base = now?.isFile() ? now.mode & 0o777 : 0o644;
-            const mode = target.mode === "100755" ? base | ((base & 0o444) >> 2) : base & ~0o111;
-            await writeProjectFile(this.root, change.path, data, { mode: "replace", fileMode: mode, chmod: mode });
+            const exec = target.mode === "100755";
+            if (now?.isFile()) {
+              // A file that is there keeps its own permissions; only the run bit follows the copy.
+              const base = now.mode & 0o777;
+              const mode = exec ? base | ((base & 0o444) >> 2) : base & ~0o111;
+              await writeProjectFile(this.root, change.path, data, { mode: "replace", fileMode: mode, chmod: mode });
+            } else {
+              // A file made again gets the permissions any new file gets here (your umask), so a private setting such
+              // as umask 077 keeps it private; git's copy only knows whether it could run.
+              await writeProjectFile(this.root, change.path, data, { mode: "replace", fileMode: exec ? 0o777 : 0o666 });
+            }
           }
           applied.restored.push(change.path);
         } catch (error) { skip(change.path, error); }
