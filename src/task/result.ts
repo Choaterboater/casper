@@ -461,13 +461,15 @@ export function liveCheckLine(result: VerificationResult): string {
   if (result.kind === "report") return `• ${name} · ${reportText(result)} (a diff, not a pass/fail check)`;
   if (result.status === "skip" && !isBuiltinCheck(name)) return `– ${name} · not run${result.reason ? `: ${result.reason.replace(/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g, " ")}` : ""}`;
   if (result.status === "skip") return `– ${name} · skipped${result.command ? "" : ", no command"}`;
-  if (result.status === "pass") return result.reused ? `✓ ${name} · passed earlier, reused` : `✓ ${name} · ${duration(result.durationMs)}`;
+  // A lab check's own label ("dry run not guaranteed") stays beside its result.
+  const label = result.label ? `${result.label.replace(/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g, " ")} · ` : "";
+  if (result.status === "pass") return result.reused ? `✓ ${name} · passed earlier, reused` : `✓ ${name} · ${label}${duration(result.durationMs)}`;
   const timeout = /^Timed out after (\d+)ms$/.exec(result.reason ?? "");
   if (result.ended === "timeout") return `✗ ${name} · timed out${timeout ? ` after ${duration(Number(timeout[1]))}` : ""}`;
   if (result.ended === "no_start") return `✗ ${name} · could not start${typeof result.exitCode === "number" ? ` (exit ${result.exitCode})` : ""}`;
   const why = typeof result.exitCode === "number" ? `exit ${result.exitCode}` : result.signal ? `stopped by ${result.signal}`
     : result.reason ? result.reason.replace(/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g, " ") : "no exit status";
-  return `✗ ${name} · ${why} · ${duration(result.durationMs)}`;
+  return `✗ ${name} · ${label}${why} · ${duration(result.durationMs)}`;
 }
 
 function pathList(paths: string[], safe: (text: string) => string, count = true): string {

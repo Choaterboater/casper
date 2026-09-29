@@ -68,12 +68,14 @@ import { parseChecklist, parseReview, requirementsReviewPrompt, ROUND_MAX_TURNS,
 import { extractChecklist, formatChecklistPrompt, normalizeCases } from "./task/checklist";
 import { checkCommands, isBuiltinCheck, labNamedChecks } from "./verify/named";
 import { autoDetectedChecks } from "./verify/migrations-check";
+import type { NetworkToolContext } from "./verify/registry";
 import { buildNextRow, type NextItem } from "./tui/next-row";
 import { SuggestionController, SUGGESTION_COMMAND } from "./app/suggestions";
 import { findFlow, formatFlowPrompt, loadFlowCatalog, type Flow, type FlowRule } from "./flows/catalog";
 import { beforeWorkPanel, readBeforeWorkAnswer, suggestBeforeWork } from "./flows/suggest";
 import { extractPlan, formatBuildPrompt, parsePlanLines, planEditorHeading, planEditorLines, planToolGate, type ParsedPlan } from "./flows/plan";
 import { PROJECT_YAML, saveNamedCheck, saveProjectCommand } from "./project/config-write";
+import { askLabFailure, labCheckRunner } from "./app/lab-checks";
 import type { TaskClassification } from "./task/classify";
 import type { ProjectCommand } from "./project/model";
 import { describeChecksPlan, manualChecks, planAutoChecks, resolveVerificationMode, selectedChecks, type ChecksPlan, type VerificationMode } from "./verify/mode";
@@ -147,6 +149,8 @@ export interface CasperAppOptions {
   createProject?: (options: NewProjectOptions) => Promise<NewProjectResult>;
   /** Opens pages for the page check: Chrome when installed, else HTTP only. Tests pass a fake. */
   pageOpener?: (options: { projectRoot: string; stateDirectory: string }) => Promise<PageOpener>;
+  /** Where network checks find their tools (PATH), temp folders and home; tests point these at fakes. */
+  networkTools?: NetworkToolContext;
 }
 
 /** The last choice of the home-folder and folder-of-projects question. */
@@ -281,6 +285,7 @@ export class CasperApp {
   memoryWork?: Promise<void>;
   private readonly newProjectRequest?: CasperAppOptions["newProject"];
   private readonly createProjectFn?: CasperAppOptions["createProject"];
+  private readonly networkTools?: NetworkToolContext;
   /** `casper new` on a terminal: the exit code when no project was opened (1 when nothing was created). */
   newProjectExitCode?: number;
   /** The build-request question is asked at most once per session. */
@@ -311,6 +316,7 @@ export class CasperApp {
     };
     this.runtimeFactory = options.runtimeFactory ?? freshPiRuntime;
     this.pageOpenerFn = options.pageOpener ?? pageOpener;
+    this.networkTools = options.networkTools;
     this.subagents = new SubagentManager({ runtimeFactory: async () => {
       if (this.workspaceTransition || this.workspaceNeedsRebind) throw new Error("Workspace transition is in progress; delegation is blocked");
       const child = await (options.subagentRuntimeFactory ?? freshPiRuntime)();
@@ -1106,7 +1112,7 @@ export class CasperApp {
     const configured = context.verification.mode;
     const verificationMode = (await this.checksPlan(context)).mode;
     if (verificationMode !== "off") this.checkTask = new VerificationTask(
-      VerifierRegistry.forProject(context.model, context.verification.timeoutMs, this.blockOnCleanupFailure), this.activeWorkspaceRoot(),
+      VerifierRegistry.forProject(context.model, context.verification.timeoutMs, this.blockOnCleanupFailure, this.networkOptions()), this.activeWorkspaceRoot(),
       (result) => this.writeCheckResult(result),
     );
     // Smoke checks are verification: they run only when Casper checks this task.
@@ -1517,10 +1523,16 @@ export class CasperApp {
     // A standalone verification task (/verify, branch checks) owns its objective; post-task
     // verification passes `task` and continues the parent request's delegation budget.
     if (!task) this.delegateToolForTask = undefined;
+    // Lab checks start only here, from the user's own /verify <name>, and only after a person answers.
     const evidence = task ?? new VerificationTask(
-      VerifierRegistry.forProject(context.model, context.verification.timeoutMs, this.blockOnCleanupFailure), this.activeWorkspaceRoot(),
+      VerifierRegistry.forProject(context.model, context.verification.timeoutMs, this.blockOnCleanupFailure, { ...this.networkOptions(), runLab: labCheckRunner({
+        canAsk: () => this.interactive && this.terminal.canAsk && !this.closing, pick: (question, options, signal) => this.terminal.pick(question, options, signal),
+        write: (text) => { if (!this.closing) this.output.write(text); }, stateDirectory: context.stateDirectory, ...(context.lab ? { lab: context.lab } : {}),
+        ...(this.networkTools ? { network: this.networkTools } : {}) }) }), this.activeWorkspaceRoot(),
       (result) => this.writeCheckResult(result),
     );
+    // /verify <lab check> alone: a failure asks before any repair (Stop first); nothing touches the lab again on its own.
+    const labOnly = !task && checks.length > 0 && checks.every((name) => context.model.namedChecks?.[name]?.kind === "lab");
     const cancel = () => controller.abort();
     this.commandAbort?.signal.addEventListener("abort", cancel, { once: true });
     if (this.commandAbort?.signal.aborted) cancel();
@@ -1540,7 +1552,7 @@ export class CasperApp {
         constraints: [context.rules.profile, context.rules.project, ...context.model.conventions].filter(Boolean).join("\n"),
         maxAttempts: maxAttempts ?? context.repair.maxAttempts,
         signal: controller.signal,
-        repair: repair ? async (prompt) => {
+        repair: repair || labOnly ? async (prompt) => {
           await this.prepareCapabilities(request);
           const session = await this.ensureRuntime();
           // This try runs on the big model: the user chose it at the repair limit, or set repair.bigModelLastTry.
@@ -1575,6 +1587,8 @@ export class CasperApp {
         // Out of tries: one numbered offer to try once more on the big model. Only a person answers it; one-shot
         // and --json runs never get it, so they never spend on a bigger model on their own.
         onRepairLimit: repair && this.interactive && this.terminal.canAsk ? (failures, signal) => this.askBigModelRetry(failures, signal) : undefined,
+        onLabFailure: (repair || labOnly) && this.interactive && this.terminal.canAsk
+          ? (failures, signal) => askLabFailure({ pick: (question, options, answerSignal) => this.terminal.pick(question, options, answerSignal) }, failures, signal) : undefined,
         // A check that was already failing before the change is not the change's doing: say so, and ask before paying to fix it.
         beforeRepair: repair && task && task === this.checkTask && this.taskBaseline ? (failures, signal) => this.repairPreexisting(failures, signal) : undefined,
         // Only a person can say whether a check that did not finish is worth a paid repair.
@@ -1611,6 +1625,10 @@ export class CasperApp {
   private clearSteps(): void {
     this.steps.clear();
     this.terminal.setSteps(undefined);
+  }
+
+  private networkOptions(): { network?: NetworkToolContext } {
+    return this.networkTools ? { network: this.networkTools } : {};
   }
 
   /** `/verify add <name>` or a picked suggestion: save a check Casper found in .casper/project.yaml, then use it. */

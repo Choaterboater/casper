@@ -417,7 +417,8 @@ export function repairNote(result: NetworkCheckResult): string | undefined {
 export function labFailureAsk(name: string): { text: string; choices: string[]; defaultChoice: number } {
   return {
     text: `${name} failed on the lab. Casper did not ask the model to fix it, because each try touches lab devices.`,
-    choices: ["Ask the model to fix it", "Stop"], defaultChoice: 2,
+    // Stop first: Enter (or a stray key) never starts a paid repair that touches the lab again.
+    choices: ["Stop", "Ask the model to fix it"], defaultChoice: 1,
   };
 }
 export const labStoppedReason = (name: string): string => `${name} failed on the lab; stopped without asking the model to fix it`;
