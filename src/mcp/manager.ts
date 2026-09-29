@@ -304,6 +304,12 @@ export class MCPManager {
     const context = { phase: "call" as const, server, secrets: entry.secrets, idleMs: limits.callMs, hardMs: limits.hardMs, scrub: modelText };
     try {
       options.onClock?.(clock);
+    } catch {
+      // Nothing was sent yet: a failing hook must not look like a lost call or cost the connection.
+      clock.dispose();
+      throw new NotExecutedError("could not prepare the call");
+    }
+    try {
       return await client.callTool({ name, arguments: args }, undefined, {
         signal: AbortSignal.any([...(signal ? [signal] : []), entry.abort.signal, clock.signal]),
         timeout: SDK_REQUEST_TIMEOUT_MS,

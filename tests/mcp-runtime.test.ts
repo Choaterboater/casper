@@ -424,3 +424,13 @@ test("/mcp says plainly when a server gives no answer while starting, or stops a
   await mcp.call("generic", "crash_read", {}).catch(() => {});
   expect(mcp.status()[1]?.error).toBe("The server stopped (exit code 0). Next task may restart it.");
 });
+
+test("a failing clock hook stops the call before it is sent and keeps the connection", async () => {
+  const mcp = manager([definition()]);
+  await mcp.connect("generic");
+  const failure = await mcp.call("generic", "status", {}, undefined, { onClock: () => { throw new Error("prompt broke"); } })
+    .then(() => undefined, (error: unknown) => error);
+  expect(failure).toBeInstanceOf(NotExecutedError);
+  expect((failure as Error).message).toBe("Not executed (could not prepare the call)");
+  expect(mcp.status()[0]?.state).toBe("ready");
+});
