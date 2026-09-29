@@ -3,7 +3,7 @@ import { chmod, mkdir, mkdtemp, readdir, realpath, rm, symlink, writeFile } from
 import os from "node:os";
 import path from "node:path";
 import { verificationFlag } from "../src/cli";
-import { parseCliArgs, parseMcpCheckArgs, UsageError } from "../src/cli-args";
+import { looksLikePath, parseCliArgs, parseMcpCheckArgs, UsageError } from "../src/cli-args";
 import { resolveVerificationMode } from "../src/verify/mode";
 import { CASPER_VERSION } from "../src/version";
 import { needsPosixModes, posixOnly } from "./support/platform";
@@ -340,4 +340,10 @@ test("casper <folder> opens that folder; a path that is not a folder exits 64", 
   // A slash command given as one word, with or without its arguments, is still a command, not a path.
   const slash = await run([cli, "/help all"], root);
   expect({ code: slash.code, stderr: slash.stderr }).toEqual({ code: 0, stderr: "" });
+  // Only one word that can only be a path is refused; a quoted request with a slash in it is a prompt.
+  for (const word of ["./missing/", "../x", "~/nowhere", "/no/such/place", "missing/", "C:\\code"]) expect(looksLikePath(word)).toBe(true);
+  for (const word of ["Add POST /notes that creates a note", "fix src/app.py", "src/app.py", "/help all", "and/or"]) expect(looksLikePath(word)).toBe(false);
+  const quoted = await run([cli, "fix the bug in src/app.py"], root);
+  expect(quoted.code).not.toBe(64);
+  expect(quoted.stderr).not.toContain("Not a folder");
 });
