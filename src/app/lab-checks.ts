@@ -5,7 +5,7 @@
  * sends nothing and says so. The AI never reaches this: casper_check refuses lab checks, and auto mode never
  * selects them.
  */
-import { labFailureAsk, prepareLabCheck, type NetworkCheckContext } from "../network/checks";
+import { COMMIT_CHECK_LABEL, DRY_RUN_LABEL, labFailureAsk, prepareLabCheck, type NetworkCheckContext } from "../network/checks";
 import { labAlwaysAllowed, rememberLabAlways } from "../network/lab";
 import type { LabSettings } from "../network/spec";
 import type { VerificationResult } from "../verify/evidence";
@@ -35,7 +35,9 @@ export function labCheckRunner(host: LabCheckHost): NamedCheckRunner {
       ...(context.signal ? { signal: context.signal } : {}) };
     const plan = await prepareLabCheck(name, spec, networkContext);
     if (plan.state !== "ready") return fromNetworkResult(plan.result);
-    const skipped = (reason: string): VerificationResult => ({ name, cwd: context.cwd, status: "skip", kind: "lab", exitCode: null, signal: null,
+    // A lab check that did not run keeps its label ("dry run not guaranteed") in the JSON check event too.
+    const label = spec.preset === "ansible-check" ? DRY_RUN_LABEL : COMMIT_CHECK_LABEL;
+    const skipped = (reason: string): VerificationResult => ({ name, cwd: context.cwd, status: "skip", kind: "lab", label, exitCode: null, signal: null,
       stdout: "", stderr: "", truncated: false, durationMs: 0, reason, repair: "never", hosts: plan.hosts.map((host) => host.name) });
     if (plan.allowAlways && await labAlwaysAllowed(host.stateDirectory, name, plan.approvalKey)) {
       host.write(`Running ${name} on your lab (you chose Always for this project).\n`);
