@@ -335,7 +335,9 @@ export class CasperApp {
       ...(this.interactive ? { checks: describeChecksPlan(await this.checksPlan(context)) } : {}) }));
     // A returning user's saved default is known before the runtime starts; say so, not "not initialized".
     if (!this.session) this.savedModelDisplay = await modelPreference(this.sessionHomeDir ?? os.homedir());
-    this.output.write(`${formatRuntimeStatus(this.session?.getStatus?.(), this.savedModelDisplay)}\n`);
+    // --model names the model for this run: show it, not the saved default it overrides.
+    const shown = this.runModel && !this.session ? `${terminalText(this.runModel)} for this run (--model)` : this.savedModelDisplay;
+    this.output.write(`${formatRuntimeStatus(this.session?.getStatus?.(), shown)}\n`);
     for (const warning of [...this.startupWarnings, ...context.warnings ?? []]) this.output.write(`[config] ${terminalText(warning)}\n`);
     for (const diagnostic of referenceConfiguration.diagnostics) this.output.write(`[references] ${formatReferenceResult(diagnostic)}\n`);
     this.reportSkillWarnings();
@@ -1628,7 +1630,7 @@ export class CasperApp {
       const percent = usage?.context?.percent;
       const effort = (status && formatEffort(status)) ?? "effort —";
       const model = status?.model ? `${status.provider}/${status.model} · ${effort}`
-        : this.session ? "no model selected · /model" : this.savedModelDisplay ?? "model not initialized · /model";
+        : this.session ? "no model selected · /model" : (this.runModel ? `${terminalText(this.runModel)} (--model)` : this.savedModelDisplay) ?? "model not initialized · /model";
       this.terminal.setStatus(`${project.name}/${project.gitBranch ?? "no git"} │ ${model} │ ctx ${percent == null ? "—" : `${percent.toFixed(0)}%~`}${usage ? ` │ ${usage.tokens.total} tok` : ""}${usage?.estimatedCost === undefined ? "" : ` │ $${usage.estimatedCost.toFixed(3)} est`} │ ${this.commandActive ? "working" : "idle"}`, project.root);
     } catch { this.terminal.setStatus("Session status unavailable · /status", this.projectContext.info.root); }
   }
