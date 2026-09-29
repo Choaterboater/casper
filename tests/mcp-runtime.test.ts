@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -125,6 +125,19 @@ test("reloading with only a new callTimeout keeps consent and the connection", a
   expect(mcp.status()[0]).toMatchObject({ state: "ready", limits: { connectS: 20, callS: 400 } });
   const pid = (value: string) => /\\"pid\\":(\d+)/.exec(value)?.[1];
   expect(pid(JSON.stringify(await mcp.call("generic", "status", {})))).toBe(pid(before));
+});
+
+test("an imported server's folder that links into the project still starts outside it", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-import-link-"));
+  try {
+    const home = path.join(root, "home"); const project = path.join(root, "work", "repo");
+    await mkdir(home, { recursive: true }); await mkdir(path.join(project, "tools"), { recursive: true });
+    await symlink(project, path.join(home, "repo-link"));
+    const diagnostics: string[] = [];
+    expect(startFolder(path.join(home, "repo-link", "tools"), "imported", project, home, { name: "junos", diagnostics })).toBe(home);
+    expect(startFolder("~/repo-link", "imported", project, home, { name: "junos", diagnostics })).toBe(home);
+    expect(diagnostics).toHaveLength(2);
+  } finally { await rm(root, { recursive: true, force: true }); }
 });
 
 test("imported servers never start in the opened project", () => {
