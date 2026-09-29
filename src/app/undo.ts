@@ -128,9 +128,16 @@ export class TaskUndo {
           if (left) return { path: file, why: left.why };
           return coveredBy(before.ignored, file) ? { path: file, why: isSecretFile(file) ? "secret" : "not copied" } : undefined;
         };
+        // The other way round: a file in the first copy but not the second is one the task deleted, unless it is still
+        // there and simply not copied now (the task made it over 8 MB, or made its folder a nested repository). Undo
+        // would find it "changed since" and refuse everything, so it is left out and named too.
+        const notCopiedAfter = (file: string): LeftOut | undefined => {
+          const left = after.left.find((entry) => entry.path === file || coveredBy([entry.path], file));
+          return left ? { path: file, why: left.why } : undefined;
+        };
         const kept: LeftOut[] = [];
         const paths = (await store.changes(before.tree, after.tree).catch(() => [])).flatMap((change) => {
-          const already = !change.from && change.to ? notCopiedBefore(change.path) : undefined;
+          const already = !change.from && change.to ? notCopiedBefore(change.path) : change.from && !change.to ? notCopiedAfter(change.path) : undefined;
           if (already) { kept.push(already); return []; }
           return [change.path];
         });

@@ -247,7 +247,7 @@ export class UndoStore {
         // A file left out now may be in the index from an earlier copy (smaller then): drop it, so the copy never
         // holds an old version of it.
         if (left.length) {
-          await this.git(["rm", "--cached", "-r", "-q", "--ignore-unmatch", "--pathspec-from-file=-", "--pathspec-file-nul"],
+          await this.git(["rm", "--cached", "-f", "-r", "-q", "--ignore-unmatch", "--pathspec-from-file=-", "--pathspec-file-nul"],
             { input: left.map((entry) => `:(literal)${entry.path}`).join("\0"), signal });
         }
         await this.git(["add", "--all", "--pathspec-from-file=-", "--pathspec-file-nul"],
