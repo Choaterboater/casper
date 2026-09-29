@@ -3,6 +3,14 @@ import { KIND_ORDER, type SecretKind } from "./patterns";
 import { scrubText, shouldScrubCommandOutput, shouldScrubRead } from "./scrub";
 
 /**
+ * Pi keeps the whole output of a long command in <tmp>/pi-bash-<id>.log (or pi-powershell-) and tells
+ * the AI that path. Reading it back is command output, so it gets the same config check.
+ */
+export function isSavedCommandOutput(filePath: string): boolean {
+  return /(?:^|[\\/])pi-(?:bash|powershell)-[0-9a-f]+\.log$/i.test(filePath);
+}
+
+/**
  * Native tool output the model is about to read. Config files (.cfg, .conf, .set, or under
  * configs/backups/oxidized) and command or grep output that looks like a device config get their
  * secrets hidden. Source code is never changed. Undefined means "leave the result as it is".
@@ -10,7 +18,8 @@ import { scrubText, shouldScrubCommandOutput, shouldScrubRead } from "./scrub";
 export async function scrubToolOutput(scrubber: Pick<Scrubber, "scrubText">, toolName: string, input: Record<string, unknown>,
   texts: string[], signal?: AbortSignal): Promise<{ texts: string[]; note?: string } | undefined> {
   if (toolName === "read") {
-    if (typeof input.path !== "string" || !shouldScrubRead(input.path)) return undefined;
+    if (typeof input.path !== "string") return undefined;
+    if (!shouldScrubRead(input.path) && !(isSavedCommandOutput(input.path) && shouldScrubCommandOutput(texts.join("\n")))) return undefined;
   } else if (["bash", "powershell", "grep"].includes(toolName)) {
     if (!shouldScrubCommandOutput(texts.join("\n"))) return undefined;
   } else return undefined;
