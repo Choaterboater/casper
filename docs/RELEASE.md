@@ -1,7 +1,7 @@
 # Release process and installers
 
-Casper distributes an unsigned **v0.2.14 preview**, not a stable release. Installers
-default to `https://github.com/Choaterboater/casper/releases/download/v0.2.14` because
+Casper distributes an unsigned **v0.2.15 preview**, not a stable release. Installers
+default to `https://github.com/Choaterboater/casper/releases/download/v0.2.15` because
 GitHub's `latest/download` route excludes prereleases. The first published preview
 was **v0.1.0**; its assets and tag stay as published, and every fix ships under a new
 version.
@@ -12,8 +12,8 @@ MCP that works with network servers (hpe-networking-mcp, junos-mcp-server, Mist,
 others) without letting the AI change a device on its own. See [MCP.md](MCP.md) and
 [SECRETS.md](SECRETS.md).
 
-**Not released yet.** The version number and the installers still say v0.2.14; the release step
-sets them and removes this line.
+v0.2.14 was never published, so this is the first release with its changes too. They are listed
+under v0.2.14 below.
 
 **Read-only comes from the product.** Casper calls a login read-only only when the product itself
 says so, through an `access_check` tool. A tool marked `readOnlyHint: true` runs without asking, as
@@ -437,7 +437,7 @@ Linux artifacts are cross-compiled but still require real-host verification.
 ## Publish
 
 **From GitHub Actions:** run the [Publish release](../.github/workflows/publish-release.yml) workflow
-on `main` with the tag (for example `v0.2.14`). It checks the tag matches `package.json` and is new,
+on `main` with the tag (for example `v0.2.15`). It checks the tag matches `package.json` and is new,
 typechecks, builds all five targets, verifies the checksums, runs the Linux executable, rejects
 personal build paths, and publishes a prerelease with every file in `dist/release` and the notes
 from this file's section for the tag. Then run the published-release check below. By hand:
