@@ -65,6 +65,7 @@ import { independentAcceptance } from "./verify/acceptance";
 import { parseChecklist, parseReview, requirementsReviewPrompt, ROUND_MAX_TURNS, type RequirementsReview } from "./task/review";
 import { extractChecklist, formatChecklistPrompt, normalizeCases } from "./task/checklist";
 import { checkCommands, isBuiltinCheck } from "./verify/named";
+import { autoDetectedChecks } from "./verify/migrations-check";
 import { buildNextRow, type NextItem } from "./tui/next-row";
 import type { ProjectCommand } from "./project/model";
 import { describeChecksPlan, manualChecks, planAutoChecks, resolveVerificationMode, selectedChecks, type ChecksPlan, type VerificationMode } from "./verify/mode";
@@ -1016,7 +1017,7 @@ export class CasperApp {
       if (!cancelled && this.taskRuntimeFailed && this.checkTask && verificationMode === "auto") {
         const edited = before && afterModel ? flatten(diffSnapshots(before, afterModel)) : undefined;
         const failedChecks = edited?.length ? planAutoChecks({ selected: context.verification.checks, commands: context.model.commands,
-          scopes: context.model.verificationScopes, named: context.model.namedChecks, changedPaths: edited }).run : [];
+          scopes: context.model.verificationScopes, named: context.model.namedChecks, detected: autoDetectedChecks(context.model), changedPaths: edited }).run : [];
         if (failedChecks.length) {
           this.events.ensureLineBreak();
           this.output.write(`… Casper checking the edits the model made before it failed: ${failedChecks.join(", ")}\n`);
@@ -1027,7 +1028,7 @@ export class CasperApp {
         const changedByModel = before && afterModel ? flatten(diffSnapshots(before, afterModel)) : undefined;
         autoChecks = planAutoChecks({
           selected: context.verification.checks, commands: context.model.commands, scopes: context.model.verificationScopes,
-          named: context.model.namedChecks, changedPaths: changedByModel,
+          named: context.model.namedChecks, detected: autoDetectedChecks(context.model), changedPaths: changedByModel,
         });
         // Configured smoke checks run after a change; checks the model recorded always run.
         const smokeDue = Boolean(this.smokeTask?.recordedCount || (this.smokeTask?.size && autoChecks.skipped !== "no-changes"));
@@ -1376,7 +1377,8 @@ export class CasperApp {
   async checksPlan(context: ProjectContext): Promise<ChecksPlan> {
     const flag = this.verificationFlag;
     const configured = context.verification.mode;
-    const checks = selectedChecks(context.verification.checks, context.model.commands, context.model.namedChecks);
+    const checks = selectedChecks(context.verification.checks, context.model.commands, context.model.namedChecks,
+      autoDetectedChecks(context.model).map((check) => check.name));
     const measuredMs = flag || configured || !this.interactive ? undefined : await measuredCheckTime(context.stateDirectory, checks, checkCommands(context.model));
     const mode = resolveVerificationMode({ flag, configured, interactive: this.interactive, measuredMs });
     const manual = manualChecks(checks, context.model.namedChecks);

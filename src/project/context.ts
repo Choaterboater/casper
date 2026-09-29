@@ -3,6 +3,7 @@ import { loadConfiguration, type CasperPolicy, type GitActionPolicy, type Loaded
 import type { VisualizationSettings } from "../visualize/router";
 import type { ProjectInfo } from "./inspect";
 import { loadProjectModel, projectStateDirectory, type ProjectModel } from "./model";
+import { detectMigrations } from "../verify/migrations";
 
 export interface ProjectContext {
   info: ProjectInfo;
@@ -43,10 +44,13 @@ export async function loadProjectContext(
     homeDir,
     profileName: options.profileName,
   });
-  const model = await loadProjectModel(info, {
+  const detected = await loadProjectModel(info, {
     homeDir,
     overrides: configuration.projectOverrides,
   });
+  // The migrations check is found from the project's own files each time it is opened.
+  const migrations = await detectMigrations(info.root).catch(() => undefined);
+  const model = migrations ? { ...detected, migrations } : detected;
 
   return {
     info,
