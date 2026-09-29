@@ -108,7 +108,7 @@ Local commands:
   /memory accept <id> <yes|no>      Record human acceptance, not test evidence
   /references                       List configured local reference sources
   /references search <id|*> <query> Search reference text locally (no model)
-  /references add <name>            Download a vendor spec repo to search locally (asks first)
+  /references add [name] [release]  Download a vendor spec repo to search locally (asks first)
   /secrets                          Show what Casper hides from the AI
   /secrets files on|off             Scrub config files and command output (MCP results always)
   /tree                             Show named session/workspace branches
@@ -183,9 +183,11 @@ MCP connection executes a configured program or contacts its URL. Review its sou
 Servers from ~/.claude.json, ~/.mcp.json and VS Code are listed too; each needs /mcp connect once.
 Every MCP server starts with writes off: write and delete tools are hidden. /mcp writes <name>
 turns them on; ctrl+o turns them off again. A remembered server always starts with writes off.
-Non-read MCP calls require exact interactive confirmation; denied in one-shot mode.
-Known device secrets (passwords, keys, SNMP communities) in MCP results and config files are shown
-to the AI as <secret hidden>; a change that carries the marker back is refused. See docs/SECRETS.md.
+Read-only comes from the product (readOnlyHint, access_check); Casper's labels only make it stricter.
+Non-read MCP calls require exact interactive confirmation; denied in one-shot mode. The AI can't approve.
+Known device secrets (passwords, keys, SNMP communities) in MCP results, config files and config-like
+command output are shown to the AI as <secret hidden> (best effort, known formats only); a change
+that carries the marker back is refused. See docs/SECRETS.md.
 Cooked terminal input (TERM=dumb or redirected output) cannot grant exact approval.
 Piped line input discards unfinished input at approval transitions; NO_COLOR is supported.
 LSP connection executes a configured program. Review .casper/lsp.json first.
@@ -205,7 +207,7 @@ Subagents get read/grep/find/ls only; no edit/write/bash/MCP/LSP or recursive de
 Limits: 2 concurrent, 4 delegations per parent prompt; 180 seconds/12 turns/48 tool calls per child.
 Children use Casper roles (explorer→fast, reviewer→review) or the startup default.
 Reports are advisory; read-only tools are not an OS sandbox.
-Learning uses the startup default; source text may reach the configured provider. No secret detector.
+Learning uses the startup default; source text may reach the configured provider. No secret scrubbing.
 Learning drafts are owner-only plaintext and inert. Promotion is a separate local,
 digest-bound human command; it never asks the model to choose or approve.
 Use local directories only; learn cannot be combined with --verify, --mcp or --lsp.

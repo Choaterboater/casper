@@ -6,6 +6,81 @@ GitHub's `latest/download` route excludes prereleases. The first published previ
 was **v0.1.0**; its assets and tag stay as published, and every fix ships under a new
 version.
 
+## v0.2.15: your network, safely
+
+MCP that works with network servers (hpe-networking-mcp, junos-mcp-server, Mist, NetBox and
+others) without letting the AI change a device on its own. See [MCP.md](MCP.md) and
+[SECRETS.md](SECRETS.md).
+
+**Not released yet.** The version number and the installers still say v0.2.14; the release step
+sets them and removes this line.
+
+**Read-only comes from the product.** Casper calls a server or tool read-only only when the product
+itself says so: the tool's `readOnlyHint: true`, or an `access_check` tool that reports a read-only
+login. Casper's labels, word lists, presets and guesses only make things stricter (ask more, hide
+more). They never skip an approval and never claim read-only. No answer from the product reads
+`access not checked`.
+
+**Behaviour change: every server starts with writes off.** Write and delete tools are hidden and
+refused (`Not executed (<server> writes are off. Only the user can turn them on with /mcp writes
+<server>.)`) until you type `/mcp writes <server>` and pick `1`. Other changes (tools with no label,
+tools that run commands) stay visible unless a preset hides them, and ask every time. While writes are on, the footer starts with `WRITES:
+<servers> · ctrl+o`; ctrl+o (or `/mcp writes off`) turns them off at once. Known servers get
+presets: Casper sends their own read-only settings (for example `HPE_MCP_ACCESS_PROFILE=safe-read-only`)
+while writes are off, and `/mcp` says whether the server confirmed them.
+
+**Servers you already set up.** Servers in `~/.claude.json`, `~/.mcp.json` and VS Code's
+`mcp.json` are listed by `/mcp` and need one `/mcp connect`. After that, Casper can remember a
+server (a keyed hash in `~/.casper/mcp-consent.json`), so it connects on its own next time, always
+with writes off. A changed definition asks again; `/mcp forget <name>` drops it. Project servers
+and unpinned `npx`/`uvx`-style servers are never remembered.
+
+**Approvals.** Each tool gets the strictest of the server's labels, Casper's word rules and the
+0.2.14 label: `bounce`, `reboot`, `delete`, `rollback` and similar words always ask, even on a tool
+marked read-only. A router call is judged by the real tool behind it. When the AI sets `confirm`,
+`force` or `dry_run=false` itself, Casper asks. The approval box shows the mode (`EXECUTE` or
+`preview`), hides passwords and keys, and offers `p` to run a preview first when the tool has a
+preview switch. Only your typed `yes` runs a call. Server questions (MCP elicitation) reach only
+you, and only during a call you approved.
+
+**Device secrets.** Passwords, RADIUS/TACACS keys, Wi-Fi PSKs and SNMP communities in MCP results,
+config files and config-like command output are shown to the AI as `<secret hidden>`. A change that
+carries the marker back is refused. `/secrets` shows the state; `/secrets files off` turns file
+scrubbing off for the session. netconan runs as an extra check when installed.
+
+**Calls and results.** Per-server time limits (`connectTimeout`, `callTimeout`), a call clock that
+progress messages restart, and plain failure text that tells the model not to retry. When a server
+fails, `/mcp` shows its last lines, secrets hidden. Each list in a result is cut on its own, the
+next-page cursor is always kept, and repeated text is dropped. Search matches plurals,
+`find_capability({ query: "*" })` lists every tool, and bad arguments name the field.
+
+**Docs and references.** hpe-networking-mcp's docs tools (`lookup_api`, `search_docs`, `ask_docs`)
+are always offered to the model. `/mcp docs` adds a docs-only copy of that server with no
+credentials, after you type yes. `/references add` downloads a vendor spec repo (Mist OpenAPI,
+Junos YANG, pycentral) to search locally, after you type yes.
+
+**`casper mcp check [repo]`** checks an MCP server you built: its doctor and tests, its labels
+against its tool names, its schemas, its example configs, and whether it starts cleanly. It calls
+no tools unless you pass `--live`, and runs offline by default. It runs the repo's own code, so use
+it only on repos you trust.
+
+**Limits.**
+- Labels and the Junos show check read names and command text (word lists). They don't know what a
+  tool really does. A server that marks a changing tool `readOnlyHint: true` under a read name is
+  trusted.
+- Secret hiding knows common formats only. It is best effort, not a guarantee. Secrets the AI
+  already had, and text `casper learn` reads, are not scrubbed.
+- The marker check stops `<secret hidden>` itself, not every rewrite: a script can still overwrite
+  a config file. It also stops edits and commands that only mention the marker.
+- Masking in the approval box is for your screen. The server still gets the real values.
+- Remote (HTTP) servers can't get read-only pins; Casper can only hide their write tools.
+- MCP gives no link between a server question and its call. A question that arrives while exactly
+  one approved call runs on that server is shown under that call.
+- If an LSP or browser approval is open when an MCP approval comes in, the MCP call can be refused
+  as `you said no` without asking you.
+- Nothing here is a sandbox. The model's shell and file tools are unchanged and can still reach MCP
+  configuration or run commands.
+
 ## v0.2.14: see it build, trust the result
 
 **Receipt:** line 1 is the verdict: `✓ Verified — the checks pass, and the tests fail without the

@@ -58,8 +58,9 @@ every search; no corpus index, embeddings, database, or result cache is created.
 **Review the configured paths before enabling them:** configuring a source makes
 its searchable text available to the parent model. Excerpts can contain sensitive
 source text. Known device secrets (passwords, keys, SNMP communities; see
-[SECRETS.md](SECRETS.md)) are shown as `<secret hidden>`, and a line that matches
-only inside a hidden secret is not returned. Other secrets are not detected. Normal Pi session persistence may retain
+[SECRETS.md](SECRETS.md)) are shown as `<secret hidden>` by Casper's own rules
+(netconan does not run here), and a line that matches only inside a hidden secret
+is not returned. This is best effort; other secrets are not detected. Normal Pi session persistence may retain
 requested tool results, just as it retains native read results. The reference
 module does not create an additional raw-content store or memory facts/outcomes.
 
@@ -93,7 +94,9 @@ sparse: only the folders shown are fetched.
   is faster and complete; Casper prints that tip after adding it.
 - An ID already in `~/.casper/references.yaml` is refused: `pycentral is already in
   ~/.casper/references.yaml. Nothing changed.` A failed download adds nothing:
-  `Download failed (git exit 128). Nothing was added.`
+  `Download failed (git exit 128). Nothing was added.` An existing
+  `~/.casper/reference-repos/<id>` folder is never overwritten: remove it first or
+  add it to `~/.casper/references.yaml` yourself.
 - The entry is added to `~/.casper/references.yaml` without touching other entries
   or comments. Profile files are never changed. Search picks it up after a restart.
 
