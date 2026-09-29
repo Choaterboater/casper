@@ -360,3 +360,40 @@ test("call_capability tells the model about per-list limits and the kept cursor"
   const call = (await new CapabilityBroker(mcp).prepare("status")).find((tool) => tool.name === "call_capability")!;
   expect(call.description).toContain("Results bounded to 16 KB and 50 items per list; next_cursor is always kept. Never automatically retry consequential calls.");
 });
+
+// --- review fixes ----------------------------------------------------------------------------------
+
+test("an HTTP failure during a call names the status and says not to retry, with header values hidden", async () => {
+  const { createServer } = await import("node:http");
+  const { StreamableHTTPServerTransport } = await import("@modelcontextprotocol/sdk/server/streamableHttp.js");
+  const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: () => crypto.randomUUID(), enableJsonResponse: true });
+  const fixture = fixtureServer("generic");
+  await fixture.connect(transport);
+  const http = createServer(async (request, response) => {
+    if (request.method !== "POST") { await transport.handleRequest(request, response); return; }
+    const chunks: Buffer[] = [];
+    for await (const chunk of request) chunks.push(Buffer.from(chunk));
+    const body = JSON.parse(Buffer.concat(chunks).toString());
+    if (body.method === "tools/call") {
+      response.writeHead(502, { "content-type": "text/plain" }).end(`gateway lost the device; auth was ${request.headers["x-key"]}`);
+      return;
+    }
+    await transport.handleRequest(request, response, body);
+  });
+  await new Promise<void>((resolve) => http.listen(0, "127.0.0.1", resolve));
+  cleanup.push(async () => {
+    await fixture.close();
+    http.closeAllConnections();
+    await new Promise<void>((resolve) => http.close(() => resolve()));
+  });
+  const address = http.address();
+  if (!address || typeof address === "string") throw new Error("Missing HTTP port");
+  setEnv("CASPER_TEST_MCP_HEADER", "header-secret-value");
+  const mcp = manager([{ name: "central", source: "fixture", cwd: process.cwd(), disabled: false, transport: {
+    type: "http", url: `http://127.0.0.1:${address.port}/mcp`, headers: { "X-Key": "${CASPER_TEST_MCP_HEADER}" },
+  } }]);
+  await mcp.connect("central");
+  expect(mcp.status()[0]?.state).toBe("ready");
+  const failure = await mcp.call("central", "status", {}).then(() => undefined, (error: Error) => error.message);
+  expect(failure).toBe(`central said HTTP 502: gateway lost the device; auth was ${HIDDEN}. It may have run. Do not retry on your own; tell the user.`);
+});

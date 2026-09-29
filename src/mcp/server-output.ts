@@ -210,8 +210,10 @@ export function describeFailure(error: unknown, context: FailureContext): string
   }
   const http = httpError(error);
   if (http) {
-    const body = http.body ? `: ${redactServerText(http.body.replace(/\s+/g, " "), secrets, 300)}` : ".";
-    return `The server said HTTP ${http.status}${body}`;
+    const body = http.body ? `: ${redactServerText(http.body.replace(/\s+/g, " "), secrets, 300)}` : "";
+    // A failed POST of a call may still have been acted on: the model is told not to retry.
+    if (context.phase === "call") return `${server} said HTTP ${http.status}${body}. ${DO_NOT_RETRY}`;
+    return `The server said HTTP ${http.status}${body || "."}`;
   }
 
   if (context.phase === "call") {
