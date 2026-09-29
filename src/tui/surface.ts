@@ -680,7 +680,8 @@ private updateSpinner(): void {
     this.spinnerTimer = undefined;
     this.endAssistant(); this.closed = true;
     this.confirmation?.(undefined); this.pendingAsk?.(undefined); this.pendingEdit?.(undefined); this.command?.(); this.command = undefined;
-    if (this.started) this.tui.stop();
+    // The last lines written (a final notice) are drawn before the terminal is handed back.
+    if (this.started) { this.tui.renderNow(); this.tui.stop(); }
     this.eof();
   }
 }

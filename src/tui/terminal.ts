@@ -81,6 +81,10 @@ export class InteractiveTerminal {
   /** The rich footer at this width; undefined on the plain terminal. */
   footerLine(width: number): string | undefined { return this.surface?.footerLine(width); }
 
+  /** A person can answer Casper's numbered questions: the rich surface, or plain line input typed at a
+   * terminal. Piped input can't: its lines were written before any question existed. */
+  get canAsk(): boolean { return this.surface !== undefined || Boolean((this.input as NodeJS.ReadStream).isTTY); }
+
   /** Rich surface present (TTY input and output, TERM not dumb) and its current width. */
   get rich(): boolean { return this.surface !== undefined; }
   get columns(): number | undefined { return this.output.columns; }
@@ -198,6 +202,43 @@ export class InteractiveTerminal {
   /** Structured clarification on the rich surface; undefined when skipped or unavailable. */
   ask(question: string, options: { label: string; description?: string }[], multi: boolean, signal?: AbortSignal, from: AskOrigin = "casper"): Promise<string[] | undefined> {
     return this.surface ? this.surface.ask(question, options, multi, signal, from) : Promise.resolve(undefined);
+  }
+
+  /**
+   * One numbered question from Casper itself (never an approval, never the AI's ask tool), answerable on
+   * both terminals. It resolves the chosen option's label, the text typed instead, or undefined for Esc,
+   * Ctrl+C, EOF or abort. Rich: the ask panel (Enter picks the highlighted option). Plain: numbered lines;
+   * a number or a label picks, Enter picks the first, other text comes back as typed. Lines typed before the question
+   * appeared never answer it.
+   */
+  async pick(question: string, options: { label: string; description?: string }[], signal?: AbortSignal): Promise<string | undefined> {
+    if (this.surface) return (await this.surface.ask(question, options, false, signal, "casper"))?.[0];
+    if (this.earlyLines.length) {
+      this.write(`[input] Discarded ${this.earlyLines.length} line(s) entered before this question appeared.\n`);
+      this.earlyLines.length = 0;
+    }
+    if (!this.rl || this.closed || this.confirmation || signal?.aborted || !options.length) return undefined;
+    this.endAssistant(); this.discardPartialLine();
+    this.write(`${question}\n${options.map((option, index) => `  ${index + 1} ${option.label}${option.description ? ` · ${option.description}` : ""}`).join("\n")}\n`);
+    return new Promise(resolve => {
+      let settled = false;
+      const finish = (answer: string | undefined) => {
+        if (settled) return; settled = true;
+        signal?.removeEventListener("abort", cancel);
+        this.confirmation = undefined; this.discardPartialLine();
+        if (answer === undefined) { resolve(undefined); return; }
+        const text = answer.trim();
+        const number = /^\d+$/.test(text) ? Number(text) : 0;
+        const named = options.find(option => option.label.toLowerCase() === text.toLowerCase());
+        resolve(!text ? options[0]!.label : number >= 1 && number <= options.length ? options[number - 1]!.label : named?.label ?? text);
+      };
+      const cancel = () => finish(undefined);
+      this.confirmation = finish;
+      signal?.addEventListener("abort", cancel, { once: true });
+      if (signal?.aborted) { cancel(); return; }
+      this.rl!.setPrompt(options.length > 1 ? `Type 1-${options.length} (Enter for 1): ` : "Enter for 1, or type your own: ");
+      this.rl!.prompt();
+    });
   }
 
   /** Lines edited in place on the rich surface; undefined when skipped or unavailable. */
