@@ -55,20 +55,35 @@ export function markdownTheme(color: boolean): MarkdownTheme {
 }
 
 type ToolEvent = Extract<RuntimeEvent, { type: "tool_start" | "tool_end" }>;
-export function formatToolActivity(event: ToolEvent, elapsedMs?: number): string {
+/** `root`: paths under it print relative to it. `width`: the first line fits it, shortening the target
+ * from the front (a path keeps its file name), so a narrow terminal shows one row per tool, not a wrapped
+ * path broken mid-word. */
+export function formatToolActivity(event: ToolEvent, elapsedMs?: number, fit: { root?: string; width?: number } = {}): string {
+  const relative = (value: unknown) => typeof value === "string" && fit.root && value.startsWith(`${fit.root}/`) ? value.slice(fit.root.length + 1) : value;
   // grep/find carry the pattern; otherwise the path, command, operation or check name is the target.
   const target = typeof event.input?.pattern === "string"
-    ? [event.input.pattern, event.input.path].filter((part): part is string => typeof part === "string" && part.length > 0).join(" · ")
-    : event.input?.path ?? event.input?.command ?? event.input?.operation ?? event.input?.check;
-  const preview = target ? ` · ${redactPreview(String(target)).replace(/\s+/g, " ").slice(0, 180)}` : "";
+    ? [event.input.pattern, relative(event.input.path)].filter((part): part is string => typeof part === "string" && part.length > 0).join(" · ")
+    : relative(event.input?.path) ?? event.input?.command ?? event.input?.operation ?? event.input?.check;
+  const text = target ? redactPreview(String(target)).replace(/\s+/g, " ").slice(0, 180) : "";
   const name = terminalText(event.toolName).slice(0, 80);
-  if (event.type === "tool_start") return `• ${name}${preview} — running`;
+  // A path keeps its end (the file name); a command or pattern keeps its start.
+  const isPath = typeof event.input?.pattern !== "string" && typeof event.input?.path === "string";
+  const room = (rest: string) => fit.width === undefined ? Infinity : fit.width - 1 - [...`✓ ${name} · `].length - [...rest].length;
+  const shorten = (rest: string) => {
+    if (!text) return "";
+    const chars = [...text], space = Math.max(4, room(rest));
+    return ` · ${chars.length <= space ? text : isPath ? `…${chars.slice(chars.length - space + 1).join("")}` : `${chars.slice(0, space - 1).join("")}…`}`;
+  };
+  // Narrow: the ✓/•/✗ already says the state, so the words go before the target is cut short.
+  const line = (full: string, compact: string) => !text || [...text].length <= room(full) || room(compact) < 4 ? `${shorten(full)}${full}` : `${shorten(compact)}${compact}`;
+  if (event.type === "tool_start") return `• ${name}${line(" — running", "")}`;
   const elapsed = elapsedMs === undefined ? "" : ` · ${(elapsedMs / 1000).toFixed(1)}s`;
   // Native tool success is not a verifier pass or authoritative shell exit code.
   const status = event.isError ? "failed" : "completed";
   const detail = event.isError && event.output?.text
     ? `\n  ${redactPreview(event.output.text).replace(/\s+/g, " ").slice(0, 240)}${event.output.truncated ? " [truncated]" : ""}` : "";
-  return `${event.isError ? "✗" : "✓"} ${name}${preview} — ${status}${elapsed}${detail}`;
+  const size = event.lines ? ` · +${event.lines.added} -${event.lines.removed}` : "";
+  return `${event.isError ? "✗" : "✓"} ${name}${line(`${size} — ${status}${elapsed}`, `${size}${elapsed}`)}${detail}`;
 }
 
 /** `auto` effort is Casper's setting; the level after the arrow is what the classifier chose (or the
@@ -76,7 +91,9 @@ export function formatToolActivity(event: ToolEvent, elapsedMs?: number): string
 export function formatEffort(status: RuntimeStatus): string | undefined {
   if (status.configuredEffort === "auto") {
     const state = status.autoEffort?.state;
-    return `auto → ${status.thinkingLevel ? terminalText(status.thinkingLevel) : "—"}${state && state !== "classified" ? ` (${state})` : ""}`;
+    // "pending" is before the first request, when Casper picks the level for that request.
+    const note = state === "pending" ? " for now; your first request picks the level" : state && state !== "classified" ? ` (${state})` : "";
+    return `auto → ${status.thinkingLevel ? terminalText(status.thinkingLevel) : "—"}${note}`;
   }
   return status.thinkingLevel ? terminalText(status.thinkingLevel) : undefined;
 }
@@ -85,11 +102,11 @@ export function formatEffort(status: RuntimeStatus): string | undefined {
  * credentials are not read then, so auth is only promised for startup. */
 export function formatRuntimeStatus(status?: RuntimeStatus, saved?: string): string {
   if (!status && saved) return ` model     ${terminalText(saved)} (starts on your first prompt; /model to change)\n auth      checked when the model starts`;
-  if (!status) return " model     not initialized (starts on your first prompt or /model)\n auth      not checked (/login to set up a provider)";
+  if (!status) return " model     none saved yet (/model picks one, or your first prompt offers sign-in)\n auth      checked when the model starts (/login adds a provider)";
   const identity = status.provider && status.model ? `${status.provider} / ${status.model}` : "none selected";
   const effort = formatEffort(status);
   const role = status.modelRole ? ` · role ${terminalText(status.modelRole)}` : "";
-  return ` model     ${terminalText(identity)}${effort ? ` · reasoning ${effort}` : ""}${role}\n auth      ${status.auth === "configured" ? "credentials configured (not a connection test)" : status.auth === "missing" ? "credentials missing; use /login" : "unknown; use /login"}${status.selectionSource ? `\n selection ${status.selectionSource}${status.defaultModel ? ` · Casper default ${terminalText(status.defaultModel.provider)}/${terminalText(status.defaultModel.id)}` : " · no Casper default"}` : ""}${status.blocked ? `\n [model]   ${terminalText(status.blocked)}` : ""}`;
+  return ` model     ${terminalText(identity)}${effort ? ` · effort ${effort}` : ""}${role}\n auth      ${status.auth === "configured" ? "credentials configured (not a connection test)" : status.auth === "missing" ? "credentials missing; use /login" : "unknown; use /login"}${status.selectionSource ? `\n selection ${status.selectionSource}${status.defaultModel ? ` · Casper default ${terminalText(status.defaultModel.provider)}/${terminalText(status.defaultModel.id)}` : " · no Casper default"}` : ""}${status.blocked ? `\n [model]   ${terminalText(status.blocked)}` : ""}`;
 }
 
 /** One transcript line when the runtime starts on first use; /status keeps the labeled block. */

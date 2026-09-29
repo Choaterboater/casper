@@ -3,7 +3,7 @@ import type { SlashCommand } from "@earendil-works/pi-tui";
 /** Discoverability only: command dispatch and authorization remain in CasperApp. */
 export const COMMANDS: SlashCommand[] = [
   { name: "model", description: "Change model (remembered globally; --session for temporary)" },
-  { name: "effort", description: "Reasoning effort, including auto; Shift+Tab cycles this conversation" },
+  { name: "effort", description: "Reasoning effort, including auto; Shift+Tab cycles and remembers it" },
   { name: "status", description: "Inspect project, model, auth and integrations" },
   { name: "help", description: "Find a command; /help all shows the full reference" },
   { name: "context", description: "Inspect context estimates and capability counts" },
@@ -14,6 +14,7 @@ export const COMMANDS: SlashCommand[] = [
   { name: "diff", description: "Inspect current workspace changes" },
   { name: "output", description: "Full retained output of a recent tool call (/output [n])" },
   { name: "verify", description: "Run repository verification checks" },
+  { name: "receipt", description: "Evidence behind the last task's receipt" },
   { name: "project", description: "Inspect project stack, configuration and checks" },
   { name: "skills", description: "Inspect skill metadata, trust and warnings" },
   { name: "mcp", description: "Inspect MCP status; connect or disconnect a server" },

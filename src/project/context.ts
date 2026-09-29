@@ -1,5 +1,5 @@
 import os from "node:os";
-import { loadConfiguration, type CasperPolicy, type LoadedConfiguration } from "../config/load";
+import { loadConfiguration, type CasperPolicy, type GitActionPolicy, type LoadedConfiguration } from "../config/load";
 import type { VisualizationSettings } from "../visualize/router";
 import type { ProjectInfo } from "./inspect";
 import { loadProjectModel, projectStateDirectory, type ProjectModel } from "./model";
@@ -77,6 +77,10 @@ function commands(model: ProjectModel): string {
     : "not detected";
 }
 
+function gitRule(policy: GitActionPolicy): string {
+  return policy === "never" ? "never" : "only when the user asks";
+}
+
 export function formatProjectContext(context: ProjectContext): string {
   const { model, policy, rules } = context;
   const sections = [
@@ -95,9 +99,11 @@ export function formatProjectContext(context: ProjectContext): string {
     `- prefer small changes: ${policy.code.preferSmallChanges}`,
     `- preserve architecture: ${policy.code.preserveArchitecture}`,
     `- avoid unnecessary dependencies: ${policy.code.avoidUnnecessaryDependencies}`,
-    `- git commit: ${policy.git.commit}`,
-    `- git push: ${policy.git.push}`,
-    "- confirm destructive operations: true",
+    // Instructions to the model, not rules Casper enforces: bash can still run git or rm.
+    `- git commit: ${gitRule(policy.git.commit)}`,
+    `- git push: ${gitRule(policy.git.push)}`,
+    "- destructive operations (deleting files, git reset, force-push): ask the user first",
+    "- never set aside or discard uncommitted work: git stash, reset --hard, checkout --, restore and clean are blocked",
     `- isolate parallel agents: ${policy.workspace.isolateWhen.parallelAgents}`,
     `- isolate risky refactors: ${policy.workspace.isolateWhen.riskyRefactor}`,
     `- isolate experimental branches: ${policy.workspace.isolateWhen.experimentalBranch}`,

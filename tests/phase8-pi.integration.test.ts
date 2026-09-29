@@ -6,6 +6,7 @@ import { pathToFileURL } from "node:url";
 import type { RuntimeEvent } from "../src/runtime/types";
 import type { VerificationReport } from "../src/verify/evidence";
 import type { TaskResult } from "../src/task/result";
+import { PI_TOOL_RULES } from "../src/runtime/pi";
 
 import { POSIX, needsSymlinks, posixOnly } from "./support/platform";
 import { checkCommand } from "./support/check-command";
@@ -227,6 +228,12 @@ test("the parent system prompt states Casper's identity exactly once, first, wit
   }
   expect(system(0)).not.toContain("USER_SYSTEM_PROMPT_LOADS");
   expect(system(1)).toContain("USER_SYSTEM_PROMPT_LOADS");
+  // Pi drops its own read/edit/write rules under a custom prompt; Casper sends them, once.
+  for (const index of [0, 1]) {
+    expect(system(index).split("Tool rules:")).toHaveLength(2);
+    for (const rule of PI_TOOL_RULES) expect(system(index)).toContain(`- ${rule}`);
+    expect(system(index)).toContain("caps any timeout at 3600 seconds");
+  }
 }, 30_000);
 
 test("read-only Pi refuses a source containing its active state before initialization", async () => {
@@ -287,12 +294,12 @@ try {
   expect(await readFile(path.join(f.project, "changed.txt"), "utf8")).toBe("EDIT_BODY_NOT_AN_OBSERVATION");
 }, 15_000);
 
-for (const mode of ["default", "explicit", "cancel"]) posixOnly(`real Pi releases a stuck shell and remains usable (${mode})`, async () => {
+for (const mode of ["default", "explicit", "cancel", "absurd"]) posixOnly(`real Pi releases a stuck shell and remains usable (${mode})`, async () => {
   let step = 0;
   const f = await fixture(() => {
     if (step++ === 0) return calls([{ name: "bash", args: {
       command: "printf BEFORE_WAIT; sleep 5; printf SHOULD_NOT_FINISH",
-      ...(mode === "explicit" ? { timeout: 0.1 } : {}),
+      ...(mode === "explicit" ? { timeout: 0.1 } : mode === "absurd" ? { timeout: 86_400 } : {}),
     } }]);
     return answer("Recovered");
   });
@@ -303,7 +310,8 @@ const events = [];
 const schedule = globalThis.setTimeout;
 // Accelerate the production deadline only in this isolated process. The actual
 // native shell, descendant termination, streaming, and provider loop still run.
-globalThis.setTimeout = (callback, ms, ...args) => schedule(callback, ${JSON.stringify(mode)} === "default" && ms === 120_000 ? 100 : ms, ...args);
+// "absurd": a day-long timeout is capped at one hour, which is accelerated the same way.
+globalThis.setTimeout = (callback, ms, ...args) => schedule(callback, (${JSON.stringify(mode)} === "default" && ms === 120_000) || (${JSON.stringify(mode)} === "absurd" && ms === 3_600_000) ? 100 : ms, ...args);
 try {
   const session = await runtime.start({ cwd: process.cwd() });
   const controller = new AbortController();
@@ -332,6 +340,78 @@ try {
   }
   expect(events.some(event => event.type === "assistant_text_delta" && event.delta.includes("Recovered"))).toBe(true);
   expect(busy).toBe(false);
+}, 15_000);
+
+test("real Pi refuses a model's git stash, and the model sees why", async () => {
+  let step = 0;
+  const f = await fixture(() => step++ === 0 ? calls([{ name: "bash", args: { command: "git stash push -m tmp && echo STASHED" } }]) : answer("Done"));
+  const harness = path.join(f.agent, "git-guard.ts");
+  await writeFile(harness, `import { PiRuntime } from ${JSON.stringify(path.join(import.meta.dir, "../src/runtime/pi.ts"))};
+const runtime = new PiRuntime();
+const ends = [];
+try {
+  const session = await runtime.start({ cwd: process.cwd() });
+  session.subscribe((event) => { if (event.type === "tool_end") ends.push({ isError: event.isError, text: event.output?.text }); });
+  await session.prompt("Stash it.");
+  console.log("RESULT=" + JSON.stringify(ends));
+} finally { await runtime.dispose(); }
+`);
+  const result = await f.run([harness]);
+  expect({ exit: result.exit, stderr: result.stderr }).toEqual({ exit: 0, stderr: "" });
+  const ends: Array<{ isError: boolean; text?: string }> = JSON.parse(result.stdout.split("RESULT=")[1]!);
+  expect(ends).toHaveLength(1);
+  expect(ends[0]!.isError).toBe(true);
+  expect(ends[0]!.text).toContain("Casper does not let the model run `git stash push -m tmp`");
+  expect(ends[0]!.text).not.toContain("STASHED");
+}, 15_000);
+
+test("real Pi's write reports its size: a rewrite counts changed lines, a new file counts all", async () => {
+  let step = 0;
+  const f = await fixture(() => step++ === 0
+    ? calls([{ name: "write", args: { path: "fixture.txt", content: "LOCAL_EVIDENCE_8\nnew line\n" } }, { name: "write", args: { path: "fresh.txt", content: "one\ntwo\nthree\n" } }])
+    : answer("Done"));
+  const harness = path.join(f.agent, "write-size.ts");
+  await writeFile(harness, `import { PiRuntime } from ${JSON.stringify(path.join(import.meta.dir, "../src/runtime/pi.ts"))};
+const runtime = new PiRuntime();
+const ends = [];
+try {
+  const session = await runtime.start({ cwd: process.cwd() });
+  session.subscribe((event) => { if (event.type === "tool_end") ends.push({ path: event.input?.path, lines: event.lines }); });
+  await session.prompt("Write both.");
+  console.log("RESULT=" + JSON.stringify(ends));
+} finally { await runtime.dispose(); }
+`);
+  const result = await f.run([harness]);
+  expect({ exit: result.exit, stderr: result.stderr }).toEqual({ exit: 0, stderr: "" });
+  const ends: Array<{ path: string; lines?: { added: number; removed: number } }> = JSON.parse(result.stdout.split("RESULT=")[1]!);
+  expect(ends.sort((a, b) => a.path.localeCompare(b.path))).toEqual([
+    { path: "fixture.txt", lines: { added: 1, removed: 0 } },
+    { path: "fresh.txt", lines: { added: 3, removed: 0 } },
+  ]);
+}, 15_000);
+
+for (const sequential of [false, true]) test(`real Pi runs a batch ${sequential ? "one call at a time when a tool is marked sequential" : "in parallel by default"}`, async () => {
+  let step = 0;
+  const f = await fixture(() => step++ === 0
+    ? calls([{ name: "slow", args: { id: "a" } }, { name: "slow", args: { id: "b" } }])
+    : answer("Done"));
+  const harness = path.join(f.agent, "sequential.ts");
+  await writeFile(harness, `import { PiRuntime } from ${JSON.stringify(path.join(import.meta.dir, "../src/runtime/pi.ts"))};
+const runtime = new PiRuntime();
+const log = [];
+const slow = { name: "slow", description: "Waits briefly.", inputSchema: { type: "object", properties: { id: { type: "string" } } },
+  ${sequential ? "sequential: true," : ""}
+  execute: async (args) => { log.push("start " + args.id); await new Promise((done) => setTimeout(done, 150)); log.push("end " + args.id); return { text: "ok" }; } };
+try {
+  const session = await runtime.start({ cwd: process.cwd(), tools: [slow] });
+  await session.prompt("Run both.");
+  console.log("RESULT=" + JSON.stringify(log));
+} finally { await runtime.dispose(); }
+`);
+  const result = await f.run([harness]);
+  expect({ exit: result.exit, stderr: result.stderr }).toEqual({ exit: 0, stderr: "" });
+  const log: string[] = JSON.parse(result.stdout.split("RESULT=")[1]!);
+  expect(log).toEqual(sequential ? ["start a", "end a", "start b", "end b"] : ["start a", "start b", "end a", "end b"]);
 }, 15_000);
 
 posixOnly("pinned Pi uses managed checks in its native edit loop, reuses scoped passes, and hands real failure to one repair owner", async () => {

@@ -174,7 +174,7 @@ export class StreamingMarkdown implements Component {
   private renderSlice(text: string, width: number): string[] {
     if (!text) return [];
     const markdown = text === this.source ? this.full : this.scratch;
-    markdown.setText(text);
+    markdown.setText(literalStars(text));
     this.codeLines = [];
     const rendered = markdown.render(width).map(line => line.replace(/ +$/, ""));
     return boxFences(rendered, this.codeLines, width, this.color);
@@ -223,4 +223,17 @@ function boxFences(lines: string[], code: readonly string[], width: number, colo
   }
   if (title !== undefined) flush(margin ?? head);
   return out;
+}
+
+/** A lone `*` between word characters is arithmetic or a glob (`2*3`, `a*b`), not emphasis: Markdown would
+ * turn `2*3 and 4*5` into italics and drop both stars. Such stars are escaped outside code, so they print. */
+export function literalStars(text: string): string {
+  let fenced = false;
+  return text.split("\n").map((line) => {
+    if (/^\s*(```|~~~)/.test(line)) { fenced = !fenced; return line; }
+    if (fenced || !line.includes("*")) return line;
+    // Leave inline code spans as they are.
+    return line.split(/(`+[^`]*`+)/).map((part, index) => index % 2
+      ? part : part.replace(/(?<=[\w)\]])(?<!\*)\*(?!\*)(?=[\w(\[])/g, "\\*")).join("");
+  }).join("\n");
 }

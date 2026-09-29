@@ -1,10 +1,54 @@
+import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { lstat, readdir, readlink } from "node:fs/promises";
 import path from "node:path";
+import { promisify } from "node:util";
 import { openNoFollow } from "../platform/files";
+import { safeGitArgs } from "../platform/git";
 
-/** Never descended: VCS internals, dependency trees and Casper's own state. */
-const SKIPPED_DIRECTORIES: Record<string, true> = { ".git": true, node_modules: true, ".casper": true };
+const execFileAsync = promisify(execFile);
+
+/** Never descended: VCS internals, dependency trees, Casper's own state, and Python environments and
+ * caches (a project's .venv alone can hold tens of thousands of files). */
+const SKIPPED_DIRECTORIES: Record<string, true> = { ".git": true, node_modules: true, ".casper": true,
+  ".venv": true, __pycache__: true, ".mypy_cache": true, ".pytest_cache": true, ".ruff_cache": true, ".tox": true };
+
+/** A `venv` folder is skipped only when it is a virtual environment, never a source folder of that name. */
+async function skipped(root: string, relative: string, name: string): Promise<boolean> {
+  if (Object.hasOwn(SKIPPED_DIRECTORIES, name)) return true;
+  return name === "venv" && Boolean(await lstat(path.join(root, relative, "pyvenv.cfg")).catch(() => undefined));
+}
+
+/** Tracked files plus untracked ones git does not ignore: what the user's repository is made of. Undefined
+ * outside a git work tree (or when git is unavailable), and when git lists nothing (the folder itself is
+ * ignored by an enclosing repository), so the caller walks the folder instead. A nested repository or
+ * submodule is one listed folder entry, which the caller walks. */
+async function gitListed(root: string, signal?: AbortSignal): Promise<string[] | undefined> {
+  try {
+    const { stdout } = await execFileAsync("git", safeGitArgs(["ls-files", "-z", "--cached", "--others", "--exclude-standard"]),
+      { cwd: root, timeout: 15_000, maxBuffer: 256 * 1024 * 1024, signal, encoding: "utf8" });
+    const listed = [...new Set(stdout.split("\0").filter(Boolean).map((relative) => relative.replace(/\/+$/, "")))];
+    const skips = new Map<string, Promise<boolean>>();
+    const kept = await Promise.all(listed.map(async (relative) => await insideSkipped(root, relative, skips) ? undefined : relative));
+    const files = kept.filter((relative): relative is string => relative !== undefined);
+    return files.length ? files : undefined;
+  } catch {
+    signal?.throwIfAborted();
+    return undefined;
+  }
+}
+
+/** A listed path under a folder the walk would skip (.venv, caches, node_modules, a real venv). */
+async function insideSkipped(root: string, relative: string, cache: Map<string, Promise<boolean>>): Promise<boolean> {
+  const parts = relative.split("/");
+  for (let index = 0; index < parts.length - 1; index++) {
+    const folder = parts.slice(0, index + 1).join("/");
+    let skip = cache.get(folder);
+    if (!skip) cache.set(folder, skip = skipped(root, folder, parts[index]!));
+    if (await skip) return true;
+  }
+  return false;
+}
 /** Removed between listing and inspection: absent from this snapshot, like any other missing path. */
 const VANISHED: Record<string, true> = { ENOENT: true, ENOTDIR: true };
 /** Beyond this a file is identified by size and mtime; hashing it would stall the receipt. */
@@ -21,13 +65,37 @@ export interface TreeChanges {
   removed: string[];
 }
 
-/** Relative path → content identity. Symlinks are never followed (`link:<target>`), oversized
- * files are identified by `size:<bytes>:<mtime>`, unreadable ones by `error:<code>`. Throws
- * when aborted or when the tree exceeds SNAPSHOT_FILE_LIMIT entries. */
-export async function snapshotTree(root: string, signal?: AbortSignal): Promise<Map<string, string>> {
+/** Relative path → content identity. In a git work tree the paths are what git lists (tracked, plus
+ * untracked files it does not ignore), so an ignored .venv or build folder of any size is left out;
+ * elsewhere the folder is walked without dependency trees, virtual environments and caches.
+ * Symlinks are never followed (`link:<target>`), oversized files are identified by
+ * `size:<bytes>:<mtime>`, unreadable ones by `error:<code>`. Throws when aborted or when the tree
+ * exceeds the file limit (SNAPSHOT_FILE_LIMIT). */
+export async function snapshotTree(root: string, signal?: AbortSignal, options: { fileLimit?: number; git?: boolean } = {}): Promise<Map<string, string>> {
+  const limit = options.fileLimit ?? SNAPSHOT_FILE_LIMIT;
   const digests = new Map<string, string>();
   const chunks = Array.from({ length: CONCURRENCY }, () => Buffer.allocUnsafe(CHUNK));
-  const pending = [""];
+  const digestAll = async (files: string[]) => {
+    for (let start = 0; start < files.length; start += CONCURRENCY) {
+      signal?.throwIfAborted();
+      if (digests.size + files.length - start > limit) throw new RangeError(`Workspace exceeds ${limit} files`);
+      const batch = files.slice(start, start + CONCURRENCY);
+      const results = await Promise.all(batch.map((next, index) => digestEntry(path.join(root, next), chunks[index]!)));
+      results.forEach((digest, index) => { if (digest !== undefined) digests.set(batch[index]!, digest); });
+    }
+  };
+  const listed = options.git === false ? undefined : await gitListed(root, signal);
+  const pending = listed ? [] : [""];
+  if (listed) {
+    if (listed.length > limit) throw new RangeError(`Workspace exceeds ${limit} files`);
+    await digestAll(listed);
+    // A nested repository or submodule is listed as one folder: walk it like any other folder.
+    for (const relative of listed) {
+      if (digests.has(relative)) continue;
+      const stats = await lstat(path.join(root, relative)).catch(() => undefined);
+      if (stats?.isDirectory()) pending.push(relative);
+    }
+  }
   while (pending.length) {
     signal?.throwIfAborted();
     const relative = pending.pop()!;
@@ -37,16 +105,10 @@ export async function snapshotTree(root: string, signal?: AbortSignal): Promise<
     const files: string[] = [];
     for (const entry of entries) {
       const next = relative ? `${relative}/${entry.name}` : entry.name;
-      if (entry.isDirectory()) { if (!Object.hasOwn(SKIPPED_DIRECTORIES, entry.name)) pending.push(next); }
+      if (entry.isDirectory()) { if (!await skipped(root, next, entry.name)) pending.push(next); }
       else if (entry.isFile() || entry.isSymbolicLink()) files.push(next);
     }
-    for (let start = 0; start < files.length; start += CONCURRENCY) {
-      signal?.throwIfAborted();
-      if (digests.size + files.length - start > SNAPSHOT_FILE_LIMIT) throw new RangeError(`Workspace exceeds ${SNAPSHOT_FILE_LIMIT} files`);
-      const batch = files.slice(start, start + CONCURRENCY);
-      const results = await Promise.all(batch.map((next, index) => digestEntry(path.join(root, next), chunks[index]!)));
-      results.forEach((digest, index) => { if (digest !== undefined) digests.set(batch[index]!, digest); });
-    }
+    await digestAll(files);
   }
   return digests;
 }

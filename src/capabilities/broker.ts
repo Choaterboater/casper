@@ -168,8 +168,9 @@ export class CapabilityBroker {
 
   private toolsForTask(task: string): RuntimeTool[] {
     if (!this.manager.status().length) return [];
-    const wrap = (name: string, description: string, inputSchema: Record<string, unknown>, execute: RuntimeTool["execute"]): RuntimeTool => ({
-      name, description, inputSchema,
+    // A call that may need approval runs one at a time, so two approval prompts never race.
+    const wrap = (name: string, description: string, inputSchema: Record<string, unknown>, execute: RuntimeTool["execute"], sequential = false): RuntimeTool => ({
+      name, description, inputSchema, ...(sequential ? { sequential } : {}),
       execute: async (args, signal) => {
         try { return await execute(args, signal); }
         catch (error) {
@@ -194,7 +195,7 @@ export class CapabilityBroker {
         if (typeof args.id !== "string" || !isRecord(args.arguments)) throw new Error("Expected id and arguments object");
         const result = await this.invoke(args.id, args.arguments, signal);
         return { text: JSON.stringify(result), isError: result.isError };
-      }),
+      }, true),
     ];
     // Native routers are intentionally preferred over flattening their catalog.
     const routers = [...this.capabilities.values()].filter((c) => c.router).sort((a, b) => a.descriptor.id.localeCompare(b.descriptor.id));
@@ -211,7 +212,7 @@ export class CapabilityBroker {
         structuredClone(capability.tool.inputSchema), async (args, signal) => {
           const result = await this.invoke(capability.descriptor.id, args, signal);
           return { text: JSON.stringify(result), isError: result.isError };
-        }));
+        }, capability.descriptor.safety !== "read"));
     }
     return tools;
   }

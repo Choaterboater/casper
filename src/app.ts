@@ -32,32 +32,34 @@ import {
   loadProjectContext,
   type ProjectContext,
 } from "./project/context";
-import { findProjectCandidates, inspectProject, type ProjectInfo } from "./project/inspect";
+import { findProjectCandidates, hasProjectSignals, inspectProject, type ProjectInfo } from "./project/inspect";
 import type {
   AgentRuntime,
+  RuntimeAuthProvider,
   RuntimeSession,
   RuntimeTool,
 } from "./runtime/types";
 import { SkillRegistry, formatSelectedSkills } from "./skills/registry";
 import { classifyTask, formatTaskPrompt, underSpecifiedTarget } from "./task/classify";
-import { formatReceipt, formatTaskResult, type TaskResult } from "./task/result";
+import { formatReceipt, liveCheckLine, formatTaskResult, type TaskResult } from "./task/result";
 import { TaskObservations } from "./task/observations";
 import { LifecycleRegistry } from "./app/lifecycle";
 import { RuntimeEventView } from "./app/events";
 import { diffSnapshots, snapshotTree, type TreeChanges } from "./task/changes";
 import { renderBanner, renderProjectSummary, wordmarkHeader } from "./tui/banner";
 import type { ProjectCommand } from "./project/model";
-import { CHECK_NAMES, formatVerificationReport, formatVerificationResult, type VerificationReport, type VerificationResult } from "./verify/evidence";
+import { CHECK_NAMES, formatDuration, formatVerificationReport, formatVerificationResult, type VerificationReport, type VerificationResult } from "./verify/evidence";
 import { ProcessCleanupError } from "./platform/processes";
 import { safeGitArgs } from "./platform/git";
 import { VerifierRegistry } from "./verify/registry";
-import { verifyAndRepair } from "./verify/repair-loop";
+import { isRetryableAssistantError } from "@earendil-works/pi-ai/utils/retry";
+import { longerLimit, timedOutAfter, verifyAndRepair, type UnfinishedChoice } from "./verify/repair-loop";
 import { VerificationTask } from "./verify/task";
 import { ChangeBaseline, changesCode, proofRepairPrompt, type ChangeProof } from "./verify/proof";
 import { independentAcceptance } from "./verify/acceptance";
 import { parseChecklist, parseReview, requirementsReviewPrompt, ROUND_MAX_TURNS, type RequirementsReview } from "./task/review";
 import { extractChecklist, formatChecklistPrompt, normalizeCases } from "./task/checklist";
-import { planAutoChecks, resolveVerificationMode, selectedChecks, type VerificationMode } from "./verify/mode";
+import { describeChecksPlan, planAutoChecks, resolveVerificationMode, selectedChecks, type ChecksPlan, type VerificationMode } from "./verify/mode";
 import { measuredCheckTime, recordCheckTimings } from "./verify/timings";
 import { MermaidProvider } from "./visualize/mermaid";
 import { MindMeshProvider } from "./visualize/mindmesh";
@@ -69,9 +71,10 @@ import { assembleTaskTools } from "./app/capabilities";
 import { systemPromptAppend } from "./app/prompt";
 import type { VisualizationProvider } from "./visualize/types";
 import { SessionWorkspaceManager, type ReturnAction } from "./sessions/manager";
-import { runSlashCommand, type OutputWriter } from "./app/commands";
+import { runLogin, runSlashCommand, type OutputWriter } from "./app/commands";
 import { UsageError } from "./cli-args";
-import { checkEvent, phaseEvent, RuntimeEventMapper, sessionStartEvent, type CasperEvent } from "./app/json-events";
+import { checkEvent, phaseEvent, RuntimeEventMapper, sessionStartEvent, type CasperEvent, type PhaseEvent } from "./app/json-events";
+import { StepRail } from "./app/steps";
 import { CASPER_VERSION } from "./version";
 
 export type { OutputWriter } from "./app/commands";
@@ -115,7 +118,13 @@ export interface CasperAppOptions {
   autoVerify?: boolean;
 }
 
+const LOGIN_PROVIDERS = ["openai-codex", "github-copilot", "anthropic", "openrouter"] as const;
+
 export class CasperApp {
+  /** The provider of the last successful /login, preferred when Casper picks a first model. */
+  loginProvider?: RuntimeAuthProvider;
+  /** The current task's stages for the footer. */
+  private readonly steps = new StepRail();
   private readonly runtimeFactory: () => AgentRuntime | Promise<AgentRuntime>;
   readonly subagents: SubagentManager;
   readonly inspectProjectFn: (cwd: string) => Promise<ProjectInfo>;
@@ -199,6 +208,8 @@ export class CasperApp {
   private workspaceTransition = false;
   private workspaceNeedsRebind = false;
   private taskRuntimeFailed = false;
+  /** The files from before the current task's change, while it runs: tells a failure the change caused from one already there. */
+  private taskBaseline?: { baseline: ChangeBaseline; root: string };
   private cleanupError?: ProcessCleanupError;
   private readonly blockOnCleanupFailure = () => {
     this.cleanupError = new ProcessCleanupError();
@@ -271,6 +282,7 @@ export class CasperApp {
       markRuntimeFailed: () => { this.taskRuntimeFailed = true; },
       turnLimitReached: turns => { this.taskTurnLimit = turns; },
       cancelled: () => this.commandAbort?.signal.aborted === true,
+      projectRoot: () => this.projectContext ? this.activeWorkspaceRoot() : undefined,
     });
     this.verbose = options.verbose ?? false;
     this.startupWarnings = options.startupWarnings ?? [];
@@ -320,10 +332,13 @@ export class CasperApp {
     // The header picks art or text per width, so a later resize never wraps the art.
     const wordmark = this.interactive && this.terminal.rich;
     if (wordmark) this.terminal.writeTrusted(wordmarkHeader(this.terminal.color));
-    this.output.write(renderBanner(context, { wordmark, interactive: this.interactive }));
+    this.output.write(renderBanner(context, { wordmark, interactive: this.interactive,
+      ...(this.interactive ? { checks: describeChecksPlan(await this.checksPlan(context)) } : {}) }));
     // A returning user's saved default is known before the runtime starts; say so, not "not initialized".
     if (!this.session) this.savedModelDisplay = await modelPreference(this.sessionHomeDir ?? os.homedir());
-    this.output.write(`${formatRuntimeStatus(this.session?.getStatus?.(), this.savedModelDisplay)}\n`);
+    // --model names the model for this run: show it, not the saved default it overrides.
+    const shown = this.runModel && !this.session ? `${terminalText(this.runModel)} for this run (--model)` : this.savedModelDisplay;
+    this.output.write(`${formatRuntimeStatus(this.session?.getStatus?.(), shown)}\n`);
     for (const warning of [...this.startupWarnings, ...context.warnings ?? []]) this.output.write(`[config] ${terminalText(warning)}\n`);
     for (const diagnostic of referenceConfiguration.diagnostics) this.output.write(`[references] ${formatReferenceResult(diagnostic)}\n`);
     this.reportSkillWarnings();
@@ -353,37 +368,47 @@ export class CasperApp {
     return this.handlePrompt(prompt.trim());
   }
 
-  /** Interactive startup from the home directory asks which project folder to open — a launch
-   * from ~ silently made the whole home directory the workspace (banner "project <user>"), and
-   * tasks then scanned all of it. A typed path is validated; Esc/empty keeps the home folder.
-   * Without a rich surface the question cannot render, so the launch folder is stated plainly. */
+  /** Interactive startup from the home directory, or from a folder that only holds projects (not a
+   * project itself and not inside a git repository), asks which project to open — a launch from ~
+   * silently made the whole home directory the workspace, and tasks then scanned all of it. A typed
+   * path is validated and must stay inside the launch folder; Esc/empty keeps it. Without a rich
+   * surface the question cannot render, so the launch folder is stated plainly. */
   private async openProjectFolder(cwd: string): Promise<string> {
     const home = this.sessionHomeDir ?? os.homedir();
-    if (path.resolve(cwd) !== path.resolve(home)) return cwd;
+    const fromHome = path.resolve(cwd) === path.resolve(home);
+    let candidates: string[] | undefined;
+    if (!fromHome) {
+      if (await hasProjectSignals(cwd) || (await inspectProject(cwd)).isGit) return cwd;
+      candidates = await findProjectCandidates(cwd, { homeDir: home });
+      if (!candidates.length) return cwd;
+    }
     if (!this.terminal.rich) {
       // The CLI takes no folder argument (`casper <path>` is a prompt), so only restarting works.
-      this.output.write(`[folder] Opened in your home directory; restart from a project folder: cd ~/Projects/myapp && casper\n`);
+      this.output.write(fromHome ? `[folder] Opened in your home directory; restart from a project folder: cd ~/Projects/myapp && casper\n`
+        : `[folder] This folder holds several projects; restart from one of them: cd ${terminalText(path.relative(cwd, candidates![0]!))} && casper\n`);
       return cwd;
     }
-    const candidates = await findProjectCandidates(cwd, { homeDir: home });
-    const folderLabel = (folder: string) => folder === home ? "~" : `~${folder.slice(home.length)}`;
+    candidates ??= await findProjectCandidates(cwd, { homeDir: home });
+    const base = fromHome ? home : cwd;
+    const folderLabel = (folder: string) => fromHome
+      ? folder === home ? "~" : `~${folder.slice(home.length)}`
+      : folder === cwd ? "." : path.relative(cwd, folder);
     const byLabel = new Map<string, string>(candidates.map(candidate => [folderLabel(candidate), candidate]));
     const answer = await this.terminal.ask(
-      "Opened from your home folder. Work in which project?",
+      fromHome ? "Opened from your home folder. Work in which project?" : "This folder holds several projects. Work in which one?",
+      // The projects lead, so Enter opens the first; staying put is the last choice.
       [
-        { label: folderLabel(cwd), description: "stay in the home folder" },
         ...candidates.slice(0, 6).map(candidate => ({ label: folderLabel(candidate) })),
+        { label: folderLabel(cwd), description: fromHome ? "stay in the home folder" : ` stay in ${path.basename(cwd)}` },
       ],
       false,
     );
     const choice = answer?.[0]?.trim();
     if (!choice) return cwd; // Esc, empty, or the plain-line fallback keeps the launch folder.
     const resolved = byLabel.get(choice) ?? path.resolve(cwd, choice.replace(/^~(?=\/|$)/, home));
-    const resolvedHome = path.resolve(home);
-    const resolvedChoice = path.resolve(resolved);
-    const homeRelative = path.relative(resolvedHome, resolvedChoice);
-    if (homeRelative === ".." || homeRelative.startsWith(`..${path.sep}`) || path.isAbsolute(homeRelative)) {
-      this.output.write(`[folder] ${terminalText(choice)} is outside your home directory; staying in ${folderLabel(cwd)}.\n`);
+    const relative = path.relative(path.resolve(base), path.resolve(resolved));
+    if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+      this.output.write(`[folder] ${terminalText(choice)} is outside ${fromHome ? "your home directory" : "the folder you opened"}; staying in ${folderLabel(cwd)}.\n`);
       return cwd;
     }
     try {
@@ -710,9 +735,7 @@ export class CasperApp {
     if (this.closing || this.commandAbort?.signal.aborted) return;
     const flag = this.verificationFlag;
     const configured = context.verification.mode;
-    const verificationMode = resolveVerificationMode({ flag, configured, interactive: this.interactive,
-      measuredMs: flag || configured || !this.interactive ? undefined : await measuredCheckTime(context.stateDirectory,
-        selectedChecks(context.verification.checks, context.model.commands), context.model.commands) });
+    const verificationMode = (await this.checksPlan(context)).mode;
     if (verificationMode !== "off") this.checkTask = new VerificationTask(
       VerifierRegistry.forProject(context.model, context.verification.timeoutMs, this.blockOnCleanupFailure), this.activeWorkspaceRoot(),
       (result) => this.writeCheckResult(result),
@@ -725,6 +748,8 @@ export class CasperApp {
     if (this.closing || this.commandAbort?.signal.aborted) return;
     const session = await this.ensureRuntime();
     if (this.closing || this.commandAbort?.signal.aborted) return;
+    if (!await this.ensureModel(session)) return;
+    this.clearSteps();
     const workspaceRoot = this.activeWorkspaceRoot();
     // Receipts describe the tree, not tool names: a read-only shell run is not a write.
     const before = await this.snapshotWorkspace(workspaceRoot, this.commandAbort?.signal);
@@ -747,13 +772,14 @@ export class CasperApp {
     let baseline: ChangeBaseline | undefined;
     let baselineUnavailable: string | undefined;
     if (proving) {
-      try { baseline = await ChangeBaseline.capture(workspaceRoot, { signal: this.commandAbort?.signal }); }
+      try { baseline = await ChangeBaseline.capture(workspaceRoot, { signal: this.commandAbort?.signal }); this.taskBaseline = { baseline, root: workspaceRoot }; }
       catch (error) {
         if (this.commandAbort?.signal.aborted) return;
         baselineUnavailable = `Casper could not copy the workspace to compare: ${error instanceof Error ? error.message : String(error)}`;
       }
     }
     let proof: ChangeProof | undefined;
+    let proofSkipped: string | undefined;
     let review: RequirementsReview | undefined;
     let acceptance: TaskResult["acceptance"];
     let afterModel: Map<string, string> | undefined;
@@ -765,7 +791,7 @@ export class CasperApp {
     const classifications = () => { try { return session.getUsage?.().effortClassification?.requests ?? 0; } catch { return undefined; } };
     const classifiedBefore = classifications();
     try {
-      this.onEvent?.(phaseEvent("task", "start"));
+      this.phase("task", "start");
       await session.prompt([
         memoryContext,
         skillContext,
@@ -773,12 +799,25 @@ export class CasperApp {
           reviewFollows: context.verification.review === true, afterContext: Boolean(memoryContext || skillContext) }),
         checklist ? formatChecklistPrompt(checklist) : "",
       ].filter(Boolean).join("\n\n"), this.commandAbort?.signal, { request: prompt, maxTurns: this.maxTurns });
-      this.onEvent?.(phaseEvent("task", "end"));
+      await this.retryModelFailure(session, prompt);
+      this.phase("task", "end");
       // Repair, review and proof rounds follow the change.
       edits.turnEnded = true;
       afterModel = before && !this.closing ? await this.snapshotWorkspace(workspaceRoot) : undefined;
       // A request cut short by --max-turns is unfinished work: checking it would only start repairs.
-      const stopped = this.closing || this.commandAbort?.signal.aborted || this.taskRuntimeFailed || this.checkTask?.signal.aborted || this.taskTurnLimit !== undefined;
+      const cancelled = this.closing || this.commandAbort?.signal.aborted || this.taskRuntimeCancelled || this.checkTask?.signal.aborted || this.taskTurnLimit !== undefined;
+      const stopped = cancelled || this.taskRuntimeFailed;
+      // The model errored after editing: its edits are kept, so check them (no repair: the model just failed).
+      if (!cancelled && this.taskRuntimeFailed && this.checkTask && verificationMode === "auto") {
+        const edited = before && afterModel ? flatten(diffSnapshots(before, afterModel)) : undefined;
+        const failedChecks = edited?.length ? planAutoChecks({ selected: context.verification.checks, commands: context.model.commands,
+          scopes: context.model.verificationScopes, changedPaths: edited }).run : [];
+        if (failedChecks.length) {
+          this.events.ensureLineBreak();
+          this.output.write(`… Casper checking the edits the model made before it failed: ${failedChecks.join(", ")}\n`);
+          verification = await this.runVerification(failedChecks, false, prompt, this.checkTask);
+        }
+      }
       if (!stopped && this.checkTask && verificationMode === "auto") {
         autoChecks = planAutoChecks({
           selected: context.verification.checks, commands: context.model.commands, scopes: context.model.verificationScopes,
@@ -793,6 +832,9 @@ export class CasperApp {
           this.output.write(`… Casper checking: ${pending.join(", ")}\n`);
           verification = await this.runVerification(autoChecks.run, true, prompt, this.checkTask);
           const changedCode = Boolean(before && afterModel && changesCode(diffSnapshots(before, afterModel)));
+          if (verification.status === "pass" && !(proving && changedCode)) {
+            proofSkipped = proofSkipReason({ intent: classification.intent, testCommand, snapshot: before !== undefined, changedCode });
+          }
           if (proving && verification.status === "pass" && changedCode) {
             const initialReview = parseChecklist(this.lastAnswer);
             ({ verification, proof, review } = await this.finishChange({ baseline, baselineUnavailable, before: before!, root: workspaceRoot,
@@ -813,6 +855,7 @@ export class CasperApp {
       this.taskRuntimeFailed = true;
       throw error;
     } finally {
+      this.taskBaseline = undefined;
       await baseline?.dispose();
       const execution = this.closing || this.commandAbort?.signal.aborted || this.taskRuntimeCancelled || this.checkTask?.signal.aborted ? "cancelled" : this.taskRuntimeFailed ? "failed" : "completed";
       // Keep already-executed evidence on terminal error/cancellation, but never
@@ -838,7 +881,7 @@ export class CasperApp {
         // Smoke checks ran even without a configured command, so "no checks" no longer describes the task.
         verificationMode, ...(!flag && !configured && verificationMode === "auto" ? { verificationDefaulted: true as const } : {}),
         ...(autoChecks?.skipped && !verification?.smoke ? { autoSkipped: autoChecks.skipped } : {}),
-        ...(this.taskTurnLimit !== undefined ? { turnLimit: this.taskTurnLimit } : {}), ...(proof ? { proof } : {}), ...(review ? { review } : {}),
+        ...(this.taskTurnLimit !== undefined ? { turnLimit: this.taskTurnLimit } : {}), ...(proof ? { proof } : {}), ...(proofSkipped && !proof ? { proofSkipped } : {}), ...(review ? { review } : {}),
         ...(acceptance ? { acceptance } : {}), ...(checklist ? { checklist } : {}) };
       if (!this.closing) {
         this.terminal.endAssistant();
@@ -848,6 +891,7 @@ export class CasperApp {
           if (observations.changedPaths?.length || observations.changedDuringChecks?.length) this.output.write(await this.diffStat());
         }
       }
+      this.clearSteps();
       await this.recordTaskOutcome({ task: prompt, skills: selected.map(({ skill }) => skill.id),
         modelStatus: execution, verification });
     }
@@ -858,7 +902,7 @@ export class CasperApp {
    * user may edit them first; Casper prints them and the task prompt asks for one test per case. Its
    * usage joins the task's. A failed call is one line on the transcript and the task goes on without a checklist. */
   private async makeChecklist(complete: NonNullable<RuntimeSession["complete"]>, request: string): Promise<string[] | undefined> {
-    this.onEvent?.(phaseEvent("checklist", "start"));
+    this.phase("checklist", "start");
     let result: { cases: string[]; dropped: number } | { error: string };
     try {
       const made = await extractChecklist({ complete, request, signal: this.commandAbort?.signal });
@@ -868,11 +912,12 @@ export class CasperApp {
       // The call may have reached the provider: its usage is unknown.
       this.observations.recordUntrackedModelUse();
       result = { error: `the checklist call failed: ${error instanceof Error ? error.message : String(error)}` };
-    } finally { this.onEvent?.(phaseEvent("checklist", "end")); }
+    } finally { this.phase("checklist", "end"); }
     if (this.closing || this.commandAbort?.signal.aborted) return undefined;
     this.events.ensureLineBreak();
     if ("error" in result) {
       this.output.write(`• Checklist not made: ${result.error.replace(/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g, " ")}\n`);
+      this.steps.skip("checklist"); this.terminal.setSteps(this.steps.text());
       return undefined;
     }
     let cases = result.cases;
@@ -888,6 +933,7 @@ export class CasperApp {
       const kept = answer ? normalizeCases(answer) : [];
       if (!kept.length) {
         this.output.write("[checklist] skipped; the task starts without one\n");
+        this.steps.skip("checklist"); this.terminal.setSteps(this.steps.text());
         return undefined;
       }
       edited = kept.join("\n") !== cases.join("\n");
@@ -908,7 +954,7 @@ export class CasperApp {
     if (!now) return { status: "error", reason: "Casper could not compare the workspace", mode };
     this.events.ensureLineBreak();
     this.output.write("… Casper checking the change against tests written from the request alone\n");
-    this.onEvent?.(phaseEvent("acceptance", "start"));
+    this.phase("acceptance", "start");
     try {
       const { usage, ...result } = await independentAcceptance({ complete, request: input.request, root: input.root, changes: diffSnapshots(input.before, now),
         files: now, testCommand: input.command, timeoutMs: this.projectContext!.verification.timeoutMs, signal: this.commandAbort?.signal });
@@ -919,7 +965,7 @@ export class CasperApp {
       // The call may have reached the provider: its usage is unknown.
       this.observations.recordUntrackedModelUse();
       return { status: "error", reason: `the acceptance check failed: ${error instanceof Error ? error.message : String(error)}`, mode };
-    } finally { this.onEvent?.(phaseEvent("acceptance", "end")); }
+    } finally { this.phase("acceptance", "end"); }
   }
 
   /** After the checks pass on a fix or feature: with verification.review: true, one requirements-review
@@ -940,13 +986,13 @@ export class CasperApp {
     const initialReview = input.initialReview;
     if (context.verification.review !== true) {
       if (verification.status !== "pass" || stopped()) return { verification, review: initialReview };
-      this.onEvent?.(phaseEvent("proof", "start"));
+      this.phase("proof", "start");
       const result = await this.proveChange({ ...input, verification });
-      this.onEvent?.(phaseEvent("proof", "end"));
+      this.phase("proof", "end");
       return { ...result, review: initialReview };
     }
     this.events.ensureLineBreak();
-    this.onEvent?.(phaseEvent("review", "start"));
+    this.phase("review", "start");
     this.output.write("↻ review: checking the work against every requirement\n");
     this.lastAnswer = "";
     const unreviewed = await this.snapshotWorkspace(input.root);
@@ -962,11 +1008,11 @@ export class CasperApp {
       const reviewed = await this.runVerification(input.checks, true, input.request, this.checkTask, Math.max(0, max - verification.repairAttempts));
       verification = { ...reviewed, repairAttempts: verification.repairAttempts + reviewed.repairAttempts };
     }
-    this.onEvent?.(phaseEvent("review", "end"));
+    this.phase("review", "end");
     if (verification.status !== "pass" || stopped()) return { verification, review };
-    this.onEvent?.(phaseEvent("proof", "start"));
+    this.phase("proof", "start");
     const result = await this.proveChange({ ...input, verification });
-    this.onEvent?.(phaseEvent("proof", "end"));
+    this.phase("proof", "end");
     return { ...result, review };
   }
 
@@ -1053,7 +1099,7 @@ export class CasperApp {
     this.verificationAbort = controller;
     this.verificationTask = evidence;
     this.events.ensureLineBreak();
-    this.onEvent?.(phaseEvent("checks", "start"));
+    this.phase("checks", "start");
     try {
       this.verificationWork = verifyAndRepair({
         task: evidence,
@@ -1067,11 +1113,17 @@ export class CasperApp {
           await this.prepareCapabilities(request);
           const session = await this.ensureRuntime();
           if (!controller.signal.aborted) {
-            await session.prompt(prompt, controller.signal, { request, maxTurns: this.maxTurns });
+            this.phase("repair", "start");
+            try { await session.prompt(prompt, controller.signal, { request, maxTurns: this.maxTurns }); }
+            finally { this.phase("repair", "end"); }
             if (this.taskRuntimeFailed && !this.taskRuntimeCancelled) throw new Error("Repair model stopped unsuccessfully; changes retained.");
           }
         } : undefined,
         onRepair: (attempt, max) => { this.output.write(`↻ repair ${attempt}/${max}\n`); },
+        // A check that was already failing before the change is not the change's doing: say so, and ask before paying to fix it.
+        beforeRepair: repair && task && task === this.checkTask && this.taskBaseline ? (failures, signal) => this.repairPreexisting(failures, signal) : undefined,
+        // Only a person can say whether a check that did not finish is worth a paid repair.
+        onUnfinished: this.interactive && this.terminal.rich ? (unfinished, signal) => this.askUnfinished(unfinished, context.verification.timeoutMs, signal) : undefined,
         // The task's smoke checks join its own verification (repairs and review reruns), never a standalone /verify.
         smoke: task && task === this.checkTask && this.smokeTask?.size ? this.smokeRun(this.smokeTask) : undefined,
       });
@@ -1082,8 +1134,8 @@ export class CasperApp {
       else if (!task) this.output.write(`${formatReceipt({ execution: "completed", verification: report }, { surface: this.receiptSurface() })}\n`);
       return report;
     } finally {
-      this.onEvent?.(phaseEvent("checks", "end"));
-      if (!task) await evidence.close();
+      this.phase("checks", "end");
+      if (!task) { await evidence.close(); this.clearSteps(); }
       this.commandAbort?.signal.removeEventListener("abort", cancel);
       this.verificationTask = undefined;
       this.verificationAbort = undefined;
@@ -1091,15 +1143,152 @@ export class CasperApp {
     }
   }
 
+  /** A stage of the work starts or ends: a JSON phase event for scripts, and the footer's step rail. */
+  private phase(phase: PhaseEvent["phase"], state: PhaseEvent["state"]): void {
+    this.onEvent?.(phaseEvent(phase, state));
+    this.steps.update(phase, state);
+    this.terminal.setSteps(this.steps.text());
+  }
+
+  private clearSteps(): void {
+    this.steps.clear();
+    this.terminal.setSteps(undefined);
+  }
+
+  /** The mode and checks this session uses after a change; the banner, /status and every task share it. */
+  async checksPlan(context: ProjectContext): Promise<ChecksPlan> {
+    const flag = this.verificationFlag;
+    const configured = context.verification.mode;
+    const checks = selectedChecks(context.verification.checks, context.model.commands);
+    const measuredMs = flag || configured || !this.interactive ? undefined : await measuredCheckTime(context.stateDirectory, checks, context.model.commands);
+    const mode = resolveVerificationMode({ flag, configured, interactive: this.interactive, measuredMs });
+    return { mode, checks, ...(mode === "offer" && measuredMs !== undefined ? { slow: true } : {}) };
+  }
+
+  /** Before a request runs: with no model, pick one for a signed-in provider, or open sign-in (then pick);
+   * with the model's credentials missing, open sign-in for that provider. Never a fake "model failed"
+   * receipt: when no model can run, the terminal says why and nothing starts; scripts get an error. */
+  private async ensureModel(session: RuntimeSession): Promise<boolean> {
+    const status = session.getStatus?.();
+    if (!status?.blocked) return true;
+    const signal = this.commandAbort?.signal;
+    const canSignIn = this.interactive && this.terminal.rich;
+    const pickDefault = async (): Promise<boolean> => {
+      const picked = await session.selectDefaultModel?.({ provider: this.loginProvider, signal }).catch(() => undefined);
+      if (!picked?.selected) return false;
+      this.output.write(`[model] Casper picked ${picked.status.provider}/${picked.status.model} for your signed-in provider and saved it as your default. Use /model to choose another.\n`);
+      this.updateFooter();
+      return true;
+    };
+    if (!status.provider) {
+      if (await pickDefault()) return true;
+      if (canSignIn && !signal?.aborted) {
+        this.output.write("[model] No model yet. Sign in to a provider to start; Esc cancels.\n");
+        if (await runLogin(this) && await pickDefault()) return true;
+      }
+    } else if (status.auth === "missing" && canSignIn && !signal?.aborted) {
+      const provider = LOGIN_PROVIDERS.find((id) => id === status.provider);
+      if (provider) {
+        this.output.write(`[model] Credentials missing for ${provider}. Sign in to continue; Esc cancels.\n`);
+        if (await runLogin(this, provider) && !session.getStatus?.().blocked) return true;
+      }
+    }
+    const blocked = session.getStatus?.().blocked;
+    if (!blocked) return true;
+    if (!this.interactive) throw new Error(blocked);
+    this.output.write(`[model] ${blocked}\n`);
+    return false;
+  }
+
+  /** Before the first repair: run each failing check on the files from before the change. One that failed there
+   * too was already broken; the terminal asks whether to pay for a fix (Esc leaves it), scripts go on repairing. */
+  private async repairPreexisting(failures: VerificationResult[], signal: AbortSignal): Promise<boolean> {
+    const held = this.taskBaseline;
+    const context = this.projectContext;
+    if (!held || !context) return true;
+    const names = failures.map((failure) => failure.name).filter((name) => context.model.commands[name]?.trim());
+    if (!names.length) return true;
+    this.events.ensureLineBreak();
+    this.output.write(`… Casper checking whether ${names.join(", ")} failed before this change too\n`);
+    const before: string[] = [];
+    for (const name of names) {
+      const result = await held.baseline.before({ root: held.root, check: name, command: context.model.commands[name]!.trim(),
+        timeoutMs: this.verificationTask?.limit(name) ?? context.verification.timeoutMs, signal });
+      if (result === "fail") before.push(name);
+    }
+    if (!before.length || signal.aborted) return true;
+    const which = before.join(", ");
+    this.output.write(`• ${which} was already failing before this change (Casper ran it on the files from before)\n`);
+    if (!this.interactive || !this.terminal.rich) return true;
+    const answer = await this.terminal.ask(`${which} was already failing before this change. Fix it anyway?`, [
+      { label: "Fix it anyway", description: "ask the model to make it pass (uses tokens)" },
+      { label: "Leave it", description: "keep the change as it is; the receipt says the check fails" },
+    ], false, signal);
+    return answer?.[0] === "Fix it anyway";
+  }
+
+  /** A provider hiccup Pi does not retry (an empty response) ends a run for no reason of the task's: try once
+   * more on its own, then, in the terminal, ask. Sign-in, quota and context errors, and errors Pi already
+   * retried within its budget, are not retried again. */
+  async savedModel(): Promise<string | undefined> { return modelPreference(this.sessionHomeDir ?? os.homedir()); }
+
+  private async retryModelFailure(session: RuntimeSession, request: string): Promise<void> {
+    for (let attempt = 1; ; attempt++) {
+      const error = this.events.lastError ?? "";
+      if (!this.taskRuntimeFailed || this.taskRuntimeCancelled || this.closing || this.commandAbort?.signal.aborted || this.taskTurnLimit !== undefined) return;
+      // Only a provider that answered with nothing; Pi already retried what it counts as transient,
+      // within the user's retry budget, so never go past that.
+      if (!/empty (?:response|completion|message|content)|no (?:content|response|output) (?:was )?returned|returned no (?:content|output)/i.test(error)) return;
+      if (isRetryableAssistantError({ stopReason: "error", errorMessage: error } as Parameters<typeof isRetryableAssistantError>[0])) return;
+      let retry = attempt === 1;
+      if (!retry && this.interactive && this.terminal.rich && attempt <= 4) {
+        this.events.ensureLineBreak();
+        const answer = await this.terminal.ask("The model failed again. What now?", [
+          { label: "Retry", description: "ask the same model to go on from where it stopped" },
+          { label: "Stop", description: "keep the changes so far; /model picks another model" },
+        ], false, this.commandAbort?.signal);
+        retry = answer?.[0] === "Retry";
+      }
+      if (!retry) return;
+      this.events.ensureLineBreak();
+      this.output.write(`[model] ${attempt === 1 ? "The model failed; trying once more." : "Trying again."}\n`);
+      this.taskRuntimeFailed = false;
+      await session.prompt("Your last response failed with a provider error. Continue the task from where you stopped.",
+        this.commandAbort?.signal, { request, maxTurns: this.maxTurns });
+    }
+  }
+
+  /** "test timed out after 10m. 1 Retry · 2 Fix it anyway · 3 Allow more time" — Esc stops without a repair. */
+  private async askUnfinished(unfinished: VerificationResult[], timeoutMs: number, signal: AbortSignal): Promise<UnfinishedChoice | undefined> {
+    // The limit the run actually had: after "Allow more time" it is the longer one, not the configured one.
+    const limit = (result: VerificationResult) => timedOutAfter(result) ?? timeoutMs;
+    const what = unfinished.map((result) => result.ended === "timeout"
+      ? `${result.name} timed out after ${formatDuration(limit(result))}` : `${result.name} could not start`).join(", ");
+    // More time: four times the limit the run just had (at least a minute, at most an hour), as often as it is chosen.
+    const had = Math.max(0, ...unfinished.filter((result) => result.ended === "timeout").map(limit));
+    const longer = longerLimit(had);
+    const options: Array<{ label: string; description: string; choice: UnfinishedChoice }> = [
+      { label: "Retry", description: "run it again with the same limit", choice: "retry" },
+      { label: "Fix it anyway", description: had ? "ask the model to make it finish in time, for example a hanging or slow test (uses tokens)"
+        : "ask the model to fix why it could not start (uses tokens)", choice: "repair" },
+      ...(had && had < 3_600_000 ? [{ label: "Allow more time",
+        description: `run it with ${formatDuration(longer)}; to keep a longer limit, set verification.timeoutMs in .casper/project.yaml`, choice: "more-time" as const }] : []),
+    ];
+    this.events.ensureLineBreak();
+    const answer = await this.terminal.ask(`${what}. Casper did not try to fix it. What now?`,
+      options.map(({ label, description }) => ({ label, description })), false, signal);
+    return options.find((option) => option.label === answer?.[0])?.choice;
+  }
+
   /** One smoke run against fresh services, timed as the `smoke` phase. Cancellation is reported by the loop. */
   private smokeRun(smoke: SmokeChecks): (signal: AbortSignal) => Promise<SmokeReport> {
     return async (signal) => {
-      this.onEvent?.(phaseEvent("smoke", "start"));
+      this.phase("smoke", "start");
       try { return await smoke.run(signal); }
       catch (error) {
         if (signal.aborted) return { status: "incomplete", checks: [] };
         throw error;
-      } finally { this.onEvent?.(phaseEvent("smoke", "end")); }
+      } finally { this.phase("smoke", "end"); }
     };
   }
 
@@ -1316,8 +1505,10 @@ export class CasperApp {
   private writeCheckResult(result: VerificationResult): void {
     this.onEvent?.(checkEvent(result, this.modelCheckCalls > 0 ? "casper_check" : "casper"));
     this.events.ensureLineBreak();
-    // The receipt states each outcome plainly; verbose output keeps the per-run evidence line.
+    // Each check Casper runs shows as it finishes; verbose output keeps the per-run evidence line
+    // instead. A check the model ran with casper_check already has its tool line.
     if (this.verbose) this.output.write(`${formatVerificationResult(result)}\n`);
+    else if (this.modelCheckCalls === 0) this.output.write(`${liveCheckLine(result)}\n`);
     if (result.status !== "fail") return;
     for (const [stream, text] of [["stderr", result.stderr], ["stdout", result.stdout]] as const) {
       if (!text.trim()) continue;
@@ -1379,7 +1570,7 @@ export class CasperApp {
     this.events.writePrompt(prompt);
   }
 
-  /** Shift+Tab. Session-only: a held key walks the ring, and saving stays on `/effort`. */
+  /** Shift+Tab. A held key walks the ring; the level the presses stop at is saved once, like `/effort`. */
   private cycleEffort(): void {
     if (this.closing) return;
     if (this.commandActive || this.subagents.isBusy) {
@@ -1389,11 +1580,24 @@ export class CasperApp {
     if (this.effortSteps >= 12) return;
     this.effortSteps++;
     this.effortCycle = this.effortCycle.then(async () => {
-      try { if (!this.closing) await this.applyEffortCycle(); }
+      try {
+        if (!this.closing) await this.applyEffortCycle();
+        // What you pick sticks, like /effort: the level the presses stop at is saved once.
+        if (!this.closing && this.effortSteps === 1) await this.saveCycledEffort();
+      }
       catch (error) {
         if (!this.closing) this.terminal.flashNote(error instanceof Error ? error.message : String(error));
       } finally { this.effortSteps--; }
     });
+  }
+
+  private async saveCycledEffort(): Promise<void> {
+    const session = this.session;
+    const level = session?.getStatus?.().configuredEffort;
+    if (!session?.setEffort || !level) return;
+    const saved = await session.setEffort(level, true);
+    this.terminal.flashNote(`effort ${formatEffort(saved) ?? level} · saved`);
+    this.updateFooter();
   }
 
   private async applyEffortCycle(): Promise<void> {
@@ -1429,7 +1633,7 @@ export class CasperApp {
       const percent = usage?.context?.percent;
       const effort = (status && formatEffort(status)) ?? "effort —";
       const model = status?.model ? `${status.provider}/${status.model} · ${effort}`
-        : this.session ? "no model selected · /model" : this.savedModelDisplay ?? "model not initialized · /model";
+        : this.session ? "no model selected · /model" : (this.runModel ? `${terminalText(this.runModel)} (--model)` : this.savedModelDisplay) ?? "model not initialized · /model";
       this.terminal.setStatus(`${project.name}/${project.gitBranch ?? "no git"} │ ${model} │ ctx ${percent == null ? "—" : `${percent.toFixed(0)}%~`}${usage ? ` │ ${usage.tokens.total} tok` : ""}${usage?.estimatedCost === undefined ? "" : ` │ $${usage.estimatedCost.toFixed(3)} est`} │ ${this.commandActive ? "working" : "idle"}`, project.root);
     } catch { this.terminal.setStatus("Session status unavailable · /status", this.projectContext.info.root); }
   }
@@ -1450,4 +1654,14 @@ export class CasperApp {
     (this.checkTask ?? this.verificationTask)?.invalidateForEdit(path);
     this.observations.recordEdit(path);
   }
+}
+
+/** Why a change whose checks passed was not compared with and without it, in plain words for the receipt. */
+export function proofSkipReason(options: { intent: string; testCommand?: string; snapshot: boolean; changedCode: boolean }): string {
+  if (options.intent === "refactor") return "a refactor should not change behavior, so no test is expected to fail without it";
+  if (["document", "inspect", "visualize", "configure"].includes(options.intent)) return `Casper does not compare ${options.intent} requests with and without the change`;
+  if (!options.testCommand) return "there is no test command to compare with; add verify.test to .casper/project.yaml";
+  if (!options.snapshot) return "Casper could not record the workspace before the change";
+  if (!options.changedCode) return "only non-code files changed";
+  return "Casper did not compare the tests with and without the change";
 }

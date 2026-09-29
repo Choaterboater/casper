@@ -2,6 +2,7 @@ import { constants } from "node:fs";
 import { copyFile, lstat, mkdir, mkdtemp, readdir, readlink, rm, symlink } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { parentsStayInside } from "../platform/files";
 import type { ProjectCommand } from "../project/model";
 import type { TreeChanges } from "../task/changes";
 import { runCommandCheck } from "./command";
@@ -65,9 +66,15 @@ export function changesCode(changes: TreeChanges): boolean {
     .some((relative) => isCodePath(relative) && !relative.split("/").some((part) => Object.hasOwn(SKIPPED, part)));
 }
 
-/** Never copied: VCS internals, Casper's state and installed dependencies (linked instead). */
-const SKIPPED: Record<string, true> = { ".git": true, node_modules: true, ".casper": true };
-const LINKED = "node_modules";
+/** Never copied: VCS internals, Casper's state, installed dependencies and virtual environments
+ * (linked instead), and Python caches (they rebuild). */
+const SKIPPED: Record<string, true> = { ".git": true, node_modules: true, ".casper": true, ".venv": true,
+  __pycache__: true, ".mypy_cache": true, ".pytest_cache": true, ".ruff_cache": true, ".tox": true };
+/** Linked into each copy from the workspace, never copied: `venv` only when it is a virtual environment. */
+const LINKED: Record<string, true> = { node_modules: true, ".venv": true, venv: true };
+/** Runs in the copies never change the user's environment: uv must not sync the linked .venv to the
+ * copy's (older) dependency list. */
+const COPY_ENV = { UV_NO_SYNC: "1" };
 const FILE_LIMIT = 20_000;
 const BYTE_LIMIT = 256 * 1024 * 1024;
 
@@ -89,8 +96,9 @@ async function cloneTree(source: string, destination: string, limits: Limits, si
       const from = path.join(source, next);
       const to = path.join(destination, next);
       if (entry.isDirectory()) {
-        if (entry.name === LINKED) links.push(next);
-        if (!Object.hasOwn(SKIPPED, entry.name)) pending.push(next);
+        const environment = entry.name === "venv" && Boolean(await lstat(path.join(from, "pyvenv.cfg")).catch(() => undefined));
+        if (Object.hasOwn(LINKED, entry.name) && (entry.name !== "venv" || environment)) links.push(next);
+        if (!Object.hasOwn(SKIPPED, entry.name) && !environment) pending.push(next);
       } else if (entry.isSymbolicLink()) {
         await symlink(await readlink(from), to);
       } else if (entry.isFile()) {
@@ -138,12 +146,14 @@ export class ChangeBaseline {
     const tests = changed.filter(isTestPath);
     if (!changesCode(options.changes)) return undefined;
     const { check, command } = options;
-    const run = (cwd: string) => runCommandCheck({ name: check, command, cwd, timeoutMs: options.timeoutMs, signal: options.signal, onCleanupFailure: options.onCleanupFailure });
+    const run = (cwd: string) => runCommandCheck({ name: check, command, cwd, timeoutMs: options.timeoutMs, signal: options.signal,
+      onCleanupFailure: options.onCleanupFailure, env: { ...process.env, ...COPY_ENV } });
     const copies = await mkdtemp(path.join(this.scratch, "compare-"));
     try {
       const linkDependencies = async (tree: string, links: readonly string[]) => {
         for (const relative of links) {
           const target = path.join(options.root, relative);
+          if (!await parentsStayInside(tree, relative)) continue;
           if (await lstat(target).then((stats) => stats.isDirectory(), () => false)) {
             await rm(path.join(tree, relative), { recursive: true, force: true });
             await mkdir(path.dirname(path.join(tree, relative)), { recursive: true });
@@ -157,6 +167,8 @@ export class ChangeBaseline {
       for (const relative of tests) {
         const from = path.join(options.root, relative);
         const to = path.join(without, relative);
+        // A folder the change turned into a link must not carry the copy's edits outside it.
+        if (!await parentsStayInside(without, relative)) continue;
         await rm(to, { recursive: true, force: true });
         const stats = await lstat(from).catch(() => undefined);
         if (!stats) continue;
@@ -180,6 +192,32 @@ export class ChangeBaseline {
     } catch (error) {
       if (options.signal?.aborted) throw error;
       return { status: "unavailable", check, reason: `Casper could not build the comparison: ${error instanceof Error ? error.message : String(error)}` };
+    } finally {
+      await rm(copies, { recursive: true, force: true });
+    }
+  }
+
+  /** Run `command` on the files from before the change, as they were (tests included), in a fresh copy:
+   * `fail` means the check was already failing before the change; undefined when it could not tell. */
+  async before(options: { root: string; check: ProjectCommand; command: string; timeoutMs: number; signal?: AbortSignal }): Promise<"pass" | "fail" | undefined> {
+    const copies = await mkdtemp(path.join(this.scratch, "before-"));
+    try {
+      const tree = path.join(copies, "before");
+      await cloneTree(this.tree, tree, this.limits, options.signal);
+      for (const relative of this.links) {
+        if (!await parentsStayInside(tree, relative)) continue;
+        const target = path.join(options.root, relative);
+        if (!await lstat(target).then((stats) => stats.isDirectory(), () => false)) continue;
+        await rm(path.join(tree, relative), { recursive: true, force: true });
+        await mkdir(path.dirname(path.join(tree, relative)), { recursive: true });
+        await symlink(target, path.join(tree, relative), "dir");
+      }
+      const result = await runCommandCheck({ name: options.check, command: options.command, cwd: tree, timeoutMs: options.timeoutMs,
+        signal: options.signal, env: { ...process.env, ...COPY_ENV } });
+      return result.ended ? undefined : result.status === "pass" ? "pass" : "fail";
+    } catch (error) {
+      if (options.signal?.aborted) throw error;
+      return undefined;
     } finally {
       await rm(copies, { recursive: true, force: true });
     }

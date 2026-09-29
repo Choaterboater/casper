@@ -119,3 +119,12 @@ test("a fenced block's panel spans the width and a long code line wraps once at 
     }
   }
 });
+
+test("a star between words or digits prints as a star, while emphasis still works", () => {
+  const text = once("So 2*3==6 and a*b stays, but *this* and **that** are styled; `x*y` too.", 80, false).join("\n");
+  expect(text).toContain("2*3==6");
+  expect(text).toContain("a*b");
+  expect(text).toContain("x*y");
+  expect(text).not.toContain("*this*");
+  expect(text).not.toContain("**that**");
+});

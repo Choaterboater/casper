@@ -128,8 +128,7 @@ test("launching from the home folder asks which project to open and opens the ch
   const interactive = harness.app.runInteractive(home);
   try {
     await harness.until(text => Bun.stripANSI(text).includes("Work in which project?"));
-    // Arrow down to the detected candidate and confirm it.
-    harness.input.write("\x1b[B");
+    // The detected project is first, so Enter opens it.
     harness.input.write("\r");
     await harness.until(text => /\bproject\s+MyApp\b/.test(Bun.stripANSI(text)));
     await harness.until(text => Bun.stripANSI(text).includes("idle"));
@@ -175,6 +174,8 @@ test("folder selection rejects sibling paths that only share the home prefix", a
     harness.input.write("../home-other\r");
     await harness.until(text => Bun.stripANSI(text).includes("../home-other is outside your home directory"));
     await harness.until(text => new RegExp(`\\bproject\\s+${path.basename(home)}\\b`).test(Bun.stripANSI(text)));
+    // Enter while Casper is still starting keeps /exit as a draft; wait until it reads commands.
+    await harness.until(text => Bun.stripANSI(text).includes("idle"));
   } finally {
     harness.input.write("/exit\r");
     await interactive;
@@ -196,4 +197,48 @@ test("without a rich terminal the home-folder hint gives a command that actually
     expect(stdout).toContain("[folder] Opened in your home directory; restart from a project folder: cd ~/Projects/myapp && casper");
     expect(stdout).not.toContain("pass a path");
   } finally { await rm(home, { recursive: true, force: true }); }
+});
+
+test("launching from a folder of projects asks which one to open; a project or a git subfolder never asks", async () => {
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-folder-repos-")));
+  const home = path.join(root, "home");
+  const work = path.join(root, "work");
+  await mkdir(home, { recursive: true });
+  await mkdir(path.join(work, "repo-a", ".git"), { recursive: true });
+  await mkdir(path.join(work, "repo-b"), { recursive: true });
+  await writeFile(path.join(work, "repo-b", "requirements.txt"), "pytest\n");
+  await mkdir(path.join(work, "notes"), { recursive: true });
+  const harness = interactiveHarness(home, work);
+  const interactive = harness.app.runInteractive(work);
+  try {
+    await harness.until(text => Bun.stripANSI(text).includes("This folder holds several projects. Work in which one?"));
+    const visible = Bun.stripANSI(harness.output());
+    expect(visible).toContain("3 .  stay in work");
+    expect(visible).toContain("1 repo-a");
+    expect(visible).toContain("2 repo-b");
+    harness.input.write("2");
+    await harness.until(text => /\bproject\s+repo-b\b/.test(Bun.stripANSI(text)));
+    // The question's record keeps the choice.
+    expect(Bun.stripANSI(harness.output())).toContain("✓ repo-b");
+    await harness.until(text => Bun.stripANSI(text).includes("idle"));
+  } finally {
+    harness.input.write("/exit\r");
+    await interactive;
+    await harness.app.close();
+    harness.input.destroy();
+  }
+  // A folder that is a project itself opens directly.
+  await writeFile(path.join(work, "package.json"), "{}");
+  const direct = interactiveHarness(home, work);
+  const running = direct.app.runInteractive(work);
+  try {
+    await direct.until(text => Bun.stripANSI(text).includes("idle"));
+    expect(Bun.stripANSI(direct.output())).not.toContain("several projects");
+  } finally {
+    direct.input.write("/exit\r");
+    await running;
+    await direct.app.close();
+    direct.input.destroy();
+    await rm(root, { recursive: true, force: true });
+  }
 });

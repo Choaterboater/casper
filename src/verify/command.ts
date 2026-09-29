@@ -40,6 +40,13 @@ export interface CommandCheckOptions {
   env?: NodeJS.ProcessEnv;
 }
 
+/** A timeout, a command that could not execute, or the shell's 126 (not executable) / 127 (not found). */
+export function checkEnded(exitCode: number | null, reason?: string): VerificationResult["ended"] {
+  if (reason?.startsWith("Timed out")) return "timeout";
+  if (reason?.startsWith("Could not execute") || exitCode === 126 || exitCode === 127) return "no_start";
+  return undefined;
+}
+
 export async function runCommandCheck(options: CommandCheckOptions): Promise<VerificationResult> {
   const { name, command, cwd, timeoutMs, signal } = options;
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 3_600_000) {
@@ -68,7 +75,7 @@ export async function runCommandCheck(options: CommandCheckOptions): Promise<Ver
       child = spawn(command, { cwd, shell: true, detached: osSupportsProcessGroups, stdio: ["ignore", "pipe", "pipe"], ...(options.env ? { env: options.env } : {}) });
       owner = ownSpawnedTree(child.pid, () => child!.exitCode === null && child!.signalCode === null);
     } catch (error) {
-      resolve({ ...base(), status: "fail", exitCode: null, signal: null, reason: `Could not execute: ${error instanceof Error ? error.message : String(error)}` });
+      resolve({ ...base(), status: "fail", exitCode: null, signal: null, reason: `Could not execute: ${error instanceof Error ? error.message : String(error)}`, ended: "no_start" });
       return;
     }
     let killTimer: ReturnType<typeof setTimeout> | undefined;
@@ -90,7 +97,8 @@ export async function runCommandCheck(options: CommandCheckOptions): Promise<Ver
       signal?.removeEventListener("abort", abort);
       child.stdout.destroy(); child.stderr.destroy();
       child.unref(); // Unknown cleanup must not turn a reported failure into an exit hang.
-      resolve({ ...base(), status: !reason && exitCode === 0 ? "pass" : "fail", exitCode, signal: exitSignal, reason });
+      const ended = checkEnded(exitCode, reason);
+      resolve({ ...base(), status: !reason && exitCode === 0 ? "pass" : "fail", exitCode, signal: exitSignal, reason, ...(ended ? { ended } : {}) });
     };
     const stop = (message: string) => {
       if (reason) return;

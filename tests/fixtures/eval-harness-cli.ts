@@ -36,7 +36,7 @@ const emit = (event: unknown) => console.log(JSON.stringify(event));
 if (prompt === "hang") { setInterval(() => {}, 1000); }
 else if (casper && prompt === "checks fail") {
   // Casper's human output goes to stderr in --json mode; its own failed verdict exits 1.
-  process.stderr.write("CASPER banner\n✗ Verified by Casper: test failed\n");
+  process.stderr.write("CASPER banner\n✗ test failed\n");
   emit({ v: 1, type: "assistant_message", text: "Implemented." });
   emit({ v: 1, type: "receipt", execution: "completed", outcome: "failed", exitCode: 1 });
   process.exitCode = 1;

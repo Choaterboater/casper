@@ -34,6 +34,27 @@ function stringMap(value: unknown): Record<string, string> {
   return value as Record<string, string>;
 }
 
+/**
+ * Where a stdio server starts. Your own (user/profile) servers start in your home folder by default,
+ * so an opened repository cannot change what they load; `cwd` may name an absolute folder, `~/...`,
+ * or `${PROJECT_ROOT}` to opt back in. Project servers are repository content and start at the
+ * project root, or at a relative `cwd` that stays inside it.
+ */
+function startFolder(value: unknown, scope: ServerDefinitionScope, projectRoot: string, home: string): string {
+  if (value === undefined) return scope === "project" ? projectRoot : home;
+  if (typeof value !== "string" || !value.trim()) throw new Error("invalid cwd");
+  if (scope === "project") {
+    const resolved = path.resolve(projectRoot, value);
+    const inside = path.relative(projectRoot, resolved);
+    if (path.isAbsolute(value) || inside === ".." || inside.startsWith(`..${path.sep}`) || path.isAbsolute(inside)) throw new Error("cwd outside the project");
+    return resolved;
+  }
+  if (value === "${PROJECT_ROOT}") return projectRoot;
+  if (value === "~" || value.startsWith("~/")) return path.join(home, value.slice(1));
+  if (!path.isAbsolute(value)) throw new Error("cwd must be absolute, ~/..., or ${PROJECT_ROOT}");
+  return path.normalize(value);
+}
+
 function definition(name: string, value: unknown, source: string, cwd: string): MCPServerDefinition {
   if (!/^[a-zA-Z0-9_.-]{1,64}$/.test(name) || !isRecord(value)) throw new Error("invalid definition");
   if (value.disabled !== undefined && typeof value.disabled !== "boolean") throw new Error("invalid disabled flag");
@@ -94,7 +115,8 @@ export async function discoverMCPConfiguration(options: {
       try {
         if (servers.size >= 64) throw new Error("too many servers");
         const shadows = scope === "project" ? personal.get(name) : undefined;
-        servers.set(name, { ...definition(name, value, source, options.projectRoot), scope, ...(shadows ? { shadows } : {}) });
+        const cwd = startFolder(isRecord(value) ? value.cwd : undefined, scope, options.projectRoot, home);
+        servers.set(name, { ...definition(name, value, source, cwd), scope, ...(shadows ? { shadows } : {}) });
         if (scope !== "project") personal.set(name, source);
       } catch {
         diagnostics.push(`Invalid or unsupported MCP entry ${JSON.stringify(name.slice(0, 64))}: ${source}`);
@@ -104,8 +126,26 @@ export async function discoverMCPConfiguration(options: {
   return { servers: [...servers.values()].sort((a, b) => a.name.localeCompare(b.name)), diagnostics };
 }
 
+const REFERENCE = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
+
+/** The `${NAME}` references in a value, in order, without duplicates. */
+function references(value: string): string[] {
+  return [...new Set([...value.matchAll(REFERENCE)].map((match) => match[1]!))];
+}
+
+/** One line per variable a definition would hand over: where it goes and through which header or env
+ * entry. A project file can aim `${ANTHROPIC_API_KEY}` at any origin, so the review must say so. */
+function sendsLines(transport: MCPServerDefinition["transport"]): string[] {
+  if (transport.type === "http") {
+    const origin = new URL(transport.url).origin;
+    return Object.entries(transport.headers).flatMap(([header, value]) => references(value).map((name) => `sends $${name} to ${origin} (header ${header})`));
+  }
+  return Object.entries(transport.env).flatMap(([key, value]) => references(value).map((name) => `passes $${name} to the command (env ${key})`));
+}
+
 /** Review text for a project-scope definition: its file, what it replaces, and what it runs or
- * contacts. Environment and header values are never shown; `${VAR}` references stay unresolved. */
+ * contacts. Literal environment and header values are never shown; `${VAR}` references are named,
+ * unresolved, with where they would go. */
 export function projectDefinitionReview(definition: MCPServerDefinition): string | undefined {
   if (definition.scope !== "project") return undefined;
   const transport = definition.transport;
@@ -118,13 +158,14 @@ export function projectDefinitionReview(definition: MCPServerDefinition): string
       ? [`command: ${JSON.stringify(transport.command)}`, `args: ${JSON.stringify(transport.args)}`,
         `env names (values hidden): ${JSON.stringify(Object.keys(transport.env))}`, `cwd: ${definition.cwd}`]
       : [`url origin: ${new URL(transport.url).origin}`, `header names (values hidden): ${JSON.stringify(Object.keys(transport.headers))}`]),
+    ...sendsLines(transport),
     "",
   ].join("\n");
 }
 
 /** Only explicit ${ENV_NAME} references; never shell commands or config writes. */
 export function resolveEnvironment(value: string): string {
-  return value.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (_, name: string) => {
+  return value.replace(REFERENCE, (_, name: string) => {
     const resolved = process.env[name];
     if (resolved === undefined) throw new Error("Required MCP environment variable is missing");
     return resolved;

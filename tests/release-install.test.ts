@@ -215,3 +215,21 @@ posixOnly("an unsupported platform is reported instead of guessed", async () => 
   expect(exitCode).toBe(2);
   expect(stderr).toContain("Unsupported operating system: FreeBSD");
 });
+
+test("every place that names the release agrees on one version", async () => {
+  const read = (file: string) => readFile(path.join(repoRoot, file), "utf8");
+  expect(JSON.parse(await read("package.json")).version).toBe(CASPER_VERSION);
+  const tag = `v${CASPER_VERSION}`;
+  const pinned = /releases\/download\/(v\d+\.\d+\.\d+[\w.-]*)/g;
+  for (const file of ["README.md", "docs/SCRIPTING.md", "scripts/install.sh", "scripts/install.ps1"]) {
+    const tags = [...(await read(file)).matchAll(pinned)].map((match) => match[1]);
+    expect({ file, tags: [...new Set(tags)] }).toEqual({ file, tags: [tag] });
+  }
+  const readme = await read("README.md");
+  expect(readme).toContain(`pin **${tag}**`);
+  expect(readme).toContain(`--version ${CASPER_VERSION}\``);
+  expect(readme).toContain(`# casper ${CASPER_VERSION} (`);
+  const release = await read("docs/RELEASE.md");
+  expect(release).toContain(`unsigned **${tag} preview**`);
+  expect(release.match(/^## (v\S+?):?\s/m)?.[1]).toBe(tag);
+});

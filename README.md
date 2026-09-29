@@ -16,7 +16,7 @@ No Bun installation or source checkout is required.
 **Windows x64 — PowerShell:**
 
 ```powershell
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.13/install.ps1 | iex
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.14/install.ps1 | iex
 ```
 
 Then run `casper` from your project folder. If an existing terminal does not find it,
@@ -26,15 +26,15 @@ Windows ARM64 does not have a release artifact yet.
 **macOS / Linux:**
 
 ```sh
-curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.13/install.sh | sh
+curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.14/install.sh | sh
 ```
 
 The installer verifies the executable's SHA-256 and runs the staged executable's
 `--version` successfully before replacing an existing installation; a rejected
 download leaves the previous installation untouched. It needs no administrator
-access. These commands pin **v0.2.13**: re-running reinstalls that preview. For a
+access. These commands pin **v0.2.14**: re-running reinstalls that preview. For a
 newer preview, use its release URL; GitHub's `latest/download` route excludes
-prereleases. Useful `install.sh` options: `--dir <path>`, `--version 0.2.13`,
+prereleases. Useful `install.sh` options: `--dir <path>`, `--version 0.2.14`,
 `--sha256 <hex>` and `--force` (replace a development symlink that leaves the
 install directory). [Installer details](docs/RELEASE.md).
 
@@ -46,6 +46,9 @@ casper
 casper --no-verify   # without Casper-run checks
 ```
 
+Started from your home folder, or from a folder that only holds projects (such as `~/Projects`),
+Casper asks which project to open: press its number, or Esc to stay.
+
 Inside Casper:
 
 ```text
@@ -53,8 +56,10 @@ Inside Casper:
 /model
 ```
 
-Sign in with a supported provider, choose a model, then describe the work you want
-done. Frontend, design, and other domain work come from the repository. Casper does
+Sign in with a supported provider, then describe the work you want done. With no model
+set yet, Casper opens sign-in on your first request and then picks a model for that provider
+(OpenRouter: `deepseek/deepseek-v4.1-flash`; others: the provider's own default), saved as your
+default; `/model` chooses another, and Casper never replaces a model you chose. Frontend, design, and other domain work come from the repository. Casper does
 not need a skill pack for patterns the project already shows. Login supports OpenAI Codex, GitHub Copilot, Anthropic/Claude, and OpenRouter.
 Provider eligibility, subscriptions and usage charges still apply. Enter keys or
 callback codes only in the dedicated private login prompt, never in chat.
@@ -62,7 +67,7 @@ callback codes only in the dedicated private login prompt, never in chat.
 ```sh
 casper "Explain this project"
 casper --verify "Fix the failing tests"
-casper --version     # casper 0.2.13 (/absolute/path/of/the/binary/or/cli.ts)
+casper --version     # casper 0.2.14 (/absolute/path/of/the/binary/or/cli.ts)
 ```
 
 For scripts and CI, `--model` and `--effort` pick the model for one run without changing
@@ -76,14 +81,20 @@ tool the model used. It does this by default, from the first change, in interact
 and one-shot prompts alike, with no command from you; an interactive session offers slow checks
 (a minute or more) as `/verify` instead of running them after every change. `--no-verify`
 turns checking off for a run. `verification.mode` in
-`.casper/project.yaml` sets `auto`, `offer` or `off` explicitly. A check executes that
-repository's configured command. This is execution consent, not sandboxing — use it
-only in trusted projects, or start with `--no-verify`. Each task ends with a plain receipt:
+`.casper/project.yaml` sets `auto`, `offer` or `off` explicitly. A check runs that
+repository's configured command without asking first, and it is not sandboxed — use Casper
+this way only in trusted projects, or start with `--no-verify`. Each task ends with a plain receipt:
 
 ```text
+✓ Verified — the checks pass, and the tests fail without the change
 ✓ Changed 1 file: sum.js
-✓ Verified by Casper: test passed (npm run test, 0.3s)
+✓ test passed (npm run test, 0.3s)
+✓ Proven: test fails without this change (exit 1) and passes with it
 ```
+
+Line 1 is the verdict. `Verified` means the checks passed on the final files and a test fails
+without the change. Anything less says why, for example
+`• Checks passed — not proven: only non-code files changed`.
 
 A bash run of a check is reported but never counted as verification. `/receipt` shows
 the detailed evidence (scope, freshness). Native bash stays independent of

@@ -23,6 +23,9 @@ export interface VerificationResult {
   freshnessReason?: string;
   /** True when a passing result with matching local filesystem evidence was reused. */
   reused?: boolean;
+  /** Set only when the command did not finish as a test run: it timed out, or it could not start
+   * (spawn error, bad folder, or the shell's 126/127). Such a failure is not the code failing. */
+  ended?: "timeout" | "no_start";
 }
 
 export interface VerificationReport {
@@ -36,6 +39,14 @@ export interface VerificationReport {
   smoke?: SmokeReport;
   /** The task had smoke checks but the loop ended with command failures, so they never ran (smoke runs only on passing commands). */
   smokeSkipped?: "command checks failed";
+}
+
+/** A plain duration: "0.3s", "1m 5s", "10m". */
+export function formatDuration(ms: number): string {
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
+  const minutes = Math.floor(ms / 60_000);
+  const seconds = Math.round((ms % 60_000) / 1000);
+  return seconds ? `${minutes}m ${seconds}s` : `${minutes}m`;
 }
 
 export function verificationStatus(results: VerificationResult[]): VerificationReport["status"] {

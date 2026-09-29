@@ -5,7 +5,7 @@ import { redactPreview } from "../tui/format";
 import type { VerificationReport, VerificationResult } from "../verify/evidence";
 import type { ChangeProof } from "../verify/proof";
 import type { RequirementsReview } from "../task/review";
-import { formatReceipt, taskOutcome, type TaskOutcome, type TaskResult, type TaskUsage } from "../task/result";
+import { formatReceipt, receiptVerdict, taskOutcome, type TaskOutcome, type TaskResult, type TaskUsage } from "../task/result";
 
 /** Bump only for a breaking change; new event types and fields are additive within a version. */
 export const JSON_EVENTS_VERSION = 1;
@@ -21,6 +21,8 @@ export interface CheckEvent {
   recordedBy: "casper" | "casper_check";
   /** A fresh earlier pass was reused instead of rerunning the command. */
   reused: boolean;
+  /** Present only when the check did not finish as a test run: "timeout" or "no_start". */
+  ended?: "timeout" | "no_start";
 }
 
 export interface PhaseEvent {
@@ -46,6 +48,8 @@ export interface ReceiptEvent {
   usage: TaskUsage | null;
   /** Whether the tests fail without the change and pass with it; null when Casper did not compare. */
   proof: ChangeProof | null;
+  /** Why checks that passed on changed files did not come with a proof; null otherwise. */
+  proofSkipped: string | null;
   /** The model's requirements checklist after its review round (its own claim); null when none ran. */
   review: RequirementsReview | null;
   /** Tests written from the request alone, run against the change; null when the check did not run. */
@@ -57,6 +61,8 @@ export interface ReceiptEvent {
   /** Casper's last smoke run against fresh services; null when none ran. */
   smoke: SmokeReport | null;
   /** The plain receipt a person would read. */
+  /** Line 1 of the receipt: what the run proved, in one line. */
+  verdict: string;
   text: string;
 }
 
@@ -87,7 +93,7 @@ export function phaseEvent(phase: PhaseEvent["phase"], state: PhaseEvent["state"
 
 export function checkEvent(result: VerificationResult, recordedBy: CheckEvent["recordedBy"]): CheckEvent {
   return { type: "check", name: result.name, command: result.command ?? null, status: result.status, exit: result.exitCode,
-    ms: Math.round(result.durationMs), recordedBy, reused: result.reused === true };
+    ms: Math.round(result.durationMs), recordedBy, reused: result.reused === true, ...(result.ended ? { ended: result.ended } : {}) };
 }
 
 /** Service responses and logs may echo env or tokens: like other previews, they are redacted before script output. */
@@ -99,6 +105,27 @@ function redactSmoke(smoke: SmokeReport): SmokeReport {
   }
   for (const crash of copy.crashes ?? []) if (crash.tail) crash.tail = redactPreview(crash.tail);
   if (copy.reason) copy.reason = redactPreview(copy.reason);
+  return copy;
+}
+
+/** Proof output is the failing test run's tail and may echo env or tokens; redact a copy, never the evidence. */
+function redactProof(proof: ChangeProof): ChangeProof {
+  const copy = structuredClone(proof);
+  if (copy.status === "unavailable") copy.reason = redactPreview(copy.reason);
+  else {
+    if (copy.without.reason) copy.without.reason = redactPreview(copy.without.reason);
+    if (copy.without.output) copy.without.output = redactPreview(copy.without.output);
+  }
+  return copy;
+}
+
+/** Review items quote the model's answer, which may quote code or config with secrets in it. */
+function redactReview(review: RequirementsReview): RequirementsReview {
+  const copy = structuredClone(review);
+  for (const key of ["done", "fixed", "open"] as const) {
+    const items = (copy as Record<string, unknown>)[key];
+    if (Array.isArray(items)) (copy as Record<string, unknown>)[key] = items.map((item) => redactPreview(String(item)));
+  }
   return copy;
 }
 
@@ -119,14 +146,17 @@ export function receiptEvent(report: VerificationReport | undefined, task: TaskR
     repairAttempts: verification?.repairAttempts ?? 0,
     turnLimit: task?.turnLimit ?? null,
     usage: task?.usage ? { ...task.usage } : null,
-    proof: task?.proof ? structuredClone(task.proof) : null,
-    review: task?.review ? structuredClone(task.review) : null,
+    proof: task?.proof ? redactProof(task.proof) : null,
+    proofSkipped: task?.proofSkipped ?? null,
+    review: task?.review ? redactReview(task.review) : null,
     acceptance: task?.acceptance ? { ...task.acceptance, ...(task.acceptance.output !== undefined ? { output: redactPreview(task.acceptance.output) } : {}),
       ...(task.acceptance.unconfirmed ? { unconfirmed: task.acceptance.unconfirmed.map(redactPreview) } : {}) } : null,
     checklist: task?.checklist ? task.checklist.map(redactPreview) : null,
     services: (task?.services ?? []).map((service) => ({ name: service.name, origin: service.origin ?? null, state: service.state })),
     smoke: verification?.smoke ? redactSmoke(verification.smoke) : null,
-    text: receipt ? formatReceipt(receipt, { surface: "one-shot" }) : "",
+    // The text quotes review items, acceptance gaps and bash commands the model ran: redact it too.
+    verdict: receipt ? redactPreview(receiptVerdict(receipt, { surface: "one-shot" }) ?? "") : "",
+    text: receipt ? redactPreview(formatReceipt(receipt, { surface: "one-shot" })) : "",
   };
 }
 

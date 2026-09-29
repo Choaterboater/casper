@@ -1,4 +1,4 @@
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
 import { lstat, realpath } from "node:fs/promises";
 import path from "node:path";
 import { READ_ONLY_STATE_CONFLICT } from "./types";
@@ -22,7 +22,8 @@ import type {
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { nativeEditPath, observationInput, observationOutput, type ToolObservationInput } from "./observation";
+import { blockedGitCommand } from "./git-guard";
+import { nativeEditPath, observationInput, observationOutput, patchLineCounts, writeLineCounts, type ToolObservationInput } from "./observation";
 import type {
   AgentRuntime,
   RuntimeAuthenticationOptions,
@@ -68,6 +69,7 @@ class PiToolController {
 class PiRuntimeSession implements RuntimeSession {
   private readonly listeners = new Set<RuntimeEventListener>();
   private readonly toolInputs = new Map<string, ToolObservationInput>();
+  private readonly writes = new Map<string, { before: string | undefined | null; after: string }>();
   private unsubscribePi?: () => void;
   private promptActive = false;
   private progressChars = 0;
@@ -144,6 +146,12 @@ class PiRuntimeSession implements RuntimeSession {
     if (this.busy || this.models.busy) throw new Error("Wait for active work before changing models.");
     if (this.readOnly) throw new Error("Model selection is unavailable in read-only children.");
     return this.models.select(this.runtime.session, options);
+  }
+
+  selectDefaultModel(options: { provider?: string; signal?: AbortSignal } = {}): Promise<RuntimeModelSelection | undefined> {
+    if (this.busy || this.models.busy) throw new Error("Wait for active work before changing models.");
+    if (this.readOnly) return Promise.resolve(undefined);
+    return this.models.selectDefaultIfUnset(this.runtime.session, options);
   }
 
   setEffort(level: string, persist: boolean): Promise<RuntimeStatus> {
@@ -307,6 +315,7 @@ class PiRuntimeSession implements RuntimeSession {
   private bind(session: AgentSession): void {
     this.unsubscribePi?.();
     this.toolInputs.clear();
+    this.writes.clear();
     this.unsubscribePi = session.subscribe((event) => {
       switch (event.type) {
         case "message_start":
@@ -342,13 +351,23 @@ class PiRuntimeSession implements RuntimeSession {
           const input = observationInput(event.args);
           if (["edit", "write"].includes(event.toolName) && input.path !== undefined) input.path = nativeEditPath(input.path);
           if (this.toolInputs.size < 64) this.toolInputs.set(event.toolCallId, input);
+          // A write reports no diff: keep the old text (small files only) to count +N -M when it ends.
+          const content = event.toolName === "write" ? Reflect.get(Object(event.args), "content") : undefined;
+          if (typeof content === "string" && input.path !== undefined && this.writes.size < 64) {
+            this.writes.set(event.toolCallId, { before: readSmallText(path.resolve(this.runtime.cwd, input.path)), after: content });
+          }
           this.emit({ type: "tool_start", toolName: event.toolName, toolCallId: event.toolCallId, input });
           break;
         }
         case "tool_execution_end": {
           const input = this.toolInputs.get(event.toolCallId);
           this.toolInputs.delete(event.toolCallId);
-          this.emit({ type: "tool_end", toolName: event.toolName, toolCallId: event.toolCallId, input, output: event.toolName === "bash" || event.isError ? observationOutput(event.result) : undefined, isError: event.isError });
+          const write = this.writes.get(event.toolCallId);
+          this.writes.delete(event.toolCallId);
+          const lines = event.isError ? undefined : event.toolName === "edit" ? patchLineCounts(event.result)
+            : write && write.before !== null ? writeLineCounts(write.before, write.after) : undefined;
+          this.emit({ type: "tool_end", toolName: event.toolName, toolCallId: event.toolCallId, input, output: event.toolName === "bash" || event.isError ? observationOutput(event.result) : undefined,
+            isError: event.isError, ...(lines ? { lines } : {}) });
           break;
         }
         case "agent_end":
@@ -419,6 +438,22 @@ async function checkReadOnlyState(options: RuntimeReadOnlyStartOptions, agentDir
   }
   options.signal.throwIfAborted();
 }
+
+/** Pi's own rules for its read/edit/write tools. Pi drops its tool rules whenever a custom system prompt
+ * is set (as Casper's is), and these are not SDK exports, so Casper restores them in the addendum Pi
+ * always keeps. Pinned word for word against Pi's source by tests/tool-rules.test.ts. */
+export const PI_TOOL_RULES: readonly string[] = [
+  "Use read to examine files instead of cat or sed.",
+  "Use edit for precise changes (edits[].oldText must match exactly)",
+  "When changing multiple separate locations in one file, use one edit call with multiple entries in edits[] instead of multiple edit calls",
+  "Each edits[].oldText is matched against the original file, not after earlier edits are applied. Do not emit overlapping or nested edits. Merge nearby changes into one edit.",
+  "Keep edits[].oldText as small as possible while still being unique in the file. Do not pad with large unchanged regions.",
+  "Use write only for new files or complete rewrites.",
+];
+
+/** A bash timeout above this is capped: one hour, the longest a Casper check may run, so the cap never
+ * cuts short a command a check itself would allow, while a day-long timeout cannot hang a session. */
+export const BASH_TIMEOUT_CAP_SECONDS = 3600;
 
 export class PiRuntime implements AgentRuntime {
   private runtime?: AgentSessionRuntime;
@@ -508,6 +543,9 @@ export class PiRuntime implements AgentRuntime {
         if (!readOnly) pi.on("tool_call", (event) => {
           // Keep Pi's native execution, output handling, and process-tree cleanup.
           if (event.toolName === "bash" && event.input.timeout === undefined) event.input.timeout = 120;
+          else if (event.toolName === "bash" && typeof event.input.timeout === "number" && event.input.timeout > BASH_TIMEOUT_CAP_SECONDS) event.input.timeout = BASH_TIMEOUT_CAP_SECONDS;
+          const risky = event.toolName === "bash" && typeof event.input.command === "string" ? blockedGitCommand(event.input.command) : undefined;
+          if (risky) return { block: true, reason: `Casper does not let the model run \`${risky}\`: it can set aside or discard the user's uncommitted work. Leave the working tree as it is, or ask the user to run it.` };
           if (options.beforeToolGate && ["edit", "write"].includes(event.toolName)) {
             const reason = options.beforeToolGate(event.toolName, event.input);
             if (reason) return { block: true, reason };
@@ -533,6 +571,7 @@ export class PiRuntime implements AgentRuntime {
           label: tool.name,
           description: tool.description,
           parameters: Type.Unsafe<Record<string, unknown>>(tool.inputSchema),
+          ...(tool.sequential ? { executionMode: "sequential" as const } : {}),
           execute: async (_id, args, signal) => {
             const result = await tool.execute(args, signal, { withFileLocks });
             if (result.isError) throw new Error(result.text);
@@ -574,7 +613,8 @@ export class PiRuntime implements AgentRuntime {
               : basePrompt,
             appendSystemPromptOverride: (base) => readOnly ? base : [
               ...base,
-              "Casper applies a 120-second timeout to bash commands when timeout is omitted. Supply an explicit finite timeout in seconds for intentionally longer commands. After a search times out, narrow its scope rather than retrying the same broad search.",
+              `Casper applies a 120-second timeout to bash commands when timeout is omitted, and caps any timeout at ${BASH_TIMEOUT_CAP_SECONDS} seconds. Supply an explicit finite timeout in seconds for intentionally longer commands. After a search times out, narrow its scope rather than retrying the same broad search.`,
+              `Tool rules:\n${PI_TOOL_RULES.map((rule) => `- ${rule}`).join("\n")}`,
               "Keep repository searches rooted in the current workspace. Prefer the find, grep, and ls tools with explicit paths. Do not scan the filesystem root or unrelated directories to locate a missing project file; treat stale documentation as possible and inspect the current tree. Search outside the workspace only when the user's task requires it.",
             ],
           },
@@ -633,4 +673,13 @@ export class PiRuntime implements AgentRuntime {
     this.runtime = undefined;
     await runtime?.dispose();
   }
+}
+
+/** A file's text for a +N -M count: undefined when absent (a new file), null when unreadable or over 1 MiB. */
+function readSmallText(file: string): string | undefined | null {
+  try {
+    const stats = lstatSync(file);
+    if (!stats.isFile() || stats.size > 1024 * 1024) return null;
+    return readFileSync(file, "utf8");
+  } catch (error) { return (error as NodeJS.ErrnoException).code === "ENOENT" ? undefined : null; }
 }
