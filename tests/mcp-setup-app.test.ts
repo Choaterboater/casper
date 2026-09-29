@@ -87,9 +87,11 @@ test("after /mcp connect, 2 remembers nothing; 1 remembers it, and the next sess
   const remembered = await session(home, project, ["/mcp connect lab"], ["1"]);
   expect(remembered.output).toContain("[mcp] Remembered lab. It connects on its own next time, with writes off. /mcp forget lab undoes this.");
   expect(await Bun.file(consentFile).exists()).toBe(true);
-  const next = await session(home, project, ["/mcp"]);
+  const next = await session(home, project, ["/mcp", "/mcp disconnect lab"]);
   expect(next.output).toContain("  Remembered: connects on its own, with writes off.");
-  expect(next.app.mcp!.status()[0]).toMatchObject({ approved: true, writes: "off" });
+  // After /mcp disconnect it no longer connects on its own in this session, so /mcp doesn't say it does.
+  expect(next.output.split("Remembered: connects on its own").length - 1).toBe(1);
+  expect(next.app.mcp!.status()[0]).toMatchObject({ approved: false, consent: "remembered", writes: "off" });
   const forgot = await session(home, project, ["/mcp forget lab", "/mcp"]);
   expect(forgot.output).toContain("[mcp] Forgot lab. Casper asks again before it connects next time.");
   expect(forgot.app.mcp!.status()[0]).toMatchObject({ consent: "none" });

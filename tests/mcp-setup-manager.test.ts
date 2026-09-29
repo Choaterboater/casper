@@ -273,3 +273,16 @@ test("writes turned off while the box for a write behind a router is open: the y
     .rejects.toThrow("Not executed (lab writes are off. Only the user can turn them on with /mcp writes lab.)");
   expect(await readFile(log, "utf8").catch(() => "")).not.toContain("central_delete_site");
 });
+
+test("/mcp reload back to a remembered definition connects on its own again, and says remembered only when approved", async () => {
+  const home = await tempDir();
+  const store = new ConsentStore(home);
+  await store.load();
+  const one = server("lab", { FIXTURE_MODE: "access-bad", SITE: "one" });
+  await store.remember(one);
+  const mcp = manager([server("lab", { FIXTURE_MODE: "access-bad", SITE: "two" })], { consent: store });
+  expect(statusOf(mcp, "lab")).toMatchObject({ approved: false, consent: "changed" });
+  const diff = await mcp.reload({ servers: [one], diagnostics: [] });
+  expect(diff.revoked).toEqual([]);
+  expect(statusOf(mcp, "lab")).toMatchObject({ approved: true, consent: "remembered", writes: "off" });
+});
