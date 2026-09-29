@@ -139,3 +139,29 @@ test("rich choose resolves 'p' when offered, and a pretyped draft 'p' never answ
     if (previousTerm === undefined) delete process.env.TERM; else process.env.TERM = previousTerm;
   }
 });
+
+test("the model's ask tool cannot open or answer an open approval", async () => {
+  const previousTerm = process.env.TERM;
+  process.env.TERM = "xterm-256color";
+  const input = Object.assign(new PassThrough(), { isTTY: true, setRawMode() {} });
+  const terminal = new InteractiveTerminal(input, { isTTY: true, columns: 80, rows: 24, write: () => {} }, () => {}, () => {});
+  const tick = () => new Promise(resolve => setTimeout(resolve, 60));
+  try {
+    terminal.setStatus("fixture"); terminal.start();
+    const pending = terminal.readCommand();
+    input.write("work\r");
+    expect(await pending).toBe("work");
+    let settled: string | undefined = "open";
+    const approval = terminal.choose("Box\n", "Run it? Type yes: ", ["yes"]).then((answer) => { settled = answer; return answer; });
+    await tick();
+    // The ask tool gets nothing while the approval is open, and its answer never reaches the approval.
+    expect(await terminal.ask("Enable writes?", [{ label: "yes" }], false)).toBeUndefined();
+    await tick();
+    expect(settled).toBe("open");
+    input.write("yes\r");
+    expect(await approval).toBe("yes");
+  } finally {
+    terminal.close(); input.destroy();
+    if (previousTerm === undefined) delete process.env.TERM; else process.env.TERM = previousTerm;
+  }
+});
