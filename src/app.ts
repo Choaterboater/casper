@@ -69,6 +69,12 @@ import { extractChecklist, formatChecklistPrompt, normalizeCases } from "./task/
 import { checkCommands, isBuiltinCheck } from "./verify/named";
 import { autoDetectedChecks } from "./verify/migrations-check";
 import { buildNextRow, type NextItem } from "./tui/next-row";
+import { SuggestionController, SUGGESTION_COMMAND } from "./app/suggestions";
+import { findFlow, formatFlowPrompt, loadFlowCatalog, type Flow, type FlowRule } from "./flows/catalog";
+import { beforeWorkPanel, readBeforeWorkAnswer, suggestBeforeWork } from "./flows/suggest";
+import { extractPlan, formatBuildPrompt, parsePlanLines, planEditorHeading, planEditorLines, planToolGate, type ParsedPlan } from "./flows/plan";
+import { PROJECT_YAML, saveProjectCommand } from "./project/config-write";
+import type { TaskClassification } from "./task/classify";
 import type { ProjectCommand } from "./project/model";
 import { describeChecksPlan, manualChecks, planAutoChecks, resolveVerificationMode, selectedChecks, type ChecksPlan, type VerificationMode } from "./verify/mode";
 import { measuredCheckTime, recordCheckTimings } from "./verify/timings";
@@ -286,6 +292,12 @@ export class CasperApp {
   private repairsTried = 0;
   /** "repair.bigModelLastTry is on but no big model is set" is said once per session. */
   private bigModelNoticeShown = false;
+  /** Suggested next steps on the receipt's row, their fading, and /suggestions. Other parts register rules here. */
+  readonly suggestions = new SuggestionController((text) => { if (!this.closing) this.output.write(text); }, () => this.homeDir());
+  /** A plan turn is running: every tool but reading is refused (see src/flows/plan.ts). */
+  private planning = false;
+  /** Flow warnings (a user's flow that could not be used) are said once. */
+  private readonly flowWarnings = new Set<string>();
 
   constructor(options: CasperAppOptions = {}) {
     const freshPiRuntime = async () => {
@@ -599,7 +611,7 @@ export class CasperApp {
   }
 
   /** The row under the receipt: numbered, plain, and never waited on. A source that throws offers nothing. */
-  private offerNextSteps(task: TaskResult): void {
+  private async offerNextSteps(task: TaskResult, request?: string, classification?: TaskClassification): Promise<void> {
     let undo: NextItem | undefined, diff: NextItem | undefined;
     const more: NextItem[] = [];
     for (const source of this.nextSteps) {
@@ -608,7 +620,16 @@ export class CasperApp {
       undo ??= offered?.undo; diff ??= offered?.diff;
       more.push(...offered?.more ?? []);
     }
-    this.terminal.offerNext(buildNextRow({ undo, diff, more }));
+    // Suggested flows follow the other steps; nothing about them waits or asks.
+    let hint: string | undefined;
+    if (request !== undefined && classification && this.projectContext) {
+      const suggested = await this.suggestions.items({ context: this.projectContext, task, request, classification,
+        interactive: this.interactive, taken: more.length }).catch(() => ({ items: [] as NextItem[], hint: undefined }));
+      more.push(...suggested.items);
+      hint = suggested.hint;
+    }
+    if (this.closing) return;
+    this.terminal.offerNext(buildNextRow({ undo, diff, more, ...(hint ? { hint } : {}) }));
   }
 
   /** OS SIGINT and terminal Ctrl-C share cancellation, without disposing the session. */
@@ -699,7 +720,9 @@ export class CasperApp {
             return reports.length ? `LSP diagnostics after edit: ${JSON.stringify(boundCapabilityResult(reports))}\nRepair new errors before continuing; unavailable or unversioned reports are not proof of a clean file.` : undefined;
           },
           systemPromptAppend: systemPromptAppend(context),
-          beforeToolGate: (toolName, input) => hiddenSecretGate(toolName, input)
+          // A plan turn refuses every tool but reading, whatever the tool says about itself.
+          beforeToolGate: (toolName, input) => (this.planning ? planToolGate(toolName, input) : undefined)
+            ?? hiddenSecretGate(toolName, input)
             ?? (toolName === "edit" || toolName === "write" ? this.editGateReason(toolName) : undefined),
           // Config files and config-looking command output (/secrets files off stops these for this
           // session), plus .env, credential files and secret env values (always).
@@ -821,6 +844,10 @@ export class CasperApp {
       while (this.effortSteps > 0) await this.effortCycle;
       if (this.closing) return;
       if (this.workspaceNeedsRebind) await this.rebindWorkspace(this.activeWorkspaceRoot());
+      // Whatever follows a receipt either picks one of its suggestions or leaves them (they fade when ignored).
+      // Nothing on offer: no extra wait, so a close that arrives with this line still finds the command running.
+      if (this.suggestions.pending) await this.suggestions.settle(prompt, this.projectContext);
+      else this.suggestions.forgetChoice();
       return await (prompt.startsWith("/") ? this.handleSlashCommand(prompt) : this.runModelTask(prompt));
     } catch (error) {
       if (error instanceof ProcessCleanupError) this.cleanupError = error;
@@ -851,6 +878,15 @@ export class CasperApp {
   /** Local command dispatch moved to app/commands.ts; the app is the command host. */
   private handleSlashCommand(prompt: string): Promise<VerificationReport | undefined> {
     if (/^\/new(?:\s|$)/.test(prompt)) return this.newProjectCommand(prompt.slice(4).trim()).then(() => undefined);
+    if (/^\/suggestions(?:\s|$)/.test(prompt)) {
+      return this.suggestions.command(prompt.slice(12).trim(), this.projectContext).then((text) => { this.output.write(text); return undefined; });
+    }
+    if (prompt.startsWith(`${SUGGESTION_COMMAND} `) || prompt === SUGGESTION_COMMAND) return this.runSuggestion(prompt.slice(SUGGESTION_COMMAND.length).trim());
+    if (/^\/plan(?:\s|$)/.test(prompt)) {
+      const request = prompt.slice(5).trim();
+      if (!request) { this.output.write("Usage: /plan <request>. The model plans first; nothing is built until you choose Build.\n"); return Promise.resolve(undefined); }
+      return this.runModelTask(request, { planFirst: true });
+    }
     return runSlashCommand(this, prompt);
   }
 
@@ -915,9 +951,116 @@ export class CasperApp {
     return undefined;
   }
 
-  private async runModelTask(prompt: string): Promise<VerificationReport | undefined> {
+  /** A bundled flow, or the user's own trusted replacement. Warnings about a user flow are said once. */
+  private async flow(rule: FlowRule): Promise<Flow | undefined> {
+    const catalog = await loadFlowCatalog(this.skillRegistry).catch(() => undefined);
+    for (const warning of catalog?.warnings ?? []) {
+      if (this.flowWarnings.has(warning)) continue;
+      this.flowWarnings.add(warning);
+      this.output.write(`${terminalText(warning)}\n`);
+    }
+    return catalog ? findFlow(catalog, rule) : undefined;
+  }
+
+  /** `/suggestion <id>`: the key under a receipt that picked a suggestion. Only one on offer right then runs. */
+  private async runSuggestion(id: string): Promise<VerificationReport | undefined> {
+    const picked = this.suggestions.take(id);
+    if (!picked) {
+      this.output.write("[suggestions] That suggestion is not on offer now. Suggestions are picked by their number right after a receipt.\n");
+      return undefined;
+    }
+    const { action } = picked.choice;
+    if (action.kind === "remember-command") {
+      const context = this.projectContext!;
+      try {
+        const written = await saveProjectCommand(context.info.root, action.name, action.command);
+        this.output.write(`[project] Saved ${terminalText(written.line)} in ${PROJECT_YAML}\n`);
+        // The next task checks with it.
+        try { this.projectContext = await this.loadProjectContextFn(context.info); }
+        catch (error) { this.output.write(`[project] ${PROJECT_YAML} could not be read again (${terminalText(error instanceof Error ? error.message : String(error))}); restart Casper to use it.\n`); }
+      } catch (error) {
+        this.output.write(`[project] Not saved: ${terminalText(error instanceof Error ? error.message : String(error))}\n`);
+      }
+      return undefined;
+    }
+    if (action.kind === "run") {
+      const text = await action.run();
+      if (text && !this.closing) this.output.write(`${terminalText(text)}\n`);
+      return undefined;
+    }
+    const flow = await this.flow(action.flow);
+    if (!flow) { this.output.write(`[suggestions] The ${action.flow} flow could not be loaded.\n`); return undefined; }
+    const request = action.flow === "prove-fix"
+      ? `Add a test that proves this bug stays fixed: the test must fail without the fix and pass with it. The fix was for: ${picked.request}`
+      : picked.request;
+    return this.runModelTask(request, { flow });
+  }
+
+  /**
+   * The plan turn of plan first. The model reads and answers with "Plan:" steps and "Tests:" cases; every tool but
+   * reading is refused meanwhile. The user edits the plan (rich terminal) or says Build (plain terminal); a run
+   * that cannot ask stops after showing the plan. "stop" when nothing is to be built.
+   */
+  private async runPlanTurn(session: RuntimeSession, request: string, cases: readonly string[] | undefined, root: string):
+    Promise<{ plan: ParsedPlan; changed?: string[] } | "stop"> {
+    const signal = this.commandAbort?.signal;
+    const flow = await this.flow("plan-first");
+    if (!flow) { this.output.write("[plan] The plan-first flow could not be loaded; nothing was built.\n"); return "stop"; }
+    this.events.ensureLineBreak();
+    this.output.write("… Casper planning first: the model reads and writes a plan; Casper blocks the file changes it can see until you choose Build\n");
+    const before = await this.snapshotWorkspace(root, signal);
+    this.lastAnswer = "";
+    this.planning = true;
+    try {
+      await session.prompt([
+        formatFlowPrompt(flow, request),
+        ...(cases?.length ? [`Cases the user listed (put each under Tests:):\n${cases.map((item) => `- ${item}`).join("\n")}`] : []),
+      ].join("\n\n"), signal, { request, maxTurns: this.maxTurns });
+    } finally { this.planning = false; }
+    if (this.closing || signal?.aborted || this.taskRuntimeCancelled) return "stop";
+    // Casper blocks what it can see; anything that changed anyway is named, never hidden.
+    const after = before && !this.closing ? await this.snapshotWorkspace(root) : undefined;
+    const diff = before && after ? diffSnapshots(before, after) : undefined;
+    const changed = diff ? [...diff.added, ...diff.modified, ...diff.removed].sort() : undefined;
+    if (changed?.length) this.output.write(`• Changed while planning: ${changed.map((file) => terminalText(file)).join(", ")}\n`);
+    if (this.taskRuntimeFailed) { this.output.write("[plan] The model failed while planning; nothing was built.\n"); return "stop"; }
+    const parsed = extractPlan(this.lastAnswer);
+    if (!parsed.steps.length) {
+      this.output.write("[plan] The answer had no numbered Plan: steps, so nothing was built. Ask again, or send the request without /plan.\n");
+      return "stop";
+    }
+    let plan: ParsedPlan = { steps: parsed.steps, tests: parsed.tests.length ? parsed.tests : normalizeCases([...(cases ?? [])]) };
+    const { heading, hint } = planEditorHeading(plan);
+    this.events.ensureLineBreak();
+    let edited = false;
+    if (this.interactive && this.terminal.rich) {
+      const lines = await this.terminal.editLines(heading, hint, planEditorLines(plan), signal);
+      if (this.closing || signal?.aborted) return "stop";
+      const kept = lines ? parsePlanLines(lines) : undefined;
+      if (!kept?.steps.length) { this.output.write("[plan] Stopped without building.\n"); return "stop"; }
+      edited = planEditorLines(kept).join("\n") !== planEditorLines(plan).join("\n");
+      plan = kept;
+    } else {
+      this.output.write(`${heading}\n${planEditorLines(plan).map((line) => `  ${terminalText(line)}`).join("\n")}\n`);
+      if (!this.interactive || !this.terminal.canAsk) {
+        this.output.write("[plan] This run can't ask you to build, so Casper stopped after the plan. Nothing was built.\n");
+        return "stop";
+      }
+      const answer = await this.terminal.pick("Build this plan?", [
+        { label: "Build", description: "the model builds these steps and tests these cases (uses tokens)" },
+        { label: "Stop", description: "nothing is built" },
+      ], signal);
+      if (answer !== "Build" || this.closing || signal?.aborted) { this.output.write("[plan] Stopped without building.\n"); return "stop"; }
+    }
+    this.output.write(`Casper plan (${plan.steps.length} ${plan.steps.length === 1 ? "step" : "steps"}, ${plan.tests.length} ${plan.tests.length === 1 ? "case" : "cases"}${edited ? ", edited by you" : ""}):\n`
+      + `${plan.steps.map((step, index) => `  ${index + 1}. ${terminalText(step)}\n`).join("")}${plan.tests.map((item) => `  - ${terminalText(item)}\n`).join("")}`);
+    return { plan, ...(changed?.length ? { changed } : {}) };
+  }
+
+  private async runModelTask(prompt: string, options: { flow?: Flow; planFirst?: boolean } = {}): Promise<VerificationReport | undefined> {
     if (this.closing) return;
-    this.beforeWorkAsked = false;
+    // A flow the user picked, or /plan, is already this task's one choice before work: no other panel.
+    this.beforeWorkAsked = Boolean(options.flow || options.planFirst);
     if (await this.offerNewProject(prompt) === "stop" || this.closing || this.commandAbort?.signal.aborted) return;
     this.observations = new TaskObservations();
     this.bigModelUse = undefined;
@@ -982,8 +1125,43 @@ export class CasperApp {
     const checklistOn = !this.beforeWorkAsked && (context.verification.checklist
       ?? (this.interactive && ["implement", "fix", "test"].includes(classification.intent)));
     const complete = checklistOn ? session.complete?.bind(session) : undefined;
-    const checklist = complete ? await this.makeChecklist(complete, prompt) : undefined;
+    // Plan first: suggested for a build request with several asks, as one numbered choice folded into the
+    // checklist panel, so there is still one panel before work. /plan chooses it directly.
+    const planOffer = !this.beforeWorkAsked && this.terminal.canAsk ? suggestBeforeWork(prompt, classification, { interactive: this.interactive }) : undefined;
+    const planState = planOffer ? await this.suggestions.state(context) : undefined;
+    let planFirst = options.planFirst === true;
+    let checklist: string[] | undefined;
+    if (planOffer && planState?.visible(planOffer.id)) {
+      const listed = complete ? await this.makeChecklist(complete, prompt, { edit: false }) : undefined;
+      if (this.closing || this.commandAbort?.signal.aborted) return;
+      const panel = beforeWorkPanel(planOffer, listed ?? []);
+      // Editing needs the rich editor; the plain terminal offers the other two.
+      if (!this.terminal.rich) panel.options = panel.options.filter((option) => option.choice !== "edit");
+      this.events.ensureLineBreak();
+      const picked = await this.terminal.pick(panel.question, panel.options.map(({ label, description }) => ({ label, description })), this.commandAbort?.signal);
+      if (this.closing || this.commandAbort?.signal.aborted) return;
+      const answer = readBeforeWorkAnswer(panel, picked === undefined ? undefined : [picked]);
+      if (answer.kind === "plan-first") { planFirst = true; await planState.recordChosen(planOffer.id).catch(() => {}); }
+      else await planState.recordIgnored([planOffer.id]).catch(() => {});
+      if (answer.kind === "edit") checklist = await this.makeChecklist(complete!, prompt, { cases: listed });
+      else {
+        const cases = normalizeCases([...(listed ?? []), ...(answer.kind === "typed" ? [answer.text] : [])]);
+        checklist = cases.length ? cases : undefined;
+        if (checklist && answer.kind !== "plan-first") this.output.write(`Casper checklist (${checklist.length} ${checklist.length === 1 ? "case" : "cases"}${answer.kind === "typed" ? ", one added by you" : " from your request"}):\n${checklist.map((item) => `  - ${item}\n`).join("")}`);
+      }
+      if (this.closing || this.commandAbort?.signal.aborted) return;
+    } else if (!planFirst) checklist = complete ? await this.makeChecklist(complete, prompt) : undefined;
     if (this.closing || this.commandAbort?.signal.aborted) return;
+    // The plan turn: the model reads and writes a plan and the cases to test; the user edits it, then builds.
+    let planBlock = "";
+    let changedWhilePlanning: string[] | undefined;
+    if (planFirst) {
+      const planned = await this.runPlanTurn(session, prompt, checklist, workspaceRoot);
+      if (planned === "stop" || this.closing || this.commandAbort?.signal.aborted) return;
+      changedWhilePlanning = planned.changed;
+      checklist = planned.plan.tests.length ? planned.plan.tests : undefined;
+      planBlock = `Casper plan (the user read and accepted it). Follow these steps in order:\n${planned.plan.steps.map((step, index) => `${index + 1}. ${step}`).join("\n")}`;
+    }
     // A code change in auto mode is reviewed and proven: the tests must fail without it. Only requests
     // that are clearly not behavior changes are exempt; the keyword intent is too coarse to decide more
     // ("add X; you may add new test files" reads as intent "test"), so the work itself decides later.
@@ -1020,7 +1198,10 @@ export class CasperApp {
         skillContext,
         formatTaskPrompt(prompt, classification, context.model, { verificationMode, proveChange: proving,
           reviewFollows: context.verification.review === true, afterContext: Boolean(memoryContext || skillContext) }),
+        planBlock,
         checklist ? formatChecklistPrompt(checklist) : "",
+        // A flow the user picked from the row: guidance for this one request.
+        options.flow ? formatFlowPrompt(options.flow, prompt) : "",
       ].filter(Boolean).join("\n\n"), this.commandAbort?.signal, { request: prompt, maxTurns: this.maxTurns });
       await this.retryModelFailure(session, prompt);
       this.phase("task", "end");
@@ -1115,14 +1296,15 @@ export class CasperApp {
         ...(autoChecks?.skipped && !verification?.smoke && !verification?.pages ? { autoSkipped: autoChecks.skipped } : {}),
         ...(pageNotes?.length && !verification?.pages ? { pageNotes } : {}),
         ...(this.taskTurnLimit !== undefined ? { turnLimit: this.taskTurnLimit } : {}), ...(proof ? { proof } : {}), ...(proofSkipped && !proof ? { proofSkipped } : {}), ...(review ? { review } : {}),
-        ...(acceptance ? { acceptance } : {}), ...(checklist ? { checklist } : {}), ...this.bigModelReceipt() };
+        ...(acceptance ? { acceptance } : {}), ...(checklist ? { checklist } : {}), ...this.bigModelReceipt(),
+        ...(changedWhilePlanning?.length ? { changedWhilePlanning } : {}) };
       if (!this.closing) {
         this.terminal.endAssistant();
         this.events.ensureLineBreak();
         if (classification.intent !== "general" || execution !== "completed" || verification || browser?.checks.length || observations.possibleMutations || observations.changedPaths?.length || observations.changedDuringChecks?.length || observations.observedEdits.length || observations.observedChecks.length) {
           this.output.write(`${this.verbose ? formatTaskResult(this.lastTaskResult) : formatReceipt(this.lastTaskResult, { surface: this.receiptSurface() })}\n`);
           if (observations.changedPaths?.length || observations.changedDuringChecks?.length) this.output.write(await this.diffStat());
-          if (this.interactive) this.offerNextSteps(this.lastTaskResult);
+          if (this.interactive) await this.offerNextSteps(this.lastTaskResult, prompt, classification);
         }
       }
       this.clearSteps();
@@ -1135,18 +1317,22 @@ export class CasperApp {
   /** verification.checklist: one separate model call lists the cases the request states; an interactive
    * user may edit them first; Casper prints them and the task prompt asks for one test per case. Its
    * usage joins the task's. A failed call is one line on the transcript and the task goes on without a checklist. */
-  private async makeChecklist(complete: NonNullable<RuntimeSession["complete"]>, request: string): Promise<string[] | undefined> {
-    this.phase("checklist", "start");
+  private async makeChecklist(complete: NonNullable<RuntimeSession["complete"]>, request: string,
+    options: { edit?: false; cases?: string[] } = {}): Promise<string[] | undefined> {
     let result: { cases: string[]; dropped: number } | { error: string };
-    try {
-      const made = await extractChecklist({ complete, request, signal: this.commandAbort?.signal });
-      this.observations.recordModelCall(made.usage);
-      result = made;
-    } catch (error) {
-      // The call may have reached the provider: its usage is unknown.
-      this.observations.recordUntrackedModelUse();
-      result = { error: `the checklist call failed: ${error instanceof Error ? error.message : String(error)}` };
-    } finally { this.phase("checklist", "end"); }
+    if (options.cases) result = { cases: options.cases, dropped: 0 };
+    else {
+      this.phase("checklist", "start");
+      try {
+        const made = await extractChecklist({ complete, request, signal: this.commandAbort?.signal });
+        this.observations.recordModelCall(made.usage);
+        result = made;
+      } catch (error) {
+        // The call may have reached the provider: its usage is unknown.
+        this.observations.recordUntrackedModelUse();
+        result = { error: `the checklist call failed: ${error instanceof Error ? error.message : String(error)}` };
+      } finally { this.phase("checklist", "end"); }
+    }
     if (this.closing || this.commandAbort?.signal.aborted) return undefined;
     this.events.ensureLineBreak();
     if ("error" in result) {
@@ -1154,6 +1340,8 @@ export class CasperApp {
       this.steps.skip("checklist"); this.terminal.setSteps(this.steps.text());
       return undefined;
     }
+    // Listed for the plan-first panel, which shows the cases itself.
+    if (options.edit === false) return result.cases.length ? result.cases : undefined;
     let cases = result.cases;
     let edited = false;
     const count = (n: number) => `${n} ${n === 1 ? "case" : "cases"}`;

@@ -73,7 +73,12 @@ export interface TaskResult {
   checklist?: string[];
   /** The session's managed services at the end of the task (the origin while starting or ready). */
   services?: Array<{ name: string; origin?: string; state: ServiceState }>;
-  /** The last repair ran on the user's big model (repair.bigModelLastTry). */
+  /** A known test-runner command the model ran without error while the project had no test command: only ever
+   * offered as a suggestion to remember, never check evidence. */
+  testRunner?: string;
+  /** Files that changed during a plan turn anyway (Casper blocks the changes it can see; this names the rest). */
+  changedWhilePlanning?: string[];
+  /** Repairs that ran on the user's big model: the extra try the user chose, or repair.bigModelLastTry. */
   bigModel?: { model: string; attempts: number };
   /** Casper's security tools ran for this task: counts only, never finding text. */
   security?: SecuritySummary;
@@ -233,6 +238,7 @@ export function formatReceipt(task: TaskResult, options: ReceiptOptions = {}): s
   if (task.acceptance) lines.push(acceptanceLine(task.acceptance, safe));
   if (task.review) lines.push(reviewLine(task.review, safe));
   if (task.changedDuringChecks?.length) lines.push(`• Changed while checking: ${pathList(task.changedDuringChecks, safe, false)}`);
+  if (task.changedWhilePlanning?.length) lines.push(`• Changed while planning: ${pathList(task.changedWhilePlanning, safe, false)}`);
 
   const changed = Boolean(task.changedPaths?.length || (!task.changedPaths && task.possibleMutations));
   if (!report && !task.observedChecks?.length && task.execution === "completed") {

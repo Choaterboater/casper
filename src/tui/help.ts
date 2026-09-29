@@ -10,7 +10,10 @@ export const HELP_TEXT = `Casper — your coding companion
   /status                Model/auth, integrations and local storage
   /model [model]         Pick a model; Enter remembers globally, Ctrl+S is session-only
   /effort [level|auto]   Pick reasoning effort, or auto per request; --session for temporary
-  /context, /usage       Context estimate, session tokens and cost availability
+  /model big <model>     Set your big model: one key retries on it when repairs run out
+  /plan <request>        Plan first: the model writes a plan and the cases to test, you edit it, then build
+  /suggestions [on|off]  List the suggested next steps, or turn them on or off
+  /context, /usage      Context estimate, session tokens and cost availability
   /compact               Summarize context (sends a model request)
   /clear, /resume        Fresh conversation or list/resume a saved conversation
   /diff                  Current tracked changes and untracked file names
@@ -95,6 +98,10 @@ Local commands:
   /model @role[:effort]             Select the model a configured role points to
   /model roles                      Show fast/build/reason/review role mappings
   /model role <fast|build|reason|review> <selector|clear>  Save or clear a role mapping
+  /model big <selector|clear>       Set or clear your big model (the reason role); asked for when repairs run out
+  /plan <request>                   Plan first: blocks changes Casper can see while the model plans; you edit, then build
+  /suggestions                      List suggested next steps: on, off or faded (hidden after 3 ignores, 14 days)
+  /suggestions on|off [name]        Turn every suggestion, or one, on or off (suggestions: false in config.yaml too)
   /effort [level|auto] [--session]  Supported levels or auto (Casper picks per request); Shift+Tab cycles
   /context                          Estimated context and capability counts
   /usage                            Session tokens and optional catalog cost estimate
