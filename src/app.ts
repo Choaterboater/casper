@@ -1264,7 +1264,8 @@ export class CasperApp {
     const longer = longerLimit(had);
     const options: Array<{ label: string; description: string; choice: UnfinishedChoice }> = [
       { label: "Retry", description: "run it again with the same limit", choice: "retry" },
-      { label: "Fix it anyway", description: "ask the model to fix it (uses tokens)", choice: "repair" },
+      { label: "Fix it anyway", description: had ? "ask the model to make it finish in time, for example a hanging or slow test (uses tokens)"
+        : "ask the model to fix why it could not start (uses tokens)", choice: "repair" },
       ...(had && had < 3_600_000 ? [{ label: "Allow more time",
         description: `run it with ${formatDuration(longer)}; to keep a longer limit, set verification.timeoutMs in .casper/project.yaml`, choice: "more-time" as const }] : []),
     ];
