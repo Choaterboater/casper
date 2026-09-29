@@ -91,13 +91,13 @@ test("Enter never approves: a new ignore stays flagged and a changed ignore file
   expect((await tools.recorded("gitleaks"))?.args.join(" ")).not.toContain(path.join(await realpath(root), ".gitleaks.toml"));
 });
 
-test("missing tools get one numbered ask before any download; Stop runs nothing and downloads nothing", async () => {
+test("missing tools get one numbered ask before any download; Enter (1 Stop) runs nothing and downloads nothing", async () => {
   const root = await fixtureRepo("casper-sr-missing-"); temps.push(root);
   const home = await temp("casper-sr-home-");
   const tools = await fakeTools(home, { gitleaks: "missing", zizmor: "missing" });
-  const s = scripted(root, home, tools.find, ["Stop"]);
+  const s = scripted(root, home, tools.find, ["<enter>"]);
   expect(await runSecurityReview(s.host, [])).toBeUndefined();
-  expect(s.asked[0]).toMatch(/^Security checks need 2 tools that aren't installed: gitleaks, zizmor \(about \d+ MB from github\.com and pypi\.org\)\.\n1 Install them · 2 Run what's installed · 3 Stop$/);
+  expect(s.asked[0]).toMatch(/^Security checks need 2 tools that aren't installed: gitleaks, zizmor \(about \d+ MB from github\.com and pypi\.org\)\.\n1 Stop · 2 Run what's installed · 3 Install them$/);
   expect(s.output()).toContain("Stopped. Nothing was installed and no tool ran.");
   expect(s.fetched).toEqual([]);
   expect(await tools.recorded("ruff")).toBeUndefined();

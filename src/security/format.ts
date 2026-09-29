@@ -121,8 +121,8 @@ export function formatQuestion(question: NumberedQuestion): string {
   return `${question.text}\n${numberedChoices(question.choices)}\n`;
 }
 
-/** The choice for one unapproved ignore: "1 Keep it (I approve) · 2 Show the line · 3 Leave it flagged". */
-/** Leave it flagged comes first, so Enter never approves an ignore. */
+/** The choice for one unapproved ignore: "1 Leave it flagged · 2 Show the line · 3 Keep it (I approve)".
+ * Leave it flagged comes first, so Enter never approves an ignore. */
 export const IGNORE_CHOICES = ["Leave it flagged", "Show the line", "Keep it (I approve)"] as const;
 export const IGNORE_APPROVE = IGNORE_CHOICES[2];
 export function ignoreQuestion(entry: IgnoreEntry): NumberedQuestion {
