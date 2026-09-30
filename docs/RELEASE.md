@@ -64,6 +64,19 @@ folder removed at exit. The service tool refuses the same git commands as bash. 
 executable carries the seccomp helper. See [SECURITY.md](SECURITY.md), which now names the test
 behind each claim (a test checks the doc against the code).
 
+**The AI security review.** After its tools, `/security-review` now offers
+`1 Stop here · 2 Run the AI review`, with the files it would read (this branch's changes against
+the default branch, else your changes since the last commit), the model and a lower-bound cost.
+Enter stops and spends nothing. The review is one read-only child on your review model with its own
+bounds (30 steps, 120 reads, 10 minutes): no shell, no edits. Key files, `.env` files and files
+gitleaks flagged are never opened for it and its greps leave their lines out; everything else it
+reads is scrubbed, device configs included whatever `/secrets files` says. A finding is shown only
+with a real `file:line` here and an example input, labelled `(the AI's opinion, not checked by a
+tool)`; the rest are counted as not shown, and the tokens used are named. Nothing the AI says can
+approve or hide an ignore. A one-shot or `--json` run never starts it by itself; `casper
+"/security-review ai"` runs it without asking. `casper security` still never calls a model. See
+[SECURITY_CHECKS.md](SECURITY_CHECKS.md#the-ai-review).
+
 **Where a release was built.** The release job now signs GitHub build provenance over every file in
 `SHA256SUMS`, and waits for the Linux, macOS and Windows previews to pass on the same commit. When
 `gh` is installed and signed in, `install.sh` and `install.ps1` check it after the SHA-256:
