@@ -34,6 +34,8 @@ export interface ProjectContext {
   warnings?: string[];
   /** The owner's lab list (lab.hosts), from ~/.casper/config.yaml or the profile only. */
   lab?: LabSettings;
+  /** The shell sandbox settings: yours, and the project's extra denies (see src/sandbox/policy.ts). */
+  sandbox?: LoadedConfiguration["sandbox"];
 }
 
 export interface LoadProjectContextOptions {
@@ -92,6 +94,7 @@ export async function loadProjectContext(
     },
     warnings: configuration.warnings,
     ...(configuration.lab ? { lab: configuration.lab } : {}),
+    sandbox: configuration.sandbox,
   };
 }
 
