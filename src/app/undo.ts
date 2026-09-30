@@ -207,7 +207,7 @@ export class TaskUndo {
 
   private async pickReceipt(kind: "undo" | "redo", argument: string): Promise<StoredReceipt | undefined> {
     const receipts = this.receipts();
-    if (!/^(?:\d{1,9})?$/.test(argument)) { this.write(`${USAGE[kind]}\n`); return undefined; }
+    if (!/^(?:\d{1,9})?$/.test(argument)) { this.refuse(USAGE[kind]); return undefined; }
     const root = this.host.activeRoot();
     if (argument) {
       const found = await receipts?.get(Number(argument)) ?? "missing";
@@ -389,11 +389,11 @@ export class TaskUndo {
       await this.showDiff(chosen);
       return true;
     }
-    if (argument && !/^\d{1,9}$/.test(argument)) { this.write(`${USAGE.diff}\n`); return true; }
+    if (argument && !/^\d{1,9}$/.test(argument)) { this.refuse(USAGE.diff); return true; }
     if (argument) {
       const found = await receipts?.get(Number(argument)) ?? "missing";
-      if (found === "missing") { this.write(`No receipt ${Number(argument)}. /receipt list shows recent ones.\n`); return true; }
-      if (found === "unreadable") { this.write(`Receipt ${Number(argument)} can't be read.\n`); return true; }
+      if (found === "missing") { this.refuse(`No receipt ${Number(argument)}. /receipt list shows recent ones.`); return true; }
+      if (found === "unreadable") { this.refuse(`Receipt ${Number(argument)} can't be read.`); return true; }
       await this.showDiff(found);
       return true;
     }
@@ -426,14 +426,14 @@ export class TaskUndo {
         : `  ${n}  ${time(receipt.createdAt)}  ${summary(receipt)}  · ${terminalText(receipt.request).replace(/\s+/g, " ").slice(0, 60)}`).join("\n")}\n/receipt <number> shows one.\n`);
       return true;
     }
-    if (argument && !/^\d{1,9}$/.test(argument)) { this.write(`${USAGE.receipt}\n`); return true; }
+    if (argument && !/^\d{1,9}$/.test(argument)) { this.refuse(USAGE.receipt); return true; }
     const found = argument ? await receipts?.get(Number(argument)) ?? "missing" : await receipts?.latest() ?? "missing";
     if (found === "missing") {
       if (!argument) return false;
-      this.write(`No receipt ${Number(argument)}. /receipt list shows recent ones.\n`);
+      this.refuse(`No receipt ${Number(argument)}. /receipt list shows recent ones.`);
       return true;
     }
-    if (found === "unreadable") { this.write(`Receipt ${Number(argument)} can't be read.\n`); return true; }
+    if (found === "unreadable") { this.refuse(`Receipt ${Number(argument)} can't be read.`); return true; }
     this.write(`Task ${found.n} · ${time(found.createdAt)} · ${terminalText(found.request).replace(/\s+/g, " ")}\n${summary(found)}\n`);
     if (found.task) this.write(`${formatTaskResult({ ...found.task, receipt: found.n })}\n`);
     if (found.undo && "undone" in found.undo && found.undo.undone) this.write(`• Undone at ${time(found.undo.undone.at)}; /redo ${found.n} puts the files back.\n`);
