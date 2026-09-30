@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, expect } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
@@ -255,4 +255,50 @@ needsSandbox("a worktree's .git file can't be pointed somewhere else", async () 
       expect({ network, same: await readFile(path.join(tree, ".git"), "utf8") === before }).toEqual({ network, same: true });
     }
   } finally { await treeSandbox.close(); }
+});
+
+/** Running socat processes (not exited ones waiting to be reaped), with their parents. */
+function runningSocat(): { pid: number; parent: number }[] {
+  const listing = Bun.spawnSync(["ps", "-axo", "pid=,ppid=,stat=,comm="], { env: { PATH: process.env.PATH ?? "/usr/bin:/bin", LC_ALL: "C" } });
+  return listing.stdout.toString().split("\n").map((line) => line.trim().split(/\s+/))
+    .filter((fields) => fields[3] === "socat" && !fields[2]!.startsWith("Z"))
+    .map((fields) => ({ pid: Number(fields[0]), parent: Number(fields[1]) }));
+}
+
+// On Linux the runtime relays the network through socat processes Casper starts; none may outlive the sandbox.
+test.skipIf(!sandboxAvailable || process.platform !== "linux")("closing the sandbox, or Casper exiting, leaves no socat relay running", async () => {
+  const project = path.join(base, "relays");
+  expect(Bun.spawnSync(["git", "init", "-q", project]).exitCode).toBe(0);
+  const relaySandbox = new ShellSandbox({ root: () => project, home, tempDirs: [], engine: runtimeEngine(), problem: () => linuxSandboxProblem() });
+  let relays: number[] = [];
+  try {
+    const wrapped = await relaySandbox.wrap("true", { cwd: project, network: "ask" });
+    expect(Bun.spawnSync(["sh", "-c", wrapped.command], { cwd: project, env: { ...process.env, HOME: home } }).exitCode).toBe(0);
+    relaySandbox.finished(wrapped.id);
+    relays = runningSocat().filter((item) => item.parent === process.pid).map((item) => item.pid);
+    expect(relays.length).toBeGreaterThan(0);
+  } finally { await relaySandbox.close(); }
+  expect(runningSocat().filter((item) => relays.includes(item.pid))).toEqual([]);
+
+  // A Casper process that exits without closing it (process.exit after an error) stops its relays on the way out.
+  const script = path.join(base, "relay-exit.ts");
+  await writeFile(script, `
+    import { ShellSandbox } from ${JSON.stringify(path.resolve("src/sandbox/manager.ts"))};
+    import { runtimeEngine } from ${JSON.stringify(path.resolve("src/sandbox/runtime.ts"))};
+    const sandbox = new ShellSandbox({ root: () => ${JSON.stringify(project)}, home: ${JSON.stringify(home)}, tempDirs: [], engine: runtimeEngine() });
+    const wrapped = await sandbox.wrap("true", { cwd: ${JSON.stringify(project)}, network: "ask" });
+    Bun.spawnSync(["sh", "-c", wrapped.command], { cwd: ${JSON.stringify(project)} });
+    console.log(Bun.spawnSync(["pgrep", "-P", String(process.pid), "-x", "socat"]).stdout.toString().trim().split("\\n").join(" "));
+    process.exit(0);
+  `);
+  const child = Bun.spawnSync([process.execPath, script], { cwd: project, env: { ...process.env, HOME: home } });
+  expect(child.exitCode).toBe(0);
+  const exitedRelays = child.stdout.toString().trim().split(/\s+/).filter(Boolean).map(Number);
+  expect(exitedRelays.length).toBeGreaterThan(0);
+  let left = exitedRelays;
+  for (let attempt = 0; attempt < 50 && left.length; attempt++) {
+    await Bun.sleep(20);
+    left = runningSocat().filter((item) => exitedRelays.includes(item.pid)).map((item) => item.pid);
+  }
+  expect(left).toEqual([]);
 });
