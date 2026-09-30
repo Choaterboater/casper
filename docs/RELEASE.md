@@ -64,6 +64,14 @@ folder removed at exit. The service tool refuses the same git commands as bash. 
 executable carries the seccomp helper. See [SECURITY.md](SECURITY.md), which now names the test
 behind each claim (a test checks the doc against the code).
 
+**Where a release was built.** The release job now signs GitHub build provenance over every file in
+`SHA256SUMS`, and waits for the Linux, macOS and Windows previews to pass on the same commit. When
+`gh` is installed and signed in, `install.sh` and `install.ps1` check it after the SHA-256:
+`Verified: built by GitHub Actions from Choaterboater/casper.`, or `This download doesn't match a
+Casper build from GitHub. Nothing installed.` Without `gh` they say `Checked SHA-256. Install gh to
+also check where it was built.` A macOS preview workflow runs the suite and the live sandbox tests;
+Linux CI installs bubblewrap and runs them too. Dependabot keeps the workflow pins current.
+
 **Limits of the sandbox.** MCP servers, language servers, the debugger, the browser and lab checks
 are not in it. Dev servers keep the machine's network on Linux, and inside the Linux sandbox
 `localhost` is the sandbox's own. Windows has no sandbox yet.

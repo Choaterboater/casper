@@ -155,6 +155,21 @@ if [ "$actual_sha" != "$EXPECTED_SHA" ]; then
   exit 1
 fi
 
+# Where it was built: the release's GitHub build provenance, checked with gh when it is installed and
+# signed in. A download that doesn't match is never installed.
+if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+  if gh attestation verify "$tmp/$artifact" --repo Choaterboater/casper >/dev/null 2>&1; then
+    echo "Verified: built by GitHub Actions from Choaterboater/casper."
+  else
+    echo "This download doesn't match a Casper build from GitHub. Nothing installed." >&2
+    exit 1
+  fi
+elif command -v gh >/dev/null 2>&1; then
+  echo "Checked SHA-256. Sign in to gh (gh auth login) to also check where it was built."
+else
+  echo "Checked SHA-256. Install gh to also check where it was built."
+fi
+
 # The artifact is proved inside the install directory before it replaces anything: a
 # version pin that does not match must not leave a different binary behind, and a
 # binary that cannot run here is never installed. The final `mv` replaces the target in
