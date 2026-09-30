@@ -64,7 +64,7 @@ test("API-key login verifies with the provider, keeps secrets off screen, and pr
     const sent = result.headers[0] as Record<string, string>;
     if (provider === "openrouter") {
       expect([sent["HTTP-Referer"], sent["X-OpenRouter-Title"], sent["X-OpenRouter-Categories"], sent["X-OpenRouter-App-Visibility"], sent.authorization])
-        .toEqual(["https://github.com/Choaterboater/casper", "Casper", "cli-agent", "hidden", "Bearer synthetic-private-key"]);
+        .toEqual(["https://choaterboater.github.io/casper/", "Casper", "cli-agent", "hidden", "Bearer synthetic-private-key"]);
     } else {
       expect(Object.keys(sent).map((name) => name.toLowerCase())).not.toContain("http-referer");
     }

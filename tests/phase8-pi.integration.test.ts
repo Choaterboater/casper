@@ -110,7 +110,7 @@ test("OpenRouter traffic carries Casper's app attribution while other providers 
   expect(f.headers).toHaveLength(2);
   const sent = f.headers[1]!;
   expect([sent.get("http-referer"), sent.get("x-openrouter-title"), sent.get("x-openrouter-categories"), sent.get("x-openrouter-app-visibility")])
-    .toEqual(["https://github.com/Choaterboater/casper", "Casper", "cli-agent", "hidden"]);
+    .toEqual(["https://choaterboater.github.io/casper/", "Casper", "cli-agent", "hidden"]);
 
   // CASPER_TELEMETRY=0 (Pi's PI_TELEMETRY=0, mirrored) sends no attribution at all: neither
   // Casper's nor the runtime's own "pi" default, which an inherited PI_TELEMETRY cannot re-enable.
