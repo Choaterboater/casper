@@ -1,3 +1,4 @@
+import path from "node:path";
 import type { BrowserSession } from "../browser/session";
 import type { ServiceManager, ServiceStatus } from "../services/manager";
 import type { DebugRequest, DebugSession } from "../debug/session";
@@ -26,6 +27,8 @@ import type { ProjectContext } from "../project/context";
 import type { ProjectInfo } from "../project/inspect";
 import { CHECK_NAMES, type CheckName, type VerificationReport } from "../verify/evidence";
 import { defaultVerifyNames } from "../verify/registry";
+import { childProjectsWithTests } from "../project/child";
+import type { ProjectModel } from "../project/model";
 import type { VerificationTask } from "../verify/task";
 import { artifactFilesystemSupported } from "../visualize/artifacts";
 import { buildRepoGraph } from "../visualize/repo";
@@ -427,6 +430,11 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       }
       if (args.some((arg) => !CHECK_NAMES.some((name) => name === arg) && !Object.hasOwn(named, arg) && !detected.includes(arg))) {
         throw new Error(VERIFY_USAGE);
+      }
+      if (!args.length && host.projectContext) {
+        const note = await noChecksNote(host.projectContext.model, host.activeWorkspaceRoot(), host.homeDir());
+        // Nothing to run is not "Incomplete": one plain line, and where the tests are when a folder inside has some.
+        if (note) { host.output.write(note); return; }
       }
       return host.runVerification(args.length ? args : host.projectContext ? defaultVerifyNames(host.projectContext.model) : CHECK_NAMES, repair);
     }
@@ -934,4 +942,17 @@ export function permissionsText(sandbox: ShellSandbox | undefined): string {
     "MCP, workspace transitions, debugger launch and consequential browser operations have their own exact approvals. The AI can't approve anything for you.",
     "No SAFE/YOLO or read-only mode is implied. /verify and /services may execute project scripts (the declared checks and service commands). See docs/SECURITY.md.",
   ].join("\n");
+}
+
+/** "/verify" when the folder has no check at all: "No checks found in Documents." and, when folders inside have
+ * tests, "Tests found in mist-tools: /project mist-tools". Undefined when something can run. */
+export async function noChecksNote(model: ProjectModel, root: string, homeDir: string): Promise<string | undefined> {
+  const names = defaultVerifyNames(model);
+  const runnable = names.some((name) => !(CHECK_NAMES as readonly string[]).includes(name) || model.commands[name as keyof ProjectModel["commands"]]?.trim());
+  if (runnable) return undefined;
+  const lines = [`No checks found in ${path.basename(root) || root}.`];
+  const children = await childProjectsWithTests(root, homeDir).catch(() => []);
+  for (const child of children) lines.push(`Tests found in ${child.relative}: /project ${child.relative}`);
+  if (!children.length) lines.push("To add one: verify.test in .casper/project.yaml.");
+  return `[verify] ${lines.join(" ")}\n`;
 }
