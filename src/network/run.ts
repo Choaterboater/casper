@@ -62,11 +62,13 @@ export async function runArgv(file: string, args: readonly string[], options: Ar
   }
   const result = await runPlanned(file, plan, options);
   if (!plan.held) return result;
-  // Inside the sandbox a missing program is the shell's 127, not a spawn error.
-  if (result.exitCode === 127 && !result.reason) return { ...result, reason: `Could not start ${file}`, ended: "no_start" };
-  if (result.exitCode === 0 || result.reason) return result;
-  const blocked = await blockedBySandbox(plan.held.sandbox, plan.held.id, `${result.stderr}\n${result.stdout}`);
-  return blocked ? { ...result, reason: blocked, ended: "blocked" } : result;
+  try {
+    // Inside the sandbox a missing program is the shell's 127, not a spawn error.
+    if (result.exitCode === 127 && !result.reason) return { ...result, reason: `Could not start ${file}`, ended: "no_start" };
+    if (result.exitCode === 0 || result.reason) return result;
+    const blocked = await blockedBySandbox(plan.held.sandbox, plan.held.id, `${result.stderr}\n${result.stdout}`);
+    return blocked ? { ...result, reason: blocked, ended: "blocked" } : result;
+  } finally { plan.held.sandbox.finished(plan.held.id); }
 }
 
 function runPlanned(file: string, plan: SandboxedSpawn, options: ArgvRunOptions): Promise<ArgvRunResult> {

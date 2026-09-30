@@ -157,8 +157,9 @@ export class ManagedProcess {
     const sandbox = this.options.sandbox === false ? undefined : this.options.sandbox ?? currentSandbox();
     let command = this.options.command;
     let held = false;
+    let heldId: string | undefined;
     if (sandbox?.on) {
-      try { const wrapped = await sandbox.wrap(command, { cwd, network: "host" }); command = wrapped.command; held = wrapped.held; }
+      try { const wrapped = await sandbox.wrap(command, { cwd, network: "host" }); command = wrapped.command; held = wrapped.held; if (held) heldId = wrapped.id; }
       catch (error) {
         // The sandbox failed to start just now (it said so): start as later runs will, not sandboxed.
         if (!sandbox.failure) { await rm(home, { recursive: true, force: true }); throw new ManagedProcessError("exited", `${this.label} could not start: ${error instanceof Error ? error.message : String(error)}`, ""); }
@@ -194,7 +195,7 @@ export class ManagedProcess {
         if (wasReady) this.options.onExit?.({ code, signal: exitSignal });
       }
     });
-    this.exited = new Promise(resolve => child.once("close", () => resolve()));
+    this.exited = new Promise(resolve => child.once("close", () => { sandbox?.finished(heldId); resolve(); }));
     const stop = () => { void this.close().catch(() => {}); };
     signal.addEventListener("abort", stop, { once: true });
     try {

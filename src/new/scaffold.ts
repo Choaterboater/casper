@@ -127,6 +127,7 @@ export const spawnTool: ToolRunner = async (argv, options) => {
   try { plan = argv[0] === "uv" || argv[0] === "bun" ? await sandboxedArgv(argv[0], argv.slice(1), { cwd: options.cwd, network: "ask", extraWrite: argv[1] === "--version" ? [] : argv[0] === "uv" ? [options.cwd, path.join(os.homedir(), UV_PYTHONS)] : [options.cwd] }) : { file: argv[0]!, args: argv.slice(1), shell: false }; }
   catch (error) { return { exitCode: null, stdout: "", stderr: "", error: (error as Error).message, missing: false }; }
   const run = await spawnPlanned(plan, options);
+  plan.held?.sandbox.finished(plan.held.id);
   return plan.held && run.exitCode === 127 ? { ...run, missing: true } : run;
 };
 

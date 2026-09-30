@@ -9,6 +9,8 @@ import path from "node:path";
 import { linuxSandboxProblem } from "../src/sandbox/linux";
 import { ShellSandbox, type HostAnswer } from "../src/sandbox/manager";
 import { runtimeEngine } from "../src/sandbox/runtime";
+import { useSandbox } from "../src/sandbox/manager";
+import { runCommandCheck } from "../src/verify/command";
 import { needsSandbox, sandboxAvailable } from "./support/platform";
 
 /**
@@ -66,7 +68,7 @@ async function run(command: string, network: "ask" | "host" | "none" = "ask", re
     let out = "";
     child.stdout.on("data", (chunk) => { out += chunk; });
     child.stderr.on("data", (chunk) => { out += chunk; });
-    child.on("close", (code) => resolve({ code, out, id: wrapped.id }));
+    child.on("close", (code) => { sandbox.finished(wrapped.id); resolve({ code, out, id: wrapped.id }); });
   });
 }
 
@@ -124,6 +126,7 @@ needsSandbox("a command that reaches out at once waits for the sandbox's proxy, 
   const child = Bun.spawn(["sh", "-c", wrapped.command], { cwd: root, env: { ...process.env, HOME: home, PATH: `${slow}:${process.env.PATH}` }, stdout: "pipe", stderr: "pipe" });
   const out = await new Response(child.stdout).text();
   await child.exited;
+  sandbox.finished(wrapped.id);
   expect(out).toContain("Connection blocked by network allowlist");
   expect(notes.filter((line) => line.startsWith("[sandbox] Blocked 127.0.0.3"))).toHaveLength(1);
 });
@@ -193,6 +196,21 @@ needsSandbox("no command can move the project's .git aside and put another in it
   }
 });
 
+needsSandbox("after a check ends, the sandbox leaves no stand-in files (.bashrc, .gitconfig, .vscode) in your project", async () => {
+  const project = path.join(base, "clean-after");
+  expect(Bun.spawnSync(["git", "init", "-q", project]).exitCode).toBe(0);
+  const checkSandbox = new ShellSandbox({ root: () => project, home, tempDirs: [], engine: runtimeEngine(), problem: () => process.platform === "linux" ? linuxSandboxProblem() : undefined });
+  useSandbox(checkSandbox);
+  // The runtime puts its stand-ins in Casper's own folder, which is the project when you start Casper there.
+  const launched = process.cwd();
+  process.chdir(project);
+  try {
+    const during = await runCommandCheck({ name: "test", command: "ls -A", cwd: project, timeoutMs: 20_000 });
+    expect(during.status).toBe("pass");
+    expect((await readdir(project)).sort()).toEqual([".git"]);
+  } finally { process.chdir(launched); useSandbox(undefined); await checkSandbox.close(); }
+});
+
 needsSandbox("a submodule's git settings, hooks and .git file can't be changed, in any network mode", async () => {
   const project = path.join(base, "with-submodule");
   const modules = path.join(project, ".git", "modules", "lib");
@@ -210,6 +228,7 @@ needsSandbox("a submodule's git settings, hooks and .git file can't be changed, 
         { cwd: project, network },
       );
       Bun.spawnSync(["sh", "-c", wrapped.command], { cwd: project, env: { ...process.env, HOME: home } });
+      subSandbox.finished(wrapped.id);
       expect({ network, config: await readFile(path.join(modules, "config"), "utf8") === config }).toEqual({ network, config: true });
       expect({ network, hook: existsSync(path.join(modules, "hooks", "post-checkout")) }).toEqual({ network, hook: false });
       expect({ network, pointer: await readFile(path.join(project, "lib", ".git"), "utf8") === pointer }).toEqual({ network, pointer: true });
@@ -227,6 +246,7 @@ needsSandbox("a worktree's .git file can't be pointed somewhere else", async () 
     for (const network of ["ask", "host", "none"] as const) {
       const wrapped = await treeSandbox.wrap(`echo "gitdir: ${outside}" > .git`, { cwd: tree, network });
       Bun.spawnSync(["sh", "-c", wrapped.command], { cwd: tree, env: { ...process.env, HOME: home } });
+      treeSandbox.finished(wrapped.id);
       expect({ network, same: await readFile(path.join(tree, ".git"), "utf8") === before }).toEqual({ network, same: true });
     }
   } finally { await treeSandbox.close(); }

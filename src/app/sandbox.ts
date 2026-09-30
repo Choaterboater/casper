@@ -72,6 +72,7 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, store: Sa
       }
       return wrapped.held ? { command: wrapped.command, id: wrapped.id } : { command };
     },
+    finished(id) { sandbox.finished(id); },
     async refused(id, output) {
       const reason = await blockedBySandbox(sandbox, id, output);
       return reason ? `[sandbox] ${reason[0]!.toUpperCase()}${reason.slice(1)}. The sandbox refuses this every time; don't retry it, and tell the user if the task needs it.` : undefined;

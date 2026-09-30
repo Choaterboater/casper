@@ -15,6 +15,9 @@ export interface SandboxEngine {
   wrap(command: string, policy: SandboxPolicy, run: { id: string; cwd: string; network: "ask" | "host" | "none"; prefix: string }): Promise<string>;
   /** What the sandbox refused for run `id`, as the runtime reports it ("deny openat /etc/hosts"). */
   violations(id: string): string[];
+  /** Run `id` has ended (its process exited). On Linux the runtime leaves empty stand-in files in the project
+   * (`.bashrc`, `.gitconfig`, `.vscode` …) while a command runs; they are removed once no command is running. */
+  finished(id: string): void;
   /** The hosts a command may reach without asking, after "Always for this project". */
   setAllowedHosts(hosts: string[]): void;
   reset(): Promise<void>;
@@ -33,6 +36,9 @@ export function runtimeEngine(load: () => Promise<Runtime> = () => import("@anth
   let runtime: Runtime | undefined;
   let base: Parameters<Runtime["SandboxManager"]["initialize"]>[0] | undefined;
   let seccomp: string | undefined;
+  // Runs wrapped by the runtime whose end was not reported yet: each is reported to it exactly once, since it
+  // removes its stand-in files only when none of them runs (removing one sooner would lift that run's rule).
+  const running = new Set<string>();
   return {
     async initialize(policy, ask, options) {
       runtime = await load();
@@ -53,9 +59,15 @@ export function runtimeEngine(load: () => Promise<Runtime> = () => import("@anth
       // On Linux the runtime starts its proxy relays in the background and runs the command at once; a command
       // that reaches out first thing could find nobody listening yet and fail. Wait (at most 3 seconds) for them.
       const ready = platform === "linux" ? `\n${PROXY_READY}` : "";
-      return runtime.SandboxManager.wrapWithSandbox(`${run.prefix}${ready}\n${command}`, undefined,
+      const wrapped = await runtime.SandboxManager.wrapWithSandbox(`${run.prefix}${ready}\n${command}`, undefined,
         { filesystem: { denyRead: [...policy.denyRead], allowWrite: [...policy.allowWrite], denyWrite: [...policy.denyWrite] } },
         undefined, { commandId: run.id });
+      running.add(run.id);
+      return wrapped;
+    },
+    finished(id) {
+      if (!runtime || !running.delete(id)) return;
+      runtime.SandboxManager.cleanupAfterCommand();
     },
     violations(id) {
       if (!runtime) return [];
@@ -66,7 +78,7 @@ export function runtimeEngine(load: () => Promise<Runtime> = () => import("@anth
       base = { ...base, network: { ...base.network, allowedDomains: [...hosts] } };
       runtime.SandboxManager.updateConfig(base);
     },
-    async reset() { await runtime?.SandboxManager.reset(); },
+    async reset() { running.clear(); await runtime?.SandboxManager.reset(); },
   };
 }
 
@@ -76,6 +88,7 @@ export const passThroughEngine = (): SandboxEngine => ({
   async initialize() {},
   async wrap(command) { return command; },
   violations() { return []; },
+  finished() {},
   setAllowedHosts() {},
   async reset() {},
 });

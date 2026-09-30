@@ -7,6 +7,8 @@ export interface FakeEngine extends SandboxEngine {
   /** The host question the sandbox passed to the engine. */
   ask?: (host: string, port: number | undefined) => Promise<boolean>;
   allowed: string[];
+  /** Every run reported as ended, in order. */
+  readonly ended: string[];
 }
 
 /**
@@ -18,6 +20,7 @@ export function fakeEngine(refuse: (command: string) => string[] = () => []): Fa
   const engine: FakeEngine = {
     wrapped: [],
     allowed: [],
+    ended: [],
     async initialize(policy, ask) { engine.ask = ask; engine.allowed = [...policy.allowedDomains]; },
     async wrap(command, policy, run) {
       engine.wrapped.push({ command, network: run.network, id: run.id, policy });
@@ -25,6 +28,7 @@ export function fakeEngine(refuse: (command: string) => string[] = () => []): Fa
       return `CASPER_FAKE_HELD=${run.network}; export CASPER_FAKE_HELD; ${command}`;
     },
     violations(id) { return refusals.get(id) ?? []; },
+    finished(id) { engine.ended.push(id); },
     setAllowedHosts(hosts) { engine.allowed = [...hosts]; },
     async reset() {},
   };

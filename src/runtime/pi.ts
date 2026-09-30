@@ -783,12 +783,14 @@ export function casperBashOperations(shell: RuntimeShell | undefined, local: Bas
         try { options.onData(data); }
         finally { if (previous === undefined) delete process.env.TMPDIR; else process.env.TMPDIR = previous; }
       };
-      const result = await local.exec(wrapped.command, cwd, { ...options, onData });
-      if (wrapped.id && result.exitCode !== 0 && shell?.refused) {
-        const line = await shell.refused(wrapped.id, tail);
-        if (line) onData(Buffer.from(`\n${line}\n`));
-      }
-      return result;
+      try {
+        const result = await local.exec(wrapped.command, cwd, { ...options, onData });
+        if (wrapped.id && result.exitCode !== 0 && shell?.refused) {
+          const line = await shell.refused(wrapped.id, tail);
+          if (line) onData(Buffer.from(`\n${line}\n`));
+        }
+        return result;
+      } finally { if (wrapped.id) shell?.finished?.(wrapped.id); }
     },
   };
 }

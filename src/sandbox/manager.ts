@@ -195,6 +195,11 @@ export class ShellSandbox {
     } catch { /* gone meanwhile */ }
   }
 
+  /** Run `id` has ended: the sandbox cleans up after it (see SandboxEngine.finished). Safe to call more than once. */
+  finished(id: string | undefined): void {
+    if (id) this.engine.finished(id);
+  }
+
   /** What the sandbox refused for run `id`, in plain words: "wanted to write /etc/hosts", "wanted to reach api.mist.com".
    * On Linux's own bubblewrap line there is no monitor, so a read-only-file-system error names the file instead. */
   refused(id: string, output = ""): string[] {
