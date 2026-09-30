@@ -60,8 +60,10 @@ through. Check what a tool returns before you share it.
   When a command prints a lot, Pi saves the whole output to a
   `pi-bash-<id>.log` (or `pi-powershell-<id>.log`) file; reading that file back
   gets the same check. Other `.log` files are left alone.
-- **Subagents** (`/delegate`) and other read-only helpers, such as the security
-  check's model review, get the same scrubbing for what they read.
+- **Subagents** (`/delegate`) get the same scrubbing for what they read. The
+  `/security-review` AI review gets it too, with device configs hidden even when
+  `/secrets files off`, and it never opens key or `.env` files or files gitleaks
+  flagged (see [SECURITY_CHECKS.md](SECURITY_CHECKS.md#the-ai-review)).
 - **Reference search excerpts** (`/references search`, `search_references`)
   are scrubbed with Casper's own rules (not netconan), and a line that only matches inside a hidden secret is not
   returned.

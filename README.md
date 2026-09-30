@@ -142,7 +142,7 @@ A request that asks for several things offers "plan first" inside the checklist 
 | `/verify add <name>` | Save a check Casper found (for example Ansible syntax) |
 | `/new [template] [name]` | Start a new project from a template, with no model |
 | `/plan <request>` | Plan one request before building it |
-| `/security-review` | Run the pinned security tools on this project, with no model |
+| `/security-review` | Run the pinned security tools on this project (no model), then offer an AI review that asks first and shows its cost |
 | `/suggestions` | See or switch off the suggested next steps |
 | `/model big <model>` | Set the model offered for one more repair |
 | `/receipt [n\|list]` | The last receipt (also after a restart), receipt n, or the last 10 |

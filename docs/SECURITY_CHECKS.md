@@ -3,8 +3,9 @@
 Casper can run a set of well-known security tools on your project. This uses no
 model and costs no tokens. There are two ways to start it:
 
-- `/security-review` in a Casper session, for the project you are in.
-- `casper security [repo]` in a terminal or in CI.
+- `/security-review` in a Casper session, for the project you are in. After the tools
+  it offers an [AI review](#the-ai-review), which uses tokens only if you pick it.
+- `casper security [repo]` in a terminal or in CI. This never calls a model.
 
 Casper reports what the tools found. It never calls the code "safe" or "secure":
 a clean report means these tools found nothing, not that nothing is wrong.
@@ -104,7 +105,48 @@ Result: 1 problem, 1 check not run. This is what these tools found. It does not 
 usage mistake. `--strict` also exits 1 when a check did not run or a new ignore was
 added. `--json` prints one versioned document (`version: 1`) with the same facts.
 
-## Not in this version
+## The AI review
 
-A model review that reads the code for security bugs comes after the shell sandbox
-and the wider secret scrub (v0.2.17). This version runs the tools only.
+After the tools, `/security-review` offers one more step: the AI reads the changed
+code for security problems. It is the only part that costs tokens, so it asks first,
+with the cost, and Enter stops:
+
+```
+Next: the AI can read the 3 files for security problems (changes since main).
+It runs on openrouter/some-model (your review model): at least about 9k tokens, ≈ $0.03, up to 30 steps and 10 minutes.
+It reads with look-only tools and can't run commands or change files. Key and .env files and files gitleaks flagged are kept from it, and secrets it reads elsewhere are hidden.
+Its findings are its opinion, not checked by a tool.
+1 Stop here · 2 Run the AI review
+```
+
+- **What it reads.** This branch's changes against the default branch (`origin/HEAD`,
+  else `main` or `master`), else your changes since the last commit, else the files the
+  tools flagged and the MCP server code. At most 40 files, none over 256 KB, no binary
+  files. The price is a lower bound: it counts the files once, and each step the AI
+  takes costs more.
+- **How it reads.** One read-only child on your review model (`/model` sets the
+  `review` role; without one, your usual model). It has `read`, `grep`, `find` and `ls`
+  only: no shell, no edits, no network tools. It is not the shell sandbox; it simply
+  has no tool that runs a command.
+- **What it never sees.** Key files (`*.pem`, `id_rsa` and the like), `.env` files,
+  credential files and files gitleaks flagged in this run are refused, and a `grep`
+  leaves their lines out. Secrets in anything else it reads are hidden the same way as
+  in a normal session, with device-config hiding on even when `/secrets files off`.
+  If gitleaks did not run, the question says that flagged files could not be kept from it.
+- **What it shows.** Each finding needs a real `file:line` in this project and a
+  concrete example input; anything else is counted as "not shown". Findings are the
+  AI's opinion and say so:
+
+```
+AI review (the AI's opinion, not checked by a tool):
+  src/server.py:88  host goes into a shell command. Example input: 8.8.8.8; id  (the AI's opinion, not checked by a tool)
+2 AI findings not shown: no real file:line here or no example input.
+The AI review used about 23k tokens (≈ $0.07, the catalog's estimate).
+This is the AI's opinion of the code it read. It does not prove the code has no problems.
+```
+
+- **Ignores stay yours.** Nothing the AI says can approve or hide an ignore. Only an
+  ignore you committed, or one you approved with your own `3`, counts.
+- **Scripts.** A one-shot or `--json` run never starts the AI review by itself: it says
+  so and spends nothing. `casper "/security-review ai"` runs it without asking (the
+  cost is printed first). `casper security` never calls a model.
