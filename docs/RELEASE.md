@@ -85,8 +85,12 @@ Casper build from GitHub. Nothing installed.` Without `gh` they say `Checked SHA
 also check where it was built.` A macOS preview workflow runs the suite and the live sandbox tests;
 Linux CI installs bubblewrap and runs them too. Dependabot keeps the workflow pins current.
 
+If the sandbox can't start when first used, Casper says so once, the AI's shell asks from that
+command on, and checks go ahead not sandboxed, as the receipt says. On a busy Linux machine a command
+now waits for the sandbox's network relay before it runs, so its first request is not lost.
+
 **Limits of the sandbox.** MCP servers, language servers, the debugger, the browser and lab checks
-are not in it. Dev servers keep the machine's network on Linux, and inside the Linux sandbox
+are not in it; a receipt whose lab check ran says it ran outside the sandbox. Dev servers keep the machine's network on Linux, and inside the Linux sandbox
 `localhost` is the sandbox's own. Windows has no sandbox yet.
 
 **Plan editor asks before it builds.** On the rich terminal, Enter in the plan editor (plan first
