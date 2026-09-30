@@ -12,7 +12,7 @@ import { ShellSandbox, useSandbox } from "../src/sandbox/manager";
 import { runTool } from "../src/security/spawn";
 import { ServiceManager } from "../src/services/manager";
 import { serviceTool } from "../src/services/tool";
-import { formatReceipt, type TaskResult } from "../src/task/result";
+import { formatReceipt, formatTaskResult, type TaskResult } from "../src/task/result";
 import { runCommandCheck } from "../src/verify/command";
 import { repairClass } from "../src/verify/evidence";
 import { fakeEngine, type FakeEngine } from "./support/sandbox-fakes";
@@ -154,4 +154,16 @@ posixOnly("Pi's full-output log of a long command goes in Casper's private folde
   await casperBashOperations(shell, local).exec("yes | head -100000", "/tmp", { onData: () => { seen = os.tmpdir(); } });
   expect(seen).toBe(dir);
   expect(os.tmpdir()).not.toBe(dir);
+});
+
+test("with the sandbox on, a receipt whose lab check ran says it ran outside the sandbox; a lab check that did not run says nothing", () => {
+  const lab = { name: "aoscx-check", status: "pass", kind: "lab", label: "dry run not guaranteed", durationMs: 1000 };
+  const ran: TaskResult = { execution: "completed", changedPaths: ["site.yml"], sandbox: { held: true },
+    verification: { status: "pass", results: [lab], repairAttempts: 0 } as never };
+  expect(formatReceipt(ran)).toContain("• Lab checks ran outside the sandbox (they log in to your lab devices with your own keys)");
+  expect(formatTaskResult(ran)).toContain("shell commands and checks held; lab checks ran outside it (they log in to your lab devices with your own keys)");
+  const skipped: TaskResult = { ...ran, verification: { status: "pass", results: [{ ...lab, status: "skip" }], repairAttempts: 0 } as never };
+  expect(formatReceipt(skipped)).not.toContain("outside the sandbox");
+  const plain: TaskResult = { ...ran, verification: { status: "pass", results: [{ name: "test", status: "pass", durationMs: 5 }], repairAttempts: 0 } as never };
+  expect(formatReceipt(plain)).not.toContain("outside the sandbox");
 });

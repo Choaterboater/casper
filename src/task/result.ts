@@ -200,7 +200,8 @@ export function formatTaskResult(task: TaskResult): string {
   else if (task.pageNotes?.length) lines.push(receiptLine("pages", task.pageNotes.map((note) => safe(note.replace(/^• /, ""))).join("; ")));
   if (task.bigModel) lines.push(receiptLine("big model", `${safe(task.bigModel.model)} for ${task.bigModel.attempts} ${task.bigModel.attempts === 1 ? "repair" : "repairs"}`));
   if (task.security) lines.push(receiptLine("security", securityText(task.security)));
-  if (task.sandbox) lines.push(receiptLine("sandbox", task.sandbox.held ? "shell commands and checks held" : `not sandboxed (${safe(task.sandbox.reason)})`));
+  if (task.sandbox) lines.push(receiptLine("sandbox", task.sandbox.held
+    ? `shell commands and checks held${labRan(report) ? `; ${LAB_OUTSIDE}` : ""}` : `not sandboxed (${safe(task.sandbox.reason)})`));
   if (task.undo && !(!task.undo.available && task.undo.reason === UNDO_NOTHING_CHANGED)) {
     lines.push(receiptLine("undo", task.undo.available ? `available${task.receipt ? ` (/undo ${task.receipt})` : ""}${task.undo.left?.length ? `; no copy of ${task.undo.left.map((entry) => safe(entry.path)).join(", ")}` : ""}` : `not available: ${safe(task.undo.reason)}`));
   }
@@ -214,6 +215,13 @@ function securityText(security: SecuritySummary): string {
   const count = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
   return [count(security.problems, "problem"), ...(security.notes ? [count(security.notes, "note")] : []),
     ...(security.notRun ? [`${count(security.notRun, "check")} not run`] : [])].join(", ");
+}
+
+/** Lab checks log in to your devices with your own SSH keys, so they run outside the shell sandbox. */
+const LAB_OUTSIDE_WHY = "they log in to your lab devices with your own keys";
+const LAB_OUTSIDE = `lab checks ran outside it (${LAB_OUTSIDE_WHY})`;
+function labRan(report: TaskResult["verification"]): boolean {
+  return (report?.results ?? []).some((result) => result.kind === "lab" && (result.status === "pass" || result.status === "fail"));
 }
 
 function receiptLine(label: string, value: string): string {
@@ -281,6 +289,7 @@ export function formatReceipt(task: TaskResult, options: ReceiptOptions = {}): s
   if (task.security) lines.push(`• Security tools: ${securityText(task.security)} (what the tools found; not proof the code has no problems)`);
   // Only the exception is said: a task whose shell commands and checks ran with your own permissions.
   if (task.sandbox && !task.sandbox.held) lines.push(`• Shell commands and checks were not sandboxed (${safe(task.sandbox.reason)})`);
+  else if (task.sandbox && labRan(report)) lines.push(`• Lab checks ran outside the sandbox (${LAB_OUTSIDE_WHY})`);
   if (task.browser) {
     const failed = task.browser.checks.filter((check) => check.status === "fail").map((check) => safe(check.name));
     lines.push(task.browser.status === "pass" ? `✓ Browser checks passed (${task.browser.checks.length})`
