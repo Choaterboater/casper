@@ -44,6 +44,9 @@ test("a shell command shows as its program and target, at most 80 characters", (
   // sshpass's password is never the label's target.
   expect(commandLabel("sshpass -p 'hunter2' ssh -o StrictHostKeyChecking=no root@10.0.0.5 'pvesh get /nodes'")).toBe("ssh root@10.0.0.5 …");
   expect(commandLabel("sshpass -phunter2 scp a.txt root@lab:/tmp")).toBe("scp a.txt …");
+  // After Casper hides the password, as the tool line sees it.
+  expect(commandLabel("sshpass -p <secret hidden> ssh -o BatchMode=yes root@127.0.0.1 true")).toBe("ssh root@127.0.0.1 …");
+  expect(commandLabel("mysql -p <secret hidden> -h db")).toBe("mysql db");
   const long = commandLabel(`cat ${"a".repeat(200)}`);
   expect([...long].length).toBeLessThanOrEqual(80);
   expect(long.endsWith("…")).toBe(true);

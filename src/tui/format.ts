@@ -36,6 +36,7 @@ export function redactPreview(text: string): string {
 }
 
 const HIDDEN = "<secret hidden>";
+const HIDDEN_WORD = "<secret\u00a0hidden>";
 
 function redactPart(text: string): string {
   return text
@@ -73,7 +74,8 @@ const REMOTE_VALUE_FLAGS = new Set(["-p", "-P", "-i", "-l", "-o", "-F", "-J", "-
  * "python3 -m pytest …"), at most `max` characters. Leading `cd dir &&` and `VAR=value` are left out;
  * a trailing "…" says more was cut. /output shows the whole command. */
 export function commandLabel(command: string, max = 80): string {
-  const text = command.replace(/\s+/g, " ").trim();
+  // A hidden secret is one word here, so "-p <secret hidden>" never leaves "hidden>" as the program.
+  const text = command.replace(/\s+/g, " ").trim().replaceAll(HIDDEN, HIDDEN_WORD);
   const segments = text.split(/\s*(?:&&|\|\||;|\|)\s*/).filter(Boolean);
   if (!segments.length) return "";
   let index = 0;
@@ -98,12 +100,13 @@ export function commandLabel(command: string, max = 80): string {
     // A download names its address, wherever it sits among the options.
     const address = ["curl", "wget"].includes(program) ? rest.findIndex(word => /^[a-z][a-z0-9+.-]*:\/\//i.test(word)) : -1;
     if (address >= 0) at = address;
-    else while (at < rest.length && rest[at]!.startsWith("-")) at += remote && REMOTE_VALUE_FLAGS.has(rest[at]!) ? 2 : 1;
+    else while (at < rest.length && (rest[at]!.startsWith("-") || rest[at] === HIDDEN_WORD)) at += remote && REMOTE_VALUE_FLAGS.has(rest[at]!) ? 2 : 1;
     const target = rest[at];
     label = target ? `${program} ${target}` : program;
     used = target ? at + 1 : rest.length;
   }
   const more = used < rest.length || index < segments.length - 1;
+  label = label.replaceAll(HIDDEN_WORD, HIDDEN);
   const chars = [...label];
   if (chars.length > max - 2) return `${chars.slice(0, max - 1).join("")}…`;
   return more ? `${label} …` : label;
