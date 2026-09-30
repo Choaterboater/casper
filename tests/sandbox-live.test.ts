@@ -111,6 +111,23 @@ needsSandbox("a host that is not listed is blocked when nobody can answer, and s
   expect(notes.filter((line) => line.startsWith(`[sandbox] Blocked ${UNLISTED}`))).toHaveLength(1);
 });
 
+needsSandbox("a command that reaches out at once waits for the sandbox's proxy, even when it starts slowly (Linux)", async () => {
+  if (process.platform !== "linux") return;
+  // A socat that takes a moment to start, as on a loaded machine: the request must still reach the proxy.
+  const slow = path.join(base, "slow-socat");
+  await mkdir(slow, { recursive: true });
+  const real = Bun.which("socat")!;
+  await writeFile(path.join(slow, "socat"), `#!/bin/sh\nsleep 0.6\nexec ${real} "$@"\n`, { mode: 0o755 });
+  answer = undefined;
+  const wrapped = await sandbox.wrap(`curl -sS -m 10 --noproxy '' http://127.0.0.3:${port}/`, { cwd: root, network: "ask" });
+  // Not spawnSync: the proxy answers from this process, so the event loop must keep running.
+  const child = Bun.spawn(["sh", "-c", wrapped.command], { cwd: root, env: { ...process.env, HOME: home, PATH: `${slow}:${process.env.PATH}` }, stdout: "pipe", stderr: "pipe" });
+  const out = await new Response(child.stdout).text();
+  await child.exited;
+  expect(out).toContain("Connection blocked by network allowlist");
+  expect(notes.filter((line) => line.startsWith("[sandbox] Blocked 127.0.0.3"))).toHaveLength(1);
+});
+
 needsSandbox("a host you allow for the session is reached", async () => {
   answer = "session";
   const result = await run(`curl -sS -m 10 --noproxy '' http://${UNLISTED}:${port}/`);

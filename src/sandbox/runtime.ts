@@ -22,6 +22,10 @@ export interface SandboxEngine {
 
 type Runtime = typeof import("@anthropic-ai/sandbox-runtime");
 
+/** Inside the Linux sandbox: wait until the runtime's proxy relays (ports 3128 and 1080) listen. bash's own
+ * /dev/tcp, so it needs no program the sandbox might not have. */
+export const PROXY_READY = "for _casper_try in $(seq 1 150); do (: </dev/tcp/127.0.0.1/3128) 2>/dev/null && (: </dev/tcp/127.0.0.1/1080) 2>/dev/null && break; sleep 0.02; done; unset _casper_try";
+
 /** On Linux, `host` and `none` use Casper's own bubblewrap line (src/sandbox/linux.ts): the runtime's network
  * namespace is shared by every command, so it can't let a dev server be reached from the host or cut one tool
  * off entirely. On macOS every command goes through the runtime. */
@@ -46,7 +50,10 @@ export function runtimeEngine(load: () => Promise<Runtime> = () => import("@anth
     async wrap(command, policy, run) {
       if (platform === "linux" && run.network !== "ask") return bwrapCommand({ policy, network: run.network, cwd: run.cwd, prefix: run.prefix, seccomp }, command);
       if (!runtime) throw new Error("The sandbox is not started");
-      return runtime.SandboxManager.wrapWithSandbox(`${run.prefix}\n${command}`, undefined,
+      // On Linux the runtime starts its proxy relays in the background and runs the command at once; a command
+      // that reaches out first thing could find nobody listening yet and fail. Wait (at most 3 seconds) for them.
+      const ready = platform === "linux" ? `\n${PROXY_READY}` : "";
+      return runtime.SandboxManager.wrapWithSandbox(`${run.prefix}${ready}\n${command}`, undefined,
         { filesystem: { denyRead: [...policy.denyRead], allowWrite: [...policy.allowWrite], denyWrite: [...policy.denyWrite] } },
         undefined, { commandId: run.id });
     },
