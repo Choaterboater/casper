@@ -29,6 +29,14 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/macos-preview"
           { printf 'Commit: %s\n' "$GITHUB_SHA"; sw_vers; uname -a; bun --version; ls -l /usr/bin/sandbox-exec; } 2>&1 | tee "$RUNNER_TEMP/macos-preview/host.log"
+      - name: Install ripgrep and a second loopback address for the live sandbox tests
+        # Pi's grep uses ripgrep (PI_OFFLINE: no download). The sandbox tests reach 127.0.0.2 as a host that is
+        # not listed; macOS answers only 127.0.0.1 on lo0 until the alias is added.
+        run: |
+          brew install ripgrep
+          sudo ifconfig lo0 alias 127.0.0.2 up
+          sudo ifconfig lo0 alias 127.0.0.3 up
+          rg --version
       - name: Install locked dependencies
         id: install
         run: bun install --frozen-lockfile 2>&1 | tee "$RUNNER_TEMP/macos-preview/install.log"

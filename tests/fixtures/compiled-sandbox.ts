@@ -9,7 +9,7 @@ import { seccompHelper } from "../../src/sandbox/seccomp";
 // A compiled probe: the sandbox runtime and its seccomp helper work from inside a standalone executable.
 const [home, root] = [process.env.HOME!, process.argv[2]!];
 const helper = await seccompHelper({ home });
-const sandbox = new ShellSandbox({ root: () => root, home, tempDirs: [], problem: () => linuxSandboxProblem(), seccompPath: async () => helper });
+const sandbox = new ShellSandbox({ root: () => root, home, tempDirs: [], problem: () => process.platform === "linux" ? linuxSandboxProblem() : undefined, seccompPath: async () => helper });
 await mkdir(path.join(home, ".ssh"), { recursive: true });
 await writeFile(path.join(home, ".ssh", "id_probe"), "PROBE-KEY\n");
 const run = async (command: string) => {

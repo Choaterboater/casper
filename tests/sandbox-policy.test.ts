@@ -176,3 +176,25 @@ test("places that hold programs you run outside the sandbox are not writable: pr
     }
   }
 });
+
+posixOnly("on macOS a tool run with network none gets a profile with no network rule: not the proxy, not localhost", async () => {
+  const { wrapCommandWithSandboxMacOS } = await import("@anthropic-ai/sandbox-runtime/dist/sandbox/macos-sandbox-utils.js");
+  const { withoutNetwork } = await import("../src/sandbox/runtime");
+  // The runtime's own macOS line, as wrapWithSandbox builds it for every command: the proxy, localhost and one
+  // Unix socket you allowed.
+  const wrapped = wrapCommandWithSandboxMacOS({
+    command: "curl http://127.0.0.1:8080/", needsNetworkRestriction: true, httpProxyPort: 3128, socksProxyPort: 1080,
+    allowLocalBinding: true, allowUnixSockets: ["/tmp/allowed.sock"], readConfig: { denyOnly: [] },
+    writeConfig: { allowOnly: ["/tmp/project"], denyWithinAllow: [] }, binShell: "sh",
+  });
+  expect(wrapped).toContain('(allow network-outbound (remote ip "localhost:*"))');
+  expect(wrapped).toContain('(allow network-outbound (remote ip "localhost:3128"))');
+  const none = withoutNetwork(wrapped);
+  expect(none).not.toMatch(/\(allow network[^\n]* ip "/);
+  expect(none).toContain("(deny default");
+  expect(none).toContain('(allow network-outbound (remote unix-socket (subpath "/tmp/allowed.sock")))');
+  expect(none).toContain("; File read");
+  expect(none).toContain("curl http://127.0.0.1:8080/");
+  // A line it can't read is refused, never run with the network.
+  expect(() => withoutNetwork("sh -c 'curl example.com'")).toThrow("can't be kept off the network");
+});

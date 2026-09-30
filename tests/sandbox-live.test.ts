@@ -33,6 +33,11 @@ const savedProxy = Object.fromEntries(PROXY_NAMES.map((name) => [name, process.e
 
 beforeAll(async () => {
   if (!sandboxAvailable) return;
+  // macOS answers only 127.0.0.1 until the others are added to lo0 (macOS CI does); without it a request there
+  // hangs instead of reaching this test's server.
+  if (process.platform === "darwin" && !Object.values(os.networkInterfaces()).flat().some((entry) => entry?.address === UNLISTED)) {
+    throw new Error(`${UNLISTED} is not on lo0: sudo ifconfig lo0 alias ${UNLISTED} up`);
+  }
   for (const name of PROXY_NAMES) delete process.env[name];
   base = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-sandbox-live-")));
   home = path.join(base, "home"); root = path.join(base, "project"); outside = path.join(base, "outside");

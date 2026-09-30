@@ -80,14 +80,18 @@ test("every checkout drops its token, no workflow writes by default, and no inpu
 
 test("Linux and macOS CI run the live sandbox tests; dependabot keeps the action pins current", () => {
   const linux = load("linux-preview.yml").jobs.source!.steps.map((step) => step.run ?? "").join("\n");
-  expect(linux).toContain("apt-get install -y -q bubblewrap socat");
+  expect(linux).toContain("apt-get install -y -q bubblewrap socat ripgrep");
   expect(linux).toContain("kernel.apparmor_restrict_unprivileged_userns=0");
   expect(linux).toContain("tests/sandbox-live.test.ts");
   // zizmor, from the same hash-locked file Casper installs it from, audits these workflows.
   expect(linux).toContain("--require-hashes --no-deps -r src/security/locks/zizmor.txt");
   expect(linux).toContain("zizmor\" --offline .github/workflows");
   const mac = load("macos-preview.yml");
-  expect(Object.values(mac.jobs)[0]!.steps.map((step) => step.run ?? "").join("\n")).toContain("tests/sandbox-live.test.ts");
+  const macRun = Object.values(mac.jobs)[0]!.steps.map((step) => step.run ?? "").join("\n");
+  expect(macRun).toContain("tests/sandbox-live.test.ts");
+  // The live tests' unlisted host (127.0.0.2) is on lo0, and Pi's grep finds ripgrep.
+  expect(macRun).toContain("sudo ifconfig lo0 alias 127.0.0.2 up");
+  expect(macRun).toContain("brew install ripgrep");
   const dependabot = parse(readFileSync(path.resolve(import.meta.dir, "../.github/dependabot.yml"), "utf8")) as { updates: Array<{ "package-ecosystem": string }> };
   expect(dependabot.updates.map((update) => update["package-ecosystem"])).toContain("github-actions");
 });

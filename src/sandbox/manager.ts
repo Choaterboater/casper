@@ -3,7 +3,7 @@ import { existsSync, lstatSync, rmSync, watch, type FSWatcher } from "node:fs";
 import { mkdtemp, realpath, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { linuxSandboxProblem, quote } from "./linux";
+import { linuxSandboxProblem, quote, ripgrepPath } from "./linux";
 import { hostListed, hostName, sandboxPolicy, systemTempDirs, type SandboxPolicy, type SandboxProjectSettings, type SandboxUserSettings } from "./policy";
 import { runtimeEngine, type SandboxEngine } from "./runtime";
 import type { SandboxStore } from "./store";
@@ -97,7 +97,7 @@ export class ShellSandbox {
   }
 
   /** Whether and why the sandbox holds commands on this machine. */
-  static detect(options: Pick<ShellSandboxOptions, "platform" | "settings" | "noSandboxFlag" | "problem">): SandboxState {
+  static detect(options: Pick<ShellSandboxOptions, "platform" | "settings" | "noSandboxFlag" | "problem" | "agentDir">): SandboxState {
     if (options.noSandboxFlag) return { kind: "off", reason: "--no-sandbox" };
     if (options.settings?.user?.off) return { kind: "off", reason: "sandbox: off in ~/.casper/config.yaml" };
     const platform = options.platform ?? process.platform;
@@ -105,7 +105,7 @@ export class ShellSandbox {
     if (platform !== "linux" && platform !== "darwin") return { kind: "unsupported", reason: platform };
     const probe = options.problem ?? sandboxDefaults.problem;
     const problem = probe ? probe()
-      : platform === "linux" ? linuxSandboxProblem() : existsSync("/usr/bin/sandbox-exec") ? undefined : "sandbox-exec is missing";
+      : platform === "linux" ? linuxSandboxProblem(undefined, options.agentDir ? { agentDir: options.agentDir } : {}) : existsSync("/usr/bin/sandbox-exec") ? undefined : "sandbox-exec is missing";
     return problem ? { kind: "missing", reason: problem } : { kind: "on" };
   }
 
@@ -139,8 +139,10 @@ export class ShellSandbox {
       this.tempDir = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-sandbox-")));
       this.remembered = await this.options.store?.hosts().catch(() => []) ?? [];
       const seccompPath = await this.options.seccompPath?.().catch(() => undefined);
+      // On Linux the runtime scans the project with ripgrep: the one on PATH, or Pi's own copy.
+      const ripgrep = this.platform === "linux" ? ripgrepPath(undefined, this.options.agentDir) : undefined;
       await this.engine.initialize(this.policy(), (host, port) => this.decideHost(host, port),
-        { ...(this.user.allowUnixSockets ? { allowUnixSockets: this.user.allowUnixSockets } : {}), ...(seccompPath ? { seccompPath } : {}) });
+        { ...(this.user.allowUnixSockets ? { allowUnixSockets: this.user.allowUnixSockets } : {}), ...(seccompPath ? { seccompPath } : {}), ...(ripgrep ? { ripgrep } : {}) });
     })();
     return this.started;
   }

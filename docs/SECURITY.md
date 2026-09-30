@@ -44,7 +44,7 @@ the operating system, not a list of words:
 - **Services and dev servers** keep the machine's own network, so you and the page check can reach them
   on localhost; their files are held the same way.
 - **Network and security tools** (Ansible syntax checks, Junoser, yanglint, gitleaks, semgrep and the
-  rest) run with no network at all on Linux.
+  rest) run with no network at all, on Linux and macOS.
 - **What the sandbox refused is said.** A check it stopped reads
   `✗ test — blocked by the sandbox (wanted to write /etc/hosts)` on the receipt, and the AI reads the
   same line, so it stops retrying. Such a check is never sent for repair.
@@ -53,10 +53,10 @@ the operating system, not a list of words:
 
 | Platform | Shell sandbox | Without it |
 | --- | --- | --- |
-| Linux with `bubblewrap` and `socat` | On: bubblewrap, with seccomp blocking Unix sockets and a proxy for hosts | — |
-| Linux without them | Not sandboxed: `shell     not sandboxed (bubblewrap and socat are missing: sudo apt install bubblewrap socat)` | The AI's shell asks before each command |
-| Ubuntu 24.04 (AppArmor blocks user namespaces) | Not sandboxed until you allow bubblewrap: `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`, or an AppArmor profile for `bwrap` | The AI's shell asks before each command |
-| macOS | On: `sandbox-exec`, with a proxy for hosts. Services, dev servers and tools reach only listed hosts too (others ask) | — |
+| Linux with `bubblewrap`, `socat` and `ripgrep` | On: bubblewrap, with seccomp blocking Unix sockets and a proxy for hosts | — |
+| Linux without them | Not sandboxed: `shell     not sandboxed (bubblewrap and socat are missing: sudo apt install bubblewrap socat)`; the line names each one missing, ripgrep too (the sandbox scans the project with it; Pi's own copy in `~/.casper/agent/bin` counts) | The AI's shell asks before each command |
+| Ubuntu 24.04 (AppArmor blocks user namespaces) | Not sandboxed, and the banner says `Ubuntu blocks it (AppArmor restricts user namespaces …)`. To allow bubblewrap: `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0` (put it in `/etc/sysctl.d/` to keep it after a restart), or an AppArmor profile for `bwrap` | The AI's shell asks before each command |
+| macOS | On: `sandbox-exec`, with a proxy for hosts. Services and dev servers reach only listed hosts too (others ask); network and security tools get no network at all | — |
 | Windows | Not sandboxed (Windows has no sandbox in Casper yet) | The AI's shell asks before each command |
 | The sandbox fails to start when first used | Says `[sandbox] The sandbox could not start (<why>). Shell commands now ask first.` and is not sandboxed for the rest of the session | The AI's shell asks before each command, the one that found the problem too; that check or tool run goes ahead not sandboxed, and the receipt says so |
 | `--no-sandbox`, or `sandbox: off` in `~/.casper/config.yaml` | Off, your choice | Nothing asks; the receipt says `Shell commands and checks were not sandboxed (--no-sandbox)` |

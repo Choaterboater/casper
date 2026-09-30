@@ -96,13 +96,13 @@ and your project's check commands are started differently; see [MCP.md](MCP.md) 
 
 | OS | What holds shell commands and checks |
 | --- | --- |
-| Linux | bubblewrap with seccomp (Unix sockets blocked) and a proxy that lets only listed hosts through; needs `bubblewrap` and `socat`. Casper tries bubblewrap once at startup; if it can't start (missing, or Ubuntu 24.04's AppArmor user-namespace block), the banner says why and the AI's shell asks before each command. |
+| Linux | bubblewrap with seccomp (Unix sockets blocked) and a proxy that lets only listed hosts through; needs `bubblewrap`, `socat` and `ripgrep` (`sudo apt install bubblewrap socat ripgrep`). Casper tries bubblewrap once at startup; if it can't start (one missing, or Ubuntu 24.04's AppArmor user-namespace block: `Ubuntu blocks it (AppArmor restricts user namespaces …)`, fixed by `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`), the banner says why and the AI's shell asks before each command. |
 | macOS | `sandbox-exec` with the same host proxy. |
 | Windows | Nothing yet: the AI's shell asks before each command, and checks, services and dev servers run with your permissions. |
 
 The compiled Linux executable carries the seccomp helper and writes it to
-`~/.casper/bin/apply-seccomp-<sha256>` (0700) after a hash check. Linux CI installs bubblewrap and
-socat and runs the live sandbox tests; see [SECURITY.md](SECURITY.md).
+`~/.casper/bin/apply-seccomp-<sha256>` (0700) after a hash check. Linux CI installs bubblewrap,
+socat and ripgrep and runs the live sandbox tests; see [SECURITY.md](SECURITY.md).
 
 ## Opening state files — `src/platform/files.ts`
 
