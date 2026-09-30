@@ -1,0 +1,5 @@
+{
+  "_note": "Sample data, not from a real network",
+  "request": "GET network-monitoring/v1/devices?limit=100&next=1",
+  "body": { "items": [ { "serialNumber": "SAMPLE0001", "deviceName": "ap-lab-1" }, { "serialNumber": "SAMPLE0002", "deviceName": "sw-lab-1" } ], "total": 2, "next": null }
+}
