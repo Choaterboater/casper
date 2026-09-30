@@ -149,7 +149,7 @@ Casper itself:
 
 ## The shell sandbox
 
-New in v0.2.17 (not released yet). The shell sandbox (see [SECURITY.md](SECURITY.md)) is
+New in v0.2.17. The shell sandbox (see [SECURITY.md](SECURITY.md)) is
 set only in your own files (`~/.casper/config.yaml` or a profile):
 
 ```yaml
@@ -299,7 +299,7 @@ that usage stays unknown. Cost figures are estimates, not bills.
 
 ### Your big model
 
-New in v0.2.16 (not released yet). `/model big <provider/model>` (the same as
+New in v0.2.16. `/model big <provider/model>` (the same as
 `/model role reason …`) sets your big model; `/model big clear` forgets it. When checks still
 fail after the last repair in an interactive session, Casper asks once:
 `test still fails after 3 repairs. What now?` with 1 Stop here and 2 Retry with your big model,
@@ -414,7 +414,7 @@ skills itself; Pi's own skill discovery is turned off inside Casper.
 | User | `~/.casper/skills/` | Yes, when the real file is inside this folder |
 | Project (your copy) | `~/.casper/projects/<project>-<id>/skills/` (where `casper learn promote … project-skill` writes) | Yes, when the real file is inside this folder |
 | Project | `<project>/.casper/skills/` | No, until you review it |
-| Bundled with Casper (v0.2.18, not released yet) | Inside the `casper` binary (source: `skills/network/*/SKILL.md`) | Yes; on unless `skills.bundled: false`. See [SKILLS.md](SKILLS.md) |
+| Bundled with Casper (since v0.2.18) | Inside the `casper` binary (source: `skills/network/*/SKILL.md`) | Yes; on unless `skills.bundled: false`. See [SKILLS.md](SKILLS.md) |
 | Other tools **(opt-in)** | `~/.pi/agent/skills/`, `~/.agents/skills/`, `~/.claude/skills/`, `~/.codex/skills/`; in the project `.pi/skills/`, `.agents/skills/`, `.claude/skills/`, `.codex/skills/` | No, until you review it |
 
 To use other tools' skill folders, turn them on in `~/.casper/config.yaml` or
@@ -474,7 +474,7 @@ skills:
   maxActive: 6 # default; 0 turns automatic loading off, maximum 32
 ```
 
-**Bundled network skills (v0.2.18, not released yet).** The bundled skills (Mist, Central,
+**Bundled network skills (since v0.2.18).** The bundled skills (Mist, Central new and classic,
 AOS-CX, Junos, ClearPass) use a stricter rule: a request must name the product (for example
 "mist api", "pyez", "clearpass"), or use a looser word ("mist", "junos", "central") together with
 a network word ("site", "switch", "api", "script"), or be a change request in a project whose

@@ -36,7 +36,7 @@
   <main id="main">
     <div class="container">
       <h1>Questions and answers</h1>
-      <p class="lead">Straight answers about Casper 0.2.15. Click a question to open it. If something
+      <p class="lead">Straight answers about Casper 0.2.21. Click a question to open it. If something
       breaks, jump to <a href="#troubleshooting">troubleshooting</a>.</p>
 
       <nav class="toc" aria-label="On this page">
@@ -166,9 +166,12 @@ The change was not made.
           </figure>
           <p>Be honest with yourself about the limits, though:</p>
           <ul>
-            <li>Casper is <strong>not a sandbox</strong>. The AI's own shell runs with your
-            permissions, and there is no "ask before every shell command" gate. If your laptop can SSH
-            or run Ansible against a switch, so can that shell.</li>
+            <li>The sandbox is <strong>a fence, not proof</strong>. On Linux and macOS the AI's shell
+            reaches only listed hosts, and Casper asks <code>Reach 198.51.100.20 (build-server)?</code>
+            before <code>ssh</code>, <code>scp</code> or <code>rsync</code>. On Windows there is no
+            sandbox: the AI's shell asks before each command. With the sandbox off, a program that
+            opens its own connection (a Python script, <code>curl</code>) still reaches a switch with
+            no question.</li>
             <li>A login counts as read-only only when the product itself says so (through an
             <code>access_check</code> tool). Otherwise <code>/mcp</code> shows
             <code>access not checked</code>.</li>
@@ -182,10 +185,12 @@ The change was not made.
 
         <details>
           <summary>Does it ask before running every command?</summary>
-          <p>No. Casper's approvals cover specific things: MCP calls that may change something,
-          connecting a server, the browser, the debugger and a few downloads. The AI's file and shell
-          tools run with your permissions and are not sandboxed. Checks run your project's own
-          commands without asking first.</p>
+          <p>Not every one. Casper's approvals cover specific things: MCP calls that may change
+          something, connecting a server, reaching another machine over <code>ssh</code>, a write
+          outside the project, a host the sandbox does not know, the browser, the debugger and a few
+          downloads. On Linux and macOS the AI's shell and the checks run in a sandbox
+          (<code>/sandbox</code> shows what it holds). On Windows the AI's shell asks before each
+          command. Checks run your project's own commands without asking first.</p>
           <p>So use Casper in projects you trust, or start with <code>--no-verify</code> (no
           Casper-run checks). <code>/permissions</code> shows what Casper can and cannot do.</p>
         </details>
@@ -239,7 +244,7 @@ sum now turns its inputs into numbers first.
 
         <details>
           <summary>Why did it ask me something?</summary>
-          <p>Casper stops and asks when the next step is yours to decide. In 0.2.15 that includes:</p>
+          <p>Casper stops and asks when the next step is yours to decide. In 0.2.21 that includes:</p>
           <ul>
             <li>an MCP call that may change something (you type <code>yes</code>);</li>
             <li>connecting an MCP server the first time, or turning its writes on;</li>
@@ -249,7 +254,12 @@ sum now turns its inputs into numbers first.
             it;</li>
             <li>a model error that repeated, to retry or stop;</li>
             <li>the request checklist before a code change (edit it, or <kbd>Esc</kbd> to skip);</li>
-            <li>which project to open, when you start in your home folder.</li>
+            <li>which project to open, when you start in your home folder;</li>
+            <li><code>Next: 1 Undo · 2 Show diff</code> after each task (Enter runs nothing);</li>
+            <li>before the AI's shell reaches another machine, or writes outside the project;</li>
+            <li>a shell command to a host the sandbox does not know;</li>
+            <li>a retry on your big model when repairs run out, with a rough cost;</li>
+            <li>starting a new project from a template, or in an empty folder.</li>
           </ul>
           <p>Answers are numbered: press the number. <kbd>Esc</kbd> skips.</p>
           <figure class="capture">
@@ -303,7 +313,7 @@ lint could not start. Casper did not try to fix it. What now?
         <details>
           <summary>How do I update?</summary>
           <p>Run the install command from the newer release. The install commands pin a version:
-          running the v0.2.15 command again just reinstalls v0.2.15. There is no auto-updater. On
+          running the v0.2.21 command again just reinstalls v0.2.21. There is no auto-updater. On
           Windows, close a running Casper first.</p>
           <p>If a new download fails any check, your old install stays as it was.</p>
         </details>
@@ -432,7 +442,7 @@ lint could not start. Casper did not try to fix it. What now?
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.2.15</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.2.21</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>

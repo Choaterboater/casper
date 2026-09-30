@@ -39,10 +39,10 @@
         <img class="hero-logo" src="assets/logo.svg" alt="Casper's ghost logo" width="88" height="88">
         <h1 id="hero-title">Casper</h1>
         <p class="lead">A coding helper for your terminal that checks the AI's work before it tells you "done".</p>
-        <p class="muted small">Version 0.2.15 · early preview, not signed · MIT licence</p>
+        <p class="muted small">Version 0.2.21 · early preview, not signed · MIT licence</p>
 
-        <div class="cmd"><span class="cmd-label">macOS / Linux</span><pre><code>curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.15/install.sh | sh</code></pre></div>
-        <div class="cmd"><span class="cmd-label">Windows x64 · PowerShell</span><pre><code>[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.15/install.ps1 | iex</code></pre></div>
+        <div class="cmd"><span class="cmd-label">macOS / Linux</span><pre><code>curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.21/install.sh | sh</code></pre></div>
+        <div class="cmd"><span class="cmd-label">Windows x64 · PowerShell</span><pre><code>[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.21/install.ps1 | iex</code></pre></div>
         <p class="small muted">No Bun or source checkout needed. The installer checks the file's SHA-256 and runs the new program's <code>--version</code> before it replaces an older install. Then run <code>casper</code> in your project folder.</p>
 
         <div class="actions">
@@ -155,12 +155,12 @@ Fixed: sum subtracted instead of adding. Added a test for sum(2, 3).
 
       <section aria-labelledby="safety">
         <h2 id="safety">Good to know</h2>
-        <p>Casper is <strong>not a sandbox</strong>. Its file and shell tools run with your permissions, and checks run your project's own commands without asking. Use it in projects you trust, or start with <code>--no-verify</code>. Your code and chat may go to the model provider you picked. The <a href="faq.html">FAQ</a> has more.</p>
+        <p>On Linux and macOS the AI's shell and Casper's checks run in a <strong>sandbox</strong>: they write only the project, can't read <code>~/.ssh</code>, and reach only listed hosts. Windows has no sandbox yet; there the AI's shell asks before each command. Checks still run your project's own commands without asking. Use it in projects you trust, or start with <code>--no-verify</code>. Your code and chat may go to the model provider you picked. The <a href="faq.html">FAQ</a> has more.</p>
       </section>
 
       <section aria-labelledby="next">
-        <h2 id="next">Coming next</h2>
-        <p>Templates, page checks, undo and a sandbox are planned, but they are <span class="badge soon">coming, not released</span>. <a href="roadmap.html">See the roadmap</a>.</p>
+        <h2 id="next">New since 0.2.15</h2>
+        <p>New projects from templates (<code>casper new</code>), page checks at desktop and phone width, undo, a shell sandbox, built-in network skills, a question before the AI reaches another machine, web lookups and a quieter screen. Crews (v0.3) are <span class="badge soon">coming, not released</span>. <a href="roadmap.html">See the roadmap</a>.</p>
       </section>
     </div>
   </main>
@@ -168,7 +168,7 @@ Fixed: sum subtracted instead of adding. Added a test for sum(2, 3).
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.2.15</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.2.21</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>

@@ -73,7 +73,7 @@
           <code>edit</code> and <code>bash</code>. Its idea is "keep the core small, add what you
           want". It has no MCP, no permission pop-ups, no sub-agents and no plan mode built in. You
           add those yourself with extensions, skills or Pi packages.</p>
-          <p>Casper uses Pi's SDK as a pinned library (Pi 0.87.0 in Casper 0.2.15). It is not a fork
+          <p>Casper uses Pi's SDK as a pinned library (Pi 0.87.0 in Casper 0.2.21). It is not a fork
           and not a Pi extension. Casper wraps the AI's work in a loop of checks, proof and a
           receipt, and adds guard rails for network gear.</p>
         </div>
@@ -141,16 +141,16 @@
       </section>
 
       <section id="table" aria-labelledby="table-h">
-        <h2 id="table-h">The table: plain Pi vs Casper 0.2.15</h2>
+        <h2 id="table-h">The table: plain Pi vs Casper 0.2.21</h2>
         <p class="prose">"Plain Pi" means Pi as it ships, with no extra packages. Many of Casper's
         extras could be built on Pi with extensions. This table is about what you get without
         building anything.</p>
         <div class="table-wrap">
           <table>
-            <caption>Checked against the Pi 0.87.0 README and Casper 0.2.15 docs. "Yes" means built in
+            <caption>Checked against the Pi 0.87.0 README and Casper 0.2.21 docs. "Yes" means built in
             and on or ready to use.</caption>
             <thead>
-              <tr><th scope="col">What</th><th scope="col">Plain Pi</th><th scope="col">Casper 0.2.15</th></tr>
+              <tr><th scope="col">What</th><th scope="col">Plain Pi</th><th scope="col">Casper 0.2.21</th></tr>
             </thead>
             <tbody>
               <tr>
@@ -181,7 +181,7 @@
               <tr>
                 <th scope="row">Finds your check commands</th>
                 <td class="no">No</td>
-                <td class="yes">Yes: Node, Python, Rust, Go. <code>/project</code> shows what it found.</td>
+                <td class="yes">Yes: Node, Python, Rust, Go, Swift. <code>/project</code> shows what it found.</td>
               </tr>
               <tr>
                 <th scope="row">Request checklist</th>
@@ -206,7 +206,7 @@
               <tr>
                 <th scope="row">Permission prompts</th>
                 <td class="no">None built in ("No permission popups"). Build your own or use a container.</td>
-                <td class="yes">Risky actions ask you, and the AI cannot approve for you. Still not a sandbox.</td>
+                <td class="yes">Risky actions ask you, and the AI cannot approve for you. Reaching another machine over <code>ssh</code> and a write outside the project ask too.</td>
               </tr>
               <tr>
                 <th scope="row">Questions to you</th>
@@ -241,7 +241,7 @@
               <tr>
                 <th scope="row">Sandbox</th>
                 <td class="no">No</td>
-                <td class="no">No. File and shell tools run with your permissions.</td>
+                <td class="yes">Yes on Linux (through bubblewrap, a small sandbox tool) and macOS: the AI's shell, checks, services and dev servers write only the project, temp and package caches and can't read <code>~/.ssh</code>; the AI's shell and checks reach only listed hosts (others ask), while services and dev servers keep the machine's network on Linux and reach only listed hosts on macOS. Windows has no sandbox yet; there the AI's shell asks before each command.</td>
               </tr>
             </tbody>
           </table>
@@ -430,7 +430,7 @@ The change was not made.
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.2.15</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.2.21</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>

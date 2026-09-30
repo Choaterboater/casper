@@ -4,16 +4,163 @@
 published, and what the installers promise. **When you'd use it:** to see what is new
 before you upgrade, or when you build or publish a release yourself.
 
-Casper distributes an unsigned **v0.2.15 preview**, not a stable release. The installers
-download from `https://github.com/Choaterboater/casper/releases/download/v0.2.15`,
+Casper distributes an unsigned **v0.2.21 preview**, not a stable release. The installers
+download from `https://github.com/Choaterboater/casper/releases/download/v0.2.21`,
 because GitHub's `latest/download` link skips preview releases. The first published
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
 
-## v0.2.19: asks before reaching other machines
+## v0.2.21: a clearer screen, and pages checked on a phone
 
-**Not released yet.** The version number and the installers still say v0.2.15; the release step
-sets them and removes this line.
+This is the first published preview since v0.2.15. It also brings everything built since then and
+never published: v0.2.16 (build new things), v0.2.17 (undo and a real safety net), v0.2.18 (network
+skills), v0.2.19 (asks before reaching other machines) and v0.2.20 (fewer layers); each has its own
+section below. What v0.2.21 adds on top:
+
+**The window title names the conversation.** The first request names it, with plain text rules and
+no model call: "Build a small web app in this empty folder: an IPv4 subnet calculator." gives
+`Casper · IPv4 subnet calculator`, and the title shows `◐ Casper · …` while Casper works. A resumed
+conversation keeps its name, and the old window title comes back when Casper exits.
+
+**How much of the work shows: `quiet`, `normal` or `detailed`.** `normal` (the default) is today's
+screen: steps fold into one summary line when the model moves on, and failures keep their own line
+(an edit that failed and was retried at once folds too). `quiet` prints the model's words, failures
+and the receipt; a step that went well leaves no line. `detailed` prints every step, with a small
+diff (up to 12 changed lines) under each edit, then `… 8 more lines · ctrl+t`. `/details
+quiet|normal|detailed` switches for the session; `/details` alone goes to the next level. `display:`
+in `~/.casper/config.yaml` or a profile sets the default; a project file that sets it is refused
+(`display is a user setting`). On the rich terminal Ctrl+T shows the last finished step in full at
+any level: an edit's whole diff, or what a command printed. See
+[CONFIGURATION.md](CONFIGURATION.md#display).
+
+**A colored edge on the result.** On the rich terminal the receipt gets a `▌` edge down its left
+side: green for a pass, red for a failure, yellow for anything in between. The plain terminal and
+`--verbose` print the lines as they were.
+
+**Every page is also checked at phone width.** The page check opens each page a second time at
+390px. A page wider than the screen fails with `✗ /wide at phone width (390px): the page is 650px
+wide, so it scrolls sideways`; a text field that keeps less than 60% of its height there, or can't
+show a line of text, fails with `✗ /tight at phone width (390px): input#address is squashed (20px tall;
+49px on a wider screen)`; the verdict names `/wide doesn't fit a phone screen`. A page that fits
+reads `✓ /ok loads · 0 console errors · fits a phone`. See
+[Page checks](VERIFICATION.md#page-checks).
+
+**Plain Bun and Node sites get the page check.** A project with no framework, whose dev or start
+script runs its own server file (`bun --watch src/server.ts`, `bun run server.ts`, `node server.js`)
+and has an `index.html` (also under `public/`, `static/` or `src/`), is a web project: Casper starts
+that server with `PORT` set and opens `/`. An API with no page is not one, and a missing
+`node_modules` says `Run bun install first` as before. A `package.json` whose scripts run `bun` is a
+Bun project before its first lockfile, so its checks run with `bun run test`, not npm.
+
+**A request at the empty-folder question runs.** At `This folder is empty. Start a new project
+here?`, a request typed or pasted (three words or more) is not a wrong answer any more: it runs in
+this folder as the first request. A short slip like `webb` still gets `isn't one of the choices`.
+
+**Browser tools: more fields, one-element overflow, replay fixed.** `fill` now types into `number`,
+`email`, `date`, `time` and `range` fields (also `datetime-local`, `month`, `week` and `color`);
+password and file inputs stay out. `no-horizontal-overflow` takes an optional `selector` to check one
+element instead of the whole page. `replay` accepts the nameless, url-less placeholder scenario some
+models attach to every call (it used to refuse it, so no recorded check was ever replayed); a
+scenario with a name or a url is still refused with `replay runs the recorded scenario unchanged;
+send only action and id`. See [BROWSER.md](BROWSER.md).
+
+**The receipt answers a claim about browser checks.** When the answer says the browser checks
+passed and Casper's record says otherwise, the browser line says so: `✗ Browser checks failed: phone
+— the answer above says they passed`, or `• Browser checks did not finish — the answer above says
+they passed; Casper saw no passing browser check`. When some passed, the receipt counts them and
+names the rest: `• Browser checks: 2 of 3 passed; not finished: Calculate a subnet`. Only a sentence
+about checking in a browser counts as the claim; "bun test … serves the page and browser assets"
+does not.
+
+## v0.2.20: fewer layers
+
+Fewer questions, fewer lines and fewer settings between a request and the work. The AI does the next
+step itself, the receipt is one line when all is well, and the numbers on screen say what you are
+charged.
+
+**`casper new` asks the kind first.** `What are you building?` offers Network, MCP server, Web app or
+dashboard, Python tool and My own, then, for a kind with more than one template, which one, with Back
+first. My own is an empty folder with git and no template; `casper new empty <name>` is the
+command-line way, and `casper new --list` lists it. Words typed at `Name it?` that aren't a name become
+the next Enter choice: `Press Enter for config-backup-tool, or type another name.` See [NEW.md](NEW.md).
+
+**The AI does the next step itself.** The project context now says what autonomy means in words: at
+`high`, the default, the AI edits files, runs the tests and changes settings you asked for inside the
+project, never tells you to hand-edit a file it can edit, and asks one numbered question only when
+something outside the project is needed. What it builds is on by default, not disabled, hidden or
+dry-run unless you asked; code that changes network devices still starts with writes off, said in one
+line. Risk gets at most one short line, and answers lead with the result, with no requirements
+checklist unless you ask.
+
+**The AI can look things up.** `web_search` and `web_fetch` are on with nothing to set: DuckDuckGo by
+default, no key; `web: { provider: brave }` uses Brave Search with your key saved as `brave` in Casper's
+login file, and `web: { provider: searxng, searxngUrl: <address> }` your own SearXNG. They never ask,
+and reach only public https pages on ports 80 and 443 (http is upgraded), checked again on every
+redirect; private, local and cloud-metadata addresses are refused, and a query or address holding a
+secret is refused, never sent. A search returns up to 8 results; a page comes back as plain text, up
+to 12 KB. The Working box shows the query or address. `web: off` in your own config turns them off; a
+project file can't change `web:`.
+
+**A write outside the project asks.** Before the AI's shell, or its `edit` and `write` tools, write
+outside the project, Casper asks `The AI wants to write to ~/Library/Application Support/SomeApp.`
+(for the shell: `A shell command wants to write to …`) with `1 No · 2 Allow <folder> for this
+session`; Enter writes nothing, one shell command asks once for all its folders, and nothing is kept
+past the session. `/`, system folders, git's own folders and private places are refused without a
+question; temp and package caches never ask. The receipt says `• Wrote outside the project: … (you
+allowed it; no undo copy)`. See [SECURITY.md](SECURITY.md).
+
+**Honest usage.** `/usage` splits tokens into `44k out · 131k new · 4.9M cached` and says how much
+came from the cache: `Cache: 97% of input read from cache this session`. A subscription sign-in pays
+no per-token price, so the footer says `sub ≈$0.31`, what the tokens would cost pay-per-token, and a
+subscription or a free model is never noted, paused or stopped for money it isn't charged. See
+[TERMINAL_UX.md](TERMINAL_UX.md).
+
+**Spend notes, no pause by default.** A task gets one quiet line at about $1 (`… This task has used
+$1.03 so far (312k tok).`) and one more at about $5, and keeps going. A limit said in the request
+("keep it under $2") or `spend.pauseAt` adds the pause: `This task has used $5.02.` with `1 Stop here ·
+2 Keep going`, and Enter stops. See [CONFIGURATION.md](CONFIGURATION.md#what-a-task-spends).
+
+**The prompt cache is kept.** `cache: auto` (the default) asks for the long cache only where it costs
+nothing extra: OpenAI, and non-Anthropic models on OpenRouter; Anthropic models and every other
+provider get the short one. Casper's own tools stay offered once they appear and MCP tools are picked
+once per session, because a changed tool list throws the cache away. `cache: long`, `short` or `off`
+in your own config change it; a project file cannot. See
+[CONFIGURATION.md](CONFIGURATION.md#prompt-cache).
+
+**More projects get checks.** A Swift package gets `swift test` and `swift build`. uv and poetry
+projects run unittest through their own Python (`uv run python -m unittest discover`). A Python build
+check is set only when the `build` package is there (listed, or in the `.venv`), so `python -m build`
+never fails with "No module named build". When the model sets up a project in this turn (writes a
+`package.json`, say), its checks run on that turn; a result recorded before the change is kept while
+its command is the same and runs again if the command changed. The AI is never offered a check that
+can only skip.
+
+**Browser calls with extra blank fields run.** A `serve` call that also carries `width`, `height` and
+a placeholder `scenario` runs, and the result names what was not applied; an unknown field or action
+still gets an error that says what to send. A loopback address without a scheme (`127.0.0.1:3000`)
+opens as http.
+
+**A detailed request builds as asked.** A request that already lists its requirements (two or more
+list lines, most of them six words or more or with a detail such as a command, number, file or
+example) gets no `Suggested: plan first` question. The checklist's cases are made quietly, no longer
+printed before work; the receipt names one only when it is not met or could not be confirmed, and
+`/receipt` lists them all. With the review round off, the model ends its answer with only the
+requirements still open, not a full ticked list. See [TERMINAL_UX.md](TERMINAL_UX.md) and
+[VERIFICATION.md](VERIFICATION.md).
+
+**One-line receipt when all is well.** `✓ Verified · test passed · lint passed · 15 files changed ·
+after 1 repair`. Anything else puts the verdict on line 1 and each problem on its own line; the
+per-file table is behind `/diff` and `--verbose`, and `/receipt` shows the full form. A question that
+changed nothing and ran no tests gets no receipt. The no-checks how-to is said in full once a session
+and short after that. See [VERIFICATION.md](VERIFICATION.md).
+
+**Smaller things.** The window or tab title said `casper`, not the bun or node that runs it (v0.2.21
+now names it after the conversation). `/output all` lists every call of the last task on its own
+line. The plain terminal prints `… bash · bun test` when a call is still running after two seconds,
+so a long test run does not look hung. CI cancels an older run when a newer push lands and waits for
+"Ready for review" on a draft pull request.
+
+## v0.2.19: asks before reaching other machines
 
 What v0.2.19 adds:
 
@@ -83,9 +230,6 @@ not been tried on a real Mac yet.
 
 ## v0.2.18: network skills
 
-**Not released yet.** The version number and the installers still say v0.2.15; the release step
-sets them and removes this line.
-
 **Network skills pack.** Six short how-to files for network automation are built into Casper:
 Juniper Mist API, new HPE Aruba Networking Central, classic Central, AOS-CX REST API, Junos (PyEZ,
 NETCONF, `| display set`, `commit check` and `commit confirmed`) and ClearPass REST API. A request
@@ -111,9 +255,6 @@ skills were written; facts come from the public SDK repositories, and anything e
 current docs".
 
 ## v0.2.17: undo and a real safety net
-
-**Not released yet.** The version number and the installers still say v0.2.15; the release step
-sets them and removes this line.
 
 **Undo, redo and diff per task.** Casper keeps a private copy of the folder before and after each
 task, in its own git folder under `~/.casper` (never your `.git`), also in folders that are not git
@@ -211,9 +352,6 @@ Start new projects, see pages load after edits, retry a stuck repair on a bigger
 network and security checks, all without spending tokens unless you pick a paid choice. See
 [NEW.md](NEW.md), [VERIFICATION.md](VERIFICATION.md), [NETWORK-CHECKS.md](NETWORK-CHECKS.md),
 [SECURITY_CHECKS.md](SECURITY_CHECKS.md) and [SECURITY.md](SECURITY.md).
-
-**Not released yet.** The version number and the installers still say v0.2.15; the release step
-sets them and removes this line.
 
 **New projects (`casper new`).** `casper new` asks the kind and the name, builds the project in
 `~/Projects/<name>` with `uv` or `bun`, runs its own tests, makes the first commit with your git

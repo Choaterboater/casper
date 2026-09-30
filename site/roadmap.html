@@ -55,6 +55,12 @@
         <ul>
           <li><a href="#released">Released</a>
             <ul>
+              <li><a href="#v0221">v0.2.21: a clearer screen, pages at phone width</a></li>
+              <li><a href="#v0220">v0.2.20: fewer layers</a></li>
+              <li><a href="#v0219">v0.2.19: asks before reaching other machines</a></li>
+              <li><a href="#v0218">v0.2.18: network skills</a></li>
+              <li><a href="#v0217">v0.2.17: undo, receipts and a sandbox</a></li>
+              <li><a href="#v0216">v0.2.16: build new things</a></li>
               <li><a href="#v0215">v0.2.15: MCP for network servers, writes off</a></li>
               <li><a href="#v0214">v0.2.14: see it build, trust the result</a></li>
               <li><a href="#v0213">v0.2.13: Casper runs the checks</a></li>
@@ -63,8 +69,7 @@
           </li>
           <li><a href="#coming">Coming, not released</a>
             <ul>
-              <li><a href="#v0216">v0.2.16: build new things</a></li>
-              <li><a href="#v0217">v0.2.17: undo, receipts and a sandbox</a></li>
+              <li><a href="#v030">v0.3: crews</a></li>
             </ul>
           </li>
           <li><a href="#later">Later, not scheduled</a>
@@ -83,8 +88,161 @@
         and on the <a href="https://github.com/Choaterboater/casper/releases">Releases page</a>.</p>
         <div class="stack">
 
+        <article class="card" id="v0221" aria-labelledby="v0221-h">
+          <h3 id="v0221-h">v0.2.21 · A clearer screen, pages at phone width <span class="badge ok">current preview</span></h3>
+          <p>The first published build since v0.2.15. It ships everything from v0.2.16 to v0.2.20
+          below, plus a screen you can turn up or down and stricter page checks.</p>
+          <ul>
+            <li><strong>The window title names the conversation.</strong> A short name from your
+            first request, with no model call, and <code>◐</code> in front while Casper works. A
+            resumed conversation keeps its name.</li>
+            <li><strong>Pick how much you see.</strong> <code>/details quiet</code>,
+            <code>normal</code> or <code>detailed</code>; <code>display:</code> in your own config
+            sets the default. Detailed shows a small diff under each edit. <kbd>Ctrl+T</kbd> shows
+            the last step in full. The task's result gets a colored edge: green, yellow or red.</li>
+            <li><strong>Pages checked at phone width too.</strong> The page check opens each page at
+            390px as well as desktop width, and fails a page that scrolls sideways or squashes a
+            text field: <code>✗ /wide at phone width (390px): the page is 650px wide, so it scrolls
+            sideways</code>. A plain Bun or Node site (an <code>index.html</code> and a script that
+            runs its own server file) gets the check too.</li>
+            <li><strong>Browser fill on more fields.</strong> Number, email, date, time and range
+            fields work; <code>no-horizontal-overflow</code> can name one element; a recorded browser
+            check now replays even when the model sends an empty scenario along with it.</li>
+            <li><strong>An honest browser line.</strong> When the answer says the browser checks
+            passed but Casper's record says they failed or did not finish, the receipt says so:
+            <code>✗ Browser checks failed: phone — the answer above says they passed</code>.</li>
+            <li><strong>A request at the empty-folder question runs.</strong> Type or paste a
+            request there and it runs in this folder instead of counting as a wrong answer.</li>
+          </ul>
+        </article>
+
+        <article class="card" id="v0220" aria-labelledby="v0220-h">
+          <h3 id="v0220-h">v0.2.20 · Fewer layers</h3>
+          <p>Less in your way. Casper and the AI do the next step themselves, and things start on,
+          with an off switch.</p>
+          <ul>
+            <li><strong>A shorter new-project menu.</strong> <code>casper new</code> asks the kind
+            first (Network, MCP server, Web app or dashboard, Python tool, My own), then which one.
+            My own is an empty folder with git.</li>
+            <li><strong>The AI does it.</strong> It changes settings in your project itself instead
+            of telling you to edit a file, builds things on by default, and keeps risk notes to one
+            line.</li>
+            <li><strong>One question for outside writes.</strong> A write outside the project asks
+            <code>1 No · 2 Allow &lt;folder&gt; for this session</code>, for the shell and the
+            AI's edit and write tools alike.</li>
+            <li><strong>Web lookups.</strong> <code>web_search</code> and <code>web_fetch</code>
+            read public pages (DuckDuckGo by default, no key). A lookup holding a secret is
+            refused. <code>web: off</code> turns them off.</li>
+            <li><strong>Quieter, more honest numbers.</strong> No repeated "not verified" lines;
+            usage shows out, new and cached tokens; a subscription says so instead of a list
+            price.</li>
+            <li><strong>Notes, not pauses, on spend.</strong> A task gets a quiet note at about $1
+            and $5 and keeps going. A limit you say in the request ("keep it under $2") or
+            <code>spend.pauseAt</code> adds the pause.</li>
+            <li><strong>More projects checked.</strong> Swift packages get <code>swift test</code> and
+            <code>swift build</code>, and a Python build check only when the build tool is there.</li>
+            <li><strong>Caching that lasts.</strong> The long cache only where it costs nothing
+            extra, one tool list per session, and the cache hit rate in <code>/usage</code>.</li>
+            <li><strong>Smaller things.</strong> Browser calls with extra blank fields run; a
+            detailed request builds without "plan first"; a one-line receipt when all is well.</li>
+          </ul>
+        </article>
+
+        <article class="card" id="v0219" aria-labelledby="v0219-h">
+          <h3 id="v0219-h">v0.2.19 · Asks before reaching other machines</h3>
+          <p>The AI's shell can reach a switch or a server. Now Casper asks first, hides more
+          secrets, and the receipt says what happened over there.</p>
+          <ul>
+            <li><strong>Reach this host?</strong> Before <code>ssh</code>, <code>scp</code>,
+            <code>rsync</code>, <code>nc</code> and friends, Casper asks
+            <code>Reach 198.51.100.20 (build-server)?</code> with No first. A script run refuses
+            it and never waits.</li>
+            <li><strong><code>~/.ssh</code> stays private in the shell too</strong>, with the
+            sandbox off. Lab logins in notes, Proxmox tokens and passwords typed into commands are
+            hidden from the AI and the screen.</li>
+            <li><strong>An honest receipt about other machines.</strong> It lists what the AI
+            changed there and what Casper stopped before it got there. When the work lands in a
+            project inside the folder, that project's tests run and Casper offers to switch
+            there.</li>
+            <li><strong>A quieter screen.</strong> One line per tool call in a box that folds when
+            the AI moves on. The footer shows each task's tokens and cost.</li>
+            <li><strong>tmux and iTerm2</strong> with nothing to set: busy steps go to a pane
+            beside Casper; <code>/tasks</code> lists what runs in the background.</li>
+          </ul>
+        </article>
+
+        <article class="card" id="v0218" aria-labelledby="v0218-h">
+          <h3 id="v0218-h">v0.2.18 · Network skills</h3>
+          <p>Short how-to files for the network products you use, built in.</p>
+          <ul>
+            <li><strong>Six built-in skills:</strong> Juniper Mist, HPE Aruba Networking Central
+            (new and classic), AOS-CX REST, Junos and ClearPass. A request that names the product
+            gets that skill, picked by a local word match with no model call. Each one tells the
+            AI to ask for data first and to stop and ask you before any change.
+            <code>skills.bundled: false</code> turns them off.</li>
+            <li><strong>More SDKs for local search:</strong> <code>/references add pyaoscx</code>,
+            <code>pyclearpass</code>, <code>mistapi</code> and <code>junos-pyez</code>.</li>
+          </ul>
+        </article>
+
+        <article class="card" id="v0217" aria-labelledby="v0217-h">
+          <h3 id="v0217-h">v0.2.17 · Undo, receipts and a sandbox</h3>
+          <p>The "oops" release. Take changes back, keep proof of what happened, and fence in the
+          shell.</p>
+          <ul>
+            <li><strong>Undo and redo.</strong> <code>Next: 1 Undo · 2 Show diff</code> after each
+            task; <code>/undo</code>, <code>/redo</code> and <code>/diff</code> work from a private
+            copy of each task's files, also outside git. Undo never overwrites a file you changed
+            since.</li>
+            <li><strong>Saved receipts.</strong> <code>/receipt</code> shows the last receipt after
+            a restart, with secrets hidden.</li>
+            <li><strong>A stricter "verified".</strong> In the <code>--json</code> result, only a
+            proven change counts as verified, so <code>--require-verification</code> exits 3 for
+            "Checks passed — not proven".</li>
+            <li><strong>A sandbox for shell commands.</strong> On Linux (through bubblewrap, a small
+            sandbox tool) and macOS, the AI's shell, checks, services and dev servers write only the
+            project, temp and package caches and can't read <code>~/.ssh</code> or cloud logins. The
+            AI's shell and checks reach only listed hosts; any other host asks. Services and dev
+            servers keep the machine's network on Linux and reach only listed hosts on macOS. On
+            Windows, or Linux without bubblewrap, the AI's shell asks before each command.
+            <code>--no-sandbox</code> turns it off.</li>
+            <li><strong>An AI security review.</strong> After its tools, <code>/security-review</code>
+            offers to run a model over the changes. It asks first and shows the cost; files the
+            scanners flagged are never opened for it.</li>
+            <li><strong>The plan editor asks</strong> "Build this plan?" before it builds.</li>
+          </ul>
+        </article>
+
+        <article class="card" id="v0216" aria-labelledby="v0216-h">
+          <h3 id="v0216-h">v0.2.16 · Build new things</h3>
+          <p>Start new projects, see pages load after edits, and run network and security checks.
+          Most of it makes no model call, so it costs zero tokens.</p>
+          <ul>
+            <li><strong>New projects with <code>casper new</code>.</strong> Pick a kind and a name.
+            Casper builds the project, runs its tests and makes the first commit, with no model. The
+            templates: a Python tool, an MCP server for your network
+            (<code>network-mcp</code>), Mist Python scripts (<code>mist-python</code>), a web app, a
+            NOC dashboard, and Aruba CX (AOS-CX) and Junos Ansible projects. The last line says
+            "Ready", never "verified".</li>
+            <li><strong>Page checks.</strong> In a web project, after an edit that reaches a page,
+            Casper starts the dev server, opens the changed pages and reports whether they load.</li>
+            <li><strong>Plan first.</strong> A request that asks for many things can get a plan
+            before any building starts. You read it, then pick build or stop.</li>
+            <li><strong>Retry on a bigger model.</strong> When repairs run out, Casper asks once
+            whether to retry on your bigger model, and shows a rough cost. Pressing Enter stops.</li>
+            <li><strong>Network checks.</strong> Casper finds Ansible playbooks and offers ready-made
+            syntax checks for Aruba CX and Junos. Checks against a lab run only when you start them;
+            the AI cannot start one.</li>
+            <li><strong>Security scans.</strong> <code>casper security</code> runs free scanners such
+            as gitleaks and semgrep on your project, with no model call. The report says what the
+            tools found. It never calls your code safe.</li>
+            <li><strong>Enter is the safe choice.</strong> At Casper's numbered questions, choice 1
+            never builds, spends tokens, remembers or reaches a lab.</li>
+          </ul>
+        </article>
+
         <article class="card" id="v0215" aria-labelledby="v0215-h">
-          <h3 id="v0215-h">v0.2.15 · MCP for network servers, with writes off <span class="badge ok">current preview</span></h3>
+          <h3 id="v0215-h">v0.2.15 · MCP for network servers, with writes off</h3>
           <p>This one is for network people. MCP servers (tool servers the AI can call) such as
           hpe-networking-mcp, junos-mcp-server, Mist and NetBox now work with Casper. The AI can read.
           Changing things is up to you.</p>
@@ -169,84 +327,11 @@
         <h2 id="coming-h">Coming, not released</h2>
         <aside class="callout soon">
           <strong class="callout-title">Not in any release yet</strong>
-          <p>Nothing in this section is in v0.2.15. It is being built now. Names, commands and details
+          <p>Nothing in this section is in v0.2.21. It is being built now. Names, commands and details
           may change, or move to a later version, before they ship.</p>
         </aside>
 
         <div class="stack">
-        <article class="card" id="v0216" aria-labelledby="v0216-h">
-          <h3 id="v0216-h">v0.2.16 · Build new things <span class="badge soon">coming, not released</span></h3>
-          <p>Start new projects, see pages load after edits, and run network and security checks.
-          Most of it makes no model call, so it costs zero tokens.</p>
-          <ul>
-            <li><strong>New projects with <code>casper new</code>.</strong> Pick a kind and a name.
-            Casper builds the project, runs its tests and makes the first commit, with no model. The
-            planned templates include a Python tool, an MCP server for your network
-            (<code>network-mcp</code>), Mist Python scripts (<code>mist-python</code>), a web app, a
-            NOC dashboard, and Aruba CX (AOS-CX) and Junos Ansible projects. The last line says
-            "Ready", never "verified".</li>
-            <li><strong>Page checks.</strong> In a web project, after an edit that reaches a page,
-            Casper starts the dev server, opens the changed pages and reports whether they load.</li>
-            <li><strong>Plan first.</strong> A request that asks for many things can get a plan
-            before any building starts. You read it, then pick build or stop.</li>
-            <li><strong>Retry on a bigger model.</strong> When repairs run out, Casper asks once
-            whether to retry on your bigger model, and shows a rough cost. Pressing Enter stops.</li>
-            <li><strong>Network checks.</strong> Casper finds Ansible playbooks and offers ready-made
-            syntax checks for Aruba CX and Junos. Checks against a lab run only when you start them;
-            the AI cannot start one.</li>
-            <li><strong>Security scans.</strong> <code>casper security</code> runs free scanners such
-            as gitleaks and semgrep on your project, with no model call. The report says what the
-            tools found. It never calls your code safe.</li>
-          </ul>
-        </article>
-
-        <article class="card" id="v0217" aria-labelledby="v0217-h">
-          <h3 id="v0217-h">v0.2.17 · Undo, receipts and a sandbox <span class="badge soon">coming, not released</span></h3>
-          <p>The "oops" release. Take changes back, keep proof of what happened, and fence in the
-          shell.</p>
-          <ul>
-            <li><strong>Undo and redo.</strong> <code>/undo</code>, <code>/redo</code> and a
-            per-task <code>/diff</code>, working from a saved copy of each task's files.</li>
-            <li><strong>Saved receipts.</strong> Each task's receipt kept on disk, with secrets
-            hidden.</li>
-            <li><strong>A stricter "verified".</strong> In the <code>--json</code> result, only a
-            proven change counts as verified.</li>
-            <li><strong>A sandbox for shell commands.</strong> Today, the AI's shell runs with your
-            permissions and nothing fences it in. The plan is to hold it back at the operating
-            system level.</li>
-            <li><strong>An AI security review.</strong> A model reads your code for security
-            problems. It waits for the sandbox, so the model cannot read files the scanners
-            flagged.</li>
-          </ul>
-        </article>
-
-        <article class="card" id="v0220" aria-labelledby="v0220-h">
-          <h3 id="v0220-h">v0.2.20 · Fewer layers <span class="badge soon">coming, not released</span></h3>
-          <p>Less in your way. Casper and the AI do the next step themselves, and things start on,
-          with an off switch.</p>
-          <ul>
-            <li><strong>A shorter new-project menu.</strong> <code>casper new</code> asks the kind
-            first (Network, MCP server, Web app or dashboard, Python tool, My own), then which one.
-            My own is an empty folder with git.</li>
-            <li><strong>The AI does it.</strong> It changes settings in your project itself instead
-            of telling you to edit a file, builds things on by default, and keeps risk notes to one
-            line.</li>
-            <li><strong>One question for outside writes.</strong> A write outside the project asks
-            <code>1 No · 2 Allow &lt;folder&gt; for this session</code>, for the shell and the
-            AI's edit and write tools alike.</li>
-            <li><strong>Web lookups.</strong> <code>web_search</code> and <code>web_fetch</code>
-            read public pages (DuckDuckGo by default, no key). A lookup holding a secret is
-            refused. <code>web: off</code> turns them off.</li>
-            <li><strong>Quieter, more honest numbers.</strong> No repeated "not verified" lines;
-            usage shows out, new and cached tokens; a subscription says so instead of a list
-            price.</li>
-            <li><strong>More projects checked.</strong> Swift packages get <code>swift test</code> and <code>swift build</code>,
-            and a Python build check only when the build tool is there.</li>
-            <li><strong>Caching that lasts.</strong> The long cache only where it costs nothing
-            extra, one tool list per session, and the cache hit rate in <code>/usage</code>.</li>
-          </ul>
-        </article>
-
         <article class="card" id="v030" aria-labelledby="v030-h">
           <h3 id="v030-h">v0.3 · Crews <span class="badge soon">coming, not released</span></h3>
           <p>Big jobs get a team, on their own.</p>
@@ -257,10 +342,9 @@
             <li><strong>See it work.</strong> The status bar shows the crew
             (<code>crew 2/3 building · 1 reviewing · $0.40</code>); <code>/crew</code> shows each
             part. Keep chatting; it reports when the parts land.</li>
-            <li><strong>No spending limit by default.</strong> Subscription and free models just run,
-            and the cost is shown as it goes. Want a limit? Say it in your request ("keep it under
-            $2", "no crew for this") and Casper keeps to it. <code>crew: off</code> turns crews
-            off.</li>
+            <li><strong>Your limits apply to the crew.</strong> A limit said in the request ("keep it
+            under $2", "no crew for this") holds for the whole crew, and the cost is shown as it
+            goes. <code>crew: off</code> turns crews off.</li>
           </ul>
         </article>
         </div>
@@ -318,7 +402,7 @@
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.2.15</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.2.21</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>

@@ -1,6 +1,6 @@
 # Platform support — macOS, Linux, Windows
 
-**What this is:** what Casper 0.2.15 does on each operating system, and what has
+**What this is:** what Casper 0.2.21 does on each operating system, and what has
 really been tested on each. **When you'd use it:** before you run Casper on a new
 kind of machine, or when something works on your Mac but not on Windows or Linux.
 
@@ -92,7 +92,7 @@ Your model provider keys are not passed to these programs on any OS. (MCP server
 and your project's check commands are started differently; see [MCP.md](MCP.md) and
 [VERIFICATION.md](VERIFICATION.md).)
 
-## Shell sandbox — `src/sandbox` (v0.2.17, not released yet)
+## Shell sandbox — `src/sandbox` (since v0.2.17)
 
 | OS | What holds shell commands and checks |
 | --- | --- |

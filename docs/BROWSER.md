@@ -56,9 +56,10 @@ Inspection supplies bounded text and control metadata, including selectors for
 IDs; controls without IDs require an explicit CSS selector. Selectors must match
 exactly one element for interactions and element assertions.
 
-`fill` replaces the text in a text, search, tel or url input, or a textarea;
-other input types are not supported. Values must be nonempty, single-line text, up
-to 1,024 bytes.
+`fill` replaces the text in a text, search, tel, url, email or number input, or a
+textarea, and sets a date, time, datetime-local, month, week, color or range field
+the way a picker would; password and file fields are not supported. Values must
+be nonempty, single-line text, up to 1,024 bytes.
 `press` supports `Enter`, `Tab`, `Escape`, `ArrowUp`, `ArrowDown`, `ArrowLeft`,
 `ArrowRight`, `Space` and `Backspace`.
 
@@ -97,7 +98,9 @@ Supported assertions:
 
 - `text`: exact comparison of trimmed `textContent` (nonempty expected text).
 - `visible`: positive geometry and browser visibility checks.
-- `no-horizontal-overflow`: document width does not exceed viewport width.
+- `no-horizontal-overflow`: the page's width does not exceed the viewport's; with
+  a `selector`, that one element's content fits its box and the element stays
+  inside the viewport.
 - `no-overlap`: element rectangles do not intersect, with positive geometry;
   the primary element must be visible. This is not pixel/aesthetic acceptance.
 

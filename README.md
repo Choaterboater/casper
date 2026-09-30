@@ -84,7 +84,7 @@ No Bun install or source checkout is needed.
 **Windows x64 — PowerShell:**
 
 ```powershell
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.15/install.ps1 | iex
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.21/install.ps1 | iex
 ```
 
 Then run `casper` from your project folder. If your terminal does not find it, open a new
@@ -93,14 +93,14 @@ terminal. Windows ARM64 has no release file yet.
 **macOS / Linux:**
 
 ```sh
-curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.15/install.sh | sh
+curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.21/install.sh | sh
 ```
 
 The installer checks the file's SHA-256 and runs the new program's `--version` before it
 replaces an older install. If the download is rejected, your old install stays as it was.
-It needs no admin rights. These commands pin **v0.2.15**: running them again reinstalls that
+It needs no admin rights. These commands pin **v0.2.21**: running them again reinstalls that
 preview. For a newer preview, use its release URL (GitHub's `latest/download` link skips
-previews). Useful `install.sh` options: `--dir <path>`, `--version 0.2.15`, `--sha256 <hex>`
+previews). Useful `install.sh` options: `--dir <path>`, `--version 0.2.21`, `--sha256 <hex>`
 and `--force` (replace a development symlink). [Installer details](docs/RELEASE.md).
 
 ## Quick start
@@ -128,7 +128,7 @@ One-shot runs from the shell:
 casper "Explain this project"
 casper --verify "Fix the failing tests"
 casper --no-verify   # no Casper-run checks this run
-casper --version     # casper 0.2.15 (/absolute/path/of/the/binary/or/cli.ts)
+casper --version     # casper 0.2.21 (/absolute/path/of/the/binary/or/cli.ts)
 ```
 
 **About checks.** A check runs your project's own command without asking first, and it is not
@@ -157,10 +157,14 @@ Ctrl+C within two seconds exits; Ctrl+D exits at once.
 
 ## Safety and privacy
 
-In v0.2.15 Casper has **no sandbox**: its file and shell tools run with your permissions.
-Worktrees, read-only agent roles and connection prompts do not isolate anything at the OS
-level. A shell sandbox is built for v0.2.17 (not released yet; see [Coming next](#coming-next)
-and [SECURITY.md](docs/SECURITY.md)).
+Every shell command Casper runs (the AI's shell, your checks, services and dev servers) goes
+through one sandbox on Linux (bubblewrap) and macOS (`sandbox-exec`): it writes only the project,
+temp and package caches and can't read `~/.ssh` or cloud logins. The AI's shell and your checks
+reach only listed hosts (others ask first); services and dev servers keep the machine's network on
+Linux (on macOS they reach only listed hosts too), and you can reach them on localhost either way.
+On Windows, or Linux without bubblewrap, nothing holds the shell: the AI's shell asks before each
+command, and your checks run with your permissions. Worktrees, read-only agent roles and
+connection prompts do not isolate anything at the OS level. See [SECURITY.md](docs/SECURITY.md).
 
 Your code, tool output and chat may go to the model provider you picked, and may stay on
 disk as plain text. Secret hiding covers known formats only ([SECRETS.md](docs/SECRETS.md));
@@ -195,17 +199,12 @@ results are not a pass. Review important changes yourself.
 | [PLATFORM_SUPPORT.md](docs/PLATFORM_SUPPORT.md) | macOS, Linux and Windows status |
 | [PLATFORM_VERIFICATION.md](docs/PLATFORM_VERIFICATION.md) | How to test Casper on a new machine |
 | [WINDOWS.md](docs/WINDOWS.md) | Windows preview checklist |
-
-Pages for the coming versions (built, not released yet; see [Coming next](#coming-next)):
-
-| Doc | What it covers |
-| --- | --- |
-| [NEW.md](docs/NEW.md) | v0.2.16: `casper new`, new projects from templates with no model |
-| [NETWORK-CHECKS.md](docs/NETWORK-CHECKS.md) | v0.2.16: Ansible, Junos and lab checks |
-| [SECURITY_CHECKS.md](docs/SECURITY_CHECKS.md) | v0.2.16: `/security-review` and `casper security` |
-| [UNDO.md](docs/UNDO.md) | v0.2.17: `/undo`, `/redo`, `/diff` per task and saved receipts |
-| [SECURITY.md](docs/SECURITY.md) | v0.2.17: the shell sandbox, what Casper keeps from the AI, and what it doesn't |
-| [SKILLS.md](docs/SKILLS.md) | v0.2.18: the built-in network skills, adding your own and turning them off |
+| [NEW.md](docs/NEW.md) | `casper new`: new projects from templates with no model |
+| [NETWORK-CHECKS.md](docs/NETWORK-CHECKS.md) | Ansible, Junos and lab checks |
+| [SECURITY_CHECKS.md](docs/SECURITY_CHECKS.md) | `/security-review` and `casper security` |
+| [UNDO.md](docs/UNDO.md) | `/undo`, `/redo`, `/diff` per task and saved receipts |
+| [SECURITY.md](docs/SECURITY.md) | The shell sandbox, what Casper keeps from the AI, and what it doesn't |
+| [SKILLS.md](docs/SKILLS.md) | The built-in network skills, adding your own and turning them off |
 
 Project notes (for people working on Casper): [design decision](docs/adr/0001-casper-own-product.md),
 [eval results](docs/evals/),
@@ -214,10 +213,10 @@ Project notes (for people working on Casper): [design decision](docs/adr/0001-ca
 When you report a problem, include your OS, the command, the exact error, and whether a
 browser or debugger was installed. Remove secrets and private paths from logs first.
 
-## Coming next
+## What's new since v0.2.15
 
-None of this is in v0.2.15. It is built and tested in the source, but not released yet; the
-install links above still give v0.2.15.
+v0.2.21 ships everything from v0.2.16 to v0.2.20 in one release; the install commands above give
+it. What each version changed, in more detail: [RELEASE.md](docs/RELEASE.md).
 
 **v0.2.16: build new things.**
 - `casper new` (and `/new`) starts a new project from a template (Python tool, MCP server for
@@ -289,14 +288,32 @@ install links above still give v0.2.15.
 - Caching: the long cache only where it costs nothing extra, one tool list per session (MCP tools
   included) so the cache isn't thrown away, and the cache hit rate in `/usage`.
 
+**v0.2.21: a clearer screen, and pages checked on a phone.**
+- The window title names the conversation (`Casper · subnet calculator`, `◐` while it works).
+  `display: quiet|normal|detailed` in your config, `/details` for the session; Ctrl+T shows the
+  last step in full. When detailed, a small diff shows under each edit. The task's result gets a
+  colored edge: green for a pass, red for a failure, yellow in between.
+  [Display](docs/CONFIGURATION.md#display)
+- Page checks open each page at phone width (390px) too and fail a page that scrolls sideways or
+  squashes a text field; a plain Bun or Node site (an `index.html` and a `dev` or `start` script
+  that runs its own server file, `bun run server.ts` or `node server.js`) gets a page check too.
+  [Page checks](docs/VERIFICATION.md#page-checks)
+- A request typed at the empty-folder question runs in that folder.
+- Browser fill works on number, email, date, time and range fields; `no-horizontal-overflow` can
+  name one element; replay accepts the placeholder scenario some models attach to every call.
+  [BROWSER.md](docs/BROWSER.md)
+- The receipt's browser line says so when the answer claims the browser checks passed and
+  Casper's record says they failed, or none of them finished.
+
+## Coming next
+
 **v0.3: crews.**
 - For a big job, the AI splits the work on its own: builders in their own copies of the project,
   a reviewer for each part, a fixer, then one merge and the full tests. No command needed.
 - The status bar shows the crew (`crew 2/3 building · 1 reviewing · $0.40`), and `/crew` shows
   each part. You keep chatting while it works, and it reports when the parts land.
-- No spending limit by default, so subscription and free models just run; the cost is shown as it
-  runs. Want a limit? Say it in your request ("keep it under $2", "no crew for this") and Casper
-  keeps to it. `crew: off` turns crews off.
+- A crew adds no spending limit: the cost is shown as it runs, and a limit said in your request
+  ("keep it under $2", "no crew for this") holds for the whole crew. `crew: off` turns crews off.
 
 Later, not scheduled: vendor packs (`casper pack add aruba` sets up a vendor's MCP server,
 read-only preset, references and skill in one step) and tool rules you write (for example, bounces

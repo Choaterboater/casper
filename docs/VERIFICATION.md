@@ -24,9 +24,8 @@ or let it find them (see [Where the checks come from](#where-the-checks-come-fro
 
 **Trust first.** Checks run the repository's own commands, and Casper does not ask first: in
 `auto` mode (the default) asking for a change runs the repository's test, lint and build commands,
-and a repository's `.casper/project.yaml` can itself choose `auto`. In 0.2.15 that is **not a
-sandbox** (nothing limits what those commands can touch). From v0.2.17 (not released yet) checks
-run in the shell sandbox where it can run: they write only the project, temp and package caches,
+and a repository's `.casper/project.yaml` can itself choose `auto`. Since v0.2.17 checks run in
+the shell sandbox where it can run: they write only the project, temp and package caches,
 can't read your private folders and reach only listed hosts (see [SECURITY.md](SECURITY.md)).
 Where no sandbox runs (Windows, bubblewrap missing, `--no-sandbox`) they run with your
 permissions. For a repository whose commands you do not trust, start Casper with `--no-verify`.
@@ -136,12 +135,11 @@ The full form's line 1 is the verdict, one of:
 request".)
 
 `Verified` means the checks passed on the final files **and** a test fails without the change
-(ADR 0001). In 0.2.15 the JSON `outcome` and the exit code do not follow the wording of line 1:
-a change whose checks pass but that was not proven by a failing test (for example a refactor)
-still has the outcome `verified`. From v0.2.17 (not released yet) the outcome follows the verdict:
-`verified` only for `✓ Verified`. A change whose checks pass but that was not proven has the
-outcome `not_verified` (exit 3 with `--require-verification`) and `checksPassed` is `true`. Either
-way the JSON receipt's `proofSkipped` says why it was not proven.
+(ADR 0001). Since v0.2.17 the JSON `outcome` follows the verdict: `verified` only for
+`✓ Verified` (before that, a change whose checks passed but was not proven by a failing test, for
+example a refactor, still had the outcome `verified`). A change whose checks pass but that was not
+proven has the outcome `not_verified` (exit 3 with `--require-verification`) and `checksPassed` is
+`true`. Either way the JSON receipt's `proofSkipped` says why it was not proven.
 
 The lines below the verdict give the evidence:
 
@@ -517,7 +515,10 @@ request returned; it does not prove the requested behavior as a whole.
 
 ## Page checks
 
-New in v0.2.16 (not released yet).
+New in v0.2.16. Since v0.2.21 each page is opened at phone width (390px) too, and a page that
+scrolls sideways or squashes a text field fails; a plain Bun or Node site (an `index.html` and a
+`dev` or `start` script that runs its own server file, `bun run server.ts` or `node server.js`,
+which reads `PORT`) gets the check as well.
 
 In a web project, after a change Casper opens the changed pages itself and reports what each one
 showed. It costs no model tokens, and it is decided by project facts only, never by the words of
@@ -601,7 +602,7 @@ network. Where no sandbox runs it has your permissions: set `pages: off` in a pr
 
 ## SQL migrations check
 
-New in v0.2.16 (not released yet).
+New in v0.2.16.
 
 When the project has SQL migrations, Casper finds a `migrations` check: it applies the migrations, in
 order, to a throwaway SQLite database that is deleted afterwards. The project's own database files are
@@ -624,7 +625,7 @@ A project that names its own `verify.checks.migrations` keeps it instead.
 
 ## When repairs run out
 
-New in v0.2.16 (not released yet).
+New in v0.2.16.
 
 After `repair.maxAttempts` repairs, an interactive session can offer one more try on your big model
 (see [Your big model](CONFIGURATION.md#your-big-model)). It is never automatic unless you set
@@ -641,7 +642,7 @@ Casper knows four checks: `typecheck`, `lint`, `test` and `build`. For each one 
 3. a command it detects in the repository (Node scripts, Python tools, `cargo`, `go`; see
    [CONFIGURATION.md](CONFIGURATION.md#detected-check-commands)).
 
-From v0.2.16 (not released yet) a project can also name its own checks under
+From v0.2.16 a project can also name its own checks under
 `verify.checks.<name>` (see [Configuration](#configuration)), Casper finds a `migrations` check
 (see [SQL migrations check](#sql-migrations-check)), and it finds ready-made checks for Ansible
 playbooks (see [NETWORK-CHECKS.md](NETWORK-CHECKS.md)).
@@ -803,6 +804,6 @@ repair; the CLI gives cleanup up to one second, then exits anyway. Interactive C
 active task but keeps the session. Programmatic `app.close()` waits for startup and checks to
 finish, with no forced deadline. Command timeouts do not limit how long the model takes to answer.
 
-**Secrets in output.** In 0.2.15 commands and the model's tools are not sandboxed. From v0.2.17
-commands run in the shell sandbox where it can run, and without it when no sandbox is there
-(Windows, bubblewrap missing, `--no-sandbox`). Either way command output may contain secrets. Review your checks before their output is sent to a model.
+**Secrets in output.** Commands run in the shell sandbox where it can run, and without it when no
+sandbox is there (Windows, bubblewrap missing, `--no-sandbox`). Either way command output may
+contain secrets. Review your checks before their output is sent to a model.

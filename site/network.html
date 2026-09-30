@@ -476,7 +476,7 @@ Exit codes: 0 no problems, 1 problems (or warnings with --strict), 64 usage mist
           <li>A server can lie in its labels, or change something from a tool that looks like a read.</li>
           <li>The name checks are word lists. They read tool names, not what a tool does. The Junos show check reads the command text the same way.</li>
           <li>Stdio servers run with your user's permissions.</li>
-          <li>Casper's own shell and file tools are not sandboxed and could read MCP configuration or go around this interface.</li>
+          <li>MCP servers run outside Casper's shell sandbox, with your user's permissions. On Windows, or with the sandbox off, the AI's shell could read MCP configuration or go around this interface.</li>
           <li>Secret hiding covers known formats only.</li>
         </ul>
         <p class="prose">So: only connect servers you trust, and give them logins with only the rights they need. Tool descriptions and results are outside content, not instructions.</p>
@@ -488,7 +488,7 @@ Exit codes: 0 no problems, 1 problems (or warnings with --strict), 64 usage mist
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        <p><strong>Casper 0.2.15</strong> · early preview, unsigned</p>
+        <p><strong>Casper 0.2.21</strong> · early preview, unsigned</p>
         <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
         <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
       </div>

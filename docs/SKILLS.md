@@ -3,7 +3,7 @@
 A skill is a short how-to file the AI reads only when a request needs it. Casper ships six network
 skills inside the `casper` binary, and you can add your own.
 
-The network skills pack is new in v0.2.18 (not released yet); v0.2.15 has no bundled skills.
+The network skills pack is new in v0.2.18; releases before it have no bundled skills.
 Your own skills work the same way in both; see [CONFIGURATION.md](CONFIGURATION.md#skills).
 
 ## The network skills pack

@@ -62,8 +62,9 @@ the operating system, not a list of words:
   reads the command text, so a script that opens its own connection is held only by the sandbox. It also
   looks inside `bash -c '...'`, `$(...)`, loops and `xargs`; a machine named by a variable (`ssh root@$H`)
   asks `Reach another machine ($H)?` every time, because `$H` could be any machine next time.
-- **Services and dev servers** keep the machine's own network, so you and the page check can reach them
-  on localhost; their files are held the same way.
+- **Services and dev servers** keep the machine's own network on Linux; on macOS they reach only listed
+  hosts too (others ask). Either way you and the page check reach them on localhost; their files are
+  held the same way.
 - **Network and security tools** (Ansible syntax checks, Junoser, yanglint, gitleaks, semgrep and the
   rest) run with no network at all, on Linux and macOS.
 - **What the sandbox refused is said.** A check it stopped reads

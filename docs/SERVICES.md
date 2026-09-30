@@ -12,9 +12,7 @@ stops it when the conversation that owns it ends. A running service is not proof
 that anything works; it only gives Casper something to look at.
 
 A service runs your project's own command in the project folder. It is trusted
-project code. In 0.2.15 it runs with your permissions.
-
-From v0.2.17 (not released yet) it runs in the shell sandbox where one can run: it
+project code. Since v0.2.17 it runs in the shell sandbox where one can run: it
 writes only the project and temp and can't read your private folders, but it keeps
 the machine's network so you can reach it (on macOS it reaches only listed hosts). On
 Linux it can't open a Unix socket, so a service that drives Docker
@@ -152,7 +150,7 @@ the session like declared ones, and `/services` lists and controls them too.
 
 ## Dev servers for page checks
 
-New in v0.2.16 (not released yet). In a web project Casper starts the dev server itself
+New in v0.2.16. In a web project Casper starts the dev server itself
 to open changed pages after a change (see [page checks](VERIFICATION.md#page-checks)). A
 declared `services.web` (or the only declared service of a web project) is used as it is.
 Otherwise Casper runs the package.json `dev` script with its own port flags, or a
