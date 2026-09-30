@@ -220,6 +220,7 @@ export function storedTaskResult(task: TaskResult): TaskResult {
   if (copy.proofSkipped) copy.proofSkipped = redactPreview(copy.proofSkipped);
   // Read from commands whose secrets were already hidden (see observationInput); redactPreview would mangle "token add".
   if (copy.remoteChanges) copy.remoteChanges = copy.remoteChanges.map((remote) => ({ host: terminalText(remote.host), changes: remote.changes.map((change) => terminalText(change)) }));
+  if (copy.remoteNotRun) copy.remoteNotRun = copy.remoteNotRun.map((remote) => ({ host: terminalText(remote.host), commands: remote.commands }));
   return copy;
 }
 

@@ -231,6 +231,24 @@ test("changes the AI made on another machine over ssh reach the receipt, marked 
   expect(formatReceipt({ execution: "completed", ...quiet.snapshot([]) })).not.toContain("Changed on");
 });
 
+test("commands to another machine that Casper stopped are said on the receipt: nothing reached it through them", async () => {
+  const { formatReceipt, formatTaskResult: full } = await import("../src/task/result");
+  const observations = new TaskObservations();
+  const refused = (command: string, text: string) => observations.observeToolEnd({ ...bash(command, true), output: { text, truncated: false } }, {});
+  refused("ssh sw1 'reboot'", "Not run: the user said no to reaching sw1. Don't try it again another way; ask the user what to do instead.");
+  refused("ssh sw1 'systemctl enable demoapp'", "Not run: this command reaches sw1, another machine, and this run can't ask you first.");
+  // A refusal of a local command is not about another machine.
+  refused("cat ~/.ssh/config", "Not run: this command reads ~/.ssh, which is private (keys and logins).");
+  // A command that ran and failed there did reach it.
+  observations.observeToolEnd(bash("ssh sw2 'false'", true), {});
+  const snapshot = observations.snapshot([]);
+  expect(snapshot.remoteNotRun).toEqual([{ host: "sw1", commands: 2 }]);
+  expect(snapshot.remoteChanges).toEqual([{ host: "sw2", changes: [] }]);
+  expect(formatReceipt({ execution: "completed", ...snapshot })).toContain("• Not run on sw1: 2 commands Casper stopped before they reached it");
+  expect(full({ execution: "completed", ...snapshot })).toContain("2 commands Casper stopped before they reached it");
+  expect(new TaskObservations().snapshot([]).remoteNotRun).toBeUndefined();
+});
+
 test("a question-only task that changed another machine over ssh still prints the receipt with that line", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-remote-receipt-"));
   try {
@@ -278,5 +296,7 @@ test("commands run over ssh with no change Casper can read still get a receipt l
   expect(receipt).toContain(`• Ran commands on lab-01 over ssh; ${REMOTE_UNKNOWN}`);
   expect(REMOTE_UNKNOWN).toBe("Casper can't tell from the command text whether they changed anything there");
   expect(receipt).toContain("• Changed on sw1 (from the commands Casper saw): started or stopped a service (systemctl restart demoapp)");
-  expect(receipt).not.toContain("core1");
+  expect(receipt).not.toMatch(/(?:Changed on|Ran commands on) core1/);
+  // The blocked one is said as not run there.
+  expect(receipt).toContain("• Not run on core1: 1 command Casper stopped before it reached it");
 });

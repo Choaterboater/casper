@@ -1577,7 +1577,7 @@ export class CasperApp {
         this.events.ensureLineBreak();
         // A stop at --max-turns or at the spend limit is always said on a receipt.
         if (classification.intent !== "general" || execution !== "completed" || this.taskTurnLimit !== undefined || this.taskSpendStop !== undefined || verification || browser?.checks.length || observations.possibleMutations || observations.changedPaths?.length || observations.changedDuringChecks?.length || observations.observedEdits.length || observations.observedChecks.length
-          || observations.remoteChanges?.length || observations.secretInCommand) {
+          || observations.remoteChanges?.length || observations.remoteNotRun?.length || observations.secretInCommand) {
           // The second copy and the saved receipt; the change summary lists only this task's files.
           const { stat } = await this.taskUndo.finish(undoStart, { request: prompt, task: this.lastTaskResult, session, servers: [...this.taskChangeServers] });
           this.output.write(`${this.verbose ? formatTaskResult(this.lastTaskResult) : formatReceipt(this.lastTaskResult, { surface: this.receiptSurface(), ...this.receiptFolder(workspaceRoot) })}\n`);

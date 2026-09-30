@@ -7,7 +7,7 @@ import type { ObservedCheck, TaskResult } from "./result";
 import { remoteChanges } from "./remote-changes";
 import { leavesLocalFilesAlone } from "../flows/plan";
 
-type TaskObservationSnapshot = Required<Pick<TaskResult, "observedEdits" | "observedChecks" | "possibleMutations" | "usage">> & Pick<TaskResult, "changedPaths" | "changedDuringChecks" | "testRunner" | "remoteChanges" | "secretInCommand">;
+type TaskObservationSnapshot = Required<Pick<TaskResult, "observedEdits" | "observedChecks" | "possibleMutations" | "usage">> & Pick<TaskResult, "changedPaths" | "changedDuringChecks" | "testRunner" | "remoteChanges" | "remoteNotRun" | "secretInCommand">;
 
 /** One retained tool call, newest last. Output is already bounded by the runtime adapter. */
 export interface RetainedToolOutput {
@@ -57,6 +57,8 @@ export class TaskObservations {
   private delegationReports = 0;
   /** Changes on other machines seen in the AI's commands (ssh, scp), per host as the command names it. */
   private readonly remote = new Map<string, { host: string; changes: string[] }>();
+  /** Commands to other machines Casper stopped before they ran, by address. */
+  private readonly remoteStopped = new Map<string, { host: string; commands: number }>();
   /** A secret appeared in a command the AI sent (hidden on screen; the AI has it). */
   private secretInCommand = false;
 
@@ -122,6 +124,14 @@ export class TaskObservations {
     if (event.input?.secretHidden) this.secretInCommand = true;
     // A command Casper or the sandbox refused did not reach the other machine.
     const refused = event.isError && /^(?:Not run:|\[shell\] Not run)|\[sandbox\] /.test(event.output?.text ?? "");
+    if ((event.toolName === "bash" || event.toolName === "powershell") && event.input?.command && refused && this.remoteStopped.size < 16) {
+      for (const { host, address } of remoteChanges(event.input.command)) {
+        const entry = this.remoteStopped.get(address) ?? { host, commands: 0 };
+        if (host.length > entry.host.length) entry.host = host;
+        entry.commands++;
+        this.remoteStopped.set(address, entry);
+      }
+    }
     if ((event.toolName === "bash" || event.toolName === "powershell") && event.input?.command && !refused && this.remote.size < 16) {
       for (const { host, address, changes } of remoteChanges(event.input.command)) {
         // One machine by its address: "lab-01" and "192.168.10.20" are one line, named "192.168.10.20 (lab-01)".
@@ -166,6 +176,7 @@ export class TaskObservations {
       ...(changedDuringChecks.length ? { changedDuringChecks: [...changedDuringChecks] } : {}),
       ...(this.testRunner ? { testRunner: this.testRunner } : {}),
       ...(this.remote.size ? { remoteChanges: [...this.remote.values()].map(({ host, changes }) => ({ host, changes: [...changes] })) } : {}),
+      ...(this.remoteStopped.size ? { remoteNotRun: [...this.remoteStopped.values()].map((entry) => ({ ...entry })) } : {}),
       ...(this.secretInCommand ? { secretInCommand: true as const } : {}),
       possibleMutations: (this.mutationToolRan || this.edits.size > 0) && !changedPaths,
       usage: { turns: this.turns, ...(this.delegationReports < this.delegations ? { tokens: null, estimatedCost: null }

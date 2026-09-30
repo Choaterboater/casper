@@ -98,6 +98,8 @@ export interface TaskResult {
   undo?: { available: true; left?: Array<{ path: string; why: string }> } | { available: false; reason: string };
   /** Changes on other machines, read from the text of the AI's ssh and scp commands (never guessed beyond it). */
   remoteChanges?: Array<{ host: string; changes: string[] }>;
+  /** Commands to other machines Casper stopped before they ran (your No, a run that can't ask, the sandbox). */
+  remoteNotRun?: Array<{ host: string; commands: number }>;
   /** A secret appeared in a command the AI sent: hidden on screen, in records and here, but the AI has it. */
   secretInCommand?: true;
   /** Whether the shell sandbox held this task's shell commands and checks, and why not ("--no-sandbox"). */
@@ -184,6 +186,8 @@ export function taskExitCode(report?: VerificationReport, task?: TaskResult, opt
 export const NO_CHECKS_FOUND = "no checks found";
 
 /** An ssh command whose text shows no change Casper knows: it ran there all the same. */
+/** "3 commands Casper stopped before they reached it": nothing the AI says about that machine happened through them. */
+export const remoteNotRunText = (commands: number) => `${commands} ${commands === 1 ? "command" : "commands"} Casper stopped before ${commands === 1 ? "it" : "they"} reached it`;
 export const REMOTE_UNKNOWN = "Casper can't tell from the command text whether they changed anything there";
 
 /** The receipt's line when the AI typed a secret into a command. */
@@ -222,6 +226,7 @@ export function formatTaskResult(task: TaskResult): string {
   if (task.security) lines.push(receiptLine("security", securityText(task.security)));
   for (const remote of task.remoteChanges ?? []) lines.push(receiptLine(`on ${safe(remote.host)}`.slice(0, 12), remote.changes.length
     ? `${remote.changes.map(safe).join("; ")} (from the commands Casper saw)` : REMOTE_UNKNOWN));
+  for (const remote of task.remoteNotRun ?? []) lines.push(receiptLine(`not on ${safe(remote.host)}`.slice(0, 12), remoteNotRunText(remote.commands)));
   if (task.secretInCommand) lines.push(receiptLine("secret", SECRET_IN_COMMAND));
   if (task.sandbox) lines.push(receiptLine("sandbox", task.sandbox.held
     ? `shell commands and checks held${labRan(report) ? `; ${LAB_OUTSIDE}` : ""}` : `not sandboxed (${safe(task.sandbox.reason)})`));
@@ -314,6 +319,7 @@ export function formatReceipt(task: TaskResult, options: ReceiptOptions = {}): s
   for (const remote of task.remoteChanges ?? []) lines.push(remote.changes.length
     ? `• Changed on ${safe(remote.host)} (from the commands Casper saw): ${remote.changes.map(safe).join("; ")}`
     : `• Ran commands on ${safe(remote.host)} over ssh; ${REMOTE_UNKNOWN}`);
+  for (const remote of task.remoteNotRun ?? []) lines.push(`• Not run on ${safe(remote.host)}: ${remoteNotRunText(remote.commands)}`);
   if (task.secretInCommand) lines.push(`• ${SECRET_IN_COMMAND}`);
   // Only the exception is said: a task whose shell commands and checks ran with your own permissions.
   if (task.sandbox && !task.sandbox.held) lines.push(`• Shell commands and checks were not sandboxed (${safe(task.sandbox.reason)})`);
