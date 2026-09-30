@@ -78,7 +78,7 @@ import { beforeWorkPanel, readBeforeWorkAnswer, suggestBeforeWork } from "./flow
 import { extractPlan, formatBuildPrompt, parsePlanLines, planEditorHeading, planEditorLines, planToolGate, type ParsedPlan } from "./flows/plan";
 import { PROJECT_YAML, saveNamedCheck, saveProjectCommand } from "./project/config-write";
 import { askLabFailure, labCheckRunner } from "./app/lab-checks";
-import type { SecurityReviewHost } from "./app/security-review";
+import type { SecurityAIReview, SecurityReviewHost } from "./app/security-review";
 import type { TaskClassification } from "./task/classify";
 import type { ProjectCommand } from "./project/model";
 import { describeChecksPlan, manualChecks, planAutoChecks, resolveVerificationMode, selectedChecks, type ChecksPlan, type VerificationMode } from "./verify/mode";
@@ -1731,6 +1731,32 @@ export class CasperApp {
 
   private networkOptions(): { network?: NetworkToolContext } {
     return this.networkTools ? { network: this.networkTools } : {};
+  }
+
+  /**
+   * The AI review after /security-review's tools: the review model's name and price (starting the session costs
+   * nothing), one bounded read-only child, and the full scrubber whatever /secrets files says. The model never
+   * reaches this: it is not a tool.
+   */
+  securityAI(): SecurityAIReview {
+    return {
+      model: async () => {
+        const session = await this.ensureRuntime();
+        const status = session.getStatus?.();
+        if (status?.auth === "missing" || status?.blocked) throw new Error("no model is signed in");
+        let review: string | undefined;
+        try { review = session.getModelRoles?.().review; } catch { review = undefined; }
+        const current = status?.provider && status.model ? `${status.provider}/${status.model}` : status?.model;
+        const selector = review ?? current;
+        if (!selector) throw new Error("no model is set");
+        let info;
+        try { info = session.describeModel?.(selector); } catch { info = undefined; }
+        return { name: `${info ? `${info.provider}/${info.id}` : selector}${review ? " (your review model)" : ""}`,
+          ...(info?.inputCostPerMillion ? { inputCostPerMillion: info.inputCostPerMillion } : {}) };
+      },
+      run: (options) => this.subagents.reviewSecurity(options),
+      scrub: (toolName, input, texts, signal) => scrubToolOutput(this.scrubber, toolName, input, texts, signal, { configs: true }),
+    };
   }
 
   /** `/verify add <name>` or a picked suggestion: save a check Casper found in .casper/project.yaml, then use it. */

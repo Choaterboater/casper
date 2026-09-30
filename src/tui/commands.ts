@@ -19,7 +19,7 @@ export const COMMANDS: SlashCommand[] = [
   { name: "suggestions", description: "Suggested next steps: list, or turn on or off" },
   { name: "output", description: "Full retained output of a recent tool call (/output [n])" },
   { name: "verify", description: "Run repository verification checks" },
-  { name: "security-review", description: "Run the pinned security tools here (no model); asks before installing" },
+  { name: "security-review", description: "Run the pinned security tools here, then offer an AI review (asks first)" },
   { name: "receipt", description: "A saved receipt: /receipt 12, /receipt list" },
   { name: "project", description: "Inspect project stack, configuration and checks" },
   { name: "skills", description: "Inspect skill metadata, trust and warnings" },

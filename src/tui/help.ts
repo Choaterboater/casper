@@ -28,7 +28,7 @@ export const HELP_TEXT = `Casper — your coding companion
   /skills                Skills and trust; /skills diagnostics for warnings
   /verify [checks ...]   Run this project's checks (in the sandbox); /verify repair fixes failures
   /sandbox               What the shell sandbox holds here; /sandbox forget <host>
-  /security-review       Run the pinned security tools here (no model); asks before installing
+  /security-review       Run the pinned security tools here, then offer an AI review (asks first)
   /browser               Disposable browser status; website tasks can reproduce bugs
   /services              Declared services: status, logs, start, restart, stop (no model)
   /debug                 Local debugger targets/status; explicit launch approval
@@ -181,7 +181,9 @@ Local commands:
   /verify repair [checks ...]       Run checks and authorize bounded repair
   /verify add <name>                Save a ready-made check Casper found (Ansible) in .casper/project.yaml
   /verify <lab check>               Run a lab check on your own lab (lab.hosts); asks first, never auto
-  /security-review                  Run the pinned security tools here (no model); asks before installing
+  /security-review                  Run the pinned security tools here (no model), then offer an AI review:
+                                    1 Stop here · 2 Run the AI review, with its cost; Enter spends nothing
+  /security-review ai               The same; where Casper can't ask (one-shot, --json), runs the AI review
   /security-review update           Download osv-scanner's advisory data (asks first)
   /security-review ignores          List ignores you approved; approve or remove them
   /exit, /quit                      Exit interactive mode; no-op in one-shot mode

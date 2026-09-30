@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import {
   ALREADY_FAILING_CHOICES, MCP_REMEMBER_CHOICES, MCP_WRITES_CHOICES, modelFailedChoices, PLAN_CHOICES, PLAN_QUESTION, REMEMBER_BIG_MODEL_CHOICES,
-  REPAIR_LIMIT_STOP, undoChangedChoices, unfinishedChoices, HOST_CHOICES, SHELL_COMMAND_CHOICES,
+  REPAIR_LIMIT_STOP, undoChangedChoices, unfinishedChoices, HOST_CHOICES, SHELL_COMMAND_CHOICES, AI_REVIEW_CHOICES,
 } from "../src/app/safe-choices";
 import { planEditorHeading } from "../src/flows/plan";
 import { askBuildRequest, newProjectInEmptyFolder, type NewProjectFlow } from "../src/app/new-project";
@@ -44,6 +44,7 @@ const firsts: Array<[string, string, string]> = [
   ["redo with a file changed since", undoChangedChoices("Redo", 1)[0]!.label, "Cancel"],
   ["a shell command wants to reach a host", HOST_CHOICES[0].label, "No"],
   ["run this command? (no sandbox)", SHELL_COMMAND_CHOICES[0].label, "No"],
+  ["the AI security review", AI_REVIEW_CHOICES[0].label, "Stop here"],
 ];
 
 test.each(firsts)("choice 1 at %s is the safe one", (_question, first, expected) => {
@@ -62,6 +63,7 @@ test("the risky choices still exist, as a deliberate 2 or later", () => {
   expect([...INSTALL_CHOICES]).toEqual(["Stop", "Run what's installed", "Install them"]);
   expect(OSV_UPDATE_QUESTION.choices).toEqual(["Stop", "Download it"]);
   expect(undoChangedChoices("Undo", 2).map((choice) => choice.label)).toEqual(["Cancel", "Undo the other 2 files"]);
+  expect(AI_REVIEW_CHOICES.map((choice) => choice.label)).toEqual(["Stop here", "Run the AI review"]);
 });
 
 test("Enter in the rich terminal's plan editor goes on to Build this plan?, never straight to a build", () => {
