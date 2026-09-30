@@ -166,7 +166,9 @@ function trailingOption(args: readonly string[]): void {
   else if (known(last) || (valued && VALUE_OPTIONS.has(valued))) { options = [last]; words = args.slice(0, -1); }
   if (!options) return;
   const quoted = (word: string) => /^[\w./:@%+=,-]+$/.test(word) ? word : JSON.stringify(word);
-  throw new UsageError(`Options go before the prompt: casper ${options.map(quoted).join(" ")} ${JSON.stringify(words.join(" "))}. To send it as words, put -- first.`);
+  // Quoting is the advice that works everywhere: Bun drops a leading -- when casper runs from source.
+  throw new UsageError(`Options go before the prompt: casper ${options.map(quoted).join(" ")} ${JSON.stringify(words.join(" "))}. `
+    + `To send it as words, quote the whole request: casper ${JSON.stringify(args.join(" "))}.`);
 }
 
 function subcommand(args: readonly string[]): (typeof SUBCOMMANDS)[number] | undefined {

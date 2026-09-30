@@ -36,7 +36,8 @@ receipt fills `task` and `undo`. Evaluation scores that count `verified` move wi
 saved runs with a free replay. See [SCRIPTING.md](SCRIPTING.md).
 
 **Command-line traps.** An option after the prompt (`casper fix the bug --verify`) exits 64 before
-anything runs; put options first or `--` before the words. `casper <folder>` opens that folder, and a
+anything runs; put options first, or quote the whole
+request (`casper "fix the bug --verify"`) to send them as words. `casper <folder>` opens that folder, and a
 single word that can only be a path but is not a folder exits 64 with "Not a folder" (a quoted
 request such as `casper "fix src/app.py"` is still a prompt). A one-shot receipt run with `--cd`
 prints its undo command with the same `--cd`.

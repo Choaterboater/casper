@@ -59,7 +59,7 @@ export const FULL_HELP_TEXT = `Casper — your coding companion
 
 Usage:
   casper               Start interactive mode
-  casper <prompt>      Run one prompt and exit; options go before the prompt (put -- first to send them as words)
+  casper <prompt>      Run one prompt and exit; options go before the prompt (quote the whole request to send them as words)
   casper <folder>      Open that folder, like --cd <folder> with no prompt
   casper --version, -v Print the installed version and the path that is running
   casper learn <repo>  Propose inert learning drafts using a read-only model run
