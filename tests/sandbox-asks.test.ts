@@ -140,3 +140,19 @@ posixOnly("the detected state names the fix", () => {
   expect(ShellSandbox.detect({ platform: "linux", noSandboxFlag: true, problem: () => undefined })).toEqual({ kind: "off", reason: "--no-sandbox" });
   expect(ShellSandbox.detect({ platform: "linux", settings: { user: { off: true } }, problem: () => undefined })).toEqual({ kind: "off", reason: "sandbox: off in ~/.casper/config.yaml" });
 });
+
+test("while planning, the AI's shell gets a read-only project", async () => {
+  const { home, project, context } = await fixture();
+  const engine = fakeEngine();
+  let planning = true;
+  const terminal = host([]);
+  const value = { ...terminal.value, planning: () => planning };
+  const sandbox = createSessionSandbox(value, context, { root: () => project, home, seams: { engine, problem: () => undefined, platform: "linux" } });
+  const shell = runtimeShell(value, sandbox, new SandboxStore(context.stateDirectory));
+  await shell.wrap("git diff", project);
+  planning = false;
+  await shell.wrap("npm test", project);
+  expect(engine.wrapped[0]!.policy.allowWrite).not.toContain(project);
+  expect(engine.wrapped[1]!.policy.allowWrite).toContain(project);
+  await sandbox.close();
+});
