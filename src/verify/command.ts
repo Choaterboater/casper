@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import type { CheckName, VerificationResult } from "./evidence";
 import { withoutProviderKeys } from "../platform/environment";
 import { osSupportsProcessGroups, ownSpawnedTree, type OwnedProcesses, terminateTree } from "../platform/processes";
+import { currentSandbox, type SandboxWrapOptions, type ShellSandbox } from "../sandbox/manager";
 
 const OUTPUT_BYTES = 8192;
 
@@ -47,8 +48,11 @@ export interface CommandCheckOptions {
   command?: string;
   /** A program and its arguments, run without a shell: a file named `$(touch x)` is only ever a file name. */
   argv?: readonly string[];
-  /** The start hook for the shell sandbox; unset starts the plan as it is. */
+  /** A start hook that replaces the session's shell sandbox (tests, or a caller with its own). */
   wrap?: CommandWrap;
+  /** How the session's shell sandbox holds this run (network, extra write folders); `false` runs it unheld, for
+   * a caller that holds it some other way. Unset: the session sandbox with its defaults. */
+  sandbox?: Omit<SandboxWrapOptions, "cwd"> | false;
   cwd: string;
   timeoutMs: number;
   signal?: AbortSignal;
@@ -87,7 +91,17 @@ export async function runCommandCheck(options: CommandCheckOptions): Promise<Ver
     return { ...base(), status: "fail", exitCode: null, signal: null, reason: "Verification cancelled" };
   }
   let plan: SpawnPlan;
-  try { plan = options.wrap ? await options.wrap({ ...direct, args: [...direct.args] }, { cwd, name }) : direct; } catch (error) {
+  // Every check runs in the session's shell sandbox when one holds commands (see src/sandbox/manager.ts).
+  const sandbox: ShellSandbox | undefined = options.wrap || options.sandbox === false ? undefined : currentSandbox();
+  let held: string | undefined;
+  try {
+    if (options.wrap) plan = await options.wrap({ ...direct, args: [...direct.args] }, { cwd, name });
+    else if (sandbox?.on) {
+      const wrapped = await sandbox.wrap(command, { cwd, ...(options.sandbox || {}) });
+      plan = wrapped.held ? { file: wrapped.command, args: [], shell: true } : direct;
+      if (wrapped.held) held = wrapped.id;
+    } else plan = direct;
+  } catch (error) {
     return { ...base(), status: "fail", exitCode: null, signal: null, reason: `Could not execute: ${error instanceof Error ? error.message : String(error)}`, ended: "no_start" };
   }
 
@@ -124,7 +138,12 @@ export async function runCommandCheck(options: CommandCheckOptions): Promise<Ver
       child.stdout.destroy(); child.stderr.destroy();
       child.unref(); // Unknown cleanup must not turn a reported failure into an exit hang.
       const ended = checkEnded(exitCode, reason);
-      resolve({ ...base(), status: !reason && exitCode === 0 ? "pass" : "fail", exitCode, signal: exitSignal, reason, ...(ended ? { ended } : {}) });
+      const result: VerificationResult = { ...base(), status: !reason && exitCode === 0 ? "pass" : "fail", exitCode, signal: exitSignal, reason, ...(ended ? { ended } : {}) };
+      if (!held || result.status === "pass" || reason) { resolve(result); return; }
+      // A failure the sandbox caused says so, in the receipt and to the AI: "blocked by the sandbox (wanted to write /etc/hosts)".
+      void blockedBySandbox(sandbox!, held, `${result.stderr}\n${result.stdout}`).then((blocked) => {
+        resolve(blocked ? { ...result, reason: blocked, ended: "blocked" } : result);
+      });
     };
     const stop = (message: string) => {
       if (reason) return;
@@ -147,4 +166,14 @@ export async function runCommandCheck(options: CommandCheckOptions): Promise<Ver
     });
     if (signal?.aborted) abort();
   });
+}
+
+/** The sandbox's refusal for run `id`, waiting briefly for its monitor, which can report just after the command ends. */
+export async function blockedBySandbox(sandbox: Pick<ShellSandbox, "blockedReason">, id: string, output: string, waitMs = 200): Promise<string | undefined> {
+  const deadline = performance.now() + waitMs;
+  for (;;) {
+    const reason = sandbox.blockedReason(id, output);
+    if (reason || performance.now() >= deadline) return reason;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
 }

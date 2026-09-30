@@ -14,6 +14,8 @@ export interface CliOptions {
   info?: InfoFlag;
   verify: boolean;
   noVerify: boolean;
+  /** --no-sandbox: shell commands and checks run with your own permissions for this run (said on the receipt). */
+  noSandbox?: boolean;
   verbose: boolean;
   /** A one-shot run that ends without Casper's proof exits 3. Implies --verify. */
   requireVerification: boolean;
@@ -66,7 +68,7 @@ const USAGES: Record<SubcommandName, () => string> = {
 };
 
 /** Every leading option the parser accepts; /help all must document each one. */
-export const CLI_OPTIONS = ["--json", "--max-turns", "--cd", "--continue", "--resume", "--model", "--effort", "--verify", "--no-verify", "--verbose", "--require-verification", "--mcp", "--lsp",
+export const CLI_OPTIONS = ["--json", "--max-turns", "--cd", "--continue", "--resume", "--model", "--effort", "--verify", "--no-verify", "--no-sandbox", "--verbose", "--require-verification", "--mcp", "--lsp",
   "--help", "--version", "--licenses"] as const;
 
 /** Options that take a value, as `--name value` or `--name=value`. */
@@ -91,6 +93,7 @@ export function parseCliArgs(argv: readonly string[]): CliOptions {
     } else if (flag && VALUE_OPTIONS.has(flag)) value = args[1];
     if (flag === "--verify") options.verify = true;
     else if (flag === "--no-verify") options.noVerify = true;
+    else if (flag === "--no-sandbox") options.noSandbox = true;
     else if (flag === "--verbose") options.verbose = true;
     else if (flag === "--require-verification") options.requireVerification = true;
     else if (flag === "--continue") options.continueConversation = true;

@@ -173,6 +173,8 @@ export class ShellSandbox {
       const mac = /deny(?:\(\d+\))?\s+file-(read|write)[\w-]*\s+(\/\S*)/.exec(line);
       if (mac) { plain.add(`wanted to ${mac[1]} ${mac[2]}`); continue; }
       const file = /^deny\s+\S+\s+(\/\S*)/.exec(line.trim());
+      // Kernel and device files programs probe on their own (Bun opens a tracing marker): not what a check tried.
+      if (file && /^\/(?:proc|sys|dev)\//.test(file[1]!)) continue;
       plain.add(file ? `wanted to write ${file[1]}` : line.trim().slice(0, 120));
     }
     if (!plain.size) {

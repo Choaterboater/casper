@@ -66,6 +66,9 @@ export class ServiceManager {
   private replacedCrashes: ServiceStatus[] = [];
   /** Cleanup of ad-hoc slots dropped past the cap, which close() still awaits. */
   private readonly retired: Promise<void>[] = [];
+  /** The project folder services run in. */
+  get root(): string { return this.options.projectRoot; }
+
   constructor(private readonly options: { projectRoot: string; services: Record<string, ServiceSpec>; platform?: ProcessPlatform }) {
     for (const [name, spec] of Object.entries(options.services)) this.slots.set(name, { name, spec, state: "idle", stale: false });
   }

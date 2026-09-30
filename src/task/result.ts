@@ -90,6 +90,8 @@ export interface TaskResult {
   pageNotes?: string[];
   /** Whether /undo can put this task's files back, and why not. `left` names changed files Casper keeps no copy of. */
   undo?: { available: true; left?: Array<{ path: string; why: string }> } | { available: false; reason: string };
+  /** Whether the shell sandbox held this task's shell commands and checks, and why not ("--no-sandbox"). */
+  sandbox?: { held: true } | { held: false; reason: string };
 }
 
 /** A security tools run in a receipt: how many problems, notes and checks not run, and each tool's state. */
@@ -198,6 +200,7 @@ export function formatTaskResult(task: TaskResult): string {
   else if (task.pageNotes?.length) lines.push(receiptLine("pages", task.pageNotes.map((note) => safe(note.replace(/^• /, ""))).join("; ")));
   if (task.bigModel) lines.push(receiptLine("big model", `${safe(task.bigModel.model)} for ${task.bigModel.attempts} ${task.bigModel.attempts === 1 ? "repair" : "repairs"}`));
   if (task.security) lines.push(receiptLine("security", securityText(task.security)));
+  if (task.sandbox) lines.push(receiptLine("sandbox", task.sandbox.held ? "shell commands and checks held" : `not sandboxed (${safe(task.sandbox.reason)})`));
   if (task.undo && !(!task.undo.available && task.undo.reason === UNDO_NOTHING_CHANGED)) {
     lines.push(receiptLine("undo", task.undo.available ? `available${task.receipt ? ` (/undo ${task.receipt})` : ""}${task.undo.left?.length ? `; no copy of ${task.undo.left.map((entry) => safe(entry.path)).join(", ")}` : ""}` : `not available: ${safe(task.undo.reason)}`));
   }
@@ -276,6 +279,8 @@ export function formatReceipt(task: TaskResult, options: ReceiptOptions = {}): s
   else if (report?.pagesSkipped) lines.push(`• Pages not checked: ${report.pagesSkipped}`);
   for (const note of task.pageNotes ?? []) lines.push(safe(note));
   if (task.security) lines.push(`• Security tools: ${securityText(task.security)} (what the tools found; not proof the code has no problems)`);
+  // Only the exception is said: a task whose shell commands and checks ran with your own permissions.
+  if (task.sandbox && !task.sandbox.held) lines.push(`• Shell commands and checks were not sandboxed (${safe(task.sandbox.reason)})`);
   if (task.browser) {
     const failed = task.browser.checks.filter((check) => check.status === "fail").map((check) => safe(check.name));
     lines.push(task.browser.status === "pass" ? `✓ Browser checks passed (${task.browser.checks.length})`
@@ -324,7 +329,7 @@ function withVerdict(task: TaskResult, body: string[], options: ReceiptOptions):
     ? "passed" : taskOutcome(report, task);
   const changed = Boolean(task.changedPaths?.length || task.changedDuringChecks?.length || (!task.changedPaths && task.possibleMutations));
   const failedChecks = (report?.results ?? []).filter((result) => result.status === "fail" && result.kind !== "report")
-    .map((result) => `${result.name} ${result.ended === "timeout" ? "timed out" : result.ended === "no_start" ? "could not start" : "failed"}`);
+    .map((result) => `${result.name} ${result.ended === "timeout" ? "timed out" : result.ended === "no_start" ? "could not start" : result.ended === "blocked" ? "was blocked by the sandbox" : "failed"}`);
   let lines: string[];
   switch (outcome) {
     case "cancelled":
@@ -485,6 +490,8 @@ function checkLine(result: VerificationResult, safe: (text: string) => string, s
   if (result.ended === "timeout") {
     return `✗ ${name} timed out${timeout ? ` after ${duration(Number(timeout[1]))}` : ""} — it did not finish, so it was not checked; ${slash(`/verify ${name}`)} to run it again, or raise verification.timeoutMs in .casper/project.yaml`;
   }
+  // The sandbox refused something the check tried: the same words the AI sees, so it does not retry it.
+  if (result.ended === "blocked") return `✗ ${name} — ${safe(result.reason ?? "blocked by the sandbox")}`;
   if (result.ended === "no_start" && !isBuiltinCheck(name)) {
     return `✗ ${name} could not start (${typeof result.exitCode === "number" ? `exit ${result.exitCode}` : safe(result.reason ?? "no exit status").replace(/\.$/, "").toLowerCase()}) — check verify.checks.${name} in .casper/project.yaml`;
   }
@@ -517,6 +524,7 @@ export function liveCheckLine(result: VerificationResult): string {
   const timeout = /^Timed out after (\d+)ms$/.exec(result.reason ?? "");
   if (result.ended === "timeout") return `✗ ${name} · timed out${timeout ? ` after ${duration(Number(timeout[1]))}` : ""}`;
   if (result.ended === "no_start") return `✗ ${name} · could not start${typeof result.exitCode === "number" ? ` (exit ${result.exitCode})` : ""}`;
+  if (result.ended === "blocked") return `✗ ${name} · ${(result.reason ?? "blocked by the sandbox").replace(/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g, " ")}`;
   const why = typeof result.exitCode === "number" ? `exit ${result.exitCode}` : result.signal ? `stopped by ${result.signal}`
     : result.reason ? result.reason.replace(/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g, " ") : "no exit status";
   return `✗ ${name} · ${label}${why} · ${duration(result.durationMs)}`;

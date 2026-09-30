@@ -1,5 +1,8 @@
 import { spawn } from "node:child_process";
 import { osSupportsProcessGroups, ownSpawnedTree, terminateTree } from "../platform/processes";
+import { blockedBySandbox } from "../verify/command";
+import { sandboxedArgv, sandboxPath, type SandboxedSpawn } from "../sandbox/spawn";
+import type { SandboxNetwork } from "../sandbox/manager";
 
 const OUTPUT_BYTES = 8192;
 
@@ -29,6 +32,9 @@ export interface ArgvRunOptions {
   signal?: AbortSignal;
   /** Bytes kept per stream (head and tail). */
   outputBytes?: number;
+  /** The session's shell sandbox holds the run with no network by default; `false` runs it as it is (a lab
+   * check, started only by you, logs in to your devices with your own keys). */
+  sandbox?: { network: SandboxNetwork } | false;
 }
 
 export interface ArgvRunResult {
@@ -40,7 +46,7 @@ export interface ArgvRunResult {
   durationMs: number;
   /** Set when the program did not finish on its own: it timed out, was cancelled or could not start. */
   reason?: string;
-  ended?: "timeout" | "no_start";
+  ended?: "timeout" | "no_start" | "blocked";
 }
 
 /**
@@ -48,7 +54,22 @@ export interface ArgvRunResult {
  * `$(touch x).yml` is only ever a file name. The whole process tree is stopped
  * on timeout or cancel.
  */
-export function runArgv(file: string, args: readonly string[], options: ArgvRunOptions): Promise<ArgvRunResult> {
+export async function runArgv(file: string, args: readonly string[], options: ArgvRunOptions): Promise<ArgvRunResult> {
+  let plan: SandboxedSpawn;
+  try { plan = options.sandbox === false ? { file, args: [...args], shell: false } : await sandboxedArgv(file, args, { cwd: options.cwd, network: options.sandbox?.network ?? "none" }); }
+  catch (error) {
+    return { exitCode: null, signal: null, stdout: "", stderr: "", truncated: false, durationMs: 0, reason: `Could not start ${file}: ${error instanceof Error ? error.message : String(error)}`, ended: "no_start" };
+  }
+  const result = await runPlanned(file, plan, options);
+  if (!plan.held) return result;
+  // Inside the sandbox a missing program is the shell's 127, not a spawn error.
+  if (result.exitCode === 127 && !result.reason) return { ...result, reason: `Could not start ${file}`, ended: "no_start" };
+  if (result.exitCode === 0 || result.reason) return result;
+  const blocked = await blockedBySandbox(plan.held.sandbox, plan.held.id, `${result.stderr}\n${result.stdout}`);
+  return blocked ? { ...result, reason: blocked, ended: "blocked" } : result;
+}
+
+function runPlanned(file: string, plan: SandboxedSpawn, options: ArgvRunOptions): Promise<ArgvRunResult> {
   const started = performance.now();
   const limit = options.outputBytes ?? OUTPUT_BYTES;
   const stdout = new Capture(limit);
@@ -61,8 +82,8 @@ export function runArgv(file: string, args: readonly string[], options: ArgvRunO
   return new Promise((resolve) => {
     let child: ReturnType<typeof spawn>;
     try {
-      child = spawn(file, [...args], {
-        cwd: options.cwd, env: options.env, shell: false, windowsHide: true,
+      child = spawn(plan.file, plan.args, {
+        cwd: options.cwd, env: sandboxPath(options.env, Boolean(plan.held)), shell: plan.shell, windowsHide: true,
         detached: osSupportsProcessGroups, stdio: ["ignore", "pipe", "pipe"],
       });
     } catch (error) {

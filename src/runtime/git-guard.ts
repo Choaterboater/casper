@@ -21,3 +21,9 @@ export function blockedGitCommand(command: string): string | undefined {
   }
   return undefined;
 }
+
+/** The refusal the AI sees for a blocked git command, from bash or the service tool alike. */
+export function gitGuardReason(command: string): string | undefined {
+  const risky = blockedGitCommand(command);
+  return risky ? `Casper does not let the model run \`${risky}\`: it can set aside or discard the user's uncommitted work. Leave the working tree as it is, or ask the user to run it.` : undefined;
+}

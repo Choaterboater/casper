@@ -72,3 +72,17 @@ export function undoChangedChoices(verb: "Undo" | "Redo", others: number): Choic
     { label: `${verb} the other ${others} ${others === 1 ? "file" : "files"}`, description: "the files you changed since stay as they are" },
   ];
 }
+
+/** "A shell command wants to reach api.mist.com." (the shell sandbox's host question). Enter keeps it blocked. */
+export const HOST_CHOICES = [
+  { label: "No", description: "the command can't reach it" },
+  { label: "Allow for this session", description: "until Casper exits" },
+  { label: "Always for this project", description: "kept in ~/.casper, never in the repo; /sandbox forget <host> undoes it" },
+] as const satisfies readonly Choice[];
+
+/** "Run this command?  npm test" when no sandbox can run (Windows, bubblewrap missing). Enter runs nothing. */
+export const SHELL_COMMAND_CHOICES = [
+  { label: "No", description: "the command does not run" },
+  { label: "Yes, this once", description: "it runs with your permissions and network" },
+  { label: "Yes, and don't ask again for this exact command here", description: "kept in ~/.casper for this project" },
+] as const satisfies readonly Choice[];

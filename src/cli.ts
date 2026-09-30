@@ -126,6 +126,22 @@ async function runSecuritySubcommand(cmd: SecurityCommand): Promise<void> {
   } finally { removeShutdownHandlers(); }
 }
 
+/** The shell sandbox for a subcommand with no app: `casper security` and `casper mcp check` hold their tool runs to
+ * the repo they check, `casper new` to the new folder (its uv or bun run adds it). Nobody answers host questions here:
+ * a host that is not listed is blocked, and said so. */
+async function withStandaloneSandbox(options: CliOptions, work: () => Promise<void>): Promise<void> {
+  const [{ ShellSandbox, useSandbox }, { SandboxStore }, { loadConfiguration }, { projectStateDirectory }] = await Promise.all([
+    import("./sandbox/manager"), import("./sandbox/store"), import("./config/load"), import("./project/model")]);
+  const target = path.resolve(options.command === "security" ? parseSecurityArgs(options.rest).repo
+    : options.command === "mcp-check" ? parseMcpCheckArgs(options.rest).repo : os.tmpdir());
+  const settings = await loadConfiguration({ projectRoot: target }).then((loaded) => loaded.sandbox, () => undefined);
+  const sandbox = new ShellSandbox({ root: () => target, ...(settings ? { settings } : {}), ...(options.noSandbox ? { noSandboxFlag: true } : {}),
+    store: new SandboxStore(projectStateDirectory(target, os.homedir())), note: (line) => { process.stderr.write(`${line}\n`); } });
+  useSandbox(sandbox);
+  try { await work(); }
+  finally { useSandbox(undefined); await sandbox.close(); }
+}
+
 /** `casper new` that opens the app: a person at a terminal (stdin is a TTY, rich or plain) who did not ask
  * for --list. Undefined for every other command, and for scripts, which get the standalone command. */
 export function terminalNewProject(options: CliOptions, stdinTTY: boolean): NewCommand | undefined {
@@ -167,8 +183,8 @@ export async function runCli(): Promise<void> {
   const newProject = terminalNewProject(options, Boolean(process.stdin.isTTY));
   const standalone = options.command === "prompt" || options.command === "interactive" || newProject ? undefined : STANDALONE[options.command];
   if (standalone) {
-    // No app, no model and no saved state: only the subcommand's own tools run.
-    await standalone(options.rest);
+    // No app, no model and no saved state: only the subcommand's own tools run, in the shell sandbox where it can run.
+    await withStandaloneSandbox(options, () => standalone(options.rest));
     return;
   }
   // `casper ~/code/mist-mcp` opens that folder, like --cd with no prompt, instead of sending the path as a paid prompt.
@@ -230,7 +246,7 @@ export async function runCli(): Promise<void> {
   const prompt = newProject ? "" : options.promptFromStdin ? await stdinPrompt() : options.rest.join(" ").trim();
   // --json: stdout carries only JSON Lines; the banner, transcript and receipt a person reads go to stderr.
   const emit = options.json ? (event: CasperEvent) => { process.stdout.write(formatJsonEvent(event)); } : undefined;
-  const app = new CasperApp({ verificationMode: verificationFlag(options), verbose: options.verbose,
+  const app = new CasperApp({ verificationMode: verificationFlag(options), verbose: options.verbose, ...(options.noSandbox ? { noSandbox: true } : {}),
     model: options.model, effort: options.effort, maxTurns: options.maxTurns, startupWarnings,
     conversation: options.resume ? { resume: options.resume } : options.continueConversation ? { continue: true } : undefined,
     ...(newProject ? { newProject: { ...(newProject.template ? { template: newProject.template } : {}), ...(newProject.name ? { name: newProject.name } : {}) } } : {}),
