@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { gitDirs, hooksPathTargets, PRIVATE_PATHS, PROTECTED_WRITE_PATHS, realpathLongest, within } from "../platform/project-paths";
@@ -46,6 +46,18 @@ export function cachePaths(platform: NodeJS.Platform = process.platform): string
 
 /** Casper's own records the shell must not read: approvals, remembered hosts, lab answers, undo copies. */
 export const CASPER_PRIVATE_PATHS: readonly string[] = [".casper/projects", ".casper/mcp-consent.json", ".casper/skills-trust.json"];
+
+/** git's own files in a git folder that change what git runs. */
+export const GIT_OWN_FILES: readonly string[] = ["hooks", "config", "config.worktree", "info"];
+
+/** Files that tell git where its folder is: a worktree's `.git` file and its folder's `commondir`. Held read-only
+ * only when they exist (a stand-in for a missing one would break git); a main `.git/commondir` that appears
+ * is removed by the sandbox (see ShellSandbox.guardGit). */
+function gitPointers(folder: string): string[] {
+  const dotGit = path.join(folder, ".git");
+  const pointers = [dotGit, ...gitDirs(folder).map((dir) => path.join(dir, "commondir"))];
+  return pointers.filter((file) => { try { return statSync(file).isFile(); } catch { return false; } });
+}
 
 export interface SandboxPolicyInput {
   /** The project folder: writable unless `readOnlyProject`. */
@@ -108,10 +120,16 @@ export function sandboxPolicy(input: SandboxPolicyInput): SandboxPolicy {
     ...(input.extraWrite ?? []).flatMap(spellings),
     ...(input.user?.allowWrite ?? []).map((entry) => resolveEntry(entry, root, home)).flatMap(spellings),
   ]);
-  const gitOwn = [...git, path.join(root, ".git")].flatMap((dir) => ["hooks", "config", "config.worktree", "info"].map((name) => path.join(dir, name)));
+  // A folder a command may also write (a new project's folder) keeps git's own files read-only too: Casper's
+  // first commit there runs git with your hooks, outside the sandbox.
+  const extra = (input.extraWrite ?? []).map((entry) => path.resolve(entry));
+  const gitOwn = [root, ...extra].flatMap((folder) => [...gitDirs(folder), path.join(folder, ".git")])
+    .flatMap((dir) => GIT_OWN_FILES.map((name) => path.join(dir, name)));
   const denyWrite = unique([
     ...gitOwn.flatMap(spellings),
     ...hooks.flatMap(spellings),
+    ...extra.flatMap((folder) => hooksPathTargets(folder, home)).flatMap(spellings),
+    ...[root, ...extra].flatMap(gitPointers).flatMap(spellings),
     ...inHome(PROTECTED_WRITE_PATHS),
     ...inHome(PRIVATE_PATHS),
     ...(input.project?.denyWrite ?? []).map((entry) => resolveEntry(entry, root, home)).flatMap(spellings),

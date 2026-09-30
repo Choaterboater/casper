@@ -20,7 +20,8 @@ the operating system, not a list of words:
   `~/.cache/pip`, `~/.npm`, `~/.bun/install/cache`, `~/.local/share/uv`, `~/.cache/pre-commit`,
   `~/.cache/ms-playwright`, and on macOS `~/Library/Caches/pip`, `~/Library/Caches/uv`,
   `~/Library/Caches/ms-playwright`). It can't change git's own files (`.git/hooks`, `.git/config`,
-  `.git/config.worktree`, `.git/info`, the `core.hooksPath` folder), your shell start-up files, your
+  `.git/config.worktree`, `.git/info`, the `core.hooksPath` folder, a worktree's `.git` file and its
+  `commondir`), can't move `.git` aside, and a `.git/commondir` that appears in the project is removed at once, your shell start-up files, your
   git settings or anything in `~/.casper` and `~/.pi`.
 - **Private places.** A command can't read `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.config/gh`,
   `~/.config/gcloud`, `~/.azure`, `~/.oci`, `~/.kube`, `~/.docker/config.json`, `~/.netrc`,

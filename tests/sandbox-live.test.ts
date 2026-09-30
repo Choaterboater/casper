@@ -166,3 +166,27 @@ needsSandbox("no command can reach a Unix socket on the host (Docker, the sessio
     }
   } finally { await new Promise((resolve) => listener.close(resolve)); }
 });
+
+needsSandbox("no command can move the project's .git aside and put another in its place, in any network mode", async () => {
+  for (const network of ["ask", "host", "none"] as const) {
+    const result = await run("mv .git .git-moved", network);
+    expect({ network, code: result.code === 0 }).toEqual({ network, code: false });
+    expect(existsSync(path.join(root, ".git", "config"))).toBe(true);
+    expect(existsSync(path.join(root, ".git-moved"))).toBe(false);
+  }
+});
+
+needsSandbox("a worktree's .git file can't be pointed somewhere else", async () => {
+  const tree = path.join(base, "worktree");
+  Bun.spawnSync(["git", "-C", root, "-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "tree base"]);
+  expect(Bun.spawnSync(["git", "-C", root, "worktree", "add", "-q", tree]).exitCode).toBe(0);
+  const before = await readFile(path.join(tree, ".git"), "utf8");
+  const treeSandbox = new ShellSandbox({ root: () => tree, home, tempDirs: [], engine: runtimeEngine(), problem: () => process.platform === "linux" ? linuxSandboxProblem() : undefined });
+  try {
+    for (const network of ["ask", "host", "none"] as const) {
+      const wrapped = await treeSandbox.wrap(`echo "gitdir: ${outside}" > .git`, { cwd: tree, network });
+      Bun.spawnSync(["sh", "-c", wrapped.command], { cwd: tree, env: { ...process.env, HOME: home } });
+      expect({ network, same: await readFile(path.join(tree, ".git"), "utf8") === before }).toEqual({ network, same: true });
+    }
+  } finally { await treeSandbox.close(); }
+});
