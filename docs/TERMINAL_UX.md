@@ -113,7 +113,7 @@ On a rich terminal the main screen keeps the model's words, questions and receip
 in a transient `Working` box that shows the last 3 steps, each updated in place (`• read · src/x.ts`
 while it runs, `✓ read · src/x.ts` once done), even with calls running side by side. When the model
 moves on (its next words, or the end of its turn), the finished steps fold into one line:
-`✓ 14 edits · 6 commands · 1 failed · 38s`; a single step prints its own line. A failed command
+`✓ 14 edits · 6 commands · 38s` (`•` instead of `✓` when a step failed); a single step prints its own line. A failed command
 prints its line and cause above the summary; a failed edit the model tried again at once is counted,
 not printed. The box also starts with `Waiting for <provider/model> · 0s` and ticks elapsed time
 even when the provider sends no intermediate progress events; progress updates change it to reasoning

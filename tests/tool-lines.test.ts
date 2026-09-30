@@ -85,7 +85,7 @@ test("rich terminal: the Working box keeps the last 3 steps, then folds them int
   expect(t.screen).toEqual([]);
   t.handle({ type: "assistant_text_delta", delta: "Fixed it." });
   // The failed edit was tried again at once: counted, not printed. The failed command prints with its cause.
-  expect(t.screen).toEqual(["✗ bash · python3 -m pytest … — failed", "  1 failed", "✓ 3 edits · 1 command · 1 read · 2 failed"]);
+  expect(t.screen).toEqual(["✗ bash · python3 -m pytest … — failed", "  1 failed", "• 3 edits · 1 command · 1 read · 2 failed"]);
   expect(t.box).toBeUndefined();
 });
 
@@ -136,7 +136,7 @@ test("plain terminal prints only the end line of each tool", () => {
 test("the summary line counts steps and shows time only from a second up", () => {
   expect(stepSummary([{ kind: "edit", startedAt: 0, endedAt: 10 }, { kind: "edit", startedAt: 20, endedAt: 30 }])).toBe("✓ 2 edits");
   expect(stepSummary([{ kind: "command", startedAt: 0, endedAt: 38_000, failed: true }, { kind: "other", startedAt: 0, endedAt: 5 }]))
-    .toBe("✓ 1 command · 1 other step · 1 failed · 38.0s");
+    .toBe("• 1 command · 1 other step · 1 failed · 38.0s");
 });
 
 test("a tool call stopped at the spend limit shows as not run, never as a failed step or with the model's instruction", () => {

@@ -60,7 +60,8 @@ const NOT_RUN = " — not run (spend limit)";
 /** How many steps the Working box shows. */
 const BOX_STEPS = 3;
 
-/** One line for a finished group of steps: "✓ 14 edits · 6 commands · 1 failed · 38s". */
+/** One line for a finished group of steps: "✓ 14 edits · 6 commands · 38s", or "• 14 edits · 6 commands · 1 failed · 38s"
+ * (never a green ✓ over a failure). */
 export function stepSummary(steps: ReadonlyArray<{ kind: StepKind; failed?: boolean; startedAt: number; endedAt?: number }>): string {
   const counts = new Map<StepKind, number>();
   for (const step of steps) counts.set(step.kind, (counts.get(step.kind) ?? 0) + 1);
@@ -74,7 +75,7 @@ export function stepSummary(steps: ReadonlyArray<{ kind: StepKind; failed?: bool
   const last = Math.max(...steps.map(step => step.endedAt ?? step.startedAt));
   const duration = formatDuration(last - first);
   if (duration) parts.push(duration);
-  return `✓ ${parts.join(" · ")}`;
+  return `${failed ? "•" : "✓"} ${parts.join(" · ")}`;
 }
 
 /** Renders runtime events onto the terminal. On the rich terminal the main screen keeps the model's words,
