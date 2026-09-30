@@ -71,6 +71,18 @@ test("local diff remains usable when workspace changes exceed the display budget
   expect(await readFile(path.join(f.project, "tracked.txt"), "utf8")).toBe("after\n".repeat(15000));
 }, 30_000);
 
+test("local diff in a repository with no commits yet says so in plain words, not a git error", async () => {
+  const f = await fixture();
+  const init = Bun.spawn(["git", "init", "-q", "-b", "main"], { cwd: f.project, env: f.env, stdout: "ignore", stderr: "pipe" });
+  expect(await init.exited).toBe(0);
+  await writeFile(path.join(f.project, "new.txt"), "hello\n");
+  const result = await f.cli("/diff");
+  expect(result.exit).toBe(0);
+  expect(result.stdout + result.stderr).toContain("[diff] No commits yet, so there is nothing to compare with; files are listed by name only.");
+  expect(result.stdout).toContain("new.txt");
+  expect(result.stdout + result.stderr).not.toContain("bad revision");
+}, 30_000);
+
 // A shell fsmonitor hook; Windows has no /bin/sh fixture here.
 posixOnly("local diff never runs a repository-configured fsmonitor command", async () => {
   const f = await fixture();
