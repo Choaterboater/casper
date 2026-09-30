@@ -108,6 +108,8 @@ posixOnly("casper new runs uv and bun in the sandbox with the new folder writabl
   expect(engine.wrapped).toHaveLength(1);
   expect(engine.wrapped[0]!.command).toBe("uv init");
   expect(engine.wrapped[0]!.policy.allowWrite).toContain(folder);
+  // uv may fetch a Python for the template; that place is not writable to other commands.
+  expect(engine.wrapped[0]!.policy.allowWrite).toContain(path.join(os.homedir(), ".local/share/uv"));
 });
 
 posixOnly("the service tool refuses the same git commands as bash, and starts nothing", async () => {

@@ -38,11 +38,16 @@ export const REGISTRY_HOSTS: readonly string[] = [
 /** This machine, through the proxy (a command that goes direct to localhost reaches its own sandbox). */
 export const LOCAL_HOSTS: readonly string[] = ["localhost", "127.0.0.1", "[::1]"];
 
-/** Package caches under your home folder that installs and test runs write. */
+/** Package caches under your home folder that installs and test runs write. Not the places that hold programs
+ * you run outside the sandbox (pre-commit's hook copies, Playwright's browsers, uv's own Pythons and tools):
+ * a command could change what they run. Add one with sandbox.allowWrite if a check needs it. */
 export function cachePaths(platform: NodeJS.Platform = process.platform): string[] {
-  const shared = [".cache/uv", ".cache/pip", ".npm", ".bun/install/cache", ".local/share/uv", ".cache/pre-commit", ".cache/ms-playwright"];
-  return platform === "darwin" ? [...shared, "Library/Caches/pip", "Library/Caches/uv", "Library/Caches/ms-playwright"] : shared;
+  const shared = [".cache/uv", ".cache/pip", ".npm", ".bun/install/cache"];
+  return platform === "darwin" ? [...shared, "Library/Caches/pip", "Library/Caches/uv"] : shared;
 }
+
+/** uv's own Pythons, which `casper new` may fetch for a Python template (a run you started, of known packages). */
+export const UV_PYTHONS = ".local/share/uv";
 
 /** Casper's own records the shell must not read: approvals, remembered hosts, lab answers, undo copies. */
 export const CASPER_PRIVATE_PATHS: readonly string[] = [".casper/projects", ".casper/mcp-consent.json", ".casper/skills-trust.json"];

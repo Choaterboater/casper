@@ -17,9 +17,11 @@ services and dev servers, network and security tool runs, and `uv` or `bun` in `
 the operating system, not a list of words:
 
 - **Files.** A command can write only in the project, the temp folders and package caches (`~/.cache/uv`,
-  `~/.cache/pip`, `~/.npm`, `~/.bun/install/cache`, `~/.local/share/uv`, `~/.cache/pre-commit`,
-  `~/.cache/ms-playwright`, and on macOS `~/Library/Caches/pip`, `~/Library/Caches/uv`,
-  `~/Library/Caches/ms-playwright`). It can't change git's own files (`.git/hooks`, `.git/config`,
+  `~/.cache/pip`, `~/.npm`, `~/.bun/install/cache`, and on macOS `~/Library/Caches/pip`,
+  `~/Library/Caches/uv`). These caches are shared with your other projects, so a command could change a
+  cached package they later use; places that hold programs you run yourself (`~/.cache/pre-commit`,
+  Playwright's browsers, uv's own Pythons and tools) are not writable. `casper new` also lets `uv`
+  write `~/.local/share/uv` to fetch a Python. It can't change git's own files (`.git/hooks`, `.git/config`,
   `.git/config.worktree`, `.git/info`, the `core.hooksPath` folder, a worktree's `.git` file and its
   `commondir`), can't move `.git` aside, and a `.git/commondir` that appears in the project is removed at once, your shell start-up files, your
   git settings or anything in `~/.casper` and `~/.pi`.

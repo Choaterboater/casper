@@ -7,6 +7,7 @@ import { safeGitArgs } from "../platform/git";
 import { loadProjectModel, type ProjectCommand } from "../project/model";
 import { runCommandCheck } from "../verify/command";
 import { sandboxedArgv, sandboxPath, type SandboxedSpawn } from "../sandbox/spawn";
+import { UV_PYTHONS } from "../sandbox/policy";
 import {
   getTemplate, initArgv, MARKER_FILE, NAME_RULE, PACKAGE_HOST, renderFiles, renderValues, validName,
   type TemplateManifest, type TemplateTool,
@@ -123,7 +124,7 @@ export function checkEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
  * commit uses your own git settings and hooks. */
 export const spawnTool: ToolRunner = async (argv, options) => {
   let plan: SandboxedSpawn;
-  try { plan = argv[0] === "uv" || argv[0] === "bun" ? await sandboxedArgv(argv[0], argv.slice(1), { cwd: options.cwd, network: "ask", extraWrite: argv[1] === "--version" ? [] : [options.cwd] }) : { file: argv[0]!, args: argv.slice(1), shell: false }; }
+  try { plan = argv[0] === "uv" || argv[0] === "bun" ? await sandboxedArgv(argv[0], argv.slice(1), { cwd: options.cwd, network: "ask", extraWrite: argv[1] === "--version" ? [] : argv[0] === "uv" ? [options.cwd, path.join(os.homedir(), UV_PYTHONS)] : [options.cwd] }) : { file: argv[0]!, args: argv.slice(1), shell: false }; }
   catch (error) { return { exitCode: null, stdout: "", stderr: "", error: (error as Error).message, missing: false }; }
   const run = await spawnPlanned(plan, options);
   return plan.held && run.exitCode === 127 ? { ...run, missing: true } : run;
