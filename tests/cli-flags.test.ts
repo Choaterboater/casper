@@ -349,4 +349,4 @@ test("casper <folder> opens that folder; a path that is not a folder exits 64", 
   const quoted = await run([cli, "fix the bug in src/app.py"], root);
   expect(quoted.code).not.toBe(64);
   expect(quoted.stderr).not.toContain("Not a folder");
-});
+}, 30_000); // seven CLI starts in a row
