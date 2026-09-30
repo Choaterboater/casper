@@ -86,3 +86,9 @@ export const SHELL_COMMAND_CHOICES = [
   { label: "Yes, this once", description: "it runs with your permissions and network" },
   { label: "Yes, and don't ask again for this exact command here", description: "kept in ~/.casper for this project" },
 ] as const satisfies readonly Choice[];
+
+/** "Next: the AI can read the 12 changed files for security problems …" after /security-review's tools. Enter spends nothing. */
+export const AI_REVIEW_CHOICES = [
+  { label: "Stop here", description: "no tokens are spent" },
+  { label: "Run the AI review", description: "uses tokens; its findings are its opinion" },
+] as const satisfies readonly Choice[];

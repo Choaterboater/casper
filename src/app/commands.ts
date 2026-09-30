@@ -43,7 +43,7 @@ import { tildePath } from "../new/scaffold";
 import { stat } from "node:fs/promises";
 import type { SessionWorkspaceManager } from "../sessions/manager";
 import { formatProjectContext } from "../project/context";
-import { runSecurityReview, type SecurityReviewHost } from "./security-review";
+import { runSecurityReview, type SecurityAIReview, type SecurityReviewHost } from "./security-review";
 import { sandboxReport, sandboxStatusLine } from "./sandbox";
 import type { ShellSandbox } from "../sandbox/manager";
 import { MCP_REMEMBER_CHOICES, MCP_WRITES_CHOICES, numberedLines } from "./safe-choices";
@@ -116,6 +116,8 @@ export interface CommandHost {
   getLastTaskResult(): TaskResult | undefined;
   /** Test seams for /security-review: fake tools and downloads. */
   readonly securitySeams?: Pick<SecurityReviewHost, "check" | "install">;
+  /** The AI review after /security-review's tools (runs only after a numbered ask, or /security-review ai). */
+  securityAI(): SecurityAIReview | undefined;
   /** `/verify add <name>`: save a ready-made check Casper found (never called without the owner asking). */
   saveFoundCheck(name: string): Promise<void>;
 }
@@ -385,7 +387,9 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       return;
     }
     if (/^\/security-review(?:\s|$)/.test(prompt)) {
-      // The security tools only: no model call. Every question is numbered; a run that cannot ask downloads and approves nothing.
+      // The security tools first, with no model call. Every question is numbered; a run that cannot ask downloads,
+      // approves and spends nothing. The AI review after them runs only after its own ask (or /security-review ai).
+      const ai = host.securityAI();
       await runSecurityReview({
         root: host.activeWorkspaceRoot(), homeDir: host.homeDir(),
         write: (text) => { if (!host.closing) host.output.write(text); },
@@ -393,6 +397,7 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
         pick: (question, options, signal) => host.terminal.pick(question, options, signal),
         ...(host.commandAbort ? { signal: host.commandAbort.signal } : {}),
         ...host.securitySeams,
+        ...(ai ? { ai } : {}),
       }, prompt.trim().split(/\s+/).slice(1));
       return;
     }
