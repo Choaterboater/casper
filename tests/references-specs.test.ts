@@ -106,13 +106,51 @@ test("addReferenceSource creates ~/.casper/references.yaml when it is missing an
   expect((await stat(path.join(home, ".casper/references.yaml"))).mode & 0o777).toBe(0o600);
 });
 
-test("the catalog lists three spec repos in plain words", () => {
-  expect(SPEC_REPOS.map((entry) => entry.id)).toEqual(["mist-openapi", "junos-yang", "pycentral"]);
+test("the catalog lists the spec repos in plain words", () => {
+  expect(SPEC_REPOS.map((entry) => entry.id)).toEqual(["mist-openapi", "junos-yang", "pycentral", "pyaoscx", "pyclearpass", "mistapi", "junos-pyez"]);
   expect(catalogListText()).toBe([
     "mist-openapi  Mist API spec (MIT)",
     "junos-yang    Junos YANG models, one release (needs a release, e.g. 23.4)",
-    "pycentral     Aruba Central Python SDK (Apache-2.0)",
+    "pycentral     Aruba Central Python SDK (MIT)",
+    "pyaoscx       AOS-CX Python SDK, REST API (Apache-2.0)",
+    "pyclearpass   ClearPass Python SDK, REST API (MIT)",
+    "mistapi       Mist API Python SDK (community) (MIT)",
+    "junos-pyez    Junos PyEZ Python library (Apache-2.0)",
   ].join("\n"));
+});
+
+test("every catalog entry is a public https GitHub repo with a licence and a plain use", () => {
+  for (const entry of SPEC_REPOS) {
+    expect(entry.url).toMatch(/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\.git$/);
+    expect(entry.license.length).toBeGreaterThan(0);
+    expect(entry.useFor.length).toBeGreaterThan(0);
+    if (entry.maxFileBytes !== undefined) expect(entry.maxFileBytes).toBeLessThanOrEqual(4 * 1024 * 1024);
+  }
+});
+
+test("AOS-CX, Central, ClearPass, Mist and Junos SDKs: sparse folders, search paths and file limits match the checked layouts", () => {
+  const expected: Record<string, { sparse: string[]; paths: string[]; maxFileBytes?: number; url: string }> = {
+    // pycentral/troubleshooting/troubleshooting.py is about 190 KB, over the 128 KiB default.
+    pycentral: { url: "https://github.com/aruba/pycentral.git", sparse: ["pycentral", "docs"], paths: ["pycentral", "docs", "README.md"], maxFileBytes: 262_144 },
+    pyaoscx: { url: "https://github.com/aruba/pyaoscx.git", sparse: ["pyaoscx", "docs"], paths: ["pyaoscx", "docs", "README.md"] },
+    // pyclearpass/api_enforcementprofile.py is about 245 KB.
+    pyclearpass: { url: "https://github.com/aruba/pyclearpass.git", sparse: ["pyclearpass"], paths: ["pyclearpass", "README.md"], maxFileBytes: 524_288 },
+    // src/mistapi/api/v1/sites/devices.py is about 111 KB, under the 128 KiB default.
+    mistapi: { url: "https://github.com/tmunzer/mistapi_python.git", sparse: ["src/mistapi"], paths: ["src/mistapi", "README.md"] },
+    "junos-pyez": { url: "https://github.com/Juniper/py-junos-eznc.git", sparse: ["lib/jnpr/junos", "docs"], paths: ["lib/jnpr/junos", "docs", "README.md"] },
+  };
+  for (const [name, want] of Object.entries(expected)) {
+    const request = planReferenceAdd(name, undefined, "/h");
+    if (!("plan" in request)) throw new Error(request.error);
+    const destination = `/h/.casper/reference-repos/${name}`;
+    expect(request.plan.commands).toEqual([
+      ["git", "-c", "core.hooksPath=/dev/null", "clone", "--depth", "1", "--filter=blob:none", "--sparse", want.url, destination],
+      ["git", "-c", "core.hooksPath=/dev/null", "-C", destination, "sparse-checkout", "set", ...want.sparse],
+    ]);
+    expect(request.plan.source.paths).toEqual(want.paths);
+    expect(request.plan.source.maxFileBytes).toBe(want.maxFileBytes);
+    expect(planReferenceAdd(name, "23.4", "/h")).toEqual({ error: `Usage: /references add ${name}` });
+  }
 });
 
 test("junos-yang needs a release; the clone is sparse, shallow and runs no hooks", () => {
@@ -183,6 +221,13 @@ test("/references add mist-openapi points at lookup_api; no name lists the catal
   const mist = host(true);
   await runReferenceAdd("mist-openapi", undefined, home, mist.value);
   expect(mist.lines.at(-1)).toBe("Tip: for exact Mist endpoints and fields, lookup_api in hpe-networking-mcp is faster and complete.");
+  const cx = host(true);
+  await runReferenceAdd("pyaoscx", undefined, home, cx.value);
+  expect(cx.lines.at(-2)).toBe("Added pyaoscx to ~/.casper/references.yaml. Restart Casper to search it.");
+  expect(cx.lines.at(-1)).toBe("Tip: the SDK covers some firmware versions only. Your switch's own REST API reference is the final word for its firmware.");
+  const cppm = host(true);
+  await runReferenceAdd("pyclearpass", undefined, home, cppm.value);
+  expect(cppm.lines.at(-1)).toBe("Tip: your ClearPass server's API Explorer is the final word for its version.");
   const list = host(true);
   await runReferenceAdd(undefined, undefined, home, list.value);
   expect(list.lines).toEqual([catalogListText()]);
