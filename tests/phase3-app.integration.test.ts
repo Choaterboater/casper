@@ -8,7 +8,7 @@ import type { AgentRuntime, RuntimeSession, RuntimeEventListener, RuntimeTool } 
 import { taskExitCode } from "../src/task/result";
 import { SkillRegistry } from "../src/skills/registry";
 import { checkCommand } from "./support/check-command";
-import { posixOnly } from "./support/platform";
+import { posixOnly, sandboxAvailable } from "./support/platform";
 import { cleanEnv } from "./support/env";
 
 // Nearly every test here runs two or more fixture checks, each a fresh Bun process; under a
@@ -526,24 +526,46 @@ function processExists(pid: number): boolean {
   }
 }
 
-for (const redirected of [false, true]) posixOnly(`CLI termination kills a TERM-resistant descendant (${redirected ? "closed" : "inherited"} pipes)`, async () => {
+/** The descendant as the host sees it: its pid and process group. In the shell sandbox a check runs in its own
+ * pid namespace, so the pids it could write down itself would name other processes out here. */
+function hostDescendant(root: string): { pid: number; group: number } | undefined {
+  const listing = Bun.spawnSync(["ps", "-axo", "pid=,pgid=,args="], { env: { PATH: process.env.PATH ?? "/usr/bin:/bin", LC_ALL: "C" } });
+  const fixture = `${process.execPath} ${path.resolve("tests/fixtures/verifier-descendant.ts")} ${root}`;
+  for (const line of listing.stdout.toString().split("\n")) {
+    const match = line.match(/^\s*(\d+)\s+(\d+)\s+(.*)$/);
+    if (match && match[3]!.trim() === fixture) return { pid: Number(match[1]), group: Number(match[2]) };
+  }
+  return undefined;
+}
+
+// Off: Casper's own process-group escalation has to stop the descendant. On (where the machine has a sandbox):
+// the check runs in the sandbox's pid namespace, and stopping Casper must still leave nothing running.
+for (const sandbox of ["off", ...(sandboxAvailable ? ["on"] : [])] as const) for (const redirected of [false, true]) posixOnly(`CLI termination kills a TERM-resistant descendant (${redirected ? "closed" : "inherited"} pipes, sandbox ${sandbox})`, async () => {
   const root = await fixture();
   // Closed pipes let the shell's close event precede descendant exit; inherited
   // pipes keep close pending and require the timed SIGKILL escalation.
-  const command = `printf '%s' "$$" > verifier-pgid; ${JSON.stringify(process.execPath)} ${JSON.stringify(path.resolve("tests/fixtures/verifier-descendant.ts"))}${redirected ? " >/dev/null 2>&1" : ""} & wait`;
+  const command = `${JSON.stringify(process.execPath)} ${JSON.stringify(path.resolve("tests/fixtures/verifier-descendant.ts"))} ${JSON.stringify(root)}${redirected ? " >/dev/null 2>&1" : ""} & wait`;
   await writeFile(path.join(root, ".casper/project.yaml"), JSON.stringify({ verify: { test: command } }));
+  if (sandbox === "off") {
+    await mkdir(path.join(root, "home", ".casper"), { recursive: true });
+    await writeFile(path.join(root, "home", ".casper", "config.yaml"), "sandbox: off\n");
+  }
   const child = Bun.spawn([process.execPath, path.resolve("src/cli.ts"), "/verify test"], {
     cwd: root, env: cleanEnv({ HOME: path.join(root, "home"), CASPER_PROFILE: "default" }), stdout: "ignore", stderr: "ignore",
   });
+  let found: { pid: number; group: number } | undefined;
   try {
     for (let attempt = 0; attempt < 200 && !await Bun.file(path.join(root, "started")).exists(); attempt++) await Bun.sleep(10);
     expect(await Bun.file(path.join(root, "started")).exists()).toBe(true);
-    const descendant = Number(await Bun.file(path.join(root, "started")).text());
-    const group = Number(await Bun.file(path.join(root, "verifier-pgid")).text());
+    found = hostDescendant(root);
+    expect(found).toBeDefined();
+    const { pid: descendant, group } = found!;
     expect(descendant).toBeGreaterThan(1);
     expect(group).toBeGreaterThan(1);
     expect(descendant).not.toBe(group);
     expect(processExists(descendant)).toBe(true);
+    // Without the sandbox the pid it wrote is the host's; in it, a namespace pid.
+    if (sandbox === "off") expect(Number(await Bun.file(path.join(root, "started")).text())).toBe(descendant);
     child.kill("SIGTERM");
     expect(await child.exited).toBe(143);
     await Bun.sleep(1100);
@@ -551,11 +573,16 @@ for (const redirected of [false, true]) posixOnly(`CLI termination kills a TERM-
     expect(processExists(descendant)).toBe(false);
     expect(processExists(-group)).toBe(false);
   } finally {
+    // A test that failed early leaves Casper running: TERM lets it stop its sandbox's relays; KILL could not.
+    if (child.exitCode === null && child.signalCode === null) {
+      child.kill("SIGTERM");
+      await Promise.race([child.exited, Bun.sleep(5000)]);
+    }
     child.kill("SIGKILL");
     await child.exited;
     // Fault-injected cleanup failures must not leave the fixture running.
-    const group = Number(await Bun.file(path.join(root, "verifier-pgid")).text().catch(() => "0"));
-    if (Number.isSafeInteger(group) && group > 1) {
+    const group = found?.group ?? hostDescendant(root)?.group;
+    if (group !== undefined && Number.isSafeInteger(group) && group > 1) {
       try { process.kill(-group, "SIGKILL"); }
       catch (error) {
         if (!(error instanceof Error && "code" in error && error.code === "ESRCH")) throw error;
