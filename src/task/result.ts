@@ -37,6 +37,8 @@ export interface TaskResult {
   execution: "completed" | "failed" | "cancelled";
   verification?: VerificationReport;
   browser?: BrowserReport;
+  /** The model's answer says the browser checks passed; only said when Casper's record disagrees. */
+  browserClaimed?: boolean;
   /** Native edit/write paths the runtime reported; may lie outside the workspace root. */
   observedEdits?: string[];
   /** Workspace-relative paths whose content identity differed between the snapshots taken before
@@ -300,6 +302,13 @@ export interface ReceiptOptions {
 
 /** The default, plain-language receipt: what changed, what Casper proved, and what to do next.
  * The evidence-level form stays in formatTaskResult (/receipt, --verbose). */
+/** The answer says a browser check passed: a sentence naming the browser and a pass, with no "not" or failure in it. */
+export function answerClaimsBrowserPass(answer: string): boolean {
+  return answer.split(/(?<=[.!?])\s+|\n+/).some((sentence) => /\bbrowser\b/i.test(sentence)
+    && /\b(?:pass(?:ed|es)?|succeeded|verified|confirmed|works?|worked)\b/i.test(sentence)
+    && !/\b(?:not|no|never|fail(?:ed|s)?|incomplete|couldn't|can't|cannot|didn't|unable)\b|n't\b/i.test(sentence));
+}
+
 export function formatReceipt(task: TaskResult, options: ReceiptOptions = {}): string {
   const { lines, undo } = receiptParts(task, options);
   return [...lines, ...undo].join("\n");
@@ -423,8 +432,11 @@ function receiptParts(task: TaskResult, options: ReceiptOptions): { lines: strin
   for (const folder of task.outsideAllowed ?? []) lines.push(`• Allowed writes outside the project: ${safe(folder)} (no undo copy)`);
   if (task.browser) {
     const failed = task.browser.checks.filter((check) => check.status === "fail").map((check) => safe(check.name));
+    // The answer may say the checks passed; the receipt is Casper's record, so it says where they differ.
+    const claimed = task.browserClaimed ? " — the answer above says they passed" : "";
     if (task.browser.status === "pass") fold(`✓ Browser checks passed (${task.browser.checks.length})`, `browser checks passed (${task.browser.checks.length})`);
-    else lines.push(task.browser.status === "fail" ? `✗ Browser checks failed: ${failed.join(", ")}` : "• Browser checks incomplete");
+    else if (task.browser.status === "fail") lines.push(`✗ Browser checks failed: ${failed.join(", ")}${claimed}`);
+    else lines.push(claimed ? `• Browser checks did not finish${claimed}; Casper saw no passing browser check` : "• Browser checks incomplete");
   }
   const verdict = withVerdict(task, lines, options);
   return { lines: verdict.lines, undo: undoLines(task, options, safe), folds, ...(verdict.short ? { short: verdict.short } : {}) };
