@@ -1,0 +1,27 @@
+# Casper 0.2.15 · a check that could not start, and a numbered choice (the lint command was
+# missing from PATH on purpose)
+
+❯ /verify
+– typecheck · skipped, no command
+✗ lint · could not start (exit 127)
+╭─ lint: stderr ───────────────────────────────────────────────────────────────────────────────────╮
+│ /bin/sh: 1: node: not found                                                                      │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+✓ test · 0.0s
+✓ build · 0.0s
+────────────────────────────────────────────────────────────────────────────────────────────────────
+lint could not start. Casper did not try to fix it. What now?
+→ 1 Retry  run it again with the same limit
+  2 Fix it anyway  ask the model to fix why it could not start (uses tokens)
+Press 1-2 or Up/Down + Enter · type to answer · Esc skip
+
+# (Esc pressed: skip)
+
+• Retry  run it again with the same limit
+• Fix it anyway  ask the model to fix why it could not start (uses tokens)
+  (skipped)
+✗ Not checked — lint could not start, so the change was not tested
+• Not verified — typecheck has no command. Add verify.typecheck to .casper/project.yaml.
+✗ lint could not start (exit 127) — check verify.lint in .casper/project.yaml
+✓ test passed (bun test, 0.0s)
+✓ build passed (bun build src/sum.js --outdir dist, 0.0s)

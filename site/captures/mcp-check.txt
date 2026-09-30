@@ -1,0 +1,28 @@
+# Casper 0.2.15 · casper mcp check on a test MCP server whose tool labels are wrong on purpose
+# (long lines wrapped at a space to fit 100 columns)
+
+$ casper mcp check . --quick
+Checking lab-mcp (~/project/lab-mcp)
+Offline: no tool calls. Credentials removed, web proxy blocked. Use --live to allow read calls.
+Offline is best effort: a program that reads its own .env or opens SSH itself can still reach the
+network.
+Starting lab: bun server.ts (from .mcp.json.example)
+Repo checks
+  none  doctor        No doctor found. Add a doctor script, or set it in .casper/mcp-check.json.
+  warn  safety tests  No safety tests found (names with write, gate, readonly, guard, block,
+redact, confirm, dry_run, annotation).
+  skip  tests         --quick
+Server
+  ok    starts        in 0.1 s, 6 tools
+  fail  label         delete_site is labeled read-only, but the name says it changes things.
+  fail  label         port_bounce is labeled write, but the name says it can cut service. Mark it
+destructiveHint: true.
+  fail  label         wipe_and_show says both read-only and destructive.
+  warn  label         show_config is labeled read-only but has a "dry_run" field.
+  note  dry_run       show_config: dry_run has no default in the schema. Make preview the default.
+Example configs
+  ok    .mcp.json.example  keeps writes off
+Result: 3 problems, 2 warnings, 1 note
+Exit codes: 0 no problems, 1 problems (or warnings with --strict), 64 usage mistake
+$ echo $?
+1

@@ -1,0 +1,502 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Network guide · Casper</title>
+  <meta name="description" content="How Casper works with network MCP servers like hpe-networking-mcp, junos-mcp-server, Mist and NetBox: writes off, you approve changes, and device secrets hidden from the AI.">
+  <meta name="color-scheme" content="light dark">
+  <link rel="icon" href="assets/logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="index.html"><img src="assets/logo.svg" alt="" width="32" height="32">Casper</a>
+      <button class="nav-toggle" type="button" aria-controls="site-nav" aria-expanded="false" hidden>Menu</button>
+      <nav id="site-nav" class="site-nav" aria-label="Main">
+        <ul>
+          <li><a href="index.html">Home</a></li>
+          <li><a href="tour.html">Tour</a></li>
+          <li><a href="network.html" aria-current="page">Network</a></li>
+          <li><a href="compare.html">Compare</a></li>
+          <li><a href="roadmap.html">Roadmap</a></li>
+          <li><a href="faq.html">FAQ</a></li>
+          <li><a class="nav-gh" href="https://github.com/Choaterboater/casper">GitHub</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <div class="container">
+      <h1>Network engineer guide</h1>
+      <p class="lead">An AI that can reach your switches is handy. It should also know its place. Here is how Casper keeps the AI on a short leash near network gear, and how to hook up your servers.</p>
+
+      <nav class="toc" aria-label="On this page">
+        <strong>On this page</strong>
+        <ul>
+          <li><a href="#why">Why guard rails?</a></li>
+          <li><a href="#rules">The house rules</a></li>
+          <li><a href="#setup">Hook up your servers</a></li>
+          <li><a href="#read-only">Read-only comes from the product</a></li>
+          <li><a href="#asks">What asks first, and why the AI can't say yes</a></li>
+          <li><a href="#writes">Writes are off until you say so</a></li>
+          <li><a href="#junos">Junos: show commands only</a></li>
+          <li><a href="#secrets">Secrets in configs are hidden</a></li>
+          <li><a href="#check">Check a server you built</a></li>
+          <li><a href="#walkthrough">Walk-through: APs per site in Mist</a></li>
+          <li><a href="#limits">What Casper can't do</a></li>
+        </ul>
+      </nav>
+
+      <section id="why" aria-labelledby="why-title">
+        <h2 id="why-title">Why guard rails?</h2>
+        <div class="prose">
+          <p>MCP (Model Context Protocol) is a standard way for an AI tool to talk to other programs, called MCP servers. A network MCP server gives the AI tools like "list the APs at a site" or "run a Junos show command".</p>
+          <p>That is great for looking things up. But the same server may also have tools that bounce a port, push a config or reboot a switch. An AI can misread a question. It can pick the wrong site. It can be talked into things by text it reads. You don't want any of that to reach a core switch at 2 pm on a Tuesday.</p>
+          <p>So Casper sits between the AI and your servers. It decides which tools the AI can see, which ones need your yes, and how much of each answer the AI reads. No server and no credentials come with Casper; you bring the servers you trust.</p>
+        </div>
+      </section>
+
+      <section id="rules" aria-labelledby="rules-title">
+        <h2 id="rules-title">The house rules</h2>
+        <div class="grid">
+          <article class="card">
+            <h3>Every server starts disconnected</h3>
+            <p>Finding a server in a config file is not permission. Only your <code>/mcp connect</code> or <code>--mcp</code> connects it.</p>
+          </article>
+          <article class="card">
+            <h3>Writes start off</h3>
+            <p>Write and delete tools are hidden. Only you can turn them on, one server at a time, with <code>/mcp writes &lt;name&gt;</code>.</p>
+          </article>
+          <article class="card">
+            <h3>Changes wait for your typed <code>yes</code></h3>
+            <p>Any tool above <code>read</code> asks first. Anything but a freshly typed <code>yes</code> is no.</p>
+          </article>
+          <article class="card">
+            <h3>The AI can't approve</h3>
+            <p>It has no approval token and no blanket write flag. Its ask tool can't answer the approval box.</p>
+          </article>
+          <article class="card">
+            <h3>Read-only only when the product says so</h3>
+            <p>Casper's own guesses can only make things stricter. They never call a login read-only.</p>
+          </article>
+          <article class="card">
+            <h3>Known secrets are hidden</h3>
+            <p>Passwords, RADIUS/TACACS keys, PSKs and SNMP communities become <code>&lt;secret hidden&gt;</code> before the AI reads them (known formats only).</p>
+          </article>
+        </div>
+      </section>
+
+      <section id="setup" aria-labelledby="setup-title">
+        <h2 id="setup-title">Hook up your servers</h2>
+        <div class="prose">
+          <p>Put your servers in <code>~/.casper/mcp.json</code>. It uses the common <code>mcpServers</code> format. Casper also finds servers you already set up in VS Code and a few other places; <code>/mcp</code> shows where each one came from.</p>
+          <p>Two kinds of server work. A <strong>stdio</strong> server is a program Casper starts on your machine (<code>command</code> plus <code>args</code>). An <strong>HTTP</strong> server is a URL (HTTPS, or plain HTTP to <code>localhost</code> only).</p>
+        </div>
+
+        <aside class="callout warn">
+          <strong class="callout-title">No secrets in the file</strong>
+          <p>Write <code>${NAME}</code> instead of a token. Casper fills it from your shell only when the server connects. A missing variable fails the connection, and <code>/mcp</code> names the variable, never a value. Every snippet below is an example: paths and names are yours to change.</p>
+        </aside>
+
+        <p class="prose">Casper spots some network servers by <em>what they run</em> (never by the name you give them) and adds a <strong>preset</strong>: extra rules on top. A preset can send the server's own read-only switch, hide tools while writes are off, or add a hint. It never loosens anything.</p>
+
+        <h3 id="setup-hpe">hpe-networking-mcp (Aruba Central, Mist, ClearPass, AOS 8 and more)</h3>
+        <div class="cmd"><span class="cmd-label">~/.casper/mcp.json</span><pre><code>{
+  "mcpServers": {
+    "hpe": {
+      "command": "uv",
+      "args": ["run", "python", "src/hpe_networking_mcp/mcp_servers/tool_router.py"],
+      "cwd": "~/src/hpe-networking-mcp"
+    }
+  }
+}</code></pre></div>
+        <ul class="prose">
+          <li>Casper knows it by <code>tool_router.py</code>, <code>hpe-mcp-router</code>, <code>hpe_networking_mcp</code>, any <code>HPE_MCP_*</code> env, or its router tools. Use the path to <code>tool_router.py</code> in your own checkout, and set up its credentials the way its own README says.</li>
+          <li>While writes are off, Casper pins <code>HPE_MCP_ACCESS_PROFILE=safe-read-only</code>, <code>HPE_MCP_READONLY=1</code>, <code>HPE_MCP_PRODUCT_ACCESS=read-only</code> and every <code>HPE_MCP_*_WRITES=0</code>. A pin beats your own value.</li>
+          <li>It hides <code>invoke_tool</code>, <code>invoke_tools_batch</code> and write and delete tools. A read router is judged by the real tool: <code>invoke_read_tool</code> asking for <code>port_bounce</code> still asks you.</li>
+          <li><code>/mcp</code> shows <code>read-only pins sent, not confirmed</code> until the server itself reports its write switches off through <code>access_check</code>.</li>
+          <li>Bonus: its docs tools (<code>lookup_api</code>, <code>search_docs</code>, <code>ask_docs</code>) are always offered to the AI, so it checks the docs before it guesses an API. <code>/mcp docs</code> can add a docs-only copy with no passwords and no device access, after you type yes.</li>
+        </ul>
+
+        <h3 id="setup-junos">junos-mcp-server</h3>
+        <div class="cmd"><span class="cmd-label">~/.casper/mcp.json</span><pre><code>{
+  "mcpServers": {
+    "junos": {
+      "command": "uv",
+      "args": ["run", "python", "jmcp.py", "-f", "devices.json", "-t", "stdio"],
+      "cwd": "~/src/junos-mcp-server"
+    }
+  }
+}</code></pre></div>
+        <ul class="prose">
+          <li>Casper knows it by <code>jmcp.py</code>, <code>junos-mcp-server</code>, or its tool names.</li>
+          <li>There is no read-only setting to pin, so Casper hides <code>load_and_commit_config</code> and <code>render_and_apply_j2_template</code> while writes are off, and lets only plain show commands through (<a href="#junos">more below</a>).</li>
+          <li>Junos commits can be slow, so a Junos call may go 400 s without an answer unless you set <code>callTimeout</code>.</li>
+        </ul>
+
+        <h3 id="setup-mist">Mist (hosted MCP)</h3>
+        <div class="cmd"><span class="cmd-label">~/.casper/mcp.json</span><pre><code>{
+  "mcpServers": {
+    "mist": {
+      "type": "http",
+      "url": "https://example.mist.com/mcp",
+      "headers": { "Authorization": "Bearer ${MIST_TOKEN}" }
+    }
+  }
+}</code></pre></div>
+        <ul class="prose">
+          <li>The URL above is a placeholder. Use the address from Mist's own docs. Casper spots Mist by a <code>mist.com</code> address.</li>
+          <li>The server runs on Mist's side, so Casper can't pin anything there. It says so: <code>Can't pin read-only for this server (it runs elsewhere). Write tools are hidden in Casper only.</code></li>
+          <li>It also reminds you: <code>Access not checked. Use a read-only (Observer) org token for this server.</code> That token is the real brake. Casper's hiding is a second one.</li>
+        </ul>
+
+        <h3 id="setup-netbox">NetBox</h3>
+        <div class="cmd"><span class="cmd-label">~/.casper/mcp.json</span><pre><code>{
+  "mcpServers": {
+    "netbox": {
+      "command": "uv",
+      "args": ["run", "server.py"],
+      "cwd": "~/src/netbox-mcp-server",
+      "env": {
+        "NETBOX_URL": "${NETBOX_URL}",
+        "NETBOX_TOKEN": "${NETBOX_TOKEN}"
+      }
+    }
+  }
+}</code></pre></div>
+        <ul class="prose">
+          <li>Casper knows it by <code>netbox</code> in the command, <code>NETBOX_*</code> env, or <code>netbox</code> in the URL. The env names depend on the NetBox server you use.</li>
+          <li>No read-only setting exists, so Casper hides write and delete tools while writes are off and tells you: <code>Use a read-only NetBox API token for this server.</code></li>
+        </ul>
+
+        <details>
+          <summary>Other servers Casper has presets for</summary>
+          <div class="table-wrap"><table>
+            <caption>From docs/MCP.md, "Presets". Every server, preset or not, starts with writes off.</caption>
+            <thead><tr><th scope="col">Server</th><th scope="col">Pinned while writes are off</th><th scope="col">Hidden while writes are off</th></tr></thead>
+            <tbody>
+              <tr><td>centralmcp (<code>aruba-*</code>)</td><td><code>CENTRALMCP_READONLY=1</code></td><td>write and delete tools</td></tr>
+              <tr><td>central-mcp-server</td><td>nothing (no setting exists); must be pinned to a version, or be a local checkout, to be remembered</td><td>tools not marked read-only</td></tr>
+              <tr><td>ClearPass MCP</td><td><code>CLEARPASS_READ_ONLY=true</code></td><td>write and delete tools</td></tr>
+              <tr><td>netmiko_mcp</td><td>nothing; never remembered</td><td>tools not marked read-only</td></tr>
+              <tr><td>Oxidized / LibreNMS</td><td>nothing</td><td>tools not marked read-only</td></tr>
+              <tr><td>Grafana (<code>mcp-grafana</code>)</td><td><code>--disable-write</code> (added once)</td><td>write and delete tools</td></tr>
+            </tbody>
+          </table></div>
+        </details>
+
+        <h3>Connect it</h3>
+        <ol class="steps">
+          <li>Start <code>casper</code> in any folder and type <code>/mcp</code>. Your server shows as <code>disconnected</code>. This makes no connection and no model call.</li>
+          <li>Type <code>/mcp connect &lt;name&gt;</code>. Casper asks if it should remember the server.</li>
+          <li><strong>Remember</strong> means next time it connects on its own when a task needs it, always with writes off. Casper stores only a keyed hash of the definition. If the definition changes, it asks again.</li>
+        </ol>
+
+        <figure class="capture">
+<pre class="term" data-title="casper — ~/project"><span class="prompt">❯</span> <span class="you">/mcp</span>
+fixture [stdio; disconnected] 0 tools · writes off
+  source: ~/.casper/mcp.json
+  limits: start 20 s · call 90 s
+Writes off: write and delete tools are hidden, and every other change still asks you. /mcp writes
+&lt;name&gt; turns writes on.
+<span class="prompt">❯</span> <span class="you">/mcp connect fixture</span>
+fixture [stdio; ready] 340 tools · writes off · access not checked
+  source: ~/.casper/mcp.json
+  limits: start 20 s · call 90 s
+Writes off: write and delete tools are hidden, and every other change still asks you. /mcp writes
+&lt;name&gt; turns writes on.
+Remember this server? Next time it connects on its own, with writes off. Every change still asks
+you.
+  1 Remember
+  2 Just this time
+Type 1 or 2:
+<span class="dim"># (typed: 2)</span>
+<span class="dim">[mcp] Not remembered. fixture is connected for this session only.</span></pre>
+          <figcaption>A real Casper 0.2.15 run against a local test server that never touches a device. Note <code>access not checked</code>: nobody has proven this login is read-only.</figcaption>
+        </figure>
+
+        <p class="prose small muted">Some servers are never remembered: project servers, netmiko_mcp, and servers started through a package runner that can pull new code later (<code>npx</code>, <code>uvx</code>, <code>docker run</code> with <code>:latest</code> and friends) unless you pin a version.</p>
+      </section>
+
+      <section id="read-only" aria-labelledby="ro-title">
+        <h2 id="ro-title">Read-only comes from the product</h2>
+        <div class="prose">
+          <p>Here is the honest bit. Casper can't look at your Central or Mist account and know what your login may do. Only the product knows. So Casper asks the product.</p>
+          <p>A server may offer a read-only tool named <code>access_check</code>. It asks each product what the current login may do. Casper calls it once per connection, only when the server marks it read-only and not destructive, and it takes no arguments.</p>
+        </div>
+        <div class="table-wrap"><table>
+          <thead><tr><th scope="col">What the product says</th><th scope="col"><code>/mcp</code> shows</th><th scope="col">What happens</th></tr></thead>
+          <tbody>
+            <tr><td>Every product says read-only</td><td><code>login: read-only (checked)</code></td><td>Every tool that is not <code>read</code> or <code>diagnostic</code> is hidden and refused. Writes can't be turned on: <code>This login is read-only (access_check). Writes can't be turned on here.</code></td></tr>
+            <tr><td>The login can make changes</td><td><code>login: can make changes (checked)</code></td><td>Nothing unlocks. Writes stay off, changes still ask.</td></tr>
+            <tr><td>Anything else: an error, a slow answer, no <code>access_check</code> at all</td><td><code>access not checked</code></td><td>Not read-only. The normal rules apply.</td></tr>
+          </tbody>
+        </table></div>
+        <div class="prose">
+          <p>Only the parsed answer is used. The server's own text never reaches the AI.</p>
+          <p>What about a tool the server marks <code>readOnlyHint: true</code>? It gets the label <code>read</code> and runs without asking. That is the server's word, not a check. Casper's labels, word lists and presets can only make things stricter. They never skip an approval and never claim read-only.</p>
+          <p>For hpe-networking-mcp, the Casper repo has a <a href="https://github.com/Choaterboater/casper/blob/main/docs/patches/hpe-networking-mcp-access-check.patch">proposed patch</a> that adds <code>access_check</code>.</p>
+        </div>
+      </section>
+
+      <section id="asks" aria-labelledby="asks-title">
+        <h2 id="asks-title">What asks first, and why the AI can't say yes</h2>
+        <p class="prose">Every tool gets a label. From least to most strict:</p>
+        <div class="table-wrap"><table>
+          <thead><tr><th scope="col">Label</th><th scope="col">Means</th><th scope="col">Asks you?</th></tr></thead>
+          <tbody>
+            <tr><td><code>read</code></td><td>The server marks it <code>readOnlyHint: true</code> and nothing tightens it</td><td class="yes">No</td></tr>
+            <tr><td><code>diagnostic</code></td><td>The server marked a tool with no other label as <code>diagnostic</code> (through <code>_meta["casper/safety"]</code>)</td><td class="no">Yes</td></tr>
+            <tr><td><code>external-action</code></td><td>The server gave no label</td><td class="no">Yes</td></tr>
+            <tr><td><code>write</code></td><td>Changes something</td><td class="no">Yes</td></tr>
+            <tr><td><code>exec</code></td><td>Runs commands</td><td class="no">Yes</td></tr>
+            <tr><td><code>destructive</code></td><td>Can cut service or delete things</td><td class="no">Yes</td></tr>
+          </tbody>
+        </table></div>
+
+        <h3>Scary words always ask</h3>
+        <div class="prose">
+          <p>A tool whose name has a destructive or run word <em>anywhere</em> is <code>destructive</code> or <code>exec</code>, even if the server says it is read-only. The words include <strong>bounce, reload, restart, reboot, halt, shutdown, disconnect, deauth, rollback, erase, wipe, delete, reset, upgrade, exec, shell, command</strong> and similar. So <code>bounce_interface</code>, <code>rebootDevice</code> and <code>clearpass-disconnect-session</code> all ask.</p>
+          <p>Change words (commit, apply, push, enable, configure…) tighten to <code>write</code>, unless the name starts with a read word: <code>show_commit_history</code> stays a read. A few known read tools, like <code>get_config_rollback_status</code>, keep "rollback" as a noun.</p>
+        </div>
+
+        <h3>The AI can't approve for you</h3>
+        <ul class="prose">
+          <li><strong>No shortcut exists.</strong> There is no blanket write flag and no approval token the AI can set.</li>
+          <li><strong>Sneaky arguments ask too.</strong> If the AI sets <code>confirm</code>, <code>confirmed</code>, <code>confirmation</code> or <code>force</code> to true (in any spelling, or as <code>"yes"</code> or <code>1</code>), Casper asks even for a read tool. Same if it turns a preview switch like <code>dry_run</code> off. The box then warns: <code>⚠ The AI set confirm=true. That skips the server's own check. Only your yes here lets it run.</code></li>
+          <li><strong>Server questions reach only you.</strong> When a server asks "Confirm PORT BOUNCE on SG1 ports [1/1/1]?", the AI never sees the question and has no tool to answer it.</li>
+          <li><strong>No terminal, no yes.</strong> One-shot runs can't ask, so a call that needs approval fails with <code>Not executed (needs your approval, and this run cannot ask)</code>.</li>
+          <li><strong>A failed call is never retried on its own.</strong> A lost answer does not prove nothing happened.</li>
+        </ul>
+
+        <p class="prose">Here is a write tool asking. We typed <code>no</code>, then pressed ctrl+o:</p>
+        <figure class="capture">
+<pre class="term" data-title="casper — ~/project"><span class="prompt">❯</span> <span class="you">set the lab site on the fixture server</span>
+<span class="dim">[model] scripted/site-capture · off · credentials configured</span>
+I will ask the fixture server to change the site.
+<span class="warn">MCP · fixture · set_site  [write]</span>
+Mode: EXECUTE (this makes the change)
+Arguments: {"site":"lab"}
+Run it? Type yes:
+
+<span class="dim"># (typed: no)</span>
+
+<span class="dim">[approval] denied</span>
+The change was not made.
+
+<span class="dim"># (pressed ctrl+o)</span>
+
+<span class="dim">[mcp] Writes off for fixture. Write tools are hidden again.</span></pre>
+          <figcaption>Real Casper 0.2.15 code. The "model" here is a scripted stand-in, so the result does not depend on an AI. Writes were on for this server from the run in the next section.</figcaption>
+        </figure>
+        <p class="prose small muted">If the tool has a preview switch, the question becomes <code>Run it? Type yes, or p to preview first:</code>. <code>p</code> runs a dry run and shows the box again. Passwords and PSKs in the box show as <code>••• 13 chars</code> on your screen; the server still gets the real value you approve.</p>
+      </section>
+
+      <section id="writes" aria-labelledby="writes-title">
+        <h2 id="writes-title">Writes are off until you say so</h2>
+        <div class="prose">
+          <p>Every server starts with writes off, remembered ones too. That means write and delete tools are hidden from the AI, and refused if it tries anyway: <code>Not executed (&lt;server&gt; writes are off. Only the user can turn them on with /mcp writes &lt;server&gt;.)</code> Other changes (no label, or <code>exec</code>) are still shown, and still ask each time.</p>
+          <p>Turning writes on takes two steps, and only you can do them: type <code>/mcp writes &lt;server&gt;</code>, then pick <code>1</code>.</p>
+        </div>
+        <figure class="capture">
+<pre class="term" data-title="casper — ~/project"><span class="prompt">❯</span> <span class="you">/mcp writes fixture</span>
+fixture writes are off.
+  1 Enable for this server
+  2 Keep writes off
+Type 1 or 2:
+<span class="dim"># (typed: 1)</span>
+<span class="dim">[mcp] Writes on for fixture. Each change still asks you. ctrl+o turns writes off.</span></pre>
+          <figcaption>Writes on does not mean "no more questions". Each change still waits for your typed <code>yes</code>.</figcaption>
+        </figure>
+        <ul class="prose">
+          <li>While any server has writes on, the footer starts with <code>WRITES: &lt;servers&gt; · ctrl+o</code>. It is never cut off.</li>
+          <li><kbd>ctrl</kbd>+<kbd>o</kbd> (or <code>/mcp writes off</code>) turns writes off for <em>every</em> server at once, even while Casper is working, and denies any open approval box. Think of it as the big red button.</li>
+          <li>The AI's ask tool can't answer the writes box. In a one-shot run, <code>/mcp writes</code> says <code>Writes can only be turned on in an interactive session.</code></li>
+          <li>If your own settings still keep writes off (say <code>HPE_MCP_ACCESS_PROFILE=safe-read-only</code> in your config), Casper tells you instead of pretending.</li>
+        </ul>
+      </section>
+
+      <section id="junos" aria-labelledby="junos-title">
+        <h2 id="junos-title">Junos: show commands only</h2>
+        <div class="prose">
+          <p>junos-mcp-server has no read-only switch, so Casper reads the command text. With writes off, only plain show commands run. Anything else gets <code>Not executed (Junos writes are off; only show commands run.)</code></p>
+          <p>A "plain show command":</p>
+        </div>
+        <ul class="prose">
+          <li>starts with the full word <code>show</code> (no short forms like <code>sh</code>);</li>
+          <li>has no <code>;</code>, line break or redirection;</li>
+          <li>uses only the pipes <code>match</code>, <code>except</code>, <code>count</code>, <code>display</code>, <code>no-more</code>, <code>last</code>, <code>find</code> and <code>trim</code> (<code>| save</code> is refused).</li>
+        </ul>
+        <div class="prose">
+          <p>Show commands still ask, unless you type <code>/mcp junos-show junos on</code> for that server in this session. PFE commands always ask. And <code>load_and_commit_config</code> gets a plain warning in its box: <code>load_and_commit_config commits right away. No preview and no auto-rollback.</code></p>
+        </div>
+        <aside class="callout tip">
+          <strong class="callout-title">Learning Junos?</strong>
+          <p><code>/references add junos-yang</code> can download one release of the Junos YANG models (after you type yes). Then you and the AI can search them on your own disk, with no model call. <code>mist-openapi</code> and <code>pycentral</code> work the same way.</p>
+        </aside>
+      </section>
+
+      <section id="secrets" aria-labelledby="secrets-title">
+        <h2 id="secrets-title">Secrets in configs are hidden</h2>
+        <div class="prose">
+          <p>Device configs are full of secrets. Casper swaps each one it knows for <code>&lt;secret hidden&gt;</code> before the AI reads the text, and keeps the words around it so the AI still knows what kind of line it is. It is on by default.</p>
+          <p>It covers every MCP result (always), config files you or the AI read (<code>.cfg</code>, <code>.conf</code>, <code>.set</code>, and files under <code>configs</code>, <code>backups</code> or <code>oxidized</code> folders), and command output that looks like a config.</p>
+        </div>
+        <figure class="capture">
+<pre class="term" data-title="casper — secrets demo"><span class="dim">── backups/core-cx-01.cfg on disk ──</span>
+hostname core-cx-01
+user admin group administrators password ciphertext AQBapFakeFakeFake0123==
+radius-server host 10.1.1.10 key plaintext NotARealKey1 vrf mgmt
+snmp-server community LabCommunity
+interface 1/1/1
+    description uplink to dist-01
+    no shutdown
+<span class="accent">── backups/core-cx-01.cfg as the AI reads it ──</span>
+hostname core-cx-01
+user admin group administrators password ciphertext <span class="ok">&lt;secret hidden&gt;</span>
+radius-server host 10.1.1.10 key plaintext <span class="ok">&lt;secret hidden&gt;</span> vrf mgmt
+snmp-server community <span class="ok">&lt;secret hidden&gt;</span>
+interface 1/1/1
+    description uplink to dist-01
+    no shutdown
+3 secrets hidden before the AI saw this (passwords, SNMP communities).
+
+<span class="dim">── backups/edge-mx-01.set on disk ──</span>
+set system host-name edge-mx-01
+set system root-authentication encrypted-password "$6$fakesalt$fakehashfakehash"
+set snmp community LabRO authorization read-only
+set interfaces ge-0/0/0 description "to core-cx-01"
+<span class="accent">── backups/edge-mx-01.set as the AI reads it ──</span>
+set system host-name edge-mx-01
+set system root-authentication encrypted-password "<span class="ok">&lt;secret hidden&gt;</span>"
+set snmp community <span class="ok">&lt;secret hidden&gt;</span> authorization read-only
+set interfaces ge-0/0/0 description "to core-cx-01"
+2 secrets hidden before the AI saw this (passwords, SNMP communities).
+
+<span class="prompt">❯</span> <span class="you">/secrets</span>
+Secrets: hidden in MCP results (always). Files and command output: on. Extra check: netconan not
+found (built-in only).</pre>
+          <figcaption>Casper's own scrubber on two made-up backups (all values are fake). An AOS-CX box and a Junos box, as the AI would see them.</figcaption>
+        </figure>
+
+        <h3>What is hidden, per platform</h3>
+        <div class="table-wrap"><table>
+          <caption>From docs/SECRETS.md. Only the value is replaced.</caption>
+          <thead><tr><th scope="col">Platform</th><th scope="col">Hidden</th></tr></thead>
+          <tbody>
+            <tr><td>AOS-CX</td><td>The value after <code>plaintext</code> or <code>ciphertext</code> on password and key lines (user passwords, RADIUS/TACACS keys, SNMPv3 <code>auth-pass</code>/<code>priv-pass</code>, NTP, OSPF and BGP keys), <code>snmp-server community X</code></td></tr>
+            <tr><td>AOS 8 / Instant</td><td><code>wpa-passphrase</code>, <code>wpa-hexkey</code>, <code>key</code> lines inside an <code>aaa authentication-server radius</code>/<code>tacacs</code> (or <code>wlan auth-server</code>) block, <code>mgmt-user</code> hashes, <code>ipsec</code> keys on <code>masterip</code>/<code>localip</code> lines, SNMPv3 <code>auth-prot</code>/<code>priv-prot</code> passwords</td></tr>
+            <tr><td>AOS-S</td><td><code>password manager</code>, <code>operator</code> or <code>port-access</code> values after <code>plaintext</code>, <code>sha1</code> or <code>sha-256</code>, <code>radius-server host ... key X</code>, <code>snmp-server community X</code></td></tr>
+            <tr><td>Junos (set and curly)</td><td><code>encrypted-password</code>, <code>simple-password</code>, <code>authentication-key</code>, <code>authentication-password</code>, <code>privacy-password</code>, <code>pre-shared-key</code>, <code>md5 N key</code>, SNMP community names, and any <code>$9$...</code> value anywhere</td></tr>
+            <tr><td>Cisco IOS / NX-OS / ASA</td><td><code>enable secret</code> and <code>enable password</code>, <code>username ... secret</code> or <code>password</code>, <code>snmp-server community</code>, SNMPv3 <code>auth</code>/<code>priv</code>, <code>key-string</code>, <code>crypto isakmp key</code>, <code>pre-shared-key</code>, <code>message-digest-key</code>, <code>ntp authentication-key</code>, <code>wpa-psk</code>, <code>standby ... authentication</code>, <code>passwd</code></td></tr>
+            <tr><td>Any</td><td>PEM private keys; the word after <code>password</code>, <code>secret</code> or <code>passwd</code>; <code>$1$</code>/<code>$2a$</code>/<code>$5$</code>/<code>$6$</code>/<code>$8$</code>/<code>$y$</code> hashes after a password, secret or hash word</td></tr>
+          </tbody>
+        </table></div>
+
+        <ul class="prose">
+          <li><strong>The AI can't send a hidden secret back.</strong> An MCP call, file edit or shell command that still has <code>&lt;secret hidden&gt;</code> in it is refused, so the marker can't overwrite your real RADIUS key.</li>
+          <li><strong>netconan is an extra check.</strong> If <a href="https://github.com/intentionet/netconan">netconan</a> is installed, Casper runs it too, after its own rules. It misses some Aruba formats, which is why Casper's rules run first.</li>
+          <li><strong>Only you can turn it down.</strong> <code>/secrets files off</code> stops file and command scrubbing for the session. MCP results are always scrubbed. The AI has no way to turn scrubbing off.</li>
+        </ul>
+        <aside class="callout warn">
+          <strong class="callout-title">Known formats only</strong>
+          <p>This is best effort. Odd formats (EdgeConnect, ClearPass XML exports, JSON with strange key names) can still get through. hpe-networking-mcp's own <code>hpe_mcp_secret_…</code> tokens are left alone on purpose, because that server swaps them back itself. Look at what a tool returns before you share it.</p>
+        </aside>
+      </section>
+
+      <section id="check" aria-labelledby="check-title">
+        <h2 id="check-title">Check a server you built</h2>
+        <div class="prose">
+          <p>Writing your own MCP server for your lab? <code>casper mcp check [repo]</code> looks it over before you connect it. It runs the repo's doctor and tests, starts the server once, and lists its tools. It never calls a tool unless you add <code>--live</code>. Even then it calls only <code>access_check</code> and up to 3 tools the server labels read-only; write tools are never called.</p>
+          <p>It checks that every tool has <code>readOnlyHint</code> or <code>destructiveHint</code>, and that the label fits the name. It checks schemas, <code>confirm</code> and <code>dry_run</code> fields, and your example configs (a plain-text secret or a setting that turns writes on is a problem). It runs your repo's code, so only use it on repos you trust.</p>
+        </div>
+        <div class="cmd"><span class="cmd-label">From inside your server's repo</span><pre><code>casper mcp check . --quick</code></pre></div>
+        <figure class="capture">
+<pre class="term" data-title="casper — ~/project/lab-mcp"><span class="prompt">$</span> <span class="you">casper mcp check . --quick</span>
+Checking lab-mcp (~/project/lab-mcp)
+Offline: no tool calls. Credentials removed, web proxy blocked. Use --live to allow read calls.
+Offline is best effort: a program that reads its own .env or opens SSH itself can still reach the
+network.
+Starting lab: bun server.ts (from .mcp.json.example)
+Repo checks
+  <span class="dim">none</span>  doctor        No doctor found. Add a doctor script, or set it in .casper/mcp-check.json.
+  <span class="warn">warn</span>  safety tests  No safety tests found (names with write, gate, readonly, guard, block,
+redact, confirm, dry_run, annotation).
+  <span class="dim">skip</span>  tests         --quick
+Server
+  <span class="ok">ok</span>    starts        in 0.1 s, 6 tools
+  <span class="bad">fail</span>  label         delete_site is labeled read-only, but the name says it changes things.
+  <span class="bad">fail</span>  label         port_bounce is labeled write, but the name says it can cut service. Mark it
+destructiveHint: true.
+  <span class="bad">fail</span>  label         wipe_and_show says both read-only and destructive.
+  <span class="warn">warn</span>  label         show_config is labeled read-only but has a "dry_run" field.
+  <span class="dim">note</span>  dry_run       show_config: dry_run has no default in the schema. Make preview the default.
+Example configs
+  <span class="ok">ok</span>    .mcp.json.example  keeps writes off
+Result: 3 problems, 2 warnings, 1 note
+Exit codes: 0 no problems, 1 problems (or warnings with --strict), 64 usage mistake
+<span class="prompt">$</span> <span class="you">echo $?</span>
+1</pre>
+          <figcaption>A real run on a test server whose labels are wrong on purpose. A <code>delete_site</code> that claims to be read-only is exactly the kind of thing you want caught in the lab, not in production.</figcaption>
+        </figure>
+        <p class="prose small muted">Add <code>--json</code> for a report a script can read, and <code>--strict</code> to fail on warnings too. Exit codes: 0 no problems, 1 problems, 64 usage mistake.</p>
+      </section>
+
+      <section id="walkthrough" aria-labelledby="walk-title">
+        <h2 id="walk-title">Walk-through: APs per site in Mist, read-only</h2>
+        <p class="prose">A typical first job. You want a list of APs per site, and you want zero chance of a change. Here is the path. (The steps and Casper's messages are real; what the AI says will vary.)</p>
+        <ol class="steps">
+          <li><strong>Make a read-only token on the Mist side.</strong> An Observer org token. This is the part that really keeps it read-only, because Mist enforces it, not Casper.</li>
+          <li><strong>Put it in your shell, not in a file.</strong> <code>export MIST_TOKEN=…</code>, then add the <a href="#setup-mist">Mist entry</a> with <code>Bearer ${MIST_TOKEN}</code> to <code>~/.casper/mcp.json</code>.</li>
+          <li><strong>Start Casper and look.</strong> Type <code>/mcp</code>. You'll see <code>mist</code> as <code>disconnected</code>, with writes off.</li>
+          <li><strong>Connect.</strong> Type <code>/mcp connect mist</code>. Casper reminds you that it can't pin read-only on a hosted server and that access is not checked. Pick <code>1</code> to remember it or <code>2</code> for just this session.</li>
+          <li><strong>Ask plainly.</strong> "List the APs at each site in Mist. Read only, no changes." The AI finds tools with <code>find_capability</code> (a word like <code>site</code> finds <code>mist_list_sites</code>) and calls them. Tools the server marks read-only run without asking. Anything else stops at the approval box for you.</li>
+          <li><strong>Big orgs are cut to size.</strong> Each result the AI reads fits 16 KiB, and each list is cut to 50 items, with a note like <code>Partial result: … shows 50 of 2000. More: call again with next_cursor.</code> So the AI knows it saw only part, and can ask for the next page.</li>
+          <li><strong>Secrets stay hidden.</strong> If a result carries a PSK or RADIUS key under a key like <code>psk</code> or <code>radius_key</code>, it arrives as <code>&lt;secret hidden&gt;</code>.</li>
+          <li><strong>Done? Nothing to undo.</strong> Writes were never on. If you ever do turn them on, <kbd>ctrl</kbd>+<kbd>o</kbd> turns them off again for every server.</li>
+        </ol>
+        <aside class="callout note">
+          <strong class="callout-title">Why both a token and Casper?</strong>
+          <p>Casper's rules read tool names and labels. They can't see inside a server. A tool that changes things under a read name, marked read-only by its server, would run without asking. A read-only token on the product side covers that gap. Two brakes are better than one.</p>
+        </aside>
+      </section>
+
+      <section id="limits" aria-labelledby="limits-title">
+        <h2 id="limits-title">What Casper can't do</h2>
+        <p class="prose">These are practical checks, not a sandbox and not proof of what a server does. Straight from the docs:</p>
+        <ul class="prose">
+          <li>A server can lie in its labels, or change something from a tool that looks like a read.</li>
+          <li>The name checks are word lists. They read tool names, not what a tool does. The Junos show check reads the command text the same way.</li>
+          <li>Stdio servers run with your user's permissions.</li>
+          <li>Casper's own shell and file tools are not sandboxed and could read MCP configuration or go around this interface.</li>
+          <li>Secret hiding covers known formats only.</li>
+        </ul>
+        <p class="prose">So: only connect servers you trust, and give them logins with only the rights they need. Tool descriptions and results are outside content, not instructions.</p>
+        <p class="prose">Want every detail? Read <a href="https://github.com/Choaterboater/casper/blob/main/docs/MCP.md">docs/MCP.md</a> and <a href="https://github.com/Choaterboater/casper/blob/main/docs/SECRETS.md">docs/SECRETS.md</a>. Curious about what's next? See the <a href="roadmap.html">roadmap</a>.</p>
+      </section>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <div>
+        <p><strong>Casper 0.2.15</strong> · early preview, unsigned</p>
+        <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
+        <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
+      </div>
+      <ul class="footer-links">
+        <li><a href="https://github.com/Choaterboater/casper">Source</a></li>
+        <li><a href="https://github.com/Choaterboater/casper/releases">Releases</a></li>
+        <li><a href="https://github.com/Choaterboater/casper/issues">Issues</a></li>
+      </ul>
+    </div>
+  </footer>
+
+  <script src="assets/site.js" defer></script>
+</body>
+</html>

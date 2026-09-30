@@ -1,0 +1,18 @@
+# Casper 0.2.15 · a write tool on an MCP server asks first; typing anything but yes says no
+
+❯ set the lab site on the fixture server
+[model] scripted/site-capture · off · credentials configured
+I will ask the fixture server to change the site.
+MCP · fixture · set_site  [write]
+Mode: EXECUTE (this makes the change)
+Arguments: {"site":"lab"}
+Run it? Type yes:
+
+# (typed: no)
+
+[approval] denied
+The change was not made.
+
+# (pressed ctrl+o)
+
+[mcp] Writes off for fixture. Write tools are hidden again.
