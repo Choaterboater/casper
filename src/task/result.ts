@@ -523,7 +523,10 @@ function checkLine(result: VerificationResult, safe: (text: string) => string, s
   if (result.status === "pass") {
     if (result.freshness === "stale") return `• Not verified — stale: files changed after the last passing ${name}. Run ${slash(`/verify ${name}`)}.`;
     // A reused pass did not run again: the time shown is the earlier run's, so the receipt says so.
-    return `✓ ${name} passed${result.reused ? " earlier in this task, reused" : ""} (${result.label ? `${safe(result.label)} · ` : ""}${result.command ? `${safe(result.command)}, ` : ""}${duration(result.durationMs)})`;
+    const how = [result.label ? safe(result.label) : "", result.command ? safe(result.command) : ""].filter(Boolean).join(" · ");
+    const took = elapsed(result.durationMs);
+    const inside = how && took ? `${how}, ${took}` : how || took;
+    return `✓ ${name} passed${result.reused ? " earlier in this task, reused" : ""}${inside ? ` (${inside})` : ""}`;
   }
   const timeout = /^Timed out after (\d+)ms$/.exec(result.reason ?? "");
   // Unfinished checks are not the code failing: Casper does not repair them, so it does not offer to.
@@ -551,6 +554,8 @@ function checkLine(result: VerificationResult, safe: (text: string) => string, s
 }
 
 const duration = formatDuration;
+/** How long a check took, left out under a second ("0.0s everywhere" said nothing). */
+const elapsed = (ms: number) => ms < 1000 ? "" : formatDuration(ms);
 
 /** The line shown the moment a check Casper runs finishes, before the receipt: "✓ typecheck · 5.9s". */
 export function liveCheckLine(result: VerificationResult): string {
@@ -560,14 +565,14 @@ export function liveCheckLine(result: VerificationResult): string {
   if (result.status === "skip") return `– ${name} · skipped${result.command ? "" : ", no command"}`;
   // A lab check's own label ("dry run not guaranteed") stays beside its result.
   const label = result.label ? `${result.label.replace(/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g, " ")} · ` : "";
-  if (result.status === "pass") return result.reused ? `✓ ${name} · passed earlier, reused` : `✓ ${name} · ${label}${duration(result.durationMs)}`;
+  if (result.status === "pass") return result.reused ? `✓ ${name} · passed earlier, reused` : `✓ ${name}${[label.replace(/ · $/, ""), elapsed(result.durationMs)].filter(Boolean).map((part) => ` · ${part}`).join("")}`;
   const timeout = /^Timed out after (\d+)ms$/.exec(result.reason ?? "");
   if (result.ended === "timeout") return `✗ ${name} · timed out${timeout ? ` after ${duration(Number(timeout[1]))}` : ""}`;
   if (result.ended === "no_start") return `✗ ${name} · could not start${typeof result.exitCode === "number" ? ` (exit ${result.exitCode})` : ""}`;
   if (result.ended === "blocked") return `✗ ${name} · ${(result.reason ?? "blocked by the sandbox").replace(/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g, " ")}`;
   const why = typeof result.exitCode === "number" ? `exit ${result.exitCode}` : result.signal ? `stopped by ${result.signal}`
     : result.reason ? result.reason.replace(/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g, " ") : "no exit status";
-  return `✗ ${name} · ${label}${why} · ${duration(result.durationMs)}`;
+  return `✗ ${name} · ${label}${why}${elapsed(result.durationMs) ? ` · ${elapsed(result.durationMs)}` : ""}`;
 }
 
 function pathList(paths: string[], safe: (text: string) => string, count = true): string {

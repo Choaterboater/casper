@@ -1,10 +1,10 @@
 import { expect, test } from "bun:test";
-import { checksPassed, formatReceipt, taskOutcome, type TaskResult } from "../src/task/result";
+import { checksPassed, formatReceipt, liveCheckLine, taskOutcome, type TaskResult } from "../src/task/result";
 import type { VerificationReport, VerificationResult } from "../src/verify/evidence";
 
 function check(overrides: Partial<VerificationResult> = {}): VerificationResult {
   return { name: "test", status: "pass", command: "npm run test", cwd: "/repo", exitCode: 0, signal: null,
-    stdout: "", stderr: "", truncated: false, durationMs: 312, freshness: "unavailable", ...overrides };
+    stdout: "", stderr: "", truncated: false, durationMs: 1312, freshness: "unavailable", ...overrides };
 }
 function report(results: VerificationResult[], overrides: Partial<VerificationReport> = {}): VerificationReport {
   const status = results.some((result) => result.status === "fail") ? "fail" : "pass";
@@ -14,7 +14,7 @@ const done = (task: Omit<TaskResult, "execution">): TaskResult => ({ execution: 
 
 test("a Casper-run pass names the check, command and time", () => {
   expect(formatReceipt(done({ changedPaths: ["sum.js"], verificationMode: "auto", verification: report([check()]) })))
-    .toBe("• Checks passed — not proven: Casper did not compare the tests with and without the change\n✓ Changed 1 file: sum.js\n✓ test passed (npm run test, 0.3s)");
+    .toBe("• Checks passed — not proven: Casper did not compare the tests with and without the change\n✓ Changed 1 file: sum.js\n✓ test passed (npm run test, 1.3s)");
 });
 
 test("the outcome is verified only when line 1 is Verified; the Checks passed lines stay the same", () => {
@@ -33,7 +33,7 @@ test("the outcome is verified only when line 1 is Verified; the Checks passed li
 
 test("a pass reused from earlier in the task says so, and that its time is the earlier run's", () => {
   expect(formatReceipt(done({ changedPaths: ["sum.js"], verificationMode: "auto", verification: report([check({ freshness: "fresh", reused: true })]) })))
-    .toBe("• Checks passed — not proven: Casper did not compare the tests with and without the change\n✓ Changed 1 file: sum.js\n✓ test passed earlier in this task, reused (npm run test, 0.3s)");
+    .toBe("• Checks passed — not proven: Casper did not compare the tests with and without the change\n✓ Changed 1 file: sum.js\n✓ test passed earlier in this task, reused (npm run test, 1.3s)");
 });
 
 test("a failure names the exit and the next command, per surface", () => {
@@ -70,7 +70,7 @@ test("each reason Casper ran no checks is stated with a way forward", () => {
     .toBe("• No files changed, so Casper ran no checks");
   // Checks the model ran itself are still reported when nothing changed.
   expect(formatReceipt(done({ changedPaths: [], verificationMode: "auto", autoSkipped: "no-changes", verification: report([check()]) })))
-    .toBe("✓ Checks passed — no files changed\n• No files changed\n✓ test passed (npm run test, 0.3s)");
+    .toBe("✓ Checks passed — no files changed\n• No files changed\n✓ test passed (npm run test, 1.3s)");
   expect(formatReceipt(done({ changedPaths: ["sum.js"], verificationMode: "auto", autoSkipped: "no-checks" })))
     .toBe("• Not verified — no checks configured. Add verify.test to .casper/project.yaml.\n✓ Changed 1 file: sum.js");
   expect(formatReceipt(done({ changedPaths: ["README.md"], verificationMode: "auto", autoSkipped: "not-covered" })))
@@ -187,7 +187,7 @@ test("a lab dry run that passed is shown, but it is never grounds for Checks pas
   expect(taskOutcome(undefined, only)).toBe("not_verified");
   const text = formatReceipt(only);
   expect(text).toContain("• Not verified — a dry run is not guaranteed, so its pass is not proof");
-  expect(text).toContain("✓ aoscx-check passed (dry run not guaranteed · ");
+  expect(text).toContain("✓ aoscx-check passed (dry run not guaranteed, 1.3s)");
   expect(text).not.toContain("Checks passed");
   // Beside a real check the pass of that check still counts.
   expect(checksPassed(undefined, done({ verification: report([check(), dry]) }))).toBe(true);
@@ -199,4 +199,16 @@ test.skipIf(process.platform === "win32")("the one-shot undo command quotes a fo
   expect(last("~/code/app")).toBe("Undo: casper --cd ~/code/app /undo 4 · Diff: casper --cd ~/code/app /diff 4");
   expect(last("~/My Lab")).toBe("Undo: casper --cd ~/'My Lab' /undo 4 · Diff: casper --cd ~/'My Lab' /diff 4");
   expect(last("/srv/a $HOME's")).toBe("Undo: casper --cd '/srv/a $HOME'\\''s' /undo 4 · Diff: casper --cd '/srv/a $HOME'\\''s' /diff 4");
+});
+
+test("a check that took under a second shows no time: the receipt and the live line never say 0.0s", () => {
+  const quick = check({ durationMs: 40 });
+  expect(formatReceipt(done({ changedPaths: ["sum.js"], verificationMode: "auto", verification: report([quick]) }))).toContain("✓ test passed (npm run test)\n".trimEnd());
+  expect(formatReceipt(done({ changedPaths: ["sum.js"], verificationMode: "auto", verification: report([quick]) }))).not.toMatch(/0\.\ds/);
+  expect(liveCheckLine(quick)).toBe("✓ test");
+  expect(liveCheckLine(check({ durationMs: 40, label: "checks from mist-tools" }))).toBe("✓ test · checks from mist-tools");
+  expect(liveCheckLine(check({ durationMs: 40, status: "fail", exitCode: 1 }))).toBe("✗ test · exit 1");
+  expect(formatReceipt(done({ changedPaths: [], verificationMode: "auto", verification: report([check({ durationMs: 40, command: undefined })]) }))).toContain("✓ test passed\n".trimEnd());
+  // A second or more still shows.
+  expect(liveCheckLine(check({ durationMs: 2500 }))).toBe("✓ test · 2.5s");
 });
