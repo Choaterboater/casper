@@ -93,3 +93,13 @@ posixOnly("remembered hosts live in Casper's own folder, private, and never in t
   expect(await new SandboxStore(directory).hosts()).toEqual([]);
   await expect(stat(path.join(root, ".casper"))).rejects.toThrow();
 });
+
+test("Casper's own bubblewrap line runs the command through the seccomp helper, so it can't open a Unix socket", async () => {
+  const { bwrapArgs } = await import("../src/sandbox/linux");
+  const policy = { allowWrite: [], denyWrite: [], denyRead: [], allowedDomains: [] };
+  for (const network of ["host", "none"] as const) {
+    const args = bwrapArgs({ policy, network, cwd: "/", seccomp: "/opt/apply-seccomp" }, "echo hi");
+    const end = args.indexOf("--", args.indexOf("--chdir"));
+    expect(args.slice(end + 1, end + 4)).toEqual(["/opt/apply-seccomp", "/bin/sh", "-c"]);
+  }
+});

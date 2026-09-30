@@ -9,7 +9,7 @@ import { within } from "../platform/project-paths";
  * `host` (dev servers and services, which the host must reach on localhost, and lab checks, which reach
  * your lab) and `none` (tools that need no network at all). Files are held the same way as everywhere
  * else: the whole machine read-only, the project, temp and package caches writable, git's own files and
- * your settings read-only, private places hidden. `none` also cuts the network entirely.
+ * your settings read-only, private places hidden, and no Unix sockets (seccomp). `none` also cuts the network entirely.
  */
 
 /** A shell-quoted word. */
@@ -27,6 +27,9 @@ export interface LinuxWrapOptions {
   bwrap?: string;
   /** Lines run before the command inside the sandbox (TMPDIR). */
   prefix?: string;
+  /** The apply-seccomp helper: the command can't open a Unix socket, so it can't ask a program outside the
+   * sandbox (Docker, the desktop's session bus, an SSH agent) to act for it. */
+  seccomp?: string;
 }
 
 /** The argument list for bwrap. Paths that don't exist are skipped, except git's hooks folder, which git itself
@@ -50,7 +53,7 @@ export function bwrapArgs(options: LinuxWrapOptions, command: string): string[] 
     if (isDirectory(entry)) args.push("--tmpfs", entry, "--remount-ro", entry);
     else args.push("--ro-bind", "/dev/null", entry);
   }
-  args.push("--chdir", options.cwd, "--", "/bin/sh", "-c", options.prefix ? `${options.prefix}\n${command}` : command);
+  args.push("--chdir", options.cwd, "--", ...(options.seccomp ? [options.seccomp] : []), "/bin/sh", "-c", options.prefix ? `${options.prefix}\n${command}` : command);
   return args;
 }
 

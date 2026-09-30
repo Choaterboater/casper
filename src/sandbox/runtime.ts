@@ -1,5 +1,6 @@
 import { bwrapCommand } from "./linux";
 import type { SandboxPolicy } from "./policy";
+import { seccompHelper } from "./seccomp";
 
 /**
  * The seam over @anthropic-ai/sandbox-runtime (Apache-2.0): bubblewrap and seccomp on Linux, sandbox-exec
@@ -27,19 +28,23 @@ type Runtime = typeof import("@anthropic-ai/sandbox-runtime");
 export function runtimeEngine(load: () => Promise<Runtime> = () => import("@anthropic-ai/sandbox-runtime"), platform: NodeJS.Platform = process.platform): SandboxEngine {
   let runtime: Runtime | undefined;
   let base: Parameters<Runtime["SandboxManager"]["initialize"]>[0] | undefined;
+  let seccomp: string | undefined;
   return {
     async initialize(policy, ask, options) {
       runtime = await load();
+      // Casper's own bubblewrap line blocks Unix sockets with the same helper the runtime uses.
+      seccomp = platform === "linux" ? options.seccompPath ?? await seccompHelper().catch(() => undefined) : undefined;
+      if (platform === "linux" && !seccomp) throw new Error(`no seccomp helper for ${process.arch}, so Unix sockets can't be blocked`);
       base = {
         network: { allowedDomains: [...policy.allowedDomains], deniedDomains: [], allowLocalBinding: true,
           ...(options.allowUnixSockets?.length ? { allowUnixSockets: [...options.allowUnixSockets] } : {}) },
         filesystem: { denyRead: [...policy.denyRead], allowWrite: [...policy.allowWrite], denyWrite: [...policy.denyWrite] },
-        ...(options.seccompPath ? { seccomp: { applyPath: options.seccompPath } } : {}),
+        ...(seccomp ? { seccomp: { applyPath: seccomp } } : {}),
       } as typeof base;
       await runtime.SandboxManager.initialize(base!, async ({ host, port }) => ask(host, port), true);
     },
     async wrap(command, policy, run) {
-      if (platform === "linux" && run.network !== "ask") return bwrapCommand({ policy, network: run.network, cwd: run.cwd, prefix: run.prefix }, command);
+      if (platform === "linux" && run.network !== "ask") return bwrapCommand({ policy, network: run.network, cwd: run.cwd, prefix: run.prefix, seccomp }, command);
       if (!runtime) throw new Error("The sandbox is not started");
       return runtime.SandboxManager.wrapWithSandbox(`${run.prefix}\n${command}`, undefined,
         { filesystem: { denyRead: [...policy.denyRead], allowWrite: [...policy.allowWrite], denyWrite: [...policy.denyWrite] } },
