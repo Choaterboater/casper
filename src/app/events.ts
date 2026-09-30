@@ -2,6 +2,7 @@ import type { InteractiveTerminal } from "../tui/terminal";
 import { formatDuration, formatToolActivity, redactPreview, terminalText } from "../tui/format";
 import type { RuntimeEvent } from "../runtime/types";
 import type { OutputWriter } from "./commands";
+import { SPEND_STOP_REASON } from "../task/spend";
 
 /** Session-owned effects the renderer needs; the app implements these against its state. */
 export interface RuntimeEventCallbacks {
@@ -38,6 +39,8 @@ interface Step {
   failed?: boolean;
   /** A failed edit the model tried again at once: counted, not printed. */
   retried?: boolean;
+  /** Casper stopped it before it ran (the spend limit): printed as not run, never counted as a step. */
+  notRun?: boolean;
 }
 
 function stepKind(toolName: string): StepKind {
@@ -50,6 +53,9 @@ function stepKind(toolName: string): StepKind {
 const KIND_WORDS: Record<StepKind, [string, string]> = {
   edit: ["edit", "edits"], command: ["command", "commands"], read: ["read", "reads"], other: ["other step", "other steps"],
 };
+
+/** After a tool call Casper stopped at the spend limit. */
+const NOT_RUN = " — not run (spend limit)";
 
 /** How many steps the Working box shows. */
 const BOX_STEPS = 3;
@@ -159,10 +165,12 @@ export class RuntimeEventView {
     this.steps = this.steps.filter(step => step.endedAt === undefined);
     this.terminal.endAssistant();
     this.ensureLineBreak();
-    if (done.length === 1 && !done[0]!.retried) this.output.write(`${done[0]!.printed}\n`);
-    else {
-      for (const step of done) if (step.failed && !step.retried) this.output.write(`${step.printed}\n`);
-      this.output.write(`${stepSummary(done)}\n`);
+    for (const step of done) if (step.notRun) this.output.write(`${step.printed}\n`);
+    const ran = done.filter(step => !step.notRun);
+    if (ran.length === 1 && !ran[0]!.retried) this.output.write(`${ran[0]!.printed}\n`);
+    else if (ran.length) {
+      for (const step of ran) if (step.failed && !step.retried) this.output.write(`${step.printed}\n`);
+      this.output.write(`${stepSummary(ran)}\n`);
     }
     this.endedWithNewline = true;
     this.renderBox();
@@ -264,10 +272,15 @@ export class RuntimeEventView {
         const elapsed = started === undefined ? undefined : performance.now() - started;
         // A failed casper_check already printed its formatted result line; its JSON payload is for the model.
         const shown: ToolEnd = event.toolName === "casper_check" ? { ...event, output: undefined } : event;
+        // Stopped at the spend limit before it ran: not a failure, and the model's instruction is not for the screen.
+        const notRun = event.isError && event.output?.text?.trim() === SPEND_STOP_REASON;
+        const endLine = (inset: number, detail: boolean) => notRun
+          ? `${formatToolActivity({ type: "tool_start", toolName: event.toolName, ...(event.input ? { input: event.input } : {}) }, undefined, this.fit(inset + NOT_RUN.length))}${NOT_RUN}`
+          : formatToolActivity(detail ? shown : { ...shown, output: undefined }, elapsed, this.fit(inset));
         if (!this.terminal.rich) {
           this.terminal.endAssistant();
           this.ensureLineBreak();
-          this.output.write(`${formatToolActivity(shown, elapsed, this.fit())}\n`);
+          this.output.write(`${endLine(0, true)}\n`);
           this.endedWithNewline = true;
           break;
         }
@@ -278,9 +291,10 @@ export class RuntimeEventView {
           this.steps.push(step);
         }
         step.endedAt = performance.now();
-        step.failed = event.isError;
-        step.line = formatToolActivity({ ...shown, output: undefined }, elapsed, this.fit(4));
-        step.printed = formatToolActivity(shown, elapsed, this.fit());
+        step.failed = event.isError && !notRun;
+        if (notRun) step.notRun = true;
+        step.line = endLine(4, false);
+        step.printed = endLine(0, true);
         this.renderBox();
         break;
       }

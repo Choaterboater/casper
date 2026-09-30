@@ -8,6 +8,9 @@
 /** Dollars per task; undefined turns that limit off. */
 export interface SpendLimits { noteAt?: number; pauseAt?: number }
 
+/** What the model is told when the spend pause stops its tool call. The screen says "not run" instead. */
+export const SPEND_STOP_REASON = "Stopped: this task reached its spend limit, so Casper stopped it here. Do not call more tools.";
+
 export const DEFAULT_SPEND_LIMITS: Required<SpendLimits> = { noteAt: 1, pauseAt: 5 };
 
 /** "$0.004", "$0.31", "$5.02", "$12". */

@@ -4,6 +4,7 @@ import { PassThrough } from "node:stream";
 import { RuntimeEventView, stepSummary } from "../src/app/events";
 import { commandLabel, formatToolActivity } from "../src/tui/format";
 import { InteractiveTerminal } from "../src/tui/terminal";
+import { SPEND_STOP_REASON } from "../src/task/spend";
 import type { RuntimeEvent } from "../src/runtime/types";
 
 const ambientTerm = process.env.TERM;
@@ -133,4 +134,17 @@ test("the summary line counts steps and shows time only from a second up", () =>
   expect(stepSummary([{ kind: "edit", startedAt: 0, endedAt: 10 }, { kind: "edit", startedAt: 20, endedAt: 30 }])).toBe("✓ 2 edits");
   expect(stepSummary([{ kind: "command", startedAt: 0, endedAt: 38_000, failed: true }, { kind: "other", startedAt: 0, endedAt: 5 }]))
     .toBe("✓ 1 command · 1 other step · 1 failed · 38.0s");
+});
+
+test("a tool call stopped at the spend limit shows as not run, never as a failed step or with the model's instruction", () => {
+  for (const rich of [true, false]) {
+    const t = fakeTerminal(rich);
+    const input = { command: "ssh root@10.0.0.5 'systemctl restart demoapp'" };
+    t.handle(start("1", "read", { path: "/work/app/a.py" }), end("1", "read", { path: "/work/app/a.py" }));
+    t.handle(start("2", "bash", input), end("2", "bash", input, true, SPEND_STOP_REASON), { type: "message_end" });
+    expect(t.screen).toContain("• bash · ssh root@10.0.0.5 … — not run (spend limit)");
+    expect(t.screen.join("\n")).not.toContain("Do not call more tools");
+    expect(t.screen.join("\n")).not.toMatch(/failed|✗/);
+    if (rich) expect(t.screen).toContain("✓ read · a.py");
+  }
 });
