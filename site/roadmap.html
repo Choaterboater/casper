@@ -43,6 +43,8 @@
         every fix ships under a new version number.</p>
         <p><span class="badge soon">coming, not released</span> means it is being built right now. You
         cannot install it yet, and the details may still change before it ships.</p>
+        <p><span class="badge">idea, not scheduled</span> means it is agreed as a direction, but
+        has no version and nobody is building it yet.</p>
       </aside>
 
       <nav class="toc" aria-label="On this page">
@@ -60,6 +62,12 @@
             <ul>
               <li><a href="#v0216">v0.2.16: build new things</a></li>
               <li><a href="#v0217">v0.2.17: undo, receipts and a sandbox</a></li>
+            </ul>
+          </li>
+          <li><a href="#later">Later, not scheduled</a>
+            <ul>
+              <li><a href="#packs">Vendor packs</a></li>
+              <li><a href="#policy">Tool rules you write</a></li>
             </ul>
           </li>
         </ul>
@@ -206,6 +214,50 @@
             <li><strong>An AI security review.</strong> A model reads your code for security
             problems. It waits for the sandbox, so the model cannot read files the scanners
             flagged.</li>
+          </ul>
+        </article>
+        </div>
+
+      </section>
+
+      <section id="later" aria-labelledby="later-h">
+        <h2 id="later-h">Later, not scheduled</h2>
+        <aside class="callout">
+          <strong class="callout-title">Ideas, not promises</strong>
+          <p>These are agreed directions with no version number yet. Nothing here is being built right
+          now, and any of it may change shape or be dropped.</p>
+        </aside>
+
+        <div class="stack">
+        <article class="card" id="packs" aria-labelledby="packs-h">
+          <h3 id="packs-h">Vendor packs · one step to set up a vendor <span class="badge">idea, not scheduled</span></h3>
+          <p>Today, setting up Casper for one vendor takes four separate steps: connect its MCP
+          server, pick a read-only preset, add its reference docs, maybe add a skill. A pack does all
+          four at once.</p>
+          <ul>
+            <li><strong>One command.</strong> <code>casper pack add aruba</code> connects
+            hpe-networking-mcp with its <code>safe-read-only</code> preset, adds the Aruba CX and
+            Central references, and adds a "troubleshoot a site" skill.</li>
+            <li><strong>Writes stay off.</strong> A pack never turns writes on. That is still only
+            <code>/mcp writes &lt;server&gt;</code>, typed by you.</li>
+            <li><strong>Borrowed format.</strong> A pack is a folder in the same shape as Claude
+            Code plugins (MCP servers, skills and commands side by side), not a new plugin API. MCP
+            stays the way tools plug in.</li>
+            <li><strong>First packs:</strong> Aruba, then Juniper and Mist.</li>
+          </ul>
+        </article>
+
+        <article class="card" id="policy" aria-labelledby="policy-h">
+          <h3 id="policy-h">Tool rules you write · where and when a tool may run <span class="badge">idea, not scheduled</span></h3>
+          <p>Casper already decides which tool calls run, ask or stay hidden. This lets you add your
+          own rules in a file, such as sites and a maintenance window.</p>
+          <div class="cmd"><span class="cmd-label">~/.casper/policy.yaml (idea only)</span><pre><code>- tools: [port_bounce, reboot_device]
+  allow: ask
+  sites: [lab-*]          # never on production sites
+  hours: "22:00-05:00"    # maintenance window only</code></pre></div>
+          <ul>
+            <li><strong>Stricter only.</strong> Like presets and labels today, a rule can only
+            make Casper ask more or hide more. It can never skip an approval or turn writes on.</li>
           </ul>
         </article>
         </div>
