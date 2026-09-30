@@ -1,57 +1,84 @@
 # Scripting and CI
 
-Casper runs one prompt and exits when you pass the prompt as arguments. The flags below make
-that usable from scripts, CI and benchmarks: choose the model per run, stream machine-readable
-events, continue a conversation, and get an exit code that reflects verification.
+**What this is:** how to run Casper from a script, a cron job or a CI pipeline instead of typing
+in the terminal. **When you'd use it:** you want one task done with no human at the keyboard, and
+you want the script to know if it worked (by exit code or by JSON).
+
+Give Casper a prompt on the command line and it runs that one prompt, then exits.
+The flags below let you pick the model for the run, get machine-readable events, continue a
+conversation, and get an exit code that says whether the change was checked.
 
 ```sh
 casper --json --model github-copilot/gpt-5-mini --verify --require-verification "fix the failing test" \
   | jq -c 'select(.type=="receipt")'
-echo "exit $?"
+echo "exit ${PIPESTATUS[0]}"   # bash: Casper's exit code, not jq's
 ```
 
-Options go **before** the prompt. Everything after the first non-option word is the prompt, so
-`casper explain the -v flag` is a prompt. Put `--` before a prompt that starts with `-`. Value
-options accept `--name value` or `--name=value`.
+## How arguments are read
 
-A lone `-` as the prompt reads it from stdin (at most 1 MiB): `casper --json --verify - < task.md`.
-Prefer it in scripts. Casper runs on Bun, which cannot rename its process the way Node programs such
-as Pi do, so a prompt given as arguments stays visible in `ps` to other users of the machine, and a
-`pkill -f` with words from the prompt (a model stopping "src/server.ts", say) matches Casper itself.
-The benchmark harness passes Casper's prompt this way.
+- Options go **before** the prompt. The first word that is not an option starts the prompt, so
+  `casper explain the -v flag` is a prompt, not a version request.
+- Put `--` before a prompt that starts with `-`: `casper -- "-v is broken"`.
+- Options that take a value accept `--name value` or `--name=value`.
+- An unknown option (a typo such as `--verfy`) is an error (exit 64). It never becomes a paid
+  model prompt.
+
+**Read the prompt from stdin.** A lone `-` as the prompt reads it from stdin (at most 1 MiB):
+
+```sh
+casper --json --verify - < task.md
+```
+
+Prefer this in scripts. Casper runs on Bun, which cannot hide its command line the way Node
+programs such as Pi can. A prompt given as arguments stays visible in `ps` to other users of the
+machine, and a `pkill -f` with words from the prompt (a model stopping "src/server.ts", say)
+would match Casper itself. The benchmark harness passes Casper's prompt this way. `-` with no
+pipe (a terminal on stdin) or an empty stdin is a usage error (exit 64).
 
 ## Flags
 
 | Flag | Effect |
 |---|---|
-| `--model <provider/model-id[:effort]>` | Use this model for this run only. Also accepts `@role` selectors. The saved default is never changed. |
-| `--effort <level\|auto>` | Reasoning effort for this run only (`auto`, `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`). Any level runs on any model: one the model lacks runs as the nearest level above it, else below (`medium` on a model with only low and high runs as high; a model without reasoning runs without it). Not remembered. |
-| `--json` | JSON Lines events on stdout (below). Everything a person would read (banner, transcript, receipt) goes to stderr. Needs a prompt. |
-| `--verify` / `--no-verify` | Casper runs the checks after this run's edits (`auto`), or runs none (`off`). See [VERIFICATION.md](VERIFICATION.md). |
-| `--require-verification` | Implies `--verify`. Changes Casper did not verify exit **3** instead of 0. Needs a prompt. |
-| `--continue` | Continue this folder's most recent conversation. With none, a new one starts (with a notice). |
-| `--resume <id-prefix>` | Continue the saved conversation whose ID starts with this prefix. `casper /resume` lists IDs. |
-| `--cd <path>` | Work in that folder instead of the current directory. |
-| `--max-turns <n>` | Stop each model request after `n` model turns (1–9999). The run is then incomplete (exit 2) and Casper runs no checks. The requirements review (`verification.review: true`) and proof repair rounds have their own 12-turn budget; hitting that is not this stop (see VERIFICATION.md). |
+| `--model <provider/model-id[:effort]>` | Use this model for this run only. Also accepts `@role` selectors (`@fast`, `@build`, `@reason`, `@review`, `@default`; see [CONFIGURATION.md](CONFIGURATION.md#model-roles-and-automatic-effort)). The saved default is never changed. |
+| `--effort <level\|auto>` | Reasoning effort for this run only: `auto`, `off`, `minimal`, `low`, `medium`, `high`, `xhigh` or `max`. Any level works on any model: a level the model lacks runs as the nearest level above it, else below (`medium` on a model with only low and high runs as high; a model without reasoning runs without it). Not remembered. Do not combine with an effort suffix in `--model`. |
+| `--json` | JSON Lines events on stdout ([below](#json-events)). Everything a person would read (banner, transcript, receipt) goes to stderr. Needs a prompt. |
+| `--verify` / `--no-verify` | Casper runs the checks after this run's edits (`auto`), or runs none (`off`). Cannot be combined. See [VERIFICATION.md](VERIFICATION.md). |
+| `--require-verification` | Implies `--verify`. Changes Casper did not verify exit **3** instead of 0. Needs a prompt. Cannot be combined with `--no-verify`. |
+| `--continue` | Continue this folder's most recent conversation. With none, a new one starts, with the notice `[session] No earlier conversation in this workspace; starting a new one.` |
+| `--resume <id-prefix>` | Continue the saved conversation whose ID starts with this prefix. `casper /resume` lists IDs. No match, or more than one, is a usage error. Cannot be combined with `--continue`. |
+| `--cd <path>` | Work in that folder instead of the current directory. A path that is not a folder is a usage error. |
+| `--max-turns <n>` | Stop each model request after `n` model turns (1–9999). The run is then incomplete (exit 2) and Casper runs no checks. The requirements review (`verification.review: true`) and the proof repair round have their own 12-turn budget; hitting that is not this stop (see [VERIFICATION.md](VERIFICATION.md#requirements-review)). |
 | `--verbose` | The detailed evidence receipt instead of the plain one. |
-| `--mcp <name>`, `--lsp <name>` | Connect your own configured MCP or language server first (repeatable). |
+| `--mcp <name>`, `--lsp <name>` | Connect one of your own MCP or language servers (from your user or profile config) before the prompt. Repeatable. Servers defined in a project need an interactive `/mcp connect` or `/lsp connect` review first. |
+| `--help` / `-h`, `--version` / `-v`, `--licenses` | Print help, the version and the path that is running, or third-party licenses, then exit. They write no state. |
 
-An unknown `--model` or an effort the model doesn't support is a usage error (exit 64) found
+An unknown `--model` (or an effort name that is not a level) is a usage error (exit 64), found
 before any model request. Missing credentials for the chosen provider exit 1 with the sign-in hint.
+
+Two commands have their own arguments and take none of the options above:
+
+- `casper learn <repo>` and its `list`, `inspect` and `promote` forms. See [LEARNING.md](LEARNING.md).
+- `casper mcp check [repo] [--server <name>] [--live] [--quick] [--strict] [--json] [--env NAME=VALUE]... [-- <start command>...]`
+  checks an MCP server you built. It runs the repo's own code, so use it only on repos you trust.
+  See [MCP.md](MCP.md#check-a-server-you-built).
 
 ## Exit codes
 
 | Code | Meaning |
 |---|---|
 | 0 | Done. Changes, if any, were verified — or, without `--require-verification`, simply not disproven. A run that changed nothing exits 0. |
-| 1 | Failed: a check failed, checks were blocked, the model run failed, or Casper hit an error. |
-| 2 | Incomplete: checks could not finish, `--max-turns` stopped the model, or checking was requested (`--verify` or `verification.mode: auto`) and found changes but no configured check. |
-| 3 | Not verified (only with `--require-verification`): files changed but Casper recorded no fresh passing check — checks off, none configured or covering the files, bash-only test runs, or a pass that went stale. |
+| 1 | Failed: a check failed, checks were blocked, the model run failed, or Casper hit an error (for example missing credentials). |
+| 2 | Incomplete: checks could not finish, `--max-turns` stopped the model, or checking was asked for (`--verify` or `verification.mode: auto`) and found changes but no configured check. |
+| 3 | Not verified (only with `--require-verification`): files changed but Casper recorded no fresh passing check — checks off, none configured or covering the files, bash-only test runs, a pass that went stale, or a change the tests do not prove. |
 | 64 | Usage error: an unknown option, a bad value, conflicting flags, an unknown model or conversation. Nothing ran. |
 | 130 | Cancelled (Ctrl-C / SIGINT). |
 | 143 | Terminated (SIGTERM). |
 
-Failure takes precedence over incompleteness, which takes precedence over "not verified".
+Failure wins over incomplete, and incomplete wins over "not verified".
+
+When Casper checks only because that is its default (no flag, no `verification.mode`) and the
+project has no checks, a change is `not_verified` but exits 0. Add `--verify` to make that exit 2,
+or `--require-verification` to make it exit 3.
 
 ## JSON events
 
@@ -71,19 +98,32 @@ A run ends with exactly one `receipt` event, or, when Casper stops before it can
 | `tool_start` | `tool`, `id`, `target` (path, command or pattern; redacted) | A tool call starts. |
 | `tool_end` | `tool`, `id`, `ok`, `ms` | A tool call ends. `ok` is the tool status, not a check result. |
 | `check` | `name`, `command`, `status` (`pass`/`fail`/`skip`), `exit`, `ms`, `recordedBy`, `reused`, `ended`? | Casper recorded a check. `recordedBy` is `casper` (auto mode, `/verify`, repair) or `casper_check` (the model asked for it). `ended` appears only on a failure that was not the code failing: `timeout`, or `no_start` (could not execute, or the shell's exit 126/127). |
-| `phase` | `phase` (`task`, `checks`, `smoke`, `review`, `proof`, `repair`), `state` (`start`/`end`), `atMs` | A stage of Casper's work starts or ends. `smoke` runs inside `checks`. |
-| `receipt` | `outcome`, `exitCode`, `execution`, `changed`, `changedDuringChecks`, `verificationMode`, `checks`, `repairAttempts`, `turnLimit`, `usage`, `proof`, `proofSkipped`, `review`, `services`, `smoke`, `verdict`, `text` | The run finished. |
+| `phase` | `phase` (`task`, `checklist`, `checks`, `smoke`, `review`, `proof`, `acceptance`, `repair`), `state` (`start`/`end`), `atMs` | A stage of Casper's work starts or ends. `smoke` runs inside `checks`. |
+| `receipt` | `outcome`, `exitCode`, `execution`, `changed`, `changedDuringChecks`, `verificationMode`, `checks`, `repairAttempts`, `turnLimit`, `usage`, `proof`, `proofSkipped`, `review`, `acceptance`, `checklist`, `services`, `smoke`, `verdict`, `text` | The run finished. |
 | `error` | `message` | Something failed. |
 
-`receipt.outcome` is one of `verified`, `failed`, `incomplete`, `not_verified`, `unchanged`,
-`cancelled`. `receipt.exitCode` is the process exit code. `changed` is the list of files the
-request changed, or `null` when Casper could not compare the workspace. Each entry of `checks`
-has `name`, `command`, `status`, `exit`, `ms` and `fresh`. `text` is the plain receipt a person
-would read.
+### Receipt fields
 
-`usage` is the request's model use, repair prompts included, or `null` when no model request ran
-(a local `/` command): `turns` counts the conversation's model responses, and `tokens` and
-`estimatedCost` total what the provider reported for each of them plus every `delegate`
+**The basics.**
+
+- `outcome` is one of `verified`, `failed`, `incomplete`, `not_verified`, `unchanged`, `cancelled`.
+- `exitCode` is the process exit code.
+- `execution` is `completed`, `failed` or `cancelled` (did the model run finish, not "was it right").
+- `changed` is the list of files the request changed, or `null` when Casper could not compare the
+  workspace. `changedDuringChecks` lists files changed later, while checks and repairs ran.
+- `verificationMode` is `auto`, `offer`, `off`, or `null`.
+- Each entry of `checks` has `name`, `command`, `status`, `exit`, `ms` and `fresh`.
+- `repairAttempts` counts repair prompts. `turnLimit` is the `--max-turns` value that stopped the
+  run, else `null`.
+- `verdict` is line 1 of `text`: `✓ Verified — …` only when the tests fail without the change;
+  otherwise `• Checks passed — not proven: …`, `✓ Checks passed — no files changed`,
+  `✗ Failed — …`, `✗ Not checked — …` (only unfinished checks), `• Incomplete — …`,
+  `• Not verified — …` or `✗ Stopped — …`.
+- `text` is the plain receipt a person would read.
+
+**Usage.** `usage` is the request's model use, repair prompts included, or `null` when no model
+request ran (a local `/` command). `turns` counts the conversation's model responses. `tokens` and
+`estimatedCost` total what the provider reported for each of them, plus every `delegate`
 subagent's responses (a child's turns are not counted in `turns`). `estimatedCost` is the model
 catalog's estimate, not an invoice. Context compaction is not counted. Both totals are `null`
 (unknown, never an undercount) when a response had no usage report, or the request also made
@@ -91,47 +131,70 @@ model calls Casper does not total: a subagent whose usage is unknown (a response
 report, a run cut off mid-response or still cleaning up, or a child running the effort
 classifier), or automatic effort's classifier.
 
-`proof` says whether the tests prove the change (see docs/VERIFICATION.md, "Proving the change"):
-`{ "status": "proven" | "unproven", "check", "command", "testsChanged", "without" }`, or `{ "status":
-"unavailable", "check", "reason" }` when Casper could not compare, or `null` when no proof applied.
-`without` is the check's run on the code without the change: `{ "exitCode", "ended", "reason"?, "output"? }`.
-`ended` is `pass` (unproven), `fail` (the tests failed), or weaker evidence for a proven change: `timeout`,
-`crash` (a signal or crash, exit above 128) or `no_start` (exit 126/127). `reason` is the runner's reason
-(for example `Timed out after 20000ms`); `output` is at most the last 500 characters of the failing run's output.
-An `unproven` change has the outcome `not_verified`. `proofSkipped` says why checks that passed on changed
-files came without a proof (for example `only non-code files changed`, or a refactor request), else `null`.
-`verdict` is line 1 of `text`: `✓ Verified — …` only when the tests fail without the change; otherwise
-`• Checks passed — not proven: …`, `✗ Failed — …`, `✗ Not checked — …` (only unfinished checks), `• Incomplete — …`, `• Not verified — …` or `✗ Stopped — …`.
-`text`, `verdict`, the proof's `reason` and `output`, and review items are redacted like other previews
-(tokens, keys and passwords become `<redacted>`). `review` is the model's requirements checklist, in one of
-two shapes. The review round's answer (`verification.review: true`) is `{ "fixed": [...], "open": [...],
-"covered": n, "total": m }`: `fixed` lists only the gaps the review added a test or fix for, `open` those still
-open, and `covered`/`total` come from its `Covered: n of m` line (both absent after a bare `Requirements
-review: all covered.`). A full checklist (the first answer's own with the review off, the default, or a review
-answer without a count) is `{ "done": [...], "open": [...] }`, `done` being every ticked requirement.
-`{ "missing": true }` means the review returned none; `"incomplete": true` marks a review stopped at its
-turn budget; `null` means there was no checklist to report. It is the model's own claim; any `open` item
-makes the outcome `not_verified` (a `covered` short of `total` with no `open` item does not, but the receipt
-says `n of m requirements covered`, not all).
+**Proof.** `proof` says whether the tests prove the change (see
+[VERIFICATION.md](VERIFICATION.md#proving-the-change)):
 
-`services` lists the session's managed services at the end of the task, each `{ "name", "origin", "state" }`
-(`origin` such as `http://127.0.0.1:53121`, or `null` when it is not starting or ready), or `[]`. `smoke` is
-Casper's last smoke run (see docs/VERIFICATION.md, "Smoke checks"), or `null` when none ran (when command
-checks failed with smoke checks pending, `text` says `Smoke not run: command checks failed`): `{ "status":
-"pass" | "fail" | "incomplete", "checks": [...], "reason"? }` (`reason` when the run is incomplete beyond its
-checks, such as unconfirmed service cleanup; `crashes`, when present, lists `{ "service", "exit", "tail" }` for each
-service that crashed since a call last reported it, with at most 2048 characters of log tail). Each check has `id`, `name`, `service`, `source` (`config`,
-or `model` for one the model recorded), `request` (`method`, `path`), `baseline` (model checks: the result
-when recorded, before the change; `incomplete` when it got no HTTP response), `baselineAfterEdits` (`true` for a model check recorded after edits in the
-task or during a repair round, whose baseline is therefore not "before the change"), `status`, `evidence`
-(whether it counts as verification: a configured pass, or a model check that failed before the change and
-passes now), and when available `actual` (`status` and at most 512 characters of body), `reason` and
-`restarted`. Bodies, reasons and crash tails are redacted like other previews (tokens, keys and passwords
-become `<redacted>`).
+- `{ "status": "proven" | "unproven", "check", "command", "testsChanged", "without" }`,
+- or `{ "status": "unavailable", "check", "reason" }` when Casper could not compare,
+- or `null` when no proof applied.
+
+`without` is the check's run on the code without the change: `{ "exitCode", "ended", "reason"?,
+"output"? }`. `ended` is `pass` (unproven), `fail` (the tests failed), or weaker evidence for a
+proven change: `timeout`, `crash` (a signal or crash, exit above 128) or `no_start` (exit 126/127).
+`reason` is the runner's reason (for example `Timed out after 20000ms`); `output` is at most the
+last 500 characters of the failing run's output. An `unproven` change has the outcome
+`not_verified`. `proofSkipped` says why checks that passed on changed files came without a proof
+(for example `only non-code files changed`, or a refactor request), else `null`.
+
+**Review.** `review` is the model's requirements checklist, in one of two shapes. It is the
+model's own claim, not Casper's evidence.
+
+- The review round's answer (`verification.review: true`) is `{ "fixed": [...], "open": [...],
+  "covered": n, "total": m }`. `fixed` lists only the gaps the review added a test or fix for,
+  `open` those still open, and `covered`/`total` come from its `Covered: n of m` line (both absent
+  after a bare `Requirements review: all covered.`).
+- A full checklist (the first answer's own with the review off, the default, or a review answer
+  without a count) is `{ "done": [...], "open": [...] }`, `done` being every ticked requirement.
+- `{ "missing": true }` means the review returned none; `"incomplete": true` marks a review stopped
+  at its turn budget; `null` means there was no checklist to report.
+
+Any `open` item makes the outcome `not_verified`. A `covered` short of `total` with no `open` item
+does not, but the receipt says `n of m requirements covered`, not all.
+
+**Acceptance and checklist.** `acceptance` is the result of the independent acceptance check
+(`verification.acceptance`, see [VERIFICATION.md](VERIFICATION.md#independent-acceptance-check-experimental)):
+`status` (`pass`, `fail` or `error`), `mode` (`verdict` or `warn`), and when present `reason`,
+`output` and `unconfirmed` (the failing test names, when Casper could read them); or `null` when it
+did not run. `checklist` is the list of cases from the
+[request checklist](VERIFICATION.md#request-checklist), or `null` when none was made.
+
+**Services and smoke.** `services` lists the session's managed services at the end of the task,
+each `{ "name", "origin", "state" }` (`origin` such as `http://127.0.0.1:53121`, or `null` when it
+is not starting or ready), or `[]`. `smoke` is Casper's last smoke run (see
+[VERIFICATION.md](VERIFICATION.md#smoke-checks)), or `null` when none ran (when command checks
+failed with smoke checks pending, `text` says `Smoke not run: command checks failed`):
+`{ "status": "pass" | "fail" | "incomplete", "checks": [...], "reason"? }`. `reason` appears when
+the run is incomplete beyond its checks, such as unconfirmed service cleanup. `crashes`, when
+present, lists `{ "service", "exit", "tail" }` for each service that crashed since a call last
+reported it, with at most 2048 characters of log tail. Each check has:
+
+- `id`, `name`, `service`, `source` (`config`, or `model` for one the model recorded),
+  `request` (`method`, `path`), `status`;
+- `baseline` (model checks: the result when recorded, before the change; `incomplete` when it got
+  no HTTP response);
+- `baselineAfterEdits` (`true` for a model check recorded after edits in the task or during a
+  repair round, whose baseline is therefore not "before the change");
+- `evidence` (whether it counts as verification: a configured pass, or a model check that failed
+  before the change and passes now);
+- when available, `actual` (`status` and at most 512 characters of body), `reason` and `restarted`.
+
+**Redaction.** `text`, `verdict`, the proof's `reason` and `output`, review items, acceptance
+output and names, checklist cases, smoke bodies, reasons and crash tails are redacted like other
+previews: tokens, keys and passwords become `<redacted>`.
 
 ```json
 {"v":1,"type":"check","name":"test","command":"npm run test","status":"pass","exit":0,"ms":412,"recordedBy":"casper","reused":false}
-{"v":1,"type":"receipt","outcome":"verified","exitCode":0,"execution":"completed","changed":["sum.js"],"changedDuringChecks":[],"verificationMode":"auto","checks":[{"name":"test","command":"npm run test","status":"pass","exit":0,"ms":412,"fresh":true}],"repairAttempts":0,"turnLimit":null,"usage":{"turns":2,"tokens":18342,"estimatedCost":0.0041},"proof":{"status":"proven","check":"test","command":"npm run test","testsChanged":true,"without":{"exitCode":1,"ended":"fail","output":"expected 3, got 2"}},"proofSkipped":null,"verdict":"✓ Verified — the checks pass, and the tests fail without the change","text":"✓ Verified — the checks pass, and the tests fail without the change\n✓ Changed 1 file: sum.js\n✓ test passed (npm run test, 0.4s)\n✓ Proven: test fails without this change (exit 1) and passes with it"}
+{"v":1,"type":"receipt","outcome":"verified","exitCode":0,"execution":"completed","changed":["sum.js"],"changedDuringChecks":[],"verificationMode":"auto","checks":[{"name":"test","command":"npm run test","status":"pass","exit":0,"ms":412,"fresh":true}],"repairAttempts":0,"turnLimit":null,"usage":{"turns":2,"tokens":18342,"estimatedCost":0.0041},"proof":{"status":"proven","check":"test","command":"npm run test","testsChanged":true,"without":{"exitCode":1,"ended":"fail","output":"expected 3, got 2"}},"proofSkipped":null,"review":null,"acceptance":null,"checklist":null,"services":[],"smoke":null,"verdict":"✓ Verified — the checks pass, and the tests fail without the change","text":"✓ Verified — the checks pass, and the tests fail without the change\n✓ Changed 1 file: sum.js\n✓ test passed (npm run test, 0.4s)\n✓ Proven: test fails without this change (exit 1) and passes with it"}
 ```
 
 ### `jq` recipes
@@ -181,11 +244,15 @@ jobs:
           path: casper-events.jsonl
 ```
 
-`set -o pipefail` makes the step fail with Casper's exit code rather than `jq`'s. Provider API keys
-such as `OPENROUTER_API_KEY` are read from the environment. The flags on this page are newer than
-v0.1.0: they ship in v0.2.13 and later, so pin the installer to v0.2.13 or newer. The receipt's
-`verdict` and `proofSkipped` fields and a check's `ended` field ship in v0.2.14. A check runs
-the repository's own configured commands without asking, and they are not sandboxed, so run
-Casper only on code you trust (or pass `--no-verify`). Configure the checks in `.casper/project.yaml` (see
-[VERIFICATION.md](VERIFICATION.md)); `--require-verification` then fails the job when Casper
-could not prove the change.
+Notes on this example:
+
+- Replace `<model-id>` with a real OpenRouter model ID.
+- `set -o pipefail` makes the step fail with Casper's exit code rather than `jq`'s.
+- Provider API keys such as `OPENROUTER_API_KEY` are read from the environment.
+- The flags on this page ship in v0.2.13 and later, so pin the installer to v0.2.13 or newer. The
+  receipt's `verdict` and `proofSkipped` fields and a check's `ended` field ship in v0.2.14.
+- Checks run the repository's own configured commands without asking, and they are not
+  sandboxed (nothing stops them touching the machine). Run Casper only on code you trust, or pass
+  `--no-verify`.
+- Configure the checks in `.casper/project.yaml` (see [VERIFICATION.md](VERIFICATION.md#configuration));
+  `--require-verification` then fails the job when Casper could not prove the change.

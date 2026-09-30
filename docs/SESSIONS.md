@@ -1,41 +1,101 @@
 # Named Sessions and Worktree Experiments
 
-Casper keeps conversation branching and workspace isolation related but separate:
+**What this is:** a way to branch a conversation under a name, and, in a Git
+project, to try the change in a separate copy of the repo (a Git *worktree*).
+**When you'd use it:** to try a risky idea without touching your main folder,
+then either apply the result or throw it away after you look at the diff.
 
-- **Pi owns conversations.** Casper uses Pi SDK 0.87.0 `SessionManager` and `AgentSessionRuntime` to clone/resume Pi JSONL sessions. Casper does not duplicate the message tree or invent another conversation database.
-- **Casper owns names and workspace relations.** A small manifest under `~/.casper/sessions/<project-key>.json` maps a branch name to its Pi session file and, when applicable, a managed Git worktree.
-- **Git owns candidate content.** Experimental branches use `casper/<session-name>` in a worktree under `~/.casper/worktrees/<project-key>/`.
+## Who owns what
+
+- **Pi owns the conversation.** Casper uses Pi SDK 0.87.0 to copy and resume
+  Pi's saved conversation files (JSONL). Casper keeps no second copy of the
+  messages.
+- **Casper owns the names.** A small file,
+  `~/.casper/sessions/<project-key>.json`, maps each branch name to its Pi
+  conversation file and, if there is one, its Git worktree.
+- **Git owns the code.** An experiment uses the Git branch `casper/<name>`, in a
+  worktree under `~/.casper/worktrees/<project-key>/`.
 
 ## Commands
 
 Interactive commands:
 
 ```text
-/tree
-/branch <name>
-/switch <branch>
-/switch main apply
-/switch main discard
+/tree                   show main and every named branch
+/branch <name>          start a named branch from main
+/switch <branch>        move to that branch (conversation and folder)
+/switch main apply      check, review and apply the experiment to main
+/switch main discard    review, then drop the experiment
 ```
 
-`/tree` is local and does not start Pi. Branch names contain 1–64 letters, digits, dots, underscores, or hyphens; `main` is reserved.
+- `/tree` is local. It does not start the model.
+- A branch name is 1–64 letters, digits, dots, underscores or hyphens. `main` is
+  reserved.
+- You can only create a branch while you are on `main`.
 
-`/branch <name>` clones the active Pi conversation, records the current task/project context, and—when policy enables it and the project is Git-backed—creates a clean worktree from the primary workspace's current commit. Creation requires an exact `yes` after Casper shows the session, branch, commit, and path. It fails closed in one-shot mode.
+### `/branch <name>`
 
-From the command line, `casper --continue` continues the folder's most recent conversation and `casper --resume <id-prefix>` the saved one whose ID starts with that prefix (both before the first request; see [SCRIPTING.md](SCRIPTING.md)). They switch the conversation of the active named session the same way `/resume` does.
+Copies the current conversation and records the project context. If the policy
+says to isolate experiments (the default) and the project is a Git repo, it also
+creates a clean worktree from the main folder's current commit.
 
-`/switch <branch>` resumes the associated Pi session and changes the runtime cwd. Switching also requires exact interactive approval. Casper revokes old MCP/LSP connections and tools before moving the runtime, rediscovers project context for the target workspace, and requires fresh connection consent. A failed rebind blocks subsequent commands until the destination configuration can be loaded. On restart, saved named-session history is resumed before any outgoing manifest link is updated; shared-workspace startup selects main.
+Casper shows the session, Git branch, commit and folder, and you must type `yes`.
+In one-shot mode (`casper "<prompt>"`) it refuses, because there is no one to
+answer.
 
-An isolated branch cannot use plain `/switch main`; choose a reviewed outcome:
+### `/switch <branch>`
 
-- `apply`: run configured checks in the candidate, capture the resulting complete diff, show its files/stat/content/SHA-256, require exact approval, apply that exact patch to main **without committing**, and clean up the worktree/branch.
-- `discard`: capture and show the complete diff, require exact approval, then remove the worktree/branch without applying it.
+Resumes that branch's conversation and moves Casper to its folder. You must type
+`yes`. Before it moves, Casper disconnects MCP and language-server connections
+and removes their tools. It then reads the project context of the new folder,
+and you have to approve connections again. If Casper cannot load the new
+folder's settings, it blocks further commands until it can.
 
-If the experiment's worktree was deleted or its branch relation changed (for example a detached HEAD), no reviewed diff can be captured, so apply/discard refuse. Plain `/switch main` is then allowed after exact approval: it switches the conversation only, deletes nothing, and marks the experiment `cleanup pending` in `/tree` for manual inspection of its worktree and `casper/<name>` Git branch.
+When you start Casper in the main folder, it starts on `main`. When you start it
+inside an experiment's worktree folder, it resumes that branch's saved
+conversation.
 
-If verification fails or is blocked, apply stops before approval. Missing checks remain visibly `incomplete` and require the subsequent explicit apply approval. Changes detected during post-approval revalidation keep the candidate open.
+From the command line, `casper --continue` continues the folder's most recent
+conversation, and `casper --resume <id-prefix>` continues the saved one whose ID
+starts with that text (see [SCRIPTING.md](SCRIPTING.md)). They change the
+conversation of the named session you are on, the same way `/resume` does.
 
-Cleanup now **unregisters** the Git worktree/branch while retaining candidate bytes by atomic rename under `~/.casper/worktrees/recovery/<project-key>/`. The recovery path is printed and recorded in `/tree`. These are ordinary recovery directories, not resumable Git worktrees; their `.git` pointer is no longer usable. This also preserves files written after the final snapshot (including ignored files and writes through already-open handles). No automatic recovery-directory deletion is provided; review and remove them manually when no longer needed. Discard means “do not apply,” not secure erasure.
+### Coming back to main from an experiment
+
+An experiment in its own worktree cannot use plain `/switch main`. Pick one:
+
+- **`apply`**: Casper runs the configured checks in the experiment folder, then
+  captures the full diff. It shows the files, a size summary, the content and a
+  SHA-256 fingerprint of the patch. You type `yes`. Casper applies that exact
+  patch to main **without committing**, then cleans up the worktree and branch.
+- **`discard`**: Casper captures and shows the full diff. You type `yes`. Casper
+  cleans up the worktree and branch and does not apply anything.
+
+If a check fails or is blocked, `apply` stops before asking you. Checks that are
+not configured show as `incomplete`, and you still have to approve. If files
+change after you approve, the experiment stays open.
+
+If the experiment's worktree was deleted, or its branch changed (for example a
+detached HEAD), Casper cannot capture a reviewed diff, so `apply` and `discard`
+refuse. Plain `/switch main` is then allowed after you type `yes`. It only
+switches the conversation and deletes nothing. `/tree` marks the experiment
+`cleanup pending` so you can check its worktree and `casper/<name>` branch by
+hand.
+
+### What "clean up" means
+
+Cleanup **unregisters** the Git worktree and branch, but keeps the files. They
+are moved (renamed in one step) to:
+
+```text
+~/.casper/worktrees/recovery/<project-key>/<worktree-name>-<random-id>/
+```
+
+Casper prints this path and shows it in `/tree`. It is a normal folder, not a
+Git worktree you can resume; its `.git` pointer no longer works. It also keeps
+files written after the last snapshot, including ignored files. Casper never
+deletes recovery folders. Remove them yourself when you no longer need them.
+"Discard" means "do not apply", not "wipe from disk".
 
 ## Policy
 
@@ -49,22 +109,58 @@ workspace:
     experimentalBranch: true
 ```
 
-The settings use normal safe-default → global → profile → project precedence. Named workspaces consume `experimentalBranch`; the other two settings establish policy for later bounded-agent/risky-refactor orchestration. Setting `experimentalBranch: false` keeps named Pi branches but shares the main workspace.
+Settings are read in this order, later wins: built-in defaults, then
+`~/.casper/config.yaml`, then the profile's `config.yaml`, then the project's
+`.casper/project.yaml`.
 
-Worktrees are not created for ordinary edits. They are created only for an explicitly requested experimental session branch when policy says to isolate it.
+Only `experimentalBranch` changes what Casper does today, in `/branch`.
+`parallelAgents` and `riskyRefactor` are shown to the model as project policy,
+but no Casper feature acts on them yet. With
+`experimentalBranch: false`, `/branch` still makes a named conversation branch,
+but it shares the main folder (no worktree).
+
+Casper does not create worktrees for normal edits. It creates one only when you
+run `/branch` and the policy says to isolate.
 
 ## Safety and limits
 
-- Source worktree must be clean at planning **and** creation time; its commit may not change during approval. Same-name creation is serialized; failed contenders cannot remove the winner's worktree.
-- Worktree paths and `casper/*` branches must match Casper's managed relation. Repository identity, registration, base commit, main cleanliness, and candidate identity are rechecked before consequential operations.
-- Candidate capture includes tracked, deleted, executable-mode, binary, and untracked files through a temporary Git index. The repository index is not modified. Ignored candidate files cannot be represented by the exact patch, so automatic return refuses and preserves the worktree until they are manually preserved or removed. Existing ignored files in main do not invalidate applied-diff comparison and are left untouched.
-- Reviewed return patches are limited to 512 KiB and 200 changed files. Larger candidates remain intact for manual review/application. Terminal control/bidirectional characters are escaped in the preview; the displayed SHA-256 identifies the original patch bytes.
-- Candidate and applied-main SHA-256 identities must match. Candidate changes during approval prevent removal.
-- Apply never commits or pushes. The `git.commit`/`git.push` policy (`neverUnlessRequested` by default) and "ask before destructive operations" are instructions in the model's prompt, not blocks: the model's bash can still run `git commit`, `git push` or `rm`. The one block: a model's bash call may not run `git stash` (other than `list`/`show`), `git reset --hard`, `git checkout --`/`.`/`-f`, `git restore` of the working tree, `git switch -f` or `git clean` (other than `-n`), because each can set aside or discard your uncommitted work. It is a check of the command text, not a sandbox.
-- A dirty/advanced main workspace prevents apply; both workspaces are preserved for manual recovery.
-- Branch/switch/worktree consent is process-local. Project files cannot answer approval prompts.
-- Pi's native shell/filesystem tools are not sandboxed. Worktrees isolate file state; they are not a security boundary.
+- The main folder must be clean (no uncommitted changes) when you plan the
+  branch and when it is created. Its commit must not change while you approve.
+  Two `/branch` calls with the same name are handled one at a time; the loser
+  cannot remove the winner's worktree.
+- Casper only acts on worktree paths and `casper/*` branches it created. It
+  checks the repo, the worktree registration, the base commit, a clean main
+  folder and the experiment's identity again before each step that changes
+  something.
+- The diff covers tracked, deleted, executable-bit, binary and untracked files.
+  Casper builds it with a temporary Git index; your repo's index is not changed.
+- Ignored files in the experiment cannot go into the patch. If there are any,
+  apply refuses and keeps the worktree until you save or remove them by hand.
+  Ignored files already in main are left alone.
+- A patch can be at most **512 KiB** and **200 changed files**. A bigger
+  experiment stays in place for you to review and apply by hand.
+- Terminal control characters in the preview are escaped. The SHA-256 is of the
+  original patch bytes.
+- After apply, main's diff must match the reviewed patch's SHA-256. If the
+  experiment changes while you approve, it is not removed.
+- If the main folder is dirty or its commit moved, apply refuses. Both folders
+  are kept for you to sort out.
+- **Casper never commits or pushes an applied patch.** The `git.commit` and
+  `git.push` policy (`neverUnlessRequested` by default) and "ask before
+  destructive operations" are instructions to the model, not blocks. The
+  model's bash tool can still run `git commit`, `git push` or `rm`.
+- The one block: the model's bash tool may not run `git stash` (except `list`
+  and `show`), `git reset --hard` (also `--merge` and `--keep`), `git checkout`
+  with `--`, `.`, `-f` or `-p`, `git restore` of the working tree,
+  `git switch -f` or `--discard-changes`, or `git clean` (except `-n`). Each of
+  these can set aside or throw away your uncommitted work. This is a check of
+  the command text, not a sandbox; a script or alias can get past it.
+- Approval for branch, switch and worktree steps lasts only for this Casper
+  process. Files in the project cannot answer an approval prompt.
+- The model's own shell and file tools are not sandboxed. A worktree keeps file
+  changes apart; it is not a security boundary.
 
-State files are mode `0600` and atomically replaced. A malformed manifest fails closed rather than being silently reset.
+State files use mode `0600` and are replaced in one step. If the names file is
+damaged, Casper stops with an error rather than reset it.
 
-POSIX permission modes are not Windows ACL guarantees; see [platform support](PLATFORM_SUPPORT.md).
+POSIX file modes are not Windows ACLs; see [platform support](PLATFORM_SUPPORT.md).

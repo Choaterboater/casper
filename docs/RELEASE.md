@@ -1,82 +1,125 @@
 # Release process and installers
 
-Casper distributes an unsigned **v0.2.15 preview**, not a stable release. Installers
-default to `https://github.com/Choaterboater/casper/releases/download/v0.2.15` because
-GitHub's `latest/download` route excludes prereleases. The first published preview
-was **v0.1.0**; its assets and tag stay as published, and every fix ships under a new
-version.
+**What this is:** what changed in each Casper release, how releases are built and
+published, and what the installers promise. **When you'd use it:** to see what is new
+before you upgrade, or when you build or publish a release yourself.
 
-## v0.2.15: your network, safely
+Casper distributes an unsigned **v0.2.15 preview**, not a stable release. The installers
+download from `https://github.com/Choaterboater/casper/releases/download/v0.2.15`,
+because GitHub's `latest/download` link skips preview releases. The first published
+preview was **v0.1.0**. A published release is never changed; every fix ships under a
+new version.
 
-MCP that works with network servers (hpe-networking-mcp, junos-mcp-server, Mist, NetBox and
-others) without letting the AI change a device on its own. See [MCP.md](MCP.md) and
-[SECRETS.md](SECRETS.md).
+## v0.2.15: MCP for network servers, with writes off by default
 
-**Read-only comes from the product.** Casper calls a login read-only only when the product itself
-says so, through an `access_check` tool. A tool marked `readOnlyHint: true` runs without asking, as
-in 0.2.14, but that is the server's word, not a check. Casper's labels, word lists, presets and guesses only make things stricter (ask more, hide
-more). They never skip an approval and never claim read-only. No answer from the product reads
-`access not checked`.
+This release is about MCP servers (tool servers the AI can call) for network gear:
+hpe-networking-mcp, junos-mcp-server, Mist, NetBox and others. The goal: the AI can
+read from your network by default; MCP write tools stay off until you turn them on,
+and other risky calls ask you first. See
+[MCP.md](https://github.com/Choaterboater/casper/blob/main/docs/MCP.md) and
+[SECRETS.md](https://github.com/Choaterboater/casper/blob/main/docs/SECRETS.md).
 
-**Behaviour change: every server starts with writes off.** Write and delete tools are hidden and
-refused (`Not executed (<server> writes are off. Only the user can turn them on with /mcp writes
-<server>.)`) until you type `/mcp writes <server>` and pick `1`. Other changes (tools with no label,
-tools that run commands) stay visible unless a preset hides them, and ask every time. While writes are on, the footer starts with `WRITES:
-<servers> · ctrl+o`; ctrl+o (or `/mcp writes off`) turns them off at once. Known servers get
-presets: Casper sends their own read-only settings (for example `HPE_MCP_ACCESS_PROFILE=safe-read-only`)
-while writes are off, and `/mcp` says whether the server confirmed them.
+**Behaviour change: every MCP server starts with writes off.**
+- Write and delete tools are hidden. If the AI calls one anyway, it gets
+  `Not executed (<server> writes are off. Only the user can turn them on with /mcp writes <server>.)`
+- To turn writes on, type `/mcp writes <server>` and pick `1`. Only you can do this.
+- While writes are on, the footer starts with `WRITES: <servers> · ctrl+o`. Press
+  ctrl+o (or type `/mcp writes off`) to turn them off at once.
+- Other tools that may change things (tools with no label, tools that run commands)
+  stay visible unless a preset hides them, and they ask you every time.
 
-**Servers you already set up.** Servers in `~/.claude.json`, `~/.mcp.json` and VS Code's
-`mcp.json` are listed by `/mcp` and need one `/mcp connect`. After that, Casper can remember a
-server (a keyed hash in `~/.casper/mcp-consent.json`), so it connects on its own next time, always
-with writes off. A changed definition asks again; `/mcp forget <name>` drops it. Project servers
-and unpinned `npx`/`uvx`-style servers are never remembered.
+**Read-only only when the product says so.**
+- Casper calls a login read-only only when the product itself says so, through an
+  `access_check` tool. Without that, `/mcp` shows `access not checked`.
+- A tool marked `readOnlyHint: true` still runs without asking, as in 0.2.14. That is
+  the server's own label, not a check.
+- Casper's own labels, word lists, presets and guesses can only make things stricter
+  (ask more, hide more). They never skip an approval and never claim read-only.
 
-**Approvals.** Each tool gets the strictest of the server's labels, Casper's word rules and the
-0.2.14 label: `bounce`, `reboot`, `delete`, `rollback` and similar words always ask, even on a tool
-marked read-only. A router call is judged by the real tool behind it. When the AI sets `confirm`,
-`force` or `dry_run=false` itself, in any spelling, Casper asks. The approval box shows the mode (`EXECUTE` or
-`preview`), hides passwords and keys, and offers `p` to run a preview first when the tool has a
-preview switch. Only your typed `yes` runs a call. Server questions (MCP elicitation) reach only
-you, and only during a call you approved.
+**Presets for known servers.** While writes are off, Casper starts known servers with
+their own read-only settings (for example `HPE_MCP_ACCESS_PROFILE=safe-read-only`).
+`/mcp` says whether the server confirmed them.
 
-**Device secrets.** Passwords, RADIUS/TACACS keys, Wi-Fi PSKs and SNMP communities in MCP results,
-config files and config-like command output are shown to the AI as `<secret hidden>`. A change that
-carries the marker back is refused. `/secrets` shows the state; `/secrets files off` turns file
-scrubbing off for the session. netconan runs as an extra check when installed.
+**Servers you already set up.**
+- Servers in `~/.claude.json`, `~/.mcp.json` and VS Code's `mcp.json` show up in
+  `/mcp`. Each needs one `/mcp connect` the first time.
+- After that, Casper can remember the server (a keyed hash in
+  `~/.casper/mcp-consent.json`), so it connects on its own next time, always with
+  writes off. If the server's settings change, Casper asks again.
+  `/mcp forget <name>` drops it.
+- Project servers, and `npx`/`uvx`-style servers without a pinned version, are never
+  remembered.
 
-**Calls and results.** Per-server time limits (`connectTimeout`, `callTimeout`), a call clock that
-progress messages restart, and plain failure text that tells the model not to retry. When a server
-fails, `/mcp` shows its last lines, secrets hidden. Each list in a result is cut on its own, the
-next-page cursor is always kept, and repeated text is dropped. Search matches plurals,
-`find_capability({ query: "*" })` lists every tool, and bad arguments name the field.
+**Approvals.**
+- Each tool gets the strictest of: the server's labels, Casper's word rules, and the
+  0.2.14 label. Words like `bounce`, `reboot`, `delete` and `rollback` always ask,
+  even on a tool marked read-only.
+- A call through a router tool is judged by the real tool behind it.
+- If the AI sets `confirm`, `force` or `dry_run=false` itself, in any spelling,
+  Casper asks.
+- The approval box shows the mode (`EXECUTE` or `preview`) and hides passwords and
+  keys. When the tool has a preview switch, it offers `p` to run a preview first.
+- Only your typed `yes` runs a call.
+- Questions from a server (MCP "elicitation") go only to you, and only during a call
+  you approved.
 
-**Docs and references.** hpe-networking-mcp's docs tools (`lookup_api`, `search_docs`, `ask_docs`)
-are always offered to the model. `/mcp docs` adds a docs-only copy of that server with no
-credentials, after you type yes. `/references add` downloads a vendor spec repo (Mist OpenAPI,
-Junos YANG, pycentral) to search locally, after you type yes.
+**Device secrets hidden from the AI.**
+- Passwords, RADIUS/TACACS keys, Wi-Fi PSKs, SNMP communities, other device keys
+  and login tokens are shown to the AI as `<secret hidden>`. This covers MCP results,
+  config files, and command output that looks like a config.
+- A change that carries `<secret hidden>` back is refused.
+- `/secrets` shows the state. `/secrets files off` turns file hiding off for the
+  session.
+- If netconan (a config anonymizer) is installed, it runs as an extra check.
 
-**`casper mcp check [repo]`** checks an MCP server you built: its doctor and tests, its labels
-against its tool names, its schemas, its example configs, and whether it starts cleanly. It calls
-no tools unless you pass `--live`, and runs offline by default. It runs the repo's own code, so use
-it only on repos you trust.
+**Calls and results.**
+- Each server can have its own time limits: `connectTimeout` and `callTimeout`.
+- Progress messages from the server restart the call's clock.
+- Failures come back in plain words and tell the AI not to retry. When a server
+  fails, `/mcp` shows its last output lines, with secrets hidden.
+- Long results: each list is cut on its own, the next-page cursor is always kept, and
+  repeated text is dropped.
+- Tool search matches plurals, `find_capability({ query: "*" })` lists every tool,
+  and bad arguments name the wrong field.
 
-**Limits.**
-- Labels and the Junos show check read names and command text (word lists). They don't know what a
-  tool really does. A server that marks a changing tool `readOnlyHint: true` under a read name is
-  trusted.
-- Secret hiding knows common formats only. It is best effort, not a guarantee. Secrets the AI
-  already had, and text `casper learn` reads, are not scrubbed.
-- The marker check stops `<secret hidden>` itself, not every rewrite: a script can still overwrite
-  a config file. It also stops edits and commands that only mention the marker.
-- Masking in the approval box is for your screen. The server still gets the real values.
-- Remote (HTTP) servers can't get read-only pins; Casper can only hide their write tools.
-- MCP gives no link between a server question and its call. A question that arrives while exactly
-  one approved call runs on that server is shown under that call.
-- If an LSP or browser approval is open when an MCP approval comes in, the MCP call can be refused
-  as `you said no` without asking you.
-- Nothing here is a sandbox. The model's shell and file tools are unchanged and can still reach MCP
-  configuration or run commands.
+**Docs and references.**
+- hpe-networking-mcp's docs tools (`lookup_api`, `search_docs`, `ask_docs`) are
+  always offered to the AI.
+- `/mcp docs` adds a docs-only copy of that server with no credentials, after you
+  type yes.
+- `/references add` downloads a vendor spec repo (Mist OpenAPI, Junos YANG,
+  pycentral) so you can search it locally, after you type yes.
+
+**New command: `casper mcp check [repo]`.** It checks an MCP server you built: runs
+its doctor and tests, compares its labels with its tool names, and checks its
+schemas, its example configs, and whether it starts cleanly. By default it tries to
+run offline (best effort: it drops credentials it can see and blocks web proxies, but
+a program can still reach the network on its own) and calls no tools. `--live` makes a
+few read calls. It runs the repo's own code, so
+use it only on repos you trust. See
+[MCP.md](https://github.com/Choaterboater/casper/blob/main/docs/MCP.md#check-a-server-you-built).
+
+**Limits (please read).**
+- Labels and the Junos `show` check look at names and command text (word lists).
+  They do not know what a tool really does. A server that marks a tool that changes
+  things as `readOnlyHint: true`, under a read-style name, is trusted.
+- Secret hiding knows common formats only. It is best effort and will miss some
+  secrets. Secrets the AI already saw, and text that `casper learn` reads, are not
+  hidden.
+- The `<secret hidden>` check stops the marker itself, not every rewrite: a script
+  can still overwrite a config file. It also stops edits and commands that only
+  mention the marker.
+- Hiding values in the approval box is for your screen only. The server still gets
+  the real values.
+- Remote (HTTP) servers cannot get read-only settings from Casper; Casper can only
+  hide their write tools.
+- MCP gives no link between a server question and the call it belongs to. A question
+  that arrives while exactly one approved call runs on that server is shown under
+  that call.
+- If an LSP or browser approval is open when an MCP approval comes in, the MCP call
+  can be refused as `you said no` without asking you.
+- None of this is a sandbox. The AI's shell and file tools are unchanged. They can
+  still reach MCP settings files or run commands.
 
 ## v0.2.14: see it build, trust the result
 
@@ -336,8 +379,9 @@ apart — a compiled binary cannot read `package.json`, so the version lives in 
   `casper.exe` reparse point pointing outside the install directory is reported and
   never replaced.
 - **Flag parity is deliberately asymmetric.** `install.sh` accepts `--dir`,
-  `--version`, `--sha256`, `--force` and `--print-target`; `install.ps1` takes no
-  flags and reads `CASPER_BASE_URL`, `CASPER_INSTALL_DIR`, `CASPER_VERSION` and
+  `--version`, `--sha256`, `--force`, `--print-target` and `--help` (and reads the
+  same `CASPER_*` variables, plus `CASPER_OS`/`CASPER_ARCH` to override detection);
+  `install.ps1` takes no flags and reads `CASPER_BASE_URL`, `CASPER_INSTALL_DIR`, `CASPER_VERSION` and
   `CASPER_SHA256` from the environment.
 - **Does not edit shell dotfiles.** macOS/Linux print the exact `export PATH=…` line
   when the install directory is not on `PATH`. Windows requires PowerShell 5.1 or
@@ -355,10 +399,13 @@ apart — a compiled binary cannot read `package.json`, so the version lives in 
 
 ```bash
 bun run build:release
-cd dist/release && python3 -m http.server 8731 --bind 127.0.0.1 &
+(cd dist/release && python3 -m http.server 8731 --bind 127.0.0.1) &
 CASPER_BASE_URL=http://127.0.0.1:8731 sh scripts/install.sh --dir /tmp/casper-install
 /tmp/casper-install/casper --version
 ```
+
+A host-only build holds only your own platform's file, which is what `install.sh`
+picks on the same machine. Stop the local server (`kill %1`) when you are done.
 
 The published shape itself is checkable the same way: serve `dist/release` and pipe the
 *served* installer into a shell, which is the documented one-liner minus the real host.
@@ -412,12 +459,16 @@ the test together, and re-verify steps 1–4 by hand before publishing.
 
 ## Validation
 
-The v0.1.0 macOS serial gate passed **543 tests / 0 failures / 3,556 assertions**, with
-TypeScript clean. ARM64 and Intel-through-Rosetta installs, version/help, diagram
-artifacts and rejected-version preservation are checked against a locally served
-release directory, without Bun on the installed application's PATH. Linux artifacts
-are correctly refused as unrunnable on macOS; nothing has executed a Linux artifact
-on its own platform.
+For v0.1.0, the macOS serial test run passed **543 tests / 0 failures / 3,556
+assertions**, with TypeScript clean. ARM64 and Intel-through-Rosetta installs,
+version/help, diagram files and keeping the old version on a rejected install were
+checked against a locally served release folder, without Bun on the installed
+program's PATH. At that time nothing had run a Linux file on Linux.
+
+Today, the [Publish release](../.github/workflows/publish-release.yml) workflow runs
+`casper-linux-x64 --version` on Ubuntu 24.04 before it uploads anything. That shows
+the Linux x64 file starts; it is not a full Linux test. `casper-linux-arm64` is built
+but not run anywhere.
 
 The [Windows CI workflow](../.github/workflows/windows-preview.yml) installs locked
 dependencies on a Windows runner, typechecks, tests standalone startup and native
@@ -426,18 +477,36 @@ image reads, builds the Windows executable, and tests served installation under
 embedded licenses, project inspection, inline diagrams, and rejection of bad
 checksums/version pins without replacing an existing installation.
 
-The [published-release workflow](../.github/workflows/verify-release.yml) installs
-from the actual anonymous GitHub URL with no checkout or Bun on PATH.
-These are installation/smoke checks, not exhaustive Windows desktop validation.
-Linux artifacts are cross-compiled but still require real-host verification.
+The [published-release workflow](../.github/workflows/verify-release.yml) ("Verify
+published Windows installer") installs on Windows from the real public GitHub URL,
+with no checkout or Bun on PATH, under both PowerShell versions, and checks
+`--version`, `--help`, `--licenses`, `/project` and an inline diagram. You start it by
+hand with the tag. These are install and startup checks, not a full Windows desktop
+test. Linux files are built on another machine type (cross-compiled) and still need a
+test on a real Linux machine. There is no automatic check of the published
+`install.sh` one-liner; do that by hand (step 5 below).
 
 ## Publish
 
-**From GitHub Actions:** run the [Publish release](../.github/workflows/publish-release.yml) workflow
-on `main` with the tag (for example `v0.2.15`). It checks the tag matches `package.json` and is new,
-typechecks, builds all five targets, verifies the checksums, runs the Linux executable, rejects
-personal build paths, and publishes a prerelease with every file in `dist/release` and the notes
-from this file's section for the tag. Then run the published-release check below. By hand:
+**From GitHub Actions (the usual way):** run the
+[Publish release](../.github/workflows/publish-release.yml) workflow on `main` with the
+tag, for example `v0.2.15`. It:
+
+- checks that the tag looks like `vX.Y.Z`, matches `package.json`, and does not exist yet;
+- installs the locked dependencies and runs `bun run typecheck` (it does **not** run the
+  test suite, so run `bun run check` yourself first);
+- builds all five targets and checks `SHA256SUMS`;
+- runs `casper-linux-x64 --version` and checks it prints the tag's version;
+- refuses files that contain personal build paths;
+- publishes a prerelease titled `Casper <tag> — preview` with every file in
+  `dist/release`.
+
+The release notes come from this file: everything under the heading that starts with
+`## <tag>` (for example `## v0.2.15: ...`) down to the next `## v` heading, plus install
+commands for that tag. If there is no such heading, the workflow stops. Then do step 5
+below.
+
+**By hand:**
 
 1. Run the gates above and review source/notice changes. Build from a neutral path;
    scan final binaries for personal build paths before uploading them.
@@ -459,8 +528,12 @@ from this file's section for the tag. Then run the published-release check below
 
 ## Known preview limits
 
-- Binaries are unsigned/unnotarized. SmartScreen or Gatekeeper may warn; the
-  installers clear the quarantine attribute but do not sign or notarize.
+- Binaries are not signed or notarized. SmartScreen (Windows) or Gatekeeper (macOS)
+  may warn. `install.sh` clears the macOS quarantine flag; neither installer signs
+  anything.
+- Windows x64 is tested for install and startup only, and Linux x64 only for startup
+  (`--version`); see [PLATFORM_SUPPORT.md](PLATFORM_SUPPORT.md). There is no Windows
+  ARM64 file.
 - Published v0.1.0 appends login selection messages instead of moving the highlight,
   and lacks every change listed above. Those corrections ship in v0.2.13.
 - Windows diagram output is inline; screenshot/diagram artifact files require the
