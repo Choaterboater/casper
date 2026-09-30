@@ -35,7 +35,9 @@ Undo: casper /undo 12 · Diff: casper /diff 12
 | `/receipt 12` | Receipt 12, headed "Task 12 · 14:02 · fix the login bug". |
 | `/receipt list` | The last 10 receipts: number, time, first line and request. |
 
-On the command line: `casper /undo`, `casper /redo`, `casper /diff 12`, `casper /receipt list`.
+On the command line: `casper /undo`, `casper /redo`, `casper /diff 12`, `casper /receipt list`. There, a
+task number that doesn't exist, a bad number, or an undo Casper refuses exits 1 with the reason. With no
+commits yet and no task, `/diff` lists the files and says there is nothing to compare with.
 
 ## The rules
 

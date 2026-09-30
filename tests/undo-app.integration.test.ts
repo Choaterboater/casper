@@ -233,6 +233,21 @@ test("one-shot: a file changed after the task makes /undo change nothing and fai
   } finally { await later.app.close(); }
 }, 30_000);
 
+test("one-shot: /diff, /receipt and /undo with a task that doesn't exist, or a bad number, fail (exit 1) instead of passing", async () => {
+  const place = await folder();
+  const first = makeApp(place, [edit("notes.py", "print('two')\n")]);
+  try { await first.app.runOnce("fix the greeting", place.project); } finally { await first.app.close(); }
+  const later = makeApp(place, []);
+  try {
+    await expect(later.app.runOnce("/diff 7", place.project)).rejects.toThrow("No receipt 7. /receipt list shows recent ones.");
+    await expect(later.app.runOnce("/receipt 7", place.project)).rejects.toThrow("No receipt 7. /receipt list shows recent ones.");
+    await expect(later.app.runOnce("/diff x", place.project)).rejects.toThrow("Usage: /diff [task number | list]");
+    await expect(later.app.runOnce("/receipt x", place.project)).rejects.toThrow("Usage: /receipt [task number | list]");
+    await expect(later.app.runOnce("/undo x", place.project)).rejects.toThrow("Usage: /undo [task number]");
+    await later.app.runOnce("/diff 1", place.project);
+  } finally { await later.app.close(); }
+}, 30_000);
+
 test("nothing to undo yet is said plainly", async () => {
   const place = await folder();
   const s = session(place, []);
@@ -250,8 +265,7 @@ test("receipts are kept across restarts, with no check output and secrets hidden
     expect(later.output()).toMatch(/Task 1 · \d\d:\d\d · fix notes\.py with token <redacted>\n• Not verified — /);
     await later.app.runOnce("/receipt list", place.project);
     expect(later.output()).toMatch(/ {2}1 {2}\d\d:\d\d {2}• Not verified/);
-    await later.app.runOnce("/receipt 9", place.project);
-    expect(later.output()).toContain("No receipt 9. /receipt list shows recent ones.");
+    await expect(later.app.runOnce("/receipt 9", place.project)).rejects.toThrow("No receipt 9. /receipt list shows recent ones.");
     const stateRoot = path.join(place.home, ".casper", "projects");
     const [projectState] = await readdir(stateRoot);
     const saved = await readFile(path.join(stateRoot, projectState!, "receipts", "1.json"), "utf8");
