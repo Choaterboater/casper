@@ -18,6 +18,8 @@ export interface RemoteTarget {
   typed: string;
   /** Where it really goes: the alias's HostName, or the typed name. Lower case. */
   host: string;
+  /** The command names the machine in a way Casper can't read ($HOST, {}): asked every time, never remembered. */
+  unclear?: true;
   user?: string;
   port?: number;
 }
@@ -67,7 +69,14 @@ export function splitShell(text: string): ShellLine {
       if ((char === "|" || char === "&") && text[index + 1] === char) { index++; segmentStart = index + 1; }
       continue;
     }
-    if (char === "<" || char === ">" || char === "`" || (char === "$" && text[index + 1] === "(") || char === "(" || char === ")") simple = false;
+    // ( ) `...` and $(...) start or end a command of their own: `(ssh host id)`, `echo $(ssh host id)`.
+    if (char === "`" || char === "(" || char === ")" || (char === "$" && text[index + 1] === "(")) {
+      simple = false;
+      if (char === "$") index++;
+      endSegment(index);
+      continue;
+    }
+    if (char === "<" || char === ">") simple = false;
     if (/\s/.test(char)) { endWord(); continue; }
     current += char; started = true;
   }
@@ -83,7 +92,9 @@ function commandStart(words: string[]): number {
     const word = words[index]!;
     const name = path.basename(word);
     if (/^[A-Za-z_]\w*=/.test(word)) { index++; continue; }
-    if (["sudo", "doas", "env", "nohup", "command", "exec", "time", "nice", "stdbuf", "ionice", "caffeinate"].includes(name)) {
+    // Shell words that come before a command: `then ssh host`, `do ssh $h`, `! ssh host`, `{ ssh host; }`.
+    if (SHELL_KEYWORDS.has(word)) { index++; continue; }
+    if (["sudo", "doas", "env", "nohup", "command", "exec", "time", "nice", "stdbuf", "ionice", "caffeinate", "eval", "busybox", "setsid", "unbuffer", "chronic", "torsocks"].includes(name)) {
       index++;
       // Their own options (sudo -u root, env -i, nice -n 5): skip dashes and one value for the common ones.
       while (index < words.length && words[index]!.startsWith("-")) {
@@ -104,13 +115,53 @@ function commandStart(words: string[]): number {
       while (index < words.length && words[index]!.startsWith("-")) {
         const option = words[index]!;
         index++;
-        if (/^-[pfde]$/.test(option)) index++;
+        // -p password, -f file, -d fd and -P prompt take a value; -e (password from $SSHPASS) and -v don't.
+        if (/^-[pfdP]$/.test(option)) index++;
+      }
+      continue;
+    }
+    // `xargs -I{} ssh {} id`, `watch -n 5 ssh host uptime`, `proxychains ssh host`: the command they run.
+    if (name === "xargs" || name === "watch" || name === "proxychains" || name === "proxychains4") {
+      const valued = name === "xargs" ? /^-[ILnPdEsa]$/ : name === "watch" ? /^-[nd]$/ : /^-f$/;
+      index++;
+      while (index < words.length && words[index]!.startsWith("-")) {
+        const option = words[index]!;
+        index++;
+        if (valued.test(option)) index++;
       }
       continue;
     }
     break;
   }
   return index;
+}
+
+const SHELL_KEYWORDS = new Set(["then", "do", "else", "elif", "if", "while", "until", "!", "{", "}", "time"]);
+const SHELLS = new Set(["sh", "bash", "dash", "zsh", "ksh", "ash", "fish"]);
+
+/**
+ * Every command in a shell line, also the ones run by `bash -c '...'`, `sh -c "..."` and inside "$(...)" in quotes,
+ * so a command can't get past the host question by being wrapped in another shell.
+ */
+export function commandSegments(text: string, depth = 0): ShellSegment[] {
+  const out: ShellSegment[] = [];
+  for (const segment of splitShell(text).segments) {
+    out.push(segment);
+    if (depth >= 4) continue;
+    const start = commandStart(segment.words);
+    const name = path.basename(segment.words[start] ?? "").replace(/\.exe$/i, "").toLowerCase();
+    if (SHELLS.has(name)) {
+      const flag = segment.words.findIndex((word, at) => at > start && /^-[a-z]*c[a-z]*$/i.test(word));
+      const script = flag >= 0 ? segment.words[flag + 1] : undefined;
+      if (script) out.push(...commandSegments(script, depth + 1));
+    }
+    // "$(ssh host id)" and "`ssh host id`" inside double quotes stay one word; what they run is a command too.
+    for (const word of segment.words) {
+      const at = word.search(/\$\(|`/);
+      if (at >= 0) out.push(...commandSegments(word.slice(at + (word[at] === "$" ? 2 : 1)), depth + 1));
+    }
+  }
+  return out;
 }
 
 const SSH_VALUE = new Set("BbcDEeFIiJLlmOoPpQRSWw");
@@ -195,7 +246,10 @@ function sshOptionTargets(values: Array<[string, string]>): { port?: number; use
   return { ...(port ? { port } : {}), ...(user ? { user } : {}), jumps };
 }
 
-interface RawTarget { tool: RemoteTool; typed: string; user?: string; port?: number }
+interface RawTarget { tool: RemoteTool; typed: string; user?: string; port?: number; unclear?: true }
+
+/** A host Casper can't read from the text ($HOST, {} from xargs): it still asks, and never remembers the answer. */
+const PLAIN_HOST = /^[\w.:%-]+$/;
 
 /** The remote targets of one command (its words, after sudo/env/timeout), and the words that run on the far side. */
 export function segmentTargets(words: string[]): { tool?: RemoteTool; targets: RawTarget[]; remote: string[]; values: Array<[string, string]>; args: string[] } {
@@ -203,52 +257,56 @@ export function segmentTargets(words: string[]): { tool?: RemoteTool; targets: R
   const name = path.basename(words[start] ?? "").replace(/\.exe$/i, "").toLowerCase();
   const rest = words.slice(start + 1);
   const targets: RawTarget[] = [];
-  const add = (tool: RemoteTool, found: { user?: string; host: string; port?: number } | undefined, extra: { user?: string; port?: number } = {}) => {
-    if (!found) return;
+  const add = (tool: RemoteTool, found: { user?: string; host: string; port?: number } | undefined, extra: { user?: string; port?: number } = {}, raw?: string) => {
+    if (!found) {
+      // ssh root@$HOST, nc $IP 22: a machine all the same, which Casper can't name.
+      if (raw) targets.push({ tool, typed: raw.replace(/^[^@]*@/, "").replace(/:.*$/, "") || raw, unclear: true });
+      return;
+    }
     const user = found.user ?? extra.user;
     const port = found.port ?? extra.port;
-    targets.push({ tool, typed: found.host, ...(user ? { user } : {}), ...(port ? { port } : {}) });
+    targets.push({ tool, typed: found.host, ...(user ? { user } : {}), ...(port ? { port } : {}), ...(PLAIN_HOST.test(found.host) ? {} : { unclear: true as const }) });
   };
-  if (name === "ssh" || name === "autossh") {
+  if (name === "ssh" || name === "autossh" || name === "ssh-copy-id" || name === "mosh") {
     const { args, values } = parseOptions(rest, SSH_VALUE, true);
     const options = sshOptionTargets(values);
-    for (const jump of options.jumps) add("ssh", destination(jump));
-    add("ssh", args[0] ? destination(args[0]) : undefined, options);
+    for (const jump of options.jumps) add("ssh", destination(jump), {}, jump);
+    add("ssh", args[0] ? destination(args[0]) : undefined, options, args[0]);
     return { tool: "ssh", targets, remote: args.slice(1), values, args };
   }
   if (name === "scp") {
     const { args, values } = parseOptions(rest, SCP_VALUE, false);
     const options = sshOptionTargets(values);
     for (const jump of options.jumps) add("scp", destination(jump));
-    for (const arg of args) add("scp", remoteFileHost(arg), options);
+    for (const arg of args) add("scp", remoteFileHost(arg), options, arg.startsWith("$") ? arg : undefined);
     return { tool: "scp", targets, remote: [], values, args };
   }
   if (name === "sftp") {
     const { args, values } = parseOptions(rest, SFTP_VALUE, true);
     const options = sshOptionTargets(values);
     for (const jump of options.jumps) add("sftp", destination(jump));
-    add("sftp", args[0] ? remoteFileHost(args[0]) ?? destination(args[0]) : undefined, options);
+    add("sftp", args[0] ? remoteFileHost(args[0]) ?? destination(args[0]) : undefined, options, args[0]);
     return { tool: "sftp", targets, remote: [], values, args };
   }
   if (name === "rsync") {
     const { args, values } = parseOptions(rest, new Set("efBMT"), false);
     const shell = values.find(([flag]) => flag === "-e" || flag === "--rsh")?.[1];
     const shellOptions = shell ? sshOptionTargets(parseOptions(splitShell(shell).segments[0]?.words.slice(1) ?? [], SSH_VALUE, false).values) : { jumps: [] };
-    for (const arg of args) add("rsync", remoteFileHost(arg), shellOptions);
+    for (const arg of args) add("rsync", remoteFileHost(arg), shellOptions, arg.startsWith("$") ? arg : undefined);
     return { tool: "rsync", targets, remote: [], values, args };
   }
   if (name === "nc" || name === "ncat" || name === "netcat") {
     const { args, values } = parseOptions(rest, NC_VALUE, false);
     if (values.some(([flag]) => flag === "-l" || flag === "--listen")) return { tool: "nc", targets, remote: [], values, args };
     const port = Number(args[1]);
-    add("nc", args[0] ? destination(args[0]) : undefined, Number.isInteger(port) && port > 0 ? { port } : {});
+    add("nc", args[0] ? destination(args[0]) : undefined, Number.isInteger(port) && port > 0 ? { port } : {}, args[0]);
     return { tool: "nc", targets, remote: [], values, args };
   }
   if (name === "telnet") {
     const { args, values } = parseOptions(rest, TELNET_VALUE, false);
     const port = Number(args[1]);
     const user = values.find(([flag]) => flag === "-l")?.[1];
-    add("telnet", args[0] ? destination(args[0]) : undefined, { ...(Number.isInteger(port) && port > 0 ? { port } : {}), ...(user ? { user } : {}) });
+    add("telnet", args[0] ? destination(args[0]) : undefined, { ...(Number.isInteger(port) && port > 0 ? { port } : {}), ...(user ? { user } : {}) }, args[0]);
     return { tool: "telnet", targets, remote: [], values, args };
   }
   if (name === "socat") {
@@ -313,10 +371,15 @@ function readSshConfig(home: string): SshConfigBlock[] {
 export function remoteTargets(command: string, home = os.homedir()): RemoteTarget[] {
   const found: RemoteTarget[] = [];
   let config: SshConfigBlock[] | undefined;
-  for (const segment of splitShell(command).segments) {
+  for (const segment of commandSegments(command)) {
     for (const raw of segmentTargets(segment.words).targets) {
       let host = raw.typed;
       let { user, port } = raw;
+      if (raw.unclear) {
+        const target: RemoteTarget = { tool: raw.tool, typed: raw.typed, host: `?${raw.typed}`, unclear: true };
+        if (!found.some((entry) => entry.host === target.host)) found.push(target);
+        continue;
+      }
       if (raw.tool === "ssh" || raw.tool === "scp" || raw.tool === "sftp" || raw.tool === "rsync") {
         config ??= readSshConfig(home);
         const alias = resolveSshAlias(raw.typed, config);
@@ -333,6 +396,7 @@ export function remoteTargets(command: string, home = os.homedir()): RemoteTarge
 
 /** "10.0.0.5 (lab-01)" or "lab-01". */
 export function targetLabel(target: RemoteTarget): string {
+  if (target.unclear) return `another machine (${target.typed})`;
   return target.typed.toLowerCase() !== target.host ? `${target.host} (${target.typed})` : target.host;
 }
 
@@ -354,7 +418,7 @@ export function runsAlone(command: string, root: string): boolean {
   // No sudo, env or VAR= in front: exactly what the question showed runs.
   if (start !== 0) return false;
   const parsed = segmentTargets(words);
-  if (!parsed.targets.length || (parsed.tool !== "ssh" && parsed.tool !== "scp")) return false;
+  if (!parsed.targets.length || parsed.targets.some((target) => target.unclear) || (parsed.tool !== "ssh" && parsed.tool !== "scp") || path.basename(words[0]!) !== parsed.tool) return false;
   for (const [flag, value] of parsed.values) {
     if (flag.startsWith("--") || LOCAL_EFFECT_FLAG.has(flag)) return false;
     if (flag === "-o" && LOCAL_EFFECT_OPTION.test(value)) return false;

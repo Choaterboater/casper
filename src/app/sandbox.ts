@@ -38,7 +38,7 @@ export const shellQuestion = (command: string) => `Run this command?  ${shownCom
 /** "Reach 10.0.0.5 (lab-01)?  ssh root@lab-01 uptime" */
 export const reachQuestion = (target: RemoteTarget, command: string) => `Reach ${terminalText(targetLabel(target))}?  ${shownCommand(command)}`;
 /** The AI reads these when a command to another machine does not run. */
-export const reachCantAsk = (target: RemoteTarget) => `Not run: this command reaches ${targetLabel(target)}, another machine, and this run can't ask you first. Casper doesn't let the AI reach other machines without your OK. Tell the user; they can run it themselves or in a Casper session.`;
+export const reachCantAsk = (target: RemoteTarget) => `Not run: this command reaches ${targetLabel(target)}${target.unclear ? "" : ", another machine,"} and this run can't ask you first. Casper doesn't let the AI reach other machines without your OK. Tell the user; they can run it themselves or in a Casper session.`;
 export const reachDeclined = (target: RemoteTarget) => `Not run: the user said no to reaching ${targetLabel(target)}. Don't try it again another way; ask the user what to do instead.`;
 export const SHELL_CANT_ASK = "Not run: shell commands need your OK here, and this run can't ask. Use --no-sandbox to allow them for this run.";
 export const SHELL_DECLINED = "Not run: the user said no to this command. Don't run it again; ask the user what to do instead.";
@@ -79,14 +79,15 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, store: Sa
     if (!targets.length) return { asked: false };
     let asked = false;
     for (const target of targets) {
-      if (sessionReach.has(target.host)) continue;
+      if (!target.unclear && sessionReach.has(target.host)) continue;
       if (!host.canAsk()) {
         sayOnce(`[shell] Not run: the AI's command reaches ${targetLabel(target)}, and this run can't ask you. Nothing was sent.`);
         return { refused: reachCantAsk(target), asked };
       }
       const answer = await host.pick(reachQuestion(target, command), [...REACH_CHOICES], signal);
       asked = true;
-      if (answer === REACH_CHOICES[2].label || answer === "3") sessionReach.add(target.host);
+      // A machine the command names as $HOST could be any machine next time: that yes counts for this command only.
+      if (answer === REACH_CHOICES[2].label || answer === "3") { if (!target.unclear) sessionReach.add(target.host); }
       else if (!(answer === REACH_CHOICES[1].label || answer === "2")) return { refused: reachDeclined(target), asked };
     }
     // Only the command about to run (a service start approved here never comes back to wrap).

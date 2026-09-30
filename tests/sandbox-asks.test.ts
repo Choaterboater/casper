@@ -341,3 +341,27 @@ test("nc, telnet or socat you allow stay in the sandbox, which blocks direct con
   expect(terminal.written).toEqual(["[sandbox] 10.0.0.1: direct connections like this are blocked in the sandbox, so this command can't reach it. A plain ssh or scp command of its own runs outside the sandbox with your keys.\n"]);
   await sandbox.close();
 });
+
+test("ssh with the host in a variable or wrapped in bash -c still asks, even with --no-sandbox; a yes for $H is never remembered", async () => {
+  const { home, project, context } = await labFixture();
+  const terminal = host(["Yes, for this session", undefined, "No"]);
+  const sandbox = createSessionSandbox(terminal.value, context, { root: () => project, home, seams: { engine: fakeEngine(), problem: () => undefined, platform: "linux", noSandboxFlag: true } });
+  const shell = runtimeShell(terminal.value, sandbox, new SandboxStore(context.stateDirectory));
+  const variable = "H=192.168.10.20; ssh root@$H 'systemctl enable --now demoapp'";
+  expect(await shell.approve!(variable)).toBeUndefined();
+  // "For this session" to $H counts for that command only: $H could be any machine next time.
+  expect(await shell.approve!(variable)).toBe("Not run: the user said no to reaching another machine ($H). Don't try it again another way; ask the user what to do instead.");
+  expect(await shell.approve!(`bash -c "ssh lab-01 'pvecm updatecerts --force'"`)).toContain("said no to reaching 192.168.10.20 (lab-01)");
+  expect(terminal.asked.map((entry) => entry.question)).toEqual([
+    `Reach another machine ($H)?  ${variable}`, `Reach another machine ($H)?  ${variable}`,
+    `Reach 192.168.10.20 (lab-01)?  bash -c "ssh lab-01 'pvecm updatecerts --force'"`]);
+  await sandbox.close();
+
+  const oneShot = host([], false);
+  const offSandbox = createSessionSandbox(oneShot.value, context, { root: () => project, home, seams: { engine: fakeEngine(), problem: () => undefined, platform: "linux", noSandboxFlag: true } });
+  expect(await runtimeShell(oneShot.value, offSandbox, new SandboxStore(context.stateDirectory)).approve!(variable))
+    .toBe("Not run: this command reaches another machine ($H) and this run can't ask you first. Casper doesn't let the AI reach other machines without your OK. Tell the user; they can run it themselves or in a Casper session.");
+  expect(oneShot.asked).toEqual([]);
+  await offSandbox.close();
+});
+

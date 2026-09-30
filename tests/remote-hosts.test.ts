@@ -2,7 +2,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { remoteTargets, runsAlone, splitShell } from "../src/sandbox/remote";
+import { remoteTargets, runsAlone, splitShell, targetLabel } from "../src/sandbox/remote";
 import { remoteChanges } from "../src/task/remote-changes";
 
 /**
@@ -82,5 +82,21 @@ test("changes on another machine are read from the ssh command text: tokens, ser
   // Reading is not changing, and a local command is not a remote change.
   for (const quiet of ["ssh lab-01 'cat /etc/passwd; systemctl status demoapp; ls /opt'", "systemctl enable demoapp", "apt-get install -y jq", "scp lab-01:/etc/hosts ."]) {
     expect([quiet, remoteChanges(quiet)]).toEqual([quiet, []]);
+  }
+});
+
+test("ssh wrapped in another shell, a subshell, a loop or xargs is still found; a host in a variable still counts", () => {
+  for (const command of [
+    "bash -c 'ssh root@10.0.0.5 uptime'", "sh -c \"ssh 10.0.0.5 id\"", "(ssh 10.0.0.5 id)", "echo $(ssh 10.0.0.5 id)", "echo \"$(ssh 10.0.0.5 id)\"",
+    "echo `ssh 10.0.0.5 id`", "if true; then ssh 10.0.0.5 id; fi", "{ ssh 10.0.0.5 id; }", "! ssh 10.0.0.5 id", "watch -n 5 ssh 10.0.0.5 uptime",
+    "eval ssh 10.0.0.5 id", "SSHPASS=x sshpass -e ssh root@10.0.0.5 id", "ssh-copy-id root@10.0.0.5", "busybox nc 10.0.0.5 22",
+  ]) expect([command, hosts(command).map((target) => target.host)]).toEqual([command, ["10.0.0.5"]]);
+  // $HOST, ${HOST}, a loop variable, xargs' {}: Casper can't read the machine, so it counts as one it can't name.
+  for (const [command, typed] of [["H=10.0.0.5; ssh root@$H uptime", "$H"], ["ssh ${HOST} id", "${HOST}"], ["for h in a b; do ssh $h uptime; done", "$h"],
+    ["xargs -I{} ssh {} id < hosts", "{}"], ["nc $IP 22", "$IP"], ["scp app.py $DEST", "$DEST"]] as const) {
+    const found = remoteTargets(command, home);
+    expect([command, found.map((target) => ({ typed: target.typed, unclear: target.unclear }))]).toEqual([command, [{ typed, unclear: true }]]);
+    expect(targetLabel(found[0]!)).toBe(`another machine (${typed})`);
+    expect(runsAlone(command, path.join(home, "project"))).toBe(false);
   }
 });
