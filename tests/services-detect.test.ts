@@ -74,6 +74,11 @@ test("a plain Bun or Node site with a page is a web project: its own server, sta
   const site = await project({ "package.json": pkg({ dev: "bun --watch src/server.ts", test: "bun test" }, {}), "public/index.html": "<h1>hi</h1>" });
   expect(await detectWebService(site)).toMatchObject({ name: "web", source: "package.json", label: "bun run dev", frameworks: [], portFlags: false,
     spec: { command: "bun --watch src/server.ts", port: "auto", ready: { http: "/" } } });
+  // `bun run <file>` and `bun run --hot <file>` run the file too.
+  for (const dev of ["bun run server.ts", "bun run --hot src/server.ts", "bun --hot server.ts"]) {
+    const other = await project({ "package.json": pkg({ dev }, {}), "index.html": "" });
+    expect(await detectWebService(other)).toMatchObject({ name: "web", spec: { command: dev } });
+  }
   const root = await project({ "package.json": pkg({ start: "node server.js" }, {}), "index.html": "<h1>hi</h1>" });
   expect(await detectWebService(root)).toMatchObject({ label: "npm run start", spec: { command: "node server.js" } });
   // No page to open (an API), or a script Casper does not know: not a web project.

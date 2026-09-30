@@ -51,6 +51,24 @@ export interface PageLoad {
 export interface PhoneFit { viewport: number; pageWidth: number; squashed: string[] }
 /** A common phone screen, in CSS pixels. */
 const PHONE = { width: 390, height: 844 };
+/** The page's visible text fields in document order: a name, the height, and whether a line of text fits inside. */
+const FIELD_HEIGHTS = () => {
+  const skip = ["hidden", "checkbox", "radio", "range", "color", "file", "submit", "button", "reset", "image"];
+  return Array.from(document.querySelectorAll("input, textarea, select")).flatMap(element => {
+    const field = element as HTMLElement;
+    if (field instanceof HTMLInputElement && skip.includes(field.type)) return [];
+    if (!field.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) return [];
+    const box = field.getBoundingClientRect();
+    // A visually hidden (screen-reader only) field is 1px on purpose.
+    if (box.width <= 1 && box.height <= 1) return [];
+    const style = getComputedStyle(field);
+    const font = parseFloat(style.fontSize) || 16;
+    const inner = { height: field.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom),
+      width: field.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight) };
+    const id = field.id ? `#${field.id}` : field.getAttribute("name") ? `[name="${field.getAttribute("name")}"]` : field.classList[0] ? `.${field.classList[0]}` : "";
+    return [{ name: `${field.tagName.toLowerCase()}${id}`.slice(0, 80), height: Math.round(box.height), textFits: inner.height >= font * 0.8 && inner.width >= font * 2 }];
+  });
+};
 const LOAD_LIMIT = 10;
 const LOAD_TEXT = 300;
 
@@ -246,31 +264,18 @@ export class BrowserSession {
         return undefined;
       });
       // The same page on a phone: layouts that only break there (a column that squashes an input, a wide table)
-      // never show at the desktop size above.
+      // never show at the desktop size above. Each text field is compared with its own desktop height.
+      const desktop = await page.evaluate(FIELD_HEIGHTS);
       await page.setViewport(PHONE);
       await new Promise(resolve => setTimeout(resolve, 150));
       combined.throwIfAborted();
-      const phone = await page.evaluate(() => {
-        const squashed: string[] = [];
-        const skip = ["hidden", "checkbox", "radio", "range", "color", "file", "submit", "button", "reset", "image"];
-        for (const element of Array.from(document.querySelectorAll("input, textarea, select"))) {
-          const field = element as HTMLElement;
-          if (field instanceof HTMLInputElement && skip.includes(field.type)) continue;
-          if (!field.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) continue;
-          const box = field.getBoundingClientRect();
-          // A visually hidden (screen-reader only) field is 1px on purpose.
-          if (box.width <= 1 && box.height <= 1) continue;
-          const style = getComputedStyle(field);
-          const font = parseFloat(style.fontSize) || 16;
-          const inner = { height: field.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom),
-            width: field.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight) };
-          if (inner.height < font * 0.8 || inner.width < font * 2) {
-            const name = field.id ? `#${field.id}` : field.getAttribute("name") ? `[name="${field.getAttribute("name")}"]` : field.classList[0] ? `.${field.classList[0]}` : "";
-            squashed.push(`${field.tagName.toLowerCase()}${name}`.slice(0, 80));
-          }
-        }
-        return { viewport: innerWidth, pageWidth: Math.round(document.documentElement.scrollWidth), squashed: squashed.slice(0, 5) };
-      });
+      const phoneHeights = await page.evaluate(FIELD_HEIGHTS);
+      const squashed = phoneHeights.flatMap((field, index) => {
+        const wide = desktop[index]?.name === field.name ? desktop[index]!.height : undefined;
+        if (field.textFits && (wide === undefined || field.height >= wide * 0.6)) return [];
+        return [`${field.name} (${field.height}px tall${wide !== undefined && wide > field.height ? `; ${wide}px on a wider screen` : ""})`];
+      }).slice(0, 5);
+      const phone = { viewport: PHONE.width, pageWidth: await page.evaluate(() => Math.round(document.documentElement.scrollWidth)), squashed };
       return { status: response?.status() ?? null, consoleChecked: true, consoleErrors, pageErrors, failedRequests,
         ...(overlay ? { overlay: overlay.slice(0, LOAD_TEXT) } : {}), phone };
     } finally {

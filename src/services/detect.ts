@@ -225,7 +225,7 @@ export async function detectWebService(root: string, input: DetectInput = {}): P
 
 /** Where a framework-less site keeps its page. */
 const PAGE_FILES = ["index.html", "public/index.html", "static/index.html", "src/index.html"];
-/** `bun [--watch|--hot] server.ts` or `node server.js`: the project's own server, which reads PORT. */
+/** `bun [run] [--watch|--hot] server.ts` or `node server.js`: the project's own server, which reads PORT. */
 const OWN_SERVER = /^(?:bun|node)$/;
 const SERVER_FILE = /\.(?:[cm]?[jt]sx?)$/;
 
@@ -239,7 +239,8 @@ async function plainSite(root: string, manifest: Mapping, body: string, scriptNa
   const words = parsed?.words ?? [];
   const [program, ...rest] = words;
   if (!parsed || !program || !OWN_SERVER.test(program)) return undefined;
-  const args = rest.filter(word => !["--watch", "--hot"].includes(word));
+  // `bun run server.ts` runs the file as well; `run` naming a script (`bun run build`) is not a server file and fails below.
+  const args = (program === "bun" && rest[0] === "run" ? rest.slice(1) : rest).filter(word => !["--watch", "--hot"].includes(word));
   if (args.length !== 1 || !SERVER_FILE.test(args[0]!)) return undefined;
   const pages = await Promise.all(PAGE_FILES.map(async file => { try { return (await lstat(path.join(root, file))).isFile(); } catch { return false; } }));
   if (!pages.some(Boolean)) return undefined;

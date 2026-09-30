@@ -97,14 +97,14 @@ test("at phone width, a page wider than the screen or a squashed text field fail
   const f = await fixture();
   const opener = fakeOpener(url => {
     if (url.pathname === "/wide") return { phone: { viewport: 390, pageWidth: 650, squashed: [] } };
-    if (url.pathname === "/tight") return { phone: { viewport: 390, pageWidth: 390, squashed: ["input#address"] } };
+    if (url.pathname === "/tight") return { phone: { viewport: 390, pageWidth: 390, squashed: ["input#address (20px tall; 49px on a wider screen)"] } };
     return { phone: { viewport: 390, pageWidth: 390, squashed: [] } };
   });
   const report = await new PageChecks(() => f.manager, f.service, opener, { open: ["/wide", "/tight", "/ok"], skipped: [] }).run(signal());
   expect(report.status).toBe("fail");
   expect(formatPageReport(report)).toEqual([
     "✗ /wide at phone width (390px): the page is 650px wide, so it scrolls sideways",
-    "✗ /tight at phone width (390px): input#address is squashed and its text doesn't fit",
+    "✗ /tight at phone width (390px): input#address is squashed (20px tall; 49px on a wider screen)",
     "✓ /ok loads · 0 console errors · fits a phone",
   ]);
   expect(pageFailureSummary(report)).toBe("/wide doesn't fit a phone screen");

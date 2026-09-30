@@ -67,7 +67,10 @@ export function formatPageLine(result: PageResult): string {
 function phoneProblem(phone: PhoneFit): string {
   if (phone.pageWidth > phone.viewport + 1) return `the page is ${phone.pageWidth}px wide, so it scrolls sideways`;
   const [first, ...more] = phone.squashed;
-  return more.length ? `${first} and ${plural(more.length, "more field")} are squashed and their text doesn't fit` : `${first} is squashed and its text doesn't fit`;
+  // "input#address (20px tall; 49px on a wider screen)": the name, then how much it lost.
+  const at = first!.indexOf(" (");
+  const said = at < 0 ? `${first} is squashed` : `${first!.slice(0, at)} is squashed${first!.slice(at)}`;
+  return more.length ? `${said}, and ${plural(more.length, "more field")}` : said;
 }
 
 /** What the failed verdict names: "/dashboard has 2 console errors". Undefined when no page failed. */
