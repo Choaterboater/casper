@@ -1,5 +1,6 @@
 import type { ProjectCommand } from "../project/model";
-import { CHECK_NAMES } from "./evidence";
+import { CHECK_NAMES, type CheckName } from "./evidence";
+import { autoNamedChecks, modelNamedChecks, type NamedCheckSpec } from "./named";
 import type { VerificationScope } from "./scope";
 
 /** `auto`: Casper runs the selected checks after the model's edits. `offer`: the model may use
@@ -11,8 +12,8 @@ export interface VerificationSettings {
   timeoutMs: number;
   /** Unset means "not configured": the surface picks its default. */
   mode?: VerificationMode;
-  /** Unset means every configured check. */
-  checks?: ProjectCommand[];
+  /** Unset means every configured check, and every named check that runs after each change. */
+  checks?: CheckName[];
   /** `true` adds the requirements review round after the checks pass on a code change. Unset means
    * off (owner decision, Phase 4a): in pinned benchmarks the review added no first-time-right and cost
    * about 40% of Casper's wall time; the checks and the proof keep false "done" at zero. With it off, a
@@ -52,19 +53,42 @@ export function resolveVerificationMode(input: {
 
 /** What Casper checks after a change in this session: the mode and the selected checks. `slow`: the
  * mode is `offer` only because the checks were timed at a minute or more (not a flag or configuration). */
-export interface ChecksPlan { mode: VerificationMode; checks: ProjectCommand[]; slow?: boolean }
+export interface ChecksPlan {
+  mode: VerificationMode; checks: CheckName[]; slow?: boolean;
+  /** Named checks that run only with /verify <name> (set to "ask", and reports). */
+  manual?: string[];
+  /** Lab checks: they reach the owner's lab devices and run only when the owner starts them (/verify <name>). */
+  lab?: string[];
+  /** Ready-made checks Casper found (Ansible) that the project has not saved; /verify add <name> saves one. */
+  found?: string[];
+  /** The dev server Casper starts to open changed pages after each change ("bun run dev"); auto mode only. */
+  pages?: string;
+}
 
 /** The banner's and /status's plain line for a ChecksPlan. */
 export function describeChecksPlan(plan: ChecksPlan): string {
   if (plan.mode === "off") return "off for this session (--no-verify or verification.mode: off)";
-  if (!plan.checks.length) return "none found; add verify.test to .casper/project.yaml";
-  return `${plan.checks.join(", ")} — ${plan.mode === "auto" ? "run after each change"
-    : plan.slow ? "offered with /verify (they take a minute or more)" : "offered with /verify (verification.mode: offer)"}`;
+  const manual = (plan.manual?.length ? ` · with /verify <name> only: ${plan.manual.join(", ")}` : "")
+    + (plan.lab?.length ? ` · lab: ${plan.lab.join(", ")} (you start these: /verify <name>)` : "")
+    + (plan.found?.length ? ` · found, not saved: ${plan.found.join(", ")} (/verify add <name> saves one)` : "");
+  // Pages run only in auto mode (Casper opens them itself after a change).
+  const checks = [...plan.checks, ...(plan.pages && plan.mode === "auto" ? [`pages (${plan.pages})`] : [])];
+  if (!checks.length) return `none found; add verify.test to .casper/project.yaml${manual}`;
+  return `${checks.join(", ")} — ${plan.mode === "auto" ? "run after each change"
+    : plan.slow ? "offered with /verify (they take a minute or more)" : "offered with /verify (verification.mode: offer)"}${manual}`;
 }
 
-/** `verification.checks`, or every check with a configured or detected command. */
-export function selectedChecks(selected: readonly ProjectCommand[] | undefined, commands: Partial<Record<ProjectCommand, string>>): ProjectCommand[] {
-  return selected ? [...selected] : CHECK_NAMES.filter((name) => commands[name]?.trim());
+/** `verification.checks`, or every check with a configured or detected command, every named check that
+ * runs after each change, and the checks Casper found in the project (`detected`: the SQL migrations check). */
+export function selectedChecks(selected: readonly CheckName[] | undefined, commands: Partial<Record<ProjectCommand, string>>,
+  named?: Record<string, NamedCheckSpec>, detected: readonly CheckName[] = []): CheckName[] {
+  return selected ? [...selected] : [...CHECK_NAMES.filter((name) => commands[name]?.trim()), ...autoNamedChecks(named), ...detected];
+}
+
+/** The named checks a plan lists as /verify-only: every one not selected to run after each change (set to "ask",
+ * a report, or left out of verification.checks), never lab checks. */
+export function manualChecks(selected: readonly CheckName[], named?: Record<string, NamedCheckSpec>): string[] {
+  return modelNamedChecks(named).filter((name) => !selected.includes(name));
 }
 
 /** Why auto mode ran nothing after a model turn. */
@@ -74,17 +98,21 @@ export type AutoCheckSkip = "no-changes" | "no-checks" | "not-covered";
  * is unknown (a snapshot failed), so nothing can be skipped for being unaffected. A check with a
  * declared scope runs only when a changed path lies inside its inputs and outside its excludes. */
 export function planAutoChecks(input: {
-  selected?: readonly ProjectCommand[];
+  selected?: readonly CheckName[];
   commands: Partial<Record<ProjectCommand, string>>;
   scopes?: Partial<Record<ProjectCommand, VerificationScope>>;
+  named?: Record<string, NamedCheckSpec>;
+  /** Checks Casper found in the project, each with the files that make it worth running (the migrations check). */
+  detected?: ReadonlyArray<{ name: CheckName; scope: VerificationScope }>;
   changedPaths?: readonly string[];
-}): { run: ProjectCommand[]; skipped?: AutoCheckSkip } {
+}): { run: CheckName[]; skipped?: AutoCheckSkip } {
   if (input.changedPaths && !input.changedPaths.length) return { run: [], skipped: "no-changes" };
-  const candidates = selectedChecks(input.selected, input.commands);
+  const detected = input.detected ?? [];
+  const candidates = selectedChecks(input.selected, input.commands, input.named, detected.map((check) => check.name));
   if (!candidates.length) return { run: [], skipped: "no-checks" };
   const within = (file: string, entry: string) => entry === "." || file === entry || file.startsWith(`${entry}/`);
   const run = candidates.filter((name) => {
-    const scope = input.scopes?.[name];
+    const scope = input.scopes?.[name as ProjectCommand] ?? detected.find((check) => check.name === name)?.scope;
     if (!scope || !input.changedPaths) return true;
     return input.changedPaths.some((file) => scope.inputs.some((entry) => within(file, entry))
       && !scope.exclude?.some((entry) => within(file, entry)));

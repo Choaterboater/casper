@@ -59,7 +59,7 @@ async function session(home: string, project: string, commands: string[], option
     output: { write: (text) => {
       output += text;
       if (text === "> ") queueMicrotask(() => input.write(`${pending.shift() ?? "/exit"}\n`));
-      if (text.endsWith("Type 1 or 2: ")) queueMicrotask(() => input.write(`${answers.shift() ?? "2"}\n`));
+      if (text.endsWith("Type 1 or 2: ")) queueMicrotask(() => input.write(`${answers.shift() ?? "1"}\n`));
       if (text.endsWith("Type yes: ")) queueMicrotask(() => input.write(`${yes.shift() ?? "yes"}\n`));
     } },
   });
@@ -71,10 +71,10 @@ async function session(home: string, project: string, commands: string[], option
 test("/secrets says what is hidden; /secrets files off and on switch file scrubbing for this session", async () => {
   const { home, project } = await fixture();
   const { output, app } = await session(home, project, ["/secrets", "/secrets files off", "/secrets", "/secrets files on", "/secrets files maybe"]);
-  expect(output).toContain("Secrets: hidden in MCP results (always). Files and command output: on. Extra check: netconan not found (built-in only).");
-  expect(output).toContain("Files and command output: off for this session. MCP results are still scrubbed.");
-  expect(output).toContain("Files and command output: off. Extra check");
-  expect(output).toContain("Files and command output: on.\n");
+  expect(output).toContain("Secrets: hidden in MCP results, .env and credential files (always). Device configs in files and command output: on. Extra check: netconan not found (built-in only).");
+  expect(output).toContain("Device configs in files and command output: off for this session. MCP results, .env and credential files are still scrubbed.");
+  expect(output).toContain("Device configs in files and command output: off. Extra check");
+  expect(output).toContain("Device configs in files and command output: on.\n");
   expect(output).toContain("Usage: /secrets | /secrets files on|off");
   expect(app.scrubFiles).toBe(true);
 });
@@ -98,7 +98,7 @@ test("/references add lists the spec repos; a no downloads nothing; a yes runs t
   const runGit = async (argv: string[]) => { runs.push(argv); return { code: 0 }; };
   const list = await session(home, project, ["/references add", "/references add junos-yang"], { runGit });
   expect(list.output).toContain("mist-openapi  Mist API spec (MIT)");
-  expect(list.output).toContain("pycentral     Aruba Central Python SDK (Apache-2.0)");
+  expect(list.output).toContain("pycentral     Aruba Central Python SDK (MIT)");
   expect(list.output).toContain("Usage: /references add junos-yang <release>, for example 23.4");
 
   const declined = await session(home, project, ["/references add pycentral"], { runGit, yes: ["no"] });

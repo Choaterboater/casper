@@ -100,7 +100,8 @@ test("with the review off, the first turn asks for the checklist in the exact fo
 const check: VerificationResult = { name: "test", status: "pass", command: "npm test", cwd: "/r", exitCode: 0, signal: null,
   stdout: "", stderr: "", truncated: false, durationMs: 300, freshness: "fresh" };
 const passed: VerificationReport = { status: "pass", repairAttempts: 0, rounds: [[check]], results: [check] };
-const task = (review: TaskResult["review"]): TaskResult => ({ execution: "completed", verificationMode: "auto", changedPaths: ["src/a.ts"], verification: passed, review });
+const task = (review: TaskResult["review"]): TaskResult => ({ execution: "completed", verificationMode: "auto", changedPaths: ["src/a.ts"], verification: passed, review,
+  proof: { status: "proven", check: "test", command: "bun test", testsChanged: true, without: { exitCode: 1, ended: "fail" } } });
 
 test("the receipt reports the review as the model's own claim, and admitted gaps are not verified", () => {
   expect(formatReceipt(task({ done: ["a", "b"], open: [] }))).toContain("• The model's review: all 2 requirements covered (its own claim, not checked by Casper)");

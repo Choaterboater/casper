@@ -45,3 +45,17 @@ test("help says only access_check makes a login read-only", () => {
   expect(FULL_HELP_TEXT).not.toContain("Read-only comes from the product (readOnlyHint");
   expect(FULL_HELP_TEXT).toContain("A login is read-only only when the product says so (access_check); labels only make things stricter.");
 });
+
+test("the short help's slash commands line up in one column", () => {
+  const rows = HELP_TEXT.split("\n").filter((line) => /^  \/[a-z]/.test(line) && / {2,}\S/.test(line.slice(3)));
+  const columns = new Set(rows.map((line) => line.search(/(?<=\S) {2,}\S/) + line.slice(line.search(/(?<=\S) {2,}\S/)).search(/\S/)));
+  expect(rows.length).toBeGreaterThan(5);
+  expect([...columns]).toHaveLength(1);
+});
+
+test("help lists casper <folder>, /undo, /redo, /diff n and /receipt n", () => {
+  expect(HELP_TEXT).toContain("  casper <folder>        Open that folder\n");
+  expect(HELP_TEXT).toContain("  /undo, /redo           Put the last task's files back, or back again");
+  expect(FULL_HELP_TEXT).toContain("options go before the prompt (quote the whole request to send them as words)");
+  for (const entry of ["/undo [n]", "/redo [n]", "/diff [n|list]", "/receipt <n>, /receipt list"]) expect(FULL_HELP_TEXT).toContain(entry);
+});

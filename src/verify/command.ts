@@ -1,7 +1,8 @@
 import { spawn } from "node:child_process";
-import type { ProjectCommand } from "../project/model";
-import type { VerificationResult } from "./evidence";
+import type { CheckName, VerificationResult } from "./evidence";
+import { withoutProviderKeys } from "../platform/environment";
 import { osSupportsProcessGroups, ownSpawnedTree, type OwnedProcesses, terminateTree } from "../platform/processes";
+import { currentSandbox, type SandboxWrapOptions, type ShellSandbox } from "../sandbox/manager";
 
 const OUTPUT_BYTES = 8192;
 
@@ -28,15 +29,36 @@ class OutputCapture {
   }
 }
 
+/** How a check starts: a shell command line (`shell: true`, `file` is the whole line) or a program and its
+ * argument list, never through a shell. */
+export interface SpawnPlan { file: string; args: string[]; shell: boolean }
+
+/** Rewrites how a check starts, e.g. to run it inside the shell sandbox. It sees the plan and the folder and
+ * returns the plan to spawn. The check's shown command stays the one the project gave. */
+export type CommandWrap = (plan: SpawnPlan, context: { cwd: string; name: CheckName }) => SpawnPlan | Promise<SpawnPlan>;
+
+/** An argument list as one readable line: plain words stay bare, anything else is single-quoted. */
+export function argvText(argv: readonly string[]): string {
+  return argv.map((arg) => /^[\w@%+=:,./-]+$/.test(arg) ? arg : `'${arg.replace(/'/g, `'\\''`)}'`).join(" ");
+}
+
 export interface CommandCheckOptions {
-  name: ProjectCommand;
-  command: string;
+  name: CheckName;
+  /** A shell command line, run the way verify.test always has been. Give this or `argv`. */
+  command?: string;
+  /** A program and its arguments, run without a shell: a file named `$(touch x)` is only ever a file name. */
+  argv?: readonly string[];
+  /** A start hook that replaces the session's shell sandbox (tests, or a caller with its own). */
+  wrap?: CommandWrap;
+  /** How the session's shell sandbox holds this run (network, extra write folders); `false` runs it unheld, for
+   * a caller that holds it some other way. Unset: the session sandbox with its defaults. */
+  sandbox?: Omit<SandboxWrapOptions, "cwd"> | false;
   cwd: string;
   timeoutMs: number;
   signal?: AbortSignal;
   /** The host must block further repair/work when an owned tree cannot be stopped. */
   onCleanupFailure?: () => void;
-  /** The command's environment; unset inherits Casper's. */
+  /** The command's environment; unset inherits Casper's. AI provider keys are always taken out. */
   env?: NodeJS.ProcessEnv;
 }
 
@@ -48,10 +70,14 @@ export function checkEnded(exitCode: number | null, reason?: string): Verificati
 }
 
 export async function runCommandCheck(options: CommandCheckOptions): Promise<VerificationResult> {
-  const { name, command, cwd, timeoutMs, signal } = options;
+  const { name, cwd, timeoutMs, signal } = options;
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 3_600_000) {
     throw new Error("Verification timeout must be between 1 and 3600000ms");
   }
+  if ((options.command === undefined) === (options.argv === undefined)) throw new Error("A check needs either a command or an argument list");
+  if (options.argv && (!options.argv.length || !options.argv[0])) throw new Error("A check's argument list needs a program");
+  const command = options.command ?? argvText(options.argv!);
+  const direct: SpawnPlan = options.argv ? { file: options.argv[0]!, args: options.argv.slice(1), shell: false } : { file: command, args: [], shell: true };
   const started = performance.now();
   const stdout = new OutputCapture();
   const stderr = new OutputCapture();
@@ -64,6 +90,23 @@ export async function runCommandCheck(options: CommandCheckOptions): Promise<Ver
   if (signal?.aborted) {
     return { ...base(), status: "fail", exitCode: null, signal: null, reason: "Verification cancelled" };
   }
+  let plan: SpawnPlan;
+  // Every check runs in the session's shell sandbox when one holds commands (see src/sandbox/manager.ts).
+  const sandbox: ShellSandbox | undefined = options.wrap || options.sandbox === false ? undefined : currentSandbox();
+  let held: string | undefined;
+  try {
+    if (options.wrap) plan = await options.wrap({ ...direct, args: [...direct.args] }, { cwd, name });
+    else if (sandbox?.on) {
+      const wrapped = await sandbox.wrap(command, { cwd, ...(options.sandbox || {}) });
+      plan = wrapped.held ? { file: wrapped.command, args: [], shell: true } : direct;
+      if (wrapped.held) held = wrapped.id;
+    } else plan = direct;
+  } catch (error) {
+    // The sandbox failed to start just now (it said so): this check runs as the later ones will, not sandboxed,
+    // and the receipt says so.
+    if (sandbox?.failure) plan = direct;
+    else return { ...base(), status: "fail", exitCode: null, signal: null, reason: `Could not execute: ${error instanceof Error ? error.message : String(error)}`, ended: "no_start" };
+  }
 
   return new Promise((resolve) => {
     let reason: string | undefined;
@@ -72,7 +115,7 @@ export async function runCommandCheck(options: CommandCheckOptions): Promise<Ver
     let child;
     let owner: OwnedProcesses | undefined;
     try {
-      child = spawn(command, { cwd, shell: true, detached: osSupportsProcessGroups, stdio: ["ignore", "pipe", "pipe"], ...(options.env ? { env: options.env } : {}) });
+      child = spawn(plan.file, plan.args, { cwd, shell: plan.shell, windowsHide: true, detached: osSupportsProcessGroups, stdio: ["ignore", "pipe", "pipe"], env: withoutProviderKeys(options.env ?? process.env) });
       owner = ownSpawnedTree(child.pid, () => child!.exitCode === null && child!.signalCode === null);
     } catch (error) {
       resolve({ ...base(), status: "fail", exitCode: null, signal: null, reason: `Could not execute: ${error instanceof Error ? error.message : String(error)}`, ended: "no_start" });
@@ -98,7 +141,13 @@ export async function runCommandCheck(options: CommandCheckOptions): Promise<Ver
       child.stdout.destroy(); child.stderr.destroy();
       child.unref(); // Unknown cleanup must not turn a reported failure into an exit hang.
       const ended = checkEnded(exitCode, reason);
-      resolve({ ...base(), status: !reason && exitCode === 0 ? "pass" : "fail", exitCode, signal: exitSignal, reason, ...(ended ? { ended } : {}) });
+      const result: VerificationResult = { ...base(), status: !reason && exitCode === 0 ? "pass" : "fail", exitCode, signal: exitSignal, reason, ...(ended ? { ended } : {}) };
+      if (!held || result.status === "pass" || reason) { sandbox?.finished(held); resolve(result); return; }
+      // A failure the sandbox caused says so, in the receipt and to the AI: "blocked by the sandbox (wanted to write /etc/hosts)".
+      void blockedBySandbox(sandbox!, held, `${result.stderr}\n${result.stdout}`).then((blocked) => {
+        sandbox!.finished(held);
+        resolve(blocked ? { ...result, reason: blocked, ended: "blocked" } : result);
+      });
     };
     const stop = (message: string) => {
       if (reason) return;
@@ -121,4 +170,14 @@ export async function runCommandCheck(options: CommandCheckOptions): Promise<Ver
     });
     if (signal?.aborted) abort();
   });
+}
+
+/** The sandbox's refusal for run `id`, waiting briefly for its monitor, which can report just after the command ends. */
+export async function blockedBySandbox(sandbox: Pick<ShellSandbox, "blockedReason">, id: string, output: string, waitMs = 200): Promise<string | undefined> {
+  const deadline = performance.now() + waitMs;
+  for (;;) {
+    const reason = sandbox.blockedReason(id, output);
+    if (reason || performance.now() >= deadline) return reason;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
 }

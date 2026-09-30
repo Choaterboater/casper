@@ -174,7 +174,7 @@ test("--verify (auto mode) asks the first turn for the checklist by default, and
         loadProjectContext: (project) => loadProjectContext(project, { homeDir: path.join(root, "home") }),
         loadSkillRegistry: (context) => SkillRegistry.discover({ projectRoot: context.info.root, homeDir: path.join(root, "home") }),
       });
-      await app.runOnce("fix the failing test", root);
+      try { await app.runOnce("fix the failing test", root); } finally { await app.close(); }
     };
     await run(false); await run(true);
     // The review is off by default: auto mode's first turn asks for the checklist and the failing test itself.
@@ -187,4 +187,22 @@ test("--verify (auto mode) asks the first turn for the checklist by default, and
     expect(prompts[2]!.includes("Casper initial classification")).toBe(false);
     expect(prompts[2]!.trim().endsWith("fix the failing test")).toBe(true);
   } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("a known test runner the model ran is kept only as a suggestion, and only when it passed with no test command set", () => {
+  const end = (command: string, isError = false) => ({ type: "tool_end" as const, toolName: "bash", toolCallId: "t", input: { command },
+    output: { text: "", truncated: false }, isError });
+  const passed = new TaskObservations();
+  passed.observeToolEnd(end("uv run pytest"), {});
+  expect(passed.snapshot([]).testRunner).toBe("uv run pytest");
+  expect(passed.snapshot([]).observedChecks).toEqual([]);
+  const failed = new TaskObservations();
+  failed.observeToolEnd(end("uv run pytest", true), {});
+  expect(failed.snapshot([]).testRunner).toBeUndefined();
+  const configured = new TaskObservations();
+  configured.observeToolEnd(end("uv run pytest"), { test: "make test" });
+  expect(configured.snapshot([]).testRunner).toBeUndefined();
+  const other = new TaskObservations();
+  other.observeToolEnd(end("python -c 'import os'"), {});
+  expect(other.snapshot([]).testRunner).toBeUndefined();
 });

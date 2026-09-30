@@ -72,7 +72,11 @@ export interface ReplayCell {
  * changes an outcome (verified → not_verified). Another cause alongside such a fail cannot be told apart in the
  * receipt and is undone with it. */
 export function baseOutcome(run: BenchmarkRun): string | null {
-  return run.run.receiptOutcome === "not_verified" && run.run.receiptAcceptance?.status === "fail" ? "verified" : run.run.receiptOutcome;
+  const downgraded = run.run.receiptOutcome === "not_verified" && run.run.receiptAcceptance?.status === "fail";
+  // Since v0.2.17 "verified" needs a proven change: a not_verified receipt without one stays not_verified. Older runs
+  // (no recorded proof) keep the old reading.
+  if (downgraded && run.run.receiptProof !== undefined) return run.run.receiptProof === "proven" ? "verified" : "not_verified";
+  return downgraded ? "verified" : run.run.receiptOutcome;
 }
 
 /** A failing check turns a verified receipt into not_verified; it never changes any other outcome. */

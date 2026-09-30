@@ -32,9 +32,9 @@ async function fakeRelease(root: string, artifact: string, digestOverride?: stri
   return release;
 }
 
-async function install(release: string, installDir: string, extra: string[] = []) {
+async function install(release: string, installDir: string, extra: string[] = [], pathPrefix?: string) {
   const child = Bun.spawn(["sh", installer, "--dir", installDir, ...extra], {
-    env: { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: installDir, CASPER_BASE_URL: release },
+    env: { PATH: `${pathPrefix ? `${pathPrefix}:` : ""}${process.env.PATH ?? "/usr/bin:/bin"}`, HOME: installDir, CASPER_BASE_URL: release },
     stdout: "pipe", stderr: "pipe",
   });
   const [stdout, stderr, exitCode] = await Promise.all([
@@ -234,4 +234,36 @@ test("every place that names the release agrees on one version", async () => {
   // The newest released section names this version; a section still marked "Not released yet" is skipped.
   const released = release.split(/^(?=## v)/m).filter((section) => section.startsWith("## v") && !section.includes("**Not released yet.**"));
   expect(released[0]?.match(/^## (v\S+?):?\s/)?.[1]).toBe(tag);
+});
+
+/** A stand-in gh: signed in, and `attestation verify` exits with `verify`. */
+async function fakeGh(root: string, verify: number): Promise<string> {
+  const bin = path.join(root, "gh-bin");
+  await mkdir(bin, { recursive: true });
+  await writeFile(path.join(bin, "gh"), `#!/bin/sh\ncase "$1" in auth) exit 0 ;; attestation) echo "$@" >> "${bin}/calls"; exit ${verify} ;; esac\nexit 2\n`);
+  await chmod(path.join(bin, "gh"), 0o755);
+  return bin;
+}
+
+posixOnly("with gh, a download whose build provenance doesn't match is refused and nothing is installed", async () => {
+  const root = await tempDir("casper-install-attest-");
+  const release = await fakeRelease(root, artifactName(hostTarget()));
+  const installDir = path.join(root, "bin");
+  const result = await install(release, installDir, [], await fakeGh(root, 1));
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toContain("This download doesn't match a Casper build from GitHub. Nothing installed.");
+  await expect(stat(path.join(installDir, "casper"))).rejects.toThrow();
+  expect(await readFile(path.join(root, "gh-bin", "calls"), "utf8")).toContain("--repo Choaterboater/casper");
+});
+
+posixOnly("with gh, a matching build is installed and says where it was built; without gh the SHA-256 line says what was checked", async () => {
+  const root = await tempDir("casper-install-attest-ok-");
+  const release = await fakeRelease(root, artifactName(hostTarget()));
+  const verified = await install(release, path.join(root, "bin"), [], await fakeGh(root, 0));
+  expect(verified.exitCode).toBe(0);
+  expect(verified.stdout).toContain("Verified: built by GitHub Actions from Choaterboater/casper.");
+  const plain = await install(release, path.join(root, "bin2"));
+  expect(plain.exitCode).toBe(0);
+  // A CI runner has gh but no sign-in here (the installer gets a clean HOME).
+  expect(plain.stdout).toMatch(/Checked SHA-256\. (?:Install gh|Sign in to gh \(gh auth login\)) to also check where it was built\./);
 });

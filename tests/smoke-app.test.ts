@@ -84,7 +84,9 @@ test("a model check that failed before the change and passes after it verifies t
   expect(result.services).toEqual([{ name: "api", origin: expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+$/), state: "ready" }]);
   expect(f.text()).toContain(`✓ Service api at ${origin.slice(7)}; smoke 1/1 passed (model-declared, run by Casper: create note failed before the change)`);
   const receipt = receiptEvent(undefined, result, 0);
-  expect({ outcome: receipt.outcome, services: receipt.services, smoke: receipt.smoke?.status }).toEqual({ outcome: "verified", services: [{ name: "api", origin, state: "ready" }], smoke: "pass" });
+  // The checks passed with evidence, but no test was compared with and without the change: not proven, so not "verified".
+  expect({ outcome: receipt.outcome, checksPassed: receipt.checksPassed, services: receipt.services, smoke: receipt.smoke?.status })
+    .toEqual({ outcome: "not_verified", checksPassed: true, services: [{ name: "api", origin, state: "ready" }], smoke: "pass" });
   const phases = f.events.flatMap(event => event.type === "phase" ? [`${event.phase}:${event.state}`] : []);
   expect(phases).toEqual(["task:start", "task:end", "checks:start", "smoke:start", "smoke:end", "checks:end"]);
 }, 30_000);
@@ -102,7 +104,7 @@ test("a model check that already passed before the change is shown as an observa
   expect(f.text()).toContain("list notes passed before the change too — an observation, not proof");
 }, 30_000);
 
-test("a failing configured smoke check gets the normal repair round with its evidence; the repair makes it verified", async () => {
+test("a failing configured smoke check gets the normal repair round with its evidence; the repair makes the checks pass", async () => {
   const f = await fixture({ smoke: [create] }, { verbose: true });
   f.runtime.turns.push(async runtime => { await runtime.write(path.join(f.project, "src/notes.ts"), "export {};\n"); });
   f.runtime.turns.push(async runtime => { await runtime.write(f.server, notesServer(true)); });
@@ -113,7 +115,7 @@ test("a failing configured smoke check gets the normal repair round with its evi
   expect(f.runtime.prompts[1]).toContain("status 404, expected 201");
   const result = f.app.getLastTaskResult()!;
   expect(result.verification).toMatchObject({ status: "pass", repairAttempts: 1, smoke: { status: "pass", checks: [{ name: "create note", source: "config", status: "pass", evidence: true }] } });
-  expect(receiptEvent(undefined, result, 0).outcome).toBe("verified");
+  expect(receiptEvent(undefined, result, 0)).toMatchObject({ outcome: "not_verified", checksPassed: true });
   // The verbose receipt lists every check.
   expect(f.text()).toMatch(/smoke +pass: create note \[config\] api POST \/notes: pass \(201\)/);
 }, 30_000);

@@ -3,7 +3,9 @@ import { promisify } from "node:util";
 
 const exec = promisify(execFile);
 
-export interface ProcessRecord { pid: number; parent: number; group: number; stamp: string }
+/** `zombie`: the process has exited and only waits to be reaped; it can't run again or be signalled (macOS
+ * answers a signal to a group of only such processes with EPERM). */
+export interface ProcessRecord { pid: number; parent: number; group: number; stamp: string; zombie?: boolean }
 export type CleanupOutcome = "stopped" | "unknown";
 
 export class ProcessCleanupError extends Error {
@@ -27,8 +29,8 @@ const PS_COMMANDS = ["/bin/ps", "/usr/bin/ps", "ps"];
 function parsePS(stdout: string): Map<number, ProcessRecord> {
   const all = new Map<number, ProcessRecord>();
   for (const line of stdout.split("\n")) {
-    const match = line.match(/^\s*(\d+)\s+(\d+)\s+(\d+)\s+(.+)$/);
-    if (match) all.set(Number(match[1]), { pid: Number(match[1]), parent: Number(match[2]), group: Number(match[3]), stamp: match[4] });
+    const match = line.match(/^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(.+)$/);
+    if (match) all.set(Number(match[1]), { pid: Number(match[1]), parent: Number(match[2]), group: Number(match[3]), stamp: match[5]!, ...(match[4]!.startsWith("Z") ? { zombie: true } : {}) });
   }
   if (!all.size) throw new Error("Process listing was empty");
   return all;
@@ -38,7 +40,7 @@ async function listPosix(): Promise<Map<number, ProcessRecord>> {
   let failure: unknown;
   for (const command of PS_COMMANDS) {
     try {
-      const { stdout } = await exec(command, ["-axo", "pid=,ppid=,pgid=,lstart="], {
+      const { stdout } = await exec(command, ["-axo", "pid=,ppid=,pgid=,stat=,lstart="], {
         encoding: "utf8", timeout: 2000, maxBuffer: 4 * 1024 * 1024,
         env: { PATH: process.env.PATH ?? "/usr/bin:/bin", LC_ALL: "C" }, windowsHide: true,
       });
@@ -242,13 +244,20 @@ export class OwnedProcesses {
         for (const group of [...this.groups].sort((a, b) => Number(a === this.root) - Number(b === this.root))) {
           const verified = [...this.owned.values()].some(item => item.group === group && all.get(item.pid)?.stamp === item.stamp && all.get(item.pid)?.group === group);
           if (!verified && !(group === this.root && this.rootAlive())) continue;
-          try { this.platform.signalGroup(group, signal); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") this.uncertain = true; }
+          try { this.platform.signalGroup(group, signal); } catch (error) {
+            const code = (error as NodeJS.ErrnoException).code;
+            // macOS refuses a signal to a group whose members have all exited but are not reaped yet (EPERM).
+            const now = code === "EPERM" ? await this.platform.list().catch(() => undefined) : undefined;
+            const onlyExited = now !== undefined && ![...now.values()].some(item => item.group === group && !item.zombie);
+            if (code !== "ESRCH" && !onlyExited) this.uncertain = true;
+          }
         }
       } else await this.terminateRecords(signal);
       await new Promise(resolve => setTimeout(resolve, 50));
     }
     const all = await this.capture();
-    const remaining = [...this.owned.values()].some(item => all.get(item.pid)?.stamp === item.stamp);
+    // An exited process waiting to be reaped is not running: it counts as stopped.
+    const remaining = [...this.owned.values()].some(item => all.get(item.pid)?.stamp === item.stamp && !all.get(item.pid)?.zombie);
     return remaining || this.uncertain ? "unknown" : "stopped";
   }
 }

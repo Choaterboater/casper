@@ -1,0 +1,17 @@
+---
+# Read-only: runs show commands on the lab switches and prints the output.
+- name: Aruba CX show commands
+  hosts: aoscx
+  gather_facts: false
+  tasks:
+    - name: Run show commands
+      arubanetworks.aoscx.aoscx_command:
+        commands:
+          - show version
+          - show interface brief
+          - show lldp neighbor-info
+      register: shown
+
+    - name: Print the output
+      ansible.builtin.debug:
+        var: shown.stdout_lines

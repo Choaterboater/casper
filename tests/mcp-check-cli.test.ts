@@ -61,7 +61,7 @@ test("a server with a mislabeled tool exits 1; the same repo with a clean server
   const passed = await run(["mcp", "check", "."], clean);
   expect(passed.stdout).toContain("  ok    starts        in ");
   expect(passed.code).toBe(0);
-});
+}, 30_000); // two full checks, each running the repo's tests and starting its server
 
 test("--json prints one JSON report with version 1 on stdout; progress goes to stderr", async () => {
   const root = await repo({ ".mcp.json.example": readOnlyExample, ".casper/mcp-check.json": { doctor: "echo doctor-ran" } });

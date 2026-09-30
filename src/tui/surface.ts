@@ -92,6 +92,11 @@ class PromptEditor extends Editor {
   }
 }
 
+/** Who asked a numbered question: Casper itself (approvals, choices) or the AI through its ask tool. */
+export type AskOrigin = "ai" | "casper";
+/** The muted first line of every question the AI asks, so it never looks like a Casper approval. */
+export const AI_ASKS_LABEL = "The AI asks:";
+
 /** Main-screen renderer: terminal scrollback, one editor, no autonomous input queue. */
 export class TerminalSurface {
   private readonly tui: TuiMainScreen;
@@ -139,6 +144,8 @@ export class TerminalSurface {
   private pendingAsk?: (answer: string[] | undefined) => void;
   /** The open question and its options sanitized for display; an answer is the caller's own label. */
   private askQuestion?: string;
+  /** Who is asking: the AI's own questions carry the "The AI asks:" line; Casper's never do. */
+  private askFrom: AskOrigin = "casper";
   private askOptions?: AskOption[];
   private askLabels: string[] = [];
   private askMulti = false;
@@ -146,6 +153,8 @@ export class TerminalSurface {
   private askActiveIndex = 0;
   /** An open list edit: the editor holds the lines; Enter returns them, Esc/Ctrl+C/close return undefined. */
   private pendingEdit?: (lines: string[] | undefined) => void;
+  /** The row under the last receipt: a lone key on an empty, idle prompt submits its command. Any other key clears it. */
+  private nextKeys?: Map<string, string>;
   private editHeading: string[] = [];
   private message?: StreamingMarkdown;
   private source = "";
@@ -175,6 +184,7 @@ export class TerminalSurface {
         return;
       }
       if (!value.trim()) { this.editor.setText(""); return; } // Enter on an empty box is not a transcript event.
+      this.nextKeys = undefined;
       const resolve = this.command; this.command = undefined; this.busy = true; this.busySince = Date.now();
       this.updateSpinner();
       this.configureAutocomplete();
@@ -238,6 +248,12 @@ export class TerminalSurface {
         else if (this.pendingEdit) this.pendingEdit(undefined);
         else this.cancel();
         return { consume: true };
+      }
+      if (this.nextKeys) {
+        // Only a key pressed at the idle, empty prompt picks from the row; the row never answers a question.
+        const offered = this.command && !this.waiting && !this.busy && !this.editor.getText() ? this.nextKeys.get(data) : undefined;
+        this.nextKeys = undefined;
+        if (offered !== undefined) { this.editor.onSubmit?.(offered); return { consume: true }; }
       }
       if (this.pendingAsk && this.askOptions && !this.editor.getText()) {
         const count = this.askOptions.length;
@@ -446,6 +462,9 @@ private updateSpinner(): void {
   }
   setAttentionAfter(ms: number): void { this.attentionAfterMs = ms; }
 
+  /** Offer the receipt's next-step row: until another key or command, a lone key from `keys` submits its command. */
+  offerNext(keys: ReadonlyMap<string, string> | undefined): void { this.nextKeys = keys?.size ? new Map(keys) : undefined; }
+
   readCommand(): Promise<string | undefined> {
     if (this.busy) { this.attention(); this.busySince = undefined; }
     this.endAssistant(); this.busy = false; this.note = ""; this.configureAutocomplete();
@@ -489,7 +508,7 @@ private updateSpinner(): void {
   }
 
   /** One structured clarification with a standalone question, navigable choices and free-text input. */
-  ask(question: string, options: { label: string; description?: string }[], multi: boolean, signal?: AbortSignal): Promise<string[] | undefined> {
+  ask(question: string, options: { label: string; description?: string }[], multi: boolean, signal?: AbortSignal, from: AskOrigin = "casper"): Promise<string[] | undefined> {
     if (this.closed || this.slot || this.lending || this.confirmation || this.pendingAsk || this.pendingEdit || signal?.aborted) return Promise.resolve(undefined);
     this.endAssistant(); this.activity = undefined;
     const draft = this.editor.getExpandedText();
@@ -506,6 +525,7 @@ private updateSpinner(): void {
     const record: Component = { render: width => {
       const typed = chosen?.filter(answer => !options.some(option => option.label === answer)) ?? [];
       return [
+        ...(from === "ai" ? [this.muted(AI_ASKS_LABEL)] : []),
         ...wrapTextWithAnsi(this.accent(safeQuestion), width),
         ...shown.flatMap((option, index) => askOptionLines(picked(index) ? "✓ " : "• ", option, width,
           { label: text => picked(index) ? this.accent(text) : text, description: this.muted })),
@@ -518,7 +538,7 @@ private updateSpinner(): void {
     const finish = (answer: string[] | undefined) => {
       if (settled) return; settled = true;
       signal?.removeEventListener("abort", cancel);
-      this.pendingAsk = undefined; this.askQuestion = undefined; this.askOptions = undefined; this.askLabels = [];
+      this.pendingAsk = undefined; this.askQuestion = undefined; this.askOptions = undefined; this.askLabels = []; this.askFrom = "casper";
       this.askMulti = false; this.askSelections.clear(); this.askActiveIndex = 0;
       chosen = answer;
       this.writeBlock(record);
@@ -526,7 +546,7 @@ private updateSpinner(): void {
     };
     const cancel = () => finish(undefined);
     this.attention();
-    this.pendingAsk = finish; this.askQuestion = safeQuestion; this.askOptions = shown;
+    this.pendingAsk = finish; this.askQuestion = safeQuestion; this.askOptions = shown; this.askFrom = from;
     this.askLabels = options.map(option => option.label); this.askMulti = multi;
     this.askSelections.clear(); this.askActiveIndex = 0;
     this.configureAutocomplete(); this.updateSpinner(); this.render();
@@ -571,6 +591,7 @@ private updateSpinner(): void {
       ? `Press ${keys} or Space to toggle · Up/Down move · Enter answer · type to answer · Esc skip`
       : `Press ${keys} or Up/Down + Enter · type to answer · Esc skip`;
     const lines = (compact: boolean) => [
+      ...(this.askFrom === "ai" ? [this.muted(AI_ASKS_LABEL)] : []),
       ...wrapTextWithAnsi(this.accent(this.askQuestion ?? ""), width),
       ...(this.askOptions ?? []).flatMap((option, index) => {
         const selected = index === this.askActiveIndex;
@@ -659,7 +680,8 @@ private updateSpinner(): void {
     this.spinnerTimer = undefined;
     this.endAssistant(); this.closed = true;
     this.confirmation?.(undefined); this.pendingAsk?.(undefined); this.pendingEdit?.(undefined); this.command?.(); this.command = undefined;
-    if (this.started) this.tui.stop();
+    // The last lines written (a final notice) are drawn before the terminal is handed back.
+    if (this.started) { this.tui.renderNow(); this.tui.stop(); }
     this.eof();
   }
 }

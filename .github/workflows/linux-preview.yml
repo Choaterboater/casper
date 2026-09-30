@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ['src/**', 'scripts/**', 'tools/**', 'tests/**', 'evals/**', 'package.json', 'bun.lock', 'bunfig.toml', 'tsconfig.json', 'THIRD_PARTY_NOTICES.txt', '.github/workflows/linux-preview.yml']
+    paths: ['src/**', 'scripts/**', 'tools/**', 'tests/**', 'evals/**', 'docs/**', 'package.json', 'bun.lock', 'bunfig.toml', 'tsconfig.json', 'THIRD_PARTY_NOTICES.txt', '.github/workflows/linux-preview.yml']
   pull_request:
     paths: ['src/**', 'scripts/**', 'tools/**', 'tests/**', 'evals/**', 'package.json', 'bun.lock', 'bunfig.toml', 'tsconfig.json', 'THIRD_PARTY_NOTICES.txt', '.github/workflows/linux-preview.yml']
 permissions:
@@ -19,10 +19,10 @@ jobs:
       PI_OFFLINE: '1'
       PI_TELEMETRY: '0'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: '1.4.0'
       - name: Record host and PTY prerequisites
@@ -37,6 +37,19 @@ jobs:
             python3 --version
             python3 -c 'import fcntl, pty, sys, termios; print("POSIX PTY modules available:", sys.executable)'
           } 2>&1 | tee "$RUNNER_TEMP/linux-preview/host.log"
+      - name: Install the shell sandbox's tools (bubblewrap, socat, ripgrep) and let bubblewrap start
+        # Ubuntu 24.04 blocks unprivileged user namespaces through AppArmor; the live sandbox tests need them.
+        # The sandbox runtime scans the project with ripgrep, and Pi's grep uses it (PI_OFFLINE: no download).
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q bubblewrap socat ripgrep
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          bwrap --ro-bind / / --dev /dev --proc /proc --unshare-net --unshare-pid -- /bin/true
+      - name: Audit Casper's own workflows with zizmor (the pinned, hash-locked copy Casper installs)
+        run: |
+          python3 -m venv "$RUNNER_TEMP/zizmor"
+          "$RUNNER_TEMP/zizmor/bin/pip" install --quiet --require-hashes --no-deps -r src/security/locks/zizmor.txt
+          "$RUNNER_TEMP/zizmor/bin/zizmor" --offline .github/workflows
       - name: Install locked dependencies
         id: install
         run: bun install --frozen-lockfile 2>&1 | tee "$RUNNER_TEMP/linux-preview/install.log"
@@ -49,13 +62,13 @@ jobs:
       - name: Focused platform and terminal regressions
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: |
-          bun test tests/platform-processes.test.ts tests/login-picker.test.ts tests/login.test.ts tests/terminal-review.test.ts tests/terminal-ux.test.ts tests/terminal-discovery.test.ts tests/daily-terminal.test.ts tests/model-routing.test.ts tests/auto-effort.test.ts tests/model-selection.test.ts tests/phase10-debugger-app.test.ts 2>&1 | tee "$RUNNER_TEMP/linux-preview/platform-terminal.log"
+          bun test tests/sandbox-live.test.ts tests/sandbox-wiring.test.ts tests/platform-processes.test.ts tests/login-picker.test.ts tests/login.test.ts tests/terminal-review.test.ts tests/terminal-ux.test.ts tests/terminal-discovery.test.ts tests/daily-terminal.test.ts tests/model-routing.test.ts tests/auto-effort.test.ts tests/model-selection.test.ts tests/phase10-debugger-app.test.ts 2>&1 | tee "$RUNNER_TEMP/linux-preview/platform-terminal.log"
       - name: Full serial regression suite
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun test 2>&1 | tee "$RUNNER_TEMP/linux-preview/full-suite.log"
       - name: Retain host verification evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: linux-preview-evidence
           path: ${{ runner.temp }}/linux-preview/

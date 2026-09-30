@@ -3,6 +3,10 @@ import { loadConfiguration, type CasperPolicy, type GitActionPolicy, type Loaded
 import type { VisualizationSettings } from "../visualize/router";
 import type { ProjectInfo } from "./inspect";
 import { loadProjectModel, projectStateDirectory, type ProjectModel } from "./model";
+import { detectMigrations } from "../verify/migrations";
+import { detectAnsible } from "../network/ansible";
+import type { LabSettings } from "../network/spec";
+import type { NamedCheckSpec } from "../verify/named";
 
 export interface ProjectContext {
   info: ProjectInfo;
@@ -12,18 +16,26 @@ export interface ProjectContext {
   policy: CasperPolicy;
   skills: LoadedConfiguration["skills"];
   verification: LoadedConfiguration["verification"];
-  repair: { maxAttempts: number };
+  repair: LoadedConfiguration["repair"];
+  /** `suggestions: false` in the user's config: no suggestions anywhere. */
+  suggestions?: boolean;
   visualize: VisualizationSettings;
   /** Managed services declared in .casper/project.yaml (see docs/SERVICES.md). */
   services?: LoadedConfiguration["services"];
   /** Configured smoke checks, run after every change (see docs/VERIFICATION.md). */
   smoke?: LoadedConfiguration["smoke"];
+  /** The pages: setting: pages the page check always opens, or off (see docs/VERIFICATION.md). */
+  pages?: LoadedConfiguration["pages"];
   rules: {
     profile: string | null;
     project: string | null;
   };
   /** Configuration keys that were ignored, by file (see LoadedConfiguration.warnings). */
   warnings?: string[];
+  /** The owner's lab list (lab.hosts), from ~/.casper/config.yaml or the profile only. */
+  lab?: LabSettings;
+  /** The shell sandbox settings: yours, and the project's extra denies (see src/sandbox/policy.ts). */
+  sandbox?: LoadedConfiguration["sandbox"];
 }
 
 export interface LoadProjectContextOptions {
@@ -41,10 +53,26 @@ export async function loadProjectContext(
     homeDir,
     profileName: options.profileName,
   });
-  const model = await loadProjectModel(info, {
+  const detected = await loadProjectModel(info, {
     homeDir,
     overrides: configuration.projectOverrides,
   });
+  // The migrations check is found from the project's own files each time it is opened.
+  const migrations = await detectMigrations(info.root).catch(() => undefined);
+  // So are Ansible playbooks: the language and platforms, and ready-made checks to offer (never saved or run on their own).
+  const ansible = await detectAnsible(info.root).catch(() => undefined);
+  let model = migrations ? { ...detected, migrations } : detected;
+  if (ansible) {
+    const found: Record<string, NamedCheckSpec> = {};
+    for (const [name, spec] of Object.entries(ansible.checks)) if (!model.namedChecks?.[name]) found[name] = spec;
+    const overrides = configuration.projectOverrides;
+    model = {
+      ...model,
+      languages: overrides.languages ? model.languages : [...new Set([...model.languages, "ansible"])].sort(),
+      frameworks: overrides.frameworks ? model.frameworks : [...new Set([...model.frameworks, ...ansible.frameworks])].sort(),
+      ...(Object.keys(found).length ? { foundChecks: found } : {}),
+    };
+  }
 
   return {
     info,
@@ -55,14 +83,18 @@ export async function loadProjectContext(
     skills: configuration.skills,
     verification: configuration.verification,
     repair: configuration.repair,
+    ...(configuration.suggestions !== undefined ? { suggestions: configuration.suggestions } : {}),
     visualize: configuration.visualize,
     services: configuration.services,
     smoke: configuration.smoke,
+    ...(configuration.pages ? { pages: configuration.pages } : {}),
     rules: {
       profile: configuration.profileRules,
       project: configuration.projectRules,
     },
     warnings: configuration.warnings,
+    ...(configuration.lab ? { lab: configuration.lab } : {}),
+    sandbox: configuration.sandbox,
   };
 }
 

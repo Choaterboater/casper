@@ -82,7 +82,11 @@ writes nothing to memory.
 /references add
 mist-openapi  Mist API spec (MIT)
 junos-yang    Junos YANG models, one release (needs a release, e.g. 23.4)
-pycentral     Aruba Central Python SDK (Apache-2.0)
+pycentral     Aruba Central Python SDK (MIT)
+pyaoscx       AOS-CX Python SDK, REST API (Apache-2.0)
+pyclearpass   ClearPass Python SDK, REST API (MIT)
+mistapi       Mist API Python SDK (community) (MIT)
+junos-pyez    Junos PyEZ Python library (Apache-2.0)
 
 /references add pycentral
 Will run: git -c core.hooksPath=/dev/null clone --depth 1 --filter=blob:none --sparse https://github.com/aruba/pycentral.git ~/.casper/reference-repos/pycentral
@@ -104,6 +108,31 @@ Added pycentral to ~/.casper/references.yaml. Restart Casper to search it.
 - **`mist-openapi`** leaves out `mist.openapi.json` (one 3.5 MB line, useless for
   line search). For exact Mist endpoints and fields, `lookup_api` in
   hpe-networking-mcp is faster and complete; Casper prints that tip after adding it.
+  Known problem (checked 2026-09-30): the repo no longer has the `src` folder this
+  entry fetches, and its `mist.openapi.yaml` (about 4.3 MB) is over the 4 MiB search
+  limit, so this entry currently gives nothing to search. Use `mistapi` (v0.2.18) or
+  `lookup_api` instead.
+- **The SDKs (`pyaoscx`, `pyclearpass`, `mistapi` and `junos-pyez` are new in
+  v0.2.18, not released yet).** `pycentral`, `pyaoscx` and `pyclearpass` are the
+  public Python SDKs from the `aruba` GitHub organisation; `mistapi` (a community SDK
+  for the Mist API) and `junos-pyez` (Juniper's PyEZ) are listed with them. Their
+  code shows the REST paths, fields and login flow the SDK uses:
+
+  | Name | Repo | Licence | Fetched | File limit |
+  |---|---|---|---|---|
+  | `pycentral` | github.com/aruba/pycentral (branch v2: new Central, GreenLake, `pycentral/classic`) | MIT | `pycentral`, `docs` | 256 KiB |
+  | `pyaoscx` | github.com/aruba/pyaoscx (REST v1, v10.04, v10.08, v10.09) | Apache-2.0 | `pyaoscx`, `docs` | 128 KiB (default) |
+  | `pyclearpass` | github.com/aruba/pyclearpass | MIT | `pyclearpass` | 512 KiB |
+  | `mistapi` | github.com/tmunzer/mistapi_python (community SDK; PyPI `mistapi` points here) | MIT | `src/mistapi` | 128 KiB (default) |
+  | `junos-pyez` | github.com/Juniper/py-junos-eznc | Apache-2.0 | `lib/jnpr/junos`, `docs` | 128 KiB (default) |
+
+  An SDK can lag the product. For your exact version, the product's own API
+  reference wins: the switch's REST API reference, the ClearPass API Explorer, or
+  the Central API docs.
+- **No entry for the AOS-CX, Central or ClearPass API spec files themselves.** We
+  found no public git repo that holds a current copy; the specs are served by the
+  product or its developer site. If you have a copy you may use, add it to
+  `~/.casper/references.yaml` yourself.
 - **An ID already in `~/.casper/references.yaml` is refused:**
   `pycentral is already in ~/.casper/references.yaml. Nothing changed.`
 - **A failed download adds nothing:**
@@ -115,8 +144,10 @@ Added pycentral to ~/.casper/references.yaml. Restart Casper to search it.
   touching other entries or comments. Profile files are never changed. Search picks
   it up after a restart.
 
-The folder layouts of these repos were not checked against the live repos when this
-was written. If a download finds nothing to search, check the repo layout.
+The folder layouts of `pycentral`, `pyaoscx`, `pyclearpass`, `mistapi` and
+`junos-pyez` were checked on 2026-09-30 with a shallow `--no-checkout` clone and
+`git ls-tree`. The other layouts were not checked against the live repos. If a
+download finds nothing to search, check the repo layout.
 
 Use `lookup_api` (hpe-networking-mcp docs tools, see [MCP.md](MCP.md)) for exact
 Mist and Central endpoints, and `search_references` for SDK code and YANG models.

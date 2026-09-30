@@ -10,9 +10,10 @@ import { readReferenceFile, referenceText } from "./files";
  * Vendor spec repos that "/references add <name>" can download. Nothing is
  * downloaded without the user typing yes; missing sources never trigger a clone.
  *
- * The sparse paths below were written without access to the repos from the
- * build machine; check each layout ("git clone --filter=blob:none
- * --no-checkout" plus "git ls-tree -r -l") before relying on them.
+ * Layouts of pycentral, pyaoscx, pyclearpass, mistapi and junos-pyez were checked on 2026-09-30
+ * ("git clone --filter=blob:none --no-checkout" plus "git ls-tree -r -l"),
+ * including the largest file, so maxFileBytes covers every file. The other
+ * layouts were written without that check; check them before relying on them.
  */
 export interface SpecRepo {
   id: string;
@@ -38,8 +39,35 @@ export const SPEC_REPOS: readonly SpecRepo[] = [
     needsRelease: true, useFor: ["Junos configuration YANG models"], maxFileBytes: 4 * 1024 * 1024,
   },
   {
-    id: "pycentral", title: "Aruba Central Python SDK", license: "Apache-2.0", url: "https://github.com/aruba/pycentral.git",
-    needsRelease: false, useFor: ["Aruba Central API through the Python SDK"],
+    // MIT (LICENSE on the v2 default branch). v2 holds new Central, GreenLake and pycentral/classic.
+    // Largest file: pycentral/troubleshooting/troubleshooting.py, about 190 KB.
+    id: "pycentral", title: "Aruba Central Python SDK", license: "MIT", url: "https://github.com/aruba/pycentral.git",
+    needsRelease: false, useFor: ["Aruba Central API through the Python SDK"], maxFileBytes: 256 * 1024,
+  },
+  {
+    // Apache-2.0 (License.md). REST code for v1, v10.04, v10.08, v10.09 under pyaoscx/rest. Largest file about 85 KB.
+    id: "pyaoscx", title: "AOS-CX Python SDK, REST API", license: "Apache-2.0", url: "https://github.com/aruba/pyaoscx.git",
+    needsRelease: false, useFor: ["AOS-CX switch REST API through the Python SDK"],
+    tip: "Tip: the SDK covers some firmware versions only. Your switch's own REST API reference is the final word for its firmware.",
+  },
+  {
+    // MIT (LICENSE.md). One module per ClearPass API group; largest file about 245 KB.
+    id: "pyclearpass", title: "ClearPass Python SDK, REST API", license: "MIT", url: "https://github.com/aruba/pyclearpass.git",
+    needsRelease: false, useFor: ["ClearPass REST API through the Python SDK"], maxFileBytes: 512 * 1024,
+    tip: "Tip: your ClearPass server's API Explorer is the final word for its version.",
+  },
+  {
+    // MIT (LICENSE). Community Python SDK for the Mist API (PyPI mistapi points here); one module per
+    // API group under src/mistapi/api/v1. Largest file: src/mistapi/api/v1/sites/devices.py, about 111 KB.
+    id: "mistapi", title: "Mist API Python SDK (community)", license: "MIT", url: "https://github.com/tmunzer/mistapi_python.git",
+    needsRelease: false, useFor: ["Mist API calls and parameters through the Python SDK"],
+    tip: "Tip: mistapi is a community SDK. For exact Mist endpoints and fields, lookup_api in hpe-networking-mcp is complete.",
+  },
+  {
+    // Apache-2.0 (LICENSE). PyEZ: lib/jnpr/junos holds Device, Config (load, commit_check, commit confirm), tables.
+    // Largest file: lib/jnpr/junos/utils/sw.py, about 72 KB.
+    id: "junos-pyez", title: "Junos PyEZ Python library", license: "Apache-2.0", url: "https://github.com/Juniper/py-junos-eznc.git",
+    needsRelease: false, useFor: ["Junos automation with PyEZ: RPCs, config load and commit, tables"],
   },
 ];
 
@@ -77,6 +105,15 @@ function layout(entry: SpecRepo, release?: string): { sparse: string[]; cone: bo
     case "junos-yang":
       // Only the Junos config models and the shared ones for one release, not every platform.
       return { sparse: [`/${release}/*/junos/conf/`, `/${release}/*/common/`], cone: false, search: [release!] };
+    case "pyaoscx":
+      return { sparse: ["pyaoscx", "docs"], cone: true, search: ["pyaoscx", "docs", "README.md"] };
+    case "mistapi":
+      return { sparse: ["src/mistapi"], cone: true, search: ["src/mistapi", "README.md"] };
+    case "junos-pyez":
+      return { sparse: ["lib/jnpr/junos", "docs"], cone: true, search: ["lib/jnpr/junos", "docs", "README.md"] };
+    case "pyclearpass":
+      // No docs folder; the README has the login and usage examples.
+      return { sparse: ["pyclearpass"], cone: true, search: ["pyclearpass", "README.md"] };
     default:
       return { sparse: ["pycentral", "docs"], cone: true, search: ["pycentral", "docs", "README.md"] };
   }

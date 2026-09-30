@@ -1,0 +1,5 @@
+---
+# Install with: uv run ansible-galaxy collection install -r collections/requirements.yml -p collections
+collections:
+  - name: junipernetworks.junos
+  - name: ansible.netcommon

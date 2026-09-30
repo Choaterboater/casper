@@ -1,0 +1,47 @@
+# Sample data, not from your org. Record your own with:
+#   uv run pytest --record-mode=once   (uses a read-only token)
+# The authorization header is never saved. Look through recorded files before you commit them.
+interactions:
+- request:
+    body: null
+    headers: {}
+    method: GET
+    uri: https://api.mist.com/api/v1/orgs/00000000-0000-0000-0000-00000000000a/sites?limit=1000
+  response:
+    body:
+      string: '[{"id":"00000000-0000-0000-0000-000000000001","org_id":"00000000-0000-0000-0000-00000000000a","name":"HQ","timezone":"America/New_York","country_code":"US"},{"id":"00000000-0000-0000-0000-000000000002","org_id":"00000000-0000-0000-0000-00000000000a","name":"Branch 12","timezone":"America/Chicago","country_code":"US"}]'
+    headers:
+      Content-Type:
+      - application/json
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers: {}
+    method: GET
+    uri: https://api.mist.com/api/v1/sites/00000000-0000-0000-0000-000000000002/devices?type=all&limit=1000
+  response:
+    body:
+      string: '[{"id":"00000000-0000-0000-1000-5c5b35000003","site_id":"00000000-0000-0000-0000-000000000002","name":"br12-ap-01","type":"ap","model":"AP34","mac":"5c5b35000003"}]'
+    headers:
+      Content-Type:
+      - application/json
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers: {}
+    method: GET
+    uri: https://api.mist.com/api/v1/sites/00000000-0000-0000-0000-000000000001/devices?type=all&limit=1000
+  response:
+    body:
+      string: '[{"id":"00000000-0000-0000-1000-5c5b35000001","site_id":"00000000-0000-0000-0000-000000000001","name":"hq-ap-lobby","type":"ap","model":"AP45","mac":"5c5b35000001"},{"id":"00000000-0000-0000-1000-5c5b35000002","site_id":"00000000-0000-0000-0000-000000000001","name":"hq-sw-core","type":"switch","model":"EX4400-48P","mac":"5c5b35000002"}]'
+    headers:
+      Content-Type:
+      - application/json
+    status:
+      code: 200
+      message: OK
+version: 1

@@ -115,7 +115,7 @@ test("in the terminal, a second provider failure asks whether to retry or stop",
   process.env.TERM = "xterm-256color";
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-model-ask-"));
   const home = path.join(root, "home"); const project = path.join(root, "project");
-  await mkdir(home); await mkdir(project);
+  await mkdir(home); await mkdir(project); await writeFile(path.join(project, "notes.txt"), "An empty folder would ask about a new project.\n");
   const listeners = new Set<RuntimeEventListener>();
   let prompts = 0;
   const runtime: AgentRuntime = {
@@ -146,7 +146,7 @@ test("in the terminal, a second provider failure asks whether to retry or stop",
     input.write("fix it\r");
     await screen.until((output) => Bun.stripANSI(output).includes("The model failed again. What now?"));
     expect(prompts).toBe(2);
-    input.write("2");
+    input.write("\r"); // Enter picks 1 Stop: no more tokens.
     await screen.until((output) => { const text = Bun.stripANSI(output); const at = text.lastIndexOf("✗ Failed — the model run failed"); return at >= 0 && text.lastIndexOf("idle") > at; });
     expect(prompts).toBe(2);
   } finally {
@@ -195,7 +195,7 @@ test("a check that was already failing before the change is named as such; in th
     input.write("fix the add function\r");
     await screen.until((output) => Bun.stripANSI(output).includes("test was already failing before this change. Fix it anyway?"));
     expect(Bun.stripANSI(screen.output)).toContain("• test was already failing before this change (Casper ran it on the files from before)");
-    input.write("2");
+    input.write("\r"); // Enter picks 1 Leave it: no repair.
     await screen.until((output) => { const text = Bun.stripANSI(output); const at = text.lastIndexOf("✗ Failed — test failed"); return at >= 0 && text.lastIndexOf("idle") > at; });
     expect(prompts).toBe(1);
     expect(app.getLastTaskResult()?.verification?.repairAttempts).toBe(0);

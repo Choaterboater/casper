@@ -137,8 +137,37 @@ one-shot runs and `--json` never ring. `—` means unavailable, `~`
 means estimated. Branch is the project inspection snapshot; `/status` refreshes
 it after external Git changes. Narrow terminals truncate the footer rather than
 wrapping over input. Cost is not an invoice or subscription charge.
-No green permission/verification badge is invented, and no unimplemented
-ASK/PLAN/BUILD mode is implied.
+No green permission/verification badge is invented, and no ASK/BUILD mode is
+implied: `/plan` plans one request, it is not a mode.
+
+### Suggested next steps and plan first
+
+After an interactive receipt, the row under it can offer a next step from slot 3 on (1 and 2 stay for
+Undo and Show diff): `Next: 3 Add a test that proves this bug stays fixed (uses tokens)`. Each step's
+reason is on its own line, and a step that saves something shows the exact text it will write
+(`saves verify.test: uv run pytest in .casper/project.yaml`). Nothing waits: a lone number on the empty
+prompt picks the step, and anything else you type is simply your next request. Casper's rules are local
+and free; only a step marked "uses tokens" asks the model anything.
+
+Two steps ship: "Add a test that proves this bug stays fixed" (a fix whose tests pass without it too)
+and "Remember <command> as this project's test command" (the model ran a known test runner, such as
+`uv run pytest`, `python -m pytest` or `bun test` with plain test paths, while the project had no test
+command; any other command is never offered). A step you leave three times in a row in a project is
+hidden there for 14 days; picking it resets that. `/suggestions` lists each step as on, off or faded;
+`/suggestions off [name]` and `/suggestions on [name]` switch them; `suggestions: false` in
+`~/.casper/config.yaml` turns them all off. One-shot runs and `--json` never show them.
+
+Before work, a build request with several asks can get one extra choice folded into the checklist
+panel, so there is still one panel: `Suggested: plan first — this asks for 4 things` with 1 Plan first,
+2 Just build (with the listed cases) and 3 Edit the cases first. A typed yes plans first and a typed
+no just builds; other typed text is one more case to test. Plan first (or `/plan <request>`) runs a
+plan turn: the model may only read (read, grep, find, ls and look-only shell commands such as `ls`,
+`cat` or `git log`); every other tool, MCP and Casper's own tools included, is refused with "Planning
+only". This is Casper's gate, not a sandbox, and a file that changed anyway is named on the receipt
+(`• Changed while planning: …`). The plan and its cases open in the editor: edit the lines, then Enter
+goes on to "Build this plan?" (1 Stop · 2 Build, so Enter builds nothing); Esc stops without
+building. The plain terminal shows the plan and asks the same question, and a run that cannot ask
+stops after showing the plan.
 
 ### Layout stability
 
@@ -262,6 +291,17 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   Typing still accepts a custom answer, and Esc skips. A number picks a choice only
   while nothing is typed, so a custom answer cannot start with a choice's number
   (type a letter first); a digit past the last choice is ordinary text.
+- A question from the AI's `ask` tool starts with a muted `The AI asks:` line. Casper's own
+  questions and approvals never do, so the AI can't pass off a question as a Casper approval.
+- Casper's own numbered questions (a new project, one more repair on your big model, a lab check,
+  security tools and ignores, Build this plan?) also work on the plain terminal: it prints the
+  choices as numbered lines and reads `Type 1-3 (Enter for 1)`; a number or a choice's words pick
+  it. Enter picks choice 1, and at every Casper question choice 1 is the one that does nothing
+  risky (Stop, Skip, Not now, Use this folder, Leave it, No, Just this time, Keep writes off, Keep the
+  default): building, installing, downloading, spending tokens, running a check again, saving a
+  choice, approving or reaching a lab always takes a deliberate 2 or 3, so a stray Enter is harmless.
+  One-shot runs, `--json` and piped input never get these questions: each takes the safe answer,
+  and the new-project, lab and security ones say what they did instead.
 - Up/Down recalls current-process prompt history. Shift+Enter where the terminal
   supports it, or Ctrl+J, inserts a newline. Bracketed paste stays in the draft.
 - Shift+Tab cycles reasoning effort (`auto`, then the model's supported levels) without
@@ -298,8 +338,9 @@ textconv drivers. Untracked names are listed, not file contents. Each Git comman
 has a five-second deadline and 64 KiB output limit; large output is marked truncated.
 After a task that changed files, the receipt names the changed paths (from a before/after
 tree digest) and a git workspace appends a bounded `git diff --stat` under the same limits.
-`/permissions` explains actual boundaries: native coding tools are not sandboxed
-and there is no universal shell confirmation gate. Existing integration-specific
+`/permissions` explains actual boundaries from the state Casper is in: whether the shell
+sandbox holds shell commands and checks here, or (without it) that the AI's shell asks
+before each command. `/sandbox` lists what it holds. Existing integration-specific
 approvals remain in force. Verification is still separate from tool completion.
 
 ### Local debugger

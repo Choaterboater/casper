@@ -1,0 +1,14 @@
+---
+# Read-only: gathers facts from the lab devices and prints a short summary.
+- name: Junos facts
+  hosts: junos
+  gather_facts: false
+  tasks:
+    - name: Get facts
+      junipernetworks.junos.junos_facts:
+        gather_subset:
+          - min
+
+    - name: Show a summary
+      ansible.builtin.debug:
+        msg: "{{ ansible_net_hostname | default(inventory_hostname) }}: {{ ansible_net_model | default('?') }} {{ ansible_net_version | default('?') }}"

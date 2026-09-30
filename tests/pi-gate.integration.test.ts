@@ -58,3 +58,36 @@ posixOnly("the beforeChanges gate blocks a native write until the gate opens", a
   expect(JSON.stringify(payloads[1]?.messages)).toContain("ask before write");
   expect(await readFile(path.join(project, "GATE_MARKER"), "utf8")).toBe("GATE_OPENED\n");
 }, 20_000);
+
+/** The gate is asked about every tool, not only edit, write and shell, so a plan turn can refuse any of them. */
+posixOnly("beforeToolGate is consulted for every tool, reading included", async () => {
+  let step = 0;
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-pi-gate-all-"));
+  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  const home = path.join(root, "home"); const project = path.join(root, "project"); const agent = path.join(home, ".pi/agent");
+  await mkdir(agent, { recursive: true }); await mkdir(project);
+  await writeFile(path.join(project, "notes.txt"), "secret plan\n");
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: async request => {
+    await request.json();
+    return step++ === 0 ? calls([{ name: "read", args: { path: "notes.txt" } }, { name: "casper_probe", args: {} }]) : answer("done");
+  } });
+  cleanup.push(async () => { server.stop(true); });
+  await writeFile(path.join(agent, "models.json"), JSON.stringify({ providers: { fixture: {
+    baseUrl: `http://127.0.0.1:${server.port}/v1`, api: "openai-completions", apiKey: "local-fixture-not-a-secret", models: [{ id: "fixture" }],
+  } } }));
+  await writeFile(path.join(agent, "settings.json"), JSON.stringify({ defaultProvider: "fixture", defaultModel: "fixture", retry: { enabled: false } }));
+  await mkdir(path.join(home, ".casper"), { recursive: true });
+  await writeFile(path.join(home, ".casper/settings.json"), JSON.stringify({ defaultProvider: "fixture", defaultModel: "fixture" }));
+  const env = cleanEnv({ HOME: home, PI_CODING_AGENT_DIR: agent, PI_OFFLINE: "1", PI_TELEMETRY: "0" });
+  const child = Bun.spawn([process.execPath, path.join(import.meta.dir, "fixtures/pi-gate-all.ts"), project], { cwd: project, env, stdout: "pipe", stderr: "pipe" });
+  const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+  expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });
+  const result = JSON.parse(stdout.slice(stdout.indexOf("GATE_RESULT=") + "GATE_RESULT=".length).trim());
+  expect(result.consulted.sort()).toEqual(["casper_probe", "read"]);
+  expect(result.ran).toEqual([]);
+  expect(result.toolEnds).toHaveLength(2);
+  for (const end of result.toolEnds) {
+    expect(end.isError).toBe(true);
+    expect(end.output?.text).toBe(`blocked ${end.toolName}`);
+  }
+}, 20_000);

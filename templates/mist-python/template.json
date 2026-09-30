@@ -1,0 +1,14 @@
+{
+  "id": "mist-python",
+  "version": 1,
+  "kind": "Mist Python project",
+  "title": "Mist Python scripts",
+  "description": "Read-only Mist scripts in Python (mistapi), with recorded sample data so tests run offline.",
+  "defaultName": "mist-scripts",
+  "tool": "uv",
+  "init": ["uv", "init", "--package", "--app", "--no-workspace", "--vcs", "none", "--name", "{{name}}", "."],
+  "add": ["mistapi>=0.64"],
+  "addDev": ["pytest", "ruff", "pytest-recording"],
+  "replace": ["README.md", "src/__module__/__init__.py"],
+  "ready": true
+}

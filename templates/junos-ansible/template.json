@@ -1,0 +1,14 @@
+{
+  "id": "junos-ansible",
+  "version": 1,
+  "kind": "Junos Ansible project",
+  "title": "Junos Ansible (show commands and rendered config, lab only)",
+  "description": "Ansible for Junos: facts and show commands against a lab inventory, plus a render-only config check.",
+  "defaultName": "junos-lab",
+  "tool": "uv",
+  "init": ["uv", "init", "--bare", "--no-workspace", "--vcs", "none", "--name", "{{name}}", "."],
+  "add": [],
+  "addDev": ["ansible-core", "ansible-lint", "ncclient", "pytest", "ruff"],
+  "replace": [],
+  "ready": true
+}

@@ -3,6 +3,8 @@ import { lstat, mkdir, readFile, readdir, rename, stat, writeFile } from "node:f
 import os from "node:os";
 import path from "node:path";
 import type { ProjectInfo } from "./inspect";
+import type { NamedCheckSpec } from "../verify/named";
+import type { MigrationPlan } from "../verify/migrations";
 import type { VerificationScope } from "../verify/scope";
 import { detectRepositoryStructure, STRUCTURE_PROBES } from "./structure";
 
@@ -14,6 +16,8 @@ export interface ProjectModelOverrides {
   packageManager?: string;
   commands?: Partial<Record<ProjectCommand, string>>;
   verificationScopes?: Partial<Record<ProjectCommand, VerificationScope>>;
+  /** verify.checks: the project's named checks. */
+  namedChecks?: Record<string, NamedCheckSpec>;
   architecture?: Record<string, string>;
   conventions?: string[];
 }
@@ -30,6 +34,13 @@ export interface ProjectModel {
   packageManager: string | null;
   commands: Partial<Record<ProjectCommand, string>>;
   verificationScopes?: Partial<Record<ProjectCommand, VerificationScope>>;
+  /** Checks the project named under verify.checks, next to the four built-in ones. */
+  namedChecks?: Record<string, NamedCheckSpec>;
+  /** SQL migrations found in the project (the migrations check); found when the project is opened, never cached. */
+  migrations?: MigrationPlan;
+  /** Ready-made checks Casper found for the project (Ansible playbooks) that the project has not saved under
+   * verify.checks. They never run until the owner adds one (/verify add <name>); found when opened, never cached. */
+  foundChecks?: Record<string, NamedCheckSpec>;
   architecture: Record<string, string>;
   conventions: string[];
   detectedAt: string;
@@ -102,10 +113,19 @@ function sortedUnique(values: Iterable<string>): string[] {
   return [...new Set(values)].sort((left, right) => left.localeCompare(right));
 }
 
+// 3: Python network SDKs (mistapi, pycentral, pyaoscx, pyclearpass, junos-eznc, ncclient) give frameworks.
 /** Bump when detection changes what it derives from the same files, so cached models are rebuilt. */
-const DETECTION_VERSION = 2;
+const DETECTION_VERSION = 3;
 /** requirements.txt, requirements-dev.txt, requirements_test.txt ...: Python projects without a pyproject. */
 const REQUIREMENTS = /^requirements[\w.-]*\.txt$/i;
+/** Python package names (as a whole word, not inside another name) and the framework they give. */
+const PYTHON_NETWORK_SDKS: Array<[RegExp, string]> = [
+  [/(?<![\w-])mistapi(?![\w-])/i, "mist"],
+  [/(?<![\w-])pycentral(?![\w-])/i, "central"],
+  [/(?<![\w-])pyaoscx(?![\w-])/i, "aoscx"],
+  [/(?<![\w-])pyclearpass(?![\w-])/i, "clearpass"],
+  [/(?<![\w-])(?:junos-eznc|ncclient)(?![\w-])/i, "junos"],
+];
 /** A project-local virtual environment decides which Python runs the tools. */
 export const VIRTUALENVS = [".venv", "venv"];
 
@@ -355,6 +375,9 @@ async function detectModel(
     if (/\bfastapi\b/i.test(pyproject)) frameworks.add("fastapi");
     if (/\bdjango\b/i.test(pyproject)) frameworks.add("django");
     if (/\bflask\b/i.test(pyproject)) frameworks.add("flask");
+    // Network SDKs: a bundled network skill counts the project's SDK as one reason to load.
+    const python = `${pyproject}\n${requirements}`;
+    for (const [pattern, framework] of PYTHON_NETWORK_SDKS) if (pattern.test(python)) frameworks.add(framework);
   }
   if (names.has("Cargo.toml")) {
     commands = { test: "cargo test", lint: "cargo clippy", build: "cargo build", ...commands };
@@ -372,6 +395,7 @@ async function detectModel(
     packageManager,
     commands: { ...commands, ...(overrides.commands ?? {}) },
     verificationScopes: overrides.verificationScopes,
+    ...(overrides.namedChecks && Object.keys(overrides.namedChecks).length ? { namedChecks: overrides.namedChecks } : {}),
     architecture: overrides.architecture ?? structure.architecture,
     conventions: overrides.conventions ?? structure.conventions,
     detectedAt: new Date().toISOString(),

@@ -155,6 +155,7 @@ test("escaping the folder question keeps the home folder as the workspace", asyn
   } finally {
     harness.input.write("/exit\r");
     await interactive;
+    await harness.app.close();
     harness.input.destroy();
     await rm(root, { recursive: true, force: true });
   }
@@ -179,6 +180,7 @@ test("folder selection rejects sibling paths that only share the home prefix", a
   } finally {
     harness.input.write("/exit\r");
     await interactive;
+    await harness.app.close();
     harness.input.destroy();
     await rm(root, { recursive: true, force: true });
   }

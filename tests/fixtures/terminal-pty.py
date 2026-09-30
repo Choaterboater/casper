@@ -133,11 +133,11 @@ def connect_with_writes(s):
     s.send("/mcp connect fixture\n")
     s.until("340 tools")
     s.until("Remember this server?")
-    s.send("2\n")
+    s.send("1\n")  # 1 Just this time
     s.until("fixture is connected for this session only")
     s.send("/mcp writes fixture\n")
     s.until("fixture writes are off.")
-    s.send("1\n")
+    s.send("2\n")  # 2 Enable for this server
     s.until("Writes on for fixture. Each change still asks you.")
     s.until("WRITES: fixture · ctrl+o")
 
@@ -188,6 +188,8 @@ def exercise(bun, repo, root, no_color):
         s.until("╭─ sh ")
         assert "╭─ ts " in s.screen.text() and "return a + b;" in s.screen.text(), s.screen.text()
         assert "```" not in s.screen.text(), s.screen.text()
+        # A line typed while the code task still finishes is only kept as a draft: wait for idle first.
+        s.until("│ idle")
         # A wrapped draft with the cursor in its middle must survive activity.
         s.send("hold\n")
         s.until("Waiting for cancellation.")
@@ -197,9 +199,13 @@ def exercise(bun, repo, root, no_color):
         s.send("\x03")
         s.until("Cancelling active work")
         s.until("Stopped — cancelled")
+        # Enter before the cancelled task has closed only keeps the draft: wait for the prompt to be idle first.
+        s.until("│ idle")
         s.send("Q\n")
         s.until("Echo:")  # Pi wraps an overlong word after the label; exact draft checked below.
         assert s.requests()[-1] == "x" * 93 + "Qxx", s.requests()
+        # Enter while the echo task still runs only keeps the draft: wait for the prompt to be idle again.
+        s.until("│ idle")
         # Clear separation between a pretyped draft and an exact confirmation.
         connect_with_writes(s)
         s.send("approval-deny\n")
@@ -283,6 +289,13 @@ def exercise_dumb(bun, repo, root):
         s.release("approval-dumb")
         s.until("approval denied")
         s.until("Approval result: denied")
+        # A line typed while the task still finishes is dropped: wait for the prompt after the result first.
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline:
+            s.pump(0.03)
+            text = s.screen.text()
+            if text[text.rindex("Approval result: denied"):].rstrip().endswith(">"): break
+        else: raise AssertionError("No prompt after the approval task\nSCREEN:\n" + s.screen.text()[-3000:])
         s.send("\x15/exit\n")  # Clear the cooked draft before submitting exit.
         deadline = time.monotonic() + 5
         while s.process.poll() is None and time.monotonic() < deadline: s.pump(0.05)

@@ -1,0 +1,6 @@
+[serve.static]
+env = "BUN_PUBLIC_*"
+
+[test]
+# A browser-like document (happy-dom) for page tests.
+preload = ["./happydom.ts"]

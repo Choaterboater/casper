@@ -53,11 +53,12 @@ export function renderProjectSummary(context: ProjectContext): string {
 
 /** With the wordmark header above, the name and version are already on screen.
  * The slash-command hint is only meaningful where someone can type one. */
-export function renderBanner(context: ProjectContext, options: { wordmark?: boolean; interactive?: boolean; checks?: string } = {}): string {
+export function renderBanner(context: ProjectContext, options: { wordmark?: boolean; interactive?: boolean; checks?: string; shell?: string } = {}): string {
   return [
     ...(options.wordmark ? [] : [TEXT_HEADER]),
     ` project   ${context.model.project.name} · branch ${context.info.gitBranch ?? "(no git branch)"} · profile ${context.profileName}`,
     ...(options.checks ? [` checks    ${options.checks}`] : []),
+    ...(options.shell ? [` shell     ${options.shell}`] : []),
     ...(options.interactive ? [" /help · /status · /login · /model"] : []),
     "",
   ].join("\n");

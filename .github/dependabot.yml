@@ -1,0 +1,7 @@
+# Keeps the commit pins of Casper's own GitHub Actions current.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

@@ -1,0 +1,59 @@
+name: macOS preview
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['src/**', 'scripts/**', 'tools/**', 'tests/**', 'evals/**', 'docs/**', 'package.json', 'bun.lock', 'bunfig.toml', 'tsconfig.json', 'THIRD_PARTY_NOTICES.txt', '.github/workflows/macos-preview.yml']
+  pull_request:
+    paths: ['src/**', 'scripts/**', 'tools/**', 'tests/**', 'evals/**', 'docs/**', 'package.json', 'bun.lock', 'bunfig.toml', 'tsconfig.json', 'THIRD_PARTY_NOTICES.txt', '.github/workflows/macos-preview.yml']
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: macos-15
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: bash
+    env:
+      PI_OFFLINE: '1'
+      PI_TELEMETRY: '0'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: '1.4.0'
+      - name: Record host
+        run: |
+          mkdir -p "$RUNNER_TEMP/macos-preview"
+          { printf 'Commit: %s\n' "$GITHUB_SHA"; sw_vers; uname -a; bun --version; ls -l /usr/bin/sandbox-exec; } 2>&1 | tee "$RUNNER_TEMP/macos-preview/host.log"
+      - name: Install ripgrep and a second loopback address for the live sandbox tests
+        # Pi's grep uses ripgrep (PI_OFFLINE: no download). The sandbox tests reach 127.0.0.2 as a host that is
+        # not listed; macOS answers only 127.0.0.1 on lo0 until the alias is added.
+        run: |
+          brew install ripgrep
+          sudo ifconfig lo0 alias 127.0.0.2 up
+          sudo ifconfig lo0 alias 127.0.0.3 up
+          rg --version
+      - name: Install locked dependencies
+        id: install
+        run: bun install --frozen-lockfile 2>&1 | tee "$RUNNER_TEMP/macos-preview/install.log"
+      - name: Typecheck
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun run typecheck 2>&1 | tee "$RUNNER_TEMP/macos-preview/typecheck.log"
+      - name: The shell sandbox on macOS (sandbox-exec)
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun test tests/sandbox-live.test.ts tests/sandbox-wiring.test.ts tests/sandbox-policy.test.ts 2>&1 | tee "$RUNNER_TEMP/macos-preview/sandbox.log"
+      - name: Full serial regression suite
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun test 2>&1 | tee "$RUNNER_TEMP/macos-preview/full-suite.log"
+      - name: Retain host verification evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: macos-preview-evidence
+          path: ${{ runner.temp }}/macos-preview/
+          if-no-files-found: warn
+          retention-days: 14

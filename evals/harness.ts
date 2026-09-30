@@ -57,6 +57,9 @@ export interface HarnessObservation {
   /** Casper's independent acceptance check as its receipt reported it (`output`: the failing run's tail,
    * already redacted by Casper); absent when none ran, and for Pi. */
   receiptAcceptance?: { status: string; reason?: string; output?: string };
+  /** The receipt's proof status (`proof.status`, or null without one), recorded only by a Casper whose receipt has
+   * `checksPassed` (v0.2.17 on, where "verified" needs a proven change). Absent for older runs and for Pi. */
+  receiptProof?: string | null;
 }
 /** Casper's smoke report, recorded as given; only these fields are read, so a newer Casper's extra ones are kept, not required. */
 export interface HarnessSmoke {
@@ -267,6 +270,7 @@ export function observeHarness(harness: HarnessName, events: readonly unknown[],
   let sessionId: string | null = null;
   let smoke: HarnessSmoke | undefined;
   let receiptAcceptance: HarnessObservation["receiptAcceptance"];
+  let receiptProof: string | null | undefined;
   const errors: string[] = [];
   // Protocol faults fail the run. Provider errors are diagnostics: both CLIs retry them, and only
   // the final state (Casper's receipt, Pi's last response) says whether the run finished.
@@ -345,6 +349,10 @@ export function observeHarness(harness: HarnessName, events: readonly unknown[],
         if (typeof acceptance?.status === "string") receiptAcceptance = { status: acceptance.status.slice(0, 16),
           ...(typeof acceptance.reason === "string" ? { reason: acceptance.reason.slice(0, 500) } : {}),
           ...(typeof acceptance.output === "string" ? { output: acceptance.output.slice(-4000) } : {}) };
+        if (typeof event.checksPassed === "boolean") {
+          const proof = record(event.proof);
+          receiptProof = typeof proof?.status === "string" ? proof.status.slice(0, 32) : null;
+        }
       }
     }
     if (name === "pi" && event.type === "session" && typeof event.id === "string") sessionId = event.id.slice(0, 128);
@@ -377,7 +385,7 @@ export function observeHarness(harness: HarnessName, events: readonly unknown[],
     exitCode: process.exitCode, wallClockMs: process.wallClockMs,
     ...(name === "casper" ? casperUsage : { turns, tokens: turns && !delegated ? tokens : null, estimatedCost: turns && !delegated ? estimatedCost : null }),
     receiptOutcome, sessionId, errors, ...(phases.length ? { phases } : {}), ...(tools.size ? { tools: [...tools.values()] } : {}),
-    ...(smoke ? { smoke } : {}), ...(receiptAcceptance ? { receiptAcceptance } : {}),
+    ...(smoke ? { smoke } : {}), ...(receiptAcceptance ? { receiptAcceptance } : {}), ...(receiptProof !== undefined ? { receiptProof } : {}),
   };
 }
 

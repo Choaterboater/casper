@@ -3,6 +3,8 @@ import type { RuntimeTool } from "../runtime/types";
 import type { ServiceSpec } from "./config";
 import type { ServiceManager } from "./manager";
 import type { SmokeChecks } from "./smoke";
+import { gitGuardReason } from "../runtime/git-guard";
+import { gitInternalsCommand } from "../platform/project-paths";
 
 /** Server vocabulary in the task, declared services or a live one pull in the service tool; elsewhere it costs no prompt tokens. */
 export function serviceRequested(task: string, services: { declared: boolean; live: boolean }): boolean {
@@ -50,7 +52,9 @@ function showBody(bytes: Buffer, complete: boolean, contentType: string): string
 
 /** The model's handle on Casper's managed services. `manager` is created on first use; `smoke`
  * is the current task's smoke checks, which `check` records into and Casper replays after the change. */
-export function serviceTool(manager: () => ServiceManager, lifetime?: AbortSignal, smoke?: () => SmokeChecks | undefined): RuntimeTool {
+/** `approve`: the same gate the AI's bash has when no sandbox runs (a numbered question), or undefined to start. */
+export function serviceTool(manager: () => ServiceManager, lifetime?: AbortSignal, smoke?: () => SmokeChecks | undefined,
+  approve?: (command: string, signal: AbortSignal) => Promise<string | undefined>): RuntimeTool {
   const describe = (services: ServiceManager, name: string) => services.status().find(service => service.name === name)!;
 
   /** A request goes to a managed service's origin (by name and path, or by its URL) or to another loopback URL; nothing else. */
@@ -126,8 +130,12 @@ export function serviceTool(manager: () => ServiceManager, lifetime?: AbortSigna
         spec = "http" in ready ? { http: string(ready.http, "ready.http") } : { log: string(ready.log, "ready.log") };
       }
       const timeoutMs = args.timeoutMs === undefined ? undefined : Number(args.timeoutMs);
+      const command = string(args.command, "command");
+      // An ad-hoc command is the AI's shell too: the same git guard as bash, and the same question when no sandbox runs.
+      const refused = gitGuardReason(command) ?? gitInternalsCommand(command, services.root) ?? await approve?.(command, signal);
+      if (refused) throw new Error(refused);
       // Joining the same command then takes the declared start's path, so a stale one restarts.
-      return start((await services.startCommand(string(args.command, "command"), { ready: spec, timeoutMs }, signal)).name);
+      return start((await services.startCommand(command, { ready: spec, timeoutMs }, signal)).name);
     }
     const name = string(args.service, "service");
     if (action === "start") return start(name);

@@ -1,11 +1,12 @@
 import type { RuntimeEvent, RuntimeStatus } from "../runtime/types";
 import type { SmokeReport } from "../services/smoke";
+import type { PageReport } from "../services/page-report";
 import { formatTerminalJSON } from "../tui/json";
 import { redactPreview } from "../tui/format";
 import type { VerificationReport, VerificationResult } from "../verify/evidence";
 import type { ChangeProof } from "../verify/proof";
 import type { RequirementsReview } from "../task/review";
-import { formatReceipt, receiptVerdict, taskOutcome, type TaskOutcome, type TaskResult, type TaskUsage } from "../task/result";
+import { checksPassed, formatReceipt, receiptVerdict, taskOutcome, type SecuritySummary, type TaskOutcome, type TaskResult, type TaskUsage } from "../task/result";
 
 /** Bump only for a breaking change; new event types and fields are additive within a version. */
 export const JSON_EVENTS_VERSION = 1;
@@ -21,13 +22,28 @@ export interface CheckEvent {
   recordedBy: "casper" | "casper_check";
   /** A fresh earlier pass was reused instead of rerunning the command. */
   reused: boolean;
-  /** Present only when the check did not finish as a test run: "timeout" or "no_start". */
-  ended?: "timeout" | "no_start";
+  /** Present only when the check did not finish as a test run: "timeout", "no_start" or "blocked" (the shell
+   * sandbox refused something it tried; `reason` says what). */
+  ended?: "timeout" | "no_start" | "blocked";
+  /** Named checks only: "report" (a diff, never a pass or a fail) or "lab" (the user's own lab devices). */
+  kind?: "report" | "lab";
+  /** A few plain words shown beside the result, e.g. "dry run not guaranteed". */
+  label?: string;
+  /** Lab checks only: the devices the check was pointed at. */
+  hosts?: string[];
+  /** Reports only: the one-line summary. */
+  summary?: string;
+}
+
+/** The additive fields a named check adds to a check event or a receipt check. */
+export function namedCheckFields(result: Pick<VerificationResult, "kind" | "label" | "hosts" | "summary">): Pick<CheckEvent, "kind" | "label" | "hosts" | "summary"> {
+  return { ...(result.kind ? { kind: result.kind } : {}), ...(result.label ? { label: redactPreview(result.label) } : {}),
+    ...(result.hosts ? { hosts: [...result.hosts] } : {}), ...(result.summary ? { summary: redactPreview(result.summary) } : {}) };
 }
 
 export interface PhaseEvent {
   type: "phase";
-  phase: "task" | "checklist" | "checks" | "smoke" | "review" | "proof" | "acceptance" | "repair";
+  phase: "task" | "checklist" | "checks" | "smoke" | "pages" | "review" | "proof" | "acceptance" | "repair";
   state: "start" | "end";
   atMs: number;
 }
@@ -41,7 +57,8 @@ export interface ReceiptEvent {
   changed: string[] | null;
   changedDuringChecks: string[];
   verificationMode: TaskResult["verificationMode"] | null;
-  checks: Array<{ name: string; command: string | null; status: VerificationResult["status"]; exit: number | null; ms: number; fresh: boolean }>;
+  checks: Array<{ name: string; command: string | null; status: VerificationResult["status"]; exit: number | null; ms: number; fresh: boolean }
+    & Pick<CheckEvent, "kind" | "label" | "hosts" | "summary">>;
   repairAttempts: number;
   turnLimit: number | null;
   /** This task's model use; null when no model task ran (a local command). */
@@ -60,6 +77,27 @@ export interface ReceiptEvent {
   services: Array<{ name: string; origin: string | null; state: string }>;
   /** Casper's last smoke run against fresh services; null when none ran. */
   smoke: SmokeReport | null;
+  /** Casper's last page check against the dev server (console text redacted); null when none ran. */
+  pages: PageReport | null;
+  /** Whether the checks passed on the final files, apart from what the outcome also asks for. */
+  checksPassed: boolean;
+  /** The model each repair used, in order; null when the host did not say. */
+  repairModels: string[] | null;
+  /** The last repair ran on the user's big model; null otherwise. */
+  bigModel: NonNullable<TaskResult["bigModel"]> | null;
+  /** Casper's security tools, counts only; null when they did not run in this task. */
+  security: SecuritySummary | null;
+  /** This task's saved receipt number; null when receipts are not kept. */
+  task: number | null;
+  /** Whether the shell sandbox held this task's shell commands and checks; `reason` says why not ("--no-sandbox",
+   * "bubblewrap is missing: ..."). Null when not known for this run. */
+  sandbox: { held: boolean; reason: string | null } | null;
+  /** Whether /undo can put this task's files back; null when undo is not known for this run. */
+  undo: { available: boolean; reason: string | null } | null;
+  /** Files that changed during a plan turn anyway (paths redacted); null when none did. */
+  changedWhilePlanning: string[] | null;
+  /** Why changed pages were not opened, in plain words (never a failure); null when there are none. */
+  pageNotes: string[] | null;
   /** The plain receipt a person would read. */
   /** Line 1 of the receipt: what the run proved, in one line. */
   verdict: string;
@@ -93,11 +131,20 @@ export function phaseEvent(phase: PhaseEvent["phase"], state: PhaseEvent["state"
 
 export function checkEvent(result: VerificationResult, recordedBy: CheckEvent["recordedBy"]): CheckEvent {
   return { type: "check", name: result.name, command: result.command ?? null, status: result.status, exit: result.exitCode,
-    ms: Math.round(result.durationMs), recordedBy, reused: result.reused === true, ...(result.ended ? { ended: result.ended } : {}) };
+    ms: Math.round(result.durationMs), recordedBy, reused: result.reused === true, ...(result.ended ? { ended: result.ended } : {}), ...namedCheckFields(result) };
 }
 
+/**
+ * What leaves Casper about a task (JSON events, saved receipts) and how each part is made safe:
+ * - check output (stdout, stderr) and rounds: never included;
+ * - smoke bodies, reasons and crash logs; proof output; review items; acceptance output; page console text,
+ *   overlays, server errors and log tails; named check labels and summaries; browser URLs, reasons and what an
+ *   assertion saw (cut to 512 characters): redactPreview;
+ * - security: counts and tool states only, never finding text.
+ */
+
 /** Service responses and logs may echo env or tokens: like other previews, they are redacted before script output. */
-function redactSmoke(smoke: SmokeReport): SmokeReport {
+export function redactSmoke(smoke: SmokeReport): SmokeReport {
   const copy = structuredClone(smoke);
   for (const check of copy.checks) {
     if (check.actual) check.actual.body = redactPreview(check.actual.body);
@@ -109,7 +156,7 @@ function redactSmoke(smoke: SmokeReport): SmokeReport {
 }
 
 /** Proof output is the failing test run's tail and may echo env or tokens; redact a copy, never the evidence. */
-function redactProof(proof: ChangeProof): ChangeProof {
+export function redactProof(proof: ChangeProof): ChangeProof {
   const copy = structuredClone(proof);
   if (copy.status === "unavailable") copy.reason = redactPreview(copy.reason);
   else {
@@ -120,7 +167,7 @@ function redactProof(proof: ChangeProof): ChangeProof {
 }
 
 /** Review items quote the model's answer, which may quote code or config with secrets in it. */
-function redactReview(review: RequirementsReview): RequirementsReview {
+export function redactReview(review: RequirementsReview): RequirementsReview {
   const copy = structuredClone(review);
   for (const key of ["done", "fixed", "open"] as const) {
     const items = (copy as Record<string, unknown>)[key];
@@ -129,10 +176,58 @@ function redactReview(review: RequirementsReview): RequirementsReview {
   return copy;
 }
 
+/** Page console text and server logs may echo env or tokens; redact a copy, never the evidence. */
+export function redactPages(pages: PageReport): PageReport {
+  const copy = structuredClone(pages);
+  for (const page of copy.pages) {
+    page.consoleErrors = page.consoleErrors.map(redactPreview);
+    if (page.overlay) page.overlay = redactPreview(page.overlay);
+    if (page.serverError) page.serverError = redactPreview(page.serverError);
+    if (page.reason) page.reason = redactPreview(page.reason);
+    page.failedRequests = page.failedRequests.map((request) => ({ ...request, url: redactPreview(request.url), ...(request.error ? { error: redactPreview(request.error) } : {}) }));
+  }
+  if (copy.reason) copy.reason = redactPreview(copy.reason);
+  if (copy.logTail) copy.logTail = redactPreview(copy.logTail);
+  copy.server = { ...copy.server, command: redactPreview(copy.server.command) };
+  return copy;
+}
+
+/** A task result that is safe to keep on disk (a saved receipt): the rules above, applied to a copy. */
+export function storedTaskResult(task: TaskResult): TaskResult {
+  const copy = structuredClone(task);
+  if (copy.verification) {
+    const strip = (result: VerificationResult): VerificationResult => ({ ...result, stdout: "", stderr: "",
+      ...(result.reason ? { reason: redactPreview(result.reason) } : {}), ...(result.command ? { command: redactPreview(result.command) } : {}),
+      ...(result.label ? { label: redactPreview(result.label) } : {}), ...(result.summary ? { summary: redactPreview(result.summary) } : {}) });
+    copy.verification = { ...copy.verification, results: copy.verification.results.map(strip), rounds: [],
+      ...(copy.verification.reason ? { reason: redactPreview(copy.verification.reason) } : {}),
+      ...(copy.verification.smoke ? { smoke: redactSmoke(copy.verification.smoke) } : {}),
+      ...(copy.verification.pages ? { pages: redactPages(copy.verification.pages) } : {}) };
+  }
+  if (copy.observedChecks) copy.observedChecks = copy.observedChecks.map((check) => ({ ...check, command: redactPreview(check.command), output: "" }));
+  if (copy.proof) copy.proof = redactProof(copy.proof);
+  if (copy.review) copy.review = redactReview(copy.review);
+  if (copy.acceptance) copy.acceptance = { ...copy.acceptance, ...(copy.acceptance.output !== undefined ? { output: redactPreview(copy.acceptance.output) } : {}),
+    ...(copy.acceptance.unconfirmed ? { unconfirmed: copy.acceptance.unconfirmed.map(redactPreview) } : {}) };
+  if (copy.checklist) copy.checklist = copy.checklist.map(redactPreview);
+  // Browser assertions keep what the page showed, and a URL may carry a token in its query.
+  if (copy.browser) copy.browser = { ...copy.browser, guidance: redactPreview(copy.browser.guidance), checks: copy.browser.checks.map((check) => ({ ...check,
+    url: redactPreview(check.url), ...(check.reason ? { reason: redactPreview(check.reason) } : {}),
+    assertions: check.assertions.map((assertion) => ({ ...assertion, actual: redactPreview(typeof assertion.actual === "string" ? assertion.actual
+      : JSON.stringify(assertion.actual) ?? "").slice(0, 512) })) })) };
+  if (copy.proofSkipped) copy.proofSkipped = redactPreview(copy.proofSkipped);
+  return copy;
+}
+
 /** Exactly one per one-shot run: what changed, what Casper proved, and the exit code it implies. */
-export function receiptEvent(report: VerificationReport | undefined, task: TaskResult | undefined, exitCode: number): ReceiptEvent {
+export function receiptEvent(report: VerificationReport | undefined, task: TaskResult | undefined, exitCode: number,
+  /** The session's sandbox, for a run with no task (`casper --json /verify`): its checks ran held or not too. */
+  session?: TaskResult["sandbox"],
+  /** What a command with no task spent on the model (`/security-review ai`), so the receipt never says none. */
+  commandUsage?: TaskUsage): ReceiptEvent {
   const verification = task?.verification ?? report;
-  const receipt = task ?? (report ? { execution: "completed" as const, verification: report } : undefined);
+  const receipt = task ?? (report ? { execution: "completed" as const, verification: report, ...(session ? { sandbox: session } : {}) } : undefined);
+  const held = task ? task.sandbox : report ? session : undefined;
   return {
     type: "receipt",
     outcome: taskOutcome(report, task),
@@ -142,10 +237,10 @@ export function receiptEvent(report: VerificationReport | undefined, task: TaskR
     changedDuringChecks: task?.changedDuringChecks ?? [],
     verificationMode: task?.verificationMode ?? null,
     checks: (verification?.results ?? []).map((result) => ({ name: result.name, command: result.command ?? null, status: result.status,
-      exit: result.exitCode, ms: Math.round(result.durationMs), fresh: result.status === "pass" && result.freshness !== "stale" })),
+      exit: result.exitCode, ms: Math.round(result.durationMs), fresh: result.status === "pass" && result.freshness !== "stale", ...namedCheckFields(result) })),
     repairAttempts: verification?.repairAttempts ?? 0,
     turnLimit: task?.turnLimit ?? null,
-    usage: task?.usage ? { ...task.usage } : null,
+    usage: task?.usage ? { ...task.usage } : commandUsage ? { ...commandUsage } : null,
     proof: task?.proof ? redactProof(task.proof) : null,
     proofSkipped: task?.proofSkipped ?? null,
     review: task?.review ? redactReview(task.review) : null,
@@ -154,6 +249,16 @@ export function receiptEvent(report: VerificationReport | undefined, task: TaskR
     checklist: task?.checklist ? task.checklist.map(redactPreview) : null,
     services: (task?.services ?? []).map((service) => ({ name: service.name, origin: service.origin ?? null, state: service.state })),
     smoke: verification?.smoke ? redactSmoke(verification.smoke) : null,
+    pages: verification?.pages ? redactPages(verification.pages) : null,
+    checksPassed: checksPassed(report, task),
+    repairModels: verification?.repairModels ? [...verification.repairModels] : null,
+    bigModel: task?.bigModel ? { ...task.bigModel } : null,
+    security: task?.security ? structuredClone(task.security) : null,
+    task: task?.receipt ?? null,
+    sandbox: held ? { held: held.held, reason: held.held ? null : redactPreview(held.reason) } : null,
+    undo: task?.undo ? { available: task.undo.available, reason: task.undo.available ? null : redactPreview(task.undo.reason) } : null,
+    changedWhilePlanning: task?.changedWhilePlanning?.length ? task.changedWhilePlanning.map(redactPreview) : null,
+    pageNotes: task?.pageNotes?.length ? task.pageNotes.map((note) => redactPreview(note.replace(/^• /, ""))) : null,
     // The text quotes review items, acceptance gaps and bash commands the model ran: redact it too.
     verdict: receipt ? redactPreview(receiptVerdict(receipt, { surface: "one-shot" }) ?? "") : "",
     text: receipt ? redactPreview(formatReceipt(receipt, { surface: "one-shot" })) : "",

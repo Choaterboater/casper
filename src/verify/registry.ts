@@ -1,30 +1,87 @@
-import type { ProjectCommand, ProjectModel } from "../project/model";
-import { runCommandCheck } from "./command";
-import { CHECK_NAMES, type VerificationResult } from "./evidence";
+import type { ProjectModel } from "../project/model";
+import type { NetworkCheckContext } from "../network/checks";
+import type { NetworkCheckResult } from "../network/spec";
+import { runCommandCheck, type CommandWrap } from "./command";
+import { CHECK_NAMES, type CheckName, type VerificationResult } from "./evidence";
+import { isBuiltinCheck, labOnlyByYou, modelNamedChecks, type NamedCheckSpec } from "./named";
+import { detectedMigrations, MIGRATIONS_CHECK, migrationsRunnable, runDetectedMigrations } from "./migrations-check";
+import { migrationsScope } from "./migrations";
 import type { VerificationScope } from "./scope";
 
 export interface Verifier {
-  name: ProjectCommand;
+  name: CheckName;
   scope?: VerificationScope;
+  /** Unset: an ordinary pass/fail check. See VerificationResult.kind. */
+  kind?: "report" | "lab";
   /** `timeoutMs`: a longer limit the user gave an unfinished check ("Allow more time"), at most one hour. */
   run(signal?: AbortSignal, options?: { timeoutMs?: number }): Promise<VerificationResult>;
 }
 
+/** Runs one named check that uses a ready-made preset. Casper passes its network check runner; tests pass a fake. */
+export type NamedCheckRunner = (name: string, spec: NamedCheckSpec, context: { cwd: string; signal?: AbortSignal; timeoutMs: number }) => Promise<VerificationResult>;
+
+/** Where network presets find their tools and private folders (tests point these at fakes). */
+export type NetworkToolContext = Pick<NetworkCheckContext, "path" | "tmpRoot" | "realHome" | "platform">;
+
+export interface ForProjectOptions {
+  /** Rewrites how each command check starts (the shell sandbox). */
+  wrap?: CommandWrap;
+  /** Runs preset named checks; defaults to Casper's network check runner. */
+  runPreset?: NamedCheckRunner;
+  /** Runs a lab check: only the app's /verify <name> passes one, after checking the lab list and asking the
+   * user. Without it a lab check never starts. */
+  runLab?: NamedCheckRunner;
+  /** Tool PATH, temp folder and home for the default preset runner. */
+  network?: NetworkToolContext;
+}
+
+const nothing = { exitCode: null, signal: null, stdout: "", stderr: "", truncated: false, durationMs: 0 } as const;
+
+/** A network check result as verification evidence. Its output is already scrubbed. */
+export function fromNetworkResult(result: NetworkCheckResult): VerificationResult {
+  const summary = result.report ? `${result.report.changeLines} lines to change · ${result.report.undoLines} to undo` : undefined;
+  return {
+    name: result.name, status: result.status, command: result.command, cwd: result.cwd, exitCode: result.exitCode, signal: result.signal,
+    stdout: result.stdout, stderr: result.stderr, truncated: result.truncated, durationMs: result.durationMs,
+    ...(result.reason ? { reason: result.reason } : {}), ...(result.ended ? { ended: result.ended } : {}),
+    ...(result.kind !== "offline" ? { kind: result.kind } : {}), ...(result.label ? { label: result.label } : {}),
+    ...(result.hosts ? { hosts: [...result.hosts] } : {}), ...(summary ? { summary } : {}),
+    // A missing tool, collection or input is "not run", never a failure for the model to fix.
+    ...(result.notRun ? { repair: "never" as const } : {}),
+  };
+}
+
+const presetRunner = (network: NetworkToolContext = {}): NamedCheckRunner => async (name, spec, context) => {
+  const { runNetworkCheck } = await import("../network/checks");
+  return fromNetworkResult(await runNetworkCheck(name, { ...spec, timeout: spec.timeout ?? Math.ceil(context.timeoutMs / 1000) },
+    { ...network, root: context.cwd, ...(context.signal ? { signal: context.signal } : {}) }));
+};
+
 export class VerifierRegistry {
-  private readonly verifiers = new Map<ProjectCommand, Verifier>();
+  private readonly verifiers = new Map<CheckName, Verifier>();
 
   register(verifier: Verifier): void {
     if (this.verifiers.has(verifier.name)) throw new Error(`Verifier already registered: ${verifier.name}`);
     this.verifiers.set(verifier.name, { ...verifier, scope: verifier.scope ? structuredClone(verifier.scope) : undefined });
   }
 
-  scope(name: ProjectCommand): VerificationScope | undefined {
+  /** Every registered check, built-in ones first. */
+  names(): CheckName[] { return [...this.verifiers.keys()]; }
+
+  /** Checks the AI may run through casper_check: never lab checks. */
+  modelNames(): CheckName[] { return [...this.verifiers.values()].filter((verifier) => verifier.kind !== "lab").map((verifier) => verifier.name); }
+
+  has(name: string): boolean { return this.verifiers.has(name); }
+
+  kind(name: CheckName): Verifier["kind"] { return this.verifiers.get(name)?.kind; }
+
+  scope(name: CheckName): VerificationScope | undefined {
     const scope = this.verifiers.get(name)?.scope;
     return scope ? structuredClone(scope) : undefined;
   }
 
   async run(
-    names: readonly ProjectCommand[],
+    names: readonly CheckName[],
     options: { signal?: AbortSignal; onResult?: (result: VerificationResult) => void; timeoutMs?: number } = {},
   ): Promise<VerificationResult[]> {
     const selected = [...new Set(names)].map((name) => {
@@ -42,23 +99,60 @@ export class VerifierRegistry {
     return results;
   }
 
-  static forProject(model: ProjectModel, timeoutMs = 120_000, onCleanupFailure?: () => void): VerifierRegistry {
+  static forProject(model: ProjectModel, timeoutMs = 120_000, onCleanupFailure?: () => void, options: ForProjectOptions = {}): VerifierRegistry {
     const registry = new VerifierRegistry();
     const cwd = model.project.root;
     let cleanupFailed = false;
+    const blocked = (name: CheckName): VerificationResult => ({ name, cwd, status: "fail", ...nothing, reason: "Owned process cleanup is unconfirmed; no further checks started" });
+    const limit = (given?: number) => given ? Math.min(Math.max(given, timeoutMs), 3_600_000) : timeoutMs;
+    const onCleanup = () => { cleanupFailed = true; onCleanupFailure?.(); };
+    const wrap = options.wrap ? { wrap: options.wrap } : {};
     for (const name of CHECK_NAMES) {
       // Freeze the command contract for this task, including throughout repairs.
       const command = model.commands[name];
       registry.register({
         name,
         scope: model.verificationScopes?.[name],
-        run: async (signal, options) => cleanupFailed
-          ? { name, cwd, status: "fail", exitCode: null, signal: null, stdout: "", stderr: "", truncated: false, durationMs: 0, reason: "Owned process cleanup is unconfirmed; no further checks started" }
+        run: async (signal, runOptions) => cleanupFailed ? blocked(name)
           : command?.trim()
-          ? runCommandCheck({ name, command, cwd, timeoutMs: options?.timeoutMs ? Math.min(Math.max(options.timeoutMs, timeoutMs), 3_600_000) : timeoutMs, signal, onCleanupFailure: () => { cleanupFailed = true; onCleanupFailure?.(); } })
-          : { name, cwd, status: "skip", exitCode: null, signal: null, stdout: "", stderr: "", truncated: false, durationMs: 0, reason: "No command configured or detected" },
+          ? runCommandCheck({ name, command, cwd, timeoutMs: limit(runOptions?.timeoutMs), signal, onCleanupFailure: onCleanup, ...wrap })
+          : { name, cwd, status: "skip", ...nothing, reason: "No command configured or detected" },
       });
+    }
+    const runPreset = options.runPreset ?? presetRunner(options.network);
+    for (const [name, spec] of Object.entries(model.namedChecks ?? {})) {
+      if (isBuiltinCheck(name)) continue; // The parser refuses these; a named check never replaces a built-in one.
+      const frozen = structuredClone(spec);
+      const kind = frozen.kind === "offline" ? undefined : frozen.kind;
+      registry.register({
+        name,
+        ...(kind ? { kind } : {}),
+        run: async (signal, runOptions) => {
+          if (cleanupFailed) return blocked(name);
+          if (frozen.kind === "lab") {
+            // Only the user's own /verify <name> gives a lab runner; the AI and auto mode never reach a device.
+            if (!options.runLab) return { name, cwd, status: "skip", ...nothing, kind: "lab", reason: labOnlyByYou(name), repair: "never" };
+            return options.runLab(name, frozen, { cwd, timeoutMs: frozen.timeout ? frozen.timeout * 1000 : 600_000, ...(signal ? { signal } : {}) });
+          }
+          const checkTimeout = runOptions?.timeoutMs ? limit(runOptions.timeoutMs) : frozen.timeout ? frozen.timeout * 1000 : timeoutMs;
+          if (frozen.run) return runCommandCheck({ name, command: frozen.run, cwd, timeoutMs: checkTimeout, signal, onCleanupFailure: onCleanup, ...wrap });
+          return runPreset(name, frozen, { cwd, timeoutMs: checkTimeout, ...(signal ? { signal } : {}) });
+        },
+      });
+    }
+    // The SQL migrations check Casper found in the project (unless the project named its own `migrations`).
+    const migrations = detectedMigrations(model);
+    if (migrations) {
+      const plan = structuredClone(migrations);
+      registry.register({ name: MIGRATIONS_CHECK, scope: migrationsScope(plan),
+        run: async (signal) => cleanupFailed ? blocked(MIGRATIONS_CHECK) : runDetectedMigrations(cwd, plan, signal) });
     }
     return registry;
   }
+}
+
+/** The names /verify runs when none are given: the built-in checks and every named check but lab ones. */
+export function defaultVerifyNames(model: Pick<ProjectModel, "namedChecks" | "migrations">): CheckName[] {
+  const migrations = detectedMigrations(model);
+  return [...CHECK_NAMES, ...modelNamedChecks(model.namedChecks), ...(migrations && migrationsRunnable(migrations) ? [MIGRATIONS_CHECK] : [])];
 }

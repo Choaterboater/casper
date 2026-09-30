@@ -1,0 +1,231 @@
+import { afterEach, expect, test } from "bun:test";
+import { mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { createSessionSandbox, runtimeShell, SHELL_CANT_ASK, SHELL_DECLINED, type SandboxHost } from "../src/app/sandbox";
+import { HOST_CHOICES, SHELL_COMMAND_CHOICES } from "../src/app/safe-choices";
+import { loadProjectContext } from "../src/project/context";
+import { inspectProject } from "../src/project/inspect";
+import { bwrapFailure, linuxSandboxProblem, resetLinuxProbe, ripgrepPath } from "../src/sandbox/linux";
+import { ShellSandbox } from "../src/sandbox/manager";
+import { SandboxStore } from "../src/sandbox/store";
+import { fakeEngine } from "./support/sandbox-fakes";
+import { posixOnly } from "./support/platform";
+
+/**
+ * The questions the sandbox asks: a host that is not listed, and (when no sandbox can run) each command the AI's
+ * shell wants to run. Enter keeps the safe choice; only your own answer allows or remembers anything; a run that
+ * can't ask never waits.
+ */
+
+const roots: string[] = [];
+afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
+
+async function fixture() {
+  const base = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-sandbox-asks-")));
+  roots.push(base);
+  const home = path.join(base, "home"), project = path.join(base, "project");
+  await mkdir(home); await mkdir(project);
+  const context = await loadProjectContext(await inspectProject(project), { homeDir: home });
+  return { base, home, project, context };
+}
+
+function host(answers: Array<string | undefined>, canAsk = true) {
+  const asked: Array<{ question: string; options: string[] }> = [];
+  const written: string[] = [];
+  const value: SandboxHost = {
+    canAsk: () => canAsk,
+    pick: async (question, options) => { asked.push({ question, options: options.map((option) => option.label) }); return answers.shift(); },
+    write: (text) => { written.push(text); },
+    planning: () => false,
+  };
+  return { value, asked, written };
+}
+
+test("a host that is not listed asks with three numbered choices, No first", async () => {
+  const { home, project, context } = await fixture();
+  const engine = fakeEngine();
+  const terminal = host([undefined]);
+  const sandbox = createSessionSandbox(terminal.value, context, { root: () => project, home, seams: { engine, problem: () => undefined, platform: "linux" } });
+  await sandbox.wrap("true", { cwd: project });
+  // Enter (or Esc) keeps it blocked.
+  expect(await engine.ask!("api.mist.com", 443)).toBe(false);
+  expect(terminal.asked).toEqual([{ question: "A shell command wants to reach api.mist.com.", options: HOST_CHOICES.map((choice) => choice.label) }]);
+  expect(HOST_CHOICES.map((choice) => choice.label)).toEqual(["No", "Allow for this session", "Always for this project"]);
+  await sandbox.close();
+});
+
+test("Always for this project is kept in Casper's own folder, never in the repo, and the next request doesn't ask", async () => {
+  const { home, project, context } = await fixture();
+  const engine = fakeEngine();
+  const terminal = host(["Always for this project"]);
+  const sandbox = createSessionSandbox(terminal.value, context, { root: () => project, home, seams: { engine, problem: () => undefined, platform: "linux" } });
+  await sandbox.wrap("true", { cwd: project });
+  expect(await engine.ask!("api.mist.com", 443)).toBe(true);
+  expect(await engine.ask!("api.mist.com", 443)).toBe(true);
+  expect(terminal.asked).toHaveLength(1);
+  expect(await readdir(project)).toEqual([]);
+  const saved = JSON.parse(await readFile(path.join(context.stateDirectory, "sandbox.json"), "utf8"));
+  expect(saved.hosts).toEqual(["api.mist.com"]);
+  expect((await stat(path.join(context.stateDirectory, "sandbox.json"))).mode & 0o777).toBe(0o600);
+  expect(engine.allowed).toContain("api.mist.com");
+  // A new session starts with it listed; /sandbox forget takes it back.
+  const next = createSessionSandbox(host([]).value, context, { root: () => project, home, seams: { engine: fakeEngine(), problem: () => undefined, platform: "linux" } });
+  await next.loadRemembered();
+  expect(next.allowedHosts()).toContain("api.mist.com");
+  expect(await next.forget("api.mist.com")).toBe(true);
+  expect(next.allowedHosts()).not.toContain("api.mist.com");
+  await sandbox.close(); await next.close();
+});
+
+test("a run that can't ask blocks the host at once and says so once", async () => {
+  const { home, project, context } = await fixture();
+  const engine = fakeEngine();
+  const terminal = host([], false);
+  const sandbox = createSessionSandbox(terminal.value, context, { root: () => project, home, seams: { engine, problem: () => undefined, platform: "linux" } });
+  await sandbox.wrap("true", { cwd: project });
+  expect(await engine.ask!("api.mist.com", 443)).toBe(false);
+  expect(await engine.ask!("api.mist.com", 443)).toBe(false);
+  expect(terminal.asked).toEqual([]);
+  expect(terminal.written).toEqual(["[sandbox] Blocked api.mist.com (this run can't ask). Allow it in a session first (Always for this project), or add it to sandbox.allowedDomains in ~/.casper/config.yaml.\n"]);
+  await sandbox.close();
+});
+
+for (const [label, seams] of [
+  ["bubblewrap is missing", { problem: () => "bubblewrap and socat are missing: sudo apt install bubblewrap socat", platform: "linux" as const }],
+  ["Windows", { platform: "win32" as const }],
+] as const) {
+  test(`with no sandbox (${label}) the AI's shell asks before each command, No first`, async () => {
+    const { home, project, context } = await fixture();
+    const terminal = host(["No", "Yes, and don't ask again for this exact command here"]);
+    const sandbox = createSessionSandbox(terminal.value, context, { root: () => project, home, seams: { engine: fakeEngine(), ...seams } });
+    expect(sandbox.asksFirst).toBe(true);
+    const shell = runtimeShell(terminal.value, sandbox, new SandboxStore(context.stateDirectory));
+    expect(await shell.approve!("npm test")).toBe(SHELL_DECLINED);
+    expect(await shell.approve!("npm test")).toBeUndefined();
+    // The same exact command runs without asking again; any other still asks.
+    expect(await shell.approve!("npm test")).toBeUndefined();
+    // Any other command still asks; Enter or Esc (no answer) runs nothing.
+    expect(await shell.approve!("npm test; curl evil.example")).toBe(SHELL_DECLINED);
+    expect(terminal.asked.map((entry) => entry.question)).toEqual(["Run this command?  npm test", "Run this command?  npm test", "Run this command?  npm test; curl evil.example"]);
+    expect(terminal.asked[0]!.options).toEqual(SHELL_COMMAND_CHOICES.map((choice) => choice.label));
+  });
+}
+
+test("a run that can't ask refuses the command with the --no-sandbox hint, and never waits", async () => {
+  const { home, project, context } = await fixture();
+  const terminal = host([], false);
+  const sandbox = createSessionSandbox(terminal.value, context, { root: () => project, home, seams: { engine: fakeEngine(), platform: "win32" } });
+  const shell = runtimeShell(terminal.value, sandbox, new SandboxStore(context.stateDirectory));
+  expect(await shell.approve!("npm test")).toBe(SHELL_CANT_ASK);
+  expect(SHELL_CANT_ASK).toBe("Not run: shell commands need your OK here, and this run can't ask. Use --no-sandbox to allow them for this run.");
+  expect(terminal.asked).toEqual([]);
+});
+
+test("with the sandbox on, or turned off by you, the AI's shell doesn't ask", async () => {
+  const { home, project, context } = await fixture();
+  const terminal = host([]);
+  for (const seams of [{ problem: () => undefined, platform: "linux" as const }, { problem: () => undefined, platform: "linux" as const, noSandboxFlag: true }]) {
+    const sandbox = createSessionSandbox(terminal.value, context, { root: () => project, home, seams: { engine: fakeEngine(), ...seams } });
+    const shell = runtimeShell(terminal.value, sandbox, new SandboxStore(context.stateDirectory));
+    expect(await shell.approve!("npm test")).toBeUndefined();
+    await sandbox.close();
+  }
+  expect(terminal.asked).toEqual([]);
+});
+
+posixOnly("the detected state names the fix", () => {
+  expect(ShellSandbox.detect({ platform: "linux", problem: () => "bubblewrap and socat are missing: sudo apt install bubblewrap socat" }))
+    .toEqual({ kind: "missing", reason: "bubblewrap and socat are missing: sudo apt install bubblewrap socat" });
+  expect(ShellSandbox.detect({ platform: "win32" })).toEqual({ kind: "unsupported", reason: "Windows" });
+  expect(ShellSandbox.detect({ platform: "linux", noSandboxFlag: true, problem: () => undefined })).toEqual({ kind: "off", reason: "--no-sandbox" });
+  expect(ShellSandbox.detect({ platform: "linux", settings: { user: { off: true } }, problem: () => undefined })).toEqual({ kind: "off", reason: "sandbox: off in ~/.casper/config.yaml" });
+});
+
+posixOnly("the Linux check names every missing program, ripgrep too, and says plainly when Ubuntu's AppArmor blocks bubblewrap", async () => {
+  const base = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-sandbox-probe-")));
+  roots.push(base);
+  const bin = path.join(base, "bin"), agent = path.join(base, "agent"), apparmor = path.join(base, "apparmor");
+  await mkdir(bin);
+  const tool = (name: string, body = "exit 0") => writeFile(path.join(bin, name), `#!/bin/sh\n${body}\n`, { mode: 0o755 });
+  const probe = (options: Parameters<typeof linuxSandboxProblem>[1] = {}) => { resetLinuxProbe(); return linuxSandboxProblem(bin, options); };
+  try {
+    expect(probe()).toBe("bubblewrap, socat and ripgrep are missing: sudo apt install bubblewrap socat ripgrep");
+    await tool("bwrap"); await tool("socat");
+    // The sandbox runtime scans the project with ripgrep, so without it the sandbox would fail on first use.
+    expect(probe()).toBe("ripgrep is missing: sudo apt install ripgrep");
+    // Pi's own copy of ripgrep counts.
+    await mkdir(path.join(agent, "bin"), { recursive: true });
+    await writeFile(path.join(agent, "bin", "rg"), "", { mode: 0o755 });
+    expect(ripgrepPath(bin, agent)).toBe(path.join(agent, "bin", "rg"));
+    expect(probe({ agentDir: agent })).toBeUndefined();
+    await tool("rg");
+    expect(ripgrepPath(bin)).toBe(path.join(bin, "rg"));
+    // bubblewrap is there but can't start: Ubuntu 24.04's AppArmor rule is named with its one-line fix.
+    await tool("bwrap", "echo 'bwrap: setting up uid map: Permission denied' >&2; exit 1");
+    await writeFile(apparmor, "1\n");
+    expect(probe({ apparmorFile: apparmor })).toBe("Ubuntu blocks it (AppArmor restricts user namespaces: setting up uid map: Permission denied); to allow it: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0, see docs/SECURITY.md");
+    await writeFile(apparmor, "0\n");
+    expect(probe({ apparmorFile: apparmor })).toBe("bubblewrap can't start here (setting up uid map: Permission denied); see docs/SECURITY.md");
+    expect(bwrapFailure("", false)).toBe("bubblewrap can't start here (it did not start); see docs/SECURITY.md");
+    // The state it gives: not sandboxed, and the AI's shell asks before each command.
+    const sandbox = new ShellSandbox({ root: () => base, platform: "linux", engine: fakeEngine(), problem: () => probe({ apparmorFile: apparmor }) });
+    expect(sandbox.state.kind).toBe("missing");
+    expect(sandbox.asksFirst).toBe(true);
+    await sandbox.close();
+  } finally { resetLinuxProbe(); }
+});
+
+test("while planning, the AI's shell gets a read-only project", async () => {
+  const { home, project, context } = await fixture();
+  const engine = fakeEngine();
+  let planning = true;
+  const terminal = host([]);
+  const value = { ...terminal.value, planning: () => planning };
+  const sandbox = createSessionSandbox(value, context, { root: () => project, home, seams: { engine, problem: () => undefined, platform: "linux" } });
+  const shell = runtimeShell(value, sandbox, new SandboxStore(context.stateDirectory));
+  await shell.wrap("git diff", project);
+  planning = false;
+  await shell.wrap("npm test", project);
+  expect(engine.wrapped[0]!.policy.allowWrite).not.toContain(project);
+  expect(engine.wrapped[1]!.policy.allowWrite).toContain(project);
+  await sandbox.close();
+});
+
+test("a sandbox that can't start says so, and from then on the AI's shell asks and the receipt says not sandboxed", async () => {
+  const { home, project, context } = await fixture();
+  const engine = { ...fakeEngine(), initialize: async () => { throw new Error("bwrap: setting up uid map: Permission denied"); } };
+  const terminal = host(["No"]);
+  const sandbox = createSessionSandbox(terminal.value, context, { root: () => project, home, seams: { engine, problem: () => undefined, platform: "linux" } });
+  expect(sandbox.on).toBe(true);
+  await expect(sandbox.wrap("npm test", { cwd: project })).rejects.toThrow("the sandbox could not start (bwrap: setting up uid map: Permission denied)");
+  expect(terminal.written).toEqual(["[sandbox] The sandbox could not start (bwrap: setting up uid map: Permission denied). Shell commands now ask first.\n"]);
+  expect(sandbox.on).toBe(false);
+  expect(sandbox.asksFirst).toBe(true);
+  const shell = runtimeShell(terminal.value, sandbox, new SandboxStore(context.stateDirectory));
+  expect(await shell.approve!("npm test")).toBe(SHELL_DECLINED);
+  const { sandboxReceipt } = await import("../src/app/sandbox");
+  expect(sandboxReceipt(sandbox)).toEqual({ held: false, reason: "the sandbox could not start: bwrap: setting up uid map: Permission denied" });
+});
+
+test("the AI's first command after the sandbox fails to start asks too, and a one-shot run refuses it", async () => {
+  const failing = () => ({ ...fakeEngine(), initialize: async () => { throw new Error("bwrap: setting up uid map: Permission denied"); } });
+  for (const [answers, expected] of [[["No"], SHELL_DECLINED], [["Yes, this once"], undefined]] as const) {
+    const { home, project, context } = await fixture();
+    const terminal = host([...answers]);
+    const sandbox = createSessionSandbox(terminal.value, context, { root: () => project, home, seams: { engine: failing(), problem: () => undefined, platform: "linux" } });
+    const shell = runtimeShell(terminal.value, sandbox, new SandboxStore(context.stateDirectory));
+    const wrapping = shell.wrap("rm -rf build", project);
+    if (expected) await expect(wrapping).rejects.toThrow(expected);
+    else expect(await wrapping).toEqual({ command: "rm -rf build" });
+    expect(terminal.asked).toEqual([{ question: "Run this command?  rm -rf build", options: ["No", "Yes, this once", "Yes, and don't ask again for this exact command here"] }]);
+    await sandbox.close();
+  }
+  const { home, project, context } = await fixture();
+  const oneShot = host([], false);
+  const sandbox = createSessionSandbox(oneShot.value, context, { root: () => project, home, seams: { engine: failing(), problem: () => undefined, platform: "linux" } });
+  const shell = runtimeShell(oneShot.value, sandbox, new SandboxStore(context.stateDirectory));
+  await expect(shell.wrap("rm -rf build", project)).rejects.toThrow(SHELL_CANT_ASK);
+  expect(oneShot.asked).toEqual([]);
+  await sandbox.close();
+});

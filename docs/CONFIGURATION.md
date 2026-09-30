@@ -147,6 +147,33 @@ Casper itself:
   (other than `-n`), because each can set aside or throw away your uncommitted work. This is a
   check of the command text, not a sandbox. It applies whatever the policy says.
 
+## The shell sandbox
+
+New in v0.2.17 (not released yet). The shell sandbox (see [SECURITY.md](SECURITY.md)) is
+set only in your own files (`~/.casper/config.yaml` or a profile):
+
+```yaml
+sandbox:
+  allowedDomains: [api.mist.com, "*.central.arubanetworks.com"]  # reached without asking
+  allowWrite: [~/shared-build-cache]                              # more folders commands may write
+  allowUnixSockets: [/var/run/docker.sock]                        # macOS only; Linux can't filter by path
+shell:
+  keepEnv: [OPENAI_API_KEY]   # an AI provider key your own tests need
+```
+
+`sandbox: off` turns it off for every run (like `--no-sandbox` for one run); the receipt then
+says shell commands and checks were not sandboxed. A project's `.casper/project.yaml` can only
+add denies:
+
+```yaml
+sandbox:
+  denyRead: [secrets, ~/work/deploy-key]
+  denyWrite: [docs/released]
+```
+
+Any other `sandbox` or `shell` key in a project file is named at startup and ignored, and a repo's
+`.pi/sandbox.json` is never read.
+
 ## Environment variables
 
 | Variable | Meaning |
@@ -267,6 +294,34 @@ for the current session only (reloading does not bring those counters back). Usa
 cut-off rating answer is still counted. A network failure may use tokens that are never reported;
 that usage stays unknown. Cost figures are estimates, not bills.
 
+### Your big model
+
+New in v0.2.16 (not released yet). `/model big <provider/model>` (the same as
+`/model role reason …`) sets your big model; `/model big clear` forgets it. When checks still
+fail after the last repair in an interactive session, Casper asks once:
+`test still fails after 3 repairs. What now?` with 1 Stop here and 2 Retry with your big model,
+which names the model and what it reads (`about 48k tokens, at least ≈ $0.72`; only the
+conversation it reads is counted, so the price is a lower bound). The free answer is first, so
+Enter or Esc never spends. Retry switches this conversation to the big model for one more repair,
+then back: `[model] Back on provider/model for your next request.` The receipt says
+`↻ Casper tried 4 repairs (the last on your big model provider/model)`. A big model that cannot
+hold the conversation is not offered. With no big model set, a rich terminal offers
+"Retry with a bigger model", opens the model picker and asks whether to remember your pick. A
+pick you do not save is named plainly (`↻ repair 4/4 on provider/model`), never called your big
+model, and a pick that cannot hold the conversation is not tried. One-shot runs and `--json`
+never ask.
+
+To run the last repair on the big model without being asked, set it in your own config. A
+project's `.casper/project.yaml` cannot (it would choose to spend your money); Casper stops
+loading with an error if it tries.
+
+```yaml
+# ~/.casper/config.yaml or a profile's config.yaml
+repair:
+  bigModelLastTry: true
+suggestions: false   # no suggested next steps anywhere
+```
+
 ## Skills
 
 A skill is a Markdown file of instructions (a `SKILL.md`) that Casper adds to the model's prompt
@@ -280,6 +335,7 @@ skills itself; Pi's own skill discovery is turned off inside Casper.
 | User | `~/.casper/skills/` | Yes, when the real file is inside this folder |
 | Project (your copy) | `~/.casper/projects/<project>-<id>/skills/` (where `casper learn promote … project-skill` writes) | Yes, when the real file is inside this folder |
 | Project | `<project>/.casper/skills/` | No, until you review it |
+| Bundled with Casper (v0.2.18, not released yet) | Inside the `casper` binary (source: `skills/network/*/SKILL.md`) | Yes; on unless `skills.bundled: false`. See [SKILLS.md](SKILLS.md) |
 | Other tools **(opt-in)** | `~/.pi/agent/skills/`, `~/.agents/skills/`, `~/.claude/skills/`, `~/.codex/skills/`; in the project `.pi/skills/`, `.agents/skills/`, `.claude/skills/`, `.codex/skills/` | No, until you review it |
 
 To use other tools' skill folders, turn them on in `~/.casper/config.yaml` or
@@ -339,6 +395,23 @@ skills:
   maxActive: 6 # default; 0 turns automatic loading off, maximum 32
 ```
 
+**Bundled network skills (v0.2.18, not released yet).** The bundled skills (Mist, Central,
+AOS-CX, Junos, ClearPass) use a stricter rule: a request must name the product (for example
+"mist api", "pyez", "clearpass"), or use a looser word ("mist", "junos", "central") together with
+a network word ("site", "switch", "api", "script"), or be a change request in a project whose
+Python packages include that product's SDK. At most two bundled skills load per request. Turn
+them all off in `~/.casper/config.yaml` or a profile (a project file cannot):
+
+```yaml
+skills:
+  bundled: false # default true
+```
+
+A skill in `~/.casper/skills/` with the same name as a bundled one replaces it only while it
+keeps the bundled layout and the "Stop and ask the user" line; otherwise the bundled text is used
+and `/skills diagnostics` says why. A project's same-name skill never replaces a bundled one. See
+[SKILLS.md](SKILLS.md).
+
 Skills are optional procedures, not a substitute for the repository: frontend, design and other
 work use the project's own files. Only the selected skills' bodies are read and added, with their
 source and folder. When two skills share a name, both show in `/skills` with different IDs, but
@@ -372,7 +445,8 @@ user skill folder needs an explicit review.
 
 **What this does not protect.** Review controls which skills Casper adds to the prompt, not what
 the model can read or run. Skills grant no permissions, and Casper never runs a skill's helper
-scripts. The model's own read and bash tools are not sandboxed, and policy is prompt guidance.
+scripts. Since v0.2.17 the model's file tools stay out of private places and its shell runs in
+the shell sandbox where one can run (see [SECURITY.md](SECURITY.md)); policy is prompt guidance.
 Trust covers `SKILL.md` only, not the scripts or files it points to; check those yourself.
 Blocking a skill stops future use; it does not remove text already in a conversation.
 `maxActive` limits new skills per request, not the whole conversation.
