@@ -44,16 +44,22 @@ export interface PageLoad {
   failedRequests: Array<{ url: string; status?: number; error?: string }>;
   /** The first line of a framework error overlay or in-page exception. */
   overlay?: string;
+  /** The same page at phone width. Absent for the HTTP-only fallback. */
+  phone?: PhoneFit;
 }
+/** How a page fits a phone screen: its width against the screen's, and the text fields too squashed to show a line. */
+export interface PhoneFit { viewport: number; pageWidth: number; squashed: string[] }
+/** A common phone screen, in CSS pixels. */
+const PHONE = { width: 390, height: 844 };
 const LOAD_LIMIT = 10;
 const LOAD_TEXT = 300;
 
-/** One task's disposable browser. No user profiles, arbitrary evaluation or browser installation. */
 /** Fields fill types into, like a person would. Password and file stay out (checked before this). */
 const TYPED_FIELDS = ["", "text", "search", "tel", "url", "email", "number"];
 /** Fields a person sets through a picker: fill sets their value and fires input and change. */
 const PICKED_FIELDS = ["date", "time", "datetime-local", "month", "week", "color", "range"];
 
+/** One task's disposable browser. No user profiles, arbitrary evaluation or browser installation. */
 export class BrowserSession {
   private readonly controller = new AbortController();
   private browser?: Browser;
@@ -239,8 +245,34 @@ export class BrowserSession {
         if (streamlit) return firstLine(streamlit.innerText) ?? "exception";
         return undefined;
       });
+      // The same page on a phone: layouts that only break there (a column that squashes an input, a wide table)
+      // never show at the desktop size above.
+      await page.setViewport(PHONE);
+      await new Promise(resolve => setTimeout(resolve, 150));
+      combined.throwIfAborted();
+      const phone = await page.evaluate(() => {
+        const squashed: string[] = [];
+        const skip = ["hidden", "checkbox", "radio", "range", "color", "file", "submit", "button", "reset", "image"];
+        for (const element of Array.from(document.querySelectorAll("input, textarea, select"))) {
+          const field = element as HTMLElement;
+          if (field instanceof HTMLInputElement && skip.includes(field.type)) continue;
+          if (!field.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) continue;
+          const box = field.getBoundingClientRect();
+          // A visually hidden (screen-reader only) field is 1px on purpose.
+          if (box.width <= 1 && box.height <= 1) continue;
+          const style = getComputedStyle(field);
+          const font = parseFloat(style.fontSize) || 16;
+          const inner = { height: field.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom),
+            width: field.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight) };
+          if (inner.height < font * 0.8 || inner.width < font * 2) {
+            const name = field.id ? `#${field.id}` : field.getAttribute("name") ? `[name="${field.getAttribute("name")}"]` : field.classList[0] ? `.${field.classList[0]}` : "";
+            squashed.push(`${field.tagName.toLowerCase()}${name}`.slice(0, 80));
+          }
+        }
+        return { viewport: innerWidth, pageWidth: Math.round(document.documentElement.scrollWidth), squashed: squashed.slice(0, 5) };
+      });
       return { status: response?.status() ?? null, consoleChecked: true, consoleErrors, pageErrors, failedRequests,
-        ...(overlay ? { overlay: overlay.slice(0, LOAD_TEXT) } : {}) };
+        ...(overlay ? { overlay: overlay.slice(0, LOAD_TEXT) } : {}), phone };
     } finally {
       combined.removeEventListener("abort", stop);
       await context?.close().catch(() => {});

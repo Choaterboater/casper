@@ -2,6 +2,7 @@
  * Page check results and their plain receipt lines. Kept apart from the page checks themselves (Chrome, the dev
  * server) so the receipt can print them without loading a browser.
  */
+import type { PhoneFit } from "../browser/session";
 import type { SkippedPage } from "./pages";
 
 const NO_CHROME = "console not checked: no Chrome found (install Chrome or set CASPER_BROWSER_EXECUTABLE)";
@@ -25,6 +26,10 @@ export interface PageResult {
   serverError?: string;
   /** Why an incomplete page was not checked. */
   reason?: string;
+  /** The page was also opened at phone width. */
+  phoneChecked?: boolean;
+  /** At phone width it scrolls sideways or squashes a text field (only when it does). */
+  phone?: PhoneFit;
 }
 export interface PageReport {
   /** fail: some page failed. incomplete: the server did not start, or a page did not finish. Never pass without a page. */
@@ -54,8 +59,15 @@ export function formatPageLine(result: PageResult): string {
     const first = result.failedRequests[0]!;
     return `✗ ${result.path} · a request to ${new URL(first.url).pathname} failed (${first.status ?? first.error})`;
   }
+  if (result.phone) return `✗ ${result.path} at phone width (${result.phone.viewport}px): ${phoneProblem(result.phone)}`;
   if (!result.consoleChecked) return `✓ ${result.path} answers (HTTP ${result.httpStatus}) · ${NO_CHROME}`;
-  return `✓ ${result.path} loads · 0 console errors`;
+  return `✓ ${result.path} loads · 0 console errors${result.phoneChecked ? " · fits a phone" : ""}`;
+}
+
+function phoneProblem(phone: PhoneFit): string {
+  if (phone.pageWidth > phone.viewport + 1) return `the page is ${phone.pageWidth}px wide, so it scrolls sideways`;
+  const [first, ...more] = phone.squashed;
+  return more.length ? `${first} and ${plural(more.length, "more field")} are squashed and their text doesn't fit` : `${first} is squashed and its text doesn't fit`;
 }
 
 /** What the failed verdict names: "/dashboard has 2 console errors". Undefined when no page failed. */
@@ -65,6 +77,7 @@ export function pageFailureSummary(report: PageReport): string | undefined {
   if (failed.overlay !== undefined || failed.serverError !== undefined) return `${failed.path} shows an error`;
   if (failed.httpStatus !== null && failed.httpStatus >= 400) return `${failed.path} returned ${failed.httpStatus}`;
   if (failed.consoleErrors.length) return `${failed.path} has ${plural(failed.consoleErrors.length, "console error")}`;
+  if (failed.phone && !failed.failedRequests.length) return `${failed.path} doesn't fit a phone screen`;
   return `${failed.path} has ${plural(failed.failedRequests.length, "failed request")}`;
 }
 

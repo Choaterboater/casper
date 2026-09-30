@@ -93,6 +93,23 @@ test("console errors, a 500, an error overlay and a same-origin request failure 
   expect(formatPageLine(third.pages[0]!)).toBe("✓ /third loads · 0 console errors");
 }, 30_000);
 
+test("at phone width, a page wider than the screen or a squashed text field fails the page; a page that fits says so", async () => {
+  const f = await fixture();
+  const opener = fakeOpener(url => {
+    if (url.pathname === "/wide") return { phone: { viewport: 390, pageWidth: 650, squashed: [] } };
+    if (url.pathname === "/tight") return { phone: { viewport: 390, pageWidth: 390, squashed: ["input#address"] } };
+    return { phone: { viewport: 390, pageWidth: 390, squashed: [] } };
+  });
+  const report = await new PageChecks(() => f.manager, f.service, opener, { open: ["/wide", "/tight", "/ok"], skipped: [] }).run(signal());
+  expect(report.status).toBe("fail");
+  expect(formatPageReport(report)).toEqual([
+    "✗ /wide at phone width (390px): the page is 650px wide, so it scrolls sideways",
+    "✗ /tight at phone width (390px): input#address is squashed and its text doesn't fit",
+    "✓ /ok loads · 0 console errors · fits a phone",
+  ]);
+  expect(pageFailureSummary(report)).toBe("/wide doesn't fit a phone screen");
+}, 30_000);
+
 test("secrets in console text never reach the report", async () => {
   const f = await fixture();
   const opener = fakeOpener(() => ({ consoleErrors: ["auth failed for token ghp_abcdefghijklmnopqrstuvwxyz0123456789"] }));

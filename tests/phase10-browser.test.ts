@@ -228,6 +228,20 @@ browserTest("a disposable browser inspects a local page and saves a real screens
   await expect(f.session.run({ action: "inspect" })).rejects.toThrow("closed");
 }, 20_000);
 
+browserTest("the page load looks at phone width: a too-wide page and a squashed input are found; a page that fits has none", async () => {
+  const f = await fixture();
+  // The bugs a benchmark judge found: an input whose flex-basis 0 collapses it in a column, and a table wider than the phone.
+  await writeFile(f.sourceFile, `<!doctype html><meta name="viewport" content="width=device-width"><style>
+    .row{display:flex;gap:8px} .row input{width:0;flex:1;font-size:16px;padding:10px}
+    @media (max-width:480px){.row{flex-direction:column}} table{width:650px}</style>
+    <div class="row"><input id="address" value="10.1.2.3/22"><button>Go</button></div><table><tr><td>10.1.0.0/24</td></tr></table>`);
+  const bad = await f.session.load(`${f.url}/`, new AbortController().signal);
+  expect(bad.phone).toMatchObject({ viewport: 390, squashed: ["input#address"] });
+  expect(bad.phone!.pageWidth).toBeGreaterThan(390);
+  await writeFile(f.sourceFile, `<!doctype html><meta name="viewport" content="width=device-width"><input id="address" style="width:100%;box-sizing:border-box"><p>fits</p>`);
+  expect((await f.session.load(`${f.url}/`, new AbortController().signal)).phone).toEqual({ viewport: 390, pageWidth: 390, squashed: [] });
+}, 30_000);
+
 browserTest("the host-only page load reports console errors and the failed same-origin request", async () => {
   const f = await fixture();
   const load = await f.session.load(`${f.url}/`, new AbortController().signal);
