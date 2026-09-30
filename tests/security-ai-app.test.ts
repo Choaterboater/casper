@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { CasperApp } from "../src/app";
 import { CANT_ASK_AI } from "../src/app/security-review";
+import { receiptEvent } from "../src/app/json-events";
 import { SECURITY_REVIEW_LIMITS, SubagentManager } from "../src/agents/manager";
 import { loadProjectContext } from "../src/project/context";
 import { MODEL_FINDING_LABEL } from "../src/security/review";
@@ -106,6 +107,12 @@ test("casper \"/security-review ai\" runs one read-only review child on the revi
   expect(out).toContain("Running it because you asked with /security-review ai.");
   expect(out).toContain(`app/extra.py:4  cmd goes into a shell command. Example input: cmd = "ls; id"  ${MODEL_FINDING_LABEL}`);
   expect(out).toContain("The AI review used about 4k tokens (≈ $0.01, the catalog's estimate).");
+  // --json: the receipt carries what the review spent, never "no usage".
+  expect(f.app.getLastTaskResult()).toBeUndefined();
+  expect(receiptEvent(undefined, undefined, 0, undefined, f.app.commandUsage()).usage).toEqual({ turns: 1, tokens: 4_321, estimatedCost: 0.0123 });
+  // The next command starts from nothing spent.
+  await f.app.runOnce("/security-review", f.root);
+  expect(f.app.commandUsage()).toBeUndefined();
 });
 
 test("the security review's bounds can be tightened by tests, never relaxed", () => {
