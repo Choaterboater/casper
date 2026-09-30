@@ -1,5 +1,6 @@
 import { boundCapabilityResult } from "../capabilities/result";
 import type { AgentRuntime, RuntimeEvent, RuntimeSession, RuntimeStartOptions, RuntimeTool } from "../runtime/types";
+import type { PromptCacheSetting } from "../runtime/cache";
 
 export const SUBAGENT_LIMITS = Object.freeze({
   maxConcurrent: 2,
@@ -74,6 +75,8 @@ export interface SubagentManagerOptions {
   scrubToolOutput?: RuntimeStartOptions["scrubToolOutput"];
   /** Tests may tighten the security review's deadline, never relax it. */
   reviewTimeoutMs?: number;
+  /** The user's cache setting (`cache: off` turns a child's cache off too). */
+  cache?: () => PromptCacheSetting | undefined;
   /** Each helper's start, steps and end, for the steps pane. Display only; never shown to a model. */
   onActivity?: (activity: HelperActivity) => void;
 }
@@ -408,6 +411,7 @@ export class SubagentManager {
           reportTurn: options.reportTurn,
           ...(options.scrubToolOutput ? { scrubToolOutput: options.scrubToolOutput } : {}),
           ...(options.beforeToolGate ? { beforeToolGate: options.beforeToolGate } : {}),
+          ...(this.options.cache?.() ? { cache: this.options.cache() } : {}),
           systemPromptAppend: options.systemPromptAppend,
         });
         controller.signal.throwIfAborted();

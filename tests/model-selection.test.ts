@@ -111,6 +111,9 @@ test("context and usage are local; fresh conversations retain saved sessions wit
   const usage = await f.cli("/usage");
   expect(usage.exit).toBe(0);
   expect(usage.stdout).toContain("not a bill");
+  expect(usage.stdout).toContain("covers all models used this session");
+  expect(usage.stdout).toMatch(/Usage: \d+k? out/);
+  expect(usage.stdout).toMatch(/\nCache: (—|\d+% of input read from cache this session)\n/);
   expect((await f.cli("/clear")).exit).toBe(0);
   const listed = await f.cli("/resume");
   expect(listed.exit).toBe(0);
@@ -242,7 +245,7 @@ console.log('RESULT=' + JSON.stringify(screens));`);
     expect(screen.selected).toBe(false);
     expect(screen.output).toContain("Invalid models.json schema:");
     expect(screen.output).toContain("must be string");
-    expect(screen.output).not.toContain("\x1b]0;");
+    expect(screen.output.replaceAll("\x1b]0;casper\x07", "")).not.toContain("\x1b]0;"); // only Casper's own title
     expect(screen.output).not.toMatch(/[\u009b\u202e]/u);
     expect(screen.output).toContain("\x1b[?2004h"); // Pi's own renderer controls must still work.
     expect(/\x1b\[(?:[0-9:]*;)*(?:3[0-9]|4[0-9]|9[0-7]|10[0-7])(?:[;:][0-9;:]*)?m/.test(screen.output)).toBe(screen.color); // NO_COLOR: no colour SGR.
@@ -289,7 +292,7 @@ console.log('RESULT=' + JSON.stringify(screens));`);
     expect(screen.selected).toBe(false);
     expect(screen.output).toContain("Could not refresh");
     expect(screen.output).toContain(screen.kind === "single" ? "provider-one" : screen.kind === "multiple" ? "2 model catalogs" : "REFRESH_FAILED");
-    expect(screen.output).not.toContain("\x1b]0;");
+    expect(screen.output.replaceAll("\x1b]0;casper\x07", "")).not.toContain("\x1b]0;"); // only Casper's own title
     expect(screen.output).not.toMatch(/[\u009b\u202e]/u);
     expect(/\x1b\[(?:[0-9:]*;)*(?:3[0-9]|4[0-9]|9[0-7]|10[0-7])(?:[;:][0-9;:]*)?m/.test(screen.output)).toBe(screen.color); // NO_COLOR: no colour SGR.
   }

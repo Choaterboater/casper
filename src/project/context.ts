@@ -1,5 +1,5 @@
 import os from "node:os";
-import { loadConfiguration, type CasperPolicy, type GitActionPolicy, type LoadedConfiguration } from "../config/load";
+import { loadConfiguration, type AskQuestions, type Autonomy, type CasperPolicy, type GitActionPolicy, type LoadedConfiguration } from "../config/load";
 import type { VisualizationSettings } from "../visualize/router";
 import type { ProjectInfo } from "./inspect";
 import { loadProjectModel, projectStateDirectory, type ProjectModel } from "./model";
@@ -19,6 +19,8 @@ export interface ProjectContext {
   repair: LoadedConfiguration["repair"];
   /** `suggestions: false` in the user's config: no suggestions anywhere. */
   suggestions?: boolean;
+  /** `cache:` in the user's config (auto, long, short or off). Unset: auto. */
+  cache?: LoadedConfiguration["cache"];
   /** Per-task spend limits (a note, then a pause); see src/task/spend.ts. */
   spend?: LoadedConfiguration["spend"];
   visualize: VisualizationSettings;
@@ -38,6 +40,8 @@ export interface ProjectContext {
   lab?: LabSettings;
   /** The shell sandbox settings: yours, and the project's extra denies (see src/sandbox/policy.ts). */
   sandbox?: LoadedConfiguration["sandbox"];
+  /** Web lookups: yours only (web: in ~/.casper/config.yaml). Unset: on, with DuckDuckGo. */
+  web?: LoadedConfiguration["web"];
 }
 
 export interface LoadProjectContextOptions {
@@ -86,6 +90,7 @@ export async function loadProjectContext(
     verification: configuration.verification,
     repair: configuration.repair,
     ...(configuration.suggestions !== undefined ? { suggestions: configuration.suggestions } : {}),
+    ...(configuration.cache ? { cache: configuration.cache } : {}),
     spend: configuration.spend,
     visualize: configuration.visualize,
     services: configuration.services,
@@ -98,6 +103,7 @@ export async function loadProjectContext(
     warnings: configuration.warnings,
     ...(configuration.lab ? { lab: configuration.lab } : {}),
     sandbox: configuration.sandbox,
+    web: configuration.web,
   };
 }
 
@@ -111,6 +117,18 @@ function commands(model: ProjectModel): string {
     ? entries.map(([name, command]) => `${name}=${command}`).join("; ")
     : "not detected";
 }
+
+// Plain meanings, so the model reads an instruction rather than a bare word.
+const AUTONOMY: Record<Autonomy, string> = {
+  high: "high: do the next step yourself when it is inside this project (edit files, including ignored ones such as *.local.json, run the tests, change settings the user asked for). Never tell the user to open or hand-edit a file you can edit. Never hand the user a script to run outside Casper. If something outside the project is needed, say what in one line and ask one numbered question.",
+  medium: "medium: do small steps inside this project yourself; ask one numbered question before large or wide changes.",
+  low: "low: ask one numbered question before changing files.",
+};
+
+const ASK_QUESTIONS: Record<AskQuestions, string> = {
+  onlyWhenBlocked: "only when blocked",
+  beforeChanges: "before changing files",
+};
 
 function gitRule(policy: GitActionPolicy): string {
   return policy === "never" ? "never" : "only when the user asks";
@@ -128,8 +146,8 @@ export function formatProjectContext(context: ProjectContext): string {
     `- commands: ${commands(model)}`,
     `- selected profile: ${context.profileName}`,
     "Casper policy:",
-    `- autonomy: ${policy.behavior.autonomy}`,
-    `- ask questions: ${policy.behavior.askQuestions}`,
+    `- autonomy: ${AUTONOMY[policy.behavior.autonomy]}`,
+    `- ask questions: ${ASK_QUESTIONS[policy.behavior.askQuestions]}`,
     `- inspect before editing: ${policy.behavior.inspectBeforeEditing}`,
     `- prefer small changes: ${policy.code.preferSmallChanges}`,
     `- preserve architecture: ${policy.code.preserveArchitecture}`,
@@ -137,7 +155,7 @@ export function formatProjectContext(context: ProjectContext): string {
     // Instructions to the model, not rules Casper enforces: bash can still run git or rm.
     `- git commit: ${gitRule(policy.git.commit)}`,
     `- git push: ${gitRule(policy.git.push)}`,
-    "- destructive operations (deleting files, git reset, force-push): ask the user first",
+    "- ask the user first before deleting files they didn't ask to delete, git reset, or force-push. Creating and editing files in this project needs no ask.",
     "- never set aside or discard uncommitted work: git stash, reset --hard, checkout --, restore and clean are blocked",
     `- isolate parallel agents: ${policy.workspace.isolateWhen.parallelAgents}`,
     `- isolate risky refactors: ${policy.workspace.isolateWhen.riskyRefactor}`,

@@ -9,9 +9,10 @@ import { ProjectMemory } from "../memory/store";
 import { modelPreference } from "../tui/model-preference";
 import { HELP_TEXT, FULL_HELP_TEXT, LOGIN_HELP } from "../tui/help";
 import { formatTerminalJSON } from "../tui/json";
+import { formatCacheHitRate, formatCostLong, formatCostShort, formatTokenSplit } from "../tui/usage";
 import { effortChoices } from "../tui/effort";
 import { pickEffort } from "../tui/effort-picker";
-import { commandLabel, formatEffort, formatRuntimeStatus, redactPreview, terminalText } from "../tui/format";
+import { commandLabel, formatEffort, formatRuntimeStatus, redactPreview, terminalText, toolTarget } from "../tui/format";
 import type { InteractiveTerminal } from "../tui/terminal";
 import type { CapabilityBroker } from "../capabilities/broker";
 import type { MCPManager, MCPStatus } from "../mcp/manager";
@@ -40,7 +41,7 @@ import type { VisualizationRouter } from "../visualize/router";
 import type { RuntimeAuthProvider, RuntimeSession, RuntimeTool, AgentRuntime } from "../runtime/types";
 import { describeChecksPlan, type ChecksPlan } from "../verify/mode";
 import { detectedMigrations, MIGRATIONS_CHECK } from "../verify/migrations-check";
-import type { TaskObservations } from "../task/observations";
+import { TOOL_CALL_LIMIT, type TaskObservations } from "../task/observations";
 import { formatTaskResult, NO_CHECKS_FOUND, type TaskResult } from "../task/result";
 import { UndoStore } from "../task/undo";
 import { tildePath } from "../new/scaffold";
@@ -49,6 +50,7 @@ import type { SessionWorkspaceManager } from "../sessions/manager";
 import { formatProjectContext } from "../project/context";
 import { runSecurityReview, type SecurityAIReview, type SecurityReviewHost } from "./security-review";
 import { sandboxReport, sandboxStatusLine } from "./sandbox";
+import { webStatusLine } from "../web/tools";
 import type { ShellSandbox } from "../sandbox/manager";
 import { MCP_REMEMBER_CHOICES, MCP_WRITES_CHOICES, numberedLines } from "./safe-choices";
 
@@ -95,6 +97,10 @@ export interface CommandHost {
   readonly inspectProjectFn: (cwd: string) => Promise<ProjectInfo>;
   commandAbort?: AbortController;
   runtimeTools: RuntimeTool[];
+  /** Tools offered in this conversation; they stay offered until /clear or /resume. */
+  readonly offeredTools: Set<string>;
+  /** A new conversation: its first task picks the direct MCP tools afresh. */
+  resetToolPicks(): void;
   memoryWork?: Promise<void>;
   visualizationWork?: Promise<void>;
   visualizationAbort?: AbortController;
@@ -234,7 +240,7 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
         host.output.write(`Context: ${context?.tokens == null ? "unavailable" : `${context.tokens} / ${context.contextWindow} tokens (estimate; ${context.percent?.toFixed(1) ?? "?"}%)`}\n`);
         host.output.write(`Messages: ${usage?.messages ?? "unavailable"}; indexed skills: ${host.skillRegistry!.list().length}; Casper custom tools: ${host.runtimeTools.length}.\nPer-file/skill/tool token attribution is unavailable. /compact sends a model request.\n`);
       } else {
-        host.output.write(`Usage: ${usage ? formatTerminalJSON(usage.tokens) : "unavailable"}\nCost: ${usage?.estimatedCost === undefined ? "unavailable" : `$${usage.estimatedCost.toFixed(4)} SDK/catalog estimate`}; not a bill or a subscription charge.\n`);
+        host.output.write(`Usage: ${usage ? `${formatTokenSplit(usage.tokens)} (${formatTerminalJSON(usage.tokens)})` : "unavailable"}\nCache: ${usage ? formatCacheHitRate(usage.tokens) : "unavailable"}\nCost: ${usage ? formatCostLong(usage, session.getStatus?.()) : "unavailable"}; covers all models used this session; not a bill or a subscription charge.\n`);
         const classifier = usage?.effortClassification;
         if (classifier) host.output.write(`Auto-effort classifier (separate, since session load): ${classifier.requests} request(s); tokens ${formatTerminalJSON(classifier.tokens)}; cost ${classifier.estimatedCost === undefined ? "unknown" : `$${classifier.estimatedCost.toFixed(4)} estimate`}. Failed requests may consume unreported tokens; not included in conversation totals.\n`);
       }
@@ -264,6 +270,8 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       // Services belong to the conversation that started them.
       await host.services?.close(); host.services = undefined;
       await host.stopDebugger(); host.debugSession = undefined;
+      host.offeredTools.clear();
+      host.resetToolPicks();
       if (prompt === "/clear") {
         if (!session.clearConversation) throw new Error("This runtime does not support fresh conversations.");
         await session.clearConversation();
@@ -304,8 +312,20 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       const recency = argument ? Number(argument) : 1;
       const retained = host.observations.retainedOutputs;
       if (!retained) throw new Error("No tool output retained; /output shows tool calls from the last model task.");
+      if (argument === "all") {
+        // Every call on its own line: the folded step summary ("✓ 14 edits · 6 commands") leaves them out.
+        const calls = host.observations.toolCalls;
+        const fit = { root: host.activeWorkspaceRoot(), home: host.homeDir() };
+        host.output.write(`[output] ${calls.length} tool call${calls.length === 1 ? "" : "s"} in the last task, oldest first${calls.length >= TOOL_CALL_LIMIT ? " (the first ones only)" : ""}:\n`);
+        host.output.write(`${calls.map(call => {
+          const kept = toolTarget(call.input, fit);
+          const target = kept === undefined ? "" : ` ${redactPreview(kept).replace(/\s+/g, " ").slice(0, 180)}`;
+          return `${call.status === "error" ? "✗" : "✓"} ${terminalText(call.toolName)}${target}`;
+        }).join("\n")}\n`);
+        return;
+      }
       const entry = Number.isInteger(recency) ? host.observations.toolOutput(recency) : undefined;
-      if (!entry) throw new Error(`Usage: /output [n] with n from 1 (most recent) to ${retained} (retained tool call${retained === 1 ? "" : "s"}).`);
+      if (!entry) throw new Error(`Usage: /output [n|all] with n from 1 (most recent) to ${retained} (retained tool call${retained === 1 ? "" : "s"}).`);
       // A command's tool line is a short label; here the whole command comes first, secrets hidden.
       const command = entry.command === undefined ? undefined : redactPreview(entry.command);
       const shown = command === undefined ? entry.target : commandLabel(command);
@@ -325,11 +345,13 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       host.output.write(` mcp       ${host.mcp!.status().length} configured (/mcp for connection status)\n`);
       host.output.write(` lsp       ${host.lsp!.status().length} configured (/lsp for connection status)\n`);
       host.output.write(` browser   ${host.browser?.status().state ?? "idle"}; disposable local browser (/browser)\n`);
+      host.output.write(` web       ${webStatusLine(host.projectContext!.web)}\n`);
       const services = host.services?.status() ?? [];
       host.output.write(` services  ${Object.keys(host.projectContext!.services ?? {}).length} declared, ${services.filter(service => service.state === "ready").length} running (/services)\n`);
       host.output.write(` debugger  ${host.debugSession?.status().state ?? "idle"}; explicit local DAP (/debug)\n`);
       const usage = host.session?.getUsage?.();
-      host.output.write(` context   ${usage?.context?.percent == null ? "—" : `${usage.context.percent.toFixed(1)}%~`} · ${usage?.tokens.total ?? "—"} session tokens (/context, /usage)\n`);
+      const cost = usage && formatCostShort(usage, host.session?.getStatus?.());
+      host.output.write(` context   ${usage?.context?.percent == null ? "—" : `${usage.context.percent.toFixed(1)}%~`} · ${usage ? `${formatTokenSplit(usage.tokens)}${cost ? ` · ${cost}` : ""}` : "— tokens"} (/context, /usage)\n`);
       host.output.write(" policy    native coding tools enabled (/permissions)\n");
       host.output.write(` shell     ${host.sandbox ? sandboxStatusLine(host.sandbox) : "not started"}\n`);
       host.output.write(` checks    ${describeChecksPlan(await host.checksPlan(host.projectContext!))}\n`);
@@ -477,10 +499,16 @@ async function handleMemoryCommand(host: CommandHost, prompt: string): Promise<v
     if (!action) {
       const facts = await memory.facts();
       if (!facts.length) { host.output.write("[memory] No remembered facts. /memory remember <fact> adds one; /memory outcomes lists task summaries.\n"); return; }
-      result = facts;
+      host.output.write(`[memory] ${facts.length} remembered ${facts.length === 1 ? "fact" : "facts"} (/memory forget <id> removes one):\n`);
+      for (const fact of facts) host.output.write(`  ${fact.id}  ${terminalText(fact.text)}\n`);
+      return;
     }
-    else if (action === "remember" && args.length) result = await memory.remember(prompt.replace(/^\/memory\s+remember\s+/, ""));
-    else if (action === "forget" && args.length === 1) { await memory.forget(args[0]!); result = "Fact forgotten"; }
+    else if (action === "remember" && args.length) {
+      const fact = await memory.remember(prompt.replace(/^\/memory\s+remember\s+/, ""));
+      host.output.write(`[memory] Remembered: ${terminalText(fact.text)}. Casper gives it to the model in this project. /memory forget ${fact.id} removes it.\n`);
+      return;
+    }
+    else if (action === "forget" && args.length === 1) { await memory.forget(args[0]!); host.output.write(`[memory] Forgot ${terminalText(args[0]!)}.\n`); return; }
     else if (action === "outcomes" && !args.length) result = (await memory.outcomes()).map((entry) => ({
       id: entry.id, task: entry.task.slice(0, 256), modelStatus: entry.modelStatus,
       verification: entry.verification, verificationMeaning: entry.verificationMeaning ?? "legacy", coverage: entry.coverage,
@@ -963,11 +991,13 @@ async function undoCopiesLine(stateDirectory: string, home: string): Promise<str
 /** /permissions: what Casper enforces, from the state it is in now. */
 export function permissionsText(sandbox: ShellSandbox | undefined): string {
   const shell = sandbox?.on
-    ? "Shell commands and checks run in a sandbox: they can write only in this project, temp and package caches, can't read your private folders, and reach only listed hosts (others ask). They don't see your AI provider keys. MCP servers, language servers, the debugger and the browser are not in the sandbox."
+    ? "Shell commands and checks run in a sandbox: they can write only in this project, temp and package caches (other folders ask), can't read your private folders, and reach only listed hosts (others ask). They don't see your AI provider keys. MCP servers, language servers, the debugger and the browser are not in the sandbox."
     : `Shell commands and checks are not sandboxed here (${sandbox?.failure ?? sandbox?.state.reason ?? "no sandbox"}): they run with your permissions, files and network, without your AI provider keys.${sandbox?.asksFirst ? " Casper asks before each shell command the AI runs." : ""}`;
   return [
     shell,
-    "The AI's file tools (read, edit, write, grep, find, ls) stay out of private places and git's own files and never follow a link out of the project.",
+    `The AI's file tools (read, edit, write, grep, find, ls) stay out of private places and git's own files and never follow a link out of the project. ${sandbox && !sandbox.asksOutsideWrites
+      ? "With the sandbox off, an edit or write outside the project doesn't ask." : "An edit or write outside the project asks first (temp and caches don't; --no-sandbox turns this off)."}`,
+    "Web lookups (web_search, web_fetch) read public pages without asking. Private and local addresses, other ports, and a search or address holding a secret are refused; what comes back has its secrets hidden. web: off in ~/.casper/config.yaml turns them off.",
     "MCP, workspace transitions, debugger launch and consequential browser operations have their own exact approvals. The AI can't approve anything for you.",
     "No SAFE/YOLO or read-only mode is implied. /verify and /services may execute project scripts (the declared checks and service commands). See docs/SECURITY.md.",
   ].join("\n");

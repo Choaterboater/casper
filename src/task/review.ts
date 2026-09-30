@@ -54,12 +54,14 @@ export function parseReview(answer: string): RequirementsReview | undefined {
     ...(covered ? { covered: Number(covered[1]), total: Number(covered[2]) } : {}) };
 }
 
-/** The full checklist the task turn asks for when no review follows; parseChecklist reads it. The review's
- * delta answer reuses its open-item line under its own heading and a count. */
+/** The checklist format parseChecklist reads. The task turn asks only for its open-item line (the gaps; a full
+ * ticked list made answers long and is the model's own claim anyway); the review's delta answer reuses that line
+ * under its own heading and a count. */
+export const OPEN_ITEM_FORMAT = "- [ ] <requirement> — <why it is still not done>";
 export const CHECKLIST_FORMAT: readonly string[] = [
   "Requirements:",
   "- [x] <requirement> — <the test that covers it>",
-  "- [ ] <requirement> — <why it is still not done>",
+  OPEN_ITEM_FORMAT,
 ];
 
 /** Checks every case but answers only the gaps: a full re-listed checklist made the answer 3.7-4.9x
@@ -75,7 +77,7 @@ export function requirementsReviewPrompt(request: string): string {
     "Your answer reports only the gaps, one case per line: do not list requirements that were already covered and do not summarize the change. End it with:",
     "Requirements review:",
     "- [x] <requirement> — <the test you added for it>",
-    CHECKLIST_FORMAT[2]!,
+    OPEN_ITEM_FORMAT,
     "Covered: <n> of <m> requirements.",
     "With no gaps, answer only:",
     "Requirements review: all covered.",

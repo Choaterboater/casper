@@ -22,6 +22,8 @@ test("the row under an interactive receipt runs the step whose number is typed n
         subscribe: (listener: RuntimeEventListener) => { listeners.add(listener); return () => listeners.delete(listener); },
         abort: async () => {},
         prompt: async () => {
+          // A real change, so the turn gets a receipt (a turn that changes nothing and runs no tests gets none).
+          await writeFile(path.join(project, "notes.txt"), "An empty folder would ask about a new project, fixed.\n");
           emit({ type: "assistant_response_start", provider: "fixture", model: "demo" });
           emit({ type: "assistant_text_delta", delta: "Done.\n" });
           emit({ type: "assistant_response_end", stopReason: "stop" });
@@ -53,7 +55,7 @@ test("the row under an interactive receipt runs the step whose number is typed n
   const interactive = app.runInteractive(project);
   try {
     input.write("fix the typo in notes.py\n");
-    await until("Next: 2 Show status");
+    await until("Next: 1 Undo · 2 Show status");
     expect(offered).toEqual(["completed"]);
     input.write("2\n");
     // /status ran: its checks line is Casper's own output, not a model prompt.

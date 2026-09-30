@@ -4,7 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import { loadConfiguration } from "../src/config/load";
 import { PRIVATE_PATHS, PROTECTED_WRITE_PATHS } from "../src/platform/project-paths";
-import { cachePaths, hostListed, REGISTRY_HOSTS, sandboxPolicy } from "../src/sandbox/policy";
+import { within } from "../src/platform/project-paths";
+import { cachePaths, clangModuleCache, hostListed, REGISTRY_HOSTS, sandboxPolicy } from "../src/sandbox/policy";
 import { SandboxStore } from "../src/sandbox/store";
 import { posixOnly } from "./support/platform";
 
@@ -32,11 +33,63 @@ test("the policy hides every private place, writes only the project, temp and ca
   expect(policy.allowedDomains).toEqual(expect.arrayContaining([...REGISTRY_HOSTS, "localhost"]));
 });
 
+test("on macOS, swift build can write SwiftPM's cache and clang's module cache, but not the rest of ~/Library", async () => {
+  const { home, root } = await fixture();
+  const policy = sandboxPolicy({ root, home, tempDirs: ["/tmp-fixture"], platform: "darwin" });
+  expect(policy.allowWrite).toContain(path.join(home, "Library", "Caches", "org.swift.swiftpm"));
+  expect(policy.allowWrite).not.toContain(path.join(home, "Library"));
+  expect(policy.allowWrite).not.toContain(path.join(home, "Library", "Caches"));
+  expect(policy.allowWrite.filter((entry) => within(path.join(home, "Library"), entry)).map((entry) => path.relative(home, entry)))
+    .toEqual(cachePaths("darwin").filter((entry) => entry.startsWith("Library/")));
+  expect(clangModuleCache("darwin", "/var/folders/ab/cd123/T/")).toBe("/var/folders/ab/cd123/C/clang/ModuleCache");
+  expect(clangModuleCache("darwin", "/tmp", () => undefined)).toBeUndefined();
+  // TMPDIR set elsewhere: the user cache folder from getconf.
+  expect(clangModuleCache("darwin", "/tmp", () => "/var/folders/ab/cd123/C")).toBe("/var/folders/ab/cd123/C/clang/ModuleCache");
+  expect(clangModuleCache("linux", "/var/folders/ab/cd123/T")).toBeUndefined();
+});
+
 test("a plan turn's policy leaves the project read-only", async () => {
   const { home, root } = await fixture();
   const policy = sandboxPolicy({ root, home, tempDirs: ["/tmp-fixture"], platform: "linux", readOnlyProject: true });
   expect(policy.allowWrite).not.toContain(root);
   expect(policy.allowWrite).toContain("/tmp-fixture");
+});
+
+test("folders allowed this session join allowWrite; a deny inside one still wins, and none is offered twice over a deny", async () => {
+  const { base, home, root } = await fixture();
+  const folder = path.join(base, "app-config");
+  await mkdir(path.join(folder, "locked"), { recursive: true });
+  const policy = sandboxPolicy({ root, home, tempDirs: ["/tmp-fixture"], platform: "linux", sessionWrites: [folder],
+    project: { denyWrite: [path.join(folder, "locked")] } });
+  expect(policy.allowWrite).toContain(folder);
+  expect(policy.denyWrite).toContain(path.join(folder, "locked"));
+  const { ShellSandbox } = await import("../src/sandbox/manager");
+  const { fakeEngine } = await import("./support/sandbox-fakes");
+  const sandbox = new ShellSandbox({ root: () => root, home, engine: fakeEngine(), problem: () => undefined, platform: "linux", tempDirs: [],
+    settings: { project: { denyWrite: [path.join(folder, "locked")] } }, askWrite: async () => true });
+  expect(await sandbox.decideWrite(folder, "ai")).toBe("allowed");
+  expect(sandbox.policy().allowWrite).toContain(folder);
+  expect(sandbox.writeAllowed(path.join(folder, "ok.json"))).toBe(true);
+  expect(sandbox.writeAllowed(path.join(folder, "locked", "x.json"))).toBe(false);
+  // The folder that holds the deny, or sits in it, is never offered.
+  expect(sandbox.writeFolder(path.join(folder, "locked", "x.json"))).toBeUndefined();
+  expect(sandbox.writeFolder(path.join(folder, "ok.json"))).toBeUndefined();
+  await mkdir(path.join(base, "other"));
+  expect(sandbox.writeFolder(path.join(base, "other", "new", "deep.json"))).toBe(path.join(base, "other"));
+  // The folder above the project holds its git files.
+  expect(sandbox.writeFolder(path.join(base, "new.json"))).toBeUndefined();
+  expect(sandbox.writeFolder(path.join(root, "src", "a.ts"))).toBeUndefined();
+  await sandbox.close();
+});
+
+test("a folder allowed this session keeps git's own files read-only, its own and its repos'", async () => {
+  const { base, home, root } = await fixture();
+  const folder = path.join(base, "code"), repo = path.join(folder, "tool");
+  await mkdir(path.join(folder, ".git", "hooks"), { recursive: true });
+  await mkdir(path.join(repo, ".git", "hooks"), { recursive: true });
+  const policy = sandboxPolicy({ root, home, tempDirs: ["/tmp-fixture"], platform: "linux", sessionWrites: [folder] });
+  expect(policy.allowWrite).toContain(folder);
+  for (const dir of [folder, repo]) for (const own of ["hooks", "config"]) expect(policy.denyWrite).toContain(path.join(dir, ".git", own));
 });
 
 test("your own settings add hosts and write folders; a project's settings only add denies", async () => {

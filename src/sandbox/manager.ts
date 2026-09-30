@@ -4,7 +4,8 @@ import { mkdtemp, realpath, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { linuxSandboxProblem, quote, ripgrepPath } from "./linux";
-import { hostListed, hostName, sandboxPolicy, systemTempDirs, type SandboxPolicy, type SandboxProjectSettings, type SandboxUserSettings } from "./policy";
+import { realpathLongest, within } from "../platform/project-paths";
+import { hostListed, hostName, sandboxPolicy, systemTempDirs, writeFileToOffer, writeFolderToOffer, type SandboxPolicy, type SandboxProjectSettings, type SandboxUserSettings } from "./policy";
 import { runtimeEngine, type SandboxEngine } from "./runtime";
 import type { SandboxStore } from "./store";
 
@@ -43,6 +44,11 @@ export interface WrappedCommand {
 /** What a host question answered: no, for this session, or remembered for this project. */
 export type HostAnswer = "no" | "session" | "project";
 
+/** Who wants to write outside the project: a shell command, or the AI's own edit and write tools. */
+export type WriteAsker = "shell" | "ai";
+/** What a write question came to: allowed for this session, no, or nobody could answer (refused, no question). */
+export type WriteDecision = "allowed" | "no" | "cant-ask";
+
 export interface ShellSandboxOptions {
   root: () => string;
   home?: string;
@@ -57,6 +63,9 @@ export interface ShellSandboxOptions {
   store?: SandboxStore;
   /** A numbered question about one host; undefined when nobody can answer now (one-shot, --json, piped). */
   askHost?: (host: string) => Promise<HostAnswer> | undefined;
+  /** One numbered question about writes to folders (or, for the AI's tools, one file) outside the project (true
+   * allows them for this session); undefined when nobody can answer now. Never remembered past the session. */
+  askWrite?: (targets: string[], from: WriteAsker) => Promise<boolean> | undefined;
   /** Plain lines for the user ([sandbox] ...). */
   note?: (line: string) => void;
   /** The temp folders commands may write; the system's by default. */
@@ -88,6 +97,14 @@ export class ShellSandbox {
   /** Hosts you said yes to for one command (ssh to a host you named), until that command ends. */
   private readonly runHosts = new Map<string, string[]>();
   private remembered: string[] = [];
+  /** Folders outside the project you allowed writes to, this session only (the shell's and the AI's tools'). */
+  private readonly sessionWrites: string[] = [];
+  /** Single files outside the project you allowed the AI's edit and write tools, this session (not the shell's). */
+  private readonly sessionFiles: string[] = [];
+  private readonly pendingWrites = new Map<string, Promise<WriteDecision>>();
+  /** Allowed places the AI's tools wrote, and folders you allowed a shell command, since the last receipt. */
+  private readonly wroteOutside = new Set<string>();
+  private readonly allowedOutside = new Set<string>();
   private closed = false;
   private startError?: string;
   /** Main git folders watched for a `commondir` a command writes, with whether one was there first (yours). */
@@ -118,6 +135,10 @@ export class ShellSandbox {
   get asksFirst(): boolean { return asksBeforeShell(this.state) || Boolean(this.startError); }
   get platform(): NodeJS.Platform { return this.options.platform ?? process.platform; }
   get home(): string { return this.options.home ?? os.homedir(); }
+  get root(): string { return this.options.root(); }
+  /** The AI's edits and writes outside the project ask first, unless you turned the sandbox off
+   * (--no-sandbox, sandbox: off): then they go through as before. */
+  get asksOutsideWrites(): boolean { return this.state.kind !== "off"; }
   get user(): SandboxUserSettings { return this.options.settings?.user ?? {}; }
 
   /** The policy a command gets now. */
@@ -127,7 +148,7 @@ export class ShellSandbox {
       tempDirs: [...(this.options.tempDirs ?? systemTempDirs(this.platform)), ...(this.tempDir ? [this.tempDir] : [])],
       ...(this.options.settings?.user ? { user: this.options.settings.user } : {}),
       ...(this.options.settings?.project ? { project: this.options.settings.project } : {}),
-      rememberedHosts: this.remembered, ...(options.extraWrite ? { extraWrite: options.extraWrite } : {}),
+      rememberedHosts: this.remembered, sessionWrites: this.sessionWrites, ...(options.extraWrite ? { extraWrite: options.extraWrite } : {}),
       ...(options.readOnlyProject ? { readOnlyProject: true } : {}),
     });
   }
@@ -238,6 +259,77 @@ export class ShellSandbox {
   blockedReason(id: string, output = ""): string | undefined {
     const refused = this.refused(id, output);
     return refused.length ? `blocked by the sandbox (${refused.join("; ")})` : undefined;
+  }
+
+  /** True when a command or the AI's file tools may write `absolute` without a question: where it really lands
+   * (through links) is in the policy's writable places (temp, package caches, your sandbox.allowWrite, what you
+   * allowed this session), and no spelling of it is denied. A link in temp to elsewhere still asks. */
+  writeAllowed(absolute: string): boolean {
+    const policy = this.policy();
+    const real = realpathLongest(absolute);
+    const names = [...new Set([path.resolve(absolute), real])];
+    const allowed = policy.allowWrite.some((place) => within(place, real)) || this.sessionFiles.includes(real);
+    return allowed && !policy.denyWrite.some((place) => names.some((name) => within(place, name)));
+  }
+
+  /** The folder a write question offers for `absolute` (its nearest existing parent), or undefined when that is a
+   * place Casper never offers (see writeFolderToOffer): those stay refused without a question. */
+  writeFolder(absolute: string): string | undefined {
+    return writeFolderToOffer(absolute, this.policy(), { root: this.options.root(), home: this.home });
+  }
+
+  /** For the AI's edit and write tools: that folder, or else the file itself (see writeFileToOffer). */
+  writeTarget(absolute: string): { target: string; file: boolean } | undefined {
+    const folder = this.writeFolder(absolute);
+    if (folder) return { target: folder, file: false };
+    const file = writeFileToOffer(absolute, this.policy(), { root: this.options.root(), home: this.home });
+    return file ? { target: file, file: true } : undefined;
+  }
+
+  /** Folders and files allowed this session, for /sandbox. */
+  allowedWriteFolders(): string[] { return [...this.sessionWrites, ...this.sessionFiles]; }
+
+  private writeTargetAllowed(target: string): boolean {
+    return this.sessionWrites.some((entry) => within(entry, target)) || this.sessionFiles.includes(target);
+  }
+
+  /** One question for what is not allowed yet (several folders of one command share it): calls at the same time
+   * share it too, and an allowed place never asks again this session. A run that can't ask refuses at once.
+   * `file` (the AI's tools only) allows the one file, not its folder, and never the shell. */
+  async decideWrite(targets: string | string[], from: WriteAsker, options: { file?: boolean } = {}): Promise<WriteDecision> {
+    const left = [...new Set(typeof targets === "string" ? [targets] : targets)].filter((target) => !this.writeTargetAllowed(target));
+    if (!left.length) return "allowed";
+    const key = `${options.file ? "file" : "folder"}\0${left.join("\0")}`;
+    const pending = this.pendingWrites.get(key);
+    if (pending) return pending;
+    const decision = (async (): Promise<WriteDecision> => {
+      const answer = this.options.askWrite?.(left, from);
+      if (!answer) return "cant-ask";
+      if (!await answer.catch(() => false)) return "no";
+      const list = options.file ? this.sessionFiles : this.sessionWrites;
+      for (const target of left) if (!list.includes(target)) list.push(target);
+      return "allowed";
+    })();
+    this.pendingWrites.set(key, decision);
+    try { return await decision; } finally { this.pendingWrites.delete(key); }
+  }
+
+  /** The AI's edit or write went through at `absolute`, outside the project: the receipt names its allowed place. */
+  noteOutsideWrite(absolute: string): void {
+    const real = realpathLongest(absolute);
+    const place = this.sessionFiles.find((entry) => entry === real) ?? this.sessionWrites.find((entry) => within(entry, real));
+    if (place) this.wroteOutside.add(place);
+  }
+
+  /** You allowed a shell command to write `folder`: the receipt says allowed, not written (the sandbox can't tell). */
+  noteOutsideAllow(folder: string): void { this.allowedOutside.add(folder); }
+
+  /** What one task's receipt says since the last call: places written, and folders only allowed. */
+  takeOutsideWrites(): { wrote: string[]; allowed: string[] } {
+    const wrote = [...this.wroteOutside];
+    const allowed = [...this.allowedOutside].filter((folder) => !this.wroteOutside.has(folder));
+    this.wroteOutside.clear(); this.allowedOutside.clear();
+    return { wrote, allowed };
   }
 
   private async decideHost(host: string, port: number | undefined): Promise<boolean> {

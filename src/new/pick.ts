@@ -77,9 +77,38 @@ export function newProjectQuestion(suggestion: NewProjectSuggestion, parentDispl
   };
 }
 
-/** "What are you building?" with one numbered choice per ready template. */
-export function templateMenu(templates: readonly TemplateManifest[] = listTemplates()): { question: string; choices: string[]; ids: string[] } {
-  return { question: "What are you building?", choices: templates.map((t) => t.title), ids: templates.map((t) => t.id) };
+/** One choice at "What are you building?": a kind, then its templates when there's more than one. */
+export interface KindGroup {
+  label: string;
+  description: string;
+  /** The second question, asked only when the kind has more than one template. */
+  question: string;
+  choices: string[];
+  ids: string[];
+}
+
+/** The kinds, in menu order. A ready template missing here still gets its own kind, at the end. */
+const KIND_GROUPS: Array<Omit<KindGroup, "choices" | "ids"> & { templates: string[] }> = [
+  { label: "Network", description: "Mist scripts, Aruba CX or Junos Ansible", question: "Which network project?", templates: ["mist-python", "aoscx-ansible", "junos-ansible"] },
+  { label: "MCP server", description: "tools an AI can call, read-only by default", question: "Which MCP server?", templates: ["network-mcp"] },
+  { label: "Web app or dashboard", description: "a React app, or a NOC dashboard", question: "Which web app or dashboard?", templates: ["web-app", "noc-dashboard"] },
+  { label: "Python tool", description: "a command-line tool", question: "Which Python tool?", templates: ["python-cli"] },
+];
+
+/** The last kind: no template, an empty folder with git, and Casper builds what you describe. */
+export const EMPTY_CHOICE = { label: "My own", description: "an empty folder, you tell Casper what to build" };
+
+/** "What are you building?": a short list of kinds, each with its ready templates. */
+export function templateMenu(templates: readonly TemplateManifest[] = listTemplates()): { question: string; groups: KindGroup[] } {
+  const ready = new Map(templates.filter((t) => t.ready).map((t) => [t.id, t]));
+  const groups: KindGroup[] = [];
+  for (const { templates: ids, ...group } of KIND_GROUPS) {
+    const members = ids.flatMap((id) => ready.get(id) ?? []);
+    for (const member of members) ready.delete(member.id);
+    if (members.length) groups.push({ ...group, choices: members.map((t) => t.title), ids: members.map((t) => t.id) });
+  }
+  for (const t of ready.values()) groups.push({ label: t.title, description: t.description, question: t.title, choices: [t.title], ids: [t.id] });
+  return { question: "What are you building?", groups };
 }
 
 /**

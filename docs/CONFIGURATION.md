@@ -329,15 +329,17 @@ suggestions: false   # no suggested next steps anywhere
 
 Nothing to set up. The footer shows the current task's tokens and its cost from the model's
 price (`task 48.2k tok · $0.31`); a free model shows tokens only. The cost is the catalog's
-estimate, not a bill. Two limits per task are on by default:
+estimate, not a bill. By default a task only gets notes and never stops for money:
 
-- At about **$1**, one quiet line: `… This task has used $1.03 so far (312k tok).`
-- At about **$5**, the task pauses before its next step and asks
-  `This task has used $5.02.` with `1 Stop here · 2 Keep going`. Stop here is first, so Enter
-  stops; the work so far is kept and the receipt says `• Incomplete — stopped at $5.02, the $5
-  limit for one task`. Keep going asks again at $10, then $15.
-- One-shot runs and `--json` never wait: they stop at the same point, say so on one line, and the
-  receipt says it (exit 2, JSON `spendLimit`).
+- At about **$1**, one quiet line: `… This task has used $1.03 so far (312k tok).` At about **$5**,
+  one more. A subscription or a free model gets neither.
+- Want a limit? Say it in your request ("keep it under $2"), or set `spend.pauseAt`. Then the task
+  pauses before its next step and asks `This task has used $5.02.` with `1 Stop here · 2 Keep
+  going`. Stop here is first, so Enter stops; the work so far is kept and the receipt says
+  `• Incomplete — stopped at $5.02, the $5 limit for one task`. Keep going asks again at the next
+  multiple.
+- With `spend.pauseAt` set, one-shot runs and `--json` never wait: they stop at the same point, say
+  so on one line, and the receipt says it (exit 2, JSON `spendLimit`).
 
 The pause comes before the AI's next step (a tool call), so a turn that ends in words only ends the
 task instead. The shown cost leaves out the small automatic-effort call and `/delegate` helpers until
@@ -348,8 +350,36 @@ To change the limits, or turn one off, set them in your own config (a project ca
 ```yaml
 # ~/.casper/config.yaml or a profile's config.yaml
 spend:
-  noteAt: 2        # dollars per task; false turns the note off
-  pauseAt: 20      # dollars per task; false turns the pause (and the script stop) off
+  noteAt: 2        # dollars per task (a second note at 5x); false turns the notes off
+  pauseAt: 20      # dollars per task; off unless set; false turns it off again
+```
+
+## Prompt cache
+
+Providers keep the start of the conversation (instructions, tools, earlier turns) for a while, so
+the next request reads it back cheaply. By default (`cache: auto`) Casper keeps the long cache only
+where it costs nothing extra:
+
+- OpenAI, and non-Anthropic models on OpenRouter, get the long cache, about a day, which costs no
+  more to write than the short one.
+- Anthropic models, whether direct or through OpenRouter, Bedrock or Vertex, get the short cache
+  (about five minutes). Their hour-long cache costs about twice the normal input price to write,
+  against about 1.25 times for the short one.
+- Any other provider, including other OpenAI-style and local servers, gets the short cache, so it
+  never sees a request it might reject or charge extra for.
+
+Casper's own tools stay offered once they appear, and tools from connected MCP servers are picked
+once per session, because a changed tool list throws the cache away. Connecting or removing an MCP
+server can still start it over. `/usage` shows how much input came from the cache:
+`Cache: 97% of input read from cache this session`.
+
+`cache: long` asks every provider for the long cache (Bedrock still gets the short one), which can
+pay off on Anthropic if you often pause for more than five minutes. To change it, set it in your own
+config; a project's `.casper/project.yaml` cannot:
+
+```yaml
+# ~/.casper/config.yaml or a profile's config.yaml
+cache: short   # auto (default), long, short, or off
 ```
 
 ## Skills

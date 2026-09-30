@@ -6,6 +6,8 @@ import type { LSPManager } from "../src/lsp/manager";
 import { lspTools } from "../src/lsp/tools";
 import type { MCPManager } from "../src/mcp/manager";
 import { askTool } from "../src/tui/ask";
+import { WebLookup } from "../src/web/lookup";
+import { webTools } from "../src/web/tools";
 
 // Tools that ask the human or drive shared state run one call at a time; read-only tools stay
 // parallel, because Pi runs a whole batch in order once any call in it is marked.
@@ -14,6 +16,9 @@ test("tools that ask or drive shared state are marked one at a time", () => {
   expect(browserTool({} as BrowserSession).sequential).toBe(true);
   const lsp = lspTools({ status: () => [{ state: "ready" }] } as unknown as LSPManager, async () => false);
   expect(lsp.map((tool) => [tool.name, tool.sequential])).toEqual([["lsp", true]]);
+  // Web lookups only read and never ask, so they stay parallel.
+  const web = webTools(new WebLookup({ provider: { id: "duckduckgo", label: "Fake", search: async () => [] } }));
+  expect(web.map((tool) => [tool.name, tool.sequential ?? false])).toEqual([["web_search", false], ["web_fetch", false]]);
 });
 
 test("MCP calls that may need approval run one at a time; reads and search stay parallel", async () => {

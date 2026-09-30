@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
-import { checksPassed, formatReceipt, liveCheckLine, taskOutcome, type TaskResult } from "../src/task/result";
+import { checksPassed, formatReceipt, formatShortReceipt, formatTaskResult, liveCheckLine, taskOutcome, undoPathsShown, type TaskResult } from "../src/task/result";
 import type { VerificationReport, VerificationResult } from "../src/verify/evidence";
+import { COMMIT_CHECK_LABEL, DRY_RUN_LABEL } from "../src/network/checks";
 
 function check(overrides: Partial<VerificationResult> = {}): VerificationResult {
   return { name: "test", status: "pass", command: "npm run test", cwd: "/repo", exitCode: 0, signal: null,
@@ -81,6 +82,22 @@ test("each reason Casper ran no checks is stated with a way forward", () => {
     .toBe("• Not verified — checks are off for this run. Run casper --verify to have Casper check.\n✓ Changed 1 file: sum.js");
   expect(formatReceipt(done({ changedPaths: ["sum.js"], verification: report([check({ status: "skip", command: undefined, exitCode: null })], { status: "incomplete" }) })))
     .toBe("• Incomplete — not every check ran\n✓ Changed 1 file: sum.js\n• Not verified — test has no command. Add verify.test to .casper/project.yaml.");
+});
+
+test("later receipts in a session say the no-checks line short and leave out files undo already named", () => {
+  expect(formatReceipt(done({ changedPaths: ["sum.js"], verificationMode: "auto", autoSkipped: "no-checks" }), { checksHintShown: true }))
+    .toBe("• Not verified — no checks set up\n✓ Changed 1 file: sum.js");
+  const task = done({ changedPaths: ["a.local.json", "b.local.json"], verificationMode: "off",
+    undo: { available: true, left: [{ path: "a.local.json", why: "ignored" }, { path: "b.local.json", why: "ignored" }] } });
+  expect(formatReceipt(task)).toContain("• Undo can't put back: a.local.json (ignored), b.local.json (ignored)");
+  expect(formatReceipt(task, { undoNamed: new Set(["a.local.json"]) })).toContain("• Undo can't put back: b.local.json (ignored)");
+  expect(formatReceipt(task, { undoNamed: new Set(["a.local.json", "b.local.json"]) })).not.toContain("Undo can't put back");
+  // Files past the receipt's limit are not counted as named, so a later receipt names them.
+  const many = Array.from({ length: 10 }, (_, i) => `f${i}.local.json`);
+  const big = done({ changedPaths: many, verificationMode: "off", undo: { available: true, left: many.map((path) => ({ path, why: "ignored" })) } });
+  const first = undoPathsShown(big);
+  expect(first).toEqual(many.slice(0, 8));
+  expect(formatReceipt(big, { undoNamed: new Set(first) })).toContain("• Undo can't put back: f8.local.json (ignored), f9.local.json (ignored)");
 });
 
 test("a pass whose inputs changed afterwards is stale, not verified", () => {
@@ -199,6 +216,110 @@ test.skipIf(process.platform === "win32")("the one-shot undo command quotes a fo
   expect(last("~/code/app")).toBe("Undo: casper --cd ~/code/app /undo 4 · Diff: casper --cd ~/code/app /diff 4");
   expect(last("~/My Lab")).toBe("Undo: casper --cd ~/'My Lab' /undo 4 · Diff: casper --cd ~/'My Lab' /diff 4");
   expect(last("/srv/a $HOME's")).toBe("Undo: casper --cd '/srv/a $HOME'\\''s' /undo 4 · Diff: casper --cd '/srv/a $HOME'\\''s' /diff 4");
+});
+
+// The short receipt the terminal shows after a task. The full form above stays for --json and saved receipts.
+const proven: TaskResult["proof"] = { status: "proven", check: "test", command: "npm run test", testsChanged: true, without: { exitCode: 1, ended: "fail" } };
+const many = Array.from({ length: 15 }, (_, index) => `src/file-${index}.ts`);
+
+test("short receipt: all well is one line", () => {
+  expect(formatShortReceipt(done({ changedPaths: many, verificationMode: "auto", verification: report([check(), check({ name: "lint", command: "npm run lint" })]), proof: proven })))
+    .toBe("✓ Verified · test passed · lint passed · 15 files changed");
+  // A few files are named; repairs come last; the model's own "all covered" claim is left out.
+  expect(formatShortReceipt(done({ changedPaths: ["sum.js"], verificationMode: "auto", verification: report([check()], { repairAttempts: 1 }), proof: proven,
+    review: { done: ["sums"], open: [] } })))
+    .toBe("✓ Verified · test passed · changed sum.js · after 1 repair");
+  expect(formatShortReceipt(done({ changedPaths: [], verificationMode: "auto", verification: report([check()]) }))).toBe("✓ Checks passed · test passed · no files changed");
+  // The full form keeps every line.
+  expect(formatReceipt(done({ changedPaths: many, verificationMode: "auto", verification: report([check()]), proof: proven })).split("\n")).toHaveLength(4);
+});
+
+test("short receipt: a failed check keeps its own line under the verdict", () => {
+  const task = done({ changedPaths: many, verificationMode: "auto",
+    verification: report([check({ name: "lint", command: "npm run lint" }), check({ status: "fail", exitCode: 1 })], { repairAttempts: 2 }) });
+  expect(formatShortReceipt(task)).toBe([
+    "✗ Failed — test failed",
+    "✓ lint passed · 15 files changed",
+    "↻ Casper tried 2 repairs",
+    "✗ test failed (exit 1) — log above; /verify repair test to fix",
+  ].join("\n"));
+});
+
+test("short receipt: not verified says why on its own line, and never claims Verified", () => {
+  const unproven = formatShortReceipt(done({ changedPaths: ["sum.js"], verificationMode: "auto", verification: report([check()]), proofSkipped: "only docs changed" }));
+  expect(unproven).toBe("• Checks passed — not proven: only docs changed\n✓ test passed · changed sum.js");
+  const none = formatShortReceipt(done({ changedPaths: ["sum.js"], autoSkipped: "no-checks" }));
+  expect(none).toBe("• Not verified — no checks configured. Add verify.test to .casper/project.yaml.\n✓ changed sum.js");
+  for (const text of [unproven, none]) expect(text).not.toContain("Verified");
+  const incomplete = formatShortReceipt(done({ changedPaths: ["sum.js"], verification: report([check()], { status: "incomplete" }) }));
+  expect(incomplete.split("\n")[0]).toBe("• Incomplete — not every check ran");
+});
+
+test("short receipt: what undo can't put back is its own line", () => {
+  const task = done({ changedPaths: ["sum.js"], verificationMode: "auto", verification: report([check()]), proof: proven, receipt: 3,
+    undo: { available: true, left: [{ path: ".env", why: "git ignores it" }] } });
+  expect(formatShortReceipt(task)).toBe("✓ Verified · test passed · changed sum.js\n• Undo can't put back: .env (git ignores it)");
+  expect(formatShortReceipt(task, { surface: "one-shot" })).toEndWith("\nUndo: casper /undo 3 · Diff: casper /diff 3");
+});
+
+test("short receipt: the checklist is said only when a case is not met or can't be checked", () => {
+  const cases = Array.from({ length: 26 }, (_, index) => `case ${index}`);
+  const passing = done({ changedPaths: ["sum.js"], verificationMode: "auto", verification: report([check()]), proof: proven, checklist: cases });
+  expect(formatShortReceipt(passing)).toBe("✓ Verified · test passed · changed sum.js");
+  // The model's review admits a gap: the checklist line names it, instead of a second line about the review.
+  const gap = done({ ...passing, review: { done: [], open: ["negative numbers — not implemented"] } });
+  expect(formatShortReceipt(gap)).toBe([
+    "• Not verified — the model's review lists unfinished items",
+    "✓ test passed · changed sum.js",
+    "⚠ 1 requirement not met, the model says: negative numbers — not implemented",
+  ].join("\n"));
+  const failed = done({ changedPaths: ["sum.js"], verificationMode: "auto", verification: report([check({ status: "fail", exitCode: 1 })]), checklist: cases });
+  // The failure comes right after the verdict; the checklist's line follows it.
+  expect(formatShortReceipt(failed)).toBe([
+    "✗ Failed — test failed",
+    "✓ changed sum.js",
+    "✗ test failed (exit 1) — log above; /verify repair test to fix",
+    "• 26 cases from your request not confirmed: the checks did not pass (/receipt lists them)",
+  ].join("\n"));
+  const unchecked = done({ changedPaths: ["sum.js"], autoSkipped: "no-checks", checklist: ["one case"] });
+  expect(formatShortReceipt(unchecked)).toContain("\n• 1 case from your request not confirmed: no checks ran (/receipt lists them)");
+  // Stopped at the spend pause: no checks ran because the task did not finish.
+  const paused = done({ changedPaths: ["sum.js"], spendLimit: { spent: 5.1, limit: 5 }, checklist: ["one case"] });
+  expect(formatShortReceipt(paused)).toContain("\n• 1 case from your request not confirmed: the task did not finish (/receipt lists them)");
+  // Nothing changed: nothing to confirm.
+  expect(formatShortReceipt(done({ changedPaths: [], autoSkipped: "no-changes", checklist: cases }))).not.toContain("cases");
+  // Without a checklist the review gap keeps its own line.
+  expect(formatShortReceipt(done({ ...gap, checklist: undefined }))).toContain("⚠ The model's review says not done: negative numbers — not implemented");
+  // The full receipt (--json text) is unchanged by the checklist.
+  expect(formatReceipt(failed)).toBe(formatReceipt({ ...failed, checklist: undefined }));
+});
+
+test("/receipt lists every checklist case", () => {
+  const text = formatTaskResult(done({ changedPaths: ["sum.js"], checklist: ["limit(0) throws", "the 6th call is rejected"] }));
+  expect(text).toContain("       checklist    2 cases from your request (handed to the model to test; not evidence)\n                    - limit(0) throws\n                    - the 6th call is rejected");
+});
+
+test("short receipt: a lab pass keeps its caveat, beside a proven test too", () => {
+  for (const label of [DRY_RUN_LABEL, COMMIT_CHECK_LABEL]) {
+    const lab = check({ name: "lab-apply", kind: "lab", label, command: "ansible-playbook --check site.yml" });
+    const task = done({ changedPaths: ["site.yml"], verificationMode: "auto", verification: report([check(), lab]), proof: proven });
+    expect(formatShortReceipt(task)).toBe(`✓ Verified · test passed · lab-apply passed (${label} · ansible-playbook --check site.yml) · changed site.yml`);
+  }
+});
+
+test("short receipt: the model's review counting fewer than all requirements keeps its line", () => {
+  const base = { changedPaths: ["a.ts"], verificationMode: "auto" as const, verification: report([check()]), proof: proven };
+  const short = formatShortReceipt(done({ ...base, review: { fixed: [], open: [], covered: 3, total: 5 } }));
+  expect(short).toContain("\n• The model's review: 3 of 5 requirements covered (");
+  // Only the all-covered claim is left out.
+  expect(formatShortReceipt(done({ ...base, review: { fixed: [], open: [], covered: 5, total: 5 } }))).toBe("✓ Verified · test passed · changed a.ts");
+});
+
+test("short receipt: with a problem, no files changed is not shown with a check mark", () => {
+  const task = done({ changedPaths: [], verificationMode: "auto", verification: report([check({ status: "fail", exitCode: 1 })]) });
+  const text = formatShortReceipt(task);
+  expect(text).toContain("• No files changed");
+  expect(text).not.toContain("✓");
 });
 
 test("a check that took under a second shows no time: the receipt and the live line never say 0.0s", () => {

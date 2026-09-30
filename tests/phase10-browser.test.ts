@@ -174,7 +174,7 @@ browserTest("an immutable reproduction detects behavior and layout failures, rep
   expect(replay).toMatchObject({ id: baseline.id, scenarioSha256: baseline.scenarioSha256, status: "pass", baseline: "fail", freshness: "fresh", assertions: [{ status: "pass" }, { status: "pass" }] });
   await writeFile(f.sourceFile, html(false));
   expect(await f.session.report()).toMatchObject({ status: "incomplete", checks: [{ freshness: "stale" }] });
-  await expect(f.session.run({ action: "replay", id: baseline.id, scenario: {} })).rejects.toThrow("Unexpected");
+  await expect(f.session.run({ action: "replay", id: baseline.id, scenario: {} })).rejects.toThrow("replay runs the recorded scenario unchanged");
 }, 25_000);
 
 browserTest("local synthetic interactions proceed while consequential actions require approval", async () => {

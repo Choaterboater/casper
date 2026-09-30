@@ -32,7 +32,8 @@ test("--list prints one plain line per ready template", async () => {
   const { exitCode } = await runNewCommand({ command: { list: true }, write: (line) => lines.push(line) });
   expect(exitCode).toBe(0);
   expect(lines).toEqual(listLines());
-  expect(lines).toHaveLength(listTemplates().length);
+  expect(lines).toHaveLength(listTemplates().length + 1);
+  expect(lines.at(-1)).toMatch(/^empty\s+My own\. An empty folder with git/);
   expect(lines[0]).toStartWith("python-cli     Python tool (command line). ");
 });
 

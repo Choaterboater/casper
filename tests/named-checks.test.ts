@@ -141,13 +141,25 @@ describe("running named checks", () => {
       render: { kind: "offline", run: "cat switch.cfg", after: "each-change" },
       "junos-commit": { kind: "lab", preset: "junos-commit", files: ["c.set"], inventory: "lab.yml" },
     }), 10_000);
-    const tool = new VerificationTask(registry, root).tool();
-    expect((tool.inputSchema as { properties: { check: { enum: string[] } } }).properties.check.enum).toEqual(["typecheck", "lint", "test", "build", "render"]);
+    const tool = new VerificationTask(registry, root).tool()!;
+    expect((tool.inputSchema as { properties: { check: { enum: string[] } } }).properties.check.enum).toEqual(["render"]);
     expect(await tool.execute({ check: "junos-commit" })).toEqual({ text: "Lab checks run only when you start them: /verify junos-commit", isError: true });
     const ran = await tool.execute({ check: "render" });
     expect(ran.isError).toBe(false);
     expect(ran.text).toContain("enable secret 0 <secret hidden>");
     expect(ran.text).not.toContain("hunter2secret");
+  });
+
+  test("casper_check offers only checks with a command, and is left out when none has one", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "casper-tool-"));
+    dirs.push(root);
+    const offered = new VerificationTask(VerifierRegistry.forProject(model(root, {}, { test: "echo ok" }), 10_000), root).tool()!;
+    expect((offered.inputSchema as { properties: { check: { enum: string[] } } }).properties.check.enum).toEqual(["test"]);
+    expect(new VerificationTask(VerifierRegistry.forProject(model(root, {}), 10_000), root).tool()).toBeUndefined();
+    // /verify <name> still reports a built-in check with no command.
+    expect(VerifierRegistry.forProject(model(root, {}), 10_000).names()).toEqual(["typecheck", "lint", "test", "build"]);
+    // Plain /verify still names them (in one line, when they have no command); see noChecksNote and verifyPlan.
+    expect(defaultVerifyNames(model(root, {}))).toEqual(["typecheck", "lint", "test", "build"]);
   });
 });
 

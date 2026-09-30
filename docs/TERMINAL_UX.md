@@ -103,8 +103,9 @@ stay on standalone lines so frames do not become part of a copied value. Capture
 tool errors and verifier stdout/stderr remain available with display-only
 redaction; this is not a general secret detector, and recorded evidence is unchanged.
 
-Tool activity shows file/command targets (grep/find show their pattern) and state; the time
-shows only from one second up. A shell command shows as a short label, its program and what it
+Tool activity shows file/command targets (grep/find show their pattern, web_fetch its address,
+web_search its query) and state; paths show relative to the project (`~` for home outside it), and
+the time shows only from one second up. A shell command shows as a short label, its program and what it
 acts on (`git status`, `ssh root@10.0.0.5 …`, `python3 -m pytest …`, at most 80 characters);
 `/output` shows the whole command, secrets hidden. The `✓` or `✗` says how a call ended, so there
 is no "completed".
@@ -115,13 +116,15 @@ while it runs, `✓ read · src/x.ts` once done), even with calls running side b
 moves on (its next words, or the end of its turn), the finished steps fold into one line:
 `✓ 14 edits · 6 commands · 38s` (`•` instead of `✓` when a step failed); a single step prints its own line. A failed command
 prints its line and cause above the summary; a failed edit the model tried again at once is counted,
-not printed. A command Casper refused before it ran (a private place such as `~/.ssh`, another machine
+not printed. `/output all` lists every call of the last task on its own line. A command Casper refused before it ran (a private place such as `~/.ssh`, another machine
 you said No to, or one a script run can't ask about) is not a failure: it reads
 `• bash · cat ~/.ssh/config — not run`, with the reason said to you on the next line, and is not
 counted as failed. The box also starts with `Waiting for <provider/model> · 0s` and ticks elapsed time
 even when the provider sends no intermediate progress events; progress updates change it to reasoning
 or tool preparation. It never displays hidden reasoning or generated arguments, and it is gone when
-the receipt or the prompt returns. The plain terminal and scripts print one end line per tool call.
+the receipt or the prompt returns. The plain terminal and scripts print one end line per tool call;
+having no box, they also print `… bash · bun test` when a call other than a look or an edit is still running after two seconds,
+so a long test run does not look hung.
 
 Help and results group related facts instead of one long paragraph. Assistant
 instructions favor the answer or action first, numbered human steps when needed,
@@ -134,8 +137,9 @@ horizontally between states, so a draft keeps its wrapping. The footer shows a
 state glyph (braille spinner while working, `○` idle, `? waiting for you` while a question,
 checklist or approval needs you, with the spinner stopped and the timer paused), then project/branch, provider/model, effort,
 estimated context occupancy, the current task's tokens and its cost from the model's price
-(`task 48.2k tok · $0.31`; a free model shows tokens only; /usage has the session totals), and
-idle/working state. While a task runs, its stages
+(`task 48.2k tok · $0.31`; a free model shows tokens only; a subscription sign-in shows
+`sub ≈$0.31`, what the tokens would cost pay-per-token; /usage has the session totals split into
+out, new and cached, `44k out · 131k new · 4.9M cached`), and idle/working state. While a task runs, its stages
 lead the footer, each marked ✓ once done, then the elapsed time:
 `⠋ checklist ✓ · building ✓ · checks · 1m05s │ project…`; in a narrow window only the current stage
 and the time (`⠋ checks · 1m05s │ …`). Tool lines print paths relative to the project and fit one row:
@@ -172,7 +176,9 @@ hidden there for 14 days; picking it resets that. `/suggestions` lists each step
 Before work, a build request with several asks can get one extra choice folded into the checklist
 panel, so there is still one panel: `Suggested: plan first — this asks for 4 things` with 1 Plan first,
 2 Just build (with the listed cases) and 3 Edit the cases first. A typed yes plans first and a typed
-no just builds; other typed text is one more case to test. Plan first (or `/plan <request>`) runs a
+no just builds; other typed text is one more case to test. A request that already lists its
+requirements (two or more list lines, most with a detail such as a command, number, file or example)
+is built as asked, with no question. Plan first (or `/plan <request>`) runs a
 plan turn: the model may only read (read, grep, find, ls and look-only shell commands such as `ls`,
 `cat` or `git log`); every other tool, MCP and Casper's own tools included, is refused with "Planning
 only". This is Casper's gate, not a sandbox, and a file that changed anyway is named on the receipt
@@ -337,7 +343,7 @@ Daily commands include `/help`, `/status`, `/project`, `/diff`, `/verify`, `/ski
 | Command | Effect |
 | --- | --- |
 | `/context` | Runtime context estimate and counts; no invented per-file token attribution |
-| `/usage` | Input/output/cache/session tokens and optional catalog cost estimate, not billing |
+| `/usage` | Tokens split into out, new and cached plus the raw counts; catalog cost estimate for the whole session, or the subscription name with the pay-per-token figure; not billing |
 | `/compact [instructions]` | Explicit cancellable model-assisted summary; **can make a model request** |
 | `/clear` | Fresh saved conversation, no workspace rollback; prior conversation remains resumable |
 | `/resume` | List saved conversation IDs in this workspace |
@@ -349,7 +355,8 @@ Daily commands include `/help`, `/status`, `/project`, `/diff`, `/verify`, `/ski
 textconv drivers. Untracked names are listed, not file contents. Each Git command
 has a five-second deadline and 64 KiB output limit; large output is marked truncated.
 After a task that changed files, the receipt names the changed paths (from a before/after
-tree digest) and a git workspace appends a bounded `git diff --stat` under the same limits.
+tree digest), or how many past three. The per-file table (a bounded `git diff --stat`) is shown
+with `--verbose`; `/diff` shows the task's full changes.
 `/permissions` explains actual boundaries from the state Casper is in: whether the shell
 sandbox holds shell commands and checks here, or (without it) that the AI's shell asks
 before each command. `/sandbox` lists what it holds. Existing integration-specific

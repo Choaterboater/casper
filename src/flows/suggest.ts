@@ -196,10 +196,12 @@ export function formatSuggestionRow(choices: readonly NextChoice[], options: { s
   };
 }
 
+const LIST_LINE = /^\s*(?:[-*•]|\d+[.)])\s+\S/;
+
 /** Separate asks in a request: sentences, list lines, and clauses joined by "and then", "also"... */
 export function countAsks(request: string): number {
-  const listLines = request.split(/\r?\n/).filter((line) => /^\s*(?:[-*•]|\d+[.)])\s+\S/.test(line)).length;
-  const prose = request.split(/\r?\n/).filter((line) => !/^\s*(?:[-*•]|\d+[.)])\s+\S/.test(line)).join(" ");
+  const listLines = request.split(/\r?\n/).filter((line) => LIST_LINE.test(line)).length;
+  const prose = request.split(/\r?\n/).filter((line) => !LIST_LINE.test(line)).join(" ");
   const clauses = prose
     .split(/(?<=[.!?])\s+(?=[A-Z])|;\s*|,?\s+(?:and then|then|and also|also|plus)\s+|,\s+and\s+(?=(?:add|make|build|create|write|fix|change|update|remove|show|let|support|move|rename|put)\b)/i)
     .map((part) => part.trim())
@@ -213,12 +215,26 @@ export interface BeforeWorkSuggestion {
   reason: string;
 }
 
+/** A code span, quote, number, path, file name or example: something a build can be checked against. */
+const CONCRETE = /`[^`\n]+`|"[^"\n]+"|\d|[\w-]+\/[\w.-]*|\w\.[A-Za-z][A-Za-z0-9]{1,7}\b|\b(?:for example|e\.g\.|such as)\b/i;
+
+/** Whether the request already lists its requirements: two or more list lines, most of them concrete
+ * (six words or more, or a detail like a command, number or file). Then the list is the plan. */
+export function specificRequest(request: string): boolean {
+  const lines = request.split(/\r?\n/).filter((line) => LIST_LINE.test(line)).map((line) => line.replace(/^\s*(?:[-*•]|\d+[.)])\s+/, ""));
+  if (lines.length < 2) return false;
+  const concrete = lines.filter((line) => line.split(/\s+/).length >= 6 || CONCRETE.test(line));
+  return concrete.length * 2 > lines.length;
+}
+
 /** Plan first: a build or setup request that asks for several things or is long, in an interactive
- * terminal, that does not already talk about a plan. Conservative on purpose; fading absorbs misses. */
+ * terminal, that does not already talk about a plan. A request that already lists concrete requirements
+ * is built as asked. Conservative on purpose; fading absorbs misses. */
 export function suggestBeforeWork(request: string, classification: TaskClassification, options: { interactive: boolean }): BeforeWorkSuggestion | undefined {
   if (!options.interactive) return undefined;
   if (classification.intent !== "implement" && classification.intent !== "configure") return undefined;
   if (/\bplan(?:s|ning|ned)?\b/i.test(request)) return undefined;
+  if (specificRequest(request)) return undefined;
   const asks = countAsks(request);
   const wordCount = request.trim().split(/\s+/).filter(Boolean).length;
   if (asks >= 3) return { id: "plan-first", reason: `this asks for ${asks} things` };

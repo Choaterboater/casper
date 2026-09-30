@@ -80,6 +80,15 @@ export const HOST_CHOICES = [
   { label: "Always for this project", description: "kept in ~/.casper, never in the repo; /sandbox forget <host> undoes it" },
 ] as const satisfies readonly Choice[];
 
+/** "The AI wants to write to ~/Library/Application Support/SomeApp." (a write outside the project, by the AI's
+ * shell or its edit and write tools). Enter writes nothing; nothing is kept past the session. */
+export function writeChoices(folder: string): Choice[] {
+  return [
+    { label: "No", description: "nothing is written" },
+    { label: `Allow ${folder} for this session`, description: "until Casper exits; Casper keeps no undo copy there" },
+  ];
+}
+
 /** "Reach 10.0.0.5 (build-server)?  ssh root@build-server uptime" before the AI's shell runs ssh, scp, sftp, rsync, nc, telnet or
  * socat to another machine, sandbox or not. Enter runs nothing. */
 export const REACH_CHOICES = [

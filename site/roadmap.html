@@ -219,6 +219,50 @@
             flagged.</li>
           </ul>
         </article>
+
+        <article class="card" id="v0220" aria-labelledby="v0220-h">
+          <h3 id="v0220-h">v0.2.20 · Fewer layers <span class="badge soon">coming, not released</span></h3>
+          <p>Less in your way. Casper and the AI do the next step themselves, and things start on,
+          with an off switch.</p>
+          <ul>
+            <li><strong>A shorter new-project menu.</strong> <code>casper new</code> asks the kind
+            first (Network, MCP server, Web app or dashboard, Python tool, My own), then which one.
+            My own is an empty folder with git.</li>
+            <li><strong>The AI does it.</strong> It changes settings in your project itself instead
+            of telling you to edit a file, builds things on by default, and keeps risk notes to one
+            line.</li>
+            <li><strong>One question for outside writes.</strong> A write outside the project asks
+            <code>1 No · 2 Allow &lt;folder&gt; for this session</code>, for the shell and the
+            AI's edit and write tools alike.</li>
+            <li><strong>Web lookups.</strong> <code>web_search</code> and <code>web_fetch</code>
+            read public pages (DuckDuckGo by default, no key). A lookup holding a secret is
+            refused. <code>web: off</code> turns them off.</li>
+            <li><strong>Quieter, more honest numbers.</strong> No repeated "not verified" lines;
+            usage shows out, new and cached tokens; a subscription says so instead of a list
+            price.</li>
+            <li><strong>More projects checked.</strong> Swift packages get <code>swift test</code> and <code>swift build</code>,
+            and a Python build check only when the build tool is there.</li>
+            <li><strong>Caching that lasts.</strong> The long cache only where it costs nothing
+            extra, one tool list per session, and the cache hit rate in <code>/usage</code>.</li>
+          </ul>
+        </article>
+
+        <article class="card" id="v030" aria-labelledby="v030-h">
+          <h3 id="v030-h">v0.3 · Crews <span class="badge soon">coming, not released</span></h3>
+          <p>Big jobs get a team, on their own.</p>
+          <ul>
+            <li><strong>Split, build, review, fix.</strong> For a big job the AI starts builders in
+            their own copies of the project, a reviewer for each part and a fixer, then merges and
+            runs the full tests. No command needed.</li>
+            <li><strong>See it work.</strong> The status bar shows the crew
+            (<code>crew 2/3 building · 1 reviewing · $0.40</code>); <code>/crew</code> shows each
+            part. Keep chatting; it reports when the parts land.</li>
+            <li><strong>No spending limit by default.</strong> Subscription and free models just run,
+            and the cost is shown as it goes. Want a limit? Say it in your request ("keep it under
+            $2", "no crew for this") and Casper keeps to it. <code>crew: off</code> turns crews
+            off.</li>
+          </ul>
+        </article>
         </div>
 
       </section>

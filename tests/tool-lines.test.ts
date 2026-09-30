@@ -1,11 +1,12 @@
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, expect, spyOn, test } from "bun:test";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
-import { refusalForScreen, RuntimeEventView, stepSummary } from "../src/app/events";
+import { PLAIN_START_AFTER_MS, refusalForScreen, RuntimeEventView, stepSummary } from "../src/app/events";
 import { reachCantAsk, reachDeclined, SHELL_CANT_ASK } from "../src/app/sandbox";
-import { commandLabel, formatToolActivity } from "../src/tui/format";
+import { commandLabel, displayPath, formatToolActivity, toolTarget } from "../src/tui/format";
 import { InteractiveTerminal } from "../src/tui/terminal";
 import { SPEND_STOP_REASON } from "../src/task/spend";
+import { TaskObservations } from "../src/task/observations";
 import type { RuntimeEvent } from "../src/runtime/types";
 
 const ambientTerm = process.env.TERM;
@@ -18,7 +19,7 @@ function fakeTerminal(rich: boolean) {
   let box: string[] | undefined;
   let text = "";
   const terminal = {
-    rich, columns: 100,
+    rich, columns: 100, questionsShown: 0, questionOpen: false,
     setActivity(status?: string | readonly string[]) { box = status === undefined ? undefined : typeof status === "string" ? [status] : [...status]; },
     endAssistant() { if (text) { screen.push(...text.split("\n").filter(Boolean)); text = ""; } },
     assistant(delta: string) { text += delta; },
@@ -29,7 +30,7 @@ function fakeTerminal(rich: boolean) {
     updateFooter() {}, onToolEnd() {}, setTaskStop() {}, markRuntimeFailed() {}, turnLimitReached() {}, cancelled: () => false,
     projectRoot: () => "/work/app",
   });
-  return { view, screen, get box() { return box; }, handle: (...events: RuntimeEvent[]) => { for (const event of events) view.handle(event); } };
+  return { view, screen, terminal, get box() { return box; }, handle: (...events: RuntimeEvent[]) => { for (const event of events) view.handle(event); } };
 }
 
 const start = (id: string, toolName: string, input: Record<string, string>): RuntimeEvent => ({ type: "tool_start", toolName, toolCallId: id, input });
@@ -175,4 +176,96 @@ test("a command Casper refused shows as not run with the reason said to you, nev
   expect(refusalForScreen(SHELL_CANT_ASK)).toBe(SHELL_CANT_ASK.replace("Not run: s", "S"));
   // A command's own failure is still a failure.
   expect(refusalForScreen("bash: foo: command not found")).toBeUndefined();
+});
+
+// Ported from v0.2.20 onto the Working box: ~ for home, web targets, /output all, and the plain start line.
+const fit = { root: "/work/demo-project", home: "/home/someone" };
+type ToolEnd = Extract<RuntimeEvent, { type: "tool_end" }>;
+const ended = (toolName: string, input: ToolEnd["input"], extra: Partial<ToolEnd> = {}): ToolEnd => ({ type: "tool_end", toolName, input, isError: false, ...extra });
+
+test("paths print relative to the project, with ~ for home outside it; web tools show their address or query", () => {
+  expect(displayPath("/work/demo-project/src/app.ts", fit)).toBe("src/app.ts");
+  expect(displayPath("/work/demo-project", fit)).toBe(".");
+  expect(displayPath("/work/demo-project-2/x.ts", fit)).toBe("/work/demo-project-2/x.ts");
+  expect(displayPath("/home/someone/notes/todo.md", fit)).toBe("~/notes/todo.md");
+  expect(displayPath("/etc/hosts", fit)).toBe("/etc/hosts");
+  expect(displayPath("src/app.ts", fit)).toBe("src/app.ts");
+  expect(formatToolActivity(ended("read", { path: "/home/someone/SomeApp/README.md" }), undefined, fit)).toBe("✓ read · ~/SomeApp/README.md");
+  expect(formatToolActivity(ended("grep", { pattern: "TODO", path: "/work/demo-project/src" }), undefined, fit)).toBe("✓ grep · TODO · src");
+  expect(formatToolActivity(ended("web_fetch", { url: "https://docs.example.com/a" }), undefined, fit)).toBe("✓ web_fetch · docs.example.com/a");
+  expect(formatToolActivity(ended("web_search", { query: "bun docs" }), undefined, fit)).toBe("✓ web_search · bun docs");
+});
+
+test("/output all keeps every call on its own line", () => {
+  const observations = new TaskObservations();
+  observations.observeToolEnd(ended("read", { path: "/work/demo-project/a.ts" }), undefined);
+  observations.observeToolEnd(ended("grep", { pattern: "TODO" }), undefined);
+  observations.observeToolEnd(ended("grep", { pattern: "TODO", path: "/work/demo-project/src" }), undefined);
+  observations.observeToolEnd(ended("web_fetch", { url: "https://docs.example.com/a" }), undefined);
+  observations.observeToolEnd(ended("bash", { command: "bun test" }, { isError: true }), undefined);
+  const calls = observations.toolCalls;
+  expect(calls.map(call => [call.toolName, call.status])).toEqual([["read", "success"], ["grep", "success"], ["grep", "success"], ["web_fetch", "success"], ["bash", "error"]]);
+  expect(calls.map(call => toolTarget(call.input, fit))).toEqual(["a.ts", "TODO", "TODO · src", "docs.example.com/a", "bun test"]);
+});
+
+test("plain terminal: a command still running after a moment says it started, so a long test run never looks hung", () => {
+  let now = 0;
+  const clock = spyOn(performance, "now").mockImplementation(() => now);
+  const timers: Array<() => void> = [];
+  const later = spyOn(globalThis, "setTimeout").mockImplementation(((callback: () => void, ms?: number) => {
+    expect(ms).toBe(PLAIN_START_AFTER_MS);
+    timers.push(callback);
+    return { unref() {} } as unknown as ReturnType<typeof setTimeout>;
+  }) as unknown as typeof setTimeout);
+  try {
+    const t = fakeTerminal(false);
+    // A read or an edit never gets a start line.
+    t.handle(start("r", "read", { path: "/work/app/a.ts" }));
+    expect(timers).toHaveLength(0);
+    t.handle(end("r", "read", { path: "/work/app/a.ts" }));
+    t.handle(start("b", "bash", { command: "bun test" }));
+    expect(t.screen).toEqual(["✓ read · a.ts"]);
+    now = PLAIN_START_AFTER_MS; timers.shift()!();
+    expect(t.screen).toEqual(["✓ read · a.ts", "… bash · bun test"]);
+    now = 4200;
+    t.handle(end("b", "bash", { command: "bun test" }), { type: "message_end" });
+    expect(t.screen).toEqual(["✓ read · a.ts", "… bash · bun test", "✓ bash · bun test · 4.2s"]);
+  } finally { clock.mockRestore(); later.mockRestore(); }
+});
+
+test("plain terminal: no start line while Casper asks about the call, or once its question named the command", () => {
+  const timers: Array<() => void> = [];
+  const later = spyOn(globalThis, "setTimeout").mockImplementation(((callback: () => void) => {
+    timers.push(callback);
+    return { unref() {} } as unknown as ReturnType<typeof setTimeout>;
+  }) as unknown as typeof setTimeout);
+  try {
+    const t = fakeTerminal(false);
+    const ssh = { command: "ssh root@build-server uptime" };
+    // "Reach build-server?" is open when the timer fires: nothing lands in the answer being typed.
+    t.handle(start("a", "bash", ssh));
+    t.terminal.questionsShown += 1; t.terminal.questionOpen = true;
+    timers.shift()!();
+    expect(t.screen).toEqual([]);
+    // Answered, and the command runs long: the question already named it.
+    t.terminal.questionOpen = false;
+    t.handle(end("a", "bash", ssh));
+    expect(t.screen).toEqual(["✓ bash · ssh root@build-server …"]);
+    // A call with no question still says it started.
+    t.handle(start("b", "bash", { command: "bun test" }));
+    timers.shift()!();
+    expect(t.screen.at(-1)).toBe("… bash · bun test");
+  } finally { later.mockRestore(); }
+});
+
+test("a skipped casper_check shows as skipped on both terminals; its payload never prints", () => {
+  const payload = JSON.stringify({ name: "junos", cwd: "/p", status: "skip", reason: "no device" });
+  for (const rich of [true, false]) {
+    const t = fakeTerminal(rich);
+    t.handle(start("c", "casper_check", { check: "junos" }), end("c", "casper_check", { check: "junos" }, false, payload), { type: "message_end" });
+    expect(t.screen).toEqual(["• casper_check · junos — skipped"]);
+  }
+  const failed = fakeTerminal(false);
+  failed.handle(start("f", "casper_check", { check: "test" }), end("f", "casper_check", { check: "test" }, true, JSON.stringify({ name: "test", status: "fail" })));
+  expect(failed.screen.join("\n")).not.toContain("status");
 });

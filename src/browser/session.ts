@@ -10,6 +10,7 @@ import type { Browser, Page } from "puppeteer-core";
 import type { ArtifactDirectory } from "../visualize/artifacts";
 import { isolatedEnvironment } from "../platform/environment";
 import { discoverBrowser } from "./discovery";
+import { actionUsage, browserArguments, text, webURL, type BrowserAction } from "./arguments";
 import { ownSpawnedTree, type OwnedProcesses, ProcessCleanupError, terminateTree } from "../platform/processes";
 
 export interface BrowserSessionOptions {
@@ -31,16 +32,6 @@ function localURL(source: string): boolean {
 function record(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
-function text(value: unknown, label: string, limit = 2048): string {
-  if (typeof value !== "string" || !value.trim() || Buffer.byteLength(value) > limit || /[\x00-\x1f\x7f]/.test(value)) throw new Error(`Invalid browser ${label}`);
-  return value;
-}
-function webURL(value: unknown): string {
-  const url = new URL(text(value, "URL"));
-  if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) throw new Error("Browser navigation requires an HTTP(S) URL without credentials");
-  return url.href;
-}
-
 /** What one host page load saw. `failedRequests` holds every request that failed or answered 400 or more,
  * from any origin; the page check decides which ones count. */
 export interface PageLoad {
@@ -100,12 +91,15 @@ export class BrowserSession {
   }
 
   private async perform(input: unknown, signal?: AbortSignal): Promise<Record<string, unknown>> {
-    if (!record(input) || !["open", "inspect", "screenshot", "diagnostics", "viewport", "check", "replay", "serve", ...INTERACTIONS].includes(String(input.action))) throw new Error("Unknown browser action");
+    if (!record(input)) throw new Error("Browser arguments must be an object with an action");
     if (Buffer.byteLength(JSON.stringify(input)) > 20_000) throw new Error("Browser arguments exceed 20 KiB");
+    const { args, ignored } = browserArguments(input);
+    const result = await this.dispatch(args, signal);
+    return ignored.length ? { ...result, ignoredArguments: ignored, note: `${actionUsage(args.action as BrowserAction)}; the other fields were not applied.` } : result;
+  }
+
+  private async dispatch(input: Record<string, unknown>, signal?: AbortSignal): Promise<Record<string, unknown>> {
     const interaction = INTERACTIONS.includes(String(input.action));
-    const allowed = interaction ? ["action", "selector", "value", "impact", "reason"] : input.action === "open" ? ["action", "url"]
-      : input.action === "serve" ? ["action", "script", "url", "impact", "reason"] : input.action === "check" ? ["action", "scenario"] : input.action === "replay" ? ["action", "id"] : input.action === "viewport" ? ["action", "width", "height"] : ["action"];
-    if (Object.keys(input).some(key => !allowed.includes(key))) throw new Error("Unexpected browser arguments");
     const url = input.action === "open" ? webURL(input.url) : undefined;
     const combined = signal ? AbortSignal.any([signal, this.controller.signal]) : this.controller.signal;
     combined.throwIfAborted();
@@ -160,10 +154,10 @@ export class BrowserSession {
 
   private async serve(input: Record<string, unknown>, signal: AbortSignal): Promise<Record<string, unknown>> {
     if (this.server) throw new Error("Only one development server is allowed per browser session");
-    if (input.script !== "dev" && input.script !== "start") throw new Error("Browser server script must be dev or start");
-    if (!["local-test", "consequential", "uncertain"].includes(String(input.impact))) throw new Error("Server start requires explicit impact");
+    if (input.script !== "dev" && input.script !== "start") throw new Error("Browser serve needs script: \"dev\" or \"start\" (a package.json script name)");
+    if (!["local-test", "consequential", "uncertain"].includes(String(input.impact))) throw new Error("Browser serve needs impact: local-test, consequential or uncertain");
     const reason = text(input.reason, "reason", 512), url = webURL(input.url);
-    if (!localURL(url)) throw new Error("Development server URL must be loopback");
+    if (!localURL(url)) throw new Error("Browser serve url must be a loopback address like http://127.0.0.1:3000");
     const source = referenceText(await readReferenceFile(path.join(this.options.projectRoot, "package.json"), 65_536));
     const manifest: unknown = JSON.parse(source);
     if (!record(manifest) || !record(manifest.scripts)) throw new Error("Project has no development scripts");
@@ -277,8 +271,8 @@ export class BrowserSession {
         scenarioSha256: createHash("sha256").update(JSON.stringify(scenario)).digest("hex"), url: scenario.url, viewport: scenario.viewport,
         status: "incomplete", baseline: "incomplete", freshness: "unavailable", scope: scenario.scope, assertions: [] } });
     } else {
-      id = text(input.id, "scenario ID", 64);
-      if (!this.scenarios.has(id)) throw new Error("Unknown browser scenario ID; record a check first");
+      id = text(input.id, "id", 64);
+      if (!this.scenarios.has(id)) throw new Error("Unknown browser check id; replay an id a check returned in this session, or record a check first");
     }
     const entry = this.scenarios.get(id)!;
     const { scenario } = entry;
@@ -330,7 +324,7 @@ export class BrowserSession {
 
   private async interact(input: Record<string, unknown>, signal: AbortSignal): Promise<Record<string, unknown>> {
     const selector = text(input.selector, "selector", 512);
-    if (!["local-test", "consequential", "uncertain"].includes(String(input.impact))) throw new Error("Browser interaction requires explicit impact: local-test, consequential or uncertain");
+    if (!["local-test", "consequential", "uncertain"].includes(String(input.impact))) throw new Error(`Browser ${String(input.action)} needs impact: local-test, consequential or uncertain`);
     const reason = text(input.reason, "reason", 512);
     const action = String(input.action);
     const value = action === "click" ? undefined : text(input.value, "value", 1024);

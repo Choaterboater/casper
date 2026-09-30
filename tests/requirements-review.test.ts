@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { CHECKLIST_FORMAT, parseChecklist, parseReview, requirementsReviewPrompt } from "../src/task/review";
+import { OPEN_ITEM_FORMAT, parseChecklist, parseReview, requirementsReviewPrompt } from "../src/task/review";
 import { formatTaskPrompt } from "../src/task/classify";
 import { formatReceipt, formatTaskResult, taskOutcome, type TaskResult } from "../src/task/result";
 import type { VerificationReport, VerificationResult } from "../src/verify/evidence";
@@ -35,7 +35,7 @@ test("the review prompt checks every stated requirement, from the request and th
   expect(prompt).toContain("- [x] <requirement> — <the test you added for it>");
   expect(prompt).toContain("- [ ] <requirement> — <why it is still not done>");
   // The open-item line is the task turn's own, so both rounds read the same way.
-  expect(prompt).toContain(CHECKLIST_FORMAT[2]!);
+  expect(prompt).toContain(OPEN_ITEM_FORMAT);
   expect(prompt).toContain("Covered: <n> of <m> requirements.");
   expect(prompt).toContain("Requirements review: all covered.\nCovered: <m> of <m> requirements.");
   expect(prompt).toContain("do not list requirements that were already covered");
@@ -87,13 +87,15 @@ test("a change the review will check gets the request itself as its first turn, 
     { verificationMode: "offer", proveChange: false, reviewFollows: true })).toContain("Casper initial classification");
 });
 
-test("with the review off, the first turn asks for the checklist in the exact format the review parses", () => {
+test("with the review off, the first turn asks only for the open requirements, in the format the review parses", () => {
   const model = { commands: { test: "npm test" } } as unknown as Parameters<typeof formatTaskPrompt>[2];
   const prompt = formatTaskPrompt("Add --tls to portcheck.", { intent: "implement", mode: "modify", verification: [] }, model, { proveChange: true, reviewFollows: false });
-  // A checklist in any other shape reads as none, and costs a whole review round.
-  expect(prompt).toContain("- [x] <requirement> — <the test that covers it>");
+  // A checklist in any other shape reads as none. The covered ones are left out: a full ticked list made answers long.
   expect(prompt).toContain("- [ ] <requirement> — <why it is still not done>");
-  expect(prompt).toContain("Give each case its own line");
+  expect(prompt).not.toContain("- [x] <requirement>");
+  expect(prompt).toContain("Do not list the covered ones");
+  expect(prompt).toContain("is several requirements");
+  expect(parseChecklist("Requirements:\n- [ ] --tls timeout — not implemented")).toEqual({ done: [], open: ["--tls timeout — not implemented"] });
   expect(parseChecklist("Requirements:\n- [x] --tls connects — tests/tls.test.ts")).toEqual({ done: ["--tls connects — tests/tls.test.ts"], open: [] });
 });
 

@@ -10,7 +10,7 @@ import { runCommandCheck } from "../verify/command";
 import { sandboxedArgv, sandboxPath, type SandboxedSpawn } from "../sandbox/spawn";
 import { UV_PYTHONS } from "../sandbox/policy";
 import {
-  getTemplate, initArgv, MARKER_FILE, NAME_RULE, PACKAGE_HOST, renderFiles, renderValues, validName,
+  EMPTY_TEMPLATE, getTemplate, initArgv, MARKER_FILE, NAME_RULE, PACKAGE_HOST, renderFiles, renderValues, validName,
   type TemplateManifest, type TemplateTool,
 } from "./templates";
 
@@ -87,6 +87,13 @@ export interface NewProjectResult {
   notes: string[];
   /** Template files not written because the init tool already wrote them. */
   kept: string[];
+  /** My own: an empty folder with git, no template. */
+  empty?: boolean;
+}
+
+/** "Starting ~/Projects/x from template web-app", or "as an empty folder" for My own. */
+export function startingLine(displayDir: string, template: string): string {
+  return template === EMPTY_TEMPLATE ? `Starting ${displayDir} as an empty folder` : `Starting ${displayDir} from template ${template}`;
 }
 
 const TEN_MINUTES = 10 * 60_000;
@@ -239,10 +246,10 @@ export async function createProject(options: NewProjectOptions): Promise<NewProj
 
   if (!validName(options.name)) return notCreated(NAME_RULE, 64);
   if (options.signal?.aborted) return notCreated("stopped before anything was written.");
-  const template = getTemplate(options.template);
-  if (!template) return notCreated(`There's no template called ${options.template}. Run casper new --list to see them.`, 64);
-  const manifest = template.manifest;
-  result.template = { id: manifest.id, version: manifest.version, kind: manifest.kind, title: manifest.title };
+  const empty = options.template === EMPTY_TEMPLATE;
+  const template = empty ? undefined : getTemplate(options.template);
+  if (!empty && !template) return notCreated(`There's no template called ${options.template}. Run casper new --list to see them.`, 64);
+  if (template) result.template = { id: template.manifest.id, version: template.manifest.version, kind: template.manifest.kind, title: template.manifest.title };
 
   const toolEnv = initEnv(baseEnv);
   const tool = async (argv: string[], cwd: string, timeoutMs = toolTimeoutMs) => run(argv, { cwd, env: toolEnv, signal: options.signal, timeoutMs });
@@ -250,7 +257,7 @@ export async function createProject(options: NewProjectOptions): Promise<NewProj
   // Preflight: every tool this template needs, before anything is written.
   const parentInfo = await stat(parent).catch(() => undefined);
   if (!parentInfo?.isDirectory()) return notCreated(`${tildePath(parent, home)} isn't a folder.`);
-  for (const name of [manifest.tool, "git"] as const) {
+  for (const name of template ? [template.manifest.tool, "git"] as const : ["git"] as const) {
     const probe = await tool([name, "--version"], parent, 30_000);
     if (probe.missing || probe.exitCode !== 0) return notCreated(missingToolMessage(name));
   }
@@ -267,6 +274,19 @@ export async function createProject(options: NewProjectOptions): Promise<NewProj
   // Is the new folder inside someone's repository? Then no git init and no commit there.
   const top = await tool(["git", ...safeGitArgs(["rev-parse", "--show-toplevel"])], dir, 30_000);
   const outerRepo = top.exitCode === 0 ? top.stdout.trim() : "";
+
+  // My own: the folder and git, nothing else. No template, no packages, no checks, nothing to commit yet.
+  if (!template) {
+    result.empty = true;
+    if (outerRepo) {
+      result.notes.push(`It's inside the git repository at ${tildePath(outerRepo, home)}, so Casper didn't start another one.`);
+    } else {
+      const initGit = await tool(["git", "init", "-q"], dir, 60_000);
+      if (initGit.exitCode !== 0) return notReady("git init failed.", lastLines(initGit.stderr));
+    }
+    return { ...result, status: "ready", exitCode: 0 };
+  }
+  const manifest = template.manifest;
 
   const values = renderValues(options.name, options.now);
   const host = PACKAGE_HOST[manifest.tool];

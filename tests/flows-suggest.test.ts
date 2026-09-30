@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { rememberableTestCommand } from "../src/flows/runners";
 import {
-  beforeWorkPanel, countAsks, formatSuggestionRow, MAX_SUGGESTIONS, readBeforeWorkAnswer, suggestBeforeWork,
+  beforeWorkPanel, countAsks, formatSuggestionRow, MAX_SUGGESTIONS, readBeforeWorkAnswer, specificRequest, suggestBeforeWork,
   SuggestionRules, type AfterReceiptContext, type SuggestionRule,
 } from "../src/flows/suggest";
 import type { ProjectModel } from "../src/project/model";
@@ -149,6 +149,33 @@ describe("before-work plan-first suggestion", () => {
     expect(suggestBeforeWork(listed, classifyTask(listed), { interactive: false })).toBeUndefined();
   });
 
+  test("a request that already lists concrete requirements is built as asked; a big vague one still gets the question", () => {
+    // The shape of a real benchmark prompt: six requirements, each with a detail to check against.
+    const detailed = [
+      "Build a small web app in this empty folder: a unit converter.",
+      "- Input a length with a unit (for example 12 ft). Show it in metres, centimetres, inches and yards.",
+      "- Also convert a list of values at once and show them in a table.",
+      "- Handle zero and negative values correctly, and reject bad input with a clear message.",
+      "- Use Bun and TypeScript, no framework. `bun run dev` serves the page; the math lives in its own module.",
+      "- Include unit tests for the math (`bun test`), with edge cases, and a short README saying how to run it.",
+      "When you're done, run the tests and make sure they pass.",
+    ].join("\n");
+    expect(countAsks(detailed)).toBeGreaterThanOrEqual(3);
+    expect(specificRequest(detailed)).toBe(true);
+    expect(ask(detailed)).toBeUndefined();
+    // Short list lines with nothing to check against are still vague, and so is a long list of bare features.
+    const vague = "Build me a store app:\n- login\n- payments\n- a dashboard\n- notifications\n- an admin panel";
+    expect(specificRequest(vague)).toBe(false);
+    expect(ask(vague)).toEqual({ id: "plan-first", reason: "this asks for 6 things" });
+    // Mostly vague: one detailed line does not make the list specific.
+    expect(specificRequest("Add:\n- auth\n- billing\n- a chart of monthly revenue per customer on the home page")).toBe(false);
+    // A numbered list counts, and its numbers are not a detail.
+    expect(specificRequest("Add these:\n1. read sites\n2. read devices")).toBe(false);
+    expect(specificRequest("Add these:\n1. read sites from `sites.csv`\n2. write devices to report.json")).toBe(true);
+    // The user asking for a plan still turns it off either way.
+    expect(ask(`${vague}\nPlan it first.`)).toBeUndefined();
+  });
+
   test("folds into the checklist panel: plan first is choice 1, then build with the cases, then edit", () => {
     const panel = beforeWorkPanel({ id: "plan-first", reason: "this asks for 4 things" }, ["empty host is an error", "port 22 is default", "IPv6 works", "names are trimmed"]);
     expect(panel.question).toBe("Suggested: plan first — this asks for 4 things");
@@ -181,6 +208,8 @@ describe("rememberable test commands", () => {
     expect(rememberableTestCommand("bun test")).toBe("bun test");
     expect(rememberableTestCommand("npm test")).toBe("npm test");
     expect(rememberableTestCommand("go test ./...")).toBe("go test ./...");
+    expect(rememberableTestCommand("python -m unittest")).toBe("python -m unittest");
+    expect(rememberableTestCommand("python3 -m unittest -v")).toBe("python3 -m unittest -v");
   });
 
   test("anything else is not offered", () => {

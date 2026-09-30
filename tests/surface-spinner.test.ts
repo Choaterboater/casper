@@ -25,7 +25,7 @@ test("the footer spinner animates while activity is present", async () => {
     const { surface, chunks } = makeSurface();
     surface.start();
     chunks.length = 0;
-    surface.setActivity("• bash · find — running");
+    surface.setActivity("Running bash find");
     vi.advanceTimersByTime(SPINNER.length * 120 + 120);
     await Promise.resolve(); // requestRender schedules on process.nextTick; drain it.
     await Promise.resolve();
@@ -49,7 +49,7 @@ test("the footer returns to the static ○ after activity clears", async () => {
   const { surface, chunks } = makeSurface();
   try {
     surface.start();
-    surface.setActivity("• bash · find — running");
+    surface.setActivity("Running bash find");
     await new Promise(resolve => setTimeout(resolve, 200));
     chunks.length = 0;
     surface.setActivity(undefined);

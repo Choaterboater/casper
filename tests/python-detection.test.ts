@@ -59,10 +59,47 @@ test("a Python project with test_*.py files and no pytest runs them with unittes
   expect((await commands({ "pyproject.toml": '[project]\nname = "sample-tools"\n', "tests/test_sites.py": unit })).test)
     .toBe(`${systemPython} -m unittest discover -s tests`);
   expect((await commands({ "requirements.txt": "requests\n", "test_main.py": unit })).test).toBe(`${systemPython} -m unittest discover`);
+  // uv and poetry have no `unittest` program: the project's interpreter runs the module.
+  expect((await commands({ "uv.lock": "", "pyproject.toml": '[project]\nname = "x"\n', "tests/test_a.py": unit })).test)
+    .toBe("uv run python -m unittest discover -s tests");
+  expect((await commands({ "poetry.lock": "", "pyproject.toml": '[tool.poetry]\nname = "x"\n', "tests/test_a.py": unit })).test)
+    .toBe("poetry run python -m unittest discover -s tests");
   // unittest would run none of these and still say OK: pytest-style tests, and foo_test.py (not its pattern).
   expect((await commands({ "pyproject.toml": '[project]\nname = "x"\n', "tests/test_a.py": "def test_a():\n    assert True\n" })).test).toBeUndefined();
   expect((await commands({ "pyproject.toml": '[project]\nname = "x"\n', "tests/sites_test.py": unit })).test).toBeUndefined();
   // pytest still wins when the project names it; no test files, no command.
   expect((await commands({ "pyproject.toml": '[project]\nname = "x"\ndependencies = ["pytest"]\n', "tests/test_a.py": "" })).test).toBe(`${systemPython} -m pytest`);
   expect((await commands({ "pyproject.toml": '[project]\nname = "x"\n' })).test).toBeUndefined();
+});
+
+test("a [build-system] builds only when the build tool is there: listed, in the .venv, or uv and poetry", async () => {
+  const pyproject = '[build-system]\nrequires = ["hatchling"]\nbuild-backend = "hatchling.build"\n[project]\nname = "x"\n';
+  expect((await commands({ "pyproject.toml": pyproject })).build).toBeUndefined();
+  expect((await commands({ "pyproject.toml": `${pyproject}[project.optional-dependencies]\ndev = ["build>=1.2", "pytest"]\n` })).build).toBe(`${systemPython} -m build`);
+  expect((await commands({ "pyproject.toml": pyproject, "requirements-dev.txt": "build==1.2.2\n" })).build).toBe(`${systemPython} -m build`);
+  const sitePackages = process.platform === "win32" ? ".venv/Lib/site-packages/build" : ".venv/lib/python3.12/site-packages/build";
+  expect((await commands({ "pyproject.toml": pyproject }, [sitePackages])).build).toBe(`${venvPython} -m build`);
+  expect((await commands({ "pyproject.toml": pyproject }, [".venv/bin"])).build).toBeUndefined();
+  expect((await commands({ "uv.lock": "", "pyproject.toml": pyproject })).build).toBe("uv build");
+  expect((await commands({ "poetry.lock": "", "pyproject.toml": pyproject })).build).toBe("poetry build");
+});
+
+test("a \"build\" in tool settings is not the build tool; one in a dependency list is", async () => {
+  const pyproject = '[build-system]\nrequires = ["setuptools", "build"]\n[tool.ruff]\nextend-exclude = ["build", "dist"]\n'
+    + '[tool.setuptools]\npackages = ["build"]\n[project]\nname = "x"\ndependencies = [\n  "requests[socks]>=2",\n]\n';
+  expect((await commands({ "pyproject.toml": pyproject })).build).toBeUndefined();
+  const listed = (extra: string) => commands({ "pyproject.toml": pyproject.replace('dependencies = [\n', `dependencies = [\n${extra}`) });
+  expect((await listed('  "build",\n')).build).toBe(`${systemPython} -m build`);
+  expect((await commands({ "pyproject.toml": `${pyproject}[dependency-groups]\ndev = ["build>=1"]\n` })).build).toBe(`${systemPython} -m build`);
+  expect((await commands({ "pyproject.toml": `${pyproject}[tool.uv]\ndev-dependencies = ["build"]\n` })).build).toBe(`${systemPython} -m build`);
+  expect((await commands({ "pyproject.toml": `${pyproject}[tool.black]\nexclude = ["build"]\n` })).build).toBeUndefined();
+});
+
+test("installing build into the .venv invalidates the cached detection", async () => {
+  const home = await mkdtemp(path.join(os.tmpdir(), "casper-python-home-")); dirs.push(home);
+  const sitePackages = process.platform === "win32" ? ".venv/Lib/site-packages" : ".venv/lib/python3.12/site-packages";
+  const info = await project({ "pyproject.toml": '[build-system]\nrequires = ["setuptools"]\n' }, [sitePackages]);
+  expect((await loadProjectModel(info, { homeDir: home })).commands.build).toBeUndefined();
+  await mkdir(path.join(info.root, sitePackages, "build"));
+  expect((await loadProjectModel(info, { homeDir: home })).commands.build).toBe(`${venvPython} -m build`);
 });

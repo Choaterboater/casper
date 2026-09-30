@@ -25,8 +25,9 @@ class Screen:
     def feed(self, text):
         self.pending += text
         while self.pending:
-            if self.pending.startswith("\x1b]8;"):
-                match = re.match(r"\x1b\]8;.*?(?:\x07|\x1b\\)", self.pending, re.S)
+            if self.pending.startswith("\x1b]"):
+                # OSC: hyperlinks (8) and the window title (0) draw nothing on screen.
+                match = re.match(r"\x1b\].*?(?:\x07|\x1b\\)", self.pending, re.S)
                 if not match: break
                 self.pending = self.pending[match.end():]
                 continue

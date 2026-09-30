@@ -2,7 +2,7 @@
 
 ❯ let sum take numeric strings too
 [model] scripted/site-capture · off · credentials configured
-✓ edit · src/sum.js — completed · 0.2s
+✓ edit · src/sum.js
 sum now turns its inputs into numbers first.
 … Casper checking: test
 ✓ test · 0.0s

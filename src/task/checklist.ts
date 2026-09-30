@@ -34,7 +34,7 @@ export function parseChecklistCases(text: string): { cases: string[]; dropped: n
   const listed = array ? array.filter((item): item is string => typeof item === "string") : cutOffArray(text) ?? listLines(text);
   if (!listed) return { error: "the checklist answer had no list of cases" };
   const all = cleanCases(listed);
-  return all.length ? { cases: all.slice(0, CASE_COUNT), dropped: Math.max(0, all.length - CASE_COUNT) } : { error: "the checklist answer listed no cases" };
+  return all.length ? { cases: all.slice(0, CASE_COUNT), dropped: Math.max(0, all.length - CASE_COUNT) } : { cases: [], dropped: 0 };
 }
 
 /** Cases as Casper keeps them, from the model's answer or the user's edit: each on one line without

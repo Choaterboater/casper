@@ -5,11 +5,18 @@ on:
     branches: [main]
     paths: ['src/**', 'scripts/**', 'tools/**', 'tests/**', 'evals/**', 'docs/**', 'package.json', 'bun.lock', 'bunfig.toml', 'tsconfig.json', 'THIRD_PARTY_NOTICES.txt', '.github/workflows/macos-preview.yml']
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths: ['src/**', 'scripts/**', 'tools/**', 'tests/**', 'evals/**', 'docs/**', 'package.json', 'bun.lock', 'bunfig.toml', 'tsconfig.json', 'THIRD_PARTY_NOTICES.txt', '.github/workflows/macos-preview.yml']
 permissions:
   contents: read
+# A newer push to the same branch or PR stops the older run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   source:
+    # Draft PRs wait until "Ready for review"; pushes to main and manual runs always run.
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: macos-15
     timeout-minutes: 40
     defaults:

@@ -45,6 +45,8 @@ async function fixture() {
   } } }));
   await writeFile(path.join(agent, "settings.json"), JSON.stringify({ defaultProvider: "fixture", defaultModel: "fixture", retry: { enabled: false } }));
   await writeFile(path.join(home, ".casper/settings.json"), JSON.stringify({ defaultProvider: "fixture", defaultModel: "fixture" }));
+  // The pause is off by default; these runs turn it on at $5, the way a user would.
+  await writeFile(path.join(home, ".casper/config.yaml"), "spend:\n  pauseAt: 5\n");
   const env = cleanEnv({ HOME: home, CASPER_AGENT_DIR: agent, PI_CODING_AGENT_DIR: agent, CASPER_OFFLINE: "1", PI_OFFLINE: "1", PI_TELEMETRY: "0", NO_COLOR: "1" });
   async function run(args: string[]) {
     const child = Bun.spawn([process.execPath, path.join(import.meta.dir, "../src/cli.ts"), ...args], { cwd: project, env, stdin: "ignore", stdout: "pipe", stderr: "pipe" });

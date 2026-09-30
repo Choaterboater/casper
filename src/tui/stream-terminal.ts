@@ -20,6 +20,8 @@ export class StreamTerminal implements Terminal {
     this.resizeHandler = onResize;
     this.io.output.on?.("resize", onResize);
     this.resumeInput();
+    // The window or tab says casper, not the bun or node that runs it.
+    this.setTitle("casper");
   }
   /** Lend raw input to another reader while this terminal keeps rendering. */
   suspendInput(): void {
@@ -58,7 +60,8 @@ export class StreamTerminal implements Terminal {
   clearLine(): void { this.write("\x1b[2K"); }
   clearFromCursor(): void { this.write("\x1b[J"); }
   clearScreen(): void { this.write("\x1b[2J\x1b[H"); }
-  setTitle(): void {}
+  /** OSC 0: the window and tab title. Control characters are dropped so a title can't end the sequence early. */
+  setTitle(title: string): void { this.write(`\x1b]0;${title.replace(/[\x00-\x1f\x7f-\x9f]/g, "")}\x07`); }
   setProgress(): void {}
 }
 

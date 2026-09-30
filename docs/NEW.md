@@ -22,8 +22,8 @@ Every question works on the plain terminal too: type the number (Enter picks 1).
 would start a project instead, for example
 `[new] … To start a project instead: casper new mist-python mist-aps`.
 
-The new-project question is the one question before work for that request: the checklist panel
-doesn't follow it.
+The new-project question is the one question before work for that request: the plan-first panel
+doesn't follow it, and no checklist is made.
 
 ## Scripts and CI
 

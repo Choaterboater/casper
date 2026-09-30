@@ -34,3 +34,13 @@ export async function discoverBrowser(supplied?: string): Promise<string | undef
   }
   return undefined;
 }
+
+/** Whether a browser is really on this machine (a supplied path must exist too). */
+async function browserInstalled(): Promise<boolean> {
+  const found = await discoverBrowser(process.env.CASPER_BROWSER_EXECUTABLE);
+  if (!found || !path.isAbsolute(found)) return false;
+  try { await access(found); return true; } catch { return false; }
+}
+
+/** How a session learns that a browser is installed; the test suite swaps it for a fixed answer. */
+export const browserDefaults: { installed: () => Promise<boolean> } = { installed: browserInstalled };

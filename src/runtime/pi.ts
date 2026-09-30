@@ -27,8 +27,9 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { gitGuardReason } from "./git-guard";
-import { fileToolGate, gitInternalsCommand, privatePathCommand } from "../platform/project-paths";
+import { classifyPath, fileToolGate, gitInternalsCommand, privatePathCommand, resolveToolPath } from "../platform/project-paths";
 import { withoutProviderKeys } from "../platform/environment";
+import { cacheRetentionFor, type PromptCacheSetting } from "./cache";
 import { nativeEditPath, observationInput, observationOutput, patchLineCounts, writeLineCounts, type ToolObservationInput } from "./observation";
 import type {
   AgentRuntime,
@@ -89,6 +90,7 @@ class PiRuntimeSession implements RuntimeSession {
     private readonly tools: PiToolController,
     private readonly models: PiModels,
     private readonly readOnly?: { options: RuntimeReadOnlyStartOptions; limitReason: () => string | undefined },
+    private readonly cache?: PromptCacheSetting,
   ) {
     this.bind(runtime.session);
     runtime.setRebindSession(async (session) => { this.bind(session); });
@@ -301,6 +303,8 @@ class PiRuntimeSession implements RuntimeSession {
       promptSignal.throwIfAborted();
       return stream(model, context, {
         ...streamOptions,
+        // Conversation requests follow cache: (auto by default); a request that already chose (none) keeps its choice.
+        cacheRetention: streamOptions?.cacheRetention ?? cacheRetentionFor(this.cache, model),
         signal: streamOptions?.signal ? AbortSignal.any([promptSignal, streamOptions.signal]) : promptSignal,
       });
     };
@@ -409,7 +413,7 @@ class PiRuntimeSession implements RuntimeSession {
           this.writes.delete(event.toolCallId);
           const lines = event.isError ? undefined : event.toolName === "edit" ? patchLineCounts(event.result)
             : write && write.before !== null ? writeLineCounts(write.before, write.after) : undefined;
-          this.emit({ type: "tool_end", toolName: event.toolName, toolCallId: event.toolCallId, input, output: event.toolName === "bash" || event.isError ? observationOutput(event.result) : undefined,
+          this.emit({ type: "tool_end", toolName: event.toolName, toolCallId: event.toolCallId, input, output: event.toolName === "bash" || event.toolName === "casper_check" || event.isError ? observationOutput(event.result) : undefined,
             isError: event.isError, ...(lines ? { lines } : {}) });
           break;
         }
@@ -592,6 +596,8 @@ export class PiRuntime implements AgentRuntime {
           const gateReason = readOnly.beforeToolGate?.(event.toolName, event.input);
           if (gateReason) return { block: true, reason: gateReason };
         });
+        /** Allowed edits and writes outside the project, by tool call, for the receipt. */
+        const outside = new Map<string, string>();
         if (!readOnly) pi.on("tool_call", async (event, ctx) => {
           // Keep Pi's native execution, output handling, and process-tree cleanup.
           if (event.toolName === "bash" && event.input.timeout === undefined) event.input.timeout = 120;
@@ -613,11 +619,27 @@ export class PiRuntime implements AgentRuntime {
             const reason = options.beforeToolGate(event.toolName, event.input);
             if (reason) return { block: true, reason };
           }
+          // An edit or write outside the project asks first (temp, caches and your allowWrite don't), after the
+          // refusals above so a call refused anyway never asks.
+          if ((event.toolName === "edit" || event.toolName === "write") && typeof event.input.path === "string" && options.shell?.outsideWrite) {
+            const absolute = resolveToolPath(event.input.path, cwd, pathContext.home);
+            if (classifyPath(absolute, pathContext, true) === "outside") {
+              const reason = await options.shell.outsideWrite(absolute);
+              if (reason) return { block: true, reason };
+              outside.set(event.toolCallId, absolute);
+            }
+          }
           // Last, so a call refused above never waits on a question first.
           if (options.beforeToolWait) {
             const reason = await options.beforeToolWait(event.toolName, ctx.signal);
-            if (reason) return { block: true, reason, terminate: true };
+            if (reason) { outside.delete(event.toolCallId); return { block: true, reason, terminate: true }; }
           }
+        });
+        if (!readOnly) pi.on("tool_result", (event) => {
+          const absolute = outside.get(event.toolCallId);
+          if (absolute === undefined) return;
+          outside.delete(event.toolCallId);
+          if (!event.isError) options.shell?.wroteOutside?.(absolute);
         });
         // The AI's bash: Casper's own operations (adapted from Pi's sandbox example), never a repo's .pi/sandbox.json.
         if (!readOnly) pi.registerTool({ ...createBashToolDefinition(cwd, {
@@ -744,7 +766,8 @@ export class PiRuntime implements AgentRuntime {
       agentDir,
       sessionManager: readOnly ? SessionManager.inMemory(options.cwd) : SessionManager.create(options.cwd),
     });
-    this.wrapper = new PiRuntimeSession(this.runtime, tools, models, readOnly ? { options: readOnly, limitReason: () => limitReason } : undefined);
+    this.wrapper = new PiRuntimeSession(this.runtime, tools, models, readOnly ? { options: readOnly, limitReason: () => limitReason } : undefined,
+      readOnly ? (readOnly.cache === "off" ? "off" : "short") : options.cache);
     return this.wrapper;
   }
 

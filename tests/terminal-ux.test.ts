@@ -25,10 +25,19 @@ test("tool display gives targets/status, redacts common credentials and never in
   expect(end).toBe("✓ bash · curl https://<redacted>@host/path … · 1.2s"); expect(end).not.toMatch(/passed|exit 0|completed/);
   const failure = formatToolActivity({ type: "tool_end", toolName: "read", input: { path: "src/missing.ts" },
     output: { text: "ENOENT\napi_key=secret", truncated: true }, isError: true });
-  expect(failure).toContain("src/missing.ts — failed"); expect(failure).toContain("ENOENT");
+  expect(failure).toContain("✗ read · src/missing.ts — failed"); expect(failure).toContain("ENOENT");
   expect(failure).not.toContain("secret"); expect(failure).toContain("[truncated]");
   expect(redactPreview("sk-abcdefghijk ghp_abcdefghijk")).toBe("<redacted> <redacted>");
   expect(formatToolActivity({ type: "tool_start", toolName: "grep", input: { pattern: "TODO", path: "src" } })).toBe("• grep · TODO · src");
+});
+
+test("a casper_check skip shows neither ✓ nor ✗", () => {
+  const skipped = formatToolActivity({ type: "tool_end", toolName: "casper_check", input: { check: "junos" },
+    output: { text: JSON.stringify({ name: "junos", cwd: "/p", status: "skip", reason: "no device" }), truncated: false }, isError: false }, 300);
+  expect(skipped).toBe("• casper_check · junos — skipped");
+  const passed = formatToolActivity({ type: "tool_end", toolName: "casper_check", input: { check: "test" },
+    output: { text: JSON.stringify({ name: "test", cwd: "/p", status: "pass", stdout: '{"status":"skip"}' }), truncated: false }, isError: false });
+  expect(passed).toBe("✓ casper_check · test");
 });
 
 test("Markdown theme stays plain without color and terminal controls are neutralized", () => {

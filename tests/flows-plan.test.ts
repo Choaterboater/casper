@@ -11,12 +11,12 @@ describe("the plan turn's tool gate", () => {
 
   test("every other state-changing tool is blocked too: MCP tools, services, the browser, delegation", () => {
     for (const tool of ["mcp", "service", "browser", "delegate", "netbox_create_device", "lsp"]) {
-      expect(planToolGate(tool, {})).toBe(`Planning only: Casper blocks file changes until you choose Build. While planning it allows only read, grep, find and ls, not ${tool}.`);
+      expect(planToolGate(tool, {})).toBe(`Planning only: Casper blocks file changes until you choose Build. While planning it allows only read, grep, find, ls and web lookups, not ${tool}.`);
     }
   });
 
   test("the look tools and look commands run; writing shell commands do not", () => {
-    for (const tool of ["read", "grep", "find", "ls"]) expect(planToolGate(tool, {})).toBeUndefined();
+    for (const tool of ["read", "grep", "find", "ls", "web_search", "web_fetch"]) expect(planToolGate(tool, {})).toBeUndefined();
     expect(planToolGate("bash", { command: "ls" })).toBeUndefined();
     expect(planToolGate("bash", { command: "rm x" })).toContain("While planning it runs only look commands");
     expect(planToolGate("bash", {})).toContain("Planning only");

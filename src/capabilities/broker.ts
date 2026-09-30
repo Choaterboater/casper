@@ -124,6 +124,12 @@ export class CapabilityBroker {
   private previews = new Map<string, LastPreview>();
   /** Per-server lines for find_capability's description (read-only logins, writes off). */
   private modelLines: string[] = [];
+  /** The connected servers, by name, as of the last sync. */
+  private servers = "";
+  /** The direct tools picked on the first task with these servers connected. Later tasks get the same
+   * ones, so the tool list, and with it the provider's prompt cache, stays put; the rest are one
+   * find_capability away. Connecting or disconnecting a server, /clear or /resume picks again. */
+  private picked?: { servers: string; ids: string[] };
   private readonly writesGate: boolean;
   private readonly scrubber: ResultScrubber;
   /**
@@ -330,6 +336,11 @@ export class CapabilityBroker {
     return `${capability.fingerprint}|${previewKey(plan)}`;
   }
 
+  /** A new conversation (/clear, /resume): its first task picks the direct tools afresh. */
+  resetPicks(): void {
+    this.picked = undefined;
+  }
+
   close(): Promise<void> {
     this.closed.abort();
     this.capabilities.clear();
@@ -352,7 +363,9 @@ export class CapabilityBroker {
     if (revision === this.indexedRevision) return;
     const next = new Map<string, Capability>();
     const lines: string[] = [];
+    const servers: string[] = [];
     if (!this.closed.signal.aborted) for (const { server, generation, tools } of this.manager.catalog()) {
+      servers.push(server);
       const routed = tools.some((tool) => tool.name === "find_tool") && tools.some((tool) => tool.name === "invoke_read_tool");
       const policy = this.manager.policy(server);
       const writes = this.writes(policy);
@@ -391,6 +404,7 @@ export class CapabilityBroker {
     }
     this.capabilities = next;
     this.modelLines = lines.sort(order);
+    this.servers = JSON.stringify(servers.sort(order));
     this.indexedRevision = revision;
     // A reconnect or a changed tool list makes old previews stale.
     this.previews.clear();
@@ -462,13 +476,19 @@ export class CapabilityBroker {
       DOCS_TOOL_NAMES.indexOf(a.descriptor.name as typeof DOCS_TOOL_NAMES[number]) - DOCS_TOOL_NAMES.indexOf(b.descriptor.name as typeof DOCS_TOOL_NAMES[number])
       || a.descriptor.id.localeCompare(b.descriptor.id)).slice(0, 3);
     const pinned = new Set([...routers, ...docs]);
-    const candidates = [...routers, ...docs, ...this.rank(task).filter((c) => !routedServers.has(c.descriptor.source) && !pinned.has(c))];
+    // Same servers as when the set was picked: offer it again (less any tool that went away or is now hidden).
+    const kept = this.picked?.servers === this.servers ? this.picked.ids : undefined;
+    const candidates = kept
+      ? kept.map((id) => this.capabilities.get(id)).filter((c): c is Capability => c !== undefined && !c.hidden)
+      : [...routers, ...docs, ...this.rank(task).filter((c) => !routedServers.has(c.descriptor.source) && !pinned.has(c))];
+    const ids: string[] = [];
     let schemaBytes = 0;
     for (const capability of candidates) {
       if (tools.length >= 8) break;
       const bytes = capability.schemaBytes;
       if (bytes > MAX_SCHEMA_BYTES || schemaBytes + bytes > MAX_DIRECT_SCHEMA_BYTES) continue;
       schemaBytes += bytes;
+      ids.push(capability.descriptor.id);
       const lead = capability.docs ? `[docs; ${capability.descriptor.safety}; ${capability.descriptor.id}] ${DOCS_TOOL_NOTE} `
         : `[${capability.descriptor.safety}; ${capability.descriptor.id}] `;
       tools.push(wrap(capability.runtimeName,
@@ -479,6 +499,7 @@ export class CapabilityBroker {
         // Routers and non-read tools may ask; a read tool asks only when the AI set confirm itself (the app queues those).
         }, capability.descriptor.safety !== "read" || capability.router));
     }
+    if (!kept) this.picked = { servers: this.servers, ids };
     return tools;
   }
 }

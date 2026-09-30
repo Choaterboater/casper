@@ -72,8 +72,8 @@
         <figure class="capture">
           <pre class="term" tabindex="0" data-title="casper — ~/project"><span class="prompt">❯</span> <span class="you">fix the sum bug in src/sum.js</span>
 <span class="dim">[model]</span> scripted/site-capture · off · credentials configured
-<span class="ok">✓</span> edit · src/sum.js — completed · 0.2s
-<span class="ok">✓</span> edit · tests/sum.test.js — completed · 0.2s
+<span class="ok">✓</span> edit · src/sum.js
+<span class="ok">✓</span> edit · tests/sum.test.js
 Fixed: sum subtracted instead of adding. Added a test for sum(2, 3).
 <span class="dim">… Casper checking: test</span>
 <span class="ok">✓</span> test · 0.0s
@@ -123,7 +123,7 @@ Fixed: sum subtracted instead of adding. Added a test for sum(2, 3).
         <figure class="capture">
           <pre class="term" tabindex="0" data-title="casper — ~/project"><span class="prompt">❯</span> <span class="you">let sum take numeric strings too</span>
 <span class="dim">[model]</span> scripted/site-capture · off · credentials configured
-<span class="ok">✓</span> edit · src/sum.js — completed · 0.2s
+<span class="ok">✓</span> edit · src/sum.js
 sum now turns its inputs into numbers first.
 <span class="dim">… Casper checking: test</span>
 <span class="ok">✓</span> test · 0.0s
@@ -165,7 +165,7 @@ sum now turns its inputs into numbers first.
         <figure class="capture">
           <pre class="term" tabindex="0" data-title="casper — ~/project"><span class="prompt">❯</span> <span class="you">speed up sum in src/sum.js</span>
 <span class="dim">[model]</span> scripted/site-capture · off · credentials configured
-<span class="ok">✓</span> edit · src/sum.js — completed · 0.2s
+<span class="ok">✓</span> edit · src/sum.js
 Changed sum.
 <span class="dim">… Casper checking: test</span>
 <span class="bad">✗</span> test · exit 1 · 0.0s
@@ -277,8 +277,8 @@ Changed sum.
           </article>
           <article class="card">
             <h3>Tool lines with +N -M</h3>
-            <p>Each tool call is one line that turns from <code>• … — running</code> into
-            <code>✓</code> or <code>✗</code> in place. With a real model, an edit line also shows lines
+            <p>Each tool call is one line in the Working box, <code>•</code> while it runs and <code>✓</code> or
+            <code>✗</code> once done; the finished steps fold into one summary line. With a real model, an edit line also shows lines
             added and removed, like <code>+9 -1</code>. (The stand-in above does not send those counts.)</p>
           </article>
           <article class="card">

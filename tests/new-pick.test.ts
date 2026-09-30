@@ -42,8 +42,10 @@ test("the question and the menu use numbered plain choices", () => {
   });
   const menu = templateMenu();
   expect(menu.question).toBe("What are you building?");
-  expect(menu.choices.slice(0, 3)).toEqual(["Python tool (command line)", "MCP server for your network", "Mist Python scripts"]);
-  expect(menu.ids).toEqual(listTemplates().map((t) => t.id));
+  expect(menu.groups.map((group) => group.label)).toEqual(["Network", "MCP server", "Web app or dashboard", "Python tool"]);
+  expect(menu.groups.find((group) => group.label === "Network")!.ids).toEqual(["mist-python", "aoscx-ansible", "junos-ansible"]);
+  // Every ready template is under exactly one kind.
+  expect(menu.groups.flatMap((group) => group.ids).sort()).toEqual(listTemplates().map((t) => t.id).sort());
 });
 
 test("names: Enter takes the default, anything else must be a valid name", () => {

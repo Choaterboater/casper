@@ -2,7 +2,7 @@
 
 ❯ speed up sum in src/sum.js
 [model] scripted/site-capture · off · credentials configured
-✓ edit · src/sum.js — completed · 0.2s
+✓ edit · src/sum.js
 Changed sum.
 … Casper checking: test
 ✗ test · exit 1 · 0.0s

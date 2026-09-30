@@ -12,6 +12,8 @@ const RUNNERS: readonly (readonly string[])[] = [
   ["pytest"],
   ["python", "-m", "pytest"],
   ["python3", "-m", "pytest"],
+  ["python", "-m", "unittest"],
+  ["python3", "-m", "unittest"],
   ["uv", "run", "pytest"],
   ["uv", "run", "python", "-m", "pytest"],
   ["poetry", "run", "pytest"],

@@ -210,7 +210,7 @@ test("3 Other kind shows Use this folder, then the kinds, then the name question
     h.input.write("3");
     await h.until(text => text.includes("What are you building?"));
     expect(h.visible().slice(h.visible().lastIndexOf("What are you building?"))).toContain("1 Use this folder");
-    h.input.write("2");
+    h.input.write("5");
     await h.until(text => text.includes("Name it? (Enter for mist-aps)"));
     h.input.write("\r");
     await h.until(() => h.prompts.length === 1);
@@ -227,11 +227,10 @@ test("no question inside a project, and none once the model has started", async 
   try {
     await h.until(text => text.includes("idle"));
     h.input.write(`${REQUEST}\r`);
-    // Without the new-project question the usual checklist panel comes first.
-    await h.until(text => text.includes("Casper checklist:"));
-    expect(h.completes).toBe(1);
-    h.input.write("\x1b");
+    // Without the new-project question the checklist is made as usual, quietly, and the task starts.
     await h.until(() => h.prompts.length === 1);
+    expect(h.completes).toBe(1);
+    expect(h.prompts[0]).toContain("- It works");
     expect(h.visible()).not.toContain("Build this as a new");
     expect(h.created).toEqual([]);
     await h.until(settled);
@@ -246,8 +245,6 @@ test("no question inside a project, and none once the model has started", async 
     await started.until(() => started.prompts.length === 1);
     await started.until(settled);
     started.input.write(`${REQUEST}\r`);
-    await started.until(text => text.includes("Casper checklist:"));
-    started.input.write("\x1b");
     await started.until(() => started.prompts.length === 2);
     expect(started.visible()).not.toContain("Build this as a new");
     expect(started.created).toEqual([]);
@@ -339,7 +336,8 @@ test("starting in an empty folder offers a new project there, named after the fo
   try {
     await h.until(text => text.includes("This folder is empty. Start a new project here?"));
     expect(h.visible()).toContain("1 Not now");
-    h.input.write("2");
+    expect(h.visible()).not.toContain("My own");
+    h.input.write("5");
     await h.until(text => text.includes("idle"));
     expect(h.created.map(({ parent, name, template }) => ({ parent, name, template }))).toEqual([{ parent: root, name: "demo-app", template: "python-cli" }]);
     expect(h.visible()).toMatch(/\bproject\s+demo-app\b/);

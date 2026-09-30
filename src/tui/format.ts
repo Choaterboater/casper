@@ -1,3 +1,4 @@
+import { homedir } from "node:os";
 import { stripVTControlCharacters } from "node:util";
 import type { MarkdownTheme } from "@earendil-works/pi-tui";
 import type { RuntimeEvent, RuntimeStatus } from "../runtime/types";
@@ -121,16 +122,36 @@ export function formatDuration(ms: number | undefined): string {
   return `${Math.floor(whole / 60)}m${String(whole % 60).padStart(2, "0")}s`;
 }
 
-/** `root`: paths under it print relative to it. `width`: the first line fits it, shortening the target
- * from the front (a path keeps its file name), so a narrow terminal shows one row per tool, not a wrapped
- * path broken mid-word. A shell command shows as a short label (see commandLabel). */
-export function formatToolActivity(event: ToolEvent, elapsedMs?: number, fit: { root?: string; width?: number } = {}): string {
-  const relative = (value: unknown) => typeof value === "string" && fit.root && value.startsWith(`${fit.root}/`) ? value.slice(fit.root.length + 1) : value;
-  // grep/find carry the pattern; otherwise the path, command, operation or check name is the target.
-  const command = typeof event.input?.command === "string" ? commandLabel(redactPreview(event.input.command)) : undefined;
-  const target = typeof event.input?.pattern === "string"
-    ? [event.input.pattern, relative(event.input.path)].filter((part): part is string => typeof part === "string" && part.length > 0).join(" · ")
-    : relative(event.input?.path) ?? command ?? event.input?.operation ?? event.input?.check;
+/** `root`: paths under it print relative to it; `home` (default the real one) shortens other paths to ~.
+ * `width`: the line fits it. */
+export interface ToolLineFit { root?: string; width?: number; home?: string }
+/** docs.example.com/x for https://docs.example.com/x: the scheme says nothing a reader needs. */
+function webAddress(value: unknown): string | undefined {
+  return typeof value === "string" ? value.replace(/^https?:\/\//i, "") : undefined;
+}
+/** Under the project: relative to it. Elsewhere under home: ~/... Otherwise as given. */
+export function displayPath(value: string, fit: Pick<ToolLineFit, "root" | "home"> = {}): string {
+  if (fit.root && value === fit.root) return ".";
+  if (fit.root && value.startsWith(`${fit.root}/`)) return value.slice(fit.root.length + 1);
+  const home = fit.home ?? homedir();
+  if (home && home !== "/" && (value === home || value.startsWith(`${home}/`))) return `~${value.slice(home.length)}`;
+  return value;
+}
+/** What a call acted on: grep/find's pattern (and folder), else the path, command, operation, check,
+ * web address or search. `label` turns a shell command into its short label (see commandLabel). */
+export function toolTarget(input: ToolEvent["input"], fit: ToolLineFit = {}, label?: (command: string) => string): string | undefined {
+  const relative = (value: unknown) => typeof value === "string" ? displayPath(value, fit) : undefined;
+  const command = typeof input?.command === "string" ? label ? label(input.command) : input.command : undefined;
+  return typeof input?.pattern === "string"
+    ? [input.pattern, relative(input.path)].filter((part): part is string => typeof part === "string" && part.length > 0).join(" · ")
+    : relative(input?.path) ?? command ?? input?.operation ?? input?.check ?? webAddress(input?.url) ?? input?.query;
+}
+
+/** `root`: paths under it print relative to it (others under home as ~/...). `width`: the first line fits it,
+ * shortening the target from the front (a path keeps its file name), so a narrow terminal shows one row per
+ * tool, not a wrapped path broken mid-word. A shell command shows as a short label (see commandLabel). */
+export function formatToolActivity(event: ToolEvent, elapsedMs?: number, fit: ToolLineFit = {}): string {
+  const target = toolTarget(event.input, fit, command => commandLabel(redactPreview(command)));
   const text = target ? redactPreview(String(target)).replace(/\s+/g, " ").slice(0, 180) : "";
   const name = terminalText(event.toolName).slice(0, 80);
   // A path keeps its end (the file name); a command or pattern keeps its start.
@@ -149,6 +170,8 @@ export function formatToolActivity(event: ToolEvent, elapsedMs?: number, fit: { 
   // Native tool success is not a verifier pass or authoritative shell exit code. The ✓ says it finished.
   const detail = event.isError && event.output?.text
     ? `\n  ${redactPreview(event.output.text).replace(/\s+/g, " ").slice(0, 240)}${event.output.truncated ? " [truncated]" : ""}` : "";
+  // A casper_check skip never ran: neither ✓ nor ✗.
+  if (!event.isError && event.toolName === "casper_check" && /[{,]"status":"skip"/.test(event.output?.text ?? "")) return `• ${name}${line(` — skipped${elapsed}`, elapsed)}`;
   const size = event.lines ? ` · +${event.lines.added} -${event.lines.removed}` : "";
   return `${event.isError ? "✗" : "✓"} ${name}${line(`${size}${event.isError ? " — failed" : ""}${elapsed}`, `${size}${elapsed}`)}${detail}`;
 }

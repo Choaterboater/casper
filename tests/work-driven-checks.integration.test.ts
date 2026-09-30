@@ -155,7 +155,7 @@ posixOnly("signal termination is a real failed check, never an inferred exit zer
   expect(prompts).toHaveLength(1);
 });
 
-test("tool arguments cannot change command authority and missing checks remain skips", async () => {
+test("tool arguments cannot change command authority and checks without a command are not offered", async () => {
   const root = await fixture();
   const { app, prompts } = createApp(root, async (_prompt, tools) => {
     const tool = checkTool(tools);
@@ -163,9 +163,11 @@ test("tool arguments cannot change command authority and missing checks remain s
       { check: "test", cwd: "/tmp" }, { check: "test", scope: { inputs: ["."] } }]) {
       expect((await tool.execute(args)).isError).toBe(true);
     }
-    expect(await check(tool, "lint")).toMatchObject({ name: "lint", status: "skip", exitCode: null });
+    const lint = await tool.execute({ check: "lint" });
+    expect(lint.isError).toBe(true);
+    expect(lint.text).toContain("Expected { check: test|build }");
   });
-  expect((await app.runOnce("Continue", root))?.status).toBe("incomplete");
+  expect((await app.runOnce("Continue", root))?.status).toBeUndefined();
   expect(prompts).toHaveLength(1);
   expect(await Bun.file(path.join(root, "test-runs")).exists()).toBe(false);
   expect(await Bun.file(path.join(root, "injected")).exists()).toBe(false);
@@ -852,7 +854,8 @@ test("the task ends with the plain receipt; /receipt and verbose output keep the
   const { app, output } = createApp(root, async () => { await writeFile(path.join(root, "src/value"), "good\n"); }, "auto");
   await app.runOnce("Fix the value", root);
   expect(output()).toContain("… Casper checking: test\n");
-  expect(output()).toContain("✓ Changed 1 file: src/value\n✓ test passed (");
+  // What went well shares one line under the verdict.
+  expect(output()).toContain("• Checks passed — not proven: only non-code files changed\n✓ test passed · changed src/value\n");
   expect(output()).not.toMatch(/scope undeclared|reuse disabled|not independently certified|\[task\]/);
   await app.runOnce("/receipt", root);
   expect(output()).toContain("[task] Execution completed");

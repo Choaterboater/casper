@@ -229,6 +229,9 @@ export class PiModels {
       ? this.catalog.getModel(reference.provider, reference.id) : undefined;
     const stale = reference && this.staleAuth.has(reference.provider);
     const auth = stale ? "unknown" : reference ? this.catalog.hasConfiguredAuth(reference.provider) ? "configured" : "missing" : "unknown";
+    // Claude sign-in is per-token extra usage (see pi-auth), so only other subscription sign-ins count.
+    const billing = !reference || auth !== "configured" ? undefined
+      : reference.provider !== "anthropic" && this.catalog.isUsingSubscription(reference.provider) ? "subscription" : "per-token";
     const blocked = !reference ? "No Casper model selected. Use /model to choose one."
       : stale ? "Credential state needs local refresh. Restart Casper before using this provider; do not repeat login blindly."
       : !model ? `Model ${reference.provider}/${reference.id} is unavailable. Use /model to choose another; no fallback was selected.`
@@ -238,7 +241,7 @@ export class PiModels {
     return { provider: reference?.provider, model: reference?.id, thinkingLevel: model ? session.thinkingLevel : undefined,
       configuredEffort: selection.effort ?? (model ? session.thinkingLevel : undefined), modelRole: selection.role, autoEffort: selection.auto,
       availableThinkingLevels: model ? session.getAvailableThinkingLevels() : [],
-      auth, selectionSource: selection.source, defaultModel: this.defaultReference(), blocked, ...(priced !== undefined ? { priced } : {}) };
+      auth, ...(billing ? { billing } : {}), selectionSource: selection.source, defaultModel: this.defaultReference(), blocked, ...(priced !== undefined ? { priced } : {}) };
   }
 
   private applyEffort(session: AgentSession, effort: string, retain = false): void {
