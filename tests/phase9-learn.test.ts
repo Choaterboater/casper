@@ -64,12 +64,12 @@ async function fixture(respond?: (payload: Payload, index: number) => Response |
 }
 async function snapshot(root: string): Promise<Record<string, string>> {
   const files: Record<string, string> = {};
-  for (const entry of await readdir(root, { recursive: true, withFileTypes: true })) {
-    if (entry.isFile()) {
-      const absolute = path.join(entry.parentPath, entry.name);
-      files[path.relative(root, absolute)] = (await readFile(absolute)).toString("base64");
-    }
-  }
+  // Sorted by path: readdir's order can change between calls, and the tests compare key order.
+  const entries = (await readdir(root, { recursive: true, withFileTypes: true }))
+    .filter((entry) => entry.isFile())
+    .map((entry) => path.join(entry.parentPath, entry.name))
+    .sort();
+  for (const absolute of entries) files[path.relative(root, absolute)] = (await readFile(absolute)).toString("base64");
   return files;
 }
 
