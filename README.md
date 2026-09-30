@@ -1,89 +1,65 @@
 # Casper
 
-[MIT licensed](LICENSE). Third-party dependencies retain their own licenses.
+A coding helper for your terminal that checks the AI's work before it tells you "done".
 
-A terminal coding companion built on Pi, with its own interface, project context,
-and verification controls.
+**Preview, unsigned.** This is an early preview, not a stable release. The programs are
+not signed, so your system may warn you. macOS is tested by hand; Windows x64 install and
+startup are tested in CI (PowerShell 5.1 and 7); Linux still needs testing on a real machine.
+Some screen issues remain. See [release details](docs/RELEASE.md).
 
-**Early preview.** macOS is validated locally; Windows x64 installation and startup
-are tested in CI under PowerShell 5.1 and 7. Linux still needs host testing. Binaries
-are unsigned, and interactive UI issues remain. See [release details](docs/RELEASE.md).
+[MIT licensed](LICENSE). Casper is built on the Pi SDK. Other parts keep their own licenses
+([THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt)).
 
-## Install
+## Why Casper
 
-No Bun installation or source checkout is required.
+Casper does not trust the AI when it says the job is done. It runs your project's own checks
+(tests, lint, build) and, where it can, proves the tests fail without the change.
+It is careful around network gear: MCP servers (tool servers the AI can call) start with
+writes off, a login counts as read-only only when the product itself says so, risky actions
+ask you, and the AI cannot approve anything for you.
+Known device secrets (passwords, keys, SNMP communities) are swapped for `<secret hidden>`
+before the AI sees them (best effort, known formats only).
+Many things cost zero tokens: the checks Casper runs, `/verify`, `/mcp`, `/diff`, `/receipt`
+and local reference search make no model call.
+You can sign in with OpenAI Codex, GitHub Copilot, Anthropic (Claude) or OpenRouter, so you
+are not tied to one model company.
 
-**Windows x64 — PowerShell:**
+## Highlights
 
-```powershell
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.15/install.ps1 | iex
-```
+- **Receipts with a verdict.** Every coding task ends with a short receipt; line 1 says
+  `Verified`, `Checks passed — not proven`, `Failed` and so on. [Receipts](docs/VERIFICATION.md#receipts)
+- **Proof, not just a pass.** `Verified` means the checks pass and a test fails without the
+  change. [Proving the change](docs/VERIFICATION.md#proving-the-change)
+- **Auto checks and repair.** After the AI edits files, Casper runs the project's checks and
+  sends real failures back for a few repair tries (3 by default). A check that timed out or
+  could not start is never sent to a paid repair. In a chat, checks that take a minute or more
+  are offered as `/verify` instead. [Verification](docs/VERIFICATION.md)
+- **MCP for network servers.** Works with hpe-networking-mcp, junos-mcp-server, Mist, NetBox
+  and others. Every server starts with writes off; presets for known servers send their own
+  read-only settings where one exists. `/mcp writes <name>` is
+  the only way to turn writes on. [MCP](docs/MCP.md) · [Presets](docs/MCP.md#presets)
+- **Read-only only when the product says so.** A server's `access_check` tool can confirm a
+  read-only login; anything else shows `access not checked`. [Access check](docs/MCP.md#access-check)
+- **Check your own MCP server.** `casper mcp check [repo]` runs its tests and checks its
+  labels, schemas and example configs. It runs the repo's code, so use it on repos you trust.
+  [Check a server you built](docs/MCP.md#check-a-server-you-built)
+- **Secrets hidden from the AI.** Known formats in MCP results and config files are hidden
+  (best effort, not every secret). [Secrets](docs/SECRETS.md)
+- **References.** Search local copies of vendor specs (Mist OpenAPI, Junos YANG, pycentral)
+  without a model call. [References](docs/REFERENCES.md)
+- **Scripting and CI.** `--json` streams events, and exit codes tell a script what happened
+  (for example 3 = not verified with `--require-verification`). [Scripting](docs/SCRIPTING.md#exit-codes)
+- **Services, browser, language servers, debugger.** Optional: run your dev server,
+  debug in an installed Chrome/Edge, use a language server (LSP) for code smarts, or a local
+  debugger (DAP). [Services](docs/SERVICES.md) · [Browser](docs/BROWSER.md) · [LSP](docs/LSP.md) · [Debugger](docs/DEBUGGER.md)
+- **Sessions.** Pick up a past chat (`--continue`, `/resume`) or try an idea in a named
+  branch with its own Git worktree (a separate folder). [Sessions](docs/SESSIONS.md)
+- **Numbered choices.** Questions show numbered answers; press the number to pick.
+  [Terminal guide](docs/TERMINAL_UX.md)
+- **Rich or plain terminal.** A live footer, colors and lines that update in place, or plain text with
+  `NO_COLOR`, `TERM=dumb` or redirected output. [Terminal guide](docs/TERMINAL_UX.md)
 
-Then run `casper` from your project folder. If an existing terminal does not find it,
-open a new terminal.
-Windows ARM64 does not have a release artifact yet.
-
-**macOS / Linux:**
-
-```sh
-curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.15/install.sh | sh
-```
-
-The installer verifies the executable's SHA-256 and runs the staged executable's
-`--version` successfully before replacing an existing installation; a rejected
-download leaves the previous installation untouched. It needs no administrator
-access. These commands pin **v0.2.15**: re-running reinstalls that preview. For a
-newer preview, use its release URL; GitHub's `latest/download` route excludes
-prereleases. Useful `install.sh` options: `--dir <path>`, `--version 0.2.15`,
-`--sha256 <hex>` and `--force` (replace a development symlink that leaves the
-install directory). [Installer details](docs/RELEASE.md).
-
-## Start coding
-
-```sh
-cd your-project
-casper
-casper --no-verify   # without Casper-run checks
-```
-
-Started from your home folder, or from a folder that only holds projects (such as `~/Projects`),
-Casper asks which project to open: press its number, or Esc to stay.
-
-Inside Casper:
-
-```text
-/login
-/model
-```
-
-Sign in with a supported provider, then describe the work you want done. With no model
-set yet, Casper opens sign-in on your first request and then picks a model for that provider
-(OpenRouter: `deepseek/deepseek-v4.1-flash`; others: the provider's own default), saved as your
-default; `/model` chooses another, and Casper never replaces a model you chose. Frontend, design, and other domain work come from the repository. Casper does
-not need a skill pack for patterns the project already shows. Login supports OpenAI Codex, GitHub Copilot, Anthropic/Claude, and OpenRouter.
-Provider eligibility, subscriptions and usage charges still apply. Enter keys or
-callback codes only in the dedicated private login prompt, never in chat.
-
-```sh
-casper "Explain this project"
-casper --verify "Fix the failing tests"
-casper --version     # casper 0.2.15 (/absolute/path/of/the/binary/or/cli.ts)
-```
-
-For scripts and CI, `--model` and `--effort` pick the model for one run without changing
-your default, `--json` streams JSON Lines events, `--continue`/`--resume` pick up a
-conversation, and `--require-verification` exits 3 when Casper could not verify the
-changes. Usage errors exit 64. See [docs/SCRIPTING.md](docs/SCRIPTING.md).
-
-After the model edits files, Casper itself runs the project's configured checks
-(typecheck, lint, test, build) and repairs failures within a bounded budget, whatever
-tool the model used. It does this by default, from the first change, in interactive sessions
-and one-shot prompts alike, with no command from you; an interactive session offers slow checks
-(a minute or more) as `/verify` instead of running them after every change. `--no-verify`
-turns checking off for a run. `verification.mode` in
-`.casper/project.yaml` sets `auto`, `offer` or `off` explicitly. A check runs that
-repository's configured command without asking first, and it is not sandboxed — use Casper
-this way only in trusted projects, or start with `--no-verify`. Each task ends with a plain receipt:
+## What a receipt looks like
 
 ```text
 ✓ Verified — the checks pass, and the tests fail without the change
@@ -92,98 +68,146 @@ this way only in trusted projects, or start with `--no-verify`. Each task ends w
 ✓ Proven: test fails without this change (exit 1) and passes with it
 ```
 
-Line 1 is the verdict. `Verified` means the checks passed on the final files and a test fails
-without the change. Anything less says why, for example
-`• Checks passed — not proven: only non-code files changed`.
+Line 1 is the verdict. Anything less than `Verified` says why, for example:
 
-A bash run of a check is reported but never counted as verification. `/receipt` shows
-the detailed evidence (scope, freshness). Native bash stays independent of
-managed verification: a model-issued bash call without `timeout` gets a 120-second
-default and returns a tool error on expiry so the conversation can continue.
-A model saying “done” is not a passing test or human acceptance.
+```text
+• Not verified — no configured check covers the changed files.
+✓ Changed 1 file: README.md
+```
 
-## Everyday commands
+`/receipt` shows the full detail behind the last receipt.
 
-| Command | Purpose |
+## Install
+
+No Bun install or source checkout is needed.
+
+**Windows x64 — PowerShell:**
+
+```powershell
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.15/install.ps1 | iex
+```
+
+Then run `casper` from your project folder. If your terminal does not find it, open a new
+terminal. Windows ARM64 has no release file yet.
+
+**macOS / Linux:**
+
+```sh
+curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.15/install.sh | sh
+```
+
+The installer checks the file's SHA-256 and runs the new program's `--version` before it
+replaces an older install. If the download is rejected, your old install stays as it was.
+It needs no admin rights. These commands pin **v0.2.15**: running them again reinstalls that
+preview. For a newer preview, use its release URL (GitHub's `latest/download` link skips
+previews). Useful `install.sh` options: `--dir <path>`, `--version 0.2.15`, `--sha256 <hex>`
+and `--force` (replace a development symlink). [Installer details](docs/RELEASE.md).
+
+## Quick start
+
+```sh
+cd your-project
+casper
+```
+
+If you start Casper in your home folder or a folder that only holds projects (such as
+`~/Projects`), it asks which project to open: press its number, or Esc to stay.
+
+**Sign in.** Type `/login` and pick a provider (OpenAI Codex, GitHub Copilot, Anthropic,
+OpenRouter). If you skip this, Casper opens sign-in on your first request and picks that
+provider's default model (OpenRouter: `deepseek/deepseek-v4.1-flash`). `/model` picks another;
+Casper never replaces a model you chose. Type keys or codes only in the private login prompt,
+never in chat. Your provider's plans and charges still apply.
+
+**A first task.** Type what you want, for example `Fix the failing test in sum.js`. Casper
+works, runs the checks, and ends with a receipt.
+
+One-shot runs from the shell:
+
+```sh
+casper "Explain this project"
+casper --verify "Fix the failing tests"
+casper --no-verify   # no Casper-run checks this run
+casper --version     # casper 0.2.15 (/absolute/path/of/the/binary/or/cli.ts)
+```
+
+**About checks.** A check runs your project's own command without asking first, and it is not
+in a sandbox (a sealed-off area). Use Casper only in projects you trust, or start with
+`--no-verify`. `verification.mode` in `.casper/project.yaml` sets `auto`, `offer` or `off`.
+
+### Everyday commands
+
+| Command | What it does |
 | --- | --- |
-| `/help` | Short command guide; `/help all` includes the full reference |
-| `/status` | Project, model and integration status |
-| `/model`, `/effort` | Choose a model and a supported reasoning level, or `/effort auto` |
-| `/model roles` | Inspect optional `fast`, `build`, `reason`, `review` model shortcuts |
-| `/verify` | Run configured checks without a model |
-| `/verify repair test` | Authorize bounded repair of a failing test check |
-| `/receipt` | Detailed evidence behind the last task's receipt |
-| `/diff` | Inspect Git changes |
-| `/output [n]` | Full retained output of the last task's n-th most recent tool call (20 retained) |
-| `/clear`, `/resume` | Start fresh or restore a conversation; not a file rollback |
-| `/context`, `/usage` | Runtime estimates and reported usage |
-| `/permissions` | Explain actual boundaries |
+| `/help` | Short command guide; `/help all` for the full list |
+| `/status` | Project, model and connections |
+| `/model`, `/effort` | Pick a model and how hard it thinks (`/effort auto` lets Casper choose) |
+| `/verify` | Run the checks with no model |
+| `/verify repair test` | Let the AI fix a failing test check, with a limit |
+| `/receipt` | Full detail behind the last receipt |
+| `/diff` | Show Git changes |
+| `/output [n]` | Full output of a recent tool call |
+| `/clear`, `/resume` | Start fresh or bring back a chat (does not undo file changes) |
+| `/mcp` | MCP servers: status, connect, writes on/off |
+| `/secrets` | What secret hiding is doing |
+| `/permissions` | What Casper can and cannot do |
 
-The editor supports multiline input, command/path completion, scrollback and a
-persistent status footer. Ctrl+C cancels active work without undoing existing
-changes; when idle it clears the draft, and on an empty editor a second Ctrl+C
-within two seconds exits (Ctrl+D exits at once). Model selection normally
-remembers your choice; `--session` opts out.
-`/effort auto` classifies each request with one bounded extra model call and shows
-the effort actually used; a fixed level turns it off. On a rich terminal, Shift+Tab
-cycles effort for this conversation, including auto, without changing the saved preference.
-
-Assistant messages render as Markdown through Pi's renderer. Completed blocks are
-reused while they stream, and the open tail is re-parsed so lists and fences stay
-correct; fenced code blocks are boxed in a
-bordered panel titled with their language, as are `/output` replays and the `/diff` status and
-colored diff; prose stays inline. Each tool call occupies one transcript
-line: `• … — running` is redrawn in place as `✓`/`✗` when it finishes, and the
-Working panel (`Reasoning · 1.5k chars`) keeps the screen live while the model produces
-output that is not yet visible. The `/` popup and pickers are drawn over the bottom of
-the transcript, never appended, so opening them does not scroll the terminal; login
-panels follow the transcript so authorization URLs and device codes stay visible. After a coding request the receipt names the files that actually changed
-(before/after tree digest), files changed later during checks/repair, and a bounded
-`git diff --stat`. See the [terminal guide](docs/TERMINAL_UX.md).
-
-## Optional capabilities
-
-Nothing here requires installing or connecting a server automatically.
-
-- [Project configuration, model roles and skills](docs/CONFIGURATION.md)
-- [Verification, freshness and repair](docs/VERIFICATION.md)
-- [MCP tools](docs/MCP.md) and [language servers](docs/LSP.md). Network MCP servers start with
-  writes off; only the product itself can make a server read-only, and only you can turn writes on
-  (`/mcp writes <name>`). `casper mcp check` checks a server you built.
-- [Device secrets](docs/SECRETS.md): known passwords, keys and SNMP communities in MCP results and
-  config files are hidden from the AI (best effort)
-- [Browser-assisted debugging](docs/BROWSER.md) and [local DAP debugging](docs/DEBUGGER.md)
-- [Managed services](docs/SERVICES.md): declared development servers Casper runs and stops
-- [Diagram export](docs/VISUALIZATION.md)
-- [Named sessions and worktrees](docs/SESSIONS.md)
-- [Read-only explorer/reviewer agents](docs/DELEGATION.md)
-- [Explicit project memory](docs/MEMORY.md), [reference search](docs/REFERENCES.md), and [learning drafts](docs/LEARNING.md)
+Ctrl+C stops the current work but keeps changes already made. On an empty prompt, a second
+Ctrl+C within two seconds exits; Ctrl+D exits at once.
 
 ## Safety and privacy
 
-Casper is **not a sandbox**. Native coding tools can read/write files and run shell
-commands with your permissions. Worktrees, read-only agent roles and integration
-consent do not provide OS isolation.
+Casper is **not a sandbox**. Its file and shell tools run with your permissions. Worktrees,
+read-only agent roles and connection prompts do not isolate anything at the OS level.
 
-Source text, tool output and conversation history may reach your selected model
-provider or remain in local plaintext state. Do not use sensitive repositories
-without an appropriate provider and environment. Casper hides known device secret
-formats from the AI ([SECRETS.md](docs/SECRETS.md)), but there is no comprehensive
-secret detector or enforced parent-task spending cap.
+Your code, tool output and chat may go to the model provider you picked, and may stay on
+disk as plain text. Secret hiding covers known formats only ([SECRETS.md](docs/SECRETS.md));
+there is no full secret scanner and no hard spending cap.
 
-Checks establish command results, not complete behavioral correctness. Missing or
-stale evidence is not a pass. Review important changes yourself.
+A passing check shows a command passed, not that the code is fully right. Missing or old
+results are not a pass. Review important changes yourself.
 
-## Platform testing
+## Learn more
 
-See [platform support](docs/PLATFORM_SUPPORT.md) and the
-[Windows preview checklist](docs/WINDOWS.md). Please report the OS/Bun version,
-command, actual error and whether an optional browser/debugger adapter was installed.
-Remove secrets and sensitive paths before sharing logs.
+| Doc | What it covers |
+| --- | --- |
+| [VERIFICATION.md](docs/VERIFICATION.md) | Checks, receipts, proof and the repair loop |
+| [MCP.md](docs/MCP.md) | Connecting MCP servers, presets, writes on/off, `casper mcp check` |
+| [SECRETS.md](docs/SECRETS.md) | Which secrets are hidden from the AI, and the limits |
+| [REFERENCES.md](docs/REFERENCES.md) | Local search of reference code and vendor specs |
+| [SCRIPTING.md](docs/SCRIPTING.md) | One-shot runs, `--json`, exit codes, CI |
+| [CONFIGURATION.md](docs/CONFIGURATION.md) | Config files, model roles and skills |
+| [TERMINAL_UX.md](docs/TERMINAL_UX.md) | The terminal screen, keys and commands |
+| [SESSIONS.md](docs/SESSIONS.md) | Named sessions and worktree experiments |
+| [SERVICES.md](docs/SERVICES.md) | Dev servers Casper starts and stops for you |
+| [BROWSER.md](docs/BROWSER.md) | Debugging with an installed browser |
+| [LSP.md](docs/LSP.md) | Language servers for errors, lookups and renames |
+| [DEBUGGER.md](docs/DEBUGGER.md) | Local step debugger (DAP) |
+| [DELEGATION.md](docs/DELEGATION.md) | Read-only helper agents that explore or review |
+| [MEMORY.md](docs/MEMORY.md) | Project facts you save and past task results |
+| [LEARNING.md](docs/LEARNING.md) | `casper learn`: draft patterns from a repo, you decide |
+| [VISUALIZATION.md](docs/VISUALIZATION.md) | Diagrams of code and systems |
+| [EVALUATION.md](docs/EVALUATION.md) | Casper's test suite with real model tasks |
+| [RELEASE.md](docs/RELEASE.md) | What is in each release, and the installers |
+| [PLATFORM_SUPPORT.md](docs/PLATFORM_SUPPORT.md) | macOS, Linux and Windows status |
+| [PLATFORM_VERIFICATION.md](docs/PLATFORM_VERIFICATION.md) | How to test Casper on a new machine |
+| [WINDOWS.md](docs/WINDOWS.md) | Windows preview checklist |
+
+Project notes (for people working on Casper): [design decision](docs/adr/0001-casper-own-product.md),
+[eval results](docs/evals/), [handoff notes](docs/HANDOFF-2026-09-27.md),
+[pre-release review](docs/PRE_RELEASE_REVIEW.md).
+
+When you report a problem, include your OS, the command, the exact error, and whether a
+browser or debugger was installed. Remove secrets and private paths from logs first.
+
+## Coming next
+
+Not in this release. Planned for v0.2.16: new-project templates, page checks, and network and
+security checks. Planned for v0.2.17: undo and a sandbox.
 
 ## Develop from source
 
-Requires Bun, Git, and Python 3 for the POSIX terminal tests:
+Needs Bun, Git, and Python 3 (for the POSIX terminal tests):
 
 ```sh
 git clone https://github.com/Choaterboater/casper.git
@@ -193,37 +217,13 @@ bun run dev
 bun run check
 ```
 
-For a PATH command that follows the checkout, link `src/cli.ts` to
-`~/.local/bin/casper` (`chmod +x src/cli.ts` first). `casper --version` prints
-`casper <version> (<path>)`, where the path is the `cli.ts` or compiled binary that
-actually ran, so a stale link is visible in one command; the release installer
-refuses to replace such a link without `--force`, and never replaces a link into a
-`.scratch/` checkout. Its shebang (`env -S bun --no-env-file --config=/dev/null`)
-keeps the opened repository's `bunfig.toml` preloads and `.env` out of Casper, as
-the compiled binary does; it needs an `env` with `-S` (macOS, GNU coreutils 8.30+).
+To run the checkout as `casper`, link `src/cli.ts` to `~/.local/bin/casper` (run
+`chmod +x src/cli.ts` first). `casper --version` prints `casper <version> (<path>)`, so a stale
+link is easy to spot. The release installer will not replace such a link without `--force`.
 
-Tests use isolated fixtures; no paid model is needed for `bun run check`. Browser
-and real-debugger tests need already installed tools and explicitly skip when
-unavailable. `bunfig.toml` scopes discovery to `tests/`, so evaluation fixtures under
-`evals/fixtures/` keep their own test files. POSIX-only fixtures declare an explicit
-skip through `tests/support/platform.ts` on hosts that cannot run them, and a
-fixture's configured check runs `tests/fixtures/check-script.ts` rather than a POSIX
-shell pipeline; portability by construction is not host validation. The test preload
-(`tests/support/preload.ts`) strips a developer's own `PI_*`, `CASPER_*` and provider
-API key variables before any test runs, and spawned CLIs get `cleanEnv()` from
-`tests/support/env.ts`, so the machine's environment cannot change a result.
-[Host verification](docs/PLATFORM_VERIFICATION.md).
+`bun run check` needs no paid model. Browser and debugger tests skip when those tools are not
+installed. Build the program for this machine with `bun run build:release`, or all five
+release targets with `bun run build:release -- --all`. [Host testing](docs/PLATFORM_VERIFICATION.md).
 
-Build the host executable with `bun run build:release`, or all five release targets
-with `bun run build:release -- --all`. Build output is ignored by Git and belongs
-in release assets.
-
-The optional [evaluation suite](docs/EVALUATION.md) runs real model tasks against
-dependency-free fixture repositories and can incur provider usage:
-
-```sh
-bun tools/eval.ts --list                                   # task ids
-bun tools/eval.ts                                          # every task (uses the configured model)
-bun tools/eval.ts --repeat 3 --json /tmp/eval.json         # each task 3x on fresh work directories; pass rate, median/min/max wall clock
-bun tools/eval.ts --model github-copilot/claude-fable-5.1  # select the model for this run only (never writes ~/.casper/settings.json)
-```
+The optional [evaluation suite](docs/EVALUATION.md) runs real model tasks and may cost
+provider usage: `bun tools/eval.ts --list` shows the tasks.

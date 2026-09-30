@@ -1,14 +1,18 @@
 # Managed services
 
-A project can declare its long-running processes, such as a development server, in
-`.casper/project.yaml`. Casper starts each one as a **managed service**: it picks the
-port, waits until the service is ready, keeps a bounded log, restarts it when edits may
-have changed what it serves, and stops it when the conversation that owns it ends. A
-service carries no verification evidence itself; it only gives Casper something to
-observe.
+**What this is:** Casper can start and stop your project's long-running
+programs, such as a development web server, for you. **When you'd use it:** when
+you want Casper (or the model) to run your app, send it a test HTTP request, and
+check it still answers after a change.
 
-A service runs the project's own command at the project root. It is trusted project
-code, not a sandbox.
+You declare each program in `.casper/project.yaml`. Casper then runs it as a
+**managed service**: it picks a port, waits until the service is ready, keeps
+recent log lines, restarts it when edits may have changed what it serves, and
+stops it when the conversation that owns it ends. A running service is not proof
+that anything works; it only gives Casper something to look at.
+
+A service runs your project's own command in the project folder. It is trusted
+project code, not a sandbox.
 
 ## Declaring services
 
@@ -24,7 +28,20 @@ services:
       DATABASE_URL: postgres://localhost/dev
 ```
 
-- **`command`** is run exactly as written through the shell.
+A small working example, using Python's built-in web server to serve the
+project folder:
+
+```yaml
+services:
+  web:
+    command: python3 -m http.server $PORT --bind $HOST
+    port: auto
+    ready: { http: / }
+```
+
+Then `/services start web` starts it and `/services` shows its address.
+
+- **`command`** is run exactly as written through the shell (at most 4 KiB).
 - **`port: auto`** gives the service a free loopback port, so two Casper runs of the same
   project never collide. Casper keeps the same port across restarts while it is free. A
   **fixed port** stays the same address. If it is already held by a process Casper did
@@ -41,11 +58,12 @@ services:
   the scope (for example a path that does not exist yet next to a scoped name) counts as
   inside. Without a scope, any edit in the project does. A shell command's files are
   unknown, so it marks every running service stale.
-- **`env`** holds literal values. Nothing else comes from your shell: services start in
+- **`env`** holds literal values, at most 32 of them. Nothing else comes from your shell: services start in
   Casper's isolated environment (a temporary `HOME`, the project's `node_modules/.bin` on
   `PATH`, package installs disabled). Casper sets `PORT` and `HOST` (`127.0.0.1`) itself,
   and owns `PATH`, `HOME`, `TMPDIR`, `BUN_INSTALL_AUTO` and `npm_config_offline`, so `env`
-  may not set any of them (in any letter case). The service should listen on `HOST:PORT`.
+  may not set any of them (the last five in any letter case). The service should listen
+  on `HOST:PORT`.
 
 A project declares at most 4 services. Names are a letter followed by up to 31 letters,
 digits, `_` or `-`. `adhoc-<n>` is reserved for services started by command. Services
@@ -88,14 +106,15 @@ During a task the model uses one `service` tool, with these actions:
   kept: starting a fifth drops the oldest one that is not running.
 - **`status`**, **`logs`** (the most recent `lines`, default 40 and at most 200,
   optionally only lines containing `filter`), **`restart`** and **`stop`**.
-- **`request`** sends one HTTP request. It is sent either to `service` plus `path` (which
+- **`request`** sends one HTTP request (`GET`, `HEAD`, `POST`, `PUT`, `PATCH`,
+  `DELETE` or `OPTIONS`). It is sent either to `service` plus `path` (which
   starts with a single `/` and contains no `\`), or to a `url` on `localhost`, `127.0.0.1` or `[::1]` over `http:`. A URL at a service's
   address counts as that service. Anything else is refused. Before sending, Casper makes
   the service fresh: a service that is stale from edits, has crashed or no longer answers
   its readiness path is restarted, and the result says `restarted: true`. Redirects are
   shown, not followed. The request times out after 10 s. The result shows the status,
-  selected headers (content type and length, location, allow, caching, retry-after,
-  authentication challenge) and the count of the rest. It also shows the timing and the
+  selected headers (`content-type`, `content-length`, `location`, `allow`,
+  `cache-control`, `etag`, `last-modified`, `retry-after`, `www-authenticate`) and the count of the rest. It also shows the timing and the
   body, with JSON pretty-printed. A body over 8 KiB is cut with a marker such as
   `[truncated: 20480 bytes, first 8192 shown]`; the size is that of the body as shown, so
   for pretty-printed JSON the marker says `bytes as pretty-printed JSON`, and a body over

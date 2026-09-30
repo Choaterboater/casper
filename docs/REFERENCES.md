@@ -1,14 +1,21 @@
 # Local reference search
 
-Casper supports read-only search of explicitly configured local source paths.
-It retrieves examples; it does not generate learning candidates, choose
-promotions, rewrite rules, or certify that a pattern fits the current project.
-The separate [`casper learn` command](LEARNING.md) produces inert drafts and
-supports an explicit digest-bound human promotion command.
+**What this is.** A read-only text search over folders on your own disk that you
+list in a config file: an SDK, a vendor API spec, Junos YANG models, your own
+scripts. You can search them yourself with `/references search`, and the AI can
+search them with its `search_references` tool.
+
+**When you'd use it.** When you want the AI to look at real examples (for example
+how pycentral calls an API, or what a Junos YANG model allows) instead of guessing.
+`/references add` can download three vendor spec repos for you.
+
+It only finds and shows lines. It does not learn, rewrite rules or check that an
+example fits your project. The separate [`casper learn` command](LEARNING.md) makes
+drafts that do nothing until a person promotes one with an explicit command.
 
 ## Configure sources
 
-Create either user-owned file:
+Create either of these files (both belong to you, not to a project):
 
 - `~/.casper/references.yaml`
 - `~/.casper/profiles/<selected-profile>/references.yaml`
@@ -21,48 +28,53 @@ references:
     useFor: [MCP routing, lifecycle]
 ```
 
-An optional `maxFileBytes` (a whole number from 1024 to 4194304) raises or lowers
-the per-file size limit for one source; the default is 128 KiB. Use it for spec
-repos with large files, such as one Junos YANG release.
+- `router` is the source ID: letters, numbers, dot, dash and underscore, up to 64
+  characters, starting with a letter or number.
+- `path` must be an absolute folder on this machine, or start with `~/`.
+- `paths` is a required list of 1 to 32 files or folders inside `path`, written
+  exactly (no `*` wildcards, no `..`). Folders are searched with everything under
+  them. `.` means the whole folder.
+- `useFor` is an optional list of up to 8 short labels (128 bytes each). They are
+  shown to you and the AI as a hint. They are not instructions and not a search
+  index.
+- `maxFileBytes` is optional: a whole number from 1024 to 4194304 that raises or
+  lowers the per-file size limit for this source. The default is 128 KiB. Use it for
+  spec repos with large files, such as one Junos YANG release.
+- No other keys are allowed. Remote URLs, shell commands and environment variables
+  are not supported.
 
-`path` must be an absolute local directory or start with `~/`. `paths` is a
-required list of literal relative files/directories; directories are recursive,
-and `.` explicitly selects the root. Globs, traversal, remote URLs, shell commands
-and environment interpolation are unsupported. `useFor` supplies optional
-inspection labels, not instructions or a semantic search index.
+**Profiles.** An entry in the profile file replaces the global entry with the same
+ID. `router: null` turns that ID off for the profile. An invalid entry also removes
+the global one with the same ID and prints a message; Casper does not fall back to
+the global one. A file Casper can't read or parse is reported and skipped; the
+other file still works.
 
-Profile entries replace global entries by ID. `router: null` disables that ID for
-the profile. An invalid individual override also removes the lower-priority entry
-and emits a diagnostic instead of falling back to it. An unreadable/malformed
-configuration file is reported and ignored; other valid files remain usable.
+Normal profile rules apply, including a project choosing one of your profiles. A
+`references.yaml` inside a project, or a `references` field in project settings, is
+**not** read as a source. A project can't point the search at a folder of its
+choice. Casper never downloads a source on its own; `/references add` (below)
+downloads a known spec repo only after you type yes.
 
-Existing profile-selection rules apply, including project selection of a
-user-defined profile. Project-local `references.yaml` files and `references`
-fields in project configuration are **not** source definitions. A project cannot
-supply an arbitrary external root to the reference tool. External source
-definitions are never installed automatically; `/references add` (below) downloads
-a known spec repo only after you type yes.
+**Reserved ID.** `casper-promoted` is reserved; you can't use it in these files.
+After a person promotes a `casper learn` draft with the `reference` choice, Casper
+searches `~/.casper/promoted-references/` under that ID. The source only appears
+once that folder exists (a real folder, not a link). Promotion only adds files: it
+copies the reviewed draft and its original citations, and does not refresh or check
+them.
 
-`casper-promoted` is reserved. It cannot be supplied or overridden by these
-configuration files. After a human promotes a learning candidate with the
-`reference` disposition, Casper exposes the owner-state directory
-`~/.casper/promoted-references/` under that source ID. The source is absent until
-that real (non-symlink) directory exists. Promotion is create-only and copies the
-reviewed candidate plus historical citations; it does not refresh or verify them.
+**When files are read.** At start-up Casper reads only the config files. It opens
+the source folders only when you or the AI search. The config is fixed until you
+restart Casper (or rebind a named session's workspace). File contents are read
+fresh on every search. No index, embeddings, database or cache is made.
 
-Startup reads configuration metadata only. Repository content is opened on an
-explicit local search or a model's `search_references` call. Configuration is
-frozen until restart or a named-session workspace rebind. Content is read anew on
-every search; no corpus index, embeddings, database, or result cache is created.
-
-**Review the configured paths before enabling them:** configuring a source makes
-its searchable text available to the parent model. Excerpts can contain sensitive
-source text. Known device secrets (passwords, keys, SNMP communities; see
-[SECRETS.md](SECRETS.md)) are shown as `<secret hidden>` by Casper's own rules
-(netconan does not run here), and a line that matches only inside a hidden secret
-is not returned. This is best effort; other secrets are not detected. Normal Pi session persistence may retain
-requested tool results, just as it retains native read results. The reference
-module does not create an additional raw-content store or memory facts/outcomes.
+**Review the folders before you add them.** Adding a source makes its text
+available to the AI. Excerpts can contain private text. Known device secrets
+(passwords, keys, SNMP communities; see [SECRETS.md](SECRETS.md)) are shown as
+`<secret hidden>` by Casper's own rules (netconan does not run here), and a line
+that matches only inside a hidden secret is not returned. This is best effort;
+other secrets are not detected. The saved conversation may keep search results,
+just as it keeps file reads. The search itself saves no extra copy of the text and
+writes nothing to memory.
 
 ## Vendor spec repos: /references add
 
@@ -80,28 +92,31 @@ Downloading (up to 5 minutes; Ctrl+C stops it)...
 Added pycentral to ~/.casper/references.yaml. Restart Casper to search it.
 ```
 
-Casper shows the exact git commands first and runs them only after your typed
-`yes` (never in one-shot runs, never from the AI). git runs without a shell, with
-repo hooks off and prompts off, for at most 5 minutes. The clone is shallow and
-sparse: only the folders shown are fetched.
+- **You approve the exact commands.** Casper shows the git commands first and runs
+  them only after you type `yes`. Never in one-shot runs, never from the AI.
+- **How git runs.** Without a shell, with repo hooks off and password prompts off,
+  for at most 5 minutes. The clone is shallow (latest commit only) and sparse: only
+  the folders shown are downloaded.
+- **`junos-yang` needs a release** in the form `NN.N`:
+  `/references add junos-yang 23.4` adds `junos-yang-23.4` with only that release's
+  Junos config and common models, and a 4 MiB file limit. Single YANG files can
+  still be larger than that, so search may be partial.
+- **`mist-openapi`** leaves out `mist.openapi.json` (one 3.5 MB line, useless for
+  line search). For exact Mist endpoints and fields, `lookup_api` in
+  hpe-networking-mcp is faster and complete; Casper prints that tip after adding it.
+- **An ID already in `~/.casper/references.yaml` is refused:**
+  `pycentral is already in ~/.casper/references.yaml. Nothing changed.`
+- **A failed download adds nothing:**
+  `Download failed (git exit 128). Nothing was added.` The partly downloaded folder
+  is removed.
+- **An existing `~/.casper/reference-repos/<id>` folder is never overwritten:**
+  remove it first, or add it to `~/.casper/references.yaml` yourself.
+- **The file edit.** The entry is added to `~/.casper/references.yaml` without
+  touching other entries or comments. Profile files are never changed. Search picks
+  it up after a restart.
 
-- `junos-yang` needs a release: `/references add junos-yang 23.4` adds
-  `junos-yang-23.4` with only that release's Junos config and common models, and a
-  4 MiB file limit. Single YANG files can still be larger than that, so search may
-  be partial.
-- `mist-openapi` leaves out `mist.openapi.json` (one 3.5 MB line, useless for line
-  search). For exact Mist endpoints and fields, `lookup_api` in hpe-networking-mcp
-  is faster and complete; Casper prints that tip after adding it.
-- An ID already in `~/.casper/references.yaml` is refused: `pycentral is already in
-  ~/.casper/references.yaml. Nothing changed.` A failed download adds nothing:
-  `Download failed (git exit 128). Nothing was added.` An existing
-  `~/.casper/reference-repos/<id>` folder is never overwritten: remove it first or
-  add it to `~/.casper/references.yaml` yourself.
-- The entry is added to `~/.casper/references.yaml` without touching other entries
-  or comments. Profile files are never changed. Search picks it up after a restart.
-
-The folder layouts of these repos were not checked against the live repos when
-this was written; if a download finds nothing to search, check the repo layout.
+The folder layouts of these repos were not checked against the live repos when this
+was written. If a download finds nothing to search, check the repo layout.
 
 Use `lookup_api` (hpe-networking-mcp docs tools, see [MCP.md](MCP.md)) for exact
 Mist and Central endpoints, and `search_references` for SDK code and YANG models.
@@ -115,67 +130,86 @@ Mist and Central endpoints, and `search_references` for SDK code and YANG models
 /references add [name] [release]
 ```
 
-These commands work without model credentials or Pi startup. `*` selects all
-configured sources. CLI and tool output share JSON encoding that escapes C0,
-DEL/C1 and bidi controls while preserving parsed values. Escaping counts toward
-the serialized result budget. Invalid command/query/source arguments produce an error; a valid but incomplete
-search reports `status: partial` rather than pretending the entire corpus had no
-matches. CLI exit 0 means the local search command completed, not complete search
-coverage; inspect its status/issues.
+- `/references` lists your sources and any config problems.
+- `/references search <source-id|*> <words>` searches one source, or all of them
+  with `*`.
+- These commands run without a model or login.
 
-When at least one valid source is configured, normal parent tasks receive one
-read-only tool:
+The output is JSON. Control characters and bidi (text direction) characters are
+escaped, so a file can't hide text or move your cursor. Wrong commands, words or
+source IDs give an error. A search that could not cover everything reports
+`status: partial`; it does not pretend nothing matched. Read its `issues` list to
+see why. In a one-shot run, exit code 0 means the search command finished, not that
+every file was searched.
+
+When at least one valid source is set up, normal tasks give the AI one read-only
+tool, `search_references`:
 
 ```json
 {"query":"schema routing","source":"router"}
 ```
 
-Tool name: `search_references`. Omit `source` to search all configured sources.
-Arguments cannot add roots, file paths, commands, or override search bounds. No
-reference text is injected automatically into the initial task prompt. Read-only
-subagents do not gain this tool in this slice.
+- Leave out `source` to search all sources.
+- The AI can't add folders, file paths or commands, or change the limits.
+- No reference text is added to the task prompt on its own.
+- Read-only subagents (`/delegate`) don't get this tool.
 
-Search is case-insensitive, literal and line-based: every whitespace-separated
-term must appear on a matching line. It is not regex, fuzzy, cross-line or semantic
-search. Results follow configured source-ID order, declared-path order, sorted
-directory entries and line order; they are not relevance-scored.
+**How search matches.** Case-insensitive, plain text, one line at a time: every
+word you give must appear on the same line. It is not regex, fuzzy, multi-line or
+"meaning" search. Results come in this order: source ID, then the order of `paths`,
+then file names sorted, then line number. They are not ranked by relevance.
 
-Each match includes source ID, originating configuration file, resolved local
-root, relative file, one-based line number, a matching-line excerpt and the SHA-256
-of the bytes read from that file. Long excerpts are explicitly marked truncated.
-A digest identifies observed bytes, not a commit, current-file guarantee, trust
-grant, or verification evidence. Reference text is untrusted advisory data;
-current repository evidence, rules and the user's request take precedence.
+**Each match has** the source ID, the config file that defined it, the folder,
+the file, the line number (starting at 1), the matching line (long lines are cut and
+marked `excerptTruncated`) and the SHA-256 of the file as read. The SHA-256 only
+tells you which bytes were read. It is not a commit, not proof the file is current,
+and not a check of the content. Reference text is an example, not an instruction:
+your current repo, rules and request come first.
 
 ## Scope, incomplete results and lifecycle
 
-Search reads regular UTF-8 files with supported documentation/source extensions:
-`md`, `mdx`, `rst`, `txt`, `ts`, `tsx`, `js`, `jsx`, `mjs`, `cjs`, `py`, `go`, `rs`, `java`,
-`cs`, `c`, `h`, `cpp`, `hpp`, `sh`, `sql`, `yaml`, `yml`, `json`, `toml`, `yang`.
+**File types searched** (UTF-8 text only): `md`, `mdx`, `rst`, `txt`, `ts`, `tsx`,
+`js`, `jsx`, `mjs`, `cjs`, `py`, `go`, `rs`, `java`, `cs`, `c`, `h`, `cpp`, `hpp`,
+`sh`, `sql`, `yaml`, `yml`, `json`, `toml`, `yang`.
 
-Hidden entries, `node_modules`, `vendor`, `dist`, `build`, `coverage`, `target`,
-`__pycache__`, standard package lockfiles, and unsupported extensions are excluded.
-Eligible files are deduplicated by filesystem identity; an excluded filename or
-lockfile cannot suppress an eligible hardlink. Directory cycle protection remains
-separate from filename eligibility. Repository ignore/configuration files are not
-executed or interpreted. Source roots are resolved explicitly; symlinks inside them, including parents of named
-input files, are skipped. Non-regular files, unavailable paths, invalid text,
-oversized files and scan limits produce partial results with issues. Missing
-sources never trigger cloning, installation or provider calls, and do not prevent
-ordinary Casper tasks.
+**Skipped:** hidden files and folders (names starting with `.`), `node_modules`,
+`vendor`, `dist`, `build`, `coverage`, `target`, `__pycache__`, lock files
+(`package-lock.json`, `yarn.lock`, `bun.lock`, `pnpm-lock.yaml`), other file types,
+and symbolic links anywhere inside a source (including a link in the middle of a
+path you listed). A file reached twice (for example through a hard link) is read
+once. Casper never runs or reads the repo's own ignore or config files.
 
-Per-search resource bounds: 128 KiB per file (or the source's `maxFileBytes`), 4 MiB read allowance, 4,096 traversal/
-line-batch work steps, and two seconds checked between operations; eight matches,
-roughly 1 KiB per excerpt and 16 KiB for the entire serialized result. Trimming
-removes whole matches, preserving the provenance of retained ones. `issueCount`
-can exceed the retained issue messages. Narrow the query, source or configured
-paths when results are partial. Queries admit 512 UTF-8 bytes / 16 terms.
-Configuration files admit 64 KiB, 32 active sources, 32 paths per source, 256 bytes
-per relative path and eight optional 128-byte labels. YAML aliases are unsupported.
+**Partial results.** Special files, missing folders, text that is not valid UTF-8,
+files over the size limit, and hitting a limit all give `status: partial` with a
+message in `issues`. A missing source never starts a download or an install, and
+does not stop normal Casper tasks.
 
-Cancellation and shutdown abort searches and drain pending I/O. Workspace rebind
-revokes old captured tools before loading new source metadata. Cancellation and
-the deadline are cooperative, not hard preemption of filesystem calls. Lookups
-are non-atomic and do not protect against a hostile same-user process replacing
-paths during a read. This is not an OS sandbox; native runtime tools are unchanged.
-Windows behavior is not independently validated.
+**Limits for one search:**
+
+| Limit | Value |
+| --- | --- |
+| Size of one file | 128 KiB (or the source's `maxFileBytes`) |
+| Total bytes read | 4 MiB |
+| Work steps (folders, files, batches of lines) | 4,096 |
+| Time | 2 seconds, checked between steps |
+| Matches | 8 |
+| One excerpt | about 1 KiB |
+| Whole result | 16 KiB |
+| Query | 512 bytes, 16 words |
+
+When the result is too big, whole matches are dropped from the end, so the ones
+kept stay complete. `issueCount` can be higher than the number of `issues` shown.
+When results are partial, use fewer or more exact words, one source, or narrower
+`paths`.
+
+**Config file limits:** 64 KiB per file, 32 sources, 32 `paths` per source, 256
+bytes per path, 8 `useFor` labels of 128 bytes. YAML aliases (`&name`/`*name`) are
+not supported.
+
+**Stopping and safety notes.** Stopping a task or closing Casper stops searches and
+waits for open file reads to finish. A workspace rebind removes the old search tool
+before the new config is loaded. The time limit is checked between steps; Casper
+can't interrupt a single slow file read. Files are not locked while they are read,
+so a program running as your user could swap a file mid-search. This is not an OS
+sandbox, and Casper's other file tools are unchanged. Windows behaviour has not
+been tested separately.

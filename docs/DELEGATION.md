@@ -1,10 +1,84 @@
 # Read-only explorer and reviewer agents
 
+**What this is:** a small helper agent that only reads your files. An *explorer*
+finds where things are. A *reviewer* looks for problems in code you point it at.
+**When you'd use it:** to get a second look, or to search a big project, without
+letting anything change your files.
+
+## Commands
+
 ```text
 /delegate explorer Find the authentication entry points and their callers
 /delegate reviewer Inspect src/sessions/manager.ts for approval-race risks
 ```
 
-The primary model can also call `delegate` with a self-contained `role`, `goal`, and optional `context`. Both roles use fresh, read-only Pi sessions with only `read`, `grep`, `find`, and `ls`; no shell, writes, external capabilities, ambient extensions, or recursion. Children inspect the active workspace (including uncommitted work) without creating worktrees. Workspace switches wait for child work to finish.
+The main model can also start a helper itself, with the `delegate` tool. It
+passes a `role` (`explorer` or `reviewer`), a `goal`, and optional `context`.
+Both ways make a model request, so they use your provider account.
 
-Limits: 2 concurrent children, 4 delegations per prepared parent prompt (a third call turned away because two are already running does not count against the 4), 180 seconds / 12 model turns / 48 tool calls per child, then one tool-free turn so a spent child can report what it already found. Results are bounded and explicitly report failures, limits, and truncation; a child stopped mid-investigation returns its last words rather than an empty report. Explorers use Casper's optional `fast` model role; reviewers use `review`. Unset roles use the saved Casper startup default, not the parent's temporary model or Pi CLI/project Pi defaults. A configured but invalid/unavailable role fails rather than silently selecting another provider. Role effort suffixes and per-model automatic effort apply without changing global preferences or persisting a child transcript. A transient provider error (429, "Provider returned error", a dropped connection) is retried as in the main session with Pi's default policy — up to 3 retries after 2, 4 and 8 s, inside the 180-second limit, and cancellation stops the wait; a child that recovers reports `completed`. Likewise, a response cut off by the model's output-token limit while it was calling tools is not the outcome: Pi does not run the cut-off calls, tells the child why, and the child re-issues them, so only a reply the child ends on can make it `limited`. A large file is not an error either: Pi's `read` returns the first 2000 lines or 50 KB with a notice such as `[Showing lines 1-1275 of 3400 (50.0KB limit). Use offset=1276 to continue.]`, and the child continues from there. A tool that does fail is reported with Pi's own first line, as the child saw it (`read: EISDIR: illegal operation on a directory, read`, `read: ENOENT: …`), not a bare "tool failed". Children read no `settings.json`, so the policy cannot be changed for them. Read-only tool authority is **not an OS sandbox or spending cap**; reports are not verification evidence.
+## What a helper can do
+
+- It gets only four tools: `read`, `grep`, `find` and `ls`.
+- No shell, no edits, no MCP or language-server tools, and it cannot start
+  another helper.
+- It starts fresh. It does not see your conversation, only the goal and context.
+- It reads the folder you are working in, including changes you have not
+  committed. It does not make a worktree (a separate copy of the repo).
+- If you switch workspace, Casper waits for running helpers to finish first.
+
+"Read-only" here means Casper gives the helper only read tools. It is **not an
+operating-system sandbox** and not a spending cap. A helper's report is advice,
+not proof that the code works.
+
+## Limits
+
+| Limit | Value |
+| --- | --- |
+| Helpers running at once | 2 |
+| Helpers per request you send | 4 |
+| Time per helper | 180 seconds |
+| Model turns per helper | 12 |
+| Tool calls per helper | 48 |
+| Goal / context size | 4 KiB / 8 KiB |
+| Report size returned to the main model | 16 KiB |
+
+- A third helper turned away because two are already running does not count
+  toward the 4. It can be sent again later.
+- When a helper uses up its turns or tool calls, it gets one last turn with no
+  tools, so it can report what it found so far.
+- A helper stopped part way returns its last words, not an empty report. Its
+  status says it was cut short.
+
+## Which model a helper uses
+
+- Explorers use Casper's `fast` model role. Reviewers use the `review` role.
+  Set roles with `/model role` (see [CONFIGURATION.md](CONFIGURATION.md)).
+- If a role is not set, the helper uses your saved Casper startup default. It
+  does not use the parent's temporary `/model --session` choice, or Pi's own
+  defaults.
+- If a role is set but that model is not usable, the helper fails. It does not
+  quietly pick another provider.
+- Effort suffixes on a role (for example `:high`) and automatic effort apply to
+  the helper only. Nothing is saved, and no helper transcript is kept.
+
+## Errors and how they are reported
+
+- **Short provider errors** (for example a 429 rate limit, "Provider returned
+  error", or a dropped connection) are retried the same way as in the main
+  session: up to 3 retries, after 2, 4 and 8 seconds, inside the 180-second
+  limit. Cancelling stops the wait. A helper that recovers reports `completed`.
+- **Output cut off by the model's token limit** while it was calling tools is
+  not the end: those calls are not run, the helper is told why, and it sends
+  them again. Only a final reply that is cut off makes the status `limited`.
+- **Large files** are not an error. `read` returns the first 2000 lines or
+  50 KB with a note such as
+  `[Showing lines 1-1275 of 3400 (50.0KB limit). Use offset=1276 to continue.]`,
+  and the helper carries on from there.
+- **A tool that fails** is reported with its first error line, as the helper saw
+  it, for example `read: EISDIR: illegal operation on a directory, read` or
+  `read: ENOENT: …`. You do not just get "tool failed".
+- Status is one of `completed`, `failed`, `cancelled`, `timed_out` or `limited`.
+  `/delegate` shows the report, then fails the command if the status is not
+  `completed`.
+
+Helpers read no `settings.json`, so this retry policy cannot be changed for them.
