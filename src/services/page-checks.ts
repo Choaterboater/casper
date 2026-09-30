@@ -146,7 +146,13 @@ function judge(path: string, origin: string, load: PageLoad, serverError: string
   const result: PageResult = { path, status: "pass", httpStatus: load.status, consoleChecked: load.consoleChecked, consoleErrors, failedRequests,
     ...(load.overlay ? { overlay: hide(load.overlay).slice(0, ERROR_TEXT) } : {}), ...(serverError ? { serverError: hide(serverError) } : {}) };
   if (load.status === null) return { ...result, status: "incomplete", reason: "it did not answer" };
-  const failed = result.overlay !== undefined || result.serverError !== undefined || load.status >= 400 || consoleErrors.length > 0 || failedRequests.length > 0;
+  if (load.phone) {
+    result.phoneChecked = true;
+    const { viewport, pageWidth, squashed } = load.phone;
+    if (pageWidth > viewport + 1 || squashed.length) result.phone = { viewport, pageWidth, squashed: squashed.map(name => hide(name).slice(0, 80)) };
+  }
+  const failed = result.overlay !== undefined || result.serverError !== undefined || load.status >= 400 || consoleErrors.length > 0 || failedRequests.length > 0
+    || result.phone !== undefined;
   return failed ? { ...result, status: "fail" } : result;
 }
 

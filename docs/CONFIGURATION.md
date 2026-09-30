@@ -382,6 +382,25 @@ config; a project's `.casper/project.yaml` cannot:
 cache: short   # auto (default), long, short, or off
 ```
 
+## Display
+
+How much of the work shows on screen while Casper works. The model's thinking is never printed.
+
+- `normal` (default): the latest steps in the Working box, folded into one line when the model moves
+  on (`✓ 14 edits · 6 commands · 38s`); failures keep their own line.
+- `quiet`: the model's words, failures and the receipt; successful steps leave no line.
+- `detailed`: every step on its own line, with a small diff (up to 12 changed lines) under each edit.
+
+`/details quiet|normal|detailed` switches for the session, and `/details` alone goes to the next
+level. Ctrl+T shows the last finished step in full at any level: an edit's whole diff, or what a
+command printed. The window title names the conversation from its first request
+(`Casper · subnet calculator`) and shows `◐` while Casper works.
+
+```yaml
+# ~/.casper/config.yaml or a profile's config.yaml
+display: detailed   # quiet, normal (default), or detailed
+```
+
 ## Skills
 
 A skill is a Markdown file of instructions (a `SKILL.md`) that Casper adds to the model's prompt

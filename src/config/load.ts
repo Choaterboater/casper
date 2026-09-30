@@ -17,6 +17,7 @@ import { parseSmoke, type SmokeCheck } from "../services/smoke";
 import { parsePagesSetting, type PagesSetting } from "../services/pages";
 import type { SandboxProjectSettings, SandboxUserSettings } from "../sandbox/policy";
 import { PROMPT_CACHE_SETTINGS, type PromptCacheSetting } from "../runtime/cache";
+import { DISPLAY_LEVELS, type DisplayLevel } from "../tui/display";
 import { DEFAULT_SPEND_LIMITS, type SpendLimits } from "../task/spend";
 
 export type Autonomy = "low" | "medium" | "high";
@@ -65,6 +66,8 @@ export interface LoadedConfiguration {
   suggestions?: boolean;
   /** `cache: auto|long|short|off`: how long the provider keeps the prompt cache (user or profile only). Unset: auto. */
   cache?: PromptCacheSetting;
+  /** `display: quiet|normal|detailed`: how much of the work shows on screen (user or profile only). Unset: normal. */
+  display?: DisplayLevel;
   /** Per-task spend limits in dollars (a note, then a pause); unset turns one off. User or profile only. */
   spend: SpendLimits;
   visualize: VisualizationSettings;
@@ -220,7 +223,7 @@ const POLICY_KEYS = {
 } as const;
 const ISOLATE_KEYS = ["parallelAgents", "riskyRefactor", "experimentalBranch"];
 const TOP_LEVEL_KEYS = new Set(["profile", "project", "languages", "frameworks", "packageManager", "commands", "architecture",
-  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "cache", "spend", "sandbox", "shell", "web", ...Object.keys(POLICY_KEYS)]);
+  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "cache", "display", "spend", "sandbox", "shell", "web", ...Object.keys(POLICY_KEYS)]);
 
 /** Typos used to fall back silently to the defaults; the loader names them instead. */
 function unknownKeys(document: Mapping, label: string): string[] {
@@ -586,6 +589,9 @@ export async function loadConfiguration(
   let bigModelLastTry: boolean | undefined;
   let suggestions: boolean | undefined;
   let cache: PromptCacheSetting | undefined;
+  // How much shows on your screen is yours, not a repository's.
+  if (projectDocument.display !== undefined) throw new Error("display is a user setting (~/.casper/config.yaml); a project cannot change what shows on your screen");
+  let display: DisplayLevel | undefined;
   for (const [document, label] of [[globalDocument, labels.global], [profileDocument, labels.profile]] as const) {
     const setting = isMapping(document.repair) ? document.repair.bigModelLastTry : undefined;
     if (setting !== undefined && setting !== null) {
@@ -601,6 +607,10 @@ export async function loadConfiguration(
       const value = document.cache === false ? "off" : document.cache;
       if (!PROMPT_CACHE_SETTINGS.some((setting) => setting === value)) throw new Error(`${label}: cache must be ${alternatives(PROMPT_CACHE_SETTINGS)}`);
       cache = value as PromptCacheSetting;
+    }
+    if (document.display !== undefined && document.display !== null) {
+      if (!DISPLAY_LEVELS.some((level) => level === document.display)) throw new Error(`${label}: display must be ${alternatives(DISPLAY_LEVELS)}`);
+      display = document.display as DisplayLevel;
     }
   }
   // What a task may spend before Casper says so or asks: the user's money, so a project file never sets it.
@@ -686,6 +696,7 @@ export async function loadConfiguration(
     repair: { maxAttempts, ...(bigModelLastTry !== undefined ? { bigModelLastTry } : {}) },
     ...(suggestions !== undefined ? { suggestions } : {}),
     ...(cache ? { cache } : {}),
+    ...(display ? { display } : {}),
     spend,
     services,
     smoke: parseSmoke(projectDocument.smoke, Object.keys(services), labels.project),

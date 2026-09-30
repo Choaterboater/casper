@@ -230,7 +230,9 @@ export type RuntimeEvent =
   /** Diagnostic tool status only: isError=false is not process-exit evidence. */
   | { type: "tool_end"; toolName: string; toolCallId?: string; input?: ToolObservationInput; output?: ToolObservationOutput; isError: boolean;
       /** A successful edit's size, from the runtime's patch. */
-      lines?: { added: number; removed: number } }
+      lines?: { added: number; removed: number };
+      /** A successful edit's unified diff, for the screen only (detailed display and ctrl+t). */
+      diff?: string }
   | { type: "message_end" }
   /** The prompt's `maxTurns` ended it after that many model turns, with the model still working. */
   | { type: "turn_limit"; turns: number }
@@ -243,6 +245,8 @@ export interface RuntimeSession {
   setTools?(tools: RuntimeTool[]): void;
   /** Pi-backed named-session operations. Other runtime adapters may omit these. */
   getSessionInfo?(): RuntimeSessionInfo;
+  /** Name the active conversation (shown by /resume and in the window title). */
+  setSessionName?(name: string): void;
   forkSession?(options: RuntimeForkOptions): Promise<RuntimeSessionInfo>;
   switchSession?(options: RuntimeSwitchOptions): Promise<RuntimeSessionInfo>;
   /** Persist context in the active conversation without triggering a model turn. */

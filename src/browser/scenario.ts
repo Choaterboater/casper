@@ -2,13 +2,14 @@ import type { VerificationScope } from "../verify/scope";
 import { isVerificationScope } from "../verify/scope";
 import { blank, webURL } from "./arguments";
 
-const ASSERTION_FIELDS: Record<string, string[]> = { text: ["selector", "expected"], visible: ["selector"], "no-horizontal-overflow": [], "no-overlap": ["selector", "other"] };
+const ASSERTION_FIELDS: Record<string, string[]> = { text: ["selector", "expected"], visible: ["selector"], "no-horizontal-overflow": ["selector"], "no-overlap": ["selector", "other"] };
 function record(value: unknown): value is Record<string, unknown> { return Boolean(value && typeof value === "object" && !Array.isArray(value)); }
 
 export interface BrowserStep { action: "click" | "fill" | "press"; selector: string; value?: string; impact: "local-test" | "consequential" | "uncertain"; reason: string }
 export type BrowserAssertion = { kind: "text"; selector: string; expected: string }
   | { kind: "visible"; selector: string }
-  | { kind: "no-horizontal-overflow" }
+  /** Page-wide, or one element (its own scrolling content, or running past the viewport) when a selector names it. */
+  | { kind: "no-horizontal-overflow"; selector?: string }
   | { kind: "no-overlap"; selector: string; other: string };
 export interface BrowserScenario { name: string; url: string; viewport: { width: number; height: number }; steps: BrowserStep[]; assertions: BrowserAssertion[]; scope?: VerificationScope }
 export interface BrowserCheck {
@@ -63,7 +64,7 @@ export function parseScenario(input: unknown): BrowserScenario {
     const fields = ASSERTION_FIELDS[String(kind)];
     if (!fields) throw new Error(`Browser ${label} kind must be one of: ${Object.keys(ASSERTION_FIELDS).join(", ")}`);
     const a = object(value, ["kind", ...fields], `${label} (${String(kind)})`);
-    if (kind === "no-horizontal-overflow") return { kind };
+    if (kind === "no-horizontal-overflow") return a.selector === undefined ? { kind } : { kind, selector: string(a.selector, `${label} selector`) };
     if (kind === "text") return { kind, selector: string(a.selector, `${label} selector`), expected: string(a.expected, `${label} expected`, 1024) };
     if (kind === "visible") return { kind, selector: string(a.selector, `${label} selector`) };
     return { kind, selector: string(a.selector, `${label} selector`), other: string(a.other, `${label} other`) };

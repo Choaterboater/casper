@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { checksPassed, formatReceipt, formatShortReceipt, formatTaskResult, liveCheckLine, taskOutcome, undoPathsShown, type TaskResult } from "../src/task/result";
+import { answerClaimsBrowserPass, checksPassed, formatReceipt, formatShortReceipt, formatTaskResult, liveCheckLine, taskOutcome, undoPathsShown, type TaskResult } from "../src/task/result";
 import type { VerificationReport, VerificationResult } from "../src/verify/evidence";
 import { COMMIT_CHECK_LABEL, DRY_RUN_LABEL } from "../src/network/checks";
 
@@ -332,4 +332,30 @@ test("a check that took under a second shows no time: the receipt and the live l
   expect(formatReceipt(done({ changedPaths: [], verificationMode: "auto", verification: report([check({ durationMs: 40, command: undefined })]) }))).toContain("✓ test passed\n".trimEnd());
   // A second or more still shows.
   expect(liveCheckLine(check({ durationMs: 2500 }))).toBe("✓ test · 2.5s");
+});
+
+test("an answer that says the browser checks passed, against Casper's record, is corrected in one line", () => {
+  expect(answerClaimsBrowserPass("**Verification:** bun test passed all 8 tests. Browser checks also passed for the sample calculation and a mobile /31 case.")).toBe(true);
+  expect(answerClaimsBrowserPass("I exercised the served page in a browser; it works at phone width.")).toBe(true);
+  expect(answerClaimsBrowserPass("The browser check did not pass: the table overflows.")).toBe(false);
+  expect(answerClaimsBrowserPass("I couldn't run the browser checks.")).toBe(false);
+  expect(answerClaimsBrowserPass("bun test passed all 8 tests.")).toBe(false);
+  // "browser" as a plain word in a sentence about something else is not a claim about the browser checks.
+  expect(answerClaimsBrowserPass("Checks: bun test passed all 18 tests, including a test that bun run dev serves the page and browser assets.")).toBe(false);
+  expect(answerClaimsBrowserPass("The browser bundle builds and the tests pass.")).toBe(false);
+  expect(answerClaimsBrowserPass("Verified the layout in a headless browser at 390px.")).toBe(true);
+  expect(answerClaimsBrowserPass("The browser scenario for the /31 case passes.")).toBe(true);
+  const incomplete = { status: "incomplete", checks: [{ name: "phone", status: "incomplete" }] } as unknown as TaskResult["browser"];
+  expect(formatReceipt(done({ changedPaths: [], browser: incomplete, browserClaimed: true })))
+    .toContain("• Browser checks did not finish — the answer above says they passed; Casper saw no passing browser check");
+  expect(formatReceipt(done({ changedPaths: [], browser: incomplete }))).toContain("• Browser checks incomplete");
+  // Some passed: the receipt counts them and names what did not finish; the answer was mostly right, so no correction.
+  const mixed = { status: "incomplete", checks: [{ name: "Calculate a subnet", status: "incomplete" }, { name: "Split", status: "pass" },
+    { name: "Mobile", status: "pass" }] } as unknown as TaskResult["browser"];
+  const mixedReceipt = formatReceipt(done({ changedPaths: [], browser: mixed, browserClaimed: true }));
+  expect(mixedReceipt).toContain("• Browser checks: 2 of 3 passed; not finished: Calculate a subnet");
+  expect(mixedReceipt).not.toContain("the answer above");
+  const failed = { status: "fail", checks: [{ name: "phone", status: "fail" }] } as unknown as TaskResult["browser"];
+  expect(formatReceipt(done({ changedPaths: [], browser: failed, browserClaimed: true })))
+    .toContain("✗ Browser checks failed: phone — the answer above says they passed");
 });

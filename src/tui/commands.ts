@@ -17,6 +17,7 @@ export const COMMANDS: SlashCommand[] = [
   { name: "new", description: "Start a new project in ~/Projects (no model)" },
   { name: "plan", description: "Plan first: the model writes a plan and cases to test, then you build" },
   { name: "suggestions", description: "Suggested next steps: list, or turn on or off" },
+  { name: "details", description: "How much work shows: quiet, normal or detailed (Ctrl+T: the last step in full)" },
   { name: "output", description: "Full command and output of a recent tool call (/output [n|all])" },
   { name: "verify", description: "Run repository verification checks" },
   { name: "security-review", description: "Run the pinned security tools here, then offer an AI review (asks first)" },

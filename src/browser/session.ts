@@ -44,9 +44,38 @@ export interface PageLoad {
   failedRequests: Array<{ url: string; status?: number; error?: string }>;
   /** The first line of a framework error overlay or in-page exception. */
   overlay?: string;
+  /** The same page at phone width. Absent for the HTTP-only fallback. */
+  phone?: PhoneFit;
 }
+/** How a page fits a phone screen: its width against the screen's, and the text fields too squashed to show a line. */
+export interface PhoneFit { viewport: number; pageWidth: number; squashed: string[] }
+/** A common phone screen, in CSS pixels. */
+const PHONE = { width: 390, height: 844 };
+/** The page's visible text fields in document order: a name, the height, and whether a line of text fits inside. */
+const FIELD_HEIGHTS = () => {
+  const skip = ["hidden", "checkbox", "radio", "range", "color", "file", "submit", "button", "reset", "image"];
+  return Array.from(document.querySelectorAll("input, textarea, select")).flatMap(element => {
+    const field = element as HTMLElement;
+    if (field instanceof HTMLInputElement && skip.includes(field.type)) return [];
+    if (!field.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) return [];
+    const box = field.getBoundingClientRect();
+    // A visually hidden (screen-reader only) field is 1px on purpose.
+    if (box.width <= 1 && box.height <= 1) return [];
+    const style = getComputedStyle(field);
+    const font = parseFloat(style.fontSize) || 16;
+    const inner = { height: field.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom),
+      width: field.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight) };
+    const id = field.id ? `#${field.id}` : field.getAttribute("name") ? `[name="${field.getAttribute("name")}"]` : field.classList[0] ? `.${field.classList[0]}` : "";
+    return [{ name: `${field.tagName.toLowerCase()}${id}`.slice(0, 80), height: Math.round(box.height), textFits: inner.height >= font * 0.8 && inner.width >= font * 2 }];
+  });
+};
 const LOAD_LIMIT = 10;
 const LOAD_TEXT = 300;
+
+/** Fields fill types into, like a person would. Password and file stay out (checked before this). */
+const TYPED_FIELDS = ["", "text", "search", "tel", "url", "email", "number"];
+/** Fields a person sets through a picker: fill sets their value and fires input and change. */
+const PICKED_FIELDS = ["date", "time", "datetime-local", "month", "week", "color", "range"];
 
 /** One task's disposable browser. No user profiles, arbitrary evaluation or browser installation. */
 export class BrowserSession {
@@ -234,8 +263,21 @@ export class BrowserSession {
         if (streamlit) return firstLine(streamlit.innerText) ?? "exception";
         return undefined;
       });
+      // The same page on a phone: layouts that only break there (a column that squashes an input, a wide table)
+      // never show at the desktop size above. Each text field is compared with its own desktop height.
+      const desktop = await page.evaluate(FIELD_HEIGHTS);
+      await page.setViewport(PHONE);
+      await new Promise(resolve => setTimeout(resolve, 150));
+      combined.throwIfAborted();
+      const phoneHeights = await page.evaluate(FIELD_HEIGHTS);
+      const squashed = phoneHeights.flatMap((field, index) => {
+        const wide = desktop[index]?.name === field.name ? desktop[index]!.height : undefined;
+        if (field.textFits && (wide === undefined || field.height >= wide * 0.6)) return [];
+        return [`${field.name} (${field.height}px tall${wide !== undefined && wide > field.height ? `; ${wide}px on a wider screen` : ""})`];
+      }).slice(0, 5);
+      const phone = { viewport: PHONE.width, pageWidth: await page.evaluate(() => Math.round(document.documentElement.scrollWidth)), squashed };
       return { status: response?.status() ?? null, consoleChecked: true, consoleErrors, pageErrors, failedRequests,
-        ...(overlay ? { overlay: overlay.slice(0, LOAD_TEXT) } : {}) };
+        ...(overlay ? { overlay: overlay.slice(0, LOAD_TEXT) } : {}), phone };
     } finally {
       combined.removeEventListener("abort", stop);
       await context?.close().catch(() => {});
@@ -290,12 +332,15 @@ export class BrowserSession {
       for (const assertion of scenario.assertions) {
         signal.throwIfAborted();
         const evaluate = () => page.evaluate(a => {
-          if (a.kind === "no-horizontal-overflow") return { pass: document.documentElement.scrollWidth <= innerWidth, actual: { width: document.documentElement.scrollWidth, viewport: innerWidth } };
-          const matches = document.querySelectorAll(a.selector);
+          if (a.kind === "no-horizontal-overflow" && !a.selector) return { pass: document.documentElement.scrollWidth <= innerWidth, actual: { width: document.documentElement.scrollWidth, viewport: innerWidth } };
+          const matches = document.querySelectorAll(a.selector!);
           if (matches.length !== 1) return { pass: false, actual: `Expected one element; found ${matches.length}` };
           const el = matches[0]!;
-          if (a.kind === "text") return { pass: (el.textContent ?? "").trim() === a.expected, actual: (el.textContent ?? "").trim().slice(0, 1024) };
           const r = el.getBoundingClientRect();
+          // One element: content wider than the box (a table cut off behind a scroller), or the box past the viewport.
+          if (a.kind === "no-horizontal-overflow") return { pass: el.scrollWidth <= el.clientWidth + 1 && r.right <= innerWidth + 1,
+            actual: { contentWidth: el.scrollWidth, boxWidth: el.clientWidth, right: Math.round(r.right), viewport: innerWidth } };
+          if (a.kind === "text") return { pass: (el.textContent ?? "").trim() === a.expected, actual: (el.textContent ?? "").trim().slice(0, 1024) };
           const visible = el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) && r.width > 0 && r.height > 0;
           if (a.kind === "visible") return { pass: visible, actual: visible };
           const other = document.querySelectorAll(a.other);
@@ -340,7 +385,10 @@ export class BrowserSession {
     }, selector);
     const before = await describe();
     if (/^(password|file)$/i.test(before.type) || /password|one-time-code|cc-/i.test(before.autocomplete)) throw new Error("Credential, payment and file-upload inputs are outside this browser slice");
-    if (action === "fill" && (before.tag !== "TEXTAREA" && (before.tag !== "INPUT" || !["", "text", "search", "tel", "url"].includes(before.type.toLowerCase())))) throw new Error("Fill requires a text/search/tel/url input or textarea");
+    const type = before.type.toLowerCase();
+    if (action === "fill" && before.tag !== "TEXTAREA" && (before.tag !== "INPUT" || !(TYPED_FIELDS.includes(type) || PICKED_FIELDS.includes(type)))) {
+      throw new Error(`Fill takes a textarea or an input of type ${[...TYPED_FIELDS.filter(Boolean), ...PICKED_FIELDS].join(", ")}`);
+    }
     const automatic = input.impact === "local-test" && localURL(before.url) && !DANGEROUS.test(before.target);
     if (!automatic) {
       const approved = await this.options.confirm?.({ action, selector, url: before.url, target: before.target,
@@ -356,7 +404,16 @@ export class BrowserSession {
       // No automatic retry after a potentially consequential action.
       if (action === "click") await element.click();
       else if (action === "press") await element.press(value as import("puppeteer-core").KeyInput);
-      else {
+      else if (before.tag === "INPUT" && PICKED_FIELDS.includes(type)) {
+        // A date, time, color or range field is set by its picker, not by keystrokes: set the value as the picker would.
+        const set = await element.evaluate((el, next) => {
+          const input = el as HTMLInputElement;
+          Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, next);
+          input.dispatchEvent(new Event("input", { bubbles: true })); input.dispatchEvent(new Event("change", { bubbles: true }));
+          return input.value;
+        }, value!);
+        if (set !== value) throw new Error(`The ${type} field did not take ${JSON.stringify(value!.slice(0, 40))}; it holds ${JSON.stringify(set.slice(0, 40))}`);
+      } else {
         await element.focus();
         await element.evaluate(el => { if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) el.select(); });
         await element.press("Backspace"); await element.type(value!);

@@ -216,7 +216,48 @@ export async function detectWebService(root: string, input: DetectInput = {}): P
         spec: { command: dev.command, port: "auto", ready: { http: "/" }, timeoutMs: READY_TIMEOUT_MS, ...(dev.env ? { env: dev.env } : {}) } };
     }
   }
+  if (!frameworks.size && !streamlit && scriptName) {
+    const plain = await plainSite(root, manifest!, scripts[scriptName] as string, scriptName, input.packageManager ?? undefined);
+    if (plain) return plain;
+  }
   return frameworks.size ? detectStreamlit(root, platform) : streamlit;
+}
+
+/** Where a framework-less site keeps its page. */
+const PAGE_FILES = ["index.html", "public/index.html", "static/index.html", "src/index.html"];
+/** `bun [run] [--watch|--hot] server.ts` or `node server.js`: the project's own server, which reads PORT. */
+const OWN_SERVER = /^(?:bun|node)$/;
+const SERVER_FILE = /\.(?:[cm]?[jt]sx?)$/;
+
+/**
+ * A site with no framework (Bun.serve or node:http and an index.html): its dev script runs its own server file
+ * and there is a page to open. Casper starts it with PORT set; a server that ignores PORT times out with the
+ * usual hint to declare services.web. An API with no page is not one.
+ */
+async function plainSite(root: string, manifest: Mapping, body: string, scriptName: string, packageManager?: string): Promise<DetectedWebService | WebServiceUnavailable | undefined> {
+  const parsed = lastCommand(body);
+  const words = parsed?.words ?? [];
+  const [program, ...rest] = words;
+  if (!parsed || !program || !OWN_SERVER.test(program)) return undefined;
+  // `bun run server.ts` runs the file as well; `run` naming a script (`bun run build`) is not a server file and fails below.
+  const args = (program === "bun" && rest[0] === "run" ? rest.slice(1) : rest).filter(word => !["--watch", "--hot"].includes(word));
+  if (args.length !== 1 || !SERVER_FILE.test(args[0]!)) return undefined;
+  const pages = await Promise.all(PAGE_FILES.map(async file => { try { return (await lstat(path.join(root, file))).isFile(); } catch { return false; } }));
+  if (!pages.some(Boolean)) return undefined;
+  // A Bun script is a Bun project even before its first install writes bun.lock.
+  const manager = packageManager ?? (program === "bun" && !await hasLockfile(root) ? "bun" : await lockfileManager(root));
+  const needsInstall = ["dependencies", "devDependencies"].some(section => isMapping(manifest[section]) && Object.keys(manifest[section] as Mapping).length > 0);
+  if (needsInstall && !await isDirectory(path.join(root, "node_modules"))) {
+    return { reason: `node_modules is missing. Run ${manager} install first (Casper doesn't install packages)`, frameworks: [] };
+  }
+  return { name: "web", source: "package.json", label: `${manager} run ${scriptName}`, frameworks: [], portFlags: false,
+    spec: { command: `${parsed.prefix}${words.join(" ")}`, port: "auto", ready: { http: "/" }, timeoutMs: READY_TIMEOUT_MS } };
+}
+
+async function hasLockfile(root: string): Promise<boolean> {
+  let names: string[] = [];
+  try { names = await readdir(root); } catch { /* none */ }
+  return ["bun.lock", "bun.lockb", "pnpm-lock.yaml", "yarn.lock", "package-lock.json"].some(name => names.includes(name));
 }
 
 /** A found dev server, as opposed to a reason it is unavailable. */

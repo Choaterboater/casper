@@ -174,7 +174,26 @@ browserTest("an immutable reproduction detects behavior and layout failures, rep
   expect(replay).toMatchObject({ id: baseline.id, scenarioSha256: baseline.scenarioSha256, status: "pass", baseline: "fail", freshness: "fresh", assertions: [{ status: "pass" }, { status: "pass" }] });
   await writeFile(f.sourceFile, html(false));
   expect(await f.session.report()).toMatchObject({ status: "incomplete", checks: [{ freshness: "stale" }] });
-  await expect(f.session.run({ action: "replay", id: baseline.id, scenario: {} })).rejects.toThrow("replay runs the recorded scenario unchanged");
+  await expect(f.session.run({ action: "replay", id: baseline.id, scenario: { name: "Easier", url: f.url, viewport: { width: 800, height: 600 }, steps: [], assertions: [{ kind: "visible", selector: "body" }] } }))
+    .rejects.toThrow("replay runs the recorded scenario unchanged");
+}, 25_000);
+
+browserTest("fill types into number, email and date fields; password stays out; a scoped overflow check looks at one element", async () => {
+  const f = await fixture();
+  await writeFile(f.sourceFile, `<!doctype html><meta name="viewport" content="width=device-width"><main>
+    <input id="count" type="number" value="4"><input id="mail" type="email"><input id="day" type="date"><input id="secret" type="password">
+    <div id="wide" style="width:200px;overflow-x:auto"><table style="width:650px"><tr><td>row</td></tr></table></div>
+    <p id="out"></p></main><script>for (const id of ["count","mail","day"]) document.getElementById(id).oninput = () => {
+      document.getElementById("out").textContent = ["count","mail","day"].map(i => document.getElementById(i).value).join("|"); };</script>`);
+  const result = await f.session.run({ action: "check", scenario: { name: "Fields at phone width", url: f.url, viewport: { width: 390, height: 800 }, steps: [
+    { action: "fill", selector: "#count", value: "16", impact: "local-test", reason: "Synthetic count" },
+    { action: "fill", selector: "#mail", value: "a@example.test", impact: "local-test", reason: "Synthetic address" },
+    { action: "fill", selector: "#day", value: "2026-09-30", impact: "local-test", reason: "Synthetic date" },
+  ], assertions: [{ kind: "text", selector: "#out", expected: "16|a@example.test|2026-09-30" }, { kind: "no-horizontal-overflow" },
+    { kind: "no-horizontal-overflow", selector: "#wide" }] } });
+  expect(result).toMatchObject({ status: "fail", assertions: [{ status: "pass" }, { status: "pass" }, { status: "fail" }] });
+  await f.session.run({ action: "open", url: f.url });
+  await expect(f.session.run({ action: "fill", selector: "#secret", value: "x", impact: "local-test", reason: "Synthetic" })).rejects.toThrow("Credential");
 }, 25_000);
 
 browserTest("local synthetic interactions proceed while consequential actions require approval", async () => {
@@ -209,6 +228,23 @@ browserTest("a disposable browser inspects a local page and saves a real screens
   expect(f.session.status().state).toBe("closed");
   await expect(f.session.run({ action: "inspect" })).rejects.toThrow("closed");
 }, 20_000);
+
+browserTest("the page load looks at phone width: a too-wide page and a squashed input are found; a page that fits has none", async () => {
+  const f = await fixture();
+  // The bugs a benchmark judge found: an input whose flex-basis 0 collapses it in a column (49px on a desktop, 20px on a
+  // phone, its text still fits), and a table wider than the phone.
+  await writeFile(f.sourceFile, `<!doctype html><meta name="viewport" content="width=device-width"><style>
+    .row{display:flex;gap:8px} .row input{width:0;flex:1;font-size:14px;height:49px;box-sizing:border-box;border:1px solid}
+    @media (max-width:480px){.row input{height:auto;min-height:0}}
+    @media (max-width:480px){.row{flex-direction:column}} table{width:650px}</style>
+    <div class="row"><input id="address" value="10.1.2.3/22"><button>Go</button></div><table><tr><td>10.1.0.0/24</td></tr></table>`);
+  const bad = await f.session.load(`${f.url}/`, new AbortController().signal);
+  expect(bad.phone).toMatchObject({ viewport: 390 });
+  expect(bad.phone!.squashed).toEqual([expect.stringMatching(/^input#address \(\d+px tall; 49px on a wider screen\)$/)]);
+  expect(bad.phone!.pageWidth).toBeGreaterThan(390);
+  await writeFile(f.sourceFile, `<!doctype html><meta name="viewport" content="width=device-width"><input id="address" style="width:100%;box-sizing:border-box"><p>fits</p>`);
+  expect((await f.session.load(`${f.url}/`, new AbortController().signal)).phone).toEqual({ viewport: 390, pageWidth: 390, squashed: [] });
+}, 30_000);
 
 browserTest("the host-only page load reports console errors and the failed same-origin request", async () => {
   const f = await fixture();

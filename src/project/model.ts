@@ -228,6 +228,14 @@ function packageManagerFromField(value: unknown): string | null {
   return value.trim().split("@")[0] || null;
 }
 
+function usesBun(packageJson: Record<string, unknown> | null): boolean {
+  const scripts = packageJson?.scripts;
+  const commands = typeof scripts === "object" && scripts !== null ? Object.values(scripts).filter((value): value is string => typeof value === "string") : [];
+  if (commands.some((command) => /(?:^|&&|;|\|\|)\s*(?:bunx?)\s/.test(command))) return true;
+  const dev = packageJson?.devDependencies;
+  return typeof dev === "object" && dev !== null && ("@types/bun" in dev || "bun-types" in dev);
+}
+
 function detectPackageManager(names: Set<string>, packageJson: Record<string, unknown> | null): string | null {
   const declared = packageManagerFromField(packageJson?.packageManager);
   if (declared) {
@@ -237,6 +245,8 @@ function detectPackageManager(names: Set<string>, packageJson: Record<string, un
   if (names.has("pnpm-lock.yaml")) return "pnpm";
   if (names.has("yarn.lock")) return "yarn";
   if (names.has("package-lock.json")) return "npm";
+  // Before the first install there is no lockfile: scripts that run bun (or Bun's types) make it a Bun project.
+  if (names.has("package.json") && usesBun(packageJson)) return "bun";
   if (names.has("package.json")) return "npm";
   if (names.has("uv.lock")) return "uv";
   if (names.has("poetry.lock")) return "poetry";

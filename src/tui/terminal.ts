@@ -44,6 +44,7 @@ export class InteractiveTerminal {
   private pane?: ActivityPane;
   private paneTried = false;
   private titleSaved = false;
+  private title?: string;
   private undoHost?: () => void;
 
   constructor(private readonly input: Readable, private readonly output: TerminalOutput,
@@ -111,10 +112,12 @@ export class InteractiveTerminal {
     }
     return this.pane;
   }
-  /** The window title (the pane title inside tmux); the one before comes back at exit. Rich terminal in tmux or iTerm2. */
+  /** The window title (the pane title inside tmux); the one before comes back at exit. Rich terminal only,
+   * written only when it changes (the footer sets it on every update). */
   setTitle(title: string): void {
-    if (!this.surface || !this.host || this.closed) return;
+    if (!this.surface || this.closed || title === this.title) return;
     if (!this.titleSaved) { this.titleSaved = true; this.output.write(TITLE_SAVE); }
+    this.title = title;
     this.output.write(titleSequence(title));
   }
   /** The current task's stages ("checklist ✓ · building"), shown first in the footer while work runs. */
@@ -123,6 +126,8 @@ export class InteractiveTerminal {
   setAttentionAfter(ms: number): void { this.surface?.setAttentionAfter(ms); }
   /** Rich terminal only. Shift+Tab cycles effort; plain line input has no equivalent key. */
   setEffortCycle(handler: (() => void) | undefined): void { this.surface?.setEffortCycle(handler); }
+  /** Rich terminal only. Ctrl+T shows the last finished step in full. */
+  setExpandLast(handler: (() => void) | undefined): void { this.surface?.setExpandLast(handler); }
   flashNote(text: string): void { this.surface?.flashNote(text); }
   /** The rich footer at this width; undefined on the plain terminal. */
   footerLine(width: number): string | undefined { return this.surface?.footerLine(width); }
@@ -158,12 +163,26 @@ export class InteractiveTerminal {
   }
 
   write(text: string): void {
-    const styled = terminalText(text).split("\n").map(line => {
-      const code = /^(?:\[error\]|✗)/.test(line) ? "31" : /^✓/.test(line) ? "32"
-        : /^(?:•|\[skills\]|\[cancel|\[approval\]|\[ask\]|\[effort\])/.test(line) ? "33" : /^CASPER/.test(line) ? "1;36" : /^(?: \/help · |…)/.test(line) ? "2" : undefined;
-      return code ? paint(line, code, this.color) : line;
-    }).join("\n");
+    const styled = terminalText(text).split("\n").map(line => this.styleLine(line)).join("\n");
     if (this.surface) this.surface.write(styled); else this.output.write(styled);
+  }
+
+  /** One transcript line colored by how it starts: ✗ red, ✓ green, • yellow; a detailed diff line red or green. */
+  private styleLine(line: string): string {
+    const code = /^(?:\[error\]|✗)/.test(line) ? "31" : /^✓/.test(line) ? "32"
+      : /^(?:•|\[skills\]|\[cancel|\[approval\]|\[ask\]|\[effort\])/.test(line) ? "33" : /^CASPER/.test(line) ? "1;36" : /^(?: \/help · |…)/.test(line) ? "2"
+      : /^ {4}\+ /.test(line) ? "32" : /^ {4}- /.test(line) ? "31" : undefined;
+    return code ? paint(line, code, this.color) : line;
+  }
+
+  /** A task's result (the receipt) on the rich terminal: a colored edge down its left side, green for a pass,
+   * red for a failure, yellow for anything in between. The plain terminal gets the lines as they are. */
+  writeResult(text: string): void {
+    if (!this.surface) { this.write(text); return; }
+    const lines = terminalText(text).split("\n");
+    const tone = /^✓/.test(lines[0] ?? "") ? "32" : /^(?:✗|\[error\])/.test(lines[0] ?? "") ? "31" : "33";
+    const edge = paint("▌", tone, this.color);
+    this.surface.write(lines.map(line => line ? `${edge} ${this.styleLine(line)}` : line).join("\n"));
   }
 
   assistant(delta: string): void {

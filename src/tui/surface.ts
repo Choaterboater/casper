@@ -115,6 +115,7 @@ export class TerminalSurface {
   private noteTimer?: NodeJS.Timeout;
   private exitArmed?: NodeJS.Timeout;
   private onCycleEffort?: () => void;
+  private onExpandLast?: () => void;
   /** "WRITES: <servers> · ctrl+o" while any MCP server has writes on; drawn first, never cut off. */
   private badge?: string;
   /** ctrl+o: turn writes off everywhere. True when something was on. */
@@ -280,6 +281,11 @@ export class TerminalSurface {
         }
       }
       if (matchesKey(data, "ctrl+l")) { this.tui.requestRender(true); return { consume: true }; }
+      // The last step in full (an edit's diff, a command's output), even while work runs.
+      if (matchesKey(data, "ctrl+t")) {
+        if (this.onExpandLast) this.onExpandLast(); else this.flashNote("no step to show yet");
+        return { consume: true };
+      }
       // Pi's thinking-cycle key. Consumed even while busy so the sequence never lands in the draft.
       if (matchesKey(data, "shift+tab")) {
         if (this.busy || this.confirmation || this.pendingAsk || this.pendingEdit) this.flashNote("effort unchanged · wait until idle");
@@ -353,6 +359,8 @@ private updateSpinner(): void {
   }
   /** Shift+Tab. Absent on the plain-line terminal; the key is still consumed so it cannot edit the draft. */
   setEffortCycle(handler: (() => void) | undefined): void { this.onCycleEffort = handler; }
+  /** Ctrl+T: show the last finished step in full. */
+  setExpandLast(handler: (() => void) | undefined): void { this.onExpandLast = handler; }
   setWritesRevert(handler: (() => boolean) | undefined): void { this.onWritesRevert = handler; }
   setBadge(text?: string): void {
     const next = text ? terminalText(text).replace(/\s+/g, " ").trim() || undefined : undefined;

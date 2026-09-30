@@ -4,6 +4,7 @@ import type { RuntimeEvent } from "../runtime/types";
 import type { OutputWriter } from "./commands";
 import { SPEND_STOP_REASON } from "../task/spend";
 import type { HelperActivity } from "../agents/manager";
+import { inlineDiff, type DisplayLevel } from "../tui/display";
 
 /** Session-owned effects the renderer needs; the app implements these against its state. */
 export interface RuntimeEventCallbacks {
@@ -19,7 +20,12 @@ export interface RuntimeEventCallbacks {
   cancelled(): boolean;
   /** The project root, so tool paths print relative to it. */
   projectRoot?(): string | undefined;
+  /** How much of the work shows (display: in the config, /details). Unset: normal. */
+  display?(): DisplayLevel;
 }
+
+/** The last finished step in full, for ctrl+t: an edit's whole diff, or what a tool printed. */
+export interface ExpandedStep { title: string; body: string; diff: boolean }
 
 type ToolStart = Extract<RuntimeEvent, { type: "tool_start" }>;
 type ToolEnd = Extract<RuntimeEvent, { type: "tool_end" }>;
@@ -37,6 +43,8 @@ interface Step {
   line: string;
   /** The finished line as printed on the main screen, with a failure's detail. */
   printed?: string;
+  /** An edit's diff, for the detailed display. */
+  diff?: string;
   failed?: boolean;
   /** A failed edit the model tried again at once: counted, not printed. */
   retried?: boolean;
@@ -115,6 +123,7 @@ export class RuntimeEventView {
   private activityTimer?: NodeJS.Timeout;
   private endedWithNewline = true;
   private displayedError?: string;
+  private expanded?: ExpandedStep;
 
   constructor(private readonly terminal: InteractiveTerminal, private readonly output: OutputWriter,
     private readonly callbacks: RuntimeEventCallbacks) {}
@@ -191,7 +200,13 @@ export class RuntimeEventView {
     this.ensureLineBreak();
     for (const step of done) if (step.notRun) this.output.write(`${step.printed}\n`);
     const ran = done.filter(step => !step.notRun);
-    if (ran.length === 1 && !ran[0]!.retried) this.output.write(`${ran[0]!.printed}\n`);
+    const level = this.level();
+    if (level === "detailed") {
+      for (const step of ran) this.output.write(`${this.withDiff(step.printed!, step.diff)}\n`);
+      if (ran.length > 1) this.output.write(`${stepSummary(ran)}\n`);
+    } else if (level === "quiet") {
+      for (const step of ran) if (step.failed && !step.retried) this.output.write(`${step.printed}\n`);
+    } else if (ran.length === 1 && !ran[0]!.retried) this.output.write(`${ran[0]!.printed}\n`);
     else if (ran.length) {
       for (const step of ran) if (step.failed && !step.retried) this.output.write(`${step.printed}\n`);
       this.output.write(`${stepSummary(ran)}\n`);
@@ -199,6 +214,16 @@ export class RuntimeEventView {
     this.endedWithNewline = true;
     this.renderBox();
   }
+
+  private level(): DisplayLevel { return this.callbacks.display?.() ?? "normal"; }
+
+  /** A step's line with its small diff under it (the detailed display). */
+  private withDiff(line: string, diff?: string): string {
+    return diff ? [line, ...inlineDiff(diff)].join("\n") : line;
+  }
+
+  /** ctrl+t: the last finished step in full, or undefined before the first one. */
+  lastStep(): ExpandedStep | undefined { return this.expanded; }
 
   /** The receipt is next: fold what finished, and the Working box goes away whatever arrives late. */
   reset(): void {
@@ -335,10 +360,15 @@ export class RuntimeEventView {
           ? `${formatToolActivity({ type: "tool_start", toolName: event.toolName, ...(event.input ? { input: event.input } : {}) }, undefined, this.fit(inset + suffix.length))}${suffix}`
             + (detail && refusal ? `\n  ${redactPreview(refusal).slice(0, 240)}` : "")
           : formatToolActivity(detail ? shown : { ...shown, output: undefined }, elapsed, this.fit(inset));
+        const label = formatToolActivity({ type: "tool_start", toolName: event.toolName, ...(event.input ? { input: event.input } : {}) }, undefined, this.fit()).replace(/^• /, "");
+        this.expanded = event.diff && !event.isError ? { title: label, body: event.diff, diff: true }
+          : { title: `${label}${notRun ? " · not run" : event.isError ? " · failed" : ""}`, body: (refusal ?? event.output?.text ?? "").replace(/\n$/, "") || "(no output text)", diff: false };
         if (!this.terminal.rich) {
+          // quiet: only what went wrong (or never ran); detailed: each edit's small diff under its line.
+          if (this.level() === "quiet" && !event.isError) break;
           this.terminal.endAssistant();
           this.ensureLineBreak();
-          this.output.write(`${endLine(0, true)}\n`);
+          this.output.write(`${this.level() === "detailed" ? this.withDiff(endLine(0, true), event.isError ? undefined : event.diff) : endLine(0, true)}\n`);
           this.endedWithNewline = true;
           break;
         }
@@ -353,6 +383,7 @@ export class RuntimeEventView {
         if (notRun) step.notRun = true;
         step.line = endLine(4, false);
         step.printed = endLine(0, true);
+        if (event.diff && !event.isError) step.diff = event.diff;
         this.renderBox();
         break;
       }
