@@ -57,8 +57,8 @@ afterAll(async () => {
   if (base) await rm(base, { recursive: true, force: true });
 });
 
-async function run(command: string, network: "ask" | "host" | "none" = "ask") {
-  const wrapped = await sandbox.wrap(command, { cwd: root, network });
+async function run(command: string, network: "ask" | "host" | "none" = "ask", readOnlyProject = false) {
+  const wrapped = await sandbox.wrap(command, { cwd: root, network, ...(readOnlyProject ? { readOnlyProject } : {}) });
   expect(wrapped.held).toBe(true);
   return new Promise<{ code: number | null; out: string; id: string }>((resolve) => {
     const child = spawn(wrapped.command, { cwd: root, shell: true, env: { ...process.env, HOME: home } });
@@ -129,4 +129,25 @@ needsSandbox("a dev server's command (network host) is reached from the host, fi
   expect(result.out).toContain("hello from the host");
   expect((await run(`echo x > ${outside}/host.txt`, "host")).code).not.toBe(0);
   expect((await run(`cat ${home}/.ssh/id_test`, "host")).out).not.toContain("PRIVATE-KEY-MARKER");
+});
+
+needsSandbox("the AI's shell can't change your approvals or lab answers in ~/.casper", async () => {
+  const approvals = `${home}/.casper/projects/p/security-approved.json`;
+  expect((await run(`echo '{"markers":[]}' > ${approvals}`)).code).not.toBe(0);
+  expect((await run(`echo '{}' > ${home}/.casper/projects/p/lab-always.json`)).code).not.toBe(0);
+  expect(await readFile(approvals, "utf8")).toBe("{}\n");
+  expect(existsSync(path.join(home, ".casper", "projects", "p", "lab-always.json"))).toBe(false);
+});
+
+needsSandbox("during a plan turn the project is read-only too, so a repo's git diff program can't change it", async () => {
+  // A repository's own diff.external runs a program; while planning it can't write the project.
+  const script = path.join(root, "differ.sh");
+  await writeFile(script, "#!/bin/sh\necho pwned > planned.txt\n", { mode: 0o755 });
+  Bun.spawnSync(["git", "-C", root, "add", "-A"]);
+  Bun.spawnSync(["git", "-C", root, "-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-qm", "base"]);
+  await writeFile(path.join(root, "inside.txt"), "changed\n");
+  await run(`git -c diff.external=${script} diff`, "ask", true);
+  expect(existsSync(path.join(root, "planned.txt"))).toBe(false);
+  expect((await run("echo x > plan-write.txt", "ask", true)).code).not.toBe(0);
+  expect(existsSync(path.join(root, "plan-write.txt"))).toBe(false);
 });
