@@ -179,7 +179,7 @@ test("--verify (auto mode) asks the first turn for the checklist by default, and
     await run(false); await run(true);
     // The review is off by default: auto mode's first turn asks for the checklist and the failing test itself.
     expect(prompts.map((prompt) => prompt.includes("Casper initial classification"))).toEqual([true, true]);
-    expect(prompts.map((prompt) => prompt.includes("Tick a requirement only when a test you can name asserts it"))).toEqual([false, true]);
+    expect(prompts.map((prompt) => prompt.includes("Count a requirement as done only when a test you can name asserts it"))).toEqual([false, true]);
     // With the review on, it checks the requirements afterwards, so the first turn is the request alone.
     await mkdir(path.join(root, ".casper"));
     await writeFile(path.join(root, ".casper/project.yaml"), "verification:\n  review: true\n");

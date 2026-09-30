@@ -155,15 +155,19 @@ test("/diff shows this task's patch, also in a folder that is not a git reposito
   } finally { await made.app.close(); }
 }, 30_000);
 
-test("the change summary after the receipt lists only this task's files, not your own earlier edits", async () => {
+test("the receipt names only this task's files, not your own earlier edits; the per-file table stays behind /diff", async () => {
   const place = await folder({ git: true });
   await writeFile(path.join(place.project, "other.py"), "x = 2  # my own edit, not committed\n");
   const made = makeApp(place, [edit("notes.py", "print('two')\n")]);
   try {
     await made.app.runOnce("fix the greeting in notes.py", place.project);
     const out = made.output();
-    expect(out).toContain(" notes.py | 2 +-");
-    expect(out).not.toContain("other.py |");
+    expect(out).toContain("✓ changed notes.py\n");
+    expect(out).not.toContain(" notes.py | 2 +-");
+    expect(out).not.toContain("other.py");
+    await made.app.runOnce("/diff 1", place.project);
+    expect(made.output()).toContain("+print('two')");
+    expect(made.output()).not.toContain("my own edit");
   } finally { await made.app.close(); }
 }, 30_000);
 
@@ -308,8 +312,8 @@ test("a file git ignored before the task is never deleted by undo, even when the
   const first = makeApp(place, [edit(".gitignore", "# nothing ignored\n")]);
   try {
     await first.app.runOnce("stop ignoring files", place.project);
-    // The change summary lists the task's own file; local.cfg was there before, so it is named as one undo can't reach.
-    expect(first.output()).toContain(" .gitignore | 2 +-");
+    // The receipt names the task's own file; local.cfg was there before, so it is named as one undo can't reach.
+    expect(first.output()).toContain("✓ changed .gitignore\n");
     expect(first.output()).not.toContain("local.cfg |");
     expect(first.output()).toContain("• Undo can't put back: local.cfg (it was there before the task, but git ignored it then, so Casper has no copy)");
   } finally { await first.app.close(); }
@@ -346,10 +350,18 @@ test("files the task's tools edited that git ignores are named on the receipt as
     await writeFile(path.join(project, "dist", "app.js"), "built\n"); await edited("dist/app.js");
     await writeFile(path.join(project, ".env"), "TOKEN=abc\n"); await edited(path.join(project, ".env"));
     await writeFile(path.join(project, "notes.py"), "print('two')\n"); await edited("notes.py");
+  }, async (project, edited) => {
+    await writeFile(path.join(project, "dist", "app.js"), "built again\n"); await edited("dist/app.js");
+    await writeFile(path.join(project, "notes.py"), "print('three')\n"); await edited("notes.py");
   }]);
   try {
     await first.app.runOnce("build it", place.project);
     expect(first.output()).toContain("• Undo can't put back: .env (Casper keeps no copy of secret files), dist/app.js (git ignores it, so Casper keeps no copy)");
+    // Named once per session: the next receipt for the same file leaves it out.
+    const seen = first.output().length;
+    await first.app.runOnce("build it again", place.project);
+    expect(first.output().slice(seen)).toContain("✓ changed");
+    expect(first.output().slice(seen)).not.toContain("Undo can't put back");
   } finally { await first.app.close(); }
 }, 30_000);
 

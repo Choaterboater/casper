@@ -13,6 +13,10 @@ export interface Verifier {
   scope?: VerificationScope;
   /** Unset: an ordinary pass/fail check. See VerificationResult.kind. */
   kind?: "report" | "lab";
+  /** The command it runs, when it is one: tells whether a result recorded under another registry is still this check's. */
+  command?: string;
+  /** False: a check that can only skip (a built-in with no command, migrations Casper can't apply). The AI isn't offered it; /verify <name> still reports it. */
+  runnable?: false;
   /** `timeoutMs`: a longer limit the user gave an unfinished check ("Allow more time"), at most one hour. */
   run(signal?: AbortSignal, options?: { timeoutMs?: number }): Promise<VerificationResult>;
 }
@@ -68,12 +72,16 @@ export class VerifierRegistry {
   /** Every registered check, built-in ones first. */
   names(): CheckName[] { return [...this.verifiers.keys()]; }
 
-  /** Checks the AI may run through casper_check: never lab checks. */
-  modelNames(): CheckName[] { return [...this.verifiers.values()].filter((verifier) => verifier.kind !== "lab").map((verifier) => verifier.name); }
+  /** Checks the AI may run through casper_check: never lab checks or built-ins with no command. */
+  modelNames(): CheckName[] {
+    return [...this.verifiers.values()].filter((verifier) => verifier.kind !== "lab" && verifier.runnable !== false).map((verifier) => verifier.name);
+  }
 
   has(name: string): boolean { return this.verifiers.has(name); }
 
   kind(name: CheckName): Verifier["kind"] { return this.verifiers.get(name)?.kind; }
+
+  command(name: CheckName): string | undefined { return this.verifiers.get(name)?.command; }
 
   scope(name: CheckName): VerificationScope | undefined {
     const scope = this.verifiers.get(name)?.scope;
@@ -113,6 +121,7 @@ export class VerifierRegistry {
       registry.register({
         name,
         scope: model.verificationScopes?.[name],
+        ...(command?.trim() ? { command } : { runnable: false as const }),
         run: async (signal, runOptions) => cleanupFailed ? blocked(name)
           : command?.trim()
           ? runCommandCheck({ name, command, cwd, timeoutMs: limit(runOptions?.timeoutMs), signal, onCleanupFailure: onCleanup, ...wrap })
@@ -127,6 +136,7 @@ export class VerifierRegistry {
       registry.register({
         name,
         ...(kind ? { kind } : {}),
+        ...(frozen.run ? { command: frozen.run } : {}),
         run: async (signal, runOptions) => {
           if (cleanupFailed) return blocked(name);
           if (frozen.kind === "lab") {
@@ -144,7 +154,8 @@ export class VerifierRegistry {
     const migrations = detectedMigrations(model);
     if (migrations) {
       const plan = structuredClone(migrations);
-      registry.register({ name: MIGRATIONS_CHECK, scope: migrationsScope(plan),
+      // Ones Casper can't apply only skip: /verify migrations says why, the AI isn't offered them.
+      registry.register({ name: MIGRATIONS_CHECK, scope: migrationsScope(plan), ...(migrationsRunnable(plan) ? {} : { runnable: false as const }),
         run: async (signal) => cleanupFailed ? blocked(MIGRATIONS_CHECK) : runDetectedMigrations(cwd, plan, signal) });
     }
     return registry;

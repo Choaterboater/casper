@@ -32,10 +32,12 @@ export function formatTokens(tokens: number): string {
   return `${(tokens / 1_000_000).toFixed(1)}M tok`;
 }
 
-/** The footer's task segment: tokens, and the cost unless the model is free. */
-export function formatTaskSpend(spent: { tokens: number; cost: number }, priced: boolean | undefined): string {
+/** The footer's task segment: tokens, and the cost unless the model is free. A subscription pays no per-token
+ * price, so its figure is only what the tokens would cost: "sub ≈$0.31". */
+export function formatTaskSpend(spent: { tokens: number; cost: number }, priced: boolean | undefined, billing?: "subscription" | "per-token"): string {
   const tokens = `task ${formatTokens(spent.tokens)}`;
-  return priced === false || (priced === undefined && spent.cost <= 0) ? tokens : `${tokens} · ${formatCost(spent.cost)}`;
+  if (priced === false || (priced === undefined && spent.cost <= 0)) return tokens;
+  return `${tokens} · ${billing === "subscription" ? "sub ≈" : ""}${formatCost(spent.cost)}`;
 }
 
 /** Per task: says the note once, and asks at the pause limit, then again at each further multiple of it. */

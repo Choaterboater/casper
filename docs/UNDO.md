@@ -8,7 +8,7 @@ back. This costs no tokens: no model is asked.
 The receipt of a task that changed files ends with a row:
 
 ```
-✓ Changed 2 files: app.py, tests/test_app.py
+✓ Verified · test passed · changed app.py, tests/test_app.py
 Next: 1 Undo · 2 Show diff
 ```
 

@@ -44,7 +44,7 @@ class ToolRuntime implements AgentRuntime {
   results: Array<{ text: string; isError?: boolean }> = [];
   prompts: string[] = [];
   options?: RuntimeStartOptions;
-  /** Model-authored graph the fake runtime submits when the visualize tool is present. */
+  /** Model-authored graph the fake runtime submits when asked to visualize (the tool is always there). */
   args: Record<string, unknown> = { graph: {
     type: "flowchart", title: "Authentication flow",
     nodes: [{ id: "login", label: "auth/login.ts", group: "auth" }, { id: "verify", label: "auth/verify.ts", group: "auth" }, { id: "session", label: "session.ts" }],
@@ -58,7 +58,7 @@ class ToolRuntime implements AgentRuntime {
         this.prompts.push(text);
         this.surfaces.push(this.tools.map((tool) => tool.name));
         const tool = this.tools.find((tool) => tool.name === "visualize");
-        if (tool) this.results.push(await tool.execute(this.args));
+        if (tool && text.includes("- intent: visualize")) this.results.push(await tool.execute(this.args));
       },
       setTools: (tools) => { this.tools = tools; },
       abort: async () => {}, subscribe: () => () => {}, getState: () => ({ cwd: options.cwd, isStreaming: false }),
@@ -89,7 +89,7 @@ test("acceptance: 'map out the authentication flow' yields a visual, saves artif
   const before = await snapshot(project);
 
   await app.runOnce("map out the authentication flow");
-  expect(runtime.surfaces).toEqual([["delegate", "ask", "casper_check", "visualize"]]);
+  expect(runtime.surfaces).toEqual([["delegate", "ask", "web_search", "web_fetch", "visualize"]]);
   expect(runtime.prompts[0]).toContain("- intent: visualize");
   expect(runtime.prompts[0]).toContain("- mode: read");
   const result = JSON.parse(runtime.results[0]!.text);
@@ -114,9 +114,9 @@ test("acceptance: 'map out the authentication flow' yields a visual, saves artif
   // The code workspace is byte-identical, including no stray .casper artifacts.
   expect(await snapshot(project)).toEqual(before);
 
-  // Ordinary prompts do not carry the visualization tool.
+  // Ordinary prompts get the same tools, so the prompt cache holds; the model just does not draw.
   await app.runOnce("explain how login works");
-  expect(runtime.surfaces[1]).toEqual(["delegate", "ask", "casper_check"]);
+  expect(runtime.surfaces[1]).toEqual(runtime.surfaces[0]);
   expect(runtime.results).toHaveLength(1);
 });
 

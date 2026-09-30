@@ -20,7 +20,7 @@ export const HELP_TEXT = `Casper — your coding companion
   /diff [n|list]         The last task's changes (also outside git); git's view before any task
   /undo, /redo           Put the last task's files back, or back again (no model; docs/UNDO.md)
   /new [name]            Start a new project in ~/Projects (no model)
-  /output [n]            Full command and output of the last task's n-th most recent tool call
+  /output [n|all]        Full command and output of the n-th latest tool call; all lists every call
   /receipt [n|list]      The last receipt (also after a restart), receipt n, or the last 10
   /permissions           Explain actual tool/approval boundaries
   /login                 Provider sign-in or private API-key setup (interactive only)
@@ -37,6 +37,7 @@ export const HELP_TEXT = `Casper — your coding companion
   /exit, /quit           Exit
 
 Type a request to work with the model. Native tools can execute code and edit files.
+The AI can search the web and read public pages without asking; web: off in ~/.casper/config.yaml turns it off.
 Type / for fuzzy command discovery; Tab completes commands and file paths (@).
 Shift+Tab cycles reasoning effort, including auto, and remembers where it stops, like /effort.
 Shift+Enter (when supported) or Ctrl+J inserts a newline; Up/Down recalls history.
@@ -113,7 +114,7 @@ Local commands:
   /suggestions on|off [name]        Turn every suggestion, or one, on or off (suggestions: false in config.yaml too)
   /effort [level|auto] [--session]  Supported levels or auto (Casper picks per request); Shift+Tab cycles
   /context                          Estimated context and capability counts
-  /usage                            Session tokens and optional catalog cost estimate
+  /usage                            Session tokens, cache share and optional catalog cost estimate
   /compact [instructions]           Summarize context using the model (not a local-only command)
   /clear                            New conversation; no file rollback
   /resume [exact-session-id]        List/resume conversations in the current workspace
@@ -124,6 +125,7 @@ Local commands:
   /new [name]                       Start a new project in ~/Projects (no model); before the model starts, Casper opens it
   /new <template> <name>            The same without questions; /new --list shows the templates
   /output [n]                       Full command and output of a recent tool call (1 = latest; last 20 kept per task)
+  /output all                       Every tool call of the last task on its own line (the screen folds them into a summary)
   /receipt                          Detailed evidence receipt of the last model task (freshness, scope), also after a restart
   /receipt <n>, /receipt list       A saved receipt, or the last 10 (saved with secrets hidden)
   /permissions                      Explain enforcement, not change permission presets
@@ -234,6 +236,12 @@ Cooked terminal input (TERM=dumb or redirected output) cannot grant exact approv
 Piped line input discards unfinished input at approval transitions; NO_COLOR is supported.
 LSP connection executes a configured program. Review .casper/lsp.json first.
 LSP rename requires exact interactive approval; one-shot rename is denied.
+Web lookups (web_search, web_fetch) are on by default and never ask. They reach only public https pages
+on ports 80 and 443 (http is upgraded), checked again on every redirect; a search or address holding a secret
+is refused, never sent. Search is DuckDuckGo by default; web: { provider: brave } uses Brave Search with the key
+saved as "brave" in Casper's login file (~/.casper/agent/auth.json), and web: { provider: searxng,
+searxngUrl: <address> } your own SearXNG.
+web: off in ~/.casper/config.yaml turns them off; a project file can't change web:.
 Browser tasks use installed Chrome/Chromium (CASPER_BROWSER_EXECUTABLE overrides detection).
 No automatic browser installation, personal profiles, account credentials or arbitrary page scripts.
 Synthetic local-project interactions may proceed; consequential/uncertain actions require fresh yes.

@@ -106,7 +106,19 @@ See [SCRIPTING.md](SCRIPTING.md#exit-codes) for the full table and the `--json` 
 
 ## Receipts
 
-Every coding task ends with a receipt. Line 1 is the verdict, one of:
+Every coding task ends with a receipt. When all is well it is one line: the verdict, the checks
+that passed and the files changed.
+
+```
+✓ Verified · test passed · lint passed · 15 files changed · after 1 repair
+```
+
+Anything else puts the verdict on line 1 and each problem on its own short line under it (a failed
+check, why the change is not verified, a file undo can't put back); what went well shares one `✓`
+line. The per-file change table is behind `Diff` (`/diff`) and `--verbose`, and `/receipt` shows
+the full form below. The `--json` receipt's `text` and saved receipts keep the full form.
+
+The full form's line 1 is the verdict, one of:
 
 ```
 ✓ Verified — the checks pass, and the tests fail without the change
@@ -268,7 +280,7 @@ the model's own tests cover each one. On the hard eval pack it cut wrong runs fr
 48 at 1.06× Pi's wall time (docs/evals/2026-09-27-request-checklist.md).
 
 **On by default in interactive sessions for code changes** (requests Casper classifies as
-implement, fix or test), where you see the list and can edit or skip it. Off for questions, docs,
+implement, fix or test). Off for questions, docs,
 refactors and configuration, and off in one-shot runs unless set:
 
 ```yaml
@@ -287,18 +299,22 @@ How it works:
   Process instructions such as "which files to read" are left out.
 - It reads a JSON array. If the answer was cut off mid-array it keeps the complete cases; if the
   model wrote a bullet or numbered list instead, it reads that.
-- It keeps up to 80 cases of at most 200 characters and says how many more were left out, prints
-  them and adds them to the task prompt, asking for one test per case that checks exactly that
-  case:
+- It keeps up to 80 cases of at most 200 characters (one line says how many more were left out)
+  and adds them to the task prompt, asking for one test per case that checks exactly that case.
+  It does not print them before work.
+
+**Seeing the list.** The receipt names the checklist only when something is wrong with it: a case
+the model's own review says is not done, or cases that could not be confirmed because the checks
+did not pass or did not run. `/receipt` lists every case.
 
 ```
-Casper checklist (2 cases from your request):
-  - limit(0) throws "limit must be positive"
-  - the 6th call within a minute is rejected
+⚠ 1 requirement not met, the model says: the 6th call within a minute is rejected — not implemented
+• 26 cases from your request not confirmed: the checks did not pass (/receipt lists them)
 ```
 
-**Editing the list.** In an interactive session on a rich terminal, Casper first opens the cases
-in the prompt editor, one per line, so you can correct them before the model sees them.
+**Editing the list.** When Casper suggests planning first (a request with several asks), the same
+panel offers `3 Edit the cases first`. It opens the cases in the prompt editor, one per line, so
+you can correct them before the model sees them.
 
 - Enter starts the task with the lines as they stand.
 - You can change, add (Shift+Enter or Ctrl+J for a new line) or delete lines; a leading `- ` is
@@ -307,13 +323,12 @@ in the prompt editor, one per line, so you can correct them before the model see
   starts without one`).
 - Ctrl+C cancels the task.
 
-Edited lines get the same limits as the model's, and the printed list says `edited by you` when
-you changed it. One-shot runs, `--json` and plain terminals use the cases as listed, without a
-pause.
+Edited lines get the same limits as the model's. One-shot runs, `--json` and plain terminals use
+the cases as listed, without a pause.
 
 If the call fails or its answer has no list of cases, Casper prints one line
 (`• Checklist not made: <reason>`) and the task runs unchanged. The checklist is guidance, not
-evidence: the receipt text and outcome do not change. The call's tokens join the task's usage,
+evidence: the outcome and the JSON receipt's `text` do not change. The call's tokens join the task's usage,
 the JSON stream marks it with a `checklist` phase, and the JSON receipt carries `checklist` (the
 cases) or `null`.
 
@@ -324,9 +339,10 @@ runs (the same runs were right first time with it off) while taking about 40% of
 time. The checks and the proof, not the review, keep Casper at zero false "done".
 
 **With it off**, the first turn of a **code change in auto mode** with a `test` check asks the
-model for the full checklist (`- [x] requirement — test`, `- [ ] requirement — why not done`) and
-a test that fails without the change. The receipt reports that checklist as the model's own
-claim, and the change is still proven.
+model to check every requirement and to end its answer with only the ones still not done
+(`- [ ] requirement — why not done`), plus a test that fails without the change. A full ticked list
+made answers long and is the model's own claim anyway. The receipt reports any open item as the
+model's own claim (it makes the change not verified), and the change is still proven.
 
 To turn the round on:
 

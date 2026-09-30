@@ -116,8 +116,10 @@ function sortedUnique(values: Iterable<string>): string[] {
 // 3: Python network SDKs (mistapi, pycentral, pyaoscx, pyclearpass, junos-eznc, ncclient) give frameworks.
 // 4: a Python project with test_*.py files and no pytest runs them with unittest.
 // 5: only test*.py files that use unittest count (pytest-style files would run no tests and still pass).
+// 6: `python -m build` only when the build package is there; Swift packages get swift test and swift build;
+//    uv and poetry run unittest as `uv run python -m unittest` (there is no `unittest` program).
 /** Bump when detection changes what it derives from the same files, so cached models are rebuilt. */
-const DETECTION_VERSION = 5;
+const DETECTION_VERSION = 6;
 /** requirements.txt, requirements-dev.txt, requirements_test.txt ...: Python projects without a pyproject. */
 const REQUIREMENTS = /^requirements[\w.-]*\.txt$/i;
 /** Python package names (as a whole word, not inside another name) and the framework they give. */
@@ -168,6 +170,8 @@ async function fingerprint(
       hash.update(`${relative}:missing\n`);
     }
   }
+  // Installing build into the environment changes site-packages, not the environment folder itself.
+  for (const name of VIRTUALENVS) hash.update(`${name}:build:${await virtualenvHasBuild(root, name)}\n`);
 
   return hash.digest("hex");
 }
@@ -236,6 +240,7 @@ function detectPackageManager(names: Set<string>, packageJson: Record<string, un
   if (names.has("package.json")) return "npm";
   if (names.has("uv.lock")) return "uv";
   if (names.has("poetry.lock")) return "poetry";
+  if (names.has("Package.swift")) return "swift";
   return null;
 }
 
@@ -293,14 +298,64 @@ function nodeCommands(
 
 /** Where Python tools run: the project's own runner (uv, poetry), else its virtual environment's
  * interpreter, else the system Python, always as `python -m tool` so a missing script shim never matters. */
-export function pythonRunner(names: Set<string>, pyproject: string, virtualenv: string | null): { tool: (name: string) => string; build: string } {
+export function pythonRunner(names: Set<string>, pyproject: string, virtualenv: string | null): { tool: (name: string) => string; python: string; build: string; buildNeedsPackage: boolean } {
   const poetry = names.has("poetry.lock") || /^\[tool\.poetry\]/m.test(pyproject);
-  if (names.has("uv.lock")) return { tool: (name) => `uv run ${name}`, build: "uv build" };
-  if (poetry) return { tool: (name) => `poetry run ${name}`, build: "poetry build" };
+  if (names.has("uv.lock")) return { tool: (name) => `uv run ${name}`, python: "uv run python", build: "uv build", buildNeedsPackage: false };
+  if (poetry) return { tool: (name) => `poetry run ${name}`, python: "poetry run python", build: "poetry build", buildNeedsPackage: false };
   const python = virtualenv
     ? process.platform === "win32" ? `${virtualenv}\\Scripts\\python.exe` : `${virtualenv}/bin/python`
     : process.platform === "win32" ? "python" : "python3";
-  return { tool: (name) => `${python} -m ${name}`, build: `${python} -m build` };
+  // `python -m build` needs the `build` package; uv and poetry build on their own.
+  return { tool: (name) => `${python} -m ${name}`, python, build: `${python} -m build`, buildNeedsPackage: true };
+}
+
+/** The pyproject text that lists packages: `dependencies` and `dev-dependencies` arrays, and whole
+ * `*dependencies` and `[dependency-groups]` tables. Not tool settings like ruff's `exclude = ["build"]`. */
+function pyprojectDependencies(pyproject: string): string {
+  const parts: string[] = [];
+  let table = "";
+  const lines = pyproject.split("\n");
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index]!;
+    const header = /^\s*\[([^\]]+)\]\s*(?:#.*)?$/.exec(line);
+    if (header) { table = header[1]!.trim(); continue; }
+    if (/(?:^|[.-])dependencies$|^dependency-groups$/.test(table)) { parts.push(line); continue; }
+    if (!/^\s*(?:dev-)?dependencies\s*=\s*\[/.test(line)) continue;
+    // The array, to its closing bracket (brackets inside quotes, like "pkg[extra]", don't count).
+    const start = index;
+    let depth = 0;
+    let quote = "";
+    for (; index < lines.length; index++) {
+      const text = lines[index]!;
+      parts.push(text);
+      for (const char of index === start ? text.slice(text.indexOf("=")) : text) {
+        if (quote) { if (char === quote) quote = ""; }
+        else if (char === '"' || char === "'") quote = char;
+        else if (char === "#") break;
+        else if (char === "[") depth++;
+        else if (char === "]") depth--;
+      }
+      if (depth <= 0) break;
+    }
+  }
+  return parts.join("\n");
+}
+
+/** `build` listed as a package: in pyproject's dependency lists, or a `build` line in a requirements file. */
+function listsBuildPackage(pyproject: string, requirements: string): boolean {
+  const dependencies = pyprojectDependencies(pyproject);
+  return /["']build\s*(?:[<>=!~[;@"']|$)/im.test(dependencies) || /^\s*build\s*=/m.test(dependencies)
+    || /^\s*build\s*(?:[<>=!~[;@#]|$)/im.test(requirements);
+}
+
+/** The `build` package installed in the project's virtual environment. */
+export async function virtualenvHasBuild(root: string, virtualenv: string): Promise<boolean> {
+  const isDir = async (folder: string) => (await stat(folder).catch(() => undefined))?.isDirectory() ?? false;
+  if (await isDir(path.join(root, virtualenv, "Lib", "site-packages", "build"))) return true; // Windows
+  const lib = path.join(root, virtualenv, "lib");
+  const pythons = (await readdir(lib).catch(() => [] as string[])).filter((name) => /^python\d/.test(name));
+  for (const name of pythons) if (await isDir(path.join(lib, name, "site-packages", "build"))) return true;
+  return false;
 }
 
 /** The body of one TOML table, up to the next table header. */
@@ -330,15 +385,17 @@ export async function unittestCommand(root: string, runner: ReturnType<typeof py
     return false;
   };
   for (const dir of UNITTEST_DIRS) {
-    if (await hasTests(path.join(root, dir))) return runner.tool(`unittest discover -s ${dir}`);
+    if (await hasTests(path.join(root, dir))) return `${runner.python} -m unittest discover -s ${dir}`;
   }
-  return await hasTests(root) ? runner.tool("unittest discover") : undefined;
+  return await hasTests(root) ? `${runner.python} -m unittest discover` : undefined;
 }
 
 export function detectPythonCommands(
   pyproject: string,
   requirements: string,
   runner: ReturnType<typeof pythonRunner>,
+  /** The `build` package is installed in the project's virtual environment. */
+  buildInstalled = false,
 ): Partial<Record<ProjectCommand, string>> {
   const sources = `${pyproject}\n${requirements}`;
   const commands: Partial<Record<ProjectCommand, string>> = {};
@@ -346,7 +403,9 @@ export function detectPythonCommands(
   if (/\bruff\b/i.test(sources)) commands.lint = runner.tool("ruff check .");
   // `mypy .` ignores the files list in [tool.mypy]; bare mypy checks exactly those.
   if (/\bmypy\b/i.test(sources)) commands.typecheck = runner.tool(/^\s*files\s*=/m.test(tomlTable(pyproject, "tool.mypy") ?? "") ? "mypy" : "mypy .");
-  if (/\[build-system\]/.test(pyproject)) commands.build = runner.build;
+  // Without the build tool, `python -m build` fails with "No module named build": no build check at all.
+  const canBuild = !runner.buildNeedsPackage || buildInstalled || listsBuildPackage(pyproject, requirements);
+  if (/\[build-system\]/.test(pyproject) && canBuild) commands.build = runner.build;
   return commands;
 }
 
@@ -397,7 +456,8 @@ async function detectModel(
     const virtualenv = (await Promise.all(VIRTUALENVS.map(async (name) => (await lstat(path.join(project.root, name)).catch(() => undefined))?.isDirectory() ? name : null)))
       .find(Boolean) ?? null;
     const runner = pythonRunner(names, pyproject, virtualenv);
-    commands = { ...commands, ...detectPythonCommands(pyproject, requirements, runner) };
+    const buildInstalled = virtualenv ? await virtualenvHasBuild(project.root, virtualenv) : false;
+    commands = { ...commands, ...detectPythonCommands(pyproject, requirements, runner, buildInstalled) };
     if (!commands.test) {
       const unittest = await unittestCommand(project.root, runner);
       if (unittest) commands.test = unittest;
@@ -414,6 +474,13 @@ async function detectModel(
   }
   if (names.has("go.mod")) {
     commands = { test: "go test ./...", build: "go build ./...", ...commands };
+  }
+  // A Swift package. An Xcode project alone gets no guessed xcodebuild commands.
+  if (names.has("Package.swift")) {
+    // On macOS SwiftPM sandboxes its own manifest step, which can't start inside Casper's sandbox. The flag
+    // is saved in the model, so it's there even with Casper's sandbox off; a project's own commands replace it.
+    const flag = process.platform === "darwin" ? " --disable-sandbox" : "";
+    commands = { test: `swift test${flag}`, build: `swift build${flag}`, ...commands };
   }
   const structure = await detectRepositoryStructure(project.root);
 

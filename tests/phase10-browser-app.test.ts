@@ -67,7 +67,8 @@ browserTest("Casper reports a reproduced browser fix and stops its owned develop
   expect(f.app.getLastTaskResult()).toMatchObject({ execution: "completed", browser: { status: "pass", checks: [{ status: "pass", baseline: "fail", freshness: "fresh" }] } });
   await expect(fetch(url)).rejects.toThrow();
   expect((await captured!.execute({ action: "inspect" })).isError).toBe(true);
-  f.runtime.action = async () => { expect(f.runtime.tools.some(tool => tool.name === "browser")).toBe(false); };
+  // The tool stays offered for the rest of the conversation (a steady tool list keeps the prompt cache), unused here.
+  f.runtime.action = async () => { expect(f.runtime.tools.some(tool => tool.name === "browser")).toBe(true); };
   await f.app.runOnce("hello");
   expect(f.app.getLastTaskResult()?.browser).toBeUndefined();
 }, 20_000);

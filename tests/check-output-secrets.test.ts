@@ -35,7 +35,7 @@ const LEAKY_TEST = "sh leak.sh";
 test("casper_check hides secrets in a built-in check's output before the AI reads it", async () => {
   process.env.MIST_API_TOKEN = TOKEN;
   const dir = await root();
-  const tool = new VerificationTask(VerifierRegistry.forProject(model(dir, { test: LEAKY_TEST }), 10_000), dir).tool();
+  const tool = new VerificationTask(VerifierRegistry.forProject(model(dir, { test: LEAKY_TEST }), 10_000), dir).tool()!;
   const ran = await tool.execute({ check: "test" });
   expect(ran.isError).toBe(true);
   expect(ran.text).toContain("using ");

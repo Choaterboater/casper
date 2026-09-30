@@ -1,5 +1,5 @@
 import type { ProjectCommand, ProjectModel } from "../project/model";
-import { boundObservationText } from "../runtime/observation";
+import { boundObservationText, type ToolObservationInput } from "../runtime/observation";
 import type { RuntimeEvent } from "../runtime/types";
 import { CHECK_NAMES } from "../verify/evidence";
 import { rememberableTestCommand } from "../flows/runners";
@@ -22,6 +22,12 @@ export interface RetainedToolOutput {
 
 /** Retained per task for `/output`; older calls are dropped. */
 export const TOOL_OUTPUT_LIMIT = 20;
+/** Calls listed per task by `/output all` (name, identity fields and status only). */
+export const TOOL_CALL_LIMIT = 1000;
+
+/** One tool call as `/output all` lists it. */
+/** `input`: the call's identity fields, formatted like its transcript line when shown. */
+export interface ToolCallLine { toolName: string; input?: ToolObservationInput; status: "success" | "error" }
 
 /** Canonical spelling of a shell command for matching a configured check. Only aliases that
  * run the very same package script collapse: `npm|pnpm|yarn test` is `<pm> run test` and
@@ -43,6 +49,7 @@ export class TaskObservations {
   private readonly edits = new Set<string>();
   private readonly checks = new Map<ProjectCommand, ObservedCheck>();
   private readonly outputs: RetainedToolOutput[] = [];
+  private readonly calls: ToolCallLine[] = [];
   private mutationToolRan = false;
   /** The last known test-runner command the model ran without error while the project had no test command. */
   private testRunner?: string;
@@ -112,10 +119,15 @@ export class TaskObservations {
 
   observeToolEnd(event: Extract<RuntimeEvent, { type: "tool_end" }>, commands: ProjectModel["commands"] | undefined): void {
     if (this.outputs.length === TOOL_OUTPUT_LIMIT) this.outputs.shift();
-    const target = event.input?.path ?? event.input?.command ?? event.input?.operation;
+    const input = event.input;
+    const target = input?.path ?? input?.command ?? input?.operation ?? input?.pattern ?? input?.check ?? input?.url ?? input?.query;
     this.outputs.push({ toolName: event.toolName, ...(target === undefined ? {} : { target }),
-      ...(typeof event.input?.command === "string" && event.input.path === undefined ? { command: event.input.command } : {}), status: event.isError ? "error" : "success",
+      ...(typeof input?.command === "string" && input.path === undefined ? { command: input.command } : {}), status: event.isError ? "error" : "success",
       text: event.output?.text ?? "", truncated: Boolean(event.output?.truncated) });
+    if (this.calls.length < TOOL_CALL_LIMIT) {
+      const kept = input ? Object.fromEntries(Object.entries(input).map(([key, value]) => [key, typeof value === "string" ? value.slice(0, 512) : value])) as ToolObservationInput : undefined;
+      this.calls.push({ toolName: event.toolName.slice(0, 80), ...(kept && Object.keys(kept).length ? { input: kept } : {}), status: event.isError ? "error" : "success" });
+    }
     // Failures can follow partial writes; shell success need not mean any write. Only the
     // workspace snapshot can settle either, so this merely flags that the question is open.
     // A look command (ls, cat, grep, find) or ssh to another machine leaves this folder's files alone.
@@ -167,6 +179,9 @@ export class TaskObservations {
   get retainedOutputs(): number {
     return this.outputs.length;
   }
+
+  /** Every tool call of the task, oldest first (the first TOOL_CALL_LIMIT). */
+  get toolCalls(): ToolCallLine[] { return this.calls.map(call => ({ ...call, ...(call.input ? { input: { ...call.input } } : {}) })); }
 
   /** `changedPaths` undefined means the workspace snapshot failed or was skipped; only then can
    * a mutation-capable tool call leave writes unconfirmed. */

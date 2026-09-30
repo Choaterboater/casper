@@ -1,6 +1,6 @@
 import { statSync } from "node:fs";
 import { isEffortSelection } from "./runtime/model-routing";
-import { getTemplate, NAME_RULE, validName } from "./new/templates";
+import { EMPTY_TEMPLATE, getTemplate, NAME_RULE, validName } from "./new/templates";
 
 /** A command-line mistake: exits 64 (EX_USAGE), distinct from task results 1, 2 and 3. */
 export class UsageError extends Error {
@@ -296,7 +296,7 @@ export function parseNewArgs(rest: readonly string[]): NewCommand | null {
     if (!validName(name)) throw new UsageError(NAME_RULE);
     return { name, list: false };
   }
-  if (rest.length === 2 && getTemplate(rest[0]!)) {
+  if (rest.length === 2 && (getTemplate(rest[0]!) || rest[0] === EMPTY_TEMPLATE)) {
     const [template, name] = rest as [string, string];
     if (!validName(name)) throw new UsageError(NAME_RULE);
     return { template, name, list: false };

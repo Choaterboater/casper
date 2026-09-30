@@ -14,6 +14,11 @@ const { passThroughEngine } = await import("../../src/sandbox/runtime");
 sandboxDefaults.engine = passThroughEngine;
 sandboxDefaults.problem = () => undefined;
 
+// Likewise no browser counts as installed, so a task's tool list is the same with or without Chrome here.
+// A browser task still gets the browser tool from its words; tests that need Chrome set this themselves.
+const { browserDefaults } = await import("../../src/browser/discovery");
+browserDefaults.installed = async () => false;
+
 // A session's sandbox becomes the process-wide one (useSandbox) until its app closes. One a test leaves open
 // changes later tests in the same run (their checks, the security header), and a real one keeps its network
 // relays running after the suite: bun test runs no exit handlers. Close every app and sandbox a test opens.

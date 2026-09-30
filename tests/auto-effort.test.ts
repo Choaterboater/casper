@@ -54,6 +54,8 @@ test("classification uses one isolated tool-free request and returns observed us
       expect(context.tools ?? []).toEqual([]);
       expect(context.systemPrompt).not.toContain(options.request);
       expect(settings?.toolChoice).toBe("none");
+      // The one-off classifier writes no cache, whatever cache: says.
+      expect(settings?.cacheRetention).toBe("none");
       expect(settings?.maxRetries).toBe(0);
       expect(settings?.maxTokens).toBeGreaterThan(0);
       expect(settings?.maxTokens).toBeLessThanOrEqual(256);

@@ -14,6 +14,13 @@ const runtime = new PiRuntime();
 const events: RuntimeEvent[] = [];
 const scrubber = new Scrubber({ env: { CASPER_NETCONAN: "off" } });
 const filesOn = process.env.FIXTURE_FILES_OFF !== "1";
+// FIXTURE_OUTSIDE=allow|no stands in for the session's write question about places outside the project.
+const outside = process.env.FIXTURE_OUTSIDE;
+const outsideAsked: string[] = [];
+const outsideWrote: string[] = [];
+const shell = outside ? { wrap: async (command: string) => ({ command }), keepEnv: [],
+  outsideWrite: async (absolute: string) => { outsideAsked.push(absolute); return outside === "no" ? "Not done: the user said no to writing it. Don't retry it or work around it." : undefined; },
+  wroteOutside: (absolute: string) => { outsideWrote.push(absolute); } } : undefined;
 try {
   // FIXTURE_SCRUB_THROW=1 makes the check itself fail.
   const scrub = (toolName: string, input: Record<string, unknown>, texts: string[], signal?: AbortSignal) =>
@@ -40,12 +47,14 @@ try {
       systemPromptAppend: "Casper secret scrub fixture",
       beforeToolGate: (toolName, input) => hiddenSecretGate(toolName, input),
       scrubToolOutput: scrub,
+      ...(shell ? { shell } : {}),
     });
   session.subscribe(event => { events.push(event); });
   let promptError: string | undefined;
   try { await session.prompt("Read the files."); } catch (error) { promptError = String(error); }
   console.log("SCRUB_RESULT=" + JSON.stringify({
     toolEnds: events.filter(event => event.type === "tool_end"),
+    ...(outside ? { outsideAsked, outsideWrote } : {}),
     ...(promptError ? { promptError } : {}),
   }));
 } finally { await runtime.dispose(); }

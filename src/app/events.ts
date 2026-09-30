@@ -1,5 +1,5 @@
 import type { InteractiveTerminal } from "../tui/terminal";
-import { formatDuration, formatToolActivity, redactPreview, terminalText } from "../tui/format";
+import { BUSY_GLYPH, formatDuration, formatToolActivity, redactPreview, terminalText } from "../tui/format";
 import type { RuntimeEvent } from "../runtime/types";
 import type { OutputWriter } from "./commands";
 import { SPEND_STOP_REASON } from "../task/spend";
@@ -74,6 +74,9 @@ export function refusalForScreen(text: string): string | undefined {
   return reason.charAt(0).toUpperCase() + reason.slice(1);
 }
 
+/** Plain terminal: a command still running after this long prints its start line. */
+export const PLAIN_START_AFTER_MS = 2000;
+
 /** How many steps the Working box shows. */
 const BOX_STEPS = 3;
 
@@ -97,10 +100,13 @@ export function stepSummary(steps: ReadonlyArray<{ kind: StepKind; failed?: bool
 
 /** Renders runtime events onto the terminal. On the rich terminal the main screen keeps the model's words,
  * questions and receipts: tool calls live in the Working box (the last few steps, updated in place) and fold
- * into one summary line when the model moves on. The plain terminal prints one line per finished tool.
+ * into one summary line when the model moves on. The plain terminal prints one line per finished tool (and a start
+ * line for a command still running after a moment).
  * Extraction-safe: everything here is rendering, not orchestration. */
 export class RuntimeEventView {
   private readonly toolStarted = new Map<string, number>();
+  /** Plain terminal: the start line a still-running command prints after a moment, by call id. */
+  private readonly slowStarts = new Map<string, ReturnType<typeof setTimeout>>();
   private steps: Step[] = [];
   /** What the model is doing now ("Waiting for …", "Reasoning"), under the steps in the Working box. */
   private status?: string;
@@ -201,7 +207,13 @@ export class RuntimeEventView {
     this.clearResponseActivity();
     this.status = undefined;
     this.toolStarted.clear();
+    for (const id of [...this.slowStarts.keys()]) this.clearSlowStart(id);
     this.terminal.setActivity(undefined);
+  }
+
+  private clearSlowStart(id: string): void {
+    const timer = this.slowStarts.get(id);
+    if (timer) { clearTimeout(timer); this.slowStarts.delete(id); }
   }
 
   get lastError(): string | undefined {
@@ -271,7 +283,29 @@ export class RuntimeEventView {
         break;
       case "tool_start": {
         if (event.toolCallId) this.toolStarted.set(event.toolCallId, performance.now());
-        if (!this.terminal.rich) break; // The plain terminal prints the end line only.
+        if (!this.terminal.rich) {
+          // The plain terminal prints the end line only. It has no status line, so a call that may take a while
+          // (a command, a check, an MCP or browser call) and is still running after a moment says it started,
+          // or a long test run looks hung; a quick one still gets its end line alone.
+          const kind = stepKind(event.toolName);
+          if (event.toolCallId && kind !== "edit" && kind !== "read" && !["web_search", "web_fetch"].includes(event.toolName)) {
+            const line = `${BUSY_GLYPH} ${formatToolActivity(event, undefined, this.fit()).replace(/^• /, "")}\n`;
+            // The call starts before Casper's own questions about it ("Reach <host>?", a write outside the project).
+            // A question shown since then already named the command, and an open one is being answered: no line.
+            const asked = this.terminal.questionsShown ?? 0;
+            const timer = setTimeout(() => {
+              this.slowStarts.delete(event.toolCallId!);
+              if (this.terminal.questionOpen || (this.terminal.questionsShown ?? 0) !== asked) return;
+              this.terminal.endAssistant();
+              this.ensureLineBreak();
+              this.output.write(line);
+              this.endedWithNewline = true;
+            }, PLAIN_START_AFTER_MS);
+            timer.unref?.();
+            this.slowStarts.set(event.toolCallId, timer);
+          }
+          break;
+        }
         this.terminal.endAssistant();
         // A failed edit followed at once by another edit of the same file was retried: count it, don't print it.
         const last = this.steps.at(-1);
@@ -286,10 +320,11 @@ export class RuntimeEventView {
       case "tool_end": {
         this.callbacks.onToolEnd(event);
         const started = event.toolCallId ? this.toolStarted.get(event.toolCallId) : undefined;
-        if (event.toolCallId) this.toolStarted.delete(event.toolCallId);
+        if (event.toolCallId) { this.toolStarted.delete(event.toolCallId); this.clearSlowStart(event.toolCallId); }
         const elapsed = started === undefined ? undefined : performance.now() - started;
         // A failed casper_check already printed its formatted result line; its JSON payload is for the model.
-        const shown: ToolEnd = event.toolName === "casper_check" ? { ...event, output: undefined } : event;
+        // A finished one keeps its payload: it is never printed, but a skip reads it to show "— skipped".
+        const shown: ToolEnd = event.toolName === "casper_check" && event.isError ? { ...event, output: undefined } : event;
         // Stopped at the spend limit before it ran: not a failure, and the model's instruction is not for the screen.
         // Refused by Casper before it ran (a private place, another machine, your No): not a failure either.
         const spendStop = event.isError && event.output?.text?.trim() === SPEND_STOP_REASON;

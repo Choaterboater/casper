@@ -221,6 +221,25 @@ posixOnly("the AI can't write git hooks or git config, by file tools or by shell
   expect(await readFile(path.join(project, "src/ok.md"), "utf8")).toBe("fine");
 }, 30_000);
 
+posixOnly("an edit or write outside the project waits for the session's question; No writes nothing, inside writes never ask", async () => {
+  const outsideDir = async ({ root }: { root: string }) => { await mkdir(path.join(root, "outside")); };
+  const tools = [
+    { name: "write", args: { path: "../outside/servers.json", content: "{}" } },
+    { name: "write", args: { path: "src/in.md", content: "fine" } },
+  ];
+  const no = await run(tools, { FIXTURE_OUTSIDE: "no" }, outsideDir);
+  expect(no.sent).toContain("Not done: the user said no to writing it. Don't retry it or work around it.");
+  expect(no.result.outsideAsked).toHaveLength(1);
+  expect(no.result.outsideAsked[0]).toEndWith(path.join("outside", "servers.json"));
+  expect(no.result.outsideWrote).toEqual([]);
+  expect(await access(path.join(no.root, "outside", "servers.json")).then(() => true, () => false)).toBe(false);
+  expect(await readFile(path.join(no.project, "src/in.md"), "utf8")).toBe("fine");
+  const allowed = await run(tools, { FIXTURE_OUTSIDE: "allow" }, outsideDir);
+  expect(await readFile(path.join(allowed.root, "outside", "servers.json"), "utf8")).toBe("{}");
+  expect(allowed.result.outsideAsked).toHaveLength(1);
+  expect(allowed.result.outsideWrote).toEqual(allowed.result.outsideAsked);
+}, 60_000);
+
 posixOnly("service logs and a cat of Casper's login file reach the model with the secrets hidden", async () => {
   const loginKey = "sk-or-v1-fixture0123456789abcdef";
   const { sent } = await run([

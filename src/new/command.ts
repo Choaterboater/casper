@@ -3,8 +3,8 @@ import os from "node:os";
 import path from "node:path";
 import { NEW_USAGE, type NewCommand } from "../cli-args";
 import { formatNewProjectReceipt } from "./receipt";
-import { createProject, tildePath, type NewProjectResult, type ToolRunner } from "./scaffold";
-import { listTemplates } from "./templates";
+import { createProject, startingLine, tildePath, type NewProjectResult, type ToolRunner } from "./scaffold";
+import { EMPTY_TEMPLATE, listTemplates } from "./templates";
 
 /**
  * `casper new` from the command line. With a terminal the app asks for the kind and the name;
@@ -13,13 +13,14 @@ import { listTemplates } from "./templates";
  */
 
 export { NEW_USAGE, parseNewArgs, type NewCommand } from "../cli-args";
-export const NEW_HELP_LINE = "casper new [name]    Start a new project (Python tool, MCP server, Mist scripts)";
+export const NEW_HELP_LINE = "casper new [name]    Start a new project (network, MCP server, web app, Python tool, or your own)";
 
-/** One plain line per ready template. */
+/** One plain line per ready template, then empty. */
 export function listLines(): string[] {
   const templates = listTemplates();
-  const width = Math.max(...templates.map((t) => t.id.length)) + 2;
-  return templates.map((t) => `${t.id.padEnd(width)}${t.title}. ${t.description}`);
+  const width = Math.max(EMPTY_TEMPLATE.length, ...templates.map((t) => t.id.length)) + 2;
+  return [...templates.map((t) => `${t.id.padEnd(width)}${t.title}. ${t.description}`),
+    `${EMPTY_TEMPLATE.padEnd(width)}My own. An empty folder with git and no template; you tell Casper what to build.`];
 }
 
 export interface RunNewOptions {
@@ -48,13 +49,13 @@ export async function runNewCommand(options: RunNewOptions): Promise<{ exitCode:
   }
   if (!command.template || !command.name) {
     write(`casper new needs a template and a name when it can't ask. ${NEW_USAGE}`);
-    write("Templates: " + listTemplates().map((t) => t.id).join(", "));
+    write("Templates: " + [...listTemplates().map((t) => t.id), EMPTY_TEMPLATE].join(", "));
     return { exitCode: 64 };
   }
   const env = options.env ?? process.env;
   const home = options.homeDir ?? env.HOME ?? os.homedir();
   const parent = await projectsFolder(home);
-  write(`Starting ${tildePath(path.join(parent, command.name), home)} from template ${command.template}`);
+  write(startingLine(tildePath(path.join(parent, command.name), home), command.template));
   const result = await createProject({
     parent, name: command.name, template: command.template, env, homeDir: home,
     onStep: write, ...(options.run ? { run: options.run } : {}), ...(options.signal ? { signal: options.signal } : {}),

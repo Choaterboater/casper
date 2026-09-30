@@ -22,6 +22,12 @@ function outputLines(output: string): string[] {
 export function formatNewProjectReceipt(result: NewProjectResult): string[] {
   const lines: string[] = [];
   const template = result.template ? `template ${result.template.id} v${result.template.version}` : "";
+  if (result.status === "ready" && result.empty) {
+    lines.push(`Ready: ${result.displayDir} · empty folder${result.notes.length ? "" : " · git started"} · no template`);
+    lines.push(...result.notes);
+    lines.push(`Next: tell Casper what to build, or run: cd ${result.displayDir} && casper`);
+    return lines;
+  }
   if (result.status === "ready") {
     const tested = result.checks.some((check) => check.name === "test") ? "tests passed" : "checks passed";
     lines.push(`Ready: ${result.displayDir} · ${tested} · first commit ${result.commit ?? "?"}${template ? ` (${template})` : ""}`);

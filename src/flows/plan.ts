@@ -14,9 +14,10 @@ import os from "node:os";
 import { remoteTargets } from "../sandbox/remote";
 import { formatChecklistPrompt, normalizeCases } from "../task/checklist";
 
-/** Pi's built-in tools that only look at files. Every other tool (edit, write, MCP tools, services,
- * the browser, delegation...) is blocked while planning, whatever it says about itself. */
-export const PLANNING_TOOLS = new Set(["read", "grep", "find", "ls"]);
+/** Pi's built-in tools that only look at files, and the web lookups, which only read. Every other tool
+ * (edit, write, MCP tools, services, the browser, delegation...) is blocked while planning, whatever it
+ * says about itself. */
+export const PLANNING_TOOLS = new Set(["read", "grep", "find", "ls", "web_search", "web_fetch"]);
 
 export const PLANNING_BLOCKED = "Planning only: Casper blocks file changes until you choose Build";
 
@@ -157,7 +158,7 @@ export function planToolGate(toolName: string, input: Record<string, unknown> | 
     return `${PLANNING_BLOCKED}. While planning it runs only look commands such as ls, cat, grep and git log.`;
   }
   if (toolName === "edit" || toolName === "write") return `${PLANNING_BLOCKED}.`;
-  return `${PLANNING_BLOCKED}. While planning it allows only read, grep, find and ls, not ${toolName}.`;
+  return `${PLANNING_BLOCKED}. While planning it allows only read, grep, find, ls and web lookups, not ${toolName}.`;
 }
 
 export interface ParsedPlan {

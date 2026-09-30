@@ -2,8 +2,8 @@
 
 ❯ fix the sum bug in src/sum.js
 [model] scripted/site-capture · off · credentials configured
-✓ edit · src/sum.js — completed · 0.2s
-✓ edit · tests/sum.test.js — completed · 0.2s
+✓ edit · src/sum.js
+✓ edit · tests/sum.test.js
 Fixed: sum subtracted instead of adding. Added a test for sum(2, 3).
 … Casper checking: test
 ✓ test · 0.0s

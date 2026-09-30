@@ -172,7 +172,8 @@ posix("interactive: each ssh asks first (No first), ~/.ssh stays private, secret
   expect(receipt).toContain("… Casper checking: test (checks from tools)");
   expect(receipt).toMatch(/✓ test passed \(checks from tools · python3 -m unittest discover -s tests(, \d+\.\ds)?\)/);
   expect(receipt).not.toContain("Not verified");
-  expect(receipt).toContain("✓ Changed 3 files: tools/pyproject.toml, tools/stats.py, tools/tests/test_stats.py");
+  // The short receipt folds the passing check and the changed files into one line under the verdict.
+  expect(receipt.replace(/\s+/g, " ")).toContain("· changed tools/pyproject.toml, tools/stats.py, tools/tests/test_stats.py");
   // Offered to move there, Stay first; Enter stayed.
   expect(receipt).toContain("The work is in ~/Documents/tools.\n→ 1 Stay here");
   expect(receipt).toContain("✓ Stay here");

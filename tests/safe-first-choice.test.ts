@@ -4,9 +4,10 @@ import os from "node:os";
 import path from "node:path";
 import {
   ALREADY_FAILING_CHOICES, MCP_REMEMBER_CHOICES, MCP_WRITES_CHOICES, modelFailedChoices, PLAN_CHOICES, PLAN_QUESTION, REMEMBER_BIG_MODEL_CHOICES,
-  REPAIR_LIMIT_STOP, spendChoices, undoChangedChoices, missingFolderChoices, workFolderChoices, unfinishedChoices, HOST_CHOICES, SHELL_COMMAND_CHOICES, AI_REVIEW_CHOICES, REACH_CHOICES,
+  REPAIR_LIMIT_STOP, spendChoices, undoChangedChoices, missingFolderChoices, workFolderChoices, unfinishedChoices, HOST_CHOICES, SHELL_COMMAND_CHOICES, AI_REVIEW_CHOICES, REACH_CHOICES, writeChoices,
 } from "../src/app/safe-choices";
 import { planEditorHeading } from "../src/flows/plan";
+import { beforeWorkPanel } from "../src/flows/suggest";
 import { askBuildRequest, newProjectInEmptyFolder, offerMissingFolder, type NewProjectFlow } from "../src/app/new-project";
 import { labAskFor, labFailureAsk } from "../src/network/checks";
 import { newProjectQuestion } from "../src/new/pick";
@@ -47,8 +48,12 @@ const firsts: Array<[string, string, string]> = [
   ["redo with a file changed since", undoChangedChoices("Redo", 1)[0]!.label, "Cancel"],
   ["a shell command wants to reach a host", HOST_CHOICES[0].label, "No"],
   ["run this command? (no sandbox)", SHELL_COMMAND_CHOICES[0].label, "No"],
+  ["a write outside the project (shell or the AI's write tool)", writeChoices("~/Library/Application Support/SomeApp")[0]!.label, "No"],
   ["reach another machine (ssh, scp, nc ...)", REACH_CHOICES[0].label, "No"],
   ["the AI security review", AI_REVIEW_CHOICES[0].label, "Stop here"],
+  // Both choices spend tokens; Plan first is the one that changes no files and ends at Build this plan? (1 Stop).
+  // It is asked only for a big, vague request: one that lists concrete requirements goes straight to building.
+  ["Suggested: plan first", beforeWorkPanel({ id: "plan-first", reason: "this asks for 4 things" }, ["a case"]).options[0]!.label, "Plan first"],
   ["a typed folder that isn't there", missingFolderChoices("Documents", "sample-tools")[0]!.label, "Stay in Documents"],
   ["the work is in a project inside this folder", workFolderChoices("Documents", "sample-tools")[0]!.label, "Stay here"],
   ["this task has used $5.02", spendChoices("$10")[0]!.label, "Stop here"],
@@ -74,6 +79,7 @@ test("the risky choices still exist, as a deliberate 2 or later", () => {
   expect(OSV_UPDATE_QUESTION.choices).toEqual(["Stop", "Download it"]);
   expect(undoChangedChoices("Undo", 2).map((choice) => choice.label)).toEqual(["Cancel", "Undo the other 2 files"]);
   expect(AI_REVIEW_CHOICES.map((choice) => choice.label)).toEqual(["Stop here", "Run the AI review"]);
+  expect(writeChoices("~/apps/x").map((choice) => choice.label)).toEqual(["No", "Allow ~/apps/x for this session"]);
   expect(REACH_CHOICES.map((choice) => choice.label)).toEqual(["No", "Yes, this time", "Yes, for this session"]);
   expect(missingFolderChoices("Documents", "sample-tools").map((choice) => choice.label)).toEqual(["Stay in Documents", "Make sample-tools here"]);
   expect(workFolderChoices("Documents", "sample-tools").map((choice) => choice.label)).toEqual(["Stay here", "Switch there"]);

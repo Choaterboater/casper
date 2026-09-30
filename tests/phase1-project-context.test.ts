@@ -200,7 +200,9 @@ describe("Phase 1 project context", () => {
     const rendered = formatProjectContext(await loadProjectContext(project, { homeDir }));
     expect(rendered).toContain("- git commit: only when the user asks");
     expect(rendered).toContain("- git push: never");
-    expect(rendered).toContain("- destructive operations (deleting files, git reset, force-push): ask the user first");
+    expect(rendered).toContain("- ask the user first before deleting files they didn't ask to delete, git reset, or force-push. Creating and editing files in this project needs no ask.");
+    expect(rendered).toContain("- autonomy: high: do the next step yourself when it is inside this project");
+    expect(rendered).toContain("- ask questions: only when blocked");
     expect(rendered).not.toContain("neverUnlessRequested");
     expect(rendered).not.toContain("confirm destructive operations: true");
   });

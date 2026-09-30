@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -43,7 +44,32 @@ export const LOCAL_HOSTS: readonly string[] = ["localhost", "127.0.0.1", "[::1]"
  * a command could change what they run. Add one with sandbox.allowWrite if a check needs it. */
 export function cachePaths(platform: NodeJS.Platform = process.platform): string[] {
   const shared = [".cache/uv", ".cache/pip", ".npm", ".bun/install/cache"];
-  return platform === "darwin" ? [...shared, "Library/Caches/pip", "Library/Caches/uv"] : shared;
+  return platform === "darwin" ? [...shared, "Library/Caches/pip", "Library/Caches/uv", "Library/Caches/org.swift.swiftpm"] : shared;
+}
+
+/** macOS: clang's module cache, which `swift build` must write, in your user cache folder beside the temp
+ * folder (/var/folders/../C beside ../T). Only that folder, not the rest of the cache folder. With TMPDIR
+ * set elsewhere, the cache folder comes from `getconf DARWIN_USER_CACHE_DIR`. */
+export function clangModuleCache(
+  platform: NodeJS.Platform = process.platform,
+  tmp = os.tmpdir(),
+  userCacheDir: () => string | undefined = darwinUserCacheDir,
+): string | undefined {
+  if (platform !== "darwin") return undefined;
+  const match = /^(\/(?:private\/)?var\/folders\/[^/]+\/[^/]+)\/T\/?$/.exec(tmp);
+  const cache = match ? path.join(match[1]!, "C") : userCacheDir();
+  return cache ? path.join(cache, "clang", "ModuleCache") : undefined;
+}
+
+let userCacheDir: string | null | undefined;
+function darwinUserCacheDir(): string | undefined {
+  if (userCacheDir === undefined) {
+    try {
+      const out = execFileSync("/usr/bin/getconf", ["DARWIN_USER_CACHE_DIR"], { encoding: "utf8", timeout: 2000 }).trim();
+      userCacheDir = /^\/(?:private\/)?var\/folders\/[^/]+\/[^/]+\/C\/?$/.test(out) ? out.replace(/\/$/, "") : null;
+    } catch { userCacheDir = null; }
+  }
+  return userCacheDir ?? undefined;
 }
 
 /** uv's own Pythons, which `casper new` may fetch for a Python template (a run you started, of known packages). */
@@ -110,6 +136,8 @@ export interface SandboxPolicyInput {
   project?: SandboxProjectSettings;
   /** Hosts remembered for this project ("Always for this project"). */
   rememberedHosts?: string[];
+  /** Folders outside the project you allowed writes to for this session (never kept). */
+  sessionWrites?: string[];
   /** Folders one command may also write (a new project's folder). */
   extraWrite?: string[];
   /** A plan turn: the project is read-only too. */
@@ -156,12 +184,14 @@ export function sandboxPolicy(input: SandboxPolicyInput): SandboxPolicy {
     ...project.flatMap(spellings),
     ...(input.tempDirs ?? systemTempDirs(input.platform)).flatMap(spellings),
     ...inHome(cachePaths(input.platform)),
+    ...[clangModuleCache(input.platform)].filter((entry): entry is string => Boolean(entry)).flatMap(spellings),
     ...(input.extraWrite ?? []).flatMap(spellings),
     ...(input.user?.allowWrite ?? []).map((entry) => resolveEntry(entry, root, home)).flatMap(spellings),
+    ...(input.sessionWrites ?? []).flatMap(spellings),
   ]);
-  // A folder a command may also write (a new project's folder) keeps git's own files read-only too: Casper's
-  // first commit there runs git with your hooks, outside the sandbox.
-  const extra = (input.extraWrite ?? []).map((entry) => path.resolve(entry));
+  // A folder a command may also write (a new project's folder), or one you allowed this session, keeps git's own
+  // files read-only too: your next git run there (or Casper's first commit) runs its hooks, outside the sandbox.
+  const extra = [...(input.extraWrite ?? []), ...(input.sessionWrites ?? []).flatMap(withRepos)].map((entry) => path.resolve(entry));
   const submodules = [root, ...extra].map((folder) => submoduleGitParts(folder));
   const gitOwn = [root, ...extra].flatMap((folder) => [...gitDirs(folder), path.join(folder, ".git")])
     .concat(submodules.flatMap((found) => found.dirs))
@@ -184,6 +214,57 @@ export function sandboxPolicy(input: SandboxPolicyInput): SandboxPolicy {
   ]);
   const allowedDomains = unique([...REGISTRY_HOSTS, ...LOCAL_HOSTS, ...(input.user?.allowedDomains ?? []), ...(input.rememberedHosts ?? [])]);
   return { allowWrite, denyWrite, denyRead, allowedDomains };
+}
+
+/** An allowed folder and the git repos right inside it (~/code/<repo>), whose own git files stay read-only. */
+function withRepos(folder: string): string[] {
+  let names: string[] = [];
+  try { names = readdirSync(folder).slice(0, 500); } catch { /* not there yet */ }
+  return [folder, ...names.map((name) => path.join(folder, name)).filter((dir) => existsSync(path.join(dir, ".git")))];
+}
+
+/** System folders a write question never offers. */
+const SYSTEM_FOLDERS: readonly string[] = ["/etc", "/usr", "/System", "/bin", "/sbin", "/Library", "/private/etc"];
+
+/**
+ * The folder a write question offers for a refused write to `absolute`: its nearest existing parent. Undefined
+ * (a plain refusal, no question) for the project, ~, /, system folders, git's own folders, and any folder that
+ * is, holds or sits inside a denied place (private places, Casper's own, shell start-up files, git's files).
+ */
+export function writeFolderToOffer(absolute: string, policy: Pick<SandboxPolicy, "denyWrite" | "denyRead">, context: { root: string; home: string }): string | undefined {
+  let folder = path.dirname(path.resolve(absolute));
+  while (!isFolder(folder)) {
+    const parent = path.dirname(folder);
+    if (parent === folder) return undefined;
+    folder = parent;
+  }
+  const names = spellings(folder);
+  const real = realpathLongest(folder);
+  const exactly = (places: string[]) => places.some((place) => names.some((name) => within(place, name) && within(name, place)));
+  if (!offerable(names, policy, context) || exactly([path.parse(real).root, ...spellings(context.home)])) return undefined;
+  if ([...policy.denyWrite, ...policy.denyRead].some((place) => names.some((name) => within(name, place)))) return undefined;
+  return real;
+}
+
+/** The file itself, for the AI's edit and write tools when its folder can't be offered (~, or ~/Documents that
+ * holds the project's git files): asked about alone, unless it is in the project, a system folder, git's files
+ * or a denied place. */
+export function writeFileToOffer(absolute: string, policy: Pick<SandboxPolicy, "denyWrite" | "denyRead">, context: { root: string; home: string }): string | undefined {
+  const names = spellings(absolute);
+  const real = realpathLongest(absolute);
+  return offerable(names, policy, context) && !isFolder(real) ? real : undefined;
+}
+
+/** Not the project, a system folder, git's own files, or in a denied place. */
+function offerable(names: string[], policy: Pick<SandboxPolicy, "denyWrite" | "denyRead">, context: { root: string }): boolean {
+  const inside = (places: string[]) => places.some((place) => names.some((name) => within(place, name)));
+  if (inside(spellings(context.root)) || inside(SYSTEM_FOLDERS.flatMap(spellings))) return false;
+  if (names.some((name) => name.split(/[\\/]+/).includes(".git"))) return false;
+  return !inside([...policy.denyWrite, ...policy.denyRead]);
+}
+
+function isFolder(folder: string): boolean {
+  try { return statSync(folder).isDirectory(); } catch { return false; }
 }
 
 /** A host as the ask and the remembered list use it: lower case, no port, no trailing dot. */

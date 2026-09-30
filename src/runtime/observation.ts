@@ -3,10 +3,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { hideCommandSecrets } from "../secrets/files";
 
-/** Native edit/write paths are literal filesystem paths, not tool-input syntax. `pattern` (grep/find)
- * and `check` (casper_check) are identities shown in tool activity; never an edit body or an
- * arbitrary argument. */
-export interface ToolObservationInput { path?: string; command?: string; operation?: string; pattern?: string; check?: string;
+/** Native edit/write paths are literal filesystem paths, not tool-input syntax. `pattern` (grep/find),
+ * `check` (casper_check), `url` (web_fetch) and `query` (web_search) are identities shown in tool
+ * activity; never an edit body or an arbitrary argument. */
+export interface ToolObservationInput { path?: string; command?: string; operation?: string; pattern?: string; check?: string; url?: string; query?: string;
   /** The command held a secret the AI typed into it; `command` has it hidden. */
   secretHidden?: true }
 
@@ -25,7 +25,7 @@ export interface ToolObservationOutput { text: string; truncated: boolean }
 export function observationInput(value: unknown): ToolObservationInput {
   if (typeof value !== "object" || value === null) return {};
   const result: ToolObservationInput = {};
-  for (const key of ["path", "command", "operation", "pattern", "check"] as const) {
+  for (const key of ["path", "command", "operation", "pattern", "check", "url", "query"] as const) {
     const field = Reflect.get(value, key);
     // Omit oversized identities: truncating could match a different command/path.
     if (typeof field === "string" && Buffer.byteLength(field) <= 8192) result[key] = field;

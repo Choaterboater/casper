@@ -88,6 +88,20 @@ export function listTemplates(): TemplateManifest[] {
   return allTemplates().filter((template) => template.ready);
 }
 
+/** `casper new empty <name>` and "My own": no template, just a folder with git. */
+export const EMPTY_TEMPLATE = "empty";
+const EMPTY_DEFAULT_NAME = "my-project";
+
+/** A template id Casper can build: a ready template, or empty. */
+export function isBuildable(id: string): boolean {
+  return id === EMPTY_TEMPLATE || Boolean(getTemplate(id)?.manifest.ready);
+}
+
+/** The folder name offered when the user just presses Enter. */
+export function defaultNameFor(id: string): string {
+  return getTemplate(id)?.manifest.defaultName ?? EMPTY_DEFAULT_NAME;
+}
+
 export function getTemplate(id: string): PackedTemplate | undefined {
   return Object.hasOwn(TEMPLATES, id) ? (TEMPLATES as Record<string, PackedTemplate>)[id] : undefined;
 }
@@ -139,6 +153,7 @@ const STOPWORDS = new Set([
   "read", "reads", "print", "prints", "display", "displays", "return", "returns", "track", "tracks", "watch", "watches",
   "monitor", "monitors", "report", "reports", "collect", "collects", "export", "exports", "count", "counts", "let", "lets",
   "help", "helps", "give", "gives", "make", "makes", "do", "does",
+  "what", "like", "similar", "kind", "sort", "something", "thing", "basically", "just",
   // Filler around a name: "new project folder called mist sites" is mist-sites.
   "folder", "folders", "directory", "dir", "called", "named", "name", "project", "projects",
 ]);

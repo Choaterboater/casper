@@ -220,7 +220,7 @@ test("--max-turns stops a model that keeps working, runs no checks and exits 2",
   expect({ exit: result.exit, stderr: result.stderr }).toEqual({ exit: 2, stderr: "" });
   expect(f.payloads).toHaveLength(2);
   expect(result.stdout).toContain("• Incomplete — stopped after 2 turns (--max-turns); changes so far are kept; casper --continue to go on");
-  expect(result.stdout).toContain("✓ Changed 2 files: turn-0.txt, turn-1.txt");
+  expect(result.stdout).toContain("✓ changed turn-0.txt, turn-1.txt");
   expect(result.stdout).not.toContain("Casper checking");
 }, 30_000);
 
@@ -263,8 +263,8 @@ test("--json streams v1 JSON Lines on stdout: session, text, tools, Casper's che
   await reviewOn(f);
   const result = await f.run(["--json", "--verify", "--require-verification", "Fix sum.js"]);
   expect(result.exit).toBe(0);
-  // The transcript and the plain receipt a person reads moved to stderr.
-  expect(result.stderr).toContain("✓ test passed");
+  // The transcript and the short receipt a person reads moved to stderr; the JSON receipt keeps the full text.
+  expect(result.stderr).toContain("✓ Verified · test passed · changed sum.js\n");
   expect(result.stdout).not.toMatch(/[\x1b\u202e]/);
   const receiptText = "✓ Verified — the checks pass, and the tests fail without the change\n✓ Changed 1 file: sum.js\n✓ test passed (grep -q fixed sum.js";
   const stream = events(result.stdout, await realpath(f.project));
@@ -369,7 +369,8 @@ test("an unproven fix gets one round to add a test that fails without it; then t
     exit: 0, outcome: "verified", repairs: 1, proof: { status: "proven", check: "test", command: "sh tests/check.sh", testsChanged: true, without: { exitCode: 1, ended: "fail" } },
     review: { done: ["sum.js is fixed — tests/check.sh"], open: [] },
   });
-  expect(result.stderr).toContain("✓ Proven: test fails without this change (exit 1) and passes with it");
+  expect(receipt.text).toContain("✓ Proven: test fails without this change (exit 1) and passes with it");
+  expect(result.stderr).toContain("✓ Verified · test passed · changed sum.js · after 1 repair\n");
 }, 60_000);
 
 test("a fix no test proves is not verified: the receipt says why, and --require-verification exits 3", async () => {
@@ -415,7 +416,7 @@ test("the review round runs even after a fully ticked first checklist, and the r
   await reviewOn(f);
   const result = await f.run(["--json", "--verify", "Fix sum.js"]);
   // B: the first turn is the request itself; the review asks for the checklist, with the ticking rule.
-  expect(asked(f.payloads[0], "Tick a requirement only when a test you can name asserts it")).toBe(false);
+  expect(asked(f.payloads[0], "Count a requirement as done only when a test you can name asserts it")).toBe(false);
   // A fully ticked first checklist was wrong too often to skip the review; the review starts from it.
   const reviews = f.payloads.filter((payload) => lastUser(payload).includes(REVIEW));
   expect(reviews.length).toBeGreaterThan(0);
@@ -434,7 +435,7 @@ test("the review round is off by default (and with verification.review: false); 
   const result = await f.run(["--json", "--verify", "Fix sum.js"]);
   expect(f.payloads.some((payload) => lastUser(payload).includes(REVIEW))).toBe(false);
   // No review follows, so the first turn itself asks for the checklist and a test that fails without the change.
-  expect(asked(f.payloads[0], "Tick a requirement only when a test you can name asserts it")).toBe(true);
+  expect(asked(f.payloads[0], "Count a requirement as done only when a test you can name asserts it")).toBe(true);
   expect(asked(f.payloads[0], "fail without your change")).toBe(true);
   const receipt = JSON.parse(result.stdout.trim().split("\n").at(-1)!);
   expect({ outcome: receipt.outcome, proof: receipt.proof?.status, review: receipt.review }).toEqual({ outcome: "verified", proof: "proven", review: null });
@@ -520,7 +521,9 @@ test("verification.checklist: a separate call lists the request's cases first; t
   const receipt = JSON.parse(result.stdout.trim().split("\n").at(-1)!);
   expect({ exit: result.exit, outcome: receipt.outcome, checklist: receipt.checklist })
     .toEqual({ exit: 0, outcome: "verified", checklist: ["sum.js prints fixed", "sum(2, 3) returns 5"] });
-  expect(result.stderr).toContain("Casper checklist (2 cases from your request):\n  - sum.js prints fixed\n  - sum(2, 3) returns 5\n");
+  // Made quietly: the cases reach the model and the JSON receipt, not the transcript before work.
+  expect(result.stderr).not.toContain("Casper checklist");
+  expect(result.stderr).not.toContain("- sum.js prints fixed");
   // The checklist call comes first, outside the conversation; its usage joins the task's (3 × 120 tokens).
   expect(listed.payloads.map(isChecklist)).toEqual([true, false, false]);
   expect(asked(listed.payloads[0], "Fix sum.js: it prints fixed and sum(2, 3) returns 5")).toBe(true);

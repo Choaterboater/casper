@@ -49,7 +49,7 @@ test("read-write, mixed and broken answers never make a login read-only", async 
     expect(accessStatusText(result)).toBe("access not checked");
   }
   expect(accessStatusText(undefined)).toBe("access not checked");
-  expect(accessModelLines("aruba-central", undefined, "off")).toEqual(["aruba-central: writes are off. Only the user can turn them on."]);
+  expect(accessModelLines("aruba-central", undefined, "off")).toEqual(["aruba-central: writes are off; only the user can turn them on (/mcp writes aruba-central). Mention it only if the user asks for a change there."]);
   expect(accessModelLines("aruba-central", { state: "read-write", products: [] }, "on")).toEqual([]);
 });
 

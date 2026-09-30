@@ -28,10 +28,11 @@ test("an array cut off at the answer budget keeps its complete cases", () => {
     .toEqual({ cases: ["limit(0) throws", 'message is "too many"'], dropped: 0 });
 });
 
-test("an answer without a JSON array, or with no usable case, is an error", () => {
+test("an answer without a list is an error; an empty list is no cases", () => {
   expect(parseChecklistCases("The request states no cases.")).toEqual({ error: "the checklist answer had no list of cases" });
   expect(parseChecklistCases("[unquoted, words]")).toEqual({ error: "the checklist answer had no list of cases" });
-  expect(parseChecklistCases("[1, 2]")).toEqual({ error: "the checklist answer listed no cases" });
+  expect(parseChecklistCases("[1, 2]")).toEqual({ cases: [], dropped: 0 });
+  expect(parseChecklistCases("[]")).toEqual({ cases: [], dropped: 0 });
 });
 
 test("the call is low effort with room for a long list", async () => {

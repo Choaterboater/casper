@@ -274,7 +274,8 @@ test("local skill commands work without starting an unavailable runtime", async 
         emit({ type: "message_end" });
       };
       await app.runOnce("Fix the bug in notes.txt", root);
-      expect(output).toContain("• No files changed, so Casper ran no checks\n");
+      // Nothing changed and no tests ran: no receipt at all.
+      expect(output).not.toContain("No files changed");
       expect(output).not.toContain("Not verified");
       expect(output).not.toContain("possible tool writes");
       expect(app.getLastTaskResult()).toMatchObject({ changedPaths: [], possibleMutations: false });
@@ -289,8 +290,9 @@ test("local skill commands work without starting an unavailable runtime", async 
         emit({ type: "message_end" });
       };
       await app.runOnce("hey");
-      expect(output).toContain("• Not verified — no checks configured. Add verify.test to .casper/project.yaml.\n✓ Changed 1 file: notes.txt\n");
-      expect(output).toMatch(/notes\.txt \| 2 \+-/);
+      expect(output).toContain("• Not verified — no checks configured. Add verify.test to .casper/project.yaml.\n✓ changed notes.txt\n");
+      // The per-file table stays behind Diff and --verbose.
+      expect(output).not.toMatch(/notes\.txt \| 2 \+-/);
       expect(app.getLastTaskResult()).toMatchObject({ changedPaths: ["notes.txt"], possibleMutations: false });
 
       output = "";
@@ -299,8 +301,24 @@ test("local skill commands work without starting an unavailable runtime", async 
       output = "";
       await app.runOnce("/output 2");
       expect(output).toContain("[output] bash · echo after … · success\n$ echo after > notes.txt\n(no output text)\n");
-      await expect(app.runOnce("/output 3")).rejects.toThrow("Usage: /output [n] with n from 1 (most recent) to 2");
+      await expect(app.runOnce("/output 3")).rejects.toThrow("Usage: /output [n|all] with n from 1 (most recent) to 2");
+      output = "";
+      await app.runOnce("/output all");
+      expect(output).toContain("[output] 2 tool calls in the last task, oldest first:\n✓ bash echo after > notes.txt\n✓ bash wc -l notes.txt\n");
       await expect(app.runOnce("/output zero")).rejects.toThrow("Usage: /output");
+
+      // Later receipts in the session say it short.
+      output = "";
+      respond = async (emit) => {
+        emit({ type: "tool_start", toolName: "bash", toolCallId: "4", input: { command: "echo again > notes.txt" } });
+        await writeFile(path.join(root, "notes.txt"), "again\n");
+        emit({ type: "tool_end", toolName: "bash", toolCallId: "4", input: { command: "echo again > notes.txt" }, output: { text: "", truncated: false }, isError: false });
+        emit({ type: "tool_start", toolName: "bash", toolCallId: "3", input: { command: "wc -l notes.txt" } });
+        emit({ type: "tool_end", toolName: "bash", toolCallId: "3", input: { command: "wc -l notes.txt" }, output: { text: "1 notes.txt\n", truncated: false }, isError: false });
+        emit({ type: "message_end" });
+      };
+      await app.runOnce("hey again");
+      expect(output).toContain("• Not verified — no checks set up\n✓ changed notes.txt\n");
     } finally { await app.close(); }
   });
 

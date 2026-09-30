@@ -36,7 +36,9 @@ class ToolRuntime implements AgentRuntime {
   async start(options: RuntimeStartOptions) {
     this.starts++;
     this.tools = options.tools ?? [];
+    const info = () => ({ cwd: options.cwd, sessionId: "fixture", sessionFile: path.join(options.cwd, "fixture.jsonl") });
     return {
+      clearConversation: async () => {}, getSessionInfo: info, forkSession: async () => info(), switchSession: async () => info(),
       setTools: (tools: RuntimeTool[]) => { this.tools = tools; },
       prompt: async () => {
         this.surfaces.push(this.tools.map((tool) => tool.name));
@@ -68,19 +70,29 @@ test("app keeps status/connect local, replaces task surfaces, and denies one-sho
   await app.runOnce("/mcp connect fixture");
   expect(runtime.starts).toBe(0);
   await app.runOnce("Read site health metric");
-  expect(runtime.surfaces[0]).toHaveLength(11); // the nine before + ask + casper_check (checking is on by default)
+  expect(runtime.surfaces[0]).toHaveLength(13); // the nine before + ask + web_search + web_fetch + visualize; no casper_check, since no check has a command
   // One-shot runs cannot ask, so the model is not told that you said no.
   expect(runtime.result).toContain("Not executed (needs your approval, and this run cannot ask)");
   expect(runtime.result).not.toContain("you said no");
   expect(runtime.result).not.toContain("Complete result");
+  // A different request in the same session gets the same tools, so the prompt cache is kept;
+  // quantum flux is one find_capability away.
   await app.runOnce("Read quantum flux");
-  expect(runtime.surfaces[1]).toHaveLength(6);
-  expect(runtime.surfaces[1]?.some((name) => name.includes("inspect_quantum_flux"))).toBe(true);
+  expect(runtime.surfaces[1]).toEqual(runtime.surfaces[0]!);
+  expect(runtime.surfaces[1]?.some((name) => name.includes("inspect_quantum_flux"))).toBe(false);
   expect(runtime.starts).toBe(1);
+  // A new conversation starts with a cold cache: its first task picks afresh.
+  await app.runOnce("/clear");
+  await app.runOnce("Read quantum flux");
+  expect(runtime.surfaces[2]?.some((name) => name.includes("inspect_quantum_flux"))).toBe(true);
   await app.runOnce("/mcp disconnect fixture");
   await app.runOnce("Read site health metric");
-  expect(runtime.surfaces[2]).toEqual(["find_capability", "call_capability", "delegate", "ask", "casper_check"]);
+  expect(runtime.surfaces[3]).toEqual(["find_capability", "call_capability", "delegate", "ask", "web_search", "web_fetch", "visualize"]);
   expect(runtime.result).toContain("Not executed (unknown capability");
+  // Connecting again is a real change: the next task picks the direct tools afresh.
+  await app.runOnce("/mcp connect fixture");
+  await app.runOnce("Read quantum flux");
+  expect(runtime.surfaces[4]?.some((name) => name.includes("inspect_quantum_flux"))).toBe(true);
 });
 
 test("every server starts with writes off: a write tool is refused before anyone is asked", async () => {
@@ -324,8 +336,10 @@ test("real CLI and Pi adapter send a small surface and complete search/schema/ca
   await writeFile(path.join(agentDir, "settings.json"), JSON.stringify({ defaultProvider: "fixture", defaultModel: "fixture", retry: { enabled: false } }));
   await mkdir(path.join(home, ".casper"), { recursive: true });
   await writeFile(path.join(home, ".casper/settings.json"), JSON.stringify({ defaultProvider: "fixture", defaultModel: "fixture" }));
+  // The same tool count on every machine: no browser counts as installed.
+  const noBrowser = path.join(home, "no-browser");
   const processFixture = Bun.spawn([process.execPath, path.join(import.meta.dir, "../src/cli.ts"), "--mcp", "fixture", "Read site health metric"], {
-    cwd: project, env: cleanEnv({ HOME: home, CASPER_AGENT_DIR: agentDir, PI_CODING_AGENT_DIR: agentDir, CASPER_OFFLINE: "1", PI_TELEMETRY: "0" }), stdout: "pipe", stderr: "pipe",
+    cwd: project, env: cleanEnv({ HOME: home, CASPER_AGENT_DIR: agentDir, PI_CODING_AGENT_DIR: agentDir, CASPER_OFFLINE: "1", PI_TELEMETRY: "0", CASPER_BROWSER_EXECUTABLE: noBrowser }), stdout: "pipe", stderr: "pipe",
   });
   const timer = setTimeout(() => processFixture.kill(), 15_000);
   const [stdout, stderr, exit] = await Promise.all([new Response(processFixture.stdout).text(), new Response(processFixture.stderr).text(), processFixture.exited]);
@@ -333,7 +347,7 @@ test("real CLI and Pi adapter send a small surface and complete search/schema/ca
   expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });
   expect(stdout).toContain("FIXTURE_WORKFLOW_COMPLETE");
   expect(payloads).toHaveLength(4);
-  expect(payloads[0]?.tools).toHaveLength(18); // seven Pi built-ins + delegate + ask + casper_check + eight broker tools
+  expect(payloads[0]?.tools).toHaveLength(20); // seven Pi built-ins + delegate + ask + eight broker tools + web_search + web_fetch + visualize (no check has a command)
   expect(JSON.stringify(payloads[0]?.tools)).not.toContain("inspect_quantum_flux");
   expect(payloads[0]?.tools.map((tool) => tool.function.name)).toContain("find_capability");
   expect(JSON.stringify(payloads[2]?.messages)).toContain("inputSchema");
@@ -353,15 +367,18 @@ try {
 } finally { await app.close(); }
 `);
   const replay = Bun.spawn([process.execPath, harness], {
-    cwd: project, env: cleanEnv({ HOME: home, PI_CODING_AGENT_DIR: agentDir, PI_OFFLINE: "1", PI_TELEMETRY: "0" }), stdout: "pipe", stderr: "pipe",
+    cwd: project, env: cleanEnv({ HOME: home, PI_CODING_AGENT_DIR: agentDir, PI_OFFLINE: "1", PI_TELEMETRY: "0", CASPER_BROWSER_EXECUTABLE: noBrowser }), stdout: "pipe", stderr: "pipe",
   });
   const replayTimer = setTimeout(() => replay.kill(), 10_000);
   const [, replayError, replayExit] = await Promise.all([new Response(replay.stdout).text(), new Response(replay.stderr).text(), replay.exited]);
   clearTimeout(replayTimer);
   expect({ exit: replayExit, stderr: replayError }).toEqual({ exit: 0, stderr: "" });
-  expect(payloads.slice(4).map((payload) => payload.tools.length)).toEqual([18, 13, 12]); // each includes casper_check
-  expect(payloads[5]?.tools.some((tool) => tool.function.name.includes("inspect_quantum_flux"))).toBe(true);
-  expect(payloads[5]?.tools.some((tool) => tool.function.name.includes("get_site_metric"))).toBe(false);
+  expect(payloads.slice(4).map((payload) => payload.tools.length)).toEqual([20, 20, 14]); // web_search, web_fetch and visualize each time; no casper_check: no check has a command
+  // The second request gets the first one's MCP tools, so the provider's prompt cache is kept.
+  const names = (index: number) => payloads[index]?.tools.map((tool) => tool.function.name);
+  expect(names(5)).toEqual(names(4));
+  expect(payloads[5]?.tools.some((tool) => tool.function.name.includes("inspect_quantum_flux"))).toBe(false);
+  expect(payloads[5]?.tools.some((tool) => tool.function.name.includes("get_site_metric"))).toBe(true);
 }, 30_000);
 
 /** A cloned repo's `.mcp.json` shadows the user's same-named server with a marker-writing command. */

@@ -16,6 +16,7 @@ import { parseServices, type ServiceSpec } from "../services/config";
 import { parseSmoke, type SmokeCheck } from "../services/smoke";
 import { parsePagesSetting, type PagesSetting } from "../services/pages";
 import type { SandboxProjectSettings, SandboxUserSettings } from "../sandbox/policy";
+import { PROMPT_CACHE_SETTINGS, type PromptCacheSetting } from "../runtime/cache";
 import { DEFAULT_SPEND_LIMITS, type SpendLimits } from "../task/spend";
 
 export type Autonomy = "low" | "medium" | "high";
@@ -62,6 +63,8 @@ export interface LoadedConfiguration {
   repair: { maxAttempts: number; bigModelLastTry?: boolean };
   /** `suggestions: false` turns every suggestion off (user or profile only). */
   suggestions?: boolean;
+  /** `cache: auto|long|short|off`: how long the provider keeps the prompt cache (user or profile only). Unset: auto. */
+  cache?: PromptCacheSetting;
   /** Per-task spend limits in dollars (a note, then a pause); unset turns one off. User or profile only. */
   spend: SpendLimits;
   visualize: VisualizationSettings;
@@ -75,9 +78,16 @@ export interface LoadedConfiguration {
   lab?: LabSettings;
   /** The shell sandbox: your settings (sandbox, shell.keepEnv) and the project's extra denies. */
   sandbox: { user: SandboxUserSettings; project: SandboxProjectSettings };
+  /** Web lookups, from ~/.casper/config.yaml or the profile only; never a project file. */
+  web: WebSettings;
   /** Unknown keys, by file; shown at startup and otherwise ignored. */
   warnings: string[];
 }
+
+/** Web lookups (web_search, web_fetch): on unless you turn them off; your own setting only. */
+export interface WebSettings { enabled: boolean; provider: "duckduckgo" | "brave" | "searxng"; searxngUrl?: string }
+
+export const DEFAULT_WEB: WebSettings = { enabled: true, provider: "duckduckgo" };
 
 export interface LoadConfigurationOptions {
   projectRoot: string;
@@ -210,7 +220,7 @@ const POLICY_KEYS = {
 } as const;
 const ISOLATE_KEYS = ["parallelAgents", "riskyRefactor", "experimentalBranch"];
 const TOP_LEVEL_KEYS = new Set(["profile", "project", "languages", "frameworks", "packageManager", "commands", "architecture",
-  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "spend", "sandbox", "shell", ...Object.keys(POLICY_KEYS)]);
+  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "cache", "spend", "sandbox", "shell", "web", ...Object.keys(POLICY_KEYS)]);
 
 /** Typos used to fall back silently to the defaults; the loader names them instead. */
 function unknownKeys(document: Mapping, label: string): string[] {
@@ -330,6 +340,8 @@ function stringArray(value: unknown): string[] | undefined {
   const strings = value.filter((item): item is string => typeof item === "string");
   return strings.length === value.length ? strings : undefined;
 }
+
+export const CACHE_IN_PROJECT_ERROR = "cache is a user setting (~/.casper/config.yaml); a project cannot change how long your prompt cache is kept";
 
 export const BIG_MODEL_IN_PROJECT_ERROR = "repair.bigModelLastTry is a user setting (~/.casper/config.yaml); a project cannot choose to spend on your big model";
 
@@ -463,6 +475,35 @@ function sandboxUserLayer(document: Mapping, label: string, into: SandboxUserSet
   if (keep) into.keepEnv = [...new Set([...(into.keepEnv ?? []), ...keep])];
 }
 
+const WEB_KEYS = ["enabled", "provider", "searxngUrl"];
+const WEB_PROVIDERS = ["duckduckgo", "brave", "searxng"] as const;
+
+/** `web:` from your own file or a profile: on, off, or { enabled, provider, searxngUrl }. Later layers win. */
+function webUserLayer(document: Mapping, label: string, into: WebSettings, warnings: string[]): void {
+  const value = document.web;
+  if (value === undefined || value === null) return;
+  if (value === false || value === "off") { into.enabled = false; return; }
+  if (value === true || value === "on") { into.enabled = true; return; }
+  if (!isMapping(value)) throw new Error(`${label}: web must be on, off or a mapping`);
+  for (const key of Object.keys(value)) if (!WEB_KEYS.includes(key)) warnings.push(`${label}: unknown key web.${key} (ignored)`);
+  if (value.enabled !== undefined && value.enabled !== null) {
+    if (typeof value.enabled !== "boolean") throw new Error(`${label}: web.enabled must be true or false`);
+    into.enabled = value.enabled;
+  }
+  if (value.provider !== undefined && value.provider !== null) {
+    if (!WEB_PROVIDERS.some((name) => name === value.provider)) throw new Error(`${label}: web.provider must be ${alternatives([...WEB_PROVIDERS])}`);
+    into.provider = value.provider as WebSettings["provider"];
+  }
+  if (value.searxngUrl !== undefined && value.searxngUrl !== null) {
+    let url: URL | undefined;
+    try { url = typeof value.searxngUrl === "string" ? new URL(value.searxngUrl) : undefined; } catch { url = undefined; }
+    if (!url || (url.protocol !== "http:" && url.protocol !== "https:") || url.username || url.password) {
+      throw new Error(`${label}: web.searxngUrl must be an http or https address without a password`);
+    }
+    into.searxngUrl = url.href;
+  }
+}
+
 /** A project can only add denies. Anything that would loosen the sandbox is named and ignored. */
 function sandboxProjectLayer(document: Mapping, label: string, warnings: string[]): SandboxProjectSettings {
   const project: SandboxProjectSettings = {};
@@ -540,8 +581,11 @@ export async function loadConfiguration(
   // Spending on the big model is the user's own choice: a project file never makes it.
   if (isMapping(projectDocument.repair) && projectDocument.repair.bigModelLastTry !== undefined) throw new Error(BIG_MODEL_IN_PROJECT_ERROR);
   if (projectDocument.suggestions !== undefined) throw new Error("suggestions is a user setting (~/.casper/config.yaml); a project cannot turn suggestions on or off");
+  // What you pay for caching is your choice too.
+  if (projectDocument.cache !== undefined) throw new Error(CACHE_IN_PROJECT_ERROR);
   let bigModelLastTry: boolean | undefined;
   let suggestions: boolean | undefined;
+  let cache: PromptCacheSetting | undefined;
   for (const [document, label] of [[globalDocument, labels.global], [profileDocument, labels.profile]] as const) {
     const setting = isMapping(document.repair) ? document.repair.bigModelLastTry : undefined;
     if (setting !== undefined && setting !== null) {
@@ -551,6 +595,12 @@ export async function loadConfiguration(
     if (document.suggestions !== undefined && document.suggestions !== null) {
       if (typeof document.suggestions !== "boolean") throw new Error(`${label}: suggestions must be true or false`);
       suggestions = document.suggestions;
+    }
+    if (document.cache !== undefined && document.cache !== null) {
+      // YAML reads a bare `off` as text, but `cache: false` means the same.
+      const value = document.cache === false ? "off" : document.cache;
+      if (!PROMPT_CACHE_SETTINGS.some((setting) => setting === value)) throw new Error(`${label}: cache must be ${alternatives(PROMPT_CACHE_SETTINGS)}`);
+      cache = value as PromptCacheSetting;
     }
   }
   // What a task may spend before Casper says so or asks: the user's money, so a project file never sets it.
@@ -622,6 +672,12 @@ export async function loadConfiguration(
   sandboxUserLayer(globalDocument, labels.global, sandboxUser, sandboxWarnings);
   sandboxUserLayer(profileDocument, labels.profile, sandboxUser, sandboxWarnings);
   const sandboxProject = sandboxProjectLayer(projectDocument, labels.project, sandboxWarnings);
+  // What the AI may reach on the web, and which paid provider it uses, is your choice, never a repository's.
+  if (projectDocument.web !== undefined) throw new Error("web is a user setting (~/.casper/config.yaml); a project cannot turn web lookups on or off or pick a search provider");
+  const web: WebSettings = { ...DEFAULT_WEB };
+  webUserLayer(globalDocument, labels.global, web, sandboxWarnings);
+  webUserLayer(profileDocument, labels.profile, web, sandboxWarnings);
+  if (web.provider === "searxng" && !web.searxngUrl) throw new Error(`${labels.global}: web.provider searxng needs web.searxngUrl (your SearXNG address)`);
   const lab = mergeLabSettings(parseLabSettings(globalDocument.lab, "user", `${labels.global}: lab`), parseLabSettings(profileDocument.lab, "profile", `${labels.profile}: lab`));
   return {
     skills: { maxActive, imports, bundled },
@@ -629,6 +685,7 @@ export async function loadConfiguration(
       ...(checklist !== undefined ? { checklist } : {}) },
     repair: { maxAttempts, ...(bigModelLastTry !== undefined ? { bigModelLastTry } : {}) },
     ...(suggestions !== undefined ? { suggestions } : {}),
+    ...(cache ? { cache } : {}),
     spend,
     services,
     smoke: parseSmoke(projectDocument.smoke, Object.keys(services), labels.project),
@@ -649,6 +706,7 @@ export async function loadConfiguration(
       policyLayer(projectDocument, labels.project),
     ),
     sandbox: { user: sandboxUser, project: sandboxProject },
+    web,
     warnings: [
       ...sandboxWarnings,
       ...unknownKeys(globalDocument, labels.global),

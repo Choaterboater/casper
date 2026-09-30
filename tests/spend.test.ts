@@ -193,3 +193,20 @@ test("a free model's footer shows the task's tokens and no cost, and never pause
     await f.cleanup();
   }
 });
+
+test("a subscription is not charged per token: the footer says sub ≈$, and there is no note, no pause and no stop", async () => {
+  const f = await fixture({ priced: true, billing: "subscription" });
+  let output = "";
+  const app = f.make(new PassThrough(), { write: (text: string) => { output += text; } });
+  try {
+    await app.runOnce("tidy the notes", f.project);
+    expect(f.state.toolRan).toBe(1);
+    expect(f.state.reasons).toEqual([undefined]);
+    expect(output).not.toContain("This task has used");
+    expect(output).not.toContain("[spend]");
+    expect(app.getLastTaskResult()?.spendLimit).toBeUndefined();
+  } finally {
+    await app.close();
+    await f.cleanup();
+  }
+});

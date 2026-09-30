@@ -1,6 +1,7 @@
 import type { Readable } from "node:stream";
 import type { Component, TUI } from "@earendil-works/pi-tui";
 import type { ToolObservationInput, ToolObservationOutput } from "./observation";
+import type { PromptCacheSetting } from "./cache";
 
 export interface RuntimeToolContext {
   /** Serialize multi-file mutations with the runtime's native file writers. */
@@ -38,6 +39,8 @@ export interface RuntimeStartOptions {
   /** How the AI's bash runs: in the shell sandbox, or after a question when no sandbox can run. Unset: as it is
    * (provider keys are always taken out of its environment). */
   shell?: RuntimeShell;
+  /** How long the provider keeps the prompt cache (`cache:` in ~/.casper/config.yaml). Unset: auto. */
+  cache?: PromptCacheSetting;
 }
 
 /** The AI's shell, as Casper holds it (see src/sandbox/manager.ts). */
@@ -50,6 +53,11 @@ export interface RuntimeShell {
   refused?(id: string, output: string): Promise<string | undefined>;
   /** When no sandbox runs: a numbered question first; a reason refuses the command. */
   approve?(command: string, signal?: AbortSignal): Promise<string | undefined>;
+  /** Before the AI's edit or write lands outside the project: a reason refuses it; undefined lets it run. Works
+   * with no sandbox too. */
+  outsideWrite?(absolute: string): Promise<string | undefined>;
+  /** That edit or write went through (the receipt says so). */
+  wroteOutside?(absolute: string): void;
   /** Provider keys you keep in the shell's environment (shell.keepEnv). */
   keepEnv?: readonly string[];
   /** A private folder (0700) for Pi's full-output logs of long commands, removed with the session. */
@@ -75,6 +83,8 @@ export interface RuntimeReadOnlyStartOptions {
   scrubToolOutput?: RuntimeStartOptions["scrubToolOutput"];
   /** A reason refuses the call before it runs (the security review keeps key and .env files from its child). */
   beforeToolGate?: RuntimeStartOptions["beforeToolGate"];
+  /** The parent session's cache setting. A child lives for minutes, so only off changes it: it keeps the short cache. */
+  cache?: PromptCacheSetting;
 }
 
 export interface RuntimeStatus {
@@ -87,6 +97,9 @@ export interface RuntimeStatus {
   autoEffort?: { state: "pending" | "classified" | "fallback" | "unavailable"; classifier?: string };
   /** Local credential snapshot only; never a provider connectivity claim. */
   auth: "configured" | "missing" | "unknown";
+  /** How the selected provider is paid: a subscription sign-in (the catalog price is not what
+   * the user pays) or per token (API key, credits). Absent when unknown. */
+  billing?: "subscription" | "per-token";
   selectionSource?: "conversation" | "default" | "none";
   defaultModel?: { provider: string; id: string };
   /** Generation is blocked until the user resolves this selection. */

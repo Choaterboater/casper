@@ -1,10 +1,10 @@
 import { lstat, readdir } from "node:fs/promises";
 import path from "node:path";
 import { projectsFolder } from "../new/command";
-import { newProjectQuestion, newProjectSuggestion, parseNameAnswer, templateMenu, type NewProjectSuggestion } from "../new/pick";
+import { EMPTY_CHOICE, newProjectQuestion, newProjectSuggestion, parseNameAnswer, templateMenu, type NewProjectSuggestion } from "../new/pick";
 import { formatNewProjectReceipt } from "../new/receipt";
-import { createProject, tildePath, type NewProjectOptions, type NewProjectResult } from "../new/scaffold";
-import { getTemplate, listTemplates, NAME_RULE, projectSlug, validName } from "../new/templates";
+import { createProject, startingLine, tildePath, type NewProjectOptions, type NewProjectResult } from "../new/scaffold";
+import { defaultNameFor, EMPTY_TEMPLATE, getTemplate, isBuildable, listTemplates, NAME_RULE, projectSlug, validName } from "../new/templates";
 import { missingFolderChoices } from "./safe-choices";
 
 /**
@@ -50,20 +50,57 @@ const TYPED_NO = new Set(["n", "no", "nope", "nah", "not now", "cancel", "skip"]
 /** Tries for a name before Casper gives up. */
 const NAME_TRIES = 3;
 
-/** "What are you building?" One numbered choice per ready template, with `extra` (a way out that builds
- * nothing) first, so Enter never picks a kind. The template id, "extra", or undefined for Esc. Typed text
- * that names a template picks it. */
-export async function askTemplate(flow: NewProjectFlow, extra?: string): Promise<string | "extra" | undefined> {
-  const menu = templateMenu();
-  const options = [...(extra ? [{ label: extra }] : []), ...menu.choices.map((label) => ({ label }))];
-  const answer = await choose(flow, menu.question, options);
-  if (answer === undefined) return undefined;
-  if (extra && answer === extra) return "extra";
-  const index = menu.choices.indexOf(answer);
-  if (index >= 0) return menu.ids[index];
+type Choice = { label: string; description?: string };
+
+export interface AskTemplateOptions {
+  /** A way out that builds nothing, first, so Enter never picks a kind. */
+  extra?: Choice;
+  /** Replaces "What are you building?". */
+  question?: string;
+  /** Offer "My own" (an empty folder). Default true. */
+  empty?: boolean;
+}
+
+/** A typed template id ("web-app", "empty") picks it. */
+function typedTemplate(answer: string): string | undefined {
   const typed = answer.trim().toLowerCase();
-  if (getTemplate(typed)?.manifest.ready) return typed;
-  flow.write(`[new] ${answer.trim()} isn't one of the choices.`);
+  return isBuildable(typed) ? typed : undefined;
+}
+
+/**
+ * "What are you building?" A short list of kinds (Network, MCP server, Web app or dashboard, Python tool,
+ * My own), then, for a kind with more than one template, which one, with Back first. The template id,
+ * EMPTY_TEMPLATE, "extra", or undefined for Esc. Nothing is locked in: Back returns to the kinds.
+ */
+export async function askTemplate(flow: NewProjectFlow, options: AskTemplateOptions = {}): Promise<string | "extra" | undefined> {
+  const menu = templateMenu();
+  const empty = options.empty ?? true;
+  const kinds: Choice[] = [...(options.extra ? [options.extra] : []), ...menu.groups.map(({ label, description }) => ({ label, description })),
+    ...(empty ? [EMPTY_CHOICE] : [])];
+  for (let round = 0; round < PICK_TRIES; round++) {
+    const answer = await choose(flow, options.question ?? menu.question, kinds);
+    if (answer === undefined) return undefined;
+    if (options.extra && answer === options.extra.label) return "extra";
+    if (empty && answer === EMPTY_CHOICE.label) return EMPTY_TEMPLATE;
+    const group = menu.groups.find((entry) => entry.label === answer);
+    if (!group) {
+      const typed = typedTemplate(answer);
+      if (typed && (empty || typed !== EMPTY_TEMPLATE)) return typed;
+      flow.write(`[new] ${answer.trim()} isn't one of the choices.`);
+      return undefined;
+    }
+    if (group.ids.length === 1) return group.ids[0];
+    const back = { label: "Back", description: "the kinds again" };
+    const which = await choose(flow, group.question, [back, ...group.choices.map((label) => ({ label }))]);
+    if (which === undefined) return undefined;
+    if (which === back.label) continue;
+    const index = group.choices.indexOf(which);
+    if (index >= 0) return group.ids[index];
+    const typed = typedTemplate(which);
+    if (typed && typed !== EMPTY_TEMPLATE) return typed;
+    flow.write(`[new] ${which.trim()} isn't one of the choices.`);
+    return undefined;
+  }
   return undefined;
 }
 
@@ -77,7 +114,8 @@ export async function nameProblem(parent: string, name: string, home: string): P
   return undefined;
 }
 
-/** "Name it? (Enter for my-tool)". Asked again after a bad or taken name; undefined for Esc. */
+/** "Name it? (Enter for my-tool)". Asked again after a bad or taken name; undefined for Esc. Words that aren't
+ * a name ("a thing like a config backup tool") become the next Enter choice (config-backup-tool). */
 export async function askName(flow: NewProjectFlow, parent: string, fallback: string): Promise<string | undefined> {
   for (let attempt = 0; attempt < NAME_TRIES; attempt++) {
     const answer = await choose(flow, `Name it? (Enter for ${fallback})`, [{ label: fallback }]);
@@ -85,6 +123,12 @@ export async function askName(flow: NewProjectFlow, parent: string, fallback: st
     const parsed = parseNameAnswer(answer, fallback);
     const problem = "error" in parsed ? parsed.error : await nameProblem(parent, parsed.name, flow.homeDir);
     if (!problem) return (parsed as { name: string }).name;
+    const slug = "error" in parsed ? projectSlug(answer) : "";
+    if (slug && !(await nameProblem(parent, slug, flow.homeDir))) {
+      flow.write(`[new] Names use lowercase letters, digits and dashes. Press Enter for ${slug}, or type another name.`);
+      fallback = slug;
+      continue;
+    }
     flow.write(`[new] ${problem}`);
   }
   return undefined;
@@ -93,7 +137,7 @@ export async function askName(flow: NewProjectFlow, parent: string, fallback: st
 /** Builds it with progress lines, then prints the result. Nothing here calls a model. */
 export async function buildProject(flow: NewProjectFlow, parent: string, template: string, name: string): Promise<NewProjectResult> {
   const create = flow.create ?? createProject;
-  flow.write(`Starting ${tildePath(path.join(parent, name), flow.homeDir)} from template ${template}`);
+  flow.write(startingLine(tildePath(path.join(parent, name), flow.homeDir), template));
   const result = await create({ parent, name, template, homeDir: flow.homeDir, onStep: flow.write,
     ...(flow.env ? { env: flow.env } : {}), ...(flow.signal ? { signal: flow.signal } : {}) });
   for (const line of formatNewProjectReceipt(result)) flow.write(line);
@@ -114,7 +158,7 @@ export async function newProjectFromQuestions(flow: NewProjectFlow, given: { tem
   let name = given.name;
   const taken = name ? await nameProblem(parent, name, flow.homeDir) : undefined;
   if (taken) flow.write(`[new] ${taken}`);
-  if (!name || taken) name = await askName(flow, parent, getTemplate(template)!.manifest.defaultName);
+  if (!name || taken) name = await askName(flow, parent, defaultNameFor(template));
   if (!name) return undefined;
   return buildProject(flow, parent, template, name);
 }
@@ -128,18 +172,12 @@ export async function isEmptyFolder(dir: string): Promise<boolean> {
  * nothing), then the kinds.
  * The folder's own name is used when it is a valid name; otherwise Casper asks one and builds inside it. */
 export async function newProjectInEmptyFolder(flow: NewProjectFlow, dir: string): Promise<NewProjectResult | undefined> {
-  const menu = templateMenu();
-  const answer = await choose(flow, "This folder is empty. Start a new project here?",
-    [{ label: "Not now", description: "just work in this folder" }, ...menu.choices.map((label) => ({ label }))]);
-  const index = answer === undefined ? -1 : menu.choices.indexOf(answer);
-  if (index < 0) {
-    if (answer !== undefined && answer !== "Not now") flow.write(`[new] ${answer.trim()} isn't one of the choices; nothing was created.`);
-    return undefined;
-  }
-  const template = menu.ids[index]!;
+  const template = await askTemplate(flow, { question: "This folder is empty. Start a new project here?",
+    extra: { label: "Not now", description: "just work in this folder" }, empty: false });
+  if (!template || template === "extra") return undefined;
   const own = path.basename(dir);
   if (validName(own)) return buildProject(flow, path.dirname(dir), template, own);
-  const name = await askName(flow, dir, getTemplate(template)!.manifest.defaultName);
+  const name = await askName(flow, dir, defaultNameFor(template));
   return name ? buildProject(flow, dir, template, name) : undefined;
 }
 
@@ -172,11 +210,10 @@ export async function askBuildRequest(flow: NewProjectFlow, prompt: string): Pro
     }
   }
   if (!picked) {
-    const template = await askTemplate(flow, "Use this folder");
+    const template = await askTemplate(flow, { extra: { label: "Use this folder" } });
     if (!template || template === "extra") return { keep: true };
-    const manifest = getTemplate(template)!.manifest;
-    const fallback = suggestion !== "ask" ? suggestion.name : manifest.defaultName;
-    picked = { template, name: fallback, kind: manifest.kind };
+    const fallback = suggestion !== "ask" ? suggestion.name : defaultNameFor(template);
+    picked = { template, name: fallback, kind: getTemplate(template)?.manifest.kind ?? "empty project" };
   }
   if (name) {
     const taken = await nameProblem(parent, name, flow.homeDir);

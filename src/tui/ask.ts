@@ -13,7 +13,7 @@ export interface AskChannel {
   record(answer: string): void;
 }
 
-/** Model-callable `ask` tool: one structured clarification with 2–5 concrete options and free text.
+/** Model-callable `ask` tool: one structured clarification with 2–4 concrete options and free text.
  * Degrades honestly outside interactive sessions (structured error, never a block) and is
  * budget-capped per task; a fresh instance per prepareCapabilities call resets the budget. */
 export function askTool(channel: AskChannel): RuntimeTool {
@@ -21,13 +21,13 @@ export function askTool(channel: AskChannel): RuntimeTool {
   return {
     name: "ask",
     sequential: true,
-    description: `Ask the human one clarifying question before acting on under-specified requirements. Provide 2–5 concrete options (labels plus short descriptions); the human picks one by its number or with Up/Down and Enter (a number or Space toggles options for multi-select), can type a free-text answer, or skip. The transcript records every question and answer. Budget: ${ASK_BUDGET} questions per task — when it runs out, state your assumptions in the reply instead.`,
+    description: `Ask the human one clarifying question before acting on under-specified requirements. Provide 2–4 concrete options (labels plus short descriptions), the safe choice first; the human picks one by its number or with Up/Down and Enter (a number or Space toggles options for multi-select), can type a free-text answer, or skip. The transcript records every question and answer. Budget: ${ASK_BUDGET} questions per task — when it runs out, state your assumptions in the reply instead.`,
     inputSchema: {
       type: "object", additionalProperties: false, required: ["question", "options"],
       properties: {
         question: { type: "string", description: "One specific question; never ask what the repository already answers." },
         options: {
-          type: "array", minItems: 2, maxItems: 5,
+          type: "array", minItems: 2, maxItems: 4,
           items: { type: "object", additionalProperties: false, required: ["label"], properties: { label: { type: "string" }, description: { type: "string" } } },
         },
         multi: { type: "boolean", description: "Allow choosing several options." },
@@ -47,7 +47,7 @@ export function askTool(channel: AskChannel): RuntimeTool {
         const description = "description" in option && typeof option.description === "string" ? option.description.trim() : undefined;
         return { label, description };
       }).filter(option => option !== undefined);
-      if (clean.length < 2) return { text: "Expected 2–5 options, each with a nonempty label.", isError: true };
+      if (clean.length < 2) return { text: "Expected 2–4 options, each with a nonempty label.", isError: true };
       const answer = await channel.ask(question, clean, args.multi === true, signal);
       used++;
       channel.record(answer ? answer.join(" | ") : "skipped");

@@ -190,10 +190,53 @@ test("a short fix gets no plan-first choice", async () => {
   const f = await fixture();
   try {
     f.input.write("fix the typo in README\r");
-    await f.screen.until((output) => output.includes("Esc starts without a checklist"));
-    expect(f.screen.output).not.toContain("plan first");
-    f.input.write("\x1b");
     await f.screen.until(idleAfter("Built."));
+    expect(f.screen.output).not.toContain("plan first");
+    // The checklist is made quietly: no panel or list before work, and the cases still reach the model.
+    expect(f.screen.output).not.toContain("Esc starts without a checklist");
+    expect(f.screen.output).not.toContain("Casper checklist");
+    expect(f.checklistCalls()).toBe(1);
+    expect(f.prompts[0]).toContain("- limit(0) throws");
+  } finally { await f.close(); }
+}, 60_000);
+
+/** A build request that already lists concrete requirements: a benchmark prompt, asked in an existing project
+ * (in an empty folder the new-project question comes first instead). */
+const DETAILED = [
+  "Add an IPv4 subnet calculator to this project.",
+  "- Input an address with a prefix (for example 10.1.2.3/22). Show the network, broadcast, first and last usable host, number of usable hosts, subnet mask and wildcard mask.",
+  "- Also split a network into N equal subnets (N a power of two) and list them.",
+  "- Handle /31 and /32 correctly, and reject bad input with a clear message.",
+  "- Use Bun and TypeScript, no framework. `bun run dev` serves the page; the math lives in its own module.",
+  "- Include unit tests for the math (`bun test`), with edge cases, and a short README saying how to run it.",
+  "When you're done, run the tests and make sure they pass.",
+].join("\n");
+
+test("a request that already lists concrete requirements builds without the plan-first question", async () => {
+  const f = await fixture();
+  try {
+    // Pasted as one bracketed block so its newlines stay in the request.
+    f.input.write(`\x1b[200~${DETAILED}\x1b[201~`);
+    await f.screen.until((output) => output.includes("make sure they pass"));
+    f.input.write("\r");
+    await f.screen.until(idleAfter("Built."));
+    expect(f.screen.output).not.toContain("plan first");
+    expect(f.prompts).toHaveLength(1);
+    expect(f.prompts[0]).not.toContain('Casper flow "plan-first"');
+    expect(f.prompts[0]).toContain("- limit(0) throws");
+  } finally { await f.close(); }
+}, 60_000);
+
+test("/suggestions off plan-first stops the question for a big vague request", async () => {
+  const f = await fixture();
+  try {
+    f.input.write("/suggestions off plan-first\r");
+    await f.screen.until((output) => /idle\s*$/.test(output) && output.includes("plan-first"));
+    f.input.write(`${REQUEST}\r`);
+    await f.screen.until(idleAfter("Built."));
+    expect(f.screen.output).not.toContain("Suggested: plan first");
+    expect(f.prompts).toHaveLength(1);
+    expect(f.prompts[0]).not.toContain('Casper flow "plan-first"');
   } finally { await f.close(); }
 }, 60_000);
 

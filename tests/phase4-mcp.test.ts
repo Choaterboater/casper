@@ -172,6 +172,27 @@ test("340 generic tools expose at most eight schemas and rare tools remain disco
   expect((await find.execute({ id: "missing" })).isError).toBe(true);
 });
 
+test("two different requests in one session get the same tool list; reconnecting picks again", async () => {
+  const mcp = manager();
+  await mcp.connect("generic");
+  const broker = new CapabilityBroker(mcp);
+  const names = async (task: string) => (await broker.prepare(task)).map((tool) => `${tool.name} ${tool.description}`);
+  const first = await names("Read site health metric");
+  expect(await names("Inspect quantum flux")).toEqual(first);
+  expect((await names("Inspect quantum flux")).join("\n")).not.toContain("inspect_quantum_flux");
+  // The rest stay reachable through find_capability and call_capability.
+  const call = (await broker.prepare("Inspect quantum flux")).find((tool) => tool.name === "call_capability")!;
+  expect((await call.execute({ id: "mcp:generic:inspect_quantum_flux", arguments: { site: "lab" } })).text).toContain('"site":"lab"');
+  // A new conversation (/clear, /resume) picks again too.
+  broker.resetPicks();
+  expect((await names("Inspect quantum flux")).join("\n")).toContain("inspect_quantum_flux");
+  expect(await names("Read site health metric")).not.toEqual(first);
+  await mcp.disconnect("generic");
+  expect(await names("Inspect quantum flux")).toHaveLength(2);
+  await mcp.connect("generic");
+  expect((await names("Inspect quantum flux")).join("\n")).toContain("inspect_quantum_flux");
+});
+
 test("schema inspection preserves enum and required semantics beyond the result item budget", async () => {
   const mcp = manager([definition("generic", "schema-arrays")]);
   await mcp.connect("generic");
@@ -658,8 +679,9 @@ test("plural and stem search finds network tools", async () => {
   expect((await find.execute({ query: "configuration" })).text).toContain("mcp:net:get_junos_config");
   // "config" matches the start of the name word "configuration" (5+ letters, search only).
   expect((await find.execute({ query: "config" })).text).toContain("mcp:net:compare_configuration_versions");
-  // The start-of-word rule is for search only: direct tool choice stays exact.
-  const direct = (await broker.prepare("config")).filter((tool) => tool.name.startsWith("mcp_")).map((tool) => tool.description).join("\n");
+  // The start-of-word rule is for search only: direct tool choice stays exact. A fresh broker, since
+  // one broker keeps the tools it picked first.
+  const direct = (await new CapabilityBroker(mcp).prepare("config")).filter((tool) => tool.name.startsWith("mcp_")).map((tool) => tool.description).join("\n");
   expect(direct).toContain("mcp:net:get_junos_config");
   expect(direct).not.toContain("mcp:net:compare_configuration_versions");
 });

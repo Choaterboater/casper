@@ -18,9 +18,10 @@ the operating system, not a list of words:
 
 - **Files.** A command can write only in the project, the temp folders and package caches (`~/.cache/uv`,
   `~/.cache/pip`, `~/.npm`, `~/.bun/install/cache`, and on macOS `~/Library/Caches/pip`,
-  `~/Library/Caches/uv`). These caches are shared with your other projects, so a command could change a
-  cached package they later use; places that hold programs you run yourself (`~/.cache/pre-commit`,
-  Playwright's browsers, uv's own Pythons and tools) are not writable. `casper new` also lets `uv`
+  `~/Library/Caches/uv`, `~/Library/Caches/org.swift.swiftpm` and clang's module cache). These caches
+  are shared with your other projects, so a command could change a cached package they later use;
+  places that hold programs you run yourself (`~/.cache/pre-commit`, Playwright's browsers, uv's own
+  Pythons and tools) are not writable. `casper new` also lets `uv`
   write `~/.local/share/uv` to fetch a Python. It can't change your shell start-up files, your git
   settings, anything in `~/.casper` and `~/.pi`, or git's own files: `.git/hooks`, `.git/config`,
   `.git/config.worktree`, `.git/info`, the `core.hooksPath` folder, a worktree's `.git` file and its
@@ -104,7 +105,8 @@ Each row names the test that fails without it.
 
 | What | How it shows | Test |
 | --- | --- | --- |
-| Shell commands and checks can't write outside the project, temp and package caches. | the command fails; the receipt says `blocked by the sandbox (wanted to write …)` | `tests/sandbox-live.test.ts` › “a command can write the project but nothing outside it”; `tests/sandbox-live.test.ts` › “a refused write is named: blocked by the sandbox (wanted to write ...)” |
+| Shell commands and checks can't write outside the project, temp and package caches, unless you allow a folder for this session (Casper asks; Enter keeps it blocked). | the command fails; the receipt says `blocked by the sandbox (wanted to write …)` | `tests/sandbox-live.test.ts` › “a command can write the project but nothing outside it”; `tests/sandbox-live.test.ts` › “a refused write is named: blocked by the sandbox (wanted to write ...)” |
+| A write outside the project, by the AI's shell or its `edit` and `write`, asks `1 No · 2 Allow <folder> for this session` (Enter writes nothing); one shell command asks once for all its folders. Nothing is kept past the session, and a run that can't ask refuses. An allowed folder's git files stay read-only. When the folder is `~` or holds a private place, `edit` and `write` ask about the file alone. `/`, system folders, git's own folders and private or protected places are refused without a question. Temp, package caches and your `sandbox.allowWrite` don't ask; a link from them to elsewhere still does. With the sandbox off, `edit` and `write` don't ask. | `The AI wants to write to ~/Library/Application Support/SomeApp.`; the receipt says `Wrote outside the project: … (you allowed it; no undo copy)`, or `Allowed writes outside the project: …` for a shell command | `tests/sandbox-writes.test.ts` › “a shell write outside the project asks once, No first; allowed for the session, the next command may write there”; `tests/sandbox-writes.test.ts` › “private, protected, system and git places, ~ itself, reads and hosts get the plain refusal, never a question”; `tests/secrets-pi.integration.test.ts` › “an edit or write outside the project waits for the session's question; No writes nothing, inside writes never ask” |
 | Shell commands and checks can't read private places or Casper's approvals. | the file is not there for them | `tests/sandbox-live.test.ts` › “private places and Casper's approvals can't be read”; `tests/sandbox-policy.test.ts` › “the policy hides every private place, writes only the project, temp and caches, and keeps git's own files read-only” |
 | The AI's shell can't change your security approvals, lab "Always" answers or remembered hosts in `~/.casper`. | the write fails | `tests/sandbox-live.test.ts` › “the AI's shell can't change your approvals or lab answers in ~/.casper” |
 | Shell commands can't write git hooks or `core.hooksPath` in `.git/config`. | the write fails | `tests/sandbox-live.test.ts` › “git's own files stay read-only: no hook, no core.hooksPath” |

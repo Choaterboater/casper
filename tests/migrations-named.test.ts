@@ -62,7 +62,11 @@ test("Postgres migrations are never run after changes; /verify migrations says w
   const context = await loadProjectContext(await inspectProject(f.dir), { homeDir: f.home });
   expect(autoDetectedChecks(context.model)).toEqual([]);
   expect(defaultVerifyNames(context.model)).not.toContain("migrations");
-  const [result] = await VerifierRegistry.forProject(context.model).run(["migrations"]);
+  const registry = VerifierRegistry.forProject(context.model);
+  // Only a skip: the AI isn't offered it, and /verify migrations still says why.
+  expect(registry.modelNames()).not.toContain("migrations");
+  expect(registry.names()).toContain("migrations");
+  const [result] = await registry.run(["migrations"]);
   expect(result).toMatchObject({ status: "skip", repair: "never" });
   expect(result!.reason).toContain("Postgres migrations (supabase/migrations), and Casper only has a throwaway SQLite");
 });

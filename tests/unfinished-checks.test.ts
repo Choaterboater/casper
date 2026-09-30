@@ -183,7 +183,7 @@ test("a longer limit the user gave stays with the check, so the model's own re-c
   const task = new VerificationTask(registry, cwd);
   cleanup.push(async () => task.close?.());
   await task.run(["test"], undefined, { timeoutMs: 60_000 });
-  await task.tool().execute({ check: "test" });
+  await task.tool()!.execute({ check: "test" });
   expect(timeouts).toEqual([60_000, 60_000]);
 });
 

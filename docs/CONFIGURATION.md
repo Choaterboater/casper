@@ -352,6 +352,34 @@ spend:
   pauseAt: 20      # dollars per task; false turns the pause (and the script stop) off
 ```
 
+## Prompt cache
+
+Providers keep the start of the conversation (instructions, tools, earlier turns) for a while, so
+the next request reads it back cheaply. By default (`cache: auto`) Casper keeps the long cache only
+where it costs nothing extra:
+
+- OpenAI, and non-Anthropic models on OpenRouter, get the long cache, about a day, which costs no
+  more to write than the short one.
+- Anthropic models, whether direct or through OpenRouter, Bedrock or Vertex, get the short cache
+  (about five minutes). Their hour-long cache costs about twice the normal input price to write,
+  against about 1.25 times for the short one.
+- Any other provider, including other OpenAI-style and local servers, gets the short cache, so it
+  never sees a request it might reject or charge extra for.
+
+Casper's own tools stay offered once they appear, and tools from connected MCP servers are picked
+once per session, because a changed tool list throws the cache away. Connecting or removing an MCP
+server can still start it over. `/usage` shows how much input came from the cache:
+`Cache: 97% of input read from cache this session`.
+
+`cache: long` asks every provider for the long cache (Bedrock still gets the short one), which can
+pay off on Anthropic if you often pause for more than five minutes. To change it, set it in your own
+config; a project's `.casper/project.yaml` cannot:
+
+```yaml
+# ~/.casper/config.yaml or a profile's config.yaml
+cache: short   # auto (default), long, short, or off
+```
+
 ## Skills
 
 A skill is a Markdown file of instructions (a `SKILL.md`) that Casper adds to the model's prompt

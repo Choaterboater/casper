@@ -34,6 +34,7 @@ export class InteractiveTerminal {
   private badgeText?: string;
   private command?: (line?: string) => void;
   private confirmation?: (answer: string | undefined) => void;
+  private plainQuestions = 0;
   /** Plain line input that arrived while idle but not yet reading (startup, before the first
    * prompt). Lines typed during work are still dropped, and approvals never read this. */
   private readonly earlyLines: string[] = [];
@@ -132,6 +133,10 @@ export class InteractiveTerminal {
 
   /** Rich surface present (TTY input and output, TERM not dumb) and its current width. */
   get rich(): boolean { return this.surface !== undefined; }
+  /** Plain line input: how many questions or approvals have been shown, and whether one is open now. A tool's
+   * start line waits on these, so it never lands in the middle of an answer being typed. */
+  get questionsShown(): number { return this.plainQuestions; }
+  get questionOpen(): boolean { return this.confirmation !== undefined; }
   get columns(): number | undefined { return this.output.columns; }
 
   /** Constant, already-styled lines laid out per width, such as the startup wordmark. Never for model or tool output. */
@@ -223,6 +228,7 @@ export class InteractiveTerminal {
       return Promise.resolve(undefined);
     }
     this.endAssistant(); this.discardPartialLine(); this.write(preview);
+    this.plainQuestions += 1;
     return new Promise(resolve => {
       let settled = false;
       const finish = (answer: string | undefined) => {
@@ -262,6 +268,7 @@ export class InteractiveTerminal {
     }
     if (!this.rl || this.closed || this.confirmation || signal?.aborted || !options.length) return undefined;
     this.endAssistant(); this.discardPartialLine();
+    this.plainQuestions += 1;
     this.write(`${question}\n${options.map((option, index) => `  ${index + 1} ${option.label}${option.description ? ` · ${option.description}` : ""}`).join("\n")}\n`);
     return new Promise(resolve => {
       let settled = false;

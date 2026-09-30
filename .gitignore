@@ -15,3 +15,8 @@ evals/results/
 /.pi/
 
 # Session handoff notes stay local; they are not part of the published repository.
+
+# Local session notes stay off GitHub.
+docs/HANDOFF*.md
+docs/TODO*.md
+.playwright-mcp/

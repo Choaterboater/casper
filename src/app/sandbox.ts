@@ -5,7 +5,8 @@ import { existsSync } from "node:fs";
 import type { ProjectContext } from "../project/context";
 import type { RuntimeShell } from "../runtime/types";
 import { casperAgentDir } from "../runtime/agent-store";
-import { describeSandbox, ShellSandbox, type HostAnswer, type ShellSandboxOptions } from "../sandbox/manager";
+import { displayPath } from "../platform/project-paths";
+import { describeSandbox, ShellSandbox, type HostAnswer, type ShellSandboxOptions, type WriteAsker } from "../sandbox/manager";
 import { REGISTRY_HOSTS } from "../sandbox/policy";
 import { SandboxStore } from "../sandbox/store";
 import { seccompHelper } from "../sandbox/seccomp";
@@ -14,7 +15,7 @@ import { terminalText } from "../tui/format";
 import { blockedBySandbox } from "../verify/command";
 import { hideCommandSecrets } from "../secrets/files";
 import { remoteTargets, runsAlone, targetLabel, type RemoteTarget } from "../sandbox/remote";
-import { HOST_CHOICES, REACH_CHOICES, SHELL_COMMAND_CHOICES } from "./safe-choices";
+import { HOST_CHOICES, REACH_CHOICES, SHELL_COMMAND_CHOICES, writeChoices } from "./safe-choices";
 
 /**
  * The session's shell sandbox, as the app uses it: the host question, the ask-only fallback for the AI's shell
@@ -42,6 +43,13 @@ export const reachCantAsk = (target: RemoteTarget) => `Not run: this command rea
 export const reachDeclined = (target: RemoteTarget) => `Not run: the user said no to reaching ${targetLabel(target)}. Don't try it again another way; ask the user what to do instead.`;
 export const SHELL_CANT_ASK = "Not run: shell commands need your OK here, and this run can't ask. Use --no-sandbox to allow them for this run.";
 export const SHELL_DECLINED = "Not run: the user said no to this command. Don't run it again; ask the user what to do instead.";
+export const writeQuestion = (from: WriteAsker, folder: string) => `${from === "shell" ? "A shell command" : "The AI"} wants to write to ${terminalText(folder)}.`;
+/** "A and B", "A, B and C": the places one question names. */
+export const writePlaces = (places: string[]) => places.length > 1 ? `${places.slice(0, -1).join(", ")} and ${places.at(-1)}` : places[0] ?? "";
+export const SANDBOX_REFUSED = "The sandbox refuses this every time. Don't retry it or work around it, not with the write or edit tool either. If the task needs it, say in one line what was blocked. No helper scripts for the user to run outside Casper.";
+export const writeAllowedLine = (folder: string) => `[sandbox] The user allowed writes to ${folder} for this session. Run the command again.`;
+export const writeDeclined = (folder: string) => `The user said no to writing ${folder}. Don't retry it or work around it.`;
+export const writeCantAsk = (folder: string) => `${folder} is outside this project and this run can't ask. To allow it, add it to sandbox.allowWrite in ~/.casper/config.yaml.`;
 export const PI_SANDBOX_IGNORED = "[sandbox] Ignored .pi/sandbox.json: a project can't loosen the sandbox.";
 
 export function createSessionSandbox(host: SandboxHost, context: ProjectContext, options: { root: () => string; home: string; noSandbox?: boolean;
@@ -52,6 +60,12 @@ export function createSessionSandbox(host: SandboxHost, context: ProjectContext,
     ...(options.noSandbox ? { noSandboxFlag: true } : {}),
     askHost: (name) => host.canAsk() ? host.pick(hostQuestion(name), [...HOST_CHOICES]).then((answer): HostAnswer =>
       answer === HOST_CHOICES[1].label || answer === "2" ? "session" : answer === HOST_CHOICES[2].label || answer === "3" ? "project" : "no") : undefined,
+    askWrite: (targets, from) => {
+      if (!host.canAsk()) return undefined;
+      const shown = writePlaces(targets.map((target) => displayPath(target, options.root(), options.home)));
+      const choices = writeChoices(shown);
+      return host.pick(writeQuestion(from, shown), choices).then((answer) => answer === choices[1]!.label || answer === "2");
+    },
     note: (line) => host.write(`${line}\n`),
     seccompPath: () => seccompHelper({ home: options.home }),
     ...options.seams,
@@ -67,6 +81,7 @@ export function sandboxStartupNotes(root: string): string[] {
  * rsync, nc, telnet, socat) Casper asks "Reach <host>?", sandbox or not; a run that can't ask refuses it. */
 export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, store: SandboxStore): RuntimeShell & { close(): Promise<void> } {
   let logs: Promise<string> | undefined;
+  const show = (entry: string) => displayPath(entry, sandbox.root, sandbox.home);
   /** Hosts you said "Yes, for this session" to. */
   const sessionReach = new Set<string>();
   /** Commands you said yes to just now, with the hosts they reach (wrap lets them through). */
@@ -129,8 +144,29 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, store: Sa
     finished(id) { sandbox.finished(id); },
     async refused(id, output) {
       const reason = await blockedBySandbox(sandbox, id, output);
-      return reason ? `[sandbox] ${reason[0]!.toUpperCase()}${reason.slice(1)}. The sandbox refuses this every time; don't retry it, and tell the user if the task needs it.` : undefined;
+      if (!reason) return undefined;
+      const blocked = `[sandbox] ${reason[0]!.toUpperCase()}${reason.slice(1)}.`;
+      // Refused only for writes to folders Casper may offer: one question for all of them (the next command gets
+      // the new policy).
+      const writes = sandbox.refused(id, output).map((line) => /^wanted to write (\/.*)$/.exec(line)?.[1]);
+      const folders = writes.map((file) => file === undefined ? undefined : sandbox.writeFolder(file));
+      if (host.planning() || !folders.length || folders.some((folder) => folder === undefined)) return `${blocked} ${SANDBOX_REFUSED}`;
+      const unique = [...new Set(folders as string[])];
+      const shown = writePlaces(unique.map(show));
+      const decision = await sandbox.decideWrite(unique, "shell");
+      if (decision !== "allowed") return `${blocked} ${decision === "no" ? writeDeclined(shown) : writeCantAsk(shown)}`;
+      for (const folder of unique) sandbox.noteOutsideAllow(folder);
+      return writeAllowedLine(shown);
     },
+    async outsideWrite(absolute) {
+      if (!sandbox.asksOutsideWrites || sandbox.writeAllowed(absolute)) return undefined;
+      const offer = sandbox.writeTarget(absolute);
+      if (!offer) return `Not done: ${show(absolute)} is outside this project, and Casper doesn't let the AI write there.`;
+      const decision = await sandbox.decideWrite(offer.target, "ai", { file: offer.file });
+      if (decision === "allowed") return undefined;
+      return `Not done: ${decision === "no" ? writeDeclined(show(offer.target)) : writeCantAsk(show(offer.target))}`;
+    },
+    wroteOutside(absolute) { sandbox.noteOutsideWrite(absolute); },
     async approve(command, signal) {
       const remote = await reach(command, signal);
       if (remote.refused) return remote.refused;
@@ -160,6 +196,15 @@ export function sandboxReceipt(sandbox: ShellSandbox | undefined): TaskResult["s
   return { held: false, reason: sandbox.failure ? `the sandbox could not start: ${sandbox.failure}` : sandbox.state.reason ?? sandbox.state.kind };
 }
 
+/** The receipt's outside writes since the last receipt, as a person would type them: places the AI's tools
+ * wrote, and folders you allowed a shell command (the sandbox can't tell whether it wrote them). */
+export function outsideWritesReceipt(sandbox: ShellSandbox | undefined): Pick<TaskResult, "outsideWrites" | "outsideAllowed"> {
+  if (!sandbox) return {};
+  const { wrote, allowed } = sandbox.takeOutsideWrites();
+  const show = (entry: string) => displayPath(entry, sandbox.root, sandbox.home);
+  return { ...(wrote.length ? { outsideWrites: wrote.map(show) } : {}), ...(allowed.length ? { outsideAllowed: allowed.map(show) } : {}) };
+}
+
 /** "shell     sandboxed · writes: ..." for the banner and /status. */
 export function sandboxStatusLine(sandbox: ShellSandbox): string {
   if (sandbox.failure) return `not sandboxed (the sandbox could not start: ${sandbox.failure}) · Casper asks before each AI shell command`;
@@ -184,6 +229,8 @@ export function sandboxReport(sandbox: ShellSandbox, root: string): string {
   const remembered = sandbox.rememberedHosts();
   lines.push(`Remembered for this project: ${remembered.length ? `${remembered.join(", ")} (/sandbox forget <host>)` : "none"}`);
   lines.push("Other hosts: Casper asks (1 No · 2 Allow for this session · 3 Always for this project); a run that can't ask blocks them.");
+  const folders = sandbox.allowedWriteFolders();
+  lines.push(`Other writes outside the project: Casper asks (1 No · 2 Allow for this session)${folders.length ? `; allowed this session: ${[...new Set(folders.map(show))].join(", ")}` : ""}.`);
   lines.push("Not in the sandbox: MCP servers, language servers, the debugger, the browser and lab checks.");
   return `${lines.join("\n")}\n`;
 }

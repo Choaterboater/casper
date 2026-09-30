@@ -64,17 +64,15 @@ are not tied to one model company.
 ## What a receipt looks like
 
 ```text
-✓ Verified — the checks pass, and the tests fail without the change
-✓ Changed 1 file: sum.js
-✓ test passed (npm run test, 0.3s)
-✓ Proven: test fails without this change (exit 1) and passes with it
+✓ Verified · test passed · changed sum.js
 ```
 
-Line 1 is the verdict. Anything less than `Verified` says why, for example:
+When all is well it is one line. `Verified` means the checks pass and a test fails without the
+change. Anything less says why on its own line, for example:
 
 ```text
 • Not verified — no configured check covers the changed files.
-✓ Changed 1 file: README.md
+✓ changed README.md
 ```
 
 `/receipt` shows the full detail behind the last receipt.
@@ -274,6 +272,31 @@ install links above still give v0.2.15.
   offers to switch there. [VERIFICATION.md](docs/VERIFICATION.md)
 - A quieter screen, each task's tokens and cost in the footer (a note at $1, a pause at $5), and
   tmux and iTerm2 support with nothing to set. [TMUX.md](docs/TMUX.md)
+
+**v0.2.20: fewer layers.**
+- `casper new` asks the kind first (Network, MCP server, Web app or dashboard, Python tool, My
+  own), then which one, with Back first. My own is an empty folder with git.
+- The AI does the next step in your project itself instead of telling you to edit a file, builds
+  things on by default (with an off switch), and keeps risk notes to one line.
+- A write outside the project asks once: `1 No · 2 Allow <folder> for this session`. This covers
+  the AI's shell and its edit and write tools.
+- `web_search` and `web_fetch`: the AI can look things up (DuckDuckGo by default, no key). Public
+  pages only; a lookup holding a secret is refused. `web: off` turns them off.
+- Quieter receipts: no repeated "not verified" lines, and no receipt for a question.
+- Honest usage: `/usage` shows `44k out · 131k new · 4.9M cached`, and a subscription sign-in
+  says `sub ≈$0.31` in the footer instead of showing a list price as the cost.
+- Swift packages get `swift test` and `swift build`; a Python build check needs the build tool.
+- Caching: the long cache only where it costs nothing extra, one tool list per session (MCP tools
+  included) so the cache isn't thrown away, and the cache hit rate in `/usage`.
+
+**v0.3: crews.**
+- For a big job, the AI splits the work on its own: builders in their own copies of the project,
+  a reviewer for each part, a fixer, then one merge and the full tests. No command needed.
+- The status bar shows the crew (`crew 2/3 building · 1 reviewing · $0.40`), and `/crew` shows
+  each part. You keep chatting while it works, and it reports when the parts land.
+- No spending limit by default, so subscription and free models just run; the cost is shown as it
+  runs. Want a limit? Say it in your request ("keep it under $2", "no crew for this") and Casper
+  keeps to it. `crew: off` turns crews off.
 
 Later, not scheduled: vendor packs (`casper pack add aruba` sets up a vendor's MCP server,
 read-only preset, references and skill in one step) and tool rules you write (for example, bounces
