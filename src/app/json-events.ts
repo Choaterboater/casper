@@ -2,7 +2,7 @@ import type { RuntimeEvent, RuntimeStatus } from "../runtime/types";
 import type { SmokeReport } from "../services/smoke";
 import type { PageReport } from "../services/page-report";
 import { formatTerminalJSON } from "../tui/json";
-import { redactPreview } from "../tui/format";
+import { redactPreview, terminalText } from "../tui/format";
 import type { VerificationReport, VerificationResult } from "../verify/evidence";
 import type { ChangeProof } from "../verify/proof";
 import type { RequirementsReview } from "../task/review";
@@ -216,6 +216,8 @@ export function storedTaskResult(task: TaskResult): TaskResult {
     assertions: check.assertions.map((assertion) => ({ ...assertion, actual: redactPreview(typeof assertion.actual === "string" ? assertion.actual
       : JSON.stringify(assertion.actual) ?? "").slice(0, 512) })) })) };
   if (copy.proofSkipped) copy.proofSkipped = redactPreview(copy.proofSkipped);
+  // Read from commands whose secrets were already hidden (see observationInput); redactPreview would mangle "token add".
+  if (copy.remoteChanges) copy.remoteChanges = copy.remoteChanges.map((remote) => ({ host: terminalText(remote.host), changes: remote.changes.map((change) => terminalText(change)) }));
   return copy;
 }
 

@@ -4,8 +4,9 @@ import type { RuntimeEvent } from "../runtime/types";
 import { CHECK_NAMES } from "../verify/evidence";
 import { rememberableTestCommand } from "../flows/runners";
 import type { ObservedCheck, TaskResult } from "./result";
+import { remoteChanges } from "./remote-changes";
 
-type TaskObservationSnapshot = Required<Pick<TaskResult, "observedEdits" | "observedChecks" | "possibleMutations" | "usage">> & Pick<TaskResult, "changedPaths" | "changedDuringChecks" | "testRunner">;
+type TaskObservationSnapshot = Required<Pick<TaskResult, "observedEdits" | "observedChecks" | "possibleMutations" | "usage">> & Pick<TaskResult, "changedPaths" | "changedDuringChecks" | "testRunner" | "remoteChanges" | "secretInCommand">;
 
 /** One retained tool call, newest last. Output is already bounded by the runtime adapter. */
 export interface RetainedToolOutput {
@@ -49,6 +50,10 @@ export class TaskObservations {
    * order: the tool reports when it returns, which may reach us before or after its tool_start. */
   private delegations = 0;
   private delegationReports = 0;
+  /** Changes on other machines seen in the AI's commands (ssh, scp), per host as the command names it. */
+  private readonly remote = new Map<string, string[]>();
+  /** A secret appeared in a command the AI sent (hidden on screen; the AI has it). */
+  private secretInCommand = false;
 
   /** Counts the main conversation's model responses and totals their reported usage. A delegated
    * subagent's model calls are added by `recordDelegatedUsage`; until every delegate call has
@@ -95,6 +100,16 @@ export class TaskObservations {
     // Failures can follow partial writes; shell success need not mean any write. Only the
     // workspace snapshot can settle either, so this merely flags that the question is open.
     if (["bash", "edit", "write"].includes(event.toolName) || (event.toolName === "lsp" && event.input?.operation === "rename")) this.mutationToolRan = true;
+    if (event.input?.secretHidden) this.secretInCommand = true;
+    // A command Casper refused did not run.
+    const refused = event.isError && /^(?:Not run:|\[shell\] Not run)/.test(event.output?.text ?? "");
+    if ((event.toolName === "bash" || event.toolName === "powershell") && event.input?.command && !refused && this.remote.size < 16) {
+      for (const { host, changes } of remoteChanges(event.input.command)) {
+        const list = this.remote.get(host) ?? [];
+        for (const change of changes) if (!list.includes(change) && list.length < 12) list.push(change);
+        this.remote.set(host, list);
+      }
+    }
     if (event.toolName !== "bash") return;
     const command = event.input?.command;
     if (!command || Buffer.byteLength(command) > 8192) return;
@@ -129,6 +144,8 @@ export class TaskObservations {
       ...(changedPaths ? { changedPaths: [...changedPaths] } : {}),
       ...(changedDuringChecks.length ? { changedDuringChecks: [...changedDuringChecks] } : {}),
       ...(this.testRunner ? { testRunner: this.testRunner } : {}),
+      ...(this.remote.size ? { remoteChanges: [...this.remote].map(([host, changes]) => ({ host, changes: [...changes] })) } : {}),
+      ...(this.secretInCommand ? { secretInCommand: true as const } : {}),
       possibleMutations: this.mutationToolRan && !changedPaths,
       usage: { turns: this.turns, ...(this.delegationReports < this.delegations ? { tokens: null, estimatedCost: null }
         : { tokens: this.tokens, estimatedCost: this.estimatedCost }) } };

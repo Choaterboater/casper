@@ -206,3 +206,62 @@ test("a known test runner the model ran is kept only as a suggestion, and only w
   other.observeToolEnd(end("python -c 'import os'"), {});
   expect(other.snapshot([]).testRunner).toBeUndefined();
 });
+
+test("changes the AI made on another machine over ssh reach the receipt, marked as read from the commands", async () => {
+  const { formatReceipt, SECRET_IN_COMMAND } = await import("../src/task/result");
+  const observations = new TaskObservations();
+  observations.observeToolEnd(bash("ssh root@lab-01 'pveum user token add root@pam demoapp --privsep 0'"), {});
+  observations.observeToolEnd(bash("ssh root@lab-01 'systemctl enable --now demoapp'"), {});
+  observations.observeToolEnd(bash("ssh root@lab-01 'cat /etc/hosts'"), {});
+  // Refused by Casper: it never ran.
+  observations.observeToolEnd({ ...bash("ssh sw1 'reboot'", true), output: { text: "Not run: the user said no to reaching sw1.", truncated: false } }, {});
+  observations.observeToolEnd({ ...bash("curl -H 'Authorization: PVEAPIToken=<secret hidden>' https://lab-01:8006/api2/json"), input: { command: "curl …", secretHidden: true as const } }, {});
+  const snapshot = observations.snapshot([]);
+  expect(snapshot.remoteChanges).toEqual([{ host: "lab-01", changes: [
+    "made an API token (pveum user token add root@pam demoapp --privse…)", "turned a service on or off at boot (systemctl enable --now demoapp)"] }]);
+  expect(snapshot.secretInCommand).toBe(true);
+  const receipt = formatReceipt({ execution: "completed", ...snapshot });
+  expect(receipt).toContain("• Changed on lab-01 (from the commands Casper saw): made an API token (pveum user token add root@pam demoapp --privse…); turned a service on or off at boot (systemctl enable --now demoapp)");
+  expect(receipt).toContain(`• ${SECRET_IN_COMMAND}`);
+  expect(SECRET_IN_COMMAND).toBe("A secret appeared in a command; change it after this task.");
+  expect(formatTaskResult({ execution: "completed", ...snapshot })).toContain("(from the commands Casper saw)");
+  // Nothing remote, nothing said.
+  const quiet = new TaskObservations();
+  quiet.observeToolEnd(bash("npm test"), {});
+  expect(formatReceipt({ execution: "completed", ...quiet.snapshot([]) })).not.toContain("Changed on");
+});
+
+test("a question-only task that changed another machine over ssh still prints the receipt with that line", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-remote-receipt-"));
+  try {
+    await mkdir(path.join(root, "home"));
+    const runtime: AgentRuntime = {
+      async start(): Promise<RuntimeSession> {
+        const listeners = new Set<(event: Parameters<Parameters<RuntimeSession["subscribe"]>[0]>[0]) => void>();
+        return {
+          async prompt() {
+            for (const listener of listeners) {
+              listener({ type: "assistant_response_start" });
+              listener({ type: "tool_end", toolName: "bash", toolCallId: "c1", isError: false, output: { text: "", truncated: false },
+                input: { command: "ssh root@lab-01 'systemctl enable --now demoapp'" } });
+              listener({ type: "assistant_response_end", stopReason: "stop" });
+            }
+          },
+          async abort() {}, setTools() {}, subscribe: (listener) => { listeners.add(listener); return () => listeners.delete(listener); },
+          getState: () => ({ cwd: root, isStreaming: false }),
+        };
+      },
+      async dispose() {},
+    };
+    let written = "";
+    const app = new CasperApp({
+      verificationMode: "off", runtimeFactory: () => runtime, output: { write: (text: string) => { written += text; } },
+      loadProjectContext: (project) => loadProjectContext(project, { homeDir: path.join(root, "home") }),
+      loadSkillRegistry: (context) => SkillRegistry.discover({ projectRoot: context.info.root, homeDir: path.join(root, "home") }),
+    });
+    try {
+      await app.runOnce("check the lab host uptime", root);
+      expect(written).toContain("• Changed on lab-01 (from the commands Casper saw): turned a service on or off at boot (systemctl enable --now demoapp)");
+    } finally { await app.close(); }
+  } finally { await rm(root, { recursive: true, force: true }); }
+});

@@ -1420,7 +1420,8 @@ export class CasperApp {
       if (!this.closing) {
         this.terminal.endAssistant();
         this.events.ensureLineBreak();
-        if (classification.intent !== "general" || execution !== "completed" || verification || browser?.checks.length || observations.possibleMutations || observations.changedPaths?.length || observations.changedDuringChecks?.length || observations.observedEdits.length || observations.observedChecks.length) {
+        if (classification.intent !== "general" || execution !== "completed" || verification || browser?.checks.length || observations.possibleMutations || observations.changedPaths?.length || observations.changedDuringChecks?.length || observations.observedEdits.length || observations.observedChecks.length
+          || observations.remoteChanges?.length || observations.secretInCommand) {
           // The second copy and the saved receipt; the change summary lists only this task's files.
           const { stat } = await this.taskUndo.finish(undoStart, { request: prompt, task: this.lastTaskResult, session, servers: [...this.taskChangeServers] });
           this.output.write(`${this.verbose ? formatTaskResult(this.lastTaskResult) : formatReceipt(this.lastTaskResult, { surface: this.receiptSurface(), ...this.receiptFolder(workspaceRoot) })}\n`);

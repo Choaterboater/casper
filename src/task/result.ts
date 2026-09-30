@@ -90,6 +90,10 @@ export interface TaskResult {
   pageNotes?: string[];
   /** Whether /undo can put this task's files back, and why not. `left` names changed files Casper keeps no copy of. */
   undo?: { available: true; left?: Array<{ path: string; why: string }> } | { available: false; reason: string };
+  /** Changes on other machines, read from the text of the AI's ssh and scp commands (never guessed beyond it). */
+  remoteChanges?: Array<{ host: string; changes: string[] }>;
+  /** A secret appeared in a command the AI sent: hidden on screen, in records and here, but the AI has it. */
+  secretInCommand?: true;
   /** Whether the shell sandbox held this task's shell commands and checks, and why not ("--no-sandbox"). */
   sandbox?: { held: true } | { held: false; reason: string };
 }
@@ -170,6 +174,9 @@ export function taskExitCode(report?: VerificationReport, task?: TaskResult, opt
   }
 }
 
+/** The receipt's line when the AI typed a secret into a command. */
+export const SECRET_IN_COMMAND = "A secret appeared in a command; change it after this task.";
+
 /** More paths than this are summarized; the full list stays in the result. */
 const RECEIPT_PATH_LIMIT = 8;
 
@@ -200,6 +207,8 @@ export function formatTaskResult(task: TaskResult): string {
   else if (task.pageNotes?.length) lines.push(receiptLine("pages", task.pageNotes.map((note) => safe(note.replace(/^• /, ""))).join("; ")));
   if (task.bigModel) lines.push(receiptLine("big model", `${safe(task.bigModel.model)} for ${task.bigModel.attempts} ${task.bigModel.attempts === 1 ? "repair" : "repairs"}`));
   if (task.security) lines.push(receiptLine("security", securityText(task.security)));
+  for (const remote of task.remoteChanges ?? []) lines.push(receiptLine(`on ${safe(remote.host)}`.slice(0, 12), `${remote.changes.map(safe).join("; ")} (from the commands Casper saw)`));
+  if (task.secretInCommand) lines.push(receiptLine("secret", SECRET_IN_COMMAND));
   if (task.sandbox) lines.push(receiptLine("sandbox", task.sandbox.held
     ? `shell commands and checks held${labRan(report) ? `; ${LAB_OUTSIDE}` : ""}` : `not sandboxed (${safe(task.sandbox.reason)})`));
   if (task.undo && !(!task.undo.available && task.undo.reason === UNDO_NOTHING_CHANGED)) {
@@ -287,6 +296,8 @@ export function formatReceipt(task: TaskResult, options: ReceiptOptions = {}): s
   else if (report?.pagesSkipped) lines.push(`• Pages not checked: ${report.pagesSkipped}`);
   for (const note of task.pageNotes ?? []) lines.push(safe(note));
   if (task.security) lines.push(`• Security tools: ${securityText(task.security)} (what the tools found; not proof the code has no problems)`);
+  for (const remote of task.remoteChanges ?? []) lines.push(`• Changed on ${safe(remote.host)} (from the commands Casper saw): ${remote.changes.map(safe).join("; ")}`);
+  if (task.secretInCommand) lines.push(`• ${SECRET_IN_COMMAND}`);
   // Only the exception is said: a task whose shell commands and checks ran with your own permissions.
   if (task.sandbox && !task.sandbox.held) lines.push(`• Shell commands and checks were not sandboxed (${safe(task.sandbox.reason)})`);
   else if (task.sandbox && labRan(report)) lines.push(`• Lab checks ran outside the sandbox (${LAB_OUTSIDE_WHY})`);
