@@ -589,6 +589,8 @@ export class PiRuntime implements AgentRuntime {
           }
           const pathReason = fileToolGate(event.toolName, event.input, pathContext);
           if (pathReason) return { block: true, reason: pathReason };
+          const gateReason = readOnly.beforeToolGate?.(event.toolName, event.input);
+          if (gateReason) return { block: true, reason: gateReason };
         });
         if (!readOnly) pi.on("tool_call", (event) => {
           // Keep Pi's native execution, output handling, and process-tree cleanup.
