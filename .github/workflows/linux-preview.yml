@@ -44,6 +44,11 @@ jobs:
           sudo apt-get install -y -q bubblewrap socat
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           bwrap --ro-bind / / --dev /dev --proc /proc --unshare-net --unshare-pid -- /bin/true
+      - name: Audit Casper's own workflows with zizmor (the pinned, hash-locked copy Casper installs)
+        run: |
+          python3 -m venv "$RUNNER_TEMP/zizmor"
+          "$RUNNER_TEMP/zizmor/bin/pip" install --quiet --require-hashes --no-deps -r src/security/locks/zizmor.txt
+          "$RUNNER_TEMP/zizmor/bin/zizmor" --offline .github/workflows
       - name: Install locked dependencies
         id: install
         run: bun install --frozen-lockfile 2>&1 | tee "$RUNNER_TEMP/linux-preview/install.log"
