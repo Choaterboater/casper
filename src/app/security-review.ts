@@ -10,7 +10,7 @@ import { findTool, INSTALL_CHOICES, INSTALL_RUN, INSTALL_YES, installQuestion, i
 import { ignoreState, missingSecurityTools, readRepoText, SecurityCheck, type SecurityCheckOptions, type SecurityReport } from "../security/run";
 import { approveIgnore, approveIgnoreFile, removeApproval, removeFileApproval } from "../security/suppressions";
 import { SECURITY_TOOLS } from "../security/tools";
-import type { IgnoreEntry } from "../security/types";
+import type { IgnoreEntry, SecurityFinding } from "../security/types";
 import { redactPreview, terminalText } from "../tui/format";
 import { realpath } from "node:fs/promises";
 import path from "node:path";
@@ -198,7 +198,10 @@ async function aiReview(host: SecurityReviewHost, report: SecurityReport, explic
   const root = await realpath(path.resolve(host.root));
   const canAsk = host.canAsk();
   if (!canAsk && !explicit) { host.write(`${CANT_ASK_AI}\n`); return; }
-  const scope = await reviewScope(root, report.findings);
+  // What the AI is kept from: files gitleaks flagged, also when an ignore hides that finding from the report.
+  const keptFrom: SecurityFinding[] = [...report.findings, ...(report.secretFiles ?? []).map((file) =>
+    ({ tool: "gitleaks" as const, file, line: 1, rule: "secret", severity: "high" as const, text: "flagged by gitleaks" }))];
+  const scope = await reviewScope(root, keptFrom);
   if (!scope.files.length) {
     host.write(`The AI review has nothing to read: no changed files and nothing the tools flagged${scope.skipped ? ` (${scope.skipped} left out: keys, .env files, big or binary files)` : ""}. No tokens were spent.\n`);
     return;
@@ -226,14 +229,14 @@ async function aiReview(host: SecurityReviewHost, report: SecurityReport, explic
   const findingsText = await hide(report.findings.map((finding) => `- ${finding.tool}: ${formatFindingText(finding)}`).join("\n") || "(none)");
   const diff = await hide(scope.diff);
   const prompt = reviewPrompt({ root, scope, toolFindings: report.findings, diff, findingsText });
-  const gate = reviewReadGate(root, report.findings);
+  const gate = reviewReadGate(root, keptFrom);
   host.write(`AI review: reading ${scope.files.length} ${scope.files.length === 1 ? "file" : "files"} on ${terminalText(model.name)}…\n`);
   let result: SubagentResult;
   try {
     result = await ai.run({
       cwd: root, prompt, systemPromptAppend: REVIEW_SYSTEM_APPEND, beforeToolGate: gate,
       scrubToolOutput: async (toolName, input, texts, signal) => {
-        const kept = toolName === "grep" ? dropDeniedGrepLines(root, report.findings, input, texts) : texts;
+        const kept = toolName === "grep" ? dropDeniedGrepLines(root, keptFrom, input, texts) : texts;
         const scrubbed = await ai.scrub(toolName, input, kept, signal);
         return scrubbed ?? (kept === texts ? undefined : { texts: kept });
       },
@@ -248,7 +251,7 @@ async function aiReview(host: SecurityReviewHost, report: SecurityReport, explic
     : "The AI review used tokens; the provider did not report how many.";
   if (result.status === "cancelled") { host.write(`AI review stopped before it finished. Nothing it found is shown. ${spent}\n`); return; }
   const raw = parseModelFindings(result.response);
-  const { kept, dropped } = await validateModelFindings(root, raw ?? [], report.findings);
+  const { kept, dropped } = await validateModelFindings(root, raw ?? [], keptFrom);
   const lines = [AI_REVIEW_HEADING];
   if (result.status !== "completed") lines.push(`  It stopped early (${terminalText(result.reason ?? result.status)}), so it may have missed things.`);
   if (raw === undefined) lines.push("  Casper could not read findings in its answer, so nothing is shown.");

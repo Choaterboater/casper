@@ -129,7 +129,8 @@ Its findings are its opinion, not checked by a tool.
   only: no shell, no edits, no network tools. It is not the shell sandbox; it simply
   has no tool that runs a command.
 - **What it never sees.** Key files (`*.pem`, `id_rsa` and the like), `.env` files,
-  credential files and files gitleaks flagged in this run are refused, also through a
+  credential files and files gitleaks flagged in this run (even when an ignore hides
+  that finding) are refused, also through a
   link or a linked folder, and a `grep` leaves their lines out. A secret this branch
   removed is hidden in the diff's removed lines too. Secrets in anything else it reads are hidden the same way as
   in a normal session, with device-config hiding on even when `/secrets files off`.
