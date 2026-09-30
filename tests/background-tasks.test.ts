@@ -84,6 +84,17 @@ test("a background entry never shows a secret in its name", () => {
   expect(text).not.toContain("0f6c1a52-8e0f");
 });
 
+test("a helper whose goal holds a lab login or a Proxmox token never shows it in /tasks", () => {
+  const tasks = [
+    task("explorer: log in to the lab as root / Lab-Pass-2024! and list the VMs", "helper"),
+    task("explorer: query pve with root@pam!demoapp=3f2a9c1e-5b7d-4e8a-9c0f-1a2b3c4d5e6f", "helper"),
+  ];
+  const text = formatBackgroundTasks(tasks) + tasksChoices(tasks).map(choice => choice.description).join("\n");
+  expect(text).not.toContain("Lab-Pass-2024");
+  expect(text).not.toContain("3f2a9c1e-5b7d");
+  expect(text).toContain("root / <secret hidden>");
+});
+
 class ChildRuntime implements AgentRuntime {
   release!: () => void;
   readonly held = new Promise<void>(resolve => { this.release = resolve; });

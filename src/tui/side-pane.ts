@@ -1,6 +1,7 @@
 import { appendFileSync, chmodSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { hideCommandSecrets } from "../secrets/files";
 import { redactPreview } from "./format";
 import { hostCommand, type HostCommand, type HostTerminal } from "./host-terminal";
 
@@ -100,7 +101,8 @@ export class SidePane implements ActivityPane {
 
   log(line: string): void {
     if (this.closed) return;
-    const text = redactPreview(line).replace(/\s+/g, " ").trim();
+    // A helper's goal is the model's own words ("log in as root / Lab-Pass-1"): the full secret rules, then the screen's.
+    const text = redactPreview(hideCommandSecrets(line).text).replace(/\s+/g, " ").trim();
     if (!text) return;
     const time = this.now().toTimeString().slice(0, 8);
     const entry = `${time} ${text}\n`;

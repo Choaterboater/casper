@@ -2,7 +2,13 @@
  * /tasks: one numbered list of what Casper keeps running in the background (dev servers, the browser, the debugger,
  * helpers, checks) and one numbered question to stop one. Choice 1 keeps everything running; Enter picks it.
  */
+import { hideCommandSecrets } from "../secrets/files";
 import { redactPreview } from "../tui/format";
+
+/** A name on screen: a helper's goal is the model's own words, so the full secret rules run first. */
+function shown(text: string, max: number): string {
+  return redactPreview(hideCommandSecrets(text).text).replace(/\s+/g, " ").slice(0, max);
+}
 import type { Choice } from "./safe-choices";
 
 export type BackgroundKind = "dev server" | "browser" | "debugger" | "helper" | "checks";
@@ -32,7 +38,7 @@ export function sinceText(startedAt: number | undefined, now = Date.now()): stri
 export function formatBackgroundTasks(tasks: readonly BackgroundTask[], now = Date.now()): string {
   if (!tasks.length) return "[tasks] Nothing is running in the background.\n";
   return `[tasks] Running in the background:\n${tasks.map((task, index) =>
-    `  ${index + 1} ${task.kind} ${redactPreview(task.name).replace(/\s+/g, " ").slice(0, 80)} · ${task.status}${sinceText(task.startedAt, now)}`).join("\n")}\n`;
+    `  ${index + 1} ${task.kind} ${shown(task.name, 80)} · ${task.status}${sinceText(task.startedAt, now)}`).join("\n")}\n`;
 }
 
 export const TASKS_QUESTION = "Stop something?";
@@ -42,7 +48,7 @@ export function tasksChoices(tasks: readonly BackgroundTask[]): Choice[] {
   if (!tasks.length) return [];
   return [
     { label: tasks.length === 1 ? "Leave it running" : "Keep them", description: "nothing is stopped" },
-    ...tasks.map((task, index) => ({ label: `Stop ${index + 1}`, description: `${task.kind} ${redactPreview(task.name).replace(/\s+/g, " ").slice(0, 60)}` })),
+    ...tasks.map((task, index) => ({ label: `Stop ${index + 1}`, description: `${task.kind} ${shown(task.name, 60)}` })),
     ...(tasks.length > 1 ? [{ label: "Stop all", description: `all ${tasks.length}` }] : []),
   ];
 }
@@ -76,6 +82,6 @@ export async function runTasksCommand(host: TasksHost, argument = ""): Promise<v
   }
   for (const task of chosen) {
     try { host.write(`[tasks] ${await task.stop()}\n`); }
-    catch (error) { host.write(`[tasks] Could not stop ${task.kind} ${redactPreview(task.name)}: ${redactPreview(error instanceof Error ? error.message : String(error))}\n`); }
+    catch (error) { host.write(`[tasks] Could not stop ${task.kind} ${shown(task.name, 80)}: ${redactPreview(error instanceof Error ? error.message : String(error))}\n`); }
   }
 }
