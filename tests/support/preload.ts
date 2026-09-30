@@ -13,3 +13,14 @@ const { sandboxDefaults } = await import("../../src/sandbox/manager");
 const { passThroughEngine } = await import("../../src/sandbox/runtime");
 sandboxDefaults.engine = passThroughEngine;
 sandboxDefaults.problem = () => undefined;
+
+// A session's sandbox becomes the process-wide one (useSandbox) until its app closes. One a test leaves open
+// changes later tests in the same run (their checks, the security header), and a real one keeps its network
+// relays running after the suite: bun test runs no exit handlers. Close every app and sandbox a test opens.
+const { afterEach } = await import("bun:test");
+const { currentSandbox, useSandbox } = await import("../../src/sandbox/manager");
+afterEach(() => {
+  if (!currentSandbox()) return;
+  useSandbox(undefined);
+  throw new Error("This test left a session's shell sandbox open: close the app (app.close()) or the sandbox in a finally.");
+});

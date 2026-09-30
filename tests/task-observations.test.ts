@@ -174,7 +174,7 @@ test("--verify (auto mode) asks the first turn for the checklist by default, and
         loadProjectContext: (project) => loadProjectContext(project, { homeDir: path.join(root, "home") }),
         loadSkillRegistry: (context) => SkillRegistry.discover({ projectRoot: context.info.root, homeDir: path.join(root, "home") }),
       });
-      await app.runOnce("fix the failing test", root);
+      try { await app.runOnce("fix the failing test", root); } finally { await app.close(); }
     };
     await run(false); await run(true);
     // The review is off by default: auto mode's first turn asks for the checklist and the failing test itself.

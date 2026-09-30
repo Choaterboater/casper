@@ -11,8 +11,9 @@ import { currentSandbox, type ShellSandbox } from "../sandbox/manager";
 
 /** The header's second line: what holds the tools on this machine now. It says "no network" only where the shell
  * sandbox runs (Linux and macOS both cut a tool's network); elsewhere it says what Casper does and that nothing
- * blocks their network. */
-export function securityNetworkLine(sandbox: Pick<ShellSandbox, "on" | "platform" | "state" | "failure"> | undefined = currentSandbox()): string {
+ * blocks their network. `null` is no sandbox; left out, it is the session's own (an explicit `undefined` would be too,
+ * which is why "none" is `null`). */
+export function securityNetworkLine(sandbox: Pick<ShellSandbox, "on" | "platform" | "state" | "failure"> | null = currentSandbox() ?? null): string {
   if (sandbox?.on) return "Casper runs these tools in the shell sandbox: no network, no passwords or tokens, and no writes outside the project, temp and package caches.";
   const why = sandbox ? sandbox.failure ?? sandbox.state.reason ?? "no sandbox" : "no sandbox";
   return `${SECURITY_OFFLINE_LINE} Nothing blocks their network here (${why}).`;
