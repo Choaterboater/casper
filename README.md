@@ -58,6 +58,8 @@ are not tied to one model company.
   [Terminal guide](docs/TERMINAL_UX.md)
 - **Rich or plain terminal.** A live footer, colors and lines that update in place, or plain text with
   `NO_COLOR`, `TERM=dumb` or redirected output. [Terminal guide](docs/TERMINAL_UX.md)
+- **tmux, automatic.** Inside tmux (or iTerm2) the busy steps go to a view-only side pane that
+  Casper opens and closes itself; `/tasks` lists what runs in the background. [tmux](docs/TMUX.md)
 
 ## What a receipt looks like
 
@@ -180,6 +182,7 @@ results are not a pass. Review important changes yourself.
 | [SCRIPTING.md](docs/SCRIPTING.md) | One-shot runs, `--json`, exit codes, CI |
 | [CONFIGURATION.md](docs/CONFIGURATION.md) | Config files, model roles and skills |
 | [TERMINAL_UX.md](docs/TERMINAL_UX.md) | The terminal screen, keys and commands |
+| [TMUX.md](docs/TMUX.md) | tmux and iTerm2: the side pane, reattaching, `/tasks` |
 | [SESSIONS.md](docs/SESSIONS.md) | Named sessions and worktree experiments |
 | [SERVICES.md](docs/SERVICES.md) | Dev servers Casper starts and stops for you |
 | [BROWSER.md](docs/BROWSER.md) | Debugging with an installed browser |
