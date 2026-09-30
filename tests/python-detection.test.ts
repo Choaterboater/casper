@@ -55,9 +55,13 @@ test("adding a requirements file or a .venv invalidates the cached detection", a
 });
 
 test("a Python project with test_*.py files and no pytest runs them with unittest", async () => {
-  expect((await commands({ "pyproject.toml": '[project]\nname = "mist-tools"\n', "tests/test_sites.py": "" })).test)
+  const unit = "import unittest\n\nclass T(unittest.TestCase):\n    def test_a(self):\n        pass\n";
+  expect((await commands({ "pyproject.toml": '[project]\nname = "mist-tools"\n', "tests/test_sites.py": unit })).test)
     .toBe(`${systemPython} -m unittest discover -s tests`);
-  expect((await commands({ "requirements.txt": "requests\n", "test_main.py": "" })).test).toBe(`${systemPython} -m unittest discover`);
+  expect((await commands({ "requirements.txt": "requests\n", "test_main.py": unit })).test).toBe(`${systemPython} -m unittest discover`);
+  // unittest would run none of these and still say OK: pytest-style tests, and foo_test.py (not its pattern).
+  expect((await commands({ "pyproject.toml": '[project]\nname = "x"\n', "tests/test_a.py": "def test_a():\n    assert True\n" })).test).toBeUndefined();
+  expect((await commands({ "pyproject.toml": '[project]\nname = "x"\n', "tests/sites_test.py": unit })).test).toBeUndefined();
   // pytest still wins when the project names it; no test files, no command.
   expect((await commands({ "pyproject.toml": '[project]\nname = "x"\ndependencies = ["pytest"]\n', "tests/test_a.py": "" })).test).toBe(`${systemPython} -m pytest`);
   expect((await commands({ "pyproject.toml": '[project]\nname = "x"\n' })).test).toBeUndefined();

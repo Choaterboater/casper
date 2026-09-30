@@ -115,8 +115,9 @@ function sortedUnique(values: Iterable<string>): string[] {
 
 // 3: Python network SDKs (mistapi, pycentral, pyaoscx, pyclearpass, junos-eznc, ncclient) give frameworks.
 // 4: a Python project with test_*.py files and no pytest runs them with unittest.
+// 5: only test*.py files that use unittest count (pytest-style files would run no tests and still pass).
 /** Bump when detection changes what it derives from the same files, so cached models are rebuilt. */
-const DETECTION_VERSION = 4;
+const DETECTION_VERSION = 5;
 /** requirements.txt, requirements-dev.txt, requirements_test.txt ...: Python projects without a pyproject. */
 const REQUIREMENTS = /^requirements[\w.-]*\.txt$/i;
 /** Python package names (as a whole word, not inside another name) and the framework they give. */
@@ -313,12 +314,21 @@ function tomlTable(source: string, name: string): string | null {
 
 /** Folders a plain unittest suite sits in; the project root counts too. */
 const UNITTEST_DIRS = ["tests", "test"];
-const TEST_FILE = /^test_.*\.py$|^.*_test\.py$/;
+/** unittest's own discovery pattern (test*.py): foo_test.py files would not run, and the check would pass on none. */
+const TEST_FILE = /^test.*\.py$/;
 
-/** "python3 -m unittest discover -s tests" when a Python project has test_*.py files but no pytest: the standard
- * library runs them, nothing to install. Undefined when there are none. */
+/** "python3 -m unittest discover -s tests" when a Python project has unittest test files (test*.py that use
+ * unittest) but no pytest: the standard library runs them, nothing to install. pytest-style files are left out, since
+ * unittest would run none of their tests and still say OK. Undefined when there are none. */
 export async function unittestCommand(root: string, runner: ReturnType<typeof pythonRunner>): Promise<string | undefined> {
-  const hasTests = async (dir: string) => (await readdir(dir).catch(() => [] as string[])).some((name) => TEST_FILE.test(name));
+  const hasTests = async (dir: string) => {
+    const files = (await readdir(dir).catch(() => [] as string[])).filter((name) => TEST_FILE.test(name)).slice(0, 50);
+    for (const name of files) {
+      const text = await readFile(path.join(dir, name), "utf8").then((source) => source.slice(0, 256 * 1024), () => "");
+      if (/\bunittest\b|\bTestCase\b/.test(text)) return true;
+    }
+    return false;
+  };
   for (const dir of UNITTEST_DIRS) {
     if (await hasTests(path.join(root, dir))) return runner.tool(`unittest discover -s ${dir}`);
   }
