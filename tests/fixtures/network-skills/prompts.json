@@ -1,0 +1,187 @@
+{
+  "note": "Sample prompts for bundled network skill picking. No live calls.",
+  "pick": [
+    {
+      "prompt": "list APs per site in Mist",
+      "expect": [
+        "network-mist-api"
+      ]
+    },
+    {
+      "prompt": "write a python script that calls the Mist API for org inventory",
+      "expect": [
+        "network-mist-api"
+      ]
+    },
+    {
+      "prompt": "use mistapi to export device stats",
+      "expect": [
+        "network-mist-api"
+      ]
+    },
+    {
+      "prompt": "subscribe to the mist websocket for device events",
+      "expect": [
+        "network-mist-api"
+      ]
+    },
+    {
+      "prompt": "pull interface stats from an AOS-CX switch",
+      "expect": [
+        "network-aoscx-rest"
+      ]
+    },
+    {
+      "prompt": "use pyaoscx to list VLANs",
+      "expect": [
+        "network-aoscx-rest"
+      ]
+    },
+    {
+      "prompt": "read the running config over REST from a CX switch",
+      "expect": [
+        "network-aoscx-rest"
+      ]
+    },
+    {
+      "prompt": "write an ansible playbook for arubanetworks.aoscx to show the version",
+      "expect": [
+        "network-aoscx-rest"
+      ]
+    },
+    {
+      "prompt": "commit confirmed on an MX",
+      "expect": [
+        "network-junos-pyez"
+      ]
+    },
+    {
+      "prompt": "use PyEZ to get LLDP neighbors",
+      "expect": [
+        "network-junos-pyez"
+      ]
+    },
+    {
+      "prompt": "write a python script that runs a junos rpc for interface status",
+      "expect": [
+        "network-junos-pyez"
+      ]
+    },
+    {
+      "prompt": "convert show | display set output with a python script",
+      "expect": [
+        "network-junos-pyez"
+      ]
+    },
+    {
+      "prompt": "get endpoints from ClearPass",
+      "expect": [
+        "network-clearpass-api"
+      ]
+    },
+    {
+      "prompt": "use pyclearpass to list guest accounts",
+      "expect": [
+        "network-clearpass-api"
+      ]
+    },
+    {
+      "prompt": "call the CPPM REST API for active sessions",
+      "expect": [
+        "network-clearpass-api"
+      ]
+    },
+    {
+      "prompt": "disconnect a session through the clearpass api",
+      "expect": [
+        "network-clearpass-api"
+      ]
+    },
+    {
+      "prompt": "Central device inventory",
+      "expect": [
+        "network-central-api",
+        "network-central-classic-api"
+      ]
+    },
+    {
+      "prompt": "list devices with pycentral from new Central",
+      "expect": [
+        "network-central-api"
+      ]
+    },
+    {
+      "prompt": "get a GreenLake token for the new central monitoring API",
+      "expect": [
+        "network-central-api"
+      ]
+    },
+    {
+      "prompt": "classic central: list APs per group",
+      "expect": [
+        "network-central-classic-api"
+      ]
+    },
+    {
+      "prompt": "refresh the token for the apigw of our cluster",
+      "expect": [
+        "network-central-classic-api"
+      ]
+    },
+    {
+      "prompt": "add paging to our script",
+      "frameworks": [
+        "mist"
+      ],
+      "expect": [
+        "network-mist-api"
+      ]
+    },
+    {
+      "prompt": "fix the timeout in the device inventory script",
+      "frameworks": [
+        "clearpass"
+      ],
+      "expect": [
+        "network-clearpass-api"
+      ]
+    }
+  ],
+  "skip": [
+    "fix the css",
+    "add a mist effect to the landing page css",
+    "add a REST API endpoint to my FastAPI app",
+    "fix the central logging config",
+    "refactor the switch statement in parser.ts",
+    "write a python script that renames files",
+    "add a pre-commit check to the repo",
+    "update the README with junos style headings",
+    "the cx team wants a new landing page",
+    "set up an api gateway route for the payments service",
+    "move the config to a central place",
+    "explain how the wifi settings page works",
+    "add a site map to the docs",
+    "write unit tests for the token parser",
+    "rename the device list component",
+    "add a policy manager page to the admin UI"
+  ],
+  "frameworkNeedsChange": [
+    {
+      "prompt": "explain what this repo does",
+      "frameworks": [
+        "mist",
+        "junos",
+        "aoscx",
+        "clearpass",
+        "central"
+      ]
+    },
+    {
+      "prompt": "add paging to our script",
+      "frameworks": [
+        "mist"
+      ],
+      "intentOverride": "inspect"
+    }
+  ]
+}

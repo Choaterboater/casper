@@ -1,0 +1,5 @@
+{
+  "_note": "Sample data, not from a real network",
+  "request": "GET /monitoring/v2/aps?offset=0&limit=100&calculate_total=true",
+  "body": { "aps": [ { "serial": "SAMPLE0001", "name": "ap-lab-1", "ip_address": "192.0.2.11" } ], "count": 1, "total": 1 }
+}

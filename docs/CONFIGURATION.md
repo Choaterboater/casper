@@ -335,6 +335,7 @@ skills itself; Pi's own skill discovery is turned off inside Casper.
 | User | `~/.casper/skills/` | Yes, when the real file is inside this folder |
 | Project (your copy) | `~/.casper/projects/<project>-<id>/skills/` (where `casper learn promote … project-skill` writes) | Yes, when the real file is inside this folder |
 | Project | `<project>/.casper/skills/` | No, until you review it |
+| Bundled with Casper (v0.2.18, not released yet) | Inside the `casper` binary (source: `skills/network/*/SKILL.md`) | Yes; on unless `skills.bundled: false`. See [SKILLS.md](SKILLS.md) |
 | Other tools **(opt-in)** | `~/.pi/agent/skills/`, `~/.agents/skills/`, `~/.claude/skills/`, `~/.codex/skills/`; in the project `.pi/skills/`, `.agents/skills/`, `.claude/skills/`, `.codex/skills/` | No, until you review it |
 
 To use other tools' skill folders, turn them on in `~/.casper/config.yaml` or
@@ -393,6 +394,23 @@ Set how many skills load per request in the global, profile or project file:
 skills:
   maxActive: 6 # default; 0 turns automatic loading off, maximum 32
 ```
+
+**Bundled network skills (v0.2.18, not released yet).** The bundled skills (Mist, Central,
+AOS-CX, Junos, ClearPass) use a stricter rule: a request must name the product (for example
+"mist api", "pyez", "clearpass"), or use a looser word ("mist", "junos", "central") together with
+a network word ("site", "switch", "api", "script"), or be a change request in a project whose
+Python packages include that product's SDK. At most two bundled skills load per request. Turn
+them all off in `~/.casper/config.yaml` or a profile (a project file cannot):
+
+```yaml
+skills:
+  bundled: false # default true
+```
+
+A skill in `~/.casper/skills/` with the same name as a bundled one replaces it only while it
+keeps the bundled layout and the "Stop and ask the user" line; otherwise the bundled text is used
+and `/skills diagnostics` says why. A project's same-name skill never replaces a bundled one. See
+[SKILLS.md](SKILLS.md).
 
 Skills are optional procedures, not a substitute for the repository: frontend, design and other
 work use the project's own files. Only the selected skills' bodies are read and added, with their

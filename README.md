@@ -204,6 +204,7 @@ Pages for the coming versions (built, not released yet; see [Coming next](#comin
 | [SECURITY_CHECKS.md](docs/SECURITY_CHECKS.md) | v0.2.16: `/security-review` and `casper security` |
 | [UNDO.md](docs/UNDO.md) | v0.2.17: `/undo`, `/redo`, `/diff` per task and saved receipts |
 | [SECURITY.md](docs/SECURITY.md) | v0.2.17: the shell sandbox, what Casper keeps from the AI, and what it doesn't |
+| [SKILLS.md](docs/SKILLS.md) | v0.2.18: the built-in network skills, adding your own and turning them off |
 
 Project notes (for people working on Casper): [design decision](docs/adr/0001-casper-own-product.md),
 [eval results](docs/evals/), [handoff notes](docs/NOTES.md),
@@ -249,6 +250,14 @@ install links above still give v0.2.15.
   checks passed. [Exit codes](docs/SCRIPTING.md#exit-codes)
 - An optional AI security review after `/security-review`, which asks first and shows its cost.
 - The plan editor asks "Build this plan?" before it builds.
+
+**v0.2.18: network skills.**
+- Short built-in how-to files for Mist, Central (new and classic), AOS-CX, Junos and ClearPass,
+  loaded only for a request that names the product, with no model call to pick them. Each one
+  tells the AI to stop and ask you before any change. `skills.bundled: false` turns them
+  off. [SKILLS.md](docs/SKILLS.md)
+- More SDKs for local search: `/references add pyaoscx`, `pyclearpass`, `mistapi` and
+  `junos-pyez`. [References](docs/REFERENCES.md)
 
 ## Develop from source
 

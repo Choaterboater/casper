@@ -59,6 +59,24 @@ test("the compiled binary carries the bundled flows (plan first, prove the fix)"
   }
 }, 120_000);
 
+test("the compiled binary carries the bundled network skills", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-compiled-skills-"));
+  try {
+    const binary = path.join(root, process.platform === "win32" ? "probe.exe" : "probe");
+    await compileExecutable(path.join(import.meta.dir, "fixtures/compiled-skills.ts"), binary);
+    const child = Bun.spawn([binary], { cwd: root, env: cleanEnv({ HOME: root, USERPROFILE: root }), stdout: "pipe", stderr: "pipe" });
+    const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+    expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });
+    const skills = JSON.parse(stdout) as Array<{ name: string; bytes: number }>;
+    expect(skills.map((skill) => skill.name).sort()).toEqual([
+      "network-aoscx-rest", "network-central-api", "network-central-classic-api", "network-clearpass-api", "network-junos-pyez", "network-mist-api",
+    ]);
+    for (const skill of skills) expect(skill.bytes).toBeGreaterThan(3000);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}, 120_000);
+
 function chunk(kind: string, bytes: Buffer): Buffer {
   const tag = Buffer.from(kind);
   const length = Buffer.alloc(4); length.writeUInt32BE(bytes.length);

@@ -1,0 +1,11 @@
+<!-- Sample data, not from a real network -->
+<rpc-reply xmlns:junos="http://xml.juniper.net/junos/*/junos">
+  <lldp-neighbors-information junos:style="brief">
+    <lldp-neighbor-information>
+      <lldp-local-port-id>ge-0/0/0</lldp-local-port-id>
+      <lldp-remote-chassis-id>00:00:5e:00:53:01</lldp-remote-chassis-id>
+      <lldp-remote-port-id>ge-0/0/1</lldp-remote-port-id>
+      <lldp-remote-system-name>sample-switch-1.example.net</lldp-remote-system-name>
+    </lldp-neighbor-information>
+  </lldp-neighbors-information>
+</rpc-reply>

@@ -1,0 +1,8 @@
+{
+  "_note": "Sample data, not from a real network",
+  "request": "GET /rest/v10.09/system/interfaces?depth=2&attributes=name,admin_state,link_state",
+  "body": {
+    "1/1/1": { "name": "1/1/1", "admin_state": "up", "link_state": "up" },
+    "1/1/2": { "name": "1/1/2", "admin_state": "down", "link_state": "down" }
+  }
+}
