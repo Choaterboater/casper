@@ -161,3 +161,9 @@ posixOnly("real PTY: input survives streamed output, cancellation and exact conf
     expect(stdout).toContain("PTY PASS");
   } finally { clearTimeout(timer); child.kill(); }
 }, 70_000);
+
+test("the screen keeps 'token add' readable and leaves Casper's own <secret hidden> as it is", () => {
+  expect(redactPreview("ssh lab-01 'pveum user token add root@pam demoapp --privsep 0'")).toBe("ssh lab-01 'pveum user token add root@pam demoapp --privsep 0'");
+  expect(redactPreview("sshpass -p '<secret hidden>' ssh root@10.0.0.5 id")).toBe("sshpass -p '<secret hidden>' ssh root@10.0.0.5 id");
+  expect(redactPreview("--password '<secret hidden>' x; token: abc123")).toBe("--password '<secret hidden>' x; token: <redacted>");
+});

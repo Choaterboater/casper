@@ -31,10 +31,18 @@ export function terminalText(text: string): string {
 
 /** Conservative display-only redaction, not a general secret detector. Never used for evidence. */
 export function redactPreview(text: string): string {
-  return terminalText(text)
+  // "<secret hidden>", from Casper's own scrub, stays as it is: "secret hidden>" is not a secret's value.
+  return terminalText(text).split(HIDDEN).map((part) => redactPart(part)).join(HIDDEN);
+}
+
+const HIDDEN = "<secret hidden>";
+
+function redactPart(text: string): string {
+  return text
     .replace(/\b([a-z][a-z0-9+.-]*:\/\/)[^\s/@]+:[^\s/@]+@/gi, "$1<redacted>@")
     .replace(/\b(Bearer|Basic)\s+[^\s'";]+/gi, "$1 <redacted>")
-    .replace(/((?:[\w-]*(?:token|secret|password|passwd|api[_-]?key|authorization)[\w-]*)["']?\s*(?:=|:|\s)\s*)(?:"[^"\n]*"|'[^'\n]*'|[^\s;&]+)/gi, "$1<redacted>")
+    // `pveum user token add`, `token list`: a command word after "token" is not its value.
+    .replace(/((?:[\w-]*(?:token|secret|password|passwd|api[_-]?key|authorization)[\w-]*)["']?\s*(?:=|:|\s)\s*)(?!(?:add|create|list|remove|delete|modify|show|get|set|info|generate|revoke)(?:\s|$))(?:"[^"\n]*"|'[^'\n]*'|[^\s;&'"][^\s;&]*)/gi, "$1<redacted>")
     .replace(/\b(?:sk-[\w-]{8,}|gh[pousr]_[\w]{8,}|github_pat_[\w]{8,}|AKIA[A-Z0-9]{16})\b/g, "<redacted>");
 }
 
