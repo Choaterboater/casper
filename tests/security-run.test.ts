@@ -70,7 +70,9 @@ test("the header says what holds the tools here: no network only where the sandb
   expect(formatSecurityHeader({ name: "hpe-mcp", path: "/src/hpe-mcp" })).toBe(`Security check: hpe-mcp (/src/hpe-mcp)\n${securityNetworkLine()}\n`);
   expect(securityNetworkLine({ on: true, platform: "linux", state: { kind: "on" }, failure: undefined }))
     .toBe("Casper runs these tools in the shell sandbox: no network, no passwords or tokens, and no writes outside the project, temp and package caches.");
-  expect(securityNetworkLine({ on: true, platform: "darwin", state: { kind: "on" }, failure: undefined })).not.toContain("no network");
+  // macOS cuts a tool's network in its own profile too (src/sandbox/runtime.ts withoutNetwork).
+  expect(securityNetworkLine({ on: true, platform: "darwin", state: { kind: "on" }, failure: undefined }))
+    .toBe(securityNetworkLine({ on: true, platform: "linux", state: { kind: "on" }, failure: undefined }));
   const windows = securityNetworkLine({ on: false, platform: "win32", state: { kind: "unsupported", reason: "Windows" }, failure: undefined });
   expect(windows).toBe(`${SECURITY_OFFLINE_LINE} Nothing blocks their network here (Windows).`);
   for (const line of [windows, securityNetworkLine(undefined)]) expect(line).not.toMatch(/offline|no network/i);

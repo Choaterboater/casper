@@ -240,7 +240,7 @@ install links above still give v0.2.15.
 - `Next: 1 Undo · 2 Show diff` after each task; `/undo`, `/redo`, `/diff` and `/receipt` work on
   any saved task, also after a restart and outside git. Undo never overwrites a file you changed
   since. [UNDO.md](docs/UNDO.md)
-- A shell sandbox on Linux (bubblewrap and socat: `sudo apt install bubblewrap socat`) and macOS:
+- A shell sandbox on Linux (bubblewrap, socat and ripgrep: `sudo apt install bubblewrap socat ripgrep`) and macOS:
   the AI's shell, checks, services and dev servers write only the project, temp and package
   caches, can't read `~/.ssh` or cloud logins, and reach only listed hosts (others ask). On
   Windows, or Linux without bubblewrap, the AI's shell asks before each command.

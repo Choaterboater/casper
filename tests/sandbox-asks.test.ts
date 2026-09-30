@@ -1,11 +1,12 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readdir, readFile, realpath, rm, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createSessionSandbox, runtimeShell, SHELL_CANT_ASK, SHELL_DECLINED, type SandboxHost } from "../src/app/sandbox";
 import { HOST_CHOICES, SHELL_COMMAND_CHOICES } from "../src/app/safe-choices";
 import { loadProjectContext } from "../src/project/context";
 import { inspectProject } from "../src/project/inspect";
+import { bwrapFailure, linuxSandboxProblem, resetLinuxProbe, ripgrepPath } from "../src/sandbox/linux";
 import { ShellSandbox } from "../src/sandbox/manager";
 import { SandboxStore } from "../src/sandbox/store";
 import { fakeEngine } from "./support/sandbox-fakes";
@@ -139,6 +140,40 @@ posixOnly("the detected state names the fix", () => {
   expect(ShellSandbox.detect({ platform: "win32" })).toEqual({ kind: "unsupported", reason: "Windows" });
   expect(ShellSandbox.detect({ platform: "linux", noSandboxFlag: true, problem: () => undefined })).toEqual({ kind: "off", reason: "--no-sandbox" });
   expect(ShellSandbox.detect({ platform: "linux", settings: { user: { off: true } }, problem: () => undefined })).toEqual({ kind: "off", reason: "sandbox: off in ~/.casper/config.yaml" });
+});
+
+posixOnly("the Linux check names every missing program, ripgrep too, and says plainly when Ubuntu's AppArmor blocks bubblewrap", async () => {
+  const base = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-sandbox-probe-")));
+  roots.push(base);
+  const bin = path.join(base, "bin"), agent = path.join(base, "agent"), apparmor = path.join(base, "apparmor");
+  await mkdir(bin);
+  const tool = (name: string, body = "exit 0") => writeFile(path.join(bin, name), `#!/bin/sh\n${body}\n`, { mode: 0o755 });
+  const probe = (options: Parameters<typeof linuxSandboxProblem>[1] = {}) => { resetLinuxProbe(); return linuxSandboxProblem(bin, options); };
+  try {
+    expect(probe()).toBe("bubblewrap, socat and ripgrep are missing: sudo apt install bubblewrap socat ripgrep");
+    await tool("bwrap"); await tool("socat");
+    // The sandbox runtime scans the project with ripgrep, so without it the sandbox would fail on first use.
+    expect(probe()).toBe("ripgrep is missing: sudo apt install ripgrep");
+    // Pi's own copy of ripgrep counts.
+    await mkdir(path.join(agent, "bin"), { recursive: true });
+    await writeFile(path.join(agent, "bin", "rg"), "", { mode: 0o755 });
+    expect(ripgrepPath(bin, agent)).toBe(path.join(agent, "bin", "rg"));
+    expect(probe({ agentDir: agent })).toBeUndefined();
+    await tool("rg");
+    expect(ripgrepPath(bin)).toBe(path.join(bin, "rg"));
+    // bubblewrap is there but can't start: Ubuntu 24.04's AppArmor rule is named with its one-line fix.
+    await tool("bwrap", "echo 'bwrap: setting up uid map: Permission denied' >&2; exit 1");
+    await writeFile(apparmor, "1\n");
+    expect(probe({ apparmorFile: apparmor })).toBe("Ubuntu blocks it (AppArmor restricts user namespaces: setting up uid map: Permission denied); to allow it: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0, see docs/SECURITY.md");
+    await writeFile(apparmor, "0\n");
+    expect(probe({ apparmorFile: apparmor })).toBe("bubblewrap can't start here (setting up uid map: Permission denied); see docs/SECURITY.md");
+    expect(bwrapFailure("", false)).toBe("bubblewrap can't start here (it did not start); see docs/SECURITY.md");
+    // The state it gives: not sandboxed, and the AI's shell asks before each command.
+    const sandbox = new ShellSandbox({ root: () => base, platform: "linux", engine: fakeEngine(), problem: () => probe({ apparmorFile: apparmor }) });
+    expect(sandbox.state.kind).toBe("missing");
+    expect(sandbox.asksFirst).toBe(true);
+    await sandbox.close();
+  } finally { resetLinuxProbe(); }
 });
 
 test("while planning, the AI's shell gets a read-only project", async () => {

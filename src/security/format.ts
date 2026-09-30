@@ -10,10 +10,10 @@ import { currentSandbox, type ShellSandbox } from "../sandbox/manager";
  */
 
 /** The header's second line: what holds the tools on this machine now. It says "no network" only where the shell
- * sandbox enforces it (Linux); elsewhere it says what Casper does and that nothing blocks their network. */
+ * sandbox runs (Linux and macOS both cut a tool's network); elsewhere it says what Casper does and that nothing
+ * blocks their network. */
 export function securityNetworkLine(sandbox: Pick<ShellSandbox, "on" | "platform" | "state" | "failure"> | undefined = currentSandbox()): string {
-  if (sandbox?.on && sandbox.platform === "linux") return "Casper runs these tools in the shell sandbox: no network, no passwords or tokens, and no writes outside the project, temp and package caches.";
-  if (sandbox?.on) return "Casper runs these tools in the shell sandbox (they reach only listed hosts), with no passwords or tokens.";
+  if (sandbox?.on) return "Casper runs these tools in the shell sandbox: no network, no passwords or tokens, and no writes outside the project, temp and package caches.";
   const why = sandbox ? sandbox.failure ?? sandbox.state.reason ?? "no sandbox" : "no sandbox";
   return `${SECURITY_OFFLINE_LINE} Nothing blocks their network here (${why}).`;
 }

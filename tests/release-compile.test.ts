@@ -121,8 +121,16 @@ needsSandbox("the compiled binary carries the sandbox and its seccomp helper, wr
     const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
     expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });
     const result = JSON.parse(stdout);
-    expect(result).toMatchObject({ mode: 0o700, hashInName: true, inside: "inside", key: false, socket: "SOCKET-BLOCKED" });
-    expect(result.helper).toStartWith(path.join(home, ".casper", "bin", "apply-seccomp-"));
+    // Both hosts: the runtime inside the binary holds the command (the project is written, a key can't be read).
+    expect(result).toMatchObject({ inside: "inside", key: false });
+    if (process.platform === "linux") {
+      // Linux: the seccomp helper is written next to Casper after a hash check, and no Unix socket opens.
+      expect(result).toMatchObject({ mode: 0o700, hashInName: true, socket: "SOCKET-BLOCKED" });
+      expect(result.helper).toStartWith(path.join(home, ".casper", "bin", "apply-seccomp-"));
+    } else {
+      // macOS: sandbox-exec needs no helper, so none is written.
+      expect(result.helper).toBeUndefined();
+    }
   } finally {
     await rm(root, { recursive: true, force: true });
   }

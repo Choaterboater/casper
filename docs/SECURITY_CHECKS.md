@@ -27,8 +27,8 @@ or takes too long reads "not run" with the reason, and the other tools still run
 
 Casper runs each tool with its own offline setting on, with a dead proxy, with an
 allowlist of environment variables (no passwords or tokens) and with a stand-in home
-folder, inside the shell sandbox. On Linux the sandbox gives the tools no network at all
-and no writes outside the project, temp and package caches; on macOS they reach only listed hosts. Where
+folder, inside the shell sandbox. On Linux and macOS the sandbox gives the tools no network at all
+and no writes outside the project, temp and package caches. Where
 no sandbox runs (Windows, bubblewrap missing, `--no-sandbox`) a program can still open a
 network connection itself, and the report's second line says so. See [SECURITY.md](SECURITY.md).
 

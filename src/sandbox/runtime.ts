@@ -9,7 +9,7 @@ import { seccompHelper } from "./seccomp";
  */
 export interface SandboxEngine {
   /** Starts the proxies. `ask` decides a host that is not listed. */
-  initialize(policy: SandboxPolicy, ask: (host: string, port: number | undefined) => Promise<boolean>, options: { allowUnixSockets?: string[]; seccompPath?: string }): Promise<void>;
+  initialize(policy: SandboxPolicy, ask: (host: string, port: number | undefined) => Promise<boolean>, options: { allowUnixSockets?: string[]; seccompPath?: string; ripgrep?: string }): Promise<void>;
   /** One shell line that runs `command` held by `policy`. `id` ties what it was refused to this run. `prefix` runs
    * first inside the sandbox (TMPDIR). */
   wrap(command: string, policy: SandboxPolicy, run: { id: string; cwd: string; network: "ask" | "host" | "none"; prefix: string }): Promise<string>;
@@ -50,6 +50,7 @@ export function runtimeEngine(load: () => Promise<Runtime> = () => import("@anth
           ...(options.allowUnixSockets?.length ? { allowUnixSockets: [...options.allowUnixSockets] } : {}) },
         filesystem: { denyRead: [...policy.denyRead], allowWrite: [...policy.allowWrite], denyWrite: [...policy.denyWrite] },
         ...(seccomp ? { seccomp: { applyPath: seccomp } } : {}),
+        ...(options.ripgrep ? { ripgrep: { command: options.ripgrep } } : {}),
       } as typeof base;
       await runtime.SandboxManager.initialize(base!, async ({ host, port }) => ask(host, port), true);
     },
@@ -63,7 +64,9 @@ export function runtimeEngine(load: () => Promise<Runtime> = () => import("@anth
         { filesystem: { denyRead: [...policy.denyRead], allowWrite: [...policy.allowWrite], denyWrite: [...policy.denyWrite] } },
         undefined, { commandId: run.id });
       running.add(run.id);
-      return wrapped;
+      // macOS has one proxy for every command and lets them reach localhost, so `none` takes the network rules
+      // out of this command's own profile: it can't connect anywhere, the proxy and localhost included.
+      return platform === "darwin" && run.network === "none" ? withoutNetwork(wrapped) : wrapped;
     },
     finished(id) {
       if (!runtime || !running.delete(id)) return;
@@ -80,6 +83,20 @@ export function runtimeEngine(load: () => Promise<Runtime> = () => import("@anth
     },
     async reset() { running.clear(); await runtime?.SandboxManager.reset(); },
   };
+}
+
+/** A macOS sandbox-exec line (as the runtime wraps it) with every IP rule taken out of its profile's network
+ * section, so the command gets no network at all: `(deny default)` then refuses each connect, bind and accept.
+ * Unix socket rules you allowed stay. Throws when the profile is not laid out as expected, rather than run the
+ * command with the network it was meant not to have. */
+export function withoutNetwork(wrapped: string): string {
+  const exec = wrapped.indexOf("/usr/bin/sandbox-exec -p '");
+  const start = exec < 0 ? -1 : wrapped.indexOf("\n; Network\n", exec);
+  const end = start < 0 ? -1 : wrapped.indexOf("\n; File read", start + 1);
+  if (end < 0) throw new Error("the sandbox's macOS profile has no network section Casper knows, so a tool can't be kept off the network");
+  const section = wrapped.slice(start, end).split("\n")
+    .filter((line) => !/^\(allow network(?:-bind|-inbound|-outbound|\*)(?: \((?:local|remote) ip "[^"]*"\))?\)$/.test(line.trim()));
+  return `${wrapped.slice(0, start)}${section.join("\n")}${wrapped.slice(end)}`;
 }
 
 /** An engine that holds nothing: the command runs as it is. The test suite's default (tests/support/preload.ts);

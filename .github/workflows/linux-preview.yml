@@ -37,11 +37,12 @@ jobs:
             python3 --version
             python3 -c 'import fcntl, pty, sys, termios; print("POSIX PTY modules available:", sys.executable)'
           } 2>&1 | tee "$RUNNER_TEMP/linux-preview/host.log"
-      - name: Install the shell sandbox's tools (bubblewrap, socat) and let bubblewrap start
+      - name: Install the shell sandbox's tools (bubblewrap, socat, ripgrep) and let bubblewrap start
         # Ubuntu 24.04 blocks unprivileged user namespaces through AppArmor; the live sandbox tests need them.
+        # The sandbox runtime scans the project with ripgrep, and Pi's grep uses it (PI_OFFLINE: no download).
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y -q bubblewrap socat
+          sudo apt-get install -y -q bubblewrap socat ripgrep
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           bwrap --ro-bind / / --dev /dev --proc /proc --unshare-net --unshare-pid -- /bin/true
       - name: Audit Casper's own workflows with zizmor (the pinned, hash-locked copy Casper installs)
