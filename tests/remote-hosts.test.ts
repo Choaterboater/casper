@@ -66,28 +66,31 @@ test("the shell line split keeps quoted operators inside one command", () => {
   expect(splitShell("a && b").segments.map((segment) => segment.words)).toEqual([["a"], ["b"]]);
 });
 
+/** remoteChanges with this test's ~/.ssh/config, without the address it keeps each machine by. */
+const changesOn = (command: string) => remoteChanges(command, home).map(({ host, changes }) => ({ host, changes }));
+
 test("changes on another machine are read from the ssh command text: tokens, services, packages, /etc and /opt, certificates", () => {
   const command = "ssh lab-01 'pveum user token add root@pam demoapp --privsep 0 && mkdir -p /opt/demoapp && cat > /etc/systemd/system/demoapp.service <<EOF\n[Service]\nEOF\nsystemctl enable --now demoapp && apt-get install -y python3-venv && pvecm updatecerts --force'";
-  expect(remoteChanges(command)).toEqual([{ host: "lab-01", changes: [
+  expect(changesOn(command)).toEqual([{ host: "192.168.10.20 (lab-01)", changes: [
     "made an API token (pveum user token add root@pam demoapp --privse…)",
-    "installed a service (/etc/systemd/system/demoapp.service <<EOF)",
+    "installed a service (/etc/systemd/system/demoapp.service)",
     "turned a service on or off at boot (systemctl enable --now demoapp)",
     "installed or removed packages (apt-get install -y python3-venv)",
     "renewed the node certificates (pvecm updatecerts --force)",
     "wrote /opt/demoapp",
   ] }]);
-  expect(remoteChanges("scp demoapp.service root@10.0.0.5:/etc/systemd/system/")).toEqual([{ host: "10.0.0.5", changes: ["copied files to /etc/systemd/system/"] }]);
-  expect(remoteChanges("ssh lab-01 bash -s <<'EOF'\nuseradd -m svc\nssh-keygen -t ed25519 -f /root/.ssh/k\nEOF")).toEqual([{ host: "lab-01", changes: [
+  expect(changesOn("scp demoapp.service root@10.0.0.5:/etc/systemd/system/")).toEqual([{ host: "10.0.0.5", changes: ["copied files to /etc/systemd/system/"] }]);
+  expect(changesOn("ssh lab-01 bash -s <<'EOF'\nuseradd -m svc\nssh-keygen -t ed25519 -f /root/.ssh/k\nEOF")).toEqual([{ host: "192.168.10.20 (lab-01)", changes: [
     "made an SSH key (ssh-keygen -t ed25519 -f /root/.ssh/k)", "added a user (useradd -m svc)"] }]);
   // Reading is not changing, and a local command is not a remote change.
   for (const quiet of ["systemctl enable demoapp", "apt-get install -y jq", "scp lab-01:/etc/hosts ."]) {
-    expect([quiet, remoteChanges(quiet)]).toEqual([quiet, []]);
+    expect([quiet, changesOn(quiet)]).toEqual([quiet, []]);
   }
   // A command that ran over ssh with no change Casper knows is still listed: it ran there, and Casper can't tell.
-  expect(remoteChanges("ssh lab-01 'cat /etc/passwd; systemctl status demoapp; ls /opt'")).toEqual([{ host: "lab-01", changes: [] }]);
-  expect(remoteChanges("ssh lab-01 'python3 /srv/setup.py'")).toEqual([{ host: "lab-01", changes: [] }]);
+  expect(changesOn("ssh lab-01 'cat /etc/passwd; systemctl status demoapp; ls /opt'")).toEqual([{ host: "192.168.10.20 (lab-01)", changes: [] }]);
+  expect(changesOn("ssh lab-01 'python3 /srv/setup.py'")).toEqual([{ host: "192.168.10.20 (lab-01)", changes: [] }]);
   // Wrapped in another shell, it is read all the same.
-  expect(remoteChanges(`bash -c "ssh lab-01 'pvecm updatecerts --force'"`)).toEqual([{ host: "lab-01", changes: ["renewed the node certificates (pvecm updatecerts --force)"] }]);
+  expect(changesOn(`bash -c "ssh lab-01 'pvecm updatecerts --force'"`)).toEqual([{ host: "192.168.10.20 (lab-01)", changes: ["renewed the node certificates (pvecm updatecerts --force)"] }]);
 });
 
 test("ssh wrapped in another shell, a subshell, a loop or xargs is still found; a host in a variable still counts", () => {
@@ -104,4 +107,11 @@ test("ssh wrapped in another shell, a subshell, a loop or xargs is still found; 
     expect(targetLabel(found[0]!)).toBe(`another machine (${typed})`);
     expect(runsAlone(command, path.join(home, "project"))).toBe(false);
   }
+});
+
+test("an alias and its address are one machine on the receipt, named by both", () => {
+  expect(remoteChanges("ssh lab-01 'systemctl enable --now demoapp' && ssh root@192.168.10.20 reboot", home)).toEqual([{
+    host: "192.168.10.20 (lab-01)", address: "192.168.10.20",
+    changes: ["turned a service on or off at boot (systemctl enable --now demoapp)", "restarted or shut down the machine (reboot)"] }]);
+  expect(remoteChanges("ssh root@$H uptime", home)).toEqual([{ host: "$H", address: "$H", changes: [] }]);
 });

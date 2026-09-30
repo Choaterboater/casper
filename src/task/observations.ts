@@ -56,7 +56,7 @@ export class TaskObservations {
   private delegations = 0;
   private delegationReports = 0;
   /** Changes on other machines seen in the AI's commands (ssh, scp), per host as the command names it. */
-  private readonly remote = new Map<string, string[]>();
+  private readonly remote = new Map<string, { host: string; changes: string[] }>();
   /** A secret appeared in a command the AI sent (hidden on screen; the AI has it). */
   private secretInCommand = false;
 
@@ -123,10 +123,12 @@ export class TaskObservations {
     // A command Casper or the sandbox refused did not reach the other machine.
     const refused = event.isError && /^(?:Not run:|\[shell\] Not run)|\[sandbox\] /.test(event.output?.text ?? "");
     if ((event.toolName === "bash" || event.toolName === "powershell") && event.input?.command && !refused && this.remote.size < 16) {
-      for (const { host, changes } of remoteChanges(event.input.command)) {
-        const list = this.remote.get(host) ?? [];
-        for (const change of changes) if (!list.includes(change) && list.length < 12) list.push(change);
-        this.remote.set(host, list);
+      for (const { host, address, changes } of remoteChanges(event.input.command)) {
+        // One machine by its address: "lab-01" and "192.168.10.20" are one line, named "192.168.10.20 (lab-01)".
+        const entry = this.remote.get(address) ?? { host, changes: [] };
+        if (host.length > entry.host.length) entry.host = host;
+        for (const change of changes) if (!entry.changes.includes(change) && entry.changes.length < 12) entry.changes.push(change);
+        this.remote.set(address, entry);
       }
     }
     if (event.toolName !== "bash") return;
@@ -163,7 +165,7 @@ export class TaskObservations {
       ...(changedPaths ? { changedPaths: [...changedPaths] } : {}),
       ...(changedDuringChecks.length ? { changedDuringChecks: [...changedDuringChecks] } : {}),
       ...(this.testRunner ? { testRunner: this.testRunner } : {}),
-      ...(this.remote.size ? { remoteChanges: [...this.remote].map(([host, changes]) => ({ host, changes: [...changes] })) } : {}),
+      ...(this.remote.size ? { remoteChanges: [...this.remote.values()].map(({ host, changes }) => ({ host, changes: [...changes] })) } : {}),
       ...(this.secretInCommand ? { secretInCommand: true as const } : {}),
       possibleMutations: (this.mutationToolRan || this.edits.size > 0) && !changedPaths,
       usage: { turns: this.turns, ...(this.delegationReports < this.delegations ? { tokens: null, estimatedCost: null }

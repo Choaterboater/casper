@@ -246,7 +246,7 @@ function sshOptionTargets(values: Array<[string, string]>): { port?: number; use
   return { ...(port ? { port } : {}), ...(user ? { user } : {}), jumps };
 }
 
-interface RawTarget { tool: RemoteTool; typed: string; user?: string; port?: number; unclear?: true }
+export interface RawTarget { tool: RemoteTool; typed: string; user?: string; port?: number; unclear?: true }
 
 /** A host Casper can't read from the text ($HOST, {} from xargs): it still asks, and never remembers the answer. */
 const PLAIN_HOST = /^[\w.:%-]+$/;
@@ -392,6 +392,20 @@ export function remoteTargets(command: string, home = os.homedir()): RemoteTarge
     }
   }
   return found;
+}
+
+/** One machine as the command named it, resolved through ~/.ssh/config the way remoteTargets does. */
+export function resolveTarget(raw: RawTarget, home = os.homedir()): RemoteTarget {
+  if (raw.unclear) return { tool: raw.tool, typed: raw.typed, host: `?${raw.typed}`, unclear: true };
+  let host = raw.typed;
+  let { user, port } = raw;
+  if (raw.tool === "ssh" || raw.tool === "scp" || raw.tool === "sftp" || raw.tool === "rsync") {
+    const alias = resolveSshAlias(raw.typed, readSshConfig(home));
+    if (alias.hostName) host = alias.hostName;
+    user ??= alias.user;
+    port ??= alias.port;
+  }
+  return { tool: raw.tool, typed: raw.typed, host: host.toLowerCase(), ...(user ? { user } : {}), ...(port ? { port } : {}) };
 }
 
 /** "10.0.0.5 (lab-01)" or "lab-01". */

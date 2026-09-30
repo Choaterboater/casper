@@ -1,4 +1,4 @@
-import { commandSegments, segmentTargets } from "../sandbox/remote";
+import { commandSegments, resolveTarget, segmentTargets, targetLabel, type RawTarget } from "../sandbox/remote";
 
 /**
  * What a command sent over ssh (or copied with scp/rsync) changed on another machine, read from the command text
@@ -31,7 +31,8 @@ const RULES: ChangeRule[] = [
 const SYSTEM_WRITE = /(?:>{1,2}\s*|\btee\s+(?:-a\s+)?|\b(?:cp|mv|install|mkdir|ln|touch|chmod|chown|unzip|tar|rm|sed\s+-i\S*|git\s+clone)\b[^;&|\n]*?\s)((?:\/etc|\/opt)(?:\/[^\s;&|'"<>)]*)?)/g;
 
 function snippet(text: string, index: number): string {
-  const rest = text.slice(index).split(/\s*(?:;|&&|\|\||\||\n)\s*/)[0]!.trim();
+  // The command up to the next one, a redirect or a here-document: "/etc/systemd/system/x.service", not "… <<UNIT".
+  const rest = text.slice(index).split(/\s*(?:;|&&|\|\||\||\n|<<|>{1,2})\s*/)[0]!.trim();
   return rest.length > 48 ? `${rest.slice(0, 47)}…` : rest;
 }
 
@@ -52,17 +53,26 @@ export function changesInRemoteText(text: string): string[] {
   return found;
 }
 
+/** Where a remote command went, as the receipt names it: "192.168.10.20 (lab-01)", and the address it is kept by. */
+function machine(raw: RawTarget, home?: string): { host: string; address: string } {
+  const target = resolveTarget(raw, home);
+  return { host: targetLabel(target).replace(/^another machine \((.*)\)$/, "$1"), address: target.unclear ? target.typed : target.host };
+}
+
 /**
- * Changes on other machines, per host as the command names it, from one shell command the AI ran. An ssh command
- * whose text shows no change is listed with no changes: it ran there, and Casper can't tell what it did.
+ * Changes on other machines, per machine, from one shell command the AI ran. An alias and its address are one
+ * machine ("192.168.10.20 (lab-01)"). An ssh command whose text shows no change is listed with no changes: it ran
+ * there, and Casper can't tell what it did.
  */
-export function remoteChanges(command: string): Array<{ host: string; changes: string[] }> {
-  const out = new Map<string, string[]>();
-  const add = (host: string, changes: string[], ran = false) => {
+export function remoteChanges(command: string, home?: string): Array<{ host: string; address: string; changes: string[] }> {
+  const out = new Map<string, { host: string; changes: string[] }>();
+  const add = (target: RawTarget, changes: string[], ran = false) => {
     if (!changes.length && !ran) return;
-    const list = out.get(host) ?? [];
-    for (const change of changes) if (!list.includes(change)) list.push(change);
-    out.set(host, list);
+    const { host, address } = machine(target, home);
+    const entry = out.get(address) ?? { host, changes: [] };
+    if (host.length > entry.host.length) entry.host = host;
+    for (const change of changes) if (!entry.changes.includes(change)) entry.changes.push(change);
+    out.set(address, entry);
   };
   for (const segment of commandSegments(command)) {
     const parsed = segmentTargets(segment.words);
@@ -71,12 +81,12 @@ export function remoteChanges(command: string): Array<{ host: string; changes: s
     if (parsed.tool === "ssh") {
       // `ssh host 'cmd'`, or `ssh host bash -s <<EOF ... EOF` (the here-document is what runs there).
       const heredoc = parsed.remote.length <= 3 && command.includes("<<") ? command.slice(command.indexOf("<<")) : "";
-      add(destination.typed, changesInRemoteText(`${parsed.remote.join(" ")}\n${heredoc}`), parsed.remote.length > 0 || heredoc !== "");
+      add(destination, changesInRemoteText(`${parsed.remote.join(" ")}\n${heredoc}`), parsed.remote.length > 0 || heredoc !== "");
     } else if (parsed.tool === "scp" || parsed.tool === "rsync") {
       const last = parsed.args.at(-1) ?? "";
       const remotePath = /^(?:[^@/:\s]+@)?(?:\[[^\]]+\]|[^:/\s\\]{2,})::?(.*)$/.exec(last)?.[1];
-      if (remotePath !== undefined && /^\/(?:etc|opt)(?:\/|$)/.test(remotePath)) add(destination.typed, [`copied files to ${remotePath.length > 48 ? `${remotePath.slice(0, 47)}…` : remotePath}`]);
+      if (remotePath !== undefined && /^\/(?:etc|opt)(?:\/|$)/.test(remotePath)) add(destination, [`copied files to ${remotePath.length > 48 ? `${remotePath.slice(0, 47)}…` : remotePath}`]);
     }
   }
-  return [...out].map(([host, changes]) => ({ host, changes }));
+  return [...out].map(([address, { host, changes }]) => ({ host, address, changes }));
 }
