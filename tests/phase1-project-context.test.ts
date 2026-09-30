@@ -156,6 +156,19 @@ describe("Phase 1 project context", () => {
     expect(refreshed.conventions).toEqual([]);
   });
 
+  test("a Bun project with no lockfile yet is bun, not npm: its scripts run bun", async () => {
+    const root = await temporaryDirectory("casper-model-bun-");
+    const homeDir = await temporaryDirectory("casper-model-bun-home-");
+    const project: ProjectInfo = { cwd: root, root, name: "calc", gitBranch: null, isGit: false };
+    await writeFile(path.join(root, "package.json"), JSON.stringify({ scripts: { dev: "bun --watch src/server.ts", test: "bun test" } }));
+    const model = await loadProjectModel(project, { homeDir });
+    expect(model.packageManager).toBe("bun");
+    expect(model.commands.test).toBe("bun run test");
+    const plain = await temporaryDirectory("casper-model-npm-");
+    await writeFile(path.join(plain, "package.json"), JSON.stringify({ scripts: { test: "node --test" } }));
+    expect((await loadProjectModel({ ...project, cwd: plain, root: plain }, { homeDir })).packageManager).toBe("npm");
+  });
+
   test("detects UI and styles from the repository and does not require a frontend or design skill", async () => {
     const root = await temporaryDirectory("casper-structure-project-");
     const homeDir = await temporaryDirectory("casper-structure-home-");

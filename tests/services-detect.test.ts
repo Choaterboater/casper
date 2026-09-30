@@ -70,6 +70,22 @@ test("a declared services.web always wins over the script", async () => {
   expect(await detectWebService(api, { services: { api: web } })).toBeUndefined();
 });
 
+test("a plain Bun or Node site with a page is a web project: its own server, started with PORT", async () => {
+  const site = await project({ "package.json": pkg({ dev: "bun --watch src/server.ts", test: "bun test" }, {}), "public/index.html": "<h1>hi</h1>" });
+  expect(await detectWebService(site)).toMatchObject({ name: "web", source: "package.json", label: "bun run dev", frameworks: [], portFlags: false,
+    spec: { command: "bun --watch src/server.ts", port: "auto", ready: { http: "/" } } });
+  const root = await project({ "package.json": pkg({ start: "node server.js" }, {}), "index.html": "<h1>hi</h1>" });
+  expect(await detectWebService(root)).toMatchObject({ label: "npm run start", spec: { command: "node server.js" } });
+  // No page to open (an API), or a script Casper does not know: not a web project.
+  const api = await project({ "package.json": pkg({ dev: "bun --watch src/server.ts" }, {}) });
+  expect(await detectWebService(api)).toBeUndefined();
+  const custom = await project({ "package.json": pkg({ dev: "./scripts/serve.sh" }, {}), "index.html": "" });
+  expect(await detectWebService(custom)).toBeUndefined();
+  // Dependencies not installed yet are a reason, like a framework project's.
+  const deps = await project({ "package.json": pkg({ dev: "node server.js" }, { ws: "8" }), "public/index.html": "" });
+  expect(await detectWebService(deps)).toEqual({ reason: "node_modules is missing. Run npm install first (Casper doesn't install packages)", frameworks: [] });
+});
+
 test("an Express-only API or a Python CLI is not a web project; a missing node_modules is a reason", async () => {
   const api = await project({ "package.json": pkg({ dev: "node server.js" }, { express: "4" }) }, ["node_modules"]);
   expect(await detectWebService(api, { frameworks: ["express"] })).toBeUndefined();

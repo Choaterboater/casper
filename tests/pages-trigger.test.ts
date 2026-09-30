@@ -53,3 +53,13 @@ test("a web project that is not installed says so instead of starting anything",
   expect(await planPageCheck(root, {}, ["src/App.tsx"])).toEqual({ reason: "node_modules is missing. Run bun install first (Casper doesn't install packages)" });
   expect(await planPageCheck(root, {}, ["README.md"])).toBeUndefined();
 });
+
+test("a framework-less Bun site built in an empty folder plans a page check for /", async () => {
+  // The shape every tool built in the subnet-calculator benchmark: Bun.serve, an HTML page, no dependencies.
+  const root = await project({ "package.json": JSON.stringify({ scripts: { dev: "bun --watch src/server.ts", test: "bun test" } }),
+    "public/index.html": "<main></main>", "public/styles.css": "", "src/server.ts": "Bun.serve({ port: Number(process.env.PORT ?? 3000), fetch: () => new Response('') });",
+    "src/subnet.ts": "export {};" });
+  expect(await planPageCheck(root, { frameworks: [] }, ["public/index.html", "src/server.ts", "src/subnet.ts"]))
+    .toMatchObject({ service: { label: "bun run dev", spec: { command: "bun --watch src/server.ts" } }, pages: { open: ["/"] } });
+  expect(await planPageCheck(root, { frameworks: [] }, ["README.md"])).toBeUndefined();
+});
