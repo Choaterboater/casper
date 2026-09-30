@@ -31,7 +31,7 @@ const LOCKFILE = /(^|\/)(uv\.lock|poetry\.lock|Pipfile\.lock|pdm\.lock|requireme
 const WORKFLOW = /^(\.github\/workflows\/[^/]+\.ya?ml|(.*\/)?action\.ya?ml)$/;
 const ANSIBLE_HINT = /(^|\/)(ansible\.cfg|galaxy\.yml|requirements\.ya?ml)$|(^|\/)(roles|playbooks|group_vars|host_vars)\//;
 const PLAY_TOP = /^-\s+(hosts|import_playbook|ansible\.builtin\.import_playbook)\s*:/m;
-const MCP_IMPORT = /^\s*(from\s+(fastmcp|mcp\.server)[\w.]*\s+import|import\s+(fastmcp|mcp\.server))/m;
+export const MCP_IMPORT = /^\s*(from\s+(fastmcp|mcp\.server)[\w.]*\s+import|import\s+(fastmcp|mcp\.server))/m;
 const FASTAPI_IMPORT = /^\s*(from\s+fastapi[\w.]*\s+import|import\s+fastapi)\b/m;
 
 async function walk(root: string): Promise<{ files: string[]; truncated: boolean }> {
