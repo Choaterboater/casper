@@ -136,20 +136,29 @@ posixOnly("the AI security review's child can't read .env, keys or a file gitlea
     { name: "read", args: { path: "src/settings.py" } },
     { name: "read", args: { path: "src/parser.test.ts" } },
     { name: "grep", args: { pattern: "LIVE", path: "." } },
+    // Pi drops a leading @ and follows links: the same files by other names.
+    { name: "read", args: { path: "@.env" } },
+    { name: "read", args: { path: "notes.txt" } },
+    { name: "read", args: { path: "code/settings.py" } },
   ], { FIXTURE_REVIEW: "1" }, async ({ project }) => {
     await writeFile(path.join(project, "src/settings.py"), "API_KEY_VALUE = 'LIVE-sk-9f8e7d6c5b4a'\n");
     await writeFile(path.join(project, "src/app.py"), "MODE = 'LIVE-mode'\n");
-    await writeFile(path.join(project, ".env"), "MIST_APITOKEN=LIVE-abc123\n");
+    await writeFile(path.join(project, ".env"), "MIST_APITOKEN=LIVE-abc123\nDB_URL=postgres://app:LIVE-dbpass@db/app\n");
+    await symlink(".env", path.join(project, "notes.txt"));
+    await symlink("src", path.join(project, "code"));
   });
   const ends = result.toolEnds as Array<{ toolName: string; isError: boolean; output?: { text?: string } }>;
   expect(ends.filter((event) => event.toolName === "read" && event.isError).map((event) => event.output?.text)).toEqual([
     expect.stringContaining("Not read: .env may hold secrets"), expect.stringContaining("Not read: src/settings.py may hold secrets"),
+    expect.stringContaining("Not read: .env may hold secrets"), expect.stringContaining("Not read: .env may hold secrets"),
+    expect.stringContaining("Not read: src/settings.py may hold secrets"),
   ]);
+  expect(sent).not.toContain("LIVE-dbpass");
   expect(sent).toContain("const sample");
   expect(sent).toContain("src/app.py:1: MODE = 'LIVE-mode'");
   expect(sent).not.toContain("sk-9f8e7d6c5b4a");
   expect(sent).not.toContain("LIVE-abc123");
-  expect(sent).toContain("2 matching lines from files that may hold secrets not shown.");
+  expect(sent).toContain("3 matching lines from files that may hold secrets not shown.");
 }, 30_000);
 
 /** A project with a link out, a home with private files, and git hooks. */

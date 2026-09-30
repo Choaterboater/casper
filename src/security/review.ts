@@ -1,6 +1,8 @@
+import { realpathSync } from "node:fs";
 import { lstat, readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import { parentsStayInside } from "../platform/files";
+import { readVariants, resolveToolPath } from "../platform/project-paths";
 import { redactPreview, terminalText } from "../tui/format";
 import { detectProject, MCP_IMPORT, readHead } from "./detect";
 import { formatFindingText } from "./format";
@@ -57,6 +59,8 @@ export async function validateModelFindings(root: string, raw: unknown, toolFind
       if (!details?.isFile()) return false;
       const resolved = await realpath(full).catch(() => undefined);
       if (!resolved || !resolved.startsWith(`${realRoot}${path.sep}`)) return false;
+      // The same file reached through a linked folder is still that file.
+      if (!reviewMayRead(path.relative(realRoot, resolved), toolFindings)) return false;
       if (candidate.line > await lineCount(full).catch(() => 0)) return false;
       candidate.file = relative.split(path.sep).join("/");
       return true;
@@ -185,34 +189,63 @@ export function reviewCostWords(scope: Pick<ReviewScope, "bytes" | "diff">, inpu
   return `at least about ${count} tokens${price !== undefined ? `, ≈ $${price < 0.01 ? price.toFixed(4) : price.toFixed(2)}` : ""}`;
 }
 
-/** The repo path a read or grep names, relative to the root, or undefined when it names none inside it. */
-function toolTarget(root: string, input: Record<string, unknown> | undefined): string | undefined {
-  const given = typeof input?.path === "string" && input.path ? input.path : undefined;
-  if (!given) return undefined;
-  const relative = path.relative(root, path.resolve(root, given));
+/** Where a path really is: through links (the native call, so a case-folding disk gives the stored name), or as typed. */
+function realOrSame(absolute: string): string {
+  try { return realpathSync.native(absolute); } catch { return absolute; }
+}
+
+/** A path as root-relative with forward slashes, or undefined outside the root. */
+function insideRoot(root: string, absolute: string): string | undefined {
+  const relative = path.relative(root, absolute);
   return relative && !relative.startsWith("..") && !path.isAbsolute(relative) ? relative.split(path.sep).join("/") : undefined;
 }
 
-/** The AI review's read gate: key and .env files, and files gitleaks flagged, are never opened for it. */
-export function reviewReadGate(root: string, toolFindings: readonly SecurityFinding[]): (toolName: string, input: Record<string, unknown> | undefined) => string | undefined {
+/**
+ * Every repo path a read or grep can end up opening: the path as typed (Pi drops a leading @ and expands ~ and
+ * file:// the way resolveToolPath does), the macOS name variants Pi's read also tries, and where each really is
+ * after links. A link named notes.txt that points at .env is the .env file.
+ */
+function toolTargets(root: string, toolName: string, input: Record<string, unknown> | undefined): string[] {
+  const given = typeof input?.path === "string" && input.path ? input.path : undefined;
+  if (!given) return [];
+  const absolute = resolveToolPath(given, root);
+  const found = new Set<string>();
+  for (const candidate of toolName === "read" ? readVariants(absolute) : [absolute]) {
+    for (const place of [candidate, realOrSame(candidate)]) {
+      const relative = insideRoot(root, place);
+      if (relative) found.add(relative);
+    }
+  }
+  return [...found];
+}
+
+/** The AI review's read gate: key and .env files, and files gitleaks flagged, are never opened for it, by any name. */
+export function reviewReadGate(rootFolder: string, toolFindings: readonly SecurityFinding[]): (toolName: string, input: Record<string, unknown> | undefined) => string | undefined {
+  const root = realOrSame(rootFolder);
   return (toolName, input) => {
     if (toolName !== "read" && toolName !== "grep") return undefined;
-    const target = toolTarget(root, input);
-    if (target === undefined || reviewMayRead(target, toolFindings)) return undefined;
-    return `Not read: ${target} may hold secrets (a key, a .env file or a file gitleaks flagged). Casper keeps it from the AI review.`;
+    const denied = toolTargets(root, toolName, input).find((target) => !reviewMayRead(target, toolFindings));
+    if (denied === undefined) return undefined;
+    return `Not read: ${denied} may hold secrets (a key, a .env file or a file gitleaks flagged). Casper keeps it from the AI review.`;
   };
 }
 
 /** grep over a folder: lines from files the review may not read are dropped before the AI sees them. */
-export function dropDeniedGrepLines(root: string, toolFindings: readonly SecurityFinding[], input: Record<string, unknown>, texts: string[]): string[] {
-  const searched = path.resolve(root, typeof input.path === "string" && input.path ? input.path : ".");
+export function dropDeniedGrepLines(rootFolder: string, toolFindings: readonly SecurityFinding[], input: Record<string, unknown>, texts: string[]): string[] {
+  const root = realOrSame(rootFolder);
+  const typed = resolveToolPath(typeof input.path === "string" && input.path ? input.path : ".", root);
+  // ripgrep follows a linked folder it is pointed at, so a line's file is judged where it really is too.
+  const searched = [typed, realOrSame(typed)];
   let dropped = 0;
   const out = texts.map((text) => text.split("\n").filter((line) => {
     const match = /^(.+?)(?::\d+:|-\d+-) /.exec(line);
     if (!match) return true;
-    const relative = path.relative(root, path.resolve(searched, match[1]!)).split(path.sep).join("/");
-    const base = path.posix.basename(match[1]!);
-    if (reviewMayRead(relative, toolFindings) && reviewMayRead(base, toolFindings)) return true;
+    const names = [path.posix.basename(match[1]!)];
+    for (const folder of searched) {
+      const file = path.resolve(folder, match[1]!);
+      for (const place of [file, realOrSame(file)]) names.push(insideRoot(root, place) ?? "");
+    }
+    if (names.every((name) => !name || reviewMayRead(name, toolFindings))) return true;
     dropped++;
     return false;
   }).join("\n"));
