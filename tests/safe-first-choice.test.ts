@@ -117,6 +117,24 @@ test("Enter at the empty-folder question builds nothing: Not now is choice 1", a
   } finally { await rm(home, { recursive: true, force: true }); }
 });
 
+test("a request typed at the empty-folder question works in this folder: it is the first request, not a wrong answer", async () => {
+  const home = await mkdtemp(path.join(os.tmpdir(), "casper-safe-typed-"));
+  try {
+    const written: string[] = [];
+    const typed = "Build a small web app in this empty folder: an IPv4 subnet calculator.\n- Show the network";
+    const flow: NewProjectFlow = { homeDir: home, write: (text) => { written.push(text); }, pick: async () => typed,
+      create: async () => { throw new Error("a typed request must never build a project"); } };
+    const requests: string[] = [];
+    expect(await newProjectInEmptyFolder(flow, path.join(home, "demo"), (text) => requests.push(text))).toBeUndefined();
+    expect(requests).toEqual([typed]);
+    expect(written.join("\n")).not.toContain("isn't one of the choices");
+    // A short slip ("webb") is still a wrong answer, not a request.
+    const slip: NewProjectFlow = { ...flow, pick: async () => "webb" };
+    expect(await newProjectInEmptyFolder(slip, path.join(home, "demo"), (text) => requests.push(text))).toBeUndefined();
+    expect(requests.length).toBe(1);
+  } finally { await rm(home, { recursive: true, force: true }); }
+});
+
 test("Enter at the build-request question, and at its Other kind list, keeps the folder", async () => {
   const home = await mkdtemp(path.join(os.tmpdir(), "casper-safe-build-"));
   try {

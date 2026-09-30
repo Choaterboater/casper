@@ -59,7 +59,12 @@ export interface AskTemplateOptions {
   question?: string;
   /** Offer "My own" (an empty folder). Default true. */
   empty?: boolean;
+  /** Text that is plainly a request (a few words, not a choice) is handed here and answers `extra`. */
+  request?: (text: string) => void;
 }
+
+/** A pasted or typed request at a question, not a slip of a choice: three words or more. */
+const looksLikeRequest = (text: string) => text.trim().split(/\s+/).length >= 3;
 
 /** A typed template id ("web-app", "empty") picks it. */
 function typedTemplate(answer: string): string | undefined {
@@ -86,6 +91,7 @@ export async function askTemplate(flow: NewProjectFlow, options: AskTemplateOpti
     if (!group) {
       const typed = typedTemplate(answer);
       if (typed && (empty || typed !== EMPTY_TEMPLATE)) return typed;
+      if (options.extra && options.request && looksLikeRequest(answer)) { options.request(answer.trim()); return "extra"; }
       flow.write(`[new] ${answer.trim()} isn't one of the choices.`);
       return undefined;
     }
@@ -169,11 +175,12 @@ export async function isEmptyFolder(dir: string): Promise<boolean> {
 }
 
 /** Started in an empty folder: "This folder is empty. Start a new project here?" "Not now" first (so Enter builds
- * nothing), then the kinds.
+ * nothing), then the kinds. A request typed (or pasted) at the question means Not now: it goes to `request`,
+ * to run as the first request here.
  * The folder's own name is used when it is a valid name; otherwise Casper asks one and builds inside it. */
-export async function newProjectInEmptyFolder(flow: NewProjectFlow, dir: string): Promise<NewProjectResult | undefined> {
+export async function newProjectInEmptyFolder(flow: NewProjectFlow, dir: string, request?: (text: string) => void): Promise<NewProjectResult | undefined> {
   const template = await askTemplate(flow, { question: "This folder is empty. Start a new project here?",
-    extra: { label: "Not now", description: "just work in this folder" }, empty: false });
+    extra: { label: "Not now", description: "just work in this folder" }, empty: false, ...(request ? { request } : {}) });
   if (!template || template === "extra") return undefined;
   const own = path.basename(dir);
   if (validName(own)) return buildProject(flow, path.dirname(dir), template, own);

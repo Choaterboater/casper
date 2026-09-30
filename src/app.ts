@@ -246,6 +246,8 @@ export class CasperApp {
   private runtimeLoad?: Promise<AgentRuntime>;
   private runtimeStart?: Promise<RuntimeSession>;
   session?: RuntimeSession;
+  /** A request typed at a startup question: the first request of the session. */
+  private queuedPrompt?: string;
   closing = false;
   private closeWork?: Promise<void>;
   private unsubscribe?: () => void;
@@ -623,7 +625,7 @@ export class CasperApp {
       // A resumed conversation already belongs to this folder: no question.
       if (!candidates.length && !this.runConversation && await isEmptyFolder(cwd)) {
         if (!this.terminal.canAsk) { this.output.write("[folder] This folder is empty. To start a new project in ~/Projects: casper new\n"); return cwd; }
-        const result = await this.newProjectFlowWithAbort((flow) => newProjectInEmptyFolder(flow, cwd));
+        const result = await this.newProjectFlowWithAbort((flow) => newProjectInEmptyFolder(flow, cwd, (text) => { this.queuedPrompt = text; }));
         if (opened(result)) return result.dir;
         // "Not now" means this folder: a later build request doesn't ask again.
         this.newProjectOffered = true;
@@ -719,7 +721,11 @@ export class CasperApp {
     while (!this.closing) {
       this.cancelBeforeCommand = false;
       this.updateFooter();
-      const line = await this.terminal.readCommand();
+      // A request typed at the empty-folder question runs first, as if typed at the prompt.
+      const queued = this.queuedPrompt;
+      this.queuedPrompt = undefined;
+      if (queued) this.events.writePrompt(queued);
+      const line = queued ?? await this.terminal.readCommand();
       if (line === undefined) break;
       if (this.cancelBeforeCommand) {
         this.output.write("[cancel] Request cancelled before startup.\n");
