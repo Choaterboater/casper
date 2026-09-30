@@ -55,6 +55,17 @@ through. Check what a tool returns before you share it.
   value, and so is the password inside an address
   (`postgres://app:<secret hidden>@db/app`). Code such as `token = getToken()` or
   `password: str` is left alone.
+- **Logins written as notes: always (from v0.2.19).** The way people write lab logins in a
+  markdown file or a command is hidden too: `root / <secret hidden>`, `login: admin / <secret hidden>`,
+  `creds: user / <secret hidden>`, `**Password:** <secret hidden>`, `pw: <secret hidden>`,
+  `the password is <secret hidden>`, `admin:<secret hidden>@10.0.0.5`, the cells of a table's Password
+  column, Proxmox API tokens (`root@pam!name=<secret hidden>`, `PVEAPIToken=...`, the value row of
+  `pveum user token add`) and `token=<uuid or long hex>`. Where plain words could follow, only a value
+  that looks like a secret (a digit or a symbol) is hidden, so a sentence such as "The password is
+  stored on the switch" stays as it is.
+- **Commands the AI sent: always (from v0.2.19).** A secret the AI typed into a command is hidden
+  before Casper shows the command, keeps it in `/output` and records, or puts it on the receipt. The
+  AI already has it, so the receipt says `A secret appeared in a command; change it after this task.`
 - **Your own secret environment values: always (from v0.2.16).** Exact copies of the
   values of Casper's secret-named environment variables (`OPENROUTER_API_KEY`,
   `MIST_API_TOKEN`, `CENTRAL_CLIENT_SECRET` ...; 8 characters or longer, not paths)
@@ -181,8 +192,12 @@ Casper.
   like any other text.
 - `/secrets files off` turns device config scrubbing off for subagents too.
 - From v0.2.16 the AI's file tools can't open private places such as `~/.ssh` at
-  all. Its shell can, unless the shell sandbox (v0.2.17) is running. See
-  [SECURITY.md](SECURITY.md) for what is blocked and what is not.
+  all. From v0.2.19 a shell command that names one is refused too, even with the
+  sandbox off; that is a text check a script can get past, so the shell sandbox
+  (v0.2.17) is what holds. See [SECURITY.md](SECURITY.md) for what is blocked and
+  what is not.
+- A command the AI sent stays in the saved conversation as the AI wrote it; only
+  what Casper shows and keeps is scrubbed.
 - `casper learn` reads repo text without this scrubbing.
 - If the check itself fails on a tool's output, the AI gets `Output not shown:
   Casper could not check it for device secrets. Try a smaller read or another
