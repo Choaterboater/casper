@@ -1,4 +1,4 @@
-import { parseSkillMetadata, splitSkill } from "../skills/metadata";
+import { normaliseLineEndings, parseSkillMetadata, splitSkill } from "../skills/metadata";
 import type { SkillRegistry, SkillSummary } from "../skills/registry";
 import planFirstSource from "./plan-first/SKILL.md" with { type: "text" };
 import proveFixSource from "./prove-fix/SKILL.md" with { type: "text" };
@@ -31,7 +31,7 @@ export interface Flow {
 
 /** The `casper-flow` frontmatter block. Other agents ignore unknown keys, so the file stays a valid skill. */
 export function parseFlow(source: string, origin: Flow["source"] = "bundled"): Flow {
-  const { header, body } = splitSkill(source);
+  const { header, body } = splitSkill(normaliseLineEndings(source));
   const metadata = parseSkillMetadata(header);
   if (!metadata.disableModelInvocation) {
     throw new Error(`flow ${metadata.name} must set disable-model-invocation: true, so keyword ranking never loads it`);

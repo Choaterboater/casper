@@ -51,6 +51,18 @@ describe("bundled flows", () => {
     expect(findFlow(flows, "plan-first")!.body).not.toMatch(/read-only/i);
   });
 
+  test("a Windows checkout (CRLF line endings) gives the same flows, within the same size cap", async () => {
+    // git's core.autocrlf rewrites the files on a Windows runner, and Bun embeds them as checked out.
+    for (const name of ["plan-first", "prove-fix"]) {
+      const source = await Bun.file(new URL(`../src/flows/${name}/SKILL.md`, import.meta.url)).text();
+      const unix = parseFlow(source.replace(/\r\n/g, "\n"));
+      const windows = parseFlow(source.replace(/\r?\n/g, "\r\n"));
+      expect(windows).toEqual(unix);
+      expect(windows.body).not.toContain("\r");
+      expect(Buffer.byteLength(windows.body)).toBeLessThanOrEqual(MAX_FLOW_BODY_BYTES);
+    }
+  });
+
   test("a flow must opt out of keyword loading and name a known rule", () => {
     const base = flowFrontmatter("prove-fix");
     expect(() => parseFlow(base.replace("disable-model-invocation: true\n", ""))).toThrow("disable-model-invocation");

@@ -14,6 +14,12 @@ export interface SkillMetadata {
   extra: Record<string, unknown>;
 }
 
+/** A checkout with Windows line endings (git's core.autocrlf) embeds CRLF text. Bundled text is compared,
+ * sized and digested as LF so Casper behaves the same whichever system built it. */
+export function normaliseLineEndings(text: string): string {
+  return text.replace(/\r\n?/g, "\n");
+}
+
 export function splitSkill(source: string): { header: string; body: string } {
   const match = /^\uFEFF?---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(source);
   if (!match || Buffer.byteLength(match[0]) > MAX_HEADER_BYTES) {
