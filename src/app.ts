@@ -47,7 +47,7 @@ import type {
   RuntimeModelInfo,
   RuntimeTool,
 } from "./runtime/types";
-import { SkillRegistry, formatSelectedSkills } from "./skills/registry";
+import { SkillRegistry, formatSelectedSkills, skillRegistryOptions } from "./skills/registry";
 import { classifyTask, formatTaskPrompt, underSpecifiedTarget } from "./task/classify";
 import { formatReceipt, liveCheckLine, formatTaskResult, type TaskResult } from "./task/result";
 import { TaskObservations } from "./task/observations";
@@ -364,11 +364,7 @@ export class CasperApp {
     this.lifecycle.add({ name: "subagents", close: () => this.subagents.close() });
     this.inspectProjectFn = options.inspectProject ?? inspectProject;
     this.loadProjectContextFn = options.loadProjectContext ?? loadProjectContext;
-    this.loadSkillRegistryFn = options.loadSkillRegistry ?? ((context) => SkillRegistry.discover({
-      projectRoot: context.info.root,
-      maxActive: context.skills.maxActive,
-      imports: context.skills.imports,
-    }));
+    this.loadSkillRegistryFn = options.loadSkillRegistry ?? ((context) => SkillRegistry.discover(skillRegistryOptions(context)));
     this.loadMCPConfigurationFn = options.loadMCPConfiguration ?? ((context) => discoverMCPConfiguration({
       projectRoot: context.info.root, profileName: context.profileName,
     }));

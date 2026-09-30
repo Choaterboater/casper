@@ -54,7 +54,8 @@ export interface LoadedConfiguration {
   profileRules: string | null;
   projectRules: string | null;
   projectOverrides: ProjectModelOverrides;
-  skills: { maxActive: number; imports: SkillImport[] };
+  /** bundled: the network skills shipped with Casper (default on; user or profile only). */
+  skills: { maxActive: number; imports: SkillImport[]; bundled?: boolean };
   verification: VerificationSettings;
   /** bigModelLastTry: the last repair runs on the user's big model (the reason role); user or profile only. */
   repair: { maxAttempts: number; bigModelLastTry?: boolean };
@@ -512,6 +513,17 @@ export async function loadConfiguration(
     }
     imports = [...new Set<SkillImport>(value)];
   }
+  // The bundled skills only make the AI more careful, so a repository cannot turn them off.
+  if (isMapping(projectDocument.skills) && projectDocument.skills.bundled !== undefined) {
+    throw new Error("skills.bundled is a user setting (~/.casper/config.yaml or a profile); a project cannot turn the bundled skills off");
+  }
+  let bundled = true;
+  for (const [document, label] of [[globalDocument, labels.global], [profileDocument, labels.profile]] as const) {
+    const setting = isMapping(document.skills) ? document.skills.bundled : undefined;
+    if (setting === undefined || setting === null) continue;
+    if (typeof setting !== "boolean") throw new Error(`${label}: skills.bundled must be true or false`);
+    bundled = setting;
+  }
   // A service runs the project's own command at its root; only the project declares one.
   for (const [document, label] of [[globalDocument, labels.global], [profileDocument, labels.profile]] as const) {
     if (document.services !== undefined) throw new Error(`services is a project setting (.casper/project.yaml); remove it from ${label}`);
@@ -592,7 +604,7 @@ export async function loadConfiguration(
   const sandboxProject = sandboxProjectLayer(projectDocument, labels.project, sandboxWarnings);
   const lab = mergeLabSettings(parseLabSettings(globalDocument.lab, "user", `${labels.global}: lab`), parseLabSettings(profileDocument.lab, "profile", `${labels.profile}: lab`));
   return {
-    skills: { maxActive, imports },
+    skills: { maxActive, imports, bundled },
     verification: { timeoutMs, ...(mode ? { mode } : {}), ...(checks ? { checks } : {}), ...(review !== undefined ? { review } : {}), ...(acceptance !== undefined ? { acceptance } : {}),
       ...(checklist !== undefined ? { checklist } : {}) },
     repair: { maxAttempts, ...(bigModelLastTry !== undefined ? { bigModelLastTry } : {}) },
