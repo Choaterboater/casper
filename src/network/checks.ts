@@ -30,7 +30,7 @@ const LAB_TIMEOUT_MS = 600_000;
 export interface NetworkCheckContext {
   /** The project root. */
   root: string;
-  /** The owner's lab list (from ~/.casper/config.yaml or a profile only). */
+  /** The user's lab list (from ~/.casper/config.yaml or a profile only). */
   lab?: LabSettings;
   signal?: AbortSignal;
   /** Defaults to process.platform; tests set "win32". */

@@ -32,7 +32,7 @@ export interface ProjectContext {
   };
   /** Configuration keys that were ignored, by file (see LoadedConfiguration.warnings). */
   warnings?: string[];
-  /** The owner's lab list (lab.hosts), from ~/.casper/config.yaml or the profile only. */
+  /** The user's lab list (lab.hosts), from ~/.casper/config.yaml or the profile only. */
   lab?: LabSettings;
   /** The shell sandbox settings: yours, and the project's extra denies (see src/sandbox/policy.ts). */
   sandbox?: LoadedConfiguration["sandbox"];
