@@ -187,7 +187,8 @@ test("/security-review in a one-shot run goes through the app, starts no model a
     await app.runOnce("/security-review", root);
   } finally { await app.close(); }
   expect(started).toBe(false);
-  expect(output).toContain("Casper runs these tools with a dead proxy and no passwords or tokens. Not enforced until the shell sandbox ships.");
+  // The second line says what holds the tools in this session (see securityNetworkLine).
+  expect(output).toContain("Casper runs these tools in the shell sandbox: no network, no passwords or tokens");
   expect(output).toContain(CANT_ASK_INSTALL);
   expect(output).toMatch(/Result: \d+ problems/);
 });
