@@ -442,6 +442,13 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
         // Nothing to run is not "Incomplete": one plain line, and where the tests are when a folder inside has some.
         // Nothing ran, so a script's exit code still says "not every check ran" (2), as before; only the words changed.
         if (note) { host.output.write(note); return { status: "incomplete", repairAttempts: 0, rounds: [], results: [], reason: NO_CHECKS_FOUND }; }
+        // A Python project with only tests: one line says what isn't there, and the verdict is about what ran,
+        // not "Incomplete" and a "has no command" line for each of typecheck, lint and build.
+        const { run, missing } = verifyPlan(host.projectContext.model);
+        if (missing.length) {
+          host.output.write(`[verify] No ${plainList(missing, "or")} command here, so Casper runs ${plainList(run, "and")}.\n`);
+          return host.runVerification(run, repair);
+        }
       }
       return host.runVerification(args.length ? args : host.projectContext ? defaultVerifyNames(host.projectContext.model) : CHECK_NAMES, repair);
     }
@@ -949,6 +956,18 @@ export function permissionsText(sandbox: ShellSandbox | undefined): string {
     "MCP, workspace transitions, debugger launch and consequential browser operations have their own exact approvals. The AI can't approve anything for you.",
     "No SAFE/YOLO or read-only mode is implied. /verify and /services may execute project scripts (the declared checks and service commands). See docs/SECURITY.md.",
   ].join("\n");
+}
+
+/** What plain `/verify` runs: every named check, and each of typecheck, lint, test and build that has a command. */
+export function verifyPlan(model: ProjectModel): { run: CheckName[]; missing: CheckName[] } {
+  const names = defaultVerifyNames(model);
+  const missing = names.filter((name) => (CHECK_NAMES as readonly string[]).includes(name) && !model.commands[name as keyof ProjectModel["commands"]]?.trim());
+  return { run: names.filter((name) => !missing.includes(name)), missing };
+}
+
+/** "typecheck, lint or build" / "test and build". */
+function plainList(names: readonly string[], joiner: "or" | "and"): string {
+  return names.length < 2 ? names.join("") : `${names.slice(0, -1).join(", ")} ${joiner} ${names.at(-1)}`;
 }
 
 /** "/verify" when the folder has no check at all: "No checks found in Documents." and, when folders inside have

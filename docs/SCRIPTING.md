@@ -79,7 +79,7 @@ These commands have their own arguments and take none of the options above:
 |---|---|
 | 0 | Done. Changes, if any, were verified — or, without `--require-verification`, simply not disproven. A run that changed nothing exits 0. |
 | 1 | Failed: a check failed, checks were blocked, the model run failed, or Casper hit an error (for example missing credentials). |
-| 2 | Incomplete: checks could not finish, `--max-turns` stopped the model, or checking was asked for (`--verify` or `verification.mode: auto`) and found changes but no configured check. |
+| 2 | Incomplete: checks could not finish, `--max-turns` stopped the model, or checking was asked for (`--verify` or `verification.mode: auto`) and found changes but no configured check, or `casper /verify` found no check to run. |
 | 3 | Not verified (only with `--require-verification`): files changed but Casper did not prove them — checks off, none configured or covering the files, bash-only test runs, a pass that went stale, a change the tests do not prove, or (from v0.2.17) checks that passed without a proof (`• Checks passed — not proven`). `checksPassed` in the JSON receipt still says the checks passed. |
 | 64 | Usage error: an unknown option, a bad value, conflicting flags, an unknown model or conversation. Nothing ran. |
 | 130 | Cancelled (Ctrl-C / SIGINT). |

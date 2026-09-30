@@ -77,3 +77,18 @@ test("/verify with nothing to run and no tests anywhere says how to add one", as
     expect(output()).not.toContain("Incomplete");
   } finally { await casper.close(); }
 });
+
+test("/verify in a project with only tests runs them and says so in one line, not Incomplete", async () => {
+  const { home, docs } = await documents();
+  const dir = await mistTools(docs);
+  await writeFile(path.join(dir, "tests", "test_sites.py"),
+    "import unittest\n\nclass T(unittest.TestCase):\n    def test_a(self):\n        self.assertTrue(True)\n");
+  const { casper, output } = app(home);
+  try {
+    const report = await casper.runOnce("/verify", dir);
+    expect(output()).toContain("[verify] No typecheck, lint or build command here, so Casper runs test.\n");
+    expect(report?.results.map((result) => result.name)).toEqual(["test"]);
+    expect(output()).not.toContain("has no command");
+    expect(output()).not.toContain("Incomplete");
+  } finally { await casper.close(); }
+});
