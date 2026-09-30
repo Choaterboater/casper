@@ -83,6 +83,9 @@ test("Linux and macOS CI run the live sandbox tests; dependabot keeps the action
   expect(linux).toContain("apt-get install -y -q bubblewrap socat");
   expect(linux).toContain("kernel.apparmor_restrict_unprivileged_userns=0");
   expect(linux).toContain("tests/sandbox-live.test.ts");
+  // zizmor, from the same hash-locked file Casper installs it from, audits these workflows.
+  expect(linux).toContain("--require-hashes --no-deps -r src/security/locks/zizmor.txt");
+  expect(linux).toContain("zizmor\" --offline .github/workflows");
   const mac = load("macos-preview.yml");
   expect(Object.values(mac.jobs)[0]!.steps.map((step) => step.run ?? "").join("\n")).toContain("tests/sandbox-live.test.ts");
   const dependabot = parse(readFileSync(path.resolve(import.meta.dir, "../.github/dependabot.yml"), "utf8")) as { updates: Array<{ "package-ecosystem": string }> };
