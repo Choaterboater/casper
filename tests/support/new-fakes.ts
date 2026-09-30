@@ -28,6 +28,7 @@ case "$1" in
     shift
     printf '# added: %s\\n' "$*" >> pyproject.toml
     : > uv.lock
+    if [ -n "$FAKE_MAKE_GIT" ]; then mkdir -p .git/hooks; fi
     exit 0 ;;
   run)
     env > "$FAKE_DIR/uv-run.env"
