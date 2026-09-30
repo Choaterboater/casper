@@ -302,7 +302,10 @@ test("a known option after the prompt is a usage mistake (64) found before anyth
     let error: unknown;
     try { parseCliArgs([...args]); } catch (caught) { error = caught; }
     expect(error).toBeInstanceOf(UsageError);
-    expect((error as Error).message).toBe(`Options go before the prompt: ${shown}. To send it as words, put -- first.`);
+    const words = JSON.stringify(args.join(" "));
+    expect((error as Error).message).toBe(`Options go before the prompt: ${shown}. To send it as words, quote the whole request: casper ${words}.`);
+    // The quoted request is one argument, so it is sent as words (Bun drops a leading -- when casper runs from source).
+    expect(parseCliArgs([args.join(" ")])).toMatchObject({ command: "prompt", rest: [args.join(" ")] });
   }
   expect(parseCliArgs(["fix", "the", "-v", "flag"])).toMatchObject({ command: "prompt", rest: ["fix", "the", "-v", "flag"] });
   expect(parseCliArgs(["--", "fix", "--verify"])).toMatchObject({ command: "prompt", rest: ["fix", "--verify"] });
@@ -312,7 +315,7 @@ test("a known option after the prompt is a usage mistake (64) found before anyth
   tempDirs.push(root);
   const result = await run([cli, "fix", "the", "login", "bug", "--verify"], root);
   expect({ code: result.code, stdout: result.stdout }).toEqual({ code: 64, stdout: "" });
-  expect(result.stderr).toContain('Options go before the prompt: casper --verify "fix the login bug". To send it as words, put -- first.');
+  expect(result.stderr).toContain('Options go before the prompt: casper --verify "fix the login bug". To send it as words, quote the whole request: casper "fix the login bug --verify".');
   expect(await readdir(root)).not.toContain(".casper");
 });
 
