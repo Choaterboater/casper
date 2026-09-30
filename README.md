@@ -205,6 +205,10 @@ browser or debugger was installed. Remove secrets and private paths from logs fi
 Not in this release. Planned for v0.2.16: new-project templates, page checks, and network and
 security checks. Planned for v0.2.17: undo and a sandbox.
 
+Later, not scheduled: vendor packs (`casper pack add aruba` sets up a vendor's MCP server,
+read-only preset, references and skill in one step) and tool rules you write (for example, bounces
+only on lab sites in a maintenance window). See the [roadmap](https://choaterboater.github.io/casper/roadmap.html#later).
+
 ## Develop from source
 
 Needs Bun, Git, and Python 3 (for the POSIX terminal tests):
