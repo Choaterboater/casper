@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { isolatedEnvironment } from "../src/platform/environment";
 import { notesServer } from "./support/notes-server";
+import { sandboxAvailable } from "./support/platform";
 
 const cli = path.resolve(import.meta.dir, "../src/cli.ts");
 const cleanup: Array<() => Promise<unknown>> = [];
@@ -274,6 +275,9 @@ test("--json streams v1 JSON Lines on stdout: session, text, tools, Casper's che
   // cost is the catalog estimate for those tokens.
   expect(receipt.usage.estimatedCost).toBeCloseTo(0.00042, 10);
   receipt.usage.estimatedCost = "<cost>";
+  // Where the real sandbox runs here, the check ran in it and the receipt says so.
+  if (sandboxAvailable) expect(receipt.sandbox).toEqual({ held: true, reason: null });
+  delete receipt.sandbox;
   expect(stream).toEqual([
     { v: 1, type: "session_start", casper: "<version>", cwd: "<project>", session: "<id>", provider: "fixture", model: "first", effort: stream[0].effort },
     { v: 1, type: "phase", phase: "task", state: "start", atMs: "<ms>" },
@@ -682,5 +686,15 @@ test("--json --verify: the model records a smoke check, edits, and Casper replay
   // Casper started the unsolved server, then the fixed one after the edit; neither outlives the run.
   const pids = (await readFile(pidLog, "utf8")).trim().split("\n").map(Number);
   expect(pids).toHaveLength(2);
-  for (const pid of pids) expect(() => process.kill(pid, 0)).toThrow();
+  if (sandboxAvailable && process.platform === "linux") {
+    // In the Linux sandbox a service has its own process numbers, so look for any process still in the project.
+    const project = await realpath(f.project);
+    const left: string[] = [];
+    for (const entry of await readdir("/proc")) {
+      if (!/^\d+$/.test(entry)) continue;
+      const cwd = await import("node:fs/promises").then((fs) => fs.readlink(`/proc/${entry}/cwd`)).catch(() => "");
+      if (cwd === project || cwd.startsWith(`${project}/`)) left.push(entry);
+    }
+    expect(left).toEqual([]);
+  } else for (const pid of pids) expect(() => process.kill(pid, 0)).toThrow();
 }, 60_000);
