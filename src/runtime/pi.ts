@@ -27,7 +27,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { gitGuardReason } from "./git-guard";
-import { fileToolGate, gitInternalsCommand } from "../platform/project-paths";
+import { fileToolGate, gitInternalsCommand, privatePathCommand } from "../platform/project-paths";
 import { withoutProviderKeys } from "../platform/environment";
 import { nativeEditPath, observationInput, observationOutput, patchLineCounts, writeLineCounts, type ToolObservationInput } from "./observation";
 import type {
@@ -604,6 +604,10 @@ export class PiRuntime implements AgentRuntime {
           const gitInternals = (event.toolName === "bash" || event.toolName === "powershell") && typeof event.input.command === "string"
             ? gitInternalsCommand(event.input.command, cwd, pathContext.home) : undefined;
           if (gitInternals) return { block: true, reason: gitInternals };
+          // ~/.ssh, ~/.aws ... named in a shell command: refused even with the sandbox off.
+          const privateRead = (event.toolName === "bash" || event.toolName === "powershell") && typeof event.input.command === "string"
+            ? privatePathCommand(event.input.command, pathContext) : undefined;
+          if (privateRead) return { block: true, reason: privateRead };
           // Every tool, Casper's own and MCP tools too, so a plan turn can refuse anything that changes state.
           if (options.beforeToolGate) {
             const reason = options.beforeToolGate(event.toolName, event.input);

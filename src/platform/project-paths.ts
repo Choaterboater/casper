@@ -306,3 +306,28 @@ export function gitInternalsCommand(command: string, root: string, home = os.hom
   }
   return undefined;
 }
+
+/**
+ * A shell command whose text names a private place (~/.ssh/config, $HOME/.aws, /home/me/.netrc ...). The sandbox
+ * hides these from the shell too; this check also holds with the sandbox off (--no-sandbox, Windows). A text check,
+ * not a sandbox: a glob or a script can get past it. The key file ssh or scp is told to use (-i, IdentityFile) is not
+ * read by the AI, so that one is allowed.
+ */
+export function privatePathCommand(command: string, context: PathContext): string | undefined {
+  const home = context.home ?? os.homedir();
+  const text = command.replace(/(?:\s-i\s*|\bIdentityFile[= ]\s*)(?:"[^"]*"|'[^']*'|\S+)/g, " ");
+  const homes = ["~", "\\$HOME", "\\$\\{HOME\\}", "\"\\$HOME\"", "%USERPROFILE%", "\\$env:USERPROFILE", home.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")];
+  for (const place of privatePlaces(context)) {
+    const entry = place.shown.startsWith("~/") ? place.shown.slice(2) : undefined;
+    const names = entry ? homes.map((prefix) => `${prefix}[\\\\/]+${entry.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\//g, "[\\\\/]+")}`) : [];
+    for (const absolute of place.paths) names.push(absolute.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    const pattern = new RegExp(`(?:^|[\\s'"=:(<>|;&])(?:${names.join("|")})(?=$|[\\\\/\\s'";&|)<>*?])`);
+    if (pattern.test(text)) return `Not run: this command reads ${place.shown}, which is private (keys and logins). Casper keeps it from the AI. Ask the user instead.`;
+  }
+  // `cd ~/.ssh`, `cd $HOME` then a relative name: a command that goes home and names a private place by itself.
+  if (/(?:^|[\s;&|(])cd\s+(?:~|\$HOME|\$\{HOME\}|"\$HOME")\/?(?=$|[\s;&|)])/.test(text)) {
+    const bare = PRIVATE_PATHS.find((entry) => new RegExp(`(?:^|[\\s'"=:(<>|;&])(?:\\./)?${entry.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=$|[\\\\/\\s'";&|)])`).test(text));
+    if (bare) return `Not run: this command reads ~/${bare}, which is private (keys and logins). Casper keeps it from the AI. Ask the user instead.`;
+  }
+  return undefined;
+}

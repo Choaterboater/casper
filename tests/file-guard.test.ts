@@ -2,7 +2,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { classifyPath, fileToolGate, gitInternalsCommand, hooksPathTargets, PRIVATE_PATHS } from "../src/platform/project-paths";
+import { classifyPath, fileToolGate, gitInternalsCommand, hooksPathTargets, PRIVATE_PATHS, privatePathCommand } from "../src/platform/project-paths";
 import { POSIX } from "./support/platform";
 
 let root: string; let home: string; let project: string; let context: { root: string; home: string; agentDir: string };
@@ -105,4 +105,16 @@ test("a session in Casper's own worktree folder can still edit its project files
   // The rest of ~/.casper stays off limits from there.
   expect(fileToolGate("write", { path: "~/.casper/settings.json", content: "x" }, treeContext)).toContain("Casper doesn't let the AI change it.");
   expect(fileToolGate("write", { path: "../other/src/a.ts", content: "x" }, treeContext)).toContain("Casper doesn't let the AI change it.");
+});
+
+test("a shell command that names ~/.ssh or another private place is refused, even with no sandbox", () => {
+  for (const command of ["cat ~/.ssh/config", "grep -i hostname $HOME/.ssh/config", "cat \"$HOME/.ssh/id_test\"", "ls ${HOME}/.aws",
+    `cat ${home}/.ssh/config`, "cd ~ && cat .ssh/config", "cp ~/.netrc /tmp/x", "tar czf k.tgz ~/.ssh"]) {
+    expect([command, privatePathCommand(command, context)]).toEqual([command, expect.stringMatching(/^Not run: this command reads ~\/\.(ssh|aws|netrc), which is private \(keys and logins\)\./)]);
+  }
+  // ssh's own key file is read by ssh, not shown to the AI; other commands and names pass.
+  for (const command of ["ssh -i ~/.ssh/lab_key root@10.0.0.5 uptime", "scp -o IdentityFile=~/.ssh/lab app.py lab-01:/opt/", "ssh lab-01 uptime",
+    "cat ./ssh/config", "ls ~/Projects", "echo .sshrc", "cat notes/.ssh-hosts.md"]) {
+    expect([command, privatePathCommand(command, context)]).toEqual([command, undefined]);
+  }
 });
