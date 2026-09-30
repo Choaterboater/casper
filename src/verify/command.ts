@@ -102,7 +102,10 @@ export async function runCommandCheck(options: CommandCheckOptions): Promise<Ver
       if (wrapped.held) held = wrapped.id;
     } else plan = direct;
   } catch (error) {
-    return { ...base(), status: "fail", exitCode: null, signal: null, reason: `Could not execute: ${error instanceof Error ? error.message : String(error)}`, ended: "no_start" };
+    // The sandbox failed to start just now (it said so): this check runs as the later ones will, not sandboxed,
+    // and the receipt says so.
+    if (sandbox?.failure) plan = direct;
+    else return { ...base(), status: "fail", exitCode: null, signal: null, reason: `Could not execute: ${error instanceof Error ? error.message : String(error)}`, ended: "no_start" };
   }
 
   return new Promise((resolve) => {

@@ -159,7 +159,10 @@ export class ManagedProcess {
     let held = false;
     if (sandbox?.on) {
       try { const wrapped = await sandbox.wrap(command, { cwd, network: "host" }); command = wrapped.command; held = wrapped.held; }
-      catch (error) { await rm(home, { recursive: true, force: true }); throw new ManagedProcessError("exited", `${this.label} could not start: ${error instanceof Error ? error.message : String(error)}`, ""); }
+      catch (error) {
+        // The sandbox failed to start just now (it said so): start as later runs will, not sandboxed.
+        if (!sandbox.failure) { await rm(home, { recursive: true, force: true }); throw new ManagedProcessError("exited", `${this.label} could not start: ${error instanceof Error ? error.message : String(error)}`, ""); }
+      }
       if (signal.aborted) { await rm(home, { recursive: true, force: true }); return aborted(); }
     }
     const child = this.child = spawn(command, { cwd, shell: true, detached: osSupportsProcessGroups, stdio: ["ignore", "pipe", "pipe"], env: sandboxPath({ ...withoutProviderKeys(this.options.env ?? {}), ...isolatedEnvironment(this.home, {

@@ -167,3 +167,31 @@ test("with the sandbox on, a receipt whose lab check ran says it ran outside the
   const plain: TaskResult = { ...ran, verification: { status: "pass", results: [{ name: "test", status: "pass", durationMs: 5 }], repairAttempts: 0 } as never };
   expect(formatReceipt(plain)).not.toContain("outside the sandbox");
 });
+
+posixOnly("when the sandbox fails to start on a check or a tool run, that run still goes ahead, not sandboxed, and the receipt says so", async () => {
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-sandbox-wiring-")));
+  roots.push(root);
+  const failing = () => {
+    const engine = { ...fakeEngine(), initialize: async () => { throw new Error("bwrap: setting up uid map: Permission denied"); } };
+    const sandbox = new ShellSandbox({ root: () => root, home: path.join(root, "home"), engine, problem: () => undefined, platform: "linux" });
+    useSandbox(sandbox);
+    return sandbox;
+  };
+  const checkSandbox = failing();
+  const first = await runCommandCheck({ name: "test", command: "echo ran", cwd: root, timeoutMs: 10_000 });
+  expect({ status: first.status, ended: first.ended, out: first.stdout.trim() }).toEqual({ status: "pass", ended: undefined, out: "ran" });
+  const { sandboxReceipt } = await import("../src/app/sandbox");
+  expect(sandboxReceipt(checkSandbox)).toEqual({ held: false, reason: "the sandbox could not start: bwrap: setting up uid map: Permission denied" });
+  await checkSandbox.close();
+  const toolSandbox = failing();
+  const tool = await runArgv("sh", ["-c", "echo tool"], { cwd: root, env: { PATH: process.env.PATH ?? "" }, timeoutMs: 10_000 });
+  expect({ code: tool.exitCode, out: tool.stdout.trim() }).toEqual({ code: 0, out: "tool" });
+  expect(sandboxReceipt(toolSandbox)?.held).toBe(false);
+  await toolSandbox.close();
+  const serviceSandbox = failing();
+  const managed = new ManagedProcess({ command: "echo ready-${CASPER_FAKE_HELD:-plain}; sleep 5", cwd: root, ready: { log: "ready-plain" }, timeoutMs: 5_000 });
+  await managed.start(new AbortController().signal);
+  await managed.close();
+  expect(sandboxReceipt(serviceSandbox)?.held).toBe(false);
+  await serviceSandbox.close();
+});

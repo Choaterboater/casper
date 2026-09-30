@@ -172,3 +172,25 @@ test("a sandbox that can't start says so, and from then on the AI's shell asks a
   const { sandboxReceipt } = await import("../src/app/sandbox");
   expect(sandboxReceipt(sandbox)).toEqual({ held: false, reason: "the sandbox could not start: bwrap: setting up uid map: Permission denied" });
 });
+
+test("the AI's first command after the sandbox fails to start asks too, and a one-shot run refuses it", async () => {
+  const failing = () => ({ ...fakeEngine(), initialize: async () => { throw new Error("bwrap: setting up uid map: Permission denied"); } });
+  for (const [answers, expected] of [[["No"], SHELL_DECLINED], [["Yes, this once"], undefined]] as const) {
+    const { home, project, context } = await fixture();
+    const terminal = host([...answers]);
+    const sandbox = createSessionSandbox(terminal.value, context, { root: () => project, home, seams: { engine: failing(), problem: () => undefined, platform: "linux" } });
+    const shell = runtimeShell(terminal.value, sandbox, new SandboxStore(context.stateDirectory));
+    const wrapping = shell.wrap("rm -rf build", project);
+    if (expected) await expect(wrapping).rejects.toThrow(expected);
+    else expect(await wrapping).toEqual({ command: "rm -rf build" });
+    expect(terminal.asked).toEqual([{ question: "Run this command?  rm -rf build", options: ["No", "Yes, this once", "Yes, and don't ask again for this exact command here"] }]);
+    await sandbox.close();
+  }
+  const { home, project, context } = await fixture();
+  const oneShot = host([], false);
+  const sandbox = createSessionSandbox(oneShot.value, context, { root: () => project, home, seams: { engine: failing(), problem: () => undefined, platform: "linux" } });
+  const shell = runtimeShell(oneShot.value, sandbox, new SandboxStore(context.stateDirectory));
+  await expect(shell.wrap("rm -rf build", project)).rejects.toThrow(SHELL_CANT_ASK);
+  expect(oneShot.asked).toEqual([]);
+  await sandbox.close();
+});

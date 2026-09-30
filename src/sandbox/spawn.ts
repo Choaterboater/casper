@@ -18,7 +18,13 @@ export interface SandboxedSpawn {
 
 export async function sandboxedArgv(file: string, args: readonly string[], options: SandboxWrapOptions, sandbox: ShellSandbox | undefined | false = currentSandbox()): Promise<SandboxedSpawn> {
   if (!sandbox || !sandbox.on) return { file, args: [...args], shell: false };
-  const wrapped = await sandbox.wrap([file, ...args].map(quote).join(" "), options);
+  let wrapped;
+  try { wrapped = await sandbox.wrap([file, ...args].map(quote).join(" "), options); }
+  catch (error) {
+    // The sandbox failed to start just now (it said so): run as later runs will, not sandboxed.
+    if (sandbox.failure) return { file, args: [...args], shell: false };
+    throw error;
+  }
   if (!wrapped.held) return { file, args: [...args], shell: false };
   return { file: wrapped.command, args: [], shell: true, held: { id: wrapped.id, sandbox } };
 }
