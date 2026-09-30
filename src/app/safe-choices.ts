@@ -116,3 +116,12 @@ export function workFolderChoices(here: string, there: string): Choice[] {
     { label: "Switch there", description: `your next request starts a new conversation in ${there}` },
   ];
 }
+
+/** "This task has used $5.02." when a task reaches the spend pause (spend.pauseAt, $5 by default). Enter stops;
+ * the work so far is kept either way. `next` is where it asks again. */
+export function spendChoices(next: string): Choice[] {
+  return [
+    { label: "Stop here", description: "the work so far is kept" },
+    { label: "Keep going", description: `asks again at ${next}` },
+  ];
+}

@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import {
   ALREADY_FAILING_CHOICES, MCP_REMEMBER_CHOICES, MCP_WRITES_CHOICES, modelFailedChoices, PLAN_CHOICES, PLAN_QUESTION, REMEMBER_BIG_MODEL_CHOICES,
-  REPAIR_LIMIT_STOP, undoChangedChoices, missingFolderChoices, workFolderChoices, unfinishedChoices, HOST_CHOICES, SHELL_COMMAND_CHOICES, AI_REVIEW_CHOICES, REACH_CHOICES,
+  REPAIR_LIMIT_STOP, spendChoices, undoChangedChoices, missingFolderChoices, workFolderChoices, unfinishedChoices, HOST_CHOICES, SHELL_COMMAND_CHOICES, AI_REVIEW_CHOICES, REACH_CHOICES,
 } from "../src/app/safe-choices";
 import { planEditorHeading } from "../src/flows/plan";
 import { askBuildRequest, newProjectInEmptyFolder, offerMissingFolder, type NewProjectFlow } from "../src/app/new-project";
@@ -48,6 +48,7 @@ const firsts: Array<[string, string, string]> = [
   ["the AI security review", AI_REVIEW_CHOICES[0].label, "Stop here"],
   ["a typed folder that isn't there", missingFolderChoices("Documents", "mist-tools")[0]!.label, "Stay in Documents"],
   ["the work is in a project inside this folder", workFolderChoices("Documents", "mist-tools")[0]!.label, "Stay here"],
+  ["this task has used $5.02", spendChoices("$10")[0]!.label, "Stop here"],
 ];
 
 test.each(firsts)("choice 1 at %s is the safe one", (_question, first, expected) => {
@@ -58,6 +59,7 @@ test.each(firsts)("choice 1 at %s is the safe one", (_question, first, expected)
 test("the risky choices still exist, as a deliberate 2 or later", () => {
   expect(PLAN_CHOICES.map((choice) => choice.label)).toEqual(["Stop", "Build"]);
   expect(ALREADY_FAILING_CHOICES.map((choice) => choice.label)).toEqual(["Leave it", "Fix it anyway"]);
+  expect(spendChoices("$10").map((choice) => choice.label)).toEqual(["Stop here", "Keep going"]);
   expect(modelFailedChoices("fixture/big").map((choice) => choice.label)).toEqual(["Stop", "Retry", "Retry with your big model"]);
   expect(unfinishedChoices(600_000, 2_400_000).map((choice) => choice.label)).toEqual(["Stop", "Retry", "Fix it anyway", "Allow more time"]);
   expect(unfinishedChoices(600_000, 2_400_000)[0]!.choice).toBeUndefined();

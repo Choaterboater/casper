@@ -233,10 +233,12 @@ export class PiModels {
       : stale ? "Credential state needs local refresh. Restart Casper before using this provider; do not repeat login blindly."
       : !model ? `Model ${reference.provider}/${reference.id} is unavailable. Use /model to choose another; no fallback was selected.`
       : auth === "missing" ? `Credentials missing for ${reference.provider}. Use /login for OpenAI Codex, configure another supported credential, or /model to choose another.` : undefined;
+    const prices = model?.cost ? [model.cost.input, model.cost.output].filter((price) => typeof price === "number" && Number.isFinite(price)) : [];
+    const priced = prices.length ? prices.some((price) => price > 0) : undefined;
     return { provider: reference?.provider, model: reference?.id, thinkingLevel: model ? session.thinkingLevel : undefined,
       configuredEffort: selection.effort ?? (model ? session.thinkingLevel : undefined), modelRole: selection.role, autoEffort: selection.auto,
       availableThinkingLevels: model ? session.getAvailableThinkingLevels() : [],
-      auth, selectionSource: selection.source, defaultModel: this.defaultReference(), blocked };
+      auth, selectionSource: selection.source, defaultModel: this.defaultReference(), blocked, ...(priced !== undefined ? { priced } : {}) };
   }
 
   private applyEffort(session: AgentSession, effort: string, retain = false): void {

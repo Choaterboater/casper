@@ -130,8 +130,9 @@ command is working, `?` while an exact approval is pending. The box never shifts
 horizontally between states, so a draft keeps its wrapping. The footer shows a
 state glyph (braille spinner while working, `○` idle, `? waiting for you` while a question,
 checklist or approval needs you, with the spinner stopped and the timer paused), then project/branch, provider/model, effort,
-estimated context occupancy, runtime-reported session tokens, a positive cost
-estimate when available, and idle/working state. While a task runs, its stages
+estimated context occupancy, the current task's tokens and its cost from the model's price
+(`task 48.2k tok · $0.31`; a free model shows tokens only; /usage has the session totals), and
+idle/working state. While a task runs, its stages
 lead the footer, each marked ✓ once done, then the elapsed time:
 `⠋ checklist ✓ · building ✓ · checks · 1m05s │ project…`; in a narrow window only the current stage
 and the time (`⠋ checks · 1m05s │ …`). Tool lines print paths relative to the project and fit one row:

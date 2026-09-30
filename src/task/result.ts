@@ -10,6 +10,7 @@ import type { AutoCheckSkip, VerificationMode } from "../verify/mode";
 import type { ChangeProof } from "../verify/proof";
 import type { AcceptanceResult } from "../verify/acceptance";
 import { ROUND_MAX_TURNS, type RequirementsReview } from "./review";
+import { formatCost, formatLimit } from "./spend";
 
 /** Tool-reported diagnostics, not process exit evidence or a reusable check pass. */
 export interface ObservedCheck {
@@ -59,6 +60,8 @@ export interface TaskResult {
   autoSkipped?: AutoCheckSkip;
   /** `--max-turns` stopped the model after this many turns, before it finished. */
   turnLimit?: number;
+  /** The spend pause stopped the model (Stop here, or a run that can't ask): what the task had used, and the limit. */
+  spendLimit?: { spent: number; limit: number };
   usage?: TaskUsage;
   /** Whether the tests fail without the change and pass with it (code changes in auto
    * mode). An unproven change is not verified: the passing checks do not exercise it. */
@@ -115,7 +118,7 @@ export type TaskOutcome = "verified" | "failed" | "incomplete" | "not_verified" 
 /** Whether the checks passed on the final files. The outcome asks for more (a changed tree with a proven change), so
  * receipts and scripts that mean "the checks passed" read this (JSON `checksPassed`), not the outcome. */
 export function checksPassed(report?: VerificationReport, task?: TaskResult): boolean {
-  if (task?.execution === "cancelled" || task?.execution === "failed" || task?.turnLimit !== undefined) return false;
+  if (task?.execution === "cancelled" || task?.execution === "failed" || task?.turnLimit !== undefined || task?.spendLimit !== undefined) return false;
   if (task?.browser?.status === "fail" || task?.browser?.status === "incomplete") return false;
   const verification = task?.verification ?? report;
   if (verification?.status !== "pass") return false;
@@ -139,7 +142,7 @@ export function taskOutcome(report?: VerificationReport, task?: TaskResult): Tas
   if (task?.execution === "cancelled") return "cancelled";
   if (task?.execution === "failed") return "failed";
   // Cut short by --max-turns: whatever was checked covers unfinished work.
-  if (task?.turnLimit !== undefined) return "incomplete";
+  if (task?.turnLimit !== undefined || task?.spendLimit !== undefined) return "incomplete";
   const verification = task?.verification ?? report;
   const status = verification?.status;
   if (status === "fail" || status === "blocked" || task?.browser?.status === "fail") return "failed";
@@ -193,6 +196,7 @@ export function formatTaskResult(task: TaskResult): string {
   const report = task.verification;
   const safe = (text: string) => text.replace(/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g, " ");
   const lines = [`[task] Execution ${task.execution}`];
+  if (task.spendLimit) lines.push(receiptLine("spend", `stopped at ${formatCost(task.spendLimit.spent)}, the ${formatLimit(task.spendLimit.limit)} limit for one task (spend.pauseAt)`));
 
   if (task.observedEdits?.length) lines.push(receiptLine("tool edits", task.observedEdits.map(safe).join(", ")));
   if (task.changedPaths) lines.push(receiptLine("changes", formatChangedPaths(task.changedPaths, safe)));
@@ -385,7 +389,9 @@ function withVerdict(task: TaskResult, body: string[], options: ReceiptOptions):
       else lines = ["✗ Failed — browser checks failed", ...body];
       break;
     case "incomplete":
-      lines = [task.turnLimit !== undefined
+      lines = [task.spendLimit !== undefined
+        ? `• Incomplete — stopped at ${formatCost(task.spendLimit.spent)}, the ${formatLimit(task.spendLimit.limit)} limit for one task (spend.pauseAt); changes so far are kept; ${options.surface === "one-shot" ? "casper --continue" : "send another request"} to go on`
+        : task.turnLimit !== undefined
         ? `• Incomplete — stopped after ${task.turnLimit} ${task.turnLimit === 1 ? "turn" : "turns"} (--max-turns); changes so far are kept; ${options.surface === "one-shot" ? "casper --continue" : "send another request"} to go on`
         : report?.reason === NO_CHECKS_FOUND && !report.results.length ? "• Not checked — no checks found in this folder"
         : "• Incomplete — not every check ran", ...body];

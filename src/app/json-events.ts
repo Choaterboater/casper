@@ -61,6 +61,8 @@ export interface ReceiptEvent {
     & Pick<CheckEvent, "kind" | "label" | "hosts" | "summary">>;
   repairAttempts: number;
   turnLimit: number | null;
+  /** The spend pause stopped the model: what the task had used and the limit, in dollars; null otherwise. */
+  spendLimit: { spent: number; limit: number } | null;
   /** This task's model use; null when no model task ran (a local command). */
   usage: TaskUsage | null;
   /** Whether the tests fail without the change and pass with it; null when Casper did not compare. */
@@ -242,6 +244,7 @@ export function receiptEvent(report: VerificationReport | undefined, task: TaskR
       exit: result.exitCode, ms: Math.round(result.durationMs), fresh: result.status === "pass" && result.freshness !== "stale", ...namedCheckFields(result) })),
     repairAttempts: verification?.repairAttempts ?? 0,
     turnLimit: task?.turnLimit ?? null,
+    spendLimit: task?.spendLimit ? { ...task.spendLimit } : null,
     usage: task?.usage ? { ...task.usage } : commandUsage ? { ...commandUsage } : null,
     proof: task?.proof ? redactProof(task.proof) : null,
     proofSkipped: task?.proofSkipped ?? null,

@@ -49,6 +49,8 @@ export class TaskObservations {
   private turns = 0;
   private tokens: number | null = 0;
   private estimatedCost: number | null = 0;
+  /** What the reported calls add up to so far, kept even when a call went unreported (footer and spend limits). */
+  private known = { tokens: 0, cost: 0 };
   /** Delegate calls started, and child usage reports received. Counted apart, not matched in
    * order: the tool reports when it returns, which may reach us before or after its tool_start. */
   private delegations = 0;
@@ -66,6 +68,7 @@ export class TaskObservations {
     if (event.type !== "assistant_response_end") return;
     this.turns++;
     if (!event.usage) { this.recordUntrackedModelUse(); return; }
+    this.addKnown(event.usage);
     if (this.tokens !== null) this.tokens += event.usage.tokens;
     if (this.estimatedCost !== null) this.estimatedCost += event.usage.estimatedCost;
   }
@@ -74,6 +77,7 @@ export class TaskObservations {
   recordDelegatedUsage(usage: { tokens: number; estimatedCost: number } | null): void {
     this.delegationReports++;
     if (!usage) { this.recordUntrackedModelUse(); return; }
+    this.addKnown(usage);
     if (this.tokens !== null) this.tokens += usage.tokens;
     if (this.estimatedCost !== null) this.estimatedCost += usage.estimatedCost;
   }
@@ -81,9 +85,18 @@ export class TaskObservations {
   /** A Casper-made model call outside the conversation (the acceptance check); null when unreported. */
   recordModelCall(usage: { tokens: number; estimatedCost: number } | null): void {
     if (!usage) { this.recordUntrackedModelUse(); return; }
+    this.addKnown(usage);
     if (this.tokens !== null) this.tokens += usage.tokens;
     if (this.estimatedCost !== null) this.estimatedCost += usage.estimatedCost;
   }
+
+  private addKnown(usage: { tokens: number; estimatedCost: number }): void {
+    if (Number.isFinite(usage.tokens) && usage.tokens > 0) this.known.tokens += usage.tokens;
+    if (Number.isFinite(usage.estimatedCost) && usage.estimatedCost > 0) this.known.cost += usage.estimatedCost;
+  }
+
+  /** Tokens and estimated cost the task's reported model calls add up to so far: at least this much. */
+  spent(): { tokens: number; cost: number } { return { ...this.known }; }
 
   /** The task made model calls these totals do not include. */
   recordUntrackedModelUse(): void {

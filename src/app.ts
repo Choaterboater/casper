@@ -63,7 +63,8 @@ import { safeGitArgs } from "./platform/git";
 import { VerifierRegistry } from "./verify/registry";
 import { isRetryableAssistantError } from "@earendil-works/pi-ai/utils/retry";
 import { longerLimit, timedOutAfter, verifyAndRepair, type UnfinishedChoice } from "./verify/repair-loop";
-import { ALREADY_FAILING_CHOICES, modelFailedChoices, PLAN_CHOICES, PLAN_QUESTION, REMEMBER_BIG_MODEL_CHOICES, REPAIR_LIMIT_STOP, unfinishedChoices, workFolderChoices } from "./app/safe-choices";
+import { ALREADY_FAILING_CHOICES, modelFailedChoices, PLAN_CHOICES, PLAN_QUESTION, REMEMBER_BIG_MODEL_CHOICES, REPAIR_LIMIT_STOP, spendChoices, unfinishedChoices, workFolderChoices } from "./app/safe-choices";
+import { DEFAULT_SPEND_LIMITS, formatCost, formatLimit, formatTaskSpend, formatTokens, SpendGuard } from "./task/spend";
 import { VerificationTask } from "./verify/task";
 import { ChangeBaseline, changesCode, proofRepairPrompt, type ChangeProof } from "./verify/proof";
 import { independentAcceptance } from "./verify/acceptance";
@@ -254,6 +255,12 @@ export class CasperApp {
   private modelCheckCalls = 0;
   /** Turns after which --max-turns stopped the current task's model request. */
   private taskTurnLimit?: number;
+  /** The spend pause stopped the current task's model request: what it had used, and the limit. */
+  private taskSpendStop?: { spent: number; limit: number };
+  /** This task's spend note and pause (src/task/spend.ts); a fresh one per task. */
+  private spendGuard?: SpendGuard;
+  /** The spend question while it is open, so parallel tool calls wait on the one answer. */
+  private spendAsk?: Promise<string | undefined>;
   private verificationAbort?: AbortController;
   private verificationWork?: Promise<VerificationReport>;
   /** Active repair evidence; sharing it does not grant managed-tool consent. */
@@ -823,6 +830,8 @@ export class CasperApp {
           beforeToolGate: (toolName, input) => (this.planning ? planToolGate(toolName, input) : undefined)
             ?? hiddenSecretGate(toolName, input)
             ?? (toolName === "edit" || toolName === "write" ? this.editGateReason(toolName) : undefined),
+          // At the spend pause the next tool call waits for the answer (Stop here is the Enter choice).
+          beforeToolWait: (_toolName, signal) => this.spendGate(signal),
           // Config files and config-looking command output (/secrets files off stops these for this
           // session), plus .env, credential files and secret env values (always).
           scrubToolOutput: (toolName, input, texts, signal) => scrubToolOutput(this.scrubber, toolName, input, texts, signal, { configs: this.scrubFiles }),
@@ -836,6 +845,7 @@ export class CasperApp {
           if (event.type === "tool_start" && event.toolName === "casper_check") this.modelCheckCalls++;
           if (event.type === "tool_end" && event.toolName === "casper_check") this.modelCheckCalls = Math.max(0, this.modelCheckCalls - 1);
           this.observations.observeUsage(event);
+          if (event.type === "assistant_response_end") this.spendNote();
           if (event.type === "assistant_response_start") this.responseText = "";
           else if (event.type === "assistant_text_delta") this.responseText = (this.responseText + event.delta).slice(-65_536);
           else if (event.type === "assistant_response_end" && this.responseText.trim()) this.lastAnswer = this.responseText;
@@ -933,6 +943,7 @@ export class CasperApp {
     if (!/^\/(?:receipt|undo|redo|diff)(?:\s|$)/.test(prompt)) this.lastTaskResult = undefined;
     this.taskRuntimeFailed = false;
     this.taskTurnLimit = undefined;
+    this.taskSpendStop = undefined;
     this.events.clearError();
     this.taskRuntimeCancelled = false;
     this.commandActive = true;
@@ -1292,6 +1303,7 @@ export class CasperApp {
     this.beforeWorkAsked = Boolean(options.flow || options.planFirst);
     if (await this.offerNewProject(prompt) === "stop" || this.closing || this.commandAbort?.signal.aborted) return;
     this.observations = new TaskObservations();
+    this.spendGuard = new SpendGuard(this.projectContext?.spend ?? DEFAULT_SPEND_LIMITS);
     this.bigModelUse = undefined;
     this.taskChangeServers = new Set();
     const context = this.projectContext!;
@@ -1444,7 +1456,7 @@ export class CasperApp {
       edits.turnEnded = true;
       afterModel = before && !this.closing ? await this.snapshotWorkspace(workspaceRoot) : undefined;
       // A request cut short by --max-turns is unfinished work: checking it would only start repairs.
-      const cancelled = this.closing || this.commandAbort?.signal.aborted || this.taskRuntimeCancelled || this.checkTask?.signal.aborted || this.taskTurnLimit !== undefined;
+      const cancelled = this.closing || this.commandAbort?.signal.aborted || this.taskRuntimeCancelled || this.checkTask?.signal.aborted || this.taskTurnLimit !== undefined || this.taskSpendStop !== undefined;
       const stopped = cancelled || this.taskRuntimeFailed;
       // The model errored after editing: its edits are kept, so check them (no repair: the model just failed).
       if (!cancelled && this.taskRuntimeFailed && this.checkTask && verificationMode === "auto") {
@@ -1491,7 +1503,7 @@ export class CasperApp {
           // Not tied to the proof: any code change whose checks pass (server tasks and configure requests too).
           const acceptanceMode = context.verification.acceptance;
           if ((acceptanceMode === true || acceptanceMode === "warn") && testCommand && changedCode && verification.status === "pass" && proof?.status !== "unproven"
-            && !this.closing && !this.commandAbort?.signal.aborted && !this.taskRuntimeFailed && this.taskTurnLimit === undefined) {
+            && !this.closing && !this.commandAbort?.signal.aborted && !this.taskRuntimeFailed && this.taskTurnLimit === undefined && this.taskSpendStop === undefined) {
             acceptance = await this.acceptChange({ session, before: before!, root: workspaceRoot, command: testCommand, request: prompt,
               mode: acceptanceMode === "warn" ? "warn" : "verdict" });
           }
@@ -1545,7 +1557,7 @@ export class CasperApp {
         verificationMode, ...(!flag && !configured && verificationMode === "auto" ? { verificationDefaulted: true as const } : {}),
         ...(autoChecks?.skipped && !verification?.smoke && !verification?.pages ? { autoSkipped: autoChecks.skipped } : {}),
         ...(pageNotes?.length && !verification?.pages ? { pageNotes } : {}),
-        ...(this.taskTurnLimit !== undefined ? { turnLimit: this.taskTurnLimit } : {}), ...(proof ? { proof } : {}), ...(proofSkipped && !proof ? { proofSkipped } : {}), ...(review ? { review } : {}),
+        ...(this.taskTurnLimit !== undefined ? { turnLimit: this.taskTurnLimit } : {}), ...(this.taskSpendStop ? { spendLimit: { ...this.taskSpendStop } } : {}), ...(proof ? { proof } : {}), ...(proofSkipped && !proof ? { proofSkipped } : {}), ...(review ? { review } : {}),
         ...(acceptance ? { acceptance } : {}), ...(checklist ? { checklist } : {}), ...this.bigModelReceipt(),
         ...(changedWhilePlanning?.length ? { changedWhilePlanning } : {}), ...(this.sandbox ? { sandbox: sandboxReceipt(this.sandbox)! } : {}) };
       // The receipt is next: the steps fold and the Working box goes, even for a tool that ended late.
@@ -1553,7 +1565,8 @@ export class CasperApp {
       if (!this.closing) {
         this.terminal.endAssistant();
         this.events.ensureLineBreak();
-        if (classification.intent !== "general" || execution !== "completed" || verification || browser?.checks.length || observations.possibleMutations || observations.changedPaths?.length || observations.changedDuringChecks?.length || observations.observedEdits.length || observations.observedChecks.length
+        // A stop at --max-turns or at the spend limit is always said on a receipt.
+        if (classification.intent !== "general" || execution !== "completed" || this.taskTurnLimit !== undefined || this.taskSpendStop !== undefined || verification || browser?.checks.length || observations.possibleMutations || observations.changedPaths?.length || observations.changedDuringChecks?.length || observations.observedEdits.length || observations.observedChecks.length
           || observations.remoteChanges?.length || observations.secretInCommand) {
           // The second copy and the saved receipt; the change summary lists only this task's files.
           const { stat } = await this.taskUndo.finish(undoStart, { request: prompt, task: this.lastTaskResult, session, servers: [...this.taskChangeServers] });
@@ -1657,7 +1670,7 @@ export class CasperApp {
     initialReview?: { done: string[]; open: string[] };
   }): Promise<{ verification: VerificationReport; proof?: ChangeProof; review?: RequirementsReview }> {
     const context = this.projectContext!;
-    const stopped = () => this.closing || Boolean(this.commandAbort?.signal.aborted) || this.taskRuntimeFailed || this.taskTurnLimit !== undefined;
+    const stopped = () => this.closing || Boolean(this.commandAbort?.signal.aborted) || this.taskRuntimeFailed || this.taskTurnLimit !== undefined || this.taskSpendStop !== undefined;
     const max = context.repair.maxAttempts;
     let verification = input.verification;
     // The review is opt-in (verification.review: true): pinned benchmarks showed no first-time-right gain
@@ -1718,7 +1731,7 @@ export class CasperApp {
     };
     let verification = input.verification;
     let proof = await compare();
-    const stopped = () => this.closing || Boolean(this.commandAbort?.signal.aborted) || this.taskRuntimeFailed || this.taskTurnLimit !== undefined;
+    const stopped = () => this.closing || Boolean(this.commandAbort?.signal.aborted) || this.taskRuntimeFailed || this.taskTurnLimit !== undefined || this.taskSpendStop !== undefined;
     const max = context.repair.maxAttempts;
     if (proof?.status !== "unproven" || verification.repairAttempts >= max || stopped()) return { verification, proof };
     const attempt = verification.repairAttempts + 1;
@@ -2022,7 +2035,7 @@ export class CasperApp {
   private async retryModelFailure(session: RuntimeSession, request: string): Promise<void> {
     for (let attempt = 1; ; attempt++) {
       const error = this.events.lastError ?? "";
-      if (!this.taskRuntimeFailed || this.taskRuntimeCancelled || this.closing || this.commandAbort?.signal.aborted || this.taskTurnLimit !== undefined) return;
+      if (!this.taskRuntimeFailed || this.taskRuntimeCancelled || this.closing || this.commandAbort?.signal.aborted || this.taskTurnLimit !== undefined || this.taskSpendStop !== undefined) return;
       // Only a provider that answered with nothing; Pi already retried what it counts as transient,
       // within the user's retry budget, so never go past that.
       if (!/empty (?:response|completion|message|content)|no (?:content|response|output) (?:was )?returned|returned no (?:content|output)/i.test(error)) return;
@@ -2690,6 +2703,42 @@ export class CasperApp {
     this.updateFooter();
   }
 
+  /** The task's cost after each model response: a quiet note once it reaches spend.noteAt (about $1). */
+  private spendNote(): void {
+    const guard = this.spendGuard;
+    if (!guard || this.closing || this.session?.getStatus?.().priced === false) return;
+    const spent = this.observations.spent();
+    if (!guard.noteDue(spent.cost)) return;
+    this.events.ensureLineBreak();
+    this.output.write(`… This task has used ${formatCost(spent.cost)} so far (${formatTokens(spent.tokens)}).\n`);
+  }
+
+  /** Before each tool call: at spend.pauseAt (about $5) the task pauses on a numbered question, Stop here first.
+   * A run that can't ask stops there. Either stop keeps the work and says so on the receipt. */
+  private spendGate(signal?: AbortSignal): Promise<string | undefined> {
+    if (this.spendAsk) return this.spendAsk;
+    const guard = this.spendGuard;
+    if (!guard || this.taskSpendStop) return Promise.resolve(this.taskSpendStop ? SPEND_STOP_REASON : undefined);
+    const spent = this.observations.spent();
+    const limit = guard.pauseDue(spent.cost);
+    if (limit === undefined) return Promise.resolve(undefined);
+    const ask = async (): Promise<string | undefined> => {
+      const used = `This task has used ${formatCost(spent.cost)}.`;
+      if (this.interactive && this.terminal.canAsk && !this.closing) {
+        const next = guard.nextAfter(spent.cost)!;
+        const answer = await this.terminal.pick(used, spendChoices(formatLimit(next)), signal ?? this.commandAbort?.signal);
+        if (answer === "Keep going") { guard.keepGoing(spent.cost); return undefined; }
+      } else {
+        this.events.ensureLineBreak();
+        this.output.write(`[spend] ${used} Casper stops here, at the ${formatLimit(limit)} limit for one task; the work so far is kept. spend.pauseAt in ~/.casper/config.yaml changes it.\n`);
+      }
+      this.taskSpendStop = { spent: spent.cost, limit };
+      return SPEND_STOP_REASON;
+    };
+    this.spendAsk = ask().finally(() => { this.spendAsk = undefined; });
+    return this.spendAsk;
+  }
+
   updateFooter(): void {
     if (!this.projectContext) return;
     const writes = this.mcp?.writesOn() ?? [];
@@ -2702,7 +2751,10 @@ export class CasperApp {
       const effort = (status && formatEffort(status)) ?? "effort —";
       const model = status?.model ? `${status.provider}/${status.model} · ${effort}`
         : this.session ? "no model selected · /model" : (this.runModel ? `${terminalText(this.runModel)} (--model)` : this.savedModelDisplay) ?? "model not initialized · /model";
-      this.terminal.setStatus(`${project.name}/${project.gitBranch ?? "no git"} │ ${model} │ ctx ${percent == null ? "—" : `${percent.toFixed(0)}%~`}${usage ? ` │ ${usage.tokens.total} tok` : ""}${usage?.estimatedCost === undefined ? "" : ` │ $${usage.estimatedCost.toFixed(3)} est`} │ ${this.commandActive ? "working" : "idle"}`, project.root);
+      // The current (or last) task's tokens, and its cost from the model's price; a free model shows tokens only.
+      const spent = this.observations.spent();
+      const task = spent.tokens ? ` │ ${formatTaskSpend(spent, status?.priced)}` : "";
+      this.terminal.setStatus(`${project.name}/${project.gitBranch ?? "no git"} │ ${model} │ ctx ${percent == null ? "—" : `${percent.toFixed(0)}%~`}${task} │ ${this.commandActive ? "working" : "idle"}`, project.root);
     } catch { this.terminal.setStatus("Session status unavailable · /status", this.projectContext.info.root); }
   }
 
@@ -2723,6 +2775,9 @@ export class CasperApp {
     this.observations.recordEdit(path);
   }
 }
+
+/** What the model is told when the spend pause stops its tool call. */
+const SPEND_STOP_REASON = "Stopped: this task reached its spend limit, so Casper stopped it here. Do not call more tools.";
 
 /** Why a change whose checks passed was not compared with and without it, in plain words for the receipt. */
 /** The verdict's reason when only page checks passed: they show the pages load, not that the change works. */

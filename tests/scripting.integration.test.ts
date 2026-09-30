@@ -298,7 +298,7 @@ test("--json streams v1 JSON Lines on stdout: session, text, tools, Casper's che
     { v: 1, type: "phase", phase: "proof", state: "end", atMs: "<ms>" },
     { v: 1, type: "receipt", outcome: "verified", exitCode: 0, execution: "completed", changed: ["sum.js"], changedDuringChecks: [],
       verificationMode: "auto", checks: [{ name: "test", command: "grep -q fixed sum.js", status: "pass", exit: 0, ms: "<ms>", fresh: true }],
-      repairAttempts: 0, turnLimit: null, usage: { turns: 3, tokens: 360, estimatedCost: "<cost>" },
+      repairAttempts: 0, turnLimit: null, spendLimit: null, usage: { turns: 3, tokens: 360, estimatedCost: "<cost>" },
       // The check fails on sum.js as it was, so it proves the fix.
       proof: { status: "proven", check: "test", command: "grep -q fixed sum.js", testsChanged: false, without: { exitCode: 1, ended: "fail" } },
       proofSkipped: null,
