@@ -22,8 +22,9 @@ export interface CheckEvent {
   recordedBy: "casper" | "casper_check";
   /** A fresh earlier pass was reused instead of rerunning the command. */
   reused: boolean;
-  /** Present only when the check did not finish as a test run: "timeout" or "no_start". */
-  ended?: "timeout" | "no_start";
+  /** Present only when the check did not finish as a test run: "timeout", "no_start" or "blocked" (the shell
+   * sandbox refused something it tried; `reason` says what). */
+  ended?: "timeout" | "no_start" | "blocked";
   /** Named checks only: "report" (a diff, never a pass or a fail) or "lab" (the user's own lab devices). */
   kind?: "report" | "lab";
   /** A few plain words shown beside the result, e.g. "dry run not guaranteed". */
@@ -88,6 +89,9 @@ export interface ReceiptEvent {
   security: SecuritySummary | null;
   /** This task's saved receipt number; null when receipts are not kept. */
   task: number | null;
+  /** Whether the shell sandbox held this task's shell commands and checks; `reason` says why not ("--no-sandbox",
+   * "bubblewrap is missing: ..."). Null when not known for this run. */
+  sandbox: { held: boolean; reason: string | null } | null;
   /** Whether /undo can put this task's files back; null when undo is not known for this run. */
   undo: { available: boolean; reason: string | null } | null;
   /** Files that changed during a plan turn anyway (paths redacted); null when none did. */
@@ -246,6 +250,7 @@ export function receiptEvent(report: VerificationReport | undefined, task: TaskR
     bigModel: task?.bigModel ? { ...task.bigModel } : null,
     security: task?.security ? structuredClone(task.security) : null,
     task: task?.receipt ?? null,
+    sandbox: task?.sandbox ? { held: task.sandbox.held, reason: task.sandbox.held ? null : redactPreview(task.sandbox.reason) } : null,
     undo: task?.undo ? { available: task.undo.available, reason: task.undo.available ? null : redactPreview(task.undo.reason) } : null,
     changedWhilePlanning: task?.changedWhilePlanning?.length ? task.changedWhilePlanning.map(redactPreview) : null,
     pageNotes: task?.pageNotes?.length ? task.pageNotes.map((note) => redactPreview(note.replace(/^• /, ""))) : null,

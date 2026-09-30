@@ -67,7 +67,7 @@ export interface NetworkCheckResult {
   truncated: boolean;
   durationMs: number;
   reason?: string;
-  ended?: "timeout" | "no_start";
+  ended?: "timeout" | "no_start" | "blocked";
   /** Report checks only (kind "report"). */
   report?: HierConfigReport;
   /** Set when a skip means a tool, collection or model folder is missing: "not run", never a failure to fix. */

@@ -10,6 +10,8 @@ import {
   createAgentSessionFromServices,
   createAgentSessionRuntime,
   createAgentSessionServices,
+  createBashToolDefinition,
+  createLocalBashOperations,
   getAgentDir,
   ModelRuntime,
   SessionManager,
@@ -18,13 +20,15 @@ import {
 import type {
   AgentSession,
   AgentSessionRuntime,
+  BashOperations,
   CreateAgentSessionRuntimeFactory,
   ExtensionAPI,
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { blockedGitCommand } from "./git-guard";
+import { gitGuardReason } from "./git-guard";
 import { fileToolGate, gitInternalsCommand } from "../platform/project-paths";
+import { withoutProviderKeys } from "../platform/environment";
 import { nativeEditPath, observationInput, observationOutput, patchLineCounts, writeLineCounts, type ToolObservationInput } from "./observation";
 import type {
   AgentRuntime,
@@ -36,6 +40,7 @@ import type {
   RuntimeForkOptions,
   RuntimeReadOnlyStartOptions,
   RuntimeSession,
+  RuntimeShell,
   RuntimeSessionInfo,
   RuntimeStartOptions,
   RuntimeState,
@@ -589,8 +594,8 @@ export class PiRuntime implements AgentRuntime {
           // Keep Pi's native execution, output handling, and process-tree cleanup.
           if (event.toolName === "bash" && event.input.timeout === undefined) event.input.timeout = 120;
           else if (event.toolName === "bash" && typeof event.input.timeout === "number" && event.input.timeout > BASH_TIMEOUT_CAP_SECONDS) event.input.timeout = BASH_TIMEOUT_CAP_SECONDS;
-          const risky = event.toolName === "bash" && typeof event.input.command === "string" ? blockedGitCommand(event.input.command) : undefined;
-          if (risky) return { block: true, reason: `Casper does not let the model run \`${risky}\`: it can set aside or discard the user's uncommitted work. Leave the working tree as it is, or ask the user to run it.` };
+          const risky = event.toolName === "bash" && typeof event.input.command === "string" ? gitGuardReason(event.input.command) : undefined;
+          if (risky) return { block: true, reason: risky };
           // Private files, links out of the project and git's own files (see src/platform/project-paths.ts).
           const pathReason = fileToolGate(event.toolName, event.input, pathContext);
           if (pathReason) return { block: true, reason: pathReason };
@@ -603,6 +608,11 @@ export class PiRuntime implements AgentRuntime {
             if (reason) return { block: true, reason };
           }
         });
+        // The AI's bash: Casper's own operations (adapted from Pi's sandbox example), never a repo's .pi/sandbox.json.
+        if (!readOnly) pi.registerTool({ ...createBashToolDefinition(cwd, {
+          operations: casperBashOperations(options.shell),
+          spawnHook: (context) => ({ ...context, env: withoutProviderKeys(context.env, options.shell?.keepEnv ?? []) }),
+        }) });
         if (options.scrubToolOutput) pi.on("tool_result", async (event, ctx) => {
           if (!SCRUBBED_TOOLS.has(event.toolName)) return;
           const texts = event.content.flatMap((block) => block.type === "text" ? [block.text] : []);
@@ -747,4 +757,36 @@ function readSmallText(file: string): string | undefined | null {
     if (!stats.isFile() || stats.size > 1024 * 1024) return null;
     return readFileSync(file, "utf8");
   } catch (error) { return (error as NodeJS.ErrnoException).code === "ENOENT" ? undefined : null; }
+}
+
+/**
+ * Pi's own local bash execution with Casper's shell around it: a question first when no sandbox can run, the
+ * sandbox's wrapper when one does, and the sandbox's refusal added to the output the AI reads ("[sandbox] blocked:
+ * wanted to write /etc/hosts") so it stops retrying. Pi writes the full output of a long command to a temp file;
+ * that file goes in a private folder of Casper's (os.tmpdir() is read at that moment), not the shared temp folder.
+ */
+export function casperBashOperations(shell: RuntimeShell | undefined, local: BashOperations = createLocalBashOperations()): BashOperations {
+  return {
+    async exec(command, cwd, options) {
+      const refused = await shell?.approve?.(command, options.signal);
+      if (refused) throw new Error(refused);
+      const wrapped = shell ? await shell.wrap(command, cwd) : { command };
+      const logDir = process.platform === "win32" ? undefined : await shell?.logDir?.();
+      let tail = "";
+      const onData = (data: Buffer) => {
+        if (wrapped.id) tail = (tail + data.toString("utf8")).slice(-16_384);
+        if (!logDir) { options.onData(data); return; }
+        const previous = process.env.TMPDIR;
+        process.env.TMPDIR = logDir;
+        try { options.onData(data); }
+        finally { if (previous === undefined) delete process.env.TMPDIR; else process.env.TMPDIR = previous; }
+      };
+      const result = await local.exec(wrapped.command, cwd, { ...options, onData });
+      if (wrapped.id && result.exitCode !== 0 && shell?.refused) {
+        const line = await shell.refused(wrapped.id, tail);
+        if (line) onData(Buffer.from(`\n${line}\n`));
+      }
+      return result;
+    },
+  };
 }

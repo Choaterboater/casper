@@ -6,6 +6,8 @@ import path from "node:path";
 
 import { isolatedEnvironment, withoutProviderKeys } from "./environment";
 import { osSupportsProcessGroups, ownSpawnedTree, OwnedProcesses, ProcessCleanupError, terminateTree, type ProcessPlatform } from "./processes";
+import { currentSandbox, type ShellSandbox } from "../sandbox/manager";
+import { sandboxPath } from "../sandbox/spawn";
 
 export type ManagedProcessState = "starting" | "ready" | "exited" | "stopped";
 export type Readiness = { http: URL } | { log: string | RegExp };
@@ -26,6 +28,9 @@ export interface ManagedProcessOptions {
   tempPrefix?: string;
   /** Process-table seam; the host platform by default. Tests simulate Windows through it. */
   platform?: ProcessPlatform;
+  /** The shell sandbox that holds it (the session's by default; `false`: none). It keeps the machine's own network,
+   * so the host can reach it on loopback, but writes only the project and temp and never reads private places. */
+  sandbox?: ShellSandbox | false;
   /** Called when the root exits on its own after readiness (a crash); the owner decides the cleanup. */
   onExit?: (details: { code: number | null; signal: NodeJS.Signals | null }) => void;
 }
@@ -148,12 +153,20 @@ export class ManagedProcess {
     if (signal.aborted || this.stopWork) await rm(home, { recursive: true, force: true });
     if (signal.aborted) return aborted();
     if (this.stopWork) return fail("closed", `${this.label} was closed during startup`);
-    const { cwd, command } = this.options;
-    const child = this.child = spawn(command, { cwd, shell: true, detached: osSupportsProcessGroups, stdio: ["ignore", "pipe", "pipe"], env: { ...withoutProviderKeys(this.options.env ?? {}), ...isolatedEnvironment(this.home, {
+    const { cwd } = this.options;
+    const sandbox = this.options.sandbox === false ? undefined : this.options.sandbox ?? currentSandbox();
+    let command = this.options.command;
+    let held = false;
+    if (sandbox?.on) {
+      try { const wrapped = await sandbox.wrap(command, { cwd, network: "host" }); command = wrapped.command; held = wrapped.held; }
+      catch (error) { await rm(home, { recursive: true, force: true }); throw new ManagedProcessError("exited", `${this.label} could not start: ${error instanceof Error ? error.message : String(error)}`, ""); }
+      if (signal.aborted) { await rm(home, { recursive: true, force: true }); return aborted(); }
+    }
+    const child = this.child = spawn(command, { cwd, shell: true, detached: osSupportsProcessGroups, stdio: ["ignore", "pipe", "pipe"], env: sandboxPath({ ...withoutProviderKeys(this.options.env ?? {}), ...isolatedEnvironment(this.home, {
       PATH: `${path.join(cwd, "node_modules", ".bin")}${path.delimiter}${process.env.PATH ?? ""}`,
       // Never let a started project fetch or install packages on its own.
       BUN_INSTALL_AUTO: "disable", npm_config_offline: "true",
-    }) } });
+    }) }, held) });
     const alive = () => child.exitCode === null && child.signalCode === null;
     if (this.options.platform && child.pid) { this.owner = new OwnedProcesses(child.pid, alive, this.options.platform); void this.owner.capture(); }
     else this.owner = ownSpawnedTree(child.pid, alive);

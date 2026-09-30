@@ -26,7 +26,8 @@ export const HELP_TEXT = `Casper — your coding companion
   /login                 Provider sign-in or private API-key setup (interactive only)
   /project               Project context and check commands
   /skills                Skills and trust; /skills diagnostics for warnings
-  /verify [checks ...]   Run repository checks (trusted projects only); /verify repair fixes failures
+  /verify [checks ...]   Run this project's checks (in the sandbox); /verify repair fixes failures
+  /sandbox               What the shell sandbox holds here; /sandbox forget <host>
   /security-review       Run the pinned security tools here (no model); asks before installing
   /browser               Disposable browser status; website tasks can reproduce bugs
   /services              Declared services: status, logs, start, restart, stop (no model)
@@ -84,6 +85,7 @@ Usage:
   casper --max-turns <n> ...  Stop each request after n model turns; the run is incomplete (exit 2)
   casper --verify ...  Casper runs the checks after this run's edits, with bounded repair (auto)
   casper --no-verify   No Casper checks during tasks for this run (off)
+  casper --no-sandbox ...  Shell commands and checks run with your own permissions for this run (the receipt says so)
   casper --verbose ... Detailed evidence receipts and per-check lines
   casper --json <prompt>  JSON Lines events on stdout (see docs/SCRIPTING.md); other output to stderr
   casper --json - < f     Read the prompt from stdin (kept out of the process list)
@@ -123,6 +125,8 @@ Local commands:
   /receipt                          Detailed evidence receipt of the last model task (freshness, scope), also after a restart
   /receipt <n>, /receipt list       A saved receipt, or the last 10 (saved with secrets hidden)
   /permissions                      Explain enforcement, not change permission presets
+  /sandbox                          What the shell sandbox holds: write folders, private folders, hosts
+  /sandbox forget <host>            Forget a host you allowed for this project (Always)
   /login [provider]                 Codex, Copilot, Anthropic or OpenRouter (Casper's credential store)
   /project                          Show project context
   /memory                           List human-entered project facts
@@ -173,7 +177,7 @@ Local commands:
   /debug variables <handle>         Inspect values (may contain secrets)
   /debug continue <thread>|stop     Resume or terminate the launched debug session
   /visualize repo [dir]             Render repository dependencies locally (no model)
-  /verify [checks ...]              Run project checks without a model
+  /verify [checks ...]              Run this project's checks (in the sandbox), without a model
   /verify repair [checks ...]       Run checks and authorize bounded repair
   /verify add <name>                Save a ready-made check Casper found (Ansible) in .casper/project.yaml
   /verify <lab check>               Run a lab check on your own lab (lab.hosts); asks first, never auto
@@ -203,7 +207,9 @@ offer (the model may use casper_check; the receipt suggests /verify) or off. Uns
 that interactive sessions use offer once the checks are measured at 60 s or more.
 --verify selects auto and --no-verify selects off for one run. Auto skips checks when no files
 changed, and checks whose declared scope misses every changed file. The receipt says why.
-Verification executes repository shell commands; use only in trusted projects.
+Checks run the project's own commands in the shell sandbox where it can run (/sandbox): they write only
+the project, temp and package caches, can't read your private folders and reach only listed hosts. Without
+the sandbox (Windows, bubblewrap missing, --no-sandbox) they run with your permissions.
 One-shot exit codes: 0 pass (or nothing to verify), 1 check failed or blocked, 2 incomplete
 (skipped checks, --max-turns reached, or --verify with changes and no checks configured),
 3 not verified (--require-verification only), 64 usage error, 130 cancelled.
@@ -226,10 +232,12 @@ No automatic browser installation, personal profiles, account credentials or arb
 Synthetic local-project interactions may proceed; consequential/uncertain actions require fresh yes.
 One-shot mode cannot grant those approvals. Ordinary external resources are allowed: not isolation.
 Browser checks replay immutable scenarios; screenshots alone and model claims are not verification.
-Task-owned development scripts run trusted project code, not a sandbox, and stop with the task.
+Task-owned development servers run the project's code in the shell sandbox (files held; the network is not
+limited, so the page can load), and stop with the task.
 Saved owner-only screenshots remain in external project state until manually removed; may be sensitive.
 See docs/BROWSER.md for limits, input freshness, supported assertions and remaining caveats.
-Services from .casper/project.yaml run trusted project code, not a sandbox; they stay up between
+Services from .casper/project.yaml run the project's code in the shell sandbox (files held; the network is not
+limited, so you can reach them); they stay up between
 prompts and stop on exit, /clear, /resume, /branch and /switch. Ctrl+C cancels only a startup. See docs/SERVICES.md.
 Session branching/switching and worktree creation/removal require exact interactive approval.
 Subagents get read/grep/find/ls only; no edit/write/bash/MCP/LSP or recursive delegation.

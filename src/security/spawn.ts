@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { osSupportsProcessGroups, ownSpawnedTree, terminateTree, type OwnedProcesses } from "../platform/processes";
+import { sandboxedArgv, sandboxPath, type SandboxedSpawn } from "../sandbox/spawn";
 
 /**
  * Runs one program with an argument list Casper built itself. Never through a shell: a repo path or
@@ -32,7 +33,18 @@ export type ToolRunner = (options: ToolRunOptions) => Promise<ToolRunResult>;
 const STDERR_BYTES = 16 * 1024;
 const DEFAULT_STDOUT_BYTES = 64 * 1024 * 1024;
 
-export const runTool: ToolRunner = (options) => new Promise((resolve) => {
+/** Each tool runs in the session's shell sandbox when one holds commands, with no network at all: it can read the
+ * project, write only temp and the project, and never read your private places. */
+export const runTool: ToolRunner = async (options) => {
+  let plan: SandboxedSpawn;
+  try { plan = await sandboxedArgv(options.file, options.args, { cwd: options.cwd, network: "none" }); }
+  catch (caught) { return { exitCode: null, signal: null, stdout: "", stderr: "", ended: "no_start", error: caught instanceof Error ? caught.message : String(caught) }; }
+  const result = await runPlanned(options, plan);
+  // Inside the sandbox a missing program is the shell's 127, not a spawn error.
+  return plan.held && result.exitCode === 127 && !result.ended ? { ...result, ended: "no_start", error: `${options.file} could not start` } : result;
+};
+
+const runPlanned = (options: ToolRunOptions, plan: SandboxedSpawn): Promise<ToolRunResult> => new Promise((resolve) => {
   const maxStdout = options.maxStdoutBytes ?? DEFAULT_STDOUT_BYTES;
   const stdout: Buffer[] = [];
   let stdoutBytes = 0;
@@ -46,8 +58,8 @@ export const runTool: ToolRunner = (options) => new Promise((resolve) => {
   let child: ReturnType<typeof spawn>;
   let owner: OwnedProcesses | undefined;
   try {
-    child = spawn(options.file, [...options.args], {
-      cwd: options.cwd, env: options.env, shell: false, windowsHide: true,
+    child = spawn(plan.file, plan.args, {
+      cwd: options.cwd, env: sandboxPath(options.env, Boolean(plan.held)), shell: plan.shell, windowsHide: true,
       detached: osSupportsProcessGroups, stdio: ["ignore", "pipe", "pipe"],
     });
     owner = ownSpawnedTree(child.pid, () => child.exitCode === null && child.signalCode === null);

@@ -33,6 +33,23 @@ export interface RuntimeStartOptions {
    * to leave the result as it is. Also called for failed commands, whose output is still shown. */
   scrubToolOutput?: (toolName: string, input: Record<string, unknown>, texts: string[], signal?: AbortSignal)
     => Promise<{ texts: string[]; note?: string } | undefined>;
+  /** How the AI's bash runs: in the shell sandbox, or after a question when no sandbox can run. Unset: as it is
+   * (provider keys are always taken out of its environment). */
+  shell?: RuntimeShell;
+}
+
+/** The AI's shell, as Casper holds it (see src/sandbox/manager.ts). */
+export interface RuntimeShell {
+  /** The command as the sandbox runs it (`id` set), or as it is when nothing holds it. */
+  wrap(command: string, cwd: string): Promise<{ command: string; id?: string }>;
+  /** After a held command failed: what the sandbox refused, as one line the AI reads, or undefined. */
+  refused?(id: string, output: string): Promise<string | undefined>;
+  /** When no sandbox runs: a numbered question first; a reason refuses the command. */
+  approve?(command: string, signal?: AbortSignal): Promise<string | undefined>;
+  /** Provider keys you keep in the shell's environment (shell.keepEnv). */
+  keepEnv?: readonly string[];
+  /** A private folder (0700) for Pi's full-output logs of long commands, removed with the session. */
+  logDir?(): Promise<string | undefined>;
 }
 
 /** Safe preflight diagnostic; callers may surface this exact message without forwarding provider errors. */

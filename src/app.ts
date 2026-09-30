@@ -98,6 +98,10 @@ import { NEW_USAGE, parseNewArgs, UsageError } from "./cli-args";
 import { checkEvent, phaseEvent, RuntimeEventMapper, sessionStartEvent, type CasperEvent, type PhaseEvent } from "./app/json-events";
 import { StepRail } from "./app/steps";
 import { CASPER_VERSION } from "./version";
+import { createSessionSandbox, runtimeShell, sandboxReceipt, sandboxStartupNotes, sandboxStatusLine, type SandboxHost } from "./app/sandbox";
+import { useSandbox, currentSandbox, type ShellSandbox, type ShellSandboxOptions } from "./sandbox/manager";
+import { SandboxStore } from "./sandbox/store";
+import type { RuntimeShell } from "./runtime/types";
 import { askBuildRequest, buildRequestNote, isEmptyFolder, newProjectFromQuestions, newProjectInEmptyFolder, opened,
   type NewProjectFlow } from "./app/new-project";
 import { listLines } from "./new/command";
@@ -156,6 +160,10 @@ export interface CasperAppOptions {
   networkTools?: NetworkToolContext;
   /** Fake security tools and downloads for /security-review (tests). */
   securitySeams?: Pick<SecurityReviewHost, "check" | "install">;
+  /** --no-sandbox: the shell sandbox is off for this run, and the receipt says so. */
+  noSandbox?: boolean;
+  /** Tests: the sandbox's engine, machine check or platform. */
+  sandboxSeams?: Partial<ShellSandboxOptions>;
 }
 
 /** The last choice of the home-folder and folder-of-projects question. */
@@ -328,6 +336,11 @@ export class CasperApp {
   private planning = false;
   /** Flow warnings (a user's flow that could not be used) are said once. */
   private readonly flowWarnings = new Set<string>();
+  /** The session's shell sandbox (src/sandbox): every shell path runs in it when it can run here. */
+  sandbox?: ShellSandbox;
+  private shell?: RuntimeShell & { close(): Promise<void> };
+  private readonly noSandbox: boolean;
+  private readonly sandboxSeams?: Partial<ShellSandboxOptions>;
 
   constructor(options: CasperAppOptions = {}) {
     const freshPiRuntime = async () => {
@@ -415,6 +428,18 @@ export class CasperApp {
     this.runGit = options.runGit;
     this.newProjectRequest = options.newProject;
     this.createProjectFn = options.createProject;
+    this.noSandbox = options.noSandbox ?? false;
+    this.sandboxSeams = options.sandboxSeams;
+  }
+
+  /** What the sandbox asks through: Casper's own numbered question, only while someone can answer it. */
+  private sandboxHost(): SandboxHost {
+    return {
+      canAsk: () => this.interactive && this.terminal.canAsk && !this.closing,
+      pick: (question, options, signal) => this.terminal.pick(question, options, signal ?? this.commandAbort?.signal),
+      write: (text) => { if (!this.closing) this.output.write(text); },
+      planning: () => this.planning,
+    };
   }
 
   /** The new-project questions go through Casper's own numbered question, on the rich or the plain terminal. */
@@ -441,6 +466,18 @@ export class CasperApp {
     if (this.closing) throw new Error("Casper is closing");
     this.references = new ReferenceLibrary(referenceConfiguration);
     this.projectContext = context;
+    // The shell sandbox for this session: the AI's bash, checks, services, dev servers and Casper's tool runs.
+    // A workspace switch replaces it: the old one stops first (the sandbox runtime is one per process).
+    await this.lifecycle.close("sandbox").catch(() => {});
+    const host = this.sandboxHost();
+    const sandbox = this.sandbox = createSessionSandbox(host, context, { root: () => this.activeWorkspaceRoot(), home: this.sessionHomeDir ?? os.homedir(),
+      noSandbox: this.noSandbox, ...(this.sandboxSeams ? { seams: this.sandboxSeams } : {}) });
+    this.shell = runtimeShell(host, sandbox, new SandboxStore(context.stateDirectory));
+    useSandbox(sandbox);
+    this.lifecycle.add({ name: "sandbox", close: async () => {
+      if (currentSandbox() === sandbox) useSandbox(undefined);
+      await this.shell?.close(); await sandbox.close();
+    } });
     this.skillRegistry = registry;
     // Remembered approval (keyed hashes only). A damaged or missing file means Casper asks again.
     const consent = new ConsentStore(this.sessionHomeDir ?? os.homedir());
@@ -472,8 +509,11 @@ export class CasperApp {
     // The header picks art or text per width, so a later resize never wraps the art.
     const wordmark = this.interactive && this.terminal.rich;
     if (wordmark) this.terminal.writeTrusted(wordmarkHeader(this.terminal.color));
-    this.output.write(renderBanner(context, { wordmark, interactive: this.interactive,
+    // The shell line is always there in a session; a one-shot run shows it only when nothing holds its commands.
+    const shell = this.sandbox && (this.interactive || !this.sandbox.on) ? sandboxStatusLine(this.sandbox) : undefined;
+    this.output.write(renderBanner(context, { wordmark, interactive: this.interactive, ...(shell ? { shell } : {}),
       ...(this.interactive ? { checks: describeChecksPlan(await this.checksPlan(context)) } : {}) }));
+    for (const note of sandboxStartupNotes(context.info.root)) this.output.write(`${note}\n`);
     // A returning user's saved default is known before the runtime starts; say so, not "not initialized".
     if (!this.session) this.savedModelDisplay = await modelPreference(this.sessionHomeDir ?? os.homedir());
     // --model names the model for this run: show it, not the saved default it overrides.
@@ -770,6 +810,7 @@ export class CasperApp {
           // Config files and config-looking command output (/secrets files off stops these for this
           // session), plus .env, credential files and secret env values (always).
           scrubToolOutput: (toolName, input, texts, signal) => scrubToolOutput(this.scrubber, toolName, input, texts, signal, { configs: this.scrubFiles }),
+          ...(this.shell ? { shell: this.shell } : {}),
         });
         const resumeNotice = await (await this.ensureSessionWorkspace()).resumeActive(this.session);
         if (resumeNotice) this.output.write(`[sessions] ${resumeNotice}\n`);
@@ -1364,7 +1405,7 @@ export class CasperApp {
         ...(pageNotes?.length && !verification?.pages ? { pageNotes } : {}),
         ...(this.taskTurnLimit !== undefined ? { turnLimit: this.taskTurnLimit } : {}), ...(proof ? { proof } : {}), ...(proofSkipped && !proof ? { proofSkipped } : {}), ...(review ? { review } : {}),
         ...(acceptance ? { acceptance } : {}), ...(checklist ? { checklist } : {}), ...this.bigModelReceipt(),
-        ...(changedWhilePlanning?.length ? { changedWhilePlanning } : {}) };
+        ...(changedWhilePlanning?.length ? { changedWhilePlanning } : {}), ...(this.sandbox ? { sandbox: sandboxReceipt(this.sandbox)! } : {}) };
       if (!this.closing) {
         this.terminal.endAssistant();
         this.events.ensureLineBreak();
@@ -2178,7 +2219,8 @@ export class CasperApp {
       browserReady: this.browser?.status().state === "ready", browser: () => this.browserSession(),
       browserSignal: this.commandAbort?.signal,
       services: { declared: Object.keys(this.projectContext?.services ?? {}).length > 0, live: this.services?.live({ detected: false }) ?? false },
-      serviceTool: () => serviceTool(() => this.serviceManager(), this.commandAbort?.signal, () => this.smokeTask),
+      serviceTool: () => serviceTool(() => this.serviceManager(), this.commandAbort?.signal, () => this.smokeTask,
+        this.shell?.approve ? (command, signal) => this.shell!.approve!(command, signal) : undefined),
     });
     if (this.closing) return;
     if (this.session) {

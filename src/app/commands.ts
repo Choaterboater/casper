@@ -44,6 +44,8 @@ import { stat } from "node:fs/promises";
 import type { SessionWorkspaceManager } from "../sessions/manager";
 import { formatProjectContext } from "../project/context";
 import { runSecurityReview, type SecurityReviewHost } from "./security-review";
+import { sandboxReport, sandboxStatusLine } from "./sandbox";
+import type { ShellSandbox } from "../sandbox/manager";
 import { MCP_REMEMBER_CHOICES, MCP_WRITES_CHOICES, numberedLines } from "./safe-choices";
 
 /** Output sink for the app; lives here so the command host stays import-cycle-free. */
@@ -55,6 +57,8 @@ export interface OutputWriter {
  * owner of all state; this interface makes the (wide) coupling explicit instead of private. */
 export interface CommandHost {
   readonly output: OutputWriter;
+  /** The session's shell sandbox (/sandbox, /status, /permissions). */
+  readonly sandbox?: ShellSandbox;
   /** The saved default model and effort, for /status before the model starts. */
   savedModel(): Promise<string | undefined>;
   readonly terminal: InteractiveTerminal;
@@ -195,7 +199,21 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       return;
     }
     if (prompt === "/permissions") {
-      host.output.write("Permissions: native read/edit/write/bash tools execute within the requested coding task; no OS sandbox or universal shell approval gate.\nMCP, workspace transitions, debugger launch and consequential browser operations have their own exact approvals.\nNo SAFE/YOLO or read-only mode is implied. /verify and /services may execute project scripts (the declared checks and service commands).\n");
+      host.output.write(`${permissionsText(host.sandbox)}\n`);
+      return;
+    }
+    if (prompt === "/sandbox" || prompt.startsWith("/sandbox ")) {
+      const sandbox = host.sandbox;
+      if (!sandbox) throw new Error("The shell sandbox starts with the project.");
+      const forget = /^\/sandbox\s+forget\s+(\S+)\s*$/.exec(prompt);
+      if (forget) {
+        const found = await sandbox.forget(forget[1]!);
+        host.output.write(found ? `Forgot ${terminalText(forget[1]!)}: shell commands ask before reaching it again.\n` : `${terminalText(forget[1]!)} was not remembered for this project.\n`);
+        return;
+      }
+      if (prompt.trim() !== "/sandbox") throw new Error("Use /sandbox or /sandbox forget <host>.");
+      await sandbox.loadRemembered();
+      host.output.write(sandboxReport(sandbox, host.activeWorkspaceRoot()));
       return;
     }
     if (prompt === "/context" || prompt === "/usage") {
@@ -291,7 +309,8 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       host.output.write(` debugger  ${host.debugSession?.status().state ?? "idle"}; explicit local DAP (/debug)\n`);
       const usage = host.session?.getUsage?.();
       host.output.write(` context   ${usage?.context?.percent == null ? "—" : `${usage.context.percent.toFixed(1)}%~`} · ${usage?.tokens.total ?? "—"} session tokens (/context, /usage)\n`);
-      host.output.write(" policy    native coding tools enabled; not sandboxed (/permissions)\n");
+      host.output.write(" policy    native coding tools enabled (/permissions)\n");
+      host.output.write(` shell     ${host.sandbox ? sandboxStatusLine(host.sandbox) : "not started"}\n`);
       host.output.write(` checks    ${describeChecksPlan(await host.checksPlan(host.projectContext!))}\n`);
       host.output.write(` visualize ${host.visualization!.providerNames().join(", ")} (/visualize)\n`);
       host.output.write(" memory    explicit facts and local task summaries (/memory)\n references read-only local sources (/references)\n");
@@ -881,4 +900,17 @@ async function undoCopiesLine(stateDirectory: string, home: string): Promise<str
   if (bytes === undefined) return "no copies yet (a copy is made before each task; /undo, /diff)";
   const size = bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
   return `copies of recent tasks take ${size} in ${terminalText(tildePath(store.gitDir, home))} (/undo, /diff)`;
+}
+
+/** /permissions: what Casper enforces, from the state it is in now. */
+export function permissionsText(sandbox: ShellSandbox | undefined): string {
+  const shell = sandbox?.on
+    ? "Shell commands and checks run in a sandbox: they can write only in this project, temp and package caches, can't read your private folders, and reach only listed hosts (others ask). They don't see your AI provider keys. MCP servers, language servers, the debugger and the browser are not in the sandbox."
+    : `Shell commands and checks are not sandboxed here (${sandbox?.failure ?? sandbox?.state.reason ?? "no sandbox"}): they run with your permissions, files and network, without your AI provider keys.${sandbox?.asksFirst ? " Casper asks before each shell command the AI runs." : ""}`;
+  return [
+    shell,
+    "The AI's file tools (read, edit, write, grep, find, ls) stay out of private places and git's own files and never follow a link out of the project.",
+    "MCP, workspace transitions, debugger launch and consequential browser operations have their own exact approvals. The AI can't approve anything for you.",
+    "No SAFE/YOLO or read-only mode is implied. /verify and /services may execute project scripts (the declared checks and service commands). See docs/SECURITY.md.",
+  ].join("\n");
 }

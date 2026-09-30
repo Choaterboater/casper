@@ -378,6 +378,8 @@ export async function prepareLabCheck(name: string, spec: NetworkCheckSpec, cont
   const approvalKey = labApprovalKey(name, { inventory, hosts, files: files.map((file) => file.absolute) });
   const timeoutMs = (spec.timeout ?? 0) * 1000 || LAB_TIMEOUT_MS;
   const labBase: Base = { ...base, hosts: hosts.map((host) => host.name) };
+  // Lab runs stay outside the shell sandbox: they log in to your devices with your own SSH keys, and only you
+  // start them, after a numbered question. The v0.2.18 lab gate holds them to the lab list.
   const run = async (): Promise<NetworkCheckResult> => withWorkspace(
     () => ansibleWorkspace({ tmpRoot: context.tmpRoot, realHome: context.realHome, path: context.path, keepHome: true }),
     async (workspace) => {
@@ -386,12 +388,12 @@ export async function prepareLabCheck(name: string, spec: NetworkCheckSpec, cont
         const vars = path.join(workspace.dir, "vars.json");
         await writeFile(playbook, junosCommitPlaybook, { mode: 0o600, flag: "wx" });
         await writeFile(vars, JSON.stringify({ casper_src: files[0]!.absolute, casper_format: junosFormat(files[0]!.absolute) }), { mode: 0o600, flag: "wx" });
-        const execution = await runArgv(playbookTool, ["-i", inventory, playbook, "-e", `@${vars}`], { cwd: context.root, env: workspace.env, timeoutMs, signal: context.signal });
+        const execution = await runArgv(playbookTool, ["-i", inventory, playbook, "-e", `@${vars}`], { cwd: context.root, env: workspace.env, timeoutMs, signal: context.signal, sandbox: false });
         return ansibleResult(labBase, `juniper.device.config check on ${hosts.length} lab ${hosts.length === 1 ? "router" : "routers"}`, execution);
       }
       return eachPlaybook(labBase, spec.playbooks ?? [], async (playbook) => {
         const absolute = await resolveInside(context.root, playbook);
-        const execution = await runArgv(playbookTool, ["--check", "--diff", "-i", inventory, absolute], { cwd: context.root, env: workspace.env, timeoutMs, signal: context.signal });
+        const execution = await runArgv(playbookTool, ["--check", "--diff", "-i", inventory, absolute], { cwd: context.root, env: workspace.env, timeoutMs, signal: context.signal, sandbox: false });
         return ansibleResult(labBase, `ansible --check on ${hosts.length} lab ${hosts.length === 1 ? "switch" : "switches"}`, execution);
       });
     });

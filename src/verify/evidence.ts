@@ -33,8 +33,9 @@ export interface VerificationResult {
   /** True when a passing result with matching local filesystem evidence was reused. */
   reused?: boolean;
   /** Set only when the command did not finish as a test run: it timed out, or it could not start
-   * (spawn error, bad folder, or the shell's 126/127). Such a failure is not the code failing. */
-  ended?: "timeout" | "no_start";
+   * (spawn error, bad folder, or the shell's 126/127), or the shell sandbox blocked it (it wanted to write or
+   * reach something it may not). Such a failure is not the code failing. */
+  ended?: "timeout" | "no_start" | "blocked";
   /** Named checks only. Absent: an ordinary pass/fail check. "report": a diff shown for reading, never a pass
    * or a fail. "lab": a check on the user's own lab devices, run only when the user starts it. */
   kind?: "report" | "lab";
@@ -53,6 +54,8 @@ export interface VerificationResult {
 export function repairClass(result: Pick<VerificationResult, "status" | "kind" | "ended" | "repair">): RepairClass {
   if (result.status !== "fail" || result.kind === "report") return "never";
   if (result.repair) return result.repair;
+  // The sandbox said no: nothing for the model to fix, and retrying gets the same answer.
+  if (result.ended === "blocked") return "never";
   return result.kind === "lab" || result.ended ? "ask" : "repairable";
 }
 
