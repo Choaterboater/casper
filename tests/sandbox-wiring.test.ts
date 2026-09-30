@@ -195,3 +195,42 @@ posixOnly("when the sandbox fails to start on a check or a tool run, that run st
   expect(sandboxReceipt(serviceSandbox)?.held).toBe(false);
   await serviceSandbox.close();
 });
+
+posixOnly("every held run tells the sandbox when it ended, so its stand-in files leave your project: checks, tool runs, services, casper new and the AI's bash", async () => {
+  const { root, engine } = await session();
+  await runCommandCheck({ name: "test", command: "true", cwd: root, timeoutMs: 10_000 });
+  await runCommandCheck({ name: "lint", command: "exit 3", cwd: root, timeoutMs: 10_000 });
+  await runArgv("sh", ["-c", "true"], { cwd: root, env: { PATH: process.env.PATH ?? "" }, timeoutMs: 10_000 });
+  await runTool({ file: "sh", args: ["-c", "true"], cwd: root, env: { PATH: process.env.PATH ?? "" }, timeoutMs: 10_000 } as never);
+  await spawnTool(["uv", "--version"], { cwd: root, env: { PATH: "/usr/bin:/bin" }, timeoutMs: 10_000 });
+  const managed = new ManagedProcess({ command: "echo ready; sleep 5", cwd: root, ready: { log: "ready" }, timeoutMs: 5_000 });
+  await managed.start(new AbortController().signal);
+  await managed.close();
+  expect(engine.wrapped).toHaveLength(6);
+  expect([...engine.ended].sort()).toEqual(engine.wrapped.map((entry) => entry.id).sort());
+
+  const ended: string[] = [];
+  const shell = { wrap: async (command: string) => ({ command, id: "bash-1" }), finished: (id: string) => { ended.push(id); } };
+  const failing = { async exec(): Promise<{ exitCode: number }> { throw new Error("cut off"); } };
+  await casperBashOperations(shell, { async exec() { return { exitCode: 0 }; } }).exec("true", root, { onData: () => {} });
+  await expect(casperBashOperations(shell, failing).exec("true", root, { onData: () => {} })).rejects.toThrow("cut off");
+  expect(ended).toEqual(["bash-1", "bash-1"]);
+});
+
+test("the runtime is told once per run it wrapped, never for Casper's own bubblewrap line or an unknown run", async () => {
+  let cleanups = 0;
+  const fakeRuntime = { SandboxManager: {
+    initialize: async () => {}, wrapWithSandbox: async (command: string) => `wrapped ${command}`, cleanupAfterCommand: () => { cleanups++; },
+    getSandboxViolationStore: () => ({ getViolationsForCommand: () => [] }), updateConfig: () => {}, reset: async () => {},
+  } };
+  const { runtimeEngine } = await import("../src/sandbox/runtime");
+  const engine = runtimeEngine(async () => fakeRuntime as never, "darwin");
+  const policy = { allowWrite: [], denyWrite: [], denyRead: [], allowedDomains: [] };
+  await engine.initialize(policy, async () => false, {});
+  await engine.wrap("true", policy, { id: "a", cwd: "/", network: "ask", prefix: "" });
+  await engine.wrap("true", policy, { id: "b", cwd: "/", network: "ask", prefix: "" });
+  engine.finished("a"); engine.finished("a"); engine.finished("unknown");
+  expect(cleanups).toBe(1);
+  engine.finished("b");
+  expect(cleanups).toBe(2);
+});

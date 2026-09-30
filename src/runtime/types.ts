@@ -42,6 +42,8 @@ export interface RuntimeStartOptions {
 export interface RuntimeShell {
   /** The command as the sandbox runs it (`id` set), or as it is when nothing holds it. */
   wrap(command: string, cwd: string): Promise<{ command: string; id?: string }>;
+  /** A held command has ended (the sandbox cleans up after it). */
+  finished?(id: string): void;
   /** After a held command failed: what the sandbox refused, as one line the AI reads, or undefined. */
   refused?(id: string, output: string): Promise<string | undefined>;
   /** When no sandbox runs: a numbered question first; a reason refuses the command. */

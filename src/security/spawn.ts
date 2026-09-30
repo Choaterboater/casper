@@ -40,6 +40,7 @@ export const runTool: ToolRunner = async (options) => {
   try { plan = await sandboxedArgv(options.file, options.args, { cwd: options.cwd, network: "none" }); }
   catch (caught) { return { exitCode: null, signal: null, stdout: "", stderr: "", ended: "no_start", error: caught instanceof Error ? caught.message : String(caught) }; }
   const result = await runPlanned(options, plan);
+  plan.held?.sandbox.finished(plan.held.id);
   // Inside the sandbox a missing program is the shell's 127, not a spawn error.
   return plan.held && result.exitCode === 127 && !result.ended ? { ...result, ended: "no_start", error: `${options.file} could not start` } : result;
 };

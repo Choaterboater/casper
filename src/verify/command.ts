@@ -142,9 +142,10 @@ export async function runCommandCheck(options: CommandCheckOptions): Promise<Ver
       child.unref(); // Unknown cleanup must not turn a reported failure into an exit hang.
       const ended = checkEnded(exitCode, reason);
       const result: VerificationResult = { ...base(), status: !reason && exitCode === 0 ? "pass" : "fail", exitCode, signal: exitSignal, reason, ...(ended ? { ended } : {}) };
-      if (!held || result.status === "pass" || reason) { resolve(result); return; }
+      if (!held || result.status === "pass" || reason) { sandbox?.finished(held); resolve(result); return; }
       // A failure the sandbox caused says so, in the receipt and to the AI: "blocked by the sandbox (wanted to write /etc/hosts)".
       void blockedBySandbox(sandbox!, held, `${result.stderr}\n${result.stdout}`).then((blocked) => {
+        sandbox!.finished(held);
         resolve(blocked ? { ...result, reason: blocked, ended: "blocked" } : result);
       });
     };

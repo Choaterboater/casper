@@ -87,7 +87,10 @@ Linux CI installs bubblewrap and runs them too. Dependabot keeps the workflow pi
 
 If the sandbox can't start when first used, Casper says so once, the AI's shell asks from that
 command on, and checks go ahead not sandboxed, as the receipt says. On a busy Linux machine a command
-now waits for the sandbox's network relay before it runs, so its first request is not lost.
+now waits for the sandbox's network relay before it runs, so its first request is not lost. The empty
+stand-in files the Linux sandbox puts in the folder you started Casper in (`.bashrc`, `.gitconfig`,
+`.vscode` and the like) are removed as soon as no command runs, so they no longer show in `git status`
+or in a receipt's changed files.
 
 **Limits of the sandbox.** MCP servers, language servers, the debugger, the browser and lab checks
 are not in it; a receipt whose lab check ran says it ran outside the sandbox. Dev servers keep the machine's network on Linux, and inside the Linux sandbox
