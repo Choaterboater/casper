@@ -1,6 +1,7 @@
 import { readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { KIND_ORDER, keepLiterally, PEM_BEGIN, type SecretKind } from "./patterns";
+import { scrubProseSecrets } from "./prose";
 import { SECRET_MARKER, scrubText, snakeKey, type ScrubTextResult } from "./scrub";
 
 /**
@@ -231,5 +232,15 @@ export function scrubPlainSecrets(text: string, options: PlainScrubOptions = {})
   if (options.secretFile || PEM_BEGIN.test(out)) add(scrubText(out));
   add(scrubUrlPasswords(out));
   add(scrubAssignments(out, options.secretFile === true));
+  add(scrubProseSecrets(out));
   return { text: out, hidden, kinds: KIND_ORDER.filter((kind) => kinds.has(kind)) };
+}
+
+/**
+ * A command the AI sent (bash, powershell), before Casper shows or keeps it: the same always-on rules as tool output,
+ * so a password or token the AI typed into a command is hidden on screen, in records and on the receipt. The AI
+ * already has it; `hidden` > 0 means the receipt says to change it.
+ */
+export function hideCommandSecrets(command: string, env?: NodeJS.ProcessEnv): ScrubTextResult {
+  return scrubPlainSecrets(command, env ? { env } : {});
 }

@@ -117,3 +117,62 @@ test("git diff output: a secret on a removed line is hidden like one on an added
   expect(result.text).toBe("-API_KEY = \"<secret hidden>\"\n+API_KEY = \"<secret hidden>\"\n-db_password: <secret hidden>\n+token = get_token()\n-x-flag = 1");
   expect(result.hidden).toBe(3);
 });
+
+test("lab logins written as prose, markdown or a table are hidden; the words around them stay", async () => {
+  const doc = [
+    "## lab-01 lab",
+    "Proxmox: root / Lab!Pass99",
+    "**Password:** hunter22x",
+    "Password: **Summer**",
+    "pw: `abc123`",
+    "the password is S3cret!x now",
+    "password Winter2024",
+    "login: admin / Adm1n!",
+    "creds: netops / N3t0ps",
+    "ssh admin:Sup3r@10.0.0.5",
+    "| Host | User | Password |",
+    "|---|---|---|",
+    "| lab-01 | root | Lab!Pass99 |",
+  ].join("\n");
+  const result = await scrubToolOutput(scrubber, "read", { path: "docs/lab.md" }, [doc], undefined, { configs: false, env: {} });
+  const text = result!.texts[0]!;
+  for (const secret of ["Lab!Pass99", "hunter22x", "Summer", "abc123", "S3cret!x", "Winter2024", "Adm1n!", "N3t0ps", "Sup3r"]) expect([secret, text.includes(secret)]).toEqual([secret, false]);
+  expect(text.split("\n")).toEqual([
+    "## lab-01 lab",
+    "Proxmox: root / <secret hidden>",
+    "**Password:** <secret hidden>",
+    "Password: **<secret hidden>**",
+    "pw: `<secret hidden>`",
+    "the password is <secret hidden> now",
+    "password <secret hidden>",
+    "login: admin / <secret hidden>",
+    "creds: netops / <secret hidden>",
+    "ssh admin:<secret hidden>@10.0.0.5",
+    "| Host | User | Password |",
+    "|---|---|---|",
+    "| lab-01 | root | <secret hidden> |",
+  ]);
+});
+
+test("Proxmox API tokens and token=<uuid> are hidden, in output and in the pveum token table", () => {
+  const uuid = "0f1e2d3c-4b5a-6978-8a9b-0c1d2e3f4a5b";
+  expect(scrubPlainSecrets(`curl -k -H "Authorization: PVEAPIToken=root@pam!demoapp=${uuid}" https://lab-01:8006/api2/json/nodes`, { env: {} }).text).not.toContain(uuid);
+  expect(scrubPlainSecrets(`TOKEN_ID=root@pam!demoapp; echo root@pam!demoapp=${uuid}`, { env: {} }).text).toBe("TOKEN_ID=root@pam!demoapp; echo root@pam!demoapp=<secret hidden>");
+  expect(scrubPlainSecrets(`token=${uuid.replace(/-/g, "")}abcd`, { env: {} }).text).toBe("token=<secret hidden>");
+  const table = `│ full-tokenid │ root@pam!demoapp │\n│ value        │ ${uuid} │`;
+  expect(scrubPlainSecrets(table, { env: {} }).text).toBe("│ full-tokenid │ root@pam!demoapp │\n│ value        │ <secret hidden> │");
+  // Ids that name something, not a login, stay.
+  const ids = `site_id=${uuid} token_id=${uuid} org ${uuid}`;
+  expect(scrubPlainSecrets(ids, { env: {} }).text).toBe(ids);
+});
+
+test("ordinary sentences about passwords and tokens stay readable", () => {
+  for (const text of [
+    "The password is stored on the switch. Set the secret for the RADIUS server first.",
+    "Change the password on first login. The pass rate was 39 of 39 tests.",
+    "Use a strong password (12+ chars). Store the API key in .env, see the token docs.",
+    "git@github.com:org/repo.git and mailto:bob@example.com",
+    "cd /root / tmp",
+    "tests pass: 39 passed",
+  ]) expect(scrubPlainSecrets(text, { env: {} }).text).toBe(text);
+});
