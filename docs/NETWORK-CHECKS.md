@@ -107,7 +107,7 @@ check read "not run". Casper never hands that to the model as a failure to fix.
 - All output is scrubbed of passwords and keys before you or the model see it.
 
 The syntax, render, Junoser, yanglint and hier_config checks run in the shell sandbox. On
-Linux it gives them no network at all and no writes outside the project and temp; on macOS
+Linux it gives them no network at all and no writes outside the project, temp and package caches; on macOS
 they reach only listed hosts. Where no sandbox runs (Windows, bubblewrap missing,
 `--no-sandbox`) Casper does not claim they stay off the network: they do what each tool's
 docs say. Lab checks run outside the sandbox, because they log in to your devices with your
