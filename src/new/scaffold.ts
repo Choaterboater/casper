@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { realpathSync } from "node:fs";
 import { lstat, mkdir, readdir, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -152,9 +153,15 @@ const spawnPlanned = (plan: SandboxedSpawn, { cwd, env, signal, timeoutMs }: Par
 
 /** A path with the home folder shown as ~. */
 export function tildePath(dir: string, home: string): string {
-  const relative = path.relative(home, dir);
-  if (relative === "") return "~";
-  return relative && !relative.startsWith("..") && !path.isAbsolute(relative) ? `~/${relative.split(path.sep).join("/")}` : dir;
+  // git names folders by their real path, so a home behind a link (macOS's /var is /private/var) counts too.
+  let real = home;
+  try { real = realpathSync(home); } catch { /* no such folder: the path as given */ }
+  for (const base of new Set([home, real])) {
+    const relative = path.relative(base, dir);
+    if (relative === "") return "~";
+    if (!relative.startsWith("..") && !path.isAbsolute(relative)) return `~/${relative.split(path.sep).join("/")}`;
+  }
+  return dir;
 }
 
 function lastLines(text: string, count = OUTPUT_LINES): string {

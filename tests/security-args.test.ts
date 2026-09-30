@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, realpath, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { DEAD_PROXY } from "../src/mcp/check/sandbox";
@@ -67,7 +67,7 @@ test("every tool ran with its offline flags and with its own inline ignores turn
   expect(lint.args).toContain("--offline");
   // Casper's own ansible.cfg, never the repo's (a vault_password_file there is a script Ansible runs).
   expect(lint.env.ANSIBLE_CONFIG).toBeDefined();
-  expect(lint.env.ANSIBLE_CONFIG!.startsWith(root)).toBe(false);
+  expect(lint.env.ANSIBLE_CONFIG!.startsWith(root) || lint.env.ANSIBLE_CONFIG!.startsWith(await realpath(root))).toBe(false);
   expect(path.basename(lint.env.ANSIBLE_CONFIG!)).toBe("ansible.cfg");
   const scanner = (await tools.recorded("mcp-scanner"))!.args;
   expect(scanner.slice(0, 2)).toEqual(["--analyzers", "yara"]);
@@ -75,9 +75,11 @@ test("every tool ran with its offline flags and with its own inline ignores turn
 });
 
 test("every tool ran in the repo with the clean env: no tokens, dead proxy", async () => {
+  // The project's real folder: on macOS the temp folder is behind a link (/var is /private/var).
+  const real = await realpath(root);
   for (const tool of report.tools) {
     const seen = (await tools.recorded(tool.id))!;
-    expect(seen.cwd).toBe(root);
+    expect(seen.cwd).toBe(real);
     expect(seen.env.MIST_APITOKEN).toBeUndefined();
     expect(seen.env.CENTRAL_CLIENT_ID).toBeUndefined();
     expect(seen.env.HTTPS_PROXY).toBe(DEAD_PROXY);

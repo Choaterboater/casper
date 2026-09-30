@@ -3,6 +3,7 @@ import type { DebugRequest, DebugSession } from "./debug/session";
 import { promisify } from "node:util";
 import os from "node:os";
 import path from "node:path";
+import { realpathSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import { modelPreference } from "./tui/model-preference";
 import { HELP_TEXT, FULL_HELP_TEXT, LOGIN_HELP } from "./tui/help";
@@ -536,8 +537,13 @@ export class CasperApp {
   /** A one-shot run in another folder (`--cd`): its undo command names that folder. */
   private receiptFolder(root: string): { folder?: string } {
     if (this.interactive) return {};
-    const relative = path.relative(root, process.cwd());
-    const inside = relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+    // The working folder is always a real path; the project may be named through a link (macOS's /var).
+    let real = root;
+    try { real = realpathSync(root); } catch { /* gone: compare as named */ }
+    const inside = [root, real].some((base) => {
+      const relative = path.relative(base, process.cwd());
+      return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+    });
     return inside ? {} : { folder: tildePath(root, this.sessionHomeDir ?? os.homedir()) };
   }
 

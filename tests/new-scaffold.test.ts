@@ -1,9 +1,10 @@
 import { afterEach, expect, setDefaultTimeout } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { lstat, mkdir, readdir, readFile, symlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readdir, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { formatNewProjectReceipt } from "../src/new/receipt";
-import { createProject, missingToolMessage } from "../src/new/scaffold";
+import { createProject, missingToolMessage, tildePath } from "../src/new/scaffold";
 import { makeNewFakes, type NewFakes } from "./support/new-fakes";
 import { posixOnly, posixSymlinks } from "./support/platform";
 
@@ -221,4 +222,17 @@ posixOnly("a .git that a package run made before git init: Casper runs no git th
   expect(result.reason).toBe("a .git folder appeared while packages were added, so Casper ran no git here. Look at it, then run git init and git commit yourself.");
   expect(result.commit).toBeUndefined();
   expect(gitLog(path.join(fakes.parent, "odd-git"), env)).toEqual([]);
+});
+
+posixSymlinks("a folder under a home reached through a link is still shown with ~, as git names it by its real path", async () => {
+  const base = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-tilde-")));
+  try {
+    await mkdir(path.join(base, "real-home", "Projects"), { recursive: true });
+    await symlink(path.join(base, "real-home"), path.join(base, "home"));
+    const home = path.join(base, "home");
+    expect(tildePath(path.join(base, "real-home", "Projects"), home)).toBe("~/Projects");
+    expect(tildePath(path.join(home, "Projects"), home)).toBe("~/Projects");
+    expect(tildePath(home, home)).toBe("~");
+    expect(tildePath(path.join(base, "elsewhere"), home)).toBe(path.join(base, "elsewhere"));
+  } finally { await rm(base, { recursive: true, force: true }); }
 });
