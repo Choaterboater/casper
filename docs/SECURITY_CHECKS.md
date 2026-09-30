@@ -27,7 +27,7 @@ or takes too long reads "not run" with the reason, and the other tools still run
 Casper runs each tool with its own offline setting on, with a dead proxy, with an
 allowlist of environment variables (no passwords or tokens) and with a stand-in home
 folder, inside the shell sandbox. On Linux the sandbox gives the tools no network at all
-and no writes outside the project and temp; on macOS they reach only listed hosts. Where
+and no writes outside the project, temp and package caches; on macOS they reach only listed hosts. Where
 no sandbox runs (Windows, bubblewrap missing, `--no-sandbox`) a program can still open a
 network connection itself, and the report's second line says so. See [SECURITY.md](SECURITY.md).
 
@@ -92,7 +92,7 @@ either. Where no sandbox runs, a shell command could still edit it, so treat it 
 
 ```
 Security check: my-server (/home/me/my-server)
-Casper runs these tools in the shell sandbox: no network, no passwords or tokens, and no writes outside the project and temp.
+Casper runs these tools in the shell sandbox: no network, no passwords or tokens, and no writes outside the project, temp and package caches.
 gitleaks      1 problem    config/.env.example:4  looks like an API key (value hidden)
 ruff S        ok
 zizmor        ok           its online checks off

@@ -132,7 +132,7 @@ Each row names the test that fails without it.
 - **A link can be swapped** between the file tools' check and the open (a race). The check uses the real
   path of the longest part that exists, which narrows this, and Windows has no no-follow open at all.
 - **ansible-lint loads the repository's own Ansible plugins** (`library/`, `filter_plugins/`). With the
-  sandbox on they run held (no network, no writes outside the project and temp, no private files); with
+  sandbox on they run held (no network, no writes outside the project, temp and package caches, no private files); with
   no sandbox they run with your permissions. Only `ansible.cfg` is kept out.
 - **With no sandbox, the plan turn's look-only list is a list, not a sandbox**: `git diff` and `git log`
   follow a repository's own `diff.external` and `textconv` settings, which can run a program. A file that
