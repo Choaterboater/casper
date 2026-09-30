@@ -1,11 +1,14 @@
 import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { hideCommandSecrets } from "../secrets/files";
 
 /** Native edit/write paths are literal filesystem paths, not tool-input syntax. `pattern` (grep/find)
  * and `check` (casper_check) are identities shown in tool activity; never an edit body or an
  * arbitrary argument. */
-export interface ToolObservationInput { path?: string; command?: string; operation?: string; pattern?: string; check?: string }
+export interface ToolObservationInput { path?: string; command?: string; operation?: string; pattern?: string; check?: string;
+  /** The command held a secret the AI typed into it; `command` has it hidden. */
+  secretHidden?: true }
 
 /** Pi 0.87.0's native edit/write path syntax (its resolver is not an SDK export).
  * Expand once at the adapter boundary; the result is a literal filesystem path. */
@@ -26,6 +29,11 @@ export function observationInput(value: unknown): ToolObservationInput {
     const field = Reflect.get(value, key);
     // Omit oversized identities: truncating could match a different command/path.
     if (typeof field === "string" && Buffer.byteLength(field) <= 8192) result[key] = field;
+  }
+  // A password or token the AI typed into a command is hidden before Casper shows or keeps the command.
+  if (result.command !== undefined) {
+    const hidden = hideCommandSecrets(result.command);
+    if (hidden.hidden) { result.command = hidden.text; result.secretHidden = true; }
   }
   return result;
 }
