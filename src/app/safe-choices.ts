@@ -80,6 +80,14 @@ export const HOST_CHOICES = [
   { label: "Always for this project", description: "kept in ~/.casper, never in the repo; /sandbox forget <host> undoes it" },
 ] as const satisfies readonly Choice[];
 
+/** "Reach 10.0.0.5 (lab-01)?  ssh root@lab-01 uptime" before the AI's shell runs ssh, scp, sftp, rsync, nc, telnet or
+ * socat to another machine, sandbox or not. Enter runs nothing. */
+export const REACH_CHOICES = [
+  { label: "No", description: "the command does not run" },
+  { label: "Yes, this time", description: "this command only" },
+  { label: "Yes, for this session", description: "commands to this host don't ask again until Casper exits" },
+] as const satisfies readonly Choice[];
+
 /** "Run this command?  npm test" when no sandbox can run (Windows, bubblewrap missing). Enter runs nothing. */
 export const SHELL_COMMAND_CHOICES = [
   { label: "No", description: "the command does not run" },
