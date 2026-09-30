@@ -209,3 +209,24 @@ browserTest("a disposable browser inspects a local page and saves a real screens
   expect(f.session.status().state).toBe("closed");
   await expect(f.session.run({ action: "inspect" })).rejects.toThrow("closed");
 }, 20_000);
+
+browserTest("the host-only page load reports console errors and the failed same-origin request", async () => {
+  const f = await fixture();
+  const load = await f.session.load(`${f.url}/`, new AbortController().signal);
+  expect(load).toMatchObject({ status: 200, consoleChecked: true });
+  expect(load.consoleErrors).toContain("synthetic-console-error");
+  // Resource failures are reported as requests, not duplicated as console text.
+  expect(load.consoleErrors.some(text => text.startsWith("Failed to load resource"))).toBe(false);
+  expect(load.failedRequests).toContainEqual({ url: `${f.url}/missing-api`, status: 503 });
+  await expect(f.session.load("https://example.com/", new AbortController().signal)).rejects.toThrow("loopback");
+  // The load uses no model operation budget and leaves the model's diagnostics empty.
+  expect((await f.session.run({ action: "diagnostics" })).console).toEqual([]);
+}, 60_000);
+
+test("the model's browser tool has no load action; page loads are host-only", async () => {
+  const f = await fixture({ executablePath: "/nonexistent/chrome" });
+  const schema = browserTool(f.session).inputSchema as { properties: { action: { enum: string[] } } };
+  expect(schema.properties.action.enum).not.toContain("load");
+  await expect(f.session.run({ action: "load", url: f.url })).rejects.toThrow("Unknown browser action");
+  await expect(f.session.load("file:///etc/passwd")).rejects.toThrow();
+});

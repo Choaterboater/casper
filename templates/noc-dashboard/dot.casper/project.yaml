@@ -1,0 +1,6 @@
+# Casper settings for this project. See Casper's docs/SERVICES.md.
+services:
+  dashboard:
+    command: uv run streamlit run src/{{module}}/app.py --server.port $PORT --server.address 127.0.0.1 --server.headless true
+    port: auto
+    ready: { http: /_stcore/health }

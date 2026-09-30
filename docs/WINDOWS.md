@@ -187,6 +187,28 @@ commands.
   bits), so that check is skipped. See [PLATFORM_SUPPORT.md](PLATFORM_SUPPORT.md).
 - **netconan** (optional secret checker): found as `netconan.exe`, `.cmd` or `.bat`
   when installed.
+- **No shell sandbox yet (v0.2.17, not released yet).** The banner and `/status` say
+  `shell     not sandboxed (Windows has no sandbox yet) · Casper asks before each AI shell command`,
+  and the AI's shell asks `Run this command?` before each command, with `1 No` first.
+  A one-shot run refuses the AI's shell commands unless you pass `--no-sandbox`. On
+  Windows your project's own checks, services and dev servers still run, not sandboxed,
+  with your permissions and network. See [SECURITY.md](SECURITY.md).
+- **Undo (v0.2.17, not released yet)** needs git on PATH (Git for Windows). Without it
+  the receipt says `Undo not available` and names why. Restoring a symbolic link or a
+  file's run bit has not been tried on Windows yet. See [UNDO.md](UNDO.md).
+
+### v0.2.17 checks to try by hand
+
+In the disposable project above (a git repository, with Git for Windows installed):
+
+- Ask for a small change, then press `1` on the `Next: 1 Undo · 2 Show diff` row. The
+  file goes back; `/redo` puts it back again. Press Enter on the row instead: nothing runs.
+- Change the same file yourself after a task, then `/undo`: the question starts with
+  `1 Cancel`, and Enter changes nothing.
+- `/diff`, `/receipt list`, then restart Casper and `/receipt 1`: the old receipt shows.
+- Ask the AI to run a shell command: `Run this command?` shows, Enter says no.
+- `casper --json "/undo 1"` and `casper "/security-review"` in one-shot runs end without
+  waiting for an answer.
 
 ## Report a failure
 

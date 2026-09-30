@@ -4,13 +4,15 @@
 
 // First: engine setup that every later import may depend on at runtime.
 import "./runtime/engine-setup";
+import os from "node:os";
 import path from "node:path";
 import { stat } from "node:fs/promises";
 import { CasperApp } from "./app";
 import { agentStoreWarnings, importLegacyEngineState, useCasperAgentStore } from "./runtime/agent-store";
 import { CandidateLibrary, formatLearningResult } from "./learn/candidates";
 import { taskExitCode } from "./task/result";
-import { parseCliArgs, parseLearnArgs, parseMcpCheckArgs, UsageError, type McpCheckCommand } from "./cli-args";
+import { looksLikePath, parseCliArgs, parseLearnArgs, parseMcpCheckArgs, parseNewArgs, parseSecurityArgs, UsageError, type McpCheckCommand,
+  type NewCommand, type SecurityCommand, type SubcommandName, type CliOptions } from "./cli-args";
 import type { VerificationMode } from "./verify/mode";
 
 import { redactPreview, terminalText } from "./tui/format";
@@ -84,6 +86,79 @@ async function runMcpCheckCommand(cmd: McpCheckCommand): Promise<void> {
   }
 }
 
+/** `casper new`: builds the project locally with no model and no saved state. Exit 0 ready, 1 not ready, 64 usage. */
+async function runNewSubcommand(cmd: NewCommand): Promise<void> {
+  const { runNewCommand } = await import("./new/command");
+  const controller = new AbortController();
+  const removeShutdownHandlers = installShutdownHandlers({ close: async () => { controller.abort(); } });
+  try {
+    const { exitCode } = await runNewCommand({ command: cmd, write: (line) => { process.stdout.write(`${terminalText(line)}\n`); }, signal: controller.signal });
+    process.exitCode = exitCode;
+  } finally { removeShutdownHandlers(); }
+}
+
+/** `casper security`: the pinned security tools only, never a model call. Exit 0 no problems, 1 problems, 64 usage.
+ * It installs nothing unless --install is given. */
+async function runSecuritySubcommand(cmd: SecurityCommand): Promise<void> {
+  const [{ runSecurityCheck }, { formatSecurityReport, securityReportJson }, { installTools }] = await Promise.all([
+    import("./security/run"), import("./security/format"), import("./security/install")]);
+  const folder = path.resolve(cmd.repo);
+  if (!(await stat(folder).then((entry) => entry.isDirectory(), () => false))) throw new UsageError(`security: not a folder: ${cmd.repo}`);
+  const progress = (text: string) => { (cmd.json ? process.stderr : process.stdout).write(text); };
+  const controller = new AbortController();
+  const removeShutdownHandlers = installShutdownHandlers({ close: async () => { controller.abort(); } });
+  try {
+    // --mcp-tools turns on mcp-scanner with a saved tools/list reply; it is off otherwise (a large install).
+    const mcpTools = cmd.mcpTools ? path.resolve(cmd.mcpTools) : undefined;
+    if (mcpTools && !(await stat(mcpTools).then((entry) => entry.isFile(), () => false))) throw new UsageError(`security: not a file: ${cmd.mcpTools}`);
+    const options = { root: folder, homeDir: os.homedir(), strict: cmd.strict, signal: controller.signal, write: progress,
+      ...(mcpTools ? { mcpScanner: true, mcpToolsJson: mcpTools } : {}) };
+    let report = await runSecurityCheck(options);
+    if (cmd.install && report.missing.length && !controller.signal.aborted) {
+      const installed = await installTools(report.missing, { homeDir: os.homedir(), write: progress });
+      for (const result of installed) progress(`${terminalText(result.message)}\n`);
+      report = await runSecurityCheck(options);
+    } else if (report.missing.length && !cmd.json) {
+      progress(`Not installed: ${report.missing.join(", ")}. casper security --install installs them.\n`);
+    }
+    process.stdout.write(cmd.json ? `${JSON.stringify(securityReportJson(report))}\n` : formatSecurityReport(report));
+    process.exitCode = report.exitCode;
+  } finally { removeShutdownHandlers(); }
+}
+
+/** The shell sandbox for a subcommand with no app: `casper security` and `casper mcp check` hold their tool runs to
+ * the repo they check, `casper new` to the new folder (its uv or bun run adds it). Nobody answers host questions here:
+ * a host that is not listed is blocked, and said so. */
+async function withStandaloneSandbox(options: CliOptions, work: () => Promise<void>): Promise<void> {
+  const [{ ShellSandbox, useSandbox }, { SandboxStore }, { loadConfiguration }, { projectStateDirectory }] = await Promise.all([
+    import("./sandbox/manager"), import("./sandbox/store"), import("./config/load"), import("./project/model")]);
+  const target = path.resolve(options.command === "security" ? parseSecurityArgs(options.rest).repo
+    : options.command === "mcp-check" ? parseMcpCheckArgs(options.rest).repo : os.tmpdir());
+  const settings = await loadConfiguration({ projectRoot: target }).then((loaded) => loaded.sandbox, () => undefined);
+  const sandbox = new ShellSandbox({ root: () => target, ...(settings ? { settings } : {}), ...(options.noSandbox ? { noSandboxFlag: true } : {}),
+    store: new SandboxStore(projectStateDirectory(target, os.homedir())), note: (line) => { process.stderr.write(`${line}\n`); },
+    seccompPath: async () => (await import("./sandbox/seccomp")).seccompHelper() });
+  useSandbox(sandbox);
+  try { await work(); }
+  finally { useSandbox(undefined); await sandbox.close(); }
+}
+
+/** `casper new` that opens the app: a person at a terminal (stdin is a TTY, rich or plain) who did not ask
+ * for --list. Undefined for every other command, and for scripts, which get the standalone command. */
+export function terminalNewProject(options: CliOptions, stdinTTY: boolean): NewCommand | undefined {
+  if (options.command !== "new" || !stdinTTY) return undefined;
+  const command = parseNewArgs(options.rest.slice(1));
+  return command && !command.list ? command : undefined;
+}
+
+/** Subcommands that run with no app, no model and no saved state, in one place. `learn` needs Casper's agent store
+ * and runs after it is set up. */
+const STANDALONE: Partial<Record<SubcommandName, (rest: string[]) => Promise<void>>> = {
+  "mcp-check": (rest) => runMcpCheckCommand(parseMcpCheckArgs(rest)),
+  new: (rest) => runNewSubcommand(parseNewArgs(rest.slice(1))!),
+  security: (rest) => runSecuritySubcommand(parseSecurityArgs(rest)),
+};
+
 export async function runCli(): Promise<void> {
   // Options are parsed before anything touches state; they have no side effects.
   const options = parseCliArgs(process.argv.slice(2));
@@ -104,11 +179,28 @@ export async function runCli(): Promise<void> {
     return;
   }
   const learn = options.command === "learn" ? parseLearnArgs(options.rest) : undefined;
-  const mcpCheck = options.command === "mcp-check" ? parseMcpCheckArgs(options.rest) : undefined;
-  if (mcpCheck) {
-    // No app, no model and no saved state: only the repo's own commands and its server run.
-    await runMcpCheckCommand(mcpCheck);
+  // `casper new` at a terminal asks what is missing and then opens Casper in the new project; scripts
+  // (no terminal) and --list stay standalone, with no app and no model.
+  const newProject = terminalNewProject(options, Boolean(process.stdin.isTTY));
+  const standalone = options.command === "prompt" || options.command === "interactive" || newProject ? undefined : STANDALONE[options.command];
+  if (standalone) {
+    // No app, no model and no saved state: only the subcommand's own tools run, in the shell sandbox where it can run.
+    await withStandaloneSandbox(options, () => standalone(options.rest));
     return;
+  }
+  // `casper ~/code/mist-mcp` opens that folder, like --cd with no prompt, instead of sending the path as a paid prompt.
+  if (options.folderCandidate && options.command === "prompt") {
+    const word = options.rest[0]!;
+    const expanded = word === "~" || word.startsWith("~/") || word.startsWith("~\\") ? path.join(os.homedir(), word.slice(1)) : word;
+    const isFolder = await stat(expanded).then((entry) => entry.isDirectory(), () => false);
+    if (isFolder) {
+      if (options.cd) throw new UsageError(`Give the folder once: casper ${word}, or casper --cd <folder> "<prompt>"`);
+      if (options.json || options.requireVerification) throw new UsageError(`${options.json ? "--json" : "--require-verification"} needs a prompt: casper --cd ${word} ${options.json ? "--json" : "--require-verification"} "fix the failing test"`);
+      options.cd = expanded;
+      options.command = "interactive";
+      options.rest = [];
+    // A slash command (`casper /undo`) is not a path.
+    } else if (looksLikePath(word) && !/^\/[A-Za-z][\w-]*$/.test(word)) throw new UsageError(`Not a folder: ${word}`);
   }
   if (options.cd) {
     const folder = path.resolve(options.cd);
@@ -152,12 +244,13 @@ export async function runCli(): Promise<void> {
     }
     return;
   }
-  const prompt = options.promptFromStdin ? await stdinPrompt() : options.rest.join(" ").trim();
+  const prompt = newProject ? "" : options.promptFromStdin ? await stdinPrompt() : options.rest.join(" ").trim();
   // --json: stdout carries only JSON Lines; the banner, transcript and receipt a person reads go to stderr.
   const emit = options.json ? (event: CasperEvent) => { process.stdout.write(formatJsonEvent(event)); } : undefined;
-  const app = new CasperApp({ verificationMode: verificationFlag(options), verbose: options.verbose,
+  const app = new CasperApp({ verificationMode: verificationFlag(options), verbose: options.verbose, ...(options.noSandbox ? { noSandbox: true } : {}),
     model: options.model, effort: options.effort, maxTurns: options.maxTurns, startupWarnings,
     conversation: options.resume ? { resume: options.resume } : options.continueConversation ? { continue: true } : undefined,
+    ...(newProject ? { newProject: { ...(newProject.template ? { template: newProject.template } : {}), ...(newProject.name ? { name: newProject.name } : {}) } } : {}),
     ...(emit ? { onEvent: emit, output: { write: (text: string) => { process.stderr.write(text); } } } : {}) });
   const removeShutdownHandlers = installShutdownHandlers(app);
 
@@ -169,11 +262,12 @@ export async function runCli(): Promise<void> {
       const task = app.getLastTaskResult();
       const exitCode = taskExitCode(report, task, { requireVerification: options.requireVerification });
       process.exitCode = exitCode;
-      emit?.(receiptEvent(report, task, exitCode));
+      emit?.(receiptEvent(report, task, exitCode, app.sandboxReceipt(), app.commandUsage()));
       return;
     }
 
     await app.runInteractive();
+    if (app.newProjectExitCode !== undefined) process.exitCode = app.newProjectExitCode;
   } catch (error) {
     // A run ends with a receipt or, when Casper itself stopped, an error event.
     emit?.({ type: "error", message: redactPreview(error instanceof Error ? error.message : String(error)) });

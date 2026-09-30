@@ -4,7 +4,8 @@ import type { Readable, Writable } from "node:stream";
 import type { RuntimeModelPickerHost, RuntimePickerIO } from "../runtime/types";
 import { paint, terminalText } from "./format";
 import { renderPanel, type PanelTone } from "./presentation";
-import { TerminalSurface } from "./surface";
+import { TerminalSurface, type AskOrigin } from "./surface";
+import type { NextRow } from "./next-row";
 
 export type TerminalOutput = RuntimePickerIO["output"] & { isTTY?: boolean };
 
@@ -25,6 +26,8 @@ export class InteractiveTerminal {
   /** Plain line input that arrived while idle but not yet reading (startup, before the first
    * prompt). Lines typed during work are still dropped, and approvals never read this. */
   private readonly earlyLines: string[] = [];
+  /** Plain line input: the row under the last receipt. A line that is exactly one of its keys runs that step. */
+  private nextKeys?: Map<string, string>;
 
   constructor(private readonly input: Readable, private readonly output: TerminalOutput,
     private readonly onInterrupt: () => void, private readonly onEOF: () => void) {
@@ -46,7 +49,10 @@ export class InteractiveTerminal {
       if (this.command) {
         const resolve = this.command; this.command = undefined; this.busy = true;
         sameChunk = true; queueMicrotask(() => { sameChunk = false; });
-        resolve(line);
+        // Only a line typed while Casper waits at the prompt can pick from the row.
+        const offered = this.nextKeys?.get(line.trim());
+        this.nextKeys = undefined;
+        resolve(offered ?? line);
       } else if (!this.busy || sameChunk) this.earlyLines.push(line);
     });
     this.rl.on("SIGINT", () => this.interrupt());
@@ -74,6 +80,10 @@ export class InteractiveTerminal {
   flashNote(text: string): void { this.surface?.flashNote(text); }
   /** The rich footer at this width; undefined on the plain terminal. */
   footerLine(width: number): string | undefined { return this.surface?.footerLine(width); }
+
+  /** A person can answer Casper's numbered questions: the rich surface, or plain line input typed at a
+   * terminal. Piped input can't: its lines were written before any question existed. */
+  get canAsk(): boolean { return this.surface !== undefined || Boolean((this.input as NodeJS.ReadStream).isTTY); }
 
   /** Rich surface present (TTY input and output, TERM not dumb) and its current width. */
   get rich(): boolean { return this.surface !== undefined; }
@@ -120,10 +130,18 @@ export class InteractiveTerminal {
     this.assistantOpen = false;
   }
 
+  /** Print the receipt's next-step row and offer its keys until the next line or key. Nothing waits on it. */
+  offerNext(row: NextRow | undefined): void {
+    if (!row) { this.nextKeys = undefined; this.surface?.offerNext(undefined); return; }
+    this.write(`${row.line}\n`);
+    if (this.surface) this.surface.offerNext(row.keys); else this.nextKeys = new Map(row.keys);
+  }
+
   readCommand(): Promise<string | undefined> {
     if (this.surface) return this.surface.readCommand();
     this.endAssistant(); this.busy = false;
-    if (this.earlyLines.length) { this.busy = true; return Promise.resolve(this.earlyLines.shift()!); }
+    // Lines typed ahead were written before the row existed: they are requests, never picks from it.
+    if (this.earlyLines.length) { this.nextKeys = undefined; this.busy = true; return Promise.resolve(this.earlyLines.shift()!); }
     if (this.closed || !this.rl) return Promise.resolve(undefined);
     return new Promise(resolve => { this.command = resolve; this.rl!.setPrompt("> "); this.rl!.prompt(); });
   }
@@ -182,8 +200,45 @@ export class InteractiveTerminal {
   exclusiveHost(): RuntimeModelPickerHost | undefined { return this.surface?.exclusiveHost(); }
 
   /** Structured clarification on the rich surface; undefined when skipped or unavailable. */
-  ask(question: string, options: { label: string; description?: string }[], multi: boolean, signal?: AbortSignal): Promise<string[] | undefined> {
-    return this.surface ? this.surface.ask(question, options, multi, signal) : Promise.resolve(undefined);
+  ask(question: string, options: { label: string; description?: string }[], multi: boolean, signal?: AbortSignal, from: AskOrigin = "casper"): Promise<string[] | undefined> {
+    return this.surface ? this.surface.ask(question, options, multi, signal, from) : Promise.resolve(undefined);
+  }
+
+  /**
+   * One numbered question from Casper itself (never an approval, never the AI's ask tool), answerable on
+   * both terminals. It resolves the chosen option's label, the text typed instead, or undefined for Esc,
+   * Ctrl+C, EOF or abort. Rich: the ask panel (Enter picks the highlighted option). Plain: numbered lines;
+   * a number or a label picks, Enter picks the first, other text comes back as typed. Lines typed before the question
+   * appeared never answer it.
+   */
+  async pick(question: string, options: { label: string; description?: string }[], signal?: AbortSignal): Promise<string | undefined> {
+    if (this.surface) return (await this.surface.ask(question, options, false, signal, "casper"))?.[0];
+    if (this.earlyLines.length) {
+      this.write(`[input] Discarded ${this.earlyLines.length} line(s) entered before this question appeared.\n`);
+      this.earlyLines.length = 0;
+    }
+    if (!this.rl || this.closed || this.confirmation || signal?.aborted || !options.length) return undefined;
+    this.endAssistant(); this.discardPartialLine();
+    this.write(`${question}\n${options.map((option, index) => `  ${index + 1} ${option.label}${option.description ? ` · ${option.description}` : ""}`).join("\n")}\n`);
+    return new Promise(resolve => {
+      let settled = false;
+      const finish = (answer: string | undefined) => {
+        if (settled) return; settled = true;
+        signal?.removeEventListener("abort", cancel);
+        this.confirmation = undefined; this.discardPartialLine();
+        if (answer === undefined) { resolve(undefined); return; }
+        const text = answer.trim();
+        const number = /^\d+$/.test(text) ? Number(text) : 0;
+        const named = options.find(option => option.label.toLowerCase() === text.toLowerCase());
+        resolve(!text ? options[0]!.label : number >= 1 && number <= options.length ? options[number - 1]!.label : named?.label ?? text);
+      };
+      const cancel = () => finish(undefined);
+      this.confirmation = finish;
+      signal?.addEventListener("abort", cancel, { once: true });
+      if (signal?.aborted) { cancel(); return; }
+      this.rl!.setPrompt(options.length > 1 ? `Type 1-${options.length} (Enter for 1): ` : "Enter for 1, or type your own: ");
+      this.rl!.prompt();
+    });
   }
 
   /** Lines edited in place on the rich surface; undefined when skipped or unavailable. */

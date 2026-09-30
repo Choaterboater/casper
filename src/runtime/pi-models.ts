@@ -6,7 +6,7 @@ import { getSupportedThinkingLevels } from "@earendil-works/pi-ai/compat";
 import { SettingsManager, type AgentSession, type ModelRuntime, type SessionManager } from "@earendil-works/pi-coding-agent";
 import { classifyEffort, nearestEffort, resolveAutoEffort } from "./auto-effort";
 import { isEffortSelection, isModelRole, resolveModelSelection, type ModelReference, type ModelRoles, type ResolvedModelSelection } from "./model-routing";
-import type { RuntimeModelSelection, RuntimeModelSelectionOptions, RuntimeReadOnlyStartOptions, RuntimeStatus, RuntimeUsage } from "./types";
+import type { RuntimeModelInfo, RuntimeModelSelection, RuntimeModelSelectionOptions, RuntimeReadOnlyStartOptions, RuntimeStatus, RuntimeUsage } from "./types";
 import { pickPiModel } from "./pi-model-picker";
 
 type Selection = { reference?: ModelReference; source: "conversation" | "default" | "none"; role?: string; effort?: string; auto?: RuntimeStatus["autoEffort"] };
@@ -107,6 +107,19 @@ export class PiModels {
       if (existsSync(temporary)) unlinkSync(temporary);
       rmdirSync(lock);
     }
+  }
+
+  /** The catalog entry a selector names, for the big-model offer. Resolves without selecting anything. */
+  describe(query: string): RuntimeModelInfo | undefined {
+    let resolved: ResolvedModelSelection;
+    try { resolved = resolveModelSelection(query, this.catalog.getModels(), this.getRoles(), this.defaultReference()); }
+    catch { return undefined; }
+    const model = this.catalog.getModel(resolved.reference.provider, resolved.reference.id);
+    if (!model) return undefined;
+    const input = model.cost?.input;
+    return { provider: model.provider, id: model.id,
+      ...(Number.isFinite(model.contextWindow) && model.contextWindow > 0 ? { contextWindow: model.contextWindow } : {}),
+      ...(typeof input === "number" && Number.isFinite(input) && input > 0 ? { inputCostPerMillion: input } : {}) };
   }
 
   getRoles(): ModelRoles { return { ...this.policy().modelRoles }; }

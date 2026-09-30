@@ -1,0 +1,31 @@
+name: Live checks
+# Checks that need the network, kept out of the normal test suite: the security tool pins
+# against each release's checksum file, and real `casper new` runs (uv, bun, pypi.org, npm).
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 6 * * 1'
+permissions:
+  contents: read
+jobs:
+  live:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      PI_OFFLINE: '1'
+      PI_TELEMETRY: '0'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: '1.4.0'
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - run: bun install --frozen-lockfile
+      - name: Security tool pins match their releases
+        run: bun run scripts/check-tool-pins.ts
+      - name: casper new templates build and pass their own checks (network-mcp passes casper mcp check --quick)
+        env:
+          TEST_LIVE_NEW: '1'
+        run: bun test tests/new-live.test.ts

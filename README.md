@@ -157,8 +157,10 @@ Ctrl+C within two seconds exits; Ctrl+D exits at once.
 
 ## Safety and privacy
 
-Casper is **not a sandbox**. Its file and shell tools run with your permissions. Worktrees,
-read-only agent roles and connection prompts do not isolate anything at the OS level.
+In v0.2.15 Casper has **no sandbox**: its file and shell tools run with your permissions.
+Worktrees, read-only agent roles and connection prompts do not isolate anything at the OS
+level. A shell sandbox is built for v0.2.17 (not released yet; see [Coming next](#coming-next)
+and [SECURITY.md](docs/SECURITY.md)).
 
 Your code, tool output and chat may go to the model provider you picked, and may stay on
 disk as plain text. Secret hiding covers known formats only ([SECRETS.md](docs/SECRETS.md));
@@ -193,6 +195,16 @@ results are not a pass. Review important changes yourself.
 | [PLATFORM_VERIFICATION.md](docs/PLATFORM_VERIFICATION.md) | How to test Casper on a new machine |
 | [WINDOWS.md](docs/WINDOWS.md) | Windows preview checklist |
 
+Pages for the coming versions (built, not released yet; see [Coming next](#coming-next)):
+
+| Doc | What it covers |
+| --- | --- |
+| [NEW.md](docs/NEW.md) | v0.2.16: `casper new`, new projects from templates with no model |
+| [NETWORK-CHECKS.md](docs/NETWORK-CHECKS.md) | v0.2.16: Ansible, Junos and lab checks |
+| [SECURITY_CHECKS.md](docs/SECURITY_CHECKS.md) | v0.2.16: `/security-review` and `casper security` |
+| [UNDO.md](docs/UNDO.md) | v0.2.17: `/undo`, `/redo`, `/diff` per task and saved receipts |
+| [SECURITY.md](docs/SECURITY.md) | v0.2.17: the shell sandbox, what Casper keeps from the AI, and what it doesn't |
+
 Project notes (for people working on Casper): [design decision](docs/adr/0001-casper-own-product.md),
 [eval results](docs/evals/), [handoff notes](docs/HANDOFF-2026-09-27.md),
 [pre-release review](docs/PRE_RELEASE_REVIEW.md).
@@ -202,8 +214,41 @@ browser or debugger was installed. Remove secrets and private paths from logs fi
 
 ## Coming next
 
-Not in this release. Planned for v0.2.16: new-project templates, page checks, and network and
-security checks. Planned for v0.2.17: undo and a sandbox.
+None of this is in v0.2.15. It is built and tested in the source, but not released yet; the
+install links above still give v0.2.15.
+
+**v0.2.16: build new things.**
+- `casper new` (and `/new`) starts a new project from a template (Python tool, MCP server for
+  your network, Mist scripts, web app, NOC dashboard, Aruba CX and Junos Ansible) with no model
+  and zero tokens. [NEW.md](docs/NEW.md)
+- Page checks: in a web project Casper starts the dev server and opens the changed pages
+  (`✓ /dashboard loads · 0 console errors`); SQLite migrations run on a throwaway database.
+  [Page checks](docs/VERIFICATION.md#page-checks)
+- When repairs run out, one more try on your big model, only if you pick it; Enter stops.
+  Suggested next steps under the receipt, and "plan first" for bigger requests.
+- Network checks (Ansible syntax, Junos render, Junoser, hier_config, and lab checks you start
+  yourself) and security checks (`/security-review`, `casper security`: gitleaks, semgrep and
+  more, no model). [Network checks](docs/NETWORK-CHECKS.md) · [Security checks](docs/SECURITY_CHECKS.md)
+- Enter is always the safe choice at Casper's numbered questions: choice 1 never builds,
+  spends tokens, remembers or reaches a lab.
+- Safety fixes: the AI's file tools stay out of `~/.ssh` and login files and don't follow links
+  out of the project; `.env` and credential file values are hidden from the AI; checks and dev
+  servers run without AI provider keys.
+
+**v0.2.17: undo and a real safety net.**
+- `Next: 1 Undo · 2 Show diff` after each task; `/undo`, `/redo`, `/diff` and `/receipt` work on
+  any saved task, also after a restart and outside git. Undo never overwrites a file you changed
+  since. [UNDO.md](docs/UNDO.md)
+- A shell sandbox on Linux (bubblewrap and socat: `sudo apt install bubblewrap socat`) and macOS:
+  the AI's shell, checks, services and dev servers write only the project, temp and package
+  caches, can't read `~/.ssh` or cloud logins, and reach only listed hosts (others ask). On
+  Windows, or Linux without bubblewrap, the AI's shell asks before each command.
+  [SECURITY.md](docs/SECURITY.md)
+- A stricter "verified": `--require-verification` exits 3 unless the change is proven, so
+  `• Checks passed — not proven` exits 3 too; the JSON `checksPassed` field still says the
+  checks passed. [Exit codes](docs/SCRIPTING.md#exit-codes)
+- An optional AI security review after `/security-review`, which asks first and shows its cost.
+- The plan editor asks "Build this plan?" before it builds.
 
 ## Develop from source
 

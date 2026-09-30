@@ -3,6 +3,8 @@ import { lstat, mkdir, readFile, readdir, rename, stat, writeFile } from "node:f
 import os from "node:os";
 import path from "node:path";
 import type { ProjectInfo } from "./inspect";
+import type { NamedCheckSpec } from "../verify/named";
+import type { MigrationPlan } from "../verify/migrations";
 import type { VerificationScope } from "../verify/scope";
 import { detectRepositoryStructure, STRUCTURE_PROBES } from "./structure";
 
@@ -14,6 +16,8 @@ export interface ProjectModelOverrides {
   packageManager?: string;
   commands?: Partial<Record<ProjectCommand, string>>;
   verificationScopes?: Partial<Record<ProjectCommand, VerificationScope>>;
+  /** verify.checks: the project's named checks. */
+  namedChecks?: Record<string, NamedCheckSpec>;
   architecture?: Record<string, string>;
   conventions?: string[];
 }
@@ -30,6 +34,13 @@ export interface ProjectModel {
   packageManager: string | null;
   commands: Partial<Record<ProjectCommand, string>>;
   verificationScopes?: Partial<Record<ProjectCommand, VerificationScope>>;
+  /** Checks the project named under verify.checks, next to the four built-in ones. */
+  namedChecks?: Record<string, NamedCheckSpec>;
+  /** SQL migrations found in the project (the migrations check); found when the project is opened, never cached. */
+  migrations?: MigrationPlan;
+  /** Ready-made checks Casper found for the project (Ansible playbooks) that the project has not saved under
+   * verify.checks. They never run until the owner adds one (/verify add <name>); found when opened, never cached. */
+  foundChecks?: Record<string, NamedCheckSpec>;
   architecture: Record<string, string>;
   conventions: string[];
   detectedAt: string;
@@ -372,6 +383,7 @@ async function detectModel(
     packageManager,
     commands: { ...commands, ...(overrides.commands ?? {}) },
     verificationScopes: overrides.verificationScopes,
+    ...(overrides.namedChecks && Object.keys(overrides.namedChecks).length ? { namedChecks: overrides.namedChecks } : {}),
     architecture: overrides.architecture ?? structure.architecture,
     conventions: overrides.conventions ?? structure.conventions,
     detectedAt: new Date().toISOString(),

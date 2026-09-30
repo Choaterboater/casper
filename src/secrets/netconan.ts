@@ -277,7 +277,7 @@ export class Scrubber {
       const version = await this.netconanVersion(location.path);
       extra = `netconan ${version ? `${version} ` : ""}(found)`;
     } else extra = location.state === "off" ? "netconan off (built-in only)" : "netconan not found (built-in only)";
-    const lines = [`Secrets: hidden in MCP results (always). Files and command output: ${filesOn ? "on" : "off"}. Extra check: ${extra}.`];
+    const lines = [`Secrets: hidden in MCP results, .env and credential files (always). Device configs in files and command output: ${filesOn ? "on" : "off"}. Extra check: ${extra}.`];
     if (this.lastFailed) lines.push(NETCONAN_FAILED);
     return lines.join("\n");
   }

@@ -5,13 +5,17 @@ import { parse } from "yaml";
 import { isValidProfileName } from "./profile";
 import { readReferenceFile } from "../references/files";
 import type { ProjectCommand, ProjectModelOverrides } from "../project/model";
-import { CHECK_NAMES } from "../verify/evidence";
+import { CHECK_NAMES, type CheckName } from "../verify/evidence";
+import { labNamedChecks, parseNamedChecks } from "../verify/named";
+import { LAB_IN_PROJECT_ERROR, mergeLabSettings, parseLabSettings, type LabSettings } from "../network/spec";
 import { SKILL_IMPORTS, type SkillImport } from "../skills/registry";
 import { isVerificationScope, type VerificationScope } from "../verify/scope";
 import { VERIFICATION_MODES, type VerificationMode, type VerificationSettings } from "../verify/mode";
 import { resolveVisualizationSettings, type VisualizationSettings } from "../visualize/router";
 import { parseServices, type ServiceSpec } from "../services/config";
 import { parseSmoke, type SmokeCheck } from "../services/smoke";
+import { parsePagesSetting, type PagesSetting } from "../services/pages";
+import type { SandboxProjectSettings, SandboxUserSettings } from "../sandbox/policy";
 
 export type Autonomy = "low" | "medium" | "high";
 export type AskQuestions = "beforeChanges" | "onlyWhenBlocked";
@@ -52,12 +56,21 @@ export interface LoadedConfiguration {
   projectOverrides: ProjectModelOverrides;
   skills: { maxActive: number; imports: SkillImport[] };
   verification: VerificationSettings;
-  repair: { maxAttempts: number };
+  /** bigModelLastTry: the last repair runs on the user's big model (the reason role); user or profile only. */
+  repair: { maxAttempts: number; bigModelLastTry?: boolean };
+  /** `suggestions: false` turns every suggestion off (user or profile only). */
+  suggestions?: boolean;
   visualize: VisualizationSettings;
   /** Declared managed services (project layer only), by name. */
   services: Record<string, ServiceSpec>;
   /** Configured smoke checks against those services (project layer only). */
   smoke: SmokeCheck[];
+  /** Pages the page check always opens, or off (project layer only). Unset: the changed pages. */
+  pages?: PagesSetting;
+  /** The owner's lab devices (lab.hosts), from ~/.casper/config.yaml or the profile only; never a project file. */
+  lab?: LabSettings;
+  /** The shell sandbox: your settings (sandbox, shell.keepEnv) and the project's extra denies. */
+  sandbox: { user: SandboxUserSettings; project: SandboxProjectSettings };
   /** Unknown keys, by file; shown at startup and otherwise ignored. */
   warnings: string[];
 }
@@ -193,7 +206,7 @@ const POLICY_KEYS = {
 } as const;
 const ISOLATE_KEYS = ["parallelAgents", "riskyRefactor", "experimentalBranch"];
 const TOP_LEVEL_KEYS = new Set(["profile", "project", "languages", "frameworks", "packageManager", "commands", "architecture",
-  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", ...Object.keys(POLICY_KEYS)]);
+  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "sandbox", "shell", ...Object.keys(POLICY_KEYS)]);
 
 /** Typos used to fall back silently to the defaults; the loader names them instead. */
 function unknownKeys(document: Mapping, label: string): string[] {
@@ -313,6 +326,8 @@ function stringArray(value: unknown): string[] | undefined {
   return strings.length === value.length ? strings : undefined;
 }
 
+export const BIG_MODEL_IN_PROJECT_ERROR = "repair.bigModelLastTry is a user setting (~/.casper/config.yaml); a project cannot choose to spend on your big model";
+
 function boundedSetting(document: Mapping, section: string, key: string, fallback: number, min: number, max: number): number {
   const settings = document[section];
   if (settings === undefined) return fallback;
@@ -326,7 +341,9 @@ function boundedSetting(document: Mapping, section: string, key: string, fallbac
 }
 
 /** verification.mode / verification.checks from one layer; undefined when the layer is silent. */
-function verificationSelection(document: Mapping): { mode?: VerificationMode; checks?: ProjectCommand[] } {
+const CHECK_NAME = /^[a-z][a-z0-9-]{0,31}$/;
+
+function verificationSelection(document: Mapping): { mode?: VerificationMode; checks?: CheckName[] } {
   const settings = document.verification;
   if (!isMapping(settings)) return {};
   const { mode, checks } = settings;
@@ -334,24 +351,34 @@ function verificationSelection(document: Mapping): { mode?: VerificationMode; ch
     throw new Error(`verification.mode must be ${alternatives(VERIFICATION_MODES)}`);
   }
   if (checks !== undefined && checks !== null && (!Array.isArray(checks) || !checks.length
-    || !checks.every((name) => CHECK_NAMES.some((check) => check === name)))) {
-    throw new Error(`verification.checks must be a nonempty list of ${alternatives(CHECK_NAMES)}`);
+    || !checks.every((name) => typeof name === "string" && CHECK_NAME.test(name)))) {
+    throw new Error(`verification.checks must be a nonempty list of ${alternatives(CHECK_NAMES)} or names from verify.checks`);
   }
   return {
     mode: mode ?? undefined,
-    checks: checks ? [...new Set(checks as ProjectCommand[])] : undefined,
-  } as { mode?: VerificationMode; checks?: ProjectCommand[] };
+    checks: checks ? [...new Set(checks as CheckName[])] : undefined,
+  } as { mode?: VerificationMode; checks?: CheckName[] };
 }
 
 function verificationCommands(document: Mapping): Record<string, string> {
   if (document.verify === undefined) return {};
   if (!isMapping(document.verify)) throw new Error("verify must be a mapping of check names to commands");
+  const commands: Record<string, string> = {};
   for (const [name, command] of Object.entries(document.verify)) {
+    if (name === "checks") continue; // Named checks: see namedChecks.
     if (!CHECK_NAMES.some((check) => check === name) || typeof command !== "string" || !command.trim()) {
-      throw new Error(`Invalid verify.${name}: expected a nonempty typecheck/lint/test/build command`);
+      throw new Error(`Invalid verify.${name}: expected a nonempty typecheck/lint/test/build command, or verify.checks for named checks`);
     }
+    commands[name] = command;
   }
-  return document.verify as Record<string, string>;
+  return commands;
+}
+
+/** verify.checks: the project's named checks. */
+function namedChecks(document: Mapping): ProjectModelOverrides["namedChecks"] {
+  if (!isMapping(document.verify) || document.verify.checks === undefined) return undefined;
+  const checks = parseNamedChecks(document.verify.checks, "verify.checks");
+  return Object.keys(checks).length ? checks : undefined;
 }
 
 function verificationScopes(document: Mapping): Partial<Record<ProjectCommand, VerificationScope>> | undefined {
@@ -382,7 +409,9 @@ function projectOverrides(document: Mapping): ProjectModelOverrides {
       )
     : undefined;
 
+  const named = namedChecks(document);
   return {
+    ...(named ? { namedChecks: named } : {}),
     languages: stringArray(project.languages),
     frameworks: stringArray(project.frameworks),
     packageManager: stringValue(project.packageManager),
@@ -391,6 +420,60 @@ function projectOverrides(document: Mapping): ProjectModelOverrides {
     architecture,
     conventions: stringArray(project.conventions),
   };
+}
+
+const SANDBOX_USER_KEYS = ["enabled", "allowedDomains", "allowWrite", "allowUnixSockets"];
+const SANDBOX_PROJECT_KEYS = ["denyRead", "denyWrite"];
+
+function pathList(value: unknown, label: string): string[] | undefined {
+  if (value === undefined || value === null) return undefined;
+  const list = stringArray(value);
+  if (!list || list.some((entry) => !entry.trim())) throw new Error(`${label} must be a list of text`);
+  return list.map((entry) => entry.trim());
+}
+
+/** `sandbox:` and `shell.keepEnv` from your own file or a profile: `sandbox: off`, or a mapping that adds hosts,
+ * write folders and sockets. Later layers add to earlier ones; `off` in any of them turns it off. */
+function sandboxUserLayer(document: Mapping, label: string, into: SandboxUserSettings, warnings: string[]): void {
+  const value = document.sandbox;
+  if (value === false || value === "off") into.off = true;
+  else if (value === true || value === "on") into.off = false;
+  else if (isMapping(value)) {
+    for (const key of Object.keys(value)) if (!SANDBOX_USER_KEYS.includes(key)) warnings.push(`${label}: unknown key sandbox.${key} (ignored)`);
+    if (value.enabled !== undefined && value.enabled !== null) {
+      if (typeof value.enabled !== "boolean") throw new Error(`${label}: sandbox.enabled must be true or false`);
+      into.off = !value.enabled;
+    }
+    const add = (key: "allowedDomains" | "allowWrite" | "allowUnixSockets") => {
+      const list = pathList(value[key], `${label}: sandbox.${key}`);
+      if (list) into[key] = [...new Set([...(into[key] ?? []), ...list])];
+    };
+    add("allowedDomains"); add("allowWrite"); add("allowUnixSockets");
+  } else if (value !== undefined && value !== null) throw new Error(`${label}: sandbox must be on, off or a mapping`);
+  const shell = document.shell;
+  if (shell === undefined || shell === null) return;
+  if (!isMapping(shell)) throw new Error(`${label}: shell must be a mapping`);
+  for (const key of Object.keys(shell)) if (key !== "keepEnv") warnings.push(`${label}: unknown key shell.${key} (ignored)`);
+  const keep = pathList(shell.keepEnv, `${label}: shell.keepEnv`);
+  if (keep) into.keepEnv = [...new Set([...(into.keepEnv ?? []), ...keep])];
+}
+
+/** A project can only add denies. Anything that would loosen the sandbox is named and ignored. */
+function sandboxProjectLayer(document: Mapping, label: string, warnings: string[]): SandboxProjectSettings {
+  const project: SandboxProjectSettings = {};
+  if (document.shell !== undefined) warnings.push(`${label}: shell is your own setting (~/.casper/config.yaml); a project can't change it (ignored)`);
+  const value = document.sandbox;
+  if (value === undefined || value === null) return project;
+  if (!isMapping(value)) {
+    warnings.push(`${label}: sandbox: ${String(value)} is ignored; a project can't turn the sandbox off, only add denyRead and denyWrite`);
+    return project;
+  }
+  for (const key of Object.keys(value)) {
+    if (!SANDBOX_PROJECT_KEYS.includes(key)) warnings.push(`${label}: sandbox.${key} is ignored; a project can only add denyRead and denyWrite`);
+  }
+  const denyRead = pathList(value.denyRead, `${label}: sandbox.denyRead`);
+  const denyWrite = pathList(value.denyWrite, `${label}: sandbox.denyWrite`);
+  return { ...(denyRead ? { denyRead } : {}), ...(denyWrite ? { denyWrite } : {}) };
 }
 
 export async function loadConfiguration(
@@ -433,12 +516,29 @@ export async function loadConfiguration(
   for (const [document, label] of [[globalDocument, labels.global], [profileDocument, labels.profile]] as const) {
     if (document.services !== undefined) throw new Error(`services is a project setting (.casper/project.yaml); remove it from ${label}`);
     if (document.smoke !== undefined) throw new Error(`smoke is a project setting (.casper/project.yaml); remove it from ${label}`);
+    if (document.pages !== undefined) throw new Error(`pages is a project setting (.casper/project.yaml); remove it from ${label}`);
   }
   let maxActive = 6;
   let timeoutMs = 600_000;
   let maxAttempts = 3;
+  // Spending on the big model is the user's own choice: a project file never makes it.
+  if (isMapping(projectDocument.repair) && projectDocument.repair.bigModelLastTry !== undefined) throw new Error(BIG_MODEL_IN_PROJECT_ERROR);
+  if (projectDocument.suggestions !== undefined) throw new Error("suggestions is a user setting (~/.casper/config.yaml); a project cannot turn suggestions on or off");
+  let bigModelLastTry: boolean | undefined;
+  let suggestions: boolean | undefined;
+  for (const [document, label] of [[globalDocument, labels.global], [profileDocument, labels.profile]] as const) {
+    const setting = isMapping(document.repair) ? document.repair.bigModelLastTry : undefined;
+    if (setting !== undefined && setting !== null) {
+      if (typeof setting !== "boolean") throw new Error(`${label}: repair.bigModelLastTry must be true or false`);
+      bigModelLastTry = setting;
+    }
+    if (document.suggestions !== undefined && document.suggestions !== null) {
+      if (typeof document.suggestions !== "boolean") throw new Error(`${label}: suggestions must be true or false`);
+      suggestions = document.suggestions;
+    }
+  }
   let mode: VerificationMode | undefined;
-  let checks: ProjectCommand[] | undefined;
+  let checks: CheckName[] | undefined;
   let review: boolean | undefined;
   let acceptance: boolean | "warn" | undefined;
   let checklist: boolean | undefined;
@@ -454,6 +554,11 @@ export async function loadConfiguration(
     checklist = checklistSetting ?? checklist;
     timeoutMs = boundedSetting(document, "verification", "timeoutMs", timeoutMs, 1, 3_600_000);
     const selection = verificationSelection(document);
+    // Named checks belong to one project: your own config picking one would break every other project.
+    const foreign = document === projectDocument ? undefined : selection.checks?.find((name) => !CHECK_NAMES.some((check) => check === name));
+    if (foreign) {
+      throw new Error(`${document === globalDocument ? labels.global : labels.profile}: verification.checks can only pick ${alternatives(CHECK_NAMES)} here; pick ${foreign} in that project's .casper/project.yaml`);
+    }
     mode = selection.mode ?? mode;
     checks = selection.checks ?? checks;
     maxAttempts = boundedSetting(document, "repair", "maxAttempts", maxAttempts, 0, 10);
@@ -466,13 +571,35 @@ export async function loadConfiguration(
   }
 
   const services = parseServices(projectDocument.services, labels.project);
+  const overrides = projectOverrides(projectDocument);
+  if (checks) {
+    // A selected name must be a built-in check or one the project named; lab checks never run on their own.
+    const declared = overrides.namedChecks ?? {};
+    const labs = new Set(labNamedChecks(declared));
+    for (const name of checks) {
+      if (labs.has(name)) throw new Error(`verification.checks: ${name} is a lab check; lab checks run only when you start them (/verify ${name})`);
+      if (!CHECK_NAMES.some((check) => check === name) && !declared[name]) {
+        throw new Error(`verification.checks: ${name} is not a check. Use ${alternatives(CHECK_NAMES)} or a name from verify.checks in .casper/project.yaml`);
+      }
+    }
+  }
+  if (projectDocument.lab !== undefined) throw new Error(LAB_IN_PROJECT_ERROR);
+  const pages = parsePagesSetting(projectDocument.pages, labels.project);
+  const sandboxWarnings: string[] = [];
+  const sandboxUser: SandboxUserSettings = {};
+  sandboxUserLayer(globalDocument, labels.global, sandboxUser, sandboxWarnings);
+  sandboxUserLayer(profileDocument, labels.profile, sandboxUser, sandboxWarnings);
+  const sandboxProject = sandboxProjectLayer(projectDocument, labels.project, sandboxWarnings);
+  const lab = mergeLabSettings(parseLabSettings(globalDocument.lab, "user", `${labels.global}: lab`), parseLabSettings(profileDocument.lab, "profile", `${labels.profile}: lab`));
   return {
     skills: { maxActive, imports },
     verification: { timeoutMs, ...(mode ? { mode } : {}), ...(checks ? { checks } : {}), ...(review !== undefined ? { review } : {}), ...(acceptance !== undefined ? { acceptance } : {}),
       ...(checklist !== undefined ? { checklist } : {}) },
-    repair: { maxAttempts },
+    repair: { maxAttempts, ...(bigModelLastTry !== undefined ? { bigModelLastTry } : {}) },
+    ...(suggestions !== undefined ? { suggestions } : {}),
     services,
     smoke: parseSmoke(projectDocument.smoke, Object.keys(services), labels.project),
+    ...(pages ? { pages } : {}),
     visualize: resolveVisualizationSettings({
       projectName: path.basename(options.projectRoot),
       homeDir,
@@ -488,13 +615,16 @@ export async function loadConfiguration(
       policyLayer(profileDocument, labels.profile),
       policyLayer(projectDocument, labels.project),
     ),
+    sandbox: { user: sandboxUser, project: sandboxProject },
     warnings: [
+      ...sandboxWarnings,
       ...unknownKeys(globalDocument, labels.global),
       ...unknownKeys(profileDocument, labels.profile),
       ...unknownKeys(projectDocument, labels.project),
     ],
     profileRules: await readOptionalText(path.join(profileDir, "rules.md")),
     projectRules: (await readProjectFile(options.projectRoot, ".casper/rules.md", MAX_PROJECT_RULES_BYTES))?.trim() || null,
-    projectOverrides: projectOverrides(projectDocument),
+    projectOverrides: overrides,
+    ...(lab ? { lab } : {}),
   };
 }

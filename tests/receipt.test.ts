@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { formatReceipt, type TaskResult } from "../src/task/result";
+import { checksPassed, formatReceipt, taskOutcome, type TaskResult } from "../src/task/result";
 import type { VerificationReport, VerificationResult } from "../src/verify/evidence";
 
 function check(overrides: Partial<VerificationResult> = {}): VerificationResult {
@@ -15,6 +15,20 @@ const done = (task: Omit<TaskResult, "execution">): TaskResult => ({ execution: 
 test("a Casper-run pass names the check, command and time", () => {
   expect(formatReceipt(done({ changedPaths: ["sum.js"], verificationMode: "auto", verification: report([check()]) })))
     .toBe("• Checks passed — not proven: Casper did not compare the tests with and without the change\n✓ Changed 1 file: sum.js\n✓ test passed (npm run test, 0.3s)");
+});
+
+test("the outcome is verified only when line 1 is Verified; the Checks passed lines stay the same", () => {
+  const proven = done({ changedPaths: ["sum.js"], verificationMode: "auto", verification: report([check()]),
+    proof: { status: "proven", check: "test", command: "npm run test", testsChanged: true, without: { exitCode: 1, ended: "fail" } } });
+  expect(taskOutcome(undefined, proven)).toBe("verified");
+  expect(formatReceipt(proven).split("\n")[0]).toBe("✓ Verified — the checks pass, and the tests fail without the change");
+  const skipped = done({ changedPaths: ["README.md"], verificationMode: "auto", verification: report([check()]), proofSkipped: "only docs changed" });
+  expect(taskOutcome(undefined, skipped)).toBe("not_verified");
+  expect(checksPassed(undefined, skipped)).toBe(true);
+  expect(formatReceipt(skipped).split("\n")[0]).toBe("• Checks passed — not proven: only docs changed");
+  const nothing = done({ changedPaths: [], verificationMode: "auto", verification: report([check()]) });
+  expect(taskOutcome(undefined, nothing)).toBe("unchanged");
+  expect(formatReceipt(nothing).split("\n")[0]).toBe("✓ Checks passed — no files changed");
 });
 
 test("a pass reused from earlier in the task says so, and that its time is the earlier run's", () => {
@@ -154,4 +168,35 @@ test("line 1 is the verdict: verified only when the tests fail without the chang
   expect(first({ execution: "completed", verification: report([check()]) })).toBe("✓ Checks passed");
   // Nothing to report stays empty.
   expect(formatReceipt(done({}))).toBe("");
+});
+
+test("a failed lab check's receipt line says the model was not asked only when no repair ran", () => {
+  const lab = check({ name: "junos-commit", status: "fail", exitCode: 2, kind: "lab", command: undefined });
+  const stopped = formatReceipt(done({ verification: report([lab], { status: "fail" }) }));
+  expect(stopped).toContain("✗ junos-commit failed on the lab (exit 2) — log above; Casper did not ask the model to fix it. /verify junos-commit runs it again (asks first)");
+  // You chose "Ask the model to fix it": the repair line says so, and the check line does not deny it.
+  const repaired = formatReceipt(done({ verification: report([lab], { status: "fail", repairAttempts: 1 }) }));
+  expect(repaired).toContain("↻ Casper tried 1 repair");
+  expect(repaired).toContain("✗ junos-commit failed on the lab (exit 2) — log above; /verify junos-commit runs it again (asks first)");
+  expect(repaired).not.toContain("did not ask the model");
+});
+
+test("a lab dry run that passed is shown, but it is never grounds for Checks passed or Verified", () => {
+  const dry = check({ name: "aoscx-check", kind: "lab", label: "dry run not guaranteed", command: undefined });
+  const only = done({ verification: report([dry]) });
+  expect(taskOutcome(undefined, only)).toBe("not_verified");
+  const text = formatReceipt(only);
+  expect(text).toContain("• Not verified — a dry run is not guaranteed, so its pass is not proof");
+  expect(text).toContain("✓ aoscx-check passed (dry run not guaranteed · ");
+  expect(text).not.toContain("Checks passed");
+  // Beside a real check the pass of that check still counts.
+  expect(checksPassed(undefined, done({ verification: report([check(), dry]) }))).toBe(true);
+});
+
+test.skipIf(process.platform === "win32")("the one-shot undo command quotes a folder so a shell runs it as printed (~ still expands, $ does not)", () => {
+  const task = done({ changedPaths: ["sum.js"], verificationMode: "off", receipt: 4, undo: { available: true } });
+  const last = (folder: string) => formatReceipt(task, { surface: "one-shot", folder }).split("\n").at(-1);
+  expect(last("~/code/app")).toBe("Undo: casper --cd ~/code/app /undo 4 · Diff: casper --cd ~/code/app /diff 4");
+  expect(last("~/My Lab")).toBe("Undo: casper --cd ~/'My Lab' /undo 4 · Diff: casper --cd ~/'My Lab' /diff 4");
+  expect(last("/srv/a $HOME's")).toBe("Undo: casper --cd '/srv/a $HOME'\\''s' /undo 4 · Diff: casper --cd '/srv/a $HOME'\\''s' /diff 4");
 });

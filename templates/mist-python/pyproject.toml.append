@@ -1,0 +1,11 @@
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Recorded answers only: a call with no recording fails instead of reaching Mist.
+addopts = "--record-mode=none"
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]

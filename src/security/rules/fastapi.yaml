@@ -1,0 +1,80 @@
+# Casper's own semgrep rules for FastAPI apps.
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Casper contributors. Written for Casper; no Semgrep Registry rules are copied.
+# Tested with `semgrep --test --metrics=off src/security/rules` against fastapi.py next to this file.
+rules:
+  - id: casper.fastapi-cors-any-origin-with-credentials
+    languages: [python]
+    severity: ERROR
+    message: CORS lets any website send requests with the user's cookies. List the sites that may call this app.
+    metadata:
+      casper-severity: high
+    pattern-either:
+      - pattern: $APP.add_middleware(CORSMiddleware, ..., allow_origins=["*"], ..., allow_credentials=True, ...)
+      - pattern: $APP.add_middleware(CORSMiddleware, ..., allow_credentials=True, ..., allow_origins=["*"], ...)
+      - pattern: $APP.add_middleware(CORSMiddleware, ..., allow_origin_regex=".*", ..., allow_credentials=True, ...)
+      - pattern: $APP.add_middleware(CORSMiddleware, ..., allow_credentials=True, ..., allow_origin_regex=".*", ...)
+
+  - id: casper.fastapi-debug-on
+    languages: [python]
+    severity: WARNING
+    message: Debug mode is on. Errors show code and values to whoever made the request.
+    metadata:
+      casper-severity: medium
+    pattern-either:
+      - pattern: FastAPI(..., debug=True, ...)
+      - pattern: fastapi.FastAPI(..., debug=True, ...)
+
+  - id: casper.fastapi-write-route-without-login
+    languages: [python]
+    severity: WARNING
+    message: This route changes data but asks for no login (no Depends or Security). Check that the router or app adds one.
+    metadata:
+      casper-severity: medium
+    patterns:
+      - pattern-either:
+          - pattern: |
+              @$APP.$VERB(...)
+              def $F(...): ...
+          - pattern: |
+              @$APP.$VERB(...)
+              async def $F(...): ...
+      - metavariable-regex:
+          metavariable: $VERB
+          regex: ^(post|put|patch|delete)$
+      - pattern-not: |
+          @$APP.$VERB(..., dependencies=$D, ...)
+          def $F(...): ...
+      - pattern-not: |
+          @$APP.$VERB(..., dependencies=$D, ...)
+          async def $F(...): ...
+      - pattern-not: |
+          @$APP.$VERB(...)
+          def $F(..., $P = Depends(...), ...): ...
+      - pattern-not: |
+          @$APP.$VERB(...)
+          async def $F(..., $P = Depends(...), ...): ...
+      - pattern-not: |
+          @$APP.$VERB(...)
+          def $F(..., $P: $T = Depends(...), ...): ...
+      - pattern-not: |
+          @$APP.$VERB(...)
+          async def $F(..., $P: $T = Depends(...), ...): ...
+      - pattern-not: |
+          @$APP.$VERB(...)
+          def $F(..., $P: $T = Security(...), ...): ...
+      - pattern-not: |
+          @$APP.$VERB(...)
+          async def $F(..., $P: $T = Security(...), ...): ...
+      - pattern-not: |
+          @$APP.$VERB(...)
+          def $F(..., $P: Annotated[$T, Depends(...)], ...): ...
+      - pattern-not: |
+          @$APP.$VERB(...)
+          async def $F(..., $P: Annotated[$T, Depends(...)], ...): ...
+      - pattern-not: |
+          @$APP.$VERB(...)
+          def $F(..., $P: Annotated[$T, Security(...)], ...): ...
+      - pattern-not: |
+          @$APP.$VERB(...)
+          async def $F(..., $P: Annotated[$T, Security(...)], ...): ...

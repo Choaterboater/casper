@@ -157,8 +157,10 @@ run `/branch` and the policy says to isolate.
   the command text, not a sandbox; a script or alias can get past it.
 - Approval for branch, switch and worktree steps lasts only for this Casper
   process. Files in the project cannot answer an approval prompt.
-- The model's own shell and file tools are not sandboxed. A worktree keeps file
-  changes apart; it is not a security boundary.
+- A worktree keeps file changes apart; it is not a security boundary. Since
+  v0.2.17 the shell sandbox holds shell commands to the folder you are in, and
+  the model's file tools stay out of private places (see
+  [SECURITY.md](SECURITY.md)).
 
 State files use mode `0600` and are replaced in one step. If the names file is
 damaged, Casper stops with an error rather than reset it.

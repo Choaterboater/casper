@@ -36,11 +36,31 @@ through. Check what a tool returns before you share it.
   `next_cursor`, `cursor`, `list_key`, `key`, `public_key`, paging tokens
   (`next_token`, `page_token`) and anything under `_pagination` are left alone, so
   paging keeps working. The result says `secretsHidden: N`.
-- **Files you or the AI read: config files only.** A `read` is scrubbed for `.cfg`,
-  `.conf` and `.set` files, and for files under a folder named `configs`, `backups`
-  or `oxidized`. Source code and data files (`.ts`, `.py`, `.json`, `.yaml`, `.md`
-  and so on) are never changed, even under those folders, so test files stay as
-  they are.
+- **Files you or the AI read: config files for device secrets.** A `read` is
+  scrubbed for `.cfg`, `.conf` and `.set` files, and for files under a folder named
+  `configs`, `backups` or `oxidized`. Source code and data files (`.ts`, `.py`,
+  `.json`, `.yaml`, `.md` and so on) are never changed by the device rules, even
+  under those folders, so test files stay as they are.
+- **`.env`, INI and credential files: always (from v0.2.16, not released yet).** In
+  `.env`, `.env.*`, `*.env`, `.envrc`, `.netrc`, `.npmrc`, `.pypirc`, `.pgpass`,
+  `credentials*`, `secrets.*`, `*.ini`, `*.properties`, `*.tfvars`, `*.tfstate`,
+  `*.pem`, `*.key` and `id_rsa`-style files, every value whose name looks secret is
+  hidden, and so are private keys: `MIST_APITOKEN=<secret hidden>`. Names and other
+  settings (`MIST_HOST=api.mist.com`) stay, so the AI still knows what the file holds.
+- **Secret-named values in any output: always (from v0.2.16).** In what `read`,
+  `grep`, `bash`, `powershell` and the `service` tool (dev server logs and replies)
+  return, a value after a secret-looking name (`password=hunter2`,
+  `"client_secret": "..."`, `api_key: ...`, `SLACK_WEBHOOK_URL=...`,
+  `SENTRY_DSN=...`, `Authorization: Bearer ...`) is hidden when it looks like a real
+  value, and so is the password inside an address
+  (`postgres://app:<secret hidden>@db/app`). Code such as `token = getToken()` or
+  `password: str` is left alone.
+- **Your own secret environment values: always (from v0.2.16).** Exact copies of the
+  values of Casper's secret-named environment variables (`OPENROUTER_API_KEY`,
+  `MIST_API_TOKEN`, `CENTRAL_CLIENT_SECRET` ...; 8 characters or longer, not paths)
+  are hidden wherever they turn up, so `printenv` shows the AI `<secret hidden>`. The
+  keys and sign-in tokens in Casper's login file (`~/.casper/agent/auth.json`) are
+  hidden the same way, so `cat` of that file in the AI's shell shows none of them.
 - **Command and grep output: only when it looks like a config.** Output from
   `bash`, `powershell` or `grep` (failed commands too) is scrubbed when it has two
   config lines such as `hostname`, `version 23.4;`, `## Last commit` or
@@ -50,7 +70,10 @@ through. Check what a tool returns before you share it.
   `pi-bash-<id>.log` (or `pi-powershell-<id>.log`) file; reading that file back gets
   the same check. Other `.log` files are left alone.
 - **Subagents** (`/delegate`, or the AI's delegate tool) get the same scrubbing for
-  what they read.
+  what they read. The `/security-review` AI review (v0.2.17, not released yet) gets
+  it too, with device configs hidden even when `/secrets files off`, and it never
+  opens key or `.env` files or files gitleaks flagged (see
+  [SECURITY_CHECKS.md](SECURITY_CHECKS.md#the-ai-review)).
 - **Reference search excerpts** (`/references search`, `search_references`) are
   scrubbed with Casper's own rules (not netconan). A line that only matches inside
   a hidden secret is not returned. See [REFERENCES.md](REFERENCES.md).
@@ -127,14 +150,19 @@ To install it: `pip install netconan` (or `pipx install netconan`).
 
 ```text
 /secrets
-Secrets: hidden in MCP results (always). Files and command output: on. Extra check: netconan not found (built-in only).
+Secrets: hidden in MCP results, .env and credential files (always). Device configs in files and command output: on. Extra check: netconan not found (built-in only).
 
 /secrets files off
-Files and command output: off for this session. MCP results are still scrubbed.
+Device configs in files and command output: off for this session. MCP results, .env and credential files are still scrubbed.
 
 /secrets files on
-Files and command output: on.
+Device configs in files and command output: on.
 ```
+
+(0.2.15 says `Secrets: hidden in MCP results (always). Files and command output: on.`
+and has no `.env` rules.) `/secrets files off` turns off the device config rules only.
+`.env` and credential files, secret-named values and your secret environment values
+stay hidden.
 
 When netconan is found, the first line ends with `Extra check: netconan <version> (found).`
 
@@ -151,7 +179,10 @@ Casper.
 - Secrets the AI already had (for example ones you typed in a request, or ones in a
   file that is not a config file) stay in the conversation and the saved session
   like any other text.
-- `/secrets files off` turns file and command scrubbing off for subagents too.
+- `/secrets files off` turns device config scrubbing off for subagents too.
+- From v0.2.16 the AI's file tools can't open private places such as `~/.ssh` at
+  all. Its shell can, unless the shell sandbox (v0.2.17) is running. See
+  [SECURITY.md](SECURITY.md) for what is blocked and what is not.
 - `casper learn` reads repo text without this scrubbing.
 - If the check itself fails on a tool's output, the AI gets `Output not shown:
   Casper could not check it for device secrets. Try a smaller read or another

@@ -82,7 +82,8 @@ test("the target sits beside the first test file and keeps its language", () => 
 
 test("a failed acceptance check downgrades verified to not verified; a pass or an error never changes it", () => {
   const verified: TaskResult = { execution: "completed", changedPaths: ["src/value.js"], verification: { status: "pass", repairAttempts: 0, rounds: [],
-    results: [{ name: "test", command: "bun test", cwd: "/", status: "pass", exitCode: 0, signal: null, stdout: "", stderr: "", truncated: false, durationMs: 1, freshness: "fresh" }] } };
+    results: [{ name: "test", command: "bun test", cwd: "/", status: "pass", exitCode: 0, signal: null, stdout: "", stderr: "", truncated: false, durationMs: 1, freshness: "fresh" }] },
+    proof: { status: "proven", check: "test", command: "bun test", testsChanged: true, without: { exitCode: 1, ended: "fail" } } };
   expect(taskOutcome(undefined, verified)).toBe("verified");
   expect(taskOutcome(undefined, { ...verified, acceptance: { status: "pass", mode: "verdict" } })).toBe("verified");
   expect(taskOutcome(undefined, { ...verified, acceptance: { status: "error", reason: "x", mode: "verdict" } })).toBe("verified");
@@ -95,7 +96,8 @@ test("a failed acceptance check downgrades verified to not verified; a pass or a
 
 test("in warn mode a failed acceptance check never downgrades; the receipt names what is unconfirmed", () => {
   const verified: TaskResult = { execution: "completed", changedPaths: ["src/value.js"], verification: { status: "pass", repairAttempts: 0, rounds: [],
-    results: [{ name: "test", command: "bun test", cwd: "/", status: "pass", exitCode: 0, signal: null, stdout: "", stderr: "", truncated: false, durationMs: 1, freshness: "fresh" }] } };
+    results: [{ name: "test", command: "bun test", cwd: "/", status: "pass", exitCode: 0, signal: null, stdout: "", stderr: "", truncated: false, durationMs: 1, freshness: "fresh" }] },
+    proof: { status: "proven", check: "test", command: "bun test", testsChanged: true, without: { exitCode: 1, ended: "fail" } } };
   const named = { ...verified, acceptance: { status: "fail" as const, mode: "warn" as const, unconfirmed: ["\"rejects over 5\"", "\"per key\""] } };
   expect(taskOutcome(undefined, named)).toBe("verified");
   expect(formatReceipt(named)).toContain("⚠ Not confirmed by tests written from the request: \"rejects over 5\"; \"per key\"");

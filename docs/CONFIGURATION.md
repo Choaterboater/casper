@@ -147,6 +147,33 @@ Casper itself:
   (other than `-n`), because each can set aside or throw away your uncommitted work. This is a
   check of the command text, not a sandbox. It applies whatever the policy says.
 
+## The shell sandbox
+
+New in v0.2.17 (not released yet). The shell sandbox (see [SECURITY.md](SECURITY.md)) is
+set only in your own files (`~/.casper/config.yaml` or a profile):
+
+```yaml
+sandbox:
+  allowedDomains: [api.mist.com, "*.central.arubanetworks.com"]  # reached without asking
+  allowWrite: [~/shared-build-cache]                              # more folders commands may write
+  allowUnixSockets: [/var/run/docker.sock]                        # macOS only; Linux can't filter by path
+shell:
+  keepEnv: [OPENAI_API_KEY]   # an AI provider key your own tests need
+```
+
+`sandbox: off` turns it off for every run (like `--no-sandbox` for one run); the receipt then
+says shell commands and checks were not sandboxed. A project's `.casper/project.yaml` can only
+add denies:
+
+```yaml
+sandbox:
+  denyRead: [secrets, ~/work/deploy-key]
+  denyWrite: [docs/released]
+```
+
+Any other `sandbox` or `shell` key in a project file is named at startup and ignored, and a repo's
+`.pi/sandbox.json` is never read.
+
 ## Environment variables
 
 | Variable | Meaning |
@@ -267,6 +294,34 @@ for the current session only (reloading does not bring those counters back). Usa
 cut-off rating answer is still counted. A network failure may use tokens that are never reported;
 that usage stays unknown. Cost figures are estimates, not bills.
 
+### Your big model
+
+New in v0.2.16 (not released yet). `/model big <provider/model>` (the same as
+`/model role reason …`) sets your big model; `/model big clear` forgets it. When checks still
+fail after the last repair in an interactive session, Casper asks once:
+`test still fails after 3 repairs. What now?` with 1 Stop here and 2 Retry with your big model,
+which names the model and what it reads (`about 48k tokens, at least ≈ $0.72`; only the
+conversation it reads is counted, so the price is a lower bound). The free answer is first, so
+Enter or Esc never spends. Retry switches this conversation to the big model for one more repair,
+then back: `[model] Back on provider/model for your next request.` The receipt says
+`↻ Casper tried 4 repairs (the last on your big model provider/model)`. A big model that cannot
+hold the conversation is not offered. With no big model set, a rich terminal offers
+"Retry with a bigger model", opens the model picker and asks whether to remember your pick. A
+pick you do not save is named plainly (`↻ repair 4/4 on provider/model`), never called your big
+model, and a pick that cannot hold the conversation is not tried. One-shot runs and `--json`
+never ask.
+
+To run the last repair on the big model without being asked, set it in your own config. A
+project's `.casper/project.yaml` cannot (it would choose to spend your money); Casper stops
+loading with an error if it tries.
+
+```yaml
+# ~/.casper/config.yaml or a profile's config.yaml
+repair:
+  bigModelLastTry: true
+suggestions: false   # no suggested next steps anywhere
+```
+
 ## Skills
 
 A skill is a Markdown file of instructions (a `SKILL.md`) that Casper adds to the model's prompt
@@ -372,7 +427,8 @@ user skill folder needs an explicit review.
 
 **What this does not protect.** Review controls which skills Casper adds to the prompt, not what
 the model can read or run. Skills grant no permissions, and Casper never runs a skill's helper
-scripts. The model's own read and bash tools are not sandboxed, and policy is prompt guidance.
+scripts. Since v0.2.17 the model's file tools stay out of private places and its shell runs in
+the shell sandbox where one can run (see [SECURITY.md](SECURITY.md)); policy is prompt guidance.
 Trust covers `SKILL.md` only, not the scripts or files it points to; check those yourself.
 Blocking a skill stops future use; it does not remove text already in a conversation.
 `maxActive` limits new skills per request, not the whole conversation.

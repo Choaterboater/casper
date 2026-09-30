@@ -1,7 +1,7 @@
 import { freePort, ManagedProcess, ManagedProcessError, portInUse } from "../platform/managed-process";
 import { ProcessCleanupError, type ProcessPlatform } from "../platform/processes";
 import { editAffects } from "../verify/task";
-import { MAX_SERVICES, type ServiceSpec } from "./config";
+import { MAX_SERVICES, SERVICE_NAME, type ServiceSpec } from "./config";
 
 /** idle: declared, never started. failed: the last startup did not reach readiness. crashed: exited on its own after readiness. */
 export type ServiceState = "idle" | "starting" | "ready" | "crashed" | "failed" | "stopped";
@@ -60,18 +60,27 @@ export class ServiceManager {
   private closing?: Promise<void>;
   private cleanupUnknown = false;
   private adhocCount = 0;
+  /** Slots added by ensureSlot (host-detected), as opposed to declared in .casper/project.yaml. */
+  private readonly detected = new Set<string>();
   /** Unreported crashes whose service was relaunched since (by a freshness check, /services or a smoke run). */
   private replacedCrashes: ServiceStatus[] = [];
   /** Cleanup of ad-hoc slots dropped past the cap, which close() still awaits. */
   private readonly retired: Promise<void>[] = [];
+  /** The project folder services run in. */
+  get root(): string { return this.options.projectRoot; }
+
   constructor(private readonly options: { projectRoot: string; services: Record<string, ServiceSpec>; platform?: ProcessPlatform }) {
     for (const [name, spec] of Object.entries(options.services)) this.slots.set(name, { name, spec, state: "idle", stale: false });
   }
 
   get closed(): boolean { return this.closing !== undefined; }
   names(): string[] { return [...this.slots.keys()]; }
-  /** Whether any service is starting or ready. */
-  live(): boolean { return [...this.slots.values()].some(slot => slot.work !== undefined || slot.state === "starting" || slot.state === "ready"); }
+  /** Whether any service is starting or ready. `detected: false` leaves out the dev server Casper started for its
+   * own page check, so that server alone never hands the model the service tool (and its tokens) on later tasks. */
+  live(options: { detected?: boolean } = {}): boolean {
+    return [...this.slots.values()].some(slot => (options.detected !== false || !this.detected.has(slot.name))
+      && (slot.work !== undefined || slot.state === "starting" || slot.state === "ready"));
+  }
   /** Crashes after readiness not yet reported, each returned once (with its exit and log tail) for the next tool call. */
   takeCrashes(): ServiceStatus[] {
     const replaced = this.replacedCrashes.splice(0);
@@ -123,6 +132,29 @@ export class ServiceManager {
     const slot: Slot = { name: `adhoc-${++this.adhocCount}`, spec, state: "idle", stale: false };
     this.slots.set(slot.name, slot);
     return this.launch(slot, signal);
+  }
+
+  /** Adds a host-detected service (the dev server Casper found for page checks) under `name`, or keeps the
+   * slot already there. A declared service of that name always wins and is left exactly as declared. A
+   * detected slot whose command or readiness changed takes the new spec; if it is running, it is marked stale
+   * so the next freshness check restarts it. The slot lives as long as the session, so later tasks reuse the
+   * running server. It counts toward the MAX_SERVICES cap of named services; ad-hoc slots do not. Starts nothing. */
+  ensureSlot(name: string, spec: ServiceSpec): ServiceStatus {
+    if (this.closing) throw new Error("Casper's services were stopped with the conversation; start them again after it changes");
+    if (!SERVICE_NAME.test(name) || name.startsWith("adhoc-")) throw new Error(`${JSON.stringify(name)} is not a service name`);
+    const existing = this.slots.get(name);
+    if (existing) {
+      if (!this.detected.has(name) || JSON.stringify(existing.spec) === JSON.stringify(spec)) return this.describe(existing);
+      existing.spec = spec;
+      if (existing.work !== undefined || existing.state === "starting" || existing.state === "ready") existing.stale = true;
+      return this.describe(existing);
+    }
+    const named = [...this.slots.keys()].filter(key => !key.startsWith("adhoc-"));
+    if (named.length >= MAX_SERVICES) throw new Error(`At most ${MAX_SERVICES} services are kept; ${name} was not added`);
+    const slot: Slot = { name, spec, state: "idle", stale: false };
+    this.slots.set(name, slot);
+    this.detected.add(name);
+    return this.describe(slot);
   }
 
   async restart(name: string, signal: AbortSignal): Promise<ServiceStatus> {

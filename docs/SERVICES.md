@@ -12,7 +12,15 @@ stops it when the conversation that owns it ends. A running service is not proof
 that anything works; it only gives Casper something to look at.
 
 A service runs your project's own command in the project folder. It is trusted
-project code, not a sandbox.
+project code. In 0.2.15 it runs with your permissions.
+
+From v0.2.17 (not released yet) it runs in the shell sandbox where one can run: it
+writes only the project and temp and can't read your private folders, but it keeps
+the machine's network so you can reach it (on macOS it reaches only listed hosts). On
+Linux it can't open a Unix socket, so a service that drives Docker
+(`docker compose up`) needs `sandbox: off` in `~/.casper/config.yaml`. Where no
+sandbox runs (Windows, bubblewrap missing, `--no-sandbox`) it runs with your
+permissions. See [SECURITY.md](SECURITY.md).
 
 ## Declaring services
 
@@ -64,6 +72,8 @@ Then `/services start web` starts it and `/services` shows its address.
   and owns `PATH`, `HOME`, `TMPDIR`, `BUN_INSTALL_AUTO` and `npm_config_offline`, so `env`
   may not set any of them (the last five in any letter case). The service should listen
   on `HOST:PORT`.
+  From v0.2.17, AI provider keys (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY` and the rest)
+  are dropped even when `env` sets them.
 
 A project declares at most 4 services. Names are a letter followed by up to 31 letters,
 digits, `_` or `-`. `adhoc-<n>` is reserved for services started by command. Services
@@ -139,6 +149,17 @@ The tool is offered only when the project declares services, a service is runnin
 the task mentions a dev, HTTP or web server, `localhost`, an endpoint or `curl`. In other
 tasks it is left out, so it costs no prompt tokens. Services the model starts belong to
 the session like declared ones, and `/services` lists and controls them too.
+
+## Dev servers for page checks
+
+New in v0.2.16 (not released yet). In a web project Casper starts the dev server itself
+to open changed pages after a change (see [page checks](VERIFICATION.md#page-checks)). A
+declared `services.web` (or the only declared service of a web project) is used as it is.
+Otherwise Casper runs the package.json `dev` script with its own port flags, or a
+Streamlit app with the project's `.venv` Python, in a `web` slot of its own. Casper never
+installs packages for it. That slot lives for the session like a declared service and
+shows in `/services`. It is Casper's own: a running page-check server never adds the
+service tool to the AI's later tasks.
 
 ## Lifetime
 

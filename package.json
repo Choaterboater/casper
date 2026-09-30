@@ -16,6 +16,7 @@
     "check": "bun run typecheck && bun test"
   },
   "dependencies": {
+    "@anthropic-ai/sandbox-runtime": "0.0.77",
     "@earendil-works/pi-agent-core": "0.87.0",
     "@earendil-works/pi-ai": "0.87.0",
     "@earendil-works/pi-coding-agent": "0.87.0",

@@ -22,11 +22,20 @@ Tell Casper your check commands in `.casper/project.yaml` (see [Configuration](#
 or let it find them (see [Where the checks come from](#where-the-checks-come-from)). The banner,
 `/status` and `/project` show which checks will run.
 
-**Trust first.** Checks run the repository's own commands. That is **not a sandbox** (nothing
-limits what those commands can touch) and Casper does not ask first: in `auto` mode (the default)
-asking for a change runs the repository's test, lint and build commands, and a repository's
-`.casper/project.yaml` can itself choose `auto`. For a repository whose commands you do not trust,
-start Casper with `--no-verify`. A flag wins over every configuration file.
+**Trust first.** Checks run the repository's own commands, and Casper does not ask first: in
+`auto` mode (the default) asking for a change runs the repository's test, lint and build commands,
+and a repository's `.casper/project.yaml` can itself choose `auto`. In 0.2.15 that is **not a
+sandbox** (nothing limits what those commands can touch). From v0.2.17 (not released yet) checks
+run in the shell sandbox where it can run: they write only the project, temp and package caches,
+can't read your private folders and reach only listed hosts (see [SECURITY.md](SECURITY.md)).
+Where no sandbox runs (Windows, bubblewrap missing, `--no-sandbox`) they run with your
+permissions. For a repository whose commands you do not trust, start Casper with `--no-verify`.
+A flag wins over every configuration file.
+
+From v0.2.16, checks run without AI provider keys (`OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`,
+`OPENAI_API_KEY` and the other names Pi reads) and without Casper's own secret variables;
+everything else in your environment, network product tokens such as `MIST_API_TOKEN` included, is
+still there.
 
 ## Verification modes
 
@@ -70,10 +79,10 @@ A one-shot run exits:
 
 | Code | Meaning |
 |---|---|
-| 0 | Done. A pass that later went stale, or changes nobody verified, still exit 0 and the receipt says "Not verified". |
+| 0 | Done. A pass that later went stale, checks that passed without proving the change, or changes nobody verified, still exit 0 and the receipt says why. |
 | 1 | A check failed, checks were blocked, or the model run failed. |
 | 2 | Incomplete: a selected check was skipped (it has no command), a smoke check could not run, `--max-turns` stopped the run, or checking was asked for and no check exists. |
-| 3 | Only with `--require-verification` (which implies `--verify`): the change was not verified. |
+| 3 | Only with `--require-verification` (which implies `--verify`): the change was not verified. From v0.2.17 that includes checks that passed without a proof (`• Checks passed — not proven`). |
 | 130 / 143 | Cancelled (Ctrl-C) / terminated (SIGTERM). |
 
 See [SCRIPTING.md](SCRIPTING.md#exit-codes) for the full table and the `--json` events.
@@ -98,9 +107,12 @@ Every coding task ends with a receipt. Line 1 is the verdict, one of:
 request".)
 
 `Verified` means the checks passed on the final files **and** a test fails without the change
-(ADR 0001). The JSON `outcome` and the exit code do not follow the wording of line 1: a change
-whose checks pass but that was not proven by a failing test (for example a refactor) still has
-the outcome `verified`, and the JSON receipt's `proofSkipped` says why.
+(ADR 0001). In 0.2.15 the JSON `outcome` and the exit code do not follow the wording of line 1:
+a change whose checks pass but that was not proven by a failing test (for example a refactor)
+still has the outcome `verified`. From v0.2.17 (not released yet) the outcome follows the verdict:
+`verified` only for `✓ Verified`. A change whose checks pass but that was not proven has the
+outcome `not_verified` (exit 3 with `--require-verification`) and `checksPassed` is `true`. Either
+way the JSON receipt's `proofSkipped` says why it was not proven.
 
 The lines below the verdict give the evidence:
 
@@ -136,21 +148,24 @@ freshness, reuse, and the "not independently certified" note described in
 **Already broken before the change.** Before the first repair, Casper runs each failing check on
 the files from before the change (the copy it keeps for the proof). If the check failed there
 too, it was already broken: Casper says so, and an interactive terminal asks
-`1 Fix it anyway · 2 Leave it` before paying for a repair. Scripts repair.
+`1 Leave it · 2 Fix it anyway` before paying for a repair (Enter leaves it; before v0.2.16 the
+two were the other way round). Scripts repair.
 
 **Timed out or could not start.** Such a check did not fail as a test, so Casper never repairs it
 on its own: a repair costs model tokens and cannot fix a slow suite or a missing tool. In an
 interactive terminal Casper asks `test timed out after 10m. Casper did not try to fix it. What
 now?` with:
 
-- `1 Retry`
-- `2 Fix it anyway`
-- `3 Allow more time` — four times the limit the check just had (at least a minute, at most an
+- `1 Stop`
+- `2 Retry`
+- `3 Fix it anyway`
+- `4 Allow more time` — four times the limit the check just had (at least a minute, at most an
   hour), again each time you pick it. The longer limit also applies to the model's own runs of
   that check for the rest of the task. The choice names `verification.timeoutMs`, which keeps a
   longer limit.
 
-Esc stops. Casper asks at most eight times per round of checks (the review round, when on, is a
+Enter or Esc stops (before v0.2.16 there was no Stop choice and `1` was Retry). Casper asks at
+most eight times per round of checks (the review round, when on, is a
 second round). When the only failures are unfinished checks, the verdict is `✗ Not checked —
 test timed out, so the change was not tested`, not `✗ Failed`; the outcome and exit code stay
 `failed`/1. Scripts and one-shot runs report the check and repair only real test failures. A
@@ -158,7 +173,9 @@ command that could not start is not saved as a check timing.
 
 **The model provider fails.** A provider that answers with nothing ("empty response", which Pi
 does not retry itself) is retried once; other errors are left to Pi's own retries. If it fails
-again, an interactive terminal asks `1 Retry · 2 Stop`. When the model run fails after it edited
+again, an interactive terminal asks `1 Stop · 2 Retry` (Enter stops; before v0.2.16 it was
+`1 Retry · 2 Stop`). With your big model set, a third choice, Retry with your big model, comes
+last. When the model run fails after it edited
 files, Casper still runs the checks on those edits, without a repair, and the verdict says how
 they fared (`✗ Failed — the model run failed; changes already made are kept; the checks pass on
 those changes`), followed by a `• Next:` line suggesting another model.
@@ -451,6 +468,123 @@ receipt lists every check with its source, response status and baseline. `--json
 report (see [SCRIPTING.md](SCRIPTING.md#receipt-fields)). A passing smoke check shows what one
 request returned; it does not prove the requested behavior as a whole.
 
+## Page checks
+
+New in v0.2.16 (not released yet).
+
+In a web project, after a change Casper opens the changed pages itself and reports what each one
+showed. It costs no model tokens, and it is decided by project facts only, never by the words of
+the request:
+
+- **A web project**: a declared `services.web` in `.casper/project.yaml`; a Next.js, Nuxt,
+  SvelteKit, Astro, Angular, Vite, Vue or React project whose `dev` (else `start`) script runs a dev
+  server Casper knows (Casper adds its own port flags, for example `vite --port $PORT --strictPort
+  --host 127.0.0.1`); or a Streamlit app (`requirements*.txt` or `pyproject.toml` names streamlit,
+  and `app.py` or `streamlit_app.py` imports it), run with the project's own `.venv` Python.
+- **Changed files that reach a page**: file-routed frameworks map a changed page file to its address
+  (`app/dashboard/page.tsx` opens `/dashboard`; Next.js `pages/`, SvelteKit `src/routes/`, Nuxt
+  `pages/` and Astro `src/pages/` too). Other front-end changes (components, styles, an SPA's router,
+  a Streamlit app) open `/`. A route that needs a value (`/devices/[id]`) is listed, not opened. At
+  most 5 pages are opened per check. Docs-only changes open nothing. With no front-end framework
+  (a declared `services.web` of an API), script edits are server code and open nothing; HTML, styles
+  and files in `public/`, `static/` or `assets/` open `/`, and the `pages:` list is opened after any
+  code change.
+
+Page checks run only when Casper checks each change itself (`auto`), after the command checks and
+smoke checks pass, inside the same verify-and-repair loop. Casper starts the dev server through
+[managed services](SERVICES.md) and keeps it for the session, so later tasks reuse it; an edit makes
+it restart before the next check. The first start in a session prints the command, because it runs
+the project's own code:
+
+```text
+… Casper checking: typecheck, pages
+… Starting dev server: bun run dev (it runs your project's code)
+Dev server: bun run dev · http://127.0.0.1:41733 (stops when you leave Casper)
+… Casper opening changed pages: /dashboard
+```
+
+The banner and `/status` name it too: `checks    typecheck, pages (bun run dev) — run after each change`.
+
+Each page gets one receipt line:
+
+```text
+✓ /dashboard loads · 0 console errors
+✗ /dashboard · 2 console errors: TypeError: Cannot read properties of undefined (reading 'map')
+✗ /dashboard returned 500
+✗ /dashboard shows an error: KeyError: 'site'
+• /devices/[id] not opened: it needs a value for [id] (a fixed path can be set in .casper/project.yaml pages:)
+```
+
+A page fails on a console error or an uncaught page error, an HTTP status of 400 or more, a failed
+request to the same site (500 or more, or no answer; other sites never count), or an error overlay:
+Vite's and Next.js's, or Streamlit's in-page exception. Streamlit shows app exceptions in the page, not
+the console, so Casper also reads the traceback the Streamlit server logs while the page loads. A
+failing page is the receipt's first line (`✗ Failed — /dashboard has 2 console errors`) and goes to the
+repair as page evidence (the console text, the error line and the server's last log lines, bounded and
+with secrets hidden); the pages are planned and opened again after each repair. A page that loads says
+**loads**, never "works": a pass never makes a change **Verified**. With only page checks, the receipt
+says `• Checks passed — not proven: pages load, but no test fails without the change`; without Chrome it
+says `pages answer, but their console was not checked` instead.
+
+**Chrome.** Pages are opened in a fresh headless Chrome (`CASPER_BROWSER_EXECUTABLE`, else an installed
+Chrome or Chromium; Casper never downloads one). Without Chrome, Casper only fetches the page and says so:
+`✓ /dashboard answers (HTTP 200) · console not checked: no Chrome found (install Chrome or set
+CASPER_BROWSER_EXECUTABLE)`. That is never a failure.
+
+**When pages are not checked.** A project Casper can't start is a note, never a failure:
+`• Pages not checked: node_modules is missing. Run bun install first (Casper doesn't install packages)`.
+A dev server that stops before it is ready, or doesn't answer on its port in time (45 s for one Casper found), makes the check
+incomplete, with the server's last lines. When the command checks still fail after the last repair, the
+pages never opened: `• Pages not checked: command checks failed`.
+
+**Settings** (`.casper/project.yaml` only; your own config can't set them):
+
+```yaml
+pages: [/, /dashboard]   # always open these after a code change (at most 8)
+# pages: off             # never open pages
+services:
+  web: { command: bun run dev, port: auto, ready: { http: / } }   # how to start the dev server, if Casper can't tell
+```
+
+Only routes are found from files; for single-page apps and Streamlit, list the pages you care about.
+The dev server runs the project's code with Casper's reduced environment (no provider keys, a separate
+HOME), in the shell sandbox where it can run: its files are held, but it keeps the machine's network so
+the page can load (on macOS it reaches only listed hosts), and a page it serves can still reach the
+network. Where no sandbox runs it has your permissions: set `pages: off` in a project you don't trust.
+
+## SQL migrations check
+
+New in v0.2.16 (not released yet).
+
+When the project has SQL migrations, Casper finds a `migrations` check: it applies the migrations, in
+order, to a throwaway SQLite database that is deleted afterwards. The project's own database files are
+never opened. It runs after each change to the migrations (or the Prisma schema), next to the other
+checks, and with `/verify migrations` or the AI's `casper_check`.
+
+- Folders: `migrations/`, `db/migrations/`, `sql/migrations/`, `drizzle/`, `supabase/migrations/`, and
+  Prisma's `prisma/migrations/`. Plain ordered `.sql`, golang-migrate `.up.sql` (never `.down.sql`),
+  dbmate `-- migrate:up` sections and drizzle's `--> statement-breakpoint` are understood.
+- The database type comes only from the project: `schema.prisma`'s provider, `drizzle.config`'s dialect,
+  or a SQLite driver dependency. Casper never guesses. Postgres (including `supabase/migrations`), MySQL
+  or an unknown database is never run after changes; `/verify migrations` says why:
+  `• Not verified — migrations not run: these are Postgres migrations (supabase/migrations), and Casper only has a throwaway SQLite`.
+- Prisma runs `prisma migrate deploy` from the project's `node_modules` only when the schema reads its
+  address from a variable; Casper points that variable at the throwaway file.
+- Statements that could reach other files (`ATTACH`, `VACUUM INTO`, `load_extension`) are refused.
+
+A failure names the file and SQLite's error: `✗ migrations failed (002_devices.sql failed — no such table: sites)`.
+A project that names its own `verify.checks.migrations` keeps it instead.
+
+## When repairs run out
+
+New in v0.2.16 (not released yet).
+
+After `repair.maxAttempts` repairs, an interactive session can offer one more try on your big model
+(see [Your big model](CONFIGURATION.md#your-big-model)). It is never automatic unless you set
+`repair.bigModelLastTry: true` in your own config, and one-shot runs never ask. "Remember <command> as
+this project's test command" on the row under a receipt saves `verify.test` in `.casper/project.yaml`
+exactly as shown, keeping the file's comments (see [TERMINAL_UX.md](TERMINAL_UX.md)).
+
 ## Where the checks come from
 
 Casper knows four checks: `typecheck`, `lint`, `test` and `build`. For each one it uses, in order:
@@ -459,6 +593,11 @@ Casper knows four checks: `typecheck`, `lint`, `test` and `build`. For each one 
 2. `commands:` in `.casper/project.yaml`;
 3. a command it detects in the repository (Node scripts, Python tools, `cargo`, `go`; see
    [CONFIGURATION.md](CONFIGURATION.md#detected-check-commands)).
+
+From v0.2.16 (not released yet) a project can also name its own checks under
+`verify.checks.<name>` (see [Configuration](#configuration)), Casper finds a `migrations` check
+(see [SQL migrations check](#sql-migrations-check)), and it finds ready-made checks for Ansible
+playbooks (see [NETWORK-CHECKS.md](NETWORK-CHECKS.md)).
 
 `/project` shows the commands Casper found.
 
@@ -503,15 +642,25 @@ repair:
 file; the project file wins (see [CONFIGURATION.md](CONFIGURATION.md)).
 
 - `verify:` overrides `commands:` and detected commands by check name. Only nonempty
-  `typecheck`/`lint`/`test`/`build` commands are accepted; anything else stops configuration
-  loading.
+  `typecheck`/`lint`/`test`/`build` commands are accepted there; anything else stops configuration
+  loading. From v0.2.16, other checks get a name of their own under `verify.checks.<name>` (a
+  `run:` command, or a ready-made `preset:` that Casper runs without a shell). A named check runs
+  after each change unless it says `after: ask`; a report (a diff) never makes a run pass or fail;
+  a lab check runs only when you start it with `/verify <name>` and pick 2 Run on the lab in the
+  numbered ask (see [NETWORK-CHECKS.md](NETWORK-CHECKS.md)). Ready-made checks Casper finds for
+  Ansible playbooks are listed in the banner as found, not saved, and run only after you save one
+  with `/verify add <name>`. `lab.hosts` is your own setting in `~/.casper/config.yaml`; a
+  project file cannot set it.
 - Commands and declared scopes are read at startup and do not change during repair. Restart
   Casper after changing configuration or manifests.
 - Casper runs the checks one at a time, at the project root, with the platform shell and your
-  environment. It does not install dependencies or fall back to another tool when one is missing.
-- The model's `casper_check` tool takes only a check name (`typecheck`, `lint`, `test`, `build`),
-  not a command, scope, folder or timeout.
-- `/verify` with no names runs typecheck → lint → test → build. A check with no command shows as
+  environment (from v0.2.16, minus AI provider keys). It does not install dependencies or fall back to another tool when one is missing.
+- The model's `casper_check` tool takes only a check name (`typecheck`, `lint`, `test`, `build`,
+  or from v0.2.16 a named check that is not a lab check), not a command, scope, folder or timeout.
+  Check output the model reads (`casper_check` replies and repair prompts) has secret values
+  hidden, the same way as bash output; named checks also get the device config rules.
+- `/verify` with no names runs typecheck → lint → test → build, then the named checks (never lab
+  checks). A check with no command shows as
   a **skip**, never a pass, and a skip makes the result incomplete. A configured command whose
   program is missing is a failure.
 - Checks you did not select are not required. Passing the selected checks does not mean the
@@ -603,5 +752,6 @@ repair; the CLI gives cleanup up to one second, then exits anyway. Interactive C
 active task but keeps the session. Programmatic `app.close()` waits for startup and checks to
 finish, with no forced deadline. Command timeouts do not limit how long the model takes to answer.
 
-**Secrets in output.** Commands and the model's tools are not sandboxed, and command output may
-contain secrets. Review your checks before their output is sent to a model.
+**Secrets in output.** In 0.2.15 commands and the model's tools are not sandboxed. From v0.2.17
+commands run in the shell sandbox where it can run, and without it when no sandbox is there
+(Windows, bubblewrap missing, `--no-sandbox`). Either way command output may contain secrets. Review your checks before their output is sent to a model.

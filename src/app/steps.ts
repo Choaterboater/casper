@@ -2,7 +2,7 @@ import type { PhaseEvent } from "./json-events";
 
 /** Plain words for the footer: the model's turn is "building". */
 const LABELS: Record<PhaseEvent["phase"], string> = {
-  checklist: "checklist", task: "building", checks: "checks", smoke: "smoke", review: "review",
+  checklist: "checklist", task: "building", checks: "checks", smoke: "smoke", pages: "pages", review: "review",
   proof: "proof", acceptance: "acceptance", repair: "repair",
 };
 

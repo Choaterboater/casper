@@ -45,3 +45,11 @@ export const needsPosixModes = test.skipIf(!posixModes);
 
 /** Registry entries use the POSIX shell, `/dev/null` links, or both. */
 export const posixSymlinks = test.skipIf(!POSIX || !symlinksSupported);
+/** The real shell sandbox can run here: bubblewrap and socat that start on Linux, or sandbox-exec on macOS. */
+export const sandboxAvailable = await (async () => {
+  if (process.platform === "darwin") return (await stat("/usr/bin/sandbox-exec").catch(() => undefined)) !== undefined;
+  if (process.platform !== "linux") return false;
+  const { linuxSandboxProblem } = await import("../../src/sandbox/linux");
+  return linuxSandboxProblem() === undefined;
+})();
+export const needsSandbox = test.skipIf(!sandboxAvailable);

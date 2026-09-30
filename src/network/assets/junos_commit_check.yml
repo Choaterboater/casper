@@ -1,0 +1,19 @@
+# Written by Casper for one lab run. Juniper's juniper.device.config module
+# (Apache-2.0) loads the change in an exclusive edit and runs commit check.
+# commit: false means it does not commit; Junos drops uncommitted changes when
+# the exclusive edit ends. The "does not commit" claim is Juniper's, not Casper's.
+- name: Casper junos-commit (commit check only)
+  hosts: all
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Load the change and run commit check
+      juniper.device.config:
+        config_mode: exclusive
+        load: merge
+        src: "{{ casper_src }}"
+        format: "{{ casper_format }}"
+        check: true
+        commit: false
+        diff: true
+      register: casper_result

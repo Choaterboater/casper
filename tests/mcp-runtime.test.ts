@@ -430,7 +430,8 @@ test("a timeout after progress names the last progress message, with secrets hid
 });
 
 test("/mcp says plainly when a server gives no answer while starting, or stops after it was ready", async () => {
-  const mcp = manager([definition("stall", "stall"), definition()], { connectTimeoutMs: 400 });
+  // Only the stalling server gets the short start limit: the other must start (on a loaded machine too) to show a stop.
+  const mcp = manager([definition("stall", "stall", { limits: { connectMs: 400 } }), definition()]);
   await mcp.connect("stall");
   expect(mcp.status()[0]).toMatchObject({ state: "failed", error: "No answer in 0.4 s while starting." });
   await mcp.connect("generic");

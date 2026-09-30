@@ -24,7 +24,8 @@ export interface RuntimeStartOptions {
   /** Append diagnostics to successful native edit/write results before the next model turn.
    * Path is literal (native input syntax expanded once), absolute or relative to cwd. */
   afterFileEdit?: (path: string, signal?: AbortSignal) => Promise<string | undefined>;
-  /** Return a reason to block a native tool call before it executes (empty/undefined = allow).
+  /** Return a reason to block a tool call before it executes (empty/undefined = allow). Called for every
+   * tool: built-in, Casper's own and MCP tools.
    * Read as a closure each call, so per-task gate state can change between calls. */
   beforeToolGate?: (toolName: string, input: Record<string, unknown> | undefined) => string | undefined;
   /** Hide device secrets in native tool output (read, bash, powershell, grep) before the model sees
@@ -32,6 +33,25 @@ export interface RuntimeStartOptions {
    * to leave the result as it is. Also called for failed commands, whose output is still shown. */
   scrubToolOutput?: (toolName: string, input: Record<string, unknown>, texts: string[], signal?: AbortSignal)
     => Promise<{ texts: string[]; note?: string } | undefined>;
+  /** How the AI's bash runs: in the shell sandbox, or after a question when no sandbox can run. Unset: as it is
+   * (provider keys are always taken out of its environment). */
+  shell?: RuntimeShell;
+}
+
+/** The AI's shell, as Casper holds it (see src/sandbox/manager.ts). */
+export interface RuntimeShell {
+  /** The command as the sandbox runs it (`id` set), or as it is when nothing holds it. */
+  wrap(command: string, cwd: string): Promise<{ command: string; id?: string }>;
+  /** A held command has ended (the sandbox cleans up after it). */
+  finished?(id: string): void;
+  /** After a held command failed: what the sandbox refused, as one line the AI reads, or undefined. */
+  refused?(id: string, output: string): Promise<string | undefined>;
+  /** When no sandbox runs: a numbered question first; a reason refuses the command. */
+  approve?(command: string, signal?: AbortSignal): Promise<string | undefined>;
+  /** Provider keys you keep in the shell's environment (shell.keepEnv). */
+  keepEnv?: readonly string[];
+  /** A private folder (0700) for Pi's full-output logs of long commands, removed with the session. */
+  logDir?(): Promise<string | undefined>;
 }
 
 /** Safe preflight diagnostic; callers may surface this exact message without forwarding provider errors. */
@@ -51,6 +71,8 @@ export interface RuntimeReadOnlyStartOptions {
   modelRole?: "fast" | "review";
   /** The same secret scrubbing as the main session: a child's reads reach a model too. */
   scrubToolOutput?: RuntimeStartOptions["scrubToolOutput"];
+  /** A reason refuses the call before it runs (the security review keeps key and .env files from its child). */
+  beforeToolGate?: RuntimeStartOptions["beforeToolGate"];
 }
 
 export interface RuntimeStatus {
@@ -132,6 +154,14 @@ export interface RuntimeModelSelection {
   models?: Array<{ provider: string; id: string; name: string }>;
 }
 
+export interface RuntimeModelInfo {
+  provider: string;
+  id: string;
+  contextWindow?: number;
+  /** Catalog price in dollars per million input tokens; an estimate, never a bill. */
+  inputCostPerMillion?: number;
+}
+
 export interface RuntimeUsage {
   context?: { tokens: number | null; contextWindow: number; percent: number | null };
   tokens: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number };
@@ -200,11 +230,19 @@ export interface RuntimeSession {
   switchSession?(options: RuntimeSwitchOptions): Promise<RuntimeSessionInfo>;
   /** Persist context in the active conversation without triggering a model turn. */
   appendContext?(text: string): Promise<void>;
+  /** Where the conversation is now (its last entry), or null when it is empty. Undo records it before a task. */
+  conversationMark?(): string | null;
+  /** Rewinds the conversation to `mark` at no token cost, only when it still ends at `expected` (nothing was said
+   * since). False, with nothing changed, when it can't. */
+  rewindTo?(mark: string | null, expected: string | null): Promise<boolean>;
   getStatus?(): RuntimeStatus;
   selectModel?(options: RuntimeModelSelectionOptions): Promise<RuntimeModelSelection>;
   /** Pick a default model for a signed-in provider only when no model is selected; never overrides a choice. */
   selectDefaultModel?(options?: { provider?: string; signal?: AbortSignal }): Promise<RuntimeModelSelection | undefined>;
   getModelRoles?(): Record<string, string>;
+  /** What a selector (`@reason`, `provider/id`) names, without selecting it: its context window and input price
+   * per million tokens, when the catalog knows them. Undefined when nothing matches. Makes no call. */
+  describeModel?(query: string): RuntimeModelInfo | undefined;
   setModelRole?(role: string, selector?: string): Promise<Record<string, string>>;
   setEffort?(level: string, persist: boolean): Promise<RuntimeStatus>;
   getUsage?(): RuntimeUsage;

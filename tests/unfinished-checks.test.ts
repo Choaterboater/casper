@@ -153,15 +153,16 @@ test("in the terminal, a timed-out check asks what to do instead of starting a p
     await screen.until((output) => output.includes("Casper did not try to fix it. What now?"));
     const visible = Bun.stripANSI(screen.output);
     expect(visible).toContain("test timed out after 0.3s");
-    expect(visible).toContain("1 Retry");
-    expect(visible).toContain("2 Fix it anyway");
+    expect(visible).toContain("1 Stop");
+    expect(visible).toContain("2 Retry");
+    expect(visible).toContain("3 Fix it anyway");
     expect(visible).toContain("ask the model to make it finish in time");
-    expect(visible).toContain("3 Allow more time");
+    expect(visible).toContain("4 Allow more time");
     // While the question waits, the footer says so instead of spinning with a running timer.
     await screen.until((output) => { const text = Bun.stripANSI(output); return text.slice(text.lastIndexOf("What now?")).includes("? waiting for you"); });
     // More time gives a limit a slow suite can finish in (four times, at least a minute), and names the setting.
     expect(Bun.stripANSI(screen.output)).toContain("run it with 1m; to keep a longer limit, set verification.timeoutMs");
-    input.write("\x1b");
+    input.write("\r"); // Enter picks 1 Stop: nothing runs again and no repair starts.
     // Wait for idle after the receipt: /exit typed while the task is still finishing is kept as a draft.
     await screen.until((output) => { const text = Bun.stripANSI(output); const receipt = text.lastIndexOf("✗ Not checked — test timed out, so the change was not tested");
       return receipt >= 0 && text.lastIndexOf("idle") > receipt; });

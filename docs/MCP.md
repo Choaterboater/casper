@@ -169,7 +169,7 @@ type yes (see [Secrets and docs servers](#secrets-and-docs-servers)).
 /mcp connect local-docs        # allow and connect this server for this run of Casper
 /mcp disconnect local-docs     # disconnect and take back that permission
 /mcp reload                    # re-read the files without restarting
-/mcp writes <name>             # turn writes on for one server (you pick 1 in the box)
+/mcp writes <name>             # turn writes on for one server (you pick 2 in the box)
 /mcp writes off                # writes off for every server (ctrl+o does the same)
 /mcp forget <name>             # forget a remembered server
 /mcp junos-show <name> on|off  # let plain Junos show commands run without asking
@@ -227,12 +227,15 @@ After an interactive `/mcp connect` of your own or an imported server, Casper as
 
 ```text
 Remember this server? Next time it connects on its own, with writes off. Every change still asks you.
-  1 Remember
-  2 Just this time
+  1 Just this time
+  2 Remember
 Type 1 or 2:
 ```
 
-- **What is stored.** `1` stores a keyed hash (a fingerprint that can't be turned
+`1` (or Enter, or anything other than `2`) connects it for this session only. (Before
+v0.2.16, `1` was Remember; the order changed so Enter is always the safe choice.)
+
+- **What is stored.** `2` stores a keyed hash (a fingerprint that can't be turned
   back into the values) of the definition: name, start folder, command, arguments,
   env, URL and headers. It goes in `~/.casper/mcp-consent.json`. The key is 32
   random bytes in `~/.casper/mcp-consent.key`. Both files are private (0600). No
@@ -348,17 +351,20 @@ Every server starts with writes off, including remembered ones. Writes off means
   `<server>: writes are off. Only the user can turn them on.`
 
 Turning writes on takes two steps that only you can do. Type `/mcp writes <server>`,
-then pick `1` in the box:
+then pick `2` in the box:
 
 ```text
 Central writes are off.
-  1 Enable for this server
-  2 Keep writes off
+  1 Keep writes off
+  2 Enable for this server
 Type 1 or 2:
 ```
 
+`1` (or anything other than `2`) keeps writes off. (Before v0.2.16 the two were the
+other way round.)
+
 - The box title uses the product name from the preset, else the server name.
-- `1` waits for running calls, restarts the server without the pins and prints
+- `2` waits for running calls, restarts the server without the pins and prints
   `[mcp] Writes on for <server>. Each change still asks you. ctrl+o turns writes off.`
 - When your own settings still keep writes off, Casper says so:
   `Casper removed its read-only pins, but your own settings still keep writes off (HPE_MCP_ACCESS_PROFILE=safe-read-only in ~/.claude.json).`
@@ -567,8 +573,11 @@ server does**.
   that changes things under a read name, marked `readOnlyHint: true`, runs without
   asking. The Junos show check reads the command text the same way.
 - Stdio servers run with your user's permissions.
-- Casper's own shell and file tools are not sandboxed and could read MCP
-  configuration or go around this interface.
+- MCP servers are not in the shell sandbox (v0.2.17, not released yet). The AI's
+  shell is, where the sandbox can run, and it can't read `~/.claude.json` or
+  `~/.mcp.json` there. Without the sandbox (0.2.15, Windows, `--no-sandbox`), the
+  AI's shell could read MCP configuration or go around this interface. See
+  [SECURITY.md](SECURITY.md).
 - Only connect servers you trust, and give them logins with only the rights they
   need. Tool descriptions and results are outside content, not instructions.
 

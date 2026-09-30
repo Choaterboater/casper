@@ -1,11 +1,12 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { deflateSync } from "node:zlib";
 import { compileExecutable } from "../scripts/compile";
 import { CASPER_VERSION } from "../src/version";
 import { cleanEnv } from "./support/env";
+import { needsSandbox } from "./support/platform";
 
 // Bun 1.4 copies a read-only runtime (Homebrew's 0555 bun) into the build's cwd as
 // `.<hash>-00000000.bun-build` and never unlinks it; the compile must not leave one here.
@@ -37,6 +38,22 @@ test("the compiled binary embeds the OAuth flow of every /login provider", async
     const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
     expect({ exit, stderr, output: JSON.parse(stdout) }).toEqual({ exit: 0, stderr: "",
       output: { "openai-codex": "ok", "github-copilot": "ok", anthropic: "ok", openrouter: "ok" } });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}, 120_000);
+
+test("the compiled binary carries the bundled flows (plan first, prove the fix)", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-compiled-flows-"));
+  try {
+    const binary = path.join(root, process.platform === "win32" ? "probe.exe" : "probe");
+    await compileExecutable(path.join(import.meta.dir, "fixtures/compiled-flows.ts"), binary);
+    const child = Bun.spawn([binary], { cwd: root, env: cleanEnv({ HOME: root, USERPROFILE: root }), stdout: "pipe", stderr: "pipe" });
+    const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+    expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });
+    const flows = JSON.parse(stdout) as Array<{ name: string; bytes: number }>;
+    expect(flows.map((flow) => flow.name)).toEqual(["plan-first", "prove-fix"]);
+    for (const flow of flows) expect(flow.bytes).toBeGreaterThan(500);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -74,3 +91,21 @@ test("compiled native image reads work without build-time WASM or Bun on PATH", 
     await rm(root, { recursive: true, force: true });
   }
 }, 120_000);
+
+needsSandbox("the compiled binary carries the sandbox and its seccomp helper, written to ~/.casper/bin after a hash check", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-compiled-sandbox-"));
+  try {
+    const binary = path.join(root, "probe");
+    await compileExecutable(path.join(import.meta.dir, "fixtures/compiled-sandbox.ts"), binary);
+    const home = path.join(root, "home"), project = path.join(root, "project");
+    await mkdir(project, { recursive: true });
+    const child = Bun.spawn([binary, project], { cwd: root, env: cleanEnv({ HOME: home, PATH: process.env.PATH ?? "/usr/bin:/bin" }), stdout: "pipe", stderr: "pipe" });
+    const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+    expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });
+    const result = JSON.parse(stdout);
+    expect(result).toMatchObject({ mode: 0o700, hashInName: true, inside: "inside", key: false, socket: "SOCKET-BLOCKED" });
+    expect(result.helper).toStartWith(path.join(home, ".casper", "bin", "apply-seccomp-"));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}, 180_000);
