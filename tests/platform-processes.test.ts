@@ -248,3 +248,36 @@ test("a group whose processes have all exited but are not reaped yet counts as s
   await second.capture();
   expect(await second.stop()).toBe("unknown");
 });
+
+test("a group whose leader has exited but a TERM-resistant member still runs is killed, and stopped only once that member is gone", async () => {
+  // Linux: signalling a group with a zombie leader succeeds and reaches the live member.
+  const table = new Map<number, ProcessRecord>([
+    { pid: 1000, parent: 42, group: 1000, stamp: "shell" },
+    { pid: 1001, parent: 1000, group: 1000, stamp: "stubborn" },
+  ].map(record => [record.pid, record]));
+  const signals: string[] = [];
+  let ignoresKill = false;
+  const platform: ProcessPlatform = {
+    groups: true,
+    list: async () => new Map(table),
+    signalProcess: () => { throw new Error("not used with groups"); },
+    signalGroup: (group, signal) => {
+      signals.push(`${group}:${signal}`);
+      // The shell exits on TERM and stays unreaped; its descendant ignores TERM and only KILL stops it.
+      table.set(1000, { ...table.get(1000)!, zombie: true });
+      if (signal === "SIGKILL" && !ignoresKill) table.delete(1001);
+    },
+  };
+  const owner = new OwnedProcesses(1000, () => !table.get(1000)?.zombie, platform);
+  await owner.capture();
+  expect(await owner.stop()).toBe("stopped");
+  expect(signals).toEqual(["1000:SIGTERM", "1000:SIGKILL"]);
+
+  // If that member is still running after KILL, the group is not stopped: a zombie leader is not enough.
+  table.set(1000, { pid: 1000, parent: 42, group: 1000, stamp: "shell" });
+  table.set(1001, { pid: 1001, parent: 1000, group: 1000, stamp: "stubborn" });
+  ignoresKill = true;
+  const second = new OwnedProcesses(1000, () => !table.get(1000)?.zombie, platform);
+  await second.capture();
+  expect(await second.stop()).toBe("unknown");
+});
