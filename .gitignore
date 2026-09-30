@@ -15,4 +15,3 @@ evals/results/
 /.pi/
 
 # Session handoff notes stay local; they are not part of the published repository.
-docs/NOTES.md

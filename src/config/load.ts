@@ -68,7 +68,7 @@ export interface LoadedConfiguration {
   smoke: SmokeCheck[];
   /** Pages the page check always opens, or off (project layer only). Unset: the changed pages. */
   pages?: PagesSetting;
-  /** The owner's lab devices (lab.hosts), from ~/.casper/config.yaml or the profile only; never a project file. */
+  /** The user's lab devices (lab.hosts), from ~/.casper/config.yaml or the profile only; never a project file. */
   lab?: LabSettings;
   /** The shell sandbox: your settings (sandbox, shell.keepEnv) and the project's extra denies. */
   sandbox: { user: SandboxUserSettings; project: SandboxProjectSettings };

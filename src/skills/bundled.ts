@@ -1,6 +1,6 @@
 import type { ProjectModel } from "../project/model";
 import type { TaskClassification } from "../task/classify";
-import { parseSkillMetadata, splitSkill, type SkillMetadata } from "./metadata";
+import { normaliseLineEndings, parseSkillMetadata, splitSkill, type SkillMetadata } from "./metadata";
 import aoscxSource from "../../skills/network/aoscx/SKILL.md" with { type: "text" };
 import centralClassicSource from "../../skills/network/central-classic/SKILL.md" with { type: "text" };
 import centralSource from "../../skills/network/central/SKILL.md" with { type: "text" };
@@ -152,7 +152,8 @@ export function safetyProblems(body: string): string[] {
 }
 
 /** Parse and check one bundled skill. A broken bundled skill is a build error, so this throws. */
-export function parseBundledSkill(source: string, filePath: string): BundledSkill {
+export function parseBundledSkill(text: string, filePath: string): BundledSkill {
+  const source = normaliseLineEndings(text);
   const { header, body } = splitSkill(source);
   const metadata = parseSkillMetadata(header);
   if (!metadata.name.startsWith("network-")) throw new Error(`${filePath}: a bundled network skill's name starts with network-`);

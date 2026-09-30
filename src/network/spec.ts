@@ -1,6 +1,6 @@
 /**
  * Named network checks: the shape of `verify.checks.<name>` entries that use a
- * ready-made preset, the owner's lab list, and the result every network check
+ * ready-made preset, the user's lab list, and the result every network check
  * returns. Casper builds each preset's argument list itself and never runs it
  * through a shell.
  *

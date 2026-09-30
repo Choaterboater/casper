@@ -6,7 +6,7 @@ import {
   BANNED_PHRASES, bundledSkills, CASPER_ASKS_LINE, CHANGING_SECTION, MAX_BUNDLED_BODY_BYTES, MAX_BUNDLED_DESCRIPTION,
   NETWORK_PLATFORMS, parseBundledSkill, REQUIRED_SECTIONS, safetyProblems, STOP_AND_ASK_LINE,
 } from "../src/skills/bundled";
-import { parseSkillMetadata, splitSkill } from "../src/skills/metadata";
+import { normaliseLineEndings, parseSkillMetadata, splitSkill } from "../src/skills/metadata";
 import { scrubText } from "../src/secrets/scrub";
 
 // Lints every bundled network skill as a file on disk, so a skill added to skills/network but not to
@@ -18,7 +18,7 @@ async function skillFiles(): Promise<Array<{ file: string; relative: string; sou
   const names = (await readdir(NETWORK, { withFileTypes: true })).filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
   return Promise.all(names.map(async (name) => {
     const file = path.join(NETWORK, name, "SKILL.md");
-    return { file, relative: `skills/network/${name}/SKILL.md`, source: await readFile(file, "utf8") };
+    return { file, relative: `skills/network/${name}/SKILL.md`, source: normaliseLineEndings(await readFile(file, "utf8")) };
   }));
 }
 
@@ -73,7 +73,7 @@ describe("bundled network skills: format", () => {
   });
 
   test.each(["aoscx", "central", "central-classic", "clearpass", "junos", "mist"])("%s: front-matter, size and sections", async (folder) => {
-    const source = await readFile(path.join(NETWORK, folder, "SKILL.md"), "utf8");
+    const source = normaliseLineEndings(await readFile(path.join(NETWORK, folder, "SKILL.md"), "utf8"));
     const { header, body } = splitSkill(source);
     const metadata = parseSkillMetadata(header);
     expect(metadata.name).toMatch(/^network-[a-z0-9-]+$/);
@@ -95,8 +95,22 @@ describe("bundled network skills: format", () => {
     expect(safetyProblems(body)).toEqual([]);
   });
 
+  test("a Windows checkout (CRLF line endings) bundles the same skills, within the same size cap", async () => {
+    // git's core.autocrlf rewrites the files on a Windows runner, and Bun embeds them as checked out.
+    // Before line endings were normalised, the AOS-CX body grew past 6 KiB there and Casper failed to start.
+    for (const { source, relative } of await skillFiles()) {
+      const crlf = source.replace(/\n/g, "\r\n");
+      expect(crlf).not.toBe(source);
+      const windows = parseBundledSkill(crlf, relative);
+      const unix = parseBundledSkill(source, relative);
+      expect(windows).toEqual(unix);
+      expect(windows.body).not.toContain("\r");
+      expect(Buffer.byteLength(windows.body)).toBeLessThanOrEqual(MAX_BUNDLED_BODY_BYTES);
+    }
+  });
+
   test("the loader refuses a skill that drops the layout, the stop-and-ask line or the size cap", async () => {
-    const source = await readFile(path.join(NETWORK, "mist", "SKILL.md"), "utf8");
+    const source = normaliseLineEndings(await readFile(path.join(NETWORK, "mist", "SKILL.md"), "utf8"));
     expect(() => parseBundledSkill(source.replace(STOP_AND_ASK_LINE, "Go ahead."), "x")).toThrow("must open with");
     expect(() => parseBundledSkill(source.replace("## Read first", "## Reads"), "x")).toThrow("sections must be");
     expect(() => parseBundledSkill(source.replace("## Common traps", "## Common traps\nThese calls are read-only."), "x")).toThrow('uses "read-only"');
@@ -108,7 +122,7 @@ describe("bundled network skills: format", () => {
 
 describe("bundled network skills: wording", () => {
   test.each(["aoscx", "central", "central-classic", "clearpass", "junos", "mist"])("%s: no overclaiming words; write calls only under Changing things", async (folder) => {
-    const { body } = splitSkill(await readFile(path.join(NETWORK, folder, "SKILL.md"), "utf8"));
+    const { body } = splitSkill(normaliseLineEndings(await readFile(path.join(NETWORK, folder, "SKILL.md"), "utf8")));
     const lower = body.toLowerCase();
     for (const word of [...BANNED_PHRASES, "guarantees", "safe call", "safe calls"]) {
       expect({ folder, word, found: new RegExp(`(^|[^a-z])${word}([^a-z]|$)`).test(lower) }).toEqual({ folder, word, found: false });
@@ -134,7 +148,7 @@ describe("bundled network skills: wording", () => {
 
 describe("bundled network skills: no secrets, no real hosts", () => {
   test.each(["aoscx", "central", "central-classic", "clearpass", "junos", "mist"])("%s: placeholders only", async (folder) => {
-    const source = await readFile(path.join(NETWORK, folder, "SKILL.md"), "utf8");
+    const source = normaliseLineEndings(await readFile(path.join(NETWORK, folder, "SKILL.md"), "utf8"));
     expect(scrubText(source).hidden).toBe(0);
     expect(source).not.toMatch(/eyJ[A-Za-z0-9_-]{10,}/); // JWT
     expect(source).not.toMatch(/\b[a-f0-9]{32,}\b/i);
