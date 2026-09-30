@@ -139,6 +139,8 @@ const STOPWORDS = new Set([
   "read", "reads", "print", "prints", "display", "displays", "return", "returns", "track", "tracks", "watch", "watches",
   "monitor", "monitors", "report", "reports", "collect", "collects", "export", "exports", "count", "counts", "let", "lets",
   "help", "helps", "give", "gives", "make", "makes", "do", "does",
+  // Filler around a name: "new project folder called mist tools" is mist-tools.
+  "folder", "folders", "directory", "dir", "called", "named", "name", "project", "projects",
 ]);
 
 const BOUNDARY = new Set(["per", "for", "in", "on", "from", "by", "with", "to", "of", "at", "across", "into", "and", "or", "using", "via"]);
