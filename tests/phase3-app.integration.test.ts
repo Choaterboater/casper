@@ -297,7 +297,7 @@ test("review: a later verifier can invalidate an earlier passing check", async (
   } finally { await app.close(); }
 });
 
-test("/verify is local, exposes failure and skips, validates names before execution, and keeps startup lazy", async () => {
+test("/verify is local, exposes failure, names missing checks in one line, validates names before execution, and keeps startup lazy", async () => {
   const root = await fixture();
   const { app, starts, output } = createApp(root);
   try {
@@ -305,7 +305,9 @@ test("/verify is local, exposes failure and skips, validates names before execut
     const report = await app.runOnce("/verify");
     expect(starts()).toBe(0);
     expect(report?.status).toBe("fail");
-    expect(report?.results.filter((result) => result.status === "skip")).toHaveLength(3);
+    // Checks the project has no command for are named once, not run as skips.
+    expect(report?.results.filter((result) => result.status === "skip")).toHaveLength(0);
+    expect(output().match(/\[verify\] No .* command here, so Casper runs test\./g)).toHaveLength(1);
     await expect(app.runOnce("/verify repair typo")).rejects.toThrow("Usage:");
     expect(starts()).toBe(0);
     await writeFile(path.join(root, "fixed"), "");

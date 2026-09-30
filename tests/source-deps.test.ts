@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { copyFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { sourceDependencyProblem, staleDependencies } from "../src/runtime/source-deps";
@@ -8,7 +8,8 @@ import { cleanEnv } from "./support/env";
 const REPO = path.resolve(import.meta.dir, "..");
 
 async function checkout(dependencies: Record<string, string>, installed: Record<string, string>): Promise<string> {
-  const repo = await mkdtemp(path.join(os.tmpdir(), "casper-source-deps-"));
+  // The real path: on macOS the temp folder is /var/..., a link to /private/var/..., which the launcher reports.
+  const repo = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-source-deps-")));
   await writeFile(path.join(repo, "package.json"), JSON.stringify({ name: "casper", dependencies }));
   for (const [name, version] of Object.entries(installed)) {
     await mkdir(path.join(repo, "node_modules", name), { recursive: true });
