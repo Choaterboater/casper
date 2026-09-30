@@ -41,7 +41,7 @@ test("an MCP result reaches the model with device secrets hidden, a count, and t
   expect(answer.text).toContain("list_key");
 });
 
-test("a secret under a key like psk is hidden; the owner's hpe_mcp_secret_ tokens pass through", async () => {
+test("a secret under a key like psk is hidden; hpe-networking-mcp's hpe_mcp_secret_ tokens pass through", async () => {
   const { broker } = await connected(server("lab", { FIXTURE_MODE: "config" }));
   const result = await broker.invoke("mcp:lab:get_ssid", {});
   const text = JSON.stringify(result);

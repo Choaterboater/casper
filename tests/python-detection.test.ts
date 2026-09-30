@@ -56,7 +56,7 @@ test("adding a requirements file or a .venv invalidates the cached detection", a
 
 test("a Python project with test_*.py files and no pytest runs them with unittest", async () => {
   const unit = "import unittest\n\nclass T(unittest.TestCase):\n    def test_a(self):\n        pass\n";
-  expect((await commands({ "pyproject.toml": '[project]\nname = "mist-tools"\n', "tests/test_sites.py": unit })).test)
+  expect((await commands({ "pyproject.toml": '[project]\nname = "sample-tools"\n', "tests/test_sites.py": unit })).test)
     .toBe(`${systemPython} -m unittest discover -s tests`);
   expect((await commands({ "requirements.txt": "requests\n", "test_main.py": unit })).test).toBe(`${systemPython} -m unittest discover`);
   // unittest would run none of these and still say OK: pytest-style tests, and foo_test.py (not its pattern).

@@ -35,7 +35,7 @@ export const hostQuestion = (host: string) => `A shell command wants to reach ${
 /** A command as a question shows it: one line, with any secret the AI typed into it hidden. */
 const shownCommand = (command: string) => terminalText(hideCommandSecrets(command).text).replace(/\s+/g, " ").trim();
 export const shellQuestion = (command: string) => `Run this command?  ${shownCommand(command)}`;
-/** "Reach 10.0.0.5 (lab-01)?  ssh root@lab-01 uptime" */
+/** "Reach 10.0.0.5 (build-server)?  ssh root@build-server uptime" */
 export const reachQuestion = (target: RemoteTarget, command: string) => `Reach ${terminalText(targetLabel(target))}?  ${shownCommand(command)}`;
 /** The AI reads these when a command to another machine does not run. */
 export const reachCantAsk = (target: RemoteTarget) => `Not run: this command reaches ${targetLabel(target)}${target.unclear ? "" : ", another machine,"} and this run can't ask you first. Casper doesn't let the AI reach other machines without your OK. Tell the user; they can run it themselves or in a Casper session.`;

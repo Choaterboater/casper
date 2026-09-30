@@ -20,7 +20,10 @@ it only notices when you already run it inside tmux (or in iTerm2) and fits itse
 - **Colors and keys.** Casper uses the standard terminal colors and key codes that tmux passes
   through as they are. It changes no tmux setting that other panes use.
 
-Secrets are hidden in the pane just like on the main screen.
+Secrets are hidden in the pane just like on the main screen, helper goals included. Each step shows
+twice there: once as it starts (`• bash · ssh root@build-server …`) and once as it ends (`✓ …`, or
+`— not run` for a command Casper refused). Questions, such as `Reach 198.51.100.20 (build-server)?`, always
+come on the main screen, never in the pane.
 
 Outside tmux the steps stay in the small Working box above the prompt, as before.
 

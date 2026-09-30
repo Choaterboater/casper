@@ -49,8 +49,8 @@ const firsts: Array<[string, string, string]> = [
   ["run this command? (no sandbox)", SHELL_COMMAND_CHOICES[0].label, "No"],
   ["reach another machine (ssh, scp, nc ...)", REACH_CHOICES[0].label, "No"],
   ["the AI security review", AI_REVIEW_CHOICES[0].label, "Stop here"],
-  ["a typed folder that isn't there", missingFolderChoices("Documents", "mist-tools")[0]!.label, "Stay in Documents"],
-  ["the work is in a project inside this folder", workFolderChoices("Documents", "mist-tools")[0]!.label, "Stay here"],
+  ["a typed folder that isn't there", missingFolderChoices("Documents", "sample-tools")[0]!.label, "Stay in Documents"],
+  ["the work is in a project inside this folder", workFolderChoices("Documents", "sample-tools")[0]!.label, "Stay here"],
   ["this task has used $5.02", spendChoices("$10")[0]!.label, "Stop here"],
   ["/tasks: stop something? (several running)", tasksChoices([running("api"), running("web")])[0]!.label, "Keep them"],
   ["/tasks: stop something? (one running)", tasksChoices([running("api")])[0]!.label, "Leave it running"],
@@ -75,8 +75,8 @@ test("the risky choices still exist, as a deliberate 2 or later", () => {
   expect(undoChangedChoices("Undo", 2).map((choice) => choice.label)).toEqual(["Cancel", "Undo the other 2 files"]);
   expect(AI_REVIEW_CHOICES.map((choice) => choice.label)).toEqual(["Stop here", "Run the AI review"]);
   expect(REACH_CHOICES.map((choice) => choice.label)).toEqual(["No", "Yes, this time", "Yes, for this session"]);
-  expect(missingFolderChoices("Documents", "mist-tools").map((choice) => choice.label)).toEqual(["Stay in Documents", "Make mist-tools here"]);
-  expect(workFolderChoices("Documents", "mist-tools").map((choice) => choice.label)).toEqual(["Stay here", "Switch there"]);
+  expect(missingFolderChoices("Documents", "sample-tools").map((choice) => choice.label)).toEqual(["Stay in Documents", "Make sample-tools here"]);
+  expect(workFolderChoices("Documents", "sample-tools").map((choice) => choice.label)).toEqual(["Stay here", "Switch there"]);
   expect(tasksChoices([running("api"), running("web")]).map((choice) => choice.label)).toEqual(["Keep them", "Stop 1", "Stop 2", "Stop all"]);
 });
 
@@ -134,13 +134,13 @@ test("Enter at the build-request question, and at its Other kind list, keeps the
   } finally { await rm(home, { recursive: true, force: true }); }
 });
 
-test("Enter at \"mist-tools isn't a folder in Documents\" makes nothing: Stay is choice 1", async () => {
+test("Enter at \"sample-tools isn't a folder in Documents\" makes nothing: Stay is choice 1", async () => {
   const home = await mkdtemp(path.join(os.tmpdir(), "casper-safe-missing-"));
   try {
     const { flow, asked, created } = enterFlow(home);
-    expect(await offerMissingFolder(flow, "mist-tools", home, "Documents")).toBeUndefined();
-    expect(asked[0]!.question).toBe("mist-tools isn't a folder in Documents. Make it?");
-    expect(asked[0]!.labels).toEqual(["Stay in Documents", "Make mist-tools here"]);
+    expect(await offerMissingFolder(flow, "sample-tools", home, "Documents")).toBeUndefined();
+    expect(asked[0]!.question).toBe("sample-tools isn't a folder in Documents. Make it?");
+    expect(asked[0]!.labels).toEqual(["Stay in Documents", "Make sample-tools here"]);
     expect(created()).toBe(0);
   } finally { await rm(home, { recursive: true, force: true }); }
 });

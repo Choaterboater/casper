@@ -210,18 +210,18 @@ test("a known test runner the model ran is kept only as a suggestion, and only w
 test("changes the AI made on another machine over ssh reach the receipt, marked as read from the commands", async () => {
   const { formatReceipt, SECRET_IN_COMMAND } = await import("../src/task/result");
   const observations = new TaskObservations();
-  observations.observeToolEnd(bash("ssh root@lab-01 'pveum user token add root@pam demoapp --privsep 0'"), {});
-  observations.observeToolEnd(bash("ssh root@lab-01 'systemctl enable --now demoapp'"), {});
-  observations.observeToolEnd(bash("ssh root@lab-01 'cat /etc/hosts'"), {});
+  observations.observeToolEnd(bash("ssh root@build-server 'pveum user token add root@pam sampleapp --privsep 0'"), {});
+  observations.observeToolEnd(bash("ssh root@build-server 'systemctl enable --now sampleapp'"), {});
+  observations.observeToolEnd(bash("ssh root@build-server 'cat /etc/hosts'"), {});
   // Refused by Casper: it never ran.
   observations.observeToolEnd({ ...bash("ssh sw1 'reboot'", true), output: { text: "Not run: the user said no to reaching sw1.", truncated: false } }, {});
-  observations.observeToolEnd({ ...bash("curl -H 'Authorization: PVEAPIToken=<secret hidden>' https://lab-01:8006/api2/json"), input: { command: "curl …", secretHidden: true as const } }, {});
+  observations.observeToolEnd({ ...bash("curl -H 'Authorization: PVEAPIToken=<secret hidden>' https://build-server:8006/api2/json"), input: { command: "curl …", secretHidden: true as const } }, {});
   const snapshot = observations.snapshot([]);
-  expect(snapshot.remoteChanges).toEqual([{ host: "lab-01", changes: [
-    "made an API token (pveum user token add root@pam demoapp --privse…)", "turned a service on or off at boot (systemctl enable --now demoapp)"] }]);
+  expect(snapshot.remoteChanges).toEqual([{ host: "build-server", changes: [
+    "made an API token (pveum user token add root@pam sampleapp --privs…)", "turned a service on or off at boot (systemctl enable --now sampleapp)"] }]);
   expect(snapshot.secretInCommand).toBe(true);
   const receipt = formatReceipt({ execution: "completed", ...snapshot });
-  expect(receipt).toContain("• Changed on lab-01 (from the commands Casper saw): made an API token (pveum user token add root@pam demoapp --privse…); turned a service on or off at boot (systemctl enable --now demoapp)");
+  expect(receipt).toContain("• Changed on build-server (from the commands Casper saw): made an API token (pveum user token add root@pam sampleapp --privs…); turned a service on or off at boot (systemctl enable --now sampleapp)");
   expect(receipt).toContain(`• ${SECRET_IN_COMMAND}`);
   expect(SECRET_IN_COMMAND).toBe("A secret appeared in a command; change it after this task.");
   expect(formatTaskResult({ execution: "completed", ...snapshot })).toContain("(from the commands Casper saw)");
@@ -236,7 +236,7 @@ test("commands to another machine that Casper stopped are said on the receipt: n
   const observations = new TaskObservations();
   const refused = (command: string, text: string) => observations.observeToolEnd({ ...bash(command, true), output: { text, truncated: false } }, {});
   refused("ssh sw1 'reboot'", "Not run: the user said no to reaching sw1. Don't try it again another way; ask the user what to do instead.");
-  refused("ssh sw1 'systemctl enable demoapp'", "Not run: this command reaches sw1, another machine, and this run can't ask you first.");
+  refused("ssh sw1 'systemctl enable sampleapp'", "Not run: this command reaches sw1, another machine, and this run can't ask you first.");
   // A refusal of a local command is not about another machine.
   refused("cat ~/.ssh/config", "Not run: this command reads ~/.ssh, which is private (keys and logins).");
   // A command that ran and failed there did reach it.
@@ -244,7 +244,11 @@ test("commands to another machine that Casper stopped are said on the receipt: n
   const snapshot = observations.snapshot([]);
   expect(snapshot.remoteNotRun).toEqual([{ host: "sw1", commands: 2 }]);
   expect(snapshot.remoteChanges).toEqual([{ host: "sw2", changes: [] }]);
-  expect(formatReceipt({ execution: "completed", ...snapshot })).toContain("• Not run on sw1: 2 commands Casper stopped before they reached it");
+  const receipt = formatReceipt({ execution: "completed", ...snapshot });
+  // Never a clean pass: the verdict is Incomplete and names the machine; the line below gives the count.
+  expect(receipt.split("\n")[0]).toBe("• Incomplete — commands to sw1 did not run");
+  expect(formatReceipt({ execution: "completed", ...snapshot }, { surface: "interactive" }).split("\n")[0]).toBe("• Incomplete — commands to sw1 did not run");
+  expect(receipt).toContain("• Not run on sw1: 2 commands Casper stopped before they reached it");
   expect(full({ execution: "completed", ...snapshot })).toContain("2 commands Casper stopped before they reached it");
   expect(new TaskObservations().snapshot([]).remoteNotRun).toBeUndefined();
 });
@@ -261,7 +265,7 @@ test("a question-only task that changed another machine over ssh still prints th
             for (const listener of listeners) {
               listener({ type: "assistant_response_start" });
               listener({ type: "tool_end", toolName: "bash", toolCallId: "c1", isError: false, output: { text: "", truncated: false },
-                input: { command: "ssh root@lab-01 'systemctl enable --now demoapp'" } });
+                input: { command: "ssh root@build-server 'systemctl enable --now sampleapp'" } });
               listener({ type: "assistant_response_end", stopReason: "stop" });
             }
           },
@@ -279,7 +283,7 @@ test("a question-only task that changed another machine over ssh still prints th
     });
     try {
       await app.runOnce("check the lab host uptime", root);
-      expect(written).toContain("• Changed on lab-01 (from the commands Casper saw): turned a service on or off at boot (systemctl enable --now demoapp)");
+      expect(written).toContain("• Changed on build-server (from the commands Casper saw): turned a service on or off at boot (systemctl enable --now sampleapp)");
     } finally { await app.close(); }
   } finally { await rm(root, { recursive: true, force: true }); }
 });
@@ -287,15 +291,15 @@ test("a question-only task that changed another machine over ssh still prints th
 test("commands run over ssh with no change Casper can read still get a receipt line; a refused or blocked one does not", async () => {
   const { formatReceipt, REMOTE_UNKNOWN } = await import("../src/task/result");
   const observations = new TaskObservations();
-  observations.observeToolEnd(bash("ssh root@lab-01 'python3 /srv/demoapp/setup.py'"), {});
-  observations.observeToolEnd(bash(`bash -c "ssh sw1 'systemctl restart demoapp'"`), {});
+  observations.observeToolEnd(bash("ssh root@build-server 'python3 /srv/sampleapp/setup.py'"), {});
+  observations.observeToolEnd(bash(`bash -c "ssh sw1 'systemctl restart sampleapp'"`), {});
   observations.observeToolEnd({ ...bash("ssh core1 'reboot'", true), output: { text: "ssh: connect to host core1 port 22: Network is unreachable\n[sandbox] Blocked: wanted to reach core1.", truncated: false } }, {});
   const snapshot = observations.snapshot([]);
-  expect(snapshot.remoteChanges).toEqual([{ host: "lab-01", changes: [] }, { host: "sw1", changes: ["started or stopped a service (systemctl restart demoapp)"] }]);
+  expect(snapshot.remoteChanges).toEqual([{ host: "build-server", changes: [] }, { host: "sw1", changes: ["started or stopped a service (systemctl restart sampleapp)"] }]);
   const receipt = formatReceipt({ execution: "completed", ...snapshot });
-  expect(receipt).toContain(`• Ran commands on lab-01 over ssh; ${REMOTE_UNKNOWN}`);
+  expect(receipt).toContain(`• Ran commands on build-server over ssh; ${REMOTE_UNKNOWN}`);
   expect(REMOTE_UNKNOWN).toBe("Casper can't tell from the command text whether they changed anything there");
-  expect(receipt).toContain("• Changed on sw1 (from the commands Casper saw): started or stopped a service (systemctl restart demoapp)");
+  expect(receipt).toContain("• Changed on sw1 (from the commands Casper saw): started or stopped a service (systemctl restart sampleapp)");
   expect(receipt).not.toMatch(/(?:Changed on|Ran commands on) core1/);
   // The blocked one is said as not run there.
   expect(receipt).toContain("• Not run on core1: 1 command Casper stopped before it reached it");

@@ -1,5 +1,5 @@
 /**
- * The app's side of lab checks: /verify <name> on the owner's own lab. Casper checks the lab list, the
+ * The app's side of lab checks: /verify <name> on your own lab. Casper checks the lab list, the
  * inventory and the playbook text first (src/network/checks.ts prepareLabCheck), then asks one numbered
  * question, and only a person's answer starts anything. A run that cannot ask (one-shot, --json, a pipe)
  * sends nothing and says so. The AI never reaches this: casper_check refuses lab checks, and auto mode never

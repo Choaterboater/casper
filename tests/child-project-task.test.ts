@@ -22,7 +22,7 @@ afterAll(() => {
 
 const python = Bun.which("python3");
 
-/** ~/Documents with a note, and a model that builds mist-tools inside it: a pyproject and a passing unittest. */
+/** ~/Documents with a note, and a model that builds sample-tools inside it: a pyproject and a passing unittest. */
 async function lab() {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-child-task-")));
   const home = path.join(root, "home");
@@ -41,9 +41,9 @@ async function lab() {
         subscribe: (listener: RuntimeEventListener) => { listeners.add(listener); return () => listeners.delete(listener); },
         abort: async () => {}, setTools: () => {},
         prompt: async () => {
-          const dir = path.join(docs, "mist-tools");
+          const dir = path.join(docs, "sample-tools");
           await mkdir(path.join(dir, "tests"), { recursive: true });
-          await writeFile(path.join(dir, "pyproject.toml"), '[project]\nname = "mist-tools"\n');
+          await writeFile(path.join(dir, "pyproject.toml"), '[project]\nname = "sample-tools"\n');
           await writeFile(path.join(dir, "sites.py"), "def count():\n    return 3\n");
           await writeFile(path.join(dir, "tests", "test_sites.py"),
             "import unittest\nimport sites\n\nclass T(unittest.TestCase):\n    def test_count(self):\n        self.assertEqual(sites.count(), 3)\n");
@@ -72,11 +72,11 @@ test.skipIf(!python)("work that lands in a project inside the folder runs that p
   const app = new CasperApp({ ...options(home, runtime), output: { write: (text: string) => { output += text; } } });
   try {
     await app.runOnce("build a mist tool that counts sites, with tests", docs);
-    expect(output).toContain("… Casper checking: test (checks from mist-tools)");
-    expect(output).toMatch(/✓ test passed \(checks from mist-tools · python3? -m unittest discover -s tests|✓ test passed \(checks from mist-tools · .*-m unittest discover -s tests/);
+    expect(output).toContain("… Casper checking: test (checks from sample-tools)");
+    expect(output).toMatch(/✓ test passed \(checks from sample-tools · python3? -m unittest discover -s tests|✓ test passed \(checks from sample-tools · .*-m unittest discover -s tests/);
     expect(output).not.toContain("Not verified");
     // One-shot can't ask: it says the command to use.
-    expect(output).toContain("[folder] The work is in ~/Documents/mist-tools. To work there: cd ~/Documents/mist-tools && casper\n");
+    expect(output).toContain("[folder] The work is in ~/Documents/sample-tools. To work there: cd ~/Documents/sample-tools && casper\n");
     expect(app.getLastTaskResult()?.verification?.status).toBe("pass");
   } finally { await app.close(); await rm(root, { recursive: true, force: true }); }
 });
@@ -106,17 +106,17 @@ test.skipIf(!python)("after the receipt: 1 Stay here · 2 Switch there; Enter st
   try {
     await harness.until((text) => Bun.stripANSI(text).includes("idle"));
     harness.input.write("fix the sites count\r");
-    await harness.until((text) => Bun.stripANSI(text).includes("The work is in ~/Documents/mist-tools."));
+    await harness.until((text) => Bun.stripANSI(text).includes("The work is in ~/Documents/sample-tools."));
     expect(harness.output()).toContain("1 Stay here");
     expect(harness.output()).toContain("2 Switch there");
     harness.input.write("2");
-    await harness.until((text) => Bun.stripANSI(text).includes("[folder] Working in ~/Documents/mist-tools"));
+    await harness.until((text) => Bun.stripANSI(text).includes("[folder] Working in ~/Documents/sample-tools"));
     await harness.until((text) => Bun.stripANSI(text).includes("Your next request starts a new conversation there"));
     expect(disposed()).toBe(1);
     await harness.until((text) => /\bidle\b/.test(Bun.stripANSI(text).split("Your next request")[1] ?? ""));
     harness.input.write("add a test\r");
     await harness.until((text) => /\bidle\b/.test(Bun.stripANSI(text).split("add a test")[1] ?? ""));
-    expect(starts).toEqual([docs, path.join(docs, "mist-tools")]);
+    expect(starts).toEqual([docs, path.join(docs, "sample-tools")]);
   } finally {
     harness.input.write("/exit\r");
     await running;
@@ -133,7 +133,7 @@ test.skipIf(!python)("Enter at \"The work is in ...\" stays in the folder and ke
   try {
     await harness.until((text) => Bun.stripANSI(text).includes("idle"));
     harness.input.write("fix the sites count\r");
-    await harness.until((text) => Bun.stripANSI(text).includes("The work is in ~/Documents/mist-tools."));
+    await harness.until((text) => Bun.stripANSI(text).includes("The work is in ~/Documents/sample-tools."));
     harness.input.write("\r");
     await harness.until((text) => /\bidle\b/.test(Bun.stripANSI(text).split("The work is in").at(-1) ?? ""));
     expect(harness.output()).toContain("✓ Stay here");
@@ -141,10 +141,10 @@ test.skipIf(!python)("Enter at \"The work is in ...\" stays in the folder and ke
     expect(disposed()).toBe(0);
     expect(starts).toEqual([docs]);
     // Asked once: after Stay, a later task in the same project doesn't ask again this session.
-    const child = await childProjectOf(docs, ["mist-tools/sites.py"], home);
-    const before = harness.output().split("The work is in ~/Documents/mist-tools.").length;
+    const child = await childProjectOf(docs, ["sample-tools/sites.py"], home);
+    const before = harness.output().split("The work is in ~/Documents/sample-tools.").length;
     await (harness.app as unknown as { offerWorkFolder(child: unknown): Promise<void> }).offerWorkFolder(child);
-    expect(harness.output().split("The work is in ~/Documents/mist-tools.").length).toBe(before);
+    expect(harness.output().split("The work is in ~/Documents/sample-tools.").length).toBe(before);
   } finally {
     harness.input.write("/exit\r");
     await running;

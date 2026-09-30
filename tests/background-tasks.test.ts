@@ -86,11 +86,11 @@ test("a background entry never shows a secret in its name", () => {
 
 test("a helper whose goal holds a lab login or a Proxmox token never shows it in /tasks", () => {
   const tasks = [
-    task("explorer: log in to the lab as root / Lab-Pass-2024! and list the VMs", "helper"),
-    task("explorer: query pve with root@pam!demoapp=3f2a9c1e-5b7d-4e8a-9c0f-1a2b3c4d5e6f", "helper"),
+    task("explorer: log in to the lab as root / Example-Pass-2024! and list the VMs", "helper"),
+    task("explorer: query pve with root@pam!sampleapp=3f2a9c1e-5b7d-4e8a-9c0f-1a2b3c4d5e6f", "helper"),
   ];
   const text = formatBackgroundTasks(tasks) + tasksChoices(tasks).map(choice => choice.description).join("\n");
-  expect(text).not.toContain("Lab-Pass-2024");
+  expect(text).not.toContain("Example-Pass-2024");
   expect(text).not.toContain("3f2a9c1e-5b7d");
   expect(text).toContain("root / <secret hidden>");
 });

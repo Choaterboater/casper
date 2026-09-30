@@ -243,7 +243,7 @@ test("a file gitleaks flagged stays kept from the AI when a committed ignore hid
   const fake = fakeAI("```json\n[{\"file\": \"app/server.py\", \"line\": 8, \"input\": \"GITHUB_TOKEN=x\", \"why\": \"a token in code\"}]\n```");
   const s = host(root, home, tools.find, "cannot-ask", fake.ai);
   const report = await runSecurityReview(s.host, ["ai"]);
-  // The ignore hides the finding from the report, as the owner asked ...
+  // The ignore hides the finding from the report, as the user asked ...
   expect(report!.findings.some((finding) => finding.tool === "gitleaks")).toBe(false);
   expect(report!.secretFiles).toEqual(["app/server.py"]);
   // ... but the file still holds the token: the AI can't open or grep it, and a finding in it is not shown.

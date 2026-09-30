@@ -10,7 +10,7 @@ import { SkillRegistry } from "../src/skills/registry";
 import type { NewProjectOptions, NewProjectResult } from "../src/new/scaffold";
 import { tildePath } from "../src/new/scaffold";
 import { parseCliArgs } from "../src/cli-args";
-import { terminalNewProject } from "../src/cli";
+import { terminalNewProject } from "../src/cli-main";
 import { COMMANDS } from "../src/tui/commands";
 import { FULL_HELP_TEXT, HELP_TEXT } from "../src/tui/help";
 import type { AgentRuntime, RuntimeSession } from "../src/runtime/types";

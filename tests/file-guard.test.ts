@@ -115,9 +115,25 @@ test("a shell command that names ~/.ssh or another private place is refused, eve
     expect([command, privatePathCommand(command, context)]).toEqual([command, expect.stringMatching(/^Not run: this command reads ~\/\.(ssh|aws|netrc), which is private \(keys and logins\)\./)]);
   }
   // ssh's own key file is read by ssh, not shown to the AI; other commands and names pass.
-  for (const command of ["ssh -i ~/.ssh/lab_key root@10.0.0.5 uptime", "scp -o IdentityFile=~/.ssh/lab app.py lab-01:/opt/", "ssh lab-01 uptime",
-    "ssh -i ~/.ssh/a -i ~/.ssh/b lab-01 uptime", "sudo ssh -i ~/.ssh/lab root@10.0.0.5 id",
+  for (const command of ["ssh -i ~/.ssh/lab_key root@10.0.0.5 uptime", "scp -o IdentityFile=~/.ssh/lab app.py build-server:/opt/", "ssh build-server uptime",
+    "ssh -i ~/.ssh/a -i ~/.ssh/b build-server uptime", "sudo ssh -i ~/.ssh/lab root@10.0.0.5 id",
     "cat ./ssh/config", "ls ~/Projects", "echo .sshrc", "cat notes/.ssh-hosts.md"]) {
     expect([command, privatePathCommand(command, context)]).toEqual([command, undefined]);
+  }
+});
+
+test("a shell command that reaches ~/.ssh by .., cd, ~user, quotes, a glob or a whole-home copy is refused too", () => {
+  // Casper open in ~/Documents.
+  const documents = { ...context, root: path.join(home, "Documents") };
+  for (const command of ["cat ../.ssh/config", "cd .. && cat .ssh/config", "cd; cat .ssh/config", `cat ~${path.basename(home)}/.ssh/config`,
+    "cat ~/'.ssh'/config", "cat ~/\".ssh/config\"", "cat ~/.ss*/config", "cat ~/.s?h/id_test", "cat ~/.ssh/../.ssh/config",
+    "grep -r HostName ~", "grep -R HostName ..", "tar czf /tmp/home.tgz ~", "rsync -a ~/ backup:/home/", "cp -r ~ /tmp/copy",
+    "ssh -G build-server", "ssh -vG build-server", "bash -c 'cat ../.ssh/config'"]) {
+    expect([command, privatePathCommand(command, documents)]).toEqual([command, expect.stringMatching(/^Not run: this command reads ~\/\.ssh/)]);
+  }
+  // Ordinary work next to it passes: the folder's own files, a sibling, a listing of home, ssh itself.
+  for (const command of ["cat ../Projects/readme.md", "ls ..", "ls ~", "grep -r TODO .", "find ~ -name '*.md'", "cat ~/.config/*.toml",
+    "cd sample-tools && python3 -m unittest discover -s tests", "ssh -v build-server uptime", "cat ~/.ssh.bak.md", "cat ~/*/config"]) {
+    expect([command, privatePathCommand(command, documents)]).toEqual([command, undefined]);
   }
 });

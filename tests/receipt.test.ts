@@ -206,7 +206,7 @@ test("a check that took under a second shows no time: the receipt and the live l
   expect(formatReceipt(done({ changedPaths: ["sum.js"], verificationMode: "auto", verification: report([quick]) }))).toContain("✓ test passed (npm run test)\n".trimEnd());
   expect(formatReceipt(done({ changedPaths: ["sum.js"], verificationMode: "auto", verification: report([quick]) }))).not.toMatch(/0\.\ds/);
   expect(liveCheckLine(quick)).toBe("✓ test");
-  expect(liveCheckLine(check({ durationMs: 40, label: "checks from mist-tools" }))).toBe("✓ test · checks from mist-tools");
+  expect(liveCheckLine(check({ durationMs: 40, label: "checks from sample-tools" }))).toBe("✓ test · checks from sample-tools");
   expect(liveCheckLine(check({ durationMs: 40, status: "fail", exitCode: 1 }))).toBe("✗ test · exit 1");
   expect(formatReceipt(done({ changedPaths: [], verificationMode: "auto", verification: report([check({ durationMs: 40, command: undefined })]) }))).toContain("✓ test passed\n".trimEnd());
   // A second or more still shows.

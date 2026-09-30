@@ -5,7 +5,7 @@ import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { CasperApp } from "../src/app";
-import { leadingFlag } from "../src/cli";
+import { leadingFlag } from "../src/cli-main";
 import { loadProjectContext } from "../src/project/context";
 import { SkillRegistry } from "../src/skills/registry";
 import { ProjectMemory } from "../src/memory/store";

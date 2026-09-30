@@ -256,11 +256,11 @@ test("a typed folder name that isn't there offers Stay first, then Make it here 
   const interactive = harness.app.runInteractive(work);
   try {
     await harness.until(text => Bun.stripANSI(text).includes("Work in which one?"));
-    harness.input.write("mist-tools\r");
-    await harness.until(text => Bun.stripANSI(text).includes("mist-tools isn't a folder in work. Make it?"));
+    harness.input.write("sample-tools\r");
+    await harness.until(text => Bun.stripANSI(text).includes("sample-tools isn't a folder in work. Make it?"));
     const visible = Bun.stripANSI(harness.output());
     expect(visible).toContain("1 Stay in work");
-    expect(visible).toContain("2 Make mist-tools here");
+    expect(visible).toContain("2 Make sample-tools here");
     // Enter stays, and the message names the folder instead of ".".
     harness.input.write("\r");
     await harness.until(text => Bun.stripANSI(text).includes("[folder] Staying in work."));
@@ -277,7 +277,7 @@ test("a typed folder name that isn't there offers Stay first, then Make it here 
   const running = again.app.runInteractive(work);
   try {
     await again.until(text => Bun.stripANSI(text).includes("Work in which one?"));
-    again.input.write("mist-tools\r");
+    again.input.write("sample-tools\r");
     await again.until(text => Bun.stripANSI(text).includes("Make it?"));
     again.input.write("2");
     await again.until(text => Bun.stripANSI(text).includes("What are you building?"));
@@ -297,8 +297,8 @@ test("/project <name> opens a project folder inside this one before the model st
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-project-cmd-")));
   const home = path.join(root, "home");
   const docs = path.join(home, "Documents");
-  await mkdir(path.join(docs, "mist-tools", "tests"), { recursive: true });
-  await writeFile(path.join(docs, "mist-tools", "pyproject.toml"), '[project]\nname = "mist-tools"\n');
+  await mkdir(path.join(docs, "sample-tools", "tests"), { recursive: true });
+  await writeFile(path.join(docs, "sample-tools", "pyproject.toml"), '[project]\nname = "sample-tools"\n');
   await writeFile(path.join(docs, "notes.md"), "notes\n");
   // Documents holds a project, so Casper asks at launch; Esc keeps Documents.
   const harness = interactiveHarness(home, docs);
@@ -314,8 +314,8 @@ test("/project <name> opens a project folder inside this one before the model st
     harness.input.write("\r");
     await harness.until(text => Bun.stripANSI(text).includes("[folder] Staying in Documents."));
     // The project's name opens it.
-    harness.input.write("/project mist-tools\r");
-    await harness.until(text => Bun.stripANSI(text).includes("[folder] Working in ~/Documents/mist-tools"));
+    harness.input.write("/project sample-tools\r");
+    await harness.until(text => Bun.stripANSI(text).includes("[folder] Working in ~/Documents/sample-tools"));
   } finally {
     harness.input.write("/exit\r");
     await interactive;
@@ -329,8 +329,8 @@ test("/project <name> once the conversation started says the command to use", as
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-project-late-")));
   const home = path.join(root, "home");
   const docs = path.join(home, "Documents");
-  await mkdir(path.join(docs, "mist-tools"), { recursive: true });
-  await writeFile(path.join(docs, "mist-tools", "pyproject.toml"), '[project]\nname = "mist-tools"\n');
+  await mkdir(path.join(docs, "sample-tools"), { recursive: true });
+  await writeFile(path.join(docs, "sample-tools", "pyproject.toml"), '[project]\nname = "sample-tools"\n');
   let output = "";
   const app = new CasperApp({ runtimeFactory: () => ({
     async start(): Promise<RuntimeSession> {
@@ -345,8 +345,8 @@ test("/project <name> once the conversation started says the command to use", as
   try {
     await app.start(docs);
     await app.ensureRuntime();
-    await app.runOnce("/project mist-tools", docs);
-    expect(output).toContain("[folder] This conversation stays in Documents. To work in mist-tools: cd ~/Documents/mist-tools && casper\n");
+    await app.runOnce("/project sample-tools", docs);
+    expect(output).toContain("[folder] This conversation stays in Documents. To work in sample-tools: cd ~/Documents/sample-tools && casper\n");
     await app.runOnce("/project nope", docs);
     expect(output).toContain("[folder] nope isn't a folder in Documents. To start it as a new project: casper new nope\n");
   } finally { await app.close(); await rm(root, { recursive: true, force: true }); }

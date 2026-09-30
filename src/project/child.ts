@@ -4,12 +4,12 @@ import { findProjectCandidates, hasProjectSignals, type ProjectInfo } from "./in
 import { loadProjectModel, type ProjectModel } from "./model";
 
 /**
- * A project folder inside the open folder: the AI built mist-tools inside ~/Documents, so Documents has no
- * checks but mist-tools does. Casper runs mist-tools' own checks for that task and offers to switch there.
+ * A project folder inside the open folder: the AI built sample-tools inside ~/Documents, so Documents has no
+ * checks but sample-tools does. Casper runs sample-tools' own checks for that task and offers to switch there.
  */
 export interface ChildProject {
   dir: string;
-  /** "mist-tools", relative to the open folder, with "/". */
+  /** "sample-tools", relative to the open folder, with "/". */
   relative: string;
   model: ProjectModel;
 }

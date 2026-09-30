@@ -21,11 +21,11 @@ async function documents(): Promise<{ root: string; home: string; docs: string }
 }
 
 async function mistTools(docs: string): Promise<string> {
-  const dir = path.join(docs, "mist-tools");
+  const dir = path.join(docs, "sample-tools");
   await mkdir(path.join(dir, "tests"), { recursive: true });
-  await mkdir(path.join(dir, "mist_tools"), { recursive: true });
-  await writeFile(path.join(dir, "pyproject.toml"), '[project]\nname = "mist-tools"\n');
-  await writeFile(path.join(dir, "mist_tools", "sites.py"), "def count():\n    return 1\n");
+  await mkdir(path.join(dir, "sample_tools"), { recursive: true });
+  await writeFile(path.join(dir, "pyproject.toml"), '[project]\nname = "sample-tools"\n');
+  await writeFile(path.join(dir, "sample_tools", "sites.py"), "def count():\n    return 1\n");
   await writeFile(path.join(dir, "tests", "test_sites.py"), "import unittest\n");
   return dir;
 }
@@ -42,11 +42,11 @@ function app(home: string) {
 test("the one child project holding every change is found; spread-out or top-level changes are not", async () => {
   const { home, docs } = await documents();
   const dir = await mistTools(docs);
-  const child = await childProjectOf(docs, ["mist-tools/mist_tools/sites.py", "mist-tools/tests/test_sites.py"], home);
+  const child = await childProjectOf(docs, ["sample-tools/sample_tools/sites.py", "sample-tools/tests/test_sites.py"], home);
   expect(child?.dir).toBe(dir);
-  expect(child?.relative).toBe("mist-tools");
+  expect(child?.relative).toBe("sample-tools");
   expect(child?.model.commands.test).toContain("-m unittest discover -s tests");
-  expect(await childProjectOf(docs, ["mist-tools/tests/test_sites.py", "notes.md"], home)).toBeUndefined();
+  expect(await childProjectOf(docs, ["sample-tools/tests/test_sites.py", "notes.md"], home)).toBeUndefined();
   expect(await childProjectOf(docs, ["notes.md"], home)).toBeUndefined();
   await mkdir(path.join(docs, "scratch"));
   expect(await childProjectOf(docs, ["scratch/a.txt"], home)).toBeUndefined();
@@ -62,7 +62,7 @@ test("/verify with nothing to run says so in one line and points at the folder w
     expect(taskExitCode(report, casper.getLastTaskResult())).toBe(2);
     expect(receiptEvent(report, undefined, 2).verdict).toBe("• Not checked — no checks found in this folder");
     const text = output();
-    expect(text).toContain("[verify] No checks found in Documents. Tests found in mist-tools: /project mist-tools\n");
+    expect(text).toContain("[verify] No checks found in Documents. Tests found in sample-tools: /project sample-tools\n");
     expect(text).not.toContain("has no command");
     expect(text).not.toContain("Incomplete");
   } finally { await casper.close(); }

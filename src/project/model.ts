@@ -39,7 +39,7 @@ export interface ProjectModel {
   /** SQL migrations found in the project (the migrations check); found when the project is opened, never cached. */
   migrations?: MigrationPlan;
   /** Ready-made checks Casper found for the project (Ansible playbooks) that the project has not saved under
-   * verify.checks. They never run until the owner adds one (/verify add <name>); found when opened, never cached. */
+   * verify.checks. They never run until the user adds one (/verify add <name>); found when opened, never cached. */
   foundChecks?: Record<string, NamedCheckSpec>;
   architecture: Record<string, string>;
   conventions: string[];

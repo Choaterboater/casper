@@ -122,7 +122,7 @@ export interface CommandHost {
   readonly securitySeams?: Pick<SecurityReviewHost, "check" | "install">;
   /** The AI review after /security-review's tools (runs only after a numbered ask, or /security-review ai). */
   securityAI(): SecurityAIReview | undefined;
-  /** `/verify add <name>`: save a ready-made check Casper found (never called without the owner asking). */
+  /** `/verify add <name>`: save a ready-made check Casper found (never called without the user asking). */
   saveFoundCheck(name: string): Promise<void>;
   /** `/project <name>`: open a project folder here, or offer to make it (before the model starts). */
   openProjectCommand(name: string): Promise<void>;
@@ -433,7 +433,7 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
     }
     if (/^\/verify(?:\s|$)/.test(prompt)) {
       const args = prompt.trim().split(/\s+/).slice(1);
-      // `/verify add <name>`: the owner saves a ready-made check Casper found. Casper never adds one by itself.
+      // `/verify add <name>`: the user saves a ready-made check Casper found. Casper never adds one by itself.
       if (args[0] === "add") {
         if (args.length !== 2 || !host.projectContext) throw new Error(VERIFY_USAGE);
         await host.saveFoundCheck(args[1]!);
@@ -986,7 +986,7 @@ function plainList(names: readonly string[], joiner: "or" | "and"): string {
 }
 
 /** "/verify" when the folder has no check at all: "No checks found in Documents." and, when folders inside have
- * tests, "Tests found in mist-tools: /project mist-tools". Undefined when something can run. */
+ * tests, "Tests found in sample-tools: /project sample-tools". Undefined when something can run. */
 export async function noChecksNote(model: ProjectModel, root: string, homeDir: string): Promise<string | undefined> {
   const names = defaultVerifyNames(model);
   const runnable = names.some((name) => !(CHECK_NAMES as readonly string[]).includes(name) || model.commands[name as keyof ProjectModel["commands"]]?.trim());

@@ -35,7 +35,7 @@ case that neither the code nor its tests handle. Every check that starts from th
 code, its mutants) inherits the omission. Only checks that start from the request (the acceptance tests)
 caught any, and those depend on the test-writing model: noisy writers catch more and flag more.
 
-Decisions for the owner:
+Decisions for the maintainer:
 - **Stop searching for a verdict check on this pack.** Keep `verified` as ADR 0001 defines it (checks
   passed, change proven), and ship the request-side checks only as opt-in warning lines.
 - **Or change the input:** the omissions come from long prompts with many stated cases. A structured

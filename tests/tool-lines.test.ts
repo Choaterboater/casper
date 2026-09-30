@@ -38,8 +38,8 @@ const end = (id: string, toolName: string, input: Record<string, string>, isErro
 
 test("a shell command shows as its program and target, at most 80 characters", () => {
   expect(commandLabel("git status")).toBe("git status");
-  expect(commandLabel("cd mist-tools && python3 -m pytest -q tests/test_x.py")).toBe("python3 -m pytest …");
-  expect(commandLabel("ssh -p 22 -i key root@10.0.0.5 'systemctl restart demoapp'")).toBe("ssh root@10.0.0.5 …");
+  expect(commandLabel("cd sample-tools && python3 -m pytest -q tests/test_x.py")).toBe("python3 -m pytest …");
+  expect(commandLabel("ssh -p 22 -i key root@10.0.0.5 'systemctl restart sampleapp'")).toBe("ssh root@10.0.0.5 …");
   expect(commandLabel("FOO=1 sudo /usr/bin/pvesh get /nodes")).toBe("pvesh get …");
   expect(commandLabel("ls")).toBe("ls");
   // sshpass's password is never the label's target.
@@ -146,7 +146,7 @@ test("the summary line counts steps and shows time only from a second up", () =>
 test("a tool call stopped at the spend limit shows as not run, never as a failed step or with the model's instruction", () => {
   for (const rich of [true, false]) {
     const t = fakeTerminal(rich);
-    const input = { command: "ssh root@10.0.0.5 'systemctl restart demoapp'" };
+    const input = { command: "ssh root@10.0.0.5 'systemctl restart sampleapp'" };
     t.handle(start("1", "read", { path: "/work/app/a.py" }), end("1", "read", { path: "/work/app/a.py" }));
     t.handle(start("2", "bash", input), end("2", "bash", input, true, SPEND_STOP_REASON), { type: "message_end" });
     expect(t.screen).toContain("• bash · ssh root@10.0.0.5 … — not run (spend limit)");
@@ -158,19 +158,19 @@ test("a tool call stopped at the spend limit shows as not run, never as a failed
 
 test("a command Casper refused shows as not run with the reason said to you, never as failed or with words for the model", () => {
   const privateRead = "Not run: this command reads ~/.ssh, which is private (keys and logins). Casper keeps it from the AI. Ask the user instead.";
-  const target = { tool: "ssh" as const, typed: "lab-01", host: "192.168.10.20" };
+  const target = { tool: "ssh" as const, typed: "build-server", host: "198.51.100.20" };
   for (const rich of [true, false]) {
     const t = fakeTerminal(rich);
-    const cat = { command: "cat ~/.ssh/config" }, ssh = { command: "ssh root@lab-01 'pveum user token add root@pam demoapp'" };
+    const cat = { command: "cat ~/.ssh/config" }, ssh = { command: "ssh root@build-server 'pveum user token add root@pam sampleapp'" };
     t.handle(start("1", "bash", cat), end("1", "bash", cat, true, privateRead));
     t.handle(start("2", "bash", ssh), end("2", "bash", ssh, true, reachDeclined(target)), { type: "message_end" });
     const screen = t.screen.join("\n");
     expect(t.screen).toContain("• bash · cat ~/.ssh/config — not run");
     expect(t.screen).toContain("  This command reads ~/.ssh, which is private (keys and logins). Casper keeps it from the AI.");
-    expect(t.screen).toContain("  You said no to reaching 192.168.10.20 (lab-01).");
+    expect(t.screen).toContain("  You said no to reaching 198.51.100.20 (build-server).");
     expect(screen).not.toMatch(/failed|✗|Ask the user|ask the user|Don't try/);
   }
-  expect(refusalForScreen(reachCantAsk(target))).toBe("This command reaches 192.168.10.20 (lab-01), another machine, and this run can't ask you first. Casper doesn't let the AI reach other machines without your OK.");
+  expect(refusalForScreen(reachCantAsk(target))).toBe("This command reaches 198.51.100.20 (build-server), another machine, and this run can't ask you first. Casper doesn't let the AI reach other machines without your OK.");
   // The hint that is for you stays.
   expect(refusalForScreen(SHELL_CANT_ASK)).toBe(SHELL_CANT_ASK.replace("Not run: s", "S"));
   // A command's own failure is still a failure.

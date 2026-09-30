@@ -292,7 +292,7 @@ export class CasperApp {
   private effortCycle: Promise<void> = Promise.resolve();
   private workspaceTransition = false;
   private workspaceNeedsRebind = false;
-  /** Project folders the owner chose to stay out of at "The work is in ...": not asked again this session. */
+  /** Project folders the user chose to stay out of at "The work is in ...": not asked again this session. */
   private readonly stayedOutOf = new Set<string>();
   /** Why the last workspace snapshot failed, for the task's receipt. */
   private snapshotFailure?: string;
@@ -1060,7 +1060,7 @@ export class CasperApp {
     } finally { this.phase("checks", "end"); }
   }
 
-  /** After the receipt: "The work is in ~/Documents/mist-tools. 1 Stay here · 2 Switch there". Enter stays. A run
+  /** After the receipt: "The work is in ~/Documents/sample-tools. 1 Stay here · 2 Switch there". Enter stays. A run
    * that can't ask says the command to use. */
   private async offerWorkFolder(child: ChildProject): Promise<void> {
     const home = this.sessionHomeDir ?? os.homedir();
@@ -1521,7 +1521,7 @@ export class CasperApp {
       } else if (!stopped && this.checkTask && (this.checkTask.checks.length || this.smokeTask?.recordedCount)) {
         verification = await this.runVerification(this.checkTask.checks, true, prompt, this.checkTask);
       }
-      // The work landed in a project inside this folder (mist-tools in Documents): its own checks run for this receipt.
+      // The work landed in a project inside this folder (sample-tools in Documents): its own checks run for this receipt.
       if (!stopped && before && afterModel && !this.closing) {
         workFolder = await this.childProjectOfTask(context, flatten(diffSnapshots(before, afterModel)));
         if (workFolder && !verification && this.checkTask && verificationMode === "auto") {

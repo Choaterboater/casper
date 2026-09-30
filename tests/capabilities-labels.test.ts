@@ -60,7 +60,7 @@ test("destructive and run words anywhere tighten, even after a read word", () =>
   expect(toolLabel(readOnly("cx_run_cli"))).toBe("exec");
 });
 
-test("the owner's read-only tools stay read, and the honest name reading of the rest is read", () => {
+test("hpe-networking-mcp's read-only tools stay read, and the honest name reading of the rest is read", () => {
   for (const name of ["aos8_plan_migration_rollback", "get_config_rollback_status", "get_glp_block_storage_volume",
     "get_glp_block_storage_volumes", "get_glp_service_provision", "cx_show", "load_skill", "get_device", "list_sites"]) {
     expect(toolLabel(readOnly(name))).toBe("read");

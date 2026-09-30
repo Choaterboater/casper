@@ -408,7 +408,7 @@ export function resolveTarget(raw: RawTarget, home = os.homedir()): RemoteTarget
   return { tool: raw.tool, typed: raw.typed, host: host.toLowerCase(), ...(user ? { user } : {}), ...(port ? { port } : {}) };
 }
 
-/** "10.0.0.5 (lab-01)" or "lab-01". */
+/** "10.0.0.5 (build-server)" or "build-server". */
 export function targetLabel(target: RemoteTarget): string {
   if (target.unclear) return `another machine (${target.typed})`;
   return target.typed.toLowerCase() !== target.host ? `${target.host} (${target.typed})` : target.host;

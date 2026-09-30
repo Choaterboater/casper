@@ -596,7 +596,7 @@ posixOnly("CLI shutdown has a deadline when runtime startup never settles", asyn
   const harness = path.join(root, "stalled-runtime.ts");
   await writeFile(harness, `
     import { CasperApp } from ${JSON.stringify(path.resolve("src/app.ts"))};
-    import { installShutdownHandlers } from ${JSON.stringify(path.resolve("src/cli.ts"))};
+    import { installShutdownHandlers } from ${JSON.stringify(path.resolve("src/cli-main.ts"))};
     const app = new CasperApp({ runtimeFactory: () => ({
       async start() {
         await Bun.write("runtime-started", "");

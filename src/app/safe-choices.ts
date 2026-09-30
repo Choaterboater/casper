@@ -80,7 +80,7 @@ export const HOST_CHOICES = [
   { label: "Always for this project", description: "kept in ~/.casper, never in the repo; /sandbox forget <host> undoes it" },
 ] as const satisfies readonly Choice[];
 
-/** "Reach 10.0.0.5 (lab-01)?  ssh root@lab-01 uptime" before the AI's shell runs ssh, scp, sftp, rsync, nc, telnet or
+/** "Reach 10.0.0.5 (build-server)?  ssh root@build-server uptime" before the AI's shell runs ssh, scp, sftp, rsync, nc, telnet or
  * socat to another machine, sandbox or not. Enter runs nothing. */
 export const REACH_CHOICES = [
   { label: "No", description: "the command does not run" },
@@ -101,7 +101,7 @@ export const AI_REVIEW_CHOICES = [
   { label: "Run the AI review", description: "uses tokens; its findings are its opinion" },
 ] as const satisfies readonly Choice[];
 
-/** A typed folder name that isn't there: "mist-tools isn't a folder in Documents." Enter stays and makes nothing. */
+/** A typed folder name that isn't there: "sample-tools isn't a folder in Documents." Enter stays and makes nothing. */
 export function missingFolderChoices(folder: string, name: string, where = "here"): Choice[] {
   return [
     { label: `Stay in ${folder}`, description: "nothing is made" },
@@ -109,7 +109,7 @@ export function missingFolderChoices(folder: string, name: string, where = "here
   ];
 }
 
-/** "The work is in ~/Documents/mist-tools." after a task whose files all sit in that project. Enter stays. */
+/** "The work is in ~/Documents/sample-tools." after a task whose files all sit in that project. Enter stays. */
 export function workFolderChoices(here: string, there: string): Choice[] {
   return [
     { label: "Stay here", description: `keep working in ${here}` },

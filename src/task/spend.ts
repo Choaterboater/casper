@@ -20,7 +20,7 @@ export function formatCost(dollars: number): string {
   return `$${dollars.toFixed(2)}`;
 }
 
-/** A limit as the owner wrote it: "$5", "$2.50". */
+/** A limit as the user wrote it: "$5", "$2.50". */
 export function formatLimit(dollars: number): string {
   return Number.isInteger(dollars) ? `$${dollars}` : `$${dollars.toFixed(2)}`;
 }

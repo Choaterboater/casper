@@ -61,12 +61,12 @@ test("projectSlug keeps up to three content words", () => {
 });
 
 test("a leading \"new\" is a build request, and filler words stay out of the name", () => {
-  expect(newProjectSuggestion("new project mist tools")).toEqual({ template: "mist-python", name: "mist-tools", kind: "Mist Python project" });
-  expect(newProjectSuggestion("new mist tool")).toMatchObject({ template: "mist-python", name: "mist-tool" });
-  expect(newProjectSuggestion("new project Folder mist tools")).toMatchObject({ template: "mist-python", name: "mist-tools" });
-  expect(newProjectSuggestion("create a new project called mist tools")).toMatchObject({ template: "mist-python", name: "mist-tools" });
+  expect(newProjectSuggestion("new project mist sites")).toEqual({ template: "mist-python", name: "mist-sites", kind: "Mist Python project" });
+  expect(newProjectSuggestion("new mist script")).toMatchObject({ template: "mist-python", name: "mist-script" });
+  expect(newProjectSuggestion("new project Folder mist sites")).toMatchObject({ template: "mist-python", name: "mist-sites" });
+  expect(newProjectSuggestion("create a new project called mist sites")).toMatchObject({ template: "mist-python", name: "mist-sites" });
   expect(newProjectSuggestion("make a tool named port audit")).toMatchObject({ template: "python-cli", name: "port-audit" });
   expect(newProjectSuggestion("new project")).toBe("ask");
   expect(newProjectSuggestion("new tests for the parser")).toBeUndefined();
-  expect(projectSlug("folder called mist tools")).toBe("mist-tools");
+  expect(projectSlug("folder called mist sites")).toBe("mist-sites");
 });

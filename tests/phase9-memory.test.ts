@@ -193,10 +193,10 @@ test("a task whose checks carry a label, or a named check, is still recorded", a
   const { store } = await fixture();
   const base = { cwd: "/fixture", exitCode: 0, signal: null, stdout: "", stderr: "", durationMs: 90, truncated: false } as const;
   const report: VerificationReport = { status: "pass", repairAttempts: 0, rounds: [], results: [
-    { ...base, name: "test", status: "pass", label: "checks from mist-tools", command: "python3 -m unittest discover -s tests" },
+    { ...base, name: "test", status: "pass", label: "checks from sample-tools", command: "python3 -m unittest discover -s tests" },
     { ...base, name: "aruba-check", status: "pass", kind: "lab", label: "dry run not guaranteed" },
   ] };
-  const saved = await store.recordOutcome({ task: "write mist tools", skills: [], modelStatus: "completed", verification: report });
+  const saved = await store.recordOutcome({ task: "write sample tools", skills: [], modelStatus: "completed", verification: report });
   expect(saved.checks).toEqual([expect.objectContaining({ name: "test", status: "pass" })]);
   expect((await store.outcomes()).map((entry) => entry.id)).toContain(saved.id);
 });

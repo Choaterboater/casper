@@ -134,7 +134,7 @@ export class TaskObservations {
     }
     if ((event.toolName === "bash" || event.toolName === "powershell") && event.input?.command && !refused && this.remote.size < 16) {
       for (const { host, address, changes } of remoteChanges(event.input.command)) {
-        // One machine by its address: "lab-01" and "192.168.10.20" are one line, named "192.168.10.20 (lab-01)".
+        // One machine by its address: "build-server" and "198.51.100.20" are one line, named "198.51.100.20 (build-server)".
         const entry = this.remote.get(address) ?? { host, changes: [] };
         if (host.length > entry.host.length) entry.host = host;
         for (const change of changes) if (!entry.changes.includes(change) && entry.changes.length < 12) entry.changes.push(change);

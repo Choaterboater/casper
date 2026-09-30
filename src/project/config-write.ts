@@ -105,7 +105,7 @@ export function namedCheckLine(name: string, spec: NamedCheckSpec): string {
 
 /**
  * Save a ready-made check under `verify.checks.<name>` in .casper/project.yaml, the same careful way as
- * saveProjectCommand. Only the owner's own choice calls this (/verify add <name>, or a suggestion they picked).
+ * saveProjectCommand. Only the user's own choice calls this (/verify add <name>, or a suggestion they picked).
  */
 export async function saveNamedCheck(root: string, name: string, spec: NamedCheckSpec): Promise<ProjectCommandWrite> {
   const line = namedCheckLine(name, spec);

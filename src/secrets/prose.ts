@@ -65,14 +65,18 @@ const RULES: ProseRule[] = [
   { re: /\b(?:login|logon|log-in|creds?|credentials?|sign[- ]?in|account|user(?:name)?\s*\/\s*pass(?:word)?|u\/p)\b[^\n/]{0,30}?(?:[:=-]\s*|\s)(`?)[\w.@\\-]+\1\s*\/\s*(`?)([^\s`]+)\2/gid,
     group: 3, kind: "password", accept: (value) => anyValue(value.replace(/[.,;)]+$/, "")) },
   // root / X, admin / X (spaces around the slash; a path has none).
-  { re: /(?<![/\w.-])(?:root|admin|administrator|ubuntu|debian|pi|centos|ec2-user|operator|netadmin|cisco|juniper|aruba|manager|superuser|vagrant|support)\s+\/\s+(`?)([^\s`]+)\1/gid,
+  // Also root@pam / X (a Proxmox login with its realm) and **root** / **X** (markdown bold).
+  { re: /(?<![/\w.-])(?:\*\*|__)?(?:root|admin|administrator|ubuntu|debian|pi|centos|ec2-user|operator|netadmin|cisco|juniper|aruba|manager|superuser|vagrant|support)(?:@[\w.-]+)?(?:\*\*|__)?\s+\/\s+(?:\*\*|__)?(`?)([^\s`*]+)\1/gid,
     group: 2, kind: "password", accept: (value) => anyValue(value.replace(/[.,;)]+$/, "")) },
   // user:X@host with no scheme (a URL with one is handled by scrubUrlPasswords).
   { re: /(?<![\w/:.@%-])([A-Za-z0-9._-]{1,64}):([^\s@/:'"`]{3,})@((?:\d{1,3}\.){3}\d{1,3}|[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+|localhost)\b/gid,
     group: 2, kind: "password", accept: (value, match) => !/^(?:mailto|email|e-mail|contact|from|to|cc|bcc|reply-to|author|by|at)$/i.test(match[1]!) && anyValue(value) && !/^\$\{?\w+\}?$/.test(value) },
-  // Proxmox API tokens: root@pam!demoapp=<uuid>, PVEAPIToken=user@realm!name=<uuid>.
+  // Proxmox API tokens: root@pam!sampleapp=<uuid>, PVEAPIToken=user@realm!name=<uuid>.
   { re: new RegExp(String.raw`[\w.-]+@[\w.-]+![\w.-]+\s*[=:]\s*(${UUID})`, "gid"), group: 1, kind: "key", accept: () => true },
   { re: new RegExp(String.raw`![\w.-]+=(${UUID})`, "gid"), group: 1, kind: "key", accept: () => true },
+  // A uuid later on a line about a token or secret: "PVE token: root@pam!sampleapp 3f1c…" (the id is a name; the uuid
+  // is the secret).
+  { re: new RegExp(String.raw`(?:\b(?:tokens?|secrets?|api[ _-]?keys?)\b(?!\s+ids?\b)|![\w.-]+)[^\n]{0,80}?(?<![\w-])(${UUID})(?![\w-])`, "gid"), group: 1, kind: "key", accept: () => true },
   { re: /\bPVEAPIToken\s*=\s*[^\s'"=]+=([^\s'"]+)/gid, group: 1, kind: "key", accept: (value) => anyValue(value) },
   // token=<uuid or long hex>, api_secret: <uuid> (not token_id, which names a token).
   { re: new RegExp(String.raw`\b(?![\w-]*token[-_]?id\b)[\w-]*(?:token|secret|apikey|api_key|api-key)[\w-]*["']?\s*[=:]\s*["']?(${UUID}|[0-9a-fA-F]{32,})\b`, "gid"),

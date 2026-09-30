@@ -5,7 +5,7 @@ the bar is 70%), flagged 29 of 87 right runs (33%; the limit is 20%), and took 1
 (the limit is 1.25×). Tokens were 1.01× Pi. `verification.acceptance` stays off by default, and the
 check stays in the code as an experiment.
 
-Pre-registration: the rule and volume were fixed before the run, in `.scratch/acceptance/decision/run.sh`. Owner decision the same day: Casper
+Pre-registration: the rule and volume were fixed before the run, in `.scratch/acceptance/decision/run.sh`. Decision the same day: Casper
 stays its own product, so the check was built into standalone Casper (`src/verify/acceptance.ts`) and not
 into a Pi extension. The check makes one separate model call with the same model and effort. The model
 writes one test file from the request alone (it also sees `CONTEXT.md`/`AGENTS.md`, the changed code and
@@ -69,7 +69,7 @@ The check adds one model call and one test run after the proof. It cost almost n
 ## What this means
 
 Tests written by the same model from the request alone do not catch the misses that the model's own tests
-miss. They add false alarms (GLM) and wall time (DeepSeek). The owner's conditions for this experiment
+miss. They add false alarms (GLM) and wall time (DeepSeek). The maintainer's conditions for this experiment
 were: signal only, same model, one file, no second design pre-built. Under them, the check does not earn a
 place in the default receipt. Directions not tried here, each a separate decision: a different model for
 the acceptance tests, a check that runs outside the proof path (server tasks), and recording the check's

@@ -230,11 +230,11 @@ test("the AI's first command after the sandbox fails to start asks too, and a on
   await sandbox.close();
 });
 
-/** A home whose ~/.ssh/config names the lab host the way the owner's did. */
+/** A home whose ~/.ssh/config names a host by an alias. */
 async function labFixture() {
   const found = await fixture();
   await mkdir(path.join(found.home, ".ssh"));
-  await writeFile(path.join(found.home, ".ssh/config"), "Host lab-01\n  HostName 192.168.10.20\n  User root\n");
+  await writeFile(path.join(found.home, ".ssh/config"), "Host build-server\n  HostName 198.51.100.20\n  User root\n");
   return found;
 }
 
@@ -244,9 +244,9 @@ test("ssh to a lab host asks first, naming the real address and the alias; Enter
   const terminal = host([undefined]);
   const sandbox = createSessionSandbox(terminal.value, context, { root: () => project, home, seams: { engine, problem: () => undefined, platform: "linux" } });
   const shell = runtimeShell(terminal.value, sandbox, new SandboxStore(context.stateDirectory));
-  const refused = await shell.approve!("ssh lab-01 'cat /etc/pve/user.cfg'");
-  expect(refused).toBe("Not run: the user said no to reaching 192.168.10.20 (lab-01). Don't try it again another way; ask the user what to do instead.");
-  expect(terminal.asked).toEqual([{ question: "Reach 192.168.10.20 (lab-01)?  ssh lab-01 'cat /etc/pve/user.cfg'", options: ["No", "Yes, this time", "Yes, for this session"] }]);
+  const refused = await shell.approve!("ssh build-server 'cat /etc/pve/user.cfg'");
+  expect(refused).toBe("Not run: the user said no to reaching 198.51.100.20 (build-server). Don't try it again another way; ask the user what to do instead.");
+  expect(terminal.asked).toEqual([{ question: "Reach 198.51.100.20 (build-server)?  ssh build-server 'cat /etc/pve/user.cfg'", options: ["No", "Yes, this time", "Yes, for this session"] }]);
   expect(REACH_CHOICES.map((choice) => choice.label)).toEqual(["No", "Yes, this time", "Yes, for this session"]);
   // Nothing ran, so nothing was held or sent.
   expect(engine.wrapped).toEqual([]);
@@ -259,11 +259,11 @@ test("Yes, this time lets a plain ssh run outside the sandbox with your keys, on
   const terminal = host(["Yes, this time", "No"]);
   const sandbox = createSessionSandbox(terminal.value, context, { root: () => project, home, seams: { engine, problem: () => undefined, platform: "linux" } });
   const shell = runtimeShell(terminal.value, sandbox, new SandboxStore(context.stateDirectory));
-  expect(await shell.approve!("ssh lab-01 uptime")).toBeUndefined();
-  expect(await shell.wrap("ssh lab-01 uptime", project)).toEqual({ command: "ssh lab-01 uptime" });
+  expect(await shell.approve!("ssh build-server uptime")).toBeUndefined();
+  expect(await shell.wrap("ssh build-server uptime", project)).toEqual({ command: "ssh build-server uptime" });
   expect(engine.wrapped).toEqual([]);
-  expect(terminal.written).toEqual(["[sandbox] 192.168.10.20 (lab-01): plain ssh and scp you allow run outside the sandbox, with your own keys.\n"]);
-  expect(await shell.approve!("ssh lab-01 uptime")).toContain("Not run: the user said no");
+  expect(terminal.written).toEqual(["[sandbox] 198.51.100.20 (build-server): plain ssh and scp you allow run outside the sandbox, with your own keys.\n"]);
+  expect(await shell.approve!("ssh build-server uptime")).toContain("Not run: the user said no");
   expect(terminal.asked).toHaveLength(2);
   await sandbox.close();
 });
@@ -274,20 +274,20 @@ test("Yes, for this session remembers the host until Casper exits; a command wit
   const terminal = host(["Yes, for this session"]);
   const sandbox = createSessionSandbox(terminal.value, context, { root: () => project, home, seams: { engine, problem: () => undefined, platform: "linux" } });
   const shell = runtimeShell(terminal.value, sandbox, new SandboxStore(context.stateDirectory));
-  expect(await shell.approve!("ssh lab-01 uptime")).toBeUndefined();
-  await shell.wrap("ssh lab-01 uptime", project);
-  const compound = "ssh lab-01 'journalctl -u demoapp' | tail -5";
+  expect(await shell.approve!("ssh build-server uptime")).toBeUndefined();
+  await shell.wrap("ssh build-server uptime", project);
+  const compound = "ssh build-server 'journalctl -u sampleapp' | tail -5";
   expect(await shell.approve!(compound)).toBeUndefined();
   const wrapped = await shell.wrap(compound, project);
   expect(wrapped.id).toBeDefined();
   expect(engine.wrapped.map((entry) => entry.command)).toEqual([compound]);
   // The proxy lets this command reach the host without a second question, and only while it runs.
-  expect(await engine.ask!("192.168.10.20", 22)).toBe(true);
+  expect(await engine.ask!("198.51.100.20", 22)).toBe(true);
   expect(terminal.asked).toHaveLength(1);
   expect(terminal.written.at(-1)).toContain("your ~/.ssh keys and settings are hidden, so a login may fail");
   shell.finished!(wrapped.id!);
   terminal.value.pick = async () => undefined;
-  expect(await engine.ask!("192.168.10.20", 22)).toBe(false);
+  expect(await engine.ask!("198.51.100.20", 22)).toBe(false);
   await sandbox.close();
 });
 
@@ -297,8 +297,8 @@ test("a run that can't ask refuses ssh with a plain line and never waits, with t
     const terminal = host([], false);
     const sandbox = createSessionSandbox(terminal.value, context, { root: () => project, home, seams: { engine: fakeEngine(), ...seams } });
     const shell = runtimeShell(terminal.value, sandbox, new SandboxStore(context.stateDirectory));
-    expect(await shell.approve!("ssh root@lab-01 'pveum user token add root@pam demoapp'")).toBe("Not run: this command reaches 192.168.10.20 (lab-01), another machine, and this run can't ask you first. Casper doesn't let the AI reach other machines without your OK. Tell the user; they can run it themselves or in a Casper session.");
-    expect(terminal.written).toEqual(["[shell] Not run: the AI's command reaches 192.168.10.20 (lab-01), and this run can't ask you. Nothing was sent.\n"]);
+    expect(await shell.approve!("ssh root@build-server 'pveum user token add root@pam sampleapp'")).toBe("Not run: this command reaches 198.51.100.20 (build-server), another machine, and this run can't ask you first. Casper doesn't let the AI reach other machines without your OK. Tell the user; they can run it themselves or in a Casper session.");
+    expect(terminal.written).toEqual(["[shell] Not run: the AI's command reaches 198.51.100.20 (build-server), and this run can't ask you. Nothing was sent.\n"]);
     expect(terminal.asked).toEqual([]);
     await sandbox.close();
   }
@@ -308,17 +308,17 @@ test("with the sandbox off (--no-sandbox) ssh still asks; with no sandbox the ho
   const { home, project, context } = await labFixture();
   const off = host(["No"]);
   const offSandbox = createSessionSandbox(off.value, context, { root: () => project, home, seams: { engine: fakeEngine(), problem: () => undefined, platform: "linux", noSandboxFlag: true } });
-  expect(await runtimeShell(off.value, offSandbox, new SandboxStore(context.stateDirectory)).approve!("scp app.py lab-01:/opt/demoapp/")).toContain("said no to reaching 192.168.10.20 (lab-01)");
-  expect(off.asked.map((entry) => entry.question)).toEqual(["Reach 192.168.10.20 (lab-01)?  scp app.py lab-01:/opt/demoapp/"]);
+  expect(await runtimeShell(off.value, offSandbox, new SandboxStore(context.stateDirectory)).approve!("scp app.py build-server:/opt/sampleapp/")).toContain("said no to reaching 198.51.100.20 (build-server)");
+  expect(off.asked.map((entry) => entry.question)).toEqual(["Reach 198.51.100.20 (build-server)?  scp app.py build-server:/opt/sampleapp/"]);
 
   const windows = host(["Yes, this time", undefined]);
   const askOnly = createSessionSandbox(windows.value, context, { root: () => project, home, seams: { engine: fakeEngine(), platform: "win32" } });
   const shell = runtimeShell(windows.value, askOnly, new SandboxStore(context.stateDirectory));
-  expect(await shell.approve!("ssh lab-01 uptime")).toBeUndefined();
-  expect(windows.asked.map((entry) => entry.question)).toEqual(["Reach 192.168.10.20 (lab-01)?  ssh lab-01 uptime"]);
+  expect(await shell.approve!("ssh build-server uptime")).toBeUndefined();
+  expect(windows.asked.map((entry) => entry.question)).toEqual(["Reach 198.51.100.20 (build-server)?  ssh build-server uptime"]);
   // Any other command still asks the usual question.
   expect(await shell.approve!("npm test")).toBe(SHELL_DECLINED);
-  expect(windows.asked.map((entry) => entry.question)).toEqual(["Reach 192.168.10.20 (lab-01)?  ssh lab-01 uptime", "Run this command?  npm test"]);
+  expect(windows.asked.map((entry) => entry.question)).toEqual(["Reach 198.51.100.20 (build-server)?  ssh build-server uptime", "Run this command?  npm test"]);
 });
 
 test("a secret the AI typed into a command is hidden in the question", async () => {
@@ -326,7 +326,7 @@ test("a secret the AI typed into a command is hidden in the question", async () 
   const terminal = host([undefined]);
   const sandbox = createSessionSandbox(terminal.value, context, { root: () => project, home, seams: { engine: fakeEngine(), platform: "win32" } });
   const shell = runtimeShell(terminal.value, sandbox, new SandboxStore(context.stateDirectory));
-  await shell.approve!("curl -k -H 'Authorization: PVEAPIToken=root@pam!demoapp=0f1e2d3c-4b5a-6978-8a9b-0c1d2e3f4a5b' https://lab-01:8006/api2/json");
+  await shell.approve!("curl -k -H 'Authorization: PVEAPIToken=root@pam!sampleapp=0f1e2d3c-4b5a-6978-8a9b-0c1d2e3f4a5b' https://build-server:8006/api2/json");
   expect(terminal.asked[0]!.question).not.toContain("0f1e2d3c-4b5a-6978-8a9b-0c1d2e3f4a5b");
   expect(terminal.asked[0]!.question).toContain("<secret hidden>");
 });
@@ -347,14 +347,14 @@ test("ssh with the host in a variable or wrapped in bash -c still asks, even wit
   const terminal = host(["Yes, for this session", undefined, "No"]);
   const sandbox = createSessionSandbox(terminal.value, context, { root: () => project, home, seams: { engine: fakeEngine(), problem: () => undefined, platform: "linux", noSandboxFlag: true } });
   const shell = runtimeShell(terminal.value, sandbox, new SandboxStore(context.stateDirectory));
-  const variable = "H=192.168.10.20; ssh root@$H 'systemctl enable --now demoapp'";
+  const variable = "H=198.51.100.20; ssh root@$H 'systemctl enable --now sampleapp'";
   expect(await shell.approve!(variable)).toBeUndefined();
   // "For this session" to $H counts for that command only: $H could be any machine next time.
   expect(await shell.approve!(variable)).toBe("Not run: the user said no to reaching another machine ($H). Don't try it again another way; ask the user what to do instead.");
-  expect(await shell.approve!(`bash -c "ssh lab-01 'pvecm updatecerts --force'"`)).toContain("said no to reaching 192.168.10.20 (lab-01)");
+  expect(await shell.approve!(`bash -c "ssh build-server 'pvecm updatecerts --force'"`)).toContain("said no to reaching 198.51.100.20 (build-server)");
   expect(terminal.asked.map((entry) => entry.question)).toEqual([
     `Reach another machine ($H)?  ${variable}`, `Reach another machine ($H)?  ${variable}`,
-    `Reach 192.168.10.20 (lab-01)?  bash -c "ssh lab-01 'pvecm updatecerts --force'"`]);
+    `Reach 198.51.100.20 (build-server)?  bash -c "ssh build-server 'pvecm updatecerts --force'"`]);
   await sandbox.close();
 
   const oneShot = host([], false);
@@ -370,7 +370,7 @@ test("a password the AI typed into sshpass is hidden in the question", async () 
   const terminal = host([undefined]);
   const sandbox = createSessionSandbox(terminal.value, context, { root: () => project, home, seams: { engine: fakeEngine(), problem: () => undefined, platform: "linux" } });
   const shell = runtimeShell(terminal.value, sandbox, new SandboxStore(context.stateDirectory));
-  await shell.approve!("sshpass -p 'Lab2024!' ssh root@192.168.10.20 id");
-  expect(terminal.asked[0]!.question).toBe("Reach 192.168.10.20?  sshpass -p '<secret hidden>' ssh root@192.168.10.20 id");
+  await shell.approve!("sshpass -p 'Example2024!' ssh root@198.51.100.20 id");
+  expect(terminal.asked[0]!.question).toBe("Reach 198.51.100.20?  sshpass -p '<secret hidden>' ssh root@198.51.100.20 id");
   await sandbox.close();
 });

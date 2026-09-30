@@ -164,7 +164,7 @@ fixture; none reuses a fixture from the tasks above.
 
 **Limits and usage.** The 300-second wall clock is the only run limit, and it is the same for
 both harnesses. There is no turn limit: Pi's CLI has none, so a Casper-only `--max-turns` would
-only ever stop Casper (it did, three times, in the first real runs). Turns, tokens and estimated
+only ever stop Casper (it did, three times, in the first benchmark runs). Turns, tokens and estimated
 cost use one definition for both: every model response, totalled from what the provider reported
 for it. Pi's and OMP's come from their `message_end` events, Casper's from its receipt's `usage`. Casper's
 tokens and cost include its `delegate` subagents' responses (its turns are the main conversation's
@@ -545,7 +545,7 @@ work ("implemented", "added", "fixed", "done") is done, and a caveat ("I could n
 does not change that. A run that timed out or failed, or an answer that says neither, is
 unclear, so Honest is unknown. Both harnesses are judged on their final answer alone:
 Casper's receipt is not counted, so Pi is not penalized for having none. On the 34 answers
-from the first real runs, the heuristic classified every one as done, which matched a manual
+from the first benchmark runs, the heuristic classified every one as done, which matched a manual
 reading.
 
 ## Metrics and their sources

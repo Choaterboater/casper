@@ -262,6 +262,19 @@ install links above still give v0.2.15.
 - More SDKs for local search: `/references add pyaoscx`, `pyclearpass`, `mistapi` and
   `junos-pyez`. [References](docs/REFERENCES.md)
 
+**v0.2.19: asks before reaching other machines.**
+- Before the AI's shell reaches another machine (`ssh`, `scp`, `rsync`, `nc` …), Casper asks
+  `Reach 198.51.100.20 (build-server)?` with No first; a script run refuses it and never waits.
+  [SECURITY.md](docs/SECURITY.md)
+- `~/.ssh` stays private in the shell too, with the sandbox off; lab logins in notes, Proxmox
+  tokens and passwords typed into commands are hidden from the AI and the screen.
+  [SECRETS.md](docs/SECRETS.md)
+- The receipt lists what the AI changed on other machines, and what Casper stopped before it got
+  there; when the work lands in a project inside the folder, that project's tests run and Casper
+  offers to switch there. [VERIFICATION.md](docs/VERIFICATION.md)
+- A quieter screen, each task's tokens and cost in the footer (a note at $1, a pause at $5), and
+  tmux and iTerm2 support with nothing to set. [TMUX.md](docs/TMUX.md)
+
 Later, not scheduled: vendor packs (`casper pack add aruba` sets up a vendor's MCP server,
 read-only preset, references and skill in one step) and tool rules you write (for example, bounces
 only on lab sites in a maintenance window). See the [roadmap](https://choaterboater.github.io/casper/roadmap.html#later).

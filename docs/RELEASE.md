@@ -10,6 +10,77 @@ because GitHub's `latest/download` link skips preview releases. The first publis
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
 
+## v0.2.19: asks before reaching other machines
+
+**Not released yet.** The version number and the installers still say v0.2.15; the release step
+sets them and removes this line.
+
+What v0.2.19 adds:
+
+**Asks before the AI reaches another machine.** Before the AI's shell runs `ssh`, `scp`, `sftp`,
+`rsync`, `nc`, `telnet` or `socat` to another machine, Casper asks `Reach 198.51.100.20 (build-server)?`
+with `1 No · 2 Yes, this time · 3 Yes, for this session`, with the sandbox on or off. Casper reads
+`~/.ssh/config` itself to name the real address; the AI never sees it. Enter runs nothing. It also
+finds ssh inside `bash -c`, `$(...)`, loops and `xargs`, and a host in a variable asks every time.
+A one-shot or `--json` run never waits: it refuses and says so. See [SECURITY.md](SECURITY.md).
+
+**~/.ssh stays private in the shell too.** A shell command that reads `~/.ssh` or another private
+place is refused before it runs, even with the sandbox off. Casper reads the words the way the shell
+does, so `cat ../.ssh/config` from `~/Documents`, `cd; cat .ssh/config`, a glob, a quoted name,
+`grep -r … ~`, a copy of your whole home folder and `ssh -G` are refused too. On screen a refused
+command reads `— not run`, not failed.
+
+**Secrets in notes and commands stay hidden.** Lab logins written the way people write them
+(`root / X`, `root@pam / X`, `**Password:** X`, a Password column, `pw: X`), Proxmox tokens
+(`user@realm!name=<uuid>`, `PVEAPIToken=…`, the secret `pveum` prints once) and passwords typed into
+commands (`sshpass -p`, `curl -u`, `--password`) are hidden before the AI or the screen sees them.
+When the AI typed a secret into a command, the receipt says to change it. See [SECRETS.md](SECRETS.md).
+
+**An honest receipt about other machines.** The receipt lists what the AI's ssh commands changed
+there, read from the command text: `• Changed on 198.51.100.20 (build-server) (from the commands Casper
+saw): made an API token …; installed a service …`. An alias and its address are one line. Commands
+that ran with no change Casper can read still get a line, and commands Casper stopped say
+`• Not run on … : 3 commands Casper stopped before they reached it`, so "nothing changed on the
+server" never stands alone. A task with stopped host commands is never a clean pass: the verdict
+reads `• Incomplete — commands to 198.51.100.20 (build-server) did not run` and a one-shot run exits 2. The JSON receipt carries `remoteChanges`, `remoteNotRun` and
+`secretInCommand`.
+
+**The work in a folder inside.** When the work lands in a project inside the open folder, Casper
+runs that project's own checks for the receipt (`✓ test passed (checks from sample-tools · python3 -m
+unittest discover -s tests)`) and asks `The work is in ~/Documents/sample-tools.` with `1 Stay here ·
+2 Switch there`. Python projects with unittest tests and no pytest are now found. `/verify` with
+nothing to run says so in one line and names a folder with tests; `/project <name>` opens a project
+folder inside this one; a typed folder name that isn't there offers to make it (Stay first).
+"new project sample tools" makes `sample-tools`. In a huge folder that isn't a project, the receipt says
+why changes are unknown and lists what Casper's own edit and write tools changed. See
+[VERIFICATION.md](VERIFICATION.md).
+
+**A quieter screen.** One line per tool call in a Working box that folds into `✓ 14 edits · 6
+commands · 38s` when the AI moves on; times only from one second up, on checks too; short command
+labels, with `/output` for the whole command. The box is gone before the receipt. See
+[TERMINAL_UX.md](TERMINAL_UX.md).
+
+**What a task costs.** The footer shows the task's tokens and cost from the model's price. At about
+$1 one quiet line; at about $5 the task pauses with `1 Stop here · 2 Keep going` (Enter stops). A
+one-shot run stops there and exits 2. `spend.noteAt` and `spend.pauseAt` in your own config change
+the limits. See [CONFIGURATION.md](CONFIGURATION.md#what-a-task-spends).
+
+**tmux and iTerm2, with nothing to set.** Inside tmux (or iTerm2) the busy steps go to a view-only
+pane beside Casper that closes when Casper exits; the pane title and done bell follow. `/tasks` lists
+what runs in the background (dev servers, the browser, the debugger) and stops one, with `1 Keep
+them` first. See [TMUX.md](TMUX.md).
+
+**Smaller fixes.** Every call to OpenRouter now carries Casper's name (some showed as "Unknown"), and the link it sends points at Casper's site, which now has the ghost icon; OpenRouter may list it as a new app. A task whose check
+has a label or its own name is recorded in project memory again (it printed `[memory] Task outcome
+was not recorded`). From source, a pull that added a package no longer stops the start with a
+module error: Casper prints `New parts were added. Run: bun install  (in <folder>)` and exits 1, and
+macOS never loads the Linux sandbox helper.
+
+**Not done yet.** With the sandbox off, a program that opens its own connection (`curl` or `pvesh`
+to a Proxmox API, a Python script) reaches other machines with no question. Casper doesn't follow
+`Include` or `Match` in `~/.ssh/config`. ssh through the sandbox on macOS, and the iTerm2 split, have
+not been tried on a real Mac yet.
+
 ## v0.2.18: network skills
 
 **Not released yet.** The version number and the installers still say v0.2.15; the release step
@@ -62,7 +133,7 @@ change summary after a receipt now lists only the task's files, not your own ear
 **Saved receipts.** `/receipt` shows the last receipt after a restart, `/receipt 12` and
 `/receipt list` older ones. They are saved with no check output and with secrets hidden.
 
-**Stricter "verified" (owner decision).** The JSON `outcome` is `verified` only when the receipt's
+**Stricter "verified" (design decision).** The JSON `outcome` is `verified` only when the receipt's
 first line is `✓ Verified` (a proven change). "Checks passed — not proven" is now `not_verified`,
 so `--require-verification` exits 3 for it; `checksPassed` still says the checks passed. The JSON
 receipt fills `task` and `undo`. Evaluation scores that count `verified` move with it; re-score
@@ -215,7 +286,7 @@ receipt fields `pages`, `checksPassed`, `repairModels`, `bigModel`, `security`, 
 `changedWhilePlanning` and `pageNotes`, all within `v: 1`. `outcome` and exit codes are unchanged.
 See [SCRIPTING.md](SCRIPTING.md).
 
-**Owner decisions still open.**
+**Decisions still open.**
 - Lab checks ship now, started by you only. The design review moved them to v0.2.18, behind the
   sandbox's network allowlist, because Casper can't block other network traffic yet. The question
   before each run says so.

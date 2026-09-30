@@ -197,8 +197,8 @@ export function buildRequestNote(prompt: string): string | undefined {
 }
 
 /**
- * A folder name typed at "Work in which one?" that isn't there: "mist-tools isn't a folder in Documents.
- * 1 Stay in Documents · 2 Make mist-tools here". Enter stays. Choice 2 runs the /new questions with that name in
+ * A folder name typed at "Work in which one?" that isn't there: "sample-tools isn't a folder in Documents.
+ * 1 Stay in Documents · 2 Make sample-tools here". Enter stays. Choice 2 runs the /new questions with that name in
  * `parent`. Undefined when nothing was made.
  */
 export async function offerMissingFolder(flow: NewProjectFlow, typed: string, parent: string | undefined, folder: string, where = "here"): Promise<NewProjectResult | undefined> {

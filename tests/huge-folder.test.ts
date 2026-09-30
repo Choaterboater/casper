@@ -23,11 +23,11 @@ const unknownAfter = (...commands: string[]) => {
 
 test("look commands and ssh to another machine don't by themselves make the folder's changes unknown", () => {
   expect(unknownAfter("ls -la", "cat ~/notes.md | grep vlan", "find . -name '*.py'", "grep -rn token docs")).toBe(false);
-  expect(unknownAfter("ssh root@lab-01 'pvesh get /nodes'", "ssh -i ~/.ssh/lab root@10.0.0.5 show version")).toBe(false);
+  expect(unknownAfter("ssh root@build-server 'pvesh get /nodes'", "ssh -i ~/.ssh/lab root@10.0.0.5 show version")).toBe(false);
   expect(unknownAfter("rm notes.md")).toBe(true);
   expect(unknownAfter("echo hi > notes.md")).toBe(true);
   expect(unknownAfter("find . -delete")).toBe(true);
-  expect(unknownAfter("ssh -E ssh.log root@lab-01 uptime")).toBe(true);
+  expect(unknownAfter("ssh -E ssh.log root@build-server uptime")).toBe(true);
   // ssh to this machine runs its command on this folder's files.
   expect(unknownAfter("ssh 127.0.0.1 rm -rf Documents/notes")).toBe(true);
   expect(unknownAfter("ssh root@localhost uptime")).toBe(true);

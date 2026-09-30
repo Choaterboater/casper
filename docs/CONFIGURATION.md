@@ -339,6 +339,10 @@ estimate, not a bill. Two limits per task are on by default:
 - One-shot runs and `--json` never wait: they stop at the same point, say so on one line, and the
   receipt says it (exit 2, JSON `spendLimit`).
 
+The pause comes before the AI's next step (a tool call), so a turn that ends in words only ends the
+task instead. The shown cost leaves out the small automatic-effort call and `/delegate` helpers until
+they report back, so it can be a little under the real figure.
+
 To change the limits, or turn one off, set them in your own config (a project cannot):
 
 ```yaml

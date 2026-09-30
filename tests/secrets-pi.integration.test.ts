@@ -251,11 +251,11 @@ posixOnly("with no sandbox, the AI's bash can't read ~/.ssh either: the command 
     { name: "bash", args: { command: "cat ~/.ssh/config; cat $HOME/.ssh/id_test", timeout: 10 } },
   ], {}, async ({ home }) => {
     await mkdir(path.join(home, ".ssh"), { recursive: true });
-    await writeFile(path.join(home, ".ssh/config"), "Host lab-01\n  HostName 192.168.10.20\n  User root\n");
+    await writeFile(path.join(home, ".ssh/config"), "Host build-server\n  HostName 198.51.100.20\n  User root\n");
     await writeFile(path.join(home, ".ssh/id_test"), "PRIVATE_SSH_KEY_TEXT\n");
   });
   expect(sent).not.toContain("PRIVATE_SSH_KEY_TEXT");
-  expect(sent).not.toContain("192.168.10.20");
+  expect(sent).not.toContain("198.51.100.20");
   expect(sent).toContain("Not run: this command reads ~/.ssh, which is private (keys and logins). Casper keeps it from the AI.");
   expect((result.toolEnds as Array<{ isError: boolean }>)[0]!.isError).toBe(true);
 }, 30_000);
@@ -263,7 +263,7 @@ posixOnly("with no sandbox, the AI's bash can't read ~/.ssh either: the command 
 posixOnly("a token the AI typed into a command is hidden in what Casper shows and keeps, and marked for the receipt", async () => {
   const uuid = "0f1e2d3c-4b5a-6978-8a9b-0c1d2e3f4a5b";
   const { result } = await run([
-    { name: "bash", args: { command: `echo "PVEAPIToken=root@pam!demoapp=${uuid}" > /dev/null`, timeout: 10 } },
+    { name: "bash", args: { command: `echo "PVEAPIToken=root@pam!sampleapp=${uuid}" > /dev/null`, timeout: 10 } },
   ]);
   const end = (result.toolEnds as Array<{ input?: { command?: string; secretHidden?: boolean } }>)[0]!;
   expect(end.input?.command).not.toContain(uuid);

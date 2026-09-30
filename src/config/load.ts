@@ -553,7 +553,7 @@ export async function loadConfiguration(
       suggestions = document.suggestions;
     }
   }
-  // What a task may spend before Casper says so or asks: the owner's money, so a project file never sets it.
+  // What a task may spend before Casper says so or asks: the user's money, so a project file never sets it.
   if (projectDocument.spend !== undefined) throw new Error("spend is a user setting (~/.casper/config.yaml); a project cannot change spend limits");
   const spend: SpendLimits = { ...DEFAULT_SPEND_LIMITS };
   for (const [document, label] of [[globalDocument, labels.global], [profileDocument, labels.profile]] as const) {

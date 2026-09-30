@@ -104,7 +104,7 @@ export class ProjectMemory {
       skills: [...input.skills], modelStatus: input.modelStatus,
       verification: summary?.status ?? "not-run", verificationMeaning: "command-execution",
       // The record keeps Casper's own check names and fields: a named check ("aruba-check") or a check's label
-      // ("checks from mist-tools") otherwise made the whole record invalid, and the outcome was lost.
+      // ("checks from sample-tools") otherwise made the whole record invalid, and the outcome was lost.
       checks: (summary?.checks ?? []).filter((check) => CHECK_NAMES.some((name) => name === check.name))
         .map(({ name, status, exitCode, scope, freshness, freshnessReason }) => ({ name, status, exitCode, scope, freshness, freshnessReason })),
       coverage: summary?.coverage ?? "not-certified",

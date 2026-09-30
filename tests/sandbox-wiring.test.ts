@@ -127,12 +127,12 @@ posixOnly("the service tool refuses a command that names ~/.ssh, and one that re
   const { root, engine } = await session();
   const services = new ServiceManager({ projectRoot: root, services: {} });
   const asked: string[] = [];
-  const tool = serviceTool(() => services, undefined, undefined, async (command) => { asked.push(command); return "Not run: the user said no to reaching lab-01."; });
+  const tool = serviceTool(() => services, undefined, undefined, async (command) => { asked.push(command); return "Not run: the user said no to reaching build-server."; });
   await expect(tool.execute({ action: "start", command: "cat ~/.ssh/config; sleep 600" }, new AbortController().signal))
     .resolves.toMatchObject({ isError: true, text: expect.stringContaining("Not run: this command reads ~/.ssh, which is private") });
   expect(asked).toEqual([]);
-  await expect(tool.execute({ action: "start", command: "ssh -N -L 3000:localhost:3000 lab-01" }, new AbortController().signal))
-    .resolves.toMatchObject({ isError: true, text: expect.stringContaining("the user said no to reaching lab-01") });
+  await expect(tool.execute({ action: "start", command: "ssh -N -L 3000:localhost:3000 build-server" }, new AbortController().signal))
+    .resolves.toMatchObject({ isError: true, text: expect.stringContaining("the user said no to reaching build-server") });
   expect(services.status()).toEqual([]);
   expect(engine.wrapped).toEqual([]);
   await services.close();

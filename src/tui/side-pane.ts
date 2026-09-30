@@ -101,7 +101,7 @@ export class SidePane implements ActivityPane {
 
   log(line: string): void {
     if (this.closed) return;
-    // A helper's goal is the model's own words ("log in as root / Lab-Pass-1"): the full secret rules, then the screen's.
+    // A helper's goal is the model's own words ("log in as root / Example-Pass-1"): the full secret rules, then the screen's.
     const text = redactPreview(hideCommandSecrets(line).text).replace(/\s+/g, " ").trim();
     if (!text) return;
     const time = this.now().toTimeString().slice(0, 8);

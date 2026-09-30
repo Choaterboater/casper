@@ -56,11 +56,13 @@ through. Check what a tool returns before you share it.
   (`postgres://app:<secret hidden>@db/app`). Code such as `token = getToken()` or
   `password: str` is left alone.
 - **Logins written as notes: always (from v0.2.19).** The way people write lab logins in a
-  markdown file or a command is hidden too: `root / <secret hidden>`, `login: admin / <secret hidden>`,
+  markdown file or a command is hidden too: `root / <secret hidden>`, `root@pam / <secret hidden>`,
+  `**root** / **<secret hidden>**`, `login: admin / <secret hidden>`,
   `creds: user / <secret hidden>`, `**Password:** <secret hidden>`, `pw: <secret hidden>`,
   `the password is <secret hidden>`, `admin:<secret hidden>@10.0.0.5`, the cells of a table's Password
   column, Proxmox API tokens (`root@pam!name=<secret hidden>`, `PVEAPIToken=...`, the value row of
-  `pveum user token add`) and `token=<uuid or long hex>`. In commands: `sshpass -p`, `--password`,
+  `pveum user token add`), a token's secret written after its id (`root@pam!sampleapp <secret hidden>`)
+  and `token=<uuid or long hex>`. In commands: `sshpass -p`, `--password`,
   `--token`, `curl -u user:<secret hidden>`, `mysql -p`, `ipmitool -P`, `smbclient -U user%...`,
   `echo ... | sudo -S` and `echo user:... | chpasswd`. Where plain words could follow, only a value
   that looks like a secret (a digit or a symbol) is hidden, so a sentence such as "The password is
@@ -186,7 +188,9 @@ Casper.
 ## Limits
 
 - Scrubbing works line by line on known formats. It is best effort: a secret in a
-  format Casper doesn't know reaches the AI.
+  format Casper doesn't know reaches the AI. Lab logins written with no spaces
+  (`root/Example-Pass1`) or in a sentence ("use root and Example-Pass1") are not hidden,
+  because they look like a path or plain words.
 - The approval box, `/mcp` and server questions mask secrets on your screen, but
   the server still gets the real value you approve.
 - Secrets the AI already had (for example ones you typed in a request, or ones in a

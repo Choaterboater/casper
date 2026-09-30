@@ -53,7 +53,7 @@ export function changesInRemoteText(text: string): string[] {
   return found;
 }
 
-/** Where a remote command went, as the receipt names it: "192.168.10.20 (lab-01)", and the address it is kept by. */
+/** Where a remote command went, as the receipt names it: "198.51.100.20 (build-server)", and the address it is kept by. */
 function machine(raw: RawTarget, home?: string): { host: string; address: string } {
   const target = resolveTarget(raw, home);
   return { host: targetLabel(target).replace(/^another machine \((.*)\)$/, "$1"), address: target.unclear ? target.typed : target.host };
@@ -61,7 +61,7 @@ function machine(raw: RawTarget, home?: string): { host: string; address: string
 
 /**
  * Changes on other machines, per machine, from one shell command the AI ran. An alias and its address are one
- * machine ("192.168.10.20 (lab-01)"). An ssh command whose text shows no change is listed with no changes: it ran
+ * machine ("198.51.100.20 (build-server)"). An ssh command whose text shows no change is listed with no changes: it ran
  * there, and Casper can't tell what it did.
  */
 export function remoteChanges(command: string, home?: string): Array<{ host: string; address: string; changes: string[] }> {

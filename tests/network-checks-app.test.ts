@@ -156,7 +156,7 @@ test("Always for this project lets junos-commit run without asking, and its chec
   try {
     await app.runOnce("/verify junos-commit", f.root);
     expect(output()).toContain("Running junos-commit on your lab (you chose Always for this project).");
-    expect(output()).toContain("✓ junos-commit · commit check only; not committed ·");
+    expect(output()).toContain("✓ junos-commit · commit check only; not committed");
     expect(await ran(f, "ansible-playbook")).toBe(true);
     const check = events.find((event) => event.type === "check" && (event as { name?: string }).name === "junos-commit");
     expect(check).toMatchObject({ kind: "lab", label: "commit check only; not committed", hosts: ["lab-r1"] });

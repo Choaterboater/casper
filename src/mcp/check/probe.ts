@@ -52,7 +52,7 @@ export interface ProbeOptions {
   env: NodeJS.ProcessEnv;
   /** False: only loopback HTTP servers may be contacted. */
   live: boolean;
-  /** The owner's --env values: they win over the definition's own env. */
+  /** The user's --env values: they win over the definition's own env. */
   overrides?: Record<string, string>;
   keepOpen?: boolean;
   maxTools?: number;
@@ -284,7 +284,7 @@ class TimeoutError extends Error {
 }
 
 /** The environment a stdio server starts with: the check's environment plus the definition's own env,
- * `${NAME}` filled from the check's environment, then the owner's --env values, which always win.
+ * `${NAME}` filled from the check's environment, then the user's --env values, which always win.
  * Offline, the definition may not add credential-looking names or change the proxy and offline settings. */
 export function serverEnv(definition: Extract<StartDefinition, { type: "stdio" }>, env: NodeJS.ProcessEnv, live: boolean, overrides: Record<string, string> = {}): NodeJS.ProcessEnv {
   const own = Object.fromEntries(Object.entries(definition.env)

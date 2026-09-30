@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { chmod, mkdir, mkdtemp, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { verificationFlag } from "../src/cli";
+import { verificationFlag } from "../src/cli-main";
 import { looksLikePath, parseCliArgs, parseMcpCheckArgs, UsageError } from "../src/cli-args";
 import { resolveVerificationMode } from "../src/verify/mode";
 import { CASPER_VERSION } from "../src/version";

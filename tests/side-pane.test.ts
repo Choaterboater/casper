@@ -129,10 +129,10 @@ test("secrets in a step never reach the pane's log", () => {
   const text = readFileSync(pane.file, "utf8");
   expect(text).not.toContain("0f6c1a52-8e0f-4a57-9d4e-3b3f2b1c9a77");
   // A helper's goal is the model's own words: a lab login written as prose, an sshpass password.
-  pane.log("helper explorer started: log in to the lab as root / Lab-Pass-2024! and list the VMs");
+  pane.log("helper explorer started: log in to the lab as root / Example-Pass-2024! and list the VMs");
   pane.log("helper explorer started: run sshpass -p Hunter-22x ssh root@10.0.0.5 uptime");
   const after = readFileSync(pane.file, "utf8");
-  expect(after).not.toContain("Lab-Pass-2024");
+  expect(after).not.toContain("Example-Pass-2024");
   expect(after).not.toContain("Hunter-22x");
   expect(after).toContain("root / <secret hidden>");
 });

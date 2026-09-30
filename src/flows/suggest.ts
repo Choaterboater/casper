@@ -101,7 +101,7 @@ export const rememberTestRule: SuggestionRule = {
 };
 
 /** "Save aruba-syntax so Casper checks your playbooks after each change": the task changed YAML in a project where
- * Casper found Ansible playbooks, and the project has not saved that ready-made check. Only the owner's pick saves it. */
+ * Casper found Ansible playbooks, and the project has not saved that ready-made check. Only the user's pick saves it. */
 export const saveFoundCheckRule: SuggestionRule = {
   id: "save-network-check",
   priority: 30,

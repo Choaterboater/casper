@@ -128,7 +128,7 @@ export function fixtureServer(mode = "generic") {
     if (process.env.FIXTURE_CALLS_FILE) appendFileSync(process.env.FIXTURE_CALLS_FILE, `${JSON.stringify(entry)}\n`);
   };
   const confirmSchema = { type: "object" as const, properties: { confirm: { type: "boolean" as const, default: false } } };
-  /** Like the owner's ops tools: ask, and refuse unless the answer is an accepted confirm=true. */
+  /** Like typical network ops tools: ask, and refuse unless the answer is an accepted confirm=true. */
   const ask = async (tool: string, message: string, requestedSchema: Record<string, unknown> = confirmSchema) => {
     try {
       const answer = await server.elicitInput({ message, requestedSchema } as Parameters<typeof server.elicitInput>[0]);

@@ -149,6 +149,8 @@ export function taskOutcome(report?: VerificationReport, task?: TaskResult): Tas
   const status = verification?.status;
   if (status === "fail" || status === "blocked" || task?.browser?.status === "fail") return "failed";
   if (status === "incomplete" || task?.browser?.status === "incomplete") return "incomplete";
+  // Commands to another machine that Casper stopped: whatever the AI said about that machine did not happen.
+  if (task?.remoteNotRun?.length) return "incomplete";
   const changed = Boolean(task?.changedPaths?.length || task?.changedDuringChecks?.length || (!task?.changedPaths && task?.possibleMutations));
   // "verified" is what the verdict line calls Verified (ADR 0001): the checks pass on changed files and a test fails
   // without the change. Checks that passed without that proof are not_verified; checksPassed still says they passed.
@@ -185,9 +187,16 @@ export function taskExitCode(report?: VerificationReport, task?: TaskResult, opt
 /** The reason on `/verify`'s report when the folder has nothing to run: exit 2 like any unfinished check, other words. */
 export const NO_CHECKS_FOUND = "no checks found";
 
-/** An ssh command whose text shows no change Casper knows: it ran there all the same. */
 /** "3 commands Casper stopped before they reached it": nothing the AI says about that machine happened through them. */
 export const remoteNotRunText = (commands: number) => `${commands} ${commands === 1 ? "command" : "commands"} Casper stopped before ${commands === 1 ? "it" : "they"} reached it`;
+/** The incomplete verdict's words when Casper stopped commands to other machines ("commands to build-server did not run");
+ * the receipt's "• Not run on …" lines below it give each machine's count. */
+function remoteNotRunVerdict(remotes: NonNullable<TaskResult["remoteNotRun"]>, safe: (text: string) => string): string {
+  const count = remotes.reduce((sum, remote) => sum + remote.commands, 0);
+  return `${count === 1 ? "a command" : "commands"} to ${remotes.map((remote) => safe(remote.host)).join(", ")} did not run`;
+}
+
+/** An ssh command whose text shows no change Casper knows: it ran there all the same. */
 export const REMOTE_UNKNOWN = "Casper can't tell from the command text whether they changed anything there";
 
 /** The receipt's line when the AI typed a secret into a command. */
@@ -399,6 +408,7 @@ function withVerdict(task: TaskResult, body: string[], options: ReceiptOptions):
         ? `• Incomplete — stopped at ${formatCost(task.spendLimit.spent)}, the ${formatLimit(task.spendLimit.limit)} limit for one task (spend.pauseAt); changes so far are kept; ${options.surface === "one-shot" ? "casper --continue" : "send another request"} to go on`
         : task.turnLimit !== undefined
         ? `• Incomplete — stopped after ${task.turnLimit} ${task.turnLimit === 1 ? "turn" : "turns"} (--max-turns); changes so far are kept; ${options.surface === "one-shot" ? "casper --continue" : "send another request"} to go on`
+        : task.remoteNotRun?.length ? `• Incomplete — ${remoteNotRunVerdict(task.remoteNotRun, safe)}`
         : report?.reason === NO_CHECKS_FOUND && !report.results.length ? "• Not checked — no checks found in this folder"
         : "• Incomplete — not every check ran", ...body];
       break;
