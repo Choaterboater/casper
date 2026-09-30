@@ -8,6 +8,7 @@ import { casperAgentDir } from "../runtime/agent-store";
 import { describeSandbox, ShellSandbox, type HostAnswer, type ShellSandboxOptions } from "../sandbox/manager";
 import { REGISTRY_HOSTS } from "../sandbox/policy";
 import { SandboxStore } from "../sandbox/store";
+import { seccompHelper } from "../sandbox/seccomp";
 import type { TaskResult } from "../task/result";
 import { terminalText } from "../tui/format";
 import { blockedBySandbox } from "../verify/command";
@@ -43,6 +44,7 @@ export function createSessionSandbox(host: SandboxHost, context: ProjectContext,
     askHost: (name) => host.canAsk() ? host.pick(hostQuestion(name), [...HOST_CHOICES]).then((answer): HostAnswer =>
       answer === HOST_CHOICES[1].label || answer === "2" ? "session" : answer === HOST_CHOICES[2].label || answer === "3" ? "project" : "no") : undefined,
     note: (line) => host.write(`${line}\n`),
+    seccompPath: () => seccompHelper({ home: options.home }),
     ...options.seams,
   });
 }

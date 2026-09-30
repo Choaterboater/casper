@@ -8,3 +8,9 @@ declare module "*.c" {
   const filename: string;
   export default filename;
 }
+
+/** The sandbox runtime's seccomp helper, embedded as a file (src/sandbox/seccomp.ts). */
+declare module "*/apply-seccomp" {
+  const filename: string;
+  export default filename;
+}
