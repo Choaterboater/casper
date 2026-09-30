@@ -122,6 +122,20 @@ export function isPlanningCommand(command: string, shell: "bash" | "powershell" 
   });
 }
 
+/** ssh that only runs something on the other machine: no local log file (-E), no options (-o LocalCommand ...). */
+const sshOnly = (args: string[]) => !args.some((arg) => flag(arg, "-E", "-o") || short(arg, "EoFSMN"));
+
+/** Whether a shell command leaves this machine's files alone, so by itself it can't make the task's changes
+ * unknown: every part is a look command (ls, cat, grep, find, git log ...) or ssh to another machine, which the
+ * receipt reports on its own line. The same strict reading as the plan turn's list. */
+export function leavesLocalFilesAlone(command: string): boolean {
+  if (command.length > 2000) return false;
+  const parts = segments(command);
+  if (!parts) return false;
+  return parts.every(([name, ...args]) => name === "ssh" ? sshOnly(args)
+    : Boolean((Object.hasOwn(BASH_COMMANDS, name!) ? BASH_COMMANDS[name!] : undefined)?.(args)));
+}
+
 /** The gate for a plan turn, for every tool call. Undefined lets the call run; a reason blocks it. */
 export function planToolGate(toolName: string, input: Record<string, unknown> | undefined): string | undefined {
   if (PLANNING_TOOLS.has(toolName)) return undefined;

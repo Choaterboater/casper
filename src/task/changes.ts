@@ -139,6 +139,14 @@ async function digestEntry(target: string, chunk: Buffer): Promise<string | unde
   }
 }
 
+/** Why a snapshot failed, in plain words for the receipt. */
+export function snapshotFailureReason(error: unknown): string {
+  const over = error instanceof RangeError ? /exceeds (\d+) files/.exec(error.message) : null;
+  if (over) return `this folder has over ${Number(over[1]).toLocaleString("en-US")} files; open a project folder`;
+  const code = errorCode(error);
+  return code ? `Casper could not read this folder (${code})` : "Casper could not read this folder";
+}
+
 function errorCode(error: unknown): string | undefined {
   return error && typeof error === "object" && "code" in error ? String(error.code) : undefined;
 }

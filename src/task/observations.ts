@@ -5,6 +5,7 @@ import { CHECK_NAMES } from "../verify/evidence";
 import { rememberableTestCommand } from "../flows/runners";
 import type { ObservedCheck, TaskResult } from "./result";
 import { remoteChanges } from "./remote-changes";
+import { leavesLocalFilesAlone } from "../flows/plan";
 
 type TaskObservationSnapshot = Required<Pick<TaskResult, "observedEdits" | "observedChecks" | "possibleMutations" | "usage">> & Pick<TaskResult, "changedPaths" | "changedDuringChecks" | "testRunner" | "remoteChanges" | "secretInCommand">;
 
@@ -99,7 +100,9 @@ export class TaskObservations {
       text: event.output?.text ?? "", truncated: Boolean(event.output?.truncated) });
     // Failures can follow partial writes; shell success need not mean any write. Only the
     // workspace snapshot can settle either, so this merely flags that the question is open.
-    if (["bash", "edit", "write"].includes(event.toolName) || (event.toolName === "lsp" && event.input?.operation === "rename")) this.mutationToolRan = true;
+    // A look command (ls, cat, grep, find) or ssh to another machine leaves this folder's files alone.
+    const looked = event.toolName === "bash" && typeof event.input?.command === "string" && leavesLocalFilesAlone(event.input.command);
+    if ((["bash", "edit", "write"].includes(event.toolName) && !looked) || (event.toolName === "lsp" && event.input?.operation === "rename")) this.mutationToolRan = true;
     if (event.input?.secretHidden) this.secretInCommand = true;
     // A command Casper or the sandbox refused did not reach the other machine.
     const refused = event.isError && /^(?:Not run:|\[shell\] Not run)|\[sandbox\] /.test(event.output?.text ?? "");
@@ -146,7 +149,7 @@ export class TaskObservations {
       ...(this.testRunner ? { testRunner: this.testRunner } : {}),
       ...(this.remote.size ? { remoteChanges: [...this.remote].map(([host, changes]) => ({ host, changes: [...changes] })) } : {}),
       ...(this.secretInCommand ? { secretInCommand: true as const } : {}),
-      possibleMutations: this.mutationToolRan && !changedPaths,
+      possibleMutations: (this.mutationToolRan || this.edits.size > 0) && !changedPaths,
       usage: { turns: this.turns, ...(this.delegationReports < this.delegations ? { tokens: null, estimatedCost: null }
         : { tokens: this.tokens, estimatedCost: this.estimatedCost }) } };
   }

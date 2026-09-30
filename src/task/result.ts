@@ -47,6 +47,9 @@ export interface TaskResult {
   changedDuringChecks?: string[];
   /** A mutation-capable tool ran but no workspace snapshot could confirm or refute writes. */
   possibleMutations?: boolean;
+  /** Why Casper could not compare the folder ("this folder has over 20,000 files; open a project folder"), and
+   * the files Casper's own edit and write tools changed meanwhile, relative to the folder when inside it. */
+  snapshotFailure?: { reason: string; edited: string[] };
   observedChecks?: ObservedCheck[];
   /** The verification mode this task ran under. */
   verificationMode?: VerificationMode;
@@ -190,7 +193,7 @@ export function formatTaskResult(task: TaskResult): string {
 
   if (task.observedEdits?.length) lines.push(receiptLine("tool edits", task.observedEdits.map(safe).join(", ")));
   if (task.changedPaths) lines.push(receiptLine("changes", formatChangedPaths(task.changedPaths, safe)));
-  else if (task.possibleMutations) lines.push(receiptLine("changes", "unknown (workspace snapshot failed)"));
+  else if (task.possibleMutations) lines.push(receiptLine("changes", `unknown (${task.snapshotFailure ? safe(task.snapshotFailure.reason) : "workspace snapshot failed"})`));
   if (task.changedDuringChecks?.length) lines.push(receiptLine("check edits", formatChangedPaths(task.changedDuringChecks, safe)));
   if (task.observedChecks?.length) {
     lines.push(receiptLine("shell", `${task.observedChecks.map(({ name, toolStatus }) => `${name}:${toolStatus}`).join(", ")} (diagnostics only)`));
@@ -265,7 +268,8 @@ export function formatReceipt(task: TaskResult, options: ReceiptOptions = {}): s
   if (task.changedPaths?.length) lines.push(`✓ Changed ${pathList(task.changedPaths, safe)}`);
   else if (task.changedPaths && task.autoSkipped === "no-changes" && !task.verification) lines.push("• No files changed, so Casper ran no checks");
   else if (task.changedPaths) lines.push("• No files changed");
-  else if (task.possibleMutations) lines.push("• Changes unknown — Casper could not compare the workspace");
+  else if (task.possibleMutations) lines.push(task.snapshotFailure ? `• Changes unknown: ${safe(task.snapshotFailure.reason)}` : "• Changes unknown — Casper could not compare the workspace");
+  if (!task.changedPaths && task.snapshotFailure?.edited.length) lines.push(`• Changed (seen by Casper's edit and write tools): ${pathList(task.snapshotFailure.edited, safe, false)}`);
 
   const report = task.verification;
   if (report?.repairAttempts) lines.push(`↻ Casper tried ${report.repairAttempts} ${report.repairAttempts === 1 ? "repair" : "repairs"}${task.bigModel ? ` (the last on ${task.bigModel.oneOff ? "" : "your big model "}${safe(task.bigModel.model)})` : ""}`);

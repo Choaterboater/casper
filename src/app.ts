@@ -55,7 +55,7 @@ import { formatReceipt, liveCheckLine, formatTaskResult, type TaskResult, type T
 import { TaskObservations } from "./task/observations";
 import { LifecycleRegistry } from "./app/lifecycle";
 import { RuntimeEventView } from "./app/events";
-import { diffSnapshots, snapshotTree, type TreeChanges } from "./task/changes";
+import { diffSnapshots, snapshotFailureReason, snapshotTree, type TreeChanges } from "./task/changes";
 import { renderBanner, renderProjectSummary, wordmarkHeader } from "./tui/banner";
 import { CHECK_NAMES, type CheckName, formatDuration, formatVerificationReport, formatVerificationResult, type VerificationReport, type VerificationResult } from "./verify/evidence";
 import { ProcessCleanupError } from "./platform/processes";
@@ -281,6 +281,8 @@ export class CasperApp {
   private effortCycle: Promise<void> = Promise.resolve();
   private workspaceTransition = false;
   private workspaceNeedsRebind = false;
+  /** Why the last workspace snapshot failed, for the task's receipt. */
+  private snapshotFailure?: string;
   private taskRuntimeFailed = false;
   /** The files from before the current task's change, while it runs: tells a failure the change caused from one already there. */
   private taskBaseline?: { baseline: ChangeBaseline; root: string };
@@ -1346,6 +1348,7 @@ export class CasperApp {
     const workspaceRoot = this.activeWorkspaceRoot();
     // Receipts describe the tree, not tool names: a read-only shell run is not a write. Undo's own copy is made
     // alongside, with the conversation's position (the plan turn and repairs are part of the task).
+    this.snapshotFailure = undefined;
     const [before, undoStart] = await Promise.all([this.snapshotWorkspace(workspaceRoot, this.commandAbort?.signal),
       this.taskUndo.begin(workspaceRoot, session, this.commandAbort?.signal)]);
     edits.before = before;
@@ -1534,7 +1537,10 @@ export class CasperApp {
       const browser = !this.closing && this.browser ? await this.browser.report() : undefined;
       const services = !this.closing && this.services && !this.services.closed
         ? this.services.status().map(({ name, origin, state }) => ({ name, ...(origin ? { origin } : {}), state })) : [];
-      this.lastTaskResult = { execution, verification, ...observations, ...(browser?.checks.length ? { browser } : {}),
+      const snapshotFailure = !changedPaths && this.snapshotFailure ? { reason: this.snapshotFailure,
+        edited: observations.observedEdits.map((file) => { const relative = path.relative(workspaceRoot, path.resolve(workspaceRoot, file));
+          return relative && !relative.startsWith("..") && !path.isAbsolute(relative) ? relative.split(path.sep).join("/") : file; }) } : undefined;
+      this.lastTaskResult = { execution, verification, ...observations, ...(snapshotFailure ? { snapshotFailure } : {}), ...(browser?.checks.length ? { browser } : {}),
         ...(services.length ? { services } : {}),
         // Smoke checks ran even without a configured command, so "no checks" no longer describes the task.
         verificationMode, ...(!flag && !configured && verificationMode === "auto" ? { verificationDefaulted: true as const } : {}),
@@ -2381,7 +2387,11 @@ export class CasperApp {
   /** Undefined when the tree is too large, unreadable or the task was cancelled mid-walk. */
   private async snapshotWorkspace(root: string, signal?: AbortSignal): Promise<Map<string, string> | undefined> {
     try { return await snapshotTree(root, signal); }
-    catch { return undefined; }
+    catch (error) {
+      // Kept for the receipt: "Changes unknown: this folder has over 20,000 files; open a project folder".
+      if (!signal?.aborted) this.snapshotFailure = snapshotFailureReason(error);
+      return undefined;
+    }
   }
 
   private async prepareCapabilities(task: string, includeVisualization = false): Promise<void> {
