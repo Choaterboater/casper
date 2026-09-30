@@ -2,7 +2,6 @@ import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
 import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { SECURITY_OFFLINE_LINE } from "../src/security/format";
 import { SECURITY_TOOLS } from "../src/security/tools";
 import { fixtureRepo } from "./fixtures/security-tools/setup";
 import { cleanEnv } from "./support/env";
@@ -47,7 +46,7 @@ test("casper security runs the tools through the subcommand, prints a plain repo
   const text = await casper(root, home, bin, ["security"]);
   expect(text.code).toBe(1);
   expect(text.stdout).toContain(`Security check: ${path.basename(root)}`);
-  expect(text.stdout).toContain(SECURITY_OFFLINE_LINE);
+  expect(text.stdout).toContain("Casper runs these tools");
   expect(text.stdout).toMatch(/Result: \d+ problems?.*This is what these tools found\. It does not prove the code has no problems\./);
   expect(text.stdout).toMatch(/gitleaks: using your/);
   expect(text.stdout).not.toMatch(/\bsecure\b|\bsafe\b/i);

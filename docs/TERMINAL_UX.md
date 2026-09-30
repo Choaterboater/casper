@@ -286,8 +286,9 @@ textconv drivers. Untracked names are listed, not file contents. Each Git comman
 has a five-second deadline and 64 KiB output limit; large output is marked truncated.
 After a task that changed files, the receipt names the changed paths (from a before/after
 tree digest) and a git workspace appends a bounded `git diff --stat` under the same limits.
-`/permissions` explains actual boundaries: native coding tools are not sandboxed
-and there is no universal shell confirmation gate. Existing integration-specific
+`/permissions` explains actual boundaries from the state Casper is in: whether the shell
+sandbox holds shell commands and checks here, or (without it) that the AI's shell asks
+before each command. `/sandbox` lists what it holds. Existing integration-specific
 approvals remain in force. Verification is still separate from tool completion.
 
 ### Local debugger

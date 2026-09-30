@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { formatResultLine, formatSecurityHeader, formatSecurityReport, SECURITY_OFFLINE_LINE, securityReportJson } from "../src/security/format";
+import { formatResultLine, formatSecurityHeader, formatSecurityReport, SECURITY_OFFLINE_LINE, securityNetworkLine, securityReportJson } from "../src/security/format";
 import { MCP_NEEDS_TOOLS, OSV_NO_DATA, SecurityCheck } from "../src/security/run";
 import { fakeTools, fixtureRepo } from "./fixtures/security-tools/setup";
 
@@ -66,10 +66,14 @@ test("Casper's own words never call the code safe or secure, even with nothing f
   expect(text).toContain("zizmor        ok           its online checks off");
 });
 
-test("the header says what Casper does, and that it is not enforced yet", () => {
-  expect(formatSecurityHeader({ name: "hpe-mcp", path: "/src/hpe-mcp" })).toBe(`Security check: hpe-mcp (/src/hpe-mcp)\n${SECURITY_OFFLINE_LINE}\n`);
-  expect(SECURITY_OFFLINE_LINE).toContain("Not enforced until the shell sandbox ships");
-  expect(SECURITY_OFFLINE_LINE).not.toMatch(/^Offline:/);
+test("the header says what holds the tools here: no network only where the sandbox enforces it", () => {
+  expect(formatSecurityHeader({ name: "hpe-mcp", path: "/src/hpe-mcp" })).toBe(`Security check: hpe-mcp (/src/hpe-mcp)\n${securityNetworkLine()}\n`);
+  expect(securityNetworkLine({ on: true, platform: "linux", state: { kind: "on" }, failure: undefined }))
+    .toBe("Casper runs these tools in the shell sandbox: no network, no passwords or tokens, and no writes outside the project and temp.");
+  expect(securityNetworkLine({ on: true, platform: "darwin", state: { kind: "on" }, failure: undefined })).not.toContain("no network");
+  const windows = securityNetworkLine({ on: false, platform: "win32", state: { kind: "unsupported", reason: "Windows" }, failure: undefined });
+  expect(windows).toBe(`${SECURITY_OFFLINE_LINE} Nothing blocks their network here (Windows).`);
+  for (const line of [windows, securityNetworkLine(undefined)]) expect(line).not.toMatch(/offline|no network/i);
 });
 
 test("--strict also fails on a check that did not run; --json has the versioned shape", async () => {

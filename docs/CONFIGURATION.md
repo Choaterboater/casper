@@ -54,6 +54,33 @@ readiness, deadline, scope and literal environment of each development server Ca
 run). Services are project-only, and invalid values stop loading with their dotted path. See
 [SERVICES.md](SERVICES.md).
 
+## The shell sandbox
+
+The shell sandbox (see [SECURITY.md](SECURITY.md)) is set only in your own files
+(`~/.casper/config.yaml` or a profile):
+
+```yaml
+sandbox:
+  allowedDomains: [api.mist.com, "*.central.arubanetworks.com"]  # reached without asking
+  allowWrite: [~/shared-build-cache]                              # more folders commands may write
+  allowUnixSockets: [/var/run/docker.sock]                        # macOS only; Linux can't filter by path
+shell:
+  keepEnv: [OPENAI_API_KEY]   # an AI provider key your own tests need
+```
+
+`sandbox: off` turns it off for every run (like `--no-sandbox` for one run); the receipt then
+says shell commands and checks were not sandboxed. A project's `.casper/project.yaml` can only
+add denies:
+
+```yaml
+sandbox:
+  denyRead: [secrets, ~/work/deploy-key]
+  denyWrite: [docs/released]
+```
+
+Any other `sandbox` or `shell` key in a project file is named at startup and ignored, and a repo's
+`.pi/sandbox.json` is never read.
+
 ## Environment variables
 
 | Variable | Meaning |
@@ -257,4 +284,4 @@ Use the exact ID from `/skills`. Inspection prints the body and its SHA-256; rev
 
 Trust cannot be granted through project config or skill frontmatter. Native user skills are an intentional user-controlled instruction source—do not copy unreviewed imports there. Symlinks escaping the native user skill directory require explicit review.
 
-**Limits of this protection:** this gates Casper's automatic skill injection, not filesystem or shell access. Skills do not grant permissions, and the registry never executes helper scripts. The runtime's existing read/bash tools are not sandboxed; policy remains prompt guidance. Trust covers `SKILL.md`, not the referenced scripts/assets, which must be inspected separately. Blocking prevents future injection; it does not erase bodies already present in conversation history. `maxActive` bounds new injections, not total session history.
+**Limits of this protection:** this gates Casper's automatic skill injection, not filesystem or shell access. Skills do not grant permissions, and the registry never executes helper scripts. The AI's file tools keep to the project and its shell runs in the shell sandbox where it can run (see [SECURITY.md](SECURITY.md)); skill policy remains prompt guidance. Trust covers `SKILL.md`, not the referenced scripts/assets, which must be inspected separately. Blocking prevents future injection; it does not erase bodies already present in conversation history. `maxActive` bounds new injections, not total session history.

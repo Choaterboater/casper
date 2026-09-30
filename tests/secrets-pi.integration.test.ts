@@ -206,7 +206,7 @@ posixOnly("service logs and a cat of Casper's login file reach the model with th
   expect(sent).not.toContain(loginKey);
 }, 30_000);
 
-posixOnly("the AI's bash never gets AI provider keys; your product tokens stay, and shell.keepEnv keeps one you name", async () => {
+posixOnly("the AI's bash never gets AI provider keys; your product tokens stay", async () => {
   const tools = [{ name: "bash", args: { command: "printenv OPENROUTER_API_KEY >/dev/null && echo OPENROUTER-PRESENT || echo OPENROUTER-ABSENT; printenv MIST_API_TOKEN >/dev/null && echo MIST-PRESENT || echo MIST-ABSENT", timeout: 10 } }];
   const { sent } = await run(tools, { OPENROUTER_API_KEY: "sk-or-fixture-provider-key", MIST_API_TOKEN: "mist-fixture-token" });
   expect(sent).toContain("OPENROUTER-ABSENT");

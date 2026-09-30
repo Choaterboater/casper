@@ -1,70 +1,138 @@
-# What Casper keeps from the AI, and what it doesn't yet
+# Security: what Casper holds back, and what it doesn't
 
-Casper is **not a sandbox yet**. The shell sandbox is planned for v0.2.17. Until
-then, these checks cut the most likely leaks. Each one is a check Casper makes
-before a tool runs or before output reaches the AI. None of them is OS
-isolation. Each row names the test that fails without it.
+## Reporting a problem
 
-## What Casper does now
+Please report a security problem privately, through GitHub's private vulnerability reporting on
+[Choaterboater/casper](https://github.com/Choaterboater/casper/security/advisories/new). Don't open a
+public issue for it. Say what you ran, what happened and what you expected; a small repo that shows it
+helps most.
+
+Supported versions: the latest release only. Fixes go into the next release.
+
+## The shell sandbox
+
+Since v0.2.17 every shell command Casper runs goes through one sandbox: the AI's `bash`, your
+project's checks (`/verify`, the checks after a change, proof and trace copies, acceptance tests),
+services and dev servers, network and security tool runs, and `uv` or `bun` in `casper new`. It uses
+the operating system, not a list of words:
+
+- **Files.** A command can write only in the project, the temp folders and package caches (`~/.cache/uv`,
+  `~/.cache/pip`, `~/.npm`, `~/.bun/install/cache`, `~/.local/share/uv`, `~/.cache/pre-commit`,
+  `~/.cache/ms-playwright`, and on macOS `~/Library/Caches/pip`, `~/Library/Caches/uv`,
+  `~/Library/Caches/ms-playwright`). It can't change git's own files (`.git/hooks`, `.git/config`,
+  `.git/config.worktree`, `.git/info`, the `core.hooksPath` folder), your shell start-up files, your
+  git settings or anything in `~/.casper` and `~/.pi`.
+- **Private places.** A command can't read `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.config/gh`,
+  `~/.config/gcloud`, `~/.azure`, `~/.oci`, `~/.kube`, `~/.docker/config.json`, `~/.netrc`,
+  `~/.git-credentials`, `~/.npmrc`, `~/.pypirc`, `~/.pgpass`, `~/.claude.json`, `~/.mcp.json`,
+  `~/.claude/.credentials.json`, `~/.terraform.d/credentials.tfrc.json`, `~/.config/hub`,
+  `~/.password-store`, `~/.local/share/keyrings`, `~/Library/Keychains`, Casper's and Pi's login files
+  (`~/.casper/agent/auth.json`, `~/.pi/agent/auth.json`), `~/.casper/mcp-consent.key`, or Casper's own
+  records in `~/.casper/projects` (your security approvals, lab answers, remembered hosts and undo copies).
+- **Network.** The AI's shell and checks reach only listed hosts: `registry.npmjs.org`, `*.npmjs.org`,
+  `registry.yarnpkg.com`, `pypi.org`, `files.pythonhosted.org`, `github.com`, `*.githubusercontent.com`,
+  `bun.sh`, this machine (`localhost`), the hosts in your own `sandbox.allowedDomains`, and the ones you
+  said "Always" to for this project. Any other host asks
+  `A shell command wants to reach api.mist.com.` with `1 No · 2 Allow for this session · 3 Always for this project`.
+  Enter keeps it blocked. A run that can't ask (one-shot, `--json`, piped) blocks it and says
+  `[sandbox] Blocked api.mist.com (this run can't ask).`
+- **Services and dev servers** keep the machine's own network, so you and the page check can reach them
+  on localhost; their files are held the same way.
+- **Network and security tools** (Ansible syntax checks, Junoser, yanglint, gitleaks, semgrep and the
+  rest) run with no network at all on Linux.
+- **What the sandbox refused is said.** A check it stopped reads
+  `✗ test — blocked by the sandbox (wanted to write /etc/hosts)` on the receipt, and the AI reads the
+  same line, so it stops retrying. Such a check is never sent for repair.
+
+### Where it runs
+
+| Platform | Shell sandbox | Without it |
+| --- | --- | --- |
+| Linux with `bubblewrap` and `socat` | On: bubblewrap, with seccomp blocking Unix sockets and a proxy for hosts | — |
+| Linux without them | Not sandboxed: `shell     not sandboxed (bubblewrap and socat are missing: sudo apt install bubblewrap socat)` | The AI's shell asks before each command |
+| Ubuntu 24.04 (AppArmor blocks user namespaces) | Not sandboxed until you allow bubblewrap: `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`, or an AppArmor profile for `bwrap` | The AI's shell asks before each command |
+| macOS | On: `sandbox-exec`, with a proxy for hosts. Services, dev servers and tools reach only listed hosts too (others ask) | — |
+| Windows | Not sandboxed (Windows has no sandbox in Casper yet) | The AI's shell asks before each command |
+| `--no-sandbox`, or `sandbox: off` in `~/.casper/config.yaml` | Off, your choice | Nothing asks; the receipt says `Shell commands and checks were not sandboxed (--no-sandbox)` |
+
+With no sandbox, each command the AI's shell (and the service tool's own start command) wants to run
+asks `Run this command?  npm test` with `1 No · 2 Yes, this once · 3 Yes, and don't ask again for this exact command here`.
+Enter runs nothing. A run that can't ask refuses it:
+`Not run: shell commands need your OK here, and this run can't ask. Use --no-sandbox to allow them for this run.`
+Your project's own checks, services and dev servers then run with your permissions, as before
+v0.2.17, and the banner, `/status` and the receipt say they were not sandboxed.
+
+### Who can change it
+
+Only you, in `~/.casper/config.yaml` (or a profile): `sandbox: off`, `sandbox.allowedDomains`,
+`sandbox.allowWrite`, `sandbox.allowUnixSockets` (macOS) and `shell.keepEnv` (AI provider keys your own
+tests need). A project's `.casper/project.yaml` can only add `sandbox.denyRead` and `sandbox.denyWrite`;
+anything else there is named at startup and ignored. A repo's `.pi/sandbox.json` is never read:
+`[sandbox] Ignored .pi/sandbox.json: a project can't loosen the sandbox.` Remembered hosts and commands
+live in `~/.casper/projects/<project>/sandbox.json` (private, 0600), never in the repo. `/sandbox`
+shows what the sandbox holds; `/sandbox forget <host>` takes a host back.
+
+## What Casper enforces
+
+Each row names the test that fails without it.
 
 | What | How it shows | Test |
 | --- | --- | --- |
-| The AI's `read`, `grep`, `find`, `ls`, `edit` and `write` never open private places: `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.config/gh`, `~/.config/gcloud`, `~/.azure`, `~/.oci`, `~/.kube`, `~/.docker/config.json`, `~/.netrc`, `~/.git-credentials`, `~/.npmrc`, `~/.pypirc`, `~/.pgpass`, `~/.claude.json`, `~/.mcp.json`, Casper's and Pi's login files (`auth.json`), `~/.casper/mcp-consent.key`, keychains and password stores. A link to one of them counts too. | `Not read: ~/.ssh is private (keys and logins). Casper keeps it from the AI.` | `tests/file-guard.test.ts`, `tests/secrets-pi.integration.test.ts` |
-| `grep` on a folder that holds a private place (for example `~`) is refused, because grep reads hidden files. | `Not searched: ~ holds private files (~/.ssh). Search a narrower folder.` | `tests/file-guard.test.ts` |
-| Those file tools never follow a link out of the project. | `Not read: notes.md is a link to a place outside this project. Casper doesn't follow links out.` | `tests/file-guard.test.ts`, `tests/secrets-pi.integration.test.ts` |
-| `edit` and `write` can't change git's own files: anything in a `.git` folder or a `.git` file, a worktree's shared git folder, or the folder `core.hooksPath` points to. | `Not done: .git/hooks belongs to git itself. Casper doesn't let the AI change it.` | `tests/file-guard.test.ts`, `tests/secrets-pi.integration.test.ts` |
-| `edit` and `write` can't change `~/.casper`, `~/.pi`, shell start-up files (`~/.bashrc`, `~/.zshrc`, `~/.profile` ...) or your git settings (`~/.gitconfig`, `~/.config/git`). | `Not done: ~/.bashrc holds your shell, git or Casper settings. Casper doesn't let the AI change it.` | `tests/file-guard.test.ts` |
-| A shell command that writes to `.git/hooks`, `.git/config` or the `core.hooksPath` folder, or runs `git config` on a key that makes git run a program (`core.hooksPath`, `core.fsmonitor`, `core.sshCommand`, `alias.*`, `filter.*`, `credential.*`, `include.*` ...), or `git config --global`, is refused. | `Not run: this command changes .git/hooks, git's own files. ...` | `tests/file-guard.test.ts`, `tests/secrets-pi.integration.test.ts` |
-| Values in `.env`, INI and credential files, values of secret-named keys and webhook or DSN addresses, passwords inside addresses (`postgres://app:PASSWORD@db`), exact copies of secret-named environment values and of the keys in Casper's login file are hidden from the AI in read, grep, shell and service output, in the main session and in read-only helpers. See [SECRETS.md](SECRETS.md). | `MIST_APITOKEN=<secret hidden>` | `tests/secrets-files.test.ts`, `tests/secrets-pi.integration.test.ts` |
-| Repo checks (`/verify`, auto checks, proof and trace copies), services and dev servers run without AI provider keys (`OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` and the rest Pi reads) or Casper's own secret variables. Network product tokens such as `MIST_API_TOKEN` stay, so your own tests still work. | nothing to see: the key is not there | `tests/shell-env.test.ts` |
-| A question the AI asks with its `ask` tool starts with a muted `The AI asks:` line. Casper's own questions and approvals never do, so the AI can't pass off a question as a Casper approval. | `The AI asks:` | `tests/ask.test.ts` |
+| Shell commands and checks can't write outside the project, temp and package caches. | the command fails; the receipt says `blocked by the sandbox (wanted to write …)` | `tests/sandbox-live.test.ts` › “a command can write the project but nothing outside it”; `tests/sandbox-live.test.ts` › “a refused write is named: blocked by the sandbox (wanted to write ...)” |
+| Shell commands and checks can't read private places or Casper's approvals. | the file is not there for them | `tests/sandbox-live.test.ts` › “private places and Casper's approvals can't be read”; `tests/sandbox-policy.test.ts` › “the policy hides every private place, writes only the project, temp and caches, and keeps git's own files read-only” |
+| The AI's shell can't change your security approvals, lab "Always" answers or remembered hosts in `~/.casper`. | the write fails | `tests/sandbox-live.test.ts` › “the AI's shell can't change your approvals or lab answers in ~/.casper” |
+| Shell commands can't write git hooks or `core.hooksPath` in `.git/config`. | the write fails | `tests/sandbox-live.test.ts` › “git's own files stay read-only: no hook, no core.hooksPath” |
+| A host that is not listed asks first (Enter keeps it blocked); a run that can't ask blocks it and says so. | `A shell command wants to reach api.mist.com.` | `tests/sandbox-asks.test.ts` › “a host that is not listed asks with three numbered choices, No first”; `tests/sandbox-live.test.ts` › “a host that is not listed is blocked when nobody can answer, and says so once” |
+| "Always for this project" is kept in `~/.casper`, private, never in the repo. | `/sandbox` lists it | `tests/sandbox-asks.test.ts` › “Always for this project is kept in Casper's own folder, never in the repo, and the next request doesn't ask” |
+| Checks, network and security tools, services, dev servers, `uv` and `bun` in `casper new` and the AI's bash all run in the sandbox. | `shell     sandboxed · writes: this project, temp, package caches · hosts: 11 listed (/sandbox)` | `tests/sandbox-wiring.test.ts` › “a check runs in the sandbox, with the project's network rules”; `tests/sandbox-wiring.test.ts` › “network checks and security tools run with no network; a lab run is never wrapped”; `tests/sandbox-wiring.test.ts` › “a service or dev server runs in the sandbox with the machine's own network, so the host can reach it”; `tests/sandbox-wiring.test.ts` › “casper new runs uv and bun in the sandbox with the new folder writable; git runs as it is”; `tests/sandbox-app.test.ts` › “with the sandbox on, /status and /sandbox say what it holds, and the AI's bash is wrapped” |
+| Tools with no network get none at all (Linux); dev servers keep the machine's network and their files are held. | the request fails | `tests/sandbox-live.test.ts` › “no network at all for a tool run with network none; files still held”; `tests/sandbox-live.test.ts` › “a dev server's command (network host) is reached from the host, files still held” |
+| While planning, the project is read-only to the shell, so a repository's own `git diff` program can't change it. | the write fails | `tests/sandbox-live.test.ts` › “during a plan turn the project is read-only too, so a repo's git diff program can't change it”; `tests/sandbox-asks.test.ts` › “while planning, the AI's shell gets a read-only project” |
+| A check the sandbox stopped says so, in the receipt and to the AI, and is never sent for repair. | `✗ test — blocked by the sandbox (wanted to write …)` | `tests/sandbox-wiring.test.ts` › “a check the sandbox refused says so in the receipt, is never sent for repair, and the same line reaches the AI”; `tests/sandbox-wiring.test.ts` › “the AI's bash: the sandbox wraps it, and a refusal is added to what the AI reads” |
+| With no sandbox, the AI's shell asks before each command (Enter runs nothing); a run that can't ask refuses with the `--no-sandbox` hint. | `Run this command?  npm test` | `tests/sandbox-asks.test.ts` › “a run that can't ask refuses the command with the --no-sandbox hint, and never waits”; `tests/sandbox-app.test.ts` › “with no sandbox here, the banner says so and gives the fix” |
+| `--no-sandbox` is reported on the receipt and in the JSON (`sandbox.held: false`). | `• Shell commands and checks were not sandboxed (--no-sandbox)` | `tests/sandbox-app.test.ts` › “--no-sandbox: the one-shot banner, the receipt and the JSON say shell commands were not sandboxed”; `tests/sandbox-wiring.test.ts` › “with --no-sandbox nothing is wrapped, and the receipt and JSON say so” |
+| A project can only add denies; a repo's `.pi/sandbox.json` is ignored. | `[sandbox] Ignored .pi/sandbox.json: a project can't loosen the sandbox.` | `tests/sandbox-policy.test.ts` › “your own settings add hosts and write folders; a project's settings only add denies”; `tests/sandbox-policy.test.ts` › “a project can't turn the sandbox off; you can”; `tests/sandbox-app.test.ts` › “a repo's .pi/sandbox.json is ignored, and Casper says so” |
+| The compiled Casper carries the seccomp helper (Linux), written to `~/.casper/bin` after a hash check. | — | `tests/release-compile.test.ts` › “the compiled binary carries the sandbox and its seccomp helper, written to ~/.casper/bin after a hash check” |
+| Pi's full output of a long command is written in a private folder of Casper's (0700), removed when Casper exits, not the shared temp folder. | — | `tests/sandbox-wiring.test.ts` › “Pi's full-output log of a long command goes in Casper's private folder, not the shared temp folder” |
+| The AI's `read`, `grep`, `find`, `ls`, `edit` and `write` never open private places (the list above); a link to one counts too. | `Not read: ~/.ssh is private (keys and logins). Casper keeps it from the AI.` | `tests/file-guard.test.ts` › “private places are refused by name for every file tool, reads and writes”; `tests/secrets-pi.integration.test.ts` › “the AI's file tools don't follow links out of the project or read private files” |
+| Those file tools never follow a link out of the project. | `Not read: notes.md is a link to a place outside this project. Casper doesn't follow links out.` | `tests/file-guard.test.ts` › “links out of the project are refused; a link to a private place is private” |
+| `edit` and `write` can't change git's own files: anything in a `.git` folder or a `.git` file, a worktree's shared git folder, or the folder `core.hooksPath` points to. | `Not done: .git/hooks belongs to git itself. Casper doesn't let the AI change it.` | `tests/file-guard.test.ts` › “git's own files can't be written by edit or write, but can be read”; `tests/file-guard.test.ts` › “a worktree's shared git folder counts as git's own” |
+| `edit` and `write` can't change `~/.casper`, `~/.pi`, shell start-up files or your git settings. | `Not done: ~/.bashrc holds your shell, git or Casper settings. Casper doesn't let the AI change it.` | `tests/file-guard.test.ts` › “shell start-up files, git settings and Casper's own folder can't be written” |
+| A shell command whose text writes git hooks or sets a git key that runs a program is refused before it runs; the sandbox holds the rest. | `Not run: this command changes .git/hooks, git's own files. ...` | `tests/file-guard.test.ts` › “shell commands that write git hooks or risky git settings are refused; reads pass”; `tests/secrets-pi.integration.test.ts` › “the AI can't write git hooks or git config, by file tools or by shell; normal writes still work” |
+| The AI's `bash` and the service tool can't run git commands that throw away your uncommitted work. | ``Casper does not let the model run `git clean -fdx` ...`` | `tests/sandbox-wiring.test.ts` › “the service tool refuses the same git commands as bash, and starts nothing” |
+| Values in `.env`, INI and credential files, secret-named keys, passwords inside addresses and exact copies of secret environment values are hidden from the AI. See [SECRETS.md](SECRETS.md). | `MIST_APITOKEN=<secret hidden>` | `tests/secrets-files.test.ts` › “read('.env') hides every secret-named value and keeps names and plain settings”; `tests/secrets-pi.integration.test.ts` › “a .env read, cat and grep reach the model with values hidden, in the main session and with /secrets files off” |
+| The AI's shell, repo checks, services and dev servers run without AI provider keys (`OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` and the rest Pi reads). Product tokens such as `MIST_API_TOKEN` stay. `shell.keepEnv` keeps a key you name. | nothing to see: the key is not there | `tests/secrets-pi.integration.test.ts` › “the AI's bash never gets AI provider keys; your product tokens stay”; `tests/shell-env.test.ts` › “a repo check runs without AI provider keys; product tokens stay”; `tests/shell-env.test.ts` › “withoutProviderKeys keeps everything else and honours keep” |
+| A question the AI asks with its `ask` tool starts with `The AI asks:`. Casper's own questions and approvals never do. | `The AI asks:` | `tests/ask.test.ts` › “a question from the AI opens with "The AI asks:"; Casper's own questions never do” |
+| Every Casper question keeps its safe choice first, so Enter never builds, installs, spends, remembers or allows. | `1 No` | `tests/safe-first-choice.test.ts` › “the risky choices still exist, as a deliberate 2 or later” |
+| Lab checks run only when you start them, only on hosts in your own lab list. | the lab question | `tests/lab-checks.test.ts` › “an inventory host outside the lab list is refused by name and address, and nothing is started” |
+| Security tools are installed only after you pick Install, from pinned hashes. | `1 Stop · 2 Run what's installed · 3 Install them` | `tests/security-command.test.ts` › “missing tools get one numbered ask before any download; Enter (1 Stop) runs nothing and downloads nothing”; `tests/tool-pins.test.ts` › “every binary pin matches its release's checksum file” |
+| Casper's release workflow pins every action to a commit, and the job that can publish runs no project code. | — | `tests/release-workflows.test.ts` › “every action in every workflow is pinned to a full commit”; `tests/release-workflows.test.ts` › “the release job that can write runs no project code, and the build waits for green previews” |
 
-## What v0.2.16 adds, and how each part is held back
+## What is not held back
 
-v0.2.16 adds new things that run code or reach devices. None of them is sandboxed yet.
-
-| What | What Casper does | Test |
-| --- | --- | --- |
-| `casper new` runs `uv`, `bun` and `git` to build a project. | They run without AI provider keys. No model is called. The first commit uses your own git settings and hooks, and nothing is committed when the new folder is inside another repository. | `tests/new-scaffold.test.ts`, `tests/new-project-ask.test.ts` |
-| Page checks start the project's dev server after edits. | The dev server runs the repository's own code, so Casper prints `Starting dev server … (it runs your project's code)` before the first start in a session, and `/status` names the command. It gets no provider keys. `pages: off` in `.casper/project.yaml` turns it off. It never runs when checks are off. | `tests/pages-app.test.ts`, `tests/checks-visibility.test.ts` |
-| Ansible checks Casper finds are only offered. | They never run until you save one with `/verify add <name>`. When they run, Ansible gets Casper's own `ansible.cfg` (never the repo's, so no vault password script runs), a private home folder and no provider keys. | `tests/network-checks-app.test.ts`, `tests/ansible-syntax-preset.test.ts` |
-| Lab checks (`junos-commit`, AOS-CX `ansible --check`) reach your lab devices. | Only you start them, with `/verify <name>`, and only after a numbered question. The lab list comes only from `~/.casper/config.yaml`. The inventory and playbook text are checked against it before every run. A run that can't ask sends nothing. The AI's `casper_check` can't run them. | `tests/lab-checks.test.ts`, `tests/network-checks-app.test.ts` |
-| `/security-review` and `casper security` run pinned tools. | Downloads are checked against a sha256 or a hash-locked list before use, and only after you pick Install. Each tool runs with a dead proxy, no passwords or tokens and a stand-in home folder. ansible-lint gets Casper's own `ansible.cfg`. An ignore added since the last commit counts only after you approve it. | `tests/security-command.test.ts`, `tests/security-args.test.ts`, `tests/tool-pins.test.ts` |
-| Plan first (`/plan`) lets the model look before it builds. | While planning, Casper asks its tool gate about every tool: only `read`, `grep`, `find`, `ls` and a short list of look-only shell commands run. Edits, MCP tools and Casper's own tools are refused. Files that change anyway are named on the receipt. | `tests/flows-plan.test.ts`, `tests/plan-first.test.ts` |
-| Remember a test command. | Offered only for a known test-runner shape the model ran and passed, with the exact line it saves. Nothing is saved until you press its number. | `tests/flows-suggest.test.ts`, `tests/suggestions-app.test.ts` |
-| Casper's release workflow. | Every action is pinned to a commit. The job that can publish runs no project code, and a release waits for the Linux and Windows previews to pass on the same commit. | `tests/release-workflows.test.ts` |
-
-## What is still not blocked (until the v0.2.17 sandbox)
-
-- **The AI's shell can still read private files.** `cat ~/.ssh/id_ed25519` in
-  `bash` is not stopped. Exact copies of your secret environment values and of
-  the keys in Casper's login file are hidden from what it prints, and so are key
-  files it prints in PEM form, but a
-  script can change the text first (base64, for example).
-- **The AI's shell still has your environment**, provider keys included. Their
-  values are hidden from the output the AI reads, but a command can send them
-  somewhere over the network.
-- **The shell checks are text checks.** A script, an alias or `sh -c` with a
-  built string can still write `.git/hooks`. The file tools can't.
-- **Repo checks, services and dev servers run the repository's own commands**
-  with your permissions and network access. They no longer get provider keys,
-  but they can read your files. Use `--no-verify` in a repo you don't trust.
-- **A link can be swapped** between the check and the open (a race). The check
-  uses the real path of the longest part that exists, which narrows this, and
-  Windows has no no-follow open at all.
-- **Private places are by name.** A key stored somewhere else (for example
-  `~/work/deploy-key`) is not on the list. It is hidden only when it is in a
-  key or credential file format.
-- MCP servers, language servers, the debugger and the browser run as your user
-  and are not covered by any of this.
-- **Dev servers, found checks and lab checks can reach the network.** A page can call
-  any address, and Casper checks a lab check's inventory and playbook text but can't
-  block other traffic. The critique moved lab checks to v0.2.18, behind the sandbox's
-  network allowlist; v0.2.16 ships them started by you only, and the question says so.
-- **The plan turn's look-only list is not a sandbox.** For example `git diff` and
-  `git log` follow a repository's own `diff.external` and `textconv` settings, which
-  can run a program. A file that changes is still named on the receipt.
-- **The AI's shell can write the files that hold your choices** in `~/.casper`:
-  security approvals and lab "Always" answers. Only the sandbox can stop that.
-- **ansible-lint loads the repository's own Ansible plugins** (`library/`,
-  `filter_plugins/`). Only `ansible.cfg` is kept out.
+- **MCP servers, language servers, the debugger and the browser** are not in the sandbox. They run as
+  your user, with your files and network, after you approve them. Review a server before you connect it.
+- **Lab checks** (`junos-commit`, AOS-CX `ansible --check`) run outside the sandbox: they log in to
+  your devices with your own SSH keys. Only you start them, after a numbered question, and only on hosts
+  in your lab list; Casper checks the inventory and playbook text but can't block other traffic yet.
+- **Dev servers and services keep the machine's network** on Linux (so the host can reach them). A
+  page they serve can call any address. On macOS they reach only listed hosts.
+- **On Linux the sandbox has its own `localhost`.** A command that goes straight to `localhost` reaches
+  the sandbox, not a dev server Casper started; the service tool's `request` reaches those.
+- **Windows, and Linux without bubblewrap**, have no sandbox: the AI's shell asks before each command,
+  and your project's checks, services and dev servers run with your permissions and network. Use
+  `--no-verify` in a repository you don't trust.
+- **The model provider sees what the AI reads.** Code, file contents and command output go to the
+  provider you picked, with secrets hidden as [SECRETS.md](SECRETS.md) says. Use read-only credentials
+  for AI work where you can.
+- **Private places are by name.** A key kept somewhere else (for example `~/work/deploy-key`) is not on
+  the list; add it with `sandbox.denyRead` in your own config.
+- **A link can be swapped** between the file tools' check and the open (a race). The check uses the real
+  path of the longest part that exists, which narrows this, and Windows has no no-follow open at all.
+- **ansible-lint loads the repository's own Ansible plugins** (`library/`, `filter_plugins/`). With the
+  sandbox on they run held (no network, no writes outside the project and temp, no private files); with
+  no sandbox they run with your permissions. Only `ansible.cfg` is kept out.
+- **With no sandbox, the plan turn's look-only list is a list, not a sandbox**: `git diff` and `git log`
+  follow a repository's own `diff.external` and `textconv` settings, which can run a program. A file that
+  changes is still named on the receipt. With the sandbox on the project is read-only while planning.
+- **With no sandbox, the AI's shell can write the files that hold your choices** in `~/.casper`
+  (security approvals and lab answers). With the sandbox on it can't.

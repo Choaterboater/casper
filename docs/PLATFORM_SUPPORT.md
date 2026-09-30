@@ -69,6 +69,18 @@ plus the loader variables Windows needs to start a process at all (`SystemRoot`,
 `PROCESSOR_ARCHITECTURE`, `OS`, `ProgramData`, `ProgramFiles`, `ProgramFiles(x86)`).
 Provider credentials are never inherited on any platform.
 
+## Shell sandbox — `src/sandbox`
+
+| Platform | What holds shell commands and checks |
+| --- | --- |
+| Linux | bubblewrap with seccomp (Unix sockets blocked) and a host-filtering proxy; needs `bubblewrap` and `socat`. Casper tries bubblewrap once at startup; if it can't start (missing, or Ubuntu 24.04's AppArmor user-namespace block), the banner says why and the AI's shell asks before each command. |
+| macOS | `sandbox-exec` with a host-filtering proxy. |
+| Windows | Nothing yet: the AI's shell asks before each command, and checks, services and dev servers run with your permissions. |
+
+The compiled Linux executable carries the seccomp helper and writes it to
+`~/.casper/bin/apply-seccomp-<sha256>` (0700) after a hash check. Linux CI installs bubblewrap and
+socat and runs the live sandbox tests; see [SECURITY.md](SECURITY.md).
+
 ## State-file access — `src/platform/files.ts`
 
 `O_NOFOLLOW` and `O_NONBLOCK` do not exist on Windows; composing them there yields

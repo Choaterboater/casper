@@ -42,8 +42,10 @@ without proving the change, or changes nobody verified, still exit 0 and the rec
 `--require-verification` (which implies `--verify`) to make those exit 3. See
 [SCRIPTING.md](SCRIPTING.md) for the full table and `--json` events.
 
-Casper runs the repository's own check commands. That is **not sandboxing or persisted repository
-trust**, and it is not a separate yes/no: `auto` is the default, so asking for a change in a repository
+Casper runs the repository's own check commands, in the shell sandbox where it can run: they write
+only the project, temp and package caches, can't read your private folders and reach only listed hosts
+(see [SECURITY.md](SECURITY.md)). Where no sandbox runs (Windows, bubblewrap missing, `--no-sandbox`)
+they run with your permissions. It is not a separate yes/no: `auto` is the default, so asking for a change in a repository
 runs its test, lint and build commands (and a repository's `.casper/project.yaml` can itself choose
 `auto`). For a repository whose commands you do not trust, start Casper with `--no-verify`; a flag
 wins over every configuration file.
@@ -439,8 +441,9 @@ services:
 
 Only routes are found from files; for single-page apps and Streamlit, list the pages you care about.
 The dev server runs the project's code with Casper's reduced environment (no provider keys, a separate
-HOME), but it is not sandboxed yet and a page it serves can still reach the network: use page checks only
-in projects you trust, or set `pages: off`.
+HOME), in the shell sandbox where it can run: its files are held, but it keeps the machine's network so
+the page can load (on macOS it reaches only listed hosts), and a page it serves can still reach the
+network. Where no sandbox runs it has your permissions: set `pages: off` in a project you don't trust.
 
 ## SQL migrations check
 
@@ -517,4 +520,4 @@ Either way dependency trees, virtual environments and caches are left out, and t
 
 **Declared scope is an assumption, not discovered dependency coverage.** For example, the sample above does not observe installed `node_modules`, environment variables, external tools or services. A lockfile does not prove installed dependencies are unchanged. If a check depends on excluded/unlisted inputs, changes there can go undetected: include them or leave the scope undeclared to disable reuse. Even a fresh scoped result does not certify behavior. These bounded observations are not atomic snapshots, a sandbox, or a guarantee against transient changes during commands or edits after reporting.
 
-One-shot exit codes: **0** selected commands passed (execution only, even if freshness is stale/unavailable) or nothing needed verifying, **1** failed/blocked, **2** incomplete (skips, or auto mode with changes and no configured checks), **130** cancelled. Timeouts and cancellation terminate verifier process groups on POSIX; Windows terminates verified descendants through OS parentage, which has no real-host gate yet. One-shot SIGINT and any SIGTERM cancel checks and prevent further repair; the CLI gives cleanup up to one second, then exits even if runtime startup/abort is stalled. Interactive Ctrl-C cancels the active task while keeping the session; it drains existing cleanup without a forced per-task deadline. Programmatic `app.close()` drains runtime startup and verification before disposal but has no forced-exit deadline. Command timeouts do not bound model response time. Commands and runtime tools are not sandboxed, and command output may contain secrets—review your checks before sending their output to a model.
+One-shot exit codes: **0** selected commands passed (execution only, even if freshness is stale/unavailable) or nothing needed verifying, **1** failed/blocked, **2** incomplete (skips, or auto mode with changes and no configured checks), **130** cancelled. Timeouts and cancellation terminate verifier process groups on POSIX; Windows terminates verified descendants through OS parentage, which has no real-host gate yet. One-shot SIGINT and any SIGTERM cancel checks and prevent further repair; the CLI gives cleanup up to one second, then exits even if runtime startup/abort is stalled. Interactive Ctrl-C cancels the active task while keeping the session; it drains existing cleanup without a forced per-task deadline. Programmatic `app.close()` drains runtime startup and verification before disposal but has no forced-exit deadline. Command timeouts do not bound model response time. Commands run in the shell sandbox where it can run, and without it when no sandbox is there (Windows, bubblewrap missing, `--no-sandbox`); command output may contain secrets—review your checks before sending their output to a model.

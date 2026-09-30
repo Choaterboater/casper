@@ -42,6 +42,32 @@ single word that can only be a path but is not a folder exits 64 with "Not a fol
 request such as `casper "fix src/app.py"` is still a prompt). A one-shot receipt run with `--cd`
 prints its undo command with the same `--cd`.
 
+**The shell sandbox.** Every shell command Casper runs now goes through one sandbox: the AI's
+shell, your checks (proof and trace copies too), services and dev servers, network and security
+tool runs, and `uv`/`bun` in `casper new`. On Linux it is bubblewrap with seccomp (install
+`bubblewrap` and `socat`); on macOS `sandbox-exec`. A command can write only the project, temp and
+package caches, can't read `~/.ssh`, cloud logins or Casper's own approvals, can't change git's
+hooks or config, and reaches only listed package registries and code hosts. Any other host asks
+`1 No · 2 Allow for this session · 3 Always for this project` (Enter keeps it blocked; a run that
+can't ask blocks it and says so). Dev servers and services keep the machine's network so you can
+reach them; network and security tools get none (Linux). A check the sandbox stopped reads
+`✗ test — blocked by the sandbox (wanted to write …)` and is never sent for repair. While planning
+the project is read-only to the shell. The banner and `/status` show a `shell` line; `/sandbox`
+shows what it holds and `/sandbox forget <host>` takes a host back. On Windows, or Linux without
+bubblewrap, nothing holds the shell: it says so, and the AI's shell asks `Run this command?` before
+each command (`1 No` first; a one-shot run refuses and names `--no-sandbox`). `--no-sandbox` (or
+`sandbox: off` in your own config) turns it off; the receipt and the JSON `sandbox` field say so.
+Only you can widen it (`sandbox.allowedDomains`, `sandbox.allowWrite`, `shell.keepEnv` in
+`~/.casper/config.yaml`); a project can only add denies, and a repo's `.pi/sandbox.json` is
+ignored. The AI's shell no longer gets AI provider keys, and Pi's long-output logs go in a private
+folder removed at exit. The service tool refuses the same git commands as bash. The compiled Linux
+executable carries the seccomp helper. See [SECURITY.md](SECURITY.md), which now names the test
+behind each claim (a test checks the doc against the code).
+
+**Limits of the sandbox.** MCP servers, language servers, the debugger, the browser and lab checks
+are not in it. Dev servers keep the machine's network on Linux, and inside the Linux sandbox
+`localhost` is the sandbox's own. Windows has no sandbox yet.
+
 **Plan editor asks before it builds.** On the rich terminal, Enter in the plan editor (plan first
 or `/plan`) no longer builds straight away: it goes on to "Build this plan?" with `1 Stop · 2 Build`,
 as the plain terminal already did, so Enter never starts a build that uses tokens. Esc still stops.

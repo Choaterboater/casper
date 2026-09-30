@@ -38,6 +38,9 @@ prereleases. Useful `install.sh` options: `--dir <path>`, `--version 0.2.14`,
 `--sha256 <hex>` and `--force` (replace a development symlink that leaves the
 install directory). [Installer details](docs/RELEASE.md).
 
+On Linux the shell sandbox needs bubblewrap and socat (`sudo apt install bubblewrap socat`);
+without them Casper runs, says `shell     not sandboxed`, and asks before each AI shell command.
+
 ## Start coding
 
 ```sh
@@ -92,8 +95,10 @@ and one-shot prompts alike, with no command from you; an interactive session off
 (a minute or more) as `/verify` instead of running them after every change. `--no-verify`
 turns checking off for a run. `verification.mode` in
 `.casper/project.yaml` sets `auto`, `offer` or `off` explicitly. A check runs that
-repository's configured command without asking first, and it is not sandboxed — use Casper
-this way only in trusted projects, or start with `--no-verify`. In a web project Casper also starts
+repository's configured command without asking first, inside the shell sandbox where it can run:
+it writes only the project, temp and package caches, can't read your private folders and reaches
+only listed hosts. Where no sandbox can run (Windows, bubblewrap missing, `--no-sandbox`) it runs
+with your permissions; start with `--no-verify` in a repository you don't trust. In a web project Casper also starts
 the dev server and opens the changed pages (`✓ /dashboard loads · 0 console errors`), and SQLite
 migrations are applied to a throwaway database; see [docs/VERIFICATION.md](docs/VERIFICATION.md#page-checks).
 Each task ends with a plain receipt:
@@ -181,7 +186,7 @@ Nothing here requires installing or connecting a server automatically.
   (`/mcp writes <name>`). `casper mcp check` checks a server you built.
 - [Device secrets](docs/SECRETS.md): known passwords, keys and SNMP communities in MCP results and
   config files, and values in `.env` and credential files, are hidden from the AI (best effort)
-- [Security](docs/SECURITY.md): what Casper keeps from the AI now, and what waits for the sandbox
+- [Security](docs/SECURITY.md): the shell sandbox, what Casper keeps from the AI, and what it doesn't
 - [Security checks](docs/SECURITY_CHECKS.md): `/security-review` and `casper security` run pinned tools
   (gitleaks, ruff S, semgrep, zizmor, osv-scanner and more) on your project with no model; only you can add ignores
 - [Network checks](docs/NETWORK-CHECKS.md): Ansible syntax, Junos render, Junoser and hier_config checks, and lab
@@ -195,12 +200,15 @@ Nothing here requires installing or connecting a server automatically.
 
 ## Safety and privacy
 
-Casper is **not a sandbox**. Native coding tools can read/write files and run shell
-commands with your permissions. Worktrees, read-only agent roles and integration
-consent do not provide OS isolation. The AI's file tools don't open private
-places such as `~/.ssh`, don't follow links out of the project and can't change
-git hooks, and checks run without your AI provider keys; the AI's shell is not
-held back yet. See [SECURITY.md](docs/SECURITY.md) for what is and isn't blocked.
+Shell commands run in a sandbox where the system has one (Linux with bubblewrap, macOS): the
+AI's shell, checks, services and dev servers can write only the project, temp and package
+caches, can't read your private folders (`~/.ssh`, cloud logins, Casper's own approvals) and
+reach only listed hosts; others ask. On Windows, or Linux without bubblewrap, nothing holds
+them: the AI's shell asks before each command, and the banner says so. The AI's file tools
+don't open private places, don't follow links out of the project and can't change git hooks,
+and no shell command gets your AI provider keys. MCP servers, language servers, the debugger
+and the browser are not in the sandbox. See [SECURITY.md](docs/SECURITY.md) for what is and
+isn't held back on each system.
 
 Source text, tool output and conversation history may reach your selected model
 provider or remain in local plaintext state. Do not use sensitive repositories

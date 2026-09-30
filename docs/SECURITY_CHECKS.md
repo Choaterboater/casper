@@ -26,8 +26,10 @@ or takes too long reads "not run" with the reason, and the other tools still run
 
 Casper runs each tool with its own offline setting on, with a dead proxy, with an
 allowlist of environment variables (no passwords or tokens) and with a stand-in home
-folder. **This is not enforced yet**: a program can still open a network connection
-itself. That changes when the shell sandbox ships.
+folder, inside the shell sandbox. On Linux the sandbox gives the tools no network at all
+and no writes outside the project and temp; on macOS they reach only listed hosts. Where
+no sandbox runs (Windows, bubblewrap missing, `--no-sandbox`) a program can still open a
+network connection itself, and the report's second line says so. See [SECURITY.md](SECURITY.md).
 
 ## Installing the tools
 
@@ -83,14 +85,14 @@ A changed ignore file is not used until you say so:
 
 Approvals are kept in `~/.casper/projects/<project>/security-approved.json`, never in
 the repo. `/security-review ignores` lists them and can remove one. Only your answer
-writes that file: no model tool can. Until the shell sandbox ships, a shell command
-could still edit it, so treat this as best effort.
+writes that file: no model tool can, and with the shell sandbox on no shell command can
+either. Where no sandbox runs, a shell command could still edit it, so treat it as best effort there.
 
 ## The report and exit codes
 
 ```
 Security check: my-server (/home/me/my-server)
-Casper runs these tools with a dead proxy and no passwords or tokens. Not enforced until the shell sandbox ships.
+Casper runs these tools in the shell sandbox: no network, no passwords or tokens, and no writes outside the project and temp.
 gitleaks      1 problem    config/.env.example:4  looks like an API key (value hidden)
 ruff S        ok
 zizmor        ok           its online checks off
