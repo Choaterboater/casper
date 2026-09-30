@@ -63,6 +63,12 @@ export interface ReceiptEvent {
   turnLimit: number | null;
   /** The spend pause stopped the model: what the task had used and the limit, in dollars; null otherwise. */
   spendLimit: { spent: number; limit: number } | null;
+  /** Changes on other machines, read from the AI's ssh and scp commands; empty when none. */
+  remoteChanges: Array<{ host: string; changes: string[] }>;
+  /** Commands to other machines Casper stopped before they reached them; empty when none. */
+  remoteNotRun: Array<{ host: string; commands: number }>;
+  /** A secret appeared in a command the AI sent: change it after this task. */
+  secretInCommand: boolean;
   /** This task's model use; null when no model task ran (a local command). */
   usage: TaskUsage | null;
   /** Whether the tests fail without the change and pass with it; null when Casper did not compare. */
@@ -246,6 +252,9 @@ export function receiptEvent(report: VerificationReport | undefined, task: TaskR
     repairAttempts: verification?.repairAttempts ?? 0,
     turnLimit: task?.turnLimit ?? null,
     spendLimit: task?.spendLimit ? { ...task.spendLimit } : null,
+    remoteChanges: (task?.remoteChanges ?? []).map((remote) => ({ host: terminalText(remote.host), changes: remote.changes.map((change) => terminalText(change)) })),
+    remoteNotRun: (task?.remoteNotRun ?? []).map((remote) => ({ host: terminalText(remote.host), commands: remote.commands })),
+    secretInCommand: task?.secretInCommand === true,
     usage: task?.usage ? { ...task.usage } : commandUsage ? { ...commandUsage } : null,
     proof: task?.proof ? redactProof(task.proof) : null,
     proofSkipped: task?.proofSkipped ?? null,

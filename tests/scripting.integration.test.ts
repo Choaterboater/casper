@@ -266,10 +266,11 @@ test("--json streams v1 JSON Lines on stdout: session, text, tools, Casper's che
   // The transcript and the plain receipt a person reads moved to stderr.
   expect(result.stderr).toContain("✓ test passed");
   expect(result.stdout).not.toMatch(/[\x1b\u202e]/);
-  const receiptText = "✓ Verified — the checks pass, and the tests fail without the change\n✓ Changed 1 file: sum.js\n✓ test passed (grep -q fixed sum.js, ";
+  const receiptText = "✓ Verified — the checks pass, and the tests fail without the change\n✓ Changed 1 file: sum.js\n✓ test passed (grep -q fixed sum.js";
   const stream = events(result.stdout, await realpath(f.project));
   const receipt = stream.at(-1);
-  expect(receipt.text).toStartWith(receiptText);
+  // The check's time shows only from a second up.
+  expect(receipt.text).toMatch(new RegExp(`^${receiptText.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:, \\d+\\.\\ds)?\\)\\n`));
   receipt.text = "<receipt text>";
   // Three model responses (the task, its answer, the requirements review) at 120 tokens each; the
   // cost is the catalog estimate for those tokens.
@@ -298,7 +299,7 @@ test("--json streams v1 JSON Lines on stdout: session, text, tools, Casper's che
     { v: 1, type: "phase", phase: "proof", state: "end", atMs: "<ms>" },
     { v: 1, type: "receipt", outcome: "verified", exitCode: 0, execution: "completed", changed: ["sum.js"], changedDuringChecks: [],
       verificationMode: "auto", checks: [{ name: "test", command: "grep -q fixed sum.js", status: "pass", exit: 0, ms: "<ms>", fresh: true }],
-      repairAttempts: 0, turnLimit: null, spendLimit: null, usage: { turns: 3, tokens: 360, estimatedCost: "<cost>" },
+      repairAttempts: 0, turnLimit: null, spendLimit: null, remoteChanges: [], remoteNotRun: [], secretInCommand: false, usage: { turns: 3, tokens: 360, estimatedCost: "<cost>" },
       // The check fails on sum.js as it was, so it proves the fix.
       proof: { status: "proven", check: "test", command: "grep -q fixed sum.js", testsChanged: false, without: { exitCode: 1, ended: "fail" } },
       proofSkipped: null,
