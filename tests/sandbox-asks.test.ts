@@ -156,3 +156,19 @@ test("while planning, the AI's shell gets a read-only project", async () => {
   expect(engine.wrapped[1]!.policy.allowWrite).toContain(project);
   await sandbox.close();
 });
+
+test("a sandbox that can't start says so, and from then on the AI's shell asks and the receipt says not sandboxed", async () => {
+  const { home, project, context } = await fixture();
+  const engine = { ...fakeEngine(), initialize: async () => { throw new Error("bwrap: setting up uid map: Permission denied"); } };
+  const terminal = host(["No"]);
+  const sandbox = createSessionSandbox(terminal.value, context, { root: () => project, home, seams: { engine, problem: () => undefined, platform: "linux" } });
+  expect(sandbox.on).toBe(true);
+  await expect(sandbox.wrap("npm test", { cwd: project })).rejects.toThrow("the sandbox could not start (bwrap: setting up uid map: Permission denied)");
+  expect(terminal.written).toEqual(["[sandbox] The sandbox could not start (bwrap: setting up uid map: Permission denied). Shell commands now ask first.\n"]);
+  expect(sandbox.on).toBe(false);
+  expect(sandbox.asksFirst).toBe(true);
+  const shell = runtimeShell(terminal.value, sandbox, new SandboxStore(context.stateDirectory));
+  expect(await shell.approve!("npm test")).toBe(SHELL_DECLINED);
+  const { sandboxReceipt } = await import("../src/app/sandbox");
+  expect(sandboxReceipt(sandbox)).toEqual({ held: false, reason: "the sandbox could not start: bwrap: setting up uid map: Permission denied" });
+});
