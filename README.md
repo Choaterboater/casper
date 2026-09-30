@@ -207,7 +207,7 @@ Pages for the coming versions (built, not released yet; see [Coming next](#comin
 | [SKILLS.md](docs/SKILLS.md) | v0.2.18: the built-in network skills, adding your own and turning them off |
 
 Project notes (for people working on Casper): [design decision](docs/adr/0001-casper-own-product.md),
-[eval results](docs/evals/), [handoff notes](docs/HANDOFF-2026-09-27.md),
+[eval results](docs/evals/), [handoff notes](docs/HANDOFF-2026-09-30.md),
 [pre-release review](docs/PRE_RELEASE_REVIEW.md).
 
 When you report a problem, include your OS, the command, the exact error, and whether a
