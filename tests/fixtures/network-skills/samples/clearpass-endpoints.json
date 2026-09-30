@@ -1,0 +1,5 @@
+{
+  "_note": "Sample data, not from a real network",
+  "request": "GET /api/endpoint?offset=0&limit=25&calculate_count=true",
+  "body": { "_embedded": { "items": [ { "id": 1, "mac_address": "00005e005301", "status": "Known" }, { "id": 2, "mac_address": "00005e005302", "status": "Unknown" } ] }, "count": 2 }
+}
