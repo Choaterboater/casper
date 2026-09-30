@@ -199,6 +199,8 @@ def exercise(bun, repo, root, no_color):
         s.send("\x03")
         s.until("Cancelling active work")
         s.until("Stopped — cancelled")
+        # Enter before the cancelled task has closed only keeps the draft: wait for the prompt to be idle first.
+        s.until("│ idle")
         s.send("Q\n")
         s.until("Echo:")  # Pi wraps an overlong word after the label; exact draft checked below.
         assert s.requests()[-1] == "x" * 93 + "Qxx", s.requests()
