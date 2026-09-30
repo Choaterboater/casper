@@ -211,3 +211,14 @@ posixOnly("a bad name or an unknown template is a usage mistake and runs nothing
   expect(await fakes.calls()).toEqual([]);
   expect(await readdir(fakes.parent)).toEqual([]);
 });
+
+posixOnly("a .git that a package run made before git init: Casper runs no git there and says so", async () => {
+  fakes = await makeNewFakes();
+  const env = fakes.env({ FAKE_MAKE_GIT: "1" });
+  const result = await createProject({ parent: fakes.parent, name: "odd-git", template: "python-cli", env, homeDir: fakes.home });
+  expect(result.status).toBe("created");
+  expect(result.exitCode).toBe(1);
+  expect(result.reason).toBe("a .git folder appeared while packages were added, so Casper ran no git here. Look at it, then run git init and git commit yourself.");
+  expect(result.commit).toBeUndefined();
+  expect(gitLog(path.join(fakes.parent, "odd-git"), env)).toEqual([]);
+});

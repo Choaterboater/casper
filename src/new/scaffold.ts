@@ -314,7 +314,11 @@ export async function createProject(options: NewProjectOptions): Promise<NewProj
     }
   }
 
-  // 4. git init, only when the folder isn't inside another repository.
+  // 4. git init, only when the folder isn't inside another repository. A .git that is already here was made by
+  // the init tool or a package's own code, not by git init: Casper runs no git in it (git would run its hooks).
+  if (!outerRepo && await lstat(path.join(dir, ".git")).then(() => true, () => false)) {
+    return notReady("a .git folder appeared while packages were added, so Casper ran no git here. Look at it, then run git init and git commit yourself.");
+  }
   if (!outerRepo) {
     const initGit = await tool(["git", "init", "-q"], dir, 60_000);
     if (initGit.exitCode !== 0) return notReady("git init failed.", lastLines(initGit.stderr));
