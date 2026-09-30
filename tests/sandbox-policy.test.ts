@@ -125,6 +125,26 @@ test("a worktree's .git file and its folder's commondir are read-only, and so ar
   for (const name of ["hooks", "config", "info"]) expect(withNew.denyWrite).toContain(path.join(fresh, ".git", name));
 });
 
+test("a submodule's own git folder and the .git file that points at it are read-only, nested ones too", async () => {
+  const { home, root } = await fixture();
+  const lib = path.join(root, ".git", "modules", "lib");
+  const nested = path.join(lib, "modules", "deep");
+  const slashed = path.join(root, ".git", "modules", "vendor", "one");
+  for (const dir of [lib, nested, slashed]) {
+    await mkdir(dir, { recursive: true });
+    await writeFile(path.join(dir, "HEAD"), "ref: refs/heads/main\n");
+  }
+  await writeFile(path.join(root, ".gitmodules"), '[submodule "lib"]\n\tpath = lib\n\turl = ../lib\n[submodule "gone"]\n\tpath = ../../outside\n');
+  await mkdir(path.join(root, "lib"), { recursive: true });
+  await writeFile(path.join(root, "lib", ".git"), "gitdir: ../.git/modules/lib\n");
+  const policy = sandboxPolicy({ root, home, tempDirs: [], platform: "linux" });
+  for (const dir of [lib, nested, slashed]) for (const name of ["hooks", "config", "config.worktree", "info"]) expect(policy.denyWrite).toContain(path.join(dir, name));
+  expect(policy.denyWrite).toContain(path.join(root, "lib", ".git"));
+  // A submodule path that leads out of the project is not followed.
+  expect(policy.denyWrite.some((entry) => entry.includes("outside"))).toBe(false);
+  expect(policy.denyWrite).not.toContain(path.join(root, ".git", "modules", "vendor", "hooks"));
+});
+
 test("a commondir a command writes into the project's .git is removed at once and said; one you had stays", async () => {
   const { ShellSandbox } = await import("../src/sandbox/manager");
   const { passThroughEngine } = await import("../src/sandbox/runtime");

@@ -176,6 +176,30 @@ needsSandbox("no command can move the project's .git aside and put another in it
   }
 });
 
+needsSandbox("a submodule's git settings, hooks and .git file can't be changed, in any network mode", async () => {
+  const project = path.join(base, "with-submodule");
+  const modules = path.join(project, ".git", "modules", "lib");
+  expect(Bun.spawnSync(["git", "init", "-q", project]).exitCode).toBe(0);
+  await mkdir(path.dirname(modules), { recursive: true });
+  expect(Bun.spawnSync(["git", "init", "-q", "--separate-git-dir", modules, path.join(project, "lib")]).exitCode).toBe(0);
+  await writeFile(path.join(project, ".gitmodules"), '[submodule "lib"]\n\tpath = lib\n\turl = ./lib\n');
+  const config = await readFile(path.join(modules, "config"), "utf8");
+  const pointer = await readFile(path.join(project, "lib", ".git"), "utf8");
+  const subSandbox = new ShellSandbox({ root: () => project, home, tempDirs: [], engine: runtimeEngine(), problem: () => process.platform === "linux" ? linuxSandboxProblem() : undefined });
+  try {
+    for (const network of ["ask", "host", "none"] as const) {
+      const wrapped = await subSandbox.wrap(
+        `git -C lib config core.fsmonitor 'touch ${outside}/ran'; mkdir -p .git/modules/lib/hooks; echo 'touch ${outside}/ran' > .git/modules/lib/hooks/post-checkout; echo "gitdir: ${outside}" > lib/.git`,
+        { cwd: project, network },
+      );
+      Bun.spawnSync(["sh", "-c", wrapped.command], { cwd: project, env: { ...process.env, HOME: home } });
+      expect({ network, config: await readFile(path.join(modules, "config"), "utf8") === config }).toEqual({ network, config: true });
+      expect({ network, hook: existsSync(path.join(modules, "hooks", "post-checkout")) }).toEqual({ network, hook: false });
+      expect({ network, pointer: await readFile(path.join(project, "lib", ".git"), "utf8") === pointer }).toEqual({ network, pointer: true });
+    }
+  } finally { await subSandbox.close(); }
+});
+
 needsSandbox("a worktree's .git file can't be pointed somewhere else", async () => {
   const tree = path.join(base, "worktree");
   Bun.spawnSync(["git", "-C", root, "-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "tree base"]);

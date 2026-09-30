@@ -21,10 +21,12 @@ the operating system, not a list of words:
   `~/Library/Caches/uv`). These caches are shared with your other projects, so a command could change a
   cached package they later use; places that hold programs you run yourself (`~/.cache/pre-commit`,
   Playwright's browsers, uv's own Pythons and tools) are not writable. `casper new` also lets `uv`
-  write `~/.local/share/uv` to fetch a Python. It can't change git's own files (`.git/hooks`, `.git/config`,
+  write `~/.local/share/uv` to fetch a Python. It can't change your shell start-up files, your git
+  settings, anything in `~/.casper` and `~/.pi`, or git's own files: `.git/hooks`, `.git/config`,
   `.git/config.worktree`, `.git/info`, the `core.hooksPath` folder, a worktree's `.git` file and its
-  `commondir`), can't move `.git` aside, and a `.git/commondir` that appears in the project is removed at once, your shell start-up files, your
-  git settings or anything in `~/.casper` and `~/.pi`.
+  `commondir`, and the same files of each submodule that was there when the command started
+  (`.git/modules/<name>` and the submodule's `.git` file). It can't move `.git` aside, and a
+  `.git/commondir` that appears in the project is removed at once.
 - **Private places.** A command can't read `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.config/gh`,
   `~/.config/gcloud`, `~/.azure`, `~/.oci`, `~/.kube`, `~/.docker/config.json`, `~/.netrc`,
   `~/.git-credentials`, `~/.npmrc`, `~/.pypirc`, `~/.pgpass`, `~/.claude.json`, `~/.mcp.json`,
@@ -85,6 +87,7 @@ Each row names the test that fails without it.
 | Shell commands and checks can't read private places or Casper's approvals. | the file is not there for them | `tests/sandbox-live.test.ts` › “private places and Casper's approvals can't be read”; `tests/sandbox-policy.test.ts` › “the policy hides every private place, writes only the project, temp and caches, and keeps git's own files read-only” |
 | The AI's shell can't change your security approvals, lab "Always" answers or remembered hosts in `~/.casper`. | the write fails | `tests/sandbox-live.test.ts` › “the AI's shell can't change your approvals or lab answers in ~/.casper” |
 | Shell commands can't write git hooks or `core.hooksPath` in `.git/config`. | the write fails | `tests/sandbox-live.test.ts` › “git's own files stay read-only: no hook, no core.hooksPath” |
+| Shell commands can't change a submodule's git settings, hooks or `.git` file. | the write fails | `tests/sandbox-live.test.ts` › “a submodule's git settings, hooks and .git file can't be changed, in any network mode” |
 | A host that is not listed asks first (Enter keeps it blocked); a run that can't ask blocks it and says so. | `A shell command wants to reach api.mist.com.` | `tests/sandbox-asks.test.ts` › “a host that is not listed asks with three numbered choices, No first”; `tests/sandbox-live.test.ts` › “a host that is not listed is blocked when nobody can answer, and says so once” |
 | "Always for this project" is kept in `~/.casper`, private, never in the repo. | `/sandbox` lists it | `tests/sandbox-asks.test.ts` › “Always for this project is kept in Casper's own folder, never in the repo, and the next request doesn't ask” |
 | Checks, network and security tools, services, dev servers, `uv` and `bun` in `casper new` and the AI's bash all run in the sandbox. | `shell     sandboxed · writes: this project, temp, package caches · hosts: 11 listed (/sandbox)` | `tests/sandbox-wiring.test.ts` › “a check runs in the sandbox, with the project's network rules”; `tests/sandbox-wiring.test.ts` › “network checks and security tools run with no network; a lab run is never wrapped”; `tests/sandbox-wiring.test.ts` › “a service or dev server runs in the sandbox with the machine's own network, so the host can reach it”; `tests/sandbox-wiring.test.ts` › “casper new runs uv and bun in the sandbox with the new folder writable; git runs as it is”; `tests/sandbox-app.test.ts` › “with the sandbox on, /status and /sandbox say what it holds, and the AI's bash is wrapped” |

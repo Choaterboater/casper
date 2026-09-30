@@ -1,4 +1,4 @@
-import { existsSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { gitDirs, hooksPathTargets, PRIVATE_PATHS, PROTECTED_WRITE_PATHS, realpathLongest, within } from "../platform/project-paths";
@@ -62,6 +62,40 @@ function gitPointers(folder: string): string[] {
   const dotGit = path.join(folder, ".git");
   const pointers = [dotGit, ...gitDirs(folder).map((dir) => path.join(dir, "commondir"))];
   return pointers.filter((file) => { try { return statSync(file).isFile(); } catch { return false; } });
+}
+
+/** Submodules' own git folders (`.git/modules/<name>`, nested ones too) and the `.git` files that point a
+ * submodule's folder at them. `git status` in the project runs git in each submodule with that folder's
+ * settings, so a command that could write them could make your own git run a program it chose. */
+function submoduleGitParts(folder: string, depth = 0): { dirs: string[]; pointers: string[] } {
+  const dirs: string[] = [];
+  const pointers: string[] = [];
+  if (depth > 3) return { dirs, pointers };
+  const walk = (modules: string, level: number) => {
+    if (level > 4) return;
+    let entries: string[];
+    try { entries = readdirSync(modules); } catch { return; }
+    for (const name of entries.slice(0, 200)) {
+      const dir = path.join(modules, name);
+      try { if (!statSync(dir).isDirectory()) continue; } catch { continue; }
+      if (existsSync(path.join(dir, "HEAD"))) {
+        dirs.push(dir);
+        walk(path.join(dir, "modules"), level + 1);
+      } else walk(dir, level + 1); // a submodule named with a slash (lib/one)
+    }
+  };
+  for (const gitDir of gitDirs(folder)) walk(path.join(gitDir, "modules"), 0);
+  let listed = "";
+  try { listed = readFileSync(path.join(folder, ".gitmodules"), "utf8"); } catch { /* no submodules */ }
+  for (const match of listed.matchAll(/^\s*path\s*=\s*(.+?)\s*$/gm)) {
+    const sub = path.resolve(folder, match[1]!);
+    if (!within(folder, sub) || sub === folder) continue;
+    const dotGit = path.join(sub, ".git");
+    try { if (statSync(dotGit).isFile()) pointers.push(dotGit); } catch { continue; }
+    const inner = submoduleGitParts(sub, depth + 1);
+    pointers.push(...inner.pointers);
+  }
+  return { dirs, pointers };
 }
 
 export interface SandboxPolicyInput {
@@ -128,13 +162,16 @@ export function sandboxPolicy(input: SandboxPolicyInput): SandboxPolicy {
   // A folder a command may also write (a new project's folder) keeps git's own files read-only too: Casper's
   // first commit there runs git with your hooks, outside the sandbox.
   const extra = (input.extraWrite ?? []).map((entry) => path.resolve(entry));
+  const submodules = [root, ...extra].map((folder) => submoduleGitParts(folder));
   const gitOwn = [root, ...extra].flatMap((folder) => [...gitDirs(folder), path.join(folder, ".git")])
+    .concat(submodules.flatMap((found) => found.dirs))
     .flatMap((dir) => GIT_OWN_FILES.map((name) => path.join(dir, name)));
   const denyWrite = unique([
     ...gitOwn.flatMap(spellings),
     ...hooks.flatMap(spellings),
     ...extra.flatMap((folder) => hooksPathTargets(folder, home)).flatMap(spellings),
     ...[root, ...extra].flatMap(gitPointers).flatMap(spellings),
+    ...submodules.flatMap((found) => found.pointers).flatMap(spellings),
     ...inHome(PROTECTED_WRITE_PATHS),
     ...inHome(PRIVATE_PATHS),
     ...(input.project?.denyWrite ?? []).map((entry) => resolveEntry(entry, root, home)).flatMap(spellings),
