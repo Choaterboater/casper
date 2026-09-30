@@ -1,0 +1,568 @@
+/*
+  Casper site — the one shared stylesheet.
+  No build step, no external fonts. Every page links this file with a
+  relative path: <link rel="stylesheet" href="assets/style.css">.
+
+  Contents
+    1. Tokens (light on :root, dark under prefers-color-scheme)
+    2. Base and typography
+    3. Layout: container, header, nav, footer
+    4. Components: hero, buttons, cards, grid, callouts, badges,
+       tables, install commands, terminal captures, steps, details
+    5. Utilities
+    6. Print
+*/
+
+/* 1. Tokens ------------------------------------------------------------ */
+:root {
+  color-scheme: light dark;
+
+  --bg: #fbfcfd;
+  --surface: #ffffff;
+  --surface-2: #f1f4f7;
+  --text: #1b2430;
+  --muted: #56606d;          /* 6.4:1 on --bg */
+  --border: #dde3ea;
+
+  --accent: #0f766e;         /* teal; 5.4:1 on white */
+  --accent-strong: #0b5c56;
+  --accent-soft: #e3f4f1;
+  --on-accent: #ffffff;
+  --focus: #0f766e;
+
+  --ok: #15803d;
+  --bad: #b42318;
+  --warn: #9a5b00;
+  --info: #1d5fa8;
+
+  /* Terminal colours stay dark in both themes. */
+  --term-bg: #10151c;
+  --term-bar: #1c232d;
+  --term-text: #dfe6ee;
+  --term-dim: #8b98a8;
+  --term-ok: #4ade80;
+  --term-bad: #f87171;
+  --term-warn: #fbbf24;
+  --term-accent: #5eead4;
+
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+  --radius: 10px;
+  --radius-sm: 6px;
+  --gutter: 16px;
+  --max: 68rem;
+  --measure: 42rem;
+  --shadow: 0 1px 2px rgb(16 24 40 / 6%), 0 1px 3px rgb(16 24 40 / 8%);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0e1319;
+    --surface: #151b23;
+    --surface-2: #1b232d;
+    --text: #e4e9ef;
+    --muted: #a3adba;
+    --border: #2a3440;
+
+    --accent: #5eead4;
+    --accent-strong: #99f6e4;
+    --accent-soft: #123330;
+    --on-accent: #06201d;
+    --focus: #5eead4;
+
+    --ok: #4ade80;
+    --bad: #f87171;
+    --warn: #fbbf24;
+    --info: #7cb7f5;
+
+    --term-bg: #0a0e13;
+    --term-bar: #161d26;
+
+    --shadow: 0 1px 2px rgb(0 0 0 / 40%);
+  }
+}
+
+/* 2. Base and typography ---------------------------------------------- */
+*, *::before, *::after { box-sizing: border-box; }
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  scroll-padding-top: 5rem;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 1.0625rem;
+  line-height: 1.6;
+  overflow-wrap: break-word;
+}
+
+h1, h2, h3, h4 {
+  line-height: 1.25;
+  margin: 2rem 0 0.75rem;
+  letter-spacing: -0.01em;
+}
+h1 { font-size: clamp(1.9rem, 5vw, 2.6rem); margin-top: 0.5rem; }
+h2 { font-size: clamp(1.4rem, 3.5vw, 1.75rem); }
+h3 { font-size: 1.2rem; }
+h4 { font-size: 1.05rem; }
+
+p, ul, ol, dl { margin: 0 0 1rem; }
+ul, ol { padding-left: 1.4rem; }
+li + li { margin-top: 0.3rem; }
+dt { font-weight: 600; }
+dd { margin: 0 0 0.75rem 1rem; }
+
+a { color: var(--accent); text-underline-offset: 0.15em; }
+a:hover { color: var(--accent-strong); }
+
+:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+img, svg { max-width: 100%; height: auto; }
+
+code, kbd, samp, pre { font-family: var(--mono); font-size: 0.9em; }
+:not(pre) > code {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.05em 0.35em;
+}
+kbd {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 0.05em 0.4em;
+  white-space: nowrap;
+}
+pre { overflow-x: auto; }
+
+hr { border: 0; border-top: 1px solid var(--border); margin: 2.5rem 0; }
+
+.lead { font-size: 1.2rem; color: var(--muted); max-width: var(--measure); }
+.muted { color: var(--muted); }
+.small { font-size: 0.9rem; }
+
+/* 3. Layout ------------------------------------------------------------ */
+.container {
+  width: 100%;
+  max-width: var(--max);
+  margin: 0 auto;
+  padding: 0 var(--gutter);
+}
+main { display: block; padding: 2rem 0 3rem; }
+main > .container > :first-child { margin-top: 0; }
+.prose { max-width: var(--measure); }
+section { margin-bottom: 2.5rem; }
+
+.skip-link {
+  position: absolute;
+  left: var(--gutter);
+  top: -3rem;
+  z-index: 100;
+  background: var(--accent);
+  color: var(--on-accent);
+  padding: 0.5rem 0.9rem;
+  border-radius: var(--radius-sm);
+  text-decoration: none;
+}
+.skip-link:focus { top: 0.5rem; color: var(--on-accent); }
+
+/* Header and nav */
+.site-header {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border);
+}
+@supports not (background: color-mix(in srgb, red 50%, blue)) {
+  .site-header { background: var(--bg); }
+}
+.header-inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  min-height: 3.5rem;
+  padding-top: 0.4rem;
+  padding-bottom: 0.4rem;
+}
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 700;
+  font-size: 1.15rem;
+  color: var(--text);
+  text-decoration: none;
+  margin-right: auto;
+}
+.brand img { width: 32px; height: 32px; }
+.brand:hover { color: var(--accent); }
+
+.nav-toggle { display: none; }
+
+.site-nav ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15rem 0.25rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.site-nav li + li { margin-top: 0; }
+.site-nav a {
+  display: block;
+  padding: 0.35rem 0.6rem;
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  text-decoration: none;
+  font-weight: 500;
+}
+.site-nav a:hover { color: var(--text); background: var(--surface-2); }
+.site-nav a[aria-current="page"] { color: var(--accent); background: var(--accent-soft); }
+.site-nav .nav-gh { color: var(--text); }
+.site-nav .nav-gh svg { width: 1.05em; height: 1.05em; vertical-align: -0.15em; margin-right: 0.3em; fill: currentColor; }
+
+/*
+  Small screens. Without JS the links simply wrap under the logo.
+  site.js adds .js to <html>; then the list folds behind a Menu button.
+*/
+@media (max-width: 760px) {
+  .site-nav { width: 100%; }
+  .site-nav ul { gap: 0.1rem; }
+  .js .nav-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font: inherit;
+    font-weight: 600;
+    color: var(--text);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 0.35rem 0.7rem;
+    cursor: pointer;
+  }
+  .js .site-nav { display: none; }
+  .js .site-nav.is-open { display: block; }
+  .js .site-nav.is-open ul { flex-direction: column; padding-bottom: 0.5rem; }
+  .js .site-nav.is-open a { padding: 0.6rem 0.7rem; }
+}
+
+/* Footer */
+.site-footer {
+  border-top: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 0.92rem;
+  padding: 1.75rem 0;
+}
+.site-footer p { margin: 0 0 0.4rem; }
+.site-footer a { color: inherit; }
+.site-footer a:hover { color: var(--accent); }
+.footer-inner {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 1rem 2rem;
+}
+.footer-links { list-style: none; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 0.25rem 1rem; }
+.footer-links li + li { margin-top: 0; }
+
+/* 4. Components -------------------------------------------------------- */
+
+/* Hero */
+.hero { padding: 1.5rem 0 1rem; }
+.hero .hero-logo { width: 88px; height: 88px; display: block; margin-bottom: 0.75rem; }
+.hero h1 { font-size: clamp(2.1rem, 6vw, 3.1rem); margin-bottom: 0.75rem; }
+.hero .actions { display: flex; flex-wrap: wrap; gap: 0.6rem; margin-top: 1.25rem; }
+
+/* Buttons (links styled as buttons) */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.55rem 1rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+  text-decoration: none;
+  line-height: 1.3;
+}
+.btn:hover { background: var(--accent-strong); border-color: var(--accent-strong); color: var(--on-accent); }
+.btn.secondary { background: transparent; color: var(--accent); }
+.btn.secondary:hover { background: var(--accent-soft); color: var(--accent-strong); }
+
+/* Grid: cards flow into as many columns as fit. */
+.grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 16rem), 1fr));
+  margin: 1rem 0 1.5rem;
+}
+.grid.two { grid-template-columns: repeat(auto-fill, minmax(min(100%, 22rem), 1fr)); }
+
+/* Cards */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.1rem 1.2rem;
+  box-shadow: var(--shadow);
+  min-width: 0;
+}
+.card > :first-child { margin-top: 0; }
+.card > :last-child { margin-bottom: 0; }
+.card h3 { font-size: 1.1rem; margin: 0 0 0.4rem; }
+.card .icon { font-size: 1.5rem; line-height: 1; margin-bottom: 0.4rem; display: block; }
+a.card { display: block; color: inherit; text-decoration: none; }
+a.card:hover { border-color: var(--accent); }
+a.card:hover h3 { color: var(--accent); }
+
+/* Callouts: <aside class="callout note|tip|warn|soon"> */
+.callout {
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--info);
+  background: var(--surface);
+  border-radius: var(--radius-sm);
+  padding: 0.85rem 1rem;
+  margin: 1.25rem 0;
+}
+.callout > :last-child { margin-bottom: 0; }
+.callout .callout-title { display: block; font-weight: 700; margin-bottom: 0.25rem; }
+.callout.tip  { border-left-color: var(--ok); }
+.callout.warn { border-left-color: var(--warn); }
+.callout.soon { border-left-color: var(--accent); background: var(--accent-soft); }
+
+/* Badges: small labels such as "coming, not released". */
+.badge {
+  display: inline-block;
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1.4;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--muted);
+  vertical-align: 0.15em;
+  white-space: nowrap;
+}
+.badge.ok   { color: var(--ok);   border-color: currentColor; background: transparent; }
+.badge.soon { color: var(--accent); border-color: currentColor; background: var(--accent-soft); }
+.badge.warn { color: var(--warn); border-color: currentColor; background: transparent; }
+
+/* Tables: wrap in <div class="table-wrap"> so wide tables scroll inside, not the page. */
+.table-wrap {
+  overflow-x: auto;
+  margin: 1rem 0 1.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+table { border-collapse: collapse; width: 100%; font-size: 0.95rem; }
+th, td { text-align: left; vertical-align: top; padding: 0.6rem 0.8rem; border-bottom: 1px solid var(--border); }
+thead th { background: var(--surface-2); font-weight: 600; white-space: nowrap; }
+tbody tr:last-child > * { border-bottom: 0; }
+caption { caption-side: bottom; text-align: left; padding: 0.5rem 0.8rem; color: var(--muted); font-size: 0.88rem; }
+td.yes { color: var(--ok); font-weight: 600; }
+td.no  { color: var(--bad); font-weight: 600; }
+
+/*
+  Install commands: <div class="cmd"><pre><code>…</code></pre></div>
+  site.js adds a Copy button. Without JS the text is still selectable.
+*/
+.cmd {
+  position: relative;
+  margin: 0.75rem 0 1.25rem;
+  background: var(--term-bg);
+  color: var(--term-text);
+  border-radius: var(--radius-sm);
+}
+.cmd pre { margin: 0; padding: 0.8rem 1rem; white-space: pre-wrap; word-break: break-all; }
+.cmd.has-copy pre { padding-right: 5rem; }
+.cmd .cmd-label {
+  display: block;
+  padding: 0.45rem 1rem 0;
+  font-family: var(--font);
+  font-size: 0.8rem;
+  color: var(--term-dim);
+}
+.copy-btn {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  font: 600 0.8rem/1 var(--font);
+  color: var(--term-text);
+  background: var(--term-bar);
+  border: 1px solid #334050;
+  border-radius: var(--radius-sm);
+  padding: 0.4rem 0.6rem;
+  cursor: pointer;
+}
+.copy-btn:hover { border-color: var(--term-accent); }
+.copy-btn:focus-visible { outline-color: var(--term-accent); }
+
+/*
+  Terminal captures: <pre class="term" data-title="casper — ~/my-repo">…</pre>
+  Text copied from real runs. Colour spans inside:
+    .ok (✓ lines)  .bad (✗ lines)  .warn  .dim  .accent  .prompt  .you (typed input)
+  The title bar is drawn from data-title (or "terminal" if missing).
+*/
+pre.term {
+  position: relative;
+  background: var(--term-bg);
+  color: var(--term-text);
+  border: 1px solid #242e3a;
+  border-radius: var(--radius);
+  padding: 0 1rem 1rem;
+  margin: 1rem 0 1.5rem;
+  font-size: 0.86rem;
+  line-height: 1.5;
+  white-space: pre;
+  overflow-x: auto;
+  tab-size: 4;
+}
+pre.term::before {
+  content: "\25CF\2002\25CF\2002\25CF\2003" attr(data-title);
+  position: sticky;
+  left: 0;
+  display: block;
+  margin: 0 -1rem 0.8rem;
+  padding: 0.45rem 1rem;
+  background: var(--term-bar);
+  border-bottom: 1px solid #242e3a;
+  color: var(--term-dim);
+  font-family: var(--font);
+  font-size: 0.78rem;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+pre.term:not([data-title])::before { content: "\25CF\2002\25CF\2002\25CF\2003terminal"; }
+pre.term .ok { color: var(--term-ok); }
+pre.term .bad { color: var(--term-bad); }
+pre.term .warn { color: var(--term-warn); }
+pre.term .dim { color: var(--term-dim); }
+pre.term .accent, pre.term .prompt { color: var(--term-accent); }
+pre.term .you { color: #ffffff; font-weight: 600; }
+pre.term b, pre.term strong { color: #ffffff; }
+/* A capture with a caption: <figure class="capture"><pre class="term">…</pre><figcaption>…</figcaption></figure> */
+figure.capture { margin: 1rem 0 1.75rem; }
+figure.capture pre.term { margin-bottom: 0.4rem; }
+figcaption { color: var(--muted); font-size: 0.9rem; }
+
+/* Verdict lines outside terminals (e.g. in cards): <p class="verdict ok">✓ Verified</p> */
+.verdict { font-family: var(--mono); font-weight: 600; }
+.verdict.ok { color: var(--ok); }
+.verdict.bad { color: var(--bad); }
+.verdict.warn { color: var(--warn); }
+
+/* Numbered steps: <ol class="steps"> */
+ol.steps { list-style: none; counter-reset: step; padding-left: 0; }
+ol.steps > li {
+  counter-increment: step;
+  position: relative;
+  padding-left: 2.6rem;
+  margin-top: 1rem;
+}
+ol.steps > li::before {
+  content: counter(step);
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1.9rem;
+  height: 1.9rem;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 0.95rem;
+}
+
+/* FAQ and fold-outs: <details><summary>Question</summary>…</details> */
+details {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  padding: 0 1rem;
+  margin: 0.6rem 0;
+}
+details[open] { padding-bottom: 0.75rem; }
+summary {
+  cursor: pointer;
+  font-weight: 600;
+  padding: 0.75rem 0;
+  list-style-position: inside;
+}
+summary:hover { color: var(--accent); }
+details > :last-child { margin-bottom: 0; }
+
+/* Table of contents on long pages */
+.toc {
+  background: var(--surface-2);
+  border-radius: var(--radius);
+  padding: 0.9rem 1.2rem;
+  margin: 1rem 0 2rem;
+  font-size: 0.95rem;
+}
+.toc ul { margin: 0.3rem 0 0; }
+
+/* 5. Utilities ---------------------------------------------------------- */
+.visually-hidden {
+  position: absolute !important;
+  width: 1px; height: 1px;
+  margin: -1px; padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+.center { text-align: center; }
+.stack > * + * { margin-top: 1rem; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
+}
+
+/* 6. Print ---------------------------------------------------------------- */
+@media print {
+  :root {
+    --bg: #fff; --surface: #fff; --surface-2: #f4f4f4; --text: #000; --muted: #333;
+    --border: #bbb; --accent: #000; --accent-soft: #eee;
+    --term-bg: #fff; --term-bar: #eee; --term-text: #000; --term-dim: #444;
+    --term-ok: #000; --term-bad: #000; --term-warn: #000; --term-accent: #000;
+  }
+  body { font-size: 11pt; }
+  .site-header { position: static; backdrop-filter: none; }
+  .site-nav, .nav-toggle, .skip-link, .copy-btn { display: none !important; }
+  .site-footer { background: none; }
+  .card, .table-wrap, pre.term, .callout { box-shadow: none; break-inside: avoid; }
+  pre.term, .cmd pre { white-space: pre-wrap; border: 1px solid #999; }
+  pre.term .you, pre.term b, pre.term strong { color: #000; }
+  details { border: 0; padding: 0; }
+  main a[href^="http"]::after { content: " (" attr(href) ")"; font-size: 0.85em; color: #333; }
+}
+
+/* 404 page */
+.not-found { text-align: center; padding-top: 1.5rem; }
+.not-found .hero-logo { width: 96px; height: 96px; display: block; margin: 0 auto 1rem; }
+.not-found .lead { margin-left: auto; margin-right: auto; }

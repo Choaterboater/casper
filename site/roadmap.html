@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Roadmap · Casper</title>
+  <meta name="description" content="What each Casper release added, and what is being built next (coming, not released).">
+  <meta name="color-scheme" content="light dark">
+  <link rel="icon" href="assets/logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="index.html"><img src="assets/logo.svg" alt="" width="32" height="32">Casper</a>
+      <button class="nav-toggle" type="button" aria-controls="site-nav" aria-expanded="false" hidden>Menu</button>
+      <nav id="site-nav" class="site-nav" aria-label="Main">
+        <ul>
+          <li><a href="index.html">Home</a></li>
+          <li><a href="tour.html">Tour</a></li>
+          <li><a href="network.html">Network</a></li>
+          <li><a href="compare.html">Compare</a></li>
+          <li><a href="roadmap.html" aria-current="page">Roadmap</a></li>
+          <li><a href="faq.html">FAQ</a></li>
+          <li><a class="nav-gh" href="https://github.com/Choaterboater/casper">GitHub</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <div class="container">
+      <h1>Roadmap</h1>
+      <p class="lead">Where Casper has been, and where it is going next. Released things first. Then the
+      things still on the workbench.</p>
+
+      <aside class="callout note">
+        <strong class="callout-title">How to read this page</strong>
+        <p><strong>Released</strong> means you can install it today. Every Casper release so far is an
+        early preview: not signed, and not a stable release. A published release is never changed;
+        every fix ships under a new version number.</p>
+        <p><span class="badge soon">coming, not released</span> means it is being built right now. You
+        cannot install it yet, and the details may still change before it ships.</p>
+      </aside>
+
+      <nav class="toc" aria-label="On this page">
+        <strong>On this page</strong>
+        <ul>
+          <li><a href="#released">Released</a>
+            <ul>
+              <li><a href="#v0215">v0.2.15: MCP for network servers, writes off</a></li>
+              <li><a href="#v0214">v0.2.14: see it build, trust the result</a></li>
+              <li><a href="#v0213">v0.2.13: Casper runs the checks</a></li>
+              <li><a href="#v010">v0.1.0: the first preview</a></li>
+            </ul>
+          </li>
+          <li><a href="#coming">Coming, not released</a>
+            <ul>
+              <li><a href="#v0216">v0.2.16: build new things</a></li>
+              <li><a href="#v0217">v0.2.17: undo, receipts and a sandbox</a></li>
+            </ul>
+          </li>
+        </ul>
+      </nav>
+
+      <section id="released" aria-labelledby="released-h">
+        <h2 id="released-h">Released</h2>
+        <p>Newest first. The full notes for each one are in
+        <a href="https://github.com/Choaterboater/casper/blob/main/docs/RELEASE.md">RELEASE.md</a>
+        and on the <a href="https://github.com/Choaterboater/casper/releases">Releases page</a>.</p>
+        <div class="stack">
+
+        <article class="card" id="v0215" aria-labelledby="v0215-h">
+          <h3 id="v0215-h">v0.2.15 · MCP for network servers, with writes off <span class="badge ok">current preview</span></h3>
+          <p>This one is for network people. MCP servers (tool servers the AI can call) such as
+          hpe-networking-mcp, junos-mcp-server, Mist and NetBox now work with Casper. The AI can read.
+          Changing things is up to you.</p>
+          <ul>
+            <li><strong>Every MCP server starts with writes off.</strong> Write and delete tools are
+            hidden. <code>/mcp writes &lt;server&gt;</code> is the only way to turn them on, and only
+            you can do it. <kbd>ctrl+o</kbd> turns them off again at once.</li>
+            <li><strong>Read-only only when the product says so.</strong> A server's
+            <code>access_check</code> tool can confirm a read-only login. Anything else shows
+            <code>access not checked</code>.</li>
+            <li><strong>Risky calls ask you.</strong> Words like <code>bounce</code>,
+            <code>reboot</code>, <code>delete</code> and <code>rollback</code> always ask. Only your
+            typed <code>yes</code> runs a call.</li>
+            <li><strong>Device secrets hidden from the AI.</strong> Known formats (passwords,
+            RADIUS/TACACS keys, Wi-Fi PSKs, SNMP communities) show up as
+            <code>&lt;secret hidden&gt;</code>. Best effort, not every secret.</li>
+            <li><strong>New command:</strong> <code>casper mcp check [repo]</code> checks an MCP
+            server you built: its tests, labels, schemas and example configs.</li>
+            <li><strong>Local vendor specs:</strong> <code>/references add</code> downloads Mist
+            OpenAPI, Junos YANG or pycentral so you can search them with no model call.</li>
+          </ul>
+          <p class="small muted">See it in action on the <a href="network.html">Network page</a>.</p>
+        </article>
+
+        <article class="card" id="v0214" aria-labelledby="v0214-h">
+          <h3 id="v0214-h">v0.2.14 · See it build, trust the result</h3>
+          <p>The receipt got a verdict line, and the screen got livelier.</p>
+          <p class="verdict ok">✓ Verified — the checks pass, and the tests fail without the change</p>
+          <ul>
+            <li><strong>Line 1 is the verdict:</strong> <code>Verified</code>,
+            <code>Checks passed — not proven</code>, <code>Failed</code>, <code>Incomplete</code>,
+            <code>Not verified</code> or <code>Stopped</code>.</li>
+            <li><strong>Unfinished is not failed.</strong> A check that timed out or could not start
+            says <code>✗ Not checked</code> and is never sent to a paid repair.</li>
+            <li><strong>Already failing?</strong> Before a repair, Casper checks if the test also
+            failed before the change, and asks before paying to fix it.</li>
+            <li><strong>Watch it work:</strong> a live footer with the task's stages, one line per
+            check as it finishes, and a bell when a long request is done or needs you.</li>
+            <li><strong>Numbered choices:</strong> press the number to pick.</li>
+            <li><strong>Git safety:</strong> the AI's shell may not run <code>git stash</code>,
+            <code>git reset --hard</code>, <code>git clean</code> and other commands that can throw
+            away your uncommitted work.</li>
+          </ul>
+        </article>
+
+        <article class="card" id="v0213" aria-labelledby="v0213-h">
+          <h3 id="v0213-h">v0.2.13 · Casper runs the checks</h3>
+          <p>The first published build since v0.1.0. The big idea arrived here: don't take the AI's
+          word for it.</p>
+          <ul>
+            <li><strong>Casper checks its own work by default.</strong> After the AI edits files,
+            Casper runs your project's tests, lint and build, and sends real failures back for
+            repair.</li>
+            <li><strong>Request checklist:</strong> before a code change, Casper lists the cases your
+            request asks for. You can edit the list, or press <kbd>Esc</kbd> to skip it.</li>
+            <li><strong>Scripting:</strong> <code>--json</code> streams events,
+            <code>--require-verification</code> exits 3 when a change was not verified, and command
+            line mistakes exit 64.</li>
+            <li><strong>Sign-in fix:</strong> the built program can use stored OpenAI Codex, GitHub
+            Copilot, Anthropic and OpenRouter sign-ins. (The 0.2.12 build could not, so it was never
+            published.)</li>
+            <li><strong>Its own settings:</strong> Casper uses <code>CASPER_*</code> settings and no
+            longer falls back to Pi's <code>PI_*</code> ones.</li>
+          </ul>
+        </article>
+
+        <article class="card" id="v010" aria-labelledby="v010-h">
+          <h3 id="v010-h">v0.1.0 · The first preview</h3>
+          <p>Where it all started. The first published preview of Casper.</p>
+          <ul>
+            <li>Tested by hand on macOS. The test run passed 543 tests with 0 failures.</li>
+            <li>Test installs of the Apple silicon build and the Intel build (run through Rosetta)
+            passed. At the time, nothing had run a Linux build on Linux.</li>
+            <li>Known quirk: the login menu adds a new line each time you move, instead of moving the
+            highlight. Fixed in v0.2.13.</li>
+          </ul>
+        </article>
+        </div>
+      </section>
+
+      <section id="coming" aria-labelledby="coming-h">
+        <h2 id="coming-h">Coming, not released</h2>
+        <aside class="callout soon">
+          <strong class="callout-title">Not in any release yet</strong>
+          <p>Nothing in this section is in v0.2.15. It is being built now. Names, commands and details
+          may change, or move to a later version, before they ship.</p>
+        </aside>
+
+        <div class="stack">
+        <article class="card" id="v0216" aria-labelledby="v0216-h">
+          <h3 id="v0216-h">v0.2.16 · Build new things <span class="badge soon">coming, not released</span></h3>
+          <p>Start new projects, see pages load after edits, and run network and security checks.
+          Most of it makes no model call, so it costs zero tokens.</p>
+          <ul>
+            <li><strong>New projects with <code>casper new</code>.</strong> Pick a kind and a name.
+            Casper builds the project, runs its tests and makes the first commit, with no model. The
+            planned templates include a Python tool, an MCP server for your network
+            (<code>network-mcp</code>), Mist Python scripts (<code>mist-python</code>), a web app, a
+            NOC dashboard, and Aruba CX (AOS-CX) and Junos Ansible projects. The last line says
+            "Ready", never "verified".</li>
+            <li><strong>Page checks.</strong> In a web project, after an edit that reaches a page,
+            Casper starts the dev server, opens the changed pages and reports whether they load.</li>
+            <li><strong>Plan first.</strong> A request that asks for many things can get a plan
+            before any building starts. You read it, then pick build or stop.</li>
+            <li><strong>Retry on a bigger model.</strong> When repairs run out, Casper asks once
+            whether to retry on your bigger model, and shows a rough cost. Pressing Enter stops.</li>
+            <li><strong>Network checks.</strong> Casper finds Ansible playbooks and offers ready-made
+            syntax checks for Aruba CX and Junos. Checks against a lab run only when you start them;
+            the AI cannot start one.</li>
+            <li><strong>Security scans.</strong> <code>casper security</code> runs free scanners such
+            as gitleaks and semgrep on your project, with no model call. The report says what the
+            tools found. It never calls your code safe.</li>
+          </ul>
+        </article>
+
+        <article class="card" id="v0217" aria-labelledby="v0217-h">
+          <h3 id="v0217-h">v0.2.17 · Undo, receipts and a sandbox <span class="badge soon">coming, not released</span></h3>
+          <p>The "oops" release. Take changes back, keep proof of what happened, and fence in the
+          shell.</p>
+          <ul>
+            <li><strong>Undo and redo.</strong> <code>/undo</code>, <code>/redo</code> and a
+            per-task <code>/diff</code>, working from a saved copy of each task's files.</li>
+            <li><strong>Saved receipts.</strong> Each task's receipt kept on disk, with secrets
+            hidden.</li>
+            <li><strong>A stricter "verified".</strong> In the <code>--json</code> result, only a
+            proven change counts as verified.</li>
+            <li><strong>A sandbox for shell commands.</strong> Today, the AI's shell runs with your
+            permissions and nothing fences it in. The plan is to hold it back at the operating
+            system level.</li>
+            <li><strong>An AI security review.</strong> A model reads your code for security
+            problems. It waits for the sandbox, so the model cannot read files the scanners
+            flagged.</li>
+          </ul>
+        </article>
+        </div>
+
+        <p class="muted small">Want something on this list, or think something is missing? Open an
+        <a href="https://github.com/Choaterboater/casper/issues">issue on GitHub</a>.</p>
+      </section>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <div>
+        <p><strong>Casper 0.2.15</strong> · early preview, unsigned</p>
+        <p><a href="https://github.com/Choaterboater/casper/blob/main/LICENSE">MIT licence</a> · © 2026 Choaterboater</p>
+        <p>Built on the <a href="https://github.com/earendil-works/pi">Pi SDK</a>. Other parts keep their own licences (<a href="https://github.com/Choaterboater/casper/blob/main/THIRD_PARTY_NOTICES.txt">notices</a>).</p>
+      </div>
+      <ul class="footer-links">
+        <li><a href="https://github.com/Choaterboater/casper">Source</a></li>
+        <li><a href="https://github.com/Choaterboater/casper/releases">Releases</a></li>
+        <li><a href="https://github.com/Choaterboater/casper/issues">Issues</a></li>
+      </ul>
+    </div>
+  </footer>
+
+  <script src="assets/site.js" defer></script>
+</body>
+</html>

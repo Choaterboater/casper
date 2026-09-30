@@ -1,0 +1,12 @@
+# Casper 0.2.15 · /verify: one line per check as it finishes, then the receipt
+
+❯ /verify
+– typecheck · skipped, no command
+✓ lint · 0.1s
+✓ test · 0.0s
+✓ build · 0.0s
+• Incomplete — not every check ran
+• Not verified — typecheck has no command. Add verify.typecheck to .casper/project.yaml.
+✓ lint passed (node --check src/sum.js, 0.1s)
+✓ test passed (bun test, 0.0s)
+✓ build passed (bun build src/sum.js --outdir dist, 0.0s)
