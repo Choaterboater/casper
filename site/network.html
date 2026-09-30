@@ -7,6 +7,9 @@
   <meta name="description" content="How Casper works with network MCP servers like hpe-networking-mcp, junos-mcp-server, Mist and NetBox: writes off, you approve changes, and device secrets hidden from the AI.">
   <meta name="color-scheme" content="light dark">
   <link rel="icon" href="assets/logo.svg" type="image/svg+xml">
+  <link rel="icon" href="favicon.ico" sizes="16x16 32x32 48x48">
+  <link rel="icon" href="assets/icon-192.png" type="image/png" sizes="192x192">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
   <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
@@ -442,7 +445,7 @@ Result: 3 problems, 2 warnings, 1 note
 Exit codes: 0 no problems, 1 problems (or warnings with --strict), 64 usage mistake
 <span class="prompt">$</span> <span class="you">echo $?</span>
 1</pre>
-          <figcaption>A real run on a test server whose labels are wrong on purpose. A <code>delete_site</code> that claims to be read-only is exactly the kind of thing you want caught in the lab, not in production.</figcaption>
+          <figcaption>Captured from Casper on a test server whose labels are wrong on purpose. A <code>delete_site</code> that claims to be read-only is exactly the kind of thing you want caught in the lab, not in production.</figcaption>
         </figure>
         <p class="prose small muted">Add <code>--json</code> for a report a script can read, and <code>--strict</code> to fail on warnings too. Exit codes: 0 no problems, 1 problems, 64 usage mistake.</p>
       </section>

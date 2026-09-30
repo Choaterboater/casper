@@ -6,6 +6,17 @@ import { paint, terminalText } from "./format";
 import { renderPanel, type PanelTone } from "./presentation";
 import { TerminalSurface, type AskOrigin } from "./surface";
 import type { NextRow } from "./next-row";
+import { bellSequence, hostCommand, prepareTmuxPane, titleSequence, TITLE_RESTORE, TITLE_SAVE, type HostCommand, type HostTerminal } from "./host-terminal";
+import { SidePane, type ActivityPane } from "./side-pane";
+
+/** The terminal Casper was started in (tmux, iTerm2), when it is a real one. Tests leave it out. */
+export interface TerminalHost {
+  host: HostTerminal;
+  /** Opens the view-only steps pane; SidePane.open by default. */
+  openPane?: () => ActivityPane | undefined;
+  /** Runs tmux for Casper's own pane settings (tests pass a fake). */
+  run?: HostCommand;
+}
 
 export type TerminalOutput = RuntimePickerIO["output"] & { isTTY?: boolean };
 
@@ -28,16 +39,25 @@ export class InteractiveTerminal {
   private readonly earlyLines: string[] = [];
   /** Plain line input: the row under the last receipt. A line that is exactly one of its keys runs that step. */
   private nextKeys?: Map<string, string>;
+  /** The steps pane beside Casper inside tmux or iTerm2: opened on the first busy step, closed at exit. */
+  private pane?: ActivityPane;
+  private paneTried = false;
+  private titleSaved = false;
+  private undoHost?: () => void;
 
   constructor(private readonly input: Readable, private readonly output: TerminalOutput,
-    private readonly onInterrupt: () => void, private readonly onEOF: () => void) {
+    private readonly onInterrupt: () => void, private readonly onEOF: () => void, private readonly host?: TerminalHost) {
     const tty = Boolean((input as NodeJS.ReadStream).isTTY && output.isTTY && process.env.TERM !== "dumb");
     this.color = Boolean(output.isTTY && process.env.TERM !== "dumb" && process.env.NO_COLOR === undefined);
     if (tty) this.surface = new TerminalSurface({ input, output, color: this.color, onEOF }, onInterrupt, onEOF);
+    if (this.surface && host) this.surface.setBell(bellSequence(host.host, "Casper is waiting for you"));
   }
 
   start(): void {
-    if (this.surface) { this.surface.start(); return; }
+    if (this.surface) {
+      if (this.host && !this.undoHost) this.undoHost = prepareTmuxPane(this.host.host, this.host.run ?? hostCommand());
+      this.surface.start(); return;
+    }
     if (this.rl || this.closed) return;
     this.rl = readline.createInterface({ input: this.input, output: this.output as Writable, terminal: false });
     // Readline emits a chunk's lines synchronously. Lines that arrive in the same chunk as the
@@ -70,7 +90,32 @@ export class InteractiveTerminal {
   get badge(): string | undefined { return this.badgeText; }
   /** ctrl+o on the rich terminal: turn writes off everywhere. The handler returns true when any were on. */
   setWritesRevert(handler: (() => boolean) | undefined): void { this.surface?.setWritesRevert(handler); }
-  setActivity(status?: string): void { this.surface?.setActivity(status); }
+  /** The rich Working box: one line or a few (the latest steps). Nothing on the plain terminal. Inside tmux or
+   * iTerm2 the lines go to the view-only steps pane instead, and the main screen keeps only the model's words. */
+  setActivity(status?: string | readonly string[]): void {
+    const lines = typeof status === "string" ? [status] : status ?? [];
+    const pane = lines.length ? this.activityPane() : this.pane;
+    if (pane) { pane.show(lines); this.surface?.setActivity(undefined); return; }
+    this.surface?.setActivity(status);
+  }
+  /** A helper's (delegate's) step: in the steps pane when there is one; the main screen stays quiet. */
+  logHelper(line: string): void { this.activityPane()?.log(line); }
+  /** The steps pane is open (inside tmux or iTerm2, after the first busy step). */
+  get hasPane(): boolean { return this.pane !== undefined; }
+  private activityPane(): ActivityPane | undefined {
+    if (!this.surface || !this.host || this.closed) return undefined;
+    if (!this.paneTried) {
+      this.paneTried = true;
+      this.pane = this.host.openPane ? this.host.openPane() : SidePane.open({ host: this.host.host });
+    }
+    return this.pane;
+  }
+  /** The window title (the pane title inside tmux); the one before comes back at exit. Rich terminal in tmux or iTerm2. */
+  setTitle(title: string): void {
+    if (!this.surface || !this.host || this.closed) return;
+    if (!this.titleSaved) { this.titleSaved = true; this.output.write(TITLE_SAVE); }
+    this.output.write(titleSequence(title));
+  }
   /** The current task's stages ("checklist ✓ · building"), shown first in the footer while work runs. */
   setSteps(steps?: string): void { this.surface?.setSteps(steps); }
   /** How long a request must run before its end or a question rings the terminal bell (default 10 s). */
@@ -107,15 +152,13 @@ export class InteractiveTerminal {
     this.surface.writeBlock({ render: width => renderPanel(heading, lines, width, this.color, options.tone ?? "muted"), invalidate() {} });
   }
 
-  write(text: string, options: { rewriteLine?: boolean } = {}): void {
+  write(text: string): void {
     const styled = terminalText(text).split("\n").map(line => {
       const code = /^(?:\[error\]|✗)/.test(line) ? "31" : /^✓/.test(line) ? "32"
         : /^(?:•|\[skills\]|\[cancel|\[approval\]|\[ask\]|\[effort\])/.test(line) ? "33" : /^CASPER/.test(line) ? "1;36" : /^(?: \/help · |…)/.test(line) ? "2" : undefined;
       return code ? paint(line, code, this.color) : line;
     }).join("\n");
-    // `rewriteLine` restarts the transcript's open tail line (a "running" status) instead of
-    // appending; the sanitizer above would otherwise escape a caller's `\r`. Rich surface only.
-    if (this.surface) this.surface.write(options.rewriteLine ? `\r${styled}` : styled); else this.output.write(styled);
+    if (this.surface) this.surface.write(styled); else this.output.write(styled);
   }
 
   assistant(delta: string): void {
@@ -254,8 +297,17 @@ export class InteractiveTerminal {
   }
 
   close(): void {
+    this.closeHost();
     if (this.surface) { this.surface.close(); return; }
     if (this.closed) return;
     this.endAssistant(); this.rl?.close(); this.closed = true;
+  }
+
+  /** Close the steps pane, undo Casper's own pane setting and give the title back. Once. */
+  private closeHost(): void {
+    const pane = this.pane; this.pane = undefined; this.paneTried = true;
+    pane?.close();
+    this.undoHost?.(); this.undoHost = () => {};
+    if (this.titleSaved) { this.titleSaved = false; this.output.write(TITLE_RESTORE); }
   }
 }

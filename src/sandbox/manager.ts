@@ -85,6 +85,8 @@ export class ShellSandbox {
   private readonly sessionHosts = new Set<string>();
   private readonly pendingHosts = new Map<string, Promise<boolean>>();
   private readonly blockedSaid = new Set<string>();
+  /** Hosts you said yes to for one command (ssh to a host you named), until that command ends. */
+  private readonly runHosts = new Map<string, string[]>();
   private remembered: string[] = [];
   private closed = false;
   private startError?: string;
@@ -199,7 +201,13 @@ export class ShellSandbox {
 
   /** Run `id` has ended: the sandbox cleans up after it (see SandboxEngine.finished). Safe to call more than once. */
   finished(id: string | undefined): void {
-    if (id) this.engine.finished(id);
+    if (id) { this.runHosts.delete(id); this.engine.finished(id); }
+  }
+
+  /** You said yes to these hosts for the command `id` (Casper's own "Reach <host>?" question): the proxy lets that
+   * command reach them without asking again, until it ends. */
+  allowForRun(id: string, hosts: string[]): void {
+    this.runHosts.set(id, hosts.map(hostName));
   }
 
   /** What the sandbox refused for run `id`, in plain words: "wanted to write /etc/hosts", "wanted to reach api.mist.com".
@@ -235,6 +243,7 @@ export class ShellSandbox {
   private async decideHost(host: string, port: number | undefined): Promise<boolean> {
     const name = hostName(host);
     if (this.sessionHosts.has(name) || hostListed(name, this.remembered)) return true;
+    for (const hosts of this.runHosts.values()) if (hosts.includes(name)) return true;
     const pending = this.pendingHosts.get(name);
     if (pending) return pending;
     const decision = (async () => {

@@ -80,6 +80,14 @@ export const HOST_CHOICES = [
   { label: "Always for this project", description: "kept in ~/.casper, never in the repo; /sandbox forget <host> undoes it" },
 ] as const satisfies readonly Choice[];
 
+/** "Reach 10.0.0.5 (build-server)?  ssh root@build-server uptime" before the AI's shell runs ssh, scp, sftp, rsync, nc, telnet or
+ * socat to another machine, sandbox or not. Enter runs nothing. */
+export const REACH_CHOICES = [
+  { label: "No", description: "the command does not run" },
+  { label: "Yes, this time", description: "this command only" },
+  { label: "Yes, for this session", description: "commands to this host don't ask again until Casper exits" },
+] as const satisfies readonly Choice[];
+
 /** "Run this command?  npm test" when no sandbox can run (Windows, bubblewrap missing). Enter runs nothing. */
 export const SHELL_COMMAND_CHOICES = [
   { label: "No", description: "the command does not run" },
@@ -92,3 +100,28 @@ export const AI_REVIEW_CHOICES = [
   { label: "Stop here", description: "no tokens are spent" },
   { label: "Run the AI review", description: "uses tokens; its findings are its opinion" },
 ] as const satisfies readonly Choice[];
+
+/** A typed folder name that isn't there: "sample-tools isn't a folder in Documents." Enter stays and makes nothing. */
+export function missingFolderChoices(folder: string, name: string, where = "here"): Choice[] {
+  return [
+    { label: `Stay in ${folder}`, description: "nothing is made" },
+    { label: `Make ${name} ${where}`, description: "start a new project with that name" },
+  ];
+}
+
+/** "The work is in ~/Documents/sample-tools." after a task whose files all sit in that project. Enter stays. */
+export function workFolderChoices(here: string, there: string): Choice[] {
+  return [
+    { label: "Stay here", description: `keep working in ${here}` },
+    { label: "Switch there", description: `your next request starts a new conversation in ${there}` },
+  ];
+}
+
+/** "This task has used $5.02." when a task reaches the spend pause (spend.pauseAt, $5 by default). Enter stops;
+ * the work so far is kept either way. `next` is where it asks again. */
+export function spendChoices(next: string): Choice[] {
+  return [
+    { label: "Stop here", description: "the work so far is kept" },
+    { label: "Keep going", description: `asks again at ${next}` },
+  ];
+}

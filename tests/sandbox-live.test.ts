@@ -143,6 +143,35 @@ needsSandbox("a host you allow for the session is reached", async () => {
   answer = undefined;
 });
 
+needsSandbox("a host you said yes to for one ssh command is reached through the sandbox's ssh route, only while that command runs", async () => {
+  // ssh in the sandbox connects through the runtime's ProxyCommand (the one git over ssh uses). Run that route with the
+  // %h and %p ssh would fill in, to a stand-in ssh server that sends its greeting first, as sshd does. Nobody can
+  // answer here, so only the yes for this one command lets it through. macOS's route is nc through the SOCKS proxy,
+  // which can't send the proxy's password, so there ssh in the sandbox is refused and Casper says so.
+  if (process.platform !== "linux") return;
+  const target = "127.0.0.4";
+  const sshd = createNetServer({ allowHalfOpen: true }, (connection) => { connection.end("SSH-2.0-CasperFixture\r\n"); });
+  await new Promise<void>((resolve) => sshd.listen(0, "0.0.0.0", resolve));
+  const sshPort = (sshd.address() as { port: number }).port;
+  const route = `pc=$(printf %s "$GIT_SSH_COMMAND" | sed -n "s/.*ProxyCommand='\\([^']*\\)'.*/\\1/p" | sed "s/%h/${target}/; s/%p/${sshPort}/; s/^socat /socat -t 10 /"); `
+    + `test -n "$pc" || { echo no-ssh-route; exit 9; }; sh -c "$pc" </dev/null 2>&1`;
+  const attempt = async (allowed: boolean) => {
+    const wrapped = await sandbox.wrap(route, { cwd: root, network: "ask" });
+    if (allowed) sandbox.allowForRun(wrapped.id, [target]);
+    return new Promise<string>((resolve) => {
+      const child = spawn(wrapped.command, { cwd: root, shell: true, env: { ...process.env, HOME: home } });
+      let out = "";
+      child.stdout.on("data", (chunk) => { out += chunk; });
+      child.stderr.on("data", (chunk) => { out += chunk; });
+      child.on("close", () => { sandbox.finished(wrapped.id); resolve(out); });
+    });
+  };
+  try {
+    expect(await attempt(true)).toContain("SSH-2.0-CasperFixture");
+    expect(await attempt(false)).not.toContain("SSH-2.0-CasperFixture");
+  } finally { await new Promise((resolve) => sshd.close(resolve)); }
+});
+
 needsSandbox("no network at all for a tool run with network none; files still held", async () => {
   const result = await run(`curl -sS -m 5 http://127.0.0.1:${port}/`, "none");
   expect(result.out).not.toContain("hello from the host");

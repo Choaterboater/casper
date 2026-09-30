@@ -5,7 +5,7 @@ Date: 2026-09-26. Status: accepted.
 ## Context
 
 The hard-pack decision run (docs/evals/2026-09-26-hard-pack.md) found that Casper's receipt said `verified`
-on 12 of 12 wrong runs, and the agreed rule said Casper should shrink to a Pi extension. The owner
+on 12 of 12 wrong runs, and the agreed rule said Casper should shrink to a Pi extension. The maintainer
 reversed that call the same day. A Pi extension cannot own the process exit code, the task prompt or the
 CLI, so it cannot be the product. The independent acceptance check that followed
 (docs/evals/2026-09-26-acceptance-check.md) caught 1 of 8 wrong runs.

@@ -7,8 +7,10 @@
  * app pages. OpenRouter honors it only when the request creates a brand-new app, so listing
  * Casper publicly later means an explicit decision (and possibly contacting OpenRouter).
  * https://openrouter.ai/docs/app-attribution */
+/* The referer is Casper's site, so OpenRouter shows the site's icon for the app (a GitHub URL showed
+ * GitHub's). OpenRouter keys apps by referer, so the change may start a new app entry. */
 export const OPENROUTER_ATTRIBUTION: Record<string, string> = {
-  "HTTP-Referer": "https://github.com/Choaterboater/casper",
+  "HTTP-Referer": "https://choaterboater.github.io/casper/",
   "X-OpenRouter-Title": "Casper",
   "X-OpenRouter-Categories": "cli-agent",
   "X-OpenRouter-App-Visibility": "hidden",
@@ -32,4 +34,11 @@ export function isOpenRouterModel(model: { provider?: string; baseUrl?: string }
   if (!model) return false;
   if (model.provider === "openrouter") return true;
   try { return new URL(model.baseUrl ?? "").hostname === "openrouter.ai"; } catch { return false; }
+}
+/** Stream options for a direct request (completeSimple) that bypasses the session's header hook:
+ * Casper's attribution when the model is OpenRouter's, nothing otherwise. Without it OpenRouter
+ * files the request under "Unknown". */
+export function openRouterRequestHeaders(model: { provider?: string; baseUrl?: string } | undefined): { headers?: Record<string, string> } {
+  const headers = isOpenRouterModel(model) ? openRouterAttribution() : {};
+  return Object.keys(headers).length ? { headers: { ...headers } } : {};
 }

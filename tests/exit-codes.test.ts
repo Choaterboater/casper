@@ -37,6 +37,11 @@ const table: Array<[string, TaskResult | undefined, TaskOutcome, number, number]
   ["browser checks incomplete", done({ changedPaths: ["a.ts"], verification: report("pass"), browser: { status: "incomplete", checks: [], guidance: "" } }), "incomplete", 2, 2],
   ["stopped by --max-turns", done({ changedPaths: ["a.ts"], turnLimit: 3 }), "incomplete", 2, 2],
   ["stopped by --max-turns after the model's own failing check", done({ changedPaths: ["a.ts"], turnLimit: 3, verification: report("blocked") }), "incomplete", 2, 2],
+  // Casper stopped commands to another machine: what the AI said about it did not happen, so never a clean pass.
+  ["host commands Casper stopped, with proven local checks", done({ changedPaths: ["a.ts"], verification: report("pass"), remoteNotRun: [{ host: "build-server", commands: 3 }],
+    proof: { status: "proven", check: "test", command: "npm test", testsChanged: true, without: { exitCode: 1, ended: "fail" } } }), "incomplete", 2, 2],
+  ["host commands Casper stopped, nothing else", done({ changedPaths: [], remoteNotRun: [{ host: "build-server", commands: 1 }] }), "incomplete", 2, 2],
+  ["host commands Casper stopped, and a check failed", done({ changedPaths: ["a.ts"], verification: report("fail", [check({ status: "fail", exitCode: 1 })]), remoteNotRun: [{ host: "build-server", commands: 1 }] }), "failed", 1, 1],
   ["the model run failed", { execution: "failed", changedPaths: ["a.ts"] }, "failed", 1, 1],
   ["cancelled", { execution: "cancelled", changedPaths: ["a.ts"], verification: report("pass") }, "cancelled", 130, 130],
 ];

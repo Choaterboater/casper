@@ -15,7 +15,7 @@ export interface VerificationSettings {
   /** Unset means every configured check, and every named check that runs after each change. */
   checks?: CheckName[];
   /** `true` adds the requirements review round after the checks pass on a code change. Unset means
-   * off (owner decision, Phase 4a): in pinned benchmarks the review added no first-time-right and cost
+   * off (design decision, Phase 4a): in pinned benchmarks the review added no first-time-right and cost
    * about 40% of Casper's wall time; the checks and the proof keep false "done" at zero. With it off, a
    * checklist the model's own answer ends with is still reported, and the change is still proven. */
   review?: boolean;
@@ -57,7 +57,7 @@ export interface ChecksPlan {
   mode: VerificationMode; checks: CheckName[]; slow?: boolean;
   /** Named checks that run only with /verify <name> (set to "ask", and reports). */
   manual?: string[];
-  /** Lab checks: they reach the owner's lab devices and run only when the owner starts them (/verify <name>). */
+  /** Lab checks: they reach the user's lab devices and run only when the user starts them (/verify <name>). */
   lab?: string[];
   /** Ready-made checks Casper found (Ansible) that the project has not saved; /verify add <name> saves one. */
   found?: string[];

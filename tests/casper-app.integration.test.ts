@@ -5,7 +5,7 @@ import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { CasperApp } from "../src/app";
-import { leadingFlag } from "../src/cli";
+import { leadingFlag } from "../src/cli-main";
 import { loadProjectContext } from "../src/project/context";
 import { SkillRegistry } from "../src/skills/registry";
 import { ProjectMemory } from "../src/memory/store";
@@ -295,10 +295,10 @@ test("local skill commands work without starting an unavailable runtime", async 
 
       output = "";
       await app.runOnce("/output");
-      expect(output).toContain("[output] bash · wc -l notes.txt · success\n1 notes.txt\n");
+      expect(output).toContain("[output] bash · wc notes.txt · success\n$ wc -l notes.txt\n1 notes.txt\n");
       output = "";
       await app.runOnce("/output 2");
-      expect(output).toContain("[output] bash · echo after > notes.txt · success\n(no output text)\n");
+      expect(output).toContain("[output] bash · echo after … · success\n$ echo after > notes.txt\n(no output text)\n");
       await expect(app.runOnce("/output 3")).rejects.toThrow("Usage: /output [n] with n from 1 (most recent) to 2");
       await expect(app.runOnce("/output zero")).rejects.toThrow("Usage: /output");
     } finally { await app.close(); }

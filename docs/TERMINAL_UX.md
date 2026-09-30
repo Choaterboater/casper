@@ -103,15 +103,25 @@ stay on standalone lines so frames do not become part of a copied value. Capture
 tool errors and verifier stdout/stderr remain available with display-only
 redaction; this is not a general secret detector, and recorded evidence is unchanged.
 
-Tool activity shows file/command targets (grep/find show their pattern), state and
-elapsed time. On a rich terminal the `• … — running` line is redrawn in place as
-`✓`/`✗` when that call finishes, so each tool call occupies one transcript line;
-any other output in between commits the running line first. A transient `Working`
-box starts with `Waiting for <provider/model> · 0s` and ticks elapsed time even
-when the provider sends no intermediate progress events. Progress updates change it
-to reasoning or tool preparation; tool events show their safe target and state.
-It never displays hidden reasoning or generated arguments, and clears when
-assistant text streams.
+Tool activity shows file/command targets (grep/find show their pattern) and state; the time
+shows only from one second up. A shell command shows as a short label, its program and what it
+acts on (`git status`, `ssh root@10.0.0.5 …`, `python3 -m pytest …`, at most 80 characters);
+`/output` shows the whole command, secrets hidden. The `✓` or `✗` says how a call ended, so there
+is no "completed".
+
+On a rich terminal the main screen keeps the model's words, questions and receipts. Tool calls live
+in a transient `Working` box that shows the last 3 steps, each updated in place (`• read · src/x.ts`
+while it runs, `✓ read · src/x.ts` once done), even with calls running side by side. When the model
+moves on (its next words, or the end of its turn), the finished steps fold into one line:
+`✓ 14 edits · 6 commands · 38s` (`•` instead of `✓` when a step failed); a single step prints its own line. A failed command
+prints its line and cause above the summary; a failed edit the model tried again at once is counted,
+not printed. A command Casper refused before it ran (a private place such as `~/.ssh`, another machine
+you said No to, or one a script run can't ask about) is not a failure: it reads
+`• bash · cat ~/.ssh/config — not run`, with the reason said to you on the next line, and is not
+counted as failed. The box also starts with `Waiting for <provider/model> · 0s` and ticks elapsed time
+even when the provider sends no intermediate progress events; progress updates change it to reasoning
+or tool preparation. It never displays hidden reasoning or generated arguments, and it is gone when
+the receipt or the prompt returns. The plain terminal and scripts print one end line per tool call.
 
 Help and results group related facts instead of one long paragraph. Assistant
 instructions favor the answer or action first, numbered human steps when needed,
@@ -123,13 +133,15 @@ command is working, `?` while an exact approval is pending. The box never shifts
 horizontally between states, so a draft keeps its wrapping. The footer shows a
 state glyph (braille spinner while working, `○` idle, `? waiting for you` while a question,
 checklist or approval needs you, with the spinner stopped and the timer paused), then project/branch, provider/model, effort,
-estimated context occupancy, runtime-reported session tokens, a positive cost
-estimate when available, and idle/working state. While a task runs, its stages
+estimated context occupancy, the current task's tokens and its cost from the model's price
+(`task 48.2k tok · $0.31`; a free model shows tokens only; /usage has the session totals), and
+idle/working state. While a task runs, its stages
 lead the footer, each marked ✓ once done, then the elapsed time:
 `⠋ checklist ✓ · building ✓ · checks · 1m05s │ project…`; in a narrow window only the current stage
 and the time (`⠋ checks · 1m05s │ …`). Tool lines print paths relative to the project and fit one row:
-narrow, the words go and a path is shortened from the front (`✓ edit · …s/test_calc.py · +9 -1 · 0.0s`). Each check Casper runs prints one line
-as it finishes (`✓ typecheck · 5.9s`, `✗ test · exit 1 · 2.3s`, `✗ test · timed out after 10m`), so a
+narrow, the words go and a path is shortened from the front (`✓ edit · …st_calc.py · +9 -1 · 2.5s`). Each check Casper runs prints one line
+as it finishes (`✓ typecheck · 5.9s`, `✗ test · exit 1 · 2.3s`, `✗ test · timed out after 10m`; a check
+under a second shows no time), so a
 pass is never silent; `--verbose` prints the full evidence line instead. When a request that ran for 10 seconds or
 more finishes, or asks you something (a question, an approval, the checklist), Casper rings the
 terminal bell; your terminal decides whether that is a sound, a flash or a dock bounce. Scripts,
@@ -331,7 +343,7 @@ Daily commands include `/help`, `/status`, `/project`, `/diff`, `/verify`, `/ski
 | `/resume` | List saved conversation IDs in this workspace |
 | `/resume <exact-id>` | Restore one of those conversations, keeping named workspace linkage consistent |
 | `/tree`, `/switch <name>` | Existing named-workspace navigation and its approval policy |
-| `/output [n]` | Full retained output of the last task's n-th most recent tool call (1 = latest; 20 retained per task); out-of-range n is a usage error |
+| `/output [n]` | Full command and output of the last task's n-th most recent tool call (1 = latest; 20 retained per task); out-of-range n is a usage error |
 
 `/diff` shows Git status and tracked changes against HEAD, without external diff or
 textconv drivers. Untracked names are listed, not file contents. Each Git command

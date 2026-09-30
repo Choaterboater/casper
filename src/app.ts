@@ -14,7 +14,7 @@ import { serviceTool } from "./services/tool";
 import { detectWebService, isDetectedWebService } from "./services/detect";
 import { formatPagesNotChecked, formatSkippedPage, PageChecks, pageOpener, planPageCheck, type DevServerNotice, type PageCheckPlan, type PageOpener, type PageReport } from "./services/page-checks";
 import { formatTerminalJSON } from "./tui/json";
-import { InteractiveTerminal } from "./tui/terminal";
+import { InteractiveTerminal, type TerminalHost } from "./tui/terminal";
 import { askTool } from "./tui/ask";
 import { pickEffort } from "./tui/effort-picker";
 import { nextEffort } from "./tui/effort";
@@ -41,6 +41,7 @@ import {
   type ProjectContext,
 } from "./project/context";
 import { findProjectCandidates, hasProjectSignals, inspectProject, type ProjectInfo } from "./project/inspect";
+import { childProjectOf, type ChildProject } from "./project/child";
 import type {
   AgentRuntime,
   RuntimeAuthProvider,
@@ -53,8 +54,8 @@ import { classifyTask, formatTaskPrompt, underSpecifiedTarget } from "./task/cla
 import { formatReceipt, liveCheckLine, formatTaskResult, type TaskResult, type TaskUsage } from "./task/result";
 import { TaskObservations } from "./task/observations";
 import { LifecycleRegistry } from "./app/lifecycle";
-import { RuntimeEventView } from "./app/events";
-import { diffSnapshots, snapshotTree, type TreeChanges } from "./task/changes";
+import { helperActivityLine, RuntimeEventView } from "./app/events";
+import { diffSnapshots, snapshotFailureReason, snapshotTree, type TreeChanges } from "./task/changes";
 import { renderBanner, renderProjectSummary, wordmarkHeader } from "./tui/banner";
 import { CHECK_NAMES, type CheckName, formatDuration, formatVerificationReport, formatVerificationResult, type VerificationReport, type VerificationResult } from "./verify/evidence";
 import { ProcessCleanupError } from "./platform/processes";
@@ -62,7 +63,8 @@ import { safeGitArgs } from "./platform/git";
 import { VerifierRegistry } from "./verify/registry";
 import { isRetryableAssistantError } from "@earendil-works/pi-ai/utils/retry";
 import { longerLimit, timedOutAfter, verifyAndRepair, type UnfinishedChoice } from "./verify/repair-loop";
-import { ALREADY_FAILING_CHOICES, modelFailedChoices, PLAN_CHOICES, PLAN_QUESTION, REMEMBER_BIG_MODEL_CHOICES, REPAIR_LIMIT_STOP, unfinishedChoices } from "./app/safe-choices";
+import { ALREADY_FAILING_CHOICES, modelFailedChoices, PLAN_CHOICES, PLAN_QUESTION, REMEMBER_BIG_MODEL_CHOICES, REPAIR_LIMIT_STOP, spendChoices, unfinishedChoices, workFolderChoices } from "./app/safe-choices";
+import { DEFAULT_SPEND_LIMITS, formatCost, formatLimit, formatTaskSpend, formatTokens, SPEND_STOP_REASON, SpendGuard } from "./task/spend";
 import { VerificationTask } from "./verify/task";
 import { ChangeBaseline, changesCode, proofRepairPrompt, type ChangeProof } from "./verify/proof";
 import { independentAcceptance } from "./verify/acceptance";
@@ -95,6 +97,8 @@ import { systemPromptAppend } from "./app/prompt";
 import type { VisualizationProvider } from "./visualize/types";
 import { SessionWorkspaceManager, type ReturnAction } from "./sessions/manager";
 import { runLogin, runSlashCommand, type OutputWriter } from "./app/commands";
+import type { BackgroundTask } from "./app/background";
+import { detectHostTerminal } from "./tui/host-terminal";
 import { NEW_USAGE, parseNewArgs, UsageError } from "./cli-args";
 import { checkEvent, phaseEvent, RuntimeEventMapper, sessionStartEvent, type CasperEvent, type PhaseEvent } from "./app/json-events";
 import { StepRail } from "./app/steps";
@@ -103,7 +107,7 @@ import { createSessionSandbox, runtimeShell, sandboxReceipt, sandboxStartupNotes
 import { useSandbox, currentSandbox, type ShellSandbox, type ShellSandboxOptions } from "./sandbox/manager";
 import { SandboxStore } from "./sandbox/store";
 import type { RuntimeShell } from "./runtime/types";
-import { askBuildRequest, buildRequestNote, isEmptyFolder, newProjectFromQuestions, newProjectInEmptyFolder, opened,
+import { askBuildRequest, buildRequestNote, isEmptyFolder, newProjectFromQuestions, newProjectInEmptyFolder, offerMissingFolder, opened,
   type NewProjectFlow } from "./app/new-project";
 import { listLines } from "./new/command";
 import { tildePath, type NewProjectOptions, type NewProjectResult } from "./new/scaffold";
@@ -165,6 +169,8 @@ export interface CasperAppOptions {
   noSandbox?: boolean;
   /** Tests: the sandbox's engine, machine check or platform. */
   sandboxSeams?: Partial<ShellSandboxOptions>;
+  /** The terminal Casper runs in (tmux, iTerm2). Read from the environment when Casper writes to its own stdout. */
+  terminalHost?: TerminalHost;
 }
 
 /** The last choice of the home-folder and folder-of-projects question. */
@@ -253,6 +259,12 @@ export class CasperApp {
   private modelCheckCalls = 0;
   /** Turns after which --max-turns stopped the current task's model request. */
   private taskTurnLimit?: number;
+  /** The spend pause stopped the current task's model request: what it had used, and the limit. */
+  private taskSpendStop?: { spent: number; limit: number };
+  /** This task's spend note and pause (src/task/spend.ts); a fresh one per task. */
+  private spendGuard?: SpendGuard;
+  /** The spend question while it is open, so parallel tool calls wait on the one answer. */
+  private spendAsk?: Promise<string | undefined>;
   private verificationAbort?: AbortController;
   private verificationWork?: Promise<VerificationReport>;
   /** Active repair evidence; sharing it does not grant managed-tool consent. */
@@ -280,6 +292,10 @@ export class CasperApp {
   private effortCycle: Promise<void> = Promise.resolve();
   private workspaceTransition = false;
   private workspaceNeedsRebind = false;
+  /** Project folders the user chose to stay out of at "The work is in ...": not asked again this session. */
+  private readonly stayedOutOf = new Set<string>();
+  /** Why the last workspace snapshot failed, for the task's receipt. */
+  private snapshotFailure?: string;
   private taskRuntimeFailed = false;
   /** The files from before the current task's change, while it runs: tells a failure the change caused from one already there. */
   private taskBaseline?: { baseline: ChangeBaseline; root: string };
@@ -363,6 +379,8 @@ export class CasperApp {
     // A child's file reads reach a model too: same scrubbing, same /secrets files switch (device
     // configs only; .env, credential files and secret env values are always hidden).
     scrubToolOutput: (toolName, input, texts, signal) => scrubToolOutput(this.scrubber, toolName, input, texts, signal, { configs: this.scrubFiles }),
+    // Inside tmux or iTerm2 each helper's steps show in the view-only steps pane; nowhere else.
+    onActivity: (activity) => this.terminal.logHelper(helperActivityLine(activity, this.projectContext ? this.activeWorkspaceRoot() : undefined)),
     });
     this.lifecycle.add({ name: "subagents", close: () => this.subagents.close() });
     this.inspectProjectFn = options.inspectProject ?? inspectProject;
@@ -378,19 +396,16 @@ export class CasperApp {
       profileName: context.profileName,
     }));
     this.input = options.input ?? process.stdin;
+    // A real terminal (not an embedder's or a test's output) that is tmux or iTerm2: Casper fits itself to it.
+    const detected = options.output === undefined ? detectHostTerminal() : undefined;
+    const host = options.terminalHost ?? (detected && (detected.tmux || detected.iterm) ? { host: detected } : undefined);
     this.terminal = new InteractiveTerminal(this.input, options.output ?? process.stdout,
-      () => this.cancelCurrent(), () => { if (this.commandActive && !this.closing) void this.close().catch(() => {}); });
+      () => this.cancelCurrent(), () => { if (this.commandActive && !this.closing) void this.close().catch(() => {}); }, host);
     this.terminal.setEffortCycle(() => this.cycleEffort());
     // ctrl+o: MCP writes off everywhere, at once, even while work runs.
     this.terminal.setWritesRevert(() => this.revertWrites());
-    // A tool's "running" line is left open on a rich surface so its completion can redraw it in
-    // place (`\r`); any other output first commits that line, so nothing appends to it. The boxed
-    // activity status stays out of the transcript and is cleared as streamed text arrives.
-    // The open-line state lives in the event view; every write consults it first.
-    this.output = { write: (text) => {
-      this.events.beforeWrite(text);
-      this.terminal.write(text);
-    } };
+    // Tool calls live in the event view's Working box on a rich surface; the transcript gets plain writes.
+    this.output = { write: (text) => { this.terminal.write(text); } };
     this.events = new RuntimeEventView(this.terminal, this.output, {
       updateFooter: () => this.updateFooter(),
       onToolEnd: event => {
@@ -604,6 +619,8 @@ export class CasperApp {
     const folderLabel = (folder: string) => fromHome
       ? folder === home ? "~" : `~${folder.slice(home.length)}`
       : folder === cwd ? "." : path.relative(cwd, folder);
+    // Messages name the folder: "staying in Documents", never "staying in .".
+    const folderName = fromHome ? "your home folder" : path.basename(cwd) || cwd;
     const byLabel = new Map<string, string>(candidates.map(candidate => [folderLabel(candidate), candidate]));
     const answer = await this.terminal.ask(
       fromHome ? "Opened from your home folder. Work in which project?" : "This folder holds several projects. Work in which one?",
@@ -624,13 +641,18 @@ export class CasperApp {
     const resolved = byLabel.get(choice) ?? path.resolve(cwd, choice.replace(/^~(?=\/|$)/, home));
     const relative = path.relative(path.resolve(base), path.resolve(resolved));
     if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
-      this.output.write(`[folder] ${terminalText(choice)} is outside ${fromHome ? "your home directory" : "the folder you opened"}; staying in ${folderLabel(cwd)}.\n`);
+      this.output.write(`[folder] ${terminalText(choice)} is outside ${fromHome ? "your home directory" : "the folder you opened"}; staying in ${folderName}.\n`);
       return cwd;
     }
-    try {
-      if (!(await stat(resolved)).isDirectory()) throw new Error("not a directory");
-    } catch {
-      this.output.write(`[folder] ${terminalText(choice)} is not a directory; staying in ${folderLabel(cwd)}.\n`);
+    const info = await stat(resolved).catch(() => undefined);
+    if (!info) {
+      // A name that isn't there: offer to make it (Enter stays). From home it goes in ~/Projects, like /new.
+      const result = await this.newProjectFlowWithAbort((flow) => offerMissingFolder(flow, terminalText(choice), fromHome ? undefined : cwd,
+        folderName, fromHome ? "in ~/Projects" : "here"));
+      return opened(result) ? result.dir : cwd;
+    }
+    if (!info.isDirectory()) {
+      this.output.write(`[folder] ${terminalText(choice)} is not a folder; staying in ${folderName}.\n`);
       return cwd;
     }
     return resolved;
@@ -666,6 +688,7 @@ export class CasperApp {
     if (!this.projectContext) {
       await this.start(workspace);
     }
+    if (this.projectContext) this.terminal.setTitle(`Casper · ${path.basename(this.projectContext.info.root)}`);
 
     this.savedModelDisplay = await modelPreference(this.sessionHomeDir ?? os.homedir());
     this.updateFooter();
@@ -817,6 +840,8 @@ export class CasperApp {
           beforeToolGate: (toolName, input) => (this.planning ? planToolGate(toolName, input) : undefined)
             ?? hiddenSecretGate(toolName, input)
             ?? (toolName === "edit" || toolName === "write" ? this.editGateReason(toolName) : undefined),
+          // At the spend pause the next tool call waits for the answer (Stop here is the Enter choice).
+          beforeToolWait: (_toolName, signal) => this.spendGate(signal),
           // Config files and config-looking command output (/secrets files off stops these for this
           // session), plus .env, credential files and secret env values (always).
           scrubToolOutput: (toolName, input, texts, signal) => scrubToolOutput(this.scrubber, toolName, input, texts, signal, { configs: this.scrubFiles }),
@@ -830,6 +855,7 @@ export class CasperApp {
           if (event.type === "tool_start" && event.toolName === "casper_check") this.modelCheckCalls++;
           if (event.type === "tool_end" && event.toolName === "casper_check") this.modelCheckCalls = Math.max(0, this.modelCheckCalls - 1);
           this.observations.observeUsage(event);
+          if (event.type === "assistant_response_end") this.spendNote();
           if (event.type === "assistant_response_start") this.responseText = "";
           else if (event.type === "assistant_text_delta") this.responseText = (this.responseText + event.delta).slice(-65_536);
           else if (event.type === "assistant_response_end" && this.responseText.trim()) this.lastAnswer = this.responseText;
@@ -916,8 +942,8 @@ export class CasperApp {
     if (this.commandActive) throw new Error("Another command is active; wait for active subagents or workspace transition");
     // Keep local status/help and cleanup available, but never forget an uncertain
     // tree just because its originating command or model tool has finished.
-    if (!/^\/(?:help(?: all)?|status|project|permissions|mcp|lsp|browser|debug|services|exit|quit|browser close|debug stop)$/.test(prompt)
-      && !/^\/(?:mcp|lsp) disconnect\s/.test(prompt) && !/^\/services (?:logs|stop)\s/.test(prompt)) {
+    if (!/^\/(?:help(?: all)?|status|project|permissions|mcp|lsp|browser|debug|services|tasks|exit|quit|browser close|debug stop)$/.test(prompt)
+      && !/^\/(?:mcp|lsp) disconnect\s/.test(prompt) && !/^\/(?:services|tasks) stop\s/.test(prompt) && !/^\/services logs\s/.test(prompt)) {
       if (this.cleanupError) throw this.cleanupError;
       this.browser?.assertCleanup(); this.mcp?.assertCleanup(); this.lsp?.assertCleanup(); this.services?.assertCleanup();
     }
@@ -927,6 +953,7 @@ export class CasperApp {
     if (!/^\/(?:receipt|undo|redo|diff)(?:\s|$)/.test(prompt)) this.lastTaskResult = undefined;
     this.taskRuntimeFailed = false;
     this.taskTurnLimit = undefined;
+    this.taskSpendStop = undefined;
     this.events.clearError();
     this.taskRuntimeCancelled = false;
     this.commandActive = true;
@@ -1002,6 +1029,78 @@ export class CasperApp {
     return undefined;
   }
 
+  /** The one project folder inside the open folder that holds every file this task changed, when the open folder
+   * is not a project itself (Documents, not a repository). */
+  private async childProjectOfTask(context: ProjectContext, changed: readonly string[]): Promise<ChildProject | undefined> {
+    const root = context.info.root;
+    if (!changed.length || context.info.isGit || await hasProjectSignals(root)) return undefined;
+    return childProjectOf(root, changed, this.sessionHomeDir ?? os.homedir()).catch(() => undefined);
+  }
+
+  /** That project's own detected checks (python -m unittest, pytest, bun test ...), run once in its folder, in the
+   * shell sandbox like every check, for this task's receipt. No repair: the conversation's folder is this one.
+   * Undefined when the child has no check for these files. */
+  private async runChildChecks(child: ChildProject, changed: readonly string[]): Promise<VerificationReport | undefined> {
+    const prefix = `${child.relative}/`;
+    const inside = changed.filter((file) => file.split(path.sep).join("/").startsWith(prefix)).map((file) => file.split(path.sep).join("/").slice(prefix.length));
+    const plan = planAutoChecks({ commands: child.model.commands, scopes: child.model.verificationScopes, changedPaths: inside });
+    if (!plan.run.length) return undefined;
+    const label = `checks from ${child.relative}`;
+    this.events.ensureLineBreak();
+    this.output.write(`… Casper checking: ${plan.run.join(", ")} (${terminalText(label)})\n`);
+    const registry = VerifierRegistry.forProject(child.model, this.projectContext!.verification.timeoutMs, this.blockOnCleanupFailure, this.networkOptions());
+    this.phase("checks", "start");
+    try {
+      const results: VerificationResult[] = [];
+      await registry.run(plan.run, { ...(this.commandAbort ? { signal: this.commandAbort.signal } : {}),
+        onResult: (result) => { const labelled = { ...result, label }; results.push(labelled); this.writeCheckResult(labelled); } });
+      const status = results.some((result) => result.status === "fail") ? "fail" as const
+        : results.length && results.every((result) => result.status === "pass") ? "pass" as const : "incomplete" as const;
+      return { status, repairAttempts: 0, rounds: [results], results };
+    } finally { this.phase("checks", "end"); }
+  }
+
+  /** After the receipt: "The work is in ~/Documents/sample-tools. 1 Stay here · 2 Switch there". Enter stays. A run
+   * that can't ask says the command to use. */
+  private async offerWorkFolder(child: ChildProject): Promise<void> {
+    const home = this.sessionHomeDir ?? os.homedir();
+    const display = terminalText(tildePath(child.dir, home));
+    if (!this.interactive || !this.terminal.canAsk) {
+      this.output.write(`[folder] The work is in ${display}. To work there: cd ${display} && casper\n`);
+      return;
+    }
+    // Asked once per folder: after "Stay here", later tasks in the same project don't ask again this session.
+    if (this.stayedOutOf.has(child.dir)) return;
+    const choices = workFolderChoices(terminalText(path.basename(this.activeWorkspaceRoot())), terminalText(child.relative));
+    const picked = await this.terminal.pick(`The work is in ${display}.`, choices, this.commandAbort?.signal);
+    if (this.closing) return;
+    if (picked?.trim() !== choices[1]!.label) { this.stayedOutOf.add(child.dir); return; }
+    await this.moveWorkspace(child.dir);
+  }
+
+  /** Moves Casper to another folder. Before the model starts it just opens it. After, the conversation here ends
+   * (it stays in /resume in this folder) and the next request starts a new one there. */
+  private async moveWorkspace(dir: string): Promise<void> {
+    if (!this.canMoveWorkspace()) {
+      if (this.subagents.isBusy) { this.output.write("[folder] Helpers are still working; nothing moved.\n"); return; }
+      await this.revokeWorkspaceCapabilities();
+      this.unsubscribe?.();
+      this.unsubscribe = undefined;
+      const runtime = this.runtime;
+      this.session = undefined;
+      this.runtimeStart = undefined;
+      this.runtimeLoad = undefined;
+      this.runtime = undefined;
+      this.sessionWorkspace = undefined;
+      this.runConversation = undefined;
+      await runtime?.dispose().catch(() => {});
+      await this.openWorkspaceBeforeRuntime(dir);
+      this.output.write("[folder] Your next request starts a new conversation there; the one here stays in /resume in the old folder.\n");
+      return;
+    }
+    await this.openWorkspaceBeforeRuntime(dir);
+  }
+
   /** The workspace can move only before the model starts: the conversation's folder is fixed once it exists. */
   private canMoveWorkspace(): boolean {
     return !this.session && !this.runtimeStart && !this.sessionWorkspace && !this.sessionWorkspaceStart && !this.runConversation
@@ -1015,6 +1114,41 @@ export class CasperApp {
     this.workspaceNeedsRebind = false;
     this.output.write(`[folder] Working in ${terminalText(tildePath(context.info.root, this.sessionHomeDir ?? os.homedir()))}\n`);
     this.updateFooter();
+  }
+
+  /**
+   * `/project <name>`: a project folder inside this one (typed as a path, or the name of one Casper finds two
+   * levels down). Before the model starts Casper opens it; a name that isn't there offers "1 Stay in Documents ·
+   * 2 Make <name> here" (Enter stays). Once the conversation has started its folder is fixed, so Casper says the
+   * command to use instead.
+   */
+  async openProjectCommand(name: string): Promise<void> {
+    const root = this.activeWorkspaceRoot();
+    const home = this.sessionHomeDir ?? os.homedir();
+    const folder = path.basename(root) || root;
+    const typed = terminalText(name);
+    const inside = (dir: string) => { const relative = path.relative(root, dir); return relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative); };
+    const direct = path.resolve(root, name.replace(/^~(?=\/|$)/, home));
+    let target: string | undefined;
+    if (inside(direct) && (await stat(direct).catch(() => undefined))?.isDirectory()) target = direct;
+    else {
+      const wanted = name.toLowerCase().replace(/\/+$/, "");
+      target = (await findProjectCandidates(root, { homeDir: home })).find((dir) => inside(dir)
+        && (path.basename(dir).toLowerCase() === wanted || path.relative(root, dir).split(path.sep).join("/").toLowerCase() === wanted));
+    }
+    if (target && !this.canMoveWorkspace()) {
+      const display = terminalText(tildePath(target, home));
+      this.output.write(`[folder] This conversation stays in ${terminalText(folder)}. To work in ${terminalText(path.basename(target))}: cd ${display} && casper\n`);
+      return;
+    }
+    if (target) { await this.openWorkspaceBeforeRuntime(target); return; }
+    if (!this.canMoveWorkspace() || !this.interactive || !this.terminal.canAsk) {
+      this.output.write(`[folder] ${typed} isn't a folder in ${terminalText(folder)}. To start it as a new project: ${this.interactive ? "/new" : "casper new"} ${typed}\n`);
+      return;
+    }
+    const result = await offerMissingFolder(this.newProjectFlow(), typed, root, terminalText(folder));
+    if (this.closing || !opened(result) || this.commandAbort?.signal.aborted) return;
+    await this.openWorkspaceBeforeRuntime(result.dir);
   }
 
   /** /new [name] | /new <template> <name> | /new --list: the same local build as `casper new`, no model. */
@@ -1179,6 +1313,7 @@ export class CasperApp {
     this.beforeWorkAsked = Boolean(options.flow || options.planFirst);
     if (await this.offerNewProject(prompt) === "stop" || this.closing || this.commandAbort?.signal.aborted) return;
     this.observations = new TaskObservations();
+    this.spendGuard = new SpendGuard(this.projectContext?.spend ?? DEFAULT_SPEND_LIMITS);
     this.bigModelUse = undefined;
     this.taskChangeServers = new Set();
     const context = this.projectContext!;
@@ -1234,6 +1369,7 @@ export class CasperApp {
     const workspaceRoot = this.activeWorkspaceRoot();
     // Receipts describe the tree, not tool names: a read-only shell run is not a write. Undo's own copy is made
     // alongside, with the conversation's position (the plan turn and repairs are part of the task).
+    this.snapshotFailure = undefined;
     const [before, undoStart] = await Promise.all([this.snapshotWorkspace(workspaceRoot, this.commandAbort?.signal),
       this.taskUndo.begin(workspaceRoot, session, this.commandAbort?.signal)]);
     edits.before = before;
@@ -1305,6 +1441,8 @@ export class CasperApp {
     let verification: VerificationReport | undefined;
     let autoChecks: ReturnType<typeof planAutoChecks> | undefined;
     let pageNotes: string[] | undefined;
+    let workFolder: ChildProject | undefined;
+    let receiptShown = false;
     const flatten = (changes: TreeChanges) => [...changes.added, ...changes.modified, ...changes.removed].sort();
     // Automatic effort's classifier is a model call outside the conversation, so the task's usage
     // totals cannot include it: any classification (or an unreadable count) makes them unknown.
@@ -1328,7 +1466,7 @@ export class CasperApp {
       edits.turnEnded = true;
       afterModel = before && !this.closing ? await this.snapshotWorkspace(workspaceRoot) : undefined;
       // A request cut short by --max-turns is unfinished work: checking it would only start repairs.
-      const cancelled = this.closing || this.commandAbort?.signal.aborted || this.taskRuntimeCancelled || this.checkTask?.signal.aborted || this.taskTurnLimit !== undefined;
+      const cancelled = this.closing || this.commandAbort?.signal.aborted || this.taskRuntimeCancelled || this.checkTask?.signal.aborted || this.taskTurnLimit !== undefined || this.taskSpendStop !== undefined;
       const stopped = cancelled || this.taskRuntimeFailed;
       // The model errored after editing: its edits are kept, so check them (no repair: the model just failed).
       if (!cancelled && this.taskRuntimeFailed && this.checkTask && verificationMode === "auto") {
@@ -1375,13 +1513,25 @@ export class CasperApp {
           // Not tied to the proof: any code change whose checks pass (server tasks and configure requests too).
           const acceptanceMode = context.verification.acceptance;
           if ((acceptanceMode === true || acceptanceMode === "warn") && testCommand && changedCode && verification.status === "pass" && proof?.status !== "unproven"
-            && !this.closing && !this.commandAbort?.signal.aborted && !this.taskRuntimeFailed && this.taskTurnLimit === undefined) {
+            && !this.closing && !this.commandAbort?.signal.aborted && !this.taskRuntimeFailed && this.taskTurnLimit === undefined && this.taskSpendStop === undefined) {
             acceptance = await this.acceptChange({ session, before: before!, root: workspaceRoot, command: testCommand, request: prompt,
               mode: acceptanceMode === "warn" ? "warn" : "verdict" });
           }
         }
       } else if (!stopped && this.checkTask && (this.checkTask.checks.length || this.smokeTask?.recordedCount)) {
         verification = await this.runVerification(this.checkTask.checks, true, prompt, this.checkTask);
+      }
+      // The work landed in a project inside this folder (sample-tools in Documents): its own checks run for this receipt.
+      if (!stopped && before && afterModel && !this.closing) {
+        workFolder = await this.childProjectOfTask(context, flatten(diffSnapshots(before, afterModel)));
+        if (workFolder && !verification && this.checkTask && verificationMode === "auto") {
+          const child = await this.runChildChecks(workFolder, flatten(diffSnapshots(before, afterModel)));
+          if (child) {
+            verification = child;
+            autoChecks = undefined;
+            if (child.status === "pass") proofSkipped = `the checks ran in ${workFolder.relative}; Casper did not compare the tests with and without the change`;
+          }
+        }
       }
     } catch (error) {
       this.taskRuntimeFailed = true;
@@ -1408,29 +1558,39 @@ export class CasperApp {
       const browser = !this.closing && this.browser ? await this.browser.report() : undefined;
       const services = !this.closing && this.services && !this.services.closed
         ? this.services.status().map(({ name, origin, state }) => ({ name, ...(origin ? { origin } : {}), state })) : [];
-      this.lastTaskResult = { execution, verification, ...observations, ...(browser?.checks.length ? { browser } : {}),
+      const snapshotFailure = !changedPaths && this.snapshotFailure ? { reason: this.snapshotFailure,
+        edited: observations.observedEdits.map((file) => { const relative = path.relative(workspaceRoot, path.resolve(workspaceRoot, file));
+          return relative && !relative.startsWith("..") && !path.isAbsolute(relative) ? relative.split(path.sep).join("/") : file; }) } : undefined;
+      this.lastTaskResult = { execution, verification, ...observations, ...(snapshotFailure ? { snapshotFailure } : {}), ...(browser?.checks.length ? { browser } : {}),
         ...(services.length ? { services } : {}),
         // Smoke checks ran even without a configured command, so "no checks" no longer describes the task.
         verificationMode, ...(!flag && !configured && verificationMode === "auto" ? { verificationDefaulted: true as const } : {}),
         ...(autoChecks?.skipped && !verification?.smoke && !verification?.pages ? { autoSkipped: autoChecks.skipped } : {}),
         ...(pageNotes?.length && !verification?.pages ? { pageNotes } : {}),
-        ...(this.taskTurnLimit !== undefined ? { turnLimit: this.taskTurnLimit } : {}), ...(proof ? { proof } : {}), ...(proofSkipped && !proof ? { proofSkipped } : {}), ...(review ? { review } : {}),
+        ...(this.taskTurnLimit !== undefined ? { turnLimit: this.taskTurnLimit } : {}), ...(this.taskSpendStop ? { spendLimit: { ...this.taskSpendStop } } : {}), ...(proof ? { proof } : {}), ...(proofSkipped && !proof ? { proofSkipped } : {}), ...(review ? { review } : {}),
         ...(acceptance ? { acceptance } : {}), ...(checklist ? { checklist } : {}), ...this.bigModelReceipt(),
         ...(changedWhilePlanning?.length ? { changedWhilePlanning } : {}), ...(this.sandbox ? { sandbox: sandboxReceipt(this.sandbox)! } : {}) };
+      // The receipt is next: the steps fold and the Working box goes, even for a tool that ended late.
+      this.events.reset();
       if (!this.closing) {
         this.terminal.endAssistant();
         this.events.ensureLineBreak();
-        if (classification.intent !== "general" || execution !== "completed" || verification || browser?.checks.length || observations.possibleMutations || observations.changedPaths?.length || observations.changedDuringChecks?.length || observations.observedEdits.length || observations.observedChecks.length) {
+        // A stop at --max-turns or at the spend limit is always said on a receipt.
+        if (classification.intent !== "general" || execution !== "completed" || this.taskTurnLimit !== undefined || this.taskSpendStop !== undefined || verification || browser?.checks.length || observations.possibleMutations || observations.changedPaths?.length || observations.changedDuringChecks?.length || observations.observedEdits.length || observations.observedChecks.length
+          || observations.remoteChanges?.length || observations.remoteNotRun?.length || observations.secretInCommand) {
           // The second copy and the saved receipt; the change summary lists only this task's files.
           const { stat } = await this.taskUndo.finish(undoStart, { request: prompt, task: this.lastTaskResult, session, servers: [...this.taskChangeServers] });
           this.output.write(`${this.verbose ? formatTaskResult(this.lastTaskResult) : formatReceipt(this.lastTaskResult, { surface: this.receiptSurface(), ...this.receiptFolder(workspaceRoot) })}\n`);
           if (stat.trim()) this.output.write(stat.endsWith("\n") ? stat : `${stat}\n`);
           if (this.interactive) await this.offerNextSteps(this.lastTaskResult, prompt, classification);
+          receiptShown = true;
         }
       }
       this.clearSteps();
       await this.recordTaskOutcome({ task: prompt, skills: selected.map(({ skill }) => skill.id),
         modelStatus: execution, verification });
+      // Last, once this folder has the task's outcome: the offer may move Casper to the project the work is in.
+      if (workFolder && receiptShown && !this.closing) await this.offerWorkFolder(workFolder);
     }
     return verification;
   }
@@ -1520,7 +1680,7 @@ export class CasperApp {
     initialReview?: { done: string[]; open: string[] };
   }): Promise<{ verification: VerificationReport; proof?: ChangeProof; review?: RequirementsReview }> {
     const context = this.projectContext!;
-    const stopped = () => this.closing || Boolean(this.commandAbort?.signal.aborted) || this.taskRuntimeFailed || this.taskTurnLimit !== undefined;
+    const stopped = () => this.closing || Boolean(this.commandAbort?.signal.aborted) || this.taskRuntimeFailed || this.taskTurnLimit !== undefined || this.taskSpendStop !== undefined;
     const max = context.repair.maxAttempts;
     let verification = input.verification;
     // The review is opt-in (verification.review: true): pinned benchmarks showed no first-time-right gain
@@ -1581,7 +1741,7 @@ export class CasperApp {
     };
     let verification = input.verification;
     let proof = await compare();
-    const stopped = () => this.closing || Boolean(this.commandAbort?.signal.aborted) || this.taskRuntimeFailed || this.taskTurnLimit !== undefined;
+    const stopped = () => this.closing || Boolean(this.commandAbort?.signal.aborted) || this.taskRuntimeFailed || this.taskTurnLimit !== undefined || this.taskSpendStop !== undefined;
     const max = context.repair.maxAttempts;
     if (proof?.status !== "unproven" || verification.repairAttempts >= max || stopped()) return { verification, proof };
     const attempt = verification.repairAttempts + 1;
@@ -1885,7 +2045,7 @@ export class CasperApp {
   private async retryModelFailure(session: RuntimeSession, request: string): Promise<void> {
     for (let attempt = 1; ; attempt++) {
       const error = this.events.lastError ?? "";
-      if (!this.taskRuntimeFailed || this.taskRuntimeCancelled || this.closing || this.commandAbort?.signal.aborted || this.taskTurnLimit !== undefined) return;
+      if (!this.taskRuntimeFailed || this.taskRuntimeCancelled || this.closing || this.commandAbort?.signal.aborted || this.taskTurnLimit !== undefined || this.taskSpendStop !== undefined) return;
       // Only a provider that answered with nothing; Pi already retried what it counts as transient,
       // within the user's retry budget, so never go past that.
       if (!/empty (?:response|completion|message|content)|no (?:content|response|output) (?:was )?returned|returned no (?:content|output)/i.test(error)) return;
@@ -2251,7 +2411,11 @@ export class CasperApp {
   /** Undefined when the tree is too large, unreadable or the task was cancelled mid-walk. */
   private async snapshotWorkspace(root: string, signal?: AbortSignal): Promise<Map<string, string> | undefined> {
     try { return await snapshotTree(root, signal); }
-    catch { return undefined; }
+    catch (error) {
+      // Kept for the receipt: "Changes unknown: this folder has over 20,000 files; open a project folder".
+      if (!signal?.aborted) this.snapshotFailure = snapshotFailureReason(error);
+      return undefined;
+    }
   }
 
   private async prepareCapabilities(task: string, includeVisualization = false): Promise<void> {
@@ -2295,6 +2459,38 @@ export class CasperApp {
 
 
 
+
+  /** /tasks: dev servers, the browser, the debugger, helpers and checks that run now, each with its own stop. */
+  backgroundTasks(): BackgroundTask[] {
+    const tasks: BackgroundTask[] = [];
+    const services = this.services && !this.services.closed ? this.services : undefined;
+    for (const service of services?.status() ?? []) {
+      if (service.state !== "ready" && service.state !== "starting") continue;
+      tasks.push({ kind: "dev server", name: service.name, ...(service.startedAt !== undefined ? { startedAt: service.startedAt } : {}),
+        status: `${service.state === "ready" ? "running" : "starting"}${service.origin ? ` at ${service.origin}` : ""}${service.stale ? " · stale (restarts before next use)" : ""}`,
+        stop: async () => await services!.stop(service.name) ? `Stopped ${service.name}.` : `${service.name} had already stopped.` });
+    }
+    const browser = this.browser;
+    const browserState = browser?.status().state;
+    if (browser && (browserState === "ready" || browserState === "starting")) {
+      tasks.push({ kind: "browser", name: "for page checks", status: browserState === "ready" ? "open" : "starting",
+        stop: async () => { await browser.close(); if (this.browser === browser) this.browser = undefined; return "Closed the browser."; } });
+    }
+    const debugState = this.debugSession?.status().state;
+    if (this.debugSession && debugState && !["idle", "closing", "closed", "failed"].includes(debugState)) {
+      tasks.push({ kind: "debugger", name: this.debugSession.status().target ?? "session", status: debugState,
+        stop: async () => { await this.stopDebugger(); return "Stopped the debugger."; } });
+    }
+    for (const run of this.subagents.runs()) {
+      tasks.push({ kind: "helper", name: `${run.role}: ${run.goal}`, status: "running", startedAt: run.startedAt,
+        stop: async () => this.subagents.cancelRun(run.id) ? `Stopped the ${run.role} helper.` : `The ${run.role} helper had already finished.` });
+    }
+    if (this.verificationWork) {
+      tasks.push({ kind: "checks", name: "after the last change", status: "running",
+        stop: async () => { this.verificationAbort?.abort(); return "Stopped the checks; the receipt says they did not finish."; } });
+    }
+    return tasks;
+  }
 
   /** The session's service manager, created on first use for the active workspace's declared services. */
   serviceManager(): ServiceManager {
@@ -2549,6 +2745,44 @@ export class CasperApp {
     this.updateFooter();
   }
 
+  /** The task's cost after each model response: a quiet note once it reaches spend.noteAt (about $1). */
+  private spendNote(): void {
+    const guard = this.spendGuard;
+    if (!guard || this.closing || this.session?.getStatus?.().priced === false) return;
+    const spent = this.observations.spent();
+    if (!guard.noteDue(spent.cost)) return;
+    // After the model's words from this response, not above them.
+    this.terminal.endAssistant();
+    this.events.ensureLineBreak();
+    this.output.write(`… This task has used ${formatCost(spent.cost)} so far (${formatTokens(spent.tokens)}).\n`);
+  }
+
+  /** Before each tool call: at spend.pauseAt (about $5) the task pauses on a numbered question, Stop here first.
+   * A run that can't ask stops there. Either stop keeps the work and says so on the receipt. */
+  private spendGate(signal?: AbortSignal): Promise<string | undefined> {
+    if (this.spendAsk) return this.spendAsk;
+    const guard = this.spendGuard;
+    if (!guard || this.taskSpendStop) return Promise.resolve(this.taskSpendStop ? SPEND_STOP_REASON : undefined);
+    const spent = this.observations.spent();
+    const limit = guard.pauseDue(spent.cost);
+    if (limit === undefined) return Promise.resolve(undefined);
+    const ask = async (): Promise<string | undefined> => {
+      const used = `This task has used ${formatCost(spent.cost)}.`;
+      if (this.interactive && this.terminal.canAsk && !this.closing) {
+        const next = guard.nextAfter(spent.cost)!;
+        const answer = await this.terminal.pick(used, spendChoices(formatLimit(next)), signal ?? this.commandAbort?.signal);
+        if (answer === "Keep going") { guard.keepGoing(spent.cost); return undefined; }
+      } else {
+        this.events.ensureLineBreak();
+        this.output.write(`[spend] ${used} Casper stops here, at the ${formatLimit(limit)} limit for one task; the work so far is kept. spend.pauseAt in ~/.casper/config.yaml changes it.\n`);
+      }
+      this.taskSpendStop = { spent: spent.cost, limit };
+      return SPEND_STOP_REASON;
+    };
+    this.spendAsk = ask().finally(() => { this.spendAsk = undefined; });
+    return this.spendAsk;
+  }
+
   updateFooter(): void {
     if (!this.projectContext) return;
     const writes = this.mcp?.writesOn() ?? [];
@@ -2561,7 +2795,10 @@ export class CasperApp {
       const effort = (status && formatEffort(status)) ?? "effort —";
       const model = status?.model ? `${status.provider}/${status.model} · ${effort}`
         : this.session ? "no model selected · /model" : (this.runModel ? `${terminalText(this.runModel)} (--model)` : this.savedModelDisplay) ?? "model not initialized · /model";
-      this.terminal.setStatus(`${project.name}/${project.gitBranch ?? "no git"} │ ${model} │ ctx ${percent == null ? "—" : `${percent.toFixed(0)}%~`}${usage ? ` │ ${usage.tokens.total} tok` : ""}${usage?.estimatedCost === undefined ? "" : ` │ $${usage.estimatedCost.toFixed(3)} est`} │ ${this.commandActive ? "working" : "idle"}`, project.root);
+      // The current (or last) task's tokens, and its cost from the model's price; a free model shows tokens only.
+      const spent = this.observations.spent();
+      const task = spent.tokens ? ` │ ${formatTaskSpend(spent, status?.priced)}` : "";
+      this.terminal.setStatus(`${project.name}/${project.gitBranch ?? "no git"} │ ${model} │ ctx ${percent == null ? "—" : `${percent.toFixed(0)}%~`}${task} │ ${this.commandActive ? "working" : "idle"}`, project.root);
     } catch { this.terminal.setStatus("Session status unavailable · /status", this.projectContext.info.root); }
   }
 

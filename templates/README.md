@@ -36,5 +36,5 @@ compiled binary carries them.
 
 Left out on purpose. `terraform init` must download the Mist provider from the Terraform
 registry, so a new project can't run its first check offline; Casper detects no Terraform checks
-to run; Terraform itself is under the BSL, not an open-source licence; and Terraform isn't part
-of the owner's work. It is on the Next list.
+to run; Terraform itself is under the BSL, not an open-source licence; and Terraform isn't a common
+need yet. It is on the Next list.

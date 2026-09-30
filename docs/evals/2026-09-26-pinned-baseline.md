@@ -3,7 +3,7 @@
 Casper against Pi 0.87.0 and oh-my-pi (omp) 18.2.11, all on the same model and the same OpenRouter
 host. Five tasks (`core-portcheck-cli`, `core-mcp-tool`, `core-log-parser`, `net-interface-parser`,
 `net-radius-test`), medium effort (both models run it as high), 600 s per attempt, up to one
-follow-up. A short baseline by the owner's instruction (5 of 17 tasks), not the full packs.
+follow-up. A short baseline by the maintainer's instruction (5 of 17 tasks), not the full packs.
 
 ## Why every OpenRouter run is pinned (`--route`)
 
@@ -53,7 +53,7 @@ Local, gitignored: `.scratch/phase-3-close/short-{glm,deepseek}.json`, `.scratch
 
 ## Phase 4a: review off by default (2026-09-26)
 
-Owner decision after the runs above: the requirements review is **off by default**
+Decision after the runs above: the requirements review is **off by default**
 (`verification.review: true` turns it on, now with a short answer of only its gaps and a 12-turn
 budget). The checks and the proof stay on. Acceptance (`core-mcp-tool` + `net-radius-test`, 2 runs
 each, pinned):

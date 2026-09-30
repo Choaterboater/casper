@@ -244,3 +244,110 @@ test("launching from a folder of projects asks which one to open; a project or a
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("a typed folder name that isn't there offers Stay first, then Make it here with the /new questions", async () => {
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-folder-missing-")));
+  const home = path.join(root, "home");
+  const work = path.join(root, "work");
+  await mkdir(home, { recursive: true });
+  await mkdir(path.join(work, "repo-a", ".git"), { recursive: true });
+  await mkdir(path.join(work, "repo-b", ".git"), { recursive: true });
+  const harness = interactiveHarness(home, work);
+  const interactive = harness.app.runInteractive(work);
+  try {
+    await harness.until(text => Bun.stripANSI(text).includes("Work in which one?"));
+    harness.input.write("sample-tools\r");
+    await harness.until(text => Bun.stripANSI(text).includes("sample-tools isn't a folder in work. Make it?"));
+    const visible = Bun.stripANSI(harness.output());
+    expect(visible).toContain("1 Stay in work");
+    expect(visible).toContain("2 Make sample-tools here");
+    // Enter stays, and the message names the folder instead of ".".
+    harness.input.write("\r");
+    await harness.until(text => Bun.stripANSI(text).includes("[folder] Staying in work."));
+    await harness.until(text => /\bproject\s+work\b/.test(Bun.stripANSI(text)));
+    await harness.until(text => Bun.stripANSI(text).includes("idle"));
+  } finally {
+    harness.input.write("/exit\r");
+    await interactive;
+    await harness.app.close();
+    harness.input.destroy();
+  }
+  // Choice 2 goes on to the /new questions, with the typed name, in this folder.
+  const again = interactiveHarness(home, work);
+  const running = again.app.runInteractive(work);
+  try {
+    await again.until(text => Bun.stripANSI(text).includes("Work in which one?"));
+    again.input.write("sample-tools\r");
+    await again.until(text => Bun.stripANSI(text).includes("Make it?"));
+    again.input.write("2");
+    await again.until(text => Bun.stripANSI(text).includes("What are you building?"));
+    again.input.write("\x1b");
+    await again.until(text => /\bproject\s+work\b/.test(Bun.stripANSI(text)));
+    await again.until(text => Bun.stripANSI(text).includes("idle"));
+  } finally {
+    again.input.write("/exit\r");
+    await running;
+    await again.app.close();
+    again.input.destroy();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("/project <name> opens a project folder inside this one before the model starts, or offers to make it", async () => {
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-project-cmd-")));
+  const home = path.join(root, "home");
+  const docs = path.join(home, "Documents");
+  await mkdir(path.join(docs, "sample-tools", "tests"), { recursive: true });
+  await writeFile(path.join(docs, "sample-tools", "pyproject.toml"), '[project]\nname = "sample-tools"\n');
+  await writeFile(path.join(docs, "notes.md"), "notes\n");
+  // Documents holds a project, so Casper asks at launch; Esc keeps Documents.
+  const harness = interactiveHarness(home, docs);
+  const interactive = harness.app.runInteractive(docs);
+  try {
+    await harness.until(text => Bun.stripANSI(text).includes("Work in which one?"));
+    harness.input.write("\x1b");
+    await harness.until(text => Bun.stripANSI(text).includes("idle"));
+    // A name that isn't there: Stay first, and Enter stays.
+    harness.input.write("/project netbox-sync\r");
+    await harness.until(text => Bun.stripANSI(text).includes("netbox-sync isn't a folder in Documents. Make it?"));
+    expect(Bun.stripANSI(harness.output())).toContain("1 Stay in Documents");
+    harness.input.write("\r");
+    await harness.until(text => Bun.stripANSI(text).includes("[folder] Staying in Documents."));
+    // The project's name opens it.
+    harness.input.write("/project sample-tools\r");
+    await harness.until(text => Bun.stripANSI(text).includes("[folder] Working in ~/Documents/sample-tools"));
+  } finally {
+    harness.input.write("/exit\r");
+    await interactive;
+    await harness.app.close();
+    harness.input.destroy();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("/project <name> once the conversation started says the command to use", async () => {
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-project-late-")));
+  const home = path.join(root, "home");
+  const docs = path.join(home, "Documents");
+  await mkdir(path.join(docs, "sample-tools"), { recursive: true });
+  await writeFile(path.join(docs, "sample-tools", "pyproject.toml"), '[project]\nname = "sample-tools"\n');
+  let output = "";
+  const app = new CasperApp({ runtimeFactory: () => ({
+    async start(): Promise<RuntimeSession> {
+      return { getStatus: () => ({ provider: "fixture", model: "demo", auth: "configured" }), getState: () => ({ cwd: docs, isStreaming: false }),
+        subscribe: () => () => {}, abort: async () => {}, prompt: async () => {} };
+    },
+    async dispose() {},
+  }), sessionHomeDir: home,
+  loadProjectContext: info => loadProjectContext(info, { homeDir: home }),
+  loadSkillRegistry: context => SkillRegistry.discover({ projectRoot: context.info.root, homeDir: home }),
+  output: { write(text: string) { output += text; } } });
+  try {
+    await app.start(docs);
+    await app.ensureRuntime();
+    await app.runOnce("/project sample-tools", docs);
+    expect(output).toContain("[folder] This conversation stays in Documents. To work in sample-tools: cd ~/Documents/sample-tools && casper\n");
+    await app.runOnce("/project nope", docs);
+    expect(output).toContain("[folder] nope isn't a folder in Documents. To start it as a new project: casper new nope\n");
+  } finally { await app.close(); await rm(root, { recursive: true, force: true }); }
+});

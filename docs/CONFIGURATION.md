@@ -215,15 +215,18 @@ themes and `settings.json` are not loaded. User-level resources in the engine st
 `~/.casper/agent/extensions/`) still load. Project `AGENTS.md`/`CLAUDE.md` context files are still
 sent to the model, except one that is a symlink pointing outside the project, which is skipped.
 
-**OpenRouter app attribution.** Requests Casper itself sends to OpenRouter — model traffic and
-API-key checks — carry app-attribution headers (`HTTP-Referer`, `X-OpenRouter-Title: Casper`,
+**OpenRouter app attribution.** Requests Casper itself sends to OpenRouter — model traffic, the
+one-off calls for the checklist, reviews and automatic effort, and API-key checks — carry
+app-attribution headers (`HTTP-Referer: https://choaterboater.github.io/casper/`, `X-OpenRouter-Title: Casper`,
 `X-OpenRouter-Categories: cli-agent`, and `X-OpenRouter-App-Visibility: hidden`), so the usage is
 filed under Casper's own OpenRouter app instead of the engine Casper is built on. `hidden` keeps an
 early-preview app out of OpenRouter's public rankings and app pages; it does not turn attribution
 off, and OpenRouter honors it only when the request creates a brand-new app. The headers are a
 fixed app name only: they add no prompt, file, workspace, user or credential data, and no other
 provider receives them. `CASPER_TELEMETRY=0` turns them off (along with the engine's own
-attribution); `PI_TELEMETRY` has no effect.
+attribution); `PI_TELEMETRY` has no effect. OpenRouter shows the icon of the referer's site, so the
+referer is Casper's site (its ghost icon) rather than the GitHub page. OpenRouter keys apps by
+referer, so after this change your usage may show under a new Casper app entry.
 
 ## Model roles and automatic effort
 
@@ -320,6 +323,33 @@ loading with an error if it tries.
 repair:
   bigModelLastTry: true
 suggestions: false   # no suggested next steps anywhere
+```
+
+### What a task spends
+
+Nothing to set up. The footer shows the current task's tokens and its cost from the model's
+price (`task 48.2k tok · $0.31`); a free model shows tokens only. The cost is the catalog's
+estimate, not a bill. Two limits per task are on by default:
+
+- At about **$1**, one quiet line: `… This task has used $1.03 so far (312k tok).`
+- At about **$5**, the task pauses before its next step and asks
+  `This task has used $5.02.` with `1 Stop here · 2 Keep going`. Stop here is first, so Enter
+  stops; the work so far is kept and the receipt says `• Incomplete — stopped at $5.02, the $5
+  limit for one task`. Keep going asks again at $10, then $15.
+- One-shot runs and `--json` never wait: they stop at the same point, say so on one line, and the
+  receipt says it (exit 2, JSON `spendLimit`).
+
+The pause comes before the AI's next step (a tool call), so a turn that ends in words only ends the
+task instead. The shown cost leaves out the small automatic-effort call and `/delegate` helpers until
+they report back, so it can be a little under the real figure.
+
+To change the limits, or turn one off, set them in your own config (a project cannot):
+
+```yaml
+# ~/.casper/config.yaml or a profile's config.yaml
+spend:
+  noteAt: 2        # dollars per task; false turns the note off
+  pauseAt: 20      # dollars per task; false turns the pause (and the script stop) off
 ```
 
 ## Skills

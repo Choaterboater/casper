@@ -103,7 +103,11 @@ export class ProjectMemory {
       id: randomUUID(), createdAt: new Date().toISOString(), task: text(input.task, 4096, "Task"),
       skills: [...input.skills], modelStatus: input.modelStatus,
       verification: summary?.status ?? "not-run", verificationMeaning: "command-execution",
-      checks: summary?.checks ?? [], coverage: summary?.coverage ?? "not-certified",
+      // The record keeps Casper's own check names and fields: a named check ("aruba-check") or a check's label
+      // ("checks from sample-tools") otherwise made the whole record invalid, and the outcome was lost.
+      checks: (summary?.checks ?? []).filter((check) => CHECK_NAMES.some((name) => name === check.name))
+        .map(({ name, status, exitCode, scope, freshness, freshnessReason }) => ({ name, status, exitCode, scope, freshness, freshnessReason })),
+      coverage: summary?.coverage ?? "not-certified",
       repairAttempts: summary?.repairAttempts ?? 0,
       accepted: null, // Never infer human acceptance from model completion or passing tests.
     };

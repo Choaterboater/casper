@@ -2,7 +2,7 @@
 import { appendFile, access } from "node:fs/promises";
 import path from "node:path";
 import { CasperApp } from "../../src/app";
-import { installShutdownHandlers } from "../../src/cli";
+import { installShutdownHandlers } from "../../src/cli-main";
 import type { AgentRuntime, RuntimeEvent, RuntimeEventListener, RuntimeTool } from "../../src/runtime/types";
 
 const control = process.env.CASPER_TTY_CONTROL!;

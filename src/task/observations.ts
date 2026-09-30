@@ -4,13 +4,17 @@ import type { RuntimeEvent } from "../runtime/types";
 import { CHECK_NAMES } from "../verify/evidence";
 import { rememberableTestCommand } from "../flows/runners";
 import type { ObservedCheck, TaskResult } from "./result";
+import { remoteChanges } from "./remote-changes";
+import { leavesLocalFilesAlone } from "../flows/plan";
 
-type TaskObservationSnapshot = Required<Pick<TaskResult, "observedEdits" | "observedChecks" | "possibleMutations" | "usage">> & Pick<TaskResult, "changedPaths" | "changedDuringChecks" | "testRunner">;
+type TaskObservationSnapshot = Required<Pick<TaskResult, "observedEdits" | "observedChecks" | "possibleMutations" | "usage">> & Pick<TaskResult, "changedPaths" | "changedDuringChecks" | "testRunner" | "remoteChanges" | "remoteNotRun" | "secretInCommand">;
 
 /** One retained tool call, newest last. Output is already bounded by the runtime adapter. */
 export interface RetainedToolOutput {
   toolName: string;
   target?: string;
+  /** The whole shell command (its secrets already hidden), shown by /output. */
+  command?: string;
   status: "success" | "error";
   text: string;
   truncated: boolean;
@@ -45,10 +49,18 @@ export class TaskObservations {
   private turns = 0;
   private tokens: number | null = 0;
   private estimatedCost: number | null = 0;
+  /** What the reported calls add up to so far, kept even when a call went unreported (footer and spend limits). */
+  private known = { tokens: 0, cost: 0 };
   /** Delegate calls started, and child usage reports received. Counted apart, not matched in
    * order: the tool reports when it returns, which may reach us before or after its tool_start. */
   private delegations = 0;
   private delegationReports = 0;
+  /** Changes on other machines seen in the AI's commands (ssh, scp), per host as the command names it. */
+  private readonly remote = new Map<string, { host: string; changes: string[] }>();
+  /** Commands to other machines Casper stopped before they ran, by address. */
+  private readonly remoteStopped = new Map<string, { host: string; commands: number }>();
+  /** A secret appeared in a command the AI sent (hidden on screen; the AI has it). */
+  private secretInCommand = false;
 
   /** Counts the main conversation's model responses and totals their reported usage. A delegated
    * subagent's model calls are added by `recordDelegatedUsage`; until every delegate call has
@@ -58,6 +70,7 @@ export class TaskObservations {
     if (event.type !== "assistant_response_end") return;
     this.turns++;
     if (!event.usage) { this.recordUntrackedModelUse(); return; }
+    this.addKnown(event.usage);
     if (this.tokens !== null) this.tokens += event.usage.tokens;
     if (this.estimatedCost !== null) this.estimatedCost += event.usage.estimatedCost;
   }
@@ -66,6 +79,7 @@ export class TaskObservations {
   recordDelegatedUsage(usage: { tokens: number; estimatedCost: number } | null): void {
     this.delegationReports++;
     if (!usage) { this.recordUntrackedModelUse(); return; }
+    this.addKnown(usage);
     if (this.tokens !== null) this.tokens += usage.tokens;
     if (this.estimatedCost !== null) this.estimatedCost += usage.estimatedCost;
   }
@@ -73,9 +87,18 @@ export class TaskObservations {
   /** A Casper-made model call outside the conversation (the acceptance check); null when unreported. */
   recordModelCall(usage: { tokens: number; estimatedCost: number } | null): void {
     if (!usage) { this.recordUntrackedModelUse(); return; }
+    this.addKnown(usage);
     if (this.tokens !== null) this.tokens += usage.tokens;
     if (this.estimatedCost !== null) this.estimatedCost += usage.estimatedCost;
   }
+
+  private addKnown(usage: { tokens: number; estimatedCost: number }): void {
+    if (Number.isFinite(usage.tokens) && usage.tokens > 0) this.known.tokens += usage.tokens;
+    if (Number.isFinite(usage.estimatedCost) && usage.estimatedCost > 0) this.known.cost += usage.estimatedCost;
+  }
+
+  /** Tokens and estimated cost the task's reported model calls add up to so far: at least this much. */
+  spent(): { tokens: number; cost: number } { return { ...this.known }; }
 
   /** The task made model calls these totals do not include. */
   recordUntrackedModelUse(): void {
@@ -90,11 +113,34 @@ export class TaskObservations {
   observeToolEnd(event: Extract<RuntimeEvent, { type: "tool_end" }>, commands: ProjectModel["commands"] | undefined): void {
     if (this.outputs.length === TOOL_OUTPUT_LIMIT) this.outputs.shift();
     const target = event.input?.path ?? event.input?.command ?? event.input?.operation;
-    this.outputs.push({ toolName: event.toolName, ...(target === undefined ? {} : { target }), status: event.isError ? "error" : "success",
+    this.outputs.push({ toolName: event.toolName, ...(target === undefined ? {} : { target }),
+      ...(typeof event.input?.command === "string" && event.input.path === undefined ? { command: event.input.command } : {}), status: event.isError ? "error" : "success",
       text: event.output?.text ?? "", truncated: Boolean(event.output?.truncated) });
     // Failures can follow partial writes; shell success need not mean any write. Only the
     // workspace snapshot can settle either, so this merely flags that the question is open.
-    if (["bash", "edit", "write"].includes(event.toolName) || (event.toolName === "lsp" && event.input?.operation === "rename")) this.mutationToolRan = true;
+    // A look command (ls, cat, grep, find) or ssh to another machine leaves this folder's files alone.
+    const looked = event.toolName === "bash" && typeof event.input?.command === "string" && leavesLocalFilesAlone(event.input.command);
+    if ((["bash", "edit", "write"].includes(event.toolName) && !looked) || (event.toolName === "lsp" && event.input?.operation === "rename")) this.mutationToolRan = true;
+    if (event.input?.secretHidden) this.secretInCommand = true;
+    // A command Casper or the sandbox refused did not reach the other machine.
+    const refused = event.isError && /^(?:Not run:|\[shell\] Not run)|\[sandbox\] /.test(event.output?.text ?? "");
+    if ((event.toolName === "bash" || event.toolName === "powershell") && event.input?.command && refused && this.remoteStopped.size < 16) {
+      for (const { host, address } of remoteChanges(event.input.command)) {
+        const entry = this.remoteStopped.get(address) ?? { host, commands: 0 };
+        if (host.length > entry.host.length) entry.host = host;
+        entry.commands++;
+        this.remoteStopped.set(address, entry);
+      }
+    }
+    if ((event.toolName === "bash" || event.toolName === "powershell") && event.input?.command && !refused && this.remote.size < 16) {
+      for (const { host, address, changes } of remoteChanges(event.input.command)) {
+        // One machine by its address: "build-server" and "198.51.100.20" are one line, named "198.51.100.20 (build-server)".
+        const entry = this.remote.get(address) ?? { host, changes: [] };
+        if (host.length > entry.host.length) entry.host = host;
+        for (const change of changes) if (!entry.changes.includes(change) && entry.changes.length < 12) entry.changes.push(change);
+        this.remote.set(address, entry);
+      }
+    }
     if (event.toolName !== "bash") return;
     const command = event.input?.command;
     if (!command || Buffer.byteLength(command) > 8192) return;
@@ -129,7 +175,10 @@ export class TaskObservations {
       ...(changedPaths ? { changedPaths: [...changedPaths] } : {}),
       ...(changedDuringChecks.length ? { changedDuringChecks: [...changedDuringChecks] } : {}),
       ...(this.testRunner ? { testRunner: this.testRunner } : {}),
-      possibleMutations: this.mutationToolRan && !changedPaths,
+      ...(this.remote.size ? { remoteChanges: [...this.remote.values()].map(({ host, changes }) => ({ host, changes: [...changes] })) } : {}),
+      ...(this.remoteStopped.size ? { remoteNotRun: [...this.remoteStopped.values()].map((entry) => ({ ...entry })) } : {}),
+      ...(this.secretInCommand ? { secretInCommand: true as const } : {}),
+      possibleMutations: (this.mutationToolRan || this.edits.size > 0) && !changedPaths,
       usage: { turns: this.turns, ...(this.delegationReports < this.delegations ? { tokens: null, estimatedCost: null }
         : { tokens: this.tokens, estimatedCost: this.estimatedCost }) } };
   }

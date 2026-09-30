@@ -420,7 +420,7 @@ td.no  { color: var(--bad); font-weight: 600; }
 
 /*
   Terminal captures: <pre class="term" data-title="casper — ~/my-repo">…</pre>
-  Text copied from real runs. Colour spans inside:
+  Text copied from Casper's output. Colour spans inside:
     .ok (✓ lines)  .bad (✗ lines)  .warn  .dim  .accent  .prompt  .you (typed input)
   The title bar is drawn from data-title (or "terminal" if missing).
 */

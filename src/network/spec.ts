@@ -4,7 +4,7 @@
  * returns. Casper builds each preset's argument list itself and never runs it
  * through a shell.
  *
- * The lab list comes only from the owner's own settings (~/.casper/config.yaml
+ * The lab list comes only from the user's own settings (~/.casper/config.yaml
  * or a profile). A project file cannot set it, because anyone can write one.
  */
 
@@ -44,7 +44,7 @@ export interface NetworkCheckSpec {
   timeout?: number;
 }
 
-/** Owner-declared lab devices: exact hostnames, single IPs and IP ranges (CIDR). */
+/** User-declared lab devices: exact hostnames, single IPs and IP ranges (CIDR). */
 export interface LabSettings { hosts: string[] }
 
 /** One network check outcome. The same fields as a VerificationResult, plus kind, label, hosts and report. */
@@ -248,7 +248,7 @@ function labEntry(label: string, value: unknown): string {
 
 /**
  * Parse `lab:` from a settings layer. `source` "project" always throws: the
- * lab list is the owner's statement about their own gear.
+ * lab list is the user's statement about their own gear.
  */
 export function parseLabSettings(value: unknown, source: "user" | "profile" | "project", label = "lab"): LabSettings | undefined {
   if (value === undefined || value === null) return undefined;

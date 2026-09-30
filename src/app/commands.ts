@@ -1,5 +1,7 @@
+import path from "node:path";
 import type { BrowserSession } from "../browser/session";
 import type { ServiceManager, ServiceStatus } from "../services/manager";
+import { runTasksCommand, type BackgroundTask } from "./background";
 import type { DebugRequest, DebugSession } from "../debug/session";
 import { formatSubagentReport, SubagentManager, type SubagentRole } from "../agents/manager";
 import { formatReferenceResult, type ReferenceLibrary } from "../references/library";
@@ -9,7 +11,7 @@ import { HELP_TEXT, FULL_HELP_TEXT, LOGIN_HELP } from "../tui/help";
 import { formatTerminalJSON } from "../tui/json";
 import { effortChoices } from "../tui/effort";
 import { pickEffort } from "../tui/effort-picker";
-import { formatEffort, formatRuntimeStatus, redactPreview, terminalText } from "../tui/format";
+import { commandLabel, formatEffort, formatRuntimeStatus, redactPreview, terminalText } from "../tui/format";
 import type { InteractiveTerminal } from "../tui/terminal";
 import type { CapabilityBroker } from "../capabilities/broker";
 import type { MCPManager, MCPStatus } from "../mcp/manager";
@@ -26,6 +28,8 @@ import type { ProjectContext } from "../project/context";
 import type { ProjectInfo } from "../project/inspect";
 import { CHECK_NAMES, type CheckName, type VerificationReport } from "../verify/evidence";
 import { defaultVerifyNames } from "../verify/registry";
+import { childProjectsWithTests } from "../project/child";
+import type { ProjectModel } from "../project/model";
 import type { VerificationTask } from "../verify/task";
 import { artifactFilesystemSupported } from "../visualize/artifacts";
 import { buildRepoGraph } from "../visualize/repo";
@@ -37,7 +41,7 @@ import type { RuntimeAuthProvider, RuntimeSession, RuntimeTool, AgentRuntime } f
 import { describeChecksPlan, type ChecksPlan } from "../verify/mode";
 import { detectedMigrations, MIGRATIONS_CHECK } from "../verify/migrations-check";
 import type { TaskObservations } from "../task/observations";
-import { formatTaskResult, type TaskResult } from "../task/result";
+import { formatTaskResult, NO_CHECKS_FOUND, type TaskResult } from "../task/result";
 import { UndoStore } from "../task/undo";
 import { tildePath } from "../new/scaffold";
 import { stat } from "node:fs/promises";
@@ -118,8 +122,12 @@ export interface CommandHost {
   readonly securitySeams?: Pick<SecurityReviewHost, "check" | "install">;
   /** The AI review after /security-review's tools (runs only after a numbered ask, or /security-review ai). */
   securityAI(): SecurityAIReview | undefined;
-  /** `/verify add <name>`: save a ready-made check Casper found (never called without the owner asking). */
+  /** `/verify add <name>`: save a ready-made check Casper found (never called without the user asking). */
   saveFoundCheck(name: string): Promise<void>;
+  /** `/project <name>`: open a project folder here, or offer to make it (before the model starts). */
+  openProjectCommand(name: string): Promise<void>;
+  /** /tasks: what runs in the background now, each with its own stop. */
+  backgroundTasks(): BackgroundTask[];
 }
 
 export const VERIFY_USAGE = "Usage: /verify [repair] [typecheck|lint|test|build|<named check> ...] | /verify add <found check>";
@@ -298,9 +306,14 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       if (!retained) throw new Error("No tool output retained; /output shows tool calls from the last model task.");
       const entry = Number.isInteger(recency) ? host.observations.toolOutput(recency) : undefined;
       if (!entry) throw new Error(`Usage: /output [n] with n from 1 (most recent) to ${retained} (retained tool call${retained === 1 ? "" : "s"}).`);
-      const target = entry.target === undefined ? "" : ` · ${redactPreview(entry.target).replace(/\s+/g, " ").slice(0, 180)}`;
+      // A command's tool line is a short label; here the whole command comes first, secrets hidden.
+      const command = entry.command === undefined ? undefined : redactPreview(entry.command);
+      const shown = command === undefined ? entry.target : commandLabel(command);
+      const target = shown === undefined ? "" : ` · ${redactPreview(shown).replace(/\s+/g, " ").slice(0, 180)}`;
+      const body = entry.text || "(no output text)";
       host.output.write("");
-      host.terminal.writePanel(`[output] ${terminalText(entry.toolName).slice(0, 80)}${target} · ${entry.status}${entry.truncated ? " · truncated by runtime" : ""}`, entry.text || "(no output text)", { tone: entry.status === "error" ? "error" : "muted" });
+      host.terminal.writePanel(`[output] ${terminalText(entry.toolName).slice(0, 80)}${target} · ${entry.status}${entry.truncated ? " · truncated by runtime" : ""}`,
+        command === undefined ? body : `$ ${command}\n${body}`, { tone: entry.status === "error" ? "error" : "muted" });
       return;
     }
     if (prompt === "/status") {
@@ -338,6 +351,13 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       await handleServicesCommand(host, prompt);
       return;
     }
+    if (/^\/tasks(?:\s|$)/.test(prompt)) {
+      await runTasksCommand({ tasks: () => host.backgroundTasks(), write: text => host.output.write(text),
+        canAsk: () => host.interactive && host.terminal.canAsk && !host.closing,
+        pick: (question, options, signal) => host.terminal.pick(question, options, signal),
+        ...(host.commandAbort ? { signal: host.commandAbort.signal } : {}) }, prompt.slice(6));
+      return;
+    }
     if (/^\/memory(?:\s|$)/.test(prompt)) {
       host.memoryWork = handleMemoryCommand(host, prompt);
       try { await host.memoryWork; }
@@ -354,6 +374,10 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
     }
     if (prompt === "/project") {
       host.output.write(`${renderProjectSummary(host.projectContext!)}\n`);
+      return;
+    }
+    if (/^\/project\s+\S/.test(prompt)) {
+      await host.openProjectCommand(prompt.replace(/^\/project\s+/, "").trim());
       return;
     }
     if (/^\/tree(?:\s|$)/.test(prompt)) {
@@ -409,7 +433,7 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
     }
     if (/^\/verify(?:\s|$)/.test(prompt)) {
       const args = prompt.trim().split(/\s+/).slice(1);
-      // `/verify add <name>`: the owner saves a ready-made check Casper found. Casper never adds one by itself.
+      // `/verify add <name>`: the user saves a ready-made check Casper found. Casper never adds one by itself.
       if (args[0] === "add") {
         if (args.length !== 2 || !host.projectContext) throw new Error(VERIFY_USAGE);
         await host.saveFoundCheck(args[1]!);
@@ -427,6 +451,19 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       }
       if (args.some((arg) => !CHECK_NAMES.some((name) => name === arg) && !Object.hasOwn(named, arg) && !detected.includes(arg))) {
         throw new Error(VERIFY_USAGE);
+      }
+      if (!args.length && host.projectContext) {
+        const note = await noChecksNote(host.projectContext.model, host.activeWorkspaceRoot(), host.homeDir());
+        // Nothing to run is not "Incomplete": one plain line, and where the tests are when a folder inside has some.
+        // Nothing ran, so a script's exit code still says "not every check ran" (2), as before; only the words changed.
+        if (note) { host.output.write(note); return { status: "incomplete", repairAttempts: 0, rounds: [], results: [], reason: NO_CHECKS_FOUND }; }
+        // A Python project with only tests: one line says what isn't there, and the verdict is about what ran,
+        // not "Incomplete" and a "has no command" line for each of typecheck, lint and build.
+        const { run, missing } = verifyPlan(host.projectContext.model);
+        if (missing.length) {
+          host.output.write(`[verify] No ${plainList(missing, "or")} command here, so Casper runs ${plainList(run, "and")}.\n`);
+          return host.runVerification(run, repair);
+        }
       }
       return host.runVerification(args.length ? args : host.projectContext ? defaultVerifyNames(host.projectContext.model) : CHECK_NAMES, repair);
     }
@@ -934,4 +971,29 @@ export function permissionsText(sandbox: ShellSandbox | undefined): string {
     "MCP, workspace transitions, debugger launch and consequential browser operations have their own exact approvals. The AI can't approve anything for you.",
     "No SAFE/YOLO or read-only mode is implied. /verify and /services may execute project scripts (the declared checks and service commands). See docs/SECURITY.md.",
   ].join("\n");
+}
+
+/** What plain `/verify` runs: every named check, and each of typecheck, lint, test and build that has a command. */
+export function verifyPlan(model: ProjectModel): { run: CheckName[]; missing: CheckName[] } {
+  const names = defaultVerifyNames(model);
+  const missing = names.filter((name) => (CHECK_NAMES as readonly string[]).includes(name) && !model.commands[name as keyof ProjectModel["commands"]]?.trim());
+  return { run: names.filter((name) => !missing.includes(name)), missing };
+}
+
+/** "typecheck, lint or build" / "test and build". */
+function plainList(names: readonly string[], joiner: "or" | "and"): string {
+  return names.length < 2 ? names.join("") : `${names.slice(0, -1).join(", ")} ${joiner} ${names.at(-1)}`;
+}
+
+/** "/verify" when the folder has no check at all: "No checks found in Documents." and, when folders inside have
+ * tests, "Tests found in sample-tools: /project sample-tools". Undefined when something can run. */
+export async function noChecksNote(model: ProjectModel, root: string, homeDir: string): Promise<string | undefined> {
+  const names = defaultVerifyNames(model);
+  const runnable = names.some((name) => !(CHECK_NAMES as readonly string[]).includes(name) || model.commands[name as keyof ProjectModel["commands"]]?.trim());
+  if (runnable) return undefined;
+  const lines = [`No checks found in ${path.basename(root) || root}.`];
+  const children = await childProjectsWithTests(root, homeDir).catch(() => []);
+  for (const child of children) lines.push(`Tests found in ${child.relative}: /project ${child.relative}`);
+  if (!children.length) lines.push("To add one: verify.test in .casper/project.yaml.");
+  return `[verify] ${lines.join(" ")}\n`;
 }

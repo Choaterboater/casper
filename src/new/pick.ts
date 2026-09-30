@@ -14,7 +14,7 @@ export interface NewProjectSuggestion {
 }
 
 const LEAD = /^(?:(?:please|pls|ok|okay|hey|so|now)[,\s]+)*(?:(?:can|could|would|will) you\s+|i (?:want|need|would like|'d like) (?:you )?to\s+|i'd like to\s+|let'?s\s+|help me\s+|go\s+)?/;
-const VERB = /^(build|create|make|write|start|scaffold|set up|setup)\b\s*/;
+const VERB = /^(build|create|make|write|start|scaffold|set up|setup|new)\b\s*/;
 const OBJECT = new Set(["tool", "tools", "script", "scripts", "app", "apps", "application", "server", "dashboard", "project", "cli",
   "bot", "playbook", "playbooks", "website", "webapp", "utility", "program"]);
 const GENERIC = new Set(["project", "app", "apps", "application", "program"]);

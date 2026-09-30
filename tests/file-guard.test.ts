@@ -2,7 +2,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { classifyPath, fileToolGate, gitInternalsCommand, hooksPathTargets, PRIVATE_PATHS } from "../src/platform/project-paths";
+import { classifyPath, fileToolGate, gitInternalsCommand, hooksPathTargets, PRIVATE_PATHS, privatePathCommand } from "../src/platform/project-paths";
 import { POSIX } from "./support/platform";
 
 let root: string; let home: string; let project: string; let context: { root: string; home: string; agentDir: string };
@@ -105,4 +105,35 @@ test("a session in Casper's own worktree folder can still edit its project files
   // The rest of ~/.casper stays off limits from there.
   expect(fileToolGate("write", { path: "~/.casper/settings.json", content: "x" }, treeContext)).toContain("Casper doesn't let the AI change it.");
   expect(fileToolGate("write", { path: "../other/src/a.ts", content: "x" }, treeContext)).toContain("Casper doesn't let the AI change it.");
+});
+
+test("a shell command that names ~/.ssh or another private place is refused, even with no sandbox", () => {
+  for (const command of ["cat ~/.ssh/config", "grep -i hostname $HOME/.ssh/config", "cat \"$HOME/.ssh/id_test\"", "ls ${HOME}/.aws",
+    `cat ${home}/.ssh/config`, "cd ~ && cat .ssh/config", "cp ~/.netrc /tmp/x", "tar czf k.tgz ~/.ssh",
+    // -i is ssh's key file only for ssh: for diff, less or xxd it is a flag, and the next word is read.
+    "diff -i ~/.ssh/config /dev/null", "less -i ~/.ssh/config", "xxd -i ~/.ssh/id_test", "echo ssh; diff -i ~/.ssh/config x"]) {
+    expect([command, privatePathCommand(command, context)]).toEqual([command, expect.stringMatching(/^Not run: this command reads ~\/\.(ssh|aws|netrc), which is private \(keys and logins\)\./)]);
+  }
+  // ssh's own key file is read by ssh, not shown to the AI; other commands and names pass.
+  for (const command of ["ssh -i ~/.ssh/lab_key root@10.0.0.5 uptime", "scp -o IdentityFile=~/.ssh/lab app.py build-server:/opt/", "ssh build-server uptime",
+    "ssh -i ~/.ssh/a -i ~/.ssh/b build-server uptime", "sudo ssh -i ~/.ssh/lab root@10.0.0.5 id",
+    "cat ./ssh/config", "ls ~/Projects", "echo .sshrc", "cat notes/.ssh-hosts.md"]) {
+    expect([command, privatePathCommand(command, context)]).toEqual([command, undefined]);
+  }
+});
+
+test("a shell command that reaches ~/.ssh by .., cd, ~user, quotes, a glob or a whole-home copy is refused too", () => {
+  // Casper open in ~/Documents.
+  const documents = { ...context, root: path.join(home, "Documents") };
+  for (const command of ["cat ../.ssh/config", "cd .. && cat .ssh/config", "cd; cat .ssh/config", `cat ~${path.basename(home)}/.ssh/config`,
+    "cat ~/'.ssh'/config", "cat ~/\".ssh/config\"", "cat ~/.ss*/config", "cat ~/.s?h/id_test", "cat ~/.ssh/../.ssh/config",
+    "grep -r HostName ~", "grep -R HostName ..", "tar czf /tmp/home.tgz ~", "rsync -a ~/ backup:/home/", "cp -r ~ /tmp/copy",
+    "ssh -G build-server", "ssh -vG build-server", "bash -c 'cat ../.ssh/config'"]) {
+    expect([command, privatePathCommand(command, documents)]).toEqual([command, expect.stringMatching(/^Not run: this command reads ~\/\.ssh/)]);
+  }
+  // Ordinary work next to it passes: the folder's own files, a sibling, a listing of home, ssh itself.
+  for (const command of ["cat ../Projects/readme.md", "ls ..", "ls ~", "grep -r TODO .", "find ~ -name '*.md'", "cat ~/.config/*.toml",
+    "cd sample-tools && python3 -m unittest discover -s tests", "ssh -v build-server uptime", "cat ~/.ssh.bak.md", "cat ~/*/config"]) {
+    expect([command, privatePathCommand(command, documents)]).toEqual([command, undefined]);
+  }
 });

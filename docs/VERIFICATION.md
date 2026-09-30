@@ -70,6 +70,23 @@ exit code depends on who asked for checking:
 - `--verify` or `verification.mode: auto`: exit 2;
 - `--require-verification`: exit 3.
 
+**Work in a project inside the folder (from v0.2.19).** When every changed file sits in one project
+folder inside the open folder (Casper open in `~/Documents`, the work in `~/Documents/sample-tools`), and
+the open folder is not a project or git repository itself, that project's own checks run for the
+receipt: `… Casper checking: test (checks from sample-tools)` and
+`✓ test passed (checks from sample-tools · python3 -m unittest discover -s tests)`. They run in the
+sandbox, once, with no repair round. Then Casper asks `The work is in ~/Documents/sample-tools.` with
+`1 Stay here · 2 Switch there`; Enter stays, and after Stay it doesn't ask about that folder again this
+session. A one-shot run prints `[folder] The work is in ~/Documents/sample-tools. To work there: cd
+~/Documents/sample-tools && casper`.
+
+**`/verify` with nothing to run (from v0.2.19)** prints one line instead of one line per check:
+`[verify] No checks found in Documents. Tests found in sample-tools: /project sample-tools`, or
+`To add one: verify.test in .casper/project.yaml.` when no folder inside has tests. The receipt says
+`• Not checked — no checks found in this folder` and a one-shot run exits 2, so a script never
+passes with nothing checked. In a project that has only tests, `/verify` says
+`[verify] No typecheck, lint or build command here, so Casper runs test.` and runs that.
+
 **Bash runs do not count.** When the model runs a test through its own bash tool, Casper reports
 it but never counts it as verification (`• Not verified — test ran via bash only …`).
 
@@ -81,7 +98,7 @@ A one-shot run exits:
 |---|---|
 | 0 | Done. A pass that later went stale, checks that passed without proving the change, or changes nobody verified, still exit 0 and the receipt says why. |
 | 1 | A check failed, checks were blocked, or the model run failed. |
-| 2 | Incomplete: a selected check was skipped (it has no command), a smoke check could not run, `--max-turns` stopped the run, or checking was asked for and no check exists. |
+| 2 | Incomplete: a selected check was skipped (it has no command), a smoke check could not run, `--max-turns` stopped the run, Casper stopped commands to another machine, or checking was asked for and no check exists. |
 | 3 | Only with `--require-verification` (which implies `--verify`): the change was not verified. From v0.2.17 that includes checks that passed without a proof (`• Checks passed — not proven`). |
 | 130 / 143 | Cancelled (Ctrl-C) / terminated (SIGTERM). |
 
@@ -118,8 +135,8 @@ The lines below the verdict give the evidence:
 
 ```
 ✓ Changed 1 file: sum.js
-✓ test passed (npm run test, 0.3s)
-✓ test passed earlier in this task, reused (npm run test, 0.3s)
+✓ test passed (npm run test, 1.3s)
+✓ test passed earlier in this task, reused (npm run test, 1.3s)
 ✗ test failed (exit 1) — log above; /verify repair test to fix
 ✗ test timed out after 10m — it did not finish, so it was not checked; /verify test to run it again, or raise verification.timeoutMs in .casper/project.yaml
 ✗ lint could not start (exit 127) — check verify.lint in .casper/project.yaml
@@ -132,7 +149,21 @@ The lines below the verdict give the evidence:
 ⚠ Not proven: test passes without this change too, and no test was added or changed
 ✓ Service api at 127.0.0.1:53121; smoke 2/2 passed (model-declared, run by Casper: create note failed before the change)
 ✗ Service api at 127.0.0.1:53121; smoke 0/1 passed; failed: create note (status 404, expected 201)
+• Changes unknown: this folder has over 20,000 files; open a project folder
+• Changed (seen by Casper's edit and write tools): lab.md
+• Changed on 198.51.100.20 (build-server) (from the commands Casper saw): made an API token (pveum user token add …); installed a service (/etc/systemd/system/sampleapp.service)
+• Ran commands on build-server over ssh; Casper can't tell from the command text whether they changed anything there
+• Not run on 198.51.100.20 (build-server): 3 commands Casper stopped before they reached it
+• Incomplete — commands to 198.51.100.20 (build-server) did not run
+• A secret appeared in a command; change it after this task.
 ```
+
+From v0.2.19 a check's time shows only from one second up (`✓ test passed (npm run test)` for a
+quick one). The lines about other machines come from the text of the AI's ssh and scp commands, not
+from the machine itself: Casper never logs in to check. They are there so a model's "nothing changed
+on the server" never stands alone. When Casper stopped commands to another machine, the task is
+never a clean pass: the verdict is `• Incomplete — commands to 198.51.100.20 (build-server) did not run`
+(exit 2), even when the local checks passed.
 
 A pass marked `reused` did not run again: its declared inputs are unchanged since it passed
 earlier in the same task (often the model's own `casper_check`), and the time shown is that
@@ -598,6 +629,10 @@ From v0.2.16 (not released yet) a project can also name its own checks under
 `verify.checks.<name>` (see [Configuration](#configuration)), Casper finds a `migrations` check
 (see [SQL migrations check](#sql-migrations-check)), and it finds ready-made checks for Ansible
 playbooks (see [NETWORK-CHECKS.md](NETWORK-CHECKS.md)).
+
+From v0.2.19 a Python project with `test*.py` files that use `unittest`, and no pytest, gets
+`python3 -m unittest discover -s tests` (or `discover` at the top). pytest-style files are not
+counted, because `unittest` would run zero of them and still say OK.
 
 `/project` shows the commands Casper found.
 

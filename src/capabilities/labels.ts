@@ -73,7 +73,7 @@ export const READ_NOUN_ENDINGS: ReadonlySet<string> = new Set(["status", "state"
 /**
  * Exact tool names where a destructive, run or change word is a noun, not an action. Only the listed
  * words are skipped, only for that exact name, and `nameLabel` never goes below 0.2.14, so this cannot
- * make any tool looser than Casper 0.2.14 made it. Taken from the owner's read-only tools in hpe-networking-mcp.
+ * make any tool looser than Casper 0.2.14 made it. Taken from the read-only tools in hpe-networking-mcp.
  */
 export const NOUN_USES: ReadonlyMap<string, readonly string[]> = new Map([
   ["aos8_get_migration_run", ["run"]],

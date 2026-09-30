@@ -73,10 +73,20 @@ try {
   }
   # Where it was built: the release's GitHub build provenance, checked with gh when it is installed and signed in.
   if (Get-Command gh -ErrorAction SilentlyContinue) {
-    & gh auth status *> $null
-    if ($LASTEXITCODE -eq 0) {
-      & gh attestation verify $ArtifactPath --repo Choaterboater/casper *> $null
-      if ($LASTEXITCODE -ne 0) { throw "This download doesn't match a Casper build from GitHub. Nothing installed." }
+    # Windows PowerShell 5 turns a native command's error text into a stop under 'Stop'; the exit code decides here.
+    $SavedPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+      & gh auth status *> $null
+      $SignedIn = $LASTEXITCODE -eq 0
+      $Attested = $false
+      if ($SignedIn) {
+        & gh attestation verify $ArtifactPath --repo Choaterboater/casper *> $null
+        $Attested = $LASTEXITCODE -eq 0
+      }
+    } finally { $ErrorActionPreference = $SavedPreference }
+    if ($SignedIn) {
+      if (-not $Attested) { throw "This download doesn't match a Casper build from GitHub. Nothing installed." }
       Write-Host "Verified: built by GitHub Actions from Choaterboater/casper."
     } else {
       Write-Host "Checked SHA-256. Sign in to gh (gh auth login) to also check where it was built."

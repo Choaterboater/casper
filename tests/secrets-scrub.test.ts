@@ -177,7 +177,7 @@ test("PEM private keys are hidden but certificates stay", () => {
   expect(result.kinds).toEqual(["private-key"]);
 });
 
-test("owner's reversible tokens, ****** and markers pass through and are not counted", () => {
+test("a server's reversible tokens, ****** and markers pass through and are not counted", () => {
   const token = `hpe_mcp_secret_${"0123456789abcdef".repeat(2)}`;
   const text = [
     `wpa-passphrase ${token}`,

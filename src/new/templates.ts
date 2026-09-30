@@ -80,7 +80,7 @@ export function allTemplates(): TemplateManifest[] {
     .sort((a, b) => ORDER.indexOf(a.id) - ORDER.indexOf(b.id) || a.id.localeCompare(b.id));
 }
 
-/** Menu order: the owner's everyday work first. */
+/** Menu order: everyday network work first. */
 const ORDER = ["python-cli", "network-mcp", "mist-python", "web-app", "noc-dashboard", "aoscx-ansible", "junos-ansible"];
 
 /** The templates `casper new` offers. */
@@ -139,6 +139,8 @@ const STOPWORDS = new Set([
   "read", "reads", "print", "prints", "display", "displays", "return", "returns", "track", "tracks", "watch", "watches",
   "monitor", "monitors", "report", "reports", "collect", "collects", "export", "exports", "count", "counts", "let", "lets",
   "help", "helps", "give", "gives", "make", "makes", "do", "does",
+  // Filler around a name: "new project folder called mist sites" is mist-sites.
+  "folder", "folders", "directory", "dir", "called", "named", "name", "project", "projects",
 ]);
 
 const BOUNDARY = new Set(["per", "for", "in", "on", "from", "by", "with", "to", "of", "at", "across", "into", "and", "or", "using", "via"]);

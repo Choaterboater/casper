@@ -470,7 +470,7 @@ test("learning cannot activate ambient extensions, project commands, skills, fac
 test("concurrent learning processes preserve both immutable drafts and keep repositories isolated", async () => {
   const f = await fixture(() => answer(JSON.stringify({ candidates: [candidate] })));
   const [first, second] = await Promise.all([f.run(["learn", f.project]), f.run(["learn", f.project])]);
-  expect([first.exit, second.exit]).toEqual([0, 0]);
+  expect([first, second].map(({ exit, stderr }) => ({ exit, stderr }))).toEqual([{ exit: 0, stderr: "" }, { exit: 0, stderr: "" }]);
   const a = JSON.parse(first.stdout).draft; const b = JSON.parse(second.stdout).draft;
   expect(a.id).not.toBe(b.id);
   const listed = JSON.parse((await f.run(["learn", "list", f.project])).stdout);

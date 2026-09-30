@@ -13,7 +13,7 @@ export type RequirementsReview =
   | { missing: true; incomplete?: true };
 
 /** Model turns each round after the task turn (the requirements review, the proof repair) may take.
- * Owner-approved (Phase 4a): the review was 41-44% of Casper's wall time and added no first-time-right
+ * Decided in Phase 4a: the review was 41-44% of Casper's wall time and added no first-time-right
  * in pinned runs, so it is off by default; the proof round keeps the same 12 turns. A round still
  * working after 12 turns is exploring, not checking. A smaller --max-turns wins and stays the task's
  * own stop. */

@@ -39,7 +39,7 @@ export interface ProjectModel {
   /** SQL migrations found in the project (the migrations check); found when the project is opened, never cached. */
   migrations?: MigrationPlan;
   /** Ready-made checks Casper found for the project (Ansible playbooks) that the project has not saved under
-   * verify.checks. They never run until the owner adds one (/verify add <name>); found when opened, never cached. */
+   * verify.checks. They never run until the user adds one (/verify add <name>); found when opened, never cached. */
   foundChecks?: Record<string, NamedCheckSpec>;
   architecture: Record<string, string>;
   conventions: string[];
@@ -114,8 +114,10 @@ function sortedUnique(values: Iterable<string>): string[] {
 }
 
 // 3: Python network SDKs (mistapi, pycentral, pyaoscx, pyclearpass, junos-eznc, ncclient) give frameworks.
+// 4: a Python project with test_*.py files and no pytest runs them with unittest.
+// 5: only test*.py files that use unittest count (pytest-style files would run no tests and still pass).
 /** Bump when detection changes what it derives from the same files, so cached models are rebuilt. */
-const DETECTION_VERSION = 3;
+const DETECTION_VERSION = 5;
 /** requirements.txt, requirements-dev.txt, requirements_test.txt ...: Python projects without a pyproject. */
 const REQUIREMENTS = /^requirements[\w.-]*\.txt$/i;
 /** Python package names (as a whole word, not inside another name) and the framework they give. */
@@ -157,7 +159,7 @@ async function fingerprint(
       hash.update(`${name}:missing\n`);
     }
   }
-  for (const relative of [...STRUCTURE_PROBES, ...VIRTUALENVS]) {
+  for (const relative of [...STRUCTURE_PROBES, ...VIRTUALENVS, ...UNITTEST_DIRS]) {
     try {
       const details = await lstat(path.join(root, relative));
       const kind = details.isSymbolicLink() ? "link" : details.isDirectory() ? "dir" : "file";
@@ -310,6 +312,29 @@ function tomlTable(source: string, name: string): string | null {
   return (end < 0 ? rest : rest.slice(0, end)).join("\n");
 }
 
+/** Folders a plain unittest suite sits in; the project root counts too. */
+const UNITTEST_DIRS = ["tests", "test"];
+/** unittest's own discovery pattern (test*.py): foo_test.py files would not run, and the check would pass on none. */
+const TEST_FILE = /^test.*\.py$/;
+
+/** "python3 -m unittest discover -s tests" when a Python project has unittest test files (test*.py that use
+ * unittest) but no pytest: the standard library runs them, nothing to install. pytest-style files are left out, since
+ * unittest would run none of their tests and still say OK. Undefined when there are none. */
+export async function unittestCommand(root: string, runner: ReturnType<typeof pythonRunner>): Promise<string | undefined> {
+  const hasTests = async (dir: string) => {
+    const files = (await readdir(dir).catch(() => [] as string[])).filter((name) => TEST_FILE.test(name)).slice(0, 50);
+    for (const name of files) {
+      const text = await readFile(path.join(dir, name), "utf8").then((source) => source.slice(0, 256 * 1024), () => "");
+      if (/\bunittest\b|\bTestCase\b/.test(text)) return true;
+    }
+    return false;
+  };
+  for (const dir of UNITTEST_DIRS) {
+    if (await hasTests(path.join(root, dir))) return runner.tool(`unittest discover -s ${dir}`);
+  }
+  return await hasTests(root) ? runner.tool("unittest discover") : undefined;
+}
+
 export function detectPythonCommands(
   pyproject: string,
   requirements: string,
@@ -371,7 +396,12 @@ async function detectModel(
   if (pyproject || requirements) {
     const virtualenv = (await Promise.all(VIRTUALENVS.map(async (name) => (await lstat(path.join(project.root, name)).catch(() => undefined))?.isDirectory() ? name : null)))
       .find(Boolean) ?? null;
-    commands = { ...commands, ...detectPythonCommands(pyproject, requirements, pythonRunner(names, pyproject, virtualenv)) };
+    const runner = pythonRunner(names, pyproject, virtualenv);
+    commands = { ...commands, ...detectPythonCommands(pyproject, requirements, runner) };
+    if (!commands.test) {
+      const unittest = await unittestCommand(project.root, runner);
+      if (unittest) commands.test = unittest;
+    }
     if (/\bfastapi\b/i.test(pyproject)) frameworks.add("fastapi");
     if (/\bdjango\b/i.test(pyproject)) frameworks.add("django");
     if (/\bflask\b/i.test(pyproject)) frameworks.add("flask");

@@ -29,11 +29,11 @@ export function offlineEnv(base: NodeJS.ProcessEnv, extra: Record<string, string
   env.UV_OFFLINE = "1";
   env.PIP_NO_INDEX = "1";
   env.npm_config_offline = "true";
-  // The owner's own --env values win: they asked for them by name.
+  // The user's own --env values win: they asked for them by name.
   return { ...env, ...extra };
 }
 
-/** --live: the real environment, plus the owner's --env values. */
+/** --live: the real environment, plus the user's --env values. */
 export function liveEnv(base: NodeJS.ProcessEnv, extra: Record<string, string> = {}): NodeJS.ProcessEnv {
   return { ...base, ...extra };
 }

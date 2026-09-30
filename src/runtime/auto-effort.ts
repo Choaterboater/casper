@@ -1,6 +1,7 @@
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { AgentSession, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { RuntimeUsage } from "./types";
+import { openRouterRequestHeaders } from "./openrouter-attribution";
 
 const LEVELS = ["low", "medium", "high", "xhigh"] as const;
 const TIMEOUT_MS = 4_000;
@@ -85,6 +86,8 @@ export async function classifyEffort(options: {
         maxTokens: 128,
         toolChoice: "none",
         cacheRetention: "none",
+        // This request skips the session's header hook; OpenRouter still learns it is Casper's.
+        ...openRouterRequestHeaders(options.model),
       });
     });
     // Promise.race handles late rejection as well as late success. No callbacks

@@ -6,7 +6,7 @@ test per case. Wrong runs fell from 7 of 48 (`casper`) to 2 of 48 (`casper-check
 most half. Wall time was 1.06× Pi and tokens 1.13× Pi, both within 1.25×. Pi itself had 3 wrong runs of 48, so the
 checklist brings Casper to Pi's level, not clearly above it: 2 against 3 is within noise.
 
-Decision source: the owner's call after five detection checks failed (docs/evals/2026-09-27-mutation-check.md):
+Decision source: the maintainer's call after five detection checks failed (docs/evals/2026-09-27-mutation-check.md):
 try preventing the missed cases instead of catching them. The rule was fixed in `.scratch/checklist/run.sh`
 before the run: continue only if casper-checklist's not-accepted rate is at most half of casper's and its wall
 time and tokens are each ≤ 1.25× Pi. Frozen hard pack, `--repeat 4`, casper, casper-checklist and pi side by
@@ -39,7 +39,7 @@ reducing wrong runs, not by flagging them.
 ## What this means
 
 Prevention works where detection did not: listing the stated cases for the builder removed most of the missed
-cases at little cost. Next, if the owner agrees: confirm on a second run (or the harder pack) before making
+cases at little cost. Next, if the maintainer agrees: confirm on a second run (or the harder pack) before making
 `verification.checklist` the default in auto mode, and show the checklist to interactive users so they can correct it.
 
 ## Confirmation run (same day)

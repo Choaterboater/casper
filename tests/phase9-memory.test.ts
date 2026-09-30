@@ -189,6 +189,18 @@ test("outcomes preserve skip/unverified evidence and never infer human acceptanc
   expect(saved.verification).toBe("incomplete");
 });
 
+test("a task whose checks carry a label, or a named check, is still recorded", async () => {
+  const { store } = await fixture();
+  const base = { cwd: "/fixture", exitCode: 0, signal: null, stdout: "", stderr: "", durationMs: 90, truncated: false } as const;
+  const report: VerificationReport = { status: "pass", repairAttempts: 0, rounds: [], results: [
+    { ...base, name: "test", status: "pass", label: "checks from sample-tools", command: "python3 -m unittest discover -s tests" },
+    { ...base, name: "aruba-check", status: "pass", kind: "lab", label: "dry run not guaranteed" },
+  ] };
+  const saved = await store.recordOutcome({ task: "write sample tools", skills: [], modelStatus: "completed", verification: report });
+  expect(saved.checks).toEqual([expect.objectContaining({ name: "test", status: "pass" })]);
+  expect((await store.outcomes()).map((entry) => entry.id)).toContain(saved.id);
+});
+
 test("legacy outcomes stay readable and explicitly unqualified in local memory inspection", async () => {
   const { project, context, store } = await fixture();
   const legacy = { id: "legacy", createdAt: "2026-01-01T00:00:00.000Z", task: "Build", skills: [],

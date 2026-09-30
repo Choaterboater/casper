@@ -10,6 +10,8 @@
  * This is an allowlist, not a sandbox. Casper never calls the plan turn read-only; it says it blocks the
  * changes it can see, and the snapshot taken around the plan turn reports any file that changed anyway.
  */
+import os from "node:os";
+import { remoteTargets } from "../sandbox/remote";
 import { formatChecklistPrompt, normalizeCases } from "../task/checklist";
 
 /** Pi's built-in tools that only look at files. Every other tool (edit, write, MCP tools, services,
@@ -120,6 +122,30 @@ export function isPlanningCommand(command: string, shell: "bash" | "powershell" 
     const check = Object.hasOwn(BASH_COMMANDS, name!) ? BASH_COMMANDS[name!] : undefined;
     return Boolean(check?.(args));
   });
+}
+
+/** ssh that only runs something on the other machine: no local log file (-E), no options (-o LocalCommand ...). */
+const sshOnly = (args: string[]) => !args.some((arg) => flag(arg, "-E", "-o") || short(arg, "EoFSMN"));
+
+/** Whether a shell command leaves this machine's files alone, so by itself it can't make the task's changes
+ * unknown: every part is a look command (ls, cat, grep, find, git log ...) or ssh to another machine, which the
+ * receipt reports on its own line. The same strict reading as the plan turn's list. */
+export function leavesLocalFilesAlone(command: string, home = os.homedir()): boolean {
+  if (command.length > 2000) return false;
+  const parts = segments(command);
+  if (!parts) return false;
+  const lookOnly = parts.every(([name, ...args]) => name === "ssh" ? sshOnly(args)
+    : Boolean((Object.hasOwn(BASH_COMMANDS, name!) ? BASH_COMMANDS[name!] : undefined)?.(args)));
+  // ssh 127.0.0.1 (or localhost, or an alias for this machine) runs its command on this machine's files.
+  return lookOnly && !(parts.some(([name]) => name === "ssh") && remoteTargets(command, home).some((target) => isThisMachine(target.host)));
+}
+
+/** localhost, 127.x.x.x, ::1, 0.0.0.0 or this machine's own name. */
+function isThisMachine(host: string): boolean {
+  const bare = host.replace(/^\[|\]$/g, "").replace(/\.$/, "").toLowerCase();
+  const own = os.hostname().toLowerCase();
+  return /^(?:localhost(?:\.localdomain)?|127(?:\.\d{1,3}){0,3}|0(?:\.0){0,3}|::1|::ffff:127(?:\.\d{1,3}){3}|0:0:0:0:0:0:0:1)$/.test(bare)
+    || bare.endsWith(".localhost") || (own !== "" && (bare === own || bare === own.split(".")[0] || bare === `${own.split(".")[0]}.local`));
 }
 
 /** The gate for a plan turn, for every tool call. Undefined lets the call run; a reason blocks it. */

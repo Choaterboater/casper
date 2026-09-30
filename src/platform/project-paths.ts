@@ -2,6 +2,7 @@ import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { commandSegments } from "../sandbox/remote";
 
 /**
  * Where a path the AI's file tools name really points. One list of private paths is shared by the
@@ -303,6 +304,113 @@ export function gitInternalsCommand(command: string, root: string, home = os.hom
   const named = names.map((pattern) => pattern.exec(command)?.[0]?.trim().replace(/^['"=:(/\\]/, "")).find(Boolean);
   if (named && (REDIRECT.test(command) || WRITE_WORDS.test(command))) {
     return `Not run: this command changes ${named.replace(/[\\/]+$/, "")}, git's own files. Casper doesn't let the AI change them. Ask the user to run it.`;
+  }
+  return undefined;
+}
+
+/**
+ * A shell command whose text names a private place (~/.ssh/config, $HOME/.aws, /home/me/.netrc ...). The sandbox
+ * hides these from the shell too; this check also holds with the sandbox off (--no-sandbox, Windows). Words are read
+ * as the shell would (~, ~user, $HOME, .., cd, quotes, globs), and a whole-home copy or grep -r counts. A text check,
+ * not a sandbox: a variable or a script can get past it. The key file ssh or scp is told to use (-i, IdentityFile) is not
+ * read by the AI, so that one is allowed.
+ */
+export function privatePathCommand(command: string, context: PathContext): string | undefined {
+  const home = context.home ?? os.homedir();
+  // Only ssh's own -i: `diff -i ~/.ssh/config` or `grep -i x ~/.ssh/config` reads the file.
+  let text = command;
+  for (let guard = 0; guard < 8; guard++) {
+    const next = text.replace(/(\b(?:ssh|scp|sftp|ssh-copy-id|autossh|mosh)(?=\s)[^;&|\n()`]*?)(?:\s-i\s*|\bIdentityFile[= ]\s*)(?:"[^"]*"|'[^']*'|\S+)/, "$1 ");
+    if (next === text) break;
+    text = next;
+  }
+  const homes = ["~", "\\$HOME", "\\$\\{HOME\\}", "\"\\$HOME\"", "%USERPROFILE%", "\\$env:USERPROFILE", home.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")];
+  for (const place of privatePlaces(context)) {
+    const entry = place.shown.startsWith("~/") ? place.shown.slice(2) : undefined;
+    const names = entry ? homes.map((prefix) => `${prefix}[\\\\/]+${entry.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\//g, "[\\\\/]+")}`) : [];
+    for (const absolute of place.paths) names.push(absolute.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    const pattern = new RegExp(`(?:^|[\\s'"=:(<>|;&])(?:${names.join("|")})(?=$|[\\\\/\\s'";&|)<>*?])`);
+    if (pattern.test(text)) return `Not run: this command reads ${place.shown}, which is private (keys and logins). Casper keeps it from the AI. Ask the user instead.`;
+  }
+  // `cd ~/.ssh`, `cd $HOME` then a relative name: a command that goes home and names a private place by itself.
+  if (/(?:^|[\s;&|(])cd\s+(?:~|\$HOME|\$\{HOME\}|"\$HOME")\/?(?=$|[\s;&|)])/.test(text)) {
+    const bare = PRIVATE_PATHS.find((entry) => new RegExp(`(?:^|[\\s'"=:(<>|;&])(?:\\./)?${entry.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=$|[\\\\/\\s'";&|)])`).test(text));
+    if (bare) return `Not run: this command reads ~/${bare}, which is private (keys and logins). Casper keeps it from the AI. Ask the user instead.`;
+  }
+  const shown = privateWord(text, context, home);
+  if (shown) return `Not run: this command reads ${shown}, which is private (keys and logins). Casper keeps it from the AI. Ask the user instead.`;
+  return undefined;
+}
+
+/** Programs that read every file under a folder they are given (grep -r ~ reads ~/.ssh/config). */
+function readsTree(words: string[]): boolean {
+  const program = path.basename(words[0] ?? "");
+  const flags = words.slice(1).filter((word) => word.startsWith("-"));
+  const short = (letters: RegExp) => flags.some((flag) => /^-[^-]/.test(flag) && letters.test(flag.slice(1)));
+  if (["grep", "egrep", "fgrep", "zgrep"].includes(program)) return short(/[rR]/) || flags.some((flag) => /^--(?:recursive|dereference-recursive)$/.test(flag));
+  if (["rg", "ag"].includes(program)) return short(/u/) || flags.some((flag) => /^--(?:hidden|no-ignore|unrestricted)$/.test(flag));
+  if (["cp", "scp"].includes(program)) return short(/[rRa]/) || flags.some((flag) => /^--(?:recursive|archive)$/.test(flag));
+  if (["find"].includes(program)) return words.some((word) => /^-(?:exec|execdir|ok|okdir|fprint|fls)$/.test(word));
+  return ["tar", "zip", "7z", "rsync", "cpio", "rclone", "restic", "borg", "duplicity"].includes(program);
+}
+
+/** Whether one glob part matches one path part: * and ? stay inside the part, [..] is a set, and (as in the shell)
+ * a leading dot is matched only by a dot. */
+function globMatches(pattern: string, name: string): boolean {
+  if (name.startsWith(".") && !pattern.startsWith(".")) return false;
+  try { return new RegExp(`^${pattern.replace(/[.+^${}()|\\]/g, "\\$&").replace(/\*/g, "[^/]*").replace(/\?/g, "[^/]")}$`).test(name); } catch { return false; }
+}
+
+/**
+ * The private place a command's words reach once ~, ~user, $HOME, .., a cd and globs are read the way the shell reads
+ * them: `cat ../.ssh/config` from ~/Documents, `cd; cat .ssh/config`, `cat ~/.ss*\/config`, `cat ~/'.ssh'/config`,
+ * `grep -r HostName ~`. Still a text check: a variable or a script can get past it.
+ */
+function privateWord(command: string, context: PathContext, home: string): string | undefined {
+  const places = privatePlaces(context);
+  const userName = path.basename(home);
+  const expand = (word: string): string | undefined => {
+    let value = word.replace(/^(?:\$\{HOME\}|\$HOME)(?=\/|$)/, home);
+    const tilde = /^~([^/]*)(?=\/|$)/.exec(value);
+    if (tilde) value = (tilde[1] === "" || tilde[1] === userName ? home : path.join(path.dirname(home), tilde[1]!)) + value.slice(tilde[0].length);
+    return value.includes("$") ? undefined : value;
+  };
+  let cwd = context.root;
+  let segments: ReturnType<typeof commandSegments>;
+  try { segments = commandSegments(command); } catch { return undefined; }
+  for (const { words } of segments) {
+    if (!words.length) continue;
+    if (words[0] === "cd" || words[0] === "pushd") {
+      const target = words.slice(1).find((word) => !word.startsWith("-"));
+      const expanded = target === undefined ? home : expand(target);
+      if (expanded !== undefined && !/[*?[]/.test(expanded)) cwd = path.resolve(cwd, expanded);
+    }
+    // `ssh -G host` prints what ~/.ssh/config says for it.
+    if (path.basename(words[0]!) === "ssh" && words.some((word) => /^-[46AaCfGgKkMNnqsTtVvXxYy]*G[46AaCfGgKkMNnqsTtVvXxYy]*$/.test(word))) return "~/.ssh";
+    const tree = readsTree(words);
+    for (const raw of words.slice(1)) {
+      const word = raw.startsWith("-") ? raw.includes("=") ? raw.slice(raw.indexOf("=") + 1) : "" : raw.replace(/^[A-Za-z_][A-Za-z0-9_]*=/, "");
+      if (!word || !/^[.~/$]|\//.test(word)) continue;
+      const expanded = expand(word);
+      if (expanded === undefined) continue;
+      const absolute = path.resolve(cwd, expanded);
+      if (!/[*?[]/.test(absolute)) {
+        const inside = privatePlace(absolute, context);
+        if (inside) return inside;
+        if (tree) { const below = privatePlaceBelow(absolute, context); if (below) return below; }
+        continue;
+      }
+      // A glob: part by part, does it reach a private place (or, for a tree reader, a folder that holds one)?
+      const parts = absolute.split("/").filter(Boolean);
+      for (const place of places) {
+        for (const entry of place.paths) {
+          const want = entry.split("/").filter(Boolean);
+          const reaches = parts.length >= want.length ? want.every((part, index) => globMatches(parts[index]!, part))
+            : tree && parts.every((part, index) => globMatches(part, want[index]!));
+          if (reaches) return place.shown;
+        }
+      }
+    }
   }
   return undefined;
 }

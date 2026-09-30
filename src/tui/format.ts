@@ -31,10 +31,19 @@ export function terminalText(text: string): string {
 
 /** Conservative display-only redaction, not a general secret detector. Never used for evidence. */
 export function redactPreview(text: string): string {
-  return terminalText(text)
+  // "<secret hidden>", from Casper's own scrub, stays as it is: "secret hidden>" is not a secret's value.
+  return terminalText(text).split(HIDDEN).map((part) => redactPart(part)).join(HIDDEN);
+}
+
+const HIDDEN = "<secret hidden>";
+const HIDDEN_WORD = "<secret\u00a0hidden>";
+
+function redactPart(text: string): string {
+  return text
     .replace(/\b([a-z][a-z0-9+.-]*:\/\/)[^\s/@]+:[^\s/@]+@/gi, "$1<redacted>@")
     .replace(/\b(Bearer|Basic)\s+[^\s'";]+/gi, "$1 <redacted>")
-    .replace(/((?:[\w-]*(?:token|secret|password|passwd|api[_-]?key|authorization)[\w-]*)["']?\s*(?:=|:|\s)\s*)(?:"[^"\n]*"|'[^'\n]*'|[^\s;&]+)/gi, "$1<redacted>")
+    // `pveum user token add`, `token list`: a command word after "token" is not its value.
+    .replace(/((?:[\w-]*(?:token|secret|password|passwd|api[_-]?key|authorization)[\w-]*)["']?\s*(?:=|:|\s)\s*)(?!(?:add|create|list|remove|delete|modify|show|get|set|info|generate|revoke)(?:\s|$))(?:"[^"\n]*"|'[^'\n]*'|[^\s;&'"][^\s;&]*)/gi, "$1<redacted>")
     .replace(/\b(?:sk-[\w-]{8,}|gh[pousr]_[\w]{8,}|github_pat_[\w]{8,}|AKIA[A-Z0-9]{16})\b/g, "<redacted>");
 }
 
@@ -55,15 +64,73 @@ export function markdownTheme(color: boolean): MarkdownTheme {
 }
 
 type ToolEvent = Extract<RuntimeEvent, { type: "tool_start" | "tool_end" }>;
+
+/** Shell wrappers that come before the program itself. */
+const COMMAND_WRAPPERS = new Set(["sudo", "env", "time", "nohup", "exec", "command", "nice"]);
+/** ssh, scp and sftp options that take a value, so the value is not taken for the host. */
+const REMOTE_VALUE_FLAGS = new Set(["-p", "-P", "-i", "-l", "-o", "-F", "-J", "-L", "-R", "-D", "-b", "-c", "-E", "-e", "-m", "-O", "-Q", "-S", "-W", "-w"]);
+
+/** A shell command as a short label: the program and what it acts on ("git status", "ssh root@lab",
+ * "python3 -m pytest …"), at most `max` characters. Leading `cd dir &&` and `VAR=value` are left out;
+ * a trailing "…" says more was cut. /output shows the whole command. */
+export function commandLabel(command: string, max = 80): string {
+  // A hidden secret is one word here, so "-p <secret hidden>" never leaves "hidden>" as the program.
+  const text = command.replace(/\s+/g, " ").trim().replaceAll(HIDDEN, HIDDEN_WORD);
+  const segments = text.split(/\s*(?:&&|\|\||;|\|)\s*/).filter(Boolean);
+  if (!segments.length) return "";
+  let index = 0;
+  while (index < segments.length - 1 && /^(?:cd|pushd|export|set|source|\.)(?:\s|$)/.test(segments[index]!)) index++;
+  const words = segments[index]!.split(" ").map(word => word.replace(/^["']|["']$/g, ""));
+  let first = 0;
+  for (;;) {
+    while (first < words.length - 1 && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(words[first]!) || COMMAND_WRAPPERS.has(words[first]!))) first++;
+    // sshpass carries a password (-p) before the real program: skip it and its options, never show the value.
+    if (words[first] !== "sshpass" || first >= words.length - 1) break;
+    first++;
+    while (first < words.length - 1 && words[first]!.startsWith("-")) first += /^-[pfdP]$/.test(words[first]!) ? 2 : 1;
+  }
+  const program = words[first]!.split("/").pop() || words[first]!;
+  const rest = words.slice(first + 1);
+  let used: number;
+  let label: string;
+  if (/^python[\d.]*$/.test(program) && rest[0] === "-m" && rest[1]) { label = `${program} -m ${rest[1]}`; used = 2; }
+  else {
+    const remote = ["ssh", "scp", "sftp"].includes(program);
+    let at = 0;
+    // A download names its address, wherever it sits among the options.
+    const address = ["curl", "wget"].includes(program) ? rest.findIndex(word => /^[a-z][a-z0-9+.-]*:\/\//i.test(word)) : -1;
+    if (address >= 0) at = address;
+    else while (at < rest.length && (rest[at]!.startsWith("-") || rest[at] === HIDDEN_WORD)) at += remote && REMOTE_VALUE_FLAGS.has(rest[at]!) ? 2 : 1;
+    const target = rest[at];
+    label = target ? `${program} ${target}` : program;
+    used = target ? at + 1 : rest.length;
+  }
+  const more = used < rest.length || index < segments.length - 1;
+  label = label.replaceAll(HIDDEN_WORD, HIDDEN);
+  const chars = [...label];
+  if (chars.length > max - 2) return `${chars.slice(0, max - 1).join("")}…`;
+  return more ? `${label} …` : label;
+}
+
+/** Elapsed time worth showing: none under a second, "4.2s" under a minute, "3m05s" after. */
+export function formatDuration(ms: number | undefined): string {
+  if (ms === undefined || !Number.isFinite(ms) || ms < 1000) return "";
+  const seconds = ms / 1000;
+  if (seconds < 60) return `${seconds.toFixed(1)}s`;
+  const whole = Math.round(seconds);
+  return `${Math.floor(whole / 60)}m${String(whole % 60).padStart(2, "0")}s`;
+}
+
 /** `root`: paths under it print relative to it. `width`: the first line fits it, shortening the target
  * from the front (a path keeps its file name), so a narrow terminal shows one row per tool, not a wrapped
- * path broken mid-word. */
+ * path broken mid-word. A shell command shows as a short label (see commandLabel). */
 export function formatToolActivity(event: ToolEvent, elapsedMs?: number, fit: { root?: string; width?: number } = {}): string {
   const relative = (value: unknown) => typeof value === "string" && fit.root && value.startsWith(`${fit.root}/`) ? value.slice(fit.root.length + 1) : value;
   // grep/find carry the pattern; otherwise the path, command, operation or check name is the target.
+  const command = typeof event.input?.command === "string" ? commandLabel(redactPreview(event.input.command)) : undefined;
   const target = typeof event.input?.pattern === "string"
     ? [event.input.pattern, relative(event.input.path)].filter((part): part is string => typeof part === "string" && part.length > 0).join(" · ")
-    : relative(event.input?.path) ?? event.input?.command ?? event.input?.operation ?? event.input?.check;
+    : relative(event.input?.path) ?? command ?? event.input?.operation ?? event.input?.check;
   const text = target ? redactPreview(String(target)).replace(/\s+/g, " ").slice(0, 180) : "";
   const name = terminalText(event.toolName).slice(0, 80);
   // A path keeps its end (the file name); a command or pattern keeps its start.
@@ -76,14 +143,14 @@ export function formatToolActivity(event: ToolEvent, elapsedMs?: number, fit: { 
   };
   // Narrow: the ✓/•/✗ already says the state, so the words go before the target is cut short.
   const line = (full: string, compact: string) => !text || [...text].length <= room(full) || room(compact) < 4 ? `${shorten(full)}${full}` : `${shorten(compact)}${compact}`;
-  if (event.type === "tool_start") return `• ${name}${line(" — running", "")}`;
-  const elapsed = elapsedMs === undefined ? "" : ` · ${(elapsedMs / 1000).toFixed(1)}s`;
-  // Native tool success is not a verifier pass or authoritative shell exit code.
-  const status = event.isError ? "failed" : "completed";
+  if (event.type === "tool_start") return `• ${name}${line("", "")}`;
+  const duration = formatDuration(elapsedMs);
+  const elapsed = duration ? ` · ${duration}` : "";
+  // Native tool success is not a verifier pass or authoritative shell exit code. The ✓ says it finished.
   const detail = event.isError && event.output?.text
     ? `\n  ${redactPreview(event.output.text).replace(/\s+/g, " ").slice(0, 240)}${event.output.truncated ? " [truncated]" : ""}` : "";
   const size = event.lines ? ` · +${event.lines.added} -${event.lines.removed}` : "";
-  return `${event.isError ? "✗" : "✓"} ${name}${line(`${size} — ${status}${elapsed}`, `${size}${elapsed}`)}${detail}`;
+  return `${event.isError ? "✗" : "✓"} ${name}${line(`${size}${event.isError ? " — failed" : ""}${elapsed}`, `${size}${elapsed}`)}${detail}`;
 }
 
 /** `auto` effort is Casper's setting; the level after the arrow is what the classifier chose (or the

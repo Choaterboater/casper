@@ -20,15 +20,15 @@ test("tool display gives targets/status, redacts common credentials and never in
   const input = { command: 'TOKEN=secret curl -H "Authorization: Bearer hidden" https://user:pass@host/path --password "private value"' };
   const start = formatToolActivity({ type: "tool_start", toolName: "bash", input });
   for (const secret of ["secret", "hidden", "user:pass", "private value"]) expect(start).not.toContain(secret);
-  expect(start).toContain("curl"); expect(start).toContain("running");
+  expect(start).toBe("• bash · curl https://<redacted>@host/path …");
   const end = formatToolActivity({ type: "tool_end", toolName: "bash", input, isError: false }, 1200);
-  expect(end).toContain("completed · 1.2s"); expect(end).not.toMatch(/passed|exit 0/);
+  expect(end).toBe("✓ bash · curl https://<redacted>@host/path … · 1.2s"); expect(end).not.toMatch(/passed|exit 0|completed/);
   const failure = formatToolActivity({ type: "tool_end", toolName: "read", input: { path: "src/missing.ts" },
     output: { text: "ENOENT\napi_key=secret", truncated: true }, isError: true });
   expect(failure).toContain("src/missing.ts — failed"); expect(failure).toContain("ENOENT");
   expect(failure).not.toContain("secret"); expect(failure).toContain("[truncated]");
   expect(redactPreview("sk-abcdefghijk ghp_abcdefghijk")).toBe("<redacted> <redacted>");
-  expect(formatToolActivity({ type: "tool_start", toolName: "grep", input: { pattern: "TODO", path: "src" } })).toBe("• grep · TODO · src — running");
+  expect(formatToolActivity({ type: "tool_start", toolName: "grep", input: { pattern: "TODO", path: "src" } })).toBe("• grep · TODO · src");
 });
 
 test("Markdown theme stays plain without color and terminal controls are neutralized", () => {
@@ -161,3 +161,9 @@ posixOnly("real PTY: input survives streamed output, cancellation and exact conf
     expect(stdout).toContain("PTY PASS");
   } finally { clearTimeout(timer); child.kill(); }
 }, 70_000);
+
+test("the screen keeps 'token add' readable and leaves Casper's own <secret hidden> as it is", () => {
+  expect(redactPreview("ssh build-server 'pveum user token add root@pam sampleapp --privsep 0'")).toBe("ssh build-server 'pveum user token add root@pam sampleapp --privsep 0'");
+  expect(redactPreview("sshpass -p '<secret hidden>' ssh root@10.0.0.5 id")).toBe("sshpass -p '<secret hidden>' ssh root@10.0.0.5 id");
+  expect(redactPreview("--password '<secret hidden>' x; token: abc123")).toBe("--password '<secret hidden>' x; token: <redacted>");
+});

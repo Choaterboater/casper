@@ -155,7 +155,7 @@ def exercise(bun, repo, root, no_color):
         s.pump()
         assert "… /sta" in s.screen.text(), s.screen.text()
         s.release("stream-step")
-        s.until("read · src/example.ts — running")
+        s.until("• read · src/example.ts")
         assert "… /sta" in s.screen.text(), s.screen.text()
         assert "First bold and code text." in s.screen.text(), s.screen.text()
         s.send("tus\n")  # Enter during work must NOT queue or discard the draft.
@@ -182,7 +182,7 @@ def exercise(bun, repo, root, no_color):
         s.until("│ idle")
         s.pump(0.05)
         assert "composing arguments" not in s.screen.text(), s.screen.text()
-        assert "✓ write · site/index.html — completed" in s.screen.text(), s.screen.text()
+        assert "✓ write · site/index.html" in s.screen.text() and "— completed" not in s.screen.text(), s.screen.text()
         # Fenced code is boxed with its language; fence markers never reach the screen.
         s.send("code\n")
         s.until("╭─ sh ")

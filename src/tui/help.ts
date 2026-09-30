@@ -20,17 +20,19 @@ export const HELP_TEXT = `Casper — your coding companion
   /diff [n|list]         The last task's changes (also outside git); git's view before any task
   /undo, /redo           Put the last task's files back, or back again (no model; docs/UNDO.md)
   /new [name]            Start a new project in ~/Projects (no model)
-  /output [n]            Full retained output of the last task's n-th most recent tool call
+  /output [n]            Full command and output of the last task's n-th most recent tool call
   /receipt [n|list]      The last receipt (also after a restart), receipt n, or the last 10
   /permissions           Explain actual tool/approval boundaries
   /login                 Provider sign-in or private API-key setup (interactive only)
   /project               Project context and check commands
+  /project <name>        Open a project folder inside this one (before the model starts)
   /skills                Skills and trust; /skills diagnostics for warnings
   /verify [checks ...]   Run this project's checks (in the sandbox); /verify repair fixes failures
   /sandbox               What the shell sandbox holds here; /sandbox forget <host>
   /security-review       Run the pinned security tools here, then offer an AI review (asks first)
   /browser               Disposable browser status; website tasks can reproduce bugs
   /services              Declared services: status, logs, start, restart, stop (no model)
+  /tasks                 What runs in the background (dev servers, helpers, checks); stop one
   /debug                 Local debugger targets/status; explicit launch approval
   /exit, /quit           Exit
 
@@ -121,7 +123,7 @@ Local commands:
   /redo [n]                         Put an undone task's files back as the task left them
   /new [name]                       Start a new project in ~/Projects (no model); before the model starts, Casper opens it
   /new <template> <name>            The same without questions; /new --list shows the templates
-  /output [n]                       Full bounded output of a recent tool call (1 = latest; last 20 retained per task)
+  /output [n]                       Full command and output of a recent tool call (1 = latest; last 20 kept per task)
   /receipt                          Detailed evidence receipt of the last model task (freshness, scope), also after a restart
   /receipt <n>, /receipt list       A saved receipt, or the last 10 (saved with secrets hidden)
   /permissions                      Explain enforcement, not change permission presets
@@ -129,6 +131,7 @@ Local commands:
   /sandbox forget <host>            Forget a host you allowed for this project (Always)
   /login [provider]                 Codex, Copilot, Anthropic or OpenRouter (Casper's credential store)
   /project                          Show project context
+  /project <name>                   Open a project folder inside this one, or offer to make it (before the model starts)
   /memory                           List human-entered project facts
   /memory remember <fact>           Save an explicit project fact (no model)
   /memory forget <id>               Remove a fact
@@ -169,6 +172,8 @@ Local commands:
   /services                         Declared services: state and address (no model or startup)
   /services logs <name>             Recent log lines of a service
   /services start|restart|stop <name>  Start (waits for readiness; restarts a stale or crashed one), restart or stop
+  /tasks                            What runs in the background, numbered; asks 1 Keep them · 2 Stop 1 ...
+  /tasks stop <n>|all               Stop one of them, or all, without the question
   /debug                            Local DAP state and .casper/debug.json targets
   /debug start <target>             Fresh approval for adapter + debuggee execution
   /debug breakpoints <path> <lines|clear>  Replace one file's one-based line list

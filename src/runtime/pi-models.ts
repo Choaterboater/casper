@@ -8,6 +8,7 @@ import { classifyEffort, nearestEffort, resolveAutoEffort } from "./auto-effort"
 import { isEffortSelection, isModelRole, resolveModelSelection, type ModelReference, type ModelRoles, type ResolvedModelSelection } from "./model-routing";
 import type { RuntimeModelInfo, RuntimeModelSelection, RuntimeModelSelectionOptions, RuntimeReadOnlyStartOptions, RuntimeStatus, RuntimeUsage } from "./types";
 import { pickPiModel } from "./pi-model-picker";
+import { openRouterRequestHeaders } from "./openrouter-attribution";
 
 type Selection = { reference?: ModelReference; source: "conversation" | "default" | "none"; role?: string; effort?: string; auto?: RuntimeStatus["autoEffort"] };
 type Settings = ReturnType<SettingsManager["getGlobalSettings"]>;
@@ -232,10 +233,12 @@ export class PiModels {
       : stale ? "Credential state needs local refresh. Restart Casper before using this provider; do not repeat login blindly."
       : !model ? `Model ${reference.provider}/${reference.id} is unavailable. Use /model to choose another; no fallback was selected.`
       : auth === "missing" ? `Credentials missing for ${reference.provider}. Use /login for OpenAI Codex, configure another supported credential, or /model to choose another.` : undefined;
+    const prices = model?.cost ? [model.cost.input, model.cost.output].filter((price) => typeof price === "number" && Number.isFinite(price)) : [];
+    const priced = prices.length ? prices.some((price) => price > 0) : undefined;
     return { provider: reference?.provider, model: reference?.id, thinkingLevel: model ? session.thinkingLevel : undefined,
       configuredEffort: selection.effort ?? (model ? session.thinkingLevel : undefined), modelRole: selection.role, autoEffort: selection.auto,
       availableThinkingLevels: model ? session.getAvailableThinkingLevels() : [],
-      auth, selectionSource: selection.source, defaultModel: this.defaultReference(), blocked };
+      auth, selectionSource: selection.source, defaultModel: this.defaultReference(), blocked, ...(priced !== undefined ? { priced } : {}) };
   }
 
   private applyEffort(session: AgentSession, effort: string, retain = false): void {
@@ -410,7 +413,9 @@ export class PiModels {
       systemPrompt: input.systemPrompt,
       messages: [{ role: "user", content: input.user, timestamp: Date.now() }],
     }, { signal: input.signal, toolChoice: "none", ...(level && level !== "off" ? { reasoning: level } : {}),
-      ...(input.maxTokens !== undefined ? { maxTokens: input.maxTokens } : {}) });
+      ...(input.maxTokens !== undefined ? { maxTokens: input.maxTokens } : {}),
+      // A direct request skips the session's header hook; OpenRouter still learns it is Casper's.
+      ...openRouterRequestHeaders(model) });
     const usage = response.usage;
     const cost = usage?.cost?.total;
     const reported = usage && Number.isFinite(usage.totalTokens) ? { tokens: usage.totalTokens, estimatedCost: Number.isFinite(cost) && cost! >= 0 ? cost! : 0 } : null;

@@ -7,6 +7,9 @@
   <meta name="description" content="Plain answers to common Casper questions, plus a short list of fixes for common problems.">
   <meta name="color-scheme" content="light dark">
   <link rel="icon" href="assets/logo.svg" type="image/svg+xml">
+  <link rel="icon" href="favicon.ico" sizes="16x16 32x32 48x48">
+  <link rel="icon" href="assets/icon-192.png" type="image/png" sizes="192x192">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
   <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
@@ -217,7 +220,7 @@ sum now turns its inputs into numbers first.
 <span class="warn">⚠</span> Not proven: test passes without this change too, and no test was added or changed
  src/sum.js | 2 +-
  1 file changed, 1 insertion(+), 1 deletion(-)</pre>
-            <figcaption>A real run with a scripted stand-in for the AI. It adds no test, so the
+            <figcaption>Captured from Casper with a scripted stand-in for the AI. It adds no test, so the
             verdict stays "Not verified".</figcaption>
           </figure>
           <p>Some changes need no proof: test-only, docs-only and refactor changes. The receipt says

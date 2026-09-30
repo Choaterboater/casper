@@ -19,6 +19,8 @@ export interface ProjectContext {
   repair: LoadedConfiguration["repair"];
   /** `suggestions: false` in the user's config: no suggestions anywhere. */
   suggestions?: boolean;
+  /** Per-task spend limits (a note, then a pause); see src/task/spend.ts. */
+  spend?: LoadedConfiguration["spend"];
   visualize: VisualizationSettings;
   /** Managed services declared in .casper/project.yaml (see docs/SERVICES.md). */
   services?: LoadedConfiguration["services"];
@@ -84,6 +86,7 @@ export async function loadProjectContext(
     verification: configuration.verification,
     repair: configuration.repair,
     ...(configuration.suggestions !== undefined ? { suggestions: configuration.suggestions } : {}),
+    spend: configuration.spend,
     visualize: configuration.visualize,
     services: configuration.services,
     smoke: configuration.smoke,

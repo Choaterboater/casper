@@ -58,6 +58,8 @@ are not tied to one model company.
   [Terminal guide](docs/TERMINAL_UX.md)
 - **Rich or plain terminal.** A live footer, colors and lines that update in place, or plain text with
   `NO_COLOR`, `TERM=dumb` or redirected output. [Terminal guide](docs/TERMINAL_UX.md)
+- **tmux, automatic.** Inside tmux (or iTerm2) the busy steps go to a view-only side pane that
+  Casper opens and closes itself; `/tasks` lists what runs in the background. [tmux](docs/TMUX.md)
 
 ## What a receipt looks like
 
@@ -180,6 +182,7 @@ results are not a pass. Review important changes yourself.
 | [SCRIPTING.md](docs/SCRIPTING.md) | One-shot runs, `--json`, exit codes, CI |
 | [CONFIGURATION.md](docs/CONFIGURATION.md) | Config files, model roles and skills |
 | [TERMINAL_UX.md](docs/TERMINAL_UX.md) | The terminal screen, keys and commands |
+| [TMUX.md](docs/TMUX.md) | tmux and iTerm2: the side pane, reattaching, `/tasks` |
 | [SESSIONS.md](docs/SESSIONS.md) | Named sessions and worktree experiments |
 | [SERVICES.md](docs/SERVICES.md) | Dev servers Casper starts and stops for you |
 | [BROWSER.md](docs/BROWSER.md) | Debugging with an installed browser |
@@ -258,6 +261,19 @@ install links above still give v0.2.15.
   off. [SKILLS.md](docs/SKILLS.md)
 - More SDKs for local search: `/references add pyaoscx`, `pyclearpass`, `mistapi` and
   `junos-pyez`. [References](docs/REFERENCES.md)
+
+**v0.2.19: asks before reaching other machines.**
+- Before the AI's shell reaches another machine (`ssh`, `scp`, `rsync`, `nc` …), Casper asks
+  `Reach 198.51.100.20 (build-server)?` with No first; a script run refuses it and never waits.
+  [SECURITY.md](docs/SECURITY.md)
+- `~/.ssh` stays private in the shell too, with the sandbox off; lab logins in notes, Proxmox
+  tokens and passwords typed into commands are hidden from the AI and the screen.
+  [SECRETS.md](docs/SECRETS.md)
+- The receipt lists what the AI changed on other machines, and what Casper stopped before it got
+  there; when the work lands in a project inside the folder, that project's tests run and Casper
+  offers to switch there. [VERIFICATION.md](docs/VERIFICATION.md)
+- A quieter screen, each task's tokens and cost in the footer (a note at $1, a pause at $5), and
+  tmux and iTerm2 support with nothing to set. [TMUX.md](docs/TMUX.md)
 
 Later, not scheduled: vendor packs (`casper pack add aruba` sets up a vendor's MCP server,
 read-only preset, references and skill in one step) and tool rules you write (for example, bounces

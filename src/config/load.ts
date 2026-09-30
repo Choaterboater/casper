@@ -16,6 +16,7 @@ import { parseServices, type ServiceSpec } from "../services/config";
 import { parseSmoke, type SmokeCheck } from "../services/smoke";
 import { parsePagesSetting, type PagesSetting } from "../services/pages";
 import type { SandboxProjectSettings, SandboxUserSettings } from "../sandbox/policy";
+import { DEFAULT_SPEND_LIMITS, type SpendLimits } from "../task/spend";
 
 export type Autonomy = "low" | "medium" | "high";
 export type AskQuestions = "beforeChanges" | "onlyWhenBlocked";
@@ -61,6 +62,8 @@ export interface LoadedConfiguration {
   repair: { maxAttempts: number; bigModelLastTry?: boolean };
   /** `suggestions: false` turns every suggestion off (user or profile only). */
   suggestions?: boolean;
+  /** Per-task spend limits in dollars (a note, then a pause); unset turns one off. User or profile only. */
+  spend: SpendLimits;
   visualize: VisualizationSettings;
   /** Declared managed services (project layer only), by name. */
   services: Record<string, ServiceSpec>;
@@ -207,7 +210,7 @@ const POLICY_KEYS = {
 } as const;
 const ISOLATE_KEYS = ["parallelAgents", "riskyRefactor", "experimentalBranch"];
 const TOP_LEVEL_KEYS = new Set(["profile", "project", "languages", "frameworks", "packageManager", "commands", "architecture",
-  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "sandbox", "shell", ...Object.keys(POLICY_KEYS)]);
+  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "spend", "sandbox", "shell", ...Object.keys(POLICY_KEYS)]);
 
 /** Typos used to fall back silently to the defaults; the loader names them instead. */
 function unknownKeys(document: Mapping, label: string): string[] {
@@ -217,6 +220,7 @@ function unknownKeys(document: Mapping, label: string): string[] {
   };
   check(document, "", [...TOP_LEVEL_KEYS]);
   check(document.policy, "policy.", Object.keys(POLICY_KEYS));
+  check(document.spend, "spend.", ["noteAt", "pauseAt"]);
   for (const [name, keys] of Object.entries(POLICY_KEYS)) {
     check(document[name], `${name}.`, keys);
     if (isMapping(document.policy)) check(document.policy[name], `policy.${name}.`, keys);
@@ -549,6 +553,22 @@ export async function loadConfiguration(
       suggestions = document.suggestions;
     }
   }
+  // What a task may spend before Casper says so or asks: the user's money, so a project file never sets it.
+  if (projectDocument.spend !== undefined) throw new Error("spend is a user setting (~/.casper/config.yaml); a project cannot change spend limits");
+  const spend: SpendLimits = { ...DEFAULT_SPEND_LIMITS };
+  for (const [document, label] of [[globalDocument, labels.global], [profileDocument, labels.profile]] as const) {
+    if (document.spend === undefined || document.spend === null) continue;
+    if (!isMapping(document.spend)) throw new Error(`${label}: spend must be a mapping (spend.noteAt, spend.pauseAt)`);
+    for (const key of ["noteAt", "pauseAt"] as const) {
+      const value = document.spend[key];
+      if (value === undefined || value === null) continue;
+      if (value === false) { delete spend[key]; continue; }
+      if (typeof value !== "number" || !Number.isFinite(value) || value <= 0 || value > 100_000) {
+        throw new Error(`${label}: spend.${key} must be a dollar amount above 0, or false to turn it off`);
+      }
+      spend[key] = value;
+    }
+  }
   let mode: VerificationMode | undefined;
   let checks: CheckName[] | undefined;
   let review: boolean | undefined;
@@ -609,6 +629,7 @@ export async function loadConfiguration(
       ...(checklist !== undefined ? { checklist } : {}) },
     repair: { maxAttempts, ...(bigModelLastTry !== undefined ? { bigModelLastTry } : {}) },
     ...(suggestions !== undefined ? { suggestions } : {}),
+    spend,
     services,
     smoke: parseSmoke(projectDocument.smoke, Object.keys(services), labels.project),
     ...(pages ? { pages } : {}),

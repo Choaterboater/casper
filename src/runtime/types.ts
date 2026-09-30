@@ -28,6 +28,8 @@ export interface RuntimeStartOptions {
    * tool: built-in, Casper's own and MCP tools.
    * Read as a closure each call, so per-task gate state can change between calls. */
   beforeToolGate?: (toolName: string, input: Record<string, unknown> | undefined) => string | undefined;
+  /** May wait (for a question) before a tool call runs; a reason stops the model's turn. Casper's spend pause. */
+  beforeToolWait?: (toolName: string, signal?: AbortSignal) => Promise<string | undefined>;
   /** Hide device secrets in native tool output (read, bash, powershell, grep) before the model sees
    * it. Gets every text block of one result; returns the replaced blocks and a note, or undefined
    * to leave the result as it is. Also called for failed commands, whose output is still shown. */
@@ -89,6 +91,8 @@ export interface RuntimeStatus {
   defaultModel?: { provider: string; id: string };
   /** Generation is blocked until the user resolves this selection. */
   blocked?: string;
+  /** The model has a catalog price (true) or is free (false); unset when unknown. */
+  priced?: boolean;
 }
 
 export interface RuntimePickerIO {

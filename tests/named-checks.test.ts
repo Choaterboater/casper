@@ -176,7 +176,7 @@ describe("what a named check means for the run", () => {
     expect(text).toContain("• aoscx-diff  3 lines to change · 3 to undo (a diff, not a pass/fail check)");
     expect(liveCheckLine(task.verification.results[1]!)).toBe("– junoser · not run: junoser is not installed (gem install junoser)");
     expect(formatReceipt({ ...task, verification: { ...task.verification, results: [result({ name: "aruba-check", label: "dry run not guaranteed", command: "ansible-playbook --check" })] } }))
-      .toContain("✓ aruba-check passed (dry run not guaranteed · ansible-playbook --check, 0.0s)");
+      .toContain("✓ aruba-check passed (dry run not guaranteed · ansible-playbook --check)");
   });
 
   test("JSON check events and receipt checks carry kind, label and hosts as extra fields", () => {

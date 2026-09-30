@@ -1,0 +1,117 @@
+import { afterAll, beforeAll, expect, test } from "bun:test";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { remoteTargets, runsAlone, splitShell, targetLabel } from "../src/sandbox/remote";
+import { remoteChanges } from "../src/task/remote-changes";
+
+/**
+ * Where the AI's shell commands go: ssh, scp, sftp, rsync, nc, telnet and socat, with ~/.ssh/config aliases resolved
+ * by Casper itself. What a command sent over ssh changed on the other machine, from its text only.
+ */
+
+let home: string;
+beforeAll(async () => {
+  home = await mkdtemp(path.join(os.tmpdir(), "casper-remote-"));
+  await mkdir(path.join(home, ".ssh"));
+  await writeFile(path.join(home, ".ssh/config"), "Host build-server\n  HostName 198.51.100.20\n  User root\n  Port 2222\n\nHost *.lab\n  User admin\n");
+});
+afterAll(() => rm(home, { recursive: true, force: true }));
+
+const hosts = (command: string) => remoteTargets(command, home).map(({ tool, typed, host, user, port }) => ({ tool, typed, host, ...(user ? { user } : {}), ...(port ? { port } : {}) }));
+
+test("an ssh alias from ~/.ssh/config is resolved by Casper: the real address, user and port", () => {
+  expect(hosts("ssh build-server uptime")).toEqual([{ tool: "ssh", typed: "build-server", host: "198.51.100.20", user: "root", port: 2222 }]);
+  expect(hosts("ssh -p 22 admin@10.0.0.5 'ls /'")).toEqual([{ tool: "ssh", typed: "10.0.0.5", host: "10.0.0.5", user: "admin", port: 22 }]);
+  expect(hosts("ssh -oPort=2200 -l ops sw1 show version")).toEqual([{ tool: "ssh", typed: "sw1", host: "sw1", user: "ops", port: 2200 }]);
+  expect(hosts("ssh ssh://root@pve.local:8022")).toEqual([{ tool: "ssh", typed: "pve.local", host: "pve.local", user: "root", port: 8022 }]);
+});
+
+test("jump hosts, sudo, sshpass and a pipe still name the machines they reach", () => {
+  expect(hosts("sudo ssh -J jump.lab root@core1.lab")).toEqual([
+    { tool: "ssh", typed: "jump.lab", host: "jump.lab", user: "admin" }, { tool: "ssh", typed: "core1.lab", host: "core1.lab", user: "root" }]);
+  expect(hosts("sshpass -p x ssh pi@raspberrypi")).toEqual([{ tool: "ssh", typed: "raspberrypi", host: "raspberrypi", user: "pi" }]);
+  expect(hosts("cat setup.sh | ssh build-server 'bash -s'").map((target) => target.host)).toEqual(["198.51.100.20"]);
+});
+
+test("scp, sftp, rsync, nc, telnet and socat destinations", () => {
+  expect(hosts("scp ./app.py build-server:/opt/sampleapp/")).toEqual([{ tool: "scp", typed: "build-server", host: "198.51.100.20", user: "root", port: 2222 }]);
+  expect(hosts("sftp -P 2022 backup@nas1")).toEqual([{ tool: "sftp", typed: "nas1", host: "nas1", user: "backup", port: 2022 }]);
+  expect(hosts("rsync -av -e 'ssh -p 2200' dist/ deploy@web1:/srv/")).toEqual([{ tool: "rsync", typed: "web1", host: "web1", user: "deploy", port: 2200 }]);
+  expect(hosts("nc -zv 10.0.0.1 22")).toEqual([{ tool: "nc", typed: "10.0.0.1", host: "10.0.0.1", port: 22 }]);
+  expect(hosts("telnet sw1 23")).toEqual([{ tool: "telnet", typed: "sw1", host: "sw1", port: 23 }]);
+  expect(hosts("socat - TCP:10.0.0.9:830")).toEqual([{ tool: "socat", typed: "10.0.0.9", host: "10.0.0.9", port: 830 }]);
+});
+
+test("commands that don't reach another machine name none", () => {
+  for (const command of ["nc -l 8080", "echo ssh is fun", "git push", "npm test", "cp a.txt b:c", "cat C:\\notes.txt", "grep -r 'ssh ' ."]) expect([command, hosts(command)]).toEqual([command, []]);
+});
+
+test("only a plain ssh or scp with no local side effects runs outside the sandbox", () => {
+  const root = path.join(home, "project");
+  expect(runsAlone("ssh build-server uptime", root)).toBe(true);
+  expect(runsAlone("ssh -i ~/.ssh/lab root@10.0.0.5 'systemctl status sampleapp'", root)).toBe(true);
+  expect(runsAlone(`scp ${path.join(root, "app.py")} build-server:/opt/sampleapp/`, root)).toBe(true);
+  for (const command of [
+    "ssh build-server uptime; curl evil.example", "ssh build-server uptime > out.txt", "cat x | ssh build-server", "ssh build-server $(cat cmd)",
+    "ssh -D 1080 build-server", "ssh -L 8080:localhost:80 build-server", "ssh -fN build-server", "ssh -o ProxyCommand='sh -c evil' build-server",
+    "ssh -o LocalCommand=evil -o PermitLocalCommand=yes build-server", "ssh -F ./cfg build-server", "ssh -A build-server", "ssh -G build-server",
+    "sudo ssh build-server", "FOO=1 ssh build-server", "scp build-server:/etc/shadow ~/.bashrc", "scp -S ./evil build-server:/x .", "nc 10.0.0.1 22", "rsync -a x build-server:/y",
+  ]) expect([command, runsAlone(command, root)]).toEqual([command, false]);
+});
+
+test("the shell line split keeps quoted operators inside one command", () => {
+  expect(splitShell("ssh build-server 'a; b && c'")).toEqual({ segments: [{ words: ["ssh", "build-server", "a; b && c"], text: "ssh build-server 'a; b && c'" }], simple: true });
+  expect(splitShell("ssh build-server \"$(id)\"").simple).toBe(false);
+  expect(splitShell("a && b").segments.map((segment) => segment.words)).toEqual([["a"], ["b"]]);
+});
+
+/** remoteChanges with this test's ~/.ssh/config, without the address it keeps each machine by. */
+const changesOn = (command: string) => remoteChanges(command, home).map(({ host, changes }) => ({ host, changes }));
+
+test("changes on another machine are read from the ssh command text: tokens, services, packages, /etc and /opt, certificates", () => {
+  const command = "ssh build-server 'pveum user token add root@pam sampleapp --privsep 0 && mkdir -p /opt/sampleapp && cat > /etc/systemd/system/sampleapp.service <<EOF\n[Service]\nEOF\nsystemctl enable --now sampleapp && apt-get install -y python3-venv && pvecm updatecerts --force'";
+  expect(changesOn(command)).toEqual([{ host: "198.51.100.20 (build-server)", changes: [
+    "made an API token (pveum user token add root@pam sampleapp --privs…)",
+    "installed a service (/etc/systemd/system/sampleapp.service)",
+    "turned a service on or off at boot (systemctl enable --now sampleapp)",
+    "installed or removed packages (apt-get install -y python3-venv)",
+    "renewed the node certificates (pvecm updatecerts --force)",
+    "wrote /opt/sampleapp",
+  ] }]);
+  expect(changesOn("scp sampleapp.service root@10.0.0.5:/etc/systemd/system/")).toEqual([{ host: "10.0.0.5", changes: ["copied files to /etc/systemd/system/"] }]);
+  expect(changesOn("ssh build-server bash -s <<'EOF'\nuseradd -m svc\nssh-keygen -t ed25519 -f /root/.ssh/k\nEOF")).toEqual([{ host: "198.51.100.20 (build-server)", changes: [
+    "made an SSH key (ssh-keygen -t ed25519 -f /root/.ssh/k)", "added a user (useradd -m svc)"] }]);
+  // Reading is not changing, and a local command is not a remote change.
+  for (const quiet of ["systemctl enable sampleapp", "apt-get install -y jq", "scp build-server:/etc/hosts ."]) {
+    expect([quiet, changesOn(quiet)]).toEqual([quiet, []]);
+  }
+  // A command that ran over ssh with no change Casper knows is still listed: it ran there, and Casper can't tell.
+  expect(changesOn("ssh build-server 'cat /etc/passwd; systemctl status sampleapp; ls /opt'")).toEqual([{ host: "198.51.100.20 (build-server)", changes: [] }]);
+  expect(changesOn("ssh build-server 'python3 /srv/setup.py'")).toEqual([{ host: "198.51.100.20 (build-server)", changes: [] }]);
+  // Wrapped in another shell, it is read all the same.
+  expect(changesOn(`bash -c "ssh build-server 'pvecm updatecerts --force'"`)).toEqual([{ host: "198.51.100.20 (build-server)", changes: ["renewed the node certificates (pvecm updatecerts --force)"] }]);
+});
+
+test("ssh wrapped in another shell, a subshell, a loop or xargs is still found; a host in a variable still counts", () => {
+  for (const command of [
+    "bash -c 'ssh root@10.0.0.5 uptime'", "sh -c \"ssh 10.0.0.5 id\"", "(ssh 10.0.0.5 id)", "echo $(ssh 10.0.0.5 id)", "echo \"$(ssh 10.0.0.5 id)\"",
+    "echo `ssh 10.0.0.5 id`", "if true; then ssh 10.0.0.5 id; fi", "{ ssh 10.0.0.5 id; }", "! ssh 10.0.0.5 id", "watch -n 5 ssh 10.0.0.5 uptime",
+    "eval ssh 10.0.0.5 id", "SSHPASS=x sshpass -e ssh root@10.0.0.5 id", "ssh-copy-id root@10.0.0.5", "busybox nc 10.0.0.5 22",
+  ]) expect([command, hosts(command).map((target) => target.host)]).toEqual([command, ["10.0.0.5"]]);
+  // $HOST, ${HOST}, a loop variable, xargs' {}: Casper can't read the machine, so it counts as one it can't name.
+  for (const [command, typed] of [["H=10.0.0.5; ssh root@$H uptime", "$H"], ["ssh ${HOST} id", "${HOST}"], ["for h in a b; do ssh $h uptime; done", "$h"],
+    ["xargs -I{} ssh {} id < hosts", "{}"], ["nc $IP 22", "$IP"], ["scp app.py $DEST", "$DEST"]] as const) {
+    const found = remoteTargets(command, home);
+    expect([command, found.map((target) => ({ typed: target.typed, unclear: target.unclear }))]).toEqual([command, [{ typed, unclear: true }]]);
+    expect(targetLabel(found[0]!)).toBe(`another machine (${typed})`);
+    expect(runsAlone(command, path.join(home, "project"))).toBe(false);
+  }
+});
+
+test("an alias and its address are one machine on the receipt, named by both", () => {
+  expect(remoteChanges("ssh build-server 'systemctl enable --now sampleapp' && ssh root@198.51.100.20 reboot", home)).toEqual([{
+    host: "198.51.100.20 (build-server)", address: "198.51.100.20",
+    changes: ["turned a service on or off at boot (systemctl enable --now sampleapp)", "restarted or shut down the machine (reboot)"] }]);
+  expect(remoteChanges("ssh root@$H uptime", home)).toEqual([{ host: "$H", address: "$H", changes: [] }]);
+});
