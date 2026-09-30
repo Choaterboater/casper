@@ -146,3 +146,13 @@ test("a commondir a command writes into the project's .git is removed at once an
   await kept.close();
   expect(await stat(path.join(yours, ".git", "commondir")).then(() => true, () => false)).toBe(true);
 });
+
+test("places that hold programs you run outside the sandbox are not writable: pre-commit's hooks, Playwright's browsers, uv's Pythons", async () => {
+  const { home, root } = await fixture();
+  for (const platform of ["linux", "darwin"] as const) {
+    const policy = sandboxPolicy({ root, home, tempDirs: [], platform });
+    for (const entry of [".cache/pre-commit", ".cache/ms-playwright", ".local/share/uv", "Library/Caches/ms-playwright"]) {
+      expect(policy.allowWrite).not.toContain(path.join(home, entry));
+    }
+  }
+});
