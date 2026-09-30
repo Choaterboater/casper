@@ -89,6 +89,8 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, store: Sa
       if (answer === REACH_CHOICES[2].label || answer === "3") sessionReach.add(target.host);
       else if (!(answer === REACH_CHOICES[1].label || answer === "2")) return { refused: reachDeclined(target), asked };
     }
+    // Only the command about to run (a service start approved here never comes back to wrap).
+    cleared.clear();
     cleared.set(command, targets);
     return { asked };
   };

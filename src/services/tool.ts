@@ -4,7 +4,7 @@ import type { ServiceSpec } from "./config";
 import type { ServiceManager } from "./manager";
 import type { SmokeChecks } from "./smoke";
 import { gitGuardReason } from "../runtime/git-guard";
-import { gitInternalsCommand } from "../platform/project-paths";
+import { gitInternalsCommand, privatePathCommand } from "../platform/project-paths";
 
 /** Server vocabulary in the task, declared services or a live one pull in the service tool; elsewhere it costs no prompt tokens. */
 export function serviceRequested(task: string, services: { declared: boolean; live: boolean }): boolean {
@@ -132,7 +132,7 @@ export function serviceTool(manager: () => ServiceManager, lifetime?: AbortSigna
       const timeoutMs = args.timeoutMs === undefined ? undefined : Number(args.timeoutMs);
       const command = string(args.command, "command");
       // An ad-hoc command is the AI's shell too: the same git guard as bash, and the same question when no sandbox runs.
-      const refused = gitGuardReason(command) ?? gitInternalsCommand(command, services.root) ?? await approve?.(command, signal);
+      const refused = gitGuardReason(command) ?? gitInternalsCommand(command, services.root) ?? privatePathCommand(command, { root: services.root }) ?? await approve?.(command, signal);
       if (refused) throw new Error(refused);
       // Joining the same command then takes the declared start's path, so a stale one restarts.
       return start((await services.startCommand(command, { ready: spec, timeoutMs }, signal)).name);
