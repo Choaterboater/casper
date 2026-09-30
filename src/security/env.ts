@@ -8,7 +8,7 @@ import { DEAD_PROXY, SECRET_ENV_NAME } from "../mcp/check/sandbox";
  * folder, so a tool cannot read the user's ~/.config or cached logins.
  *
  * Best effort, not a guarantee: a dead proxy does not stop a program that opens raw sockets, and some
- * Go programs ignore proxy settings. That stays true until the shell sandbox ships.
+ * Go programs ignore proxy settings. Where the shell sandbox runs, it cuts their network too (src/sandbox).
  */
 
 /** The names a tool may inherit from Casper's own environment. Everything else is dropped. */

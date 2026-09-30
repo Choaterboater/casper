@@ -63,7 +63,7 @@ Worktrees are not created for ordinary edits. They are created only for an expli
 - Apply never commits or pushes. The `git.commit`/`git.push` policy (`neverUnlessRequested` by default) and "ask before destructive operations" are instructions in the model's prompt, not blocks: the model's bash can still run `git commit`, `git push` or `rm`. The one block: a model's bash call may not run `git stash` (other than `list`/`show`), `git reset --hard`, `git checkout --`/`.`/`-f`, `git restore` of the working tree, `git switch -f` or `git clean` (other than `-n`), because each can set aside or discard your uncommitted work. It is a check of the command text, not a sandbox.
 - A dirty/advanced main workspace prevents apply; both workspaces are preserved for manual recovery.
 - Branch/switch/worktree consent is process-local. Project files cannot answer approval prompts.
-- Pi's native shell/filesystem tools are not sandboxed. Worktrees isolate file state; they are not a security boundary.
+- Worktrees isolate file state; they are not a security boundary. The shell sandbox holds shell commands to the active workspace (see [SECURITY.md](SECURITY.md)).
 
 State files are mode `0600` and atomically replaced. A malformed manifest fails closed rather than being silently reset.
 

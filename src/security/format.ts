@@ -2,19 +2,29 @@ import { terminalText } from "../tui/format";
 import { numberedChoices, type NumberedQuestion } from "./install";
 import type { SecurityReport, ToolReport } from "./run";
 import type { IgnoreEntry, IgnoreFile, SecurityFinding } from "./types";
+import { currentSandbox, type ShellSandbox } from "../sandbox/manager";
 
 /**
  * The security report as text and as --json. Casper's own words never call the code "safe" or
  * "secure": the tools found what they found, and that is all the report says.
  */
 
-/** The corrected header: Casper does not enforce offline yet, so it says what it does instead. */
-export const SECURITY_OFFLINE_LINE = "Casper runs these tools with a dead proxy and no passwords or tokens. Not enforced until the shell sandbox ships.";
+/** The header's second line: what holds the tools on this machine now. It says "no network" only where the shell
+ * sandbox enforces it (Linux); elsewhere it says what Casper does and that nothing blocks their network. */
+export function securityNetworkLine(sandbox: Pick<ShellSandbox, "on" | "platform" | "state" | "failure"> | undefined = currentSandbox()): string {
+  if (sandbox?.on && sandbox.platform === "linux") return "Casper runs these tools in the shell sandbox: no network, no passwords or tokens, and no writes outside the project and temp.";
+  if (sandbox?.on) return "Casper runs these tools in the shell sandbox (they reach only listed hosts), with no passwords or tokens.";
+  const why = sandbox ? sandbox.failure ?? sandbox.state.reason ?? "no sandbox" : "no sandbox";
+  return `${SECURITY_OFFLINE_LINE} Nothing blocks their network here (${why}).`;
+}
+
+/** What Casper does for the tools when no sandbox holds them. */
+export const SECURITY_OFFLINE_LINE = "Casper runs these tools with a dead proxy and no passwords or tokens.";
 export const SECURITY_EXIT_LINE = "Exit codes: 0 no problems, 1 problems, 64 usage mistake";
 export const SECURITY_RESULT_TAIL = "This is what these tools found. It does not prove the code has no problems.";
 
 export function formatSecurityHeader(target: SecurityReport["target"]): string {
-  return `Security check: ${terminalText(target.name)} (${terminalText(target.path)})\n${SECURITY_OFFLINE_LINE}\n`;
+  return `Security check: ${terminalText(target.name)} (${terminalText(target.path)})\n${securityNetworkLine()}\n`;
 }
 
 function plural(count: number, word: string, many = `${word}s`): string {

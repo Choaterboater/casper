@@ -82,9 +82,9 @@ A run ends with exactly one `receipt` event, or, when Casper stops before it can
 | `assistant_message` | `text` | One model response's complete text. |
 | `tool_start` | `tool`, `id`, `target` (path, command or pattern; redacted) | A tool call starts. |
 | `tool_end` | `tool`, `id`, `ok`, `ms` | A tool call ends. `ok` is the tool status, not a check result. |
-| `check` | `name`, `command`, `status` (`pass`/`fail`/`skip`), `exit`, `ms`, `recordedBy`, `reused`, `ended`?, `kind`?, `label`?, `hosts`?, `summary`? | Casper recorded a check. `recordedBy` is `casper` (auto mode, `/verify`, repair) or `casper_check` (the model asked for it). `ended` appears only on a failure that was not the code failing: `timeout`, or `no_start` (could not execute, or the shell's exit 126/127). Named checks (`verify.checks.<name>`) may add `kind` (`report`: a diff that never passes or fails; `lab`: your own lab devices), `label` (a few words such as `dry run not guaranteed`), `hosts` (lab checks) and `summary` (reports). |
+| `check` | `name`, `command`, `status` (`pass`/`fail`/`skip`), `exit`, `ms`, `recordedBy`, `reused`, `ended`?, `kind`?, `label`?, `hosts`?, `summary`? | Casper recorded a check. `recordedBy` is `casper` (auto mode, `/verify`, repair) or `casper_check` (the model asked for it). `ended` appears only on a failure that was not the code failing: `timeout`, `no_start` (could not execute, or the shell's exit 126/127), or `blocked` (the shell sandbox refused something the check tried; the receipt text says what). Named checks (`verify.checks.<name>`) may add `kind` (`report`: a diff that never passes or fails; `lab`: your own lab devices), `label` (a few words such as `dry run not guaranteed`), `hosts` (lab checks) and `summary` (reports). |
 | `phase` | `phase` (`task`, `checklist`, `checks`, `smoke`, `pages`, `review`, `proof`, `acceptance`, `repair`), `state` (`start`/`end`), `atMs` | A stage of Casper's work starts or ends. `smoke` and `pages` run inside `checks`. |
-| `receipt` | `outcome`, `exitCode`, `execution`, `changed`, `changedDuringChecks`, `verificationMode`, `checks`, `repairAttempts`, `turnLimit`, `usage`, `proof`, `proofSkipped`, `review`, `services`, `smoke`, `pages`, `checksPassed`, `repairModels`, `bigModel`, `security`, `task`, `undo`, `changedWhilePlanning`, `pageNotes`, `verdict`, `text` | The run finished. |
+| `receipt` | `outcome`, `exitCode`, `execution`, `changed`, `changedDuringChecks`, `verificationMode`, `checks`, `repairAttempts`, `turnLimit`, `usage`, `proof`, `proofSkipped`, `review`, `services`, `smoke`, `pages`, `checksPassed`, `repairModels`, `bigModel`, `security`, `task`, `undo`, `sandbox`, `changedWhilePlanning`, `pageNotes`, `verdict`, `text` | The run finished. |
 | `error` | `message` | Something failed. |
 
 `receipt.outcome` is one of `verified`, `failed`, `incomplete`, `not_verified`, `unchanged`,
@@ -152,7 +152,9 @@ each repair used when Casper knows it; `bigModel` is `{ "model", "attempts" }` w
 model. `security` holds counts only (`problems`, `notes`, `notRun`, and each tool's `status`), never finding
 text. `task` is the task's saved receipt number (`/receipt <n>`), and `undo` is `{ "available", "reason" }`: whether
 `casper /undo` can put this task's files back, and why not (see [UNDO.md](UNDO.md)). After `casper --json /undo` or
-`/redo`, `changed` lists the files it put back and `outcome` is `not_verified` (nothing checked them). `changedWhilePlanning` lists files that changed during a plan turn anyway
+`/redo`, `changed` lists the files it put back and `outcome` is `not_verified` (nothing checked them). `sandbox` is
+`{ "held": true }` when the shell sandbox held the task's shell commands and checks, or `{ "held": false, "reason" }`
+when it did not (`--no-sandbox`, Windows, bubblewrap missing; see [SECURITY.md](SECURITY.md)). `changedWhilePlanning` lists files that changed during a plan turn anyway
 (`/plan`), and `pageNotes` says in plain words why changed pages were not opened (for example
 `node_modules is missing`); neither is ever a failure.
 
@@ -212,7 +214,10 @@ jobs:
 such as `OPENROUTER_API_KEY` are read from the environment. The flags on this page are newer than
 v0.1.0: they ship in v0.2.13 and later, so pin the installer to v0.2.13 or newer. The receipt's
 `verdict` and `proofSkipped` fields and a check's `ended` field ship in v0.2.14. A check runs
-the repository's own configured commands without asking, and they are not sandboxed, so run
-Casper only on code you trust (or pass `--no-verify`). Configure the checks in `.casper/project.yaml` (see
+the repository's own configured commands without asking, in the shell sandbox where it can run
+(Linux with bubblewrap, macOS); on a runner without it they run with the job's permissions, so
+run Casper only on code you trust there (or pass `--no-verify`). A host a check wants that is not
+listed is blocked in a script (nobody can answer); add it to `sandbox.allowedDomains` in the
+runner's `~/.casper/config.yaml`. The receipt's `sandbox` field says whether the run was held. Configure the checks in `.casper/project.yaml` (see
 [VERIFICATION.md](VERIFICATION.md)); `--require-verification` then fails the job when Casper
 could not prove the change.
