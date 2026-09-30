@@ -28,6 +28,10 @@ function anyValue(value: string): boolean {
   return value.length >= 3 && !/^[<{$%]/.test(value) && !NOT_A_VALUE.test(value) && !keepLiterally(value) && !/^\*+$/.test(value);
 }
 
+/** A value in a command: 'quoted', "quoted" or one word. The quotes stay; only what is inside is hidden. */
+const QUOTED = String.raw`'[^'\n]+'|"[^"\n]+"|[^\s'"]+`;
+const unquote = (value: string) => /^(['"]).*\1$/s.test(value) ? value.slice(1, -1) : value;
+
 interface ProseRule { re: RegExp; group: number; kind: SecretKind; accept: (value: string, match: RegExpExecArray) => boolean }
 
 const PASSWORD_WORDS = String.raw`password|passwd|passphrase|pass|pw|secret|api[ _-]?key|api[ _-]?token|token|psk|pre-shared key`;
@@ -42,6 +46,21 @@ const RULES: ProseRule[] = [
   // password X, password is X, the pw was X: only a value that looks like a secret.
   { re: /(?<![\w-])(?:password|passwd|passphrase|pw)\s+(?:is\s+|was\s+|of\s+|=\s*)?(`?)([^\s`]+)\1/gid, group: 2, kind: "password",
     accept: (value, match) => match[1] === "`" ? anyValue(value) : secretLike(value) },
+  // the root password for the lab is X: a few words between, and only a value that looks like a secret.
+  { re: /(?<![\w-])(?:password|passwd|pw)\b[^\n.:=`]{1,40}?\s(?:is|was)\s+(`?)([^\s`]+)\1/gid, group: 2, kind: "password",
+    accept: (value, match) => match[1] === "`" ? anyValue(value) : secretLike(value) },
+  { re: /(?<![\w-])pass\s+([^\s`]+)/gid, group: 1, kind: "password", accept: (value) => secretLike(value) },
+  // In commands: sshpass -p X, --password X, --token=X, curl -u user:X, mysql -pX, ipmitool -P X, smbclient -U user%X,
+  // echo X | sudo -S, echo user:X | chpasswd.
+  { re: new RegExp(String.raw`\bsshpass\s+(?:-[a-zA-Z]\s+)*?-p\s*(${QUOTED})`, "gid"), group: 1, kind: "password", accept: (value) => anyValue(unquote(value)) },
+  { re: new RegExp(String.raw`(?<![\w-])--?(?:password|passwd|pass|pw|passphrase|token|api-?key|api-token|auth-token|access-token|secret|client-secret|psk)(?:=|\s+)(${QUOTED})`, "gid"),
+    group: 1, kind: "password", accept: (value) => !unquote(value).startsWith("-") && anyValue(unquote(value)) },
+  { re: /\b(?:curl|wget)\b[^;&|\n]*?\s(?:-u|--user)(?:\s+|=)?(['"]?)[^\s:'"]+:([^\s'"]+)\1/gid, group: 2, kind: "password", accept: (value) => anyValue(value) },
+  { re: new RegExp(String.raw`\b(?:mysql|mariadb|mysqldump|mysqladmin)\b[^;&|\n]*?\s-p(?!\s)(${QUOTED})`, "gid"), group: 1, kind: "password", accept: (value) => anyValue(unquote(value)) },
+  { re: new RegExp(String.raw`\bipmitool\b[^;&|\n]*?\s-P\s*(${QUOTED})`, "gid"), group: 1, kind: "password", accept: (value) => anyValue(unquote(value)) },
+  { re: /(?<![\w-])-U\s*(['"]?)[^\s%'"]+%([^\s'"]+)\1/gid, group: 2, kind: "password", accept: (value) => anyValue(value) },
+  { re: new RegExp(String.raw`\b(?:echo|printf)\s+(?:-\w+\s+)?(${QUOTED})\s*\|\s*sudo\b[^|;&\n]*?\s-\w*S\b`, "gid"), group: 1, kind: "password", accept: (value) => anyValue(unquote(value)) },
+  { re: /\b(?:echo|printf)\s+(?:-\w+\s+)?(['"]?)[\w.-]+:([^\s'"]+)\1\s*\|\s*(?:sudo\s+)?chpasswd\b/gid, group: 2, kind: "password", accept: (value) => anyValue(value) },
   // login: admin / X, creds: user / X, username/password: admin / X, sign-in root / X.
   { re: /\b(?:login|logon|log-in|creds?|credentials?|sign[- ]?in|account|user(?:name)?\s*\/\s*pass(?:word)?|u\/p)\b[^\n/]{0,30}?(?:[:=-]\s*|\s)(`?)[\w.@\\-]+\1\s*\/\s*(`?)([^\s`]+)\2/gid,
     group: 3, kind: "password", accept: (value) => anyValue(value.replace(/[.,;)]+$/, "")) },
@@ -95,11 +114,13 @@ export function scrubProseSecrets(text: string): ScrubTextResult {
         const at = match.indices?.[rule.group];
         if (!value || !at || value.includes(SECRET_MARKER) || keepLiterally(value)) continue;
         if (!rule.accept(value, match)) continue;
+        let start = at[0];
         let end = at[1];
+        if (/^(['"]).+\1$/s.test(value)) { start++; end--; }
         // Trailing sentence punctuation is not part of the value.
         const trail = /[.,;:)\]]+$/.exec(value);
-        if (trail && trail[0].length < value.length) end -= trail[0].length;
-        spans.push({ start: at[0], end, kind: rule.kind });
+        if (trail && trail[0].length < value.length && !/^['"]/.test(value)) end -= trail[0].length;
+        spans.push({ start, end, kind: rule.kind });
       }
     }
     if (TABLE_ROW.test(line)) {
@@ -123,7 +144,8 @@ export function scrubProseSecrets(text: string): ScrubTextResult {
       }
     } else columns = undefined;
     if (tokenTable) {
-      const json = new RegExp(String.raw`"value"\s*:\s*"(${UUID})"`, "gd");
+      // pveum's --output-format json or yaml: "value": "<uuid>", value: <uuid>.
+      const json = new RegExp(String.raw`"?\bvalue"?\s*:\s*"?(${UUID})`, "gd");
       for (let match = json.exec(line); match; match = json.exec(line)) spans.push({ start: match.indices![1]![0], end: match.indices![1]![1], kind: "key" });
     }
     if (!spans.length) continue;

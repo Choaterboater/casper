@@ -60,7 +60,9 @@ through. Check what a tool returns before you share it.
   `creds: user / <secret hidden>`, `**Password:** <secret hidden>`, `pw: <secret hidden>`,
   `the password is <secret hidden>`, `admin:<secret hidden>@10.0.0.5`, the cells of a table's Password
   column, Proxmox API tokens (`root@pam!name=<secret hidden>`, `PVEAPIToken=...`, the value row of
-  `pveum user token add`) and `token=<uuid or long hex>`. Where plain words could follow, only a value
+  `pveum user token add`) and `token=<uuid or long hex>`. In commands: `sshpass -p`, `--password`,
+  `--token`, `curl -u user:<secret hidden>`, `mysql -p`, `ipmitool -P`, `smbclient -U user%...`,
+  `echo ... | sudo -S` and `echo user:... | chpasswd`. Where plain words could follow, only a value
   that looks like a secret (a digit or a symbol) is hidden, so a sentence such as "The password is
   stored on the switch" stays as it is.
 - **Commands the AI sent: always (from v0.2.19).** A secret the AI typed into a command is hidden

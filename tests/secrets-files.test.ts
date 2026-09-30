@@ -176,3 +176,27 @@ test("ordinary sentences about passwords and tokens stay readable", () => {
     "tests pass: 39 passed",
   ]) expect(scrubPlainSecrets(text, { env: {} }).text).toBe(text);
 });
+
+test("passwords the AI types into commands are hidden: sshpass, --password, curl -u, mysql -p, sudo -S, chpasswd", () => {
+  const cases: Array<[string, string]> = [
+    ["sshpass -p 'Lab2024!' ssh root@192.168.10.20 uptime", "sshpass -p '<secret hidden>' ssh root@192.168.10.20 uptime"],
+    ["sshpass -p Lab2024 ssh root@10.0.0.5 id", "sshpass -p <secret hidden> ssh root@10.0.0.5 id"],
+    ["pvesh create /access/ticket --username root@pam --password Lab2024!", "pvesh create /access/ticket --username root@pam --password <secret hidden>"],
+    ["wget --user=root --password='Lab2024!' http://x", "wget --user=root --password='<secret hidden>' http://x"],
+    ["curl -k -u root@pam:Lab2024! https://10.0.0.5:8006/", "curl -k -u root@pam:<secret hidden> https://10.0.0.5:8006/"],
+    ["mysql -u root -pLab2024! demoapp", "mysql -u root -p<secret hidden> demoapp"],
+    ["ipmitool -I lanplus -H 10.0.0.9 -U admin -P Lab2024! power status", "ipmitool -I lanplus -H 10.0.0.9 -U admin -P <secret hidden> power status"],
+    ["smbclient -U admin%Lab2024! //nas/share", "smbclient -U admin%<secret hidden> //nas/share"],
+    ["echo 'Lab2024!' | sudo -S systemctl restart demoapp", "echo '<secret hidden>' | sudo -S systemctl restart demoapp"],
+    ["ssh lab-01 \"echo svc:NewPass99 | chpasswd\"", "ssh lab-01 \"echo svc:<secret hidden> | chpasswd\""],
+    ["The root password for the lab is Lab2024!", "The root password for the lab is <secret hidden>"],
+    ["user root pass Lab2024!", "user root pass <secret hidden>"],
+    ["tokenid: root@pam!demoapp\nvalue: 0f1e2d3c-4b5a-6978-8a9b-0c1d2e3f4a5b", "tokenid: root@pam!demoapp\nvalue: <secret hidden>"],
+  ];
+  for (const [command, shown] of cases) expect(scrubPlainSecrets(command, { env: {} }).text).toBe(shown);
+  // Flags and sentences that are not a password stay.
+  for (const text of ["cmd --token-file /etc/x", "ssh -p 22 host", "mysql -p demoapp", "curl -u $USER:$PASS http://x", "npm run build --pass-through",
+    "You pass 3 args", "The password for that account was changed", "tar -cvpf x.tar ."]) {
+    expect(scrubPlainSecrets(text, { env: {} }).text).toBe(text);
+  }
+});

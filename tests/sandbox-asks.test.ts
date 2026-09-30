@@ -365,3 +365,12 @@ test("ssh with the host in a variable or wrapped in bash -c still asks, even wit
   await offSandbox.close();
 });
 
+test("a password the AI typed into sshpass is hidden in the question", async () => {
+  const { home, project, context } = await labFixture();
+  const terminal = host([undefined]);
+  const sandbox = createSessionSandbox(terminal.value, context, { root: () => project, home, seams: { engine: fakeEngine(), problem: () => undefined, platform: "linux" } });
+  const shell = runtimeShell(terminal.value, sandbox, new SandboxStore(context.stateDirectory));
+  await shell.approve!("sshpass -p 'Lab2024!' ssh root@192.168.10.20 id");
+  expect(terminal.asked[0]!.question).toBe("Reach 192.168.10.20?  sshpass -p '<secret hidden>' ssh root@192.168.10.20 id");
+  await sandbox.close();
+});
