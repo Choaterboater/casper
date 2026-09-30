@@ -281,6 +281,8 @@ export class CasperApp {
   private effortCycle: Promise<void> = Promise.resolve();
   private workspaceTransition = false;
   private workspaceNeedsRebind = false;
+  /** Project folders the owner chose to stay out of at "The work is in ...": not asked again this session. */
+  private readonly stayedOutOf = new Set<string>();
   /** Why the last workspace snapshot failed, for the task's receipt. */
   private snapshotFailure?: string;
   private taskRuntimeFailed = false;
@@ -1052,9 +1054,12 @@ export class CasperApp {
       this.output.write(`[folder] The work is in ${display}. To work there: cd ${display} && casper\n`);
       return;
     }
+    // Asked once per folder: after "Stay here", later tasks in the same project don't ask again this session.
+    if (this.stayedOutOf.has(child.dir)) return;
     const choices = workFolderChoices(terminalText(path.basename(this.activeWorkspaceRoot())), terminalText(child.relative));
     const picked = await this.terminal.pick(`The work is in ${display}.`, choices, this.commandAbort?.signal);
-    if (this.closing || picked?.trim() !== choices[1]!.label) return;
+    if (this.closing) return;
+    if (picked?.trim() !== choices[1]!.label) { this.stayedOutOf.add(child.dir); return; }
     await this.moveWorkspace(child.dir);
   }
 

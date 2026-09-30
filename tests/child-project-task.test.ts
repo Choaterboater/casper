@@ -8,6 +8,7 @@ import { CasperApp } from "../src/app";
 import { loadProjectContext, type ProjectContext } from "../src/project/context";
 import type { AgentRuntime, RuntimeEventListener, RuntimeSession } from "../src/runtime/types";
 import { SkillRegistry } from "../src/skills/registry";
+import { childProjectOf } from "../src/project/child";
 
 setDefaultTimeout(30_000);
 const ambientTerm = process.env.TERM;
@@ -139,6 +140,11 @@ test.skipIf(!python)("Enter at \"The work is in ...\" stays in the folder and ke
     expect(harness.output()).not.toContain("[folder] Working in");
     expect(disposed()).toBe(0);
     expect(starts).toEqual([docs]);
+    // Asked once: after Stay, a later task in the same project doesn't ask again this session.
+    const child = await childProjectOf(docs, ["mist-tools/sites.py"], home);
+    const before = harness.output().split("The work is in ~/Documents/mist-tools.").length;
+    await (harness.app as unknown as { offerWorkFolder(child: unknown): Promise<void> }).offerWorkFolder(child);
+    expect(harness.output().split("The work is in ~/Documents/mist-tools.").length).toBe(before);
   } finally {
     harness.input.write("/exit\r");
     await running;
