@@ -21,6 +21,7 @@ export const HELP_TEXT = `Casper — your coding companion
   /undo, /redo           Put the last task's files back, or back again (no model; docs/UNDO.md)
   /new [name]            Start a new project in ~/Projects (no model)
   /output [n|all]        Full command and output of the n-th latest tool call; all lists every call
+  /details [level]       How much work shows: quiet, normal or detailed (no word: the next one)
   /receipt [n|list]      The last receipt (also after a restart), receipt n, or the last 10
   /permissions           Explain actual tool/approval boundaries
   /login                 Provider sign-in or private API-key setup (interactive only)
@@ -42,7 +43,7 @@ Type / for fuzzy command discovery; Tab completes commands and file paths (@).
 Shift+Tab cycles reasoning effort, including auto, and remembers where it stops, like /effort.
 Shift+Enter (when supported) or Ctrl+J inserts a newline; Up/Down recalls history.
 Esc stops active work. Ctrl-C cancels work; idle, it clears a draft; twice on empty exits.
-Ctrl+L redraws the screen. See docs/TERMINAL_UX.md for limits.
+Ctrl+T shows the last step in full (an edit's diff, a command's output). Ctrl+L redraws the screen. See docs/TERMINAL_UX.md for limits.
 Enter during work retains your draft; it does not queue a request.
 Approvals require a fresh yes. Task completion is not verification.
 After the model edits files, Casper runs the project's checks itself and repairs failures (auto
@@ -126,6 +127,8 @@ Local commands:
   /new <template> <name>            The same without questions; /new --list shows the templates
   /output [n]                       Full command and output of a recent tool call (1 = latest; last 20 kept per task)
   /output all                       Every tool call of the last task on its own line (the screen folds them into a summary)
+  /details [quiet|normal|detailed]  For this session: failures only, steps folded (default), or every step with small diffs;
+                                    display: in ~/.casper/config.yaml sets the default. Ctrl+T shows the last step in full
   /receipt                          Detailed evidence receipt of the last model task (freshness, scope), also after a restart
   /receipt <n>, /receipt list       A saved receipt, or the last 10 (saved with secrets hidden)
   /permissions                      Explain enforcement, not change permission presets

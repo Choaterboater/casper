@@ -21,6 +21,8 @@ export interface ProjectContext {
   suggestions?: boolean;
   /** `cache:` in the user's config (auto, long, short or off). Unset: auto. */
   cache?: LoadedConfiguration["cache"];
+  /** `display:` in the user's config (quiet, normal or detailed). Unset: normal. */
+  display?: LoadedConfiguration["display"];
   /** Per-task spend limits (a note, then a pause); see src/task/spend.ts. */
   spend?: LoadedConfiguration["spend"];
   visualize: VisualizationSettings;
@@ -91,6 +93,7 @@ export async function loadProjectContext(
     repair: configuration.repair,
     ...(configuration.suggestions !== undefined ? { suggestions: configuration.suggestions } : {}),
     ...(configuration.cache ? { cache: configuration.cache } : {}),
+    ...(configuration.display ? { display: configuration.display } : {}),
     spend: configuration.spend,
     visualize: configuration.visualize,
     services: configuration.services,

@@ -30,7 +30,7 @@ import { gitGuardReason } from "./git-guard";
 import { classifyPath, fileToolGate, gitInternalsCommand, privatePathCommand, resolveToolPath } from "../platform/project-paths";
 import { withoutProviderKeys } from "../platform/environment";
 import { cacheRetentionFor, type PromptCacheSetting } from "./cache";
-import { nativeEditPath, observationInput, observationOutput, patchLineCounts, writeLineCounts, type ToolObservationInput } from "./observation";
+import { nativeEditPath, observationInput, editPatch, observationOutput, patchLineCounts, writeLineCounts, type ToolObservationInput } from "./observation";
 import type {
   AgentRuntime,
   RuntimeAuthenticationOptions,
@@ -110,6 +110,10 @@ class PiRuntimeSession implements RuntimeSession {
       sessionFile: session.sessionFile,
       name: session.sessionName,
     };
+  }
+
+  setSessionName(name: string): void {
+    this.runtime.session.setSessionName(name);
   }
 
   async forkSession(options: RuntimeForkOptions): Promise<RuntimeSessionInfo> {
@@ -413,8 +417,9 @@ class PiRuntimeSession implements RuntimeSession {
           this.writes.delete(event.toolCallId);
           const lines = event.isError ? undefined : event.toolName === "edit" ? patchLineCounts(event.result)
             : write && write.before !== null ? writeLineCounts(write.before, write.after) : undefined;
+          const diff = !event.isError && event.toolName === "edit" ? editPatch(event.result) : undefined;
           this.emit({ type: "tool_end", toolName: event.toolName, toolCallId: event.toolCallId, input, output: event.toolName === "bash" || event.toolName === "casper_check" || event.isError ? observationOutput(event.result) : undefined,
-            isError: event.isError, ...(lines ? { lines } : {}) });
+            isError: event.isError, ...(lines ? { lines } : {}), ...(diff ? { diff } : {}) });
           break;
         }
         case "agent_end":

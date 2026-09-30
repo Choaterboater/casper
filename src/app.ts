@@ -17,6 +17,8 @@ import { formatPagesNotChecked, formatSkippedPage, PageChecks, pageOpener, planP
 import { formatTerminalJSON } from "./tui/json";
 import { InteractiveTerminal, type TerminalHost } from "./tui/terminal";
 import { askTool } from "./tui/ask";
+import { sessionTitle, windowTitle } from "./tui/session-title";
+import { DISPLAY_LEVELS, nextDisplay, type DisplayLevel } from "./tui/display";
 import { pickEffort } from "./tui/effort-picker";
 import { nextEffort } from "./tui/effort";
 import { formatEffort, formatRuntimeStartLine, formatRuntimeStatus, formatToolActivity, redactPreview, terminalText } from "./tui/format";
@@ -248,6 +250,8 @@ export class CasperApp {
   session?: RuntimeSession;
   /** A request typed at a startup question: the first request of the session. */
   private queuedPrompt?: string;
+  /** /details for this session; unset follows display: in the config. */
+  private displayChoice?: DisplayLevel;
   closing = false;
   private closeWork?: Promise<void>;
   private unsubscribe?: () => void;
@@ -422,10 +426,13 @@ export class CasperApp {
     this.terminal.setEffortCycle(() => this.cycleEffort());
     // ctrl+o: MCP writes off everywhere, at once, even while work runs.
     this.terminal.setWritesRevert(() => this.revertWrites());
+    // ctrl+t: the last step in full, even while work runs.
+    this.terminal.setExpandLast(() => this.expandLastStep());
     // Tool calls live in the event view's Working box on a rich surface; the transcript gets plain writes.
     this.output = { write: (text) => { this.terminal.write(text); } };
     this.events = new RuntimeEventView(this.terminal, this.output, {
       updateFooter: () => this.updateFooter(),
+      display: () => this.displayLevel(),
       onToolEnd: event => {
         this.observations.observeToolEnd(event, this.projectContext?.model.commands);
         if (["bash", "edit", "write"].includes(event.toolName)) this.browser?.invalidate();
@@ -714,7 +721,6 @@ export class CasperApp {
     if (!this.projectContext) {
       await this.start(workspace);
     }
-    if (this.projectContext) this.terminal.setTitle(`Casper · ${path.basename(this.projectContext.info.root)}`);
 
     this.savedModelDisplay = await modelPreference(this.sessionHomeDir ?? os.homedir());
     this.updateFooter();
@@ -1030,6 +1036,7 @@ export class CasperApp {
 
   /** Local command dispatch moved to app/commands.ts; the app is the command host. */
   private handleSlashCommand(prompt: string): Promise<VerificationReport | undefined> {
+    if (/^\/details(?:\s|$)/.test(prompt)) { this.detailsCommand(prompt.slice(8).trim()); return Promise.resolve(undefined); }
     if (/^\/new(?:\s|$)/.test(prompt)) return this.newProjectCommand(prompt.slice(4).trim()).then(() => undefined);
     if (/^\/suggestions(?:\s|$)/.test(prompt)) {
       return this.suggestions.command(prompt.slice(12).trim(), this.projectContext).then((text) => { this.output.write(text); return undefined; });
@@ -1398,6 +1405,8 @@ export class CasperApp {
     const session = await this.ensureRuntime();
     if (this.closing || this.commandAbort?.signal.aborted) return;
     if (!await this.ensureModel(session)) return;
+    this.nameConversation(session, prompt);
+    this.updateFooter();
     this.bigModelNotice(session);
     this.clearSteps();
     const workspaceRoot = this.activeWorkspaceRoot();
@@ -1629,8 +1638,10 @@ export class CasperApp {
           // The second copy and the saved receipt; the change summary lists only this task's files.
           const { stat } = await this.taskUndo.finish(undoStart, { request: prompt, task: this.lastTaskResult, session, servers: [...this.taskChangeServers] });
           const task = this.lastTaskResult;
-          this.output.write(`${this.verbose ? formatTaskResult(task) : formatShortReceipt(task, { surface: this.receiptSurface(), ...this.receiptFolder(workspaceRoot),
-            ...(this.checksHintShown ? { checksHintShown: true as const } : {}), undoNamed: this.undoNamed })}\n`);
+          // The short receipt gets the colored result edge on the rich terminal; --verbose's full form stays plain.
+          const receipt = this.verbose ? formatTaskResult(task) : formatShortReceipt(task, { surface: this.receiptSurface(), ...this.receiptFolder(workspaceRoot),
+            ...(this.checksHintShown ? { checksHintShown: true as const } : {}), undoNamed: this.undoNamed });
+          if (this.verbose) this.output.write(`${receipt}\n`); else this.terminal.writeResult(`${receipt}\n`);
           if (!this.verbose) {
             if (task.autoSkipped === "no-checks" && !task.verification && !task.observedChecks?.length && task.execution === "completed") this.checksHintShown = true;
             // Only the files the receipt printed: ones past its limit are named on a later one.
@@ -2875,8 +2886,44 @@ export class CasperApp {
     return this.spendAsk;
   }
 
+  /** How much of the work shows: /details for this session, else display: in your config, else normal. */
+  private displayLevel(): DisplayLevel { return this.displayChoice ?? this.projectContext?.display ?? "normal"; }
+
+  /** /details [quiet|normal|detailed]: no word goes to the next level. For this session; the config keeps the default. */
+  private detailsCommand(argument: string): void {
+    if (argument && !DISPLAY_LEVELS.some(level => level === argument)) throw new Error("Usage: /details [quiet|normal|detailed]");
+    this.displayChoice = (argument as DisplayLevel) || nextDisplay(this.displayLevel());
+    const words: Record<DisplayLevel, string> = {
+      quiet: "the model's words, failures and receipts",
+      normal: "steps fold into one summary line",
+      detailed: "every step, with a small diff under each edit",
+    };
+    this.output.write(`[details] ${this.displayChoice}: ${words[this.displayChoice]}. For this session; display: in ~/.casper/config.yaml sets the default.\n`);
+  }
+
+  private expandLastStep(): void {
+    const step = this.events.lastStep();
+    if (!step) { this.terminal.flashNote("no step to show yet"); return; }
+    this.terminal.endAssistant();
+    this.terminal.writePanel(step.title, step.body, { diff: step.diff });
+  }
+
+  /** A conversation's first request names it, for the window title and /resume. A resumed one keeps its name. */
+  private nameConversation(session: RuntimeSession, prompt: string): void {
+    try {
+      const name = session.getSessionInfo?.().name ? undefined : sessionTitle(prompt);
+      if (name) session.setSessionName?.(name);
+    } catch { /* a conversation that is not saved has no name; the title shows the folder */ }
+  }
+
+  private conversationName(): string {
+    try { return this.session?.getSessionInfo?.().name ?? path.basename(this.projectContext!.info.root); }
+    catch { return path.basename(this.projectContext!.info.root); }
+  }
+
   updateFooter(): void {
     if (!this.projectContext) return;
+    this.terminal.setTitle(windowTitle(this.conversationName(), this.commandActive));
     const writes = this.mcp?.writesOn() ?? [];
     this.terminal.setBadge(writes.length ? `WRITES: ${writes.join(", ")} · ${this.terminal.rich ? "ctrl+o" : "/mcp writes off"}` : undefined);
     try {
