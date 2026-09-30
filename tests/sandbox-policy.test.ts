@@ -103,3 +103,46 @@ test("Casper's own bubblewrap line runs the command through the seccomp helper, 
     expect(args.slice(end + 1, end + 4)).toEqual(["/opt/apply-seccomp", "/bin/sh", "-c"]);
   }
 });
+
+test("a worktree's .git file and its folder's commondir are read-only, and so are git's files in a new project's folder", async () => {
+  const { base, home, root } = await fixture();
+  const main = path.join(base, "main-git");
+  const linked = path.join(main, "worktrees", "tree");
+  await mkdir(path.join(main, "hooks"), { recursive: true });
+  await mkdir(linked, { recursive: true });
+  await writeFile(path.join(linked, "commondir"), "../..\n");
+  const tree = path.join(base, "tree");
+  await mkdir(tree, { recursive: true });
+  await writeFile(path.join(tree, ".git"), `gitdir: ${linked}\n`);
+  const policy = sandboxPolicy({ root: tree, home, tempDirs: [], platform: "linux" });
+  expect(policy.denyWrite).toEqual(expect.arrayContaining([path.join(tree, ".git"), path.join(linked, "commondir"), path.join(main, "hooks"), path.join(main, "config")]));
+  // A main .git has no commondir: nothing stands in for it (a stand-in breaks git); the sandbox watches for one instead.
+  expect(sandboxPolicy({ root, home, tempDirs: [], platform: "linux" }).denyWrite).not.toContain(path.join(root, ".git", "commondir"));
+  const fresh = path.join(base, "fresh");
+  await mkdir(path.join(fresh, ".git", "hooks"), { recursive: true });
+  const withNew = sandboxPolicy({ root, home, tempDirs: [], platform: "linux", extraWrite: [fresh] });
+  expect(withNew.allowWrite).toContain(fresh);
+  for (const name of ["hooks", "config", "info"]) expect(withNew.denyWrite).toContain(path.join(fresh, ".git", name));
+});
+
+test("a commondir a command writes into the project's .git is removed at once and said; one you had stays", async () => {
+  const { ShellSandbox } = await import("../src/sandbox/manager");
+  const { passThroughEngine } = await import("../src/sandbox/runtime");
+  const { home, root } = await fixture();
+  const notes: string[] = [];
+  const sandbox = new ShellSandbox({ root: () => root, home, tempDirs: [], platform: "linux", engine: passThroughEngine(), problem: () => undefined, note: (line) => notes.push(line) });
+  await sandbox.wrap("true", { cwd: root });
+  const pointer = path.join(root, ".git", "commondir");
+  await writeFile(pointer, "../elsewhere\n");
+  for (let attempt = 0; attempt < 100 && await stat(pointer).then(() => true, () => false); attempt++) await Bun.sleep(20);
+  expect(await stat(pointer).then(() => true, () => false)).toBe(false);
+  expect(notes).toEqual([`[sandbox] Removed ${pointer}: a command wrote it, and it would point git at another folder's settings and hooks.`]);
+  await sandbox.close();
+
+  const { root: yours, home: home2 } = await fixture();
+  await writeFile(path.join(yours, ".git", "commondir"), "../mine\n");
+  const kept = new ShellSandbox({ root: () => yours, home: home2, tempDirs: [], platform: "linux", engine: passThroughEngine(), problem: () => undefined });
+  await kept.wrap("true", { cwd: yours });
+  await kept.close();
+  expect(await stat(path.join(yours, ".git", "commondir")).then(() => true, () => false)).toBe(true);
+});

@@ -41,6 +41,10 @@ export function bwrapArgs(options: LinuxWrapOptions, command: string): string[] 
   const writable = [...policy.allowWrite].filter((entry) => existsSync(entry)).sort((a, b) => a.length - b.length);
   for (const entry of writable) args.push("--bind", entry, entry);
   const insideWritable = (entry: string) => writable.some((allowed) => within(allowed, entry));
+  // A git folder is bound onto itself, so a command can't move it aside and put another in its place (the
+  // read-only files below would go with it).
+  const gitFolders = new Set(policy.denyWrite.filter((entry) => path.basename(entry) === "config").map((entry) => path.dirname(entry)));
+  for (const dir of gitFolders) if (insideWritable(dir) && isDirectory(dir)) args.push("--bind", dir, dir);
   for (const entry of policy.denyWrite) {
     if (!insideWritable(entry)) continue;
     if (!existsSync(entry) && path.basename(entry) === "hooks" && isDirectory(path.dirname(entry))) {

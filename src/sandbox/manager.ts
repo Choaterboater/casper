@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, lstatSync, rmSync, watch, type FSWatcher } from "node:fs";
 import { mkdtemp, realpath, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -88,6 +88,8 @@ export class ShellSandbox {
   private remembered: string[] = [];
   private closed = false;
   private startError?: string;
+  /** Main git folders watched for a `commondir` a command writes, with whether one was there first (yours). */
+  private readonly gitGuards = new Map<string, { hadPointer: boolean; watcher?: FSWatcher }>();
 
   constructor(private readonly options: ShellSandboxOptions) {
     this.engine = options.engine ?? sandboxDefaults.engine?.() ?? runtimeEngine();
@@ -153,6 +155,7 @@ export class ShellSandbox {
       this.options.note?.(`[sandbox] The sandbox could not start (${this.startError}). Shell commands now ask first.`);
       throw new Error(`the sandbox could not start (${this.startError})`);
     }
+    for (const folder of [this.options.root(), ...(options.extraWrite ?? [])]) this.guardGit(folder);
     const policy = this.policy(options);
     // Temp files land in the session's own temp folder; socat inside the sandbox listens on IPv4 when this
     // machine has no IPv6 (it would fail to start otherwise and every host would look blocked).
@@ -160,6 +163,36 @@ export class ShellSandbox {
     const network = options.network ?? "ask";
     const wrapped = await this.engine.wrap(command, policy, { id, cwd: options.cwd, network, prefix });
     return { command: IPV6_MISSING && network === "ask" && wrapped !== command ? `SOCAT_DEFAULT_LISTEN_IP=4; export SOCAT_DEFAULT_LISTEN_IP; ${wrapped}` : wrapped, id, held: true };
+  }
+
+  /**
+   * A main `.git` folder never has a `commondir` (only a worktree's folder does): one that appears while the
+   * sandbox runs was written by a command, and it would point git (yours, and Casper's own git outside the
+   * sandbox) at another folder's settings and hooks. It is removed as soon as it appears, and said. A missing
+   * file can't be held read-only without breaking git, so it is watched instead.
+   */
+  guardGit(folder: string): void {
+    const dotGit = path.join(folder, ".git");
+    const pointer = path.join(dotGit, "commondir");
+    const present = () => { try { lstatSync(pointer); return true; } catch { return false; } };
+    let guard = this.gitGuards.get(dotGit);
+    if (!guard) {
+      try { if (!lstatSync(dotGit).isDirectory()) return; } catch { return; }
+      guard = { hadPointer: present() };
+      this.gitGuards.set(dotGit, guard);
+      if (!guard.hadPointer) {
+        try {
+          guard.watcher = watch(dotGit, (_event, name) => { if (!name || String(name) === "commondir") this.guardGit(folder); });
+          guard.watcher.on("error", () => {});
+          guard.watcher.unref();
+        } catch { /* checked before each command instead */ }
+      }
+    }
+    if (guard.hadPointer || this.closed || !present()) return;
+    try {
+      rmSync(pointer, { force: true, recursive: true });
+      this.options.note?.(`[sandbox] Removed ${pointer}: a command wrote it, and it would point git at another folder's settings and hooks.`);
+    } catch { /* gone meanwhile */ }
   }
 
   /** What the sandbox refused for run `id`, in plain words: "wanted to write /etc/hosts", "wanted to reach api.mist.com".
@@ -239,6 +272,10 @@ export class ShellSandbox {
 
   async close(): Promise<void> {
     if (this.closed) return;
+    for (const [dotGit, guard] of this.gitGuards) {
+      guard.watcher?.close();
+      if (!guard.hadPointer) this.guardGit(path.dirname(dotGit));
+    }
     this.closed = true;
     if (this.started) {
       await this.started.catch(() => {});
