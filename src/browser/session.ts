@@ -49,6 +49,11 @@ const LOAD_LIMIT = 10;
 const LOAD_TEXT = 300;
 
 /** One task's disposable browser. No user profiles, arbitrary evaluation or browser installation. */
+/** Fields fill types into, like a person would. Password and file stay out (checked before this). */
+const TYPED_FIELDS = ["", "text", "search", "tel", "url", "email", "number"];
+/** Fields a person sets through a picker: fill sets their value and fires input and change. */
+const PICKED_FIELDS = ["date", "time", "datetime-local", "month", "week", "color", "range"];
+
 export class BrowserSession {
   private readonly controller = new AbortController();
   private browser?: Browser;
@@ -290,12 +295,15 @@ export class BrowserSession {
       for (const assertion of scenario.assertions) {
         signal.throwIfAborted();
         const evaluate = () => page.evaluate(a => {
-          if (a.kind === "no-horizontal-overflow") return { pass: document.documentElement.scrollWidth <= innerWidth, actual: { width: document.documentElement.scrollWidth, viewport: innerWidth } };
-          const matches = document.querySelectorAll(a.selector);
+          if (a.kind === "no-horizontal-overflow" && !a.selector) return { pass: document.documentElement.scrollWidth <= innerWidth, actual: { width: document.documentElement.scrollWidth, viewport: innerWidth } };
+          const matches = document.querySelectorAll(a.selector!);
           if (matches.length !== 1) return { pass: false, actual: `Expected one element; found ${matches.length}` };
           const el = matches[0]!;
-          if (a.kind === "text") return { pass: (el.textContent ?? "").trim() === a.expected, actual: (el.textContent ?? "").trim().slice(0, 1024) };
           const r = el.getBoundingClientRect();
+          // One element: content wider than the box (a table cut off behind a scroller), or the box past the viewport.
+          if (a.kind === "no-horizontal-overflow") return { pass: el.scrollWidth <= el.clientWidth + 1 && r.right <= innerWidth + 1,
+            actual: { contentWidth: el.scrollWidth, boxWidth: el.clientWidth, right: Math.round(r.right), viewport: innerWidth } };
+          if (a.kind === "text") return { pass: (el.textContent ?? "").trim() === a.expected, actual: (el.textContent ?? "").trim().slice(0, 1024) };
           const visible = el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) && r.width > 0 && r.height > 0;
           if (a.kind === "visible") return { pass: visible, actual: visible };
           const other = document.querySelectorAll(a.other);
@@ -340,7 +348,10 @@ export class BrowserSession {
     }, selector);
     const before = await describe();
     if (/^(password|file)$/i.test(before.type) || /password|one-time-code|cc-/i.test(before.autocomplete)) throw new Error("Credential, payment and file-upload inputs are outside this browser slice");
-    if (action === "fill" && (before.tag !== "TEXTAREA" && (before.tag !== "INPUT" || !["", "text", "search", "tel", "url"].includes(before.type.toLowerCase())))) throw new Error("Fill requires a text/search/tel/url input or textarea");
+    const type = before.type.toLowerCase();
+    if (action === "fill" && before.tag !== "TEXTAREA" && (before.tag !== "INPUT" || !(TYPED_FIELDS.includes(type) || PICKED_FIELDS.includes(type)))) {
+      throw new Error(`Fill takes a textarea or an input of type ${[...TYPED_FIELDS.filter(Boolean), ...PICKED_FIELDS].join(", ")}`);
+    }
     const automatic = input.impact === "local-test" && localURL(before.url) && !DANGEROUS.test(before.target);
     if (!automatic) {
       const approved = await this.options.confirm?.({ action, selector, url: before.url, target: before.target,
@@ -356,7 +367,16 @@ export class BrowserSession {
       // No automatic retry after a potentially consequential action.
       if (action === "click") await element.click();
       else if (action === "press") await element.press(value as import("puppeteer-core").KeyInput);
-      else {
+      else if (before.tag === "INPUT" && PICKED_FIELDS.includes(type)) {
+        // A date, time, color or range field is set by its picker, not by keystrokes: set the value as the picker would.
+        const set = await element.evaluate((el, next) => {
+          const input = el as HTMLInputElement;
+          Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, next);
+          input.dispatchEvent(new Event("input", { bubbles: true })); input.dispatchEvent(new Event("change", { bubbles: true }));
+          return input.value;
+        }, value!);
+        if (set !== value) throw new Error(`The ${type} field did not take ${JSON.stringify(value!.slice(0, 40))}; it holds ${JSON.stringify(set.slice(0, 40))}`);
+      } else {
         await element.focus();
         await element.evaluate(el => { if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) el.select(); });
         await element.press("Backspace"); await element.type(value!);

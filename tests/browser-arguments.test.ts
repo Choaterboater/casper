@@ -63,6 +63,14 @@ test("a check scenario with blank placeholder fields parses; a real stray field 
   expect(() => parseScenario({ name: "", url: "http://localhost:3000", steps: [], assertions: [{ kind: "no-horizontal-overflow" }] })).toThrow("Browser scenario name is missing");
 });
 
+test("no-horizontal-overflow is page-wide, or for one element when a selector names it", () => {
+  const scoped = parseScenario({ name: "Phone", url: "http://localhost:3000", steps: [],
+    assertions: [{ kind: "no-horizontal-overflow", selector: ".results" }, { kind: "no-horizontal-overflow" }] });
+  expect(scoped.assertions).toEqual([{ kind: "no-horizontal-overflow", selector: ".results" }, { kind: "no-horizontal-overflow" }]);
+  expect(() => parseScenario({ name: "x", url: "http://localhost:3000", steps: [], assertions: [{ kind: "no-horizontal-overflow", expected: "0" }] }))
+    .toThrow('Browser scenario assertion 1 (no-horizontal-overflow) does not take "expected"; it takes kind, selector');
+});
+
 test("the schema and description list exactly the fields the validator reads", () => {
   const tool = browserTool(() => { throw new Error("not opened"); });
   const schema = tool.inputSchema as { properties: Record<string, { enum?: string[] }> };

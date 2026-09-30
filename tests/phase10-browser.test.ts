@@ -177,6 +177,24 @@ browserTest("an immutable reproduction detects behavior and layout failures, rep
   await expect(f.session.run({ action: "replay", id: baseline.id, scenario: {} })).rejects.toThrow("replay runs the recorded scenario unchanged");
 }, 25_000);
 
+browserTest("fill types into number, email and date fields; password stays out; a scoped overflow check looks at one element", async () => {
+  const f = await fixture();
+  await writeFile(f.sourceFile, `<!doctype html><meta name="viewport" content="width=device-width"><main>
+    <input id="count" type="number" value="4"><input id="mail" type="email"><input id="day" type="date"><input id="secret" type="password">
+    <div id="wide" style="width:200px;overflow-x:auto"><table style="width:650px"><tr><td>row</td></tr></table></div>
+    <p id="out"></p></main><script>for (const id of ["count","mail","day"]) document.getElementById(id).oninput = () => {
+      document.getElementById("out").textContent = ["count","mail","day"].map(i => document.getElementById(i).value).join("|"); };</script>`);
+  const result = await f.session.run({ action: "check", scenario: { name: "Fields at phone width", url: f.url, viewport: { width: 390, height: 800 }, steps: [
+    { action: "fill", selector: "#count", value: "16", impact: "local-test", reason: "Synthetic count" },
+    { action: "fill", selector: "#mail", value: "a@example.test", impact: "local-test", reason: "Synthetic address" },
+    { action: "fill", selector: "#day", value: "2026-09-30", impact: "local-test", reason: "Synthetic date" },
+  ], assertions: [{ kind: "text", selector: "#out", expected: "16|a@example.test|2026-09-30" }, { kind: "no-horizontal-overflow" },
+    { kind: "no-horizontal-overflow", selector: "#wide" }] } });
+  expect(result).toMatchObject({ status: "fail", assertions: [{ status: "pass" }, { status: "pass" }, { status: "fail" }] });
+  await f.session.run({ action: "open", url: f.url });
+  await expect(f.session.run({ action: "fill", selector: "#secret", value: "x", impact: "local-test", reason: "Synthetic" })).rejects.toThrow("Credential");
+}, 25_000);
+
 browserTest("local synthetic interactions proceed while consequential actions require approval", async () => {
   const approvals: unknown[] = [];
   const f = await fixture({ confirm: async request => { approvals.push(request); return false; } });
