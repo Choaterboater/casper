@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { SecurityReviewRunOptions, SubagentResult } from "../src/agents/manager";
@@ -8,11 +8,12 @@ import { AI_REVIEW_CHOICES } from "../src/app/safe-choices";
 import { Scrubber } from "../src/secrets/netconan";
 import { scrubToolOutput } from "../src/secrets/tool-output";
 import {
-  AI_REVIEW_HEADING, AI_REVIEW_TAIL, dropDeniedGrepLines, MODEL_FINDING_LABEL, parseModelFindings, reviewCostWords, reviewReadGate, reviewScope,
+  AI_REVIEW_HEADING, AI_REVIEW_TAIL, dropDeniedGrepLines, MODEL_FINDING_LABEL, parseModelFindings, reviewCostWords, reviewReadGate, reviewScope, validateModelFindings,
 } from "../src/security/review";
 import { approvalsPath } from "../src/security/suppressions";
 import type { SecurityFinding } from "../src/security/types";
 import { fakeTools, fixtureRepo, gitIn } from "./fixtures/security-tools/setup";
+import { posixOnly } from "./support/platform";
 
 const temps: string[] = [];
 afterEach(async () => { for (const dir of temps.splice(0)) await rm(dir, { recursive: true, force: true }); });
@@ -249,6 +250,27 @@ test("grep output from files the review may not read is dropped; reads and greps
   expect(texts).toEqual(["app/main.py:4: TOKEN = os.environ['TOKEN']\nconf/my-app.env-3- TOKEN=zzz\n2 matching lines from files that may hold secrets not shown."]);
   const inside = dropDeniedGrepLines(root, flagged, { pattern: "TOKEN", path: "app" }, ["settings.py:2: TOKEN = 'live-value'\nmain.py:4: ok"]);
   expect(inside[0]).toBe("main.py:4: ok\n1 matching line from files that may hold secrets not shown.");
+});
+
+posixOnly("a link, an @ path or a file:// URL to a kept file is refused too, and grep through a linked folder drops its lines", async () => {
+  const root = await realpath(await temp("casper-ai-links-"));
+  await mkdir(path.join(root, "app"));
+  await writeFile(path.join(root, ".env"), "DB_URL=postgres://u:pw@db/x\n");
+  await writeFile(path.join(root, "app", "settings.py"), "TOKEN = 'live-value'\n");
+  await symlink(".env", path.join(root, "notes.txt"));
+  await symlink("app", path.join(root, "code"));
+  const gate = reviewReadGate(root, flagged);
+  expect(gate("read", { path: "notes.txt" })).toMatch(/^Not read: \.env may hold secrets/);
+  expect(gate("read", { path: "@.env" })).toMatch(/^Not read: \.env may hold secrets/);
+  expect(gate("read", { path: `file://${root}/.env` })).toMatch(/^Not read: \.env may hold secrets/);
+  expect(gate("read", { path: "code/settings.py" })).toMatch(/^Not read: app\/settings\.py may hold secrets/);
+  expect(gate("grep", { pattern: "x", path: "notes.txt" })).toMatch(/^Not read: \.env/);
+  expect(gate("read", { path: "code" })).toBeUndefined();
+  const through = dropDeniedGrepLines(root, flagged, { pattern: "TOKEN", path: "code" }, ["settings.py:1: TOKEN = 'live-value'\nmain.py:4: ok"]);
+  expect(through[0]).toBe("main.py:4: ok\n1 matching line from files that may hold secrets not shown.");
+  // A finding placed in the kept file through the linked folder is not shown either.
+  const { kept, dropped } = await validateModelFindings(root, [{ file: "code/settings.py", line: 1, input: "TOKEN=x", why: "a secret in code" }], flagged);
+  expect({ kept, dropped }).toEqual({ kept: [], dropped: 1 });
 });
 
 test("the AI's answer is read from its last JSON block or its outermost array", () => {

@@ -186,7 +186,7 @@ export function classifyPath(absolute: string, context: PathContext, write: bool
 }
 
 /** macOS name variants Pi's read also tries (screenshot AM/PM, NFD, curly quote), when they exist. */
-function readVariants(absolute: string): string[] {
+export function readVariants(absolute: string): string[] {
   const found = [absolute];
   for (const variant of [absolute.replace(/ (AM|PM)\./gi, " $1."), absolute.normalize("NFD"), absolute.replace(/'/g, "’")]) {
     if (variant !== absolute && existsSync(variant)) found.push(variant);
