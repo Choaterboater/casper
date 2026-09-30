@@ -85,8 +85,9 @@ casper --version     # casper 0.2.14 (/absolute/path/of/the/binary/or/cli.ts)
 
 For scripts and CI, `--model` and `--effort` pick the model for one run without changing
 your default, `--json` streams JSON Lines events, `--continue`/`--resume` pick up a
-conversation, and `--require-verification` exits 3 when Casper could not verify the
-changes. Usage errors exit 64. See [docs/SCRIPTING.md](docs/SCRIPTING.md).
+conversation, and `--require-verification` exits 3 unless the change is proven (since
+v0.2.17, "Checks passed — not proven" exits 3 too; the JSON `checksPassed` field still says
+the checks passed). Usage errors exit 64. See [docs/SCRIPTING.md](docs/SCRIPTING.md).
 
 After the model edits files, Casper itself runs the project's configured checks
 (typecheck, lint, test, build) and repairs failures within a bounded budget, whatever
@@ -113,6 +114,11 @@ Each task ends with a plain receipt:
 Line 1 is the verdict. `Verified` means the checks passed on the final files and a test fails
 without the change. Anything less says why, for example
 `• Checks passed — not proven: only non-code files changed`.
+
+After the receipt, `Next: 1 Undo · 2 Show diff` puts the task's files back or shows only what
+this task changed (Enter picks neither). `/undo`, `/redo`, `/diff 12` and `/receipt 12` work on
+any saved task, also after a restart and in folders that are not git repositories; undo never
+overwrites a file you changed since. See [docs/UNDO.md](docs/UNDO.md).
 
 A bash run of a check is reported but never counted as verification. `/receipt` shows
 the detailed evidence (scope, freshness). Native bash stays independent of
