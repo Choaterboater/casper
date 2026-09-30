@@ -31,11 +31,14 @@ test("a model finding is kept only with a real in-repo file:line and a concrete 
     { ...good, why: "" },
     "not an object",
   ]);
+  // A finding on a line of a file the review was kept from is never shown.
+  await writeFile(path.join(root, ".env"), "TOKEN=x\n");
+  expect((await validateModelFindings(root, [{ ...good, file: ".env", line: 1 }])).kept).toEqual([]);
   expect(kept).toEqual([good]);
   expect(dropped).toBe(11);
-  expect(droppedLine(dropped)).toBe("11 model findings not shown: no file:line or no example input.");
+  expect(droppedLine(dropped)).toBe("11 AI findings not shown: no real file:line here or no example input.");
   expect(formatModelFinding(kept[0]!)).toBe(`src/server.py:4  host goes into a shell command. Example input: host = "8.8.8.8; cat ~/.ssh/id_rsa"  ${MODEL_FINDING_LABEL}`);
-  expect(MODEL_FINDING_LABEL).toBe("(model finding, not checked by a tool)");
+  expect(MODEL_FINDING_LABEL).toBe("(the AI's opinion, not checked by a tool)");
 });
 
 test("the model review may not read .env, keys or files gitleaks flagged", () => {
