@@ -272,6 +272,12 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
     if (prompt === "/diff") {
       if (!host.projectContext!.info.isGit) { host.output.write("[diff] Not a Git repository; nothing to compare.\n"); return; }
       const status = await host.git(["status", "--short"]);
+      const hasCommit = await host.git(["rev-parse", "--verify", "-q", "HEAD"]).then(() => true, () => false);
+      if (!hasCommit) {
+        host.terminal.writePanel("git status --short", status.trim() ? status : "(clean)");
+        host.output.write("[diff] No commits yet, so there is nothing to compare with; files are listed by name only.\n");
+        return;
+      }
       const diff = await host.git(["diff", "--no-ext-diff", "--no-textconv", "HEAD", "--"]);
       host.output.write("");
       host.terminal.writePanel("git status --short", status.trim() ? status : "(clean)");
