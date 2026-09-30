@@ -1,6 +1,6 @@
 import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
 import { EventEmitter } from "node:events";
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { PassThrough } from "node:stream";
 import { CasperApp } from "../src/app";
@@ -146,10 +146,12 @@ test("a run that cannot ask sends nothing to the lab and says so", async () => {
 
 test("Always for this project lets junos-commit run without asking, and its check event carries kind, label and hosts", async () => {
   const f = fixture = await labProject({ "lab-r1": { ansible_host: "10.99.0.21" } }, "junos-commit");
+  // The answer names the inventory and change file by their real paths (macOS's temp folder is /private/var).
+  const root = await realpath(f.root);
   const state = projectStateDirectory(f.root, f.home);
-  const inventory = path.join(f.root, "lab.yml");
+  const inventory = path.join(root, "lab.yml");
   await rememberLabAlways(state, "junos-commit", labApprovalKey("junos-commit", { inventory, hosts: [{ name: "lab-r1", address: "10.99.0.21" }],
-    files: [path.join(f.root, "change.set")] }));
+    files: [path.join(root, "change.set")] }));
   const { app, output, events } = makeApp(f);
   try {
     await app.runOnce("/verify junos-commit", f.root);

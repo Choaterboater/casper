@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { projectStateDirectory } from "../src/project/model";
@@ -11,6 +11,7 @@ import {
 } from "../src/security/suppressions";
 import type { SecurityFinding } from "../src/security/types";
 import { fakeTools, gitIn } from "./fixtures/security-tools/setup";
+import { needsSymlinks } from "./support/platform";
 
 const temps: string[] = [];
 afterEach(async () => { for (const dir of temps.splice(0)) await rm(dir, { recursive: true, force: true }); });
@@ -104,8 +105,9 @@ test("approving writes only to ~/.casper/projects/<project>/security-approved.js
   const before = await applyIgnores([s608(12)], await context(root, home));
   expect(before.visible).toHaveLength(1);
   const written = await approveIgnore(root, home, before.flagged[0]!, line);
-  expect(written).toBe(approvalsPath(root, home));
-  expect(written.startsWith(projectStateDirectory(root, home))).toBe(true);
+  // Kept under the project's real folder (macOS's temp folder is behind a link: /var is /private/var).
+  expect(written).toBe(approvalsPath(await realpath(root), home));
+  expect(written.startsWith(projectStateDirectory(await realpath(root), home))).toBe(true);
   expect(written.startsWith(root)).toBe(false);
   expect(gitIn(root, "status", "--porcelain", "--untracked-files=all").split("\n").filter(Boolean)).toEqual([" M db.py"]);
   expect(JSON.parse(await readFile(written, "utf8")).markers).toHaveLength(1);
@@ -182,7 +184,8 @@ test("a modified .gitleaks.toml is not given to gitleaks, and the report says so
   let tools = await fakeTools(home, { gitleaks: "clean", ruff: "clean" });
   let report = await new SecurityCheck({ root, homeDir: home, find: tools.find, only: ["gitleaks"] }).run();
   let args = (await tools.recorded("gitleaks"))!.args;
-  expect(args[args.indexOf("--config") + 1]).toBe(path.join(root, ".gitleaks.toml"));
+  // The tools run in the project's real folder.
+  expect(args[args.indexOf("--config") + 1]).toBe(path.join(await realpath(root), ".gitleaks.toml"));
   expect(report.ignoreFiles).toEqual([{ file: ".gitleaks.toml", tool: "gitleaks", status: "committed", used: true }]);
 
   await writeFile(path.join(root, ".gitleaks.toml"), "[extend]\nuseDefault = true\n[[allowlists]]\npaths = ['''.*''']\n");
@@ -195,4 +198,19 @@ test("a modified .gitleaks.toml is not given to gitleaks, and the report says so
   expect(formatSecurityReport(report)).toContain(".gitleaks.toml changed since your last commit, so Casper used the default rules.");
   // Nothing was written inside the repo.
   expect((await readdir(root)).sort()).toEqual([".git", ".gitleaks.toml", "a.py"]);
+});
+
+needsSymlinks("an approval made through a linked folder counts when the project is opened by its real path, and back", async () => {
+  // macOS's temp folder is such a link (/var is /private/var), and so is a linked ~/code.
+  const root = await repo({ "db.py": DB_PY });
+  const home = await temp("casper-security-home-");
+  const linked = path.join(await temp("casper-security-link-"), "project");
+  await symlink(root, linked);
+  const line = "    return db.execute(\"SELECT * FROM t WHERE n = '%s'\" % name).fetchall()  # nosec B608";
+  await writeFile(path.join(root, "db.py"), DB_PY.replace(/^ {4}return db\.execute\("SELECT \* FROM t.*$/m, line));
+  const before = await applyIgnores([s608(12)], await context(linked, home));
+  await approveIgnore(linked, home, before.flagged[0]!, line);
+  for (const opened of [await realpath(root), linked]) {
+    expect((await loadApprovals(opened, home)).markers).toHaveLength(1);
+  }
 });

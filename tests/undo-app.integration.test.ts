@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -127,6 +127,19 @@ test("one-shot: the receipt says how to undo; casper /undo in a later run puts t
     expect(later.output()).toContain("• The conversation is not changed: only files were put back.");
     expect(await readFile(path.join(place.project, "notes.py"), "utf8")).toBe("print('one')\n");
   } finally { await later.app.close(); }
+}, 30_000);
+
+posixOnly("one-shot in a project named through a link (macOS's temp folder is /private/var): no --cd from inside it", async () => {
+  const place = await folder();
+  const linked = path.join(place.root, "linked");
+  await symlink(place.project, linked);
+  const made = makeApp({ home: place.home, project: linked }, [edit("notes.py", "print('two')\n")]);
+  const started = process.cwd();
+  try {
+    process.chdir(linked);
+    await made.app.runOnce("fix the greeting in notes.py", linked);
+    expect(made.output()).toContain("Undo: casper /undo 1 · Diff: casper /diff 1\n");
+  } finally { process.chdir(started); await made.app.close(); }
 }, 30_000);
 
 test("/diff shows this task's patch, also in a folder that is not a git repository", async () => {

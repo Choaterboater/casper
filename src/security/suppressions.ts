@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import YAML from "yaml";
 import { projectStateDirectory } from "../project/model";
@@ -149,9 +149,15 @@ export function approvalsPath(root: string, homeDir: string): string {
 export const sha256 = (text: string): string => createHash("sha256").update(text).digest("hex");
 export const lineHash = (file: string, lineText: string): string => sha256(`${file}\0${lineText.trim()}`);
 
+/** The project's real folder: approvals are kept under it, so a path through a link (macOS's /var is /private/var,
+ * or your own linked folder) reads the same approvals it wrote. */
+async function realRoot(root: string): Promise<string> {
+  return realpath(path.resolve(root)).catch(() => path.resolve(root));
+}
+
 export async function loadApprovals(root: string, homeDir: string): Promise<ApprovalStore> {
   try {
-    const value = JSON.parse(await readFile(approvalsPath(root, homeDir), "utf8")) as Partial<ApprovalStore>;
+    const value = JSON.parse(await readFile(approvalsPath(await realRoot(root), homeDir), "utf8")) as Partial<ApprovalStore>;
     if (value.version === 1) {
       return {
         version: 1,
@@ -164,7 +170,7 @@ export async function loadApprovals(root: string, homeDir: string): Promise<Appr
 }
 
 async function saveApprovals(root: string, homeDir: string, store: ApprovalStore): Promise<string> {
-  const target = approvalsPath(root, homeDir);
+  const target = approvalsPath(await realRoot(root), homeDir);
   await mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
   const temporary = `${target}.${randomUUID()}.tmp`;
   await writeFile(temporary, `${JSON.stringify(store, null, 2)}\n`, { mode: 0o600 });

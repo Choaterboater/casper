@@ -663,7 +663,10 @@ test("--json --verify: the model records a smoke check, edits, and Casper replay
   const f = await fixture((request) => request === 0 ? { tools: [{ name: "service", args: check }] }
     : request === 1 ? { tools: [{ name: "write", args: { path: "src/server.ts", content: notesServer(true, pidLog) } }] }
     : { text: "Added POST /notes." });
-  pidLog = path.join(f.root, "pids.log");
+  // In the run's own temp folder (TMPDIR is its HOME), which the sandbox lets a service write on every host; the
+  // fixture's parent folder is under /tmp only on Linux (macOS's temp folder is /private/var/folders/...).
+  await mkdir(path.join(f.root, "home"), { recursive: true });
+  pidLog = path.join(f.root, "home", "pids.log");
   await mkdir(path.join(f.project, ".casper"));
   await mkdir(path.join(f.project, "src"));
   await writeFile(path.join(f.project, "src/server.ts"), notesServer(false, pidLog));
