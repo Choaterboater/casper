@@ -57,11 +57,19 @@ export function sandboxStartupNotes(root: string): string[] {
 /** How the AI's bash runs this session (see RuntimeShell). */
 export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, store: SandboxStore): RuntimeShell & { close(): Promise<void> } {
   let logs: Promise<string> | undefined;
-  return {
+  const shell: RuntimeShell & { close(): Promise<void> } = {
     keepEnv: sandbox.user.keepEnv ?? [],
     async wrap(command, cwd) {
       if (!sandbox.on) return { command };
-      const wrapped = await sandbox.wrap(command, { cwd, network: "ask", ...(host.planning() ? { readOnlyProject: true } : {}) });
+      let wrapped;
+      try { wrapped = await sandbox.wrap(command, { cwd, network: "ask", ...(host.planning() ? { readOnlyProject: true } : {}) }); }
+      catch (error) {
+        // The sandbox failed to start on this command (it said so): from now on the AI's shell asks, this one too.
+        if (!sandbox.failure) throw error;
+        const refused = await shell.approve!(command);
+        if (refused) throw new Error(refused);
+        return { command };
+      }
       return wrapped.held ? { command: wrapped.command, id: wrapped.id } : { command };
     },
     async refused(id, output) {
@@ -83,6 +91,7 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, store: Sa
     },
     async close() { const dir = await logs; if (dir) await rm(dir, { recursive: true, force: true }).catch(() => {}); },
   };
+  return shell;
 }
 
 /** The receipt's sandbox field. */
