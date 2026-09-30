@@ -47,7 +47,7 @@ shell, your checks (proof and trace copies too), services and dev servers, netwo
 tool runs, and `uv`/`bun` in `casper new`. On Linux it is bubblewrap with seccomp (install
 `bubblewrap` and `socat`); on macOS `sandbox-exec`. A command can write only the project, temp and
 package caches, can't read `~/.ssh`, cloud logins or Casper's own approvals, can't change git's
-hooks or config, and reaches only listed package registries and code hosts. Any other host asks
+hooks or config (a submodule's too), and reaches only listed package registries and code hosts. Any other host asks
 `1 No · 2 Allow for this session · 3 Always for this project` (Enter keeps it blocked; a run that
 can't ask blocks it and says so). Dev servers and services keep the machine's network so you can
 reach them; network and security tools get none (Linux). A check the sandbox stopped reads
