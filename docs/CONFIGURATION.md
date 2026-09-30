@@ -230,6 +230,7 @@ Discovery locations (at startup; only Casper's own roots are enabled by default)
 | --- | --- | --- |
 | User | `~/.casper/skills/` | Trusted when the canonical file is inside this directory |
 | Project | `<project>/.casper/skills/` | Untrusted until reviewed |
+| Bundled with Casper | Inside the `casper` binary (source: `skills/network/*/SKILL.md`) | Trusted; on unless `skills.bundled: false`. See [SKILLS.md](SKILLS.md) |
 | Compatible external **(opt-in)** | `~/.pi/agent/skills/`, `~/.agents/skills/`, `~/.claude/skills/`, `~/.codex/skills/`; project `.pi/skills/`, `.agents/skills/`, `.claude/skills/`, `.codex/skills/` | Untrusted until reviewed |
 
 Enable imports explicitly in `~/.casper/config.yaml` or `~/.casper/profiles/<profile>/config.yaml`:
@@ -265,6 +266,15 @@ Configure the selection limit in global, profile, or project YAML (same preceden
 skills:
   maxActive: 6 # default; 0 disables automatic loading, maximum 32
 ```
+
+Bundled network skills (Mist, Central, AOS-CX, Junos, ClearPass) use a stricter rule: a request must name the product (for example "mist api", "pyez", "clearpass"), or use a looser word ("mist", "junos", "central") together with a network word ("site", "switch", "api", "script"), or be a change request in a project whose Python packages include that product's SDK. At most two bundled skills load per request. Turn them all off in `~/.casper/config.yaml` or a profile (a project file cannot):
+
+```yaml
+skills:
+  bundled: false # default true
+```
+
+A skill in `~/.casper/skills/` with the same name as a bundled one replaces it only while it keeps the bundled layout and the "Stop and ask the user" line; otherwise the bundled text is used and `/skills diagnostics` says why. A project's same-name skill never replaces a bundled one. See [SKILLS.md](SKILLS.md).
 
 Skills are optional procedures, not a substitute for the repository. Frontend, design, and other domain work use the detected tree (`ui`, `styles`, `design` in the project context) instead of a skill pack. Only selected bodies are read and injected, with their source and base directory. Duplicate names remain inspectable with distinct IDs; selection includes only one per name. Higher relevance wins, then project → user → external, then stable ID. Limits: 16 KiB frontmatter, 256 KiB per skill file, and 64 KiB combined bodies per prompt. Invalid/oversized skills produce diagnostics rather than blocking startup.
 
