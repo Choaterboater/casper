@@ -97,6 +97,7 @@ import { systemPromptAppend } from "./app/prompt";
 import type { VisualizationProvider } from "./visualize/types";
 import { SessionWorkspaceManager, type ReturnAction } from "./sessions/manager";
 import { runLogin, runSlashCommand, type OutputWriter } from "./app/commands";
+import type { BackgroundTask } from "./app/background";
 import { detectHostTerminal } from "./tui/host-terminal";
 import { NEW_USAGE, parseNewArgs, UsageError } from "./cli-args";
 import { checkEvent, phaseEvent, RuntimeEventMapper, sessionStartEvent, type CasperEvent, type PhaseEvent } from "./app/json-events";
@@ -941,8 +942,8 @@ export class CasperApp {
     if (this.commandActive) throw new Error("Another command is active; wait for active subagents or workspace transition");
     // Keep local status/help and cleanup available, but never forget an uncertain
     // tree just because its originating command or model tool has finished.
-    if (!/^\/(?:help(?: all)?|status|project|permissions|mcp|lsp|browser|debug|services|exit|quit|browser close|debug stop)$/.test(prompt)
-      && !/^\/(?:mcp|lsp) disconnect\s/.test(prompt) && !/^\/services (?:logs|stop)\s/.test(prompt)) {
+    if (!/^\/(?:help(?: all)?|status|project|permissions|mcp|lsp|browser|debug|services|tasks|exit|quit|browser close|debug stop)$/.test(prompt)
+      && !/^\/(?:mcp|lsp) disconnect\s/.test(prompt) && !/^\/(?:services|tasks) stop\s/.test(prompt) && !/^\/services logs\s/.test(prompt)) {
       if (this.cleanupError) throw this.cleanupError;
       this.browser?.assertCleanup(); this.mcp?.assertCleanup(); this.lsp?.assertCleanup(); this.services?.assertCleanup();
     }
@@ -2458,6 +2459,38 @@ export class CasperApp {
 
 
 
+
+  /** /tasks: dev servers, the browser, the debugger, helpers and checks that run now, each with its own stop. */
+  backgroundTasks(): BackgroundTask[] {
+    const tasks: BackgroundTask[] = [];
+    const services = this.services && !this.services.closed ? this.services : undefined;
+    for (const service of services?.status() ?? []) {
+      if (service.state !== "ready" && service.state !== "starting") continue;
+      tasks.push({ kind: "dev server", name: service.name, ...(service.startedAt !== undefined ? { startedAt: service.startedAt } : {}),
+        status: `${service.state === "ready" ? "running" : "starting"}${service.origin ? ` at ${service.origin}` : ""}${service.stale ? " · stale (restarts before next use)" : ""}`,
+        stop: async () => await services!.stop(service.name) ? `Stopped ${service.name}.` : `${service.name} had already stopped.` });
+    }
+    const browser = this.browser;
+    const browserState = browser?.status().state;
+    if (browser && (browserState === "ready" || browserState === "starting")) {
+      tasks.push({ kind: "browser", name: "for page checks", status: browserState === "ready" ? "open" : "starting",
+        stop: async () => { await browser.close(); if (this.browser === browser) this.browser = undefined; return "Closed the browser."; } });
+    }
+    const debugState = this.debugSession?.status().state;
+    if (this.debugSession && debugState && !["idle", "closing", "closed", "failed"].includes(debugState)) {
+      tasks.push({ kind: "debugger", name: this.debugSession.status().target ?? "session", status: debugState,
+        stop: async () => { await this.stopDebugger(); return "Stopped the debugger."; } });
+    }
+    for (const run of this.subagents.runs()) {
+      tasks.push({ kind: "helper", name: `${run.role}: ${run.goal}`, status: "running", startedAt: run.startedAt,
+        stop: async () => this.subagents.cancelRun(run.id) ? `Stopped the ${run.role} helper.` : `The ${run.role} helper had already finished.` });
+    }
+    if (this.verificationWork) {
+      tasks.push({ kind: "checks", name: "after the last change", status: "running",
+        stop: async () => { this.verificationAbort?.abort(); return "Stopped the checks; the receipt says they did not finish."; } });
+    }
+    return tasks;
+  }
 
   /** The session's service manager, created on first use for the active workspace's declared services. */
   serviceManager(): ServiceManager {

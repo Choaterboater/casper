@@ -1,6 +1,7 @@
 import path from "node:path";
 import type { BrowserSession } from "../browser/session";
 import type { ServiceManager, ServiceStatus } from "../services/manager";
+import { runTasksCommand, type BackgroundTask } from "./background";
 import type { DebugRequest, DebugSession } from "../debug/session";
 import { formatSubagentReport, SubagentManager, type SubagentRole } from "../agents/manager";
 import { formatReferenceResult, type ReferenceLibrary } from "../references/library";
@@ -125,6 +126,8 @@ export interface CommandHost {
   saveFoundCheck(name: string): Promise<void>;
   /** `/project <name>`: open a project folder here, or offer to make it (before the model starts). */
   openProjectCommand(name: string): Promise<void>;
+  /** /tasks: what runs in the background now, each with its own stop. */
+  backgroundTasks(): BackgroundTask[];
 }
 
 export const VERIFY_USAGE = "Usage: /verify [repair] [typecheck|lint|test|build|<named check> ...] | /verify add <found check>";
@@ -346,6 +349,13 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
     }
     if (/^\/services(?:\s|$)/.test(prompt)) {
       await handleServicesCommand(host, prompt);
+      return;
+    }
+    if (/^\/tasks(?:\s|$)/.test(prompt)) {
+      await runTasksCommand({ tasks: () => host.backgroundTasks(), write: text => host.output.write(text),
+        canAsk: () => host.interactive && host.terminal.canAsk && !host.closing,
+        pick: (question, options, signal) => host.terminal.pick(question, options, signal),
+        ...(host.commandAbort ? { signal: host.commandAbort.signal } : {}) }, prompt.slice(6));
       return;
     }
     if (/^\/memory(?:\s|$)/.test(prompt)) {

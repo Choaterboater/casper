@@ -16,6 +16,8 @@ export interface ServiceStatus {
   /** An edit since the start may have changed what it serves; the next freshness check restarts it. */
   stale: boolean;
   readyMs?: number;
+  /** When this run of it started (Date.now()), while starting or ready. */
+  startedAt?: number;
   /** Why the last start failed. */
   error?: string;
   /** Exit details and the recent log lines of a crash or failed start. */
@@ -38,6 +40,7 @@ interface Slot {
   launch?: AbortController;
   stopping?: Promise<void>;
   readyMs?: number;
+  startedAt?: number;
   error?: string;
   exit?: ServiceStatus["exit"];
   tail?: string;
@@ -230,6 +233,7 @@ export class ServiceManager {
     return { name: slot.name, command: slot.spec.command, state: slot.state, stale: slot.stale,
       ...(live && slot.port !== undefined ? { origin: `http://${HOST}:${slot.port}` } : {}),
       ...(slot.process?.pid !== undefined && live ? { pid: slot.process.pid } : {}),
+      ...(live && slot.startedAt !== undefined ? { startedAt: slot.startedAt } : {}),
       ...(slot.state === "ready" && slot.readyMs !== undefined ? { readyMs: slot.readyMs } : {}),
       ...(slot.error && slot.state === "failed" ? { error: slot.error } : {}),
       ...(slot.exit && (slot.state === "crashed" || slot.state === "failed") ? { exit: { ...slot.exit } } : {}),
@@ -248,7 +252,7 @@ export class ServiceManager {
       await slot.stopping?.catch(() => {});
       signal.throwIfAborted();
       this.keepCrash(slot);
-      Object.assign(slot, { state: "starting", stale: false, crashUnreported: false, readyMs: undefined, error: undefined, exit: undefined, tail: undefined });
+      Object.assign(slot, { state: "starting", startedAt: Date.now(), stale: false, crashUnreported: false, readyMs: undefined, error: undefined, exit: undefined, tail: undefined });
       const { spec, name } = slot;
       try {
         let port: number;

@@ -27,6 +27,7 @@ export const COMMANDS: SlashCommand[] = [
   { name: "lsp", description: "Inspect language-server status; connect or disconnect" },
   { name: "browser", description: "Inspect a disposable browser; capture a screenshot" },
   { name: "services", description: "Declared services: status, logs, start, restart, stop" },
+  { name: "tasks", description: "What runs in the background (dev servers, helpers, checks); stop one" },
   { name: "debug", description: "Inspect local targets; approve launch and debug code" },
   { name: "permissions", description: "Understand native-tool risks and exact approval boundaries" },
   { name: "sandbox", description: "What the shell sandbox holds here; forget a remembered host" },

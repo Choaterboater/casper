@@ -12,6 +12,9 @@ import { labAskFor, labFailureAsk } from "../src/network/checks";
 import { newProjectQuestion } from "../src/new/pick";
 import { IGNORE_CHOICES, IGNORE_FILE_CHOICES } from "../src/security/format";
 import { INSTALL_CHOICES, OSV_UPDATE_QUESTION } from "../src/security/install";
+import { tasksChoices, type BackgroundTask } from "../src/app/background";
+
+const running = (name: string): BackgroundTask => ({ kind: "dev server", name, status: "running", stop: async () => "" });
 
 /**
  * Enter picks choice 1 on both terminals, so choice 1 of every Casper question is the one that does nothing risky.
@@ -49,6 +52,8 @@ const firsts: Array<[string, string, string]> = [
   ["a typed folder that isn't there", missingFolderChoices("Documents", "mist-tools")[0]!.label, "Stay in Documents"],
   ["the work is in a project inside this folder", workFolderChoices("Documents", "mist-tools")[0]!.label, "Stay here"],
   ["this task has used $5.02", spendChoices("$10")[0]!.label, "Stop here"],
+  ["/tasks: stop something? (several running)", tasksChoices([running("api"), running("web")])[0]!.label, "Keep them"],
+  ["/tasks: stop something? (one running)", tasksChoices([running("api")])[0]!.label, "Leave it running"],
 ];
 
 test.each(firsts)("choice 1 at %s is the safe one", (_question, first, expected) => {
@@ -72,6 +77,7 @@ test("the risky choices still exist, as a deliberate 2 or later", () => {
   expect(REACH_CHOICES.map((choice) => choice.label)).toEqual(["No", "Yes, this time", "Yes, for this session"]);
   expect(missingFolderChoices("Documents", "mist-tools").map((choice) => choice.label)).toEqual(["Stay in Documents", "Make mist-tools here"]);
   expect(workFolderChoices("Documents", "mist-tools").map((choice) => choice.label)).toEqual(["Stay here", "Switch there"]);
+  expect(tasksChoices([running("api"), running("web")]).map((choice) => choice.label)).toEqual(["Keep them", "Stop 1", "Stop 2", "Stop all"]);
 });
 
 test("Enter in the rich terminal's plan editor goes on to Build this plan?, never straight to a build", () => {

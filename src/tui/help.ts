@@ -32,6 +32,7 @@ export const HELP_TEXT = `Casper — your coding companion
   /security-review       Run the pinned security tools here, then offer an AI review (asks first)
   /browser               Disposable browser status; website tasks can reproduce bugs
   /services              Declared services: status, logs, start, restart, stop (no model)
+  /tasks                 What runs in the background (dev servers, helpers, checks); stop one
   /debug                 Local debugger targets/status; explicit launch approval
   /exit, /quit           Exit
 
@@ -171,6 +172,8 @@ Local commands:
   /services                         Declared services: state and address (no model or startup)
   /services logs <name>             Recent log lines of a service
   /services start|restart|stop <name>  Start (waits for readiness; restarts a stale or crashed one), restart or stop
+  /tasks                            What runs in the background, numbered; asks 1 Keep them · 2 Stop 1 ...
+  /tasks stop <n>|all               Stop one of them, or all, without the question
   /debug                            Local DAP state and .casper/debug.json targets
   /debug start <target>             Fresh approval for adapter + debuggee execution
   /debug breakpoints <path> <lines|clear>  Replace one file's one-based line list
