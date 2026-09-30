@@ -41,6 +41,7 @@ import {
   type ProjectContext,
 } from "./project/context";
 import { findProjectCandidates, hasProjectSignals, inspectProject, type ProjectInfo } from "./project/inspect";
+import { childProjectOf, type ChildProject } from "./project/child";
 import type {
   AgentRuntime,
   RuntimeAuthProvider,
@@ -62,7 +63,7 @@ import { safeGitArgs } from "./platform/git";
 import { VerifierRegistry } from "./verify/registry";
 import { isRetryableAssistantError } from "@earendil-works/pi-ai/utils/retry";
 import { longerLimit, timedOutAfter, verifyAndRepair, type UnfinishedChoice } from "./verify/repair-loop";
-import { ALREADY_FAILING_CHOICES, modelFailedChoices, PLAN_CHOICES, PLAN_QUESTION, REMEMBER_BIG_MODEL_CHOICES, REPAIR_LIMIT_STOP, unfinishedChoices } from "./app/safe-choices";
+import { ALREADY_FAILING_CHOICES, modelFailedChoices, PLAN_CHOICES, PLAN_QUESTION, REMEMBER_BIG_MODEL_CHOICES, REPAIR_LIMIT_STOP, unfinishedChoices, workFolderChoices } from "./app/safe-choices";
 import { VerificationTask } from "./verify/task";
 import { ChangeBaseline, changesCode, proofRepairPrompt, type ChangeProof } from "./verify/proof";
 import { independentAcceptance } from "./verify/acceptance";
@@ -1009,6 +1010,75 @@ export class CasperApp {
     return undefined;
   }
 
+  /** The one project folder inside the open folder that holds every file this task changed, when the open folder
+   * is not a project itself (Documents, not a repository). */
+  private async childProjectOfTask(context: ProjectContext, changed: readonly string[]): Promise<ChildProject | undefined> {
+    const root = context.info.root;
+    if (!changed.length || context.info.isGit || await hasProjectSignals(root)) return undefined;
+    return childProjectOf(root, changed, this.sessionHomeDir ?? os.homedir()).catch(() => undefined);
+  }
+
+  /** That project's own detected checks (python -m unittest, pytest, bun test ...), run once in its folder, in the
+   * shell sandbox like every check, for this task's receipt. No repair: the conversation's folder is this one.
+   * Undefined when the child has no check for these files. */
+  private async runChildChecks(child: ChildProject, changed: readonly string[]): Promise<VerificationReport | undefined> {
+    const prefix = `${child.relative}/`;
+    const inside = changed.filter((file) => file.split(path.sep).join("/").startsWith(prefix)).map((file) => file.split(path.sep).join("/").slice(prefix.length));
+    const plan = planAutoChecks({ commands: child.model.commands, scopes: child.model.verificationScopes, changedPaths: inside });
+    if (!plan.run.length) return undefined;
+    const label = `checks from ${child.relative}`;
+    this.events.ensureLineBreak();
+    this.output.write(`… Casper checking: ${plan.run.join(", ")} (${terminalText(label)})\n`);
+    const registry = VerifierRegistry.forProject(child.model, this.projectContext!.verification.timeoutMs, this.blockOnCleanupFailure, this.networkOptions());
+    this.phase("checks", "start");
+    try {
+      const results: VerificationResult[] = [];
+      await registry.run(plan.run, { ...(this.commandAbort ? { signal: this.commandAbort.signal } : {}),
+        onResult: (result) => { const labelled = { ...result, label }; results.push(labelled); this.writeCheckResult(labelled); } });
+      const status = results.some((result) => result.status === "fail") ? "fail" as const
+        : results.length && results.every((result) => result.status === "pass") ? "pass" as const : "incomplete" as const;
+      return { status, repairAttempts: 0, rounds: [results], results };
+    } finally { this.phase("checks", "end"); }
+  }
+
+  /** After the receipt: "The work is in ~/Documents/mist-tools. 1 Stay here · 2 Switch there". Enter stays. A run
+   * that can't ask says the command to use. */
+  private async offerWorkFolder(child: ChildProject): Promise<void> {
+    const home = this.sessionHomeDir ?? os.homedir();
+    const display = terminalText(tildePath(child.dir, home));
+    if (!this.interactive || !this.terminal.canAsk) {
+      this.output.write(`[folder] The work is in ${display}. To work there: cd ${display} && casper\n`);
+      return;
+    }
+    const choices = workFolderChoices(terminalText(path.basename(this.activeWorkspaceRoot())), terminalText(child.relative));
+    const picked = await this.terminal.pick(`The work is in ${display}.`, choices, this.commandAbort?.signal);
+    if (this.closing || picked?.trim() !== choices[1]!.label) return;
+    await this.moveWorkspace(child.dir);
+  }
+
+  /** Moves Casper to another folder. Before the model starts it just opens it. After, the conversation here ends
+   * (it stays in /resume in this folder) and the next request starts a new one there. */
+  private async moveWorkspace(dir: string): Promise<void> {
+    if (!this.canMoveWorkspace()) {
+      if (this.subagents.isBusy) { this.output.write("[folder] Helpers are still working; nothing moved.\n"); return; }
+      await this.revokeWorkspaceCapabilities();
+      this.unsubscribe?.();
+      this.unsubscribe = undefined;
+      const runtime = this.runtime;
+      this.session = undefined;
+      this.runtimeStart = undefined;
+      this.runtimeLoad = undefined;
+      this.runtime = undefined;
+      this.sessionWorkspace = undefined;
+      this.runConversation = undefined;
+      await runtime?.dispose().catch(() => {});
+      await this.openWorkspaceBeforeRuntime(dir);
+      this.output.write("[folder] Your next request starts a new conversation there; the one here stays in /resume in the old folder.\n");
+      return;
+    }
+    await this.openWorkspaceBeforeRuntime(dir);
+  }
+
   /** The workspace can move only before the model starts: the conversation's folder is fixed once it exists. */
   private canMoveWorkspace(): boolean {
     return !this.session && !this.runtimeStart && !this.sessionWorkspace && !this.sessionWorkspaceStart && !this.runConversation
@@ -1347,6 +1417,8 @@ export class CasperApp {
     let verification: VerificationReport | undefined;
     let autoChecks: ReturnType<typeof planAutoChecks> | undefined;
     let pageNotes: string[] | undefined;
+    let workFolder: ChildProject | undefined;
+    let receiptShown = false;
     const flatten = (changes: TreeChanges) => [...changes.added, ...changes.modified, ...changes.removed].sort();
     // Automatic effort's classifier is a model call outside the conversation, so the task's usage
     // totals cannot include it: any classification (or an unreadable count) makes them unknown.
@@ -1425,6 +1497,18 @@ export class CasperApp {
       } else if (!stopped && this.checkTask && (this.checkTask.checks.length || this.smokeTask?.recordedCount)) {
         verification = await this.runVerification(this.checkTask.checks, true, prompt, this.checkTask);
       }
+      // The work landed in a project inside this folder (mist-tools in Documents): its own checks run for this receipt.
+      if (!stopped && before && afterModel && !this.closing) {
+        workFolder = await this.childProjectOfTask(context, flatten(diffSnapshots(before, afterModel)));
+        if (workFolder && !verification && this.checkTask && verificationMode === "auto") {
+          const child = await this.runChildChecks(workFolder, flatten(diffSnapshots(before, afterModel)));
+          if (child) {
+            verification = child;
+            autoChecks = undefined;
+            if (child.status === "pass") proofSkipped = `the checks ran in ${workFolder.relative}; Casper did not compare the tests with and without the change`;
+          }
+        }
+      }
     } catch (error) {
       this.taskRuntimeFailed = true;
       throw error;
@@ -1469,11 +1553,14 @@ export class CasperApp {
           this.output.write(`${this.verbose ? formatTaskResult(this.lastTaskResult) : formatReceipt(this.lastTaskResult, { surface: this.receiptSurface(), ...this.receiptFolder(workspaceRoot) })}\n`);
           if (stat.trim()) this.output.write(stat.endsWith("\n") ? stat : `${stat}\n`);
           if (this.interactive) await this.offerNextSteps(this.lastTaskResult, prompt, classification);
+          receiptShown = true;
         }
       }
       this.clearSteps();
       await this.recordTaskOutcome({ task: prompt, skills: selected.map(({ skill }) => skill.id),
         modelStatus: execution, verification });
+      // Last, once this folder has the task's outcome: the offer may move Casper to the project the work is in.
+      if (workFolder && receiptShown && !this.closing) await this.offerWorkFolder(workFolder);
     }
     return verification;
   }

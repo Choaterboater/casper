@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import {
   ALREADY_FAILING_CHOICES, MCP_REMEMBER_CHOICES, MCP_WRITES_CHOICES, modelFailedChoices, PLAN_CHOICES, PLAN_QUESTION, REMEMBER_BIG_MODEL_CHOICES,
-  REPAIR_LIMIT_STOP, undoChangedChoices, missingFolderChoices, unfinishedChoices, HOST_CHOICES, SHELL_COMMAND_CHOICES, AI_REVIEW_CHOICES, REACH_CHOICES,
+  REPAIR_LIMIT_STOP, undoChangedChoices, missingFolderChoices, workFolderChoices, unfinishedChoices, HOST_CHOICES, SHELL_COMMAND_CHOICES, AI_REVIEW_CHOICES, REACH_CHOICES,
 } from "../src/app/safe-choices";
 import { planEditorHeading } from "../src/flows/plan";
 import { askBuildRequest, newProjectInEmptyFolder, offerMissingFolder, type NewProjectFlow } from "../src/app/new-project";
@@ -47,6 +47,7 @@ const firsts: Array<[string, string, string]> = [
   ["reach another machine (ssh, scp, nc ...)", REACH_CHOICES[0].label, "No"],
   ["the AI security review", AI_REVIEW_CHOICES[0].label, "Stop here"],
   ["a typed folder that isn't there", missingFolderChoices("Documents", "mist-tools")[0]!.label, "Stay in Documents"],
+  ["the work is in a project inside this folder", workFolderChoices("Documents", "mist-tools")[0]!.label, "Stay here"],
 ];
 
 test.each(firsts)("choice 1 at %s is the safe one", (_question, first, expected) => {
@@ -68,6 +69,7 @@ test("the risky choices still exist, as a deliberate 2 or later", () => {
   expect(AI_REVIEW_CHOICES.map((choice) => choice.label)).toEqual(["Stop here", "Run the AI review"]);
   expect(REACH_CHOICES.map((choice) => choice.label)).toEqual(["No", "Yes, this time", "Yes, for this session"]);
   expect(missingFolderChoices("Documents", "mist-tools").map((choice) => choice.label)).toEqual(["Stay in Documents", "Make mist-tools here"]);
+  expect(workFolderChoices("Documents", "mist-tools").map((choice) => choice.label)).toEqual(["Stay here", "Switch there"]);
 });
 
 test("Enter in the rich terminal's plan editor goes on to Build this plan?, never straight to a build", () => {

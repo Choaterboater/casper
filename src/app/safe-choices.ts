@@ -108,3 +108,11 @@ export function missingFolderChoices(folder: string, name: string, where = "here
     { label: `Make ${name} ${where}`, description: "start a new project with that name" },
   ];
 }
+
+/** "The work is in ~/Documents/mist-tools." after a task whose files all sit in that project. Enter stays. */
+export function workFolderChoices(here: string, there: string): Choice[] {
+  return [
+    { label: "Stay here", description: `keep working in ${here}` },
+    { label: "Switch there", description: `your next request starts a new conversation in ${there}` },
+  ];
+}
