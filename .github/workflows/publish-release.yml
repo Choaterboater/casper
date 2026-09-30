@@ -30,9 +30,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-      - name: Stop unless the Linux and Windows previews passed on this commit
+      - name: Stop unless the Linux, macOS and Windows previews passed on this commit
         run: |
-          for workflow in linux-preview.yml windows-preview.yml; do
+          for workflow in linux-preview.yml macos-preview.yml windows-preview.yml; do
             conclusion="$(gh run list --workflow "$workflow" --commit "$GITHUB_SHA" --status completed --limit 1 --json conclusion --jq '.[0].conclusion // ""')"
             [ "$conclusion" = success ] || { echo "$workflow has not passed on $GITHUB_SHA (last result: ${conclusion:-no run}). Run it on this commit first."; exit 1; }
           done
@@ -78,8 +78,11 @@ jobs:
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    # Writes the release and signs where it was built; it runs no project code.
     permissions:
       contents: write
+      id-token: write
+      attestations: write
     env:
       RELEASE_TAG: ${{ inputs.tag }}
     steps:
@@ -87,6 +90,10 @@ jobs:
         with:
           name: release
           path: dist
+      # Build provenance over every file SHA256SUMS lists: the installers check it with `gh attestation verify`.
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-checksums: dist/release/SHA256SUMS
       - name: Check the files again, then publish the prerelease
         env:
           GH_TOKEN: ${{ github.token }}

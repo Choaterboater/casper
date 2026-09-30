@@ -50,3 +50,41 @@ test("the release job that can write runs no project code, and the build waits f
   expect(gate).toBeGreaterThanOrEqual(0);
   expect(gate).toBeLessThan(install);
 });
+
+test("the publish job signs where the build came from over SHA256SUMS, and only it may", () => {
+  const workflow = load("publish-release.yml");
+  const publish = workflow.jobs.publish!;
+  expect(publish.permissions).toEqual({ contents: "write", "id-token": "write", attestations: "write" });
+  const attest = publish.steps.find((step) => step.uses?.startsWith("actions/attest-build-provenance@"));
+  expect(attest?.with?.["subject-checksums"]).toBe("dist/release/SHA256SUMS");
+  for (const [name, job] of Object.entries(workflow.jobs)) {
+    if (name !== "publish") expect(job.permissions?.["id-token"]).toBeUndefined();
+  }
+  // No tags on red CI: the build waits for every preview, macOS included.
+  const gate = workflow.jobs.build!.steps.find((step) => /linux-preview\.yml/.test(step.run ?? ""));
+  expect(gate?.run).toContain("macos-preview.yml");
+});
+
+test("every checkout drops its token, no workflow writes by default, and no input lands inside a run script", () => {
+  for (const name of files) {
+    const workflow = load(name);
+    for (const value of Object.values(workflow.permissions ?? {})) expect(value).not.toBe("write");
+    for (const job of Object.values(workflow.jobs)) {
+      for (const step of job.steps ?? []) {
+        if (step.uses?.startsWith("actions/checkout@")) expect(step.with?.["persist-credentials"]).toBe(false);
+        expect(step.run ?? "").not.toMatch(/\$\{\{\s*(?:inputs\.|github\.event\.)/);
+      }
+    }
+  }
+});
+
+test("Linux and macOS CI run the live sandbox tests; dependabot keeps the action pins current", () => {
+  const linux = load("linux-preview.yml").jobs.source!.steps.map((step) => step.run ?? "").join("\n");
+  expect(linux).toContain("apt-get install -y -q bubblewrap socat");
+  expect(linux).toContain("kernel.apparmor_restrict_unprivileged_userns=0");
+  expect(linux).toContain("tests/sandbox-live.test.ts");
+  const mac = load("macos-preview.yml");
+  expect(Object.values(mac.jobs)[0]!.steps.map((step) => step.run ?? "").join("\n")).toContain("tests/sandbox-live.test.ts");
+  const dependabot = parse(readFileSync(path.resolve(import.meta.dir, "../.github/dependabot.yml"), "utf8")) as { updates: Array<{ "package-ecosystem": string }> };
+  expect(dependabot.updates.map((update) => update["package-ecosystem"])).toContain("github-actions");
+});

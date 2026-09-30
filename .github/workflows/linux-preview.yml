@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ['src/**', 'scripts/**', 'tools/**', 'tests/**', 'evals/**', 'package.json', 'bun.lock', 'bunfig.toml', 'tsconfig.json', 'THIRD_PARTY_NOTICES.txt', '.github/workflows/linux-preview.yml']
+    paths: ['src/**', 'scripts/**', 'tools/**', 'tests/**', 'evals/**', 'docs/**', 'package.json', 'bun.lock', 'bunfig.toml', 'tsconfig.json', 'THIRD_PARTY_NOTICES.txt', '.github/workflows/linux-preview.yml']
   pull_request:
     paths: ['src/**', 'scripts/**', 'tools/**', 'tests/**', 'evals/**', 'package.json', 'bun.lock', 'bunfig.toml', 'tsconfig.json', 'THIRD_PARTY_NOTICES.txt', '.github/workflows/linux-preview.yml']
 permissions:
@@ -37,6 +37,13 @@ jobs:
             python3 --version
             python3 -c 'import fcntl, pty, sys, termios; print("POSIX PTY modules available:", sys.executable)'
           } 2>&1 | tee "$RUNNER_TEMP/linux-preview/host.log"
+      - name: Install the shell sandbox's tools (bubblewrap, socat) and let bubblewrap start
+        # Ubuntu 24.04 blocks unprivileged user namespaces through AppArmor; the live sandbox tests need them.
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q bubblewrap socat
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          bwrap --ro-bind / / --dev /dev --proc /proc --unshare-net --unshare-pid -- /bin/true
       - name: Install locked dependencies
         id: install
         run: bun install --frozen-lockfile 2>&1 | tee "$RUNNER_TEMP/linux-preview/install.log"
@@ -49,7 +56,7 @@ jobs:
       - name: Focused platform and terminal regressions
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: |
-          bun test tests/platform-processes.test.ts tests/login-picker.test.ts tests/login.test.ts tests/terminal-review.test.ts tests/terminal-ux.test.ts tests/terminal-discovery.test.ts tests/daily-terminal.test.ts tests/model-routing.test.ts tests/auto-effort.test.ts tests/model-selection.test.ts tests/phase10-debugger-app.test.ts 2>&1 | tee "$RUNNER_TEMP/linux-preview/platform-terminal.log"
+          bun test tests/sandbox-live.test.ts tests/sandbox-wiring.test.ts tests/platform-processes.test.ts tests/login-picker.test.ts tests/login.test.ts tests/terminal-review.test.ts tests/terminal-ux.test.ts tests/terminal-discovery.test.ts tests/daily-terminal.test.ts tests/model-routing.test.ts tests/auto-effort.test.ts tests/model-selection.test.ts tests/phase10-debugger-app.test.ts 2>&1 | tee "$RUNNER_TEMP/linux-preview/platform-terminal.log"
       - name: Full serial regression suite
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun test 2>&1 | tee "$RUNNER_TEMP/linux-preview/full-suite.log"
