@@ -25,6 +25,7 @@ export const HELP_TEXT = `Casper — your coding companion
   /permissions           Explain actual tool/approval boundaries
   /login                 Provider sign-in or private API-key setup (interactive only)
   /project               Project context and check commands
+  /project <name>        Open a project folder inside this one (before the model starts)
   /skills                Skills and trust; /skills diagnostics for warnings
   /verify [checks ...]   Run this project's checks (in the sandbox); /verify repair fixes failures
   /sandbox               What the shell sandbox holds here; /sandbox forget <host>
@@ -129,6 +130,7 @@ Local commands:
   /sandbox forget <host>            Forget a host you allowed for this project (Always)
   /login [provider]                 Codex, Copilot, Anthropic or OpenRouter (Casper's credential store)
   /project                          Show project context
+  /project <name>                   Open a project folder inside this one, or offer to make it (before the model starts)
   /memory                           List human-entered project facts
   /memory remember <fact>           Save an explicit project fact (no model)
   /memory forget <id>               Remove a fact

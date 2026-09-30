@@ -123,6 +123,8 @@ export interface CommandHost {
   securityAI(): SecurityAIReview | undefined;
   /** `/verify add <name>`: save a ready-made check Casper found (never called without the owner asking). */
   saveFoundCheck(name: string): Promise<void>;
+  /** `/project <name>`: open a project folder here, or offer to make it (before the model starts). */
+  openProjectCommand(name: string): Promise<void>;
 }
 
 export const VERIFY_USAGE = "Usage: /verify [repair] [typecheck|lint|test|build|<named check> ...] | /verify add <found check>";
@@ -357,6 +359,10 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
     }
     if (prompt === "/project") {
       host.output.write(`${renderProjectSummary(host.projectContext!)}\n`);
+      return;
+    }
+    if (/^\/project\s+\S/.test(prompt)) {
+      await host.openProjectCommand(prompt.replace(/^\/project\s+/, "").trim());
       return;
     }
     if (/^\/tree(?:\s|$)/.test(prompt)) {

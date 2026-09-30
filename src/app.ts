@@ -1024,6 +1024,41 @@ export class CasperApp {
     this.updateFooter();
   }
 
+  /**
+   * `/project <name>`: a project folder inside this one (typed as a path, or the name of one Casper finds two
+   * levels down). Before the model starts Casper opens it; a name that isn't there offers "1 Stay in Documents ·
+   * 2 Make <name> here" (Enter stays). Once the conversation has started its folder is fixed, so Casper says the
+   * command to use instead.
+   */
+  async openProjectCommand(name: string): Promise<void> {
+    const root = this.activeWorkspaceRoot();
+    const home = this.sessionHomeDir ?? os.homedir();
+    const folder = path.basename(root) || root;
+    const typed = terminalText(name);
+    const inside = (dir: string) => { const relative = path.relative(root, dir); return relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative); };
+    const direct = path.resolve(root, name.replace(/^~(?=\/|$)/, home));
+    let target: string | undefined;
+    if (inside(direct) && (await stat(direct).catch(() => undefined))?.isDirectory()) target = direct;
+    else {
+      const wanted = name.toLowerCase().replace(/\/+$/, "");
+      target = (await findProjectCandidates(root, { homeDir: home })).find((dir) => inside(dir)
+        && (path.basename(dir).toLowerCase() === wanted || path.relative(root, dir).split(path.sep).join("/").toLowerCase() === wanted));
+    }
+    if (target && !this.canMoveWorkspace()) {
+      const display = terminalText(tildePath(target, home));
+      this.output.write(`[folder] This conversation stays in ${terminalText(folder)}. To work in ${terminalText(path.basename(target))}: cd ${display} && casper\n`);
+      return;
+    }
+    if (target) { await this.openWorkspaceBeforeRuntime(target); return; }
+    if (!this.canMoveWorkspace() || !this.interactive || !this.terminal.canAsk) {
+      this.output.write(`[folder] ${typed} isn't a folder in ${terminalText(folder)}. To start it as a new project: ${this.interactive ? "/new" : "casper new"} ${typed}\n`);
+      return;
+    }
+    const result = await offerMissingFolder(this.newProjectFlow(), typed, root, terminalText(folder));
+    if (this.closing || !opened(result) || this.commandAbort?.signal.aborted) return;
+    await this.openWorkspaceBeforeRuntime(result.dir);
+  }
+
   /** /new [name] | /new <template> <name> | /new --list: the same local build as `casper new`, no model. */
   private async newProjectCommand(args: string): Promise<void> {
     const words = args ? args.split(/\s+/) : [];
