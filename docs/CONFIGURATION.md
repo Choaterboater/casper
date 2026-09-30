@@ -215,15 +215,18 @@ themes and `settings.json` are not loaded. User-level resources in the engine st
 `~/.casper/agent/extensions/`) still load. Project `AGENTS.md`/`CLAUDE.md` context files are still
 sent to the model, except one that is a symlink pointing outside the project, which is skipped.
 
-**OpenRouter app attribution.** Requests Casper itself sends to OpenRouter — model traffic and
-API-key checks — carry app-attribution headers (`HTTP-Referer`, `X-OpenRouter-Title: Casper`,
+**OpenRouter app attribution.** Requests Casper itself sends to OpenRouter — model traffic, the
+one-off calls for the checklist, reviews and automatic effort, and API-key checks — carry
+app-attribution headers (`HTTP-Referer: https://choaterboater.github.io/casper/`, `X-OpenRouter-Title: Casper`,
 `X-OpenRouter-Categories: cli-agent`, and `X-OpenRouter-App-Visibility: hidden`), so the usage is
 filed under Casper's own OpenRouter app instead of the engine Casper is built on. `hidden` keeps an
 early-preview app out of OpenRouter's public rankings and app pages; it does not turn attribution
 off, and OpenRouter honors it only when the request creates a brand-new app. The headers are a
 fixed app name only: they add no prompt, file, workspace, user or credential data, and no other
 provider receives them. `CASPER_TELEMETRY=0` turns them off (along with the engine's own
-attribution); `PI_TELEMETRY` has no effect.
+attribution); `PI_TELEMETRY` has no effect. OpenRouter shows the icon of the referer's site, so the
+referer is Casper's site (its ghost icon) rather than the GitHub page. OpenRouter keys apps by
+referer, so after this change your usage may show under a new Casper app entry.
 
 ## Model roles and automatic effort
 

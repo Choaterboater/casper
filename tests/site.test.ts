@@ -106,6 +106,35 @@ describe("site pages", () => {
   });
 });
 
+describe("site icons", () => {
+  /** Width and height of a PNG, from its IHDR chunk. */
+  const pngSize = (bytes: Buffer) => bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+    ? [bytes.readUInt32BE(16), bytes.readUInt32BE(20)] : undefined;
+
+  // OpenRouter (and browsers) show the site's icon for Casper: the ghost, not GitHub's logo.
+  test("the ghost is there as favicon.ico, a 192 px PNG and an Apple touch icon", () => {
+    expect(pngSize(readFileSync(join(site, "assets/icon-192.png")))).toEqual([192, 192]);
+    expect(pngSize(readFileSync(join(site, "apple-touch-icon.png")))).toEqual([180, 180]);
+    const ico = readFileSync(join(site, "favicon.ico"));
+    expect([ico.readUInt16LE(0), ico.readUInt16LE(2)]).toEqual([0, 1]);
+    const sizes = Array.from({ length: ico.readUInt16LE(4) }, (_, index) => ico[6 + index * 16]);
+    expect(sizes).toEqual([16, 32, 48]);
+    for (let index = 0; index < sizes.length; index++) {
+      const offset = ico.readUInt32LE(6 + index * 16 + 12);
+      expect(pngSize(ico.subarray(offset))).toEqual([sizes[index], sizes[index]]);
+    }
+  });
+
+  for (const file of htmlFiles) {
+    test(`${relative(site, file)} links every icon`, () => {
+      const html = readFileSync(file, "utf8").replace(/<!--[\s\S]*?-->/g, "");
+      expect(html).toContain('<link rel="icon" href="favicon.ico"');
+      expect(html).toContain('<link rel="icon" href="assets/icon-192.png" type="image/png" sizes="192x192">');
+      expect(html).toContain('<link rel="apple-touch-icon" href="apple-touch-icon.png">');
+    });
+  }
+});
+
 describe("pages workflow", () => {
   const workflow = readFileSync(join(root, ".github/workflows/pages.yml"), "utf8");
 
