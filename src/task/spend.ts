@@ -1,7 +1,7 @@
 /**
- * What one task spends, and the automatic limits on it. Nothing to set up: a quiet note at about $1 and a pause
- * at about $5 per task, from the model's own price. `spend.noteAt` and `spend.pauseAt` in ~/.casper/config.yaml
- * change them or turn them off (docs/CONFIGURATION.md). A free model costs nothing, so it only shows tokens.
+ * What one task spends. Nothing to set up: a quiet note at about $1 and again at about $5 per task, from the
+ * model's own price; the task keeps going. `spend.noteAt` changes or turns off the notes and `spend.pauseAt` adds
+ * a pause, in ~/.casper/config.yaml (docs/CONFIGURATION.md). A free model costs nothing, so it only shows tokens.
  * Costs are the catalog's estimate from the model's price, never a bill.
  */
 
@@ -11,7 +11,18 @@ export interface SpendLimits { noteAt?: number; pauseAt?: number }
 /** What the model is told when the spend pause stops its tool call. The screen says "not run" instead. */
 export const SPEND_STOP_REASON = "Stopped: this task reached its spend limit, so Casper stopped it here. Do not call more tools.";
 
-export const DEFAULT_SPEND_LIMITS: Required<SpendLimits> = { noteAt: 1, pauseAt: 5 };
+/** Notes only by default: no pause unless the user sets spend.pauseAt (or says a limit in the request). */
+export const DEFAULT_SPEND_LIMITS: SpendLimits = { noteAt: 1 };
+/** The second note comes at this many times the first ($1, then $5). */
+const SECOND_NOTE = 5;
+
+/** A limit the user put in the request itself: "keep it under $2", "budget $10", "no more than $3.50", "max $5".
+ * It becomes this task's pause; undefined when the request names none. */
+export function requestSpendLimit(request: string): number | undefined {
+  const match = /\b(?:under|below|within|budget(?:\s+(?:of|is))?|max(?:imum)?|at\s+most|no\s+more\s+than|less\s+than|limit(?:\s+(?:of|is))?|cap(?:\s+(?:of|at))?|spend(?:ing)?\s+(?:at\s+most|up\s+to))\s*(?:of\s+)?\$\s?(\d+(?:\.\d{1,2})?)\b/i.exec(request);
+  const dollars = match ? Number(match[1]) : NaN;
+  return dollars > 0 ? dollars : undefined;
+}
 
 /** "$0.004", "$0.31", "$5.02", "$12". */
 export function formatCost(dollars: number): string {
@@ -40,17 +51,20 @@ export function formatTaskSpend(spent: { tokens: number; cost: number }, priced:
   return `${tokens} · ${billing === "subscription" ? "sub ≈" : ""}${formatCost(spent.cost)}`;
 }
 
-/** Per task: says the note once, and asks at the pause limit, then again at each further multiple of it. */
+/** Per task: says the note at noteAt and again at five times it, and asks at the pause limit, then again at each
+ * further multiple of it. */
 export class SpendGuard {
-  private noted = false;
+  private notes = 0;
   private nextPause?: number;
 
   constructor(private readonly limits: SpendLimits) { this.nextPause = limits.pauseAt; }
 
-  /** True once, when the task first reaches the note limit (and not already the pause). */
+  /** True when the task first reaches the note limit, and again at five times it (never at a pause). */
   noteDue(cost: number): boolean {
-    if (this.noted || this.limits.noteAt === undefined || cost < this.limits.noteAt) return false;
-    this.noted = true;
+    const at = this.limits.noteAt;
+    if (at === undefined || this.notes >= 2 || cost < (this.notes ? at * SECOND_NOTE : at)) return false;
+    // Past both at once (one expensive response): one note says it.
+    this.notes = cost >= at * SECOND_NOTE ? 2 : 1;
     return this.nextPause === undefined || cost < this.nextPause;
   }
 

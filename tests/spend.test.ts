@@ -9,7 +9,7 @@ import { loadProjectContext } from "../src/project/context";
 import type { AgentRuntime, RuntimeEvent, RuntimeEventListener, RuntimeStartOptions, RuntimeStatus } from "../src/runtime/types";
 import { SkillRegistry } from "../src/skills/registry";
 import { formatReceipt, taskExitCode } from "../src/task/result";
-import { formatCost, formatTaskSpend, formatTokens, SpendGuard } from "../src/task/spend";
+import { formatCost, formatTaskSpend, formatTokens, requestSpendLimit, SpendGuard } from "../src/task/spend";
 import { fakeWriter } from "./support/tty";
 
 const ambientTerm = process.env.TERM;
@@ -24,9 +24,25 @@ test("the footer shows the task's tokens and cost; a free model shows tokens onl
   expect([formatCost(5.0231), formatCost(123.4), formatTokens(312_400)]).toEqual(["$5.02", "$123", "312k tok"]);
 });
 
+test("a limit said in the request becomes the task's pause; other dollar amounts don't", () => {
+  expect(["keep it under $2", "budget of $10 for this", "no more than $3.50 please", "max $5", "spend at most $1"].map(requestSpendLimit)).toEqual([2, 10, 3.5, 5, 1]);
+  expect(["price the item at $20", "add a $5 fee field", "fix the checkout"].map(requestSpendLimit)).toEqual([undefined, undefined, undefined]);
+});
+
+test("by default the task only gets notes, at $1 and again at $5, and never pauses", () => {
+  const guard = new SpendGuard({ noteAt: 1 });
+  expect([guard.noteDue(0.5), guard.noteDue(1.02), guard.noteDue(3), guard.noteDue(5.1), guard.noteDue(40)]).toEqual([false, true, false, true, false]);
+  expect([guard.pauseDue(5.1), guard.pauseDue(400)]).toEqual([undefined, undefined]);
+  // One expensive response past both: one note.
+  const jump = new SpendGuard({ noteAt: 1 });
+  expect([jump.noteDue(6), jump.noteDue(7)]).toEqual([true, false]);
+});
+
 test("the spend note comes once at $1 and the pause at $5, then at each $5 more after Keep going", () => {
   const guard = new SpendGuard({ noteAt: 1, pauseAt: 5 });
   expect([guard.noteDue(0.5), guard.noteDue(1.02), guard.noteDue(2)]).toEqual([false, true, false]);
+  // With a pause set, the pause says it at $5, not a second note.
+  expect(guard.noteDue(5.02)).toBe(false);
   expect([guard.pauseDue(4.99), guard.pauseDue(5.02)]).toEqual([undefined, 5]);
   guard.keepGoing(5.02);
   expect([guard.pauseDue(9.9), guard.pauseDue(10.1)]).toEqual([undefined, 10]);
@@ -41,7 +57,7 @@ test("spend limits work with no setup; the user's config changes or turns them o
   const previous = process.env.CASPER_PROFILE;
   try {
     delete process.env.CASPER_PROFILE;
-    expect((await loadConfiguration({ projectRoot, homeDir })).spend).toEqual({ noteAt: 1, pauseAt: 5 });
+    expect((await loadConfiguration({ projectRoot, homeDir })).spend).toEqual({ noteAt: 1 });
     await writeFile(path.join(homeDir, ".casper/config.yaml"), "spend:\n  noteAt: false\n  pauseAt: 12.5\n");
     const loaded = await loadConfiguration({ projectRoot, homeDir });
     expect(loaded.spend).toEqual({ pauseAt: 12.5 });
@@ -68,6 +84,9 @@ async function fixture(status: Partial<RuntimeStatus> = {}, costs = [1.2, 3.82])
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-spend-"));
   const home = path.join(root, "home"); const project = path.join(root, "project");
   await Promise.all([mkdir(home), mkdir(project)]); await writeFile(path.join(project, "notes.txt"), "not empty\n");
+  // The pause is off by default; these tests turn it on at $5, the way a user would in their own config.
+  await mkdir(path.join(home, ".casper"), { recursive: true });
+  await writeFile(path.join(home, ".casper/config.yaml"), "spend:\n  pauseAt: 5\n");
   const listeners = new Set<RuntimeEventListener>();
   const emit = (event: RuntimeEvent) => { for (const listener of listeners) listener(event); };
   let start!: RuntimeStartOptions;

@@ -65,7 +65,7 @@ import { VerifierRegistry } from "./verify/registry";
 import { isRetryableAssistantError } from "@earendil-works/pi-ai/utils/retry";
 import { longerLimit, timedOutAfter, verifyAndRepair, type UnfinishedChoice } from "./verify/repair-loop";
 import { ALREADY_FAILING_CHOICES, modelFailedChoices, PLAN_CHOICES, PLAN_QUESTION, REMEMBER_BIG_MODEL_CHOICES, REPAIR_LIMIT_STOP, spendChoices, unfinishedChoices, workFolderChoices } from "./app/safe-choices";
-import { DEFAULT_SPEND_LIMITS, formatCost, formatLimit, formatTaskSpend, formatTokens, SPEND_STOP_REASON, SpendGuard } from "./task/spend";
+import { DEFAULT_SPEND_LIMITS, formatCost, formatLimit, formatTaskSpend, formatTokens, SPEND_STOP_REASON, SpendGuard, requestSpendLimit } from "./task/spend";
 import { VerificationTask } from "./verify/task";
 import { ChangeBaseline, changesCode, proofRepairPrompt, type ChangeProof } from "./verify/proof";
 import { independentAcceptance } from "./verify/acceptance";
@@ -1338,7 +1338,10 @@ export class CasperApp {
     this.beforeWorkAsked = Boolean(options.flow || options.planFirst);
     if (await this.offerNewProject(prompt) === "stop" || this.closing || this.commandAbort?.signal.aborted) return;
     this.observations = new TaskObservations();
-    this.spendGuard = new SpendGuard(this.projectContext?.spend ?? DEFAULT_SPEND_LIMITS);
+    // A limit said in the request ("keep it under $2") is this task's pause, whatever the config says.
+    const said = requestSpendLimit(prompt);
+    const limits = this.projectContext?.spend ?? DEFAULT_SPEND_LIMITS;
+    this.spendGuard = new SpendGuard(said === undefined ? limits : { ...limits, pauseAt: said, ...(limits.noteAt !== undefined && limits.noteAt >= said ? { noteAt: undefined } : {}) });
     this.bigModelUse = undefined;
     this.taskChangeServers = new Set();
     let context = this.projectContext!;

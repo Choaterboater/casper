@@ -270,7 +270,7 @@ install links above still give v0.2.15.
 - The receipt lists what the AI changed on other machines, and what Casper stopped before it got
   there; when the work lands in a project inside the folder, that project's tests run and Casper
   offers to switch there. [VERIFICATION.md](docs/VERIFICATION.md)
-- A quieter screen, each task's tokens and cost in the footer (a note at $1, a pause at $5), and
+- A quieter screen, each task's tokens and cost in the footer (notes at $1 and $5; set `spend.pauseAt` for a pause), and
   tmux and iTerm2 support with nothing to set. [TMUX.md](docs/TMUX.md)
 
 **v0.2.20: fewer layers.**
