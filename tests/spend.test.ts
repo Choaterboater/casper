@@ -84,6 +84,7 @@ async function fixture(status: Partial<RuntimeStatus> = {}, costs = [1.2, 3.82])
         prompt: async () => {
           for (const cost of state.costs) {
             emit({ type: "assistant_response_start", provider: "fixture", model: "demo" });
+            if (cost === state.costs[0]) emit({ type: "assistant_text_delta", delta: "Looking around." });
             emit({ type: "assistant_response_end", stopReason: "toolUse", usage: { tokens: 1200, estimatedCost: cost } });
           }
           const reason = await start.beforeToolWait?.("bash");
@@ -123,6 +124,9 @@ test("at about $5 the task pauses on a numbered question, Stop here first; Enter
     const shown = Bun.stripANSI(screen.output);
     // The quiet note came first, at about $1, and the footer shows the task's tokens and cost.
     expect(shown).toContain("… This task has used $1.20 so far (1.2k tok).");
+    // The note comes after the model's words it followed, not above them.
+    expect(shown.indexOf("Looking around.")).toBeGreaterThanOrEqual(0);
+    expect(shown.lastIndexOf("Looking around.")).toBeLessThan(shown.lastIndexOf("… This task has used $1.20"));
     expect(shown).toContain("task 2.4k tok · $5.02");
     expect(shown).toMatch(/→ 1 Stop here[^\n]*the work so far is kept/);
     expect(shown).toMatch(/2 Keep going[^\n]*asks again at \$10/);
@@ -143,6 +147,8 @@ test("at about $5 the task pauses on a numbered question, Stop here first; Enter
     await screen.until(() => f.state.reasons.length === 2);
     expect(f.state.reasons[1]).toBeUndefined();
     expect(f.state.toolRan).toBe(1);
+    // Idle again before /exit, so it is read as a command and not typed into a running task.
+    await screen.until(output => output.lastIndexOf("│ idle") > output.lastIndexOf("Keep going"));
   } finally {
     input.write("/exit\r");
     await interactive;

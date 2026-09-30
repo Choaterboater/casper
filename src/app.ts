@@ -2709,6 +2709,8 @@ export class CasperApp {
     if (!guard || this.closing || this.session?.getStatus?.().priced === false) return;
     const spent = this.observations.spent();
     if (!guard.noteDue(spent.cost)) return;
+    // After the model's words from this response, not above them.
+    this.terminal.endAssistant();
     this.events.ensureLineBreak();
     this.output.write(`… This task has used ${formatCost(spent.cost)} so far (${formatTokens(spent.tokens)}).\n`);
   }
