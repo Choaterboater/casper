@@ -14,7 +14,7 @@ import { serviceTool } from "./services/tool";
 import { detectWebService, isDetectedWebService } from "./services/detect";
 import { formatPagesNotChecked, formatSkippedPage, PageChecks, pageOpener, planPageCheck, type DevServerNotice, type PageCheckPlan, type PageOpener, type PageReport } from "./services/page-checks";
 import { formatTerminalJSON } from "./tui/json";
-import { InteractiveTerminal } from "./tui/terminal";
+import { InteractiveTerminal, type TerminalHost } from "./tui/terminal";
 import { askTool } from "./tui/ask";
 import { pickEffort } from "./tui/effort-picker";
 import { nextEffort } from "./tui/effort";
@@ -54,7 +54,7 @@ import { classifyTask, formatTaskPrompt, underSpecifiedTarget } from "./task/cla
 import { formatReceipt, liveCheckLine, formatTaskResult, type TaskResult, type TaskUsage } from "./task/result";
 import { TaskObservations } from "./task/observations";
 import { LifecycleRegistry } from "./app/lifecycle";
-import { RuntimeEventView } from "./app/events";
+import { helperActivityLine, RuntimeEventView } from "./app/events";
 import { diffSnapshots, snapshotFailureReason, snapshotTree, type TreeChanges } from "./task/changes";
 import { renderBanner, renderProjectSummary, wordmarkHeader } from "./tui/banner";
 import { CHECK_NAMES, type CheckName, formatDuration, formatVerificationReport, formatVerificationResult, type VerificationReport, type VerificationResult } from "./verify/evidence";
@@ -97,6 +97,7 @@ import { systemPromptAppend } from "./app/prompt";
 import type { VisualizationProvider } from "./visualize/types";
 import { SessionWorkspaceManager, type ReturnAction } from "./sessions/manager";
 import { runLogin, runSlashCommand, type OutputWriter } from "./app/commands";
+import { detectHostTerminal } from "./tui/host-terminal";
 import { NEW_USAGE, parseNewArgs, UsageError } from "./cli-args";
 import { checkEvent, phaseEvent, RuntimeEventMapper, sessionStartEvent, type CasperEvent, type PhaseEvent } from "./app/json-events";
 import { StepRail } from "./app/steps";
@@ -167,6 +168,8 @@ export interface CasperAppOptions {
   noSandbox?: boolean;
   /** Tests: the sandbox's engine, machine check or platform. */
   sandboxSeams?: Partial<ShellSandboxOptions>;
+  /** The terminal Casper runs in (tmux, iTerm2). Read from the environment when Casper writes to its own stdout. */
+  terminalHost?: TerminalHost;
 }
 
 /** The last choice of the home-folder and folder-of-projects question. */
@@ -375,6 +378,8 @@ export class CasperApp {
     // A child's file reads reach a model too: same scrubbing, same /secrets files switch (device
     // configs only; .env, credential files and secret env values are always hidden).
     scrubToolOutput: (toolName, input, texts, signal) => scrubToolOutput(this.scrubber, toolName, input, texts, signal, { configs: this.scrubFiles }),
+    // Inside tmux or iTerm2 each helper's steps show in the view-only steps pane; nowhere else.
+    onActivity: (activity) => this.terminal.logHelper(helperActivityLine(activity, this.projectContext ? this.activeWorkspaceRoot() : undefined)),
     });
     this.lifecycle.add({ name: "subagents", close: () => this.subagents.close() });
     this.inspectProjectFn = options.inspectProject ?? inspectProject;
@@ -390,8 +395,11 @@ export class CasperApp {
       profileName: context.profileName,
     }));
     this.input = options.input ?? process.stdin;
+    // A real terminal (not an embedder's or a test's output) that is tmux or iTerm2: Casper fits itself to it.
+    const detected = options.output === undefined ? detectHostTerminal() : undefined;
+    const host = options.terminalHost ?? (detected && (detected.tmux || detected.iterm) ? { host: detected } : undefined);
     this.terminal = new InteractiveTerminal(this.input, options.output ?? process.stdout,
-      () => this.cancelCurrent(), () => { if (this.commandActive && !this.closing) void this.close().catch(() => {}); });
+      () => this.cancelCurrent(), () => { if (this.commandActive && !this.closing) void this.close().catch(() => {}); }, host);
     this.terminal.setEffortCycle(() => this.cycleEffort());
     // ctrl+o: MCP writes off everywhere, at once, even while work runs.
     this.terminal.setWritesRevert(() => this.revertWrites());
@@ -679,6 +687,7 @@ export class CasperApp {
     if (!this.projectContext) {
       await this.start(workspace);
     }
+    if (this.projectContext) this.terminal.setTitle(`Casper · ${path.basename(this.projectContext.info.root)}`);
 
     this.savedModelDisplay = await modelPreference(this.sessionHomeDir ?? os.homedir());
     this.updateFooter();

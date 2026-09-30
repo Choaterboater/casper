@@ -461,8 +461,11 @@ private updateSpinner(): void {
   /** The bell (BEL) a terminal turns into a sound, a flash or a dock bounce; rich surface only. */
   private attention(): void {
     if (this.busySince === undefined || this.closed || Date.now() - this.busySince < this.attentionAfterMs) return;
-    this.terminal.write("\x07");
+    this.terminal.write(this.bell);
   }
+  private bell = "\x07";
+  /** What rings: BEL, plus iTerm2's notification (through tmux when inside it); see host-terminal.ts. */
+  setBell(sequence: string): void { this.bell = sequence; }
   setAttentionAfter(ms: number): void { this.attentionAfterMs = ms; }
 
   /** Offer the receipt's next-step row: until another key or command, a lone key from `keys` submits its command. */

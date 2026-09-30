@@ -3,6 +3,7 @@ import { formatDuration, formatToolActivity, redactPreview, terminalText } from 
 import type { RuntimeEvent } from "../runtime/types";
 import type { OutputWriter } from "./commands";
 import { SPEND_STOP_REASON } from "../task/spend";
+import type { HelperActivity } from "../agents/manager";
 
 /** Session-owned effects the renderer needs; the app implements these against its state. */
 export interface RuntimeEventCallbacks {
@@ -320,4 +321,12 @@ export class RuntimeEventView {
         break;
     }
   }
+}
+
+/** One helper line for the steps pane: "helper explorer: find the login code", "helper explorer · ✓ read · src/app.ts". */
+export function helperActivityLine(activity: HelperActivity, root?: string): string {
+  const who = `helper ${activity.run.role}`;
+  if (activity.kind === "start") return `${who} started: ${redactPreview(activity.run.goal).replace(/\s+/g, " ").slice(0, 100)}`;
+  if (activity.kind === "end") return `${who} ${activity.status === "completed" ? "finished" : `stopped (${activity.status.replace("_", " ")})`}`;
+  return `${who} · ${formatToolActivity(activity.event.type === "tool_end" ? { ...activity.event, output: undefined } : activity.event, undefined, root ? { root } : {})}`;
 }

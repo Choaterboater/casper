@@ -74,7 +74,17 @@ export interface SubagentManagerOptions {
   scrubToolOutput?: RuntimeStartOptions["scrubToolOutput"];
   /** Tests may tighten the security review's deadline, never relax it. */
   reviewTimeoutMs?: number;
+  /** Each helper's start, steps and end, for the steps pane. Display only; never shown to a model. */
+  onActivity?: (activity: HelperActivity) => void;
 }
+
+/** One helper (a delegated child) that is running now. */
+export interface HelperRun { id: number; role: SubagentRole; goal: string; startedAt: number }
+
+export type HelperActivity =
+  | { kind: "start"; run: HelperRun }
+  | { kind: "tool"; run: HelperRun; event: Extract<RuntimeEvent, { type: "tool_start" | "tool_end" }> }
+  | { kind: "end"; run: HelperRun; status: SubagentStatus };
 
 /** What the security review's child gets: its own prompt, a read gate and the full scrubber (the caller's). */
 export interface SecurityReviewRunOptions {
@@ -175,6 +185,7 @@ async function settleWithin(work: Promise<unknown>, ms: number): Promise<void> {
 interface ActiveRun {
   cancel(): void;
   drained: Promise<unknown>;
+  info: HelperRun;
 }
 
 /** Owns child lifetimes across tools, direct commands, workspace changes, and app shutdown. */
@@ -198,6 +209,17 @@ export class SubagentManager {
   }
 
   get isBusy(): boolean { return this.active.size > 0; }
+
+  /** The helpers running now, oldest first (/tasks). */
+  runs(): HelperRun[] { return [...this.active].map((run) => ({ ...run.info })); }
+
+  /** Stop one running helper (/tasks). False when it already ended. */
+  cancelRun(id: number): boolean {
+    const run = [...this.active].find((candidate) => candidate.info.id === id);
+    run?.cancel();
+    return run !== undefined;
+  }
+  private nextRunId = 1;
 
   /** Each prepared parent task gets one tool with its own non-resettable dispatch budget. */
   createTool(getContext: () => { cwd: string; projectContext: string }, onUsage?: (usage: SubagentUsage | null) => void): RuntimeTool {
@@ -307,6 +329,8 @@ export class SubagentManager {
       wake();
     };
     const onCancel = () => stop("cancelled", "Delegation cancelled");
+    const info: HelperRun = { id: this.nextRunId++, role: options.role, goal: options.goal, startedAt: Date.now() };
+    const report = (activity: HelperActivity) => { try { this.options.onActivity?.(activity); } catch { /* display only */ } };
     options.signal?.addEventListener("abort", onCancel, { once: true });
     const timer = setTimeout(() => stop("timed_out", `Delegation exceeded ${options.timeoutMs} ms`), options.timeoutMs);
     /** A model response has started and not yet ended. A limit notice from the runtime is an end
@@ -343,9 +367,12 @@ export class SubagentManager {
         }
         if (totalBytes > options.totalTextBytes) stop("limited", "Delegation text budget exhausted");
       } else if (event.type === "tool_start") {
+        report({ kind: "tool", run: info, event });
         const name = prefix(event.toolName, 128);
         if (!result.toolsUsed.includes(name) && result.toolsUsed.length < 16) result.toolsUsed.push(name);
-      } else if (event.type === "tool_end" && event.isError && result.toolErrors.length < 8) {
+      }
+      if (event.type === "tool_end") report({ kind: "tool", run: info, event });
+      if (event.type === "tool_end" && event.isError && result.toolErrors.length < 8) {
         // Pi's own first line (EISDIR, ENOENT, a cut-off call), which the child also saw, so the
         // caller can tell a misdirected read from a broken tool.
         const message = event.output?.text.trim().split("\n", 1)[0];
@@ -361,8 +388,9 @@ export class SubagentManager {
 
     // Reserve synchronously, before even loading the runtime. Keep the slot until
     // late startup/abort/disposal drains, even when the caller has timed out.
-    const active: ActiveRun = { cancel: onCancel, drained: Promise.resolve() };
+    const active: ActiveRun = { cancel: onCancel, drained: Promise.resolve(), info };
     this.active.add(active);
+    report({ kind: "start", run: info });
     const work = Promise.resolve().then(async () => {
       controller.signal.throwIfAborted();
       const runtime = await this.options.runtimeFactory();
@@ -406,7 +434,7 @@ export class SubagentManager {
         result.status = "failed";
         result.reason = prefix(error instanceof Error ? error.message : "Subagent failed", 1024);
       }
-    }).finally(() => { this.active.delete(active); });
+    }).finally(() => { this.active.delete(active); report({ kind: "end", run: info, status: result.status }); });
     active.drained = work;
     try {
       await Promise.race([work, cancelled]);
