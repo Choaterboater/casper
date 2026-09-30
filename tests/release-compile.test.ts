@@ -12,6 +12,17 @@ import { needsSandbox } from "./support/platform";
 // `.<hash>-00000000.bun-build` and never unlinks it; the compile must not leave one here.
 const bunBuildLeaks = async () => (await readdir(process.cwd())).filter((name) => name.endsWith(".bun-build"));
 
+// Windows keeps a just-exited .exe locked for a moment, so removing its folder can fail with EBUSY or EPERM.
+async function removeDir(dir: string): Promise<void> {
+  for (let attempt = 0; ; attempt++) {
+    try { return await rm(dir, { recursive: true, force: true }); } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (attempt >= 20 || (code !== "EBUSY" && code !== "EPERM")) throw error;
+      await Bun.sleep(250);
+    }
+  }
+}
+
 test("the standalone CLI starts and reports its version on every host", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-compiled-start-"));
   try {
@@ -25,7 +36,7 @@ test("the standalone CLI starts and reports its version on every host", async ()
     expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });
     expect(stdout).toMatch(new RegExp(`^casper ${CASPER_VERSION.replaceAll(".", "\\.")} \\(.*casper(?:\\.exe)?\\)\\n$`));
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeDir(root);
   }
 }, 120_000);
 
@@ -39,7 +50,7 @@ test("the compiled binary embeds the OAuth flow of every /login provider", async
     expect({ exit, stderr, output: JSON.parse(stdout) }).toEqual({ exit: 0, stderr: "",
       output: { "openai-codex": "ok", "github-copilot": "ok", anthropic: "ok", openrouter: "ok" } });
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeDir(root);
   }
 }, 120_000);
 
@@ -55,7 +66,7 @@ test("the compiled binary carries the bundled flows (plan first, prove the fix)"
     expect(flows.map((flow) => flow.name)).toEqual(["plan-first", "prove-fix"]);
     for (const flow of flows) expect(flow.bytes).toBeGreaterThan(500);
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeDir(root);
   }
 }, 120_000);
 
@@ -73,7 +84,7 @@ test("the compiled binary carries the bundled network skills", async () => {
     ]);
     for (const skill of skills) expect(skill.bytes).toBeGreaterThan(3000);
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeDir(root);
   }
 }, 120_000);
 
@@ -106,7 +117,7 @@ test("compiled native image reads work without build-time WASM or Bun on PATH", 
     const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
     expect({ exit, stderr, output: JSON.parse(stdout) }).toEqual({ exit: 0, stderr: "", output: { imageRead: true, mimeType: "image/png", resized: true } });
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeDir(root);
   }
 }, 120_000);
 
@@ -132,6 +143,6 @@ needsSandbox("the compiled binary carries the sandbox and its seccomp helper, wr
       expect(result.helper).toBeUndefined();
     }
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeDir(root);
   }
 }, 180_000);
