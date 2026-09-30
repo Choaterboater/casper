@@ -80,7 +80,13 @@ export function commandLabel(command: string, max = 80): string {
   while (index < segments.length - 1 && /^(?:cd|pushd|export|set|source|\.)(?:\s|$)/.test(segments[index]!)) index++;
   const words = segments[index]!.split(" ").map(word => word.replace(/^["']|["']$/g, ""));
   let first = 0;
-  while (first < words.length - 1 && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(words[first]!) || COMMAND_WRAPPERS.has(words[first]!))) first++;
+  for (;;) {
+    while (first < words.length - 1 && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(words[first]!) || COMMAND_WRAPPERS.has(words[first]!))) first++;
+    // sshpass carries a password (-p) before the real program: skip it and its options, never show the value.
+    if (words[first] !== "sshpass" || first >= words.length - 1) break;
+    first++;
+    while (first < words.length - 1 && words[first]!.startsWith("-")) first += /^-[pfdP]$/.test(words[first]!) ? 2 : 1;
+  }
   const program = words[first]!.split("/").pop() || words[first]!;
   const rest = words.slice(first + 1);
   let used: number;

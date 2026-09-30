@@ -41,6 +41,9 @@ test("a shell command shows as its program and target, at most 80 characters", (
   expect(commandLabel("ssh -p 22 -i key root@10.0.0.5 'systemctl restart demoapp'")).toBe("ssh root@10.0.0.5 …");
   expect(commandLabel("FOO=1 sudo /usr/bin/pvesh get /nodes")).toBe("pvesh get …");
   expect(commandLabel("ls")).toBe("ls");
+  // sshpass's password is never the label's target.
+  expect(commandLabel("sshpass -p 'hunter2' ssh -o StrictHostKeyChecking=no root@10.0.0.5 'pvesh get /nodes'")).toBe("ssh root@10.0.0.5 …");
+  expect(commandLabel("sshpass -phunter2 scp a.txt root@lab:/tmp")).toBe("scp a.txt …");
   const long = commandLabel(`cat ${"a".repeat(200)}`);
   expect([...long].length).toBeLessThanOrEqual(80);
   expect(long.endsWith("…")).toBe(true);
