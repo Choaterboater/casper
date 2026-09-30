@@ -220,9 +220,12 @@ export function storedTaskResult(task: TaskResult): TaskResult {
 }
 
 /** Exactly one per one-shot run: what changed, what Casper proved, and the exit code it implies. */
-export function receiptEvent(report: VerificationReport | undefined, task: TaskResult | undefined, exitCode: number): ReceiptEvent {
+export function receiptEvent(report: VerificationReport | undefined, task: TaskResult | undefined, exitCode: number,
+  /** The session's sandbox, for a run with no task (`casper --json /verify`): its checks ran held or not too. */
+  session?: TaskResult["sandbox"]): ReceiptEvent {
   const verification = task?.verification ?? report;
-  const receipt = task ?? (report ? { execution: "completed" as const, verification: report } : undefined);
+  const receipt = task ?? (report ? { execution: "completed" as const, verification: report, ...(session ? { sandbox: session } : {}) } : undefined);
+  const held = task ? task.sandbox : report ? session : undefined;
   return {
     type: "receipt",
     outcome: taskOutcome(report, task),
@@ -250,7 +253,7 @@ export function receiptEvent(report: VerificationReport | undefined, task: TaskR
     bigModel: task?.bigModel ? { ...task.bigModel } : null,
     security: task?.security ? structuredClone(task.security) : null,
     task: task?.receipt ?? null,
-    sandbox: task?.sandbox ? { held: task.sandbox.held, reason: task.sandbox.held ? null : redactPreview(task.sandbox.reason) } : null,
+    sandbox: held ? { held: held.held, reason: held.held ? null : redactPreview(held.reason) } : null,
     undo: task?.undo ? { available: task.undo.available, reason: task.undo.available ? null : redactPreview(task.undo.reason) } : null,
     changedWhilePlanning: task?.changedWhilePlanning?.length ? task.changedWhilePlanning.map(redactPreview) : null,
     pageNotes: task?.pageNotes?.length ? task.pageNotes.map((note) => redactPreview(note.replace(/^• /, ""))) : null,
