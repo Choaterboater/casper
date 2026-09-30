@@ -212,6 +212,24 @@ test("the tools' findings and the diff reach the AI with secrets hidden", async 
   expect(prompt).toContain("You cannot approve, ignore or suppress a finding");
 });
 
+test("a secret this branch removed is hidden in the diff's removed lines too (gitleaks only sees the files as they are)", async () => {
+  const root = await fixtureRepo("casper-ai-removed-"); temps.push(root);
+  const home = await temp("casper-ai-home-");
+  await writeFile(path.join(root, "app", "extra.py"), `API_KEY = "q8Zr2LmN7vXk4TpW"\ndb_password: hunter2hunter2\n`);
+  gitIn(root, "add", "app/extra.py"); gitIn(root, "commit", "-qm", "key");
+  gitIn(root, "checkout", "-qb", "feature");
+  await writeFile(path.join(root, "app", "extra.py"), `API_KEY = os.environ["API_KEY"]\n${EXTRA_PY}`);
+  gitIn(root, "add", "app/extra.py"); gitIn(root, "commit", "-qm", "no key");
+  const tools = await fakeTools(home);
+  const fake = fakeAI("[]");
+  const s = host(root, home, tools.find, "cannot-ask", fake.ai);
+  await runSecurityReview(s.host, ["ai"]);
+  const prompt = fake.runs[0]!.prompt;
+  expect(prompt).toContain("-API_KEY = \"<secret hidden>\"");
+  expect(prompt).not.toContain("q8Zr2LmN7vXk4TpW");
+  expect(prompt).not.toContain("hunter2hunter2");
+});
+
 test("the review scope: the branch against main, else changes since the last commit, else what the tools flagged", async () => {
   const root = await branchRepo("casper-ai-scope-");
   const branch = await reviewScope(root, []);

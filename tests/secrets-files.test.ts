@@ -110,3 +110,10 @@ test("service tool JSON is checked string by string", async () => {
   const result = await scrubToolOutput(scrubber, "service", { action: "logs" }, [text], undefined, { configs: false, env: {} });
   expect(JSON.parse(result!.texts[0]!)).toEqual({ data: { service: "web", logs: "ready\nAPI_TOKEN=<secret hidden>\n" } });
 });
+
+test("git diff output: a secret on a removed line is hidden like one on an added line", () => {
+  const diff = "-API_KEY = \"q8Zr2LmN7vXk4TpW\"\n+API_KEY = \"w3Kd9PqR1sTu6VxY\"\n-db_password: hunter2hunter2\n+token = get_token()\n-x-flag = 1";
+  const result = scrubAssignments(diff, false);
+  expect(result.text).toBe("-API_KEY = \"<secret hidden>\"\n+API_KEY = \"<secret hidden>\"\n-db_password: <secret hidden>\n+token = get_token()\n-x-flag = 1");
+  expect(result.hidden).toBe(3);
+});

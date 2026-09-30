@@ -68,7 +68,7 @@ function literalValue(value: string, name: string, separator: string): boolean {
   return true;
 }
 
-const ASSIGNMENT = /(^|[^\w.-])(["']?)([A-Za-z_][\w.-]*)\2(\s*)([=:])(\s*)("(?:[^"\\\n]|\\.)*"|'[^'\n]*'|[^\s"'][^\n]*)?/dg;
+const ASSIGNMENT = /(^[-+]|^|[^\w.-])(["']?)([A-Za-z_][\w.-]*)\2(\s*)([=:])(\s*)("(?:[^"\\\n]|\\.)*"|'[^'\n]*'|[^\s"'][^\n]*)?/dg;
 const AUTH_HEADER = /\b(?:Bearer|Basic|Token)\s+([A-Za-z0-9._~+/-]{8,}=*)/dg;
 
 interface Span { start: number; end: number; kind: SecretKind }
