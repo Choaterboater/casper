@@ -514,9 +514,11 @@ try {
   expect(f.payloads).toHaveLength(6);
 }, 15_000);
 
-for (const destination of ["excluded", "outside-workspace"]) posixOnly(`pinned Pi retains included symlink invalidation after removal (${destination})`, async () => {
+// A write through a link out of the project is refused now (tests/secrets-pi.integration.test.ts), so only
+// the in-project destination is left here.
+for (const destination of ["excluded"]) posixOnly(`pinned Pi retains included symlink invalidation after removal (${destination})`, async () => {
   let step = 0;
-  let linkTarget = "generated";
+  const linkTarget = "generated";
   const f = await fixture(() => {
     switch (step++) {
       case 0: case 4: case 5: return calls([{ name: "casper_check", args: { check: "test" } }]);
@@ -527,10 +529,6 @@ for (const destination of ["excluded", "outside-workspace"]) posixOnly(`pinned P
     }
   });
   await mkdir(path.join(f.project, "src/generated"), { recursive: true });
-  if (destination === "outside-workspace") {
-    linkTarget = path.join(f.agent, "outside");
-    await mkdir(linkTarget);
-  }
   await mkdir(path.join(f.project, ".casper"));
   await writeFile(path.join(f.project, ".casper/project.yaml"), JSON.stringify({
     verify: { test: runsCheck },

@@ -71,6 +71,18 @@ test("local diff remains usable when workspace changes exceed the display budget
   expect(await readFile(path.join(f.project, "tracked.txt"), "utf8")).toBe("after\n".repeat(15000));
 }, 30_000);
 
+test("local diff in a repository with no commits yet says so in plain words, not a git error", async () => {
+  const f = await fixture();
+  const init = Bun.spawn(["git", "init", "-q", "-b", "main"], { cwd: f.project, env: f.env, stdout: "ignore", stderr: "pipe" });
+  expect(await init.exited).toBe(0);
+  await writeFile(path.join(f.project, "new.txt"), "hello\n");
+  const result = await f.cli("/diff");
+  expect(result.exit).toBe(0);
+  expect(result.stdout + result.stderr).toContain("[diff] No commits yet, so there is nothing to compare with; files are listed by name only.");
+  expect(result.stdout).toContain("new.txt");
+  expect(result.stdout + result.stderr).not.toContain("bad revision");
+}, 30_000);
+
 // A shell fsmonitor hook; Windows has no /bin/sh fixture here.
 posixOnly("local diff never runs a repository-configured fsmonitor command", async () => {
   const f = await fixture();
@@ -752,4 +764,22 @@ await session.resumeConversation(initial.sessionId);
 console.log('RESULT=' + JSON.stringify({ fork, resumed: session.getStatus() }));`);
   expect(result.fork).toMatchObject({ model: "second", configuredEffort: "auto" });
   expect(result.resumed).toMatchObject({ model: "second", configuredEffort: "auto" });
+}, 30_000);
+
+test("describeModel names the big model's price and context window without selecting it", async () => {
+  const f = await fixture();
+  await writeFile(path.join(f.agent, "models.json"), JSON.stringify({ providers: {
+    fixture: { baseUrl: "http://127.0.0.1:9/v1", api: "openai-completions", apiKey: "fixture-not-a-secret", models: [{ id: "first" },
+      { id: "second", reasoning: true, contextWindow: 200000, cost: { input: 15, output: 75, cacheRead: 0, cacheWrite: 0 } }, { id: "shared" }] },
+  } }));
+  const result = await f.run(`
+await session.selectModel({ query: 'fixture/first', persist: false });
+const none = session.describeModel('@reason') ?? null;
+await session.setModelRole('reason', 'fixture/second');
+const big = session.describeModel('@reason');
+console.log('RESULT=' + JSON.stringify({ none, big, current: session.getStatus().model, unknown: session.describeModel('fixture/nope') ?? null }));`);
+  expect(result.none).toBeNull();
+  expect(result.big).toEqual({ provider: "fixture", id: "second", contextWindow: 200000, inputCostPerMillion: 15 });
+  expect(result.current).toBe("first");
+  expect(result.unknown).toBeNull();
 }, 30_000);

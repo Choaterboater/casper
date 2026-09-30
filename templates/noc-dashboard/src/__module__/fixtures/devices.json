@@ -1,0 +1,5 @@
+[
+  {"site_id": "00000000-0000-0000-0000-000000000001", "name": "hq-ap-lobby", "type": "ap", "model": "AP45", "mac": "5c5b35000001", "status": "connected"},
+  {"site_id": "00000000-0000-0000-0000-000000000001", "name": "hq-sw-core", "type": "switch", "model": "EX4400-48P", "mac": "5c5b35000002", "status": "connected"},
+  {"site_id": "00000000-0000-0000-0000-000000000002", "name": "br12-ap-01", "type": "ap", "model": "AP34", "mac": "5c5b35000003", "status": "disconnected"}
+]

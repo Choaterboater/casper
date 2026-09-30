@@ -1,0 +1,14 @@
+{
+  "id": "aoscx-ansible",
+  "version": 1,
+  "kind": "Aruba CX Ansible project",
+  "title": "Aruba CX Ansible (show commands, lab only)",
+  "description": "Ansible for Aruba CX switches: show commands only, against a lab inventory.",
+  "defaultName": "aoscx-lab",
+  "tool": "uv",
+  "init": ["uv", "init", "--bare", "--no-workspace", "--vcs", "none", "--name", "{{name}}", "."],
+  "add": [],
+  "addDev": ["ansible-core", "ansible-lint", "paramiko", "pytest", "ruff"],
+  "replace": [],
+  "ready": true
+}

@@ -1,5 +1,5 @@
 import { afterAll, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -33,6 +33,24 @@ test("an ask shows a standalone question and Up/Down selects an option", async (
     session.input.write("\x1b[B\r");
     const result = await Promise.race([answer, new Promise<"timeout">(resolve => setTimeout(() => resolve("timeout"), 250))]);
     expect(result).toEqual(["Postgres"]);
+  } finally { session.close(); }
+});
+
+test("a question from the AI opens with \"The AI asks:\"; Casper's own questions never do", async () => {
+  const session = interactiveTerminal();
+  try {
+    session.terminal.setStatus("fixture"); session.terminal.start();
+    const fromAi = session.terminal.ask("Casper wants to reach collector.example. Allow?", OPTIONS, false, undefined, "ai");
+    await session.screen.until(output => output.includes("collector.example"));
+    expect(Bun.stripANSI(session.screen.output)).toMatch(/The AI asks:[^\r\n]*\r?\nCasper wants to reach collector\.example\. Allow\?/);
+    session.input.write("1");
+    expect(await fromAi).toEqual(["SQLite"]);
+    const fromCasper = session.terminal.ask("Which database?", OPTIONS, false);
+    await session.screen.until(output => output.includes("Which database?"));
+    session.input.write("2");
+    expect(await fromCasper).toEqual(["Postgres"]);
+    expect(Bun.stripANSI(session.screen.output)).toContain("Which database?");
+    expect(Bun.stripANSI(session.screen.output)).not.toMatch(/The AI asks:[^\r\n]*\r?\n(?:\S[^\r\n]*\r?\n)?[^\r\n]*Which database\?/);
   } finally { session.close(); }
 });
 
@@ -238,7 +256,7 @@ test("an asked question is recorded on its own line, not appended to the running
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-ask-record-"));
   const home = path.join(root, "home");
   const project = path.join(root, "project");
-  await mkdir(home, { recursive: true }); await mkdir(project, { recursive: true });
+  await mkdir(home, { recursive: true }); await mkdir(project, { recursive: true }); await writeFile(path.join(project, "notes.txt"), "An empty folder would ask about a new project.\n");
   const listeners = new Set<RuntimeEventListener>();
   const emit = (event: RuntimeEvent) => { for (const listener of listeners) listener(event); };
   let tools: RuntimeTool[] = [];
@@ -284,7 +302,8 @@ test("an asked question is recorded on its own line, not appended to the running
     await screen.until(() => screen.output.split(REPAINT).length > repaints && lastFrame(screen.output).some(line => line.includes("ask — completed")));
     const frame = lastFrame(screen.output);
     const running = frame.findIndex(line => line.startsWith("• ask — running"));
-    expect(frame.slice(running, running + 6)).toEqual(["• ask — running", "Which database?", "✓ SQLite  file-based", "• Postgres", "[ask] SQLite", expect.stringMatching(/^✓ ask — completed/)]);
+    // The model's own question carries "The AI asks:", so it never looks like a Casper approval.
+    expect(frame.slice(running, running + 7)).toEqual(["• ask — running", "The AI asks:", "Which database?", "✓ SQLite  file-based", "• Postgres", "[ask] SQLite", expect.stringMatching(/^✓ ask — completed/)]);
   } finally {
     input.write("/exit\r");
     await interactive;

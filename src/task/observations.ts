@@ -2,9 +2,10 @@ import type { ProjectCommand, ProjectModel } from "../project/model";
 import { boundObservationText } from "../runtime/observation";
 import type { RuntimeEvent } from "../runtime/types";
 import { CHECK_NAMES } from "../verify/evidence";
+import { rememberableTestCommand } from "../flows/runners";
 import type { ObservedCheck, TaskResult } from "./result";
 
-type TaskObservationSnapshot = Required<Pick<TaskResult, "observedEdits" | "observedChecks" | "possibleMutations" | "usage">> & Pick<TaskResult, "changedPaths" | "changedDuringChecks">;
+type TaskObservationSnapshot = Required<Pick<TaskResult, "observedEdits" | "observedChecks" | "possibleMutations" | "usage">> & Pick<TaskResult, "changedPaths" | "changedDuringChecks" | "testRunner">;
 
 /** One retained tool call, newest last. Output is already bounded by the runtime adapter. */
 export interface RetainedToolOutput {
@@ -39,6 +40,8 @@ export class TaskObservations {
   private readonly checks = new Map<ProjectCommand, ObservedCheck>();
   private readonly outputs: RetainedToolOutput[] = [];
   private mutationToolRan = false;
+  /** The last known test-runner command the model ran without error while the project had no test command. */
+  private testRunner?: string;
   private turns = 0;
   private tokens: number | null = 0;
   private estimatedCost: number | null = 0;
@@ -97,6 +100,12 @@ export class TaskObservations {
     if (!command || Buffer.byteLength(command) > 8192) return;
     const invoked = scriptInvocation(command);
     const name = CHECK_NAMES.find((candidate) => commands?.[candidate] !== undefined && scriptInvocation(commands[candidate]!) === invoked);
+    // No test command yet: a known test runner that finished without error may be offered to remember.
+    // Only the exact known shapes count (src/flows/runners.ts); it is a suggestion, never check evidence.
+    if (!name && !commands?.test && !event.isError) {
+      const runner = rememberableTestCommand(command);
+      if (runner) this.testRunner = runner;
+    }
     if (!name) return;
     const output = boundObservationText(event.output?.text ?? "");
     this.checks.set(name, { name, command, toolStatus: event.isError ? "error" : "success",
@@ -119,6 +128,7 @@ export class TaskObservations {
     return { observedEdits: [...this.edits], observedChecks: [...this.checks.values()].map((check) => ({ ...check })),
       ...(changedPaths ? { changedPaths: [...changedPaths] } : {}),
       ...(changedDuringChecks.length ? { changedDuringChecks: [...changedDuringChecks] } : {}),
+      ...(this.testRunner ? { testRunner: this.testRunner } : {}),
       possibleMutations: this.mutationToolRan && !changedPaths,
       usage: { turns: this.turns, ...(this.delegationReports < this.delegations ? { tokens: null, estimatedCost: null }
         : { tokens: this.tokens, estimatedCost: this.estimatedCost }) } };

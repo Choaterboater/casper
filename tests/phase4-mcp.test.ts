@@ -330,10 +330,13 @@ test("dead servers do not poison healthy ones; reconnect is bounded and does not
 });
 
 test("cancelled calls and successful reconnects spend no retry budget, and an explicit connect resets it", async () => {
-  const mcp = manager([definition(), definition("stall", "stall")], 300);
+  // Only the stalling server keeps the short 300 ms start limit, so its failed opens stay quick.
+  // The healthy server gets a normal start limit: a busy machine can take longer than 300 ms to start it.
+  const mcp = manager([{ ...definition(), limits: { connectMs: 10_000 } }, definition("stall", "stall")], 300);
   await mcp.connect("generic");
   const broker = new CapabilityBroker(mcp);
   const status = (name: string) => mcp.status().find((entry) => entry.name === name);
+  expect(status("generic")).toMatchObject({ state: "ready", error: undefined });
   for (let round = 0; round < 3; round++) {
     const abort = new AbortController();
     const work = broker.invoke("mcp:generic:slow_read", {}, abort.signal);

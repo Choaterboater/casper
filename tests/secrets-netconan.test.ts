@@ -150,9 +150,9 @@ test("netconan only runs on text that looks like device config", async () => {
 
 test("/secrets text without netconan", async () => {
   const off = new Scrubber({ env: { CASPER_NETCONAN: "off" } });
-  expect(await off.statusText(true)).toBe("Secrets: hidden in MCP results (always). Files and command output: on. Extra check: netconan off (built-in only).");
+  expect(await off.statusText(true)).toBe("Secrets: hidden in MCP results, .env and credential files (always). Device configs in files and command output: on. Extra check: netconan off (built-in only).");
   const missing = new Scrubber({ env: { PATH: "" } });
-  expect(await missing.statusText(false)).toBe("Secrets: hidden in MCP results (always). Files and command output: off. Extra check: netconan not found (built-in only).");
+  expect(await missing.statusText(false)).toBe("Secrets: hidden in MCP results, .env and credential files (always). Device configs in files and command output: off. Extra check: netconan not found (built-in only).");
   const result = await missing.scrubText("snmp-server community Comm1 RO");
   expect(result.text).toBe(`snmp-server community ${SECRET_MARKER} RO`);
   expect(result.netconan).toBe("not-found");

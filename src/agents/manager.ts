@@ -15,6 +15,17 @@ export const SUBAGENT_LIMITS = Object.freeze({
   totalTextBytes: 131_072,
 });
 
+/** The /security-review AI review: one child the user started after a numbered ask. Fixed bounds; no caller can
+ * widen them, and the model can't start one (it is not a tool). */
+export const SECURITY_REVIEW_LIMITS = Object.freeze({
+  timeoutMs: 600_000,
+  maxTurns: 30,
+  maxToolCalls: 120,
+  responseBytes: 32_768,
+  totalTextBytes: 524_288,
+  promptBytes: 98_304,
+});
+
 export type SubagentRole = "explorer" | "reviewer";
 export type SubagentStatus = "completed" | "failed" | "cancelled" | "timed_out" | "limited";
 
@@ -49,6 +60,8 @@ export interface SubagentResult {
    * still streaming, the child ran the effort classifier, or cleanup had not drained (a late call
    * may still be billed). For the parent's totals only; never shown to the parent model. */
   usage: SubagentUsage | null;
+  /** Model responses the child made (for a receipt's usage). Never shown to the parent model. */
+  turns?: number;
 }
 
 export interface SubagentManagerOptions {
@@ -59,6 +72,38 @@ export interface SubagentManagerOptions {
   cleanupGraceMs?: number;
   /** Hides device secrets in what a child reads, as in the main session (the app passes its scrubber). */
   scrubToolOutput?: RuntimeStartOptions["scrubToolOutput"];
+  /** Tests may tighten the security review's deadline, never relax it. */
+  reviewTimeoutMs?: number;
+}
+
+/** What the security review's child gets: its own prompt, a read gate and the full scrubber (the caller's). */
+export interface SecurityReviewRunOptions {
+  cwd: string;
+  prompt: string;
+  systemPromptAppend: string;
+  /** Refuses a read before it runs (keys, .env files, files gitleaks flagged). */
+  beforeToolGate: NonNullable<RuntimeStartOptions["beforeToolGate"]>;
+  /** Every read goes through it: secrets hidden, and lines of files the review must not read dropped. */
+  scrubToolOutput: NonNullable<RuntimeStartOptions["scrubToolOutput"]>;
+  signal?: AbortSignal;
+}
+
+interface ChildSpec {
+  role: SubagentRole;
+  goal: string;
+  cwd: string;
+  prompt: string;
+  systemPromptAppend: string;
+  modelRole: "fast" | "review";
+  maxTurns: number;
+  maxToolCalls: number;
+  timeoutMs: number;
+  responseBytes: number;
+  totalTextBytes: number;
+  reportTurn?: boolean;
+  scrubToolOutput?: RuntimeStartOptions["scrubToolOutput"];
+  beforeToolGate?: RuntimeStartOptions["beforeToolGate"];
+  signal?: AbortSignal;
 }
 
 function prefix(value: string, maxBytes: number): string {
@@ -140,11 +185,14 @@ export class SubagentManager {
   private closeWork?: Promise<void>;
   private readonly timeoutMs: number;
   private readonly cleanupGraceMs: number;
+  private readonly reviewTimeoutMs: number;
 
   constructor(private readonly options: SubagentManagerOptions) {
     this.timeoutMs = options.timeoutMs ?? SUBAGENT_LIMITS.timeoutMs;
     this.cleanupGraceMs = options.cleanupGraceMs ?? SUBAGENT_LIMITS.cleanupGraceMs;
-    for (const [value, max] of [[this.timeoutMs, SUBAGENT_LIMITS.timeoutMs], [this.cleanupGraceMs, SUBAGENT_LIMITS.cleanupGraceMs]] as const) {
+    this.reviewTimeoutMs = options.reviewTimeoutMs ?? SECURITY_REVIEW_LIMITS.timeoutMs;
+    for (const [value, max] of [[this.timeoutMs, SUBAGENT_LIMITS.timeoutMs], [this.cleanupGraceMs, SUBAGENT_LIMITS.cleanupGraceMs],
+      [this.reviewTimeoutMs, SECURITY_REVIEW_LIMITS.timeoutMs]] as const) {
       if (!Number.isInteger(value) || value < 1 || value > max) throw new Error("Invalid subagent deadline");
     }
   }
@@ -184,7 +232,7 @@ export class SubagentManager {
           const isError = result.status !== "completed";
           // The caller already has the goal. Put outcome first so even a byte-
           // bounded preview retains it instead of spending its budget echoing input.
-          const { goal: _goal, status, reason, usage: _usage, ...report } = result;
+          const { goal: _goal, status, reason, usage: _usage, turns: _turns, ...report } = result;
           return { text: JSON.stringify(boundCapabilityResult({ isError, status, reason, ...report })), ...(isError ? { isError: true } : {}) };
         } catch (error) {
           // run() throws only before it creates a child runtime: no model call was made.
@@ -200,6 +248,33 @@ export class SubagentManager {
     options.context = input.context === undefined ? undefined : requireString(input.context, "context", SUBAGENT_LIMITS.contextBytes);
     requireString(options.projectContext, "projectContext", SUBAGENT_LIMITS.projectContextBytes);
     requireString(options.cwd, "cwd", 4096);
+    return this.runChild({
+      role: options.role, goal: options.goal, cwd: options.cwd, prompt: prompt(options), signal: options.signal,
+      systemPromptAppend: `You are Casper ${options.role}, a bounded read-only subagent. Be concise.\n\n${options.projectContext}`,
+      modelRole: options.role === "explorer" ? "fast" : "review",
+      maxTurns: SUBAGENT_LIMITS.maxTurns, maxToolCalls: SUBAGENT_LIMITS.maxToolCalls, timeoutMs: this.timeoutMs,
+      responseBytes: SUBAGENT_LIMITS.responseBytes, totalTextBytes: SUBAGENT_LIMITS.totalTextBytes,
+      reportTurn: options.reportTurn, scrubToolOutput: this.options.scrubToolOutput,
+    });
+  }
+
+  /**
+   * /security-review's AI review, only ever started by Casper after the user picked it: a read-only child on the
+   * review model with the security review's own bounds, read gate and scrubber. Not reachable from the delegate tool.
+   */
+  async reviewSecurity(input: SecurityReviewRunOptions): Promise<SubagentResult> {
+    const text = requireString(input.prompt, "prompt", SECURITY_REVIEW_LIMITS.promptBytes);
+    requireString(input.cwd, "cwd", 4096);
+    return this.runChild({
+      role: "reviewer", goal: "security review", cwd: input.cwd, prompt: text, signal: input.signal,
+      systemPromptAppend: input.systemPromptAppend, modelRole: "review",
+      maxTurns: SECURITY_REVIEW_LIMITS.maxTurns, maxToolCalls: SECURITY_REVIEW_LIMITS.maxToolCalls, timeoutMs: this.reviewTimeoutMs,
+      responseBytes: SECURITY_REVIEW_LIMITS.responseBytes, totalTextBytes: SECURITY_REVIEW_LIMITS.totalTextBytes,
+      reportTurn: true, scrubToolOutput: input.scrubToolOutput, beforeToolGate: input.beforeToolGate,
+    });
+  }
+
+  private async runChild(options: ChildSpec): Promise<SubagentResult> {
     if (this.closed) throw new Error("Subagent manager is closed");
     if (this.active.size >= SUBAGENT_LIMITS.maxConcurrent) throw new Error("Subagent concurrency limit reached; wait for an active run");
     const result: SubagentResult = { role: options.role, goal: options.goal, cwd: options.cwd, status: "completed", response: "", toolsUsed: [], toolErrors: [], truncated: false,
@@ -233,15 +308,17 @@ export class SubagentManager {
     };
     const onCancel = () => stop("cancelled", "Delegation cancelled");
     options.signal?.addEventListener("abort", onCancel, { once: true });
-    const timer = setTimeout(() => stop("timed_out", `Delegation exceeded ${this.timeoutMs} ms`), this.timeoutMs);
+    const timer = setTimeout(() => stop("timed_out", `Delegation exceeded ${options.timeoutMs} ms`), options.timeoutMs);
     /** A model response has started and not yet ended. A limit notice from the runtime is an end
      * with no start: it closes no response and carries no usage. */
     let streaming = false;
+    let turns = 0;
     const observe = (event: RuntimeEvent) => {
       // Usage first: a call cut off by an abort still happened.
       if (event.type === "assistant_response_start") streaming = true;
       else if (event.type === "assistant_response_end" && streaming) {
         streaming = false;
+        turns++;
         if (!event.usage) result.usage = null;
         else if (result.usage) result.usage = { tokens: result.usage.tokens + event.usage.tokens, estimatedCost: result.usage.estimatedCost + event.usage.estimatedCost };
       }
@@ -259,12 +336,12 @@ export class SubagentManager {
           let delta = pendingSurrogate + event.delta;
           pendingSurrogate = /[\uD800-\uDBFF]$/.test(delta) ? delta.slice(-1) : "";
           if (pendingSurrogate) delta = delta.slice(0, -1);
-          const text = prefix(delta, SUBAGENT_LIMITS.responseBytes - responseBytes);
+          const text = prefix(delta, options.responseBytes - responseBytes);
           responseBytes += Buffer.byteLength(text);
           result.response += text;
           if (text.length !== delta.length) result.truncated = true;
         }
-        if (totalBytes > SUBAGENT_LIMITS.totalTextBytes) stop("limited", "Delegation text budget exhausted");
+        if (totalBytes > options.totalTextBytes) stop("limited", "Delegation text budget exhausted");
       } else if (event.type === "tool_start") {
         const name = prefix(event.toolName, 128);
         if (!result.toolsUsed.includes(name) && result.toolsUsed.length < 16) result.toolsUsed.push(name);
@@ -298,15 +375,16 @@ export class SubagentManager {
         if (!runtime.startReadOnly) throw new Error("Runtime does not support enforced read-only subagents");
         session = await runtime.startReadOnly({
           cwd: options.cwd, signal: controller.signal,
-          modelRole: options.role === "explorer" ? "fast" : "review",
-          maxTurns: SUBAGENT_LIMITS.maxTurns, maxToolCalls: SUBAGENT_LIMITS.maxToolCalls,
+          modelRole: options.modelRole,
+          maxTurns: options.maxTurns, maxToolCalls: options.maxToolCalls,
           reportTurn: options.reportTurn,
-          ...(this.options.scrubToolOutput ? { scrubToolOutput: this.options.scrubToolOutput } : {}),
-          systemPromptAppend: `You are Casper ${options.role}, a bounded read-only subagent. Be concise.\n\n${options.projectContext}`,
+          ...(options.scrubToolOutput ? { scrubToolOutput: options.scrubToolOutput } : {}),
+          ...(options.beforeToolGate ? { beforeToolGate: options.beforeToolGate } : {}),
+          systemPromptAppend: options.systemPromptAppend,
         });
         controller.signal.throwIfAborted();
         unsubscribe = session.subscribe(observe);
-        await session.prompt(prompt(options), controller.signal, { request: options.goal });
+        await session.prompt(options.prompt, controller.signal, { request: options.goal });
         // The effort classifier's calls are not response events (the main task treats them alike).
         try { if (session.getUsage?.().effortClassification?.requests) result.usage = null; } catch { result.usage = null; }
         // A child that stopped mid-investigation reports its last words rather than nothing at
@@ -335,7 +413,7 @@ export class SubagentManager {
       if (controller.signal.aborted) await settleWithin(work, this.cleanupGraceMs);
       const pending = this.active.has(active);
       return { ...result, ...(pending ? { cleanupPending: true } : {}), toolsUsed: [...result.toolsUsed], toolErrors: [...result.toolErrors],
-        usage: pending || streaming || !result.usage ? null : { ...result.usage } };
+        usage: pending || streaming || !result.usage ? null : { ...result.usage }, turns };
     } finally {
       clearTimeout(timer);
       options.signal?.removeEventListener("abort", onCancel);

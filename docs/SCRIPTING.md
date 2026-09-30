@@ -22,6 +22,12 @@ echo "exit ${PIPESTATUS[0]}"   # bash: Casper's exit code, not jq's
 - Options that take a value accept `--name value` or `--name=value`.
 - An unknown option (a typo such as `--verfy`) is an error (exit 64). It never becomes a paid
   model prompt.
+- From v0.2.17 (not released yet): a known option at the end of the prompt
+  (`casper fix the bug --verify`) exits 64 before anything runs. Put options first, or quote the
+  whole request (`casper "fix the bug --verify"`) to send them as words. A single folder argument
+  (`casper ~/code/app`) opens that folder instead of sending its path as a prompt; a single word
+  that can only be a path but is not a folder exits 64 with `Not a folder: <path>`. A quoted
+  request such as `casper "fix src/app.py"` is still a prompt.
 
 **Read the prompt from stdin.** A lone `-` as the prompt reads it from stdin (at most 1 MiB):
 
@@ -55,12 +61,17 @@ pipe (a terminal on stdin) or an empty stdin is a usage error (exit 64).
 An unknown `--model` (or an effort name that is not a level) is a usage error (exit 64), found
 before any model request. Missing credentials for the chosen provider exit 1 with the sign-in hint.
 
-Two commands have their own arguments and take none of the options above:
+These commands have their own arguments and take none of the options above:
 
 - `casper learn <repo>` and its `list`, `inspect` and `promote` forms. See [LEARNING.md](LEARNING.md).
 - `casper mcp check [repo] [--server <name>] [--live] [--quick] [--strict] [--json] [--env NAME=VALUE]... [-- <start command>...]`
   checks an MCP server you built. It runs the repo's own code, so use it only on repos you trust.
   See [MCP.md](MCP.md#check-a-server-you-built).
+- `casper new [<template> <name>]` and `casper new --list` (v0.2.16, not released yet) start a new
+  project. It never calls a model. Its codes: 0 ready, 1 created but not ready (or nothing
+  created), 64 usage. See [NEW.md](NEW.md).
+- `casper security [folder]` (v0.2.16, not released yet) runs the security tools with no model
+  call: 0 no problems, 1 problems, 64 usage. See [SECURITY_CHECKS.md](SECURITY_CHECKS.md).
 
 ## Exit codes
 
@@ -69,12 +80,19 @@ Two commands have their own arguments and take none of the options above:
 | 0 | Done. Changes, if any, were verified — or, without `--require-verification`, simply not disproven. A run that changed nothing exits 0. |
 | 1 | Failed: a check failed, checks were blocked, the model run failed, or Casper hit an error (for example missing credentials). |
 | 2 | Incomplete: checks could not finish, `--max-turns` stopped the model, or checking was asked for (`--verify` or `verification.mode: auto`) and found changes but no configured check. |
-| 3 | Not verified (only with `--require-verification`): files changed but Casper recorded no fresh passing check — checks off, none configured or covering the files, bash-only test runs, a pass that went stale, or a change the tests do not prove. |
+| 3 | Not verified (only with `--require-verification`): files changed but Casper did not prove them — checks off, none configured or covering the files, bash-only test runs, a pass that went stale, a change the tests do not prove, or (from v0.2.17) checks that passed without a proof (`• Checks passed — not proven`). `checksPassed` in the JSON receipt still says the checks passed. |
 | 64 | Usage error: an unknown option, a bad value, conflicting flags, an unknown model or conversation. Nothing ran. |
 | 130 | Cancelled (Ctrl-C / SIGINT). |
 | 143 | Terminated (SIGTERM). |
 
 Failure wins over incomplete, and incomplete wins over "not verified".
+
+**Change in v0.2.17 (not released yet).** `outcome: "verified"` now means only a proven change,
+the same as the receipt's `✓ Verified` line. Checks that passed on changed files without a proof
+were `verified` before and are `not_verified` now, so `--require-verification` exits 3 for them
+instead of 0. Checks that passed with no files changed are `unchanged` (exit 0). The new
+`checksPassed` field keeps the old signal: it is `true` whenever the checks passed. The receipt
+lines themselves did not change.
 
 When Casper checks only because that is its default (no flag, no `verification.mode`) and the
 project has no checks, a change is `not_verified` but exits 0. Add `--verify` to make that exit 2,
@@ -97,9 +115,9 @@ A run ends with exactly one `receipt` event, or, when Casper stops before it can
 | `assistant_message` | `text` | One model response's complete text. |
 | `tool_start` | `tool`, `id`, `target` (path, command or pattern; redacted) | A tool call starts. |
 | `tool_end` | `tool`, `id`, `ok`, `ms` | A tool call ends. `ok` is the tool status, not a check result. |
-| `check` | `name`, `command`, `status` (`pass`/`fail`/`skip`), `exit`, `ms`, `recordedBy`, `reused`, `ended`? | Casper recorded a check. `recordedBy` is `casper` (auto mode, `/verify`, repair) or `casper_check` (the model asked for it). `ended` appears only on a failure that was not the code failing: `timeout`, or `no_start` (could not execute, or the shell's exit 126/127). |
-| `phase` | `phase` (`task`, `checklist`, `checks`, `smoke`, `review`, `proof`, `acceptance`, `repair`), `state` (`start`/`end`), `atMs` | A stage of Casper's work starts or ends. `smoke` runs inside `checks`. |
-| `receipt` | `outcome`, `exitCode`, `execution`, `changed`, `changedDuringChecks`, `verificationMode`, `checks`, `repairAttempts`, `turnLimit`, `usage`, `proof`, `proofSkipped`, `review`, `acceptance`, `checklist`, `services`, `smoke`, `verdict`, `text` | The run finished. |
+| `check` | `name`, `command`, `status` (`pass`/`fail`/`skip`), `exit`, `ms`, `recordedBy`, `reused`, `ended`?, `kind`?, `label`?, `hosts`?, `summary`? | Casper recorded a check. `recordedBy` is `casper` (auto mode, `/verify`, repair) or `casper_check` (the model asked for it). `ended` appears only on a failure that was not the code failing: `timeout`, `no_start` (could not execute, or the shell's exit 126/127), or (v0.2.17) `blocked` (the shell sandbox refused something the check tried; the receipt text says what). Named checks (`verify.checks.<name>`, v0.2.16) may add `kind` (`report`: a diff that never passes or fails; `lab`: your own lab devices), `label` (a few words such as `dry run not guaranteed`), `hosts` (lab checks) and `summary` (reports). |
+| `phase` | `phase` (`task`, `checklist`, `checks`, `smoke`, `pages`, `review`, `proof`, `acceptance`, `repair`), `state` (`start`/`end`), `atMs` | A stage of Casper's work starts or ends. `smoke` and `pages` (v0.2.16) run inside `checks`. |
+| `receipt` | `outcome`, `exitCode`, `execution`, `changed`, `changedDuringChecks`, `verificationMode`, `checks`, `repairAttempts`, `turnLimit`, `usage`, `proof`, `proofSkipped`, `review`, `acceptance`, `checklist`, `services`, `smoke`, `pages`, `checksPassed`, `repairModels`, `bigModel`, `security`, `task`, `undo`, `sandbox`, `changedWhilePlanning`, `pageNotes`, `verdict`, `text` | The run finished. |
 | `error` | `message` | Something failed. |
 
 ### Receipt fields
@@ -107,6 +125,9 @@ A run ends with exactly one `receipt` event, or, when Casper stops before it can
 **The basics.**
 
 - `outcome` is one of `verified`, `failed`, `incomplete`, `not_verified`, `unchanged`, `cancelled`.
+  From v0.2.17, `verified` means exactly what the receipt's first line calls `✓ Verified`: files
+  changed, the checks pass, and a test fails without the change. Read `checksPassed` to know
+  whether the checks passed.
 - `exitCode` is the process exit code.
 - `execution` is `completed`, `failed` or `cancelled` (did the model run finish, not "was it right").
 - `changed` is the list of files the request changed, or `null` when Casper could not compare the
@@ -122,7 +143,8 @@ A run ends with exactly one `receipt` event, or, when Casper stops before it can
 - `text` is the plain receipt a person would read.
 
 **Usage.** `usage` is the request's model use, repair prompts included, or `null` when no model
-request ran (a local `/` command). `turns` counts the conversation's model responses. `tokens` and
+request ran (a local `/` command). `casper --json "/security-review ai"` (v0.2.17) is a `/` command
+that does use the model: its `usage` is the AI review's responses and tokens. `turns` counts the conversation's model responses. `tokens` and
 `estimatedCost` total what the provider reported for each of them, plus every `delegate`
 subagent's responses (a child's turns are not counted in `turns`). `estimatedCost` is the model
 catalog's estimate, not an invoice. Context compaction is not counted. Both totals are `null`
@@ -188,6 +210,28 @@ reported it, with at most 2048 characters of log tail. Each check has:
   before the change and passes now);
 - when available, `actual` (`status` and at most 512 characters of body), `reason` and `restarted`.
 
+**Added in v0.2.16 and v0.2.17 (not released yet).** All within `v: 1`; each is `null` when it
+does not apply.
+
+- `pages` is Casper's last page check on the dev server (`status`, `pages` with `path`, `status`,
+  `httpStatus`, `consoleErrors`, `failedRequests`, `overlay`?, `serverError`?, and `server`), with
+  console text and logs redacted. See [VERIFICATION.md](VERIFICATION.md#page-checks).
+- `checksPassed` is `true` when the checks passed on the final files (proven or not).
+- `repairModels` lists the model each repair used when Casper knows it; `bigModel` is
+  `{ "model", "attempts" }` when the last repair ran on your big model.
+- `security` holds counts only (`problems`, `notes`, `notRun`, and each tool's `status`), never
+  finding text.
+- `task` is the task's saved receipt number (`/receipt <n>`), and `undo` is
+  `{ "available", "reason" }`: whether `casper /undo` can put this task's files back, and why not
+  (see [UNDO.md](UNDO.md)). After `casper --json /undo` or `/redo`, `changed` lists the files it
+  put back and `outcome` is `not_verified` (nothing checked them).
+- `sandbox` is `{ "held": true, "reason": null }` when the shell sandbox held the task's shell
+  commands and checks (or, for `/verify` alone, its checks), or `{ "held": false, "reason" }` when
+  it did not (`--no-sandbox`, Windows, bubblewrap missing; see [SECURITY.md](SECURITY.md)).
+- `changedWhilePlanning` lists files that changed during a plan turn anyway (`/plan`), and
+  `pageNotes` says in plain words why changed pages were not opened (for example
+  `node_modules is missing`); neither is ever a failure.
+
 **Redaction.** `text`, `verdict`, the proof's `reason` and `output`, review items, acceptance
 output and names, checklist cases, smoke bodies, reasons and crash tails are redacted like other
 previews: tokens, keys and passwords become `<redacted>`.
@@ -251,8 +295,12 @@ Notes on this example:
 - Provider API keys such as `OPENROUTER_API_KEY` are read from the environment.
 - The flags on this page ship in v0.2.13 and later, so pin the installer to v0.2.13 or newer. The
   receipt's `verdict` and `proofSkipped` fields and a check's `ended` field ship in v0.2.14.
-- Checks run the repository's own configured commands without asking, and they are not
-  sandboxed (nothing stops them touching the machine). Run Casper only on code you trust, or pass
-  `--no-verify`.
+- Checks run the repository's own configured commands without asking. In 0.2.15 they are not
+  sandboxed (nothing stops them touching the machine). From v0.2.17 (not released yet) they run in
+  the shell sandbox where it can run (Linux with bubblewrap, macOS); on a runner without it they
+  run with the job's permissions. Either way, run Casper only on code you trust, or pass
+  `--no-verify`. With the sandbox, a host a check wants that is not listed is blocked in a script
+  (nobody can answer); add it to `sandbox.allowedDomains` in the runner's `~/.casper/config.yaml`.
+  The receipt's `sandbox` field says whether the run was held.
 - Configure the checks in `.casper/project.yaml` (see [VERIFICATION.md](VERIFICATION.md#configuration));
   `--require-verification` then fails the job when Casper could not prove the change.

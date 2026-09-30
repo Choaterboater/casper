@@ -1,4 +1,6 @@
+import { statSync } from "node:fs";
 import { isEffortSelection } from "./runtime/model-routing";
+import { getTemplate, NAME_RULE, validName } from "./new/templates";
 
 /** A command-line mistake: exits 64 (EX_USAGE), distinct from task results 1, 2 and 3. */
 export class UsageError extends Error {
@@ -12,6 +14,8 @@ export interface CliOptions {
   info?: InfoFlag;
   verify: boolean;
   noVerify: boolean;
+  /** --no-sandbox: shell commands and checks run with your own permissions for this run (said on the receipt). */
+  noSandbox?: boolean;
   verbose: boolean;
   /** A one-shot run that ends without Casper's proof exits 3. Implies --verify. */
   requireVerification: boolean;
@@ -35,14 +39,36 @@ export interface CliOptions {
    * prompt argument stays readable in the process list, and a model's `pkill -f <text from the prompt>` would
    * match Casper itself. */
   promptFromStdin?: boolean;
-  /** One-shot prompt, `casper learn …`, `casper mcp check …`, or an interactive session. */
-  command: "prompt" | "learn" | "mcp-check" | "interactive";
-  /** Prompt words, or the full `learn …` / `mcp check …` argument list. */
+  /** One-shot prompt, a subcommand (`casper learn …`, `casper mcp check …`, `casper new …`,
+   * `casper security …`), or an interactive session. */
+  command: "prompt" | "interactive" | SubcommandName;
+  /** Prompt words, or the subcommand's full argument list (starting with its own words). */
   rest: string[];
+  /** A single word with no `--` before it: when it is a folder, `casper <folder>` opens it (cli.ts decides). */
+  folderCandidate?: boolean;
 }
 
+export type SubcommandName = "learn" | "mcp-check" | "new" | "security";
+
+/**
+ * Casper's subcommands, matched in this order before anything is a prompt. Each one matches only its exact
+ * words, so `casper new ideas for the app` or `casper security review of the login code` stay prompts. A
+ * subcommand takes its own flags, so leading options are a usage mistake.
+ */
+export const SUBCOMMANDS: ReadonlyArray<{ name: SubcommandName; matches(args: readonly string[]): boolean; withOptions: string }> = [
+  { name: "learn", matches: (args) => args[0] === "learn", withOptions: "learn cannot be combined with options" },
+  // Only exactly `mcp check`: `casper mcp docs are wrong` stays a prompt.
+  { name: "mcp-check", matches: (args) => args[0] === "mcp" && args[1] === "check", withOptions: "mcp check takes its own flags. " },
+  { name: "new", matches: (args) => args[0] === "new" && parseNewArgs(args.slice(1)) !== null, withOptions: "new cannot be combined with options. " },
+  { name: "security", matches: (args) => args[0] === "security" && isSecurityCommand(args.slice(1)), withOptions: "security takes its own flags. " },
+];
+
+const USAGES: Record<SubcommandName, () => string> = {
+  learn: () => "", "mcp-check": () => MCP_CHECK_USAGE, new: () => NEW_USAGE, security: () => SECURITY_USAGE,
+};
+
 /** Every leading option the parser accepts; /help all must document each one. */
-export const CLI_OPTIONS = ["--json", "--max-turns", "--cd", "--continue", "--resume", "--model", "--effort", "--verify", "--no-verify", "--verbose", "--require-verification", "--mcp", "--lsp",
+export const CLI_OPTIONS = ["--json", "--max-turns", "--cd", "--continue", "--resume", "--model", "--effort", "--verify", "--no-verify", "--no-sandbox", "--verbose", "--require-verification", "--mcp", "--lsp",
   "--help", "--version", "--licenses"] as const;
 
 /** Options that take a value, as `--name value` or `--name=value`. */
@@ -67,6 +93,7 @@ export function parseCliArgs(argv: readonly string[]): CliOptions {
     } else if (flag && VALUE_OPTIONS.has(flag)) value = args[1];
     if (flag === "--verify") options.verify = true;
     else if (flag === "--no-verify") options.noVerify = true;
+    else if (flag === "--no-sandbox") options.noSandbox = true;
     else if (flag === "--verbose") options.verbose = true;
     else if (flag === "--require-verification") options.requireVerification = true;
     else if (flag === "--continue") options.continueConversation = true;
@@ -97,7 +124,8 @@ export function parseCliArgs(argv: readonly string[]): CliOptions {
 
   const info = infoFlag(args[0]);
   if (info) return { ...options, info };
-  if (args[0] === "--") args.shift();
+  const literal = args[0] === "--";
+  if (literal) args.shift();
   else if (args[0]?.startsWith("-") && !(args[0] === "-" && args.length === 1)) {
     // An unknown or misspelled option would otherwise become a (paid) model prompt.
     throw new UsageError(`Unknown option ${args[0]}. Run casper --help for usage; put -- before a prompt that starts with "-".`);
@@ -111,18 +139,43 @@ export function parseCliArgs(argv: readonly string[]): CliOptions {
     options.promptFromStdin = true;
     options.rest = [];
     options.command = "prompt";
-  } else if (args[0] === "learn") {
-    if (optionCount) throw new UsageError("learn cannot be combined with options");
-    options.command = "learn";
-  } else if (args[0] === "mcp" && args[1] === "check") {
-    // Only exactly `mcp check`: `casper mcp docs are wrong` stays a prompt.
-    if (optionCount) throw new UsageError(`mcp check takes its own flags. ${MCP_CHECK_USAGE}`);
-    options.command = "mcp-check";
-  } else if (args.join(" ").trim()) options.command = "prompt";
+  } else if (subcommand(args)) {
+    const found = subcommand(args)!;
+    if (optionCount) throw new UsageError(`${found.withOptions}${USAGES[found.name]()}`.trim());
+    options.command = found.name;
+  } else if (args.join(" ").trim()) {
+    options.command = "prompt";
+    if (!literal) {
+      // `casper ~/code/app` opens the folder; a known option after the words would otherwise be paid prompt text.
+      if (args.length === 1) options.folderCandidate = true;
+      trailingOption(args);
+    }
+  }
   if (options.requireVerification && options.noVerify) throw new UsageError("--require-verification cannot be combined with --no-verify");
   if (options.json && options.command !== "prompt") throw new UsageError("--json needs a prompt: casper --json \"fix the failing test\"");
   if (options.requireVerification && options.command !== "prompt") throw new UsageError("--require-verification needs a prompt: casper --require-verification \"fix the failing test\"");
   return options;
+}
+
+/** A known long option at the end of the prompt (`casper fix the bug --verify`) is a mistake, found before anything
+ * runs. Short -v/-h and unknown dashes inside a prompt stay words ("explain the -v flag"). */
+function trailingOption(args: readonly string[]): void {
+  const last = args.at(-1)!;
+  const before = args.at(-2);
+  const known = (word: string) => (CLI_OPTIONS as readonly string[]).includes(word);
+  const valued = /^(--[a-z-]+)=/.exec(last)?.[1];
+  let options: string[] | undefined, words: readonly string[] = args;
+  if (before && VALUE_OPTIONS.has(before)) { options = [before, last]; words = args.slice(0, -2); }
+  else if (known(last) || (valued && VALUE_OPTIONS.has(valued))) { options = [last]; words = args.slice(0, -1); }
+  if (!options) return;
+  const quoted = (word: string) => /^[\w./:@%+=,-]+$/.test(word) ? word : JSON.stringify(word);
+  // Quoting is the advice that works everywhere: Bun drops a leading -- when casper runs from source.
+  throw new UsageError(`Options go before the prompt: casper ${options.map(quoted).join(" ")} ${JSON.stringify(words.join(" "))}. `
+    + `To send it as words, quote the whole request: casper ${JSON.stringify(args.join(" "))}.`);
+}
+
+function subcommand(args: readonly string[]): (typeof SUBCOMMANDS)[number] | undefined {
+  return SUBCOMMANDS.find((entry) => entry.matches(args));
 }
 
 function infoFlag(argument: string | undefined): InfoFlag | undefined {
@@ -215,6 +268,93 @@ export function parseMcpCheckArgs(rest: readonly string[]): McpCheckCommand {
     } else repo = arg;
   }
   if (result.server && result.command) throw new UsageError(`--server and -- cannot be combined. ${MCP_CHECK_USAGE}`);
+  if (repo !== undefined) result.repo = repo;
+  return result;
+}
+
+export interface NewCommand {
+  name?: string;
+  template?: string;
+  list: boolean;
+}
+
+export const NEW_USAGE = "Usage: casper new [name] | casper new <template> <name> | casper new --list";
+
+/**
+ * `rest` is everything after `new`. Only `new`, `new <name>`, `new <template> <name>` and `new --list` are the
+ * command; anything else ("new ideas for the app") stays a prompt (null). A single word that isn't a valid
+ * name ("new ../x") is a usage mistake.
+ */
+export function parseNewArgs(rest: readonly string[]): NewCommand | null {
+  if (rest.length === 0) return { list: false };
+  if (rest.length === 1 && rest[0] === "--list") return { list: true };
+  if (rest.some((arg) => arg.startsWith("-"))) {
+    throw new UsageError(`new takes no other options. ${NEW_USAGE}`);
+  }
+  if (rest.length === 1) {
+    const name = rest[0]!;
+    if (!validName(name)) throw new UsageError(NAME_RULE);
+    return { name, list: false };
+  }
+  if (rest.length === 2 && getTemplate(rest[0]!)) {
+    const [template, name] = rest as [string, string];
+    if (!validName(name)) throw new UsageError(NAME_RULE);
+    return { template, name, list: false };
+  }
+  return null;
+}
+
+export interface SecurityCommand {
+  /** The repository folder; "." when not given. */
+  repo: string;
+  json: boolean;
+  /** A check that did not run, or a new ignore, also exits 1. */
+  strict: boolean;
+  /** Install missing tools first. A run without it never installs anything. */
+  install: boolean;
+  /** A saved tools/list reply of an MCP server: turns on mcp-scanner, which checks the tool descriptions. */
+  mcpTools?: string;
+}
+
+export const SECURITY_USAGE = "Usage: casper security [repo] [--json] [--strict] [--install] [--mcp-tools <file>]";
+const SECURITY_FLAGS = new Set(["--json", "--strict", "--install"]);
+/** One word that can only be a path: it starts with / ./ ../ ~ or a drive (C:\\), or ends with a slash, and has no
+ * spaces. `casper "fix src/app.py"` or `casper "Add POST /notes"` are prompts, never paths. */
+export function looksLikePath(word: string): boolean {
+  if (/\s/.test(word)) return false;
+  return /^(?:\.{1,2}(?:[\\/]|$)|~(?:[\\/]|$)|[\\/]|[A-Za-z]:[\\/])/.test(word) || /[\\/]$/.test(word);
+}
+const PATH_LIKE = /^(?:\.{1,2}(?:[\\/]|$)|~(?:[\\/]|$)|[\\/]|[A-Za-z]:[\\/])|[\\/]/;
+
+/** `security` alone, with its flags, or with one folder is the command; other words are a prompt. The folder
+ * looks like a path (./app, ~/code/app) or is a folder that is there (`casper security app`), so a folder
+ * name never turns into a paid prompt. */
+function isSecurityCommand(rest: readonly string[]): boolean {
+  const words = rest.filter((arg, index) => !arg.startsWith("-") && rest[index - 1] !== "--mcp-tools");
+  return words.length === 0 || (words.length === 1 && ((!/\s/.test(words[0]!) && PATH_LIKE.test(words[0]!)) || isFolder(words[0]!)));
+}
+
+function isFolder(word: string): boolean {
+  try { return statSync(word).isDirectory(); } catch { return false; }
+}
+
+/** `rest` starts with "security". A malformed form is a usage error (exit 64), never a failed check. */
+export function parseSecurityArgs(rest: readonly string[]): SecurityCommand {
+  const result: SecurityCommand = { repo: ".", json: false, strict: false, install: false };
+  let repo: string | undefined;
+  const args = rest.slice(1);
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index]!;
+    if (arg === "--mcp-tools") {
+      const file = args[++index];
+      if (!file || file.startsWith("-") || result.mcpTools !== undefined) throw new UsageError(SECURITY_USAGE);
+      result.mcpTools = file;
+    } else if (arg.startsWith("-")) {
+      if (!SECURITY_FLAGS.has(arg)) throw new UsageError(`Unknown option ${arg}. ${SECURITY_USAGE}`);
+      result[arg.slice(2) as "json" | "strict" | "install"] = true;
+    } else if (repo !== undefined || !arg.trim()) throw new UsageError(SECURITY_USAGE);
+    else repo = arg;
+  }
   if (repo !== undefined) result.repo = repo;
   return result;
 }

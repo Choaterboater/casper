@@ -10,6 +10,205 @@ because GitHub's `latest/download` link skips preview releases. The first publis
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
 
+## v0.2.17: undo and a real safety net
+
+**Not released yet.** The version number and the installers still say v0.2.15; the release step
+sets them and removes this line.
+
+**Undo, redo and diff per task.** Casper keeps a private copy of the folder before and after each
+task, in its own git folder under `~/.casper` (never your `.git`), also in folders that are not git
+repositories. The receipt row offers `1 Undo · 2 Show diff`; Enter runs nothing. `/undo` never
+touches a file you changed since the task (it asks, with `1 Cancel` first; a one-shot run changes
+nothing and exits 1), `/redo` puts the files back, and `/diff` shows only this task's changes. The
+conversation is rewound only when nothing was said since; otherwise the model gets one short note.
+Undo says what it can't reach: secret files and files over 8 MB (never copied), ignored files,
+nested repositories, MCP servers and devices. A file that was there before the task but had no copy
+(git ignored it then, or it was over 8 MB) is never deleted, a file saved while Casper asks is left as
+it is, and a file made again gets your usual permissions. A file the task made over 8 MB is named, not
+counted as deleted, and an undo or redo that put nothing back can be tried again. `casper --json /undo`
+lists the files it put back. `/status` shows the copies' disk size. Saving a remembered test command is undoable. The
+change summary after a receipt now lists only the task's files, not your own earlier edits. See
+[UNDO.md](UNDO.md).
+
+**Saved receipts.** `/receipt` shows the last receipt after a restart, `/receipt 12` and
+`/receipt list` older ones. They are saved with no check output and with secrets hidden.
+
+**Stricter "verified" (owner decision).** The JSON `outcome` is `verified` only when the receipt's
+first line is `✓ Verified` (a proven change). "Checks passed — not proven" is now `not_verified`,
+so `--require-verification` exits 3 for it; `checksPassed` still says the checks passed. The JSON
+receipt fills `task` and `undo`. Evaluation scores that count `verified` move with it; re-score
+saved runs with a free replay. See [SCRIPTING.md](SCRIPTING.md).
+
+**Command-line traps.** An option after the prompt (`casper fix the bug --verify`) exits 64 before
+anything runs; put options first, or quote the whole
+request (`casper "fix the bug --verify"`) to send them as words. `casper <folder>` opens that folder, and a
+single word that can only be a path but is not a folder exits 64 with "Not a folder" (a quoted
+request such as `casper "fix src/app.py"` is still a prompt). A one-shot receipt run with `--cd`
+prints its undo command with the same `--cd`.
+
+**The shell sandbox.** Every shell command Casper runs now goes through one sandbox: the AI's
+shell, your checks (proof and trace copies too), services and dev servers, network and security
+tool runs, and `uv`/`bun` in `casper new`. On Linux it is bubblewrap with seccomp (install
+`bubblewrap` and `socat`); on macOS `sandbox-exec`. A command can write only the project, temp and
+package caches, can't read `~/.ssh`, cloud logins or Casper's own approvals, can't change git's
+hooks or config (a submodule's too), and reaches only listed package registries and code hosts. Any other host asks
+`1 No · 2 Allow for this session · 3 Always for this project` (Enter keeps it blocked; a run that
+can't ask blocks it and says so). Dev servers and services keep the machine's network so you can
+reach them; network and security tools get none (Linux). A check the sandbox stopped reads
+`✗ test — blocked by the sandbox (wanted to write …)` and is never sent for repair. While planning
+the project is read-only to the shell. The banner and `/status` show a `shell` line; `/sandbox`
+shows what it holds and `/sandbox forget <host>` takes a host back. On Windows, or Linux without
+bubblewrap, nothing holds the shell: it says so, and the AI's shell asks `Run this command?` before
+each command (`1 No` first; a one-shot run refuses and names `--no-sandbox`). `--no-sandbox` (or
+`sandbox: off` in your own config) turns it off; the receipt and the JSON `sandbox` field say so.
+Only you can widen it (`sandbox.allowedDomains`, `sandbox.allowWrite`, `shell.keepEnv` in
+`~/.casper/config.yaml`); a project can only add denies, and a repo's `.pi/sandbox.json` is
+ignored. The AI's shell no longer gets AI provider keys, and Pi's long-output logs go in a private
+folder removed at exit. The service tool refuses the same git commands as bash. The compiled Linux
+executable carries the seccomp helper. See [SECURITY.md](SECURITY.md), which now names the test
+behind each claim (a test checks the doc against the code).
+
+**The AI security review.** After its tools, `/security-review` now offers
+`1 Stop here · 2 Run the AI review`, with the files it would read (this branch's changes against
+the default branch, else your changes since the last commit), the model and a lower-bound cost.
+Enter stops and spends nothing. The review is one read-only child on your review model with its own
+bounds (30 steps, 120 reads, 10 minutes): no shell, no edits. Key files, `.env` files and files
+gitleaks flagged are never opened for it and its greps leave their lines out; everything else it
+reads is scrubbed, device configs included whatever `/secrets files` says. A finding is shown only
+with a real `file:line` here and an example input, labelled `(the AI's opinion, not checked by a
+tool)`; the rest are counted as not shown, and the tokens used are named. Nothing the AI says can
+approve or hide an ignore. A one-shot or `--json` run never starts it by itself; `casper
+"/security-review ai"` runs it without asking. `casper security` still never calls a model. See
+[SECURITY_CHECKS.md](SECURITY_CHECKS.md#the-ai-review).
+
+**Where a release was built.** The release job now signs GitHub build provenance over every file in
+`SHA256SUMS`, and waits for the Linux, macOS and Windows previews to pass on the same commit. When
+`gh` is installed and signed in, `install.sh` and `install.ps1` check it after the SHA-256:
+`Verified: built by GitHub Actions from Choaterboater/casper.`, or `This download doesn't match a
+Casper build from GitHub. Nothing installed.` Without `gh` they say `Checked SHA-256. Install gh to
+also check where it was built.` A macOS preview workflow runs the suite and the live sandbox tests;
+Linux CI installs bubblewrap and runs them too. Dependabot keeps the workflow pins current.
+
+If the sandbox can't start when first used, Casper says so once, the AI's shell asks from that
+command on, and checks go ahead not sandboxed, as the receipt says. On a busy Linux machine a command
+now waits for the sandbox's network relay before it runs, so its first request is not lost. The empty
+stand-in files the Linux sandbox puts in the folder you started Casper in (`.bashrc`, `.gitconfig`,
+`.vscode` and the like) are removed as soon as no command runs, so they no longer show in `git status`
+or in a receipt's changed files.
+
+**Limits of the sandbox.** MCP servers, language servers, the debugger, the browser and lab checks
+are not in it; a receipt whose lab check ran says it ran outside the sandbox. Dev servers keep the machine's network on Linux, and inside the Linux sandbox
+`localhost` is the sandbox's own. Windows has no sandbox yet.
+
+**Plan editor asks before it builds.** On the rich terminal, Enter in the plan editor (plan first
+or `/plan`) no longer builds straight away: it goes on to "Build this plan?" with `1 Stop · 2 Build`,
+as the plain terminal already did, so Enter never starts a build that uses tokens. Esc still stops.
+One-shot and `--json` runs are unchanged: they show the plan and build nothing.
+
+## v0.2.16: build new things
+
+Start new projects, see pages load after edits, retry a stuck repair on a bigger model, and run
+network and security checks, all without spending tokens unless you pick a paid choice. See
+[NEW.md](NEW.md), [VERIFICATION.md](VERIFICATION.md), [NETWORK-CHECKS.md](NETWORK-CHECKS.md),
+[SECURITY_CHECKS.md](SECURITY_CHECKS.md) and [SECURITY.md](SECURITY.md).
+
+**Not released yet.** The version number and the installers still say v0.2.15; the release step
+sets them and removes this line.
+
+**New projects (`casper new`).** `casper new` asks the kind and the name, builds the project in
+`~/Projects/<name>` with `uv` or `bun`, runs its own tests, makes the first commit with your git
+settings, then opens Casper there. No model is called. `casper new <template> <name>` asks
+nothing; `casper new --list` shows the templates: Python tool, MCP server for your network, Mist
+Python scripts, web app, NOC dashboard (Streamlit), Aruba CX Ansible and Junos Ansible. The last
+line says `Ready: … tests passed`, never "verified". Exit codes: 0 ready, 1 created but not ready
+(or nothing created), 64 usage. Inside Casper, `/new` does the same. Started in an empty folder,
+Casper asks once whether to start a project there. A request like "build a tool that lists Mist
+APs per site" outside a project asks `Build this as a new … in ~/Projects/<name>? 1 Use this folder
+· 2 Yes · 3 Other kind` before the model starts (Enter keeps the folder). One-shot, `--json` and piped runs never ask:
+they keep the folder and print the `casper new` command.
+
+**Page checks.** In a web or Streamlit project, after the model edits files that reach a page,
+Casper starts the dev server (it says so first, because it runs your project's code), opens the
+changed pages and reports `✓ /dashboard loads · 0 console errors`. A failing page is line 1 of the
+receipt and goes to the repair. Without Chrome the page is fetched over HTTP, and the receipt says
+the console was not checked. `pages:` in `.casper/project.yaml` picks up to 8 pages, or `off`.
+SQLite migrations are applied to a throwaway database after a change to the migrations folder
+(Postgres is never run on its own).
+
+**Your big model.** When repairs run out, an interactive session asks once: `1 Stop here · 2 Retry
+with your big model` with the model and a lower-bound cost (`at least ≈ $0.72`). Enter stops. It
+is not offered when you are already on it or when it can't hold the conversation. Casper switches
+back afterwards. `/model big <model>` sets it; `repair.bigModelLastTry: true` in your own config
+runs the last repair on it without asking.
+
+**Suggested next steps.** Under the receipt, the row of numbered steps can include suggestions from
+slot 3: add a test that proves the bug stays fixed, remember a test command (only a known test
+runner the model ran and passed, with the exact line saved), or save an Ansible check Casper
+found. Nothing blocks and nothing runs until you press a number. A suggestion you ignore 3 times
+in a project is hidden there for 14 days. `/suggestions off` or `suggestions: false` turns them off.
+
+**Plan first.** A request that asks for several things offers "plan first" inside the checklist
+panel, so there is still one question before work. `/plan <request>` plans straight away. While
+planning, only look-only tools run: edits, MCP tools and Casper's own tools are refused, and a file
+that changes anyway is named on the receipt. The plan opens in the editor: Enter builds, Esc stops.
+
+**Network checks.** Casper finds Ansible playbooks and offers ready-made checks (Aruba CX and Junos
+syntax, Junos render); they run only after you save one with `/verify add <name>`, and never with
+the repo's own `ansible.cfg`. Junoser, yanglint and hier_config checks can be named under
+`verify.checks`. hier_config gives a report (a diff), never a pass. **Lab checks** (`junos-commit`,
+AOS-CX `ansible --check`) run only when you type `/verify <name>` and pick Run on the lab (Skip is 1, so Enter
+sends nothing); the hosts must be in
+the lab list in `~/.casper/config.yaml`. A lab dry run that passes is shown but never makes a run
+Verified. The AI can't start a lab check.
+
+**Security checks.** `/security-review` and `casper security [folder]` run gitleaks, ruff S,
+semgrep with Casper's own rules, zizmor, osv-scanner and ansible-lint on your project, with no
+model call. Missing tools are installed only after you pick Install, from pinned hashes. An ignore
+added since the last commit counts only after you approve it (Enter leaves it flagged), and approvals are kept in
+`~/.casper`, never in the repo. The report says what the tools found; it never calls code safe or
+secure. `casper security` exits 0 with no problems, 1 with problems, 64 on a usage mistake;
+`--mcp-tools <file>` turns on mcp-scanner.
+
+**Enter is the safe choice.** Enter picks choice 1 at Casper's numbered questions, and choice 1
+now never builds, installs, downloads, spends tokens, remembers or reaches a lab: Stop, Not now, Use
+this folder, Leave it, Just this time or Keep writes off. `Build this plan?`, the new-project, model
+failure, timeout, already-failing and security-install questions were reordered, and in the `/mcp`
+boxes `2` now remembers a server or turns writes on. The AI's own questions are unchanged.
+
+**Safety fixes.** The AI's file tools no longer open private places (`~/.ssh`, login files),
+follow links out of the project or change git's own files. Values in `.env` and credential files
+are hidden from the AI. Repo checks, services and dev servers run without AI provider keys.
+Questions from the AI start with `The AI asks:`. Casper's release workflow pins every action to a
+commit, and the job that publishes runs no project code. See [SECURITY.md](SECURITY.md).
+
+**Scripts.** `--json` adds check fields `kind`, `label`, `hosts`, `summary`; the `pages` phase; and
+receipt fields `pages`, `checksPassed`, `repairModels`, `bigModel`, `security`, `task`, `undo`,
+`changedWhilePlanning` and `pageNotes`, all within `v: 1`. `outcome` and exit codes are unchanged.
+See [SCRIPTING.md](SCRIPTING.md).
+
+**Owner decisions still open.**
+- Lab checks ship now, started by you only. The design review moved them to v0.2.18, behind the
+  sandbox's network allowlist, because Casper can't block other network traffic yet. The question
+  before each run says so.
+- The SQL migrations check ships now; the design review had moved it to a later list.
+- All seven templates are listed as ready.
+
+**Moved to v0.2.17, with the reason.**
+- The security *model* review (a model reading code for security problems): it must wait for the
+  shell sandbox and the wider secret hiding, so the model can't read files the tools flagged.
+- Undo, `/diff` per task and saved receipts (`task` and `undo` stay `null` in JSON until then);
+  the remembered test command is not yet undoable.
+- The shell sandbox: the AI's shell, dev servers, checks and lab checks are not held back by the
+  operating system yet. Pi's temporary shell logs get private permissions with it.
+
+**Limits.**
+- None of the new checks is sandboxed. Dev servers and checks run the repository's code with your
+  permissions and network. Use `--no-verify` in a repository you don't trust.
+- The plan turn's look-only list is a list, not a sandbox (for example `git diff` honours a
+  repository's own `diff.external`).
+- The AI's shell can still write your approvals and lab "Always" answers in `~/.casper`.
+- ansible-lint loads the repository's own Ansible plugins; only `ansible.cfg` is kept out.
+
 ## v0.2.15: MCP for network servers, with writes off by default
 
 This release is about MCP servers (tool servers the AI can call) for network gear:
@@ -500,6 +699,14 @@ tag, for example `v0.2.15`. It:
 - refuses files that contain personal build paths;
 - publishes a prerelease titled `Casper <tag> — preview` with every file in
   `dist/release`.
+
+From v0.2.16 (not used for a release yet) the workflow has two jobs. The **build** job can
+only read: it does the checks and the build above, and it also stops unless the Linux, macOS
+and Windows preview workflows passed on this exact commit (run them first), and stops while
+the tag's section below still says "Not released yet". The **publish** job is the only one
+that can write; it runs no project code, signs GitHub build provenance over every file in
+`SHA256SUMS`, checks the files again and publishes the prerelease. Every action in every
+workflow is pinned to a full commit (`tests/release-workflows.test.ts` fails otherwise).
 
 The release notes come from this file: everything under the heading that starts with
 `## <tag>` (for example `## v0.2.15: ...`) down to the next `## v` heading, plus install

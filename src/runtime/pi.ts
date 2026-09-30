@@ -1,5 +1,6 @@
 import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
 import { lstat, realpath } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { READ_ONLY_STATE_CONFLICT } from "./types";
 import { PiModels } from "./pi-models";
@@ -9,6 +10,8 @@ import {
   createAgentSessionFromServices,
   createAgentSessionRuntime,
   createAgentSessionServices,
+  createBashToolDefinition,
+  createLocalBashOperations,
   getAgentDir,
   ModelRuntime,
   SessionManager,
@@ -17,12 +20,15 @@ import {
 import type {
   AgentSession,
   AgentSessionRuntime,
+  BashOperations,
   CreateAgentSessionRuntimeFactory,
   ExtensionAPI,
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { blockedGitCommand } from "./git-guard";
+import { gitGuardReason } from "./git-guard";
+import { fileToolGate, gitInternalsCommand } from "../platform/project-paths";
+import { withoutProviderKeys } from "../platform/environment";
 import { nativeEditPath, observationInput, observationOutput, patchLineCounts, writeLineCounts, type ToolObservationInput } from "./observation";
 import type {
   AgentRuntime,
@@ -34,6 +40,7 @@ import type {
   RuntimeForkOptions,
   RuntimeReadOnlyStartOptions,
   RuntimeSession,
+  RuntimeShell,
   RuntimeSessionInfo,
   RuntimeStartOptions,
   RuntimeState,
@@ -41,6 +48,7 @@ import type {
   RuntimeSwitchOptions,
   RuntimeTool,
   RuntimeUsage,
+  RuntimeModelInfo,
   RuntimeConversation,
 } from "./types";
 
@@ -140,6 +148,37 @@ class PiRuntimeSession implements RuntimeSession {
     });
   }
 
+  conversationMark(): string | null {
+    return this.runtime.session.sessionManager.getLeafId();
+  }
+
+  async rewindTo(mark: string | null, expected: string | null): Promise<boolean> {
+    if (this.readOnly || this.busy || this.models.busy) return false;
+    const session = this.runtime.session;
+    const manager = session.sessionManager;
+    if (manager.getLeafId() !== expected) return false;
+    if (mark === expected) return true;
+    const branch = manager.getBranch();
+    const at = mark === null ? -1 : branch.findIndex((entry) => entry.id === mark);
+    if (mark !== null && at < 0) return false;
+    const next = branch[at + 1];
+    if (!next) return false;
+    // Navigating to a user or Casper message puts the conversation just before it, with no summary and no model
+    // call. The returned editor text is Casper's composed prompt, not the user's words, so it is not used.
+    const startsTurn = (entry: typeof next) => entry.type === "custom_message" || (entry.type === "message" && entry.message.role === "user");
+    let target: string | undefined;
+    if (startsTurn(next)) target = next.id;
+    else if (mark !== null && !startsTurn(branch[at]!)) target = mark;
+    if (!target) return false;
+    // Pi does nothing when asked to go to the entry it is already on: step onto the mark first, then onto the entry.
+    if (target === manager.getLeafId()) {
+      if (mark === null) return false;
+      if ((await session.navigateTree(mark, { summarize: false })).cancelled) return false;
+    }
+    const result = await session.navigateTree(target, { summarize: false });
+    return !result.cancelled && manager.getLeafId() === mark;
+  }
+
   get busy(): boolean { return this.promptActive || !this.runtime.session.isIdle; }
 
   selectModel(options: RuntimeModelSelectionOptions): Promise<RuntimeModelSelection> {
@@ -161,6 +200,10 @@ class PiRuntimeSession implements RuntimeSession {
 
   getModelRoles(): Record<string, string> {
     return this.models.getRoles();
+  }
+
+  describeModel(query: string): RuntimeModelInfo | undefined {
+    return this.models.describe(query);
   }
 
   setModelRole(role: string, selector?: string): Promise<Record<string, string>> {
@@ -455,7 +498,7 @@ export const PI_TOOL_RULES: readonly string[] = [
  * cuts short a command a check itself would allow, while a day-long timeout cannot hang a session. */
 export const BASH_TIMEOUT_CAP_SECONDS = 3600;
 /** Native tools whose output may hold a device config (see scrubToolOutput). */
-const SCRUBBED_TOOLS = new Set(["read", "bash", "powershell", "grep"]);
+const SCRUBBED_TOOLS = new Set(["read", "bash", "powershell", "grep", "service"]);
 export const SCRUB_FAILED_TEXT = "Output not shown: Casper could not check it for device secrets. Try a smaller read or another command.";
 
 export class PiRuntime implements AgentRuntime {
@@ -524,13 +567,14 @@ export class PiRuntime implements AgentRuntime {
 
     const createRuntime: CreateAgentSessionRuntimeFactory = async ({ cwd, sessionManager, sessionStartEvent }) => {
       readOnly?.signal.throwIfAborted();
+      const pathContext = { root: cwd, home: os.homedir(), agentDir };
       const extensionFactory = (pi: ExtensionAPI) => {
         // Runs after the runtime's own attribution, so Casper's identity replaces Pi's. With
         // CASPER_TELEMETRY=0 there is none to add, and the runtime's is off too (agent-store.ts).
         pi.on("before_provider_headers", (event, ctx) => {
           if (isOpenRouterModel(ctx.model)) Object.assign(event.headers, openRouterAttribution());
         });
-        if (readOnly) pi.on("tool_call", () => {
+        if (readOnly) pi.on("tool_call", (event) => {
           if (readOnly.signal.aborted) {
             limitReason = "Subagent cancelled";
             return { block: true, reason: limitReason, terminate: true };
@@ -543,18 +587,34 @@ export class PiRuntime implements AgentRuntime {
             // returns nothing at all.
             return { block: true, reason: `${limitReason}; reply now with your findings and stop calling tools` };
           }
+          const pathReason = fileToolGate(event.toolName, event.input, pathContext);
+          if (pathReason) return { block: true, reason: pathReason };
+          const gateReason = readOnly.beforeToolGate?.(event.toolName, event.input);
+          if (gateReason) return { block: true, reason: gateReason };
         });
         if (!readOnly) pi.on("tool_call", (event) => {
           // Keep Pi's native execution, output handling, and process-tree cleanup.
           if (event.toolName === "bash" && event.input.timeout === undefined) event.input.timeout = 120;
           else if (event.toolName === "bash" && typeof event.input.timeout === "number" && event.input.timeout > BASH_TIMEOUT_CAP_SECONDS) event.input.timeout = BASH_TIMEOUT_CAP_SECONDS;
-          const risky = event.toolName === "bash" && typeof event.input.command === "string" ? blockedGitCommand(event.input.command) : undefined;
-          if (risky) return { block: true, reason: `Casper does not let the model run \`${risky}\`: it can set aside or discard the user's uncommitted work. Leave the working tree as it is, or ask the user to run it.` };
-          if (options.beforeToolGate && ["edit", "write", "bash", "powershell"].includes(event.toolName)) {
+          const risky = event.toolName === "bash" && typeof event.input.command === "string" ? gitGuardReason(event.input.command) : undefined;
+          if (risky) return { block: true, reason: risky };
+          // Private files, links out of the project and git's own files (see src/platform/project-paths.ts).
+          const pathReason = fileToolGate(event.toolName, event.input, pathContext);
+          if (pathReason) return { block: true, reason: pathReason };
+          const gitInternals = (event.toolName === "bash" || event.toolName === "powershell") && typeof event.input.command === "string"
+            ? gitInternalsCommand(event.input.command, cwd, pathContext.home) : undefined;
+          if (gitInternals) return { block: true, reason: gitInternals };
+          // Every tool, Casper's own and MCP tools too, so a plan turn can refuse anything that changes state.
+          if (options.beforeToolGate) {
             const reason = options.beforeToolGate(event.toolName, event.input);
             if (reason) return { block: true, reason };
           }
         });
+        // The AI's bash: Casper's own operations (adapted from Pi's sandbox example), never a repo's .pi/sandbox.json.
+        if (!readOnly) pi.registerTool({ ...createBashToolDefinition(cwd, {
+          operations: casperBashOperations(options.shell),
+          spawnHook: (context) => ({ ...context, env: withoutProviderKeys(context.env, options.shell?.keepEnv ?? []) }),
+        }) });
         if (options.scrubToolOutput) pi.on("tool_result", async (event, ctx) => {
           if (!SCRUBBED_TOOLS.has(event.toolName)) return;
           const texts = event.content.flatMap((block) => block.type === "text" ? [block.text] : []);
@@ -699,4 +759,38 @@ function readSmallText(file: string): string | undefined | null {
     if (!stats.isFile() || stats.size > 1024 * 1024) return null;
     return readFileSync(file, "utf8");
   } catch (error) { return (error as NodeJS.ErrnoException).code === "ENOENT" ? undefined : null; }
+}
+
+/**
+ * Pi's own local bash execution with Casper's shell around it: a question first when no sandbox can run, the
+ * sandbox's wrapper when one does, and the sandbox's refusal added to the output the AI reads ("[sandbox] blocked:
+ * wanted to write /etc/hosts") so it stops retrying. Pi writes the full output of a long command to a temp file;
+ * that file goes in a private folder of Casper's (os.tmpdir() is read at that moment), not the shared temp folder.
+ */
+export function casperBashOperations(shell: RuntimeShell | undefined, local: BashOperations = createLocalBashOperations()): BashOperations {
+  return {
+    async exec(command, cwd, options) {
+      const refused = await shell?.approve?.(command, options.signal);
+      if (refused) throw new Error(refused);
+      const wrapped = shell ? await shell.wrap(command, cwd) : { command };
+      const logDir = process.platform === "win32" ? undefined : await shell?.logDir?.();
+      let tail = "";
+      const onData = (data: Buffer) => {
+        if (wrapped.id) tail = (tail + data.toString("utf8")).slice(-16_384);
+        if (!logDir) { options.onData(data); return; }
+        const previous = process.env.TMPDIR;
+        process.env.TMPDIR = logDir;
+        try { options.onData(data); }
+        finally { if (previous === undefined) delete process.env.TMPDIR; else process.env.TMPDIR = previous; }
+      };
+      try {
+        const result = await local.exec(wrapped.command, cwd, { ...options, onData });
+        if (wrapped.id && result.exitCode !== 0 && shell?.refused) {
+          const line = await shell.refused(wrapped.id, tail);
+          if (line) onData(Buffer.from(`\n${line}\n`));
+        }
+        return result;
+      } finally { if (wrapped.id) shell?.finished?.(wrapped.id); }
+    },
+  };
 }

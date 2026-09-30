@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { isolatedEnvironment } from "../src/platform/environment";
 import { notesServer } from "./support/notes-server";
+import { sandboxAvailable } from "./support/platform";
 
 const cli = path.resolve(import.meta.dir, "../src/cli.ts");
 const cleanup: Array<() => Promise<unknown>> = [];
@@ -274,6 +275,9 @@ test("--json streams v1 JSON Lines on stdout: session, text, tools, Casper's che
   // cost is the catalog estimate for those tokens.
   expect(receipt.usage.estimatedCost).toBeCloseTo(0.00042, 10);
   receipt.usage.estimatedCost = "<cost>";
+  // Where the real sandbox runs here, the check ran in it and the receipt says so.
+  if (sandboxAvailable) expect(receipt.sandbox).toEqual({ held: true, reason: null });
+  delete receipt.sandbox;
   expect(stream).toEqual([
     { v: 1, type: "session_start", casper: "<version>", cwd: "<project>", session: "<id>", provider: "fixture", model: "first", effort: stream[0].effort },
     { v: 1, type: "phase", phase: "task", state: "start", atMs: "<ms>" },
@@ -299,6 +303,9 @@ test("--json streams v1 JSON Lines on stdout: session, text, tools, Casper's che
       proof: { status: "proven", check: "test", command: "grep -q fixed sum.js", testsChanged: false, without: { exitCode: 1, ended: "fail" } },
       proofSkipped: null,
       review: { done: ["sum.js is fixed — the test check"], open: [] }, acceptance: null, checklist: null, services: [], smoke: null,
+      // Added in v0.2.16, within v1.
+      pages: null, checksPassed: true, repairModels: null, bigModel: null, security: null, task: 1, undo: { available: true, reason: null },
+      changedWhilePlanning: null, pageNotes: null,
       verdict: "✓ Verified — the checks pass, and the tests fail without the change", text: "<receipt text>" },
   ]);
 }, 30_000);
@@ -393,7 +400,9 @@ test("a feature worded like a test task is still reviewed and proven; a docs-onl
   await writeFile(path.join(docs.project, ".casper/project.yaml"), 'verify:\n  test: "test -f sum.js"\n');
   const documented = await docs.run(["--json", "--verify", "Add notes about sum.js"]);
   const docsReceipt = JSON.parse(documented.stdout.trim().split("\n").at(-1)!);
-  expect({ outcome: docsReceipt.outcome, proof: docsReceipt.proof, review: docsReceipt.review }).toEqual({ outcome: "verified", proof: null, review: null });
+  expect({ outcome: docsReceipt.outcome, proof: docsReceipt.proof, review: docsReceipt.review }).toEqual({ outcome: "not_verified", proof: null, review: null });
+  // The checks passed; the docs edit was not proven, so the outcome is not verified (and --require-verification exits 3).
+  expect({ checksPassed: docsReceipt.checksPassed, exit: documented.exit }).toEqual({ checksPassed: true, exit: 0 });
   expect(docs.payloads.some((payload) => lastUser(payload).includes(REVIEW))).toBe(false);
 }, 90_000);
 
@@ -485,13 +494,13 @@ test("verification.acceptance: tests written from the request alone decide betwe
   expect(crossed.payloads.map((payload) => [isAcceptance(payload), payload.model])).toEqual([[false, "first"], [false, "first"], [true, "second"]]);
 
   // warn: a request Casper does not prove (intent configure) is still checked, and a failure only names
-  // what the request's tests did not confirm: verified, exit 0 even when verification is required.
+  // what the request's tests did not confirm. Not proven, so not verified: exit 3 when verification is required.
   const warned = await accepting("expect(value).toBe(\"OTHER\")");
   await setUp(warned, "warn");
   const warnedRun = await warned.run(["--json", "--verify", "--require-verification", "Configure value to be FIXED"]);
   const warnedReceipt = JSON.parse(warnedRun.stdout.trim().split("\n").at(-1)!);
   expect({ exit: warnedRun.exit, outcome: warnedReceipt.outcome, proof: warnedReceipt.proof, acceptance: { ...warnedReceipt.acceptance, output: undefined } })
-    .toEqual({ exit: 0, outcome: "verified", proof: null, acceptance: { status: "fail", mode: "warn", unconfirmed: ["\"value is FIXED\""], output: undefined } });
+    .toEqual({ exit: 3, outcome: "not_verified", proof: null, acceptance: { status: "fail", mode: "warn", unconfirmed: ["\"value is FIXED\""], output: undefined } });
   expect(warnedReceipt.text).toContain("⚠ Not confirmed by tests written from the request: \"value is FIXED\"");
 }, 120_000);
 
@@ -666,7 +675,9 @@ test("--json --verify: the model records a smoke check, edits, and Casper replay
   // The model saw its check fail before the edit.
   const toolResult = JSON.parse(String(f.payloads[1]!.messages.at(-1)!.content));
   expect(toolResult.data.check).toMatchObject({ baseline: "fail", actual: { status: 404 } });
-  expect({ exit: result.exit, outcome: receipt.outcome, smoke: receipt.smoke }).toEqual({ exit: 0, outcome: "verified", smoke: { status: "pass", checks: [{
+  // The smoke check passed with a failing baseline, but no test was compared with and without the change: the checks
+  // passed, and the outcome is not "verified" (a proven change).
+  expect({ exit: result.exit, outcome: receipt.outcome, checksPassed: receipt.checksPassed, smoke: receipt.smoke }).toEqual({ exit: 0, outcome: "not_verified", checksPassed: true, smoke: { status: "pass", checks: [{
     id: "smoke-1", name: "create note", service: "api", source: "model", request: { method: "POST", path: "/notes" }, baseline: "fail", status: "pass",
     actual: { status: 201, body: '{"id":1,"title":"a"}' }, restarted: true, evidence: true }] } });
   expect(receipt.services).toEqual([{ name: "api", origin: expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+$/), state: "ready" }]);
@@ -675,5 +686,15 @@ test("--json --verify: the model records a smoke check, edits, and Casper replay
   // Casper started the unsolved server, then the fixed one after the edit; neither outlives the run.
   const pids = (await readFile(pidLog, "utf8")).trim().split("\n").map(Number);
   expect(pids).toHaveLength(2);
-  for (const pid of pids) expect(() => process.kill(pid, 0)).toThrow();
+  if (sandboxAvailable && process.platform === "linux") {
+    // In the Linux sandbox a service has its own process numbers, so look for any process still in the project.
+    const project = await realpath(f.project);
+    const left: string[] = [];
+    for (const entry of await readdir("/proc")) {
+      if (!/^\d+$/.test(entry)) continue;
+      const cwd = await import("node:fs/promises").then((fs) => fs.readlink(`/proc/${entry}/cwd`)).catch(() => "");
+      if (cwd === project || cwd.startsWith(`${project}/`)) left.push(entry);
+    }
+    expect(left).toEqual([]);
+  } else for (const pid of pids) expect(() => process.kill(pid, 0)).toThrow();
 }, 60_000);

@@ -1,0 +1,18 @@
+{
+  "id": "web-app",
+  "version": 1,
+  "kind": "web app",
+  "title": "Web app (React with Bun)",
+  "description": "A React web app on Bun's dev server, with a bun test page test and a typecheck.",
+  "defaultName": "my-app",
+  "tool": "bun",
+  "init": ["bun", "init", "--react", "-y"],
+  "add": [],
+  "addDev": ["@happy-dom/global-registrator"],
+  "replace": ["README.md", "bunfig.toml"],
+  "packageJson": {
+    "name": "{{name}}",
+    "scripts": { "test": "bun test", "typecheck": "tsc --noEmit" }
+  },
+  "ready": true
+}

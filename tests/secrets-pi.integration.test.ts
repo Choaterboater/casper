@@ -1,5 +1,5 @@
 import { afterEach, expect } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { posixOnly } from "./support/platform";
@@ -23,7 +23,8 @@ function calls(tools: Array<{ name: string; args: unknown }>): Response {
 const CONFIG = "hostname sw1\nsnmp-server community FixtureComm\n";
 
 /** Runs the Pi fixture once; the model makes the given tool calls in one turn, then answers. */
-async function run(tools: Array<{ name: string; args: unknown }>, extraEnv: Record<string, string> = {}) {
+async function run(tools: Array<{ name: string; args: unknown }>, extraEnv: Record<string, string> = {},
+  setup?: (dirs: { root: string; home: string; project: string }) => Promise<void>) {
   let step = 0;
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-pi-scrub-"));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
@@ -32,6 +33,8 @@ async function run(tools: Array<{ name: string; args: unknown }>, extraEnv: Reco
   await writeFile(path.join(project, "backups/sw1.cfg"), CONFIG);
   await writeFile(path.join(project, "src/parser.test.ts"), `const sample = "snmp-server community FixtureComm";\n`);
   await writeFile(path.join(project, "notes.cfg"), "snmp-server community RealComm\n");
+  await writeFile(path.join(project, ".env"), "MIST_APITOKEN=abc123\nCENTRAL_CLIENT_SECRET='s3cr3t-central'\nLOG_LEVEL=debug\n");
+  await setup?.({ root, home, project });
   const payloads: Payload[] = [];
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: async request => {
     payloads.push(await request.json());
@@ -51,7 +54,7 @@ async function run(tools: Array<{ name: string; args: unknown }>, extraEnv: Reco
   const result = JSON.parse(stdout.slice(stdout.indexOf("SCRUB_RESULT=") + "SCRUB_RESULT=".length).trim());
   // Only what the tools gave back (the model's own call arguments are left out).
   const toolMessages = (payloads[1]?.messages ?? []).filter((message) => message.role === "tool");
-  return { result, payloads, project, sent: JSON.stringify(toolMessages) };
+  return { result, payloads, project, root, home, sent: JSON.stringify(toolMessages) };
 }
 
 posixOnly("a config file read and config-looking command output reach the model with secrets hidden; source code is unchanged", async () => {
@@ -98,4 +101,146 @@ posixOnly("when the secret check itself fails, the output is not shown to the mo
   const { sent } = await run([{ name: "read", args: { path: "backups/sw1.cfg" } }], { FIXTURE_SCRUB_THROW: "1" });
   expect(sent).not.toContain("FixtureComm");
   expect(sent).toContain("Output not shown: Casper could not check it for device secrets.");
+}, 30_000);
+
+posixOnly("a .env read, cat and grep reach the model with values hidden, in the main session and with /secrets files off", async () => {
+  const tools = [
+    { name: "read", args: { path: ".env" } },
+    { name: "bash", args: { command: "cat .env; printenv FIXTURE_PRODUCT_TOKEN", timeout: 10 } },
+    { name: "grep", args: { pattern: "TOKEN", path: "." } },
+  ];
+  for (const extra of [{}, { FIXTURE_FILES_OFF: "1" }] as Record<string, string>[]) {
+    const { sent } = await run(tools, { FIXTURE_PRODUCT_TOKEN: "prod-token-0123456789", ...extra });
+    expect(sent).not.toContain("abc123");
+    expect(sent).not.toContain("s3cr3t-central");
+    expect(sent).not.toContain("prod-token-0123456789");
+    expect(sent).toContain("MIST_APITOKEN=<secret hidden>");
+    // Names and ordinary settings stay, so the AI still knows what the file holds.
+    expect(sent).toContain("LOG_LEVEL=debug");
+  }
+}, 60_000);
+
+posixOnly("a read-only child (/delegate, the model review) never sees a .env value", async () => {
+  const { sent } = await run([
+    { name: "read", args: { path: ".env" } },
+    { name: "grep", args: { pattern: "SECRET", path: "." } },
+  ], { FIXTURE_READ_ONLY: "1" });
+  expect(sent).not.toContain("abc123");
+  expect(sent).not.toContain("s3cr3t-central");
+  expect(sent).toContain("CENTRAL_CLIENT_SECRET=");
+}, 30_000);
+
+posixOnly("the AI security review's child can't read .env, keys or a file gitleaks flagged, and its greps leave them out", async () => {
+  const { sent, result } = await run([
+    { name: "read", args: { path: ".env" } },
+    { name: "read", args: { path: "src/settings.py" } },
+    { name: "read", args: { path: "src/parser.test.ts" } },
+    { name: "grep", args: { pattern: "LIVE", path: "." } },
+    // Pi drops a leading @ and follows links: the same files by other names.
+    { name: "read", args: { path: "@.env" } },
+    { name: "read", args: { path: "notes.txt" } },
+    { name: "read", args: { path: "code/settings.py" } },
+  ], { FIXTURE_REVIEW: "1" }, async ({ project }) => {
+    await writeFile(path.join(project, "src/settings.py"), "API_KEY_VALUE = 'LIVE-sk-9f8e7d6c5b4a'\n");
+    await writeFile(path.join(project, "src/app.py"), "MODE = 'LIVE-mode'\n");
+    await writeFile(path.join(project, ".env"), "MIST_APITOKEN=LIVE-abc123\nDB_URL=postgres://app:LIVE-dbpass@db/app\n");
+    await symlink(".env", path.join(project, "notes.txt"));
+    await symlink("src", path.join(project, "code"));
+  });
+  const ends = result.toolEnds as Array<{ toolName: string; isError: boolean; output?: { text?: string } }>;
+  expect(ends.filter((event) => event.toolName === "read" && event.isError).map((event) => event.output?.text)).toEqual([
+    expect.stringContaining("Not read: .env may hold secrets"), expect.stringContaining("Not read: src/settings.py may hold secrets"),
+    expect.stringContaining("Not read: .env may hold secrets"), expect.stringContaining("Not read: .env may hold secrets"),
+    expect.stringContaining("Not read: src/settings.py may hold secrets"),
+  ]);
+  expect(sent).not.toContain("LIVE-dbpass");
+  expect(sent).toContain("const sample");
+  expect(sent).toContain("src/app.py:1: MODE = 'LIVE-mode'");
+  expect(sent).not.toContain("sk-9f8e7d6c5b4a");
+  expect(sent).not.toContain("LIVE-abc123");
+  expect(sent).toContain("3 matching lines from files that may hold secrets not shown.");
+}, 30_000);
+
+/** A project with a link out, a home with private files, and git hooks. */
+async function linkedProject({ root, home, project }: { root: string; home: string; project: string }) {
+  await mkdir(path.join(root, "outside"), { recursive: true });
+  await writeFile(path.join(root, "outside/secret.txt"), "OUTSIDE_SECRET_TEXT\n");
+  await symlink(path.join(root, "outside/secret.txt"), path.join(project, "notes.md"));
+  await symlink(path.join(root, "outside"), path.join(project, "docs"));
+  await mkdir(path.join(home, ".ssh"), { recursive: true });
+  await writeFile(path.join(home, ".ssh/id_test"), "PRIVATE_SSH_KEY_TEXT\n");
+  await mkdir(path.join(project, ".git/hooks"), { recursive: true });
+  await writeFile(path.join(project, ".git/config"), "[core]\n\tbare = false\n");
+}
+
+posixOnly("the AI's file tools don't follow links out of the project or read private files", async () => {
+  const { sent, result } = await run([
+    { name: "read", args: { path: "notes.md" } },
+    { name: "read", args: { path: "~/.ssh/id_test" } },
+    { name: "grep", args: { pattern: "SECRET", path: "docs" } },
+    { name: "ls", args: { path: "docs" } },
+  ], {}, linkedProject);
+  expect(sent).not.toContain("OUTSIDE_SECRET_TEXT");
+  expect(sent).not.toContain("PRIVATE_SSH_KEY_TEXT");
+  expect(sent).not.toContain("secret.txt");
+  expect(sent).toContain("Not read: notes.md is a link to a place outside this project. Casper doesn't follow links out.");
+  expect(sent).toContain("Not read: ~/.ssh is private (keys and logins). Casper keeps it from the AI.");
+  expect((result.toolEnds as Array<{ isError: boolean }>).every((end) => end.isError)).toBe(true);
+}, 30_000);
+
+posixOnly("a read-only child gets the same file guard", async () => {
+  const { sent } = await run([
+    { name: "read", args: { path: "notes.md" } },
+    { name: "find", args: { pattern: "*", path: "~/.ssh" } },
+  ], { FIXTURE_READ_ONLY: "1" }, linkedProject);
+  expect(sent).not.toContain("OUTSIDE_SECRET_TEXT");
+  expect(sent).not.toContain("id_test");
+  expect(sent).toContain("Casper doesn't follow links out.");
+  expect(sent).toContain("~/.ssh is private");
+}, 30_000);
+
+posixOnly("the AI can't write git hooks or git config, by file tools or by shell; normal writes still work", async () => {
+  const { sent, project } = await run([
+    { name: "write", args: { path: ".git/hooks/pre-commit", content: "#!/bin/sh\necho pwned\n" } },
+    { name: "edit", args: { path: ".git/config", edits: [{ oldText: "bare = false", newText: "bare = false\n\tfsmonitor = ./x" }] } },
+    { name: "write", args: { path: "docs/new.md", content: "through the link" } },
+    { name: "bash", args: { command: "printf '#!/bin/sh\\n' > .git/hooks/post-checkout", timeout: 10 } },
+    { name: "bash", args: { command: "git config core.hooksPath .githooks", timeout: 10 } },
+    { name: "write", args: { path: "src/ok.md", content: "fine" } },
+  ], {}, linkedProject);
+  expect(sent).toContain("Not done: .git/hooks belongs to git itself. Casper doesn't let the AI change it.");
+  expect(sent).toContain("Not done: .git/config belongs to git itself.");
+  expect(sent).toContain("Not done: docs/new.md is a link to a place outside this project.");
+  expect(sent).toContain("Not run: this command changes .git/hooks");
+  expect(sent).toContain("Not run: `git config core.hooksPath` changes how git runs programs.");
+  const gone = async (file: string) => access(file).then(() => false, () => true);
+  expect(await gone(path.join(project, ".git/hooks/pre-commit"))).toBe(true);
+  expect(await gone(path.join(project, ".git/hooks/post-checkout"))).toBe(true);
+  expect(await gone(path.join(path.dirname(project), "outside/new.md"))).toBe(true);
+  expect(await readFile(path.join(project, ".git/config"), "utf8")).toBe("[core]\n\tbare = false\n");
+  expect(await readFile(path.join(project, "src/ok.md"), "utf8")).toBe("fine");
+}, 30_000);
+
+posixOnly("service logs and a cat of Casper's login file reach the model with the secrets hidden", async () => {
+  const loginKey = "sk-or-v1-fixture0123456789abcdef";
+  const { sent } = await run([
+    { name: "service", args: { action: "logs" } },
+    { name: "bash", args: { command: "cat ~/.casper/agent/auth.json", timeout: 10 } },
+  ], {}, async ({ home }) => {
+    await mkdir(path.join(home, ".casper/agent"), { recursive: true });
+    await writeFile(path.join(home, ".casper/agent/auth.json"), JSON.stringify({ openrouter: { type: "api_key", key: loginKey } }));
+  });
+  expect(sent).toContain("listening on 3000");
+  expect(sent).not.toContain("DbPassw0rd99");
+  expect(sent).not.toContain("tok-live-778899");
+  expect(sent).toContain("openrouter");
+  expect(sent).not.toContain(loginKey);
+}, 30_000);
+
+posixOnly("the AI's bash never gets AI provider keys; your product tokens stay", async () => {
+  const tools = [{ name: "bash", args: { command: "printenv OPENROUTER_API_KEY >/dev/null && echo OPENROUTER-PRESENT || echo OPENROUTER-ABSENT; printenv MIST_API_TOKEN >/dev/null && echo MIST-PRESENT || echo MIST-ABSENT", timeout: 10 } }];
+  const { sent } = await run(tools, { OPENROUTER_API_KEY: "sk-or-fixture-provider-key", MIST_API_TOKEN: "mist-fixture-token" });
+  expect(sent).toContain("OPENROUTER-ABSENT");
+  expect(sent).toContain("MIST-PRESENT");
+  expect(sent).not.toContain("sk-or-fixture-provider-key");
 }, 30_000);

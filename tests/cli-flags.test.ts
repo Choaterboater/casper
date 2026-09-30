@@ -3,7 +3,7 @@ import { chmod, mkdir, mkdtemp, readdir, realpath, rm, symlink, writeFile } from
 import os from "node:os";
 import path from "node:path";
 import { verificationFlag } from "../src/cli";
-import { parseCliArgs, parseMcpCheckArgs, UsageError } from "../src/cli-args";
+import { looksLikePath, parseCliArgs, parseMcpCheckArgs, UsageError } from "../src/cli-args";
 import { resolveVerificationMode } from "../src/verify/mode";
 import { CASPER_VERSION } from "../src/version";
 import { needsPosixModes, posixOnly } from "./support/platform";
@@ -295,3 +295,58 @@ test("mcp check usage mistakes are UsageErrors that print the usage", () => {
   }
   expect(() => parseCliArgs(["--json", "mcp", "check"])).toThrow("mcp check takes its own flags. Usage: casper mcp check");
 });
+
+test("a known option after the prompt is a usage mistake (64) found before anything runs; -v inside words and -- stay prompts", async () => {
+  for (const [args, shown] of [[["fix", "it", "--verify"], 'casper --verify "fix it"'], [["fix", "it", "--model", "x/y"], 'casper --model x/y "fix it"'],
+    [["fix", "--json"], 'casper --json "fix"'], [["fix", "it", "--model=x/y"], 'casper --model=x/y "fix it"']] as const) {
+    let error: unknown;
+    try { parseCliArgs([...args]); } catch (caught) { error = caught; }
+    expect(error).toBeInstanceOf(UsageError);
+    const words = JSON.stringify(args.join(" "));
+    expect((error as Error).message).toBe(`Options go before the prompt: ${shown}. To send it as words, quote the whole request: casper ${words}.`);
+    // The quoted request is one argument, so it is sent as words (Bun drops a leading -- when casper runs from source).
+    expect(parseCliArgs([args.join(" ")])).toMatchObject({ command: "prompt", rest: [args.join(" ")] });
+  }
+  expect(parseCliArgs(["fix", "the", "-v", "flag"])).toMatchObject({ command: "prompt", rest: ["fix", "the", "-v", "flag"] });
+  expect(parseCliArgs(["--", "fix", "--verify"])).toMatchObject({ command: "prompt", rest: ["fix", "--verify"] });
+  expect(() => parseCliArgs(["-", "--json"])).toThrow(UsageError);
+
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-cli-trailing-"));
+  tempDirs.push(root);
+  const result = await run([cli, "fix", "the", "login", "bug", "--verify"], root);
+  expect({ code: result.code, stdout: result.stdout }).toEqual({ code: 64, stdout: "" });
+  expect(result.stderr).toContain('Options go before the prompt: casper --verify "fix the login bug". To send it as words, quote the whole request: casper "fix the login bug --verify".');
+  expect(await readdir(root)).not.toContain(".casper");
+});
+
+test("casper <folder> opens that folder; a path that is not a folder exits 64", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-cli-folder-"));
+  tempDirs.push(root);
+  const project = path.join(root, "mist-mcp");
+  await mkdir(project);
+  await writeFile(path.join(project, "README.md"), "a project\n");
+  const child = Bun.spawn([process.execPath, cli, "./mist-mcp"], { cwd: root, env: cleanEnv({ HOME: root, CASPER_PROFILE: "default" }), stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+  child.stdin.write("/project\n"); child.stdin.end();
+  const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+  expect(code, stderr).toBe(0);
+  expect(stdout).toContain(" project   mist-mcp\n stack");
+  expect(stdout).not.toContain("[model]");
+
+  const missing = await run([cli, "./missing/"], root);
+  expect({ code: missing.code, stdout: missing.stdout }).toEqual({ code: 64, stdout: "" });
+  expect(missing.stderr).toContain("Not a folder: ./missing/");
+  const twice = await run([cli, "--cd", root, "./mist-mcp"], root);
+  expect(twice.code).toBe(64);
+  const trailing = await run([cli, "./mist-mcp", "--cd", root], root);
+  expect(trailing.code).toBe(64);
+  expect(parseCliArgs(["./mist-mcp"])).toMatchObject({ command: "prompt", folderCandidate: true });
+  // A slash command given as one word, with or without its arguments, is still a command, not a path.
+  const slash = await run([cli, "/help all"], root);
+  expect({ code: slash.code, stderr: slash.stderr }).toEqual({ code: 0, stderr: "" });
+  // Only one word that can only be a path is refused; a quoted request with a slash in it is a prompt.
+  for (const word of ["./missing/", "../x", "~/nowhere", "/no/such/place", "missing/", "C:\\code"]) expect(looksLikePath(word)).toBe(true);
+  for (const word of ["Add POST /notes that creates a note", "fix src/app.py", "src/app.py", "/help all", "and/or"]) expect(looksLikePath(word)).toBe(false);
+  const quoted = await run([cli, "fix the bug in src/app.py"], root);
+  expect(quoted.code).not.toBe(64);
+  expect(quoted.stderr).not.toContain("Not a folder");
+}, 30_000); // seven CLI starts in a row

@@ -14,11 +14,12 @@ afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await c
 
 /** A saved hard-pack run: the grader's verdict, the receipt (and its own acceptance check) and a kept workspace. */
 const saved = (fields: { harness?: BenchmarkRun["harness"]; success: boolean; receiptOutcome: string | null; receiptAcceptance?: { status: string };
-  workspace?: string; wallClockMs?: number; phases?: { phase: "acceptance"; durationMs: number }[] }): BenchmarkRun => {
-  const { harness = "casper", success, receiptOutcome, receiptAcceptance, workspace, wallClockMs = 100_000, phases } = fields;
+  workspace?: string; wallClockMs?: number; phases?: { phase: "acceptance"; durationMs: number }[]; receiptProof?: string | null }): BenchmarkRun => {
+  const { harness = "casper", success, receiptOutcome, receiptAcceptance, workspace, wallClockMs = 100_000, phases, receiptProof } = fields;
   return {
     taskId: "hard-job-queue", pack: "hard", harness, repeat: 1, graded: { success },
-    run: { termination: "completed", exitCode: 0, errors: [], wallClockMs, receiptOutcome, ...(receiptAcceptance ? { receiptAcceptance } : {}), ...(phases ? { phases } : {}) },
+    run: { termination: "completed", exitCode: 0, errors: [], wallClockMs, receiptOutcome, ...(receiptAcceptance ? { receiptAcceptance } : {}), ...(phases ? { phases } : {}),
+      ...(receiptProof !== undefined ? { receiptProof } : {}) },
     score: { effort: { wallClockMs, turns: 1, tokens: 1000, estimatedCost: null, rescues: 0 } }, ...(workspace ? { workspace } : {}),
   } as unknown as BenchmarkRun;
 };
@@ -37,6 +38,10 @@ test("the replay judges the receipt without the saved run's own acceptance verdi
   expect(baseOutcome(saved({ success: true, receiptOutcome: "not_verified", receiptAcceptance: { status: "pass" } }))).toBe("not_verified");
   // Warn mode never downgraded: the receipt already is the base.
   expect(baseOutcome(saved({ success: true, receiptOutcome: "verified", receiptAcceptance: { status: "fail" } }))).toBe("verified");
+  // v0.2.17 on, "verified" needs a proven change: without one the base stays not_verified.
+  expect(baseOutcome(saved({ success: true, receiptOutcome: "not_verified", receiptAcceptance: { status: "fail" }, receiptProof: null }))).toBe("not_verified");
+  expect(baseOutcome(saved({ success: true, receiptOutcome: "not_verified", receiptAcceptance: { status: "fail" }, receiptProof: "skipped" }))).toBe("not_verified");
+  expect(baseOutcome(saved({ success: true, receiptOutcome: "not_verified", receiptAcceptance: { status: "fail" }, receiptProof: "proven" }))).toBe("verified");
 });
 
 test("the replay stopper waits until every replayed harness is decided", () => {

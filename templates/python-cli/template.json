@@ -1,0 +1,14 @@
+{
+  "id": "python-cli",
+  "version": 1,
+  "kind": "Python tool",
+  "title": "Python tool (command line)",
+  "description": "A command-line tool in Python, with uv, pytest and ruff.",
+  "defaultName": "my-tool",
+  "tool": "uv",
+  "init": ["uv", "init", "--package", "--app", "--no-workspace", "--vcs", "none", "--name", "{{name}}", "."],
+  "add": [],
+  "addDev": ["pytest", "ruff"],
+  "replace": ["README.md", "src/__module__/__init__.py"],
+  "ready": true
+}

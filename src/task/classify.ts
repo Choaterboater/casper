@@ -1,5 +1,6 @@
 import type { ProjectCommand, ProjectModel } from "../project/model";
 import { CHECK_NAMES } from "../verify/evidence";
+import { autoDetectedChecks, MIGRATIONS_COMMAND } from "../verify/migrations-check";
 import type { VerificationMode } from "../verify/mode";
 import { CHECKLIST_FORMAT } from "./review";
 
@@ -106,9 +107,14 @@ export function formatTaskPrompt(
     return [...(underSpecified ? ["The target is under-specified: if the ask tool is available, ask one concrete question with options before the first edit."] : []),
       "User request:", request].join("\n");
   }
-  const availableChecks = CHECK_NAMES
+  const availableChecks = [...CHECK_NAMES
     .filter((name) => model.commands[name])
-    .map((name) => `${name}=${model.commands[name]}`);
+    .map((name) => `${name}=${model.commands[name]}`),
+  // Named checks the model may run through casper_check; lab checks are left out (only the user starts them).
+  ...Object.entries(model.namedChecks ?? {}).filter(([, spec]) => spec.kind !== "lab")
+    .map(([name, spec]) => `${name}=${spec.run ?? `${spec.preset} (Casper runs it)`}${spec.kind === "report" ? " (a report, not a pass/fail check)" : ""}`),
+  // The SQL migrations check Casper found in the project.
+  ...autoDetectedChecks(model).map(({ name }) => `${name}=${MIGRATIONS_COMMAND} (Casper runs it)`)];
 
   return [
     "Casper initial classification (hints, not authority over the request or actual work):",

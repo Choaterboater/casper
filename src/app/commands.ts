@@ -24,8 +24,8 @@ import type { LSPManager } from "../lsp/manager";
 import type { SkillRegistry } from "../skills/registry";
 import type { ProjectContext } from "../project/context";
 import type { ProjectInfo } from "../project/inspect";
-import type { ProjectCommand } from "../project/model";
-import { CHECK_NAMES, type VerificationReport } from "../verify/evidence";
+import { CHECK_NAMES, type CheckName, type VerificationReport } from "../verify/evidence";
+import { defaultVerifyNames } from "../verify/registry";
 import type { VerificationTask } from "../verify/task";
 import { artifactFilesystemSupported } from "../visualize/artifacts";
 import { buildRepoGraph } from "../visualize/repo";
@@ -35,10 +35,18 @@ import { LifecycleRegistry } from "./lifecycle";
 import type { VisualizationRouter } from "../visualize/router";
 import type { RuntimeAuthProvider, RuntimeSession, RuntimeTool, AgentRuntime } from "../runtime/types";
 import { describeChecksPlan, type ChecksPlan } from "../verify/mode";
+import { detectedMigrations, MIGRATIONS_CHECK } from "../verify/migrations-check";
 import type { TaskObservations } from "../task/observations";
 import { formatTaskResult, type TaskResult } from "../task/result";
+import { UndoStore } from "../task/undo";
+import { tildePath } from "../new/scaffold";
+import { stat } from "node:fs/promises";
 import type { SessionWorkspaceManager } from "../sessions/manager";
 import { formatProjectContext } from "../project/context";
+import { runSecurityReview, type SecurityAIReview, type SecurityReviewHost } from "./security-review";
+import { sandboxReport, sandboxStatusLine } from "./sandbox";
+import type { ShellSandbox } from "../sandbox/manager";
+import { MCP_REMEMBER_CHOICES, MCP_WRITES_CHOICES, numberedLines } from "./safe-choices";
 
 /** Output sink for the app; lives here so the command host stays import-cycle-free. */
 export interface OutputWriter {
@@ -49,6 +57,8 @@ export interface OutputWriter {
  * owner of all state; this interface makes the (wide) coupling explicit instead of private. */
 export interface CommandHost {
   readonly output: OutputWriter;
+  /** The session's shell sandbox (/sandbox, /status, /permissions). */
+  readonly sandbox?: ShellSandbox;
   /** The saved default model and effort, for /status before the model starts. */
   savedModel(): Promise<string | undefined>;
   readonly terminal: InteractiveTerminal;
@@ -96,7 +106,7 @@ export interface CommandHost {
   /** One exact typed answer from the user (never the model), or undefined when nobody answered. */
   chooseAnswer(preview: string, question: string, choices: readonly string[], signal?: AbortSignal): Promise<string | undefined>;
   git(args: string[]): Promise<string>;
-  runVerification(checks: readonly ProjectCommand[], repair: boolean, request?: string, task?: VerificationTask): Promise<VerificationReport>;
+  runVerification(checks: readonly CheckName[], repair: boolean, request?: string, task?: VerificationTask): Promise<VerificationReport>;
   activeWorkspaceRoot(): string;
   browserSession(): BrowserSession;
   serviceManager(): ServiceManager;
@@ -104,7 +114,15 @@ export interface CommandHost {
   handleBranchCommand(prompt: string): Promise<void>;
   handleSwitchCommand(prompt: string): Promise<void>;
   getLastTaskResult(): TaskResult | undefined;
+  /** Test seams for /security-review: fake tools and downloads. */
+  readonly securitySeams?: Pick<SecurityReviewHost, "check" | "install">;
+  /** The AI review after /security-review's tools (runs only after a numbered ask, or /security-review ai). */
+  securityAI(): SecurityAIReview | undefined;
+  /** `/verify add <name>`: save a ready-made check Casper found (never called without the owner asking). */
+  saveFoundCheck(name: string): Promise<void>;
 }
+
+export const VERIFY_USAGE = "Usage: /verify [repair] [typecheck|lint|test|build|<named check> ...] | /verify add <found check>";
 
 export async function runSlashCommand(host: CommandHost, prompt: string): Promise<VerificationReport | undefined> {
     if (host.closing) return;
@@ -125,7 +143,8 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       if (host.subagents.isBusy) throw new Error("Wait for active subagents before changing models.");
       const session = await host.ensureRuntime();
       host.commandAbort?.signal.throwIfAborted();
-      const argument = prompt.slice(6).trim();
+      // /model big <selector|clear> is plain words for the reason role: the model Casper offers when repairs run out.
+      const argument = prompt.slice(6).trim().replace(/^big(?=\s|$)/, "role reason");
       if (/^(?:roles|role)(?:\s|$)/.test(argument)) {
         const args = argument.split(/\s+/);
         let roles: Record<string, string>;
@@ -135,8 +154,8 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
         } else if (args[0] === "role" && args.length === 3 && ["fast", "build", "reason", "review"].includes(args[1]!)) {
           if (!session.setModelRole) throw new Error("This runtime does not support model roles.");
           roles = await session.setModelRole(args[1]!, args[2] === "clear" ? undefined : args[2]);
-        } else throw new Error("Usage: /model roles or /model role <fast|build|reason|review> <selector|clear>");
-        host.output.write(`${["fast", "build", "reason", "review"].map(role => ` ${role.padEnd(9)} ${roles[role] ?? "not configured"}`).join("\n")}\n[model] Role mappings are saved globally; the current model is unchanged. Use /model @role[:effort] to select a configured role.\n`);
+        } else throw new Error("Usage: /model roles, /model big <selector|clear> or /model role <fast|build|reason|review> <selector|clear>");
+        host.output.write(`${["fast", "build", "reason", "review"].map(role => ` ${role.padEnd(9)} ${roles[role] ?? "not configured"}${role === "reason" ? " (your big model)" : ""}`).join("\n")}\n[model] Role mappings are saved globally; the current model is unchanged. Use /model @role[:effort] to select a configured role.\n`);
         return;
       }
       if (!session.selectModel) throw new Error("This runtime does not support model selection.");
@@ -182,7 +201,21 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       return;
     }
     if (prompt === "/permissions") {
-      host.output.write("Permissions: native read/edit/write/bash tools execute within the requested coding task; no OS sandbox or universal shell approval gate.\nMCP, workspace transitions, debugger launch and consequential browser operations have their own exact approvals.\nNo SAFE/YOLO or read-only mode is implied. /verify and /services may execute project scripts (the declared checks and service commands).\n");
+      host.output.write(`${permissionsText(host.sandbox)}\n`);
+      return;
+    }
+    if (prompt === "/sandbox" || prompt.startsWith("/sandbox ")) {
+      const sandbox = host.sandbox;
+      if (!sandbox) throw new Error("The shell sandbox starts with the project.");
+      const forget = /^\/sandbox\s+forget\s+(\S+)\s*$/.exec(prompt);
+      if (forget) {
+        const found = await sandbox.forget(forget[1]!);
+        host.output.write(found ? `Forgot ${terminalText(forget[1]!)}: shell commands ask before reaching it again.\n` : `${terminalText(forget[1]!)} was not remembered for this project.\n`);
+        return;
+      }
+      if (prompt.trim() !== "/sandbox") throw new Error("Use /sandbox or /sandbox forget <host>.");
+      await sandbox.loadRemembered();
+      host.output.write(sandboxReport(sandbox, host.activeWorkspaceRoot()));
       return;
     }
     if (prompt === "/context" || prompt === "/usage") {
@@ -239,6 +272,12 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
     if (prompt === "/diff") {
       if (!host.projectContext!.info.isGit) { host.output.write("[diff] Not a Git repository; nothing to compare.\n"); return; }
       const status = await host.git(["status", "--short"]);
+      const hasCommit = await host.git(["rev-parse", "--verify", "-q", "HEAD"]).then(() => true, () => false);
+      if (!hasCommit) {
+        host.terminal.writePanel("git status --short", status.trim() ? status : "(clean)");
+        host.output.write("[diff] No commits yet, so there is nothing to compare with; files are listed by name only.\n");
+        return;
+      }
       const diff = await host.git(["diff", "--no-ext-diff", "--no-textconv", "HEAD", "--"]);
       host.output.write("");
       host.terminal.writePanel("git status --short", status.trim() ? status : "(clean)");
@@ -278,10 +317,12 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       host.output.write(` debugger  ${host.debugSession?.status().state ?? "idle"}; explicit local DAP (/debug)\n`);
       const usage = host.session?.getUsage?.();
       host.output.write(` context   ${usage?.context?.percent == null ? "—" : `${usage.context.percent.toFixed(1)}%~`} · ${usage?.tokens.total ?? "—"} session tokens (/context, /usage)\n`);
-      host.output.write(" policy    native coding tools enabled; not sandboxed (/permissions)\n");
+      host.output.write(" policy    native coding tools enabled (/permissions)\n");
+      host.output.write(` shell     ${host.sandbox ? sandboxStatusLine(host.sandbox) : "not started"}\n`);
       host.output.write(` checks    ${describeChecksPlan(await host.checksPlan(host.projectContext!))}\n`);
       host.output.write(` visualize ${host.visualization!.providerNames().join(", ")} (/visualize)\n`);
       host.output.write(" memory    explicit facts and local task summaries (/memory)\n references read-only local sources (/references)\n");
+      host.output.write(` undo      ${await undoCopiesLine(host.projectContext!.stateDirectory, host.homeDir())}\n`);
       return;
     }
     if (prompt === "/exit" || prompt === "/quit") return;
@@ -351,14 +392,43 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       await handleSkillsCommand(host, prompt);
       return;
     }
+    if (/^\/security-review(?:\s|$)/.test(prompt)) {
+      // The security tools first, with no model call. Every question is numbered; a run that cannot ask downloads,
+      // approves and spends nothing. The AI review after them runs only after its own ask (or /security-review ai).
+      const ai = host.securityAI();
+      await runSecurityReview({
+        root: host.activeWorkspaceRoot(), homeDir: host.homeDir(),
+        write: (text) => { if (!host.closing) host.output.write(text); },
+        canAsk: () => host.interactive && host.terminal.canAsk && !host.closing,
+        pick: (question, options, signal) => host.terminal.pick(question, options, signal),
+        ...(host.commandAbort ? { signal: host.commandAbort.signal } : {}),
+        ...host.securitySeams,
+        ...(ai ? { ai } : {}),
+      }, prompt.trim().split(/\s+/).slice(1));
+      return;
+    }
     if (/^\/verify(?:\s|$)/.test(prompt)) {
       const args = prompt.trim().split(/\s+/).slice(1);
+      // `/verify add <name>`: the owner saves a ready-made check Casper found. Casper never adds one by itself.
+      if (args[0] === "add") {
+        if (args.length !== 2 || !host.projectContext) throw new Error(VERIFY_USAGE);
+        await host.saveFoundCheck(args[1]!);
+        return;
+      }
       const repair = args[0] === "repair";
       if (repair) args.shift();
-      if (args.some((arg) => !CHECK_NAMES.some((name) => name === arg))) {
-        throw new Error("Usage: /verify [repair] [typecheck|lint|test|build ...]");
+      const named = host.projectContext?.model.namedChecks ?? {};
+      const found = host.projectContext?.model.foundChecks ?? {};
+      const detected = host.projectContext && detectedMigrations(host.projectContext.model) ? [MIGRATIONS_CHECK] : [];
+      const unsaved = args.find((arg) => Object.hasOwn(found, arg) && !Object.hasOwn(named, arg));
+      if (unsaved) {
+        host.output.write(`[verify] ${unsaved} is a check Casper found but you have not saved, so it does not run. /verify add ${unsaved} saves it in .casper/project.yaml.\n`);
+        return;
       }
-      return host.runVerification(args.length ? args as ProjectCommand[] : CHECK_NAMES, repair);
+      if (args.some((arg) => !CHECK_NAMES.some((name) => name === arg) && !Object.hasOwn(named, arg) && !detected.includes(arg))) {
+        throw new Error(VERIFY_USAGE);
+      }
+      return host.runVerification(args.length ? args : host.projectContext ? defaultVerifyNames(host.projectContext.model) : CHECK_NAMES, repair);
     }
     throw new Error(`Unknown command ${JSON.stringify(prompt.split(/\s+/)[0])}. Type /help for local commands.`);
   }
@@ -651,7 +721,7 @@ async function handleSecretsCommand(host: CommandHost, prompt: string): Promise<
   if (!args.length) { host.output.write(`${await host.scrubber.statusText(host.scrubFiles)}\n`); return; }
   if (args.length !== 2 || args[0] !== "files" || !["on", "off"].includes(args[1]!)) throw new Error("Usage: /secrets | /secrets files on|off");
   host.scrubFiles = args[1] === "on";
-  host.output.write(host.scrubFiles ? "Files and command output: on.\n" : "Files and command output: off for this session. MCP results are still scrubbed.\n");
+  host.output.write(host.scrubFiles ? "Device configs in files and command output: on.\n" : "Device configs in files and command output: off for this session. MCP results, .env and credential files are still scrubbed.\n");
 }
 
 /**
@@ -706,16 +776,17 @@ function approvalLines(status: MCPStatus): string[] {
   return [];
 }
 
-/** After you connect your own or an imported server, offer to remember it (writes stay off). */
+/** After you connect your own or an imported server, offer to remember it (writes stay off). Just this time is 1,
+ * so a habitual 1 never remembers a server. */
 async function offerRemember(host: CommandHost, name: string): Promise<void> {
   const status = host.mcp!.status().find((entry) => entry.name === name);
   if (!host.interactive || !status || status.scope === "project" || status.consent === "remembered") return;
   const block = host.mcp!.rememberBlock(name);
   if (block) { host.output.write(`[mcp] ${terminalText(block)}\n`); return; }
   const answer = await host.chooseAnswer(
-    "Remember this server? Next time it connects on its own, with writes off. Every change still asks you.\n  1 Remember\n  2 Just this time\n",
+    `Remember this server? Next time it connects on its own, with writes off. Every change still asks you.\n${numberedLines(MCP_REMEMBER_CHOICES)}`,
     "Type 1 or 2: ", ["1", "2"], host.commandAbort?.signal);
-  if (answer !== "1") { host.output.write(`[mcp] Not remembered. ${name} is connected for this session only.\n`); return; }
+  if (answer !== "2") { host.output.write(`[mcp] Not remembered. ${name} is connected for this session only.\n`); return; }
   const result = await host.mcp!.remember(name);
   host.output.write(result.remembered
     ? `[mcp] Remembered ${name}. It connects on its own next time, with writes off. /mcp forget ${name} undoes this.\n`
@@ -724,7 +795,7 @@ async function offerRemember(host: CommandHost, name: string): Promise<void> {
 
 /**
  * /mcp writes <name> and /mcp writes off. Turning writes on takes two steps that only you can do:
- * this command, then "1" in the box. The model's ask tool never reaches this box.
+ * this command, then "2" in the box (1 keeps writes off). The model's ask tool never reaches this box.
  */
 async function handleMCPWrites(host: CommandHost, name: string): Promise<void> {
   const mcp = host.mcp!;
@@ -742,9 +813,9 @@ async function handleMCPWrites(host: CommandHost, name: string): Promise<void> {
   if (status.writes === "on") { host.output.write(`[mcp] Writes are already on for ${name}. ${host.terminal.rich ? "ctrl+o" : "/mcp writes off"} turns them off.\n`); return; }
   if (status.access === "login: read-only (checked)") { host.output.write(`[mcp] ${READ_ONLY_LOGIN_ENABLE_TEXT}\n`); return; }
   const policy = mcp.policy(name);
-  const answer = await host.chooseAnswer(`${terminalText(writesTitle(name, policy.match))}\n  1 Enable for this server\n  2 Keep writes off\n`,
+  const answer = await host.chooseAnswer(`${terminalText(writesTitle(name, policy.match))}\n${numberedLines(MCP_WRITES_CHOICES)}`,
     "Type 1 or 2: ", ["1", "2"], host.commandAbort?.signal);
-  if (answer !== "1") { host.output.write(`[mcp] Writes stay off for ${name}.\n`); return; }
+  if (answer !== "2") { host.output.write(`[mcp] Writes stay off for ${name}.\n`); return; }
   await mcp.setWrites(name, true);
   host.output.write(`[mcp] Writes on for ${name}. Each change still asks you. ${host.terminal.rich ? "ctrl+o" : "/mcp writes off"} turns writes off.\n`);
   const note = ownSettingsNote(mcp.definition(name), policy.match);
@@ -830,4 +901,27 @@ export async function runLogin(host: CommandHost, provider?: RuntimeAuthProvider
       : "[login] Login unavailable or failed. No credential saved. Disable CASPER_TUI_WRITE_LOG if set. Check provider eligibility and loopback callback availability; no automatic method fallback.\n");
   } catch { host.output.write("[login] Login could not complete. No provider diagnostics are displayed.\n"); }
   return false;
+}
+
+/** /status: how much disk the undo copies take, and where (no copy is made to find out). */
+async function undoCopiesLine(stateDirectory: string, home: string): Promise<string> {
+  const store = new UndoStore({ stateDirectory, root: stateDirectory });
+  const there = await stat(store.gitDir).then(() => true, () => false);
+  const bytes = there ? await store.size() : undefined;
+  if (bytes === undefined) return "no copies yet (a copy is made before each task; /undo, /diff)";
+  const size = bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `copies of recent tasks take ${size} in ${terminalText(tildePath(store.gitDir, home))} (/undo, /diff)`;
+}
+
+/** /permissions: what Casper enforces, from the state it is in now. */
+export function permissionsText(sandbox: ShellSandbox | undefined): string {
+  const shell = sandbox?.on
+    ? "Shell commands and checks run in a sandbox: they can write only in this project, temp and package caches, can't read your private folders, and reach only listed hosts (others ask). They don't see your AI provider keys. MCP servers, language servers, the debugger and the browser are not in the sandbox."
+    : `Shell commands and checks are not sandboxed here (${sandbox?.failure ?? sandbox?.state.reason ?? "no sandbox"}): they run with your permissions, files and network, without your AI provider keys.${sandbox?.asksFirst ? " Casper asks before each shell command the AI runs." : ""}`;
+  return [
+    shell,
+    "The AI's file tools (read, edit, write, grep, find, ls) stay out of private places and git's own files and never follow a link out of the project.",
+    "MCP, workspace transitions, debugger launch and consequential browser operations have their own exact approvals. The AI can't approve anything for you.",
+    "No SAFE/YOLO or read-only mode is implied. /verify and /services may execute project scripts (the declared checks and service commands). See docs/SECURITY.md.",
+  ].join("\n");
 }

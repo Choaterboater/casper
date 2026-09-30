@@ -54,7 +54,7 @@ async function session(home: string, project: string, commands: string[], answer
     output: { write: (text) => {
       output += text;
       if (text === "> ") queueMicrotask(() => input.write(`${pending.shift() ?? "/exit"}\n`));
-      if (text.endsWith("Type 1 or 2: ")) queueMicrotask(() => input.write(`${answers.shift() ?? "2"}\n`));
+      if (text.endsWith("Type 1 or 2: ")) queueMicrotask(() => input.write(`${answers.shift() ?? "1"}\n`));
       if (text.endsWith("Type yes: ")) queueMicrotask(() => input.write("yes\n"));
     } },
   });
@@ -77,14 +77,14 @@ test("imported servers are announced once per new set, listed with where they ca
   expect(second.output).not.toContain("[mcp] Found");
 });
 
-test("after /mcp connect, 2 remembers nothing; 1 remembers it, and the next session connects it with writes off", async () => {
+test("after /mcp connect, 1 remembers nothing; 2 remembers it, and the next session connects it with writes off", async () => {
   const { home, project } = await fixture({ casper: { mcpServers: { lab: entry({ FIXTURE_MODE: "access-bad" }) } } });
   const consentFile = path.join(home, ".casper/mcp-consent.json");
-  const declined = await session(home, project, ["/mcp connect lab"], ["2"]);
-  expect(declined.output).toContain("Remember this server? Next time it connects on its own, with writes off. Every change still asks you.\n  1 Remember\n  2 Just this time\n");
+  const declined = await session(home, project, ["/mcp connect lab"], ["1"]);
+  expect(declined.output).toContain("Remember this server? Next time it connects on its own, with writes off. Every change still asks you.\n  1 Just this time\n  2 Remember\n");
   expect(declined.output).toContain("[mcp] Not remembered. lab is connected for this session only.");
   expect(await Bun.file(consentFile).exists()).toBe(false);
-  const remembered = await session(home, project, ["/mcp connect lab"], ["1"]);
+  const remembered = await session(home, project, ["/mcp connect lab"], ["2"]);
   expect(remembered.output).toContain("[mcp] Remembered lab. It connects on its own next time, with writes off. /mcp forget lab undoes this.");
   expect(await Bun.file(consentFile).exists()).toBe(true);
   const next = await session(home, project, ["/mcp", "/mcp disconnect lab"]);
@@ -106,7 +106,7 @@ test("an unpinned package runner is never remembered, and the box is not shown",
   expect(output).not.toContain("Remember this server?");
 });
 
-test("writes on takes /mcp writes and then 1; 2 changes nothing; 1 drops the pins, shows the badge, and /mcp writes off reverts", async () => {
+test("writes on takes /mcp writes and then 2; 1 changes nothing; 2 drops the pins, shows the badge, and /mcp writes off reverts", async () => {
   const { home, project } = await fixture({ casper: { mcpServers: {
     "aruba-central": entry({ FIXTURE_MODE: "access-bad", FIXTURE_ENV_DUMP: "1", CENTRALMCP_READONLY: "0" }),
   } } });
@@ -117,8 +117,8 @@ test("writes on takes /mcp writes and then 1; 2 changes nothing; 1 drops the pin
   };
   const { output, app } = await session(home, project, [
     "/mcp connect aruba-central", "/mcp writes aruba-central", "read env", "/mcp writes aruba-central", "read env", "/mcp writes off", "read env",
-  ], ["2", "2", "1"], readEnv);
-  expect(output).toContain("Central writes are off.\n  1 Enable for this server\n  2 Keep writes off\nType 1 or 2: ");
+  ], ["1", "1", "2"], readEnv);
+  expect(output).toContain("Central writes are off.\n  1 Keep writes off\n  2 Enable for this server\nType 1 or 2: ");
   expect(output).toContain("[mcp] Writes stay off for aruba-central.");
   expect(output).toContain("[mcp] Writes on for aruba-central. Each change still asks you. /mcp writes off turns writes off.");
   expect(output).toContain("[mcp] Writes off for aruba-central. Write tools are hidden again.");
@@ -129,16 +129,16 @@ test("writes on takes /mcp writes and then 1; 2 changes nothing; 1 drops the pin
 
 test("the footer badge names the servers with writes on", async () => {
   const { home, project } = await fixture({ casper: { mcpServers: { "aruba-central": entry({ FIXTURE_MODE: "access-bad", CENTRALMCP_READONLY: "0" }) } } });
-  const { app } = await session(home, project, ["/mcp connect aruba-central", "/mcp writes aruba-central"], ["2", "1"]);
+  const { app } = await session(home, project, ["/mcp connect aruba-central", "/mcp writes aruba-central"], ["1", "2"]);
   expect(app.terminal.badge).toBe("WRITES: aruba-central · /mcp writes off");
 });
 
-test("the model's ask tool can't turn writes on: a '1 Enable for this server' answer there changes nothing", async () => {
+test("the model's ask tool can't turn writes on: a '2 Enable for this server' answer there changes nothing", async () => {
   const { home, project } = await fixture({ casper: { mcpServers: { lab: entry({ FIXTURE_MODE: "access-bad" }) } } });
   let asked = "";
-  const { output, app } = await session(home, project, ["/mcp connect lab", "enable writes please"], ["2"], async (tools) => {
+  const { output, app } = await session(home, project, ["/mcp connect lab", "enable writes please"], ["1"], async (tools) => {
     const ask = tools.find((tool) => tool.name === "ask")!;
-    asked = (await ask.execute({ question: "lab writes are off.", options: [{ label: "1 Enable for this server" }, { label: "2 Keep writes off" }] })).text;
+    asked = (await ask.execute({ question: "lab writes are off.", options: [{ label: "1 Keep writes off" }, { label: "2 Enable for this server" }] })).text;
     const call = tools.find((tool) => tool.name === "call_capability")!;
     asked += (await call.execute({ id: "mcp:lab:set_config", arguments: {} })).text;
   });
@@ -152,7 +152,7 @@ test("the enable text says when your own settings still keep writes off, and a r
     hpe: entry({ FIXTURE_MODE: "hpe-router", HPE_MCP_ACCESS_PROFILE: "safe-read-only" }),
     ro: entry({ FIXTURE_MODE: "access-ro" }),
   } } });
-  const { output } = await session(home, project, ["/mcp connect hpe", "/mcp writes hpe", "/mcp connect ro", "/mcp writes ro"], ["2", "1", "2"]);
+  const { output } = await session(home, project, ["/mcp connect hpe", "/mcp writes hpe", "/mcp connect ro", "/mcp writes ro"], ["1", "2", "1"]);
   expect(output).toContain("HPE networking writes are off.");
   expect(output).toContain(`[mcp] Casper removed its read-only pins, but your own settings still keep writes off (HPE_MCP_ACCESS_PROFILE=safe-read-only in ${path.join(home, ".casper/mcp.json")}).`);
   expect(output).toContain("ro [stdio; ready] 3 tools · writes off · login: read-only (checked)");
@@ -164,11 +164,11 @@ test("a changed definition says so in /mcp; junos-show is a per-server opt-in th
     lab: entry({ FIXTURE_MODE: "access-bad", SITE: "one" }),
     junos: entry({ FIXTURE_MODE: "junos" }, ["jmcp.py"]),
   } } });
-  await session(home, project, ["/mcp connect lab"], ["1"]);
+  await session(home, project, ["/mcp connect lab"], ["2"]);
   await writeFile(path.join(home, ".casper/mcp.json"), JSON.stringify({ mcpServers: {
     lab: entry({ FIXTURE_MODE: "access-bad", SITE: "two" }), junos: entry({ FIXTURE_MODE: "junos" }, ["jmcp.py"]),
   } }));
-  const { output } = await session(home, project, ["/mcp", "/mcp connect junos", "/mcp junos-show junos on", "/mcp", "/mcp junos-show lab on"], ["2"]);
+  const { output } = await session(home, project, ["/mcp", "/mcp connect junos", "/mcp junos-show junos on", "/mcp", "/mcp junos-show lab on"], ["1"]);
   expect(output).toContain("  Changed since you approved it. Run /mcp connect lab.");
   expect(output).toContain("[mcp] Plain show commands on junos run without asking.");
   expect(output).toContain("  Plain show commands run without asking (/mcp junos-show junos off).");
