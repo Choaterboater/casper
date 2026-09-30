@@ -153,7 +153,8 @@ model. `security` holds counts only (`problems`, `notes`, `notRun`, and each too
 text. `task` is the task's saved receipt number (`/receipt <n>`), and `undo` is `{ "available", "reason" }`: whether
 `casper /undo` can put this task's files back, and why not (see [UNDO.md](UNDO.md)). After `casper --json /undo` or
 `/redo`, `changed` lists the files it put back and `outcome` is `not_verified` (nothing checked them). `sandbox` is
-`{ "held": true }` when the shell sandbox held the task's shell commands and checks, or `{ "held": false, "reason" }`
+`{ "held": true, "reason": null }` when the shell sandbox held the task's shell commands and checks (or, for
+`/verify` alone, its checks), or `{ "held": false, "reason" }`
 when it did not (`--no-sandbox`, Windows, bubblewrap missing; see [SECURITY.md](SECURITY.md)). `changedWhilePlanning` lists files that changed during a plan turn anyway
 (`/plan`), and `pageNotes` says in plain words why changed pages were not opened (for example
 `node_modules is missing`); neither is ever a failure.

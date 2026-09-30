@@ -100,3 +100,18 @@ test("a repo's .pi/sandbox.json is ignored, and Casper says so", async () => {
     expect(f.app.sandbox?.policy().allowWrite).not.toContain("/");
   } finally { await f.app.close(); }
 });
+
+test("--no-sandbox with /verify alone: the receipt and the JSON say the checks were not sandboxed", async () => {
+  const { receiptEvent } = await import("../src/app/json-events");
+  const f = await fixture({ noSandbox: true, verificationMode: "manual", sandboxSeams: { engine: fakeEngine(), problem: () => undefined, platform: "linux" } });
+  try {
+    await mkdir(path.join(f.project, ".casper"), { recursive: true });
+    await writeFile(path.join(f.project, ".casper", "project.yaml"), "commands:\n  test: \"true\"\n");
+    const report = await f.app.runOnce("/verify", f.project);
+    expect(f.app.getLastTaskResult()).toBeUndefined();
+    expect(f.text()).toContain("• Shell commands and checks were not sandboxed (--no-sandbox)");
+    const event = receiptEvent(report, undefined, 0, f.app.sandboxReceipt());
+    expect(event.sandbox).toEqual({ held: false, reason: "--no-sandbox" });
+    expect(event.text).toContain("Shell commands and checks were not sandboxed (--no-sandbox)");
+  } finally { await f.app.close(); }
+});

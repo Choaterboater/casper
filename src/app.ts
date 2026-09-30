@@ -544,6 +544,9 @@ export class CasperApp {
   }
 
   /** Last normal coding/chat request; local commands other than /receipt clear it. Not acceptance evidence. */
+  /** Whether the session's shell sandbox holds its commands and checks, for a receipt with no task. */
+  sandboxReceipt(): TaskResult["sandbox"] | undefined { return sandboxReceipt(this.sandbox); }
+
   getLastTaskResult(): TaskResult | undefined {
     return this.lastTaskResult ? structuredClone(this.lastTaskResult) : undefined;
   }
@@ -1700,7 +1703,8 @@ export class CasperApp {
       await recordCheckTimings(context.stateDirectory, report.rounds.flat());
       // A model task's receipt summarizes its checks; a standalone run gets its own summary.
       if (this.verbose) this.output.write(`${formatVerificationReport(report)}\n`);
-      else if (!task) this.output.write(`${formatReceipt({ execution: "completed", verification: report, ...this.bigModelReceipt() },
+      else if (!task) this.output.write(`${formatReceipt({ execution: "completed", verification: report, ...this.bigModelReceipt(),
+        ...(this.sandbox ? { sandbox: sandboxReceipt(this.sandbox)! } : {}) },
         { surface: this.receiptSurface() })}\n`);
       return report;
     } finally {
