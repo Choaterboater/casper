@@ -28,7 +28,7 @@ afterEach(async () => {
 });
 
 test("automatic effort's direct request carries Casper's OpenRouter attribution, and only to OpenRouter", async () => {
-  const sent: Array<Record<string, string> | undefined> = [];
+  const sent: unknown[] = [];
   const catalog: Pick<ModelRuntime, "completeSimple"> = {
     async completeSimple(model, _context, options) { sent.push(options?.headers); return reply(model as Model, '{"effort":"low"}'); },
   };
@@ -41,7 +41,7 @@ test("automatic effort's direct request carries Casper's OpenRouter attribution,
 
 test("a one-off model call (checklist, review) carries Casper's OpenRouter attribution, and only to OpenRouter", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "casper-openrouter-direct-")); dirs.push(dir);
-  const sent: Array<Record<string, string> | undefined> = [];
+  const sent: unknown[] = [];
   const catalog = {
     getModels: () => [openrouter, base], getModel: () => undefined, hasConfiguredAuth: () => true,
     async completeSimple(model: Model, _context: unknown, options?: { headers?: Record<string, string> }) { sent.push(options?.headers); return reply(model, "ok"); },
