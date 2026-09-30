@@ -94,8 +94,8 @@ When undo can't be offered at all, the receipt says why on one line:
 Casper checks each file again just before putting it back, so a file you saved while Casper asked is left as
 you saved it. An editor that saves in the same instant can still lose that save.
 
-On Windows, undo needs git on PATH (Git for Windows). Putting back a symbolic link or a file's run bit has only
-been tried on Linux and macOS so far.
+On Windows, undo needs git on PATH (Git for Windows). Putting back a symbolic link or a file's run bit
+has not been tried on Windows yet.
 
 ## Where the copies live
 
