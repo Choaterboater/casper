@@ -308,7 +308,7 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       host.projectContext!.info.gitBranch = info.gitBranch; host.projectContext!.info.isGit = info.isGit;
       host.output.write(`${renderProjectSummary(host.projectContext!)}\n`);
       host.output.write(`${formatRuntimeStatus(host.session ? host.session.getStatus?.() ?? { auth: "unknown" } : undefined, host.session ? undefined : await host.savedModel())}\n`);
-      host.output.write(` skills    ${host.skillRegistry!.list().length} indexed; imports: ${host.projectContext!.skills.imports?.join(", ") || "none"} (/skills diagnostics)\n`);
+      host.output.write(` skills    ${skillCountLine(host)}; imports: ${host.projectContext!.skills.imports?.join(", ") || "none"} (/skills diagnostics)\n`);
       host.output.write(` mcp       ${host.mcp!.status().length} configured (/mcp for connection status)\n`);
       host.output.write(` lsp       ${host.lsp!.status().length} configured (/lsp for connection status)\n`);
       host.output.write(` browser   ${host.browser?.status().state ?? "idle"}; disposable local browser (/browser)\n`);
@@ -824,17 +824,25 @@ async function handleMCPWrites(host: CommandHost, name: string): Promise<void> {
 }
 
 
+/** "8 indexed (6 bundled)", or "2 indexed; bundled: off" when skills.bundled is false. */
+function skillCountLine(host: CommandHost): string {
+  const skills = host.skillRegistry!.list();
+  const bundled = skills.filter((skill) => skill.source === "bundled").length;
+  if (host.projectContext!.skills.bundled === false) return `${skills.length} indexed; bundled: off`;
+  return `${skills.length} indexed${bundled ? ` (${bundled} bundled)` : ""}`;
+}
+
 async function handleSkillsCommand(host: CommandHost, prompt: string): Promise<void> {
     const registry = host.skillRegistry!;
     const [, action, id, sha256, ...extra] = prompt.trim().split(/\s+/);
     try {
       if (!action) {
         const skills = registry.list();
-        host.output.write(`${skills.length} indexed; imports: ${host.projectContext!.skills.imports?.join(", ") || "none"}\n`);
+        host.output.write(`${skillCountLine(host)}; imports: ${host.projectContext!.skills.imports?.join(", ") || "none"}\n`);
         host.output.write(skills.length ? skills.map((skill) => [
           `${skill.id} [${skill.source}; ${skill.trust}${skill.disableModelInvocation ? "; manual-only" : ""}]`,
           `  ${JSON.stringify(skill.description)}`,
-          `  ${skill.filePath}`,
+          `  ${skill.source === "bundled" ? `${skill.filePath.replace(/^bundled:/, "")} (inside Casper; turn off with skills.bundled: false)` : skill.filePath}`,
         ].join("\n")).join("\n\n") + "\n" : "No skills discovered.\n");
       } else if (action === "diagnostics" && !id) {
         host.output.write(registry.diagnostics.length ? registry.diagnostics.join("\n") + "\n" : "No skill warnings.\n");
@@ -852,7 +860,9 @@ async function handleSkillsCommand(host: CommandHost, prompt: string): Promise<v
           })}`,
           inspected.body,
           `SHA256: ${inspected.sha256}`,
-          `After reviewing: /skills trust ${id} ${inspected.sha256}`,
+          inspected.skill.source === "bundled"
+            ? `Bundled with Casper and trusted. /skills block ${id} stops it; skills.bundled: false turns them all off.`
+            : `After reviewing: /skills trust ${id} ${inspected.sha256}`,
           "",
         ].join("\n"));
       } else if (action === "trust" && id && sha256 && !extra.length) {

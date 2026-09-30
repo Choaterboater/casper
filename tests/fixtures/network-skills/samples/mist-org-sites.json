@@ -1,0 +1,9 @@
+{
+  "_note": "Sample data, not from a real network",
+  "request": "GET /api/v1/orgs/00000000-0000-0000-0000-000000000000/sites?limit=2&page=1",
+  "headers": { "X-Page-Total": "3", "X-Page-Limit": "2", "X-Page-Page": "1" },
+  "body": [
+    { "id": "00000000-0000-0000-0000-000000000000", "name": "sample-site-1", "org_id": "00000000-0000-0000-0000-000000000000" },
+    { "id": "00000000-0000-0000-0000-000000000000", "name": "sample-site-2", "org_id": "00000000-0000-0000-0000-000000000000" }
+  ]
+}

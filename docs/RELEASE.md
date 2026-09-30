@@ -10,6 +10,35 @@ because GitHub's `latest/download` link skips preview releases. The first publis
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
 
+## v0.2.18: network skills
+
+**Not released yet.** The version number and the installers still say v0.2.15; the release step
+sets them and removes this line.
+
+**Network skills pack.** Six short how-to files for network automation are built into Casper:
+Juniper Mist API, new HPE Aruba Networking Central, classic Central, AOS-CX REST API, Junos (PyEZ,
+NETCONF, `| display set`, `commit check` and `commit confirmed`) and ClearPass REST API. A request
+that names the product ("list APs per site in Mist", "commit confirmed on an MX") gets that skill
+for that one request, picked by a local word match with no model call; other requests pay zero
+tokens. At most two load per request. Each skill teaches the calls that ask for data first, marks
+every change call `WRITE:` and tells the AI to stop and ask you before any change, keeps
+credentials in environment variables, and shows how to test with saved sample data instead of live
+calls. `/skills` lists them as `[bundled; trusted]`; `/skills block <id>` stops one;
+`skills.bundled: false` in your own config turns them all off (a project file cannot). A skill of
+your own with the same name replaces a bundled one only while it keeps the stop-and-ask wording.
+Projects whose Python packages include `mistapi`, `pycentral`, `pyaoscx`, `pyclearpass`,
+`junos-eznc` or `ncclient` are now detected. See [SKILLS.md](SKILLS.md).
+
+**More reference repos.** `/references add pyaoscx`, `pyclearpass`, `mistapi` and `junos-pyez`
+fetch those public SDKs for local search; the pycentral entry now says MIT (it said Apache-2.0) and
+searches its largest file. The `mist-openapi` entry gives nothing to search today (its repo layout
+changed and the spec file is over the 4 MiB search limit); use `mistapi` or `lookup_api`. See
+[REFERENCES.md](REFERENCES.md).
+
+**Facts not checked against vendor docs.** The vendor doc sites could not be reached while the
+skills were written; facts come from the public SDK repositories, and anything else says "check the
+current docs".
+
 ## v0.2.17: undo and a real safety net
 
 **Not released yet.** The version number and the installers still say v0.2.15; the release step

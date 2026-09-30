@@ -82,7 +82,7 @@ test("imports are validated, user/profile-only, replace rather than merge, and d
   await f.put(f.projectRoot, ".casper/project.yaml", "skills: { imports: [claude] }\n");
   await expect(loadConfiguration(f)).rejects.toThrow("user/profile");
   await f.put(f.projectRoot, ".casper/project.yaml", "skills: { maxActive: 2 }\n");
-  expect((await loadConfiguration(f)).skills).toEqual({ imports: ["codex"], maxActive: 2 });
+  expect((await loadConfiguration(f)).skills).toEqual({ imports: ["codex"], maxActive: 2, bundled: true });
   await f.put(f.homeDir, ".casper/profiles/default/config.yaml", "skills: { imports: [] }\n");
   expect((await loadConfiguration(f)).skills.imports).toEqual([]);
   await f.put(f.homeDir, ".casper/config.yaml", "skills: { imports: [unknown] }\n");
