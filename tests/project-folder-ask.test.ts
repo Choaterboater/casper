@@ -244,3 +244,51 @@ test("launching from a folder of projects asks which one to open; a project or a
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("a typed folder name that isn't there offers Stay first, then Make it here with the /new questions", async () => {
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-folder-missing-")));
+  const home = path.join(root, "home");
+  const work = path.join(root, "work");
+  await mkdir(home, { recursive: true });
+  await mkdir(path.join(work, "repo-a", ".git"), { recursive: true });
+  await mkdir(path.join(work, "repo-b", ".git"), { recursive: true });
+  const harness = interactiveHarness(home, work);
+  const interactive = harness.app.runInteractive(work);
+  try {
+    await harness.until(text => Bun.stripANSI(text).includes("Work in which one?"));
+    harness.input.write("mist-tools\r");
+    await harness.until(text => Bun.stripANSI(text).includes("mist-tools isn't a folder in work. Make it?"));
+    const visible = Bun.stripANSI(harness.output());
+    expect(visible).toContain("1 Stay in work");
+    expect(visible).toContain("2 Make mist-tools here");
+    // Enter stays, and the message names the folder instead of ".".
+    harness.input.write("\r");
+    await harness.until(text => Bun.stripANSI(text).includes("[folder] Staying in work."));
+    await harness.until(text => /\bproject\s+work\b/.test(Bun.stripANSI(text)));
+    await harness.until(text => Bun.stripANSI(text).includes("idle"));
+  } finally {
+    harness.input.write("/exit\r");
+    await interactive;
+    await harness.app.close();
+    harness.input.destroy();
+  }
+  // Choice 2 goes on to the /new questions, with the typed name, in this folder.
+  const again = interactiveHarness(home, work);
+  const running = again.app.runInteractive(work);
+  try {
+    await again.until(text => Bun.stripANSI(text).includes("Work in which one?"));
+    again.input.write("mist-tools\r");
+    await again.until(text => Bun.stripANSI(text).includes("Make it?"));
+    again.input.write("2");
+    await again.until(text => Bun.stripANSI(text).includes("What are you building?"));
+    again.input.write("\x1b");
+    await again.until(text => /\bproject\s+work\b/.test(Bun.stripANSI(text)));
+    await again.until(text => Bun.stripANSI(text).includes("idle"));
+  } finally {
+    again.input.write("/exit\r");
+    await running;
+    await again.app.close();
+    again.input.destroy();
+    await rm(root, { recursive: true, force: true });
+  }
+});

@@ -103,7 +103,7 @@ import { createSessionSandbox, runtimeShell, sandboxReceipt, sandboxStartupNotes
 import { useSandbox, currentSandbox, type ShellSandbox, type ShellSandboxOptions } from "./sandbox/manager";
 import { SandboxStore } from "./sandbox/store";
 import type { RuntimeShell } from "./runtime/types";
-import { askBuildRequest, buildRequestNote, isEmptyFolder, newProjectFromQuestions, newProjectInEmptyFolder, opened,
+import { askBuildRequest, buildRequestNote, isEmptyFolder, newProjectFromQuestions, newProjectInEmptyFolder, offerMissingFolder, opened,
   type NewProjectFlow } from "./app/new-project";
 import { listLines } from "./new/command";
 import { tildePath, type NewProjectOptions, type NewProjectResult } from "./new/scaffold";
@@ -604,6 +604,8 @@ export class CasperApp {
     const folderLabel = (folder: string) => fromHome
       ? folder === home ? "~" : `~${folder.slice(home.length)}`
       : folder === cwd ? "." : path.relative(cwd, folder);
+    // Messages name the folder: "staying in Documents", never "staying in .".
+    const folderName = fromHome ? "your home folder" : path.basename(cwd) || cwd;
     const byLabel = new Map<string, string>(candidates.map(candidate => [folderLabel(candidate), candidate]));
     const answer = await this.terminal.ask(
       fromHome ? "Opened from your home folder. Work in which project?" : "This folder holds several projects. Work in which one?",
@@ -624,13 +626,18 @@ export class CasperApp {
     const resolved = byLabel.get(choice) ?? path.resolve(cwd, choice.replace(/^~(?=\/|$)/, home));
     const relative = path.relative(path.resolve(base), path.resolve(resolved));
     if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
-      this.output.write(`[folder] ${terminalText(choice)} is outside ${fromHome ? "your home directory" : "the folder you opened"}; staying in ${folderLabel(cwd)}.\n`);
+      this.output.write(`[folder] ${terminalText(choice)} is outside ${fromHome ? "your home directory" : "the folder you opened"}; staying in ${folderName}.\n`);
       return cwd;
     }
-    try {
-      if (!(await stat(resolved)).isDirectory()) throw new Error("not a directory");
-    } catch {
-      this.output.write(`[folder] ${terminalText(choice)} is not a directory; staying in ${folderLabel(cwd)}.\n`);
+    const info = await stat(resolved).catch(() => undefined);
+    if (!info) {
+      // A name that isn't there: offer to make it (Enter stays). From home it goes in ~/Projects, like /new.
+      const result = await this.newProjectFlowWithAbort((flow) => offerMissingFolder(flow, terminalText(choice), fromHome ? undefined : cwd,
+        folderName, fromHome ? "in ~/Projects" : "here"));
+      return opened(result) ? result.dir : cwd;
+    }
+    if (!info.isDirectory()) {
+      this.output.write(`[folder] ${terminalText(choice)} is not a folder; staying in ${folderName}.\n`);
       return cwd;
     }
     return resolved;

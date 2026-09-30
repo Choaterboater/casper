@@ -100,3 +100,11 @@ export const AI_REVIEW_CHOICES = [
   { label: "Stop here", description: "no tokens are spent" },
   { label: "Run the AI review", description: "uses tokens; its findings are its opinion" },
 ] as const satisfies readonly Choice[];
+
+/** A typed folder name that isn't there: "mist-tools isn't a folder in Documents." Enter stays and makes nothing. */
+export function missingFolderChoices(folder: string, name: string, where = "here"): Choice[] {
+  return [
+    { label: `Stay in ${folder}`, description: "nothing is made" },
+    { label: `Make ${name} ${where}`, description: "start a new project with that name" },
+  ];
+}

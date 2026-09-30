@@ -4,7 +4,8 @@ import { projectsFolder } from "../new/command";
 import { newProjectQuestion, newProjectSuggestion, parseNameAnswer, templateMenu, type NewProjectSuggestion } from "../new/pick";
 import { formatNewProjectReceipt } from "../new/receipt";
 import { createProject, tildePath, type NewProjectOptions, type NewProjectResult } from "../new/scaffold";
-import { getTemplate, listTemplates, NAME_RULE, validName } from "../new/templates";
+import { getTemplate, listTemplates, NAME_RULE, projectSlug, validName } from "../new/templates";
+import { missingFolderChoices } from "./safe-choices";
 
 /**
  * The new-project questions inside an app session: `casper new` on a terminal, the question when Casper
@@ -193,4 +194,25 @@ export function buildRequestNote(prompt: string): string | undefined {
   if (!suggestion) return undefined;
   const command = suggestion === "ask" ? "casper new" : `casper new ${suggestion.template} ${suggestion.name}`;
   return `[new] This reads like a new project. Casper can't ask here, so it works in this folder. To start a project instead: ${command}`;
+}
+
+/**
+ * A folder name typed at "Work in which one?" that isn't there: "mist-tools isn't a folder in Documents.
+ * 1 Stay in Documents · 2 Make mist-tools here". Enter stays. Choice 2 runs the /new questions with that name in
+ * `parent`. Undefined when nothing was made.
+ */
+export async function offerMissingFolder(flow: NewProjectFlow, typed: string, parent: string | undefined, folder: string, where = "here"): Promise<NewProjectResult | undefined> {
+  const trimmed = typed.trim();
+  const name = validName(trimmed) ? trimmed : projectSlug(trimmed);
+  if (!name || /[\\/]/.test(trimmed)) {
+    flow.write(`[folder] ${trimmed} is not a folder; staying in ${folder}.`);
+    return undefined;
+  }
+  const choices = missingFolderChoices(folder, name, where);
+  const answer = await choose(flow, `${trimmed} isn't a folder in ${folder}. Make it?`, choices);
+  if (answer !== choices[1]!.label) {
+    flow.write(`[folder] Staying in ${folder}.`);
+    return undefined;
+  }
+  return newProjectFromQuestions(flow, { name }, parent);
 }

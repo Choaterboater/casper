@@ -4,10 +4,10 @@ import os from "node:os";
 import path from "node:path";
 import {
   ALREADY_FAILING_CHOICES, MCP_REMEMBER_CHOICES, MCP_WRITES_CHOICES, modelFailedChoices, PLAN_CHOICES, PLAN_QUESTION, REMEMBER_BIG_MODEL_CHOICES,
-  REPAIR_LIMIT_STOP, undoChangedChoices, unfinishedChoices, HOST_CHOICES, SHELL_COMMAND_CHOICES, AI_REVIEW_CHOICES, REACH_CHOICES,
+  REPAIR_LIMIT_STOP, undoChangedChoices, missingFolderChoices, unfinishedChoices, HOST_CHOICES, SHELL_COMMAND_CHOICES, AI_REVIEW_CHOICES, REACH_CHOICES,
 } from "../src/app/safe-choices";
 import { planEditorHeading } from "../src/flows/plan";
-import { askBuildRequest, newProjectInEmptyFolder, type NewProjectFlow } from "../src/app/new-project";
+import { askBuildRequest, newProjectInEmptyFolder, offerMissingFolder, type NewProjectFlow } from "../src/app/new-project";
 import { labAskFor, labFailureAsk } from "../src/network/checks";
 import { newProjectQuestion } from "../src/new/pick";
 import { IGNORE_CHOICES, IGNORE_FILE_CHOICES } from "../src/security/format";
@@ -46,6 +46,7 @@ const firsts: Array<[string, string, string]> = [
   ["run this command? (no sandbox)", SHELL_COMMAND_CHOICES[0].label, "No"],
   ["reach another machine (ssh, scp, nc ...)", REACH_CHOICES[0].label, "No"],
   ["the AI security review", AI_REVIEW_CHOICES[0].label, "Stop here"],
+  ["a typed folder that isn't there", missingFolderChoices("Documents", "mist-tools")[0]!.label, "Stay in Documents"],
 ];
 
 test.each(firsts)("choice 1 at %s is the safe one", (_question, first, expected) => {
@@ -66,6 +67,7 @@ test("the risky choices still exist, as a deliberate 2 or later", () => {
   expect(undoChangedChoices("Undo", 2).map((choice) => choice.label)).toEqual(["Cancel", "Undo the other 2 files"]);
   expect(AI_REVIEW_CHOICES.map((choice) => choice.label)).toEqual(["Stop here", "Run the AI review"]);
   expect(REACH_CHOICES.map((choice) => choice.label)).toEqual(["No", "Yes, this time", "Yes, for this session"]);
+  expect(missingFolderChoices("Documents", "mist-tools").map((choice) => choice.label)).toEqual(["Stay in Documents", "Make mist-tools here"]);
 });
 
 test("Enter in the rich terminal's plan editor goes on to Build this plan?, never straight to a build", () => {
@@ -119,5 +121,16 @@ test("Enter at the build-request question, and at its Other kind list, keeps the
     expect(other.asked[1]!.question).toBe("What are you building?");
     expect(other.asked[1]!.labels[0]).toBe("Use this folder");
     expect(other.created()).toBe(0);
+  } finally { await rm(home, { recursive: true, force: true }); }
+});
+
+test("Enter at \"mist-tools isn't a folder in Documents\" makes nothing: Stay is choice 1", async () => {
+  const home = await mkdtemp(path.join(os.tmpdir(), "casper-safe-missing-"));
+  try {
+    const { flow, asked, created } = enterFlow(home);
+    expect(await offerMissingFolder(flow, "mist-tools", home, "Documents")).toBeUndefined();
+    expect(asked[0]!.question).toBe("mist-tools isn't a folder in Documents. Make it?");
+    expect(asked[0]!.labels).toEqual(["Stay in Documents", "Make mist-tools here"]);
+    expect(created()).toBe(0);
   } finally { await rm(home, { recursive: true, force: true }); }
 });
