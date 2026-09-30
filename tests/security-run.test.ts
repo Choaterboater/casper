@@ -75,7 +75,7 @@ test("the header says what holds the tools here: no network only where the sandb
     .toBe(securityNetworkLine({ on: true, platform: "linux", state: { kind: "on" }, failure: undefined }));
   const windows = securityNetworkLine({ on: false, platform: "win32", state: { kind: "unsupported", reason: "Windows" }, failure: undefined });
   expect(windows).toBe(`${SECURITY_OFFLINE_LINE} Nothing blocks their network here (Windows).`);
-  for (const line of [windows, securityNetworkLine(undefined)]) expect(line).not.toMatch(/offline|no network/i);
+  for (const line of [windows, securityNetworkLine(null)]) expect(line).not.toMatch(/offline|no network/i);
 });
 
 test("--strict also fails on a check that did not run; --json has the versioned shape", async () => {
