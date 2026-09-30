@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import {
   ALREADY_FAILING_CHOICES, MCP_REMEMBER_CHOICES, MCP_WRITES_CHOICES, modelFailedChoices, PLAN_CHOICES, PLAN_QUESTION, REMEMBER_BIG_MODEL_CHOICES,
-  REPAIR_LIMIT_STOP, undoChangedChoices, unfinishedChoices,
+  REPAIR_LIMIT_STOP, undoChangedChoices, unfinishedChoices, HOST_CHOICES, SHELL_COMMAND_CHOICES,
 } from "../src/app/safe-choices";
 import { planEditorHeading } from "../src/flows/plan";
 import { askBuildRequest, newProjectInEmptyFolder, type NewProjectFlow } from "../src/app/new-project";
@@ -42,6 +42,8 @@ const firsts: Array<[string, string, string]> = [
   ["lab failure", labFailureAsk("junos-commit").choices[0]!, "Stop"],
   ["undo with a file changed since", undoChangedChoices("Undo", 2)[0]!.label, "Cancel"],
   ["redo with a file changed since", undoChangedChoices("Redo", 1)[0]!.label, "Cancel"],
+  ["a shell command wants to reach a host", HOST_CHOICES[0].label, "No"],
+  ["run this command? (no sandbox)", SHELL_COMMAND_CHOICES[0].label, "No"],
 ];
 
 test.each(firsts)("choice 1 at %s is the safe one", (_question, first, expected) => {
