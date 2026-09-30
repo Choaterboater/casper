@@ -262,7 +262,7 @@ export async function runCli(): Promise<void> {
       const task = app.getLastTaskResult();
       const exitCode = taskExitCode(report, task, { requireVerification: options.requireVerification });
       process.exitCode = exitCode;
-      emit?.(receiptEvent(report, task, exitCode, app.sandboxReceipt()));
+      emit?.(receiptEvent(report, task, exitCode, app.sandboxReceipt(), app.commandUsage()));
       return;
     }
 

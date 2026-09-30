@@ -49,7 +49,7 @@ import type {
 } from "./runtime/types";
 import { SkillRegistry, formatSelectedSkills } from "./skills/registry";
 import { classifyTask, formatTaskPrompt, underSpecifiedTarget } from "./task/classify";
-import { formatReceipt, liveCheckLine, formatTaskResult, type TaskResult } from "./task/result";
+import { formatReceipt, liveCheckLine, formatTaskResult, type TaskResult, type TaskUsage } from "./task/result";
 import { TaskObservations } from "./task/observations";
 import { LifecycleRegistry } from "./app/lifecycle";
 import { RuntimeEventView } from "./app/events";
@@ -291,6 +291,8 @@ export class CasperApp {
   private savedModelDisplay?: string;
   private taskRuntimeCancelled = false;
   private lastTaskResult?: TaskResult;
+  /** Tokens the AI security review spent in this command (no task to carry them). */
+  private commandSpent?: TaskUsage;
   /** Undo, redo, /diff and saved receipts: a copy before and after each task. */
   private readonly taskUndo = ((app: CasperApp) => new TaskUndo({
     output: { write: (text) => app.output.write(text) },
@@ -546,6 +548,9 @@ export class CasperApp {
   /** Last normal coding/chat request; local commands other than /receipt clear it. Not acceptance evidence. */
   /** Whether the session's shell sandbox holds its commands and checks, for a receipt with no task. */
   sandboxReceipt(): TaskResult["sandbox"] | undefined { return sandboxReceipt(this.sandbox); }
+
+  /** What a command outside a task spent on the model this run (the AI security review), for the receipt. */
+  commandUsage(): TaskUsage | undefined { return this.commandSpent ? { ...this.commandSpent } : undefined; }
 
   getLastTaskResult(): TaskResult | undefined {
     return this.lastTaskResult ? structuredClone(this.lastTaskResult) : undefined;
@@ -924,6 +929,7 @@ export class CasperApp {
     this.taskRuntimeCancelled = false;
     this.commandActive = true;
     this.commandAbort = new AbortController();
+    this.commandSpent = undefined;
     this.updateFooter();
     this.workspaceTransition = transition;
     try {
@@ -1754,7 +1760,12 @@ export class CasperApp {
         return { name: `${info ? `${info.provider}/${info.id}` : selector}${review ? " (your review model)" : ""}`,
           ...(info?.inputCostPerMillion ? { inputCostPerMillion: info.inputCostPerMillion } : {}) };
       },
-      run: (options) => this.subagents.reviewSecurity(options),
+      run: async (options) => {
+        const result = await this.subagents.reviewSecurity(options);
+        // Tokens spent outside a task still reach the receipt (`casper --json "/security-review ai"`).
+        this.commandSpent = { turns: result.turns ?? 0, tokens: result.usage?.tokens ?? null, estimatedCost: result.usage?.estimatedCost ?? null };
+        return result;
+      },
       scrub: (toolName, input, texts, signal) => scrubToolOutput(this.scrubber, toolName, input, texts, signal, { configs: true }),
     };
   }

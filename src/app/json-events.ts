@@ -222,7 +222,9 @@ export function storedTaskResult(task: TaskResult): TaskResult {
 /** Exactly one per one-shot run: what changed, what Casper proved, and the exit code it implies. */
 export function receiptEvent(report: VerificationReport | undefined, task: TaskResult | undefined, exitCode: number,
   /** The session's sandbox, for a run with no task (`casper --json /verify`): its checks ran held or not too. */
-  session?: TaskResult["sandbox"]): ReceiptEvent {
+  session?: TaskResult["sandbox"],
+  /** What a command with no task spent on the model (`/security-review ai`), so the receipt never says none. */
+  commandUsage?: TaskUsage): ReceiptEvent {
   const verification = task?.verification ?? report;
   const receipt = task ?? (report ? { execution: "completed" as const, verification: report, ...(session ? { sandbox: session } : {}) } : undefined);
   const held = task ? task.sandbox : report ? session : undefined;
@@ -238,7 +240,7 @@ export function receiptEvent(report: VerificationReport | undefined, task: TaskR
       exit: result.exitCode, ms: Math.round(result.durationMs), fresh: result.status === "pass" && result.freshness !== "stale", ...namedCheckFields(result) })),
     repairAttempts: verification?.repairAttempts ?? 0,
     turnLimit: task?.turnLimit ?? null,
-    usage: task?.usage ? { ...task.usage } : null,
+    usage: task?.usage ? { ...task.usage } : commandUsage ? { ...commandUsage } : null,
     proof: task?.proof ? redactProof(task.proof) : null,
     proofSkipped: task?.proofSkipped ?? null,
     review: task?.review ? redactReview(task.review) : null,

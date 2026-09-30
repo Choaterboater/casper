@@ -60,6 +60,8 @@ export interface SubagentResult {
    * still streaming, the child ran the effort classifier, or cleanup had not drained (a late call
    * may still be billed). For the parent's totals only; never shown to the parent model. */
   usage: SubagentUsage | null;
+  /** Model responses the child made (for a receipt's usage). Never shown to the parent model. */
+  turns?: number;
 }
 
 export interface SubagentManagerOptions {
@@ -230,7 +232,7 @@ export class SubagentManager {
           const isError = result.status !== "completed";
           // The caller already has the goal. Put outcome first so even a byte-
           // bounded preview retains it instead of spending its budget echoing input.
-          const { goal: _goal, status, reason, usage: _usage, ...report } = result;
+          const { goal: _goal, status, reason, usage: _usage, turns: _turns, ...report } = result;
           return { text: JSON.stringify(boundCapabilityResult({ isError, status, reason, ...report })), ...(isError ? { isError: true } : {}) };
         } catch (error) {
           // run() throws only before it creates a child runtime: no model call was made.
@@ -310,11 +312,13 @@ export class SubagentManager {
     /** A model response has started and not yet ended. A limit notice from the runtime is an end
      * with no start: it closes no response and carries no usage. */
     let streaming = false;
+    let turns = 0;
     const observe = (event: RuntimeEvent) => {
       // Usage first: a call cut off by an abort still happened.
       if (event.type === "assistant_response_start") streaming = true;
       else if (event.type === "assistant_response_end" && streaming) {
         streaming = false;
+        turns++;
         if (!event.usage) result.usage = null;
         else if (result.usage) result.usage = { tokens: result.usage.tokens + event.usage.tokens, estimatedCost: result.usage.estimatedCost + event.usage.estimatedCost };
       }
@@ -409,7 +413,7 @@ export class SubagentManager {
       if (controller.signal.aborted) await settleWithin(work, this.cleanupGraceMs);
       const pending = this.active.has(active);
       return { ...result, ...(pending ? { cleanupPending: true } : {}), toolsUsed: [...result.toolsUsed], toolErrors: [...result.toolErrors],
-        usage: pending || streaming || !result.usage ? null : { ...result.usage } };
+        usage: pending || streaming || !result.usage ? null : { ...result.usage }, turns };
     } finally {
       clearTimeout(timer);
       options.signal?.removeEventListener("abort", onCancel);

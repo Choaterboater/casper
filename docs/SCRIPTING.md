@@ -97,7 +97,8 @@ has `name`, `command`, `status`, `exit`, `ms` and `fresh`. `text` is the plain r
 would read.
 
 `usage` is the request's model use, repair prompts included, or `null` when no model request ran
-(a local `/` command): `turns` counts the conversation's model responses, and `tokens` and
+(a local `/` command). `casper --json "/security-review ai"` is a `/` command that does use the
+model: its `usage` is the AI review's responses and tokens. `turns` counts the conversation's model responses, and `tokens` and
 `estimatedCost` total what the provider reported for each of them plus every `delegate`
 subagent's responses (a child's turns are not counted in `turns`). `estimatedCost` is the model
 catalog's estimate, not an invoice. Context compaction is not counted. Both totals are `null`
