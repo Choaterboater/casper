@@ -436,7 +436,13 @@ function receiptParts(task: TaskResult, options: ReceiptOptions): { lines: strin
     const claimed = task.browserClaimed ? " — the answer above says they passed" : "";
     if (task.browser.status === "pass") fold(`✓ Browser checks passed (${task.browser.checks.length})`, `browser checks passed (${task.browser.checks.length})`);
     else if (task.browser.status === "fail") lines.push(`✗ Browser checks failed: ${failed.join(", ")}${claimed}`);
-    else lines.push(claimed ? `• Browser checks did not finish${claimed}; Casper saw no passing browser check` : "• Browser checks incomplete");
+    else {
+      // Incomplete: count what passed, and name what did not finish (a check that went stale or never ran).
+      const passed = task.browser.checks.filter((check) => check.status === "pass").length;
+      const open = task.browser.checks.filter((check) => check.status !== "pass").map((check) => safe(check.name));
+      if (passed) lines.push(`• Browser checks: ${passed} of ${task.browser.checks.length} passed; not finished: ${open.join(", ")}`);
+      else lines.push(claimed ? `• Browser checks did not finish${claimed}; Casper saw no passing browser check` : "• Browser checks incomplete");
+    }
   }
   const verdict = withVerdict(task, lines, options);
   return { lines: verdict.lines, undo: undoLines(task, options, safe), folds, ...(verdict.short ? { short: verdict.short } : {}) };
