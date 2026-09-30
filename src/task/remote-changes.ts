@@ -1,4 +1,4 @@
-import { segmentTargets, splitShell } from "../sandbox/remote";
+import { commandSegments, segmentTargets } from "../sandbox/remote";
 
 /**
  * What a command sent over ssh (or copied with scp/rsync) changed on another machine, read from the command text
@@ -52,23 +52,26 @@ export function changesInRemoteText(text: string): string[] {
   return found;
 }
 
-/** Changes on other machines, per host as the command names it, from one shell command the AI ran. */
+/**
+ * Changes on other machines, per host as the command names it, from one shell command the AI ran. An ssh command
+ * whose text shows no change is listed with no changes: it ran there, and Casper can't tell what it did.
+ */
 export function remoteChanges(command: string): Array<{ host: string; changes: string[] }> {
   const out = new Map<string, string[]>();
-  const add = (host: string, changes: string[]) => {
-    if (!changes.length) return;
+  const add = (host: string, changes: string[], ran = false) => {
+    if (!changes.length && !ran) return;
     const list = out.get(host) ?? [];
     for (const change of changes) if (!list.includes(change)) list.push(change);
     out.set(host, list);
   };
-  for (const segment of splitShell(command).segments) {
+  for (const segment of commandSegments(command)) {
     const parsed = segmentTargets(segment.words);
     const destination = parsed.targets.at(-1);
     if (!destination) continue;
     if (parsed.tool === "ssh") {
       // `ssh host 'cmd'`, or `ssh host bash -s <<EOF ... EOF` (the here-document is what runs there).
       const heredoc = parsed.remote.length <= 3 && command.includes("<<") ? command.slice(command.indexOf("<<")) : "";
-      add(destination.typed, changesInRemoteText(`${parsed.remote.join(" ")}\n${heredoc}`));
+      add(destination.typed, changesInRemoteText(`${parsed.remote.join(" ")}\n${heredoc}`), parsed.remote.length > 0 || heredoc !== "");
     } else if (parsed.tool === "scp" || parsed.tool === "rsync") {
       const last = parsed.args.at(-1) ?? "";
       const remotePath = /^(?:[^@/:\s]+@)?(?:\[[^\]]+\]|[^:/\s\\]{2,})::?(.*)$/.exec(last)?.[1];

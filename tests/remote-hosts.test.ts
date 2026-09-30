@@ -80,9 +80,14 @@ test("changes on another machine are read from the ssh command text: tokens, ser
   expect(remoteChanges("ssh lab-01 bash -s <<'EOF'\nuseradd -m svc\nssh-keygen -t ed25519 -f /root/.ssh/k\nEOF")).toEqual([{ host: "lab-01", changes: [
     "made an SSH key (ssh-keygen -t ed25519 -f /root/.ssh/k)", "added a user (useradd -m svc)"] }]);
   // Reading is not changing, and a local command is not a remote change.
-  for (const quiet of ["ssh lab-01 'cat /etc/passwd; systemctl status demoapp; ls /opt'", "systemctl enable demoapp", "apt-get install -y jq", "scp lab-01:/etc/hosts ."]) {
+  for (const quiet of ["systemctl enable demoapp", "apt-get install -y jq", "scp lab-01:/etc/hosts ."]) {
     expect([quiet, remoteChanges(quiet)]).toEqual([quiet, []]);
   }
+  // A command that ran over ssh with no change Casper knows is still listed: it ran there, and Casper can't tell.
+  expect(remoteChanges("ssh lab-01 'cat /etc/passwd; systemctl status demoapp; ls /opt'")).toEqual([{ host: "lab-01", changes: [] }]);
+  expect(remoteChanges("ssh lab-01 'python3 /srv/setup.py'")).toEqual([{ host: "lab-01", changes: [] }]);
+  // Wrapped in another shell, it is read all the same.
+  expect(remoteChanges(`bash -c "ssh lab-01 'pvecm updatecerts --force'"`)).toEqual([{ host: "lab-01", changes: ["renewed the node certificates (pvecm updatecerts --force)"] }]);
 });
 
 test("ssh wrapped in another shell, a subshell, a loop or xargs is still found; a host in a variable still counts", () => {

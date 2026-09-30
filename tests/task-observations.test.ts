@@ -265,3 +265,18 @@ test("a question-only task that changed another machine over ssh still prints th
     } finally { await app.close(); }
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test("commands run over ssh with no change Casper can read still get a receipt line; a refused or blocked one does not", async () => {
+  const { formatReceipt, REMOTE_UNKNOWN } = await import("../src/task/result");
+  const observations = new TaskObservations();
+  observations.observeToolEnd(bash("ssh root@lab-01 'python3 /srv/demoapp/setup.py'"), {});
+  observations.observeToolEnd(bash(`bash -c "ssh sw1 'systemctl restart demoapp'"`), {});
+  observations.observeToolEnd({ ...bash("ssh core1 'reboot'", true), output: { text: "ssh: connect to host core1 port 22: Network is unreachable\n[sandbox] Blocked: wanted to reach core1.", truncated: false } }, {});
+  const snapshot = observations.snapshot([]);
+  expect(snapshot.remoteChanges).toEqual([{ host: "lab-01", changes: [] }, { host: "sw1", changes: ["started or stopped a service (systemctl restart demoapp)"] }]);
+  const receipt = formatReceipt({ execution: "completed", ...snapshot });
+  expect(receipt).toContain(`• Ran commands on lab-01 over ssh; ${REMOTE_UNKNOWN}`);
+  expect(REMOTE_UNKNOWN).toBe("Casper can't tell from the command text whether they changed anything there");
+  expect(receipt).toContain("• Changed on sw1 (from the commands Casper saw): started or stopped a service (systemctl restart demoapp)");
+  expect(receipt).not.toContain("core1");
+});

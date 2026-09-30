@@ -101,8 +101,8 @@ export class TaskObservations {
     // workspace snapshot can settle either, so this merely flags that the question is open.
     if (["bash", "edit", "write"].includes(event.toolName) || (event.toolName === "lsp" && event.input?.operation === "rename")) this.mutationToolRan = true;
     if (event.input?.secretHidden) this.secretInCommand = true;
-    // A command Casper refused did not run.
-    const refused = event.isError && /^(?:Not run:|\[shell\] Not run)/.test(event.output?.text ?? "");
+    // A command Casper or the sandbox refused did not reach the other machine.
+    const refused = event.isError && /^(?:Not run:|\[shell\] Not run)|\[sandbox\] /.test(event.output?.text ?? "");
     if ((event.toolName === "bash" || event.toolName === "powershell") && event.input?.command && !refused && this.remote.size < 16) {
       for (const { host, changes } of remoteChanges(event.input.command)) {
         const list = this.remote.get(host) ?? [];
