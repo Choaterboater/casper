@@ -114,8 +114,9 @@ function sortedUnique(values: Iterable<string>): string[] {
 }
 
 // 3: Python network SDKs (mistapi, pycentral, pyaoscx, pyclearpass, junos-eznc, ncclient) give frameworks.
+// 4: a Python project with test_*.py files and no pytest runs them with unittest.
 /** Bump when detection changes what it derives from the same files, so cached models are rebuilt. */
-const DETECTION_VERSION = 3;
+const DETECTION_VERSION = 4;
 /** requirements.txt, requirements-dev.txt, requirements_test.txt ...: Python projects without a pyproject. */
 const REQUIREMENTS = /^requirements[\w.-]*\.txt$/i;
 /** Python package names (as a whole word, not inside another name) and the framework they give. */
@@ -157,7 +158,7 @@ async function fingerprint(
       hash.update(`${name}:missing\n`);
     }
   }
-  for (const relative of [...STRUCTURE_PROBES, ...VIRTUALENVS]) {
+  for (const relative of [...STRUCTURE_PROBES, ...VIRTUALENVS, ...UNITTEST_DIRS]) {
     try {
       const details = await lstat(path.join(root, relative));
       const kind = details.isSymbolicLink() ? "link" : details.isDirectory() ? "dir" : "file";
@@ -310,6 +311,20 @@ function tomlTable(source: string, name: string): string | null {
   return (end < 0 ? rest : rest.slice(0, end)).join("\n");
 }
 
+/** Folders a plain unittest suite sits in; the project root counts too. */
+const UNITTEST_DIRS = ["tests", "test"];
+const TEST_FILE = /^test_.*\.py$|^.*_test\.py$/;
+
+/** "python3 -m unittest discover -s tests" when a Python project has test_*.py files but no pytest: the standard
+ * library runs them, nothing to install. Undefined when there are none. */
+export async function unittestCommand(root: string, runner: ReturnType<typeof pythonRunner>): Promise<string | undefined> {
+  const hasTests = async (dir: string) => (await readdir(dir).catch(() => [] as string[])).some((name) => TEST_FILE.test(name));
+  for (const dir of UNITTEST_DIRS) {
+    if (await hasTests(path.join(root, dir))) return runner.tool(`unittest discover -s ${dir}`);
+  }
+  return await hasTests(root) ? runner.tool("unittest discover") : undefined;
+}
+
 export function detectPythonCommands(
   pyproject: string,
   requirements: string,
@@ -371,7 +386,12 @@ async function detectModel(
   if (pyproject || requirements) {
     const virtualenv = (await Promise.all(VIRTUALENVS.map(async (name) => (await lstat(path.join(project.root, name)).catch(() => undefined))?.isDirectory() ? name : null)))
       .find(Boolean) ?? null;
-    commands = { ...commands, ...detectPythonCommands(pyproject, requirements, pythonRunner(names, pyproject, virtualenv)) };
+    const runner = pythonRunner(names, pyproject, virtualenv);
+    commands = { ...commands, ...detectPythonCommands(pyproject, requirements, runner) };
+    if (!commands.test) {
+      const unittest = await unittestCommand(project.root, runner);
+      if (unittest) commands.test = unittest;
+    }
     if (/\bfastapi\b/i.test(pyproject)) frameworks.add("fastapi");
     if (/\bdjango\b/i.test(pyproject)) frameworks.add("django");
     if (/\bflask\b/i.test(pyproject)) frameworks.add("flask");

@@ -53,3 +53,12 @@ test("adding a requirements file or a .venv invalidates the cached detection", a
   await mkdir(path.join(info.root, ".venv"));
   expect((await loadProjectModel(info, { homeDir: home })).commands.test).toBe(`${venvPython} -m pytest`);
 });
+
+test("a Python project with test_*.py files and no pytest runs them with unittest", async () => {
+  expect((await commands({ "pyproject.toml": '[project]\nname = "mist-tools"\n', "tests/test_sites.py": "" })).test)
+    .toBe(`${systemPython} -m unittest discover -s tests`);
+  expect((await commands({ "requirements.txt": "requests\n", "test_main.py": "" })).test).toBe(`${systemPython} -m unittest discover`);
+  // pytest still wins when the project names it; no test files, no command.
+  expect((await commands({ "pyproject.toml": '[project]\nname = "x"\ndependencies = ["pytest"]\n', "tests/test_a.py": "" })).test).toBe(`${systemPython} -m pytest`);
+  expect((await commands({ "pyproject.toml": '[project]\nname = "x"\n' })).test).toBeUndefined();
+});
