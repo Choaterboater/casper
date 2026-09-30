@@ -388,14 +388,8 @@ export class CasperApp {
     this.terminal.setEffortCycle(() => this.cycleEffort());
     // ctrl+o: MCP writes off everywhere, at once, even while work runs.
     this.terminal.setWritesRevert(() => this.revertWrites());
-    // A tool's "running" line is left open on a rich surface so its completion can redraw it in
-    // place (`\r`); any other output first commits that line, so nothing appends to it. The boxed
-    // activity status stays out of the transcript and is cleared as streamed text arrives.
-    // The open-line state lives in the event view; every write consults it first.
-    this.output = { write: (text) => {
-      this.events.beforeWrite(text);
-      this.terminal.write(text);
-    } };
+    // Tool calls live in the event view's Working box on a rich surface; the transcript gets plain writes.
+    this.output = { write: (text) => { this.terminal.write(text); } };
     this.events = new RuntimeEventView(this.terminal, this.output, {
       updateFooter: () => this.updateFooter(),
       onToolEnd: event => {
@@ -1554,6 +1548,8 @@ export class CasperApp {
         ...(this.taskTurnLimit !== undefined ? { turnLimit: this.taskTurnLimit } : {}), ...(proof ? { proof } : {}), ...(proofSkipped && !proof ? { proofSkipped } : {}), ...(review ? { review } : {}),
         ...(acceptance ? { acceptance } : {}), ...(checklist ? { checklist } : {}), ...this.bigModelReceipt(),
         ...(changedWhilePlanning?.length ? { changedWhilePlanning } : {}), ...(this.sandbox ? { sandbox: sandboxReceipt(this.sandbox)! } : {}) };
+      // The receipt is next: the steps fold and the Working box goes, even for a tool that ended late.
+      this.events.reset();
       if (!this.closing) {
         this.terminal.endAssistant();
         this.events.ensureLineBreak();

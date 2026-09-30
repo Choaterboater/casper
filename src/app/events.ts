@@ -1,5 +1,5 @@
 import type { InteractiveTerminal } from "../tui/terminal";
-import { formatToolActivity, redactPreview, terminalText } from "../tui/format";
+import { formatDuration, formatToolActivity, redactPreview, terminalText } from "../tui/format";
 import type { RuntimeEvent } from "../runtime/types";
 import type { OutputWriter } from "./commands";
 
@@ -19,13 +19,67 @@ export interface RuntimeEventCallbacks {
   projectRoot?(): string | undefined;
 }
 
-/** Renders runtime events onto the terminal and owns the transcript-flow state that makes
- * incremental output correct: the open tool line and whether the last write ended a line.
+type ToolStart = Extract<RuntimeEvent, { type: "tool_start" }>;
+type ToolEnd = Extract<RuntimeEvent, { type: "tool_end" }>;
+type StepKind = "edit" | "command" | "read" | "other";
+
+/** One tool call on the rich terminal: shown in the Working box while the model works, then folded. */
+interface Step {
+  id?: string;
+  toolName: string;
+  kind: StepKind;
+  path?: string;
+  startedAt: number;
+  endedAt?: number;
+  /** Its line in the Working box (running, then finished). */
+  line: string;
+  /** The finished line as printed on the main screen, with a failure's detail. */
+  printed?: string;
+  failed?: boolean;
+  /** A failed edit the model tried again at once: counted, not printed. */
+  retried?: boolean;
+}
+
+function stepKind(toolName: string): StepKind {
+  if (toolName === "edit" || toolName === "write") return "edit";
+  if (toolName === "bash" || toolName === "powershell") return "command";
+  if (["read", "grep", "find", "ls"].includes(toolName)) return "read";
+  return "other";
+}
+
+const KIND_WORDS: Record<StepKind, [string, string]> = {
+  edit: ["edit", "edits"], command: ["command", "commands"], read: ["read", "reads"], other: ["other step", "other steps"],
+};
+
+/** How many steps the Working box shows. */
+const BOX_STEPS = 3;
+
+/** One line for a finished group of steps: "✓ 14 edits · 6 commands · 1 failed · 38s". */
+export function stepSummary(steps: ReadonlyArray<{ kind: StepKind; failed?: boolean; startedAt: number; endedAt?: number }>): string {
+  const counts = new Map<StepKind, number>();
+  for (const step of steps) counts.set(step.kind, (counts.get(step.kind) ?? 0) + 1);
+  const parts = (["edit", "command", "read", "other"] as const).flatMap(kind => {
+    const count = counts.get(kind) ?? 0;
+    return count ? [`${count} ${KIND_WORDS[kind][count === 1 ? 0 : 1]}`] : [];
+  });
+  const failed = steps.filter(step => step.failed).length;
+  if (failed) parts.push(`${failed} failed`);
+  const first = Math.min(...steps.map(step => step.startedAt));
+  const last = Math.max(...steps.map(step => step.endedAt ?? step.startedAt));
+  const duration = formatDuration(last - first);
+  if (duration) parts.push(duration);
+  return `✓ ${parts.join(" · ")}`;
+}
+
+/** Renders runtime events onto the terminal. On the rich terminal the main screen keeps the model's words,
+ * questions and receipts: tool calls live in the Working box (the last few steps, updated in place) and fold
+ * into one summary line when the model moves on. The plain terminal prints one line per finished tool.
  * Extraction-safe: everything here is rendering, not orchestration. */
 export class RuntimeEventView {
   private readonly toolStarted = new Map<string, number>();
-  private openToolLine = false;
-  private openToolCallId?: string;
+  private steps: Step[] = [];
+  /** What the model is doing now ("Waiting for …", "Reasoning"), under the steps in the Working box. */
+  private status?: string;
   private responseActivity?: string;
   private responseStartedAt?: number;
   private activityTimer?: NodeJS.Timeout;
@@ -35,14 +89,9 @@ export class RuntimeEventView {
   constructor(private readonly terminal: InteractiveTerminal, private readonly output: OutputWriter,
     private readonly callbacks: RuntimeEventCallbacks) {}
 
-  /** Tool lines: relative paths, and on a rich terminal one row at its current width. */
-  private fit(): { root?: string; width?: number } {
-    return { root: this.callbacks.projectRoot?.(), ...(this.terminal.rich && this.terminal.columns ? { width: this.terminal.columns } : {}) };
-  }
-
-  /** Called by the app's output wrapper before every write to commit an open tool line. */
-  beforeWrite(text: string): void {
-    if (this.openToolLine) { this.openToolLine = false; if (!text.startsWith("\r")) this.terminal.write("\n"); }
+  /** Tool lines: relative paths, and on a rich terminal one row at its current width (inside the box when boxed). */
+  private fit(inset = 0): { root?: string; width?: number } {
+    return { root: this.callbacks.projectRoot?.(), ...(this.terminal.rich && this.terminal.columns ? { width: this.terminal.columns - inset } : {}) };
   }
 
   ensureLineBreak(): void {
@@ -61,6 +110,14 @@ export class RuntimeEventView {
     this.endedWithNewline = true;
   }
 
+  /** The Working box: the latest steps, then what the model is doing now. */
+  private renderBox(): void {
+    if (!this.terminal.rich) return;
+    const lines = this.steps.slice(-BOX_STEPS).map(step => step.line);
+    if (this.status) lines.push(this.status);
+    this.terminal.setActivity(lines.length ? lines : undefined);
+  }
+
   private setResponseActivity(activity: string): void {
     if (!this.terminal.rich) return;
     this.responseActivity = activity;
@@ -77,7 +134,8 @@ export class RuntimeEventView {
     const seconds = Math.floor((performance.now() - this.responseStartedAt) / 1000);
     const minutes = Math.floor(seconds / 60);
     const elapsed = minutes ? `${minutes}m${String(seconds % 60).padStart(2, "0")}s` : `${seconds}s`;
-    this.terminal.setActivity(`${this.responseActivity} · ${elapsed}`);
+    this.status = `${this.responseActivity} · ${elapsed}`;
+    this.renderBox();
   }
 
   private clearResponseActivity(): void {
@@ -86,10 +144,38 @@ export class RuntimeEventView {
   }
 
   private setStaticActivity(activity?: string): void {
-    // Text deltas call this on every chunk. Skip once the waiting box is already gone.
-    if (activity === undefined && !this.responseActivity && !this.activityTimer) return;
+    // Text deltas call this on every chunk. Skip once the status is already gone.
+    if (activity === undefined && this.status === undefined && !this.activityTimer) return;
     this.clearResponseActivity();
-    this.terminal.setActivity(activity);
+    this.status = activity;
+    this.renderBox();
+  }
+
+  /** The model moved on: finished steps leave the box and fold into one line on the main screen. A single
+   * step prints its own line; failures print theirs, except failed edits the model retried at once. */
+  private fold(): void {
+    const done = this.steps.filter(step => step.endedAt !== undefined);
+    if (!done.length) return;
+    this.steps = this.steps.filter(step => step.endedAt === undefined);
+    this.terminal.endAssistant();
+    this.ensureLineBreak();
+    if (done.length === 1 && !done[0]!.retried) this.output.write(`${done[0]!.printed}\n`);
+    else {
+      for (const step of done) if (step.failed && !step.retried) this.output.write(`${step.printed}\n`);
+      this.output.write(`${stepSummary(done)}\n`);
+    }
+    this.endedWithNewline = true;
+    this.renderBox();
+  }
+
+  /** The receipt is next: fold what finished, and the Working box goes away whatever arrives late. */
+  reset(): void {
+    this.fold();
+    this.steps = [];
+    this.clearResponseActivity();
+    this.status = undefined;
+    this.toolStarted.clear();
+    this.terminal.setActivity(undefined);
   }
 
   get lastError(): string | undefined {
@@ -126,7 +212,6 @@ export class RuntimeEventView {
       }
       case "assistant_progress": {
         if (!this.terminal.rich) break;
-        if (this.openToolLine) { this.openToolLine = false; this.terminal.write("\n"); }
         // Some providers deliver tool arguments whole; the box then says what is being prepared.
         const size = event.chars === 0 ? "" : event.chars >= 1024 ? ` · ${(event.chars / 1024).toFixed(1)}k chars` : ` · ${event.chars} chars`;
         const what = event.kind === "thinking" ? "Reasoning" : `Preparing ${terminalText(event.toolName ?? "tool call")}`;
@@ -152,38 +237,57 @@ export class RuntimeEventView {
         break;
       }
       case "assistant_text_delta":
+        // The model moved on: the finished steps fold into one line above its words.
+        if (this.steps.some(step => step.endedAt !== undefined)) this.fold();
         this.setStaticActivity();
-        this.openToolLine = false; // The streaming block commits any open tool line inside the transcript.
         this.terminal.assistant(event.delta);
         this.endedWithNewline = true;
         break;
       case "tool_start": {
-        this.setStaticActivity(formatToolActivity(event));
-        this.terminal.endAssistant();
-        this.ensureLineBreak();
         if (event.toolCallId) this.toolStarted.set(event.toolCallId, performance.now());
-        const inPlace = this.terminal.rich && event.toolCallId !== undefined;
-        this.output.write(`${formatToolActivity(event, undefined, this.fit())}${inPlace ? "" : "\n"}`);
-        if (inPlace) { this.openToolLine = true; this.openToolCallId = event.toolCallId; }
-        this.endedWithNewline = true;
+        if (!this.terminal.rich) break; // The plain terminal prints the end line only.
+        this.terminal.endAssistant();
+        // A failed edit followed at once by another edit of the same file was retried: count it, don't print it.
+        const last = this.steps.at(-1);
+        const path = typeof event.input?.path === "string" ? event.input.path : undefined;
+        if (last?.failed && last.kind === "edit" && stepKind(event.toolName) === "edit" && path !== undefined && last.path === path) last.retried = true;
+        this.steps.push({ ...(event.toolCallId ? { id: event.toolCallId } : {}), toolName: event.toolName, kind: stepKind(event.toolName),
+          ...(path !== undefined ? { path } : {}), startedAt: performance.now(), line: formatToolActivity(event, undefined, this.fit(4)) });
+        this.clearResponseActivity(); this.status = undefined;
+        this.renderBox();
         break;
       }
-      case "tool_end":
+      case "tool_end": {
         this.callbacks.onToolEnd(event);
-        this.setStaticActivity(`${event.isError ? "Tool failed" : "Tool finished"} · ${terminalText(event.toolName)}`);
-        this.terminal.endAssistant();
         const started = event.toolCallId ? this.toolStarted.get(event.toolCallId) : undefined;
         if (event.toolCallId) this.toolStarted.delete(event.toolCallId);
+        const elapsed = started === undefined ? undefined : performance.now() - started;
         // A failed casper_check already printed its formatted result line; its JSON payload is for the model.
-        const shown = event.toolName === "casper_check" ? { ...event, output: undefined } : event;
-        const line = `${formatToolActivity(shown, started === undefined ? undefined : performance.now() - started, this.fit())}\n`;
-        if (this.openToolLine && event.toolCallId === this.openToolCallId) { this.openToolLine = false; this.terminal.write(line, { rewriteLine: true }); }
-        else this.output.write(line);
-        this.endedWithNewline = true;
+        const shown: ToolEnd = event.toolName === "casper_check" ? { ...event, output: undefined } : event;
+        if (!this.terminal.rich) {
+          this.terminal.endAssistant();
+          this.ensureLineBreak();
+          this.output.write(`${formatToolActivity(shown, elapsed, this.fit())}\n`);
+          this.endedWithNewline = true;
+          break;
+        }
+        let step = this.steps.find(candidate => candidate.endedAt === undefined && (event.toolCallId ? candidate.id === event.toolCallId : candidate.toolName === event.toolName));
+        if (!step) {
+          // It ended after its turn folded (or never said it started): it still shows until the next fold or receipt.
+          step = { toolName: event.toolName, kind: stepKind(event.toolName), startedAt: performance.now() - (elapsed ?? 0), line: "" };
+          this.steps.push(step);
+        }
+        step.endedAt = performance.now();
+        step.failed = event.isError;
+        step.line = formatToolActivity({ ...shown, output: undefined }, elapsed, this.fit(4));
+        step.printed = formatToolActivity(shown, elapsed, this.fit());
+        this.renderBox();
         break;
+      }
       case "message_end":
         this.setStaticActivity();
         this.terminal.endAssistant();
+        this.fold();
         this.toolStarted.clear();
         this.ensureLineBreak();
         break;

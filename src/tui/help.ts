@@ -20,7 +20,7 @@ export const HELP_TEXT = `Casper — your coding companion
   /diff [n|list]         The last task's changes (also outside git); git's view before any task
   /undo, /redo           Put the last task's files back, or back again (no model; docs/UNDO.md)
   /new [name]            Start a new project in ~/Projects (no model)
-  /output [n]            Full retained output of the last task's n-th most recent tool call
+  /output [n]            Full command and output of the last task's n-th most recent tool call
   /receipt [n|list]      The last receipt (also after a restart), receipt n, or the last 10
   /permissions           Explain actual tool/approval boundaries
   /login                 Provider sign-in or private API-key setup (interactive only)
@@ -122,7 +122,7 @@ Local commands:
   /redo [n]                         Put an undone task's files back as the task left them
   /new [name]                       Start a new project in ~/Projects (no model); before the model starts, Casper opens it
   /new <template> <name>            The same without questions; /new --list shows the templates
-  /output [n]                       Full bounded output of a recent tool call (1 = latest; last 20 retained per task)
+  /output [n]                       Full command and output of a recent tool call (1 = latest; last 20 kept per task)
   /receipt                          Detailed evidence receipt of the last model task (freshness, scope), also after a restart
   /receipt <n>, /receipt list       A saved receipt, or the last 10 (saved with secrets hidden)
   /permissions                      Explain enforcement, not change permission presets

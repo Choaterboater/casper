@@ -70,7 +70,8 @@ export class InteractiveTerminal {
   get badge(): string | undefined { return this.badgeText; }
   /** ctrl+o on the rich terminal: turn writes off everywhere. The handler returns true when any were on. */
   setWritesRevert(handler: (() => boolean) | undefined): void { this.surface?.setWritesRevert(handler); }
-  setActivity(status?: string): void { this.surface?.setActivity(status); }
+  /** The rich Working box: one line or a few (the latest steps). Nothing on the plain terminal. */
+  setActivity(status?: string | readonly string[]): void { this.surface?.setActivity(status); }
   /** The current task's stages ("checklist ✓ · building"), shown first in the footer while work runs. */
   setSteps(steps?: string): void { this.surface?.setSteps(steps); }
   /** How long a request must run before its end or a question rings the terminal bell (default 10 s). */
@@ -107,15 +108,13 @@ export class InteractiveTerminal {
     this.surface.writeBlock({ render: width => renderPanel(heading, lines, width, this.color, options.tone ?? "muted"), invalidate() {} });
   }
 
-  write(text: string, options: { rewriteLine?: boolean } = {}): void {
+  write(text: string): void {
     const styled = terminalText(text).split("\n").map(line => {
       const code = /^(?:\[error\]|✗)/.test(line) ? "31" : /^✓/.test(line) ? "32"
         : /^(?:•|\[skills\]|\[cancel|\[approval\]|\[ask\]|\[effort\])/.test(line) ? "33" : /^CASPER/.test(line) ? "1;36" : /^(?: \/help · |…)/.test(line) ? "2" : undefined;
       return code ? paint(line, code, this.color) : line;
     }).join("\n");
-    // `rewriteLine` restarts the transcript's open tail line (a "running" status) instead of
-    // appending; the sanitizer above would otherwise escape a caller's `\r`. Rich surface only.
-    if (this.surface) this.surface.write(options.rewriteLine ? `\r${styled}` : styled); else this.output.write(styled);
+    if (this.surface) this.surface.write(styled); else this.output.write(styled);
   }
 
   assistant(delta: string): void {

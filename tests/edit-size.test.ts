@@ -16,9 +16,9 @@ test("an edit's size comes from Pi's patch, counting only hunk lines", () => {
 
 test("the edit line shows its size", () => {
   expect(formatToolActivity({ type: "tool_end", toolName: "edit", input: { path: "src/x.py" }, isError: false, lines: { added: 18, removed: 4 } }, 40))
-    .toBe("✓ edit · src/x.py · +18 -4 — completed · 0.0s");
+    .toBe("✓ edit · src/x.py · +18 -4");
   expect(formatToolActivity({ type: "tool_end", toolName: "write", input: { path: "a.txt" }, isError: false }, 40))
-    .toBe("✓ write · a.txt — completed · 0.0s");
+    .toBe("✓ write · a.txt");
 });
 
 test("a write's size compares the old and new text: a new file is all added, a rewrite counts changed lines", () => {
@@ -30,12 +30,14 @@ test("a write's size compares the old and new text: a new file is all added, a r
 
 test("tool lines print paths relative to the project and fit one row of a narrow terminal", () => {
   const edit = { type: "tool_end", toolName: "edit", input: { path: "/work/app/tests/test_calc.py" }, isError: false, lines: { added: 9, removed: 1 } } as const;
-  expect(formatToolActivity(edit, 12, { root: "/work/app", width: 100 })).toBe("✓ edit · tests/test_calc.py · +9 -1 — completed · 0.0s");
+  expect(formatToolActivity(edit, 12, { root: "/work/app", width: 100 })).toBe("✓ edit · tests/test_calc.py · +9 -1");
   // Narrow: the words go first, then the path is shortened from the front, keeping its file name.
-  const narrow = formatToolActivity(edit, 12, { root: "/work/app", width: 40 });
-  expect(narrow).toBe("✓ edit · …s/test_calc.py · +9 -1 · 0.0s");
-  expect([...narrow].length).toBeLessThan(40);
-  // A command keeps its start.
+  const deep = { ...edit, input: { path: "/work/app/tests/unit/test_calc.py" } };
+  const narrow = formatToolActivity(deep, 2500, { root: "/work/app", width: 36 });
+  expect(narrow).toBe("✓ edit · …st_calc.py · +9 -1 · 2.5s");
+  expect([...narrow].length).toBeLessThan(36);
+  // A command shows as a short label and keeps its start.
   const bash = { type: "tool_start", toolName: "bash", input: { command: "python3 -m pytest -q tests/test_calc.py --maxfail=1 -x" } } as const;
-  expect(formatToolActivity(bash, undefined, { width: 40 })).toBe("• bash · python3 -m pytest -q tests/te…");
+  expect(formatToolActivity(bash, undefined, { width: 100 })).toBe("• bash · python3 -m pytest …");
+  expect(formatToolActivity(bash, undefined, { width: 24 })).toBe("• bash · python3 -m py…");
 });

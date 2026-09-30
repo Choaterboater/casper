@@ -107,7 +107,8 @@ export class TerminalSurface {
   private readonly accent: (text: string) => string;
   private readonly muted: (text: string) => string;
   private status = "";
-  private activity?: string;
+  /** The Working box's lines: the latest steps and what the model is doing now. */
+  private activity?: string[];
   /** The task's stages for the footer while work runs; see StepRail. */
   private steps?: string;
   private note = "";
@@ -199,7 +200,7 @@ export class TerminalSurface {
       render: width => {
         const editorLines = this.editor.render(width);
         const rule = this.muted("─".repeat(width));
-        const activity = this.activity ? renderPanel(`${SPINNER_FRAMES[this.spinnerFrame]} Working`, [this.activity], width, this.io.color, "accent") : [];
+        const activity = this.activity ? renderPanel(`${SPINNER_FRAMES[this.spinnerFrame]} Working`, this.activity.map(line => truncateToWidth(line, Math.max(1, width - 4))), width, this.io.color, "accent") : [];
         const block = this.slot ? this.slot.render(width).map(line => truncateToWidth(line, width))
           : this.lending ? [rule, this.muted(truncateToWidth("  exclusive input in progress · Esc or Ctrl+C cancels", width)), rule]
           : this.pendingAsk ? [rule, ...this.renderAsk(width, this.terminal.rows - editorLines.length - 2), ...editorLines]
@@ -410,10 +411,12 @@ private updateSpinner(): void {
     this.steps = next;
     this.render();
   }
-  setActivity(status?: string): void {
-    const activity = status ? terminalText(status).replace(/\s+/g, " ").trim() : "";
-    const next = activity || undefined;
-    if (next === this.activity) return;
+  /** The Working box: one line, or a few (the latest steps). Undefined or empty removes it. */
+  setActivity(status?: string | readonly string[]): void {
+    const lines = (typeof status === "string" ? [status] : status ?? [])
+      .map(line => terminalText(line).replace(/\s+/g, " ").trim()).filter(Boolean);
+    const next = lines.length ? lines : undefined;
+    if (next?.join("\n") === this.activity?.join("\n")) return;
     this.activity = next;
     this.updateSpinner();
     this.render();
@@ -467,7 +470,8 @@ private updateSpinner(): void {
 
   readCommand(): Promise<string | undefined> {
     if (this.busy) { this.attention(); this.busySince = undefined; }
-    this.endAssistant(); this.busy = false; this.note = ""; this.configureAutocomplete();
+    // The prompt is back: whatever work was shown in the Working box is over.
+    this.endAssistant(); this.busy = false; this.note = ""; this.activity = undefined; this.configureAutocomplete();
     this.updateSpinner();
     if (this.closed) return Promise.resolve(undefined);
     const { promise, resolve } = Promise.withResolvers<string | undefined>();

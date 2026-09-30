@@ -13,6 +13,8 @@ type TaskObservationSnapshot = Required<Pick<TaskResult, "observedEdits" | "obse
 export interface RetainedToolOutput {
   toolName: string;
   target?: string;
+  /** The whole shell command (its secrets already hidden), shown by /output. */
+  command?: string;
   status: "success" | "error";
   text: string;
   truncated: boolean;
@@ -96,7 +98,8 @@ export class TaskObservations {
   observeToolEnd(event: Extract<RuntimeEvent, { type: "tool_end" }>, commands: ProjectModel["commands"] | undefined): void {
     if (this.outputs.length === TOOL_OUTPUT_LIMIT) this.outputs.shift();
     const target = event.input?.path ?? event.input?.command ?? event.input?.operation;
-    this.outputs.push({ toolName: event.toolName, ...(target === undefined ? {} : { target }), status: event.isError ? "error" : "success",
+    this.outputs.push({ toolName: event.toolName, ...(target === undefined ? {} : { target }),
+      ...(typeof event.input?.command === "string" && event.input.path === undefined ? { command: event.input.command } : {}), status: event.isError ? "error" : "success",
       text: event.output?.text ?? "", truncated: Boolean(event.output?.truncated) });
     // Failures can follow partial writes; shell success need not mean any write. Only the
     // workspace snapshot can settle either, so this merely flags that the question is open.

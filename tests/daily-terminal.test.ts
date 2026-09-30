@@ -46,7 +46,7 @@ test("live work status appears in a box before response text and clears when it 
   const screen = fakeWriter(80, 24);
   const terminal = new InteractiveTerminal(input, screen.writer, () => {}, () => {});
   let events!: RuntimeEventView;
-  const output = { write: (text: string) => { events.beforeWrite(text); terminal.write(text); } };
+  const output = { write: (text: string) => { terminal.write(text); } };
   events = new RuntimeEventView(terminal, output, {
     updateFooter() {}, onToolEnd() {}, setTaskStop() {}, markRuntimeFailed() {}, turnLimitReached() {}, cancelled: () => false,
   });
@@ -57,15 +57,19 @@ test("live work status appears in a box before response text and clears when it 
     expect(Bun.stripANSI(screen.output)).toContain("Waiting for openai-codex/gpt-6-luna · 0s");
     await screen.until(output => Bun.stripANSI(output).includes("Waiting for openai-codex/gpt-6-luna · 1s"));
     events.handle({ type: "tool_start", toolName: "write", toolCallId: "write-1", input: { path: "src/app.ts" } });
-    await screen.until(output => Bun.stripANSI(output).includes("src/app.ts — running"));
-    expect(Bun.stripANSI(screen.output)).toContain("Working");
+    // The running step lives in the Working box, not on the main screen.
+    await screen.until(output => Bun.stripANSI(output).includes("│ • write · src/app.ts"));
     events.handle({ type: "tool_end", toolName: "write", toolCallId: "write-1", input: { path: "src/app.ts" }, isError: false });
     events.handle({ type: "assistant_text_delta", delta: "Working on it.\n" });
     screen.writer.columns = 79; screen.writer.emit("resize");
     await screen.until(output => output.split(REPAINT).length > 1 && output.split(REPAINT).at(-1)!.includes("Working on it."));
-    const frame = plainLines(screen.output.split(REPAINT).at(-1)!).join("\n");
+    const frame = plainLines(screen.output.split(REPAINT).at(-1)!);
     expect(frame).toContain("Working on it.");
-    expect(frame).not.toContain("Waiting for openai-codex/gpt-6-luna");
+    // One line for the finished step, above the model's words; no running line and no Working box left.
+    expect(frame.filter(line => line.includes("src/app.ts"))).toEqual(["✓ write · src/app.ts"]);
+    expect(frame.indexOf("✓ write · src/app.ts")).toBeLessThan(frame.indexOf("Working on it."));
+    expect(frame.join("\n")).not.toContain("Waiting for openai-codex/gpt-6-luna");
+    expect(frame.join("\n")).not.toContain(" Working ");
   } finally { terminal.close(); input.destroy(); }
 });
 
@@ -74,7 +78,7 @@ test("a provider failure ends the response with its cause instead of a bare fail
   const screen = fakeWriter(80, 24);
   const terminal = new InteractiveTerminal(input, screen.writer, () => {}, () => {});
   let events!: RuntimeEventView;
-  const output = { write: (text: string) => { events.beforeWrite(text); terminal.write(text); } };
+  const output = { write: (text: string) => { terminal.write(text); } };
   const stops: Array<[boolean, boolean]> = [];
   /** Rich output hard-wraps at the terminal width; compare against the flattened transcript. */
   const flat = () => Bun.stripANSI(screen.output).replace(/\s+/g, " ");

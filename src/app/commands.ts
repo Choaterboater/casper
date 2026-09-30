@@ -10,7 +10,7 @@ import { HELP_TEXT, FULL_HELP_TEXT, LOGIN_HELP } from "../tui/help";
 import { formatTerminalJSON } from "../tui/json";
 import { effortChoices } from "../tui/effort";
 import { pickEffort } from "../tui/effort-picker";
-import { formatEffort, formatRuntimeStatus, redactPreview, terminalText } from "../tui/format";
+import { commandLabel, formatEffort, formatRuntimeStatus, redactPreview, terminalText } from "../tui/format";
 import type { InteractiveTerminal } from "../tui/terminal";
 import type { CapabilityBroker } from "../capabilities/broker";
 import type { MCPManager, MCPStatus } from "../mcp/manager";
@@ -303,9 +303,14 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       if (!retained) throw new Error("No tool output retained; /output shows tool calls from the last model task.");
       const entry = Number.isInteger(recency) ? host.observations.toolOutput(recency) : undefined;
       if (!entry) throw new Error(`Usage: /output [n] with n from 1 (most recent) to ${retained} (retained tool call${retained === 1 ? "" : "s"}).`);
-      const target = entry.target === undefined ? "" : ` · ${redactPreview(entry.target).replace(/\s+/g, " ").slice(0, 180)}`;
+      // A command's tool line is a short label; here the whole command comes first, secrets hidden.
+      const command = entry.command === undefined ? undefined : redactPreview(entry.command);
+      const shown = command === undefined ? entry.target : commandLabel(command);
+      const target = shown === undefined ? "" : ` · ${redactPreview(shown).replace(/\s+/g, " ").slice(0, 180)}`;
+      const body = entry.text || "(no output text)";
       host.output.write("");
-      host.terminal.writePanel(`[output] ${terminalText(entry.toolName).slice(0, 80)}${target} · ${entry.status}${entry.truncated ? " · truncated by runtime" : ""}`, entry.text || "(no output text)", { tone: entry.status === "error" ? "error" : "muted" });
+      host.terminal.writePanel(`[output] ${terminalText(entry.toolName).slice(0, 80)}${target} · ${entry.status}${entry.truncated ? " · truncated by runtime" : ""}`,
+        command === undefined ? body : `$ ${command}\n${body}`, { tone: entry.status === "error" ? "error" : "muted" });
       return;
     }
     if (prompt === "/status") {
