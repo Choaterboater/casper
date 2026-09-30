@@ -28,6 +28,11 @@ test("look commands and ssh to another machine don't by themselves make the fold
   expect(unknownAfter("echo hi > notes.md")).toBe(true);
   expect(unknownAfter("find . -delete")).toBe(true);
   expect(unknownAfter("ssh -E ssh.log root@lab-01 uptime")).toBe(true);
+  // ssh to this machine runs its command on this folder's files.
+  expect(unknownAfter("ssh 127.0.0.1 rm -rf Documents/notes")).toBe(true);
+  expect(unknownAfter("ssh root@localhost uptime")).toBe(true);
+  expect(unknownAfter("ssh -p 2222 user@[::1] ls")).toBe(true);
+  expect(unknownAfter(`ssh ${os.hostname()} ls`)).toBe(true);
   expect(unknownAfter("ls", "python3 build.py")).toBe(true);
 });
 
