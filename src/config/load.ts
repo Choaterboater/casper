@@ -15,6 +15,7 @@ import { resolveVisualizationSettings, type VisualizationSettings } from "../vis
 import { parseServices, type ServiceSpec } from "../services/config";
 import { parseSmoke, type SmokeCheck } from "../services/smoke";
 import { parsePagesSetting, type PagesSetting } from "../services/pages";
+import type { SandboxProjectSettings, SandboxUserSettings } from "../sandbox/policy";
 
 export type Autonomy = "low" | "medium" | "high";
 export type AskQuestions = "beforeChanges" | "onlyWhenBlocked";
@@ -68,6 +69,8 @@ export interface LoadedConfiguration {
   pages?: PagesSetting;
   /** The owner's lab devices (lab.hosts), from ~/.casper/config.yaml or the profile only; never a project file. */
   lab?: LabSettings;
+  /** The shell sandbox: your settings (sandbox, shell.keepEnv) and the project's extra denies. */
+  sandbox: { user: SandboxUserSettings; project: SandboxProjectSettings };
   /** Unknown keys, by file; shown at startup and otherwise ignored. */
   warnings: string[];
 }
@@ -203,7 +206,7 @@ const POLICY_KEYS = {
 } as const;
 const ISOLATE_KEYS = ["parallelAgents", "riskyRefactor", "experimentalBranch"];
 const TOP_LEVEL_KEYS = new Set(["profile", "project", "languages", "frameworks", "packageManager", "commands", "architecture",
-  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", ...Object.keys(POLICY_KEYS)]);
+  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "sandbox", "shell", ...Object.keys(POLICY_KEYS)]);
 
 /** Typos used to fall back silently to the defaults; the loader names them instead. */
 function unknownKeys(document: Mapping, label: string): string[] {
@@ -419,6 +422,60 @@ function projectOverrides(document: Mapping): ProjectModelOverrides {
   };
 }
 
+const SANDBOX_USER_KEYS = ["enabled", "allowedDomains", "allowWrite", "allowUnixSockets"];
+const SANDBOX_PROJECT_KEYS = ["denyRead", "denyWrite"];
+
+function pathList(value: unknown, label: string): string[] | undefined {
+  if (value === undefined || value === null) return undefined;
+  const list = stringArray(value);
+  if (!list || list.some((entry) => !entry.trim())) throw new Error(`${label} must be a list of text`);
+  return list.map((entry) => entry.trim());
+}
+
+/** `sandbox:` and `shell.keepEnv` from your own file or a profile: `sandbox: off`, or a mapping that adds hosts,
+ * write folders and sockets. Later layers add to earlier ones; `off` in any of them turns it off. */
+function sandboxUserLayer(document: Mapping, label: string, into: SandboxUserSettings, warnings: string[]): void {
+  const value = document.sandbox;
+  if (value === false || value === "off") into.off = true;
+  else if (value === true || value === "on") into.off = false;
+  else if (isMapping(value)) {
+    for (const key of Object.keys(value)) if (!SANDBOX_USER_KEYS.includes(key)) warnings.push(`${label}: unknown key sandbox.${key} (ignored)`);
+    if (value.enabled !== undefined && value.enabled !== null) {
+      if (typeof value.enabled !== "boolean") throw new Error(`${label}: sandbox.enabled must be true or false`);
+      into.off = !value.enabled;
+    }
+    const add = (key: "allowedDomains" | "allowWrite" | "allowUnixSockets") => {
+      const list = pathList(value[key], `${label}: sandbox.${key}`);
+      if (list) into[key] = [...new Set([...(into[key] ?? []), ...list])];
+    };
+    add("allowedDomains"); add("allowWrite"); add("allowUnixSockets");
+  } else if (value !== undefined && value !== null) throw new Error(`${label}: sandbox must be on, off or a mapping`);
+  const shell = document.shell;
+  if (shell === undefined || shell === null) return;
+  if (!isMapping(shell)) throw new Error(`${label}: shell must be a mapping`);
+  for (const key of Object.keys(shell)) if (key !== "keepEnv") warnings.push(`${label}: unknown key shell.${key} (ignored)`);
+  const keep = pathList(shell.keepEnv, `${label}: shell.keepEnv`);
+  if (keep) into.keepEnv = [...new Set([...(into.keepEnv ?? []), ...keep])];
+}
+
+/** A project can only add denies. Anything that would loosen the sandbox is named and ignored. */
+function sandboxProjectLayer(document: Mapping, label: string, warnings: string[]): SandboxProjectSettings {
+  const project: SandboxProjectSettings = {};
+  if (document.shell !== undefined) warnings.push(`${label}: shell is your own setting (~/.casper/config.yaml); a project can't change it (ignored)`);
+  const value = document.sandbox;
+  if (value === undefined || value === null) return project;
+  if (!isMapping(value)) {
+    warnings.push(`${label}: sandbox: ${String(value)} is ignored; a project can't turn the sandbox off, only add denyRead and denyWrite`);
+    return project;
+  }
+  for (const key of Object.keys(value)) {
+    if (!SANDBOX_PROJECT_KEYS.includes(key)) warnings.push(`${label}: sandbox.${key} is ignored; a project can only add denyRead and denyWrite`);
+  }
+  const denyRead = pathList(value.denyRead, `${label}: sandbox.denyRead`);
+  const denyWrite = pathList(value.denyWrite, `${label}: sandbox.denyWrite`);
+  return { ...(denyRead ? { denyRead } : {}), ...(denyWrite ? { denyWrite } : {}) };
+}
+
 export async function loadConfiguration(
   options: LoadConfigurationOptions,
 ): Promise<LoadedConfiguration> {
@@ -528,6 +585,11 @@ export async function loadConfiguration(
   }
   if (projectDocument.lab !== undefined) throw new Error(LAB_IN_PROJECT_ERROR);
   const pages = parsePagesSetting(projectDocument.pages, labels.project);
+  const sandboxWarnings: string[] = [];
+  const sandboxUser: SandboxUserSettings = {};
+  sandboxUserLayer(globalDocument, labels.global, sandboxUser, sandboxWarnings);
+  sandboxUserLayer(profileDocument, labels.profile, sandboxUser, sandboxWarnings);
+  const sandboxProject = sandboxProjectLayer(projectDocument, labels.project, sandboxWarnings);
   const lab = mergeLabSettings(parseLabSettings(globalDocument.lab, "user", `${labels.global}: lab`), parseLabSettings(profileDocument.lab, "profile", `${labels.profile}: lab`));
   return {
     skills: { maxActive, imports },
@@ -553,7 +615,9 @@ export async function loadConfiguration(
       policyLayer(profileDocument, labels.profile),
       policyLayer(projectDocument, labels.project),
     ),
+    sandbox: { user: sandboxUser, project: sandboxProject },
     warnings: [
+      ...sandboxWarnings,
       ...unknownKeys(globalDocument, labels.global),
       ...unknownKeys(profileDocument, labels.profile),
       ...unknownKeys(projectDocument, labels.project),
