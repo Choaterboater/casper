@@ -42,6 +42,8 @@ export interface SecurityReport {
   tools: ToolReport[];
   /** Findings no committed or approved ignore hides, most severe first. */
   findings: SecurityFinding[];
+  /** Every file gitleaks flagged, ignored or not: an ignore says a finding is fine, not that the file holds no secret. */
+  secretFiles?: string[];
   ignores: {
     /** Findings hidden by ignores the user committed (inline markers and committed config files). */
     committed: number;
@@ -204,6 +206,7 @@ export class SecurityCheck {
     return {
       target: { name: path.basename(root), path: root },
       tools, findings: visible,
+      secretFiles: [...new Set(findings.filter((finding) => finding.tool === "gitleaks").map((finding) => finding.file))].sort(),
       ignores: { committed: applied.hidden.committed + applied.hidden.config, approved: applied.hidden.approved, new: newEntries, unknown: unknownEntries },
       ignoreFiles: ignoreFiles.map(({ text: _text, ...entry }) => entry),
       missing, problems, notes: visible.length - problems, notRun,

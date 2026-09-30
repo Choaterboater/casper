@@ -230,6 +230,31 @@ test("a secret this branch removed is hidden in the diff's removed lines too (gi
   expect(prompt).not.toContain("hunter2hunter2");
 });
 
+test("a file gitleaks flagged stays kept from the AI when a committed ignore hides that finding", async () => {
+  const root = await fixtureRepo("casper-ai-ignored-"); temps.push(root);
+  const home = await temp("casper-ai-home-");
+  const server = await readFile(path.join(root, "app", "server.py"), "utf8");
+  await writeFile(path.join(root, "app", "server.py"), server.replace(/^(GITHUB_TOKEN = .*)$/m, "$1  # gitleaks:allow"));
+  gitIn(root, "add", "-A"); gitIn(root, "commit", "-qm", "allow");
+  gitIn(root, "checkout", "-qb", "feature");
+  await writeFile(path.join(root, "app", "extra.py"), EXTRA_PY);
+  gitIn(root, "add", "-A"); gitIn(root, "commit", "-qm", "extra");
+  const tools = await fakeTools(home);
+  const fake = fakeAI("```json\n[{\"file\": \"app/server.py\", \"line\": 8, \"input\": \"GITHUB_TOKEN=x\", \"why\": \"a token in code\"}]\n```");
+  const s = host(root, home, tools.find, "cannot-ask", fake.ai);
+  const report = await runSecurityReview(s.host, ["ai"]);
+  // The ignore hides the finding from the report, as the owner asked ...
+  expect(report!.findings.some((finding) => finding.tool === "gitleaks")).toBe(false);
+  expect(report!.secretFiles).toEqual(["app/server.py"]);
+  // ... but the file still holds the token: the AI can't open or grep it, and a finding in it is not shown.
+  const run = fake.runs[0]!;
+  expect(run.beforeToolGate("read", { path: "app/server.py" })).toMatch(/^Not read: app\/server\.py may hold secrets/);
+  expect(dropDeniedGrepLines(root, [], { pattern: "x", path: "." }, ["app/server.py:8: x"])).toEqual(["app/server.py:8: x"]);
+  const grep = await run.scrubToolOutput("grep", { pattern: "TOKEN", path: "." }, ["app/server.py:8: GITHUB_TOKEN = 'x'\napp/extra.py:1: ok"]);
+  expect(grep?.texts[0]).toBe("app/extra.py:1: ok\n1 matching line from files that may hold secrets not shown.");
+  expect(s.output()).toContain("1 AI finding not shown");
+});
+
 test("the review scope: the branch against main, else changes since the last commit, else what the tools flagged", async () => {
   const root = await branchRepo("casper-ai-scope-");
   const branch = await reviewScope(root, []);
