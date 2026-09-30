@@ -69,6 +69,8 @@ export interface RuntimeReadOnlyStartOptions {
   modelRole?: "fast" | "review";
   /** The same secret scrubbing as the main session: a child's reads reach a model too. */
   scrubToolOutput?: RuntimeStartOptions["scrubToolOutput"];
+  /** A reason refuses the call before it runs (the security review keeps key and .env files from its child). */
+  beforeToolGate?: RuntimeStartOptions["beforeToolGate"];
 }
 
 export interface RuntimeStatus {
