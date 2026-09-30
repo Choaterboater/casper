@@ -103,7 +103,7 @@ test("a repo's .pi/sandbox.json is ignored, and Casper says so", async () => {
 
 test("--no-sandbox with /verify alone: the receipt and the JSON say the checks were not sandboxed", async () => {
   const { receiptEvent } = await import("../src/app/json-events");
-  const f = await fixture({ noSandbox: true, verificationMode: "manual", sandboxSeams: { engine: fakeEngine(), problem: () => undefined, platform: "linux" } });
+  const f = await fixture({ noSandbox: true, verificationMode: "offer", sandboxSeams: { engine: fakeEngine(), problem: () => undefined, platform: "linux" } });
   try {
     await mkdir(path.join(f.project, ".casper"), { recursive: true });
     await writeFile(path.join(f.project, ".casper", "project.yaml"), "commands:\n  test: \"true\"\n");
