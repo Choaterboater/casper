@@ -9,6 +9,8 @@ export const BROWSER_ACTIONS = Object.keys(BROWSER_ACTION_FIELDS) as BrowserActi
 /** Every field any action reads. A key outside this list is a mistake worth naming, never a placeholder. */
 export const BROWSER_FIELDS: string[] = [...new Set(Object.values(BROWSER_ACTION_FIELDS).flat())];
 
+function record(value: unknown): value is Record<string, unknown> { return Boolean(value && typeof value === "object" && !Array.isArray(value)); }
+
 /** A placeholder some models send for every schema field they do not need: null, "", 0, [], {} or an object of those. */
 export function blank(value: unknown): boolean {
   if (value === null || value === undefined || value === 0 || value === false) return true;
@@ -38,7 +40,9 @@ export function browserArguments(input: Record<string, unknown>): { action: Brow
   const fields: readonly string[] = BROWSER_ACTION_FIELDS[chosen];
   const unknown = Object.keys(input).filter(key => key !== "action" && !BROWSER_FIELDS.includes(key));
   if (unknown.length) throw new Error(`Unknown browser argument ${unknown.map(key => JSON.stringify(key.slice(0, 40))).join(", ")}; ${actionUsage(chosen)}`);
-  if (chosen === "replay" && input.scenario !== undefined && input.scenario !== null) {
+  // A scenario with a name or a url is one the model means to run, and replay never takes that. The nameless,
+  // urlless one some models attach to every call is the placeholder they attach to serve and screenshot too.
+  if (chosen === "replay" && record(input.scenario) && !(blank(input.scenario.name) && blank(input.scenario.url))) {
     throw new Error("replay runs the recorded scenario unchanged; send only action and id (record a new check to change the scenario)");
   }
   const args: Record<string, unknown> = { action: chosen };

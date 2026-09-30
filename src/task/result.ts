@@ -302,9 +302,10 @@ export interface ReceiptOptions {
 
 /** The default, plain-language receipt: what changed, what Casper proved, and what to do next.
  * The evidence-level form stays in formatTaskResult (/receipt, --verbose). */
-/** The answer says a browser check passed: a sentence naming the browser and a pass, with no "not" or failure in it. */
+/** The answer says a browser check passed: a sentence about checking in the browser (not "browser assets") and a pass, with no "not" or failure in it. */
 export function answerClaimsBrowserPass(answer: string): boolean {
-  return answer.split(/(?<=[.!?])\s+|\n+/).some((sentence) => /\bbrowser\b/i.test(sentence)
+  const aboutChecking = /\bbrowser[- ](?:checks?|tests?|scenarios?|assertions?|verification|run)\b|\bin (?:a|the|an?\s\w+|headless|real) browser\b|\bbrowser (?:also )?(?:pass(?:ed|es)?|verified|confirmed|works?|worked)\b/i;
+  return answer.split(/(?<=[.!?])\s+|\n+/).some((sentence) => aboutChecking.test(sentence)
     && /\b(?:pass(?:ed|es)?|succeeded|verified|confirmed|works?|worked)\b/i.test(sentence)
     && !/\b(?:not|no|never|fail(?:ed|s)?|incomplete|couldn't|can't|cannot|didn't|unable)\b|n't\b/i.test(sentence));
 }

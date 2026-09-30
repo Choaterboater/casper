@@ -38,8 +38,20 @@ test("unknown fields and actions get errors that say what to send", () => {
   expect(() => browserArguments({ action: "open", target: "http://localhost:3000" })).toThrow('Unknown browser argument "target"; open takes url');
   expect(() => browserArguments({ action: "open", url: "http://localhost:3000", executablePath: "/bin/sh" })).toThrow("Unknown browser argument");
   expect(() => browserArguments({ action: "navigate", url: "http://localhost:3000" })).toThrow("Unknown browser action \"navigate\"; use one of: open,");
-  expect(() => browserArguments({ action: "replay", id: "abc", scenario: {} })).toThrow("replay runs the recorded scenario unchanged");
+  const real = { name: "Phone", url: "http://127.0.0.1:3000/", viewport: { width: 390, height: 844 }, steps: [], assertions: [{ kind: "visible", selector: "body" }] };
+  expect(() => browserArguments({ action: "replay", id: "abc", scenario: real })).toThrow("replay runs the recorded scenario unchanged");
   expect(browserArguments({ action: "replay", id: "abc", scenario: null }).args).toEqual({ action: "replay", id: "abc" });
+});
+
+test("a replay call carrying the placeholder scenario every other call carries runs the recorded one; a real scenario is still refused", () => {
+  // The same model sent this on replay thirteen times in a row and was refused each time, so it never replayed a check.
+  const { args, ignored } = browserArguments({ ...everyField, action: "replay", id: "4ece8688" });
+  expect(args).toEqual({ action: "replay", id: "4ece8688" });
+  expect(ignored).toEqual(["url", "script", "width", "height", "scenario", "reason", "impact"]);
+  expect(browserArguments({ action: "replay", id: "abc", scenario: {} }).args).toEqual({ action: "replay", id: "abc" });
+  // A scenario with a name or a url is one the model means to run: replay does not take it.
+  expect(() => browserArguments({ action: "replay", id: "abc", scenario: { ...everyField.scenario, url: "http://127.0.0.1:3000/" } }))
+    .toThrow("replay runs the recorded scenario unchanged; send only action and id");
 });
 
 test("a scheme-less loopback address opens as http; other bad URLs say what is expected", () => {

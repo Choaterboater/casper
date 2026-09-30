@@ -174,7 +174,8 @@ browserTest("an immutable reproduction detects behavior and layout failures, rep
   expect(replay).toMatchObject({ id: baseline.id, scenarioSha256: baseline.scenarioSha256, status: "pass", baseline: "fail", freshness: "fresh", assertions: [{ status: "pass" }, { status: "pass" }] });
   await writeFile(f.sourceFile, html(false));
   expect(await f.session.report()).toMatchObject({ status: "incomplete", checks: [{ freshness: "stale" }] });
-  await expect(f.session.run({ action: "replay", id: baseline.id, scenario: {} })).rejects.toThrow("replay runs the recorded scenario unchanged");
+  await expect(f.session.run({ action: "replay", id: baseline.id, scenario: { name: "Easier", url: f.url, viewport: { width: 800, height: 600 }, steps: [], assertions: [{ kind: "visible", selector: "body" }] } }))
+    .rejects.toThrow("replay runs the recorded scenario unchanged");
 }, 25_000);
 
 browserTest("fill types into number, email and date fields; password stays out; a scoped overflow check looks at one element", async () => {
