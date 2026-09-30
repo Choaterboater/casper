@@ -129,8 +129,9 @@ Its findings are its opinion, not checked by a tool.
   only: no shell, no edits, no network tools. It is not the shell sandbox; it simply
   has no tool that runs a command.
 - **What it never sees.** Key files (`*.pem`, `id_rsa` and the like), `.env` files,
-  credential files and files gitleaks flagged in this run are refused, and a `grep`
-  leaves their lines out. Secrets in anything else it reads are hidden the same way as
+  credential files and files gitleaks flagged in this run are refused, also through a
+  link or a linked folder, and a `grep` leaves their lines out. A secret this branch
+  removed is hidden in the diff's removed lines too. Secrets in anything else it reads are hidden the same way as
   in a normal session, with device-config hiding on even when `/secrets files off`.
   If gitleaks did not run, the question says that flagged files could not be kept from it.
 - **What it shows.** Each finding needs a real `file:line` in this project and a
@@ -149,4 +150,5 @@ This is the AI's opinion of the code it read. It does not prove the code has no 
   ignore you committed, or one you approved with your own `3`, counts.
 - **Scripts.** A one-shot or `--json` run never starts the AI review by itself: it says
   so and spends nothing. `casper "/security-review ai"` runs it without asking (the
-  cost is printed first). `casper security` never calls a model.
+  cost is printed first), and with `--json` the receipt's `usage` says what it spent.
+  `casper security` never calls a model.
