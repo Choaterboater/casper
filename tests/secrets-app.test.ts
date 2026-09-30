@@ -98,7 +98,7 @@ test("/references add lists the spec repos; a no downloads nothing; a yes runs t
   const runGit = async (argv: string[]) => { runs.push(argv); return { code: 0 }; };
   const list = await session(home, project, ["/references add", "/references add junos-yang"], { runGit });
   expect(list.output).toContain("mist-openapi  Mist API spec (MIT)");
-  expect(list.output).toContain("pycentral     Aruba Central Python SDK (Apache-2.0)");
+  expect(list.output).toContain("pycentral     Aruba Central Python SDK (MIT)");
   expect(list.output).toContain("Usage: /references add junos-yang <release>, for example 23.4");
 
   const declined = await session(home, project, ["/references add pycentral"], { runGit, yes: ["no"] });
