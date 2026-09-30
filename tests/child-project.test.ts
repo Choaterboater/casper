@@ -6,6 +6,8 @@ import { CasperApp } from "../src/app";
 import { childProjectOf } from "../src/project/child";
 import { loadProjectContext } from "../src/project/context";
 import { SkillRegistry } from "../src/skills/registry";
+import { taskExitCode } from "../src/task/result";
+import { receiptEvent } from "../src/app/json-events";
 
 const dirs: string[] = [];
 afterEach(async () => { for (const dir of dirs.splice(0)) await rm(dir, { recursive: true, force: true }); });
@@ -55,7 +57,10 @@ test("/verify with nothing to run says so in one line and points at the folder w
   await mistTools(docs);
   const { casper, output } = app(home);
   try {
-    expect(await casper.runOnce("/verify", docs)).toBeUndefined();
+    const report = await casper.runOnce("/verify", docs);
+    // Nothing ran: a script still gets exit 2 (a CI gate never passes on nothing), in plain words, not "Incomplete".
+    expect(taskExitCode(report, casper.getLastTaskResult())).toBe(2);
+    expect(receiptEvent(report, undefined, 2).verdict).toBe("• Not checked — no checks found in this folder");
     const text = output();
     expect(text).toContain("[verify] No checks found in Documents. Tests found in mist-tools: /project mist-tools\n");
     expect(text).not.toContain("has no command");

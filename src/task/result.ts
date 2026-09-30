@@ -177,6 +177,9 @@ export function taskExitCode(report?: VerificationReport, task?: TaskResult, opt
   }
 }
 
+/** The reason on `/verify`'s report when the folder has nothing to run: exit 2 like any unfinished check, other words. */
+export const NO_CHECKS_FOUND = "no checks found";
+
 /** An ssh command whose text shows no change Casper knows: it ran there all the same. */
 export const REMOTE_UNKNOWN = "Casper can't tell from the command text whether they changed anything there";
 
@@ -384,6 +387,7 @@ function withVerdict(task: TaskResult, body: string[], options: ReceiptOptions):
     case "incomplete":
       lines = [task.turnLimit !== undefined
         ? `• Incomplete — stopped after ${task.turnLimit} ${task.turnLimit === 1 ? "turn" : "turns"} (--max-turns); changes so far are kept; ${options.surface === "one-shot" ? "casper --continue" : "send another request"} to go on`
+        : report?.reason === NO_CHECKS_FOUND && !report.results.length ? "• Not checked — no checks found in this folder"
         : "• Incomplete — not every check ran", ...body];
       break;
     case "verified":

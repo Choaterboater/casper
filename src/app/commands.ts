@@ -40,7 +40,7 @@ import type { RuntimeAuthProvider, RuntimeSession, RuntimeTool, AgentRuntime } f
 import { describeChecksPlan, type ChecksPlan } from "../verify/mode";
 import { detectedMigrations, MIGRATIONS_CHECK } from "../verify/migrations-check";
 import type { TaskObservations } from "../task/observations";
-import { formatTaskResult, type TaskResult } from "../task/result";
+import { formatTaskResult, NO_CHECKS_FOUND, type TaskResult } from "../task/result";
 import { UndoStore } from "../task/undo";
 import { tildePath } from "../new/scaffold";
 import { stat } from "node:fs/promises";
@@ -440,7 +440,8 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       if (!args.length && host.projectContext) {
         const note = await noChecksNote(host.projectContext.model, host.activeWorkspaceRoot(), host.homeDir());
         // Nothing to run is not "Incomplete": one plain line, and where the tests are when a folder inside has some.
-        if (note) { host.output.write(note); return; }
+        // Nothing ran, so a script's exit code still says "not every check ran" (2), as before; only the words changed.
+        if (note) { host.output.write(note); return { status: "incomplete", repairAttempts: 0, rounds: [], results: [], reason: NO_CHECKS_FOUND }; }
       }
       return host.runVerification(args.length ? args : host.projectContext ? defaultVerifyNames(host.projectContext.model) : CHECK_NAMES, repair);
     }
