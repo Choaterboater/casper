@@ -40,7 +40,7 @@ interface Step {
   failed?: boolean;
   /** A failed edit the model tried again at once: counted, not printed. */
   retried?: boolean;
-  /** Casper stopped it before it ran (the spend limit): printed as not run, never counted as a step. */
+  /** Casper stopped it before it ran (the spend limit, or a refusal): printed as not run, never counted as a step. */
   notRun?: boolean;
 }
 
@@ -57,6 +57,22 @@ const KIND_WORDS: Record<StepKind, [string, string]> = {
 
 /** After a tool call Casper stopped at the spend limit. */
 const NOT_RUN = " — not run (spend limit)";
+/** After a tool call Casper refused before it ran (a private place, another machine, your No). */
+const REFUSED = " — not run";
+
+/**
+ * Casper's own refusals start with "Not run:" and end with words for the model ("Ask the user instead").
+ * On screen only the reason stays, said to you: "Not run: the user said no to …" reads "You said no to …".
+ */
+export function refusalForScreen(text: string): string | undefined {
+  const match = /^(?:\[shell\] )?Not run: ([\s\S]+)$/.exec(text.trim());
+  if (!match) return undefined;
+  const sentences = match[1]!.replace(/\s+/g, " ").split(/(?<=\.)\s+/);
+  const kept = sentences.filter(sentence => !/^(?:Tell the user|Ask the user|Don't|Keep the original)/.test(sentence));
+  const reason = (kept.length ? kept : sentences).join(" ")
+    .replace(/;\s*ask the user[^.]*\./i, ".").replace(/^the user said no/, "you said no");
+  return reason.charAt(0).toUpperCase() + reason.slice(1);
+}
 
 /** How many steps the Working box shows. */
 const BOX_STEPS = 3;
@@ -275,9 +291,14 @@ export class RuntimeEventView {
         // A failed casper_check already printed its formatted result line; its JSON payload is for the model.
         const shown: ToolEnd = event.toolName === "casper_check" ? { ...event, output: undefined } : event;
         // Stopped at the spend limit before it ran: not a failure, and the model's instruction is not for the screen.
-        const notRun = event.isError && event.output?.text?.trim() === SPEND_STOP_REASON;
+        // Refused by Casper before it ran (a private place, another machine, your No): not a failure either.
+        const spendStop = event.isError && event.output?.text?.trim() === SPEND_STOP_REASON;
+        const refusal = event.isError && !spendStop ? refusalForScreen(event.output?.text ?? "") : undefined;
+        const notRun = spendStop || refusal !== undefined;
+        const suffix = spendStop ? NOT_RUN : REFUSED;
         const endLine = (inset: number, detail: boolean) => notRun
-          ? `${formatToolActivity({ type: "tool_start", toolName: event.toolName, ...(event.input ? { input: event.input } : {}) }, undefined, this.fit(inset + NOT_RUN.length))}${NOT_RUN}`
+          ? `${formatToolActivity({ type: "tool_start", toolName: event.toolName, ...(event.input ? { input: event.input } : {}) }, undefined, this.fit(inset + suffix.length))}${suffix}`
+            + (detail && refusal ? `\n  ${redactPreview(refusal).slice(0, 240)}` : "")
           : formatToolActivity(detail ? shown : { ...shown, output: undefined }, elapsed, this.fit(inset));
         if (!this.terminal.rich) {
           this.terminal.endAssistant();

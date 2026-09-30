@@ -1,7 +1,8 @@
 import { afterAll, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
-import { RuntimeEventView, stepSummary } from "../src/app/events";
+import { refusalForScreen, RuntimeEventView, stepSummary } from "../src/app/events";
+import { reachCantAsk, reachDeclined, SHELL_CANT_ASK } from "../src/app/sandbox";
 import { commandLabel, formatToolActivity } from "../src/tui/format";
 import { InteractiveTerminal } from "../src/tui/terminal";
 import { SPEND_STOP_REASON } from "../src/task/spend";
@@ -153,4 +154,25 @@ test("a tool call stopped at the spend limit shows as not run, never as a failed
     expect(t.screen.join("\n")).not.toMatch(/failed|✗/);
     if (rich) expect(t.screen).toContain("✓ read · a.py");
   }
+});
+
+test("a command Casper refused shows as not run with the reason said to you, never as failed or with words for the model", () => {
+  const privateRead = "Not run: this command reads ~/.ssh, which is private (keys and logins). Casper keeps it from the AI. Ask the user instead.";
+  const target = { tool: "ssh" as const, typed: "lab-01", host: "192.168.10.20" };
+  for (const rich of [true, false]) {
+    const t = fakeTerminal(rich);
+    const cat = { command: "cat ~/.ssh/config" }, ssh = { command: "ssh root@lab-01 'pveum user token add root@pam demoapp'" };
+    t.handle(start("1", "bash", cat), end("1", "bash", cat, true, privateRead));
+    t.handle(start("2", "bash", ssh), end("2", "bash", ssh, true, reachDeclined(target)), { type: "message_end" });
+    const screen = t.screen.join("\n");
+    expect(t.screen).toContain("• bash · cat ~/.ssh/config — not run");
+    expect(t.screen).toContain("  This command reads ~/.ssh, which is private (keys and logins). Casper keeps it from the AI.");
+    expect(t.screen).toContain("  You said no to reaching 192.168.10.20 (lab-01).");
+    expect(screen).not.toMatch(/failed|✗|Ask the user|ask the user|Don't try/);
+  }
+  expect(refusalForScreen(reachCantAsk(target))).toBe("This command reaches 192.168.10.20 (lab-01), another machine, and this run can't ask you first. Casper doesn't let the AI reach other machines without your OK.");
+  // The hint that is for you stays.
+  expect(refusalForScreen(SHELL_CANT_ASK)).toBe(SHELL_CANT_ASK.replace("Not run: s", "S"));
+  // A command's own failure is still a failure.
+  expect(refusalForScreen("bash: foo: command not found")).toBeUndefined();
 });
