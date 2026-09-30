@@ -109,11 +109,14 @@ test("a session in Casper's own worktree folder can still edit its project files
 
 test("a shell command that names ~/.ssh or another private place is refused, even with no sandbox", () => {
   for (const command of ["cat ~/.ssh/config", "grep -i hostname $HOME/.ssh/config", "cat \"$HOME/.ssh/id_test\"", "ls ${HOME}/.aws",
-    `cat ${home}/.ssh/config`, "cd ~ && cat .ssh/config", "cp ~/.netrc /tmp/x", "tar czf k.tgz ~/.ssh"]) {
+    `cat ${home}/.ssh/config`, "cd ~ && cat .ssh/config", "cp ~/.netrc /tmp/x", "tar czf k.tgz ~/.ssh",
+    // -i is ssh's key file only for ssh: for diff, less or xxd it is a flag, and the next word is read.
+    "diff -i ~/.ssh/config /dev/null", "less -i ~/.ssh/config", "xxd -i ~/.ssh/id_test", "echo ssh; diff -i ~/.ssh/config x"]) {
     expect([command, privatePathCommand(command, context)]).toEqual([command, expect.stringMatching(/^Not run: this command reads ~\/\.(ssh|aws|netrc), which is private \(keys and logins\)\./)]);
   }
   // ssh's own key file is read by ssh, not shown to the AI; other commands and names pass.
   for (const command of ["ssh -i ~/.ssh/lab_key root@10.0.0.5 uptime", "scp -o IdentityFile=~/.ssh/lab app.py lab-01:/opt/", "ssh lab-01 uptime",
+    "ssh -i ~/.ssh/a -i ~/.ssh/b lab-01 uptime", "sudo ssh -i ~/.ssh/lab root@10.0.0.5 id",
     "cat ./ssh/config", "ls ~/Projects", "echo .sshrc", "cat notes/.ssh-hosts.md"]) {
     expect([command, privatePathCommand(command, context)]).toEqual([command, undefined]);
   }

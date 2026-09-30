@@ -315,7 +315,13 @@ export function gitInternalsCommand(command: string, root: string, home = os.hom
  */
 export function privatePathCommand(command: string, context: PathContext): string | undefined {
   const home = context.home ?? os.homedir();
-  const text = command.replace(/(?:\s-i\s*|\bIdentityFile[= ]\s*)(?:"[^"]*"|'[^']*'|\S+)/g, " ");
+  // Only ssh's own -i: `diff -i ~/.ssh/config` or `grep -i x ~/.ssh/config` reads the file.
+  let text = command;
+  for (let guard = 0; guard < 8; guard++) {
+    const next = text.replace(/(\b(?:ssh|scp|sftp|ssh-copy-id|autossh|mosh)(?=\s)[^;&|\n()`]*?)(?:\s-i\s*|\bIdentityFile[= ]\s*)(?:"[^"]*"|'[^']*'|\S+)/, "$1 ");
+    if (next === text) break;
+    text = next;
+  }
   const homes = ["~", "\\$HOME", "\\$\\{HOME\\}", "\"\\$HOME\"", "%USERPROFILE%", "\\$env:USERPROFILE", home.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")];
   for (const place of privatePlaces(context)) {
     const entry = place.shown.startsWith("~/") ? place.shown.slice(2) : undefined;
