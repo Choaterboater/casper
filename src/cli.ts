@@ -136,7 +136,8 @@ async function withStandaloneSandbox(options: CliOptions, work: () => Promise<vo
     : options.command === "mcp-check" ? parseMcpCheckArgs(options.rest).repo : os.tmpdir());
   const settings = await loadConfiguration({ projectRoot: target }).then((loaded) => loaded.sandbox, () => undefined);
   const sandbox = new ShellSandbox({ root: () => target, ...(settings ? { settings } : {}), ...(options.noSandbox ? { noSandboxFlag: true } : {}),
-    store: new SandboxStore(projectStateDirectory(target, os.homedir())), note: (line) => { process.stderr.write(`${line}\n`); } });
+    store: new SandboxStore(projectStateDirectory(target, os.homedir())), note: (line) => { process.stderr.write(`${line}\n`); },
+    seccompPath: async () => (await import("./sandbox/seccomp")).seccompHelper() });
   useSandbox(sandbox);
   try { await work(); }
   finally { useSandbox(undefined); await sandbox.close(); }
