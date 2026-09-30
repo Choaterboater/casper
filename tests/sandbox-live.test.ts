@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
+import { createServer as createNetServer } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { linuxSandboxProblem } from "../src/sandbox/linux";
@@ -150,4 +151,18 @@ needsSandbox("during a plan turn the project is read-only too, so a repo's git d
   expect(existsSync(path.join(root, "planned.txt"))).toBe(false);
   expect((await run("echo x > plan-write.txt", "ask", true)).code).not.toBe(0);
   expect(existsSync(path.join(root, "plan-write.txt"))).toBe(false);
+});
+
+needsSandbox("no command can reach a Unix socket on the host (Docker, the session bus, an SSH agent), in any network mode", async () => {
+  if (process.platform !== "linux") return; // macOS allows only the sockets you list (sandbox.allowUnixSockets).
+  const socket = path.join(outside, "agent.sock");
+  const listener = createNetServer((connection) => { connection.end("SOCKET-REACHED\n"); });
+  await new Promise<void>((resolve) => listener.listen(socket, resolve));
+  try {
+    for (const network of ["ask", "host", "none"] as const) {
+      const result = await run(`socat -T 5 - UNIX-CONNECT:${socket} </dev/null`, network);
+      expect({ network, out: result.out.includes("SOCKET-REACHED") }).toEqual({ network, out: false });
+      expect(result.code).not.toBe(0);
+    }
+  } finally { await new Promise((resolve) => listener.close(resolve)); }
 });

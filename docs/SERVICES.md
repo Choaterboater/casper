@@ -9,8 +9,9 @@ observe.
 
 A service runs the project's own command at the project root, in the shell sandbox where
 it can run: it writes only the project and temp and can't read your private folders, but it
-keeps the machine's network so you can reach it (on macOS it reaches only listed hosts). Where
-no sandbox runs (Windows, bubblewrap missing, `--no-sandbox`) it runs with your permissions.
+keeps the machine's network so you can reach it (on macOS it reaches only listed hosts). On
+Linux it can't open a Unix socket, so a service that drives Docker (`docker compose up`) needs
+`sandbox: off` in `~/.casper/config.yaml`. Where no sandbox runs (Windows, bubblewrap missing, `--no-sandbox`) it runs with your permissions.
 See [SECURITY.md](SECURITY.md).
 
 ## Declaring services
