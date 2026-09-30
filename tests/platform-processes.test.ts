@@ -214,3 +214,37 @@ needsSymlinks("a final symlink is never read as configuration or state", async (
   // POSIX reports ELOOP from the flag itself; the fallback platform rejects by name.
   await expect(openNoFollow(linked)).rejects.toThrow(/symlink|ELOOP/i);
 });
+test("a group whose processes have all exited but are not reaped yet counts as stopped (macOS answers EPERM)", async () => {
+  const table = new Map<number, ProcessRecord>([
+    { pid: 1000, parent: 42, group: 1000, stamp: "adapter" },
+    { pid: 3000, parent: 1, group: 3000, stamp: "unrelated" },
+  ].map(record => [record.pid, record]));
+  let alive = true;
+  const signals: number[] = [];
+  const platform: ProcessPlatform = {
+    groups: true,
+    list: async () => new Map(table),
+    signalProcess: () => { throw new Error("not used with groups"); },
+    signalGroup: (group) => {
+      signals.push(group);
+      const members = [...table.values()].filter((record) => record.group === group);
+      // Like Darwin: a group of only zombies can't be signalled.
+      if (members.length && members.every((record) => record.zombie)) throw Object.assign(new Error("EPERM"), { code: "EPERM" });
+      // The adapter exits on TERM but its parent has not reaped it yet.
+      for (const record of members) table.set(record.pid, { ...record, zombie: true });
+      alive = false;
+    },
+  };
+  const owner = new OwnedProcesses(1000, () => alive, platform);
+  await owner.capture();
+  expect(await owner.stop()).toBe("stopped");
+  expect(signals).toEqual([1000, 1000]);
+
+  // A live member left in that group still makes the outcome unknown.
+  table.set(1000, { pid: 1000, parent: 42, group: 1000, stamp: "adapter" });
+  table.set(1002, { pid: 1002, parent: 1000, group: 1000, stamp: "child" });
+  const stubborn: ProcessPlatform = { ...platform, signalGroup: () => { throw Object.assign(new Error("EPERM"), { code: "EPERM" }); } };
+  const second = new OwnedProcesses(1000, () => true, stubborn);
+  await second.capture();
+  expect(await second.stop()).toBe("unknown");
+});
