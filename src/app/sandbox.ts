@@ -115,7 +115,11 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, store: Sa
       }
       if (targets && wrapped.held) {
         sandbox.allowForRun(wrapped.id, targets.flatMap((target) => [target.host, target.typed]));
-        sayOnce(`[sandbox] ${targets.map(targetLabel).join(", ")}: this command runs in the sandbox, where your ~/.ssh keys and settings are hidden, so a login may fail. A plain ssh or scp command of its own runs with your keys.`);
+        // ssh inside the sandbox goes through its proxy only on Linux (socat); nc, telnet and socat never do.
+        const proxied = sandbox.platform === "linux" && targets.every((target) => ["ssh", "scp", "sftp", "rsync"].includes(target.tool));
+        sayOnce(proxied
+          ? `[sandbox] ${targets.map(targetLabel).join(", ")}: this command runs in the sandbox, where your ~/.ssh keys and settings are hidden, so a login may fail. A plain ssh or scp command of its own runs with your keys.`
+          : `[sandbox] ${targets.map(targetLabel).join(", ")}: direct connections like this are blocked in the sandbox, so this command can't reach it. A plain ssh or scp command of its own runs outside the sandbox with your keys.`);
       }
       return wrapped.held ? { command: wrapped.command, id: wrapped.id } : { command };
     },

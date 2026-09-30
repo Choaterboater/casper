@@ -330,3 +330,14 @@ test("a secret the AI typed into a command is hidden in the question", async () 
   expect(terminal.asked[0]!.question).not.toContain("0f1e2d3c-4b5a-6978-8a9b-0c1d2e3f4a5b");
   expect(terminal.asked[0]!.question).toContain("<secret hidden>");
 });
+
+test("nc, telnet or socat you allow stay in the sandbox, which blocks direct connections, and Casper says so plainly", async () => {
+  const { home, project, context } = await labFixture();
+  const terminal = host(["Yes, this time"]);
+  const sandbox = createSessionSandbox(terminal.value, context, { root: () => project, home, seams: { engine: fakeEngine(), problem: () => undefined, platform: "linux" } });
+  const shell = runtimeShell(terminal.value, sandbox, new SandboxStore(context.stateDirectory));
+  expect(await shell.approve!("nc -zv 10.0.0.1 22")).toBeUndefined();
+  expect((await shell.wrap("nc -zv 10.0.0.1 22", project)).id).toBeDefined();
+  expect(terminal.written).toEqual(["[sandbox] 10.0.0.1: direct connections like this are blocked in the sandbox, so this command can't reach it. A plain ssh or scp command of its own runs outside the sandbox with your keys.\n"]);
+  await sandbox.close();
+});
