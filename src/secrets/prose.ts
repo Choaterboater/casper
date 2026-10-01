@@ -72,7 +72,9 @@ const RULES: ProseRule[] = [
   { re: /(?<![\w/:.@%-])([A-Za-z0-9._-]{1,64}):([^\s@/:'"`]{3,})@((?:\d{1,3}\.){3}\d{1,3}|[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+|localhost)\b/gid,
     group: 2, kind: "password", accept: (value, match) => !/^(?:mailto|email|e-mail|contact|from|to|cc|bcc|reply-to|author|by|at)$/i.test(match[1]!) && anyValue(value) && !/^\$\{?\w+\}?$/.test(value) },
   // Proxmox API tokens: root@pam!sampleapp=<uuid>, PVEAPIToken=user@realm!name=<uuid>.
-  { re: new RegExp(String.raw`[\w.-]+@[\w.-]+![\w.-]+\s*[=:]\s*(${UUID})`, "gid"), group: 1, kind: "key", accept: () => true },
+  // Starts only at the start of a word: without the lookbehind, a long word with no "@" in it was retried from every
+  // letter, and a 16 KB line took half a second.
+  { re: new RegExp(String.raw`(?<![\w.-])[\w.-]+@[\w.-]+![\w.-]+\s*[=:]\s*(${UUID})`, "gid"), group: 1, kind: "key", accept: () => true },
   { re: new RegExp(String.raw`![\w.-]+=(${UUID})`, "gid"), group: 1, kind: "key", accept: () => true },
   // A uuid later on a line about a token or secret: "PVE token: root@pam!sampleapp 3f1c…" (the id is a name; the uuid
   // is the secret).
