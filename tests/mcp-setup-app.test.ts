@@ -54,7 +54,8 @@ async function session(home: string, project: string, commands: string[], answer
     output: { write: (text) => {
       output += text;
       if (text === "> ") queueMicrotask(() => input.write(`${pending.shift() ?? "/exit"}\n`));
-      if (text.endsWith("Type 1 or 2: ")) queueMicrotask(() => input.write(`${answers.shift() ?? "1"}\n`));
+      // Every numbered box (remember, writes, a change): the next scripted answer, else 1 (the safe choice).
+      if (/Type [\d, ]*\d or \d: $/.test(text)) queueMicrotask(() => input.write(`${answers.shift() ?? "1"}\n`));
       if (text.endsWith("Type yes: ")) queueMicrotask(() => input.write("yes\n"));
     } },
   });
@@ -133,17 +134,20 @@ test("the footer badge names the servers with writes on", async () => {
   expect(app.terminal.badge).toBe("WRITES: aruba-central · /mcp writes off");
 });
 
-test("the model's ask tool can't turn writes on: a '2 Enable for this server' answer there changes nothing", async () => {
+test("the model's ask tool can't turn writes on or approve a change: the change box still asks the user", async () => {
   const { home, project } = await fixture({ casper: { mcpServers: { lab: entry({ FIXTURE_MODE: "access-bad" }) } } });
   let asked = "";
-  const { output, app } = await session(home, project, ["/mcp connect lab", "enable writes please"], ["1"], async (tools) => {
+  const { output, app } = await session(home, project, ["/mcp connect lab", "enable writes please"], ["1", "1"], async (tools) => {
     const ask = tools.find((tool) => tool.name === "ask")!;
     asked = (await ask.execute({ question: "lab writes are off.", options: [{ label: "1 Keep writes off" }, { label: "2 Enable for this server" }] })).text;
     const call = tools.find((tool) => tool.name === "call_capability")!;
     asked += (await call.execute({ id: "mcp:lab:set_config", arguments: {} })).text;
   });
   expect(app.mcp!.writesOn()).toEqual([]);
-  expect(asked).toContain("Not executed (lab writes are off. Only the user can turn them on with /mcp writes lab.)");
+  // Whatever the AI's own question said, the change went to the user's box, and their 1 (No) kept it from running.
+  expect(output).toContain("Change in lab: set config");
+  expect(output).toContain("[approval] denied");
+  expect(asked).toContain("Not executed (you said no)");
   expect(output).not.toContain("[mcp] Writes on");
 });
 

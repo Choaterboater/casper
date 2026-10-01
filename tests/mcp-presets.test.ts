@@ -118,7 +118,7 @@ test("docker and podman get env pins as -e before the image, after the user's ow
   expect(refused).toEqual({ kind: "cannot-pin", reason: "Casper can't tell which part of the docker command is the image" });
   expect(presetLine({ preset: presetById("centralmcp")!, by: "definition", mismatch: false }, refused)).toEqual([
     "preset: centralmcp",
-    "Can't pin read-only for this server (Casper can't tell which part of the docker command is the image). Write tools are hidden in Casper only.",
+    "Can't pin read-only for this server (Casper can't tell which part of the docker command is the image). Every change asks you in Casper.",
   ]);
 });
 
@@ -287,7 +287,7 @@ test("an HTTP server with the junos tool names gets junos rules without a defini
   expect(tightenSafety(match, commit, labels.get(commit.name)!)).toBe("destructive");
   expect(presetLine(match, planPins(definition, match.preset))).toEqual([
     "preset: junos-mcp-server",
-    "Can't pin read-only for this server (it runs elsewhere). Write tools are hidden in Casper only.",
+    "Can't pin read-only for this server (it runs elsewhere). Every change asks you in Casper.",
   ]);
 });
 
@@ -323,7 +323,7 @@ test("advice and notes for servers Casper can't pin", () => {
   expect(mist.preset.id).toBe("mist-hosted");
   expect(presetLine(mist, planPins(http("mist", "https://mcp.mist.com/mcp"), mist.preset))).toEqual([
     "preset: mist-hosted",
-    "Can't pin read-only for this server (it runs elsewhere). Write tools are hidden in Casper only.",
+    "Can't pin read-only for this server (it runs elsewhere). Every change asks you in Casper.",
     "Access not checked. Use a read-only (Observer) org token for this server.",
   ]);
   expect(matchPreset(http("x", "https://notmist.com.example.net/mcp"))).toBeUndefined();

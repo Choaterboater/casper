@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { CapabilityBroker, type ConfirmCapability } from "../src/capabilities/broker";
+import { CapabilityBroker, type ApprovalAnswer, type ConfirmCapability } from "../src/capabilities/broker";
 import type { MCPServerDefinition } from "../src/mcp/config";
 import { ConsentStore } from "../src/mcp/consent";
 import { MCPManager, type MCPManagerOptions } from "../src/mcp/manager";
@@ -32,7 +32,7 @@ async function envOf(mcp: MCPManager, name: string) {
 const statusOf = (mcp: MCPManager, name: string) => mcp.status().find((status) => status.name === name)!;
 const ids = (broker: CapabilityBroker, query: string) => broker.search(query, 10).map((capability) => capability.name);
 
-test("a remembered server connects on the next start without asking, with writes off and its write tools hidden", async () => {
+test("a remembered server connects on the next start without asking, with writes off; changes need someone to ask", async () => {
   const home = await tempDir();
   const definition = server("lab", { FIXTURE_MODE: "access-bad" });
   const store = new ConsentStore(home);
@@ -53,8 +53,9 @@ test("a remembered server connects on the next start without asking, with writes
   await broker.prepare("status");
   expect(statusOf(second, "lab").state).toBe("ready");
   expect(ids(broker, "status")).toEqual(["get_status"]);
-  expect(ids(broker, "config")).toEqual([]);
-  await expect(broker.invoke("mcp:lab:set_config", {})).rejects.toThrow("Not executed (lab writes are off. Only the user can turn them on with /mcp writes lab.)");
+  expect(ids(broker, "config")).toEqual(["set_config"]);
+  await expect(broker.invoke("mcp:lab:set_config", {})).rejects.toThrow("Not executed (needs your approval, and this run cannot ask)");
+  expect(second.writesOn()).toEqual([]);
   // /mcp forget drops the record: the next start asks again.
   expect(await second.forget("lab")).toBe(true);
   const third = new ConsentStore(home);
@@ -166,38 +167,44 @@ test("the server's own gate report turns 'pins sent, not confirmed' into 'pinned
   expect(lines).toContain("Looks different from the hpe-networking-mcp preset. Pins kept, and its extra checks still apply.");
 });
 
-test("junos: commits are hidden while writes are off, only show commands run, and the show opt-in skips the question", async () => {
+test("junos: with writes off, commits and non-show commands ask (the exact command shown); the show opt-in skips only plain show", async () => {
   const log = path.join(await tempDir(), "calls.log");
   const mcp = manager([server("junos", { FIXTURE_MODE: "junos", FIXTURE_CALLS_FILE: log }, ["jmcp.py"])]);
-  const boxes: { id: string; note?: string; noPreview?: boolean }[] = [];
+  const boxes: { id: string; command?: unknown; note?: string; noPreview?: boolean }[] = [];
+  let answer: ApprovalAnswer = "no";
   const confirm: ConfirmCapability = async (call) => {
-    boxes.push({ id: call.capability.id, note: call.plan.hint?.executeNote, noPreview: call.plan.hint?.noPreview });
-    return true;
+    boxes.push({ id: call.capability.id, command: call.arguments.command, note: call.plan.hint?.executeNote, noPreview: call.plan.hint?.noPreview });
+    return answer;
   };
   const broker = new CapabilityBroker(mcp, confirm, { writesGate: true });
   await mcp.connect("junos");
-  expect(statusOf(mcp, "junos").preset?.lines).toContain("Can't pin read-only for this server (it has no read-only setting). Write tools are hidden in Casper only.");
-  expect(ids(broker, "load commit config")).not.toContain("load_and_commit_config");
-  await expect(broker.invoke("mcp:junos:load_and_commit_config", {})).rejects.toThrow("Not executed (junos writes are off.");
-  await expect(broker.invoke("mcp:junos:execute_junos_command", { router_name: "r1", command: "request system reboot" }))
-    .rejects.toThrow("Not executed (Junos writes are off; only show commands run.)");
+  expect(statusOf(mcp, "junos").preset?.lines).toContain("Can't pin read-only for this server (it has no read-only setting). Every change asks you in Casper.");
+  // Offered, and asking: the commit box carries its note and no preview.
+  expect(ids(broker, "load commit config")).toContain("load_and_commit_config");
+  await expect(broker.invoke("mcp:junos:load_and_commit_config", {})).rejects.toThrow("you said no");
+  await expect(broker.invoke("mcp:junos:execute_junos_command", { router_name: "r1", command: "request system reboot" })).rejects.toThrow("you said no");
+  expect(boxes.slice(0, 2)).toEqual([
+    { id: "mcp:junos:load_and_commit_config", command: undefined, note: "load_and_commit_config commits right away. No preview and no auto-rollback.", noPreview: true },
+    { id: "mcp:junos:execute_junos_command", command: "request system reboot", note: undefined, noPreview: undefined },
+  ]);
+  // Show commands ask until the opt-in; then only plain show commands skip the box.
+  answer = "yes";
   await broker.invoke("mcp:junos:execute_junos_command", { router_name: "r1", command: "show interfaces terse" });
-  expect(boxes.map((box) => box.id)).toEqual(["mcp:junos:execute_junos_command"]);
+  expect(boxes).toHaveLength(3);
   mcp.setShowOptIn("junos", true);
   await broker.invoke("mcp:junos:execute_junos_command", { router_name: "r1", command: "show interfaces terse" });
-  expect(boxes).toHaveLength(1);
+  expect(boxes).toHaveLength(3);
+  answer = "no";
   for (const command of ["sh ver", "show configuration | save /var/tmp/x", "show version; request system reboot", "show version\nrequest system reboot"]) {
-    await expect(broker.invoke("mcp:junos:execute_junos_command", { router_name: "r1", command })).rejects.toThrow("Not executed (Junos writes are off; only show commands run.)");
+    await expect(broker.invoke("mcp:junos:execute_junos_command", { router_name: "r1", command })).rejects.toThrow("you said no");
   }
-  await mcp.setWrites("junos", true);
-  await broker.invoke("mcp:junos:execute_junos_command", { router_name: "r1", command: "sh ver" });
-  await broker.invoke("mcp:junos:load_and_commit_config", {});
-  expect(boxes.slice(1)).toEqual([
-    { id: "mcp:junos:execute_junos_command", note: undefined, noPreview: undefined },
-    { id: "mcp:junos:load_and_commit_config", note: "load_and_commit_config commits right away. No preview and no auto-rollback.", noPreview: true },
-  ]);
+  expect(boxes).toHaveLength(7);
   const sent = (await readFile(log, "utf8")).trim().split("\n").map((line) => line.split(" ")[0]);
-  expect(sent).toEqual(["execute_junos_command", "execute_junos_command", "execute_junos_command", "load_and_commit_config"]);
+  expect(sent).toEqual(["execute_junos_command", "execute_junos_command"]);
+  // Nobody to ask (one-shot): writes off still refuses anything but plain show.
+  const oneShot = new CapabilityBroker(mcp, undefined, { writesGate: true });
+  await expect(oneShot.invoke("mcp:junos:execute_junos_command", { router_name: "r1", command: "request system reboot" }))
+    .rejects.toThrow("Not executed (Junos writes are off; only show commands run.)");
   expect(() => mcp.setShowOptIn("missing", true)).toThrow();
 });
 
@@ -243,21 +250,23 @@ test("the consent file keeps no definition values", async () => {
   expect(again.diagnostics).toContain("~/.casper/mcp-consent.json is damaged. Casper will ask again for each server.");
 });
 
-test("with writes off, a write behind a read router is refused like the write tool itself, also after a yes", async () => {
+test("with writes off, a write behind a read router asks with the real tool; yes turns writes on for that change only", async () => {
   const log = path.join(await tempDir(), "calls.log");
   const mcp = manager([server("hpe", { FIXTURE_MODE: "hpe-router", FIXTURE_CALLS_FILE: log })]);
   const boxes: string[] = [];
-  let answer: () => Promise<boolean> = async () => true;
-  const broker = new CapabilityBroker(mcp, async (call) => { boxes.push(call.plan.routed.map((routed) => routed.name).join(",")); return answer(); }, { writesGate: true });
+  let answer: ApprovalAnswer = "no";
+  const broker = new CapabilityBroker(mcp, async (call) => { boxes.push(call.plan.routed.map((routed) => routed.name).join(",")); return answer; }, { writesGate: true });
   await mcp.connect("hpe");
-  await expect(broker.invoke("mcp:hpe:invoke_read_tool", { name: "central_delete_site", arguments: { site: "lab" } }))
-    .rejects.toThrow("Not executed (hpe writes are off. Only the user can turn them on with /mcp writes hpe.)");
-  await expect(broker.invoke("mcp:hpe:invoke_read_tool", { name: "central_update_wlan", arguments: {} })).rejects.toThrow("Not executed (hpe writes are off.");
-  expect(boxes).toEqual([]);
-  await broker.invoke("mcp:hpe:invoke_read_tool", { name: "central_get_sites", arguments: {} });
-  await mcp.setWrites("hpe", true);
-  await broker.invoke("mcp:hpe:invoke_read_tool", { name: "central_delete_site", arguments: { site: "lab" } });
+  // No: nothing is sent, and writes stay off.
+  await expect(broker.invoke("mcp:hpe:invoke_read_tool", { name: "central_delete_site", arguments: { site: "lab" } })).rejects.toThrow("you said no");
   expect(boxes).toEqual(["central_delete_site"]);
+  // Reads behind the same router still run without a box.
+  await broker.invoke("mcp:hpe:invoke_read_tool", { name: "central_get_sites", arguments: {} });
+  // Yes, this once: writes go on for that change and off again after it.
+  answer = "yes";
+  await broker.invoke("mcp:hpe:invoke_read_tool", { name: "central_delete_site", arguments: { site: "lab" } });
+  expect(boxes).toEqual(["central_delete_site", "central_delete_site"]);
+  expect(mcp.writesOn()).toEqual([]);
   const sent = (await readFile(log, "utf8")).trim().split("\n").filter((line) => line.startsWith("invoke_read_tool"));
   expect(sent.map((line) => JSON.parse(line.slice("invoke_read_tool ".length)).name)).toEqual(["central_get_sites", "central_delete_site"]);
 });
@@ -270,7 +279,7 @@ test("writes turned off while the box for a write behind a router is open: the y
   await mcp.connect("lab");
   await mcp.setWrites("lab", true);
   await expect(broker.invoke("mcp:lab:invoke_read_tool", { name: "central_delete_site", arguments: {} }))
-    .rejects.toThrow("Not executed (lab writes are off. Only the user can turn them on with /mcp writes lab.)");
+    .rejects.toThrow("Not executed (lab writes are off. Only the user can allow a change there: in Casper's change box, or with /mcp writes lab.)");
   expect(await readFile(log, "utf8").catch(() => "")).not.toContain("central_delete_site");
 });
 

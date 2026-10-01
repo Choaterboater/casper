@@ -78,6 +78,9 @@ export const HIDDEN_SECRET_NEXT = "Casper hid that secret from the AI, so the AI
 /** The user can ask for a preview at most this many times for one call; then only yes or no is left. */
 const MAX_PREVIEWS = 3;
 
+/** The tool-definition half of a fingerprint ("<generation>:<hash>"). */
+function toolPart(fingerprint: string): string { return fingerprint.slice(fingerprint.indexOf(":") + 1); }
+
 /** The real tool name(s) an approval is for: the routed tools, or the tool itself. */
 function realToolOf(plan: ApprovalPlan): string {
   return plan.routed.length ? plan.routed.map((call) => call.name).join(", ") : plan.tool;
@@ -247,7 +250,9 @@ export class CapabilityBroker {
     // 3. Hidden capabilities and argument guards: writes off, a read-only login, a preset's rules.
     if (capability.hidden) throw new NotExecutedError(capability.hidden);
     const { policy } = capability;
-    const guard = guardArguments(policy.match, capability.tool, frozenArgs, { writes: this.writes(policy), showOptIn: policy.showOptIn });
+    // Writes off only means "pinned, and every change asks": when the person can be asked, the box can turn writes
+    // on, so the guard checks as if they were on. With nobody to ask (one-shot), writes off still refuses.
+    const guard = guardArguments(policy.match, capability.tool, frozenArgs, { writes: this.confirm ? "on" : this.writes(policy), showOptIn: policy.showOptIn });
     if (typeof guard === "object") throw new NotExecutedError(guard.refuse);
     // 4. Hidden-secret marker: the AI never saw the real secret, so it can't send it back.
     if (containsHiddenSecret(frozenArgs)) throw new NotExecutedError(HIDDEN_SECRET_REASON, HIDDEN_SECRET_NEXT);
@@ -270,13 +275,27 @@ export class CapabilityBroker {
       && aiConfirm(plan.arguments).length === 0 && previewSwitchedOff(plan.arguments).length === 0;
     // Covered by the user's "Yes, for this session": approved without a box, so server questions still reach them.
     const covered = needsApproval(plan) && !optedIn && this.sessionCovers(plan, capability.policy);
-    const approved = covered ? realToolOf(plan)
+    const writesBefore = this.writes(policy);
+    const answer = covered ? { realTool: realToolOf(plan), once: false }
       : needsApproval(plan) && !optedIn ? await this.approve(capability, plan, combined) : undefined;
+    // Writes turned off (ctrl+o, /mcp writes off) while the box was open: the user's latest word is "off", so a yes
+    // given in that box no longer counts and doesn't turn writes back on.
+    if (answer && writesBefore === "on" && this.writes(this.manager.policy(plan.server)) === "off") {
+      throw new NotExecutedError(writesOffReason(plan.server));
+    }
+    const approved = answer?.realTool;
+    // Approved on a server whose writes are off: turn them on (it restarts without its read-only pins once its calls
+    // finish) before the change runs. "Yes, this once" turns them off again after it.
+    const turnedOn = answer && label !== "read" && this.writesGate && this.writes(policy) === "off";
+    if (turnedOn) await this.manager.setWrites(plan.server, true);
     if (covered) this.onSessionCovered?.(plan.server, realToolOf(plan));
     notCancelled(combined);
     this.sync();
     const current = this.get(id);
-    if (current.fingerprint !== capability.fingerprint) throw new NotExecutedError("tool changed; search again");
+    // A restart Casper did itself to turn writes on is a new connection; the approval still holds when the server
+    // offers exactly the same tool definition. Any other change asks for a new search.
+    const sameTool = turnedOn ? toolPart(current.fingerprint) === toolPart(capability.fingerprint) : current.fingerprint === capability.fingerprint;
+    if (!sameTool) throw new NotExecutedError("tool changed; search again");
     // Writes turned off (ctrl+o) while the box was open: the yes no longer counts.
     if (current.hidden) throw new NotExecutedError(current.hidden);
     this.refuseByPolicy(current, label);
@@ -284,8 +303,13 @@ export class CapabilityBroker {
       throw new NotExecutedError(writesOffReason(capability.descriptor.source));
     }
     // 6. Call, under the per-server call clock. Only an approved call may carry server questions to the user.
-    const raw = await this.manager.call(capability.descriptor.source, capability.tool.name, frozenArgs, combined,
-      approved ? { approved: { capabilityId: id, realTool: approved, label } } : {});
+    let raw: unknown;
+    try {
+      raw = await this.manager.call(capability.descriptor.source, capability.tool.name, frozenArgs, combined,
+        approved ? { approved: { capabilityId: id, realTool: approved, label } } : {});
+    } finally {
+      if (turnedOn && answer.once) await this.manager.setWrites(plan.server, false).catch(() => {});
+    }
     // 7. Hide device secrets (passwords, keys, SNMP communities) before anything else reads the result.
     const scrubbed = await this.scrub(raw, combined);
     if (planMode(plan) === "preview") this.previews.set(this.previewSlot(capability, plan), { text: previewText(scrubbed.value), at: Date.now() });
@@ -308,7 +332,7 @@ export class CapabilityBroker {
    * Ask the user until they say yes (returns the real tool name for the approved call) or no (throws).
    * "p" runs the preview, when the tool's own schema declares one, and asks again with its result.
    */
-  private async approve(capability: Capability, plan: ApprovalPlan, signal: AbortSignal): Promise<string> {
+  private async approve(capability: Capability, plan: ApprovalPlan, signal: AbortSignal): Promise<{ realTool: string; once: boolean }> {
     if (!this.confirm) throw new NotExecutedError("needs your approval, and this run cannot ask");
     const realTool = realToolOf(plan);
     const slot = this.previewSlot(capability, plan);
@@ -321,8 +345,8 @@ export class CapabilityBroker {
         plan: structuredClone(shown), ...(lastPreview ? { lastPreview: { ...lastPreview } } : {}),
       }, signal);
       notCancelled(signal);
-      if (answer === true || answer === "yes") return realTool;
-      if (answer === "yes-session" && planLabel(shown) !== "destructive") { this.sessionGrants.add(plan.server); return realTool; }
+      if (answer === true || answer === "yes") return { realTool, once: true };
+      if (answer === "yes-session" && planLabel(shown) !== "destructive") { this.sessionGrants.add(plan.server); return { realTool, once: false }; }
       if (answer !== "preview" || !canPreview(shown)) break;
       // Only send what Casper itself reads as a preview.
       const previewArgs = previewArguments(plan);
@@ -389,7 +413,6 @@ export class CapabilityBroker {
     const server = capability.descriptor.source;
     const access = policy.access?.state ?? "unknown";
     if (access === "read-only" && isHidden(undefined, tool, label, { writes: "on", access })) throw new NotExecutedError(readOnlyLoginReason(server));
-    if (isHidden(undefined, tool, label, { writes: this.writes(policy), access: "unknown" })) throw new NotExecutedError(writesOffReason(server));
   }
 
   private sync(): void {
@@ -417,9 +440,9 @@ export class CapabilityBroker {
           id, source: server, name: tool.name, description: (tool.description ?? "").slice(0, 1024),
           tags: [], safety, schemaRef: id,
         };
+        // Only a read-only login hides changes. Writes off means the server runs pinned and every change asks.
         const hidden = access === "read-only" && isHidden(policy.match, tool, safety, { writes: "on", access })
-          ? readOnlyLoginReason(server)
-          : isHidden(policy.match, tool, safety, { writes, access: "unknown" }) ? writesOffReason(server) : undefined;
+          ? readOnlyLoginReason(server) : undefined;
         const tags = tool._meta?.tags;
         if (Array.isArray(tags)) descriptor.tags = tags.filter((tag): tag is string => typeof tag === "string").slice(0, 8).map((tag) => tag.slice(0, 64));
         next.set(id, {
