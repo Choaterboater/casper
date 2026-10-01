@@ -34,5 +34,8 @@
     "pyright": "1.1.414",
     "typescript": "^5.9.3",
     "typescript-language-server": "6.0.0"
+  },
+  "patchedDependencies": {
+    "@earendil-works/pi-ai@0.87.0": "patches/@earendil-works%2Fpi-ai@0.87.0.patch"
   }
 }

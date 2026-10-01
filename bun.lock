@@ -26,6 +26,9 @@
       },
     },
   },
+  "patchedDependencies": {
+    "@earendil-works/pi-ai@0.87.0": "patches/@earendil-works%2Fpi-ai@0.87.0.patch",
+  },
   "packages": {
     "@anthropic-ai/sandbox-runtime": ["@anthropic-ai/sandbox-runtime@0.0.77", "", { "dependencies": { "@pondwader/socks5-server": "^1.0.10", "commander": "^12.1.0", "node-forge": "^1.4.0", "zod": "^3.24.1" }, "bin": { "srt": "dist/cli.js" } }, "sha512-uOe6kkAbo91r5shXXBxZ1DKbOpWmnXkNDDujXrFJRaHSG7D7s8b7Yfsu0pGDkYFgKZ2ECtVCNisl6pCYcaMF7A=="],
 

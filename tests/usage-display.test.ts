@@ -45,6 +45,7 @@ test("pay-per-token providers keep the dollar estimate", () => {
   expect(formatCostShort(usage)).toBe("$1.251 est");
   expect(formatCostShort({}, { provider: "openrouter", billing: "per-token" })).toBeUndefined();
   expect(formatCostLong(usage, { provider: "anthropic", billing: "per-token" })).toBe("$1.2511 SDK/catalog estimate");
+  expect(formatCostLong(usage, { provider: "openrouter", billing: "per-token" })).toBe("$1.2511 as charged by OpenRouter");
   expect(formatCostLong({})).toBe("unavailable");
 });
 

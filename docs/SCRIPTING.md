@@ -156,8 +156,9 @@ A run ends with exactly one `receipt` event, or, when Casper stops before it can
 request ran (a local `/` command). `casper --json "/security-review ai"` (v0.2.17) is a `/` command
 that does use the model: its `usage` is the AI review's responses and tokens. `turns` counts the conversation's model responses. `tokens` and
 `estimatedCost` total what the provider reported for each of them, plus every `delegate`
-subagent's responses (a child's turns are not counted in `turns`). `estimatedCost` is the model
-catalog's estimate, not an invoice. Context compaction is not counted. Both totals are `null`
+subagent's responses (a child's turns are not counted in `turns`). `estimatedCost` is what OpenRouter
+reports it charged when the model runs through OpenRouter, and otherwise the model catalog's
+estimate, not an invoice. Context compaction is not counted. Both totals are `null`
 (unknown, never an undercount) when a response had no usage report, or the request also made
 model calls Casper does not total: a subagent whose usage is unknown (a response without a
 report, a run cut off mid-response or still cleaning up, or a child running the effort
