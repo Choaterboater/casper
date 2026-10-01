@@ -53,7 +53,7 @@ export interface CapabilityListPage {
 }
 /** The user's answer to one approval: yes, no, or "preview" (run the preview first, then ask again).
  * `true`/`false` mean yes/no. */
-export type ApprovalAnswer = boolean | "yes" | "no" | "preview";
+export type ApprovalAnswer = boolean | "yes" | "no" | "preview" | "yes-session";
 /** Ask the user about one exact call. Only their yes runs it; it may throw NotExecutedError when
  * nobody can be asked (a one-shot run), so the model is never told "you said no" by mistake. */
 export type ConfirmCapability = (call: {
@@ -77,6 +77,11 @@ export const HIDDEN_SECRET_NEXT = "Casper hid that secret from the AI, so the AI
 
 /** The user can ask for a preview at most this many times for one call; then only yes or no is left. */
 const MAX_PREVIEWS = 3;
+
+/** The real tool name(s) an approval is for: the routed tools, or the tool itself. */
+function realToolOf(plan: ApprovalPlan): string {
+  return plan.routed.length ? plan.routed.map((call) => call.name).join(", ") : plan.tool;
+}
 const LAST_PREVIEW_BYTES = 4096;
 
 /** A preview result as the user may see it: token shapes and config secrets hidden, keys masked, cut short. */
@@ -122,6 +127,9 @@ export class CapabilityBroker {
   private readonly closed = new AbortController();
   /** The last preview of each call (server, real tool, arguments without the preview switch), per connection. */
   private previews = new Map<string, LastPreview>();
+  /** Servers the user answered "Yes, for this session" for: later changes there that are not destructive, and
+   * that the AI didn't mark confirmed or preview-off, run without asking. Ended by endSessionGrants. */
+  private readonly sessionGrants = new Set<string>();
   /** Per-server lines for find_capability's description (read-only logins, writes off). */
   private modelLines: string[] = [];
   /** The connected servers, by name, as of the last sync. */
@@ -137,10 +145,13 @@ export class CapabilityBroker {
    * with writes off). Brokers built directly treat writes as on. Presets, read-only logins and
    * argument guards apply either way; they only ever restrict.
    */
+  /** Told when a change runs on the user's "Yes, for this session" without a box (for the transcript). */
+  private readonly onSessionCovered?: (server: string, realTool: string) => void;
   constructor(private readonly manager: MCPManager, private readonly confirm?: ConfirmCapability,
-    options: { writesGate?: boolean; scrubber?: ResultScrubber } = {}) {
+    options: { writesGate?: boolean; scrubber?: ResultScrubber; onSessionCovered?: (server: string, realTool: string) => void } = {}) {
     this.writesGate = options.writesGate ?? false;
     this.scrubber = options.scrubber ?? BUILT_IN_SCRUBBER;
+    if (options.onSessionCovered) this.onSessionCovered = options.onSessionCovered;
   }
 
   async prepare(task: string): Promise<RuntimeTool[]> {
@@ -257,7 +268,11 @@ export class CapabilityBroker {
     // set to skip a check still asks.
     const optedIn = guard === "allow" && !plan.routed.length && !plan.routerUnclear
       && aiConfirm(plan.arguments).length === 0 && previewSwitchedOff(plan.arguments).length === 0;
-    const approved = needsApproval(plan) && !optedIn ? await this.approve(capability, plan, combined) : undefined;
+    // Covered by the user's "Yes, for this session": approved without a box, so server questions still reach them.
+    const covered = needsApproval(plan) && !optedIn && this.sessionCovers(plan, capability.policy);
+    const approved = covered ? realToolOf(plan)
+      : needsApproval(plan) && !optedIn ? await this.approve(capability, plan, combined) : undefined;
+    if (covered) this.onSessionCovered?.(plan.server, realToolOf(plan));
     notCancelled(combined);
     this.sync();
     const current = this.get(id);
@@ -295,7 +310,7 @@ export class CapabilityBroker {
    */
   private async approve(capability: Capability, plan: ApprovalPlan, signal: AbortSignal): Promise<string> {
     if (!this.confirm) throw new NotExecutedError("needs your approval, and this run cannot ask");
-    const realTool = plan.routed.length ? plan.routed.map((call) => call.name).join(", ") : plan.tool;
+    const realTool = realToolOf(plan);
     const slot = this.previewSlot(capability, plan);
     for (let previews = 0; ; previews++) {
       const lastPreview = this.previews.get(slot);
@@ -307,6 +322,7 @@ export class CapabilityBroker {
       }, signal);
       notCancelled(signal);
       if (answer === true || answer === "yes") return realTool;
+      if (answer === "yes-session" && planLabel(shown) !== "destructive") { this.sessionGrants.add(plan.server); return realTool; }
       if (answer !== "preview" || !canPreview(shown)) break;
       // Only send what Casper itself reads as a preview.
       const previewArgs = previewArguments(plan);
@@ -328,6 +344,24 @@ export class CapabilityBroker {
       this.previews.set(slot, { text, at: Date.now() });
     }
     throw new NotExecutedError("you said no");
+  }
+
+  /** True when the user said "Yes, for this session" on this server. */
+  sessionGrant(server: string): boolean { return this.sessionGrants.has(server); }
+
+  /** End the session answer for one server, or every server (ctrl+o, writes off, reconnect, a changed definition). */
+  endSessionGrants(server?: string): void {
+    if (server === undefined) this.sessionGrants.clear();
+    else this.sessionGrants.delete(server);
+  }
+
+  /** A session answer covers a change that is not destructive and that the AI didn't mark confirmed or preview-off.
+   * It stands only while the server's writes are on: ctrl+o, /mcp writes off or a disconnect ends it. */
+  private sessionCovers(plan: ApprovalPlan, policy: ServerPolicy): boolean {
+    if (!this.sessionGrants.has(plan.server)) return false;
+    if (this.writes(policy) === "off") { this.sessionGrants.delete(plan.server); return false; }
+    return planLabel(plan) !== "destructive" && !plan.routerUnclear
+      && aiConfirm(plan.arguments).length === 0 && previewSwitchedOff(plan.arguments).length === 0;
   }
 
   private previewSlot(capability: Capability, plan: ApprovalPlan): string {
@@ -408,6 +442,9 @@ export class CapabilityBroker {
     this.indexedRevision = revision;
     // A reconnect or a changed tool list makes old previews stale.
     this.previews.clear();
+    // A session answer ends with the server's connection.
+    const connected = new Set([...next.values()].map((capability) => capability.descriptor.source));
+    for (const server of [...this.sessionGrants]) if (!connected.has(server)) this.sessionGrants.delete(server);
   }
 
   private get(id: string): Capability {

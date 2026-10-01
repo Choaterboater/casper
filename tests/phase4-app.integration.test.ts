@@ -201,7 +201,8 @@ test("interactive approval shows exact arguments and permits only an explicit ye
       // Writes are off at start: turn them on for this server first (/mcp writes, then 2).
       if (text === "> ") queueMicrotask(() => input.write(["/mcp writes fixture\n", "Change site\n"][prompts++] ?? "/exit\n"));
       if (text.endsWith("Type 1 or 2: ")) queueMicrotask(() => input.write("2\n"));
-      if (text.includes("Type yes:")) queueMicrotask(() => input.write("yes\n"));
+      // The change box: 2 is "Yes, this once".
+      if (text.endsWith("Type 1, 2 or 3: ")) queueMicrotask(() => input.write("2\n"));
     } },
   });
   cleanup.push(() => app.close());
@@ -210,15 +211,18 @@ test("interactive approval shows exact arguments and permits only an explicit ye
   expect(output).toContain("fixture writes are off.\n  1 Keep writes off\n  2 Enable for this server\n");
   expect(output).toContain("[mcp] Writes on for fixture. Each change still asks you. /mcp writes off turns writes off.");
   expect(output).toContain("MCP · fixture · set_site  [write]");
-  expect(output).toContain("Mode: EXECUTE (this makes the change)");
-  expect(output).toContain("Run it? Type yes: ");
-  expect(output).toContain('Arguments: {"site":"lab"}');
+  expect(output).toContain("Change in fixture: set site\n");
+  expect(output).toContain("This makes the change.");
+  expect(output).toContain("  1 No\n  2 Yes, this once\n  3 Yes, for this session\n");
+  expect(output).toContain("Type 1, 2 or 3: ");
+  expect(output).toContain("  site             lab\n");
+  expect(output).toContain("[approval] allowed\n");
   expect(runtime.result).toContain('"site":"lab"');
   expect(runtime.result).not.toContain('"isError":true');
 });
 
 /** An interactive run whose model calls one network tool; `answers` are typed at each question in order. */
-async function networkRun(answers: string[], call: { id: string; arguments: Record<string, unknown> }) {
+async function networkRun(answers: string[], call: { id: string; arguments: Record<string, unknown> }, typedAhead = "") {
   const { home, project } = await fixture();
   await writeFile(path.join(home, ".casper/mcp.json"), JSON.stringify({ mcpServers: {
     net: { command: process.execPath, args: [path.join(import.meta.dir, "fixtures/mcp-server.ts")], env: { FIXTURE_MODE: "network" } },
@@ -241,6 +245,7 @@ async function networkRun(answers: string[], call: { id: string; arguments: Reco
   const input = new PassThrough();
   let prompts = 0;
   let output = "";
+  let writesOn = false;
   const app = new CasperApp({
     runtimeFactory: () => runtime, input,
     loadProjectContext: (info) => loadProjectContext(info, { homeDir: home }),
@@ -249,8 +254,13 @@ async function networkRun(answers: string[], call: { id: string; arguments: Reco
     output: { write: (text) => {
       output += text;
       // Writes are off at start: turn them on for this server first (/mcp writes, then 2).
-      if (text === "> ") queueMicrotask(() => input.write(["/mcp writes net\n", "Bounce the port\n"][prompts++] ?? "/exit\n"));
-      if (text.endsWith("Type 1 or 2: ")) queueMicrotask(() => input.write("2\n"));
+      if (text === "> ") queueMicrotask(() => input.write(["/mcp writes net\n", `Bounce the port\n${typedAhead}`][prompts++] ?? "/exit\n"));
+      // The first numbered box is /mcp writes; later ones are change boxes, answered from the script.
+      if (/Type [\d, ]*\d or \d: $/.test(text)) {
+        const answer = writesOn ? answers.shift() ?? "1" : "2";
+        writesOn = true;
+        queueMicrotask(() => input.write(`${answer}\n`));
+      }
       if (/Type (yes|one of)[^:]*: $/.test(text)) { const answer = answers.shift() ?? "no"; queueMicrotask(() => input.write(`${answer}\n`)); }
     } },
   });
@@ -261,7 +271,7 @@ async function networkRun(answers: string[], call: { id: string; arguments: Reco
 }
 
 test("interactive run: the server's question about an approved call is answered by the user", async () => {
-  const { output, result } = await networkRun(["yes", "yes"], { id: "mcp:net:port_bounce", arguments: { serial_number: "SG1" } });
+  const { output, result } = await networkRun(["2", "yes"], { id: "mcp:net:port_bounce", arguments: { serial_number: "SG1" } });
   const box = output.indexOf("MCP · net · port_bounce  [destructive]");
   const question = output.indexOf("net asks about the port_bounce call you approved:");
   expect(box).toBeGreaterThanOrEqual(0);
@@ -273,24 +283,24 @@ test("interactive run: the server's question about an approved call is answered 
 });
 
 test("interactive run: no to the server's question cancels the approved call", async () => {
-  const { output, result } = await networkRun(["yes", "no"], { id: "mcp:net:port_bounce", arguments: { serial_number: "SG1" } });
+  const { output, result } = await networkRun(["2", "no"], { id: "mcp:net:port_bounce", arguments: { serial_number: "SG1" } });
   expect(output).toContain("[server question] no");
   expect(result).toContain("CANCELLED");
   expect(result).not.toContain("bounced");
 });
 
 test("interactive run: p previews first, then the box shows the preview with the PSK hidden", async () => {
-  const { output, result } = await networkRun(["p", "yes"], { id: "mcp:net:set_ssid", arguments: { ssid: "corp", wpa_passphrase: "hunter2hunter" } });
-  expect(output).toContain("Run it? Type yes, or p to preview first: ");
+  const { output, result } = await networkRun(["2", "3"], { id: "mcp:net:set_ssid", arguments: { ssid: "corp", wpa_passphrase: "hunter2hunter" } });
+  expect(output).toContain("  1 No\n  2 Preview first\n  3 Yes, this once\n  4 Yes, for this session\n");
   expect(output).toContain("[approval] preview first");
   expect(output).toContain("Last preview (just now):");
-  expect(output).toContain("\"wpa_passphrase\":\"••• 13 chars\"");
+  expect(output).toContain("  wpa_passphrase   ••• 13 chars\n");
   expect(output).not.toContain("hunter2hunter");
   expect(result).toContain("applied");
 });
 
 test("interactive run: a long server question has secrets hidden before it is cut", async () => {
-  const { output, result } = await networkRun(["yes", "yes"], { id: "mcp:net:long_question", arguments: { serial_number: "SG1" } });
+  const { output, result } = await networkRun(["2", "yes"], { id: "mcp:net:long_question", arguments: { serial_number: "SG1" } });
   expect(output).toContain("net asks about the long_question call you approved:");
   expect(output).toContain("… (more not shown)");
   expect(output).not.toContain("ghp_");
@@ -470,4 +480,12 @@ test("/mcp reload revokes consent only for approved changed servers and ignores 
   expect(output).not.toMatch(/consent revoked for [^\n]*alpha/);
   expect(output).toMatch(/steady \[stdio; ready\]/);
   expect(output).toMatch(/fixture \[stdio; disconnected\]/);
+});
+
+test("interactive run: a digit typed before the change box appeared does not answer it", async () => {
+  // "2" (Yes, this once) is typed together with the request, before the box exists; the box is then answered 1.
+  const { output, result } = await networkRun(["1"], { id: "mcp:net:set_ssid", arguments: { ssid: "corp" } }, "2\n");
+  expect(output).toMatch(/\[input\] Discarded 1 line\(s\) entered before this approval appeared\./);
+  expect(output).toContain("[approval] denied");
+  expect(result).not.toContain("applied");
 });
