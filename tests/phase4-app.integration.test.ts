@@ -271,19 +271,21 @@ async function networkRun(answers: string[], call: { id: string; arguments: Reco
 }
 
 test("interactive run: the server's question about an approved call is answered by the user", async () => {
-  const { output, result } = await networkRun(["2", "yes"], { id: "mcp:net:port_bounce", arguments: { serial_number: "SG1" } });
+  const { output, result } = await networkRun(["2", "2"], { id: "mcp:net:port_bounce", arguments: { serial_number: "SG1" } });
   const box = output.indexOf("MCP · net · port_bounce  [destructive]");
   const question = output.indexOf("net asks about the port_bounce call you approved:");
   expect(box).toBeGreaterThanOrEqual(0);
   expect(question).toBeGreaterThan(box);
   expect(output).toContain("Confirm PORT BOUNCE on SG1 ports [1/1/1]?");
+  // The server's question is numbered like every box: 1 No, 2 Yes.
+  expect(output.slice(question)).toContain("  1 No\n  2 Yes\n");
   expect(output).toContain("[approval] allowed");
   expect(output).toContain("[server question] yes");
   expect(result).toContain("bounced");
 });
 
 test("interactive run: no to the server's question cancels the approved call", async () => {
-  const { output, result } = await networkRun(["2", "no"], { id: "mcp:net:port_bounce", arguments: { serial_number: "SG1" } });
+  const { output, result } = await networkRun(["2", "1"], { id: "mcp:net:port_bounce", arguments: { serial_number: "SG1" } });
   expect(output).toContain("[server question] no");
   expect(result).toContain("CANCELLED");
   expect(result).not.toContain("bounced");
@@ -300,7 +302,7 @@ test("interactive run: p previews first, then the box shows the preview with the
 });
 
 test("interactive run: a long server question has secrets hidden before it is cut", async () => {
-  const { output, result } = await networkRun(["2", "yes"], { id: "mcp:net:long_question", arguments: { serial_number: "SG1" } });
+  const { output, result } = await networkRun(["2", "2"], { id: "mcp:net:long_question", arguments: { serial_number: "SG1" } });
   expect(output).toContain("net asks about the long_question call you approved:");
   expect(output).toContain("… (more not shown)");
   expect(output).not.toContain("ghp_");
@@ -488,4 +490,13 @@ test("interactive run: a digit typed before the change box appeared does not ans
   expect(output).toMatch(/\[input\] Discarded 1 line\(s\) entered before this approval appeared\./);
   expect(output).toContain("[approval] denied");
   expect(result).not.toContain("applied");
+});
+
+test("interactive run: a server's pick-one question lists its options after 1 No, answered by digit", async () => {
+  const { output, result } = await networkRun(["2", "3"], { id: "mcp:net:pick_question", arguments: { serial_number: "SG1" } });
+  const question = output.indexOf("net asks about the pick_question call you approved:");
+  expect(question).toBeGreaterThanOrEqual(0);
+  expect(output.slice(question)).toContain("  1 No\n  2 1/1/1\n  3 1/1/2\n");
+  expect(output).toContain("[server question] 1/1/2");
+  expect(result).toContain("1/1/2");
 });

@@ -66,7 +66,7 @@ import { safeGitArgs } from "./platform/git";
 import { VerifierRegistry } from "./verify/registry";
 import { isRetryableAssistantError } from "@earendil-works/pi-ai/utils/retry";
 import { longerLimit, timedOutAfter, verifyAndRepair, type UnfinishedChoice } from "./verify/repair-loop";
-import { ALREADY_FAILING_CHOICES, modelFailedChoices, PLAN_CHOICES, PLAN_QUESTION, REMEMBER_BIG_MODEL_CHOICES, REPAIR_LIMIT_STOP, spendChoices, unfinishedChoices, workFolderChoices } from "./app/safe-choices";
+import { ALREADY_FAILING_CHOICES, modelFailedChoices, numberedLines, PLAN_CHOICES, PLAN_QUESTION, REMEMBER_BIG_MODEL_CHOICES, REPAIR_LIMIT_STOP, spendChoices, unfinishedChoices, workFolderChoices } from "./app/safe-choices";
 import { DEFAULT_SPEND_LIMITS, formatCost, formatFooterSpend, formatLimit, formatTokens, SPEND_STOP_REASON, SpendGuard, requestSpendLimit } from "./task/spend";
 import { VerificationTask } from "./verify/task";
 import { ChangeBaseline, changesCode, proofRepairPrompt, type ChangeProof } from "./verify/proof";
@@ -2745,17 +2745,23 @@ export class CasperApp {
       // Secrets are hidden before the message is cut, so a cut never shows part of one.
       const message = shown(question.message);
       const cut = message.length > 4000 ? `${message.slice(0, 4000)} … (more not shown)` : message;
-      const preview = `${shown(question.server)} asks about the ${shown(question.realTool)} call you approved:\n  ${cut}\n`;
-      const choices = question.kind === "boolean" ? ["yes"] : options;
-      const prompt = question.kind === "boolean" ? "Answer? Type yes: " : `Answer? Type one of ${options.join(", ")}: `;
-      const answer = await this.chooseExact(preview, prompt, choices, signal);
-      if (answer === undefined) {
+      // Numbered like every box: 1 is always No; a yes/no question is 1 No · 2 Yes, a pick-one lists its options after No.
+      const labels = question.kind === "boolean" ? ["No", "Yes"] : ["No", ...options];
+      const preview = `${shown(question.server)} asks about the ${shown(question.realTool)} call you approved:\n  ${cut}\n${numberedLines(labels)}`;
+      const digits = labels.map((_, index) => String(index + 1));
+      const prompt = `Type ${digits.length === 2 ? "1 or 2" : `${digits.slice(0, -1).join(", ")} or ${digits.at(-1)}`}: `;
+      const digit = await this.chooseExact(preview, prompt, digits, signal);
+      if (digit === undefined) {
         if (!this.closing) this.output.write("[server question] no\n");
         return { action: "cancel" as const };
       }
-      const accepted = answer !== "no" || choices.includes("no");
-      if (!this.closing) this.output.write(`[server question] ${accepted ? answer : "no"}\n`);
-      if (!accepted) return { action: "decline" as const };
+      const picked = Number(digit) - 1;
+      if (picked < 1) {
+        if (!this.closing) this.output.write("[server question] no\n");
+        return { action: "decline" as const };
+      }
+      const answer = question.kind === "boolean" ? "yes" : options[picked - 1]!;
+      if (!this.closing) this.output.write(`[server question] ${answer}\n`);
       return { action: "accept" as const, value: question.kind === "boolean" ? true : answer };
     });
   };
