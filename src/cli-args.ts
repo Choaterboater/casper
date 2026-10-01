@@ -40,7 +40,7 @@ export interface CliOptions {
    * match Casper itself. */
   promptFromStdin?: boolean;
   /** One-shot prompt, a subcommand (`casper learn …`, `casper mcp check …`, `casper new …`,
-   * `casper security …`), or an interactive session. */
+   * `casper security …`, `casper update`), or an interactive session. */
   command: "prompt" | "interactive" | SubcommandName;
   /** Prompt words, or the subcommand's full argument list (starting with its own words). */
   rest: string[];
@@ -48,7 +48,7 @@ export interface CliOptions {
   folderCandidate?: boolean;
 }
 
-export type SubcommandName = "learn" | "mcp-check" | "new" | "security";
+export type SubcommandName = "learn" | "mcp-check" | "new" | "security" | "update";
 
 /**
  * Casper's subcommands, matched in this order before anything is a prompt. Each one matches only its exact
@@ -61,10 +61,12 @@ export const SUBCOMMANDS: ReadonlyArray<{ name: SubcommandName; matches(args: re
   { name: "mcp-check", matches: (args) => args[0] === "mcp" && args[1] === "check", withOptions: "mcp check takes its own flags. " },
   { name: "new", matches: (args) => args[0] === "new" && parseNewArgs(args.slice(1)) !== null, withOptions: "new cannot be combined with options. " },
   { name: "security", matches: (args) => args[0] === "security" && isSecurityCommand(args.slice(1)), withOptions: "security takes its own flags. " },
+  // `update` alone or with flags only: `casper update the readme` stays a prompt.
+  { name: "update", matches: (args) => args[0] === "update" && args.slice(1).every((arg) => arg.startsWith("-")), withOptions: "update takes its own flags. " },
 ];
 
 const USAGES: Record<SubcommandName, () => string> = {
-  learn: () => "", "mcp-check": () => MCP_CHECK_USAGE, new: () => NEW_USAGE, security: () => SECURITY_USAGE,
+  learn: () => "", "mcp-check": () => MCP_CHECK_USAGE, new: () => NEW_USAGE, security: () => SECURITY_USAGE, update: () => UPDATE_USAGE,
 };
 
 /** Every leading option the parser accepts; /help all must document each one. */
@@ -356,5 +358,22 @@ export function parseSecurityArgs(rest: readonly string[]): SecurityCommand {
     else repo = arg;
   }
   if (repo !== undefined) result.repo = repo;
+  return result;
+}
+
+export interface UpdateCommand {
+  /** Only say whether a newer Casper is out; change nothing. */
+  check: boolean;
+}
+
+export const UPDATE_USAGE = "Usage: casper update [--check]";
+
+/** `rest` starts with "update". Anything but `--check` is a usage error (exit 64), never a lookup. */
+export function parseUpdateArgs(rest: readonly string[]): UpdateCommand {
+  const result: UpdateCommand = { check: false };
+  for (const arg of rest.slice(1)) {
+    if (arg !== "--check") throw new UsageError(`Unknown option ${arg}. ${UPDATE_USAGE}`);
+    result.check = true;
+  }
   return result;
 }

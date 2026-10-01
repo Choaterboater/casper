@@ -375,6 +375,33 @@
             Code plugins (MCP servers, skills and commands side by side), not a new plugin API. MCP
             stays the way tools plug in.</li>
             <li><strong>First packs:</strong> Aruba, then Juniper and Mist.</li>
+            <li><strong>Anyone can publish one.</strong> Other vendors, partners and you can make a
+            pack and share it from a git repository (<code>casper pack add &lt;url&gt;</code>).
+            Before it is added, Casper lists what it brings (servers, skills, checks) and asks.
+            Writes stay off.</li>
+            <li><strong>Lab packs.</strong> A pack can build a whole lab, not only connect a
+            vendor: for example, Proxmox VMs set up as a Mist fabric, with checks that the fabric
+            came up. Lab sites only.</li>
+            <li><strong>Contributing starts with packs.</strong> A pack template and a short guide,
+            so someone can add a skill or check for their own gear without learning Casper's
+            code.</li>
+            <li><strong>Vendor plugin formats.</strong> If HPE or another vendor publishes its own
+            plugin format, Casper reads it as a pack, with the same rules.</li>
+          </ul>
+        </article>
+
+        <article class="card" id="doctor" aria-labelledby="doctor-h">
+          <h3 id="doctor-h">Casper doctor · Casper checks and fixes its own setup <span class="badge">idea, not scheduled</span></h3>
+          <p>One command that looks over Casper itself and your setup, fixes what it safely can, and
+          names the rest in one plain line each. No model and no tokens.</p>
+          <ul>
+            <li><strong>Casper itself.</strong> A newer version, or a <code>casper</code> link that
+            points at a stale copy.</li>
+            <li><strong>Your setup.</strong> Config files that do not load, a model sign-in that has
+            expired, MCP and language servers that do not start, missing security tools, a sandbox
+            that cannot hold commands.</li>
+            <li><strong>Fixes it can make.</strong> Install a missing tool, run
+            <code>casper update</code>. Anything that needs you comes as a numbered choice.</li>
           </ul>
         </article>
 

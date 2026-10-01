@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { parseCliArgs, parseSecurityArgs, SUBCOMMANDS, UsageError } from "../src/cli-args";
+import { parseCliArgs, parseSecurityArgs, parseUpdateArgs, SUBCOMMANDS, UsageError } from "../src/cli-args";
 import { cleanEnv } from "./support/env";
 
 const cli = path.resolve(import.meta.dir, "../src/cli.ts");
@@ -18,13 +18,15 @@ async function run(args: string[]) {
 }
 
 test("subcommands are matched first, in one fixed order", () => {
-  expect(SUBCOMMANDS.map((entry) => entry.name)).toEqual(["learn", "mcp-check", "new", "security"]);
+  expect(SUBCOMMANDS.map((entry) => entry.name)).toEqual(["learn", "mcp-check", "new", "security", "update"]);
   expect(parseCliArgs(["new"]).command).toBe("new");
   expect(parseCliArgs(["new", "--list"]).command).toBe("new");
   expect(parseCliArgs(["new", "python-cli", "ping-tool"]).command).toBe("new");
   expect(parseCliArgs(["security"]).command).toBe("security");
   expect(parseCliArgs(["security", "./repo", "--json"]).command).toBe("security");
   expect(parseCliArgs(["mcp", "check", "."]).command).toBe("mcp-check");
+  expect(parseCliArgs(["update"]).command).toBe("update");
+  expect(parseCliArgs(["update", "--check"]).command).toBe("update");
 });
 
 test("ordinary sentences that start with a subcommand's word stay prompts", () => {
@@ -33,6 +35,17 @@ test("ordinary sentences that start with a subcommand's word stay prompts", () =
   // One quoted request with a slash in it is words, not a folder.
   expect(parseCliArgs(["security", "review the /login handler"]).command).toBe("prompt");
   expect(parseCliArgs(["mcp", "docs", "are", "wrong"]).command).toBe("prompt");
+  expect(parseCliArgs(["update", "the", "readme"]).command).toBe("prompt");
+  expect(parseCliArgs(["update the readme"]).command).toBe("prompt");
+  expect(parseCliArgs(["update", "--check", "the", "readme"]).command).toBe("prompt");
+});
+
+test("casper update takes only --check; anything else is a usage mistake, and leading options are refused", () => {
+  expect(parseUpdateArgs(["update"])).toEqual({ check: false });
+  expect(parseUpdateArgs(["update", "--check"])).toEqual({ check: true });
+  expect(() => parseUpdateArgs(["update", "--bogus"])).toThrow("Unknown option --bogus. Usage: casper update [--check]");
+  expect(parseCliArgs(["update", "--bogus"]).command).toBe("update");
+  expect(() => parseCliArgs(["--verbose", "update"])).toThrow("update takes its own flags. Usage: casper update [--check]");
 });
 
 test("casper security <folder> is the command when the folder is there, even without ./", async () => {
@@ -82,4 +95,10 @@ test("casper security: a bad flag or folder exits 64; a run prints the tools' re
   const report = JSON.parse(json.stdout.trim()) as { version: number; exitCode: number };
   expect(report.version).toBe(1);
   expect(report.exitCode).toBe(json.code);
+});
+
+test("casper update with a bad flag exits 64 before it looks anything up", async () => {
+  const { stderr, code } = await run(["update", "--bogus"]);
+  expect(code).toBe(64);
+  expect(stderr).toContain("Unknown option --bogus. Usage: casper update [--check]");
 });

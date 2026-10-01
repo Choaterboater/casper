@@ -9,8 +9,10 @@ import { CasperApp } from "./app";
 import { agentStoreWarnings, importLegacyEngineState, useCasperAgentStore } from "./runtime/agent-store";
 import { CandidateLibrary, formatLearningResult } from "./learn/candidates";
 import { taskExitCode } from "./task/result";
-import { looksLikePath, parseCliArgs, parseLearnArgs, parseMcpCheckArgs, parseNewArgs, parseSecurityArgs, UsageError, type McpCheckCommand,
-  type NewCommand, type SecurityCommand, type SubcommandName, type CliOptions } from "./cli-args";
+import { looksLikePath, parseCliArgs, parseLearnArgs, parseMcpCheckArgs, parseNewArgs, parseSecurityArgs, parseUpdateArgs, UsageError, type McpCheckCommand,
+  type NewCommand, type SecurityCommand, type SubcommandName, type CliOptions, type UpdateCommand } from "./cli-args";
+import { runningFromBinary } from "./update/mode";
+import type { Install } from "./update/command";
 import type { VerificationMode } from "./verify/mode";
 
 import { redactPreview, terminalText } from "./tui/format";
@@ -124,6 +126,31 @@ async function runSecuritySubcommand(cmd: SecurityCommand): Promise<void> {
   } finally { removeShutdownHandlers(); }
 }
 
+/** The Casper that is running: a release binary, or the source checkout it runs from. From source, import.meta.dir
+ * is <checkout>/src with any PATH symlink already resolved. */
+function currentInstall(): Install {
+  return runningFromBinary(import.meta.path) ? { kind: "binary", executable: process.execPath } : { kind: "checkout", root: path.dirname(import.meta.dir) };
+}
+
+/** `casper update`: a release binary installs the newest release with that release's installer; a source checkout
+ * pulls with git. No model, no saved state, and outside the shell sandbox: it reaches GitHub and writes the user's
+ * own install folder or checkout, which the sandbox would refuse. Exit 0 done or nothing to do, 1 not finished.
+ * Ctrl-C stops the update and waits (up to the shutdown deadline) for it to unwind, so a Windows swap is put back
+ * and the downloaded installer is removed before the process exits. */
+async function runUpdateSubcommand(cmd: UpdateCommand): Promise<void> {
+  const { runUpdate } = await import("./update/command");
+  const controller = new AbortController();
+  let pending: Promise<unknown> = Promise.resolve();
+  const removeShutdownHandlers = installShutdownHandlers({ close: async () => { controller.abort(); await pending.catch(() => undefined); } });
+  try {
+    const update = runUpdate({ check: cmd.check, install: currentInstall(), currentVersion: CASPER_VERSION, signal: controller.signal,
+      write: (line) => { process.stdout.write(`${terminalText(line)}\n`); } });
+    pending = update;
+    const { exitCode } = await update;
+    process.exitCode = exitCode;
+  } finally { removeShutdownHandlers(); }
+}
+
 /** The shell sandbox for a subcommand with no app: `casper security` and `casper mcp check` hold their tool runs to
  * the repo they check, `casper new` to the new folder (its uv or bun run adds it). Nobody answers host questions here:
  * a host that is not listed is blocked, and said so. */
@@ -172,8 +199,12 @@ export async function runCli(): Promise<void> {
     // A compiled binary runs from Bun's embedded filesystem (`/$bunfs/…`, `B:\~BUN\…`); its
     // real location is the executable. From source, import.meta.path already resolved any
     // PATH symlink, so the printed path is the checkout that actually runs.
-    const embedded = /(^|[\\/])(\$bunfs|~BUN)[\\/]/.test(import.meta.path);
-    process.stdout.write(`casper ${CASPER_VERSION} (${embedded ? process.execPath : path.join(import.meta.dir, "cli.ts")})\n`);
+    process.stdout.write(`casper ${CASPER_VERSION} (${runningFromBinary(import.meta.path) ? process.execPath : path.join(import.meta.dir, "cli.ts")})\n`);
+    return;
+  }
+  if (options.command === "update") {
+    // Before any state is set up, and outside the shell sandbox (see runUpdateSubcommand).
+    await runUpdateSubcommand(parseUpdateArgs(options.rest));
     return;
   }
   const learn = options.command === "learn" ? parseLearnArgs(options.rest) : undefined;
@@ -247,6 +278,8 @@ export async function runCli(): Promise<void> {
   const emit = options.json ? (event: CasperEvent) => { process.stdout.write(formatJsonEvent(event)); } : undefined;
   const app = new CasperApp({ verificationMode: verificationFlag(options), verbose: options.verbose, ...(options.noSandbox ? { noSandbox: true } : {}),
     model: options.model, effort: options.effort, maxTurns: options.maxTurns, startupWarnings,
+    // A session says when a newer Casper is out; --json output is for scripts and never does.
+    ...(options.json ? {} : { updateCheck: { install: currentInstall(), currentVersion: CASPER_VERSION } }),
     conversation: options.resume ? { resume: options.resume } : options.continueConversation ? { continue: true } : undefined,
     ...(newProject ? { newProject: { ...(newProject.template ? { template: newProject.template } : {}), ...(newProject.name ? { name: newProject.name } : {}) } } : {}),
     ...(emit ? { onEvent: emit, output: { write: (text: string) => { process.stderr.write(text); } } } : {}) });

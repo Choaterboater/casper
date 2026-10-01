@@ -110,6 +110,8 @@ import { NEW_USAGE, parseNewArgs, UsageError } from "./cli-args";
 import { checkEvent, phaseEvent, RuntimeEventMapper, sessionStartEvent, type CasperEvent, type PhaseEvent } from "./app/json-events";
 import { StepRail } from "./app/steps";
 import { CASPER_VERSION } from "./version";
+import type { Install } from "./update/command";
+import { refreshUpdateCheck, updateChecksOff, updateNotice } from "./update/notice";
 import { createSessionSandbox, outsideWritesReceipt, runtimeShell, sandboxReceipt, sandboxStartupNotes, sandboxStatusLine, type SandboxHost } from "./app/sandbox";
 import { useSandbox, currentSandbox, type ShellSandbox, type ShellSandboxOptions } from "./sandbox/manager";
 import { SandboxStore } from "./sandbox/store";
@@ -162,6 +164,8 @@ export interface CasperAppOptions {
   /** Embedder shorthand: true = "offer" (model-selected casper_check plus bounded repair),
    * false = "off". Ignored when verificationMode is set. */
   autoVerify?: boolean;
+  /** The install a session checks for a newer Casper (see src/update/notice.ts); unset, no line and no check. */
+  updateCheck?: { install: Install; currentVersion: string };
   /** `casper new` on a terminal: ask what is missing, build the project in ~/Projects and open Casper there. */
   newProject?: { template?: string; name?: string };
   /** Builds a new project (casper new, the new-project questions and /new); tests pass a fake. */
@@ -261,6 +265,8 @@ export class CasperApp {
   private readonly verificationFlag?: VerificationMode;
   private readonly verbose: boolean;
   private readonly startupWarnings: readonly string[];
+  private readonly updateCheck?: { install: Install; currentVersion: string };
+  private readonly updateCheckAbort = new AbortController();
   private readonly runModel?: string;
   private readonly runEffort?: string;
   private runConversation?: CasperAppOptions["conversation"];
@@ -454,6 +460,7 @@ export class CasperApp {
     });
     this.verbose = options.verbose ?? false;
     this.startupWarnings = options.startupWarnings ?? [];
+    this.updateCheck = options.updateCheck;
     this.runModel = options.model;
     this.runEffort = options.effort;
     this.runConversation = options.conversation;
@@ -571,6 +578,7 @@ export class CasperApp {
     this.reportSkillWarnings();
     for (const diagnostic of mcp.diagnostics) this.output.write(`[mcp] ${terminalText(diagnostic)}\n`);
     if (this.interactive) await this.reportImports();
+    if (this.interactive) await this.reportNewerCasper(context);
     for (const diagnostic of lspConfiguration.diagnostics) this.output.write(`[lsp] ${diagnostic}\n`);
     for (const diagnostic of visualization.diagnostics) this.output.write(`[visualize] ${diagnostic}\n`);
     if (this.interactive) this.output.write("\n");
@@ -804,9 +812,20 @@ export class CasperApp {
     this.output.write("[cancel] Cancelling active work; changes already made are retained.\n");
   }
 
+  /** A session (never a one-shot run) says when a newer Casper is out, from the last check, then checks again in the
+   * background at most once a day. Off with `updates: false`, CASPER_NO_UPDATE_CHECK=1 or CI. */
+  private async reportNewerCasper(context: ProjectContext): Promise<void> {
+    if (!this.updateCheck || context.updates === false || updateChecksOff(process.env)) return;
+    const options = { ...this.updateCheck, stateDir: path.join(this.sessionHomeDir ?? os.homedir(), ".casper"), signal: this.updateCheckAbort.signal };
+    const line = await updateNotice(options).catch(() => undefined);
+    if (line) this.output.write(`[update] ${line}\n`);
+    void refreshUpdateCheck(options);
+  }
+
   close(): Promise<void> {
     if (this.closeWork) return this.closeWork;
     this.closing = true;
+    this.updateCheckAbort.abort();
     this.commandAbort?.abort();
     this.verificationAbort?.abort();
     this.checkTask?.abort();

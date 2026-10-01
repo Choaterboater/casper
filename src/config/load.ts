@@ -64,6 +64,8 @@ export interface LoadedConfiguration {
   repair: { maxAttempts: number; bigModelLastTry?: boolean };
   /** `suggestions: false` turns every suggestion off (user or profile only). */
   suggestions?: boolean;
+  /** `updates: false` turns off the line that says a newer Casper is out (user or profile only). */
+  updates?: boolean;
   /** `cache: auto|long|short|off`: how long the provider keeps the prompt cache (user or profile only). Unset: auto. */
   cache?: PromptCacheSetting;
   /** `display: quiet|normal|detailed`: how much of the work shows on screen (user or profile only). Unset: normal. */
@@ -223,7 +225,7 @@ const POLICY_KEYS = {
 } as const;
 const ISOLATE_KEYS = ["parallelAgents", "riskyRefactor", "experimentalBranch"];
 const TOP_LEVEL_KEYS = new Set(["profile", "project", "languages", "frameworks", "packageManager", "commands", "architecture",
-  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "cache", "display", "spend", "sandbox", "shell", "web", ...Object.keys(POLICY_KEYS)]);
+  "conventions", "verify", "verification", "repair", "skills", "visualize", "policy", "services", "smoke", "pages", "lab", "suggestions", "updates", "cache", "display", "spend", "sandbox", "shell", "web", ...Object.keys(POLICY_KEYS)]);
 
 /** Typos used to fall back silently to the defaults; the loader names them instead. */
 function unknownKeys(document: Mapping, label: string): string[] {
@@ -584,10 +586,12 @@ export async function loadConfiguration(
   // Spending on the big model is the user's own choice: a project file never makes it.
   if (isMapping(projectDocument.repair) && projectDocument.repair.bigModelLastTry !== undefined) throw new Error(BIG_MODEL_IN_PROJECT_ERROR);
   if (projectDocument.suggestions !== undefined) throw new Error("suggestions is a user setting (~/.casper/config.yaml); a project cannot turn suggestions on or off");
+  if (projectDocument.updates !== undefined) throw new Error("updates is a user setting (~/.casper/config.yaml); a project cannot turn the new-version notice on or off");
   // What you pay for caching is your choice too.
   if (projectDocument.cache !== undefined) throw new Error(CACHE_IN_PROJECT_ERROR);
   let bigModelLastTry: boolean | undefined;
   let suggestions: boolean | undefined;
+  let updates: boolean | undefined;
   let cache: PromptCacheSetting | undefined;
   // How much shows on your screen is yours, not a repository's.
   if (projectDocument.display !== undefined) throw new Error("display is a user setting (~/.casper/config.yaml); a project cannot change what shows on your screen");
@@ -601,6 +605,12 @@ export async function loadConfiguration(
     if (document.suggestions !== undefined && document.suggestions !== null) {
       if (typeof document.suggestions !== "boolean") throw new Error(`${label}: suggestions must be true or false`);
       suggestions = document.suggestions;
+    }
+    if (document.updates !== undefined && document.updates !== null) {
+      // YAML reads a bare `off` as text, but it means the same as false.
+      const value = document.updates === "off" ? false : document.updates === "on" ? true : document.updates;
+      if (typeof value !== "boolean") throw new Error(`${label}: updates must be true or false`);
+      updates = value;
     }
     if (document.cache !== undefined && document.cache !== null) {
       // YAML reads a bare `off` as text, but `cache: false` means the same.
@@ -695,6 +705,7 @@ export async function loadConfiguration(
       ...(checklist !== undefined ? { checklist } : {}) },
     repair: { maxAttempts, ...(bigModelLastTry !== undefined ? { bigModelLastTry } : {}) },
     ...(suggestions !== undefined ? { suggestions } : {}),
+    ...(updates !== undefined ? { updates } : {}),
     ...(cache ? { cache } : {}),
     ...(display ? { display } : {}),
     spend,

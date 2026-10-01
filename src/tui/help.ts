@@ -7,6 +7,7 @@ export const HELP_TEXT = `Casper — your coding companion
   casper --json ...      Scripting: also --model, --continue, --require-verification (docs/SCRIPTING.md)
   casper mcp check [repo]  Check an MCP server you built: its tests, labels and configs (no tool calls unless --live)
   casper new [name]      Start a new project (Python tool, MCP server, Mist scripts)
+  casper update          Update Casper to the newest release, or pull a source checkout (--check only looks)
   /help all              All commands, options and safety details
   /status                Model/auth, integrations and local storage
   /model [model]         Pick a model; Enter remembers globally, Ctrl+S is session-only
@@ -80,6 +81,10 @@ Usage:
   casper security [repo] [--json] [--strict] [--install] [--mcp-tools <file>]
                                   Run the security tools on a repo (no model); installs tools only with --install
                                   Exit 0 no problems, 1 problems, 64 usage mistake
+  casper update [--check]  Update Casper (no model): an installed release runs the newest release's own installer
+                                  on this program's folder; a source checkout pulls with git (fast-forward only)
+                                  and runs bun install when its lockfile changed. --check only says what is newer
+                                  Exit 0 updated or nothing to do, 1 not finished (the message says what is left), 64 usage mistake
   casper --cd <path> ...  Work in that folder instead of the current directory
   casper --continue ...  Continue this folder's most recent conversation
   casper --resume <id-prefix> ...  Continue the saved conversation whose ID starts with this
