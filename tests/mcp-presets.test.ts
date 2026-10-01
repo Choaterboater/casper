@@ -88,6 +88,18 @@ test("centralmcp gets CENTRALMCP_READONLY=1 and ClearPass MCP gets CLEARPASS_REA
   expect((await spawnPlanned(clearpassPlan.transport)).env).toEqual({ CLEARPASS_HOST: "cppm.example.net", CLEARPASS_READ_ONLY: "true" });
 });
 
+test("a mist-mcp server gets MIST_READ_ONLY=1 while writes are off", async () => {
+  const mist = stdio("mist", process.execPath, [envDump, "-m", "mist_mcp.server"], { MIST_HOST: "api.mist.com", MIST_READ_ONLY: "0" });
+  expect(matchPreset(mist)?.preset.id).toBe("mist-mcp");
+  const plan = planPins(mist, matchPreset(mist)!.preset);
+  if (plan.kind !== "pinned") throw new Error("expected pins");
+  expect((await spawnPlanned(plan.transport)).env).toEqual({ MIST_HOST: "api.mist.com", MIST_READ_ONLY: "1" });
+  // Recognised by what it runs or its read-only setting, never by the server's name alone.
+  expect(matchPreset(stdio("mist-mcp", "/opt/proj/mist-mcp/.venv/bin/python", ["server.py"]))?.preset.id).toBe("mist-mcp");
+  expect(matchPreset(stdio("x", "python", ["x.py"], { MIST_READ_ONLY: "1" }))?.preset.id).toBe("mist-mcp");
+  expect(matchPreset(stdio("mist", "/usr/bin/node", ["/opt/other/index.js"], { MIST_API_TOKEN: "t" }))).toBeUndefined();
+});
+
 test("grafana gets --disable-write exactly once, also when planned again", async () => {
   const grafana = stdio("grafana", process.execPath, [envDump, "mcp-grafana", "-t", "stdio"]);
   const preset = matchPreset(grafana)!.preset;

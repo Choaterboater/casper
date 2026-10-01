@@ -336,6 +336,15 @@ const TABLE: Preset[] = [
     advice: "Access not checked. Use a read-only (Observer) org token for this server.",
   },
   {
+    // A local Mist API server (Python mist_mcp) with a MIST_READ_ONLY switch: while it is on, the server
+    // sends only GET to Mist. Recognised by what it runs or that switch, never by the server's name.
+    id: "mist-mcp",
+    label: "Mist",
+    matchDefinition: (definition) => mentions(definition, /mist[-_]mcp/) || envKeys(definition).includes("MIST_READ_ONLY"),
+    pins: { env: { MIST_READ_ONLY: "1" }, appendArgs: [] },
+    userKeepsWritesOff: (definition) => truthy(stdio(definition)?.env.MIST_READ_ONLY) ? [`MIST_READ_ONLY=${stdio(definition)!.env.MIST_READ_ONLY}`] : [],
+  },
+  {
     id: "netbox",
     label: "NetBox",
     matchDefinition: (definition) => mentions(definition, /netbox/) || envKeys(definition).some((key) => key.startsWith("NETBOX_"))
