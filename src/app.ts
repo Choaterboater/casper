@@ -67,7 +67,7 @@ import { VerifierRegistry } from "./verify/registry";
 import { isRetryableAssistantError } from "@earendil-works/pi-ai/utils/retry";
 import { longerLimit, timedOutAfter, verifyAndRepair, type UnfinishedChoice } from "./verify/repair-loop";
 import { ALREADY_FAILING_CHOICES, modelFailedChoices, PLAN_CHOICES, PLAN_QUESTION, REMEMBER_BIG_MODEL_CHOICES, REPAIR_LIMIT_STOP, spendChoices, unfinishedChoices, workFolderChoices } from "./app/safe-choices";
-import { DEFAULT_SPEND_LIMITS, formatCost, formatLimit, formatTaskSpend, formatTokens, SPEND_STOP_REASON, SpendGuard, requestSpendLimit } from "./task/spend";
+import { DEFAULT_SPEND_LIMITS, formatCost, formatFooterSpend, formatLimit, formatTokens, SPEND_STOP_REASON, SpendGuard, requestSpendLimit } from "./task/spend";
 import { VerificationTask } from "./verify/task";
 import { ChangeBaseline, changesCode, proofRepairPrompt, type ChangeProof } from "./verify/proof";
 import { independentAcceptance } from "./verify/acceptance";
@@ -308,6 +308,8 @@ export class CasperApp {
   private sessionWorkspaceStart?: Promise<SessionWorkspaceManager>;
   lastTaskRequest?: string;
   private commandActive = false;
+  /** What the session's earlier model tasks spent; the footer adds the current task to it. */
+  private spentBefore = { tokens: 0, cost: 0 };
   /** Shift+Tab steps already accepted. The prompt loop drains this before a request starts. */
   private effortSteps = 0;
   private effortCycle: Promise<void> = Promise.resolve();
@@ -430,6 +432,7 @@ export class CasperApp {
     this.terminal = new InteractiveTerminal(this.input, options.output ?? process.stdout,
       () => this.cancelCurrent(), () => { if (this.commandActive && !this.closing) void this.close().catch(() => {}); }, host);
     this.terminal.setEffortCycle(() => this.cycleEffort());
+    this.terminal.setBusySubmit((line) => this.submitDuringWork(line));
     // ctrl+o: MCP writes off everywhere, at once, even while work runs.
     this.terminal.setWritesRevert(() => this.revertWrites());
     // ctrl+t: the last step in full, even while work runs.
@@ -1369,6 +1372,8 @@ export class CasperApp {
     // A flow the user picked, or /plan, is already this task's one choice before work: no other panel.
     this.beforeWorkAsked = Boolean(options.flow || options.planFirst);
     if (await this.offerNewProject(prompt) === "stop" || this.closing || this.commandAbort?.signal.aborted) return;
+    const previous = this.observations.spent();
+    this.spentBefore = { tokens: this.spentBefore.tokens + previous.tokens, cost: this.spentBefore.cost + previous.cost };
     this.observations = new TaskObservations();
     // A limit said in the request ("keep it under $2") is this task's pause, whatever the config says.
     const said = requestSpendLimit(prompt);
@@ -2805,13 +2810,35 @@ export class CasperApp {
     this.events.writePrompt(prompt);
   }
 
-  /** Shift+Tab. A held key walks the ring; the level the presses stop at is saved once, like `/effort`. */
+  /** Enter while a task runs (rich terminal). Commands that only show something, and /effort <level>, run now;
+   * anything else keeps its draft with the reason. Nothing is queued to run after the task. */
+  private submitDuringWork(line: string): true | string {
+    if (this.closing) return "Casper is closing";
+    if (/^\/(?:help(?: all)?|status|usage|context|permissions)$/.test(line)) {
+      void runSlashCommand(this, line).catch((error) => { this.output.write(`[error] ${terminalText(error instanceof Error ? error.message : String(error))}\n`); });
+      return true;
+    }
+    const effort = /^\/effort\s+(\S+)(?:\s+(--session))?$/.exec(line);
+    if (effort) { void this.setEffortDuringWork(effort[1]!, !effort[2]); return true; }
+    if (line.startsWith("/")) return `${terminalText(line.split(/\s+/)[0]!)} waits until this task ends · draft kept`;
+    return "draft kept · Enter again when this task ends";
+  }
+
+  /** /effort <level> during a task: the model's next step uses it; the step already running keeps its level. */
+  private async setEffortDuringWork(level: string, persist: boolean): Promise<void> {
+    try {
+      const session = this.session;
+      if (!session?.setEffort) throw new Error("effort controls unavailable");
+      const updated = await session.setEffort(level, persist);
+      this.output.write(`[effort] ${formatEffort(updated) ?? level} from the model's next step${persist ? "; saved" : " (this conversation)"}\n`);
+      this.updateFooter();
+    } catch (error) { this.output.write(`[error] ${terminalText(error instanceof Error ? error.message : String(error))}\n`); }
+  }
+
+  /** Shift+Tab. A held key walks the ring; the level the presses stop at is saved once, like `/effort`. During a task
+   * the model's next step uses it. */
   private cycleEffort(): void {
     if (this.closing) return;
-    if (this.commandActive || this.subagents.isBusy) {
-      this.terminal.flashNote("effort unchanged · wait until idle");
-      return;
-    }
     if (this.effortSteps >= 12) return;
     this.effortSteps++;
     this.effortCycle = this.effortCycle.then(async () => {
@@ -2831,7 +2858,9 @@ export class CasperApp {
     const level = session?.getStatus?.().configuredEffort;
     if (!session?.setEffort || !level) return;
     const saved = await session.setEffort(level, true);
-    this.terminal.flashNote(`effort ${formatEffort(saved) ?? level} · saved`);
+    // During a task the footer shows its stages, not notes: say it in the transcript instead.
+    if (this.commandActive) this.output.write(`[effort] ${formatEffort(saved) ?? level} from the model's next step; saved\n`);
+    else this.terminal.flashNote(`effort ${formatEffort(saved) ?? level} · saved`);
     this.updateFooter();
   }
 
@@ -2855,7 +2884,7 @@ export class CasperApp {
     }
     const updated = await session.setEffort(next, false);
     const shown = formatEffort(updated) ?? next;
-    this.terminal.flashNote(`effort ${shown} · session`);
+    if (!this.commandActive) this.terminal.flashNote(`effort ${shown} · session`);
     this.updateFooter();
   }
 
@@ -2953,10 +2982,12 @@ export class CasperApp {
       const effort = (status && formatEffort(status)) ?? "effort —";
       const model = status?.model ? `${status.provider}/${status.model} · ${effort}`
         : this.session ? "no model selected · /model" : (this.runModel ? `${terminalText(this.runModel)} (--model)` : this.savedModelDisplay) ?? "model not initialized · /model";
-      // The current (or last) task's tokens, and its cost from the model's price; a free model shows tokens only.
-      // A subscription pays no per-token price: its figure is only what the tokens would cost ("sub ≈$0.31").
+      // The current task's tokens and the session's total, with cost from the provider or the model's price; a free
+      // model shows tokens only. A subscription pays no per-token price: its figure is only what the tokens would cost.
       const spent = this.observations.spent();
-      const task = spent.tokens ? ` │ ${formatTaskSpend(spent, status?.priced, status?.billing)}` : "";
+      const session = { tokens: this.spentBefore.tokens + spent.tokens, cost: this.spentBefore.cost + spent.cost };
+      const shown = formatFooterSpend(spent, session, this.commandActive, status?.priced, status?.billing);
+      const task = shown ? ` │ ${shown}` : "";
       this.terminal.setStatus(`${project.name}/${project.gitBranch ?? "no git"} │ ${model} │ ctx ${percent == null ? "—" : `${percent.toFixed(0)}%~`}${task} │ ${this.commandActive ? "working" : "idle"}`, project.root);
     } catch { this.terminal.setStatus("Session status unavailable · /status", this.projectContext.info.root); }
   }

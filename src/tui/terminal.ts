@@ -126,6 +126,8 @@ export class InteractiveTerminal {
   setAttentionAfter(ms: number): void { this.surface?.setAttentionAfter(ms); }
   /** Rich terminal only. Shift+Tab cycles effort; plain line input has no equivalent key. */
   setEffortCycle(handler: (() => void) | undefined): void { this.surface?.setEffortCycle(handler); }
+  /** Enter while Casper works (rich terminal): true ran it now; text is why the draft waits. */
+  setBusySubmit(handler: ((line: string) => true | string) | undefined): void { this.surface?.setBusySubmit(handler); }
   /** Rich terminal only. Ctrl+T shows the last finished step in full. */
   setExpandLast(handler: (() => void) | undefined): void { this.surface?.setExpandLast(handler); }
   flashNote(text: string): void { this.surface?.flashNote(text); }

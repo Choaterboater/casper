@@ -335,6 +335,9 @@ cannot. `casper update` installs or pulls it.
 ### What a task spends
 
 Nothing to set up. The footer shows the current task's tokens and its cost from the model's
+price (`task 48.2k tok · $0.31`), and from the second task on the session's total as well
+(`session 1.1M tok · $0.04`); a free model shows tokens only. The cost is the catalog's
+estimate, not a bill. By default a task only gets notes and never stops for money:
 price (`task 48.2k tok · $0.31`); a free model shows tokens only. With OpenRouter the cost is what
 OpenRouter reports it charged for each response; other providers get the catalog's estimate, not a
 bill. By default a task only gets notes and never stops for money:

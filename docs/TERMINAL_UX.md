@@ -137,7 +137,8 @@ horizontally between states, so a draft keeps its wrapping. The footer shows a
 state glyph (braille spinner while working, `○` idle, `? waiting for you` while a question,
 checklist or approval needs you, with the spinner stopped and the timer paused), then project/branch, provider/model, effort,
 estimated context occupancy, the current task's tokens and its cost from the model's price
-(`task 48.2k tok · $0.31`; a free model shows tokens only; a subscription sign-in shows
+(`task 48.2k tok · $0.31`; from the second task on, the session's total too, so a new task never
+looks like a reset: `task 40.0k tok · session 1.1M tok · $0.04` while working, `session 1.1M tok · $0.04` idle; a free model shows tokens only; a subscription sign-in shows
 `sub ≈$0.31`, what the tokens would cost pay-per-token; /usage has the session totals split into
 out, new and cached, `44k out · 131k new · 4.9M cached`), and idle/working state. While a task runs, its stages
 lead the footer, each marked ✓ once done, then the elapsed time:
@@ -324,14 +325,18 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
 - Up/Down recalls current-process prompt history. Shift+Enter where the terminal
   supports it, or Ctrl+J, inserts a newline. Bracketed paste stays in the draft.
 - Shift+Tab cycles reasoning effort (`auto`, then the model's supported levels) without
-  opening `/effort`, and saves the level it stops at, like `/effort`. While work, an
-  approval or a question is in progress it only shows `effort unchanged · wait until idle`.
+  opening `/effort`, and saves the level it stops at, like `/effort`. During work the
+  model's next step uses it (`[effort] high from the model's next step; saved`); while an approval or a
+  question is open it only shows `effort unchanged · answer first`.
   It is not available on a plain terminal.
 - Escape stops active work. Ctrl+C cancels work; when idle it clears a draft. On an
   empty editor the first Ctrl+C only shows `Ctrl-C again to exit`; a second within two
   seconds exits, any other key disarms it. Ctrl+D exits an empty editor at once.
   Ctrl+L forces a redraw.
-- Enter during work retains the draft, never queues an automatic next request.
+- Enter during work runs a command that only shows something (`/help`, `/status`, `/usage`,
+  `/context`, `/permissions`) or `/effort <level>` at once. Anything else keeps its draft and
+  says why (`/undo waits until this task ends · draft kept`); it never queues an automatic
+  next request.
   Pickers borrow exclusive input ownership; pretyped text cannot answer a later
   exact approval. NO_COLOR keeps input controls, while TERM=dumb/redirected output
   uses plain line input and retains existing fail-closed cooked-terminal approval.

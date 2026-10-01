@@ -115,6 +115,7 @@ export class TerminalSurface {
   private noteTimer?: NodeJS.Timeout;
   private exitArmed?: NodeJS.Timeout;
   private onCycleEffort?: () => void;
+  private onBusySubmit?: (line: string) => true | string;
   private onExpandLast?: () => void;
   /** "WRITES: <servers> · ctrl+o" while any MCP server has writes on; drawn first, never cut off. */
   private badge?: string;
@@ -180,8 +181,16 @@ export class TerminalSurface {
       if (this.pendingAsk) { this.answerAsk(value); return; }
       if (this.confirmation) { this.confirmation(value.trim()); return; }
       if (!this.command) {
+        // While Casper works, a command that only shows something (or sets effort) runs now; anything else
+        // keeps its draft, with the reason. Nothing is queued to run later.
+        const answer = value.trim() ? this.onBusySubmit?.(value.trim()) : undefined;
+        if (answer === true) {
+          this.editor.addToHistory(value); this.editor.setText("");
+          this.write(this.accent(`${PROMPT_GLYPH} ${terminalText(value.trim())}`) + "\n");
+          return;
+        }
         this.editor.setText(value);
-        this.note = "draft retained · Enter again when idle";
+        this.note = answer ?? "draft retained · Enter again when idle";
         this.render();
         return;
       }
@@ -288,7 +297,8 @@ export class TerminalSurface {
       }
       // Pi's thinking-cycle key. Consumed even while busy so the sequence never lands in the draft.
       if (matchesKey(data, "shift+tab")) {
-        if (this.busy || this.confirmation || this.pendingAsk || this.pendingEdit) this.flashNote("effort unchanged · wait until idle");
+        // While working too: the app applies it from the model's next step. A question or approval is still open first.
+        if (this.confirmation || this.pendingAsk || this.pendingEdit) this.flashNote("effort unchanged · answer first");
         else this.onCycleEffort?.();
         return { consume: true };
       }
@@ -359,6 +369,7 @@ private updateSpinner(): void {
   }
   /** Shift+Tab. Absent on the plain-line terminal; the key is still consumed so it cannot edit the draft. */
   setEffortCycle(handler: (() => void) | undefined): void { this.onCycleEffort = handler; }
+  setBusySubmit(handler: ((line: string) => true | string) | undefined): void { this.onBusySubmit = handler; }
   /** Ctrl+T: show the last finished step in full. */
   setExpandLast(handler: (() => void) | undefined): void { this.onExpandLast = handler; }
   setWritesRevert(handler: (() => boolean) | undefined): void { this.onWritesRevert = handler; }

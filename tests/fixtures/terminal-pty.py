@@ -159,17 +159,19 @@ def exercise(bun, repo, root, no_color):
         s.until("• read · src/example.ts")
         assert "… /sta" in s.screen.text(), s.screen.text()
         assert "First bold and code text." in s.screen.text(), s.screen.text()
-        s.send("tus\n")  # Enter during work must NOT queue or discard the draft.
-        s.until("draft retained")
+        s.send("tus\n")  # A command that only shows something runs during work, with no model request.
+        s.until("mcp       1 configured")
+        assert s.requests() == ["stream"]
+        s.send("next idea\n")  # Anything else must NOT queue or discard the draft.
+        s.until("draft kept")
         assert s.requests() == ["stream"]
         s.release("stream-end")
         s.until("Done streaming.")
         s.until("│ idle")
-        s.until("❯ /status")
+        s.until("❯ next idea")
         assert s.requests() == ["stream"]
-        s.send("\n")
-        s.until("credentials configured (not a connection test)")
-        s.until("mcp       1 configured")
+        s.send("\x03")  # Ctrl+C at the idle prompt clears the kept draft.
+        s.pump()
         assert s.requests() == ["stream"]
         # Hidden streaming (reasoning, tool arguments) shows a boxed live status that leaves no trace.
         s.send("progress\n")
