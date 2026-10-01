@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
-  ALREADY_FAILING_CHOICES, MCP_REMEMBER_CHOICES, MCP_WRITES_CHOICES, modelFailedChoices, PLAN_CHOICES, PLAN_QUESTION, REMEMBER_BIG_MODEL_CHOICES,
+  ALREADY_FAILING_CHOICES, APPROVE_CHOICES, APPROVE_ONCE_CHOICES, APPROVE_ONCE_PREVIEW_CHOICES, APPROVE_PREVIEW_CHOICES, MCP_REMEMBER_CHOICES, MCP_WRITES_CHOICES, modelFailedChoices, PLAN_CHOICES, PLAN_QUESTION, REMEMBER_BIG_MODEL_CHOICES,
   REPAIR_LIMIT_STOP, spendChoices, undoChangedChoices, missingFolderChoices, workFolderChoices, unfinishedChoices, HOST_CHOICES, SHELL_COMMAND_CHOICES, AI_REVIEW_CHOICES, REACH_CHOICES, writeChoices,
 } from "../src/app/safe-choices";
 import { planEditorHeading } from "../src/flows/plan";
@@ -37,6 +37,9 @@ const firsts: Array<[string, string, string]> = [
   ["Remember this server?", MCP_REMEMBER_CHOICES[0], "Just this time"],
   ["/mcp writes", MCP_WRITES_CHOICES[0], "Keep writes off"],
   ["security tools install", INSTALL_CHOICES[0], "Stop"],
+  ["MCP change", APPROVE_CHOICES[0], "No"],
+  ["MCP change with a preview", APPROVE_PREVIEW_CHOICES[0], "No"],
+  ["MCP destructive change", APPROVE_ONCE_CHOICES[0], "No"],
   ["advisory download", OSV_UPDATE_QUESTION.choices[0]!, "Stop"],
   ["new ignore", IGNORE_CHOICES[0], "Leave it flagged"],
   ["changed ignore file", IGNORE_FILE_CHOICES[0], "Keep the default"],
@@ -75,6 +78,10 @@ test("the risky choices still exist, as a deliberate 2 or later", () => {
   expect(unfinishedChoices(600_000, 2_400_000)[0]!.choice).toBeUndefined();
   expect([...MCP_REMEMBER_CHOICES]).toEqual(["Just this time", "Remember"]);
   expect([...MCP_WRITES_CHOICES]).toEqual(["Keep writes off", "Enable for this server"]);
+  expect([...APPROVE_CHOICES]).toEqual(["No", "Yes, this once", "Yes, for this session"]);
+  expect([...APPROVE_PREVIEW_CHOICES]).toEqual(["No", "Preview first", "Yes, this once", "Yes, for this session"]);
+  expect([...APPROVE_ONCE_CHOICES]).toEqual(["No", "Yes, this once"]);
+  expect([...APPROVE_ONCE_PREVIEW_CHOICES]).toEqual(["No", "Preview first", "Yes, this once"]);
   expect([...INSTALL_CHOICES]).toEqual(["Stop", "Run what's installed", "Install them"]);
   expect(OSV_UPDATE_QUESTION.choices).toEqual(["Stop", "Download it"]);
   expect(undoChangedChoices("Undo", 2).map((choice) => choice.label)).toEqual(["Cancel", "Undo the other 2 files"]);

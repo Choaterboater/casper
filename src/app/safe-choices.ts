@@ -57,6 +57,15 @@ export const REMEMBER_BIG_MODEL_CHOICES = [
 
 /** /mcp connect: "Remember this server?" Typed answers: only "2" remembers. */
 export const MCP_REMEMBER_CHOICES = ["Just this time", "Remember"] as const;
+/** The MCP change box. 1 does nothing; a change takes a deliberate 2 or later. "Yes, for this session" covers later
+ * changes on the same server that are not destructive, until the session ends or ctrl+o. */
+export const APPROVE_CHOICES = ["No", "Yes, this once", "Yes, for this session"] as const;
+/** When the tool's own preview can run first: "Preview first" runs it (nothing changes), then the box comes back. */
+export const APPROVE_PREVIEW_CHOICES = ["No", "Preview first", "Yes, this once", "Yes, for this session"] as const;
+/** A destructive change (reboot, delete, bounce...) asks every time: no session answer. */
+export const APPROVE_ONCE_CHOICES = ["No", "Yes, this once"] as const;
+export const APPROVE_ONCE_PREVIEW_CHOICES = ["No", "Preview first", "Yes, this once"] as const;
+
 /** /mcp writes <name>: only "2" turns writes on. */
 export const MCP_WRITES_CHOICES = ["Keep writes off", "Enable for this server"] as const;
 
