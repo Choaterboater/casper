@@ -255,6 +255,42 @@ test("device keys and tokens under their own names are hidden from the AI; pagin
   expect(result.hidden).toBe(3);
 });
 
+test("AOS-CX REST names: RADIUS/TACACS passkey, SNMPv3 pass phrases, UBT and OSPF keys", () => {
+  for (const name of ["passkey", "auth_pass_phrase", "priv_pass_phrase", "snmp_communities", "papi_security_key", "ospf_auth_md5_keys"]) {
+    expect([name, isSecretKey(name)]).toEqual([name, true]);
+  }
+  for (const name of ["admin_password_set", "auth_protocol", "priv_protocol", "send_community_type", "public_keys"]) {
+    expect([name, isSecretKey(name)]).toEqual([name, false]);
+  }
+  const result = scrubValue({
+    radius: { address: "10.1.1.10", passkey: "AQBapRadius==", port: 1812 },
+    snmpv3_user: { user_name: "monitor", auth_protocol: "sha", auth_pass_phrase: "AQBauth==", priv_pass_phrase: "AQBpriv==" },
+    ubt_zone: { papi_security_key: "AQBpapi==" },
+  });
+  const text = JSON.stringify(result.value);
+  expectHidden(text, ["AQBapRadius", "AQBauth", "AQBpriv", "AQBpapi"]);
+  expect(text).toContain("\"auth_protocol\":\"sha\"");
+  expect(result.hidden).toBe(4);
+  expect(result.kinds).toEqual(["password", "key"]);
+});
+
+test("a list or map of strings under a secret name is hidden entry by entry", () => {
+  const raw = {
+    snmp_communities: ["public-ro", "Priv@te-rw", "******", null],
+    ospf_auth_md5_keys: { "1": "AQBmd5one==", "2": "AQBmd5two==" },
+    api_keys: [{ name: "ci", id: 7 }],
+    md5_keys: [1, 2],
+  };
+  const result = scrubValue(raw);
+  expect(result.value.snmp_communities).toEqual([SECRET_MARKER, SECRET_MARKER, "******", null]);
+  expect(result.value.ospf_auth_md5_keys).toEqual({ "1": SECRET_MARKER, "2": SECRET_MARKER });
+  expect(result.value.api_keys).toEqual([{ name: "ci", id: 7 }]);
+  expect(result.value.md5_keys).toEqual([1, 2]);
+  expect(result.hidden).toBe(4);
+  expect(result.kinds).toEqual(["key", "community"]);
+  expect(raw.snmp_communities[0]).toBe("public-ro"); // input is not changed
+});
+
 test("containsHiddenSecret finds a marker anywhere in tool arguments", () => {
   expect(containsHiddenSecret({ commands: ["set snmp community x", `set system root-authentication encrypted-password "${SECRET_MARKER}"`] })).toBe(true);
   expect(containsHiddenSecret({ line: LINE_MARKER })).toBe(true);

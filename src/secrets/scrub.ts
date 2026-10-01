@@ -126,7 +126,9 @@ export function looksLikeDeviceConfig(text: string): boolean {
 
 const SECRET_KEYS = new Set(["password", "passwd", "passphrase", "psk", "secret", "shared_secret", "radius_secret", "community",
   "community_name", "community_string", "auth_key", "priv_key", "private_key", "client_secret", "api_key", "access_token",
-  "refresh_token", "key_string", "wpa_passphrase"]);
+  "refresh_token", "key_string", "wpa_passphrase",
+  // AOS-CX REST: RADIUS/TACACS server passkey, SNMPv3 user pass phrases, the system's list of SNMP communities.
+  "passkey", "pass_phrase", "snmp_communities"]);
 /** Learned from hpe-networking-mcp: a "_key" rule broke _pagination.list_key. */
 const NEVER_SECRET_KEYS = new Set(["next_cursor", "cursor", "list_key", "key", "public_key"]);
 
@@ -137,14 +139,44 @@ export function snakeKey(name: string): string {
 export function isSecretKey(name: string): boolean {
   const key = snakeKey(name);
   if (NEVER_SECRET_KEYS.has(key)) return false;
-  if (SECRET_KEYS.has(key) || /_(?:password|secret|psk|passphrase|community)$/.test(key)) return true;
-  // Device keys under their own names: pre_shared_key, tacacs_key, wep_key, secret_key, ...
+  if (SECRET_KEYS.has(key) || /_(?:password|secret|psk|passphrase|pass_phrase|passkey|community)$/.test(key)) return true;
+  // Device keys under their own names: pre_shared_key, tacacs_key, wep_key, secret_key, papi_security_key,
+  // ospf_auth_md5_keys (AOS-CX: a map of key id to key), ...
   if (SECRET_KEY_SUFFIX.test(key)) return true;
   // Login tokens (token, api_token, bearer_token), but not paging tokens (next_token, page_token).
   return /(^|_)token$/.test(key) && !PAGING_TOKEN.test(key);
 }
-const SECRET_KEY_SUFFIX = /(^|_)(?:pre_?shared|shared|psk|wpa|wep|tacacs|radius|md5|auth|authentication|encryption|secret|private|priv|api|server)_key$/;
+const SECRET_KEY_SUFFIX = /(^|_)(?:pre_?shared|shared|psk|wpa|wep|tacacs|radius|md5|auth|authentication|encryption|secret|private|priv|api|server|security)_keys?$/;
 const PAGING_TOKEN = /(^|_)(?:next|page|continuation|pagination|cursor|sync|resume|start|continue)(_|$)/;
+
+function keyKind(name: string): SecretKind {
+  const key = snakeKey(name);
+  if (/communit(?:y|ies)/.test(key)) return "community";
+  if (/psk|passphrase/.test(key)) return "psk";
+  if (/key|token/.test(key)) return "key";
+  return "password";
+}
+
+/**
+ * The value under a secret-named key, with every string in it hidden: the string itself, a list of
+ * strings (snmp_communities) or a map of strings (ospf_auth_md5_keys: {"1": "..."}). Undefined when
+ * nothing was hidden or the value holds objects, so the walk looks at it key by key as usual.
+ */
+function hideUnderSecretKey(value: unknown): { value: unknown; hidden: number } | undefined {
+  if (typeof value === "string") return value && !keepLiterally(value) ? { value: SECRET_MARKER, hidden: 1 } : undefined;
+  if (!value || typeof value !== "object") return undefined;
+  const entries = Array.isArray(value) ? value : Object.values(value);
+  if (entries.some((entry) => entry !== null && typeof entry === "object")) return undefined;
+  let hidden = 0;
+  const swap = (entry: unknown) => {
+    if (typeof entry !== "string" || !entry || keepLiterally(entry)) return entry;
+    hidden++;
+    return SECRET_MARKER;
+  };
+  const next = Array.isArray(value) ? value.map(swap)
+    : Object.fromEntries(Object.entries(value).map(([name, entry]) => [name, swap(entry)]));
+  return hidden ? { value: next, hidden } : undefined;
+}
 
 const MAX_DEPTH = 64;
 
@@ -185,11 +217,11 @@ export function scrubValue<T>(input: T, scrubString: (text: string) => ScrubText
     const out: Record<string, unknown> = {};
     for (const [name, entry] of Object.entries(value as Record<string, unknown>)) {
       const pagination = underPagination || snakeKey(name) === "_pagination";
-      if (!pagination && typeof entry === "string" && entry && isSecretKey(name) && !keepLiterally(entry)) {
-        out[name] = SECRET_MARKER;
-        hidden++;
-        kinds.add(/community/.test(snakeKey(name)) ? "community" : /psk|passphrase/.test(snakeKey(name)) ? "psk"
-          : /key|token/.test(snakeKey(name)) ? "key" : "password");
+      const secret = !pagination && isSecretKey(name) ? hideUnderSecretKey(entry) : undefined;
+      if (secret) {
+        out[name] = secret.value;
+        hidden += secret.hidden;
+        kinds.add(keyKind(name));
         continue;
       }
       out[name] = walk(entry, depth + 1, pagination);
