@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { isSecretFile, isSecretName, scrubAssignments, scrubPlainSecrets, secretEnvValues } from "../src/secrets/files";
 import { Scrubber } from "../src/secrets/netconan";
+import { scrubProseSecrets } from "../src/secrets/prose";
 import { scrubToolOutput } from "../src/secrets/tool-output";
 
 const scrubber = new Scrubber({ env: { CASPER_NETCONAN: "off" } });
@@ -164,6 +165,13 @@ test("Proxmox API tokens and token=<uuid> are hidden, in output and in the pveum
   // Ids that name something, not a login, stay.
   const ids = `site_id=${uuid} token_id=${uuid} org ${uuid}`;
   expect(scrubPlainSecrets(ids, { env: {} }).text).toBe(ids);
+});
+
+test("a long word is checked quickly: the Proxmox token rule starts only at the start of a word", () => {
+  const started = performance.now();
+  expect(scrubProseSecrets("x".repeat(64_000)).hidden).toBe(0);
+  expect(performance.now() - started).toBeLessThan(500);
+  expect(scrubPlainSecrets("id=root@pam!ci=0f1e2d3c-4b5a-6978-8a9b-0c1d2e3f4a5b", { env: {} }).text).toBe("id=root@pam!ci=<secret hidden>");
 });
 
 test("a Proxmox login with its realm, a bold login and a token id followed by its secret are hidden too", () => {
