@@ -95,7 +95,7 @@ test("app keeps status/connect local, replaces task surfaces, and denies one-sho
   expect(runtime.surfaces[4]?.some((name) => name.includes("inspect_quantum_flux"))).toBe(true);
 });
 
-test("every server starts with writes off: a write tool is refused before anyone is asked", async () => {
+test("every server starts with writes off: a one-shot run can't ask, so a change is not executed", async () => {
   const { home, project } = await fixture();
   const runtime = new ToolRuntime();
   let output = "";
@@ -109,9 +109,9 @@ test("every server starts with writes off: a write tool is refused before anyone
   cleanup.push(() => app.close());
   await app.runOnce("/mcp connect fixture", project);
   expect(output).toContain("fixture [stdio; ready] 340 tools · writes off · access not checked");
-  expect(output).toContain("Writes off: write and delete tools are hidden, and every other change still asks you. /mcp writes <name> turns writes on.");
+  expect(output).toContain("Writes off: the server runs with its read-only settings, and every change asks you first. Answer 2 or 3 in the change box to allow it, or /mcp writes <name> to turn writes on now.");
   await app.runOnce("Change site");
-  expect(runtime.result).toContain("Not executed (fixture writes are off. Only the user can turn them on with /mcp writes fixture.)");
+  expect(runtime.result).toContain("Not executed (needs your approval, and this run cannot ask)");
   expect(output).not.toContain("MCP · fixture · set_site");
   // Turning writes on needs an interactive session.
   output = "";

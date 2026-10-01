@@ -718,8 +718,8 @@ async function handleDelegateCommand(host: CommandHost, prompt: string): Promise
   }
 
 const MCP_USAGE = "Usage: /mcp | /mcp connect <name> | /mcp disconnect <name> | /mcp reload | /mcp writes <name> | /mcp writes off | /mcp forget <name> | /mcp junos-show <name> on|off | /mcp docs";
-/** What "writes off" means, said once under the list: it hides write tools; other changes still ask. */
-const WRITES_OFF_TEXT = "Writes off: write and delete tools are hidden, and every other change still asks you. /mcp writes <name> turns writes on.";
+/** What "writes off" means, said once under the list: the server runs pinned and every change asks. */
+const WRITES_OFF_TEXT = "Writes off: the server runs with its read-only settings, and every change asks you first. Answer 2 or 3 in the change box to allow it, or /mcp writes <name> to turn writes on now.";
 
 async function handleMCPCommand(host: CommandHost, prompt: string): Promise<void> {
     const [, action, name, ...extra] = prompt.trim().split(/\s+/);

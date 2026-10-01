@@ -49,7 +49,7 @@ test("read-write, mixed and broken answers never make a login read-only", async 
     expect(accessStatusText(result)).toBe("access not checked");
   }
   expect(accessStatusText(undefined)).toBe("access not checked");
-  expect(accessModelLines("aruba-central", undefined, "off")).toEqual(["aruba-central: writes are off; only the user can turn them on (/mcp writes aruba-central). Mention it only if the user asks for a change there."]);
+  expect(accessModelLines("aruba-central", undefined, "off")).toEqual(["aruba-central: every change asks the user first, in Casper's box; they can allow it once or for this session. Don't ask them again in chat."]);
   expect(accessModelLines("aruba-central", { state: "read-write", products: [] }, "on")).toEqual([]);
 });
 
@@ -80,6 +80,6 @@ test("malformed product lists are unknown, and server text is kept only when sho
 
 test("refusal wording", () => {
   expect(readOnlyLoginReason("aruba-central")).toBe("aruba-central login is read-only.");
-  expect(writesOffReason("aruba-central")).toBe("aruba-central writes are off. Only the user can turn them on with /mcp writes aruba-central.");
+  expect(writesOffReason("aruba-central")).toBe("aruba-central writes are off. Only the user can allow a change there: in Casper's change box, or with /mcp writes aruba-central.");
   expect(READ_ONLY_LOGIN_ENABLE_TEXT).toBe("This login is read-only (access_check). Writes can't be turned on here.");
 });

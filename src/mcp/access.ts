@@ -113,12 +113,12 @@ export function accessStatusText(check: AccessCheck | undefined): string {
 /** Lines for the find_capability description. Built only from the server name and parsed state. */
 export function accessModelLines(server: string, check: AccessCheck | undefined, writes: "off" | "on"): string[] {
   if (check?.state === "read-only") return [`${server}: login is read-only. Write tools are hidden. Don't plan changes on it.`];
-  return writes === "off" ? [`${server}: writes are off; only the user can turn them on (/mcp writes ${server}). Mention it only if the user asks for a change there.`] : [];
+  return writes === "off" ? [`${server}: every change asks the user first, in Casper's box; they can allow it once or for this session. Don't ask them again in chat.`] : [];
 }
 
 /** Reasons inside "Not executed (...)" refusals. */
 export function readOnlyLoginReason(server: string): string { return `${server} login is read-only.`; }
 export function writesOffReason(server: string): string {
-  return `${server} writes are off. Only the user can turn them on with /mcp writes ${server}.`;
+  return `${server} writes are off. Only the user can allow a change there: in Casper's change box, or with /mcp writes ${server}.`;
 }
 export const READ_ONLY_LOGIN_ENABLE_TEXT = "This login is read-only (access_check). Writes can't be turned on here.";

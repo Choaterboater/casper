@@ -26,7 +26,7 @@ function definition(name: string, mode: string, file: string): MCPServerDefiniti
   } };
 }
 async function setup(options: {
-  mode?: string; name?: string; confirm?: ConfirmCapability; elicit?: MCPManagerOptions["elicit"]; manager?: MCPManagerOptions;
+  mode?: string; name?: string; confirm?: ConfirmCapability; elicit?: MCPManagerOptions["elicit"]; manager?: MCPManagerOptions; writesGate?: boolean;
 } = {}) {
   const file = await callsFile();
   const name = options.name ?? "network";
@@ -34,7 +34,7 @@ async function setup(options: {
   const mcp = new MCPManager({ servers: [definition(name, options.mode ?? "network", file)], diagnostics: [] }, {
     ...(options.elicit ? { elicit: options.elicit } : {}), onNote: (text) => notes.push(text), ...options.manager,
   });
-  const broker = new CapabilityBroker(mcp, options.confirm);
+  const broker = new CapabilityBroker(mcp, options.confirm, options.writesGate ? { writesGate: true } : {});
   cleanup.push(() => broker.close());
   await mcp.connect(name);
   await broker.prepare("network");
@@ -300,4 +300,39 @@ test("an AI-set confirm=true asks even under a session grant", async () => {
   await broker.invoke(id("set_ssid"), { ssid: "corp" });
   await expect(broker.invoke(id("set_ssid"), { ssid: "corp", confirm: true })).rejects.toThrow("you said no");
   expect(boxes).toHaveLength(2);
+});
+
+
+// --- Writes turned on from the box ---------------------------------------------------------------
+
+test("writes off: change tools are offered, the box asks, and yes this once turns writes on for that change only", async () => {
+  const { confirm, boxes } = answering("yes");
+  const { broker, mcp, file, id } = await setup({ confirm, writesGate: true });
+  expect(mcp.writesOn()).toEqual([]);
+  expect(broker.search("ssid").map((match) => match.id)).toContain(id("set_ssid"));
+  expect(JSON.stringify(await broker.invoke(id("set_ssid"), { ssid: "corp" }))).toContain("applied");
+  expect(boxes).toHaveLength(1);
+  expect(toolCalls(await calls(file))).toHaveLength(1);
+  // Off again afterwards: the next change asks again.
+  expect(mcp.writesOn()).toEqual([]);
+});
+
+test("writes off: yes for this session leaves writes on until they are turned off", async () => {
+  const { confirm } = answering("yes-session");
+  const { broker, mcp, id } = await setup({ confirm, writesGate: true });
+  await broker.invoke(id("set_ssid"), { ssid: "corp" });
+  expect(mcp.writesOn()).toEqual(["network"]);
+  await broker.invoke(id("set_ssid"), { ssid: "guest" });
+  await mcp.setWrites("network", false);
+  expect(broker.sessionGrant("network")).toBe(true);
+  // The grant ends with writes off: the next change asks (and answering no keeps writes off).
+  await expect(broker.invoke(id("set_ssid"), { ssid: "x" })).rejects.toThrow("you said no");
+  expect(broker.sessionGrant("network")).toBe(false);
+  expect(mcp.writesOn()).toEqual([]);
+});
+
+test("writes off and nobody to ask (one-shot): the change is not executed and writes stay off", async () => {
+  const { broker, mcp, id } = await setup({ writesGate: true });
+  await expect(broker.invoke(id("set_ssid"), { ssid: "corp" })).rejects.toThrow("needs your approval, and this run cannot ask");
+  expect(mcp.writesOn()).toEqual([]);
 });

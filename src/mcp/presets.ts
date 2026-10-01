@@ -541,8 +541,8 @@ export function presetLine(match: PresetMatch, plan: PinPlan, pinsConfirmed = fa
   } else lines.push(`preset: ${id}`);
   if (plan.kind === "cannot-pin") {
     lines.push(plan.reason === CANT_PIN_REMOTE
-      ? "Can't pin read-only for this server (it runs elsewhere). Write tools are hidden in Casper only."
-      : `Can't pin read-only for this server (${plan.reason}). Write tools are hidden in Casper only.`);
+      ? "Can't pin read-only for this server (it runs elsewhere). Every change asks you in Casper."
+      : `Can't pin read-only for this server (${plan.reason}). Every change asks you in Casper.`);
   }
   if (match.mismatch) lines.push(`Looks different from the ${id} preset. Pins kept, and its extra checks still apply.`);
   if (match.preset.advice) lines.push(match.preset.advice);

@@ -285,7 +285,7 @@ How pins work:
   until the server itself reports its write switches off through `access_check`.
   Then it reads `read-only pinned`.
 - When Casper can't place a pin, it says so. For an HTTP server:
-  `Can't pin read-only for this server (it runs elsewhere). Write tools are hidden in Casper only.`
+  `Can't pin read-only for this server (it runs elsewhere). Every change asks you in Casper.`
   The same line, with another reason, appears when Casper can't find the image in
   a docker command, or has to add an argument to a shell wrapper or a command with
   `--`.
