@@ -114,6 +114,8 @@ test("config reads callTimeout and connectTimeout in whole seconds and rejects a
   expect(byName.plain?.limits).toBeUndefined();
   expect(Object.keys(byName).sort()).toEqual(["plain", "slow"]);
   for (const name of ["negative", "text", "tooLong"]) expect(config.diagnostics.join("\n")).toContain(`Invalid or unsupported MCP entry "${name}"`);
+  // The reason comes with it, so the entry can be fixed.
+  expect(config.diagnostics.join("\n")).toMatch(/Invalid or unsupported MCP entry "negative" \(.+\)/);
 });
 
 test("reloading with only a new callTimeout keeps consent and the connection", async () => {
@@ -155,6 +157,17 @@ test("imported servers never start in the opened project", () => {
   // The other scopes are unchanged.
   expect(startFolder(undefined, "user", project, home)).toBe(home);
   expect(startFolder(undefined, "project", project, home)).toBe(project);
+});
+
+test("a project server's cwd may be absolute when it stays inside the project (a home folder opened as the project)", () => {
+  const home = "/home/me"; const project = "/home/me/work/repo";
+  expect(startFolder("tools", "project", project, home)).toBe(`${project}/tools`);
+  expect(startFolder(`${project}/tools`, "project", project, home)).toBe(`${project}/tools`);
+  // ~/.mcp.json is the project's file when ~ is opened: an absolute folder under ~ is inside it.
+  expect(startFolder("/home/me/Projects/mist-mcp", "project", home, home)).toBe("/home/me/Projects/mist-mcp");
+  for (const outside of ["/srv/mcp", "../other", "/home/me/work/other"]) {
+    expect(() => startFolder(outside, "project", project, home)).toThrow("cwd outside the project");
+  }
 });
 
 test("a missing variable is named, never a value, and resolvedSecrets lists what to hide", () => {
