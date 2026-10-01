@@ -24,7 +24,13 @@ test("repair.bigModelLastTry and suggestions load from the user's config and a p
     const loaded = await loadConfiguration({ projectRoot, homeDir });
     expect(loaded.repair).toEqual({ maxAttempts: 3, bigModelLastTry: true });
     expect(loaded.suggestions).toBe(false);
+    expect(loaded.updates).toBeUndefined();
     expect(loaded.warnings).toEqual([]);
+    await writeFile(path.join(homeDir, ".casper/config.yaml"), "updates: off\n");
+    expect((await loadConfiguration({ projectRoot, homeDir })).updates).toBe(false);
+    await writeFile(path.join(homeDir, ".casper/config.yaml"), "updates: sometimes\n");
+    await expect(loadConfiguration({ projectRoot, homeDir })).rejects.toThrow("updates must be true or false");
+    await writeFile(path.join(homeDir, ".casper/config.yaml"), "repair:\n  bigModelLastTry: true\nsuggestions: false\n");
     await writeFile(path.join(homeDir, ".casper/profiles/work/config.yaml"), "repair:\n  bigModelLastTry: false\nsuggestions: true\n");
     const profile = await loadConfiguration({ projectRoot, homeDir, profileName: "work" });
     expect(profile.repair.bigModelLastTry).toBe(false);
@@ -47,6 +53,8 @@ test("a project cannot choose to spend on the big model or turn suggestions on o
     await expect(loadConfiguration({ projectRoot, homeDir })).rejects.toThrow("a project cannot choose to spend on your big model");
     await writeFile(path.join(projectRoot, ".casper/project.yaml"), "suggestions: true\n");
     await expect(loadConfiguration({ projectRoot, homeDir })).rejects.toThrow("suggestions is a user setting");
+    await writeFile(path.join(projectRoot, ".casper/project.yaml"), "updates: false\n");
+    await expect(loadConfiguration({ projectRoot, homeDir })).rejects.toThrow("updates is a user setting");
   } finally {
     await rm(root, { recursive: true, force: true });
   }

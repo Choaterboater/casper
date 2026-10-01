@@ -826,6 +826,13 @@ apart — a compiled binary cannot read `package.json`, so the version lives in 
   both the user PATH and the current PowerShell process PATH. Running through a child
   `powershell -c` still requires reopening the parent terminal. Close a running
   Casper before replacing its exe.
+- **`casper update` reuses it.** A release binary asks GitHub for the newest release
+  (previews included), downloads that release's installer, checks it against GitHub's
+  published digest for the file and its pinned download address, and runs it on the
+  folder of the running program with the new version pinned; on Windows the running
+  `casper.exe` is renamed to `casper.old.exe` first and put back if the installer fails.
+  A token in `GITHUB_TOKEN` or `GH_TOKEN` is sent with the release lookup only (not the
+  downloads), for GitHub's higher limit.
 - **Clears the macOS quarantine flag** on the staged binary before it is run (best
   effort), so the first run is not blocked by Gatekeeper.
 - Windows has an x64 artifact only. ARM64 is not claimed as native support. The

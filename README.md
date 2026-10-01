@@ -99,8 +99,12 @@ curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.21/ins
 The installer checks the file's SHA-256 and runs the new program's `--version` before it
 replaces an older install. If the download is rejected, your old install stays as it was.
 It needs no admin rights. These commands pin **v0.2.21**: running them again reinstalls that
-preview. For a newer preview, use its release URL (GitHub's `latest/download` link skips
-previews). Useful `install.sh` options: `--dir <path>`, `--version 0.2.21`, `--sha256 <hex>`
+preview. After the first install, `casper update` gets the newest preview (it runs that
+release's own installer, with the same checks), and `casper update --check` only says whether
+there is one. A session also tells you when one is out: one `[update]` line at the start, from a
+check it makes in the background at most once a day (no model, no tokens). Turn it off with
+`updates: false` in `~/.casper/config.yaml` or `CASPER_NO_UPDATE_CHECK=1`. If GitHub says it is limiting requests, set `GITHUB_TOKEN` (or `GH_TOKEN`) to a
+GitHub token for a higher limit. Useful `install.sh` options: `--dir <path>`, `--version 0.2.21`, `--sha256 <hex>`
 and `--force` (replace a development symlink). [Installer details](docs/RELEASE.md).
 
 ## Quick start
@@ -316,8 +320,8 @@ it. What each version changed, in more detail: [RELEASE.md](docs/RELEASE.md).
   ("keep it under $2", "no crew for this") holds for the whole crew. `crew: off` turns crews off.
 
 Later, not scheduled: vendor packs (`casper pack add aruba` sets up a vendor's MCP server,
-read-only preset, references and skill in one step) and tool rules you write (for example, bounces
-only on lab sites in a maintenance window). See the [roadmap](https://choaterboater.github.io/casper/roadmap.html#later).
+read-only preset, references and skill in one step), `casper doctor` (Casper checks and fixes its
+own setup) and tool rules you write (for example, bounces only on lab sites in a maintenance window). See the [roadmap](https://choaterboater.github.io/casper/roadmap.html#later).
 
 ## Develop from source
 
@@ -334,6 +338,9 @@ bun run check
 To run the checkout as `casper`, link `src/cli.ts` to `~/.local/bin/casper` (run
 `chmod +x src/cli.ts` first). `casper --version` prints `casper <version> (<path>)`, so a stale
 link is easy to spot. The release installer will not replace such a link without `--force`.
+In a checkout, `casper update` pulls (fast-forward only, never forced) and runs
+`bun install --frozen-lockfile` when `bun.lock` changed. A session in a checkout says how many
+changes it is behind, the same way.
 
 `bun run check` needs no paid model. Browser and debugger tests skip when those tools are not
 installed. Build the program for this machine with `bun run build:release`, or all five
