@@ -35,6 +35,18 @@ const PLAIN_FLAGS = new Set(["-q", "-qq", "-v", "-vv", "-x", "--quiet", "--verbo
  * never absolute and never climbing out with `..`. `./...` (Go's package pattern) counts. */
 const PLAIN_PATH = /^(?!-)[A-Za-z0-9_./-]+$/;
 
+/** A test script the project holds (often one the model just wrote): `bash`/`sh` with a `.sh` path, `./` plus a
+ * `.sh` path, or `python`/`python3` with a `.py` path, the path plain and inside the project. It runs the project's
+ * own file, as `bun test` runs its tests; inline code (`bash -c`, `python -c`) and outside paths never match. */
+function projectScript(words: readonly string[]): readonly string[] | undefined {
+  const [first, second] = words;
+  const inside = (file: string | undefined, extension: string) => file !== undefined && file.endsWith(extension) && plainArgument(file) && !PLAIN_FLAGS.has(file);
+  if ((first === "bash" || first === "sh") && inside(second, ".sh")) return [first, second!];
+  if ((first === "python" || first === "python3") && inside(second, ".py")) return [first, second!];
+  if (first?.startsWith("./") && inside(first, ".sh")) return [first];
+  return undefined;
+}
+
 function plainArgument(word: string): boolean {
   if (PLAIN_FLAGS.has(word)) return true;
   if (!PLAIN_PATH.test(word) || word.startsWith("/")) return false;
@@ -46,7 +58,8 @@ function plainArgument(word: string): boolean {
 export function rememberableTestCommand(command: string): string | undefined {
   if (command.length > 200 || /[^\x20-\x7e]/.test(command.trim())) return undefined;
   const words = command.trim().split(/ +/).filter(Boolean);
-  const runner = RUNNERS.find((shape) => shape.length <= words.length && shape.every((word, index) => words[index] === word));
+  const runner = RUNNERS.find((shape) => shape.length <= words.length && shape.every((word, index) => words[index] === word))
+    ?? projectScript(words);
   if (!runner) return undefined;
   const rest = words.slice(runner.length);
   if (rest.length > 8 || !rest.every(plainArgument)) return undefined;
