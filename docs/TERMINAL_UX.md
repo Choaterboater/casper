@@ -142,7 +142,8 @@ estimated context occupancy, the current task's tokens and its cost from the mod
 out, new and cached, `44k out · 131k new · 4.9M cached`), and idle/working state. While a task runs, its stages
 lead the footer, each marked ✓ once done, then the elapsed time:
 `⠋ checklist ✓ · building ✓ · checks · 1m05s │ project…`; in a narrow window only the current stage
-and the time (`⠋ checks · 1m05s │ …`). Tool lines print paths relative to the project and fit one row:
+and the time (`⠋ checks · 1m05s │ …`). When the AI reads, lists or searches a folder outside the project (temp aside), one line under its
+steps says where, once per folder: `[read] outside this project: ~/Projects`. Tool lines print paths relative to the project and fit one row:
 narrow, the words go and a path is shortened from the front (`✓ edit · …st_calc.py · +9 -1 · 2.5s`). Each check Casper runs prints one line
 as it finishes (`✓ typecheck · 5.9s`, `✗ test · exit 1 · 2.3s`, `✗ test · timed out after 10m`; a check
 under a second shows no time), so a

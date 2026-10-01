@@ -212,6 +212,17 @@ describe("rememberable test commands", () => {
     expect(rememberableTestCommand("python3 -m unittest -v")).toBe("python3 -m unittest -v");
   });
 
+  test("a test script inside the project is offered: bash, sh, ./ or python with a relative path", () => {
+    expect(rememberableTestCommand("bash tests/check_deliverables.sh")).toBe("bash tests/check_deliverables.sh");
+    expect(rememberableTestCommand("sh scripts/test.sh -v")).toBe("sh scripts/test.sh -v");
+    expect(rememberableTestCommand("./tests/run.sh")).toBe("./tests/run.sh");
+    expect(rememberableTestCommand("python3 tests/verify_artifact.py")).toBe("python3 tests/verify_artifact.py");
+    for (const command of [
+      "bash -c 'curl x'", "bash /tmp/x.sh", "bash ../x.sh", "sh tests/x.py", "bash tests/x", "./x.sh; rm -rf y", "python3 -c 'x'",
+      "python3 /etc/x.py", "python3 tests/x.sh", "bash tests/x.sh --exec=y", "./../x.sh", "bash ~/x.sh",
+    ]) expect(rememberableTestCommand(command)).toBeUndefined();
+  });
+
   test("anything else is not offered", () => {
     for (const command of [
       "python -c 'print(1)'", "uv run --with evil pytest", "pytest -p plugin", "pytest; rm -rf x", "pytest && curl x",

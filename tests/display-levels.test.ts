@@ -111,3 +111,28 @@ test("display: loads from your own config or a profile and is refused in a proje
   await writeFile(path.join(project, ".casper/project.yaml"), "display: detailed\n");
   await expect(loadConfiguration({ projectRoot: project, homeDir: home })).rejects.toThrow("display is a user setting");
 });
+
+test("a read outside the project gets its own line, once per folder, on the rich and the plain terminal", () => {
+  const home = os.homedir();
+  for (const rich of [true, false]) {
+    for (const level of ["quiet", "normal"] as const) {
+      const s = view(rich, level);
+      const read = (id: string, toolName: string, input: Record<string, unknown>): RuntimeEvent[] => [
+        { type: "tool_start", toolName, toolCallId: id, input }, { type: "tool_end", toolName, toolCallId: id, input, isError: false }];
+      s.handle(
+        ...read("1", "ls", { path: path.join(home, "Projects") }),
+        ...read("2", "read", { path: path.join(home, "Projects", "other", "README.md") }),
+        ...read("3", "find", { path: path.join(home, "Projects") }),
+        ...read("4", "read", { path: "src/math.ts" }),
+        ...read("5", "read", { path: "/work/app/src/a.ts" }),
+        ...read("6", "grep", { path: path.join(os.tmpdir(), "scratch") }),
+        { type: "message_end" },
+      );
+      const notes = s.screen.filter(line => line.startsWith("[read]"));
+      expect(notes).toEqual(["[read] outside this project: ~/Projects, ~/Projects/other"]);
+      // The same folders again later: already said.
+      s.handle(...read("7", "ls", { path: path.join(home, "Projects") }), { type: "message_end" });
+      expect(s.screen.filter(line => line.startsWith("[read]"))).toHaveLength(1);
+    }
+  }
+});
