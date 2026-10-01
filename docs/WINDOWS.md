@@ -22,7 +22,7 @@ without checking where the download came from.
 In PowerShell (a normal window, not "Run as administrator"):
 
 ```powershell
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.15/install.ps1 | iex
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.21/install.ps1 | iex
 ```
 
 What the installer does:
@@ -49,11 +49,11 @@ casper --help
 Get-Command casper | Select-Object Source
 ```
 
-`casper --version` should print `casper 0.2.15 (<path to casper.exe>)`. The `Source`
+`casper --version` should print `casper 0.2.21 (<path to casper.exe>)`. The `Source`
 line should point into the install folder, not an old checkout or some other program
 called casper.
 
-The command above always installs **v0.2.15**. Running it again reinstalls v0.2.15.
+The command above always installs **v0.2.21**. Running it again reinstalls v0.2.21.
 To get a newer preview, use that release's own install command.
 
 ## 2. Automated checks (CI)
@@ -187,13 +187,13 @@ commands.
   bits), so that check is skipped. See [PLATFORM_SUPPORT.md](PLATFORM_SUPPORT.md).
 - **netconan** (optional secret checker): found as `netconan.exe`, `.cmd` or `.bat`
   when installed.
-- **No shell sandbox yet (v0.2.17, not released yet).** The banner and `/status` say
+- **No shell sandbox yet.** The banner and `/status` say
   `shell     not sandboxed (Windows has no sandbox yet) · Casper asks before each AI shell command`,
   and the AI's shell asks `Run this command?` before each command, with `1 No` first.
   A one-shot run refuses the AI's shell commands unless you pass `--no-sandbox`. On
   Windows your project's own checks, services and dev servers still run, not sandboxed,
   with your permissions and network. See [SECURITY.md](SECURITY.md).
-- **Undo (v0.2.17, not released yet)** needs git on PATH (Git for Windows). Without it
+- **Undo** needs git on PATH (Git for Windows). Without it
   the receipt says `Undo not available` and names why. Restoring a symbolic link or a
   file's run bit has not been tried on Windows yet. See [UNDO.md](UNDO.md).
 

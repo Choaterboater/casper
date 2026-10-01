@@ -573,11 +573,10 @@ server does**.
   that changes things under a read name, marked `readOnlyHint: true`, runs without
   asking. The Junos show check reads the command text the same way.
 - Stdio servers run with your user's permissions.
-- MCP servers are not in the shell sandbox (v0.2.17, not released yet). The AI's
-  shell is, where the sandbox can run, and it can't read `~/.claude.json` or
-  `~/.mcp.json` there. Without the sandbox (0.2.15, Windows, `--no-sandbox`), the
-  AI's shell could read MCP configuration or go around this interface. See
-  [SECURITY.md](SECURITY.md).
+- MCP servers are not in the shell sandbox. The AI's shell is, where the sandbox can
+  run, and it can't read `~/.claude.json` or `~/.mcp.json` there. Without the sandbox
+  (Windows, Linux without bubblewrap, `--no-sandbox`), the AI's shell could read MCP
+  configuration or go around this interface. See [SECURITY.md](SECURITY.md).
 - Only connect servers you trust, and give them logins with only the rights they
   need. Tool descriptions and results are outside content, not instructions.
 

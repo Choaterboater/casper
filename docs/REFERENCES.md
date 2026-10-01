@@ -113,7 +113,7 @@ Added pycentral to ~/.casper/references.yaml. Restart Casper to search it.
   limit, so this entry currently gives nothing to search. Use `mistapi` (v0.2.18) or
   `lookup_api` instead.
 - **The SDKs (`pyaoscx`, `pyclearpass`, `mistapi` and `junos-pyez` are new in
-  v0.2.18, not released yet).** `pycentral`, `pyaoscx` and `pyclearpass` are the
+  v0.2.18).** `pycentral`, `pyaoscx` and `pyclearpass` are the
   public Python SDKs from the `aruba` GitHub organisation; `mistapi` (a community SDK
   for the Mist API) and `junos-pyez` (Juniper's PyEZ) are listed with them. Their
   code shows the REST paths, fields and login flow the SDK uses:

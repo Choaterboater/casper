@@ -41,7 +41,7 @@ through. Check what a tool returns before you share it.
   `configs`, `backups` or `oxidized`. Source code and data files (`.ts`, `.py`,
   `.json`, `.yaml`, `.md` and so on) are never changed by the device rules, even
   under those folders, so test files stay as they are.
-- **`.env`, INI and credential files: always (from v0.2.16, not released yet).** In
+- **`.env`, INI and credential files: always (from v0.2.16).** In
   `.env`, `.env.*`, `*.env`, `.envrc`, `.netrc`, `.npmrc`, `.pypirc`, `.pgpass`,
   `credentials*`, `secrets.*`, `*.ini`, `*.properties`, `*.tfvars`, `*.tfstate`,
   `*.pem`, `*.key` and `id_rsa`-style files, every value whose name looks secret is
@@ -85,7 +85,7 @@ through. Check what a tool returns before you share it.
   `pi-bash-<id>.log` (or `pi-powershell-<id>.log`) file; reading that file back gets
   the same check. Other `.log` files are left alone.
 - **Subagents** (`/delegate`, or the AI's delegate tool) get the same scrubbing for
-  what they read. The `/security-review` AI review (v0.2.17, not released yet) gets
+  what they read. The `/security-review` AI review (from v0.2.17) gets
   it too, with device configs hidden even when `/secrets files off`, and it never
   opens key or `.env` files or files gitleaks flagged (see
   [SECURITY_CHECKS.md](SECURITY_CHECKS.md#the-ai-review)).
@@ -174,8 +174,9 @@ Device configs in files and command output: off for this session. MCP results, .
 Device configs in files and command output: on.
 ```
 
-(0.2.15 says `Secrets: hidden in MCP results (always). Files and command output: on.`
-and has no `.env` rules.) `/secrets files off` turns off the device config rules only.
+(In v0.2.15 `/secrets` said
+`Secrets: hidden in MCP results (always). Files and command output: on.` and had
+no `.env` rules.) `/secrets files off` turns off the device config rules only.
 `.env` and credential files, secret-named values and your secret environment values
 stay hidden.
 

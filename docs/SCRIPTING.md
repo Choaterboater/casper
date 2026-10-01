@@ -22,7 +22,7 @@ echo "exit ${PIPESTATUS[0]}"   # bash: Casper's exit code, not jq's
 - Options that take a value accept `--name value` or `--name=value`.
 - An unknown option (a typo such as `--verfy`) is an error (exit 64). It never becomes a paid
   model prompt.
-- From v0.2.17 (not released yet): a known option at the end of the prompt
+- From v0.2.17: a known option at the end of the prompt
   (`casper fix the bug --verify`) exits 64 before anything runs. Put options first, or quote the
   whole request (`casper "fix the bug --verify"`) to send them as words. A single folder argument
   (`casper ~/code/app`) opens that folder instead of sending its path as a prompt; a single word
@@ -67,10 +67,10 @@ These commands have their own arguments and take none of the options above:
 - `casper mcp check [repo] [--server <name>] [--live] [--quick] [--strict] [--json] [--env NAME=VALUE]... [-- <start command>...]`
   checks an MCP server you built. It runs the repo's own code, so use it only on repos you trust.
   See [MCP.md](MCP.md#check-a-server-you-built).
-- `casper new [<template> <name>]` and `casper new --list` (v0.2.16, not released yet) start a new
+- `casper new [<template> <name>]` and `casper new --list` (from v0.2.16) start a new
   project. It never calls a model. Its codes: 0 ready, 1 created but not ready (or nothing
   created), 64 usage. See [NEW.md](NEW.md).
-- `casper security [folder]` (v0.2.16, not released yet) runs the security tools with no model
+- `casper security [folder]` (from v0.2.16) runs the security tools with no model
   call: 0 no problems, 1 problems, 64 usage. See [SECURITY_CHECKS.md](SECURITY_CHECKS.md).
 
 ## Exit codes
@@ -87,7 +87,7 @@ These commands have their own arguments and take none of the options above:
 
 Failure wins over incomplete, and incomplete wins over "not verified".
 
-**Change in v0.2.17 (not released yet).** `outcome: "verified"` now means only a proven change,
+**Change in v0.2.17.** `outcome: "verified"` now means only a proven change,
 the same as the receipt's `✓ Verified` line. Checks that passed on changed files without a proof
 were `verified` before and are `not_verified` now, so `--require-verification` exits 3 for them
 instead of 0. Checks that passed with no files changed are `unchanged` (exit 0). The new
@@ -136,9 +136,9 @@ A run ends with exactly one `receipt` event, or, when Casper stops before it can
 - Each entry of `checks` has `name`, `command`, `status`, `exit`, `ms` and `fresh`.
 - `repairAttempts` counts repair prompts. `turnLimit` is the `--max-turns` value that stopped the
   run, else `null`. `spendLimit` is `{ "spent": 5.02, "limit": 5 }` (dollars, from the model's price)
-  when the task reached the spend limit (`spend.pauseAt`, $5 by default) and Casper stopped it
-  there, else `null`. A script never waits at that point: the run stops, keeps the work, and exits 2
-  (incomplete).
+  when the task reached a spend limit (`spend.pauseAt`, or a limit said in the request; there is
+  none unless you set one) and Casper stopped it there, else `null`. A script never waits at that
+  point: the run stops, keeps the work, and exits 2 (incomplete).
 - `remoteChanges` lists what the AI's ssh and scp commands changed on other machines, read from the
   command text: `[{ "host": "198.51.100.20 (build-server)", "changes": ["made an API token (…)"] }]`. An
   empty `changes` means commands ran there and Casper can't tell what they did. `remoteNotRun` lists
@@ -220,7 +220,7 @@ reported it, with at most 2048 characters of log tail. Each check has:
   before the change and passes now);
 - when available, `actual` (`status` and at most 512 characters of body), `reason` and `restarted`.
 
-**Added in v0.2.16 and v0.2.17 (not released yet).** All within `v: 1`; each is `null` when it
+**Added in v0.2.16 and v0.2.17.** All within `v: 1`; each is `null` when it
 does not apply.
 
 - `pages` is Casper's last page check on the dev server (`status`, `pages` with `path`, `status`,
@@ -281,7 +281,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install Casper
-        run: curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.15/install.sh | sh
+        run: curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.21/install.sh | sh
       - name: Fix the failing test
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
@@ -305,10 +305,9 @@ Notes on this example:
 - Provider API keys such as `OPENROUTER_API_KEY` are read from the environment.
 - The flags on this page ship in v0.2.13 and later, so pin the installer to v0.2.13 or newer. The
   receipt's `verdict` and `proofSkipped` fields and a check's `ended` field ship in v0.2.14.
-- Checks run the repository's own configured commands without asking. In 0.2.15 they are not
-  sandboxed (nothing stops them touching the machine). From v0.2.17 (not released yet) they run in
-  the shell sandbox where it can run (Linux with bubblewrap, macOS); on a runner without it they
-  run with the job's permissions. Either way, run Casper only on code you trust, or pass
+- Checks run the repository's own configured commands without asking. They run in the shell
+  sandbox where it can run (Linux with bubblewrap, macOS); on a runner without it they run with
+  the job's permissions. Either way, run Casper only on code you trust, or pass
   `--no-verify`. With the sandbox, a host a check wants that is not listed is blocked in a script
   (nobody can answer); add it to `sandbox.allowedDomains` in the runner's `~/.casper/config.yaml`.
   The receipt's `sandbox` field says whether the run was held.
