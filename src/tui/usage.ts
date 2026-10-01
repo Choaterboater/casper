@@ -40,5 +40,7 @@ export function formatCostShort(usage: Pick<RuntimeUsage, "estimatedCost">, stat
 export function formatCostLong(usage: Pick<RuntimeUsage, "estimatedCost">, status?: Pick<RuntimeStatus, "provider" | "billing">): string {
   const cost = usage.estimatedCost;
   if (status?.billing === "subscription") return `${subscriptionName(status.provider)}${cost === undefined ? "" : `; pay-per-token these tokens would be ≈ $${cost.toFixed(4)} (SDK/catalog estimate)`}`;
-  return cost === undefined ? "unavailable" : `$${cost.toFixed(4)} SDK/catalog estimate`;
+  if (cost === undefined) return "unavailable";
+  // OpenRouter reports what it charged for each response; other providers are priced from the catalog.
+  return status?.provider === "openrouter" ? `$${cost.toFixed(4)} as charged by OpenRouter` : `$${cost.toFixed(4)} SDK/catalog estimate`;
 }

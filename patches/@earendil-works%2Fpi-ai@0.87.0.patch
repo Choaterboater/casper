@@ -1,0 +1,21 @@
+diff --git a/node_modules/@earendil-works/pi-ai/.bun-tag-fe04daa2017e32cc b/.bun-tag-fe04daa2017e32cc
+new file mode 100644
+index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
+diff --git a/dist/api/openai-completions.js b/dist/api/openai-completions.js
+index 80720d096966bf057708433de0b128935aece8b6..a7023f04315f52e21ca4d8d9c1eff2a395a779fa 100644
+--- a/dist/api/openai-completions.js
++++ b/dist/api/openai-completions.js
+@@ -1183,6 +1183,13 @@ function parseChunkUsage(rawUsage, model) {
+         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+     };
+     calculateCost(model, usage);
++    // OpenRouter reports what it actually charged (usage.cost; with your own provider key, the provider's part
++    // is cost_details.upstream_inference_cost). The catalog price can be far off for the provider it routed to.
++    const reported = rawUsage.cost;
++    if (typeof reported === "number" && Number.isFinite(reported) && reported >= 0) {
++        const upstream = rawUsage.is_byok ? rawUsage.cost_details?.upstream_inference_cost : undefined;
++        usage.cost.total = reported + (typeof upstream === "number" && Number.isFinite(upstream) && upstream > 0 ? upstream : 0);
++    }
+     return usage;
+ }
+ function mapStopReason(reason) {
