@@ -2814,6 +2814,8 @@ export class CasperApp {
    * anything else keeps its draft with the reason. Nothing is queued to run after the task. */
   private submitDuringWork(line: string): true | string {
     if (this.closing) return "Casper is closing";
+    // No task yet: Casper is still opening a folder or project. Nothing is loaded to show, so the line waits.
+    if (!this.commandActive || !this.projectContext) return "draft kept · Enter again once Casper has opened the project";
     if (/^\/(?:help(?: all)?|status|usage|context|permissions)$/.test(line)) {
       void runSlashCommand(this, line).catch((error) => { this.output.write(`[error] ${terminalText(error instanceof Error ? error.message : String(error))}\n`); });
       return true;

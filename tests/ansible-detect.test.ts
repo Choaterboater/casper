@@ -87,3 +87,22 @@ test("short module names count only when the play lists the collection", () => {
   expect(readPlaybook("s.yml", text)?.collections).toEqual(["arubanetworks.aoscx"]);
   expect(readPlaybook("s.yml", text.replace("  collections: [arubanetworks.aoscx]\n", ""))?.collections).toEqual([]);
 });
+
+test("a huge folder (a home folder) is scanned only so far: a playbook near the top is still found, and it stays fast", async () => {
+  fixture = await networkFixture();
+  const root = fixture.root;
+  await writeProjectFile(fixture, "site.yml", ARUBA_SITE);
+  // "aaa" sorts before site.yml: walked depth-first, its thousands of folders came first.
+  for (let index = 0; index < 60; index++) {
+    const folder = path.join(root, "aaa", `d${index}`);
+    await mkdir(folder, { recursive: true });
+    await Promise.all(Array.from({ length: 120 }, (_, file) => writeFile(path.join(folder, `n${file}.txt`), "")));
+  }
+  await writeProjectFile(fixture, "aaa/d59/deep.yml", ARUBA_SITE);
+  const started = performance.now();
+  const found = await detectAnsible(root);
+  expect(performance.now() - started).toBeLessThan(3000);
+  expect(found?.playbooks.map((playbook) => playbook.file)).toContain("site.yml");
+  // Past the entry limit: not looked at.
+  expect(found?.playbooks.map((playbook) => playbook.file)).not.toContain("aaa/d59/deep.yml");
+});

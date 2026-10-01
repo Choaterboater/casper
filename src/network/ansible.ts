@@ -12,6 +12,8 @@ import type { NetworkCheckSpec } from "./spec";
 
 export const MAX_YAML_FILES = 200;
 const MAX_DEPTH = 5;
+/** Files and folders looked at in one scan; a real Ansible project is far smaller. */
+const MAX_ENTRIES = 5000;
 const SKIP_FOLDERS = new Set([".git", "node_modules", ".venv", "venv", ".tox", "collections", "roles", ".casper", "__pycache__", "dist", "build"]);
 
 /** Collections whose modules talk to network devices. */
@@ -164,24 +166,30 @@ export function readPlaybook(file: string, text: string): PlaybookInfo | undefin
   };
 }
 
+/** Breadth-first, so a project's own playbooks (near the top) come before deep folders, and bounded by entries
+ * looked at: opened on a huge folder (a home folder, with ~/Library) the walk took half a minute. */
 async function findYaml(root: string): Promise<string[]> {
   const found: string[] = [];
-  const walk = async (relative: string, depth: number): Promise<void> => {
-    if (found.length >= MAX_YAML_FILES || depth > MAX_DEPTH) return;
-    let names: string[];
-    try { names = (await readdir(path.join(root, relative))).sort(); } catch { return; }
-    for (const name of names) {
-      if (found.length >= MAX_YAML_FILES) return;
-      const child = relative ? path.posix.join(relative, name) : name;
-      let info;
-      try { info = await lstat(path.join(root, child)); } catch { continue; }
-      // lstat: a link is neither a file nor a folder here, so links out are never followed.
-      if (info.isDirectory()) {
-        if (!SKIP_FOLDERS.has(name) && !name.startsWith(".") && !["group_vars", "host_vars", "templates", "files"].includes(name)) await walk(child, depth + 1);
-      } else if (info.isFile() && /\.ya?ml$/i.test(name) && info.size <= MAX_SCAN_BYTES) found.push(child);
+  let looked = 0;
+  let level: string[] = [""];
+  for (let depth = 0; depth <= MAX_DEPTH && level.length; depth++) {
+    const next: string[] = [];
+    for (const relative of level) {
+      let names: string[];
+      try { names = (await readdir(path.join(root, relative))).sort(); } catch { continue; }
+      for (const name of names) {
+        if (found.length >= MAX_YAML_FILES || ++looked > MAX_ENTRIES) return found;
+        const child = relative ? path.posix.join(relative, name) : name;
+        let info;
+        try { info = await lstat(path.join(root, child)); } catch { continue; }
+        // lstat: a link is neither a file nor a folder here, so links out are never followed.
+        if (info.isDirectory()) {
+          if (!SKIP_FOLDERS.has(name) && !name.startsWith(".") && !["group_vars", "host_vars", "templates", "files"].includes(name)) next.push(child);
+        } else if (info.isFile() && /\.ya?ml$/i.test(name) && info.size <= MAX_SCAN_BYTES) found.push(child);
+      }
     }
-  };
-  await walk("", 0);
+    level = next;
+  }
   return found;
 }
 
