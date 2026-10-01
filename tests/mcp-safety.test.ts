@@ -101,17 +101,17 @@ test("router calls show the real tool and 'may EXECUTE'", async () => {
   const { broker, id } = await setup({ confirm });
   await expect(broker.invoke(id("invoke_tool"), { name: "port_bounce", arguments: { serial_number: "SG1" } })).rejects.toThrow("you said no");
   expect(boxes[0]).toContain("Runs: port_bounce (through invoke_tool)");
-  expect(boxes[0]).toContain("Mode: may EXECUTE (dry_run is not set)");
-  expect(boxes[0]).toContain("Run it? Type yes: ");
-  expect(boxes[0]).not.toContain("p to preview first");
+  expect(boxes[0]).toContain("May make the change (dry_run is not set).");
+  expect(boxes[0]).toContain("Type 1 or 2: ");
+  expect(boxes[0]).not.toContain("Preview first");
 });
 
 test("secrets are hidden in the box, and the server still gets the real value", async () => {
   const { confirm, boxes } = answering(true);
   const { broker, file, id } = await setup({ confirm });
   await broker.invoke(id("set_ssid"), { ssid: "corp", wpa_passphrase: "hunter2hunter" });
-  expect(boxes[0]).toContain("Mode: EXECUTE (this makes the change)");
-  expect(boxes[0]).toContain("\"wpa_passphrase\":\"••• 13 chars\"");
+  expect(boxes[0]).toContain("This makes the change.");
+  expect(boxes[0]).toContain("  wpa_passphrase   ••• 13 chars\n");
   expect(boxes[0]).toContain("Hidden: wpa_passphrase. The server still gets the real value.");
   expect(boxes[0]).not.toContain("hunter2hunter");
   expect(toolCalls(await calls(file))).toEqual([{ tool: "set_ssid", arguments: { ssid: "corp", wpa_passphrase: "hunter2hunter" } }]);
@@ -121,11 +121,11 @@ test("the last preview of the same call is shown, masked, until the connection c
   const { confirm, boxes } = answering(true, false, false);
   const { mcp, broker, id } = await setup({ confirm });
   await broker.invoke(id("set_ssid"), { ssid: "corp", wpa_passphrase: "hunter2hunter", dry_run: true });
-  expect(boxes[0]).toContain("Mode: preview (dry_run=true, nothing changes)");
+  expect(boxes[0]).toContain("Preview only: nothing changes (dry_run=true).");
   await expect(broker.invoke(id("set_ssid"), { ssid: "corp", wpa_passphrase: "hunter2hunter", dry_run: false })).rejects.toThrow("you said no");
   expect(boxes[1]).toContain("Last preview (just now):");
   expect(boxes[1]).toContain("would_set");
-  expect(boxes[1]).toContain("\"wpa_passphrase\":\"••• 13 chars\"");
+  expect(boxes[1]).toContain("  wpa_passphrase   ••• 13 chars\n");
   expect(boxes[1]).not.toContain("hunter2hunter");
   await mcp.disconnect("network");
   await mcp.connect("network");
@@ -141,7 +141,7 @@ test("p runs the preview first, then asks again with its result", async () => {
   expect(JSON.stringify(result)).toContain("applied");
   const sent = toolCalls(await calls(file)).map((entry) => (entry.arguments as Record<string, unknown>).dry_run);
   expect(sent).toEqual([true, undefined]);
-  expect(boxes[0]).toContain("Run it? Type yes, or p to preview first: ");
+  expect(boxes[0]).toContain("  2 Preview first\n");
   expect(boxes[0]).toContain("No preview yet.");
   expect(boxes[1]).toContain("Last preview (just now):");
   expect(boxes[1]).not.toContain("hunter2hunter");
@@ -163,8 +163,8 @@ test("the user can ask for a preview at most three times, and sees the third one
   expect(boxes).toHaveLength(4);
   // The fourth box shows the third preview and no longer offers p.
   expect(boxes[3]).toContain("Last preview (just now):");
-  expect(boxes[3]).toContain("Run it? Type yes: ");
-  expect(boxes[3]).not.toContain("p to preview first");
+  expect(boxes[3]).toContain("Type 1, 2 or 3: ");
+  expect(boxes[3]).not.toContain("Preview first");
   expect(toolCalls(await calls(file)).map((entry) => (entry.arguments as Record<string, unknown>).dry_run)).toEqual([true, true, true, undefined]);
 });
 
@@ -184,7 +184,7 @@ test("the AI can't slip a yes past the user as text: confirm \"true\" through a 
   expect(boxes[0]).toContain("⚠ The AI set confirm=true.");
   await expect(broker.invoke(id("invoke_read_tool"), { name: "get_clients", arguments: { site: "a", dry_run: "false" } }))
     .rejects.toThrow("Not executed (you said no)");
-  expect(boxes[1]).toContain("Mode: may EXECUTE (dry_run is not a plain true or false)");
+  expect(boxes[1]).toContain("May make the change (dry_run is not a plain true or false).");
   expect(toolCalls(await calls(file))).toEqual([]);
 });
 
@@ -269,4 +269,35 @@ test("the call clock is paused while the user reads a server question", async ()
   const { elicit } = elicitor(async () => { await Bun.sleep(600); return { action: "accept", value: true }; });
   const { broker, id } = await setup({ confirm: async () => true, elicit, manager: { callTimeoutMs: 300 } });
   expect(JSON.stringify(await broker.invoke(id("port_bounce"), { serial_number: "SG1" }))).toContain("bounced");
+});
+
+// --- "Yes, for this session" ---------------------------------------------------------------------
+
+test("yes for this session covers later non-destructive changes on that server; destructive and AI-set confirm still ask; ending it asks again", async () => {
+  const { confirm, boxes } = answering("yes-session", "no", "no");
+  const { broker, file, id } = await setup({ confirm });
+  await broker.invoke(id("set_ssid"), { ssid: "corp" });
+  expect(boxes).toHaveLength(1);
+  expect(broker.sessionGrant("network")).toBe(true);
+  // A later change on the same server runs without a box.
+  await broker.invoke(id("set_ssid"), { ssid: "guest" });
+  expect(boxes).toHaveLength(1);
+  expect(toolCalls(await calls(file))).toHaveLength(2);
+  // Destructive still asks, and offers no session answer.
+  await expect(broker.invoke(id("port_bounce"), { serial_number: "SG1" })).rejects.toThrow("you said no");
+  expect(boxes).toHaveLength(2);
+  expect(boxes[1]).not.toContain("for this session");
+  // Ending the grant (ctrl+o, writes off, reconnect) makes the next change ask again.
+  broker.endSessionGrants("network");
+  expect(broker.sessionGrant("network")).toBe(false);
+  await expect(broker.invoke(id("set_ssid"), { ssid: "x" })).rejects.toThrow("you said no");
+  expect(boxes).toHaveLength(3);
+});
+
+test("an AI-set confirm=true asks even under a session grant", async () => {
+  const { confirm, boxes } = answering("yes-session", "no");
+  const { broker, id } = await setup({ confirm });
+  await broker.invoke(id("set_ssid"), { ssid: "corp" });
+  await expect(broker.invoke(id("set_ssid"), { ssid: "corp", confirm: true })).rejects.toThrow("you said no");
+  expect(boxes).toHaveLength(2);
 });

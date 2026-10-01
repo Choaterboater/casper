@@ -378,6 +378,11 @@ export class MCPManager {
    * them once its running calls finish. Turning writes on waits for running calls, then restarts
    * the server without the preset's pins. A read-only login (from access_check) can't turn on.
    */
+  /** The product name a person knows the server by ("Mist", "Central"), from its preset; else the server name. */
+  productLabel(name: string): string {
+    try { return this.match(this.entry(name))?.preset.label ?? name; } catch { return name; }
+  }
+
   async setWrites(name: string, on: boolean): Promise<void> {
     const entry = this.entry(name);
     if (!on) {

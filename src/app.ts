@@ -543,7 +543,8 @@ export class CasperApp {
     this.lsp = new LSPManager(context.info.root, lspConfiguration);
     this.visualization = new VisualizationRouter({ providers: this.visualizationProviders, settings: context.visualize, workspaceRoot: context.info.root });
     // Every server starts with writes off; only the user turns them on (/mcp writes <name>).
-    this.broker = new CapabilityBroker(this.mcp, (call, signal) => this.confirmCapability(call, signal), { writesGate: true, scrubber: this.scrubber });
+    this.broker = new CapabilityBroker(this.mcp, (call, signal) => this.confirmCapability(call, signal), { writesGate: true, scrubber: this.scrubber,
+      onSessionCovered: (server, tool) => { if (!this.closing) this.output.write(`[approval] allowed (this session): ${terminalText(server)} · ${terminalText(tool)}\n`); } });
     this.lifecycle.add({ name: "references", close: () => this.references!.close() });
     // Web lookups never ask: the checks in src/web/url.ts hold instead. Off only with web: off in your own config.
     this.web?.close();
@@ -2712,13 +2713,16 @@ export class CasperApp {
     if (!this.interactive) throw new NotExecutedError("needs your approval, and this run cannot ask");
     return this.oneAtATime(async () => {
       if (this.approvalStopped(signal)) throw new NotExecutedError("cancelled");
-      const box = formatApproval(call.plan, call.lastPreview);
-      const answer = await this.chooseExact(box.preview, box.question, box.choices, signal);
-      if (answer === undefined && this.approvalStopped(signal)) throw new NotExecutedError("cancelled");
-      const result = answer === "yes" ? "yes" : answer === "p" && box.choices.includes("p") ? "preview" : "no";
+      const box = formatApproval(call.plan, call.lastPreview, { product: this.mcp?.productLabel(call.plan.server) });
+      // The same exact channel as /mcp writes: only a digit typed after the box appeared answers it.
+      const digit = await this.chooseExact(box.preview, box.question, box.choices, signal);
+      if (digit === undefined && this.approvalStopped(signal)) throw new NotExecutedError("cancelled");
+      const result = digit === undefined ? "no" : box.answers[digit] ?? "no";
       // A call you allowed that can change things: undo can't reach it, and /undo says so.
-      if (result === "yes" && planLabel(call.plan) !== "read") this.taskChangeServers.add(call.plan.server);
-      if (!this.closing) this.output.write(`[approval] ${result === "yes" ? "allowed" : result === "preview" ? "preview first" : "denied"}\n`);
+      if ((result === "yes" || result === "yes-session") && planLabel(call.plan) !== "read") this.taskChangeServers.add(call.plan.server);
+      if (!this.closing) {
+        this.output.write(`[approval] ${result === "yes" ? "allowed" : result === "yes-session" ? "allowed for this session" : result === "preview" ? "preview first" : "denied"}\n`);
+      }
       return result;
     });
   };
