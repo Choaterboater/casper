@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -10,6 +10,9 @@ import { approvalsPath } from "../src/security/suppressions";
 import { COMMANDS } from "../src/tui/commands";
 import { FULL_HELP_TEXT, HELP_TEXT } from "../src/tui/help";
 import { fakeTools, fixtureRepo, gitIn } from "./fixtures/security-tools/setup";
+
+// These drive a real app and the security tools: 2.5-5 s alone, past bun's 5 s default when the whole suite runs.
+setDefaultTimeout(20_000);
 
 const temps: string[] = [];
 afterEach(async () => { for (const dir of temps.splice(0)) await rm(dir, { recursive: true, force: true }); });
