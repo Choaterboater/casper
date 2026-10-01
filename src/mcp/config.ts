@@ -57,11 +57,16 @@ function stringMap(value: unknown): Record<string, string> {
   return value as Record<string, string>;
 }
 
+/** What a rejected entry may say about itself: Casper's fixed reasons, never text that could hold a value. */
+const ENTRY_REASONS = new Set(["cwd must be absolute, ~/..., or ${PROJECT_ROOT}", "cwd outside the project", "HTTPS required outside loopback",
+  "invalid args", "invalid cwd", "invalid definition", "invalid disabled flag", "invalid URL", "missing command", "too many servers",
+  "unsupported transport", "invalid callTimeout", "invalid connectTimeout"]);
+
 /**
  * Where a stdio server starts. Your own (user/profile) servers start in your home folder by default,
  * so an opened repository cannot change what they load; `cwd` may name an absolute folder, `~/...`,
  * or `${PROJECT_ROOT}` to opt back in. Project servers are repository content and start at the
- * project root, or at a relative `cwd` that stays inside it.
+ * project root, or at a `cwd` (relative, or absolute) that stays inside it.
  *
  * Imported servers (from other tools' files) never start in the opened project: with no `cwd` they
  * start in your home folder, and a `cwd` inside the project is replaced by the home folder and
@@ -89,7 +94,8 @@ export function startFolder(value: unknown, scope: ServerDefinitionScope, projec
     if (typeof value !== "string" || !value.trim()) throw new Error("invalid cwd");
     const resolved = path.resolve(projectRoot, value);
     const inside = path.relative(projectRoot, resolved);
-    if (path.isAbsolute(value) || inside === ".." || inside.startsWith(`..${path.sep}`) || path.isAbsolute(inside)) throw new Error("cwd outside the project");
+    // Absolute is fine while it stays inside: opened on your home folder, ~/.mcp.json names folders under ~.
+    if (inside === ".." || inside.startsWith(`..${path.sep}`) || path.isAbsolute(inside)) throw new Error("cwd outside the project");
     return resolved;
   }
   return personalFolder(value, projectRoot, home);
@@ -244,8 +250,10 @@ export async function discoverMCPConfiguration(options: {
           ...definition(name, value, source, cwd), scope, ...(shadows ? { shadows } : {}), ...(importedFrom ? { importedFrom } : {}),
         });
         if (scope !== "project") personal.set(name, source);
-      } catch {
-        diagnostics.push(`Invalid or unsupported MCP entry ${JSON.stringify(name.slice(0, 64))}: ${source}`);
+      } catch (error) {
+        // Only Casper's own reasons are shown; a parser's message (new URL) could quote a value from the file.
+        const reason = error instanceof Error && ENTRY_REASONS.has(error.message) ? ` (${error.message})` : "";
+        diagnostics.push(`Invalid or unsupported MCP entry ${JSON.stringify(name.slice(0, 64))}${reason}: ${source}`);
       }
     }
   }
