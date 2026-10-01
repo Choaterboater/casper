@@ -139,30 +139,30 @@
 
         <details>
           <summary>Will it change my switches?</summary>
-          <p>Not through MCP on its own. Every MCP server starts with <strong>writes off</strong>:
-          write and delete tools are hidden from the AI. Only you can turn them on, with
-          <code>/mcp writes &lt;server&gt;</code>. Even then, each change shows a box and runs only if
-          you type <code>yes</code>. The AI cannot approve anything for you. <kbd>ctrl+o</kbd> turns
-          writes off again at once.</p>
+          <p>Not through MCP on its own. Every MCP server starts with <strong>writes off</strong>, and
+          every change shows a box that says what it changes, then asks
+          <code>1 No · 2 Yes, this once · 3 Yes, for this session</code>. Enter is No, and destructive
+          changes always ask. The AI cannot approve anything for you. <kbd>ctrl+o</kbd> turns writes
+          off again at once.</p>
           <figure class="capture">
             <pre class="term" tabindex="0" data-title="casper — ~/project"><span class="prompt">❯</span> <span class="you">set the lab site on the fixture server</span>
 <span class="dim">[model]</span> scripted/site-capture · off · credentials configured
 I will ask the fixture server to change the site.
+Change in fixture: set site
+  site             lab
+This makes the change.
 MCP · fixture · set_site  [write]
-Mode: EXECUTE (this makes the change)
-Arguments: {"site":"lab"}
-Run it? Type yes:
+  1 No
+  2 Yes, this once
+  3 Yes, for this session
+Type 1, 2 or 3:
 
-<span class="dim"># (typed: no)</span>
+<span class="dim"># (typed: 1)</span>
 
 <span class="dim">[approval]</span> denied
-The change was not made.
-
-<span class="dim"># (pressed ctrl+o)</span>
-
-<span class="dim">[mcp]</span> Writes off for fixture. Write tools are hidden again.</pre>
-            <figcaption>A local test server (it never touches a device), with writes turned on first
-            by hand. The AI asks to change a site. Anything but <code>yes</code> means no.</figcaption>
+The change was not made.</pre>
+            <figcaption>A local test server (it never touches a device). The AI asks to change a site.
+            <code>1</code>, Enter or anything other than 2 or 3 means no.</figcaption>
           </figure>
           <p>Be honest with yourself about the limits, though:</p>
           <ul>
@@ -246,7 +246,7 @@ sum now turns its inputs into numbers first.
           <summary>Why did it ask me something?</summary>
           <p>Casper stops and asks when the next step is yours to decide. In 0.2.21 that includes:</p>
           <ul>
-            <li>an MCP call that may change something (you type <code>yes</code>);</li>
+            <li>an MCP call that may change something (<code>1 No · 2 Yes, this once · 3 Yes, for this session</code>);</li>
             <li>connecting an MCP server the first time, or turning its writes on;</li>
             <li>a check that timed out or could not start: retry, fix it anyway (uses tokens), or
             allow more time;</li>
@@ -412,8 +412,8 @@ lint could not start. Casper did not try to fix it. What now?
           send this to a paid repair unless you pick "Fix it anyway".</dd>
 
           <dt>The AI got <code>Not executed (… writes are off …)</code></dt>
-          <dd>Working as designed. If you really want that change, type
-          <code>/mcp writes &lt;server&gt;</code> yourself.</dd>
+          <dd>Working as designed: you turned writes off (ctrl+o) while its change box was open, or
+          this run can't ask you. Ask again in an interactive session and answer the change box.</dd>
 
           <dt><code>/mcp</code> shows <code>access not checked</code></dt>
           <dd>Not an error. The server has no <code>access_check</code> tool, or its answer did not

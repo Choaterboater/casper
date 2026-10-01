@@ -254,7 +254,7 @@ def exercise(bun, repo, root, no_color):
         assert sum(not result["isError"] for result in results) == 1, results
         # ctrl+o turns writes off at once, and the footer badge goes away.
         s.send("\x0f")
-        s.until("[mcp] Writes off for fixture. Write tools are hidden again.")
+        s.until("[mcp] Writes off for fixture. Every change asks you again.")
         s.pump(0.3)
         assert "WRITES" not in s.screen.text().splitlines()[-1], s.screen.text()[-500:]
         s.send("/login\n")
