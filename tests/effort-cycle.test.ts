@@ -309,3 +309,49 @@ test("during a running task: /usage runs, Shift+Tab and /effort apply from the n
     await rm(root, { recursive: true, force: true });
   }
 }, 30_000);
+
+test("while Casper is still opening the project, Enter keeps the draft and says so (no task is running)", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-opening-"));
+  const home = path.join(root, "home");
+  const project = path.join(root, "project");
+  await mkdir(home, { recursive: true });
+  await mkdir(project, { recursive: true }); await writeFile(path.join(project, "notes.txt"), "An empty folder would ask about a new project.\n");
+  const loading = Promise.withResolvers<void>();
+  const runtime: AgentRuntime = { async start() { throw new Error("no model in this test"); }, async dispose() {} };
+  const input = Object.assign(new PassThrough(), { isTTY: true, setRawMode() {} });
+  let output = "";
+  let pending: { test: (output: string) => boolean; resolve: () => void } | undefined;
+  const writer = Object.assign(new EventEmitter(), { isTTY: true, columns: 120, rows: 30, write(text: string) {
+    output += text;
+    if (pending?.test(output)) { pending.resolve(); pending = undefined; }
+  } });
+  const until = (test: (output: string) => boolean) => {
+    if (test(output)) return Promise.resolve();
+    const { promise, resolve } = Promise.withResolvers<void>();
+    pending = { test, resolve };
+    return Promise.race([promise, Bun.sleep(4000).then(() => { throw new Error(`timed out; screen: ${Bun.stripANSI(output).slice(-600)}`); })]);
+  };
+  const app = new CasperApp({
+    input, output: writer, runtimeFactory: () => runtime, sessionHomeDir: home,
+    loadProjectContext: async info => { await loading.promise; return loadProjectContext(info, { homeDir: home }); },
+    loadSkillRegistry: context => SkillRegistry.discover({ projectRoot: context.info.root, homeDir: home }),
+    loadMCPConfiguration: async () => ({ servers: [], diagnostics: [] }),
+    loadLSPConfiguration: async () => ({ servers: [], diagnostics: [] }),
+    loadReferenceConfiguration: async () => ({ sources: [], diagnostics: [] }),
+  });
+  const interactive = app.runInteractive(project);
+  try {
+    await Bun.sleep(150);
+    input.write("hello\r");
+    await until(text => Bun.stripANSI(text).includes("draft kept · Enter again once Casper has opened the project"));
+    expect(Bun.stripANSI(output)).not.toContain("this task ends");
+    loading.resolve();
+    await until(text => Bun.stripANSI(text).includes("idle"));
+    input.write("\x04\x04");
+    await Promise.race([interactive, Bun.sleep(2000)]);
+  } finally {
+    await app.close();
+    input.destroy();
+    await rm(root, { recursive: true, force: true });
+  }
+}, 30_000);
