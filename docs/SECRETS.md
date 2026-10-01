@@ -192,6 +192,11 @@ Casper.
   format Casper doesn't know reaches the AI. Lab logins written with no spaces
   (`root/Example-Pass1`) or in a sentence ("use root and Example-Pass1") are not hidden,
   because they look like a path or plain words.
+- Lines longer than 4 KB (minified code, one-line JSON) are checked in 4 KB pieces
+  that overlap by 512 characters, so a huge line can't stall Casper. A secret and the
+  words before it, up to 512 characters together, always sit whole in one piece and
+  are checked as on a short line. A value cut by a piece's end is checked again from
+  just before it; if it is longer than a piece, the rest of the line is hidden.
 - The approval box, `/mcp` and server questions mask secrets on your screen, but
   the server still gets the real value you approve.
 - Secrets the AI already had (for example ones you typed in a request, or ones in a
