@@ -5,6 +5,9 @@ import type { OutputWriter } from "./commands";
 import { SPEND_STOP_REASON } from "../task/spend";
 import type { HelperActivity } from "../agents/manager";
 import { inlineDiff, type DisplayLevel } from "../tui/display";
+import os from "node:os";
+import path from "node:path";
+import { tildePath } from "../new/scaffold";
 
 /** Session-owned effects the renderer needs; the app implements these against its state. */
 export interface RuntimeEventCallbacks {
@@ -124,9 +127,36 @@ export class RuntimeEventView {
   private endedWithNewline = true;
   private displayedError?: string;
   private expanded?: ExpandedStep;
+  /** Folders outside the project the model looked in: said once each, when its turn ends. */
+  private readonly outsideFolders = new Set<string>();
+  private outsideToSay: string[] = [];
 
   constructor(private readonly terminal: InteractiveTerminal, private readonly output: OutputWriter,
     private readonly callbacks: RuntimeEventCallbacks) {}
+
+  /** A read, ls, find or grep outside the project (temp aside) is remembered by folder. The step folds into the
+   * turn's summary like any other, so where the model looked would otherwise go unseen. Commands are not parsed. */
+  private noteOutsideRead(event: ToolEnd): void {
+    const root = this.callbacks.projectRoot?.();
+    const target = event.input?.path;
+    if (!root || stepKind(event.toolName) !== "read" || typeof target !== "string" || !target) return;
+    const home = os.homedir();
+    const absolute = path.resolve(root, target.startsWith("~/") ? path.join(home, target.slice(2)) : target);
+    const within = (base: string) => { const relative = path.relative(base, absolute); return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative)); };
+    if (within(root) || [os.tmpdir(), "/tmp", "/private/tmp", "/var/folders", "/private/var/folders"].some(within)) return;
+    const folder = event.toolName === "read" ? path.dirname(absolute) : absolute;
+    if (this.outsideFolders.has(folder)) return;
+    this.outsideFolders.add(folder);
+    this.outsideToSay.push(tildePath(folder, home));
+  }
+
+  /** One line under the turn's steps, at every display level: it is about where the AI looked, not a step. */
+  private sayOutsideReads(): void {
+    if (!this.outsideToSay.length) return;
+    this.output.write(`[read] outside this project: ${this.outsideToSay.map(terminalText).join(", ")}\n`);
+    this.outsideToSay = [];
+    this.endedWithNewline = true;
+  }
 
   /** Tool lines: relative paths, and on a rich terminal one row at its current width (inside the box when boxed). */
   private fit(inset = 0): { root?: string; width?: number } {
@@ -344,6 +374,7 @@ export class RuntimeEventView {
       }
       case "tool_end": {
         this.callbacks.onToolEnd(event);
+        this.noteOutsideRead(event);
         const started = event.toolCallId ? this.toolStarted.get(event.toolCallId) : undefined;
         if (event.toolCallId) { this.toolStarted.delete(event.toolCallId); this.clearSlowStart(event.toolCallId); }
         const elapsed = started === undefined ? undefined : performance.now() - started;
@@ -393,6 +424,7 @@ export class RuntimeEventView {
         this.fold();
         this.toolStarted.clear();
         this.ensureLineBreak();
+        this.sayOutsideReads();
         break;
       case "turn_limit":
         this.callbacks.turnLimitReached(event.turns);
