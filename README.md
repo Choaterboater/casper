@@ -321,7 +321,8 @@ it. What each version changed, in more detail: [RELEASE.md](docs/RELEASE.md).
 
 Later, not scheduled: vendor packs (`casper pack add aruba` sets up a vendor's MCP server,
 read-only preset, references and skill in one step), `casper doctor` (Casper checks and fixes its
-own setup) and tool rules you write (for example, bounces only on lab sites in a maintenance window). See the [roadmap](https://choaterboater.github.io/casper/roadmap.html#later).
+own setup), community lessons (fixes proven by passing checks, shared as a pack) and tool rules you
+write (for example, bounces only on lab sites in a maintenance window). See the [roadmap](https://choaterboater.github.io/casper/roadmap.html#later).
 
 ## Develop from source
 
