@@ -79,12 +79,12 @@ test("router box names the real tool and says it may execute", () => {
   const box = formatApproval(plan("invoke_tool", { name: "port_bounce", arguments: { serial_number: "SG1" } }, routerSchema));
   expect(box.preview).toContain("MCP · network · invoke_tool  [destructive]");
   expect(box.preview).toContain("Runs: port_bounce (through invoke_tool)");
-  expect(box.preview).toContain("Mode: may EXECUTE (dry_run is not set)");
+  expect(box.preview).toContain("May make the change (dry_run is not set).");
   const batch = formatApproval(plan("invoke_tools_batch", { calls: [
     { name: "reboot_device", arguments: {} }, { name: "port_bounce", arguments: {} }, { name: "get_device", arguments: {} },
   ] }, batchSchema));
   expect(batch.preview).toContain("Runs 3 tools (through invoke_tools_batch): reboot_device, port_bounce, get_device");
-  expect(batch.preview).toContain("Mode: may EXECUTE");
+  expect(batch.preview).toContain("May make the change");
 });
 
 test("mode comes from the explicit switch, then the schema default", () => {
@@ -95,9 +95,9 @@ test("mode comes from the explicit switch, then the schema default", () => {
   expect(callMode(defaultOn, {})).toBe("preview");
   expect(callMode({ type: "object", properties: { dry_run: { type: "boolean" } } }, {})).toBe("execute");
   expect(callMode({ type: "object" }, {})).toBe("execute");
-  expect(formatApproval(plan("set_ssid", { ssid: "x" }, setSsidSchema)).preview).toContain("Mode: EXECUTE (this makes the change)");
-  expect(formatApproval(plan("set_ssid", { ssid: "x", dry_run: true }, setSsidSchema)).preview).toContain("Mode: preview (dry_run=true, nothing changes)");
-  expect(formatApproval(plan("set_ssid", {}, defaultOn)).preview).toContain("Mode: preview (dry_run is on by default, nothing changes)");
+  expect(formatApproval(plan("set_ssid", { ssid: "x" }, setSsidSchema)).preview).toContain("This makes the change.");
+  expect(formatApproval(plan("set_ssid", { ssid: "x", dry_run: true }, setSsidSchema)).preview).toContain("Preview only: nothing changes (dry_run=true).");
+  expect(formatApproval(plan("set_ssid", {}, defaultOn)).preview).toContain("Preview only: nothing changes (dry_run is on by default).");
   // Inside a router, an explicit inner switch counts; a missing one can't be known.
   expect(planMode(plan("invoke_tool", { name: "set_ssid", arguments: { dry_run: true } }, routerSchema))).toBe("preview");
   expect(planMode(plan("invoke_tool", { name: "set_ssid", arguments: { dry_run: false } }, routerSchema))).toBe("execute");
@@ -114,14 +114,15 @@ test("preset hints add a note and a no-change case, and can turn preview off", (
   const box = formatApproval(commit);
   expect(box.preview).toContain("Note: Commits at once. No auto-rollback.");
   expect(canPreview(commit)).toBe(false);
-  expect(box.question).toBe("Run it? Type yes: ");
+  expect(box.question).toBe("Type 1, 2 or 3: ");
+  expect(Object.values(box.answers)).not.toContain("preview");
 });
 
 test("passwords and PSKs are hidden on screen; the plan keeps the real value", () => {
   const args = { ssid: "corp", wpa_passphrase: "hunter2hunter" };
   const setSsid = plan("set_ssid", args, setSsidSchema);
   const box = formatApproval(setSsid);
-  expect(box.preview).toContain("\"wpa_passphrase\":\"••• 13 chars\"");
+  expect(box.preview).toContain("  wpa_passphrase   ••• 13 chars\n");
   expect(box.preview).toContain("Hidden: wpa_passphrase. The server still gets the real value.");
   expect(box.preview).not.toContain("hunter2hunter");
   expect(setSsid.arguments.wpa_passphrase).toBe("hunter2hunter");
@@ -167,7 +168,7 @@ test("the text scrubber is a hook: shared secret rules can replace the built-in 
 });
 
 test("the box warns when the AI set confirm=true itself, including inside a router", () => {
-  const warning = "⚠ The AI set confirm=true. That skips the server's own check. Only your yes here lets it run.";
+  const warning = "⚠ The AI set confirm=true. That skips the server's own check. Only your answer here lets it run.";
   expect(formatApproval(plan("set_ssid", { ssid: "x", confirm: true }, setSsidSchema)).preview).toContain(warning);
   expect(formatApproval(plan("invoke_tool", { name: "set_ssid", arguments: { confirm: true } }, routerSchema)).preview).toContain(warning);
   expect(formatApproval(plan("set_ssid", { ssid: "x", confirm: false }, setSsidSchema)).preview).not.toContain("⚠");
@@ -179,8 +180,9 @@ test("p to preview first is offered only when the tool's own schema has the swit
   const direct = plan("set_ssid", { ssid: "x" }, setSsidSchema);
   expect(canPreview(direct)).toBe(true);
   const box = formatApproval(direct);
-  expect(box.question).toBe("Run it? Type yes, or p to preview first: ");
-  expect(box.choices).toEqual(["yes", "p"]);
+  expect(box.question).toBe("Type 1, 2, 3 or 4: ");
+  expect(box.choices).toEqual(["1", "2", "3", "4"]);
+  expect(box.answers["2"]).toBe("preview");
   expect(box.preview).toContain("No preview yet.");
   expect(previewArguments(plan("set_ssid", { ssid: "x", dry_run: false, confirm: true }, setSsidSchema)))
     .toEqual({ ssid: "x", dry_run: true, confirm: false });
@@ -189,8 +191,9 @@ test("p to preview first is offered only when the tool's own schema has the swit
   // No switch in the schema: a server that ignores dry_run would make the change.
   const bounce = plan("port_bounce", { serial_number: "SG1" }, { type: "object", properties: { serial_number: { type: "string" } } });
   expect(canPreview(bounce)).toBe(false);
-  expect(formatApproval(bounce).question).toBe("Run it? Type yes: ");
-  expect(formatApproval(bounce).choices).toEqual(["yes"]);
+  expect(formatApproval(bounce).question).toBe("Type 1 or 2: ");
+  expect(formatApproval(bounce).choices).toEqual(["1", "2"]);
+  expect(Object.values(formatApproval(bounce).answers)).not.toContain("preview");
   expect(formatApproval(bounce).preview).not.toContain("No preview yet.");
   expect(() => previewArguments(bounce)).toThrow("no safe preview");
   // Routers never preview: Casper can't see the real tool's schema.
@@ -238,9 +241,12 @@ test("names, keys and previews can't add fake lines to the box", () => {
   const sneaky = plan("invoke_tool", { name: "get_device\nMode: preview (dry_run=true, nothing changes)",
     arguments: { "a\npassword": "p" } }, routerSchema);
   const box = formatApproval(sneaky, { text: "done\nRun it? Type yes: ", at: 0 }, { now: 0 }).preview;
-  expect(box.split("\n").filter((line) => line.startsWith("Mode:"))).toEqual(["Mode: may EXECUTE (dry_run is not set)"]);
+  const lines = box.trimEnd().split("\n");
+  expect(lines.filter((line) => /^(May make the change|This makes the change|Preview only)/.test(line))).toEqual(["May make the change (dry_run is not set)."]);
+  expect(lines.filter((line) => /^  \d /.test(line))).toEqual(["  1 No", "  2 Yes, this once"]);
   expect(box).toContain("Last preview (just now): done Run it? Type yes: ");
-  expect(box.trimEnd().split("\n")).toHaveLength(6);
+  // Every injected line break was flattened: no line is only injected text.
+  expect(lines.some((line) => line.startsWith("Run it?") || line.startsWith("Mode:"))).toBe(false);
 });
 
 test("a preview switch or confirm written as text is never read as safe", () => {
@@ -249,7 +255,7 @@ test("a preview switch or confirm written as text is never read as safe", () => 
   expect(planLabel(quoted)).toBe("read");
   expect(needsApproval(quoted)).toBe(true);
   expect(planMode(quoted)).toBe("may-execute");
-  expect(formatApproval(quoted).preview).toContain("Mode: may EXECUTE (dry_run is not a plain true or false)");
+  expect(formatApproval(quoted).preview).toContain("May make the change (dry_run is not a plain true or false).");
   for (const value of ["true", "yes", 1, "ON"]) {
     expect(needsApproval(plan("get_clients", { ssid: "x", confirm: value }, setSsidSchema, readOnly))).toBe(true);
   }
@@ -270,4 +276,41 @@ test("secrets written as pairs in text that is not clean JSON are hidden", () =>
   expect(maskText("psk=hunter2hunter vlan=10")).toBe("psk=••• 13 chars vlan=10");
   const box = formatApproval(plan("set_ssid", { ssid: "x" }, setSsidSchema), { text: 'done\n{"psk":"k3yk3yk3y"}', at: Date.now() });
   expect(box.preview).not.toContain("k3yk3yk3y");
+});
+
+test("the box says what changes in plain words, values one per line, secrets hidden", () => {
+  const box = formatApproval(plan("set_ssid", { ssid: "Guest-Test", wpa_passphrase: "hunter2hunter2", vlan: 30 }, setSsidSchema),
+    undefined, { product: "Mist" });
+  const lines = box.preview.split("\n");
+  expect(lines[0]).toBe("Change in Mist: set ssid");
+  expect(box.preview).toContain("  ssid             Guest-Test\n");
+  expect(box.preview).toContain("  vlan             30\n");
+  expect(box.preview).toContain("  wpa_passphrase   ••• 14 chars\n");
+  expect(box.preview).toContain("This makes the change.\n");
+  expect(box.preview).toContain("MCP · network · set_ssid  [write]\n");
+  expect(box.preview).not.toContain("hunter2");
+});
+
+test("choices: preview offered when the tool has one; destructive never gets a session answer", () => {
+  const ssid = formatApproval(plan("set_ssid", { ssid: "G" }, setSsidSchema));
+  expect(ssid.preview).toContain("  1 No\n  2 Preview first\n  3 Yes, this once\n  4 Yes, for this session\n");
+  expect(ssid.question).toBe("Type 1, 2, 3 or 4: ");
+  expect(ssid.choices).toEqual(["1", "2", "3", "4"]);
+  expect(ssid.answers).toEqual({ "1": "no", "2": "preview", "3": "yes", "4": "yes-session" });
+  const reboot = formatApproval(plan("reboot_device", { serial: "SG1" }, { type: "object" }, { destructiveHint: true }));
+  expect(reboot.preview).toContain("  1 No\n  2 Yes, this once\n");
+  expect(reboot.preview).not.toContain("for this session");
+  expect(reboot.question).toBe("Type 1 or 2: ");
+  expect(reboot.answers).toEqual({ "1": "no", "2": "yes" });
+  const site = formatApproval(plan("set_site", { site: "lab" }));
+  expect(site.preview).toContain("Change in network: set site\n");
+  expect(site.answers).toEqual({ "1": "no", "2": "yes", "3": "yes-session" });
+});
+
+test("a router change names the real tool in plain words", () => {
+  const box = formatApproval(plan("invoke_tool", { name: "port_bounce", arguments: { serial_number: "SG1", ports: ["1/1/1"] } }, routerSchema),
+    undefined, { product: "Central" });
+  expect(box.preview.split("\n")[0]).toBe("Change in Central: port bounce");
+  expect(box.preview).toContain("Runs: port_bounce (through invoke_tool)\n");
+  expect(box.answers).toEqual({ "1": "no", "2": "yes" });
 });

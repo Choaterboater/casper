@@ -13,6 +13,7 @@
  * Secret text inside config strings goes through the shared secret rules (src/secrets/scrub.ts
  * scrubText) by default; `MaskOptions.scrubText` can replace them.
  */
+import { APPROVE_CHOICES, APPROVE_ONCE_CHOICES, APPROVE_ONCE_PREVIEW_CHOICES, APPROVE_PREVIEW_CHOICES, numberedLines } from "../app/safe-choices";
 import type { MCPTool } from "../mcp/manager";
 import { isSecretKey as isScrubbedKey, scrubText } from "../secrets/scrub";
 import { redactPreview, terminalText } from "../tui/format";
@@ -383,13 +384,25 @@ function ago(at: number, now: number): string {
 }
 
 function modeLine(detail: ModeDetail): string {
-  if (detail.mode === "execute") return "Mode: EXECUTE (this makes the change)";
+  if (detail.mode === "execute") return "This makes the change.";
   if (detail.mode === "may-execute") {
-    return `Mode: may EXECUTE (${detail.key} ${detail.why === "unclear" ? "is not a plain true or false" : "is not set"})`;
+    return `May make the change (${detail.key} ${detail.why === "unclear" ? "is not a plain true or false" : "is not set"}).`;
   }
-  if (detail.why === "hint") return "Mode: preview (nothing changes)";
-  if (detail.why === "default") return `Mode: preview (${detail.key} is on by default, nothing changes)`;
-  return `Mode: preview (${detail.key}=true, nothing changes)`;
+  if (detail.why === "hint") return "Preview only: nothing changes.";
+  if (detail.why === "default") return `Preview only: nothing changes (${detail.key} is on by default).`;
+  return `Preview only: nothing changes (${detail.key}=true).`;
+}
+
+/** "set_ssid" -> "set ssid", "rebootDevice" -> "reboot device". */
+export function toolWords(name: string): string {
+  return name.replace(/([a-z0-9])([A-Z])/g, "$1 $2").split(/[_\-\s.]+/).filter(Boolean).join(" ").toLowerCase();
+}
+
+/** One "  key   value" line per argument, secrets already masked. */
+function valueLines(value: unknown): string[] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value === undefined ? [] : [`  ${JSON.stringify(value)}`];
+  return Object.entries(value as Record<string, unknown>).map(([key, item]) =>
+    `  ${key.padEnd(16)} ${typeof item === "string" ? item : JSON.stringify(item)}`);
 }
 
 function list(items: string[]): string {
@@ -401,26 +414,35 @@ export function tooLongToShow(args: Record<string, unknown>): boolean {
   return Buffer.byteLength(JSON.stringify(args)) > MAX_SHOWN_ARGUMENT_BYTES;
 }
 
-/** The approval box text, the question and the answers it accepts. */
-export function formatApproval(plan: ApprovalPlan, lastPreview?: LastPreview, options: FormatOptions = {}):
-{ preview: string; question: string; choices: string[] } {
-  const lines = [`MCP · ${plan.server} · ${plan.tool}  [${planLabel(plan)}]`];
+/** What one digit in the change box means. */
+export type ApprovalChoice = "no" | "preview" | "yes" | "yes-session";
+
+/**
+ * The change box: what changes in plain words, one value per line (secrets hidden), whether it makes the change,
+ * then numbered choices. 1 is always No; "Preview first" only when the tool's own preview can run; a destructive
+ * change gets no "for this session" answer. The technical line (server, tool, label) closes the box.
+ */
+export function formatApproval(plan: ApprovalPlan, lastPreview?: LastPreview, options: FormatOptions & { product?: string } = {}):
+{ preview: string; question: string; choices: string[]; answers: Record<string, ApprovalChoice> } {
+  const single = plan.routed.length === 1 && !plan.routerUnclear ? plan.routed[0]! : undefined;
+  const lines = [`Change in ${options.product ?? plan.server}: ${toolWords(single?.name ?? plan.tool)}`];
   if (plan.routerUnclear && !plan.routed.length) lines.push(`Runs: a tool Casper can't see (through ${plan.tool})`);
-  else if (plan.routed.length === 1 && !plan.routerUnclear) lines.push(`Runs: ${plan.routed[0]!.name} (through ${plan.tool})`);
+  else if (single) lines.push(`Runs: ${single.name} (through ${plan.tool})`);
   else if (plan.routed.length) {
     const unseen = plan.routerUnclear ? ", and tools Casper can't see" : "";
     lines.push(`Runs ${plan.routed.length} tools (through ${plan.tool}): ${plan.routed.map((call) => call.name).join(", ")}${unseen}`);
   }
-  lines.push(modeLine(modeDetail(plan)));
-  if (plan.hint?.executeNote) lines.push(`Note: ${plan.hint.executeNote}`);
-  const masked = maskSecrets(plan.arguments, options);
-  lines.push(`Arguments: ${JSON.stringify(masked.value)}`);
+  // A single routed call shows its own arguments; anything else shows what was sent.
+  const masked = maskSecrets(single ? single.arguments : plan.arguments, options);
+  lines.push(...valueLines(masked.value));
   if (masked.hidden.length) {
     lines.push(`Hidden: ${masked.hidden.join(", ")}. The server still gets the real value${masked.hidden.length > 1 ? "s" : ""}.`);
   }
+  lines.push(modeLine(modeDetail(plan)));
+  if (plan.hint?.executeNote) lines.push(`Note: ${plan.hint.executeNote}`);
   const confirms = [...new Set(aiConfirm(plan.arguments).map((path) => path.split(".").at(-1)!))];
   if (confirms.length) {
-    lines.push(`⚠ The AI set ${list(confirms.map((key) => `${key}=true`))}. That skips the server's own check. Only your yes here lets it run.`);
+    lines.push(`⚠ The AI set ${list(confirms.map((key) => `${key}=true`))}. That skips the server's own check. Only your answer here lets it run.`);
   }
   const offer = canPreview(plan);
   if (lastPreview) {
@@ -428,10 +450,19 @@ export function formatApproval(plan: ApprovalPlan, lastPreview?: LastPreview, op
     const cut = text.length > LAST_PREVIEW_CHARS ? `${text.slice(0, LAST_PREVIEW_CHARS)} … (more not shown)` : text;
     lines.push(`Last preview (${ago(lastPreview.at, options.now ?? Date.now())}): ${cut}`);
   } else if (offer) lines.push("No preview yet.");
+  lines.push(`MCP · ${plan.server} · ${plan.tool}  [${planLabel(plan)}]`);
+  const destructive = planLabel(plan) === "destructive";
+  const labels: readonly string[] = destructive ? (offer ? APPROVE_ONCE_PREVIEW_CHOICES : APPROVE_ONCE_CHOICES)
+    : offer ? APPROVE_PREVIEW_CHOICES : APPROVE_CHOICES;
+  const meaning: Record<string, ApprovalChoice> = { "No": "no", "Preview first": "preview", "Yes, this once": "yes", "Yes, for this session": "yes-session" };
+  const choices = labels.map((_, index) => String(index + 1));
+  const answers = Object.fromEntries(labels.map((label, index) => [String(index + 1), meaning[label]!]));
+  const last = choices.at(-1)!;
   return {
-    // Every line is one line: a tool name, key or preview can't add a fake "Mode:" or "Run it?" line.
-    preview: `${lines.map((line) => terminalText(line.replace(LINE_BREAKS, " "))).join("\n")}\n`,
-    question: offer ? "Run it? Type yes, or p to preview first: " : "Run it? Type yes: ",
-    choices: offer ? ["yes", "p"] : ["yes"],
+    // Every line is one line: a tool name, key or value can't add a fake choice or question line.
+    preview: `${lines.map((line) => terminalText(line.replace(LINE_BREAKS, " "))).join("\n")}\n${numberedLines(labels)}`,
+    question: `Type ${choices.length === 2 ? "1 or 2" : `${choices.slice(0, -1).join(", ")} or ${last}`}: `,
+    choices,
+    answers,
   };
 }
