@@ -205,3 +205,10 @@ describe("bundled network skills: version lock", () => {
     }
   });
 });
+
+test("the changing-things line points MCP changes at Casper's change box (no second ask in chat) and still stops for everything else", () => {
+  expect(STOP_AND_ASK_LINE).toContain("Casper's change box");
+  expect(STOP_AND_ASK_LINE).toContain("don't ask again in chat");
+  expect(STOP_AND_ASK_LINE).toContain("ask the user first");
+  expect(STOP_AND_ASK_LINE).toContain("exact call");
+});

@@ -496,7 +496,7 @@ skills:
 ```
 
 A skill in `~/.casper/skills/` with the same name as a bundled one replaces it only while it
-keeps the bundled layout and the "Stop and ask the user" line; otherwise the bundled text is used
+keeps the bundled layout and its "Changing things" opening line; otherwise the bundled text is used
 and `/skills diagnostics` says why. A project's same-name skill never replaces a bundled one. See
 [SKILLS.md](SKILLS.md).
 

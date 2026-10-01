@@ -96,7 +96,7 @@ describe("the app with the pack", () => {
       output = "";
       await app.runOnce("list APs per site in Mist");
       expect(output).toContain(" skills selected: network-mist-api");
-      expect(runtime.prompts[0]).toContain("Stop and ask the user before running anything in this section.");
+      expect(runtime.prompts[0]).toContain("MCP: Casper's change box asks; don't ask again in chat.");
       await app.runOnce("fix the css");
       expect(runtime.prompts[1]).not.toContain("network-");
       expect(runtime.prompts[1]).not.toContain("Stop and ask the user");

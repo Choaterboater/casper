@@ -10,7 +10,7 @@ casper-skill:
     strong: ["aos cx", "aoscx", "arubaos cx", "pyaoscx", "aruba cx", "cx switch", "cx switches", "arubanetworks.aoscx"]
     weak: ["cx"]
   frameworks: [aoscx]
-  version: 1
+  version: 2
 ---
 # AOS-CX switch REST API
 
@@ -75,7 +75,7 @@ finally:
 ```
 
 ## Changing things (Casper asks)
-Stop and ask the user before running anything in this section. Show the exact call first.
+MCP: Casper's change box asks; don't ask again in chat. Else ask the user first; show the exact call.
 Casper also asks before a shell command reaches a new host.
 - REST changes go to the running config. First save a checkpoint (the undo copy), then GET
   the object with `selector=writable`, change only the fields you need, show the diff.

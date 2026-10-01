@@ -23,7 +23,7 @@ Loader:
   Changing things (Casper asks) · Paging and rate limits · Common traps · Testing with saved sample
   data · Public docs.
 - "Changing things (Casper asks)" opens with these two lines:
-  `Stop and ask the user before running anything in this section. Show the exact call first.`
+  `MCP: Casper's change box asks; don't ask again in chat. Else ask the user first; show the exact call.`
   `Casper also asks before a shell command reaches a new host.`
 - Never: "secure", "guarantee(d)", "read-only", "read only", "safe to run", "harmless",
   "cannot change", "won't change".

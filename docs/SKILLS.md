@@ -26,8 +26,9 @@ What they teach, in short:
 - **Read first.** The calls that ask for data come first (who am I, sites, device list, version).
   No skill calls any call or login read-only: only the product's own access check decides what a
   token or login may do.
-- **Changes wait for you.** "Changing things" opens with "Stop and ask the user before running
-  anything in this section. Show the exact call first." Every change call is marked `WRITE:`. The
+- **Changes wait for you.** "Changing things" opens with one line: changes through an MCP server
+  are asked in Casper's change box (the AI doesn't ask again in chat); anything else that changes a
+  device (scripts, playbooks, shell) stops and asks you first, with the exact call. Every change call is marked `WRITE:`. The
   AI is told to GET the object first, show you the diff, and say how to undo.
 - **Credentials from environment variables only**, never in code, output or saved samples.
 - **Tests with saved sample data**, never live calls: pytest with `pytest-recording

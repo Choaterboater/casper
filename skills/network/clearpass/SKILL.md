@@ -10,7 +10,7 @@ casper-skill:
     strong: ["clearpass", "pyclearpass", "cppm", "clearpass api", "clearpass policy manager"]
     weak: []
   frameworks: [clearpass]
-  version: 1
+  version: 2
 ---
 # ClearPass Policy Manager REST API
 
@@ -83,7 +83,7 @@ while True:
 With pyclearpass: `ApiIdentities.get_endpoint(login, offset="0", limit="500")`.
 
 ## Changing things (Casper asks)
-Stop and ask the user before running anything in this section. Show the exact call first.
+MCP: Casper's change box asks; don't ask again in chat. Else ask the user first; show the exact call.
 Casper also asks before a shell command reaches a new host.
 - First GET the object, change only the fields you need, show the diff of the body.
 - Changes can reach users at once: with `change_of_authorization=true` (or the server's
