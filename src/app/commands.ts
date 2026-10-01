@@ -868,7 +868,7 @@ async function handleMCPWrites(host: CommandHost, name: string): Promise<void> {
     const on = mcp.writesOn();
     if (!on.length) { host.output.write("[mcp] Writes are already off for every server.\n"); return; }
     await Promise.all(on.map((server) => mcp.setWrites(server, false)));
-    for (const server of on) host.output.write(`[mcp] Writes off for ${server}. Write tools are hidden again.\n`);
+    for (const server of on) host.output.write(`[mcp] Writes off for ${server}. Every change asks you again.\n`);
     host.updateFooter();
     return;
   }

@@ -73,15 +73,15 @@
           </article>
           <article class="card">
             <h3>Writes start off</h3>
-            <p>Write and delete tools are hidden. Only you can turn them on, one server at a time, with <code>/mcp writes &lt;name&gt;</code>.</p>
+            <p>The server runs with its read-only settings, and every change asks you first. Only you can allow it, one server at a time.</p>
           </article>
           <article class="card">
-            <h3>Changes wait for your typed <code>yes</code></h3>
-            <p>Any tool above <code>read</code> asks first. Anything but a freshly typed <code>yes</code> is no.</p>
+            <h3>Changes ask in plain words</h3>
+            <p>Any tool above <code>read</code> shows what it changes, then <code>1 No · 2 Yes, this once · 3 Yes, for this session</code>. Enter is No; destructive changes always ask.</p>
           </article>
           <article class="card">
             <h3>The AI can't approve</h3>
-            <p>It has no approval token and no blanket write flag. Its ask tool can't answer the approval box.</p>
+            <p>It has no approval token and no write flag it can set. Its ask tool can't answer the change box.</p>
           </article>
           <article class="card">
             <h3>Read-only only when the product says so</h3>
@@ -205,20 +205,20 @@
 fixture [stdio; disconnected] 0 tools · writes off
   source: ~/.casper/mcp.json
   limits: start 20 s · call 90 s
-Writes off: write and delete tools are hidden, and every other change still asks you. /mcp writes
-&lt;name&gt; turns writes on.
+Writes off: the server runs with its read-only settings, and every change asks you first. Answer 2
+or 3 in the change box to allow it, or /mcp writes &lt;name&gt; to turn writes on now.
 <span class="prompt">❯</span> <span class="you">/mcp connect fixture</span>
 fixture [stdio; ready] 340 tools · writes off · access not checked
   source: ~/.casper/mcp.json
   limits: start 20 s · call 90 s
-Writes off: write and delete tools are hidden, and every other change still asks you. /mcp writes
-&lt;name&gt; turns writes on.
+Writes off: the server runs with its read-only settings, and every change asks you first. Answer 2
+or 3 in the change box to allow it, or /mcp writes &lt;name&gt; to turn writes on now.
 Remember this server? Next time it connects on its own, with writes off. Every change still asks
 you.
-  1 Remember
-  2 Just this time
+  1 Just this time
+  2 Remember
 Type 1 or 2:
-<span class="dim"># (typed: 2)</span>
+<span class="dim"># (typed: 1)</span>
 <span class="dim">[mcp] Not remembered. fixture is connected for this session only.</span></pre>
           <figcaption>A real Casper 0.2.15 run against a local test server that never touches a device. Note <code>access not checked</code>: nobody has proven this login is read-only.</figcaption>
         </figure>
@@ -270,56 +270,55 @@ Type 1 or 2:
 
         <h3>The AI can't approve for you</h3>
         <ul class="prose">
-          <li><strong>No shortcut exists.</strong> There is no blanket write flag and no approval token the AI can set.</li>
-          <li><strong>Sneaky arguments ask too.</strong> If the AI sets <code>confirm</code>, <code>confirmed</code>, <code>confirmation</code> or <code>force</code> to true (in any spelling, or as <code>"yes"</code> or <code>1</code>), Casper asks even for a read tool. Same if it turns a preview switch like <code>dry_run</code> off. The box then warns: <code>⚠ The AI set confirm=true. That skips the server's own check. Only your yes here lets it run.</code></li>
+          <li><strong>No shortcut exists for the AI.</strong> There is no write flag and no approval token the AI can set. "Yes, for this session" is yours to give, per server, and destructive changes still ask.</li>
+          <li><strong>Sneaky arguments ask too.</strong> If the AI sets <code>confirm</code>, <code>confirmed</code>, <code>confirmation</code> or <code>force</code> to true (in any spelling, or as <code>"yes"</code> or <code>1</code>), Casper asks even for a read tool. Same if it turns a preview switch like <code>dry_run</code> off. The box then warns: <code>⚠ The AI set confirm=true. That skips the server's own check. Only your answer here lets it run.</code></li>
           <li><strong>Server questions reach only you.</strong> When a server asks "Confirm PORT BOUNCE on SG1 ports [1/1/1]?", the AI never sees the question and has no tool to answer it.</li>
-          <li><strong>No terminal, no yes.</strong> One-shot runs can't ask, so a call that needs approval fails with <code>Not executed (needs your approval, and this run cannot ask)</code>.</li>
+          <li><strong>No terminal, no approval.</strong> One-shot runs can't ask, so a call that needs approval fails with <code>Not executed (needs your approval, and this run cannot ask)</code>.</li>
           <li><strong>A failed call is never retried on its own.</strong> A lost answer does not prove nothing happened.</li>
         </ul>
 
-        <p class="prose">Here is a write tool asking. We typed <code>no</code>, then pressed ctrl+o:</p>
+        <p class="prose">Here is a write tool asking. We typed <code>2</code> (Yes, this once):</p>
         <figure class="capture">
 <pre class="term" data-title="casper — ~/project"><span class="prompt">❯</span> <span class="you">set the lab site on the fixture server</span>
-<span class="dim">[model] scripted/site-capture · off · credentials configured</span>
 I will ask the fixture server to change the site.
-<span class="warn">MCP · fixture · set_site  [write]</span>
-Mode: EXECUTE (this makes the change)
-Arguments: {"site":"lab"}
-Run it? Type yes:
+<span class="warn">Change in fixture: set site</span>
+  site             lab
+This makes the change.
+<span class="dim">MCP · fixture · set_site  [write]</span>
+  1 No
+  2 Yes, this once
+  3 Yes, for this session
+Type 1, 2 or 3:
 
-<span class="dim"># (typed: no)</span>
+<span class="dim"># (typed: 2)</span>
 
-<span class="dim">[approval] denied</span>
-The change was not made.
-
-<span class="dim"># (pressed ctrl+o)</span>
-
-<span class="dim">[mcp] Writes off for fixture. Write tools are hidden again.</span></pre>
-          <figcaption>Real Casper 0.2.15 code. The "model" here is a scripted stand-in, so the result does not depend on an AI. Writes were on for this server from the run in the next section.</figcaption>
+<span class="dim">[approval] allowed</span>
+The site is now lab.</pre>
+          <figcaption>The model here is a scripted stand-in, so the result does not depend on an AI. A key typed before the box appeared never answers it.</figcaption>
         </figure>
-        <p class="prose small muted">If the tool has a preview switch, the question becomes <code>Run it? Type yes, or p to preview first:</code>. <code>p</code> runs a dry run and shows the box again. Passwords and PSKs in the box show as <code>••• 13 chars</code> on your screen; the server still gets the real value you approve.</p>
+        <p class="prose small muted">If the tool has a preview switch, <code>2 Preview first</code> is added: it runs a dry run and shows the box again with the result. Passwords and PSKs in the box show as <code>••• 13 chars</code> on your screen; the server still gets the real value you approve.</p>
       </section>
 
       <section id="writes" aria-labelledby="writes-title">
         <h2 id="writes-title">Writes are off until you say so</h2>
         <div class="prose">
-          <p>Every server starts with writes off, remembered ones too. That means write and delete tools are hidden from the AI, and refused if it tries anyway: <code>Not executed (&lt;server&gt; writes are off. Only the user can turn them on with /mcp writes &lt;server&gt;.)</code> Other changes (no label, or <code>exec</code>) are still shown, and still ask each time.</p>
-          <p>Turning writes on takes two steps, and only you can do them: type <code>/mcp writes &lt;server&gt;</code>, then pick <code>1</code>.</p>
+          <p>Every server starts with writes off, remembered ones too. That means the server runs with its read-only settings, and every change asks you first in the change box.</p>
+          <p>You allow changes from that box: <code>2</code> for this one change (writes go back off after it), or <code>3</code> for the rest of the session on that server (destructive changes still ask every time). To turn writes on ahead of time, type <code>/mcp writes &lt;server&gt;</code> and pick <code>2</code>.</p>
         </div>
         <figure class="capture">
 <pre class="term" data-title="casper — ~/project"><span class="prompt">❯</span> <span class="you">/mcp writes fixture</span>
 fixture writes are off.
-  1 Enable for this server
-  2 Keep writes off
+  1 Keep writes off
+  2 Enable for this server
 Type 1 or 2:
-<span class="dim"># (typed: 1)</span>
+<span class="dim"># (typed: 2)</span>
 <span class="dim">[mcp] Writes on for fixture. Each change still asks you. ctrl+o turns writes off.</span></pre>
-          <figcaption>Writes on does not mean "no more questions". Each change still waits for your typed <code>yes</code>.</figcaption>
+          <figcaption>Writes on does not mean "no more questions". Each change still shows the box.</figcaption>
         </figure>
         <ul class="prose">
           <li>While any server has writes on, the footer starts with <code>WRITES: &lt;servers&gt; · ctrl+o</code>. It is never cut off.</li>
-          <li><kbd>ctrl</kbd>+<kbd>o</kbd> (or <code>/mcp writes off</code>) turns writes off for <em>every</em> server at once, even while Casper is working, and denies any open approval box. Think of it as the big red button.</li>
-          <li>The AI's ask tool can't answer the writes box. In a one-shot run, <code>/mcp writes</code> says <code>Writes can only be turned on in an interactive session.</code></li>
+          <li><kbd>ctrl</kbd>+<kbd>o</kbd> (or <code>/mcp writes off</code>) turns writes off for <em>every</em> server at once, even while Casper is working, ends every "for this session" answer, and denies any open change box. Think of it as the big red button.</li>
+          <li>The AI's ask tool can't answer the change box or the writes box. In a one-shot run, <code>/mcp writes</code> says <code>Writes can only be turned on in an interactive session.</code></li>
           <li>If your own settings still keep writes off (say <code>HPE_MCP_ACCESS_PROFILE=safe-read-only</code> in your config), Casper tells you instead of pretending.</li>
         </ul>
       </section>
@@ -457,7 +456,7 @@ Exit codes: 0 no problems, 1 problems (or warnings with --strict), 64 usage mist
           <li><strong>Make a read-only token on the Mist side.</strong> An Observer org token. This is the part that really keeps it read-only, because Mist enforces it, not Casper.</li>
           <li><strong>Put it in your shell, not in a file.</strong> <code>export MIST_TOKEN=…</code>, then add the <a href="#setup-mist">Mist entry</a> with <code>Bearer ${MIST_TOKEN}</code> to <code>~/.casper/mcp.json</code>.</li>
           <li><strong>Start Casper and look.</strong> Type <code>/mcp</code>. You'll see <code>mist</code> as <code>disconnected</code>, with writes off.</li>
-          <li><strong>Connect.</strong> Type <code>/mcp connect mist</code>. Casper reminds you that it can't pin read-only on a hosted server and that access is not checked. Pick <code>1</code> to remember it or <code>2</code> for just this session.</li>
+          <li><strong>Connect.</strong> Type <code>/mcp connect mist</code>. Casper reminds you that it can't pin read-only on a hosted server and that access is not checked. Pick <code>1</code> for just this session or <code>2</code> to remember it.</li>
           <li><strong>Ask plainly.</strong> "List the APs at each site in Mist. Read only, no changes." The AI finds tools with <code>find_capability</code> (a word like <code>site</code> finds <code>mist_list_sites</code>) and calls them. Tools the server marks read-only run without asking. Anything else stops at the approval box for you.</li>
           <li><strong>Big orgs are cut to size.</strong> Each result the AI reads fits 16 KiB, and each list is cut to 50 items, with a note like <code>Partial result: … shows 50 of 2000. More: call again with next_cursor.</code> So the AI knows it saw only part, and can ask for the next page.</li>
           <li><strong>Secrets stay hidden.</strong> If a result carries a PSK or RADIUS key under a key like <code>psk</code> or <code>radius_key</code>, it arrives as <code>&lt;secret hidden&gt;</code>.</li>

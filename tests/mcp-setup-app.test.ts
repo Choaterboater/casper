@@ -122,7 +122,7 @@ test("writes on takes /mcp writes and then 2; 1 changes nothing; 2 drops the pin
   expect(output).toContain("Central writes are off.\n  1 Keep writes off\n  2 Enable for this server\nType 1 or 2: ");
   expect(output).toContain("[mcp] Writes stay off for aruba-central.");
   expect(output).toContain("[mcp] Writes on for aruba-central. Each change still asks you. /mcp writes off turns writes off.");
-  expect(output).toContain("[mcp] Writes off for aruba-central. Write tools are hidden again.");
+  expect(output).toContain("[mcp] Writes off for aruba-central. Every change asks you again.");
   const readOnly = envSeen.map((text) => (JSON.parse(text) as { data: { content: { data: { env: Record<string, string> } }[] } }).data.content[0]!.data.env.CENTRALMCP_READONLY);
   expect(readOnly).toEqual(["1", "0", "1"]);
   expect(app.terminal.badge).toBeUndefined();

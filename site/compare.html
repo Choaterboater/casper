@@ -191,7 +191,7 @@
               <tr>
                 <th scope="row">MCP servers</th>
                 <td class="no">Not built in ("No MCP" is part of Pi's design). Add it with an extension.</td>
-                <td class="yes">Built in. Every server starts with writes off. Each change waits for your typed <code>yes</code>. <code>ctrl+o</code> turns writes off again.</td>
+                <td class="yes">Built in. Every server starts with writes off. Each change asks in plain words: <code>1 No · 2 Yes, this once · 3 Yes, for this session</code>. <code>ctrl+o</code> turns writes off again.</td>
               </tr>
               <tr>
                 <th scope="row">"Read-only" label</th>
@@ -356,21 +356,21 @@ receipt
           <pre class="term" tabindex="0" data-title="casper — ~/project"><span class="prompt">❯</span> <span class="you">set the lab site on the fixture server</span>
 <span class="dim">[model]</span> scripted/site-capture · off · credentials configured
 I will ask the fixture server to change the site.
-MCP · fixture · set_site  <span class="warn">[write]</span>
-Mode: EXECUTE (this makes the change)
-Arguments: {"site":"lab"}
-Run it? Type yes:
+<span class="warn">Change in fixture: set site</span>
+  site             lab
+This makes the change.
+MCP · fixture · set_site  [write]
+  1 No
+  2 Yes, this once
+  3 Yes, for this session
+Type 1, 2 or 3:
 
-<span class="dim"># (typed: no)</span>
+<span class="dim"># (typed: 1)</span>
 
 [approval] denied
-The change was not made.
-
-<span class="dim"># (pressed ctrl+o)</span>
-
-[mcp] Writes off for fixture. Write tools are hidden again.</pre>
-          <figcaption>A local test server, not a real device. Anything but <code>yes</code> means no.
-          <code>ctrl+o</code> turns writes off again.</figcaption>
+The change was not made.</pre>
+          <figcaption>A local test server, not a real device. <code>1</code>, Enter or anything other than
+          2 or 3 means no. <code>ctrl+o</code> turns writes off again.</figcaption>
         </figure>
       </section>
 

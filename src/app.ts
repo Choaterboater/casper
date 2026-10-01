@@ -2685,7 +2685,7 @@ export class CasperApp {
     if (!on.length || this.closing) return false;
     // The gate flips at once; servers restart with their pins once their running calls finish.
     for (const server of on) void this.mcp!.setWrites(server, false).catch(() => {});
-    for (const server of on) this.output.write(`[mcp] Writes off for ${server}. Write tools are hidden again.\n`);
+    for (const server of on) this.output.write(`[mcp] Writes off for ${server}. Every change asks you again.\n`);
     this.updateFooter();
     return true;
   }

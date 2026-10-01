@@ -316,65 +316,57 @@ Changed sum.
       <section id="mcp" aria-labelledby="mcp-h">
         <h2 id="mcp-h">MCP servers and asks</h2>
         <p>MCP servers are tool servers the AI can call: think Aruba Central, Junos, Mist or NetBox.
-        In Casper every server starts with <strong>writes off</strong>. Write and delete tools are
-        hidden, and every other change still asks you.</p>
+        In Casper every server starts with <strong>writes off</strong>: every change asks you
+        first, in plain words, and only your answer lets it run.</p>
         <figure class="capture">
-          <pre class="term" tabindex="0" data-title="casper — ~/project"><span class="dim"># (typed answers: 2, then 1)</span>
+          <pre class="term" tabindex="0" data-title="casper — ~/project"><span class="dim"># (typed answer: 1)</span>
 
-<span class="prompt">❯</span> <span class="you">/mcp</span>
-fixture [stdio; disconnected] 0 tools · writes off
-  source: ~/.casper/mcp.json
-  limits: start 20 s · call 90 s
-Writes off: write and delete tools are hidden, and every other change still asks you. /mcp writes
-&lt;name&gt; turns writes on.
 <span class="prompt">❯</span> <span class="you">/mcp connect fixture</span>
 fixture [stdio; ready] 340 tools · writes off · access not checked
   source: ~/.casper/mcp.json
   limits: start 20 s · call 90 s
-Writes off: write and delete tools are hidden, and every other change still asks you. /mcp writes
-&lt;name&gt; turns writes on.
+Writes off: the server runs with its read-only settings, and every change asks you first. Answer 2
+or 3 in the change box to allow it, or /mcp writes &lt;name&gt; to turn writes on now.
 Remember this server? Next time it connects on its own, with writes off. Every change still asks
 you.
-  <span class="accent">1</span> Remember
-  <span class="accent">2</span> Just this time
+  <span class="accent">1</span> Just this time
+  <span class="accent">2</span> Remember
 Type 1 or 2:
-<span class="dim">[mcp]</span> Not remembered. fixture is connected for this session only.
-<span class="prompt">❯</span> <span class="you">/mcp writes fixture</span>
-fixture writes are off.
-  <span class="accent">1</span> Enable for this server
-  <span class="accent">2</span> Keep writes off
-Type 1 or 2:
-<span class="dim">[mcp]</span> Writes on for fixture. Each change still asks you. ctrl+o turns writes off.</pre>
-          <figcaption>Listing servers, connecting a local test server (it never talks to a device), and
-          turning its writes on. Note <code>access not checked</code>.</figcaption>
+<span class="dim">[mcp]</span> Not remembered. fixture is connected for this session only.</pre>
+          <figcaption>Connecting a local test server (it never talks to a device). Note
+          <code>access not checked</code>.</figcaption>
         </figure>
         <figure class="capture">
           <pre class="term" tabindex="0" data-title="casper — ~/project"><span class="prompt">❯</span> <span class="you">set the lab site on the fixture server</span>
-<span class="dim">[model]</span> scripted/site-capture · off · credentials configured
 I will ask the fixture server to change the site.
+Change in fixture: set site
+  site             lab
+This makes the change.
 MCP · fixture · set_site  [write]
-Mode: EXECUTE (this makes the change)
-Arguments: {"site":"lab"}
-Run it? Type yes:
+  <span class="accent">1</span> No
+  <span class="accent">2</span> Yes, this once
+  <span class="accent">3</span> Yes, for this session
+Type 1, 2 or 3:
 
-<span class="dim"># (typed: no)</span>
+<span class="dim"># (typed: 2)</span>
 
-<span class="dim">[approval]</span> denied
-The change was not made.
+<span class="dim">[approval]</span> allowed
+The site is now lab.
 
-<span class="dim"># (pressed ctrl+o)</span>
+<span class="dim"># (pressed ctrl+o later, after a "Yes, for this session")</span>
 
-<span class="dim">[mcp]</span> Writes off for fixture. Write tools are hidden again.</pre>
-          <figcaption>Even with writes on, a change waits for a typed <code>yes</code>. Anything else
-          is a no. ctrl+o turns writes off for every server at once.</figcaption>
+<span class="dim">[mcp]</span> Writes off for fixture. Every change asks you again.</pre>
+          <figcaption>The box says what changes. <code>2</code> runs this one change; <code>3</code> also
+          lets later changes on this server run for the rest of the session, except destructive ones,
+          which always ask. ctrl+o turns writes off for every server at once.</figcaption>
         </figure>
         <div class="grid two">
           <article class="card">
             <h3>What you see</h3>
-            <p>The tool, the server, <code>[write]</code>, the mode, the exact arguments, and
-            <code>Run it? Type yes:</code>. <code>/mcp writes &lt;name&gt;</code> is the only way to turn
-            writes on. A login shows as read-only only when the product itself says so; otherwise
-            it reads <code>access not checked</code>.</p>
+            <p>What changes, in plain words, one value per line with secrets hidden, then
+            <code>1 No · 2 Yes, this once · 3 Yes, for this session</code>. Enter is No. A key typed
+            before the box appeared never answers it. A login shows as read-only only when the
+            product itself says so; otherwise it reads <code>access not checked</code>.</p>
           </article>
           <article class="card">
             <h3>Why it matters</h3>
@@ -650,8 +642,8 @@ Press 1-2 or Up/Down + Enter · type to answer · Esc skip
           not tested.</figcaption>
         </figure>
         <p><strong>Why it matters:</strong> one key, no typing out long answers, and nothing expensive
-        happens behind your back. Approvals that change things are different on purpose: those need a
-        typed <code>yes</code>, like the MCP ask above.</p>
+        happens behind your back. The MCP change box above works the same way: it says what changes, and
+        only your 2 or 3 lets it run.</p>
       </section>
 
       <section id="terminal" aria-labelledby="terminal-h">

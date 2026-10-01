@@ -8,7 +8,8 @@ yes, and how much of each answer the AI reads.
 
 **When you'd use it.** When you want Casper to look things up in Aruba Central,
 Mist, ClearPass, NetBox, a Junos router and so on, through a server you trust.
-Every server starts with writes off. Changes always wait for your typed `yes`.
+Every server starts with writes off. Every change asks you first, in plain words:
+`1 No · 2 Yes, this once · 3 Yes, for this session`.
 
 Casper uses the pinned official MCP SDK (the library that speaks the protocol). No
 server and no credentials come with Casper.
@@ -339,19 +340,19 @@ may do.
 
 Every server starts with writes off, including remembered ones. Writes off means:
 
-- write and delete tools are hidden from search, the `"*"` list and the task tools,
-  and refused with
-  `Not executed (<server> writes are off. Only the user can turn them on with /mcp writes <server>.)`;
-- a write behind a read router (for example `invoke_read_tool` running a write
-  tool) is refused the same way;
-- the preset's pins are sent;
-- every other change (tools with no label, or `exec` tools) is still shown and
-  still asks you each time;
+- the server runs with its preset's read-only pins, where it has one;
+- every change asks you first, in the change box (see [Safety](#safety)); nothing changes without your answer;
 - the AI's `find_capability` description says
-  `<server>: writes are off. Only the user can turn them on.`
+  `<server>: every change asks the user first, in Casper's box; they can allow it once or for this session. Don't ask them again in chat.`
 
-Turning writes on takes two steps that only you can do. Type `/mcp writes <server>`,
-then pick `2` in the box:
+**From the change box (the usual way).** The first change on a server shows the box. Answer `2`
+(**Yes, this once**) or `3` (**Yes, for this session**) and Casper turns writes on for that server
+before the change runs: it waits for running calls and restarts the server without its pins.
+`Yes, this once` turns writes off again (pins back) after that change. `Yes, for this session`
+leaves them on, and later changes on that server that are not destructive run without a box until
+the session ends or you turn writes off (the transcript says `[approval] allowed (this session)`).
+
+**Ahead of time.** `/mcp writes <server>`, then `2` in the box, turns writes on before any change:
 
 ```text
 Central writes are off.
@@ -360,22 +361,24 @@ Central writes are off.
 Type 1 or 2:
 ```
 
-`1` (or anything other than `2`) keeps writes off. (Before v0.2.16 the two were the
-other way round.)
+`1` (or anything other than `2`) keeps writes off. Each change still asks you.
 
 - The box title uses the product name from the preset, else the server name.
-- `2` waits for running calls, restarts the server without the pins and prints
-  `[mcp] Writes on for <server>. Each change still asks you. ctrl+o turns writes off.`
 - When your own settings still keep writes off, Casper says so:
   `Casper removed its read-only pins, but your own settings still keep writes off (HPE_MCP_ACCESS_PROFILE=safe-read-only in ~/.claude.json).`
 - While any server has writes on, the footer starts with `WRITES: <servers> · ctrl+o`.
   It is never cut off.
 - ctrl+o (or `/mcp writes off`) turns writes off for every server at once, even
-  while Casper is working, and denies an open approval box:
-  `[mcp] Writes off for <server>. Write tools are hidden again.` A server that was
-  running without pins is restarted with them once its calls finish.
-- The AI's ask tool can't answer this box. `/mcp writes` in a one-shot run gives
-  `Writes can only be turned on in an interactive session.`
+  while Casper is working, ends every "for this session" answer and denies an open
+  box: `[mcp] Writes off for <server>. Every change asks you again.` A yes given in a
+  box that was open when writes went off does not count. A server that was running
+  without pins is restarted with them once its calls finish.
+- A read-only login (see [Access check](#access-check)) never gets writes: changes
+  stay hidden and the box is never offered.
+- Only you can do any of this. The AI's ask tool can't answer the change box or this
+  box, and one-shot runs never turn writes on
+  (`Writes can only be turned on in an interactive session.`; a change in a one-shot
+  run is `Not executed (needs your approval, and this run cannot ask)`).
 
 ## Small model-facing surface
 
@@ -507,38 +510,60 @@ Every tool gets a label. From least to most strict: `read`, `diagnostic`,
   - set a preview switch (`dry_run`, `dryRun`, `preview`, `check_only`,
     `validate_only`, in any spelling such as `dry-run` or `DryRun`) to `false`, or to
     anything other than plain true or false. Such a switch shows as
-    `Mode: may EXECUTE`.
-- **The approval box.** It shows:
-  - `MCP · <server> · <tool>  [label]`, and the real tool behind a router
-    (`Runs: port_bounce (through invoke_tool)`);
-  - the mode: `Mode: EXECUTE (this makes the change)`,
-    `Mode: preview (dry_run=true, nothing changes)`, or
-    `Mode: may EXECUTE (dry_run is not set)` for a router. When the switch is left
-    out, the mode uses the tool's schema default;
-  - passwords, PSKs, tokens and similar values as `"wpa_passphrase":"••• 13 chars"`
-    with a `Hidden:` line, and secrets inside config text as `<secret hidden>`. This
-    hides them on screen and in the transcript only: the server still gets the
-    real value, and the AI already had it;
-  - for an AI-set confirm:
-    `⚠ The AI set confirm=true. That skips the server's own check. Only your yes here lets it run.`;
-  - the last preview of the same call on the same connection, masked and cut to
-    about 1.5 KB.
-- **Only a freshly typed `yes` runs it.**
-  - The question is `Run it? Type yes: `, or
-    `Run it? Type yes, or p to preview first: ` when the tool's own schema has a
-    preview switch.
-  - `p` runs the same call with the switch on (and confirm off), then shows the box
-    again with `Last preview (just now)`.
-  - `p` is never offered through a router: Casper can't see the real tool's schema,
-    and a server that ignores an unknown `dry_run` would make the change.
-  - After three previews the box is shown once more with the last one, and only
-    `yes` runs it.
-  - Any other answer, Esc or Ctrl+C is no. The transcript records
-    `[approval] allowed`, `denied` or `preview first`.
+    `May make the change`.
+- **The change box.** It says what changes in plain words, then asks:
+
+  ```text
+  Change in Mist: set ssid
+    ssid             Guest-Test
+    vlan             30
+    wpa_passphrase   ••• 13 chars
+  Hidden: wpa_passphrase. The server still gets the real value.
+  This makes the change.
+  MCP · mist · set_ssid  [write]
+    1 No
+    2 Yes, this once
+    3 Yes, for this session
+  Type 1, 2 or 3:
+  ```
+
+  - The first line names the product (from the preset, else the server) and the real
+    tool in words; behind a router it adds `Runs: port_bounce (through invoke_tool)`
+    and shows that tool's own values.
+  - One value per line. Passwords, PSKs, tokens and similar values show as
+    `••• 13 chars` with a `Hidden:` line, and secrets inside config text as
+    `<secret hidden>`. This hides them on screen and in the transcript only: the server
+    still gets the real value, and the AI already had it.
+  - Whether it changes anything: `This makes the change.`,
+    `Preview only: nothing changes (dry_run=true).`, or
+    `May make the change (dry_run is not set).` for a router. When the switch is left
+    out, the tool's schema default decides.
+  - For an AI-set confirm:
+    `⚠ The AI set confirm=true. That skips the server's own check. Only your answer here lets it run.`
+  - The last preview of the same call on the same connection, masked and cut to about
+    1.5 KB. The technical line (`MCP · <server> · <tool>  [label]`) closes the box.
+- **The answers.** `1` (or Enter, Esc, Ctrl+C, or anything else) is **No**.
+  - `Yes, this once` runs this change.
+  - `Yes, for this session` runs it and lets later changes on the same server run without
+    a box until the session ends or writes go off (ctrl+o, `/mcp writes off`, a
+    disconnect). A **destructive** change (reboot, delete, bounce, upgrade…) never gets
+    this answer and always asks, and so does any change where the AI set `confirm` or
+    turned a preview off.
+  - `Preview first` (listed second when the tool's own schema has a preview switch) runs
+    the same call with the switch on (and confirm off), then shows the box again with
+    `Last preview (just now)`. It is never offered through a router: Casper can't see
+    the real tool's schema, and a server that ignores an unknown `dry_run` would make
+    the change. After three previews the box comes once more without it.
+  - Only a digit typed after the box appeared counts: anything typed before it is
+    discarded (`[input] Discarded 1 line(s) entered before this approval appeared.`),
+    and a terminal that can't show the box (TERM=dumb, or output redirected while input
+    is a terminal) is refused.
+  - The transcript records `[approval] allowed`, `allowed for this session`, `allowed
+    (this session)`, `denied` or `preview first`.
 - **Server questions reach only you.** Some servers ask before a risky action (MCP
   "elicitation"), for example `Confirm PORT BOUNCE on SG1 ports [1/1/1]?`.
-  - It is shown as `<server> asks about the <tool> call you approved:` and answered
-    only by your typed answer (`Answer? Type yes: `, or one of the server's options).
+  - It is shown as `<server> asks about the <tool> call you approved:`, numbered like
+    the change box: `1 No · 2 Yes`, or `1 No` then the server's own options.
   - The AI never sees the question and has no tool to answer it; its ask tool can't
     answer an approval either.
   - MCP does not say which call a question belongs to, so Casper answers only while
@@ -558,9 +583,10 @@ Every tool gets a label. From least to most strict: `read`, `diagnostic`,
     `Not executed (arguments too long to show you for approval)`.
   - When Casper is closing or the task was stopped, a pending approval gives
     `Not executed (cancelled)`, never `you said no`.
-- **No shortcuts.** There is no blanket write flag and no approval token the AI can
-  set. A remembered server only connects on its own, with writes off, and each
-  change still asks. Calls that may ask run one at a time, and approvals and server
+- **No shortcuts for the AI.** There is no write flag and no approval token the AI can
+  set. "Yes, for this session" is yours to give, per server, and ends with the session
+  or ctrl+o; destructive changes still ask. A remembered server only connects on its
+  own, with writes off. Calls that may ask run one at a time, and approvals and server
   questions are shown one at a time. The approval can't change the arguments, and a
   changed tool or a reconnect cancels a pending approval.
 

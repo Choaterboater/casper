@@ -1,4 +1,4 @@
-Proposed patch for secure-ssid/hpe-networking-mcp. Casper does not apply it.
+Proposed patch for hpe-networking-mcp. Casper does not apply it.
 
 Adds one router-level tool, access_check, that answers the
 "casper/access-check v1" contract Casper reads (src/mcp/access.ts):
