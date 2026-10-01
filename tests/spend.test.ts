@@ -9,7 +9,7 @@ import { loadProjectContext } from "../src/project/context";
 import type { AgentRuntime, RuntimeEvent, RuntimeEventListener, RuntimeStartOptions, RuntimeStatus } from "../src/runtime/types";
 import { SkillRegistry } from "../src/skills/registry";
 import { formatReceipt, taskExitCode } from "../src/task/result";
-import { formatCost, formatTaskSpend, formatTokens, requestSpendLimit, SpendGuard } from "../src/task/spend";
+import { formatCost, formatFooterSpend, formatTaskSpend, formatTokens, requestSpendLimit, SpendGuard } from "../src/task/spend";
 import { fakeWriter } from "./support/tty";
 
 const ambientTerm = process.env.TERM;
@@ -228,4 +228,18 @@ test("a subscription is not charged per token: the footer says sub ≈$, and the
     await app.close();
     await f.cleanup();
   }
+});
+
+test("the footer keeps the session total, so a new task never looks like a reset", () => {
+  // First task: only the task.
+  expect(formatFooterSpend({ tokens: 48_213, cost: 0.314 }, { tokens: 48_213, cost: 0.314 }, true, true)).toBe("task 48.2k tok · $0.31");
+  // A later task while it works: this task's tokens, then the session's tokens and cost.
+  expect(formatFooterSpend({ tokens: 40_000, cost: 0.01 }, { tokens: 1_100_000, cost: 0.04 }, true, true)).toBe("task 40.0k tok · session 1.1M tok · $0.04");
+  // Idle: the session only.
+  expect(formatFooterSpend({ tokens: 40_000, cost: 0.01 }, { tokens: 1_100_000, cost: 0.04 }, false, true)).toBe("session 1.1M tok · $0.04");
+  // A free model: tokens only; a subscription: what they would cost.
+  expect(formatFooterSpend({ tokens: 40_000, cost: 0 }, { tokens: 90_000, cost: 0 }, false, false)).toBe("session 90.0k tok");
+  expect(formatFooterSpend({ tokens: 40_000, cost: 0.01 }, { tokens: 90_000, cost: 0.31 }, false, true, "subscription")).toBe("session 90.0k tok · sub ≈$0.31");
+  // Nothing spent yet: nothing to show.
+  expect(formatFooterSpend({ tokens: 0, cost: 0 }, { tokens: 0, cost: 0 }, false, true)).toBe("");
 });
