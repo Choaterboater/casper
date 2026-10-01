@@ -1,26 +1,26 @@
 {
   "network-aoscx-rest": {
-    "version": 1,
-    "sha256": "2b52f9bfc2abaf680c9a9da853d8d94762fb3a59caa1a07916f64adf038fa14c"
+    "version": 2,
+    "sha256": "47c17e6033528d7c08ed7defdc40798c725f723c06484db5e0f246e99c4f5725"
   },
   "network-central-classic-api": {
-    "version": 1,
-    "sha256": "2fc5a0e2ee9b6e7134cb9dbb3fa7517dd4aeeea233266c1cad4d50479ff0ea6f"
+    "version": 2,
+    "sha256": "1b566c2ce2588b3afb4f5e2b8ba0d188a2fa225568024fa3aeb89f58b4d07075"
   },
   "network-central-api": {
-    "version": 1,
-    "sha256": "1d26c92fd5607f6c2d7e1f3bdfe312cb6be7281164b612de8a11f8eacdc582f4"
+    "version": 2,
+    "sha256": "a5e73aeb4901859705531d2f8534f211db22de2b489a3ffca96f91300630311a"
   },
   "network-clearpass-api": {
-    "version": 1,
-    "sha256": "326eb8a142f590f985b687943c8e8be7d9649675b2c9a57e4f6977216c3b3ff7"
+    "version": 2,
+    "sha256": "eaca29055e28f839274ede2fe6b24dfab1a44e2fdca7437567594ea3301fcc81"
   },
   "network-junos-pyez": {
-    "version": 1,
-    "sha256": "d65e67146079a9923c7f137891669d823bad1ada30868da1a7c9318c2acdadeb"
+    "version": 2,
+    "sha256": "61218a3884633e9dda0acce6a5f72708704ebb768fd665223959089d271afcd9"
   },
   "network-mist-api": {
-    "version": 1,
-    "sha256": "c3d0e49f4ef21dabc19f3903fb2bab455cf2312f0d2a429f6e8865b07a68522b"
+    "version": 2,
+    "sha256": "06059fd32bdd53a3c5477762eec920ab5eed995fdf2729aed1b1a6ec0a9ab8b5"
   }
 }

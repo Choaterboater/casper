@@ -30,7 +30,7 @@ export const REQUIRED_SECTIONS = [
 ] as const;
 export const CHANGING_SECTION = "## Changing things (Casper asks)";
 /** The first line of "Changing things". A skill that replaces a bundled one must keep it. */
-export const STOP_AND_ASK_LINE = "Stop and ask the user before running anything in this section. Show the exact call first.";
+export const STOP_AND_ASK_LINE = "MCP: Casper's change box asks; don't ask again in chat. Else ask the user first; show the exact call.";
 export const CASPER_ASKS_LINE = "Casper also asks before a shell command reaches a new host.";
 
 /** Words a skill must never use: they promise more than a skill can know. */

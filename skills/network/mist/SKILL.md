@@ -10,7 +10,7 @@ casper-skill:
     strong: ["mist api", "juniper mist", "mistapi", "api.mist.com", "mist org", "mist site", "mist webhook", "mist websocket"]
     weak: ["mist"]
   frameworks: [mist]
-  version: 1
+  version: 2
 ---
 # Juniper Mist cloud API
 
@@ -61,7 +61,7 @@ Plain `requests`: always set `timeout=(5, 30)`, call `r.raise_for_status()`, kee
 certificate checks on.
 
 ## Changing things (Casper asks)
-Stop and ask the user before running anything in this section. Show the exact call first.
+MCP: Casper's change box asks; don't ask again in chat. Else ask the user first; show the exact call.
 Casper also asks before a shell command reaches a new host.
 - First GET the object, change only the fields you need, and show the user the diff of the
   body you will send. Check in the docs whether that call merges or replaces fields.

@@ -11,7 +11,7 @@ casper-skill:
     weak: ["central"]
     unless: ["new central"]
   frameworks: [central]
-  version: 1
+  version: 2
 ---
 # HPE Aruba Networking Central (classic) API gateway
 
@@ -89,7 +89,7 @@ if resp["code"] != 200:
 ```
 
 ## Changing things (Casper asks)
-Stop and ask the user before running anything in this section. Show the exact call first.
+MCP: Casper's change box asks; don't ask again in chat. Else ask the user first; show the exact call.
 Casper also asks before a shell command reaches a new host.
 - First GET what you will change and save the answer to a file. Show the body you will send.
 - Say what it reaches: config set on a group goes to every device in that group.
