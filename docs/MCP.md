@@ -269,6 +269,7 @@ an approval and never calls a server read-only.
 | centralmcp (`aruba-*`) | `centralmcp` in the command or `CENTRALMCP_*` env | `CENTRALMCP_READONLY=1` | write and delete tools |
 | central-mcp-server | `central-mcp-server` in the command | nothing (no setting exists); must be pinned to a version (or be a local checkout) to be remembered | tools not marked read-only |
 | junos-mcp-server | `jmcp.py`, `junos-mcp-server`, or its tool names | nothing (no setting exists) | `load_and_commit_config`, `render_and_apply_j2_template` |
+| mist-mcp (local Mist API server) | `mist_mcp` or `mist-mcp` in the command, or `MIST_READ_ONLY` env | `MIST_READ_ONLY=1` (the server then sends only GET) | write and delete tools |
 | Mist hosted | a `mist.com` URL | nothing: `Access not checked. Use a read-only (Observer) org token for this server.` | write and delete tools |
 | NetBox | `netbox` in the command, `NETBOX_*` env or URL | nothing: `Use a read-only NetBox API token for this server.` | write and delete tools |
 | netmiko_mcp | `netmiko` in the command | nothing; never remembered | tools not marked read-only |
