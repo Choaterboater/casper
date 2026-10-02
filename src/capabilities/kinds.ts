@@ -18,6 +18,11 @@ export function isChangeKind(value: unknown): value is ChangeKind {
   return typeof value === "string" && (CHANGE_KINDS as readonly string[]).includes(value);
 }
 export function isRiskyKind(kind: ChangeKind): boolean { return RISKY_KINDS.includes(kind); }
+/** Plain words for each kind, as the boxes and /mcp show them ("Firmware changes are off by default on Mist."). */
+export const KIND_TEXT: Readonly<Record<ChangeKind, string>> = Object.freeze({
+  read: "Reads", troubleshoot: "Troubleshooting checks", config: "Configuration changes", disruptive: "Disruptive actions",
+  firmware: "Firmware changes", delete: "Deletes", admin: "Admin and account changes",
+});
 
 const DELETE_WORDS = new Set(["delete", "remove", "unclaim", "erase", "zeroize", "destroy", "wipe", "purge", "factory"]);
 const FIRMWARE_WORDS = new Set(["firmware", "upgrade", "downgrade", "image", "ota"]);

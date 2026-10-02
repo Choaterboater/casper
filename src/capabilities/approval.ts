@@ -13,10 +13,11 @@
  * Secret text inside config strings goes through the shared secret rules (src/secrets/scrub.ts
  * scrubText) by default; `MaskOptions.scrubText` can replace them.
  */
-import { APPROVE_CHOICES, APPROVE_ONCE_CHOICES, APPROVE_ONCE_PREVIEW_CHOICES, APPROVE_PREVIEW_CHOICES, numberedLines } from "../app/safe-choices";
+import { APPROVE_CHOICES, APPROVE_ONCE_CHOICES, APPROVE_ONCE_PREVIEW_CHOICES, APPROVE_PREVIEW_CHOICES, kindAllowChoices, numberedLines } from "../app/safe-choices";
 import type { MCPTool } from "../mcp/manager";
 import { isSecretKey as isScrubbedKey, scrubText } from "../secrets/scrub";
 import { redactPreview, terminalText } from "../tui/format";
+import { KIND_TEXT, type ChangeKind } from "./kinds";
 import { nameLabel, strictest, type CapabilitySafety } from "./labels";
 
 export type CallMode = "execute" | "preview" | "may-execute";
@@ -470,5 +471,15 @@ export function formatApproval(plan: ApprovalPlan, lastPreview?: LastPreview, op
     question: `Type ${choices.length === 2 ? "1 or 2" : `${choices.slice(0, -1).join(", ")} or ${last}`}: `,
     choices,
     answers,
+  };
+}
+
+/** The box before the change box when a call makes a risky kind the user hasn't allowed on this server. */
+export function kindBox(kind: ChangeKind, product: string, realTool: string): { preview: string; question: string; choices: string[] } {
+  const labels = kindAllowChoices(kind);
+  return {
+    preview: `${KIND_TEXT[kind]} are off by default on ${terminalText(product)}.\n  Runs: ${toolWords(realTool)}\n${numberedLines(labels)}`,
+    question: "Type 1 or 2: ",
+    choices: labels.map((_, index) => String(index + 1)),
   };
 }

@@ -13,6 +13,7 @@ import {
   type ApprovalPlan, type LastPreview,
 } from "./approval";
 import { toolLabel } from "./labels";
+import { isRiskyKind, KIND_TEXT, planKinds, type ChangeKind } from "./kinds";
 import { boundCapabilityResult, capabilityErrorResult, NotExecutedError, OutcomeUnknownError, type BoundedCapabilityResult } from "./result";
 import { indexWords, termScore, tokenize } from "./search";
 import type { CompiledValidator } from "./validate";
@@ -63,6 +64,10 @@ export type ConfirmCapability = (call: {
   /** The last preview of the same call on this connection, redacted. */
   lastPreview?: LastPreview;
 }, signal?: AbortSignal) => Promise<ApprovalAnswer>;
+
+/** Ask the user whether a change kind that is off by default (firmware, delete, admin) may run on this server for
+ * the rest of the session. Only their answer counts; true allows it. */
+export type ConfirmKind = (ask: { server: string; kind: ChangeKind; realTool: string }, signal?: AbortSignal) => Promise<boolean>;
 
 /** Hides device secrets in an MCP result before the model sees it. The app passes its shared
  * scrubber (Casper's rules plus netconan when installed); the default is Casper's rules only. */
@@ -134,6 +139,9 @@ export class CapabilityBroker {
    * changes there that don't run commands, aren't destructive and that the AI didn't mark confirmed or preview-off
    * run without asking, until writes go off (ctrl+o, /mcp writes off, a disconnect) or the session ends. */
   private readonly sessionGrants = new Map<string, number>();
+  /** Risky change kinds the user allowed per server this session, with the server's allowance count at that moment. */
+  private readonly allowedKinds = new Map<string, { at: number; kinds: Set<ChangeKind> }>();
+  private readonly confirmKind?: ConfirmKind;
   /** Per-server lines for find_capability's description (read-only logins, writes off). */
   private modelLines: string[] = [];
   /** The connected servers, by name, as of the last sync. */
@@ -152,8 +160,9 @@ export class CapabilityBroker {
   /** Told when a change runs on the user's "Yes, for this session" without a box (for the transcript). */
   private readonly onSessionCovered?: (server: string, realTool: string) => void;
   constructor(private readonly manager: MCPManager, private readonly confirm?: ConfirmCapability,
-    options: { writesGate?: boolean; scrubber?: ResultScrubber; onSessionCovered?: (server: string, realTool: string) => void } = {}) {
+    options: { writesGate?: boolean; scrubber?: ResultScrubber; onSessionCovered?: (server: string, realTool: string) => void; confirmKind?: ConfirmKind } = {}) {
     this.writesGate = options.writesGate ?? false;
+    if (options.confirmKind) this.confirmKind = options.confirmKind;
     this.scrubber = options.scrubber ?? BUILT_IN_SCRUBBER;
     if (options.onSessionCovered) this.onSessionCovered = options.onSessionCovered;
   }
@@ -274,6 +283,8 @@ export class CapabilityBroker {
     // set to skip a check still asks.
     const optedIn = guard === "allow" && !plan.routed.length && !plan.routerUnclear
       && aiConfirm(plan.arguments).length === 0 && previewSwitchedOff(plan.arguments).length === 0;
+    // Risky kinds (firmware, delete, admin) are off by default: the user allows the kind first, then the change box asks.
+    if (needsApproval(plan) && !optedIn) await this.allowRiskyKinds(capability, plan, combined);
     // Covered by the user's "Yes, for this session": approved without a box, so server questions still reach them.
     const covered = needsApproval(plan) && !optedIn && this.sessionCovers(plan, capability.policy);
     const writesBefore = this.writes(policy);
@@ -313,7 +324,7 @@ export class CapabilityBroker {
       raw = await this.manager.call(capability.descriptor.source, capability.tool.name, frozenArgs, combined,
         approved ? { approved: { capabilityId: id, realTool: approved, label } } : {});
     } finally {
-      if (turnedOn && answer?.once) await this.manager.setWrites(plan.server, false).catch(() => {});
+      if (turnedOn && answer?.once) await this.manager.setWrites(plan.server, false, { once: true }).catch(() => {});
     }
     // 7. Hide device secrets (passwords, keys, SNMP communities) before anything else reads the result.
     const scrubbed = await this.scrub(raw, combined);
@@ -374,6 +385,48 @@ export class CapabilityBroker {
       this.previews.set(slot, { text, at: Date.now() });
     }
     throw new NotExecutedError("you said no");
+  }
+
+  /**
+   * Each risky kind the call makes that the user hasn't allowed on this server: ask (only with writes gated, as the
+   * app runs; brokers built directly treat writes and kinds as on). No, or nobody to ask, and nothing runs.
+   */
+  private async allowRiskyKinds(capability: Capability, plan: ApprovalPlan, signal: AbortSignal): Promise<void> {
+    if (!this.writesGate) return;
+    const kinds = [...new Set(planKinds(plan, capability.tool))].filter((kind) => isRiskyKind(kind) && !this.kindAllowed(plan.server, kind));
+    for (const kind of kinds) {
+      const off = `${KIND_TEXT[kind]} are off by default on ${plan.server}`;
+      if (!this.confirm || !this.confirmKind) throw new NotExecutedError(`${off}, and this run cannot ask`);
+      // Counted before the box: if writes go off while it is open, the allowance is already over.
+      const at = this.manager.allowanceEnds(plan.server);
+      const yes = await this.confirmKind({ server: plan.server, kind, realTool: realToolOf(plan) }, signal);
+      notCancelled(signal);
+      if (!yes) throw new NotExecutedError("you said no");
+      this.allowKind(plan.server, kind, at);
+    }
+  }
+
+  /** True when the user allowed this risky kind on this server, and nothing has ended it since. */
+  kindAllowed(server: string, kind: ChangeKind): boolean {
+    const given = this.allowedKinds.get(server);
+    if (!given) return false;
+    if (given.at !== this.manager.allowanceEnds(server)) { this.allowedKinds.delete(server); return false; }
+    return given.kinds.has(kind);
+  }
+
+  /** Allow a risky kind on a server for this session. Only the user's own answer or command calls this. */
+  allowKind(server: string, kind: ChangeKind, at = this.manager.allowanceEnds(server)): void {
+    const given = this.allowedKinds.get(server);
+    if (given && given.at === at) given.kinds.add(kind);
+    else this.allowedKinds.set(server, { at, kinds: new Set([kind]) });
+  }
+
+  /** ctrl+o: end every session answer and every allowed kind, on every server. True when any were in force. */
+  endAllowances(): boolean {
+    const any = this.sessionGrants.size > 0 || this.allowedKinds.size > 0;
+    this.sessionGrants.clear();
+    this.allowedKinds.clear();
+    return any;
   }
 
   /** True when the user said "Yes, for this session" on this server. */
@@ -480,6 +533,7 @@ export class CapabilityBroker {
     // A session answer ends with the server's connection.
     const connected = new Set([...next.values()].map((capability) => capability.descriptor.source));
     for (const server of [...this.sessionGrants.keys()]) if (!connected.has(server)) this.sessionGrants.delete(server);
+    for (const server of [...this.allowedKinds.keys()]) if (!connected.has(server)) this.allowedKinds.delete(server);
   }
 
   private get(id: string): Capability {

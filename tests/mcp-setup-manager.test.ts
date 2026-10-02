@@ -255,7 +255,7 @@ test("with writes off, a write behind a read router asks with the real tool; yes
   const mcp = manager([server("hpe", { FIXTURE_MODE: "hpe-router", FIXTURE_CALLS_FILE: log })]);
   const boxes: string[] = [];
   let answer: ApprovalAnswer = "no";
-  const broker = new CapabilityBroker(mcp, async (call) => { boxes.push(call.plan.routed.map((routed) => routed.name).join(",")); return answer; }, { writesGate: true });
+  const broker = new CapabilityBroker(mcp, async (call) => { boxes.push(call.plan.routed.map((routed) => routed.name).join(",")); return answer; }, { writesGate: true, confirmKind: async () => true });
   await mcp.connect("hpe");
   // No: nothing is sent, and writes stay off.
   await expect(broker.invoke("mcp:hpe:invoke_read_tool", { name: "central_delete_site", arguments: { site: "lab" } })).rejects.toThrow("you said no");
@@ -275,7 +275,7 @@ test("writes turned off while the box for a write behind a router is open: the y
   const log = path.join(await tempDir(), "calls.log");
   // A router on a server with no pins (so turning writes off does not restart it).
   const mcp = manager([server("lab", { FIXTURE_MODE: "hpe-router", FIXTURE_CALLS_FILE: log }, ["jmcp.py"])]);
-  const broker = new CapabilityBroker(mcp, async () => { await mcp.setWrites("lab", false); return true; }, { writesGate: true });
+  const broker = new CapabilityBroker(mcp, async () => { await mcp.setWrites("lab", false); return true; }, { writesGate: true, confirmKind: async () => true });
   await mcp.connect("lab");
   await mcp.setWrites("lab", true);
   await expect(broker.invoke("mcp:lab:invoke_read_tool", { name: "central_delete_site", arguments: {} }))
@@ -332,7 +332,7 @@ test("yes this once on a pinned server, then stopped during the restart: writes 
   const mcp = manager([server("hpe", { FIXTURE_MODE: "hpe-router", FIXTURE_CALLS_FILE: log })]);
   const stop = new AbortController();
   // Answer yes, then stop while Casper restarts the server without its pins.
-  const broker = new CapabilityBroker(mcp, async () => { setTimeout(() => stop.abort(), 5); return "yes"; }, { writesGate: true });
+  const broker = new CapabilityBroker(mcp, async () => { setTimeout(() => stop.abort(), 5); return "yes"; }, { writesGate: true, confirmKind: async () => true });
   await mcp.connect("hpe");
   await expect(broker.invoke("mcp:hpe:invoke_read_tool", { name: "central_delete_site", arguments: { site: "lab" } }, stop.signal)).rejects.toThrow();
   for (let wait = 0; wait < 50 && mcp.writesOn().length; wait++) await new Promise((resolve) => setTimeout(resolve, 20));

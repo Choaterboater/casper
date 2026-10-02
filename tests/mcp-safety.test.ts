@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { MCPManager, type MCPManagerOptions, type ServerQuestion, type ServerQuestionAnswer } from "../src/mcp/manager";
 import type { MCPServerDefinition } from "../src/mcp/config";
-import { CapabilityBroker, type ApprovalAnswer, type ConfirmCapability } from "../src/capabilities/broker";
+import { CapabilityBroker, type ApprovalAnswer, type ConfirmCapability, type ConfirmKind } from "../src/capabilities/broker";
 import { formatApproval } from "../src/capabilities/approval";
 
 const cleanup: (() => Promise<unknown> | unknown)[] = [];
@@ -27,6 +27,7 @@ function definition(name: string, mode: string, file: string): MCPServerDefiniti
 }
 async function setup(options: {
   mode?: string; name?: string; confirm?: ConfirmCapability; elicit?: MCPManagerOptions["elicit"]; manager?: MCPManagerOptions; writesGate?: boolean;
+  confirmKind?: ConfirmKind;
 } = {}) {
   const file = await callsFile();
   const name = options.name ?? "network";
@@ -34,7 +35,9 @@ async function setup(options: {
   const mcp = new MCPManager({ servers: [definition(name, options.mode ?? "network", file)], diagnostics: [] }, {
     ...(options.elicit ? { elicit: options.elicit } : {}), onNote: (text) => notes.push(text), ...options.manager,
   });
-  const broker = new CapabilityBroker(mcp, options.confirm, options.writesGate ? { writesGate: true } : {});
+  const broker = new CapabilityBroker(mcp, options.confirm, {
+    ...(options.writesGate ? { writesGate: true } : {}), ...(options.confirmKind ? { confirmKind: options.confirmKind } : {}),
+  });
   cleanup.push(() => broker.close());
   await mcp.connect(name);
   await broker.prepare("network");
@@ -365,4 +368,68 @@ test("ctrl+o ends a session answer for good: turning writes back on doesn't brin
   await mcp.setWrites("network", true);  // /mcp writes network, then 2
   await expect(broker.invoke(id("set_ssid"), { ssid: "x" })).rejects.toThrow("you said no");
   expect(boxes).toHaveLength(2);
+});
+
+// --- Risky change kinds (firmware, delete, admin): off by default --------------------------------
+
+/** A kind box that answers from a list and keeps the kinds it was asked about. */
+function kindAnswers(...answers: boolean[]) {
+  const asked: string[] = [];
+  const confirmKind: ConfirmKind = async (ask) => { asked.push(`${ask.server}:${ask.kind}:${ask.realTool}`); return answers.shift() ?? false; };
+  return { confirmKind, asked };
+}
+
+test("a risky kind asks to allow the kind first; no there means the change box never shows and nothing runs", async () => {
+  const { confirm, boxes } = answering("yes");
+  const { confirmKind, asked } = kindAnswers(false);
+  const { broker, file, id } = await setup({ confirm, confirmKind, writesGate: true });
+  await expect(broker.invoke(id("invite_user"), { email: "a@example.com" })).rejects.toThrow("you said no");
+  expect(asked).toEqual(["network:admin:invite_user"]);
+  expect(boxes).toHaveLength(0);
+  expect(toolCalls(await calls(file))).toEqual([]);
+});
+
+test("allowing the kind shows the change box next; the same kind later skips the kind box; ctrl+o ends it", async () => {
+  const { confirm, boxes } = answering("yes", "yes", "no");
+  const { confirmKind, asked } = kindAnswers(true, false);
+  const { broker, mcp, file, id } = await setup({ confirm, confirmKind, writesGate: true });
+  await broker.invoke(id("invite_user"), { email: "a@example.com" });
+  expect(asked).toHaveLength(1);
+  expect(boxes).toHaveLength(1);
+  expect(broker.kindAllowed("network", "admin")).toBe(true);
+  // "Yes, this once" turned writes off again; the kind stays allowed.
+  expect(mcp.writesOn()).toEqual([]);
+  await broker.invoke(id("invite_user"), { email: "b@example.com" });
+  expect(asked).toHaveLength(1);
+  expect(boxes).toHaveLength(2);
+  expect(toolCalls(await calls(file))).toHaveLength(2);
+  // ctrl+o (and /mcp writes off, a disconnect) ends every allowance.
+  broker.endAllowances();
+  expect(broker.kindAllowed("network", "admin")).toBe(false);
+  await expect(broker.invoke(id("invite_user"), { email: "c@example.com" })).rejects.toThrow("you said no");
+  expect(asked).toHaveLength(2);
+});
+
+test("an allowed kind ends when the person turns writes off or the server disconnects", async () => {
+  const { confirm } = answering("yes-session");
+  const { confirmKind } = kindAnswers(true);
+  const { broker, mcp, id } = await setup({ confirm, confirmKind, writesGate: true });
+  await broker.invoke(id("invite_user"), { email: "a@example.com" });
+  expect(broker.kindAllowed("network", "admin")).toBe(true);
+  await mcp.setWrites("network", false);
+  expect(broker.kindAllowed("network", "admin")).toBe(false);
+});
+
+test("a risky kind with nobody to ask is not executed", async () => {
+  const { broker, file, id } = await setup({ confirm: async () => "yes", writesGate: true });
+  await expect(broker.invoke(id("invite_user"), { email: "a@example.com" })).rejects.toThrow("Admin and account changes are off by default on network");
+  expect(toolCalls(await calls(file))).toEqual([]);
+});
+
+test("a risky kind behind a router is judged by the real tool", async () => {
+  const { confirm } = answering("yes");
+  const { confirmKind, asked } = kindAnswers(false);
+  const { broker, id } = await setup({ confirm, confirmKind, writesGate: true });
+  await expect(broker.invoke(id("invoke_tool"), { name: "trigger_device_upgrade", arguments: {} })).rejects.toThrow("you said no");
+  expect(asked).toEqual(["network:firmware:trigger_device_upgrade"]);
 });

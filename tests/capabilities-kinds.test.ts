@@ -52,3 +52,11 @@ test("a router call takes the kind of the real tool it runs", () => {
   const direct = buildPlan({ server: "net", tool: "invite_glp_user", label: "write", schema: { type: "object" }, arguments: {} });
   expect(planKinds(direct)).toEqual(["admin"]);
 });
+
+test("the kind box: plain words, the real tool, 1 No and 2 Allow for this session", async () => {
+  const { kindBox } = await import("../src/capabilities/approval");
+  const box = kindBox("firmware", "Mist", "trigger_device_upgrade");
+  expect(box.preview).toBe("Firmware changes are off by default on Mist.\n  Runs: trigger device upgrade\n  1 No\n  2 Allow firmware changes for this session\n");
+  expect(box.question).toBe("Type 1 or 2: ");
+  expect(box.choices).toEqual(["1", "2"]);
+});
