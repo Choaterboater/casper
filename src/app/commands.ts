@@ -52,7 +52,8 @@ import { runSecurityReview, type SecurityAIReview, type SecurityReviewHost } fro
 import { sandboxReport, sandboxStatusLine } from "./sandbox";
 import { webStatusLine } from "../web/tools";
 import type { ShellSandbox } from "../sandbox/manager";
-import { MCP_REMEMBER_CHOICES, MCP_WRITES_CHOICES, numberedLines } from "./safe-choices";
+import { allowKindsChoices, MCP_ALLOW_KEEP_CHOICES, MCP_REMEMBER_CHOICES, MCP_WRITES_CHOICES, numberedLines } from "./safe-choices";
+import { KIND_TEXT, RISKY_KINDS } from "../capabilities/kinds";
 
 /** Output sink for the app; lives here so the command host stays import-cycle-free. */
 export interface OutputWriter {
@@ -83,6 +84,8 @@ export interface CommandHost {
   readonly mcp?: MCPManager;
   /** Ends every allowed change kind and session answer (ctrl+o, /mcp writes off). True when any were in force. */
   endAllowances?(): boolean;
+  /** The broker's per-server allowances, for /mcp allow. Only the user's typed command reaches it. */
+  readonly allowances?: Pick<CapabilityBroker, "kindAllowed" | "sessionKinds" | "allowKind" | "allowAllOn" | "startAllowAll" | "endAllowancesFor">;
   /** Re-reads MCP configuration from disk for /mcp reload; omitted when MCP is unavailable. */
   readonly reloadMCPConfiguration?: () => Promise<MCPConfiguration>;
   readonly lsp?: LSPManager;
@@ -719,7 +722,7 @@ async function handleDelegateCommand(host: CommandHost, prompt: string): Promise
     if (result.status !== "completed") throw new Error(`Delegation ${result.status}; see the bounded report above`);
   }
 
-const MCP_USAGE = "Usage: /mcp | /mcp connect <name> | /mcp disconnect <name> | /mcp reload | /mcp writes <name> | /mcp writes off | /mcp forget <name> | /mcp junos-show <name> on|off | /mcp docs";
+const MCP_USAGE = "Usage: /mcp | /mcp connect <name> | /mcp disconnect <name> | /mcp reload | /mcp writes <name> | /mcp writes off | /mcp allow <name> [off] | /mcp forget <name> | /mcp junos-show <name> on|off | /mcp docs";
 /** What "writes off" means, said once under the list: the server runs pinned and every change asks. */
 const WRITES_OFF_TEXT = "Writes off: the server runs with its read-only settings, and every change asks you first. Answer 2 or 3 in the change box to allow it, or /mcp writes <name> to turn writes on now.";
 
@@ -738,6 +741,10 @@ async function handleMCPCommand(host: CommandHost, prompt: string): Promise<void
     } else if (action === "writes") {
       if (!name || extra.length) throw new Error(MCP_USAGE);
       await handleMCPWrites(host, name);
+      return;
+    } else if (action === "allow") {
+      if (!name || extra.length > 1 || (extra.length === 1 && extra[0] !== "off")) throw new Error(MCP_USAGE);
+      await handleMCPAllow(host, name, extra[0] === "off");
       return;
     } else if (action === "docs") {
       if (name) throw new Error(MCP_USAGE);
@@ -895,6 +902,63 @@ async function handleMCPWrites(host: CommandHost, name: string): Promise<void> {
   host.updateFooter();
 }
 
+
+/**
+ * /mcp allow <name>: which risky change kinds (firmware, delete, admin) this server may make, picked from a numbered
+ * list, never a config file. 1 keeps the defaults. A kind is allowed for this session or remembered (keyed to the
+ * server's definition, like a remembered server); "everything" is this session only. Every change still shows its box,
+ * except under "everything". /mcp allow <name> off goes back to the defaults.
+ */
+async function handleMCPAllow(host: CommandHost, name: string, off: boolean): Promise<void> {
+  const mcp = host.mcp!;
+  const allowances = host.allowances;
+  const status = mcp.status().find((entry) => entry.name === name);
+  if (!status) throw new Error("Unknown MCP server; use /mcp to list definitions");
+  if (!allowances) throw new Error("Change kinds can't be allowed in this session.");
+  if (off) {
+    await mcp.forgetKinds(name);
+    allowances.endAllowancesFor(name);
+    host.output.write(`[mcp] Change kinds on ${name} are back to the defaults.\n`);
+    host.updateFooter();
+    return;
+  }
+  if (!host.interactive) throw new Error("Change kinds can only be allowed in an interactive session.");
+  if (status.access === "login: read-only (checked)") { host.output.write(`[mcp] ${READ_ONLY_LOGIN_ENABLE_TEXT}\n`); return; }
+  const product = mcp.productLabel(name);
+  const remembered = mcp.rememberedKinds(name);
+  const session = allowances.sessionKinds(name).filter((kind) => !remembered.includes(kind));
+  const now = [...remembered.map((kind) => `${KIND_TEXT[kind]} (remembered)`), ...session.map((kind) => `${KIND_TEXT[kind]} (this session)`)];
+  if (allowances.allowAllOn(name)) now.push("everything, no asking (this session)");
+  const labels = allowKindsChoices();
+  const digits = labels.map((_, index) => String(index + 1));
+  const answer = await host.chooseAnswer([
+    `${terminalText(product)} change kinds. Firmware changes, deletes and admin changes are off by default; every change still asks you.`,
+    `  Allowed now: ${now.length ? now.join(", ") : "none"}`,
+  ].join("\n") + `\n${numberedLines(labels)}`, `Type ${digits.slice(0, -1).join(", ")} or ${digits.at(-1)}: `, digits, host.commandAbort?.signal);
+  const picked = Number(answer ?? "1") - 1;
+  if (picked < 1) { host.output.write(`[mcp] ${name} keeps the defaults.\n`); return; }
+  if (picked === labels.length - 1) {
+    allowances.startAllowAll(name);
+    host.output.write(`[mcp] Yes to everything on ${name} this session: no change there asks you. ${host.terminal.rich ? "ctrl+o" : "/mcp writes off"} ends it.\n`);
+    host.updateFooter();
+    return;
+  }
+  const kinds = picked === labels.length - 2 ? [...RISKY_KINDS] : [RISKY_KINDS[picked - 1]!];
+  const words = kinds.length > 1 ? "All change kinds" : KIND_TEXT[kinds[0]!];
+  // Project servers and unpinned runners can't be remembered: this session only, without asking.
+  const block = mcp.rememberBlock(name);
+  const keep = block ? undefined : await host.chooseAnswer(`${numberedLines(MCP_ALLOW_KEEP_CHOICES)}`, "Type 1 or 2: ", ["1", "2"], host.commandAbort?.signal);
+  for (const kind of kinds) allowances.allowKind(name, kind);
+  if (keep === "2") {
+    const result = await mcp.rememberKinds(name, kinds);
+    if (result.remembered) {
+      host.output.write(`[mcp] ${words} allowed on ${name}, remembered. /mcp allow ${name} off undoes this.\n`);
+      return;
+    }
+    host.output.write(`[mcp] ${terminalText(result.reason)}\n`);
+  }
+  host.output.write(`[mcp] ${words} allowed on ${name} for this session.\n`);
+}
 
 /** "8 indexed (6 bundled)", or "2 indexed; bundled: off" when skills.bundled is false. */
 function skillCountLine(host: CommandHost): string {

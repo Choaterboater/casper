@@ -13,7 +13,7 @@
  * Secret text inside config strings goes through the shared secret rules (src/secrets/scrub.ts
  * scrubText) by default; `MaskOptions.scrubText` can replace them.
  */
-import { APPROVE_CHOICES, APPROVE_ONCE_CHOICES, APPROVE_ONCE_PREVIEW_CHOICES, APPROVE_PREVIEW_CHOICES, kindAllowChoices, numberedLines } from "../app/safe-choices";
+import { APPROVE_CHOICES, APPROVE_ONCE_CHOICES, APPROVE_ONCE_PREVIEW_CHOICES, APPROVE_PREVIEW_CHOICES, approveAllLabel, kindAllowChoices, numberedLines } from "../app/safe-choices";
 import type { MCPTool } from "../mcp/manager";
 import { isSecretKey as isScrubbedKey, scrubText } from "../secrets/scrub";
 import { redactPreview, terminalText } from "../tui/format";
@@ -420,7 +420,7 @@ export function tooLongToShow(args: Record<string, unknown>): boolean {
 export function sessionAllowed(label: CapabilitySafety): boolean { return label !== "exec" && label !== "destructive"; }
 
 /** What one digit in the change box means. */
-export type ApprovalChoice = "no" | "preview" | "yes" | "yes-session";
+export type ApprovalChoice = "no" | "preview" | "yes" | "yes-session" | "allow-all";
 
 /**
  * The change box: what changes in plain words, one value per line (secrets hidden), whether it makes the change,
@@ -459,9 +459,12 @@ export function formatApproval(plan: ApprovalPlan, lastPreview?: LastPreview, op
   } else if (offer) lines.push("No preview yet.");
   lines.push(`MCP · ${plan.server} · ${plan.tool}  [${planLabel(plan)}]`);
   const onceOnly = !sessionAllowed(planLabel(plan));
-  const labels: readonly string[] = onceOnly ? (offer ? APPROVE_ONCE_PREVIEW_CHOICES : APPROVE_ONCE_CHOICES)
-    : offer ? APPROVE_PREVIEW_CHOICES : APPROVE_CHOICES;
-  const meaning: Record<string, ApprovalChoice> = { "No": "no", "Preview first": "preview", "Yes, this once": "yes", "Yes, for this session": "yes-session" };
+  const all = approveAllLabel(options.product ?? plan.server);
+  const labels: readonly string[] = [...(onceOnly ? (offer ? APPROVE_ONCE_PREVIEW_CHOICES : APPROVE_ONCE_CHOICES)
+    : offer ? APPROVE_PREVIEW_CHOICES : APPROVE_CHOICES), all];
+  const meaning: Record<string, ApprovalChoice> = {
+    "No": "no", "Preview first": "preview", "Yes, this once": "yes", "Yes, for this session": "yes-session", [all]: "allow-all",
+  };
   const choices = labels.map((_, index) => String(index + 1));
   const answers = Object.fromEntries(labels.map((label, index) => [String(index + 1), meaning[label]!]));
   const last = choices.at(-1)!;

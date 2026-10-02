@@ -202,7 +202,7 @@ test("interactive approval shows exact arguments and permits only an explicit ye
       if (text === "> ") queueMicrotask(() => input.write(["/mcp writes fixture\n", "Change site\n"][prompts++] ?? "/exit\n"));
       if (text.endsWith("Type 1 or 2: ")) queueMicrotask(() => input.write("2\n"));
       // The change box: 2 is "Yes, this once".
-      if (text.endsWith("Type 1, 2 or 3: ")) queueMicrotask(() => input.write("2\n"));
+      if (text.endsWith("Type 1, 2, 3 or 4: ")) queueMicrotask(() => input.write("2\n"));
     } },
   });
   cleanup.push(() => app.close());
@@ -213,8 +213,8 @@ test("interactive approval shows exact arguments and permits only an explicit ye
   expect(output).toContain("MCP · fixture · set_site  [write]");
   expect(output).toContain("Change in fixture: set site\n");
   expect(output).toContain("This makes the change.");
-  expect(output).toContain("  1 No\n  2 Yes, this once\n  3 Yes, for this session\n");
-  expect(output).toContain("Type 1, 2 or 3: ");
+  expect(output).toContain("  1 No\n  2 Yes, this once\n  3 Yes, for this session\n  4 Yes to everything on fixture this session");
+  expect(output).toContain("Type 1, 2, 3 or 4: ");
   expect(output).toContain("  site             lab\n");
   expect(output).toContain("[approval] allowed\n");
   expect(runtime.result).toContain('"site":"lab"');
@@ -267,7 +267,7 @@ async function networkRun(answers: string[], call: { id: string; arguments: Reco
   cleanup.push(() => app.close());
   await app.runOnce("/mcp connect net", project);
   await app.runInteractive();
-  return { output, result };
+  return { output, result, app };
 }
 
 test("interactive run: the server's question about an approved call is answered by the user", async () => {
@@ -516,4 +516,12 @@ test("interactive run: 1 at the kind box runs nothing and shows no change box", 
   expect(output).toContain("Admin and account changes are off by default on HPE networking.");
   expect(output).not.toContain("Change in HPE networking:");
   expect(result).toContain("you said no");
+});
+
+test("interactive run: the last choice allows everything on that server this session; the footer shows it", async () => {
+  const { output, result, app } = await networkRun(["5"], { id: "mcp:net:set_ssid", arguments: { ssid: "corp" } });
+  expect(output).toContain("  5 Yes to everything on HPE networking this session (no more asking, even reboots, deletes or an AI-set confirm)\n");
+  expect(output).toContain("[approval] allowed (allow all)\n");
+  expect(result).toContain("applied");
+  expect(app.terminal.badge).toMatch(/^ALLOW ALL: net · /);
 });

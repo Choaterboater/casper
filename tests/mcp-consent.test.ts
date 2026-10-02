@@ -185,3 +185,50 @@ test("the 'found servers' line is shown once per new set of imported names", asy
 test("canonical JSON sorts keys at every level", () => {
   expect(canonical({ b: 1, a: { d: 1, c: [2, { f: 1, e: 2 }] } })).toBe('{"a":{"c":[2,{"e":2,"f":1}],"d":1},"b":1}');
 });
+
+// --- Remembered change kinds (/mcp allow <server>, then 2 Remember) -----------------------------
+
+test("remembered change kinds survive a new store, and a changed definition drops them", async () => {
+  const dir = await home();
+  const store = new ConsentStore(dir);
+  await store.load();
+  expect(store.rememberedKinds(definition())).toEqual([]);
+  expect(await store.rememberKinds(definition(), ["firmware", "admin"])).toEqual({ remembered: true });
+  expect(store.rememberedKinds(definition())).toEqual(["firmware", "admin"]);
+  const again = new ConsentStore(dir);
+  await again.load();
+  expect(again.rememberedKinds(definition())).toEqual(["firmware", "admin"]);
+  // Another program under the same name: nothing carries over.
+  expect(again.rememberedKinds(definition({}, { TOKEN: "other" }))).toEqual([]);
+  // The file itself never names a definition value.
+  expect(await readFile(again.file, "utf8")).not.toContain("hunter2");
+});
+
+test("only risky kinds are remembered; project servers never; off clears them", async () => {
+  const dir = await home();
+  const store = new ConsentStore(dir);
+  await store.load();
+  expect(await store.rememberKinds(definition(), ["config", "delete", "nonsense" as never])).toEqual({ remembered: true });
+  expect(store.rememberedKinds(definition())).toEqual(["delete"]);
+  const project = definition({ scope: "project" });
+  expect((await store.rememberKinds(project, ["delete"])).remembered).toBe(false);
+  expect(store.rememberedKinds(project)).toEqual([]);
+  expect(await store.forgetKinds("aruba-central")).toBe(true);
+  expect(store.rememberedKinds(definition())).toEqual([]);
+  expect(await store.forgetKinds("aruba-central")).toBe(false);
+});
+
+test("a hand-edited kinds entry with an unknown kind or a bad hash is ignored", async () => {
+  const dir = await home();
+  const store = new ConsentStore(dir);
+  await store.load();
+  await store.rememberKinds(definition(), ["admin"]);
+  const document = JSON.parse(await readFile(store.file, "utf8")) as { kinds: Record<string, { hash: string; kinds: string[] }> };
+  document.kinds["aruba-central"]!.kinds.push("everything");
+  document.kinds["other"] = { hash: "nothex", kinds: ["delete"] };
+  await writeFile(store.file, JSON.stringify(document));
+  const again = new ConsentStore(dir);
+  await again.load();
+  expect(again.rememberedKinds(definition())).toEqual(["admin"]);
+  expect(again.rememberedKinds(definition({ name: "other" }))).toEqual([]);
+});

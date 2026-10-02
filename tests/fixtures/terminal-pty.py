@@ -116,7 +116,7 @@ class Session:
         raise AssertionError("Missing screen text: " + repr(text) + "\nSCREEN:\n" + self.screen.text()[-6000:])
 
     def until_new(self, text, timeout=15):
-        """Wait for one more `text` than the screen holds now: a repeated prompt (an approval's "Type 1, 2 or 3:")
+        """Wait for one more `text` than the screen holds now: a repeated prompt (an approval's "Type 1, 2, 3 or 4:")
         is already in the scrollback from the last time, so plain until() would return before the new one opens."""
         before = self.screen.text().count(text)
         deadline = time.monotonic() + timeout
@@ -226,8 +226,8 @@ def exercise(bun, repo, root, no_color):
         s.send("2")  # "Yes, this once", typed before the box exists.
         s.pump()
         s.release("approval-deny")
-        s.until_new("Type 1, 2 or 3:")
-        assert not s.screen.text().rstrip().endswith("Type 1, 2 or 3: 2"), s.screen.text()
+        s.until_new("Type 1, 2, 3 or 4:")
+        assert not s.screen.text().rstrip().endswith("Type 1, 2, 3 or 4: 2"), s.screen.text()
         s.send("\n")  # Empty fresh answer denies, despite the old '2' draft.
         s.until("Approval result: denied")
         s.until("❯ 2")
@@ -235,7 +235,7 @@ def exercise(bun, repo, root, no_color):
         s.send("\x01\x0bapproval-allow\n")
         s.pump()
         s.release("approval-allow")
-        s.until_new("Type 1, 2 or 3:")
+        s.until_new("Type 1, 2, 3 or 4:")
         s.send("2\n")
         s.until("Approval result: allowed")
         # Typed before the task ends, the next request would only be kept as a draft. The WRITES badge pushes
@@ -244,7 +244,7 @@ def exercise(bun, repo, root, no_color):
         s.send("approval-cancel\n")
         s.pump()
         s.release("approval-cancel")
-        s.until_new("Type 1, 2 or 3:")
+        s.until_new("Type 1, 2, 3 or 4:")
         s.send("\x03")
         s.until("Stopped — cancelled")
         approval_lines = (s.root / "approvals.jsonl").read_text().splitlines()
@@ -283,7 +283,7 @@ def exercise_eof(bun, repo, root):
         s.send("approval-eof\n")
         s.pump()
         s.release("approval-eof")
-        s.until_new("Type 1, 2 or 3:")
+        s.until_new("Type 1, 2, 3 or 4:")
         s.send("\x04")
         deadline = time.monotonic() + 5
         while s.process.poll() is None and time.monotonic() < deadline: s.pump(0.05)

@@ -178,3 +178,43 @@ test("a changed definition says so in /mcp; junos-show is a per-server opt-in th
   expect(output).toContain("  Plain show commands run without asking (/mcp junos-show junos off).");
   expect(output).toContain("lab is not a Junos server.");
 });
+
+// --- /mcp allow <server>: the change-kind picker ------------------------------------------------
+
+test("/mcp allow: 1 keeps the defaults; a kind can be allowed for this session or remembered; off clears", async () => {
+  const { home, project } = await fixture({ casper: { mcpServers: { lab: entry({ FIXTURE_MODE: "access-bad" }) } } });
+  // connect (1 Just this time), allow: 1 keep; allow: 3 deletes then 2 remember; allow: 2 firmware then 1 session.
+  const first = await session(home, project, ["/mcp connect lab", "/mcp allow lab", "/mcp allow lab", "/mcp allow lab"],
+    ["1", "1", "3", "2", "2", "1"]);
+  expect(first.output).toContain([
+    "lab change kinds. Firmware changes, deletes and admin changes are off by default; every change still asks you.",
+    "  Allowed now: none",
+    "  1 Keep the defaults",
+    "  2 Allow firmware changes",
+    "  3 Allow deletes",
+    "  4 Allow admin and account changes",
+    "  5 Allow all change kinds",
+    "  6 Allow everything (no asking) this session",
+    "Type 1, 2, 3, 4, 5 or 6: ",
+  ].join("\n"));
+  expect(first.output).toContain("[mcp] lab keeps the defaults.");
+  expect(first.output).toContain("  1 This session\n  2 Remember\nType 1 or 2: ");
+  expect(first.output).toContain("[mcp] Deletes allowed on lab, remembered. /mcp allow lab off undoes this.");
+  expect(first.output).toContain("[mcp] Firmware changes allowed on lab for this session.");
+  expect(first.app.allowances!.kindAllowed("lab", "firmware")).toBe(true);
+  expect(first.app.allowances!.kindAllowed("lab", "delete")).toBe(true);
+  expect(first.app.allowances!.kindAllowed("lab", "admin")).toBe(false);
+  // A new session: the remembered kind is still there, the session one is not.
+  const second = await session(home, project, ["/mcp connect lab", "/mcp allow lab", "/mcp allow lab off", "/mcp allow lab"], ["1", "1", "1"]);
+  expect(second.output).toContain("  Allowed now: Deletes (remembered)");
+  expect(second.output).toContain("[mcp] Change kinds on lab are back to the defaults.");
+  expect(second.output.split("  Allowed now: ").at(-1)).toMatch(/^none\n/);
+});
+
+test("/mcp allow: 6 allows everything on that server for this session only; the footer shows it", async () => {
+  const { home, project } = await fixture({ casper: { mcpServers: { lab: entry({ FIXTURE_MODE: "access-bad" }) } } });
+  const { output, app } = await session(home, project, ["/mcp connect lab", "/mcp allow lab"], ["1", "6"]);
+  expect(output).toContain("[mcp] Yes to everything on lab this session: no change there asks you. /mcp writes off ends it.");
+  expect(app.allowances!.allowAllOn("lab")).toBe(true);
+  expect(app.terminal.badge).toMatch(/^ALLOW ALL: lab · /);
+});
