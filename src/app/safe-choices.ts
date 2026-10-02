@@ -4,7 +4,7 @@
  * off); anything that builds, spends tokens, runs a check again, remembers or turns writes on takes a deliberate
  * 2 or 3. The AI's own ask tool never uses these. tests/safe-first-choice.test.ts keeps it that way.
  */
-import { KIND_TEXT, type ChangeKind } from "../capabilities/kinds";
+import { KIND_TEXT, RISKY_KINDS, type ChangeKind } from "../capabilities/kinds";
 import { formatDuration } from "../verify/evidence";
 import type { UnfinishedChoice } from "../verify/repair-loop";
 
@@ -67,10 +67,24 @@ export const APPROVE_PREVIEW_CHOICES = ["No", "Preview first", "Yes, this once",
 export const APPROVE_ONCE_CHOICES = ["No", "Yes, this once"] as const;
 export const APPROVE_ONCE_PREVIEW_CHOICES = ["No", "Preview first", "Yes, this once"] as const;
 
+/** The change box's last choice: no more boxes on this server for the session, for any change (reboots, deletes, risky
+ * kinds, an AI-set confirm). Only the person picks it; ctrl+o, writes off or a disconnect end it; it is never stored. */
+export function approveAllLabel(product: string): string {
+  return `Yes to everything on ${product} this session (no more asking, even reboots, deletes or an AI-set confirm)`;
+}
+
 /** A risky change kind (firmware, delete, admin) is off by default: 2 allows that kind on that server for this session. */
 export function kindAllowChoices(kind: ChangeKind): string[] {
   return ["No", `Allow ${KIND_TEXT[kind].toLowerCase()} for this session`];
 }
+
+/** /mcp allow <name>: 1 keeps the defaults; then each risky kind, all of them, and everything (no asking) this session. */
+export function allowKindsChoices(): string[] {
+  return ["Keep the defaults", ...RISKY_KINDS.map((kind) => `Allow ${KIND_TEXT[kind].toLowerCase()}`), "Allow all change kinds",
+    "Allow everything (no asking) this session"];
+}
+/** After picking kinds in /mcp allow: this session, or remembered for this server's exact definition. */
+export const MCP_ALLOW_KEEP_CHOICES = ["This session", "Remember"] as const;
 
 /** /mcp writes <name>: only "2" turns writes on. */
 export const MCP_WRITES_CHOICES = ["Keep writes off", "Enable for this server"] as const;

@@ -6,6 +6,7 @@ import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { IMPORT_LABELS, projectDefinitionReview, resolvedSecrets, resolveEnvironment, type MCPConfiguration, type MCPServerDefinition } from "./config";
 import type { ConsentState, ConsentStore, RememberResult } from "./consent";
 import { definitionIdentity } from "./consent";
+import type { ChangeKind } from "../capabilities/kinds";
 import {
   matchPreset, planPins, presetById, presetLine, rememberBlock, type PinPlan, type PresetMatch,
 } from "./presets";
@@ -357,6 +358,22 @@ export class MCPManager {
     const result = await this.consent.remember(entry.definition);
     if (result.remembered) entry.consent = "remembered";
     return result;
+  }
+
+  /** Risky change kinds remembered for this server's exact definition (/mcp allow, then 2 Remember). */
+  rememberedKinds(name: string): ChangeKind[] {
+    const entry = this.entries.get(name);
+    return entry && this.consent ? this.consent.rememberedKinds(entry.definition) : [];
+  }
+
+  async rememberKinds(name: string, kinds: readonly ChangeKind[]): Promise<RememberResult> {
+    const entry = this.entry(name);
+    if (!this.consent) return { remembered: false, reason: "Not remembered: this session can't keep approvals." };
+    return this.consent.rememberKinds(entry.definition, kinds);
+  }
+
+  async forgetKinds(name: string): Promise<boolean> {
+    return await this.consent?.forgetKinds(name) ?? false;
   }
 
   /** Drop a remembered approval. The current connection stays until it ends. */

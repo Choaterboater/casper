@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
-  ALREADY_FAILING_CHOICES, APPROVE_CHOICES, APPROVE_ONCE_CHOICES, APPROVE_ONCE_PREVIEW_CHOICES, APPROVE_PREVIEW_CHOICES, kindAllowChoices, MCP_REMEMBER_CHOICES, MCP_WRITES_CHOICES, modelFailedChoices, PLAN_CHOICES, PLAN_QUESTION, REMEMBER_BIG_MODEL_CHOICES,
+  ALREADY_FAILING_CHOICES, APPROVE_CHOICES, APPROVE_ONCE_CHOICES, APPROVE_ONCE_PREVIEW_CHOICES, APPROVE_PREVIEW_CHOICES, allowKindsChoices, kindAllowChoices, MCP_ALLOW_KEEP_CHOICES, MCP_REMEMBER_CHOICES, MCP_WRITES_CHOICES, modelFailedChoices, PLAN_CHOICES, PLAN_QUESTION, REMEMBER_BIG_MODEL_CHOICES,
   REPAIR_LIMIT_STOP, spendChoices, undoChangedChoices, missingFolderChoices, workFolderChoices, unfinishedChoices, HOST_CHOICES, SHELL_COMMAND_CHOICES, AI_REVIEW_CHOICES, REACH_CHOICES, writeChoices,
 } from "../src/app/safe-choices";
 import { planEditorHeading } from "../src/flows/plan";
@@ -41,6 +41,8 @@ const firsts: Array<[string, string, string]> = [
   ["MCP change with a preview", APPROVE_PREVIEW_CHOICES[0], "No"],
   ["MCP destructive change", APPROVE_ONCE_CHOICES[0], "No"],
   ["MCP risky change kind", kindAllowChoices("firmware")[0]!, "No"],
+  ["/mcp allow", allowKindsChoices()[0]!, "Keep the defaults"],
+  ["/mcp allow: keep it", MCP_ALLOW_KEEP_CHOICES[0], "This session"],
   ["advisory download", OSV_UPDATE_QUESTION.choices[0]!, "Stop"],
   ["new ignore", IGNORE_CHOICES[0], "Leave it flagged"],
   ["changed ignore file", IGNORE_FILE_CHOICES[0], "Keep the default"],

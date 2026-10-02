@@ -54,7 +54,7 @@ export interface CapabilityListPage {
 }
 /** The user's answer to one approval: yes, no, or "preview" (run the preview first, then ask again).
  * `true`/`false` mean yes/no. */
-export type ApprovalAnswer = boolean | "yes" | "no" | "preview" | "yes-session";
+export type ApprovalAnswer = boolean | "yes" | "no" | "preview" | "yes-session" | "allow-all";
 /** Ask the user about one exact call. Only their yes runs it; it may throw NotExecutedError when
  * nobody can be asked (a one-shot run), so the model is never told "you said no" by mistake. */
 export type ConfirmCapability = (call: {
@@ -142,6 +142,12 @@ export class CapabilityBroker {
   /** Risky change kinds the user allowed per server this session, with the server's allowance count at that moment. */
   private readonly allowedKinds = new Map<string, { at: number; kinds: Set<ChangeKind> }>();
   private readonly confirmKind?: ConfirmKind;
+  /** Servers the user answered "Yes to everything" for, with the server's allowance count then: every later call
+   * there runs without a box until ctrl+o, writes off, a disconnect or the session ends. Never stored. */
+  private readonly allowAll = new Map<string, number>();
+  private readonly onAllowAll?: (server: string, realTool: string) => void;
+  /** Told when the user's "Yes to everything" starts on a server (the footer shows it). */
+  private readonly onAllowAllStart?: (server: string) => void;
   /** Per-server lines for find_capability's description (read-only logins, writes off). */
   private modelLines: string[] = [];
   /** The connected servers, by name, as of the last sync. */
@@ -160,7 +166,10 @@ export class CapabilityBroker {
   /** Told when a change runs on the user's "Yes, for this session" without a box (for the transcript). */
   private readonly onSessionCovered?: (server: string, realTool: string) => void;
   constructor(private readonly manager: MCPManager, private readonly confirm?: ConfirmCapability,
-    options: { writesGate?: boolean; scrubber?: ResultScrubber; onSessionCovered?: (server: string, realTool: string) => void; confirmKind?: ConfirmKind } = {}) {
+    options: { writesGate?: boolean; scrubber?: ResultScrubber; onSessionCovered?: (server: string, realTool: string) => void; confirmKind?: ConfirmKind;
+      onAllowAll?: (server: string, realTool: string) => void; onAllowAllStart?: (server: string) => void } = {}) {
+    if (options.onAllowAll) this.onAllowAll = options.onAllowAll;
+    if (options.onAllowAllStart) this.onAllowAllStart = options.onAllowAllStart;
     this.writesGate = options.writesGate ?? false;
     if (options.confirmKind) this.confirmKind = options.confirmKind;
     this.scrubber = options.scrubber ?? BUILT_IN_SCRUBBER;
@@ -283,10 +292,12 @@ export class CapabilityBroker {
     // set to skip a check still asks.
     const optedIn = guard === "allow" && !plan.routed.length && !plan.routerUnclear
       && aiConfirm(plan.arguments).length === 0 && previewSwitchedOff(plan.arguments).length === 0;
+    // "Yes to everything" on this server: no kind box and no change box, whatever the call (the box said so).
+    const allCovered = needsApproval(plan) && !optedIn && this.allowAllOn(plan.server);
     // Risky kinds (firmware, delete, admin) are off by default: the user allows the kind first, then the change box asks.
-    if (needsApproval(plan) && !optedIn) await this.allowRiskyKinds(capability, plan, combined);
+    if (needsApproval(plan) && !optedIn && !allCovered) await this.allowRiskyKinds(capability, plan, combined);
     // Covered by the user's "Yes, for this session": approved without a box, so server questions still reach them.
-    const covered = needsApproval(plan) && !optedIn && this.sessionCovers(plan, capability.policy);
+    const covered = allCovered || (needsApproval(plan) && !optedIn && this.sessionCovers(plan, capability.policy));
     const writesBefore = this.writes(policy);
     const answer = covered ? { realTool: realToolOf(plan), once: false }
       : needsApproval(plan) && !optedIn ? await this.approve(capability, plan, combined) : undefined;
@@ -297,6 +308,10 @@ export class CapabilityBroker {
     }
     // A session answer is recorded only once it counts: never for a yes the refusal above set aside.
     if (answer && "session" in answer && answer.session) this.sessionGrants.set(plan.server, this.manager.writesOffCount(plan.server));
+    if (answer && "all" in answer && answer.all) {
+      this.allowAll.set(plan.server, this.manager.allowanceEnds(plan.server));
+      this.onAllowAllStart?.(plan.server);
+    }
     const approved = answer?.realTool;
     // Approved on a server whose writes are off right now (read fresh: the person may have turned them on while the
     // box was open): turn them on (it restarts without its read-only pins once its calls finish) before the change
@@ -319,7 +334,8 @@ export class CapabilityBroker {
       if (typeof guardArguments(current.policy.match, current.tool, frozenArgs, { writes: this.writes(current.policy), showOptIn: current.policy.showOptIn }) === "object") {
         throw new NotExecutedError(writesOffReason(capability.descriptor.source));
       }
-      if (covered) this.onSessionCovered?.(plan.server, realToolOf(plan));
+      if (allCovered) this.onAllowAll?.(plan.server, realToolOf(plan));
+      else if (covered) this.onSessionCovered?.(plan.server, realToolOf(plan));
       // 6. Call, under the per-server call clock. Only an approved call may carry server questions to the user.
       raw = await this.manager.call(capability.descriptor.source, capability.tool.name, frozenArgs, combined,
         approved ? { approved: { capabilityId: id, realTool: approved, label } } : {});
@@ -348,7 +364,7 @@ export class CapabilityBroker {
    * Ask the user until they say yes (returns the real tool name for the approved call) or no (throws).
    * "p" runs the preview, when the tool's own schema declares one, and asks again with its result.
    */
-  private async approve(capability: Capability, plan: ApprovalPlan, signal: AbortSignal): Promise<{ realTool: string; once: boolean; session?: boolean }> {
+  private async approve(capability: Capability, plan: ApprovalPlan, signal: AbortSignal): Promise<{ realTool: string; once: boolean; session?: boolean; all?: boolean }> {
     if (!this.confirm) throw new NotExecutedError("needs your approval, and this run cannot ask");
     const realTool = realToolOf(plan);
     const slot = this.previewSlot(capability, plan);
@@ -362,6 +378,7 @@ export class CapabilityBroker {
       }, signal);
       notCancelled(signal);
       if (answer === true || answer === "yes") return { realTool, once: true };
+      if (answer === "allow-all") return { realTool, once: false, all: true };
       // "For this session" only where it is offered; anywhere else it counts as this once.
       if (answer === "yes-session") return sessionAllowed(planLabel(shown)) ? { realTool, once: false, session: true } : { realTool, once: true };
       if (answer !== "preview" || !canPreview(shown)) break;
@@ -408,10 +425,16 @@ export class CapabilityBroker {
 
   /** True when the user allowed this risky kind on this server, and nothing has ended it since. */
   kindAllowed(server: string, kind: ChangeKind): boolean {
+    if (this.manager.rememberedKinds(server).includes(kind)) return true;
+    return this.sessionKinds(server).includes(kind);
+  }
+
+  /** The risky kinds allowed on this server for this session only (not the remembered ones). */
+  sessionKinds(server: string): ChangeKind[] {
     const given = this.allowedKinds.get(server);
-    if (!given) return false;
-    if (given.at !== this.manager.allowanceEnds(server)) { this.allowedKinds.delete(server); return false; }
-    return given.kinds.has(kind);
+    if (!given) return [];
+    if (given.at !== this.manager.allowanceEnds(server)) { this.allowedKinds.delete(server); return []; }
+    return [...given.kinds];
   }
 
   /** Allow a risky kind on a server for this session. Only the user's own answer or command calls this. */
@@ -421,11 +444,35 @@ export class CapabilityBroker {
     else this.allowedKinds.set(server, { at, kinds: new Set([kind]) });
   }
 
-  /** ctrl+o: end every session answer and every allowed kind, on every server. True when any were in force. */
+  /** True while the user's "Yes to everything" holds on this server. */
+  allowAllOn(server: string): boolean {
+    const given = this.allowAll.get(server);
+    if (given === undefined) return false;
+    if (given !== this.manager.allowanceEnds(server)) { this.allowAll.delete(server); return false; }
+    return true;
+  }
+
+  /** /mcp allow <server>, then 6: the user's own "Yes to everything" on that server for this session. */
+  startAllowAll(server: string): void {
+    this.allowAll.set(server, this.manager.allowanceEnds(server));
+    this.onAllowAllStart?.(server);
+  }
+
+  /** /mcp allow <server> off: end that server's session kinds and "Yes to everything" (session answers stay). */
+  endAllowancesFor(server: string): void {
+    this.allowedKinds.delete(server);
+    this.allowAll.delete(server);
+  }
+
+  /** The servers under "Yes to everything" right now (the footer shows them). */
+  allowAllServers(): string[] { return [...this.allowAll.keys()].filter((server) => this.allowAllOn(server)).sort(); }
+
+  /** ctrl+o: end every session answer, allowed kind and "Yes to everything", on every server. True when any were in force. */
   endAllowances(): boolean {
-    const any = this.sessionGrants.size > 0 || this.allowedKinds.size > 0;
+    const any = this.sessionGrants.size > 0 || this.allowedKinds.size > 0 || this.allowAll.size > 0;
     this.sessionGrants.clear();
     this.allowedKinds.clear();
+    this.allowAll.clear();
     return any;
   }
 
@@ -534,6 +581,7 @@ export class CapabilityBroker {
     const connected = new Set([...next.values()].map((capability) => capability.descriptor.source));
     for (const server of [...this.sessionGrants.keys()]) if (!connected.has(server)) this.sessionGrants.delete(server);
     for (const server of [...this.allowedKinds.keys()]) if (!connected.has(server)) this.allowedKinds.delete(server);
+    for (const server of [...this.allowAll.keys()]) if (!connected.has(server)) this.allowAll.delete(server);
   }
 
   private get(id: string): Capability {

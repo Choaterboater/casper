@@ -547,7 +547,12 @@ export class CasperApp {
     // Every server starts with writes off; only the user turns them on (/mcp writes <name>).
     this.broker = new CapabilityBroker(this.mcp, (call, signal) => this.confirmCapability(call, signal), { writesGate: true, scrubber: this.scrubber,
       onSessionCovered: (server, tool) => { if (!this.closing) this.output.write(`[approval] allowed (this session): ${terminalText(server)} · ${terminalText(tool)}\n`); },
-      confirmKind: (ask, signal) => this.confirmKind(ask, signal) });
+      confirmKind: (ask, signal) => this.confirmKind(ask, signal),
+      onAllowAll: (server, tool) => {
+        this.taskChangeServers.add(server);
+        if (!this.closing) this.output.write(`[approval] allowed (allow all): ${terminalText(server)} · ${terminalText(tool)}\n`);
+      },
+      onAllowAllStart: () => this.updateFooter() });
     this.lifecycle.add({ name: "references", close: () => this.references!.close() });
     // Web lookups never ask: the checks in src/web/url.ts hold instead. Off only with web: off in your own config.
     this.web?.close();
@@ -2682,6 +2687,9 @@ export class CasperApp {
     await this.mcpConsent.markImportSet(names).catch(() => {});
   }
 
+  /** The broker's per-server allowances, for /mcp allow (the user's own command). */
+  get allowances(): CapabilityBroker | undefined { return this.broker; }
+
   /** Ends every allowed change kind and session answer, on every server. */
   endAllowances(): boolean { return this.broker?.endAllowances() ?? false; }
 
@@ -2733,9 +2741,10 @@ export class CasperApp {
       if (digit === undefined && this.approvalStopped(signal)) throw new NotExecutedError("cancelled");
       const result = digit === undefined ? "no" : box.answers[digit] ?? "no";
       // A call you allowed that can change things: undo can't reach it, and /undo says so.
-      if ((result === "yes" || result === "yes-session") && planLabel(call.plan) !== "read") this.taskChangeServers.add(call.plan.server);
+      if ((result === "yes" || result === "yes-session" || result === "allow-all") && planLabel(call.plan) !== "read") this.taskChangeServers.add(call.plan.server);
       if (!this.closing) {
-        this.output.write(`[approval] ${result === "yes" ? "allowed" : result === "yes-session" ? "allowed for this session" : result === "preview" ? "preview first" : "denied"}\n`);
+        const said = { yes: "allowed", "yes-session": "allowed for this session", "allow-all": "allowed (allow all)", preview: "preview first", no: "denied" }[result];
+        this.output.write(`[approval] ${said}\n`);
       }
       return result;
     });
@@ -3013,8 +3022,11 @@ export class CasperApp {
   updateFooter(): void {
     if (!this.projectContext) return;
     this.terminal.setTitle(windowTitle(this.conversationName(), this.commandActive));
-    const writes = this.mcp?.writesOn() ?? [];
-    this.terminal.setBadge(writes.length ? `WRITES: ${writes.join(", ")} · ${this.terminal.rich ? "ctrl+o" : "/mcp writes off"}` : undefined);
+    // "ALLOW ALL" first: no box asks there. Both end with ctrl+o (or /mcp writes off on a plain terminal).
+    const all = this.broker?.allowAllServers() ?? [];
+    const writes = (this.mcp?.writesOn() ?? []).filter((server) => !all.includes(server));
+    const parts = [...(all.length ? [`ALLOW ALL: ${all.join(", ")}`] : []), ...(writes.length ? [`WRITES: ${writes.join(", ")}`] : [])];
+    this.terminal.setBadge(parts.length ? `${parts.join(" · ")} · ${this.terminal.rich ? "ctrl+o" : "/mcp writes off"}` : undefined);
     try {
       const project = this.projectContext.info;
       const status = this.session?.getStatus?.();

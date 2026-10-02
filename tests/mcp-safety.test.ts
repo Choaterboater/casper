@@ -105,7 +105,7 @@ test("router calls show the real tool and 'may EXECUTE'", async () => {
   await expect(broker.invoke(id("invoke_tool"), { name: "port_bounce", arguments: { serial_number: "SG1" } })).rejects.toThrow("you said no");
   expect(boxes[0]).toContain("Runs: port_bounce (through invoke_tool)");
   expect(boxes[0]).toContain("May make the change (dry_run is not set).");
-  expect(boxes[0]).toContain("Type 1 or 2: ");
+  expect(boxes[0]).toContain("Type 1, 2 or 3: ");
   expect(boxes[0]).not.toContain("Preview first");
 });
 
@@ -166,7 +166,7 @@ test("the user can ask for a preview at most three times, and sees the third one
   expect(boxes).toHaveLength(4);
   // The fourth box shows the third preview and no longer offers p.
   expect(boxes[3]).toContain("Last preview (just now):");
-  expect(boxes[3]).toContain("Type 1, 2 or 3: ");
+  expect(boxes[3]).toContain("Type 1, 2, 3 or 4: ");
   expect(boxes[3]).not.toContain("Preview first");
   expect(toolCalls(await calls(file)).map((entry) => (entry.arguments as Record<string, unknown>).dry_run)).toEqual([true, true, true, undefined]);
 });
@@ -432,4 +432,48 @@ test("a risky kind behind a router is judged by the real tool", async () => {
   const { broker, id } = await setup({ confirm, confirmKind, writesGate: true });
   await expect(broker.invoke(id("invoke_tool"), { name: "trigger_device_upgrade", arguments: {} })).rejects.toThrow("you said no");
   expect(asked).toEqual(["network:firmware:trigger_device_upgrade"]);
+});
+
+// --- "Yes to everything on <product> this session" ----------------------------------------------
+
+test("allow all: later changes on that server run without any box, even reboots, risky kinds and an AI-set confirm; another server still asks; ctrl+o ends it", async () => {
+  const file = await callsFile();
+  const mcp = new MCPManager({ servers: [definition("network", "network", file), definition("other", "network", file)], diagnostics: [] }, {});
+  const { confirm, boxes } = answering("allow-all", "no", "no");
+  const { confirmKind, asked } = kindAnswers(false);
+  const covered: string[] = [];
+  const broker = new CapabilityBroker(mcp, confirm, { writesGate: true, confirmKind, onAllowAll: (server, tool) => covered.push(`${server}:${tool}`) });
+  cleanup.push(() => broker.close());
+  await mcp.connect("network");
+  await mcp.connect("other");
+  await broker.prepare("network");
+  await broker.invoke("mcp:network:set_ssid", { ssid: "corp" });
+  expect(boxes).toHaveLength(1);
+  expect(broker.allowAllServers()).toEqual(["network"]);
+  expect(mcp.writesOn()).toEqual(["network"]);
+  // No more boxes on network: destructive, a risky kind (no kind box either), and the AI setting confirm=true.
+  // port_bounce still sends its own question to the person (nobody answers it here); the call itself was sent.
+  expect(JSON.stringify(await broker.invoke("mcp:network:port_bounce", { serial_number: "SG1" }))).toContain('"executed":true');
+  await broker.invoke("mcp:network:invite_user", { email: "a@example.com" });
+  await broker.invoke("mcp:network:set_ssid", { ssid: "corp", confirm: true });
+  expect(boxes).toHaveLength(1);
+  expect(asked).toEqual([]);
+  expect(covered).toEqual(["network:port_bounce", "network:invite_user", "network:set_ssid"]);
+  // The other server still asks.
+  await expect(broker.invoke("mcp:other:set_ssid", { ssid: "corp" })).rejects.toThrow("you said no");
+  expect(boxes).toHaveLength(2);
+  // ctrl+o ends it at once.
+  expect(broker.endAllowances()).toBe(true);
+  expect(broker.allowAllServers()).toEqual([]);
+  await expect(broker.invoke("mcp:network:set_ssid", { ssid: "x" })).rejects.toThrow("you said no");
+  expect(boxes).toHaveLength(3);
+});
+
+test("allow all ends when the person turns that server's writes off", async () => {
+  const { confirm } = answering("allow-all");
+  const { broker, mcp, id } = await setup({ confirm, writesGate: true });
+  await broker.invoke(id("set_ssid"), { ssid: "corp" });
+  expect(broker.allowAllServers()).toEqual(["network"]);
+  await mcp.setWrites("network", false);
+  expect(broker.allowAllServers()).toEqual([]);
 });

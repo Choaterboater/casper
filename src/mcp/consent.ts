@@ -4,6 +4,7 @@ import path from "node:path";
 import { openNoFollow } from "../platform/files";
 import type { MCPServerDefinition } from "./config";
 import { matchPreset, rememberBlock } from "./presets";
+import { isChangeKind, isRiskyKind, RISKY_KINDS, type ChangeKind } from "../capabilities/kinds";
 
 /**
  * Remembered approval for your own and imported MCP servers, kept in ~/.casper/mcp-consent.json.
@@ -25,7 +26,10 @@ const HASH = /^[0-9a-f]{64}$/;
 
 export type ConsentState = "none" | "remembered" | "changed";
 interface ConsentRecord { hash: string; at: string }
-interface ConsentFile { version: 1; servers: Record<string, ConsentRecord>; imports?: string }
+/** Risky change kinds the user chose to remember for a server (/mcp allow, then 2 Remember), keyed to the same
+ * definition hash: another program under the same name gets none of them. */
+interface KindsRecord { hash: string; kinds: ChangeKind[] }
+interface ConsentFile { version: 1; servers: Record<string, ConsentRecord>; imports?: string; kinds?: Record<string, KindsRecord> }
 
 /** Stable JSON: object keys sorted at every level. */
 export function canonical(value: unknown): string {
@@ -152,6 +156,47 @@ export class ConsentStore {
     });
   }
 
+  /** The risky kinds remembered for this exact definition (empty for a project server or a changed definition). */
+  rememberedKinds(definition: MCPServerDefinition): ChangeKind[] {
+    if (definition.scope === "project" || !this.key) return [];
+    const stored = this.data.kinds?.[definition.name];
+    return stored && stored.hash === this.hashOf(definition) ? [...stored.kinds] : [];
+  }
+
+  /** Remember risky kinds for a server (only firmware, delete, admin are kept). Refuses project servers and unpinned runners. */
+  rememberKinds(definition: MCPServerDefinition, kinds: readonly ChangeKind[]): Promise<RememberResult> {
+    return this.serial(async () => {
+      if (definition.scope === "project") {
+        return { remembered: false, reason: `Not remembered: ${definition.name} comes from the project. Allowed for this session only.` };
+      }
+      const block = rememberBlock(definition, matchPreset(definition));
+      if (block) return { remembered: false, reason: block };
+      const key = await this.ensureKey();
+      const data = await this.readRecords();
+      const kept = data.kinds ?? Object.create(null) as Record<string, KindsRecord>;
+      if (!(definition.name in kept) && Object.keys(kept).length >= MAX_RECORDS) {
+        return { remembered: false, reason: "Not remembered: too many servers with remembered kinds. Use /mcp allow <name> off on one first." };
+      }
+      const hash = definitionHash(definition, key, matchPreset(definition)?.preset.id);
+      const before = kept[definition.name]?.hash === hash ? kept[definition.name]!.kinds : [];
+      kept[definition.name] = { hash, kinds: RISKY_KINDS.filter((kind) => before.includes(kind) || kinds.includes(kind)) };
+      data.kinds = kept;
+      await this.save(data);
+      return { remembered: true };
+    });
+  }
+
+  /** /mcp allow <name> off: drop the remembered kinds. Returns whether there were any. */
+  forgetKinds(name: string): Promise<boolean> {
+    return this.serial(async () => {
+      const data = await this.readRecords();
+      if (!data.kinds || !(name in data.kinds)) { this.data = data; return false; }
+      delete data.kinds[name];
+      await this.save(data);
+      return true;
+    });
+  }
+
   /** Whether this set of imported server names differs from the last one the user was told about. */
   importSetIsNew(names: readonly string[]): boolean {
     if (!names.length) return false;
@@ -238,7 +283,13 @@ export class ConsentStore {
       servers[name] = { hash: value.hash, at: typeof value.at === "string" ? value.at.slice(0, 40) : "" };
     }
     const imports = typeof document.imports === "string" && HASH.test(document.imports) ? document.imports : undefined;
-    return { version: VERSION, servers, ...(imports ? { imports } : {}) };
+    const kinds: Record<string, KindsRecord> = Object.create(null);
+    if (record(document.kinds)) for (const [name, value] of Object.entries(document.kinds).slice(0, MAX_RECORDS)) {
+      if (!/^[a-zA-Z0-9_.-]{1,64}$/.test(name) || !record(value) || typeof value.hash !== "string" || !HASH.test(value.hash) || !Array.isArray(value.kinds)) continue;
+      const listed = value.kinds.filter((kind): kind is ChangeKind => isChangeKind(kind) && isRiskyKind(kind));
+      kinds[name] = { hash: value.hash, kinds: RISKY_KINDS.filter((kind) => listed.includes(kind)) };
+    }
+    return { version: VERSION, servers, ...(imports ? { imports } : {}), ...(Object.keys(kinds).length ? { kinds } : {}) };
   }
 
   private note(message: string): void {
