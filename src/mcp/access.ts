@@ -68,16 +68,21 @@ function body(result: unknown): unknown {
 /** A v2 scope list: plain entries of a known kind kept, anything else dropped; too long a list is dropped whole. */
 function scopes(value: unknown): AccessScope[] | undefined {
   if (!Array.isArray(value) || !value.length || value.length > MAX_SCOPES) return undefined;
-  const kept = value.flatMap((item): AccessScope[] => {
-    if (!record(item) || typeof item.kind !== "string" || !SCOPE_KINDS.has(item.kind)) return [];
+  // All or nothing: a shorter list would understate where the login can change things.
+  const kept: AccessScope[] = [];
+  for (const item of value) {
+    if (!record(item) || typeof item.kind !== "string" || !SCOPE_KINDS.has(item.kind)) return undefined;
     const id = plain(item.id), name = plain(item.name);
-    return id && name ? [{ kind: item.kind as AccessScope["kind"], id, name }] : [];
-  });
-  return kept.length ? kept : undefined;
+    if (!id || !name) return undefined;
+    kept.push({ kind: item.kind as AccessScope["kind"], id, name });
+  }
+  return kept;
 }
 
 /** Where the login can change things, in plain words ("Lab site", "2 sites and 1 org"); undefined when not reported. */
 export function changeScopeText(check: AccessCheck | undefined): string | undefined {
+  // A product that can make changes but didn't say where: the reach is unknown, so no line rather than a short one.
+  if (check?.products.some((product) => product.access === "read-write" && !product.canChange)) return undefined;
   const all = check?.products.flatMap((product) => product.canChange ?? []) ?? [];
   if (!all.length) return undefined;
   if (all.length === 1) return `${all[0]!.name} ${all[0]!.kind === "sitegroup" ? "site group" : all[0]!.kind}`;

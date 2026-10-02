@@ -13,7 +13,7 @@ import {
   type ApprovalPlan, type LastPreview,
 } from "./approval";
 import { toolLabel } from "./labels";
-import { isRiskyKind, KIND_TEXT, planKinds, type ChangeKind } from "./kinds";
+import { asksEveryTime, isRiskyKind, KIND_TEXT, planKinds, type ChangeKind } from "./kinds";
 import { boundCapabilityResult, capabilityErrorResult, NotExecutedError, OutcomeUnknownError, type BoundedCapabilityResult } from "./result";
 import { indexWords, termScore, tokenize } from "./search";
 import type { CompiledValidator } from "./validate";
@@ -380,7 +380,7 @@ export class CapabilityBroker {
       if (answer === true || answer === "yes") return { realTool, once: true };
       if (answer === "allow-all") return { realTool, once: false, all: true };
       // "For this session" only where it is offered; anywhere else it counts as this once.
-      if (answer === "yes-session") return sessionAllowed(planLabel(shown)) ? { realTool, once: false, session: true } : { realTool, once: true };
+      if (answer === "yes-session") return sessionAllowed(planLabel(shown)) && !asksEveryTime(shown) ? { realTool, once: false, session: true } : { realTool, once: true };
       if (answer !== "preview" || !canPreview(shown)) break;
       // Only send what Casper itself reads as a preview.
       const previewArgs = previewArguments(plan);
@@ -496,6 +496,8 @@ export class CapabilityBroker {
   private sessionCovers(plan: ApprovalPlan, policy: ServerPolicy): boolean {
     if (!this.sessionGrant(plan.server)) return false;
     if (this.writes(policy) === "off") { this.sessionGrants.delete(plan.server); return false; }
+    // Risky and disruptive kinds ask every time, like destructive changes.
+    if (asksEveryTime(plan)) return false;
     return sessionAllowed(planLabel(plan)) && !plan.routerUnclear
       && aiConfirm(plan.arguments).length === 0 && previewSwitchedOff(plan.arguments).length === 0;
   }

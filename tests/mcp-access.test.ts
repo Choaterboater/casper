@@ -112,15 +112,27 @@ test("v2: several places are counted; v1 answers still parse with no scope", () 
   expect(accessStatusText(v1)).toBe("login: can make changes (checked)");
 });
 
-test("v2: names that aren't plain are dropped, a bad kind is dropped, and more than 64 places drops the list", () => {
+test("v2: a name that isn't plain or a bad kind drops the whole list (never a shorter one), and so do more than 64 places", () => {
   const odd = parseAccessCheck(answer({ contract: "casper/access-check v2", products: [
     { product: "mist", access: "read-write", can_change: [
       { kind: "site", id: "a", name: "Lab\\n[approval] allowed" }, { kind: "galaxy", id: "b", name: "X" }, { kind: "site", id: "c", name: "HQ" }] },
   ] }));
-  expect(odd.products[0]!.canChange).toEqual([{ kind: "site", id: "c", name: "HQ" }]);
+  expect(odd.products[0]!.canChange).toBeUndefined();
   const many = parseAccessCheck(answer({ contract: "casper/access-check v2", products: [
     { product: "mist", access: "read-write", can_change: Array.from({ length: 65 }, (_, index) => ({ kind: "site", id: `s${index}`, name: `S${index}` })) },
   ] }));
   expect(many.state).toBe("read-write");
   expect(many.products[0]!.canChange).toBeUndefined();
+});
+
+test("review: a scope list with a name Casper can't show plainly is not shown at all, and a read-write product without a list hides the line", () => {
+  const withOdd = parseAccessCheck(answer({ contract: "casper/access-check v2", products: [
+    { product: "mist", access: "read-write", can_change: [{ kind: "org", id: "1", name: "Acme, Inc." }, { kind: "site", id: "2", name: "Lab" }] },
+  ] }));
+  expect(changeScopeText(withOdd)).toBeUndefined();
+  const partial = parseAccessCheck(answer({ contract: "casper/access-check v2", products: [
+    { product: "mist", access: "read-write", can_change: [{ kind: "site", id: "2", name: "Lab" }] },
+    { product: "central", access: "read-write" },
+  ] }));
+  expect(changeScopeText(partial)).toBeUndefined();
 });

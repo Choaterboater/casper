@@ -60,3 +60,10 @@ test("the kind box: plain words, the real tool, 1 No and 2 Allow for this sessio
   expect(box.question).toBe("Type 1 or 2: ");
   expect(box.choices).toEqual(["1", "2"]);
 });
+
+test("review: a router call to a tool whose name reads as a read still gets its risky kind", () => {
+  const router = { type: "object" as const, properties: { name: { type: "string" }, arguments: { type: "object" } } };
+  const call = buildPlan({ server: "net", tool: "invoke_tool", label: "destructive", schema: router,
+    arguments: { name: "invite_glp_user", arguments: {} } });
+  expect(planKinds(call)).toEqual(["admin"]);
+});

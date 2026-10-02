@@ -342,7 +342,9 @@ may do.
   "id", "name"}`. Casper shows them; the server enforces them. `/mcp` then shows
   `login: can change Lab site (checked)` (or `2 sites and 1 org`), and the change box adds
   `Your login can change: Lab site` under its first line. A name that isn't plain text, an
-  unknown kind, or more than 64 entries is dropped, never shown. v1 answers still work.
+  unknown kind, or more than 64 entries drops the whole list, and a product that can make
+  changes without saying where hides the line: Casper never shows a shorter reach than
+  the real one. v1 answers still work.
 - Only the parsed state is used. The server's text never reaches the AI.
 
 ### Turning writes on
@@ -414,7 +416,8 @@ Type 1 or 2:
 ```
 
 `2` allows that kind on that server until the session ends, ctrl+o, `/mcp writes off`
-or a disconnect; the change box still asks about each call. `1` runs nothing.
+or a disconnect; the change box still asks about each call, with no "for this session"
+answer (risky and disruptive kinds ask every time). `1` runs nothing.
 One-shot runs refuse: `Not executed (Firmware changes are off by default on <server>,
 and this run cannot ask)`.
 
@@ -440,7 +443,8 @@ Type 1, 2, 3, 4, 5 or 6:
   them; `/mcp allow <server> off` does.
 - 6 is "Yes to everything" for this session, as in the change box. It is never
   remembered.
-- `/mcp allow <server> off` goes back to the defaults on that server.
+- `/mcp allow <server> off` goes back to the defaults on that server; `/mcp forget <server>`
+  forgets its remembered kinds too.
 - A read-only login can't be widened. Only you can type `/mcp allow`; the AI has no way
   to run it.
 
@@ -616,7 +620,8 @@ Every tool gets a label. From least to most strict: `read`, `diagnostic`,
     turned a preview off.
   - `Yes to everything on <product> this session` (always last) runs it, and no later
     call on that server asks at all: not reboots, not deletes or other risky kinds, not
-    a call where the AI set `confirm`. Only you can pick it; the AI can't. It is never
+    a call where the AI set `confirm`. It asks once more (`1 No · 2 Yes to everything`),
+    so a digit typed from habit never grants it. Only you can pick it; the AI can't. It is never
     remembered, the footer shows `ALLOW ALL: <servers> · ctrl+o`, and ctrl+o,
     `/mcp writes off`, a disconnect or the end of the session ends it. Each call it
     covers is logged as `[approval] allowed (allow all): <server> · <tool>`. A read-only

@@ -329,3 +329,9 @@ test("the box says where the login can change things, when the server reports it
   expect(box.preview.split("\n").slice(0, 2)).toEqual(["Change in Mist: set site", "Your login can change: Lab site"]);
   expect(formatApproval(plan("set_site", { site: "lab" })).preview).not.toContain("Your login can change");
 });
+
+test("review: a risky or disruptive kind gets no session answer in the box", () => {
+  const invite = formatApproval(plan("invite_user", { email: "a" }));
+  expect(invite.preview).not.toContain("for this session");
+  expect(Object.values(invite.answers)).toEqual(["no", "yes", "allow-all"]);
+});

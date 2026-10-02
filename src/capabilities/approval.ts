@@ -17,7 +17,7 @@ import { APPROVE_CHOICES, APPROVE_ONCE_CHOICES, APPROVE_ONCE_PREVIEW_CHOICES, AP
 import type { MCPTool } from "../mcp/manager";
 import { isSecretKey as isScrubbedKey, scrubText } from "../secrets/scrub";
 import { redactPreview, terminalText } from "../tui/format";
-import { KIND_TEXT, type ChangeKind } from "./kinds";
+import { asksEveryTime, KIND_TEXT, type ChangeKind } from "./kinds";
 import { nameLabel, strictest, type CapabilitySafety } from "./labels";
 
 export type CallMode = "execute" | "preview" | "may-execute";
@@ -458,7 +458,7 @@ export function formatApproval(plan: ApprovalPlan, lastPreview?: LastPreview, op
     lines.push(`Last preview (${ago(lastPreview.at, options.now ?? Date.now())}): ${cut}`);
   } else if (offer) lines.push("No preview yet.");
   lines.push(`MCP · ${plan.server} · ${plan.tool}  [${planLabel(plan)}]`);
-  const onceOnly = !sessionAllowed(planLabel(plan));
+  const onceOnly = !sessionAllowed(planLabel(plan)) || asksEveryTime(plan);
   const all = approveAllLabel(options.product ?? plan.server);
   const labels: readonly string[] = [...(onceOnly ? (offer ? APPROVE_ONCE_PREVIEW_CHOICES : APPROVE_ONCE_CHOICES)
     : offer ? APPROVE_PREVIEW_CHOICES : APPROVE_CHOICES), all];

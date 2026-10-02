@@ -948,6 +948,8 @@ async function handleMCPAllow(host: CommandHost, name: string, off: boolean): Pr
   // Project servers and unpinned runners can't be remembered: this session only, without asking.
   const block = mcp.rememberBlock(name);
   const keep = block ? undefined : await host.chooseAnswer(`${numberedLines(MCP_ALLOW_KEEP_CHOICES)}`, "Type 1 or 2: ", ["1", "2"], host.commandAbort?.signal);
+  // Cancelled (ctrl+c, closing): nothing is allowed.
+  if (!block && keep === undefined) { host.output.write(`[mcp] ${name} keeps the defaults.\n`); return; }
   for (const kind of kinds) allowances.allowKind(name, kind);
   if (keep === "2") {
     const result = await mcp.rememberKinds(name, kinds);
