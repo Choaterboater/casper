@@ -321,3 +321,9 @@ test("a tool that runs commands (exec) gets no session answer, like a destructiv
   expect(box.preview).not.toContain("for this session");
   expect(box.answers).toEqual({ "1": "no", "2": "yes" });
 });
+
+test("the box says where the login can change things, when the server reports it", () => {
+  const box = formatApproval(plan("set_site", { site: "lab" }), undefined, { product: "Mist", scope: "Lab site" });
+  expect(box.preview.split("\n").slice(0, 2)).toEqual(["Change in Mist: set site", "Your login can change: Lab site"]);
+  expect(formatApproval(plan("set_site", { site: "lab" })).preview).not.toContain("Your login can change");
+});

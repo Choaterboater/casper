@@ -20,6 +20,11 @@ Adds one router-level tool, access_check, that answers the
   client can confirm that its read-only settings took hold.
 - Never returns tokens. Any error or odd payload gives "unknown".
 
+Casper also reads "casper/access-check v2": the same answer, plus per product
+"can_change" and "read_only" lists of {"kind": "org"|"site"|"sitegroup",
+"id", "name"} saying where the login can change things. The server enforces
+those lists; Casper only shows them. This patch still answers v1.
+
 The read-only settings need no change here: Casper sets
 HPE_MCP_ACCESS_PROFILE, HPE_MCP_READONLY, HPE_MCP_PRODUCT_ACCESS and every
 HPE_MCP_*_WRITES from outside, and load_dotenv(override=False) keeps them.

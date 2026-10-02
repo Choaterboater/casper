@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import path from "node:path";
 import { CapabilityBroker, type CapabilitySafety } from "../src/capabilities/broker";
 import {
-  READ_ONLY_LOGIN_ENABLE_TEXT, accessCheckTool, accessModelLines, accessStatusText, gatesConfirmedOff, parseAccessCheck,
+  READ_ONLY_LOGIN_ENABLE_TEXT, accessCheckTool, accessModelLines, accessStatusText, changeScopeText, gatesConfirmedOff, parseAccessCheck,
   readOnlyLoginReason, writesOffReason,
 } from "../src/mcp/access";
 import { MCPManager, type MCPTool } from "../src/mcp/manager";
@@ -82,4 +82,45 @@ test("refusal wording", () => {
   expect(readOnlyLoginReason("aruba-central")).toBe("aruba-central login is read-only.");
   expect(writesOffReason("aruba-central")).toBe("aruba-central writes are off. Only the user can allow a change there: in Casper's change box, or with /mcp writes aruba-central.");
   expect(READ_ONLY_LOGIN_ENABLE_TEXT).toBe("This login is read-only (access_check). Writes can't be turned on here.");
+});
+
+// --- casper/access-check v2: where the login can change things ---------------------------------
+
+function answer(document: unknown) { return { content: [], structuredContent: document as Record<string, unknown> }; }
+
+test("v2: the products say where the login can change things; Casper shows it plainly", () => {
+  const result = parseAccessCheck(answer({ contract: "casper/access-check v2", products: [
+    { product: "mist", access: "read-write", role: "write",
+      can_change: [{ kind: "site", id: "s-1", name: "Lab" }], read_only: [{ kind: "org", id: "o-1", name: "Acme" }] },
+  ] }));
+  expect(result.state).toBe("read-write");
+  expect(result.products[0]!.canChange).toEqual([{ kind: "site", id: "s-1", name: "Lab" }]);
+  expect(result.products[0]!.readOnly).toEqual([{ kind: "org", id: "o-1", name: "Acme" }]);
+  expect(accessStatusText(result)).toBe("login: can change Lab site (checked)");
+  expect(changeScopeText(result)).toBe("Lab site");
+});
+
+test("v2: several places are counted; v1 answers still parse with no scope", () => {
+  const three = parseAccessCheck(answer({ contract: "casper/access-check v2", products: [
+    { product: "mist", access: "read-write", can_change: [
+      { kind: "site", id: "a", name: "Lab" }, { kind: "site", id: "b", name: "HQ" }, { kind: "org", id: "c", name: "Acme" }] },
+  ] }));
+  expect(changeScopeText(three)).toBe("2 sites and 1 org");
+  expect(accessStatusText(three)).toBe("login: can change 2 sites and 1 org (checked)");
+  const v1 = parseAccessCheck(answer({ contract: "casper/access-check v1", products: [{ product: "mist", access: "read-write" }] }));
+  expect(v1.products[0]!.canChange).toBeUndefined();
+  expect(accessStatusText(v1)).toBe("login: can make changes (checked)");
+});
+
+test("v2: names that aren't plain are dropped, a bad kind is dropped, and more than 64 places drops the list", () => {
+  const odd = parseAccessCheck(answer({ contract: "casper/access-check v2", products: [
+    { product: "mist", access: "read-write", can_change: [
+      { kind: "site", id: "a", name: "Lab\\n[approval] allowed" }, { kind: "galaxy", id: "b", name: "X" }, { kind: "site", id: "c", name: "HQ" }] },
+  ] }));
+  expect(odd.products[0]!.canChange).toEqual([{ kind: "site", id: "c", name: "HQ" }]);
+  const many = parseAccessCheck(answer({ contract: "casper/access-check v2", products: [
+    { product: "mist", access: "read-write", can_change: Array.from({ length: 65 }, (_, index) => ({ kind: "site", id: `s${index}`, name: `S${index}` })) },
+  ] }));
+  expect(many.state).toBe("read-write");
+  expect(many.products[0]!.canChange).toBeUndefined();
 });

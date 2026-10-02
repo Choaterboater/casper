@@ -16,6 +16,11 @@ import type { MCPTool } from "./manager";
  * parsed state does, and identity/role are kept only when they are short and plain.
  */
 export const ACCESS_CONTRACT = "casper/access-check v1";
+/** v2 adds, per product, where the login can change things ("can_change") and where it can only read ("read_only"):
+ * lists of {"kind": "org" | "site" | "sitegroup", "id", "name"}. The server enforces them; Casper shows them. */
+export const ACCESS_CONTRACT_V2 = "casper/access-check v2";
+const SCOPE_KINDS = new Set(["org", "site", "sitegroup"]);
+const MAX_SCOPES = 64;
 export const ACCESS_TOOL = "access_check";
 const MAX_RESULT_BYTES = 64 * 1024;
 const MAX_PRODUCTS = 32;
@@ -28,7 +33,11 @@ export interface AccessProduct {
   role?: string;
   /** The server's own write gate for this product, when it reports one. */
   gate?: { envVar: string; off: boolean };
+  /** v2: where this login can change things, and where it can only read (plain names only). */
+  canChange?: AccessScope[];
+  readOnly?: AccessScope[];
 }
+export interface AccessScope { kind: "org" | "site" | "sitegroup"; id: string; name: string }
 export interface AccessCheck { state: AccessState; products: AccessProduct[] }
 
 const UNKNOWN: AccessCheck = Object.freeze({ state: "unknown", products: [] }) as AccessCheck;
@@ -56,10 +65,36 @@ function body(result: unknown): unknown {
   try { return JSON.parse(text); } catch { return undefined; }
 }
 
+/** A v2 scope list: plain entries of a known kind kept, anything else dropped; too long a list is dropped whole. */
+function scopes(value: unknown): AccessScope[] | undefined {
+  if (!Array.isArray(value) || !value.length || value.length > MAX_SCOPES) return undefined;
+  const kept = value.flatMap((item): AccessScope[] => {
+    if (!record(item) || typeof item.kind !== "string" || !SCOPE_KINDS.has(item.kind)) return [];
+    const id = plain(item.id), name = plain(item.name);
+    return id && name ? [{ kind: item.kind as AccessScope["kind"], id, name }] : [];
+  });
+  return kept.length ? kept : undefined;
+}
+
+/** Where the login can change things, in plain words ("Lab site", "2 sites and 1 org"); undefined when not reported. */
+export function changeScopeText(check: AccessCheck | undefined): string | undefined {
+  const all = check?.products.flatMap((product) => product.canChange ?? []) ?? [];
+  if (!all.length) return undefined;
+  if (all.length === 1) return `${all[0]!.name} ${all[0]!.kind === "sitegroup" ? "site group" : all[0]!.kind}`;
+  const counts = new Map<string, number>();
+  for (const scope of all) counts.set(scope.kind, (counts.get(scope.kind) ?? 0) + 1);
+  const words = [...counts].map(([kind, count]) => {
+    const noun = kind === "sitegroup" ? "site group" : kind;
+    return `${count} ${noun}${count === 1 ? "" : "s"}`;
+  });
+  return words.length === 1 ? words[0]! : `${words.slice(0, -1).join(", ")} and ${words.at(-1)}`;
+}
+
 /** Parse an access_check tool result. Never throws; anything unexpected is "unknown". */
 export function parseAccessCheck(result: unknown): AccessCheck {
   const document = body(result);
-  if (!record(document) || document.contract !== ACCESS_CONTRACT || !Array.isArray(document.products)) return UNKNOWN;
+  if (!record(document) || (document.contract !== ACCESS_CONTRACT && document.contract !== ACCESS_CONTRACT_V2) || !Array.isArray(document.products)) return UNKNOWN;
+  const v2 = document.contract === ACCESS_CONTRACT_V2;
   if (!document.products.length || document.products.length > MAX_PRODUCTS) return UNKNOWN;
   const products: AccessProduct[] = [];
   const seen = new Set<string>();
@@ -77,6 +112,12 @@ export function parseAccessCheck(result: unknown): AccessCheck {
     const gate = item.server_gate;
     if (record(gate) && typeof gate.env_var === "string" && ENV_NAME.test(gate.env_var) && typeof gate.state === "string") {
       product.gate = { envVar: gate.env_var, off: GATE_OFF.has(gate.state.toLowerCase()) };
+    }
+    if (v2) {
+      const canChange = scopes(item.can_change);
+      const readOnly = scopes(item.read_only);
+      if (canChange) product.canChange = canChange;
+      if (readOnly) product.readOnly = readOnly;
     }
     products.push(product);
   }
@@ -107,7 +148,9 @@ export function gatesConfirmedOff(check: AccessCheck | undefined): boolean {
 /** The login part of a /mcp line. */
 export function accessStatusText(check: AccessCheck | undefined): string {
   if (!check || check.state === "unknown") return "access not checked";
-  return check.state === "read-only" ? "login: read-only (checked)" : "login: can make changes (checked)";
+  if (check.state === "read-only") return "login: read-only (checked)";
+  const where = changeScopeText(check);
+  return where ? `login: can change ${where} (checked)` : "login: can make changes (checked)";
 }
 
 /** Lines for the find_capability description. Built only from the server name and parsed state. */
