@@ -97,6 +97,8 @@ export function fixtureServer(mode = "generic") {
       { name: "multi_question", description: "Ask for two text fields", inputSchema: serial, annotations: { destructiveHint: true } },
       { name: "long_question", description: "Ask a very long question", inputSchema: serial, annotations: { destructiveHint: true } },
       { name: "set_ssid", description: "Set an SSID and its passphrase", inputSchema: ssid, annotations: { readOnlyHint: false } },
+      // An admin change: a risky kind, off by default until the person allows it.
+      { name: "invite_user", description: "Invite an admin user", inputSchema: { type: "object", properties: { email: { type: "string" } } }, annotations: { readOnlyHint: false } },
       read("get_clients", "List wireless clients", {
         type: "object", properties: { site: { type: "string" }, confirm: { type: "boolean" } },
       }),

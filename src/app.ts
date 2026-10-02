@@ -33,8 +33,9 @@ import { discoverMCPConfiguration, type MCPConfiguration } from "./mcp/config";
 import { MCPManager, type ServerQuestionHandler } from "./mcp/manager";
 import { ConsentStore } from "./mcp/consent";
 import { changeScopeText } from "./mcp/access";
-import { formatApproval, maskText, planLabel, TOO_LONG_TEXT, tooLongToShow } from "./capabilities/approval";
-import { CapabilityBroker, type ConfirmCapability } from "./capabilities/broker";
+import { formatApproval, kindBox, maskText, planLabel, TOO_LONG_TEXT, tooLongToShow } from "./capabilities/approval";
+import { KIND_TEXT } from "./capabilities/kinds";
+import { CapabilityBroker, type ConfirmCapability, type ConfirmKind } from "./capabilities/broker";
 import { Scrubber } from "./secrets/netconan";
 import { hiddenSecretGate } from "./secrets/gate";
 import { scrubToolOutput } from "./secrets/tool-output";
@@ -545,7 +546,8 @@ export class CasperApp {
     this.visualization = new VisualizationRouter({ providers: this.visualizationProviders, settings: context.visualize, workspaceRoot: context.info.root });
     // Every server starts with writes off; only the user turns them on (/mcp writes <name>).
     this.broker = new CapabilityBroker(this.mcp, (call, signal) => this.confirmCapability(call, signal), { writesGate: true, scrubber: this.scrubber,
-      onSessionCovered: (server, tool) => { if (!this.closing) this.output.write(`[approval] allowed (this session): ${terminalText(server)} · ${terminalText(tool)}\n`); } });
+      onSessionCovered: (server, tool) => { if (!this.closing) this.output.write(`[approval] allowed (this session): ${terminalText(server)} · ${terminalText(tool)}\n`); },
+      confirmKind: (ask, signal) => this.confirmKind(ask, signal) });
     this.lifecycle.add({ name: "references", close: () => this.references!.close() });
     // Web lookups never ask: the checks in src/web/url.ts hold instead. Off only with web: off in your own config.
     this.web?.close();
@@ -2680,10 +2682,20 @@ export class CasperApp {
     await this.mcpConsent.markImportSet(names).catch(() => {});
   }
 
-  /** ctrl+o: writes off for every server at once. Returns whether any were on. */
+  /** Ends every allowed change kind and session answer, on every server. */
+  endAllowances(): boolean { return this.broker?.endAllowances() ?? false; }
+
+  /** ctrl+o: writes off for every server at once, and every allowed kind and session answer ended. Returns whether
+   * any of those were in force. */
   private revertWrites(): boolean {
+    if (this.closing) return false;
+    const ended = this.endAllowances();
     const on = this.mcp?.writesOn() ?? [];
-    if (!on.length || this.closing) return false;
+    if (ended && !on.length) {
+      this.output.write("[mcp] Allowed change kinds ended. Every change asks you again.\n");
+      this.updateFooter();
+    }
+    if (!on.length) return ended;
     // The gate flips at once; servers restart with their pins once their running calls finish.
     for (const server of on) void this.mcp!.setWrites(server, false).catch(() => {});
     for (const server of on) this.output.write(`[mcp] Writes off for ${server}. Every change asks you again.\n`);
@@ -2726,6 +2738,21 @@ export class CasperApp {
         this.output.write(`[approval] ${result === "yes" ? "allowed" : result === "yes-session" ? "allowed for this session" : result === "preview" ? "preview first" : "denied"}\n`);
       }
       return result;
+    });
+  };
+
+  /** A risky change kind (firmware, delete, admin) the user hasn't allowed on this server: 2 allows it for this session,
+   * then the change box asks about the call itself. Same exact channel and queue as the change box. */
+  private confirmKind: ConfirmKind = async (ask, signal) => {
+    if (!this.interactive) throw new NotExecutedError("needs your approval, and this run cannot ask");
+    return this.oneAtATime(async () => {
+      if (this.approvalStopped(signal)) throw new NotExecutedError("cancelled");
+      const box = kindBox(ask.kind, this.mcp?.productLabel(ask.server) ?? ask.server, ask.realTool);
+      const digit = await this.chooseExact(box.preview, box.question, box.choices, signal);
+      if (digit === undefined && this.approvalStopped(signal)) throw new NotExecutedError("cancelled");
+      const yes = digit === "2";
+      if (!this.closing) this.output.write(`[approval] ${yes ? `allowed ${KIND_TEXT[ask.kind].toLowerCase()} on ${terminalText(ask.server)} for this session` : "denied"}\n`);
+      return yes;
     });
   };
 

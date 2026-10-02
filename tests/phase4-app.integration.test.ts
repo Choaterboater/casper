@@ -500,3 +500,20 @@ test("interactive run: a server's pick-one question lists its options after 1 No
   expect(output).toContain("[server question] 1/1/2");
   expect(result).toContain("1/1/2");
 });
+
+test("interactive run: a risky kind asks first (1 No · 2 Allow), then the change box asks about the call", async () => {
+  const { output, result } = await networkRun(["2", "2"], { id: "mcp:net:invite_user", arguments: { email: "a@example.com" } });
+  const kind = output.indexOf("Admin and account changes are off by default on HPE networking.");
+  expect(kind).toBeGreaterThanOrEqual(0);
+  expect(output.slice(kind)).toContain("  Runs: invite user\n  1 No\n  2 Allow admin and account changes for this session\n");
+  expect(output).toContain("[approval] allowed admin and account changes on net for this session");
+  expect(output.indexOf("Change in HPE networking: invite user")).toBeGreaterThan(kind);
+  expect(result).toContain("invite_user");
+});
+
+test("interactive run: 1 at the kind box runs nothing and shows no change box", async () => {
+  const { output, result } = await networkRun(["1"], { id: "mcp:net:invite_user", arguments: { email: "a@example.com" } });
+  expect(output).toContain("Admin and account changes are off by default on HPE networking.");
+  expect(output).not.toContain("Change in HPE networking:");
+  expect(result).toContain("you said no");
+});

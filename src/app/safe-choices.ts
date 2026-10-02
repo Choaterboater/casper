@@ -4,6 +4,7 @@
  * off); anything that builds, spends tokens, runs a check again, remembers or turns writes on takes a deliberate
  * 2 or 3. The AI's own ask tool never uses these. tests/safe-first-choice.test.ts keeps it that way.
  */
+import { KIND_TEXT, type ChangeKind } from "../capabilities/kinds";
 import { formatDuration } from "../verify/evidence";
 import type { UnfinishedChoice } from "../verify/repair-loop";
 
@@ -65,6 +66,11 @@ export const APPROVE_PREVIEW_CHOICES = ["No", "Preview first", "Yes, this once",
 /** A destructive change (reboot, delete, bounce...) asks every time: no session answer. */
 export const APPROVE_ONCE_CHOICES = ["No", "Yes, this once"] as const;
 export const APPROVE_ONCE_PREVIEW_CHOICES = ["No", "Preview first", "Yes, this once"] as const;
+
+/** A risky change kind (firmware, delete, admin) is off by default: 2 allows that kind on that server for this session. */
+export function kindAllowChoices(kind: ChangeKind): string[] {
+  return ["No", `Allow ${KIND_TEXT[kind].toLowerCase()} for this session`];
+}
 
 /** /mcp writes <name>: only "2" turns writes on. */
 export const MCP_WRITES_CHOICES = ["Keep writes off", "Enable for this server"] as const;

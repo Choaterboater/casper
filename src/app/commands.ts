@@ -81,6 +81,8 @@ export interface CommandHost {
   readonly skillRegistry?: SkillRegistry;
   readonly projectContext?: ProjectContext;
   readonly mcp?: MCPManager;
+  /** Ends every allowed change kind and session answer (ctrl+o, /mcp writes off). True when any were in force. */
+  endAllowances?(): boolean;
   /** Re-reads MCP configuration from disk for /mcp reload; omitted when MCP is unavailable. */
   readonly reloadMCPConfiguration?: () => Promise<MCPConfiguration>;
   readonly lsp?: LSPManager;
@@ -865,8 +867,13 @@ async function offerRemember(host: CommandHost, name: string): Promise<void> {
 async function handleMCPWrites(host: CommandHost, name: string): Promise<void> {
   const mcp = host.mcp!;
   if (name === "off") {
+    const ended = host.endAllowances?.() ?? false;
     const on = mcp.writesOn();
-    if (!on.length) { host.output.write("[mcp] Writes are already off for every server.\n"); return; }
+    if (!on.length) {
+      host.output.write(ended ? "[mcp] Allowed change kinds ended. Every change asks you again.\n" : "[mcp] Writes are already off for every server.\n");
+      if (ended) host.updateFooter();
+      return;
+    }
     await Promise.all(on.map((server) => mcp.setWrites(server, false)));
     for (const server of on) host.output.write(`[mcp] Writes off for ${server}. Every change asks you again.\n`);
     host.updateFooter();
