@@ -314,3 +314,10 @@ test("a router change names the real tool in plain words", () => {
   expect(box.preview).toContain("Runs: port_bounce (through invoke_tool)\n");
   expect(box.answers).toEqual({ "1": "no", "2": "yes" });
 });
+
+test("a tool that runs commands (exec) gets no session answer, like a destructive one", () => {
+  const box = formatApproval(plan("execute_junos_command", { router_name: "r1", command: "clear arp" }));
+  expect(box.preview).toContain("  1 No\n  2 Yes, this once\n");
+  expect(box.preview).not.toContain("for this session");
+  expect(box.answers).toEqual({ "1": "no", "2": "yes" });
+});

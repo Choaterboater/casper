@@ -157,6 +157,9 @@ interface Entry {
   approvedCall?: RunningApprovedCall;
   /** Always "off" at start and after a changed definition; only the user turns it on. */
   writes: "off" | "on";
+  /** Times writes went off (ctrl+o, /mcp writes off, disconnect, a changed definition): a "for this session" answer
+   * given before the last one no longer counts. */
+  writesOffCount: number;
   consent: ConsentState;
   /** The parsed access_check answer for this connection (never its raw text). */
   access?: AccessCheck;
@@ -230,7 +233,7 @@ function newEntry(definition: MCPServerDefinition, consent?: ConsentStore): Entr
     // Remembered approval only ever means "connect with writes off"; project servers always ask.
     approved: personal && !definition.disabled && (consent?.has(definition) ?? false),
     consent: personal ? consent?.state(definition) ?? "none" : "none",
-    writes: "off", mismatch: false, pins: { kind: "none" }, showOptIn: false,
+    writes: "off", writesOffCount: 0, mismatch: false, pins: { kind: "none" }, showOptIn: false,
   };
 }
 
@@ -378,6 +381,11 @@ export class MCPManager {
    * them once its running calls finish. Turning writes on waits for running calls, then restarts
    * the server without the preset's pins. A read-only login (from access_check) can't turn on.
    */
+  /** How many times this server's writes went off; a session answer holds only while this stays the same. */
+  writesOffCount(name: string): number {
+    try { return this.entry(name).writesOffCount; } catch { return -1; }
+  }
+
   /** The product name a person knows the server by ("Mist", "Central"), from its preset; else the server name. */
   productLabel(name: string): string {
     try { return this.match(this.entry(name))?.preset.label ?? name; } catch { return name; }
@@ -388,6 +396,7 @@ export class MCPManager {
     if (!on) {
       if (entry.writes === "off") return;
       entry.writes = "off";
+      entry.writesOffCount++;
       this.catalogVersion++;
       await this.repin(entry);
       return;
@@ -481,6 +490,7 @@ export class MCPManager {
   async disconnect(name: string): Promise<void> {
     const entry = this.entry(name);
     entry.approved = false;
+    entry.writesOffCount++;
     entry.abort.abort();
     this.publish(entry, []);
     entry.state = entry.definition.disabled ? "disabled" : "disconnected";
@@ -538,6 +548,7 @@ export class MCPManager {
       entry.approved = remembered;
       // A different program starts over: writes off, no opt-ins, and its remembered approval no longer matches.
       entry.writes = "off";
+      entry.writesOffCount++;
       entry.showOptIn = false;
       entry.toolPreset = undefined;
       entry.access = undefined;

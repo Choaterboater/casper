@@ -326,3 +326,16 @@ test("a remembered server that moves into a project file needs the project revie
   expect(statusOf(mcp, "lab")).toMatchObject({ approved: false, consent: "none", state: "disconnected", scope: "project" });
   expect(mcp.review("lab")?.preview).toContain("(project file)");
 });
+
+test("yes this once on a pinned server, then stopped during the restart: writes go back off anyway", async () => {
+  const log = path.join(await tempDir(), "calls.log");
+  const mcp = manager([server("hpe", { FIXTURE_MODE: "hpe-router", FIXTURE_CALLS_FILE: log })]);
+  const stop = new AbortController();
+  // Answer yes, then stop while Casper restarts the server without its pins.
+  const broker = new CapabilityBroker(mcp, async () => { setTimeout(() => stop.abort(), 5); return "yes"; }, { writesGate: true });
+  await mcp.connect("hpe");
+  await expect(broker.invoke("mcp:hpe:invoke_read_tool", { name: "central_delete_site", arguments: { site: "lab" } }, stop.signal)).rejects.toThrow();
+  for (let wait = 0; wait < 50 && mcp.writesOn().length; wait++) await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(mcp.writesOn()).toEqual([]);
+  expect(await readFile(log, "utf8").catch(() => "")).not.toContain("central_delete_site");
+});

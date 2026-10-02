@@ -414,6 +414,10 @@ export function tooLongToShow(args: Record<string, unknown>): boolean {
   return Buffer.byteLength(JSON.stringify(args)) > MAX_SHOWN_ARGUMENT_BYTES;
 }
 
+/** Whether "Yes, for this session" may be offered and may cover later calls: never for a tool that runs commands
+ * (exec) or is destructive, because one answer would then let any later command or destructive call run unasked. */
+export function sessionAllowed(label: CapabilitySafety): boolean { return label !== "exec" && label !== "destructive"; }
+
 /** What one digit in the change box means. */
 export type ApprovalChoice = "no" | "preview" | "yes" | "yes-session";
 
@@ -451,8 +455,8 @@ export function formatApproval(plan: ApprovalPlan, lastPreview?: LastPreview, op
     lines.push(`Last preview (${ago(lastPreview.at, options.now ?? Date.now())}): ${cut}`);
   } else if (offer) lines.push("No preview yet.");
   lines.push(`MCP · ${plan.server} · ${plan.tool}  [${planLabel(plan)}]`);
-  const destructive = planLabel(plan) === "destructive";
-  const labels: readonly string[] = destructive ? (offer ? APPROVE_ONCE_PREVIEW_CHOICES : APPROVE_ONCE_CHOICES)
+  const onceOnly = !sessionAllowed(planLabel(plan));
+  const labels: readonly string[] = onceOnly ? (offer ? APPROVE_ONCE_PREVIEW_CHOICES : APPROVE_ONCE_CHOICES)
     : offer ? APPROVE_PREVIEW_CHOICES : APPROVE_CHOICES;
   const meaning: Record<string, ApprovalChoice> = { "No": "no", "Preview first": "preview", "Yes, this once": "yes", "Yes, for this session": "yes-session" };
   const choices = labels.map((_, index) => String(index + 1));

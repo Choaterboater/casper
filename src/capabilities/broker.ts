@@ -9,7 +9,7 @@ import { containsHiddenSecret, scrubText, scrubValue, SECRET_MARKER } from "../s
 import { scrubNote, type ScrubOutcome } from "../secrets/netconan";
 import { DOCS_TOOL_NAMES, DOCS_TOOL_NOTE, docsPinned } from "../mcp/docs";
 import {
-  aiConfirm, buildPlan, canPreview, maskText, needsApproval, planLabel, planMode, previewArguments, previewKey, previewSwitchedOff,
+  aiConfirm, buildPlan, canPreview, maskText, needsApproval, planLabel, planMode, previewArguments, previewKey, previewSwitchedOff, sessionAllowed,
   type ApprovalPlan, type LastPreview,
 } from "./approval";
 import { toolLabel } from "./labels";
@@ -130,9 +130,10 @@ export class CapabilityBroker {
   private readonly closed = new AbortController();
   /** The last preview of each call (server, real tool, arguments without the preview switch), per connection. */
   private previews = new Map<string, LastPreview>();
-  /** Servers the user answered "Yes, for this session" for: later changes there that are not destructive, and
-   * that the AI didn't mark confirmed or preview-off, run without asking. Ended by endSessionGrants. */
-  private readonly sessionGrants = new Set<string>();
+  /** Servers the user answered "Yes, for this session" for, with the server's writes-off count at that moment: later
+   * changes there that don't run commands, aren't destructive and that the AI didn't mark confirmed or preview-off
+   * run without asking, until writes go off (ctrl+o, /mcp writes off, a disconnect) or the session ends. */
+  private readonly sessionGrants = new Map<string, number>();
   /** Per-server lines for find_capability's description (read-only logins, writes off). */
   private modelLines: string[] = [];
   /** The connected servers, by name, as of the last sync. */
@@ -283,32 +284,36 @@ export class CapabilityBroker {
     if (answer && writesBefore === "on" && this.writes(this.manager.policy(plan.server)) === "off") {
       throw new NotExecutedError(writesOffReason(plan.server));
     }
+    // A session answer is recorded only once it counts: never for a yes the refusal above set aside.
+    if (answer && "session" in answer && answer.session) this.sessionGrants.set(plan.server, this.manager.writesOffCount(plan.server));
     const approved = answer?.realTool;
-    // Approved on a server whose writes are off: turn them on (it restarts without its read-only pins once its calls
-    // finish) before the change runs. "Yes, this once" turns them off again after it.
-    const turnedOn = answer && label !== "read" && this.writesGate && this.writes(policy) === "off";
-    if (turnedOn) await this.manager.setWrites(plan.server, true);
-    if (covered) this.onSessionCovered?.(plan.server, realToolOf(plan));
-    notCancelled(combined);
-    this.sync();
-    const current = this.get(id);
-    // A restart Casper did itself to turn writes on is a new connection; the approval still holds when the server
-    // offers exactly the same tool definition. Any other change asks for a new search.
-    const sameTool = turnedOn ? toolPart(current.fingerprint) === toolPart(capability.fingerprint) : current.fingerprint === capability.fingerprint;
-    if (!sameTool) throw new NotExecutedError("tool changed; search again");
-    // Writes turned off (ctrl+o) while the box was open: the yes no longer counts.
-    if (current.hidden) throw new NotExecutedError(current.hidden);
-    this.refuseByPolicy(current, label);
-    if (typeof guardArguments(current.policy.match, current.tool, frozenArgs, { writes: this.writes(current.policy), showOptIn: current.policy.showOptIn }) === "object") {
-      throw new NotExecutedError(writesOffReason(capability.descriptor.source));
-    }
-    // 6. Call, under the per-server call clock. Only an approved call may carry server questions to the user.
+    // Approved on a server whose writes are off right now (read fresh: the person may have turned them on while the
+    // box was open): turn them on (it restarts without its read-only pins once its calls finish) before the change
+    // runs. Only the call that turned them on, and only for "Yes, this once", turns them off again, on every way out.
+    const turnedOn = Boolean(answer) && label !== "read" && this.writesGate && this.writes(this.manager.policy(plan.server)) === "off";
     let raw: unknown;
     try {
+      if (turnedOn) await this.manager.setWrites(plan.server, true);
+      notCancelled(combined);
+      this.sync();
+      const current = this.get(id);
+      // Turning writes on (by this box, or by the person while it was open) restarts a pinned server: a new
+      // connection. The approval still holds when the server offers exactly the same tool definition; any other
+      // change asks for a new search.
+      const writesChanged = turnedOn || this.writes(current.policy) !== writesBefore;
+      const sameTool = writesChanged ? toolPart(current.fingerprint) === toolPart(capability.fingerprint) : current.fingerprint === capability.fingerprint;
+      if (!sameTool) throw new NotExecutedError("tool changed; search again");
+      if (current.hidden) throw new NotExecutedError(current.hidden);
+      this.refuseByPolicy(current, label);
+      if (typeof guardArguments(current.policy.match, current.tool, frozenArgs, { writes: this.writes(current.policy), showOptIn: current.policy.showOptIn }) === "object") {
+        throw new NotExecutedError(writesOffReason(capability.descriptor.source));
+      }
+      if (covered) this.onSessionCovered?.(plan.server, realToolOf(plan));
+      // 6. Call, under the per-server call clock. Only an approved call may carry server questions to the user.
       raw = await this.manager.call(capability.descriptor.source, capability.tool.name, frozenArgs, combined,
         approved ? { approved: { capabilityId: id, realTool: approved, label } } : {});
     } finally {
-      if (turnedOn && answer.once) await this.manager.setWrites(plan.server, false).catch(() => {});
+      if (turnedOn && answer?.once) await this.manager.setWrites(plan.server, false).catch(() => {});
     }
     // 7. Hide device secrets (passwords, keys, SNMP communities) before anything else reads the result.
     const scrubbed = await this.scrub(raw, combined);
@@ -332,7 +337,7 @@ export class CapabilityBroker {
    * Ask the user until they say yes (returns the real tool name for the approved call) or no (throws).
    * "p" runs the preview, when the tool's own schema declares one, and asks again with its result.
    */
-  private async approve(capability: Capability, plan: ApprovalPlan, signal: AbortSignal): Promise<{ realTool: string; once: boolean }> {
+  private async approve(capability: Capability, plan: ApprovalPlan, signal: AbortSignal): Promise<{ realTool: string; once: boolean; session?: boolean }> {
     if (!this.confirm) throw new NotExecutedError("needs your approval, and this run cannot ask");
     const realTool = realToolOf(plan);
     const slot = this.previewSlot(capability, plan);
@@ -346,7 +351,8 @@ export class CapabilityBroker {
       }, signal);
       notCancelled(signal);
       if (answer === true || answer === "yes") return { realTool, once: true };
-      if (answer === "yes-session" && planLabel(shown) !== "destructive") { this.sessionGrants.add(plan.server); return { realTool, once: false }; }
+      // "For this session" only where it is offered; anywhere else it counts as this once.
+      if (answer === "yes-session") return sessionAllowed(planLabel(shown)) ? { realTool, once: false, session: true } : { realTool, once: true };
       if (answer !== "preview" || !canPreview(shown)) break;
       // Only send what Casper itself reads as a preview.
       const previewArgs = previewArguments(plan);
@@ -371,7 +377,13 @@ export class CapabilityBroker {
   }
 
   /** True when the user said "Yes, for this session" on this server. */
-  sessionGrant(server: string): boolean { return this.sessionGrants.has(server); }
+  sessionGrant(server: string): boolean {
+    const given = this.sessionGrants.get(server);
+    if (given === undefined) return false;
+    // Writes went off since (ctrl+o, /mcp writes off, a disconnect): the answer is over, even if writes are back on.
+    if (given !== this.manager.writesOffCount(server)) { this.sessionGrants.delete(server); return false; }
+    return true;
+  }
 
   /** End the session answer for one server, or every server (ctrl+o, writes off, reconnect, a changed definition). */
   endSessionGrants(server?: string): void {
@@ -382,9 +394,9 @@ export class CapabilityBroker {
   /** A session answer covers a change that is not destructive and that the AI didn't mark confirmed or preview-off.
    * It stands only while the server's writes are on: ctrl+o, /mcp writes off or a disconnect ends it. */
   private sessionCovers(plan: ApprovalPlan, policy: ServerPolicy): boolean {
-    if (!this.sessionGrants.has(plan.server)) return false;
+    if (!this.sessionGrant(plan.server)) return false;
     if (this.writes(policy) === "off") { this.sessionGrants.delete(plan.server); return false; }
-    return planLabel(plan) !== "destructive" && !plan.routerUnclear
+    return sessionAllowed(planLabel(plan)) && !plan.routerUnclear
       && aiConfirm(plan.arguments).length === 0 && previewSwitchedOff(plan.arguments).length === 0;
   }
 
@@ -467,7 +479,7 @@ export class CapabilityBroker {
     this.previews.clear();
     // A session answer ends with the server's connection.
     const connected = new Set([...next.values()].map((capability) => capability.descriptor.source));
-    for (const server of [...this.sessionGrants]) if (!connected.has(server)) this.sessionGrants.delete(server);
+    for (const server of [...this.sessionGrants.keys()]) if (!connected.has(server)) this.sessionGrants.delete(server);
   }
 
   private get(id: string): Capability {
