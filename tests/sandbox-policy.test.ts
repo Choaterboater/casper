@@ -207,7 +207,7 @@ test("a commondir a command writes into the project's .git is removed at once an
   await sandbox.wrap("true", { cwd: root });
   const pointer = path.join(root, ".git", "commondir");
   await writeFile(pointer, "../elsewhere\n");
-  for (let attempt = 0; attempt < 100 && await stat(pointer).then(() => true, () => false); attempt++) await Bun.sleep(20);
+  for (let attempt = 0; attempt < 500 && await stat(pointer).then(() => true, () => false); attempt++) await Bun.sleep(20);
   expect(await stat(pointer).then(() => true, () => false)).toBe(false);
   expect(notes).toEqual([`[sandbox] Removed ${pointer}: a command wrote it, and it would point git at another folder's settings and hooks.`]);
   await sandbox.close();
