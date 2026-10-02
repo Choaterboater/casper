@@ -141,8 +141,10 @@
           <summary>Will it change my switches?</summary>
           <p>Not through MCP on its own. Every MCP server starts with <strong>writes off</strong>, and
           every change shows a box that says what it changes, then asks
-          <code>1 No · 2 Yes, this once · 3 Yes, for this session</code>. Enter is No, and destructive
-          changes always ask. The AI cannot approve anything for you. <kbd>ctrl+o</kbd> turns writes
+          <code>1 No · 2 Yes, this once · 3 Yes, for this session</code>, and last
+          <code>Yes to everything on &lt;product&gt; this session</code>. Enter is No; otherwise destructive
+          changes always ask, and firmware, delete and admin changes stay off until you allow them.
+          The AI cannot approve anything for you. <kbd>ctrl+o</kbd> turns writes
           off again at once.</p>
           <figure class="capture">
             <pre class="term" tabindex="0" data-title="casper — ~/project"><span class="prompt">❯</span> <span class="you">set the lab site on the fixture server</span>
@@ -155,7 +157,8 @@ MCP · fixture · set_site  [write]
   1 No
   2 Yes, this once
   3 Yes, for this session
-Type 1, 2 or 3:
+  4 Yes to everything on fixture this session (no more asking, even reboots, deletes or an AI-set confirm)
+Type 1, 2, 3 or 4:
 
 <span class="dim"># (typed: 1)</span>
 
