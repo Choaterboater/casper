@@ -519,9 +519,18 @@ test("interactive run: 1 at the kind box runs nothing and shows no change box", 
 });
 
 test("interactive run: the last choice allows everything on that server this session; the footer shows it", async () => {
-  const { output, result, app } = await networkRun(["5"], { id: "mcp:net:set_ssid", arguments: { ssid: "corp" } });
+  const { output, result, app } = await networkRun(["5", "2"], { id: "mcp:net:set_ssid", arguments: { ssid: "corp" } });
+  // A digit typed from habit can't grant it: it asks once more.
+  expect(output).toContain("No box will ask about any change on HPE networking until ctrl+o or the session ends.\n  1 No\n  2 Yes to everything\nType 1 or 2: ");
   expect(output).toContain("  5 Yes to everything on HPE networking this session (no more asking, even reboots, deletes or an AI-set confirm)\n");
   expect(output).toContain("[approval] allowed (allow all)\n");
   expect(result).toContain("applied");
   expect(app.terminal.badge).toMatch(/^ALLOW ALL: net · /);
+});
+
+test("interactive run: 1 at the allow-all check denies the change and allows nothing", async () => {
+  const { output, result, app } = await networkRun(["5", "1"], { id: "mcp:net:set_ssid", arguments: { ssid: "corp" } });
+  expect(output).toContain("[approval] denied\n");
+  expect(result).toContain("you said no");
+  expect(app.allowances!.allowAllOn("net")).toBe(false);
 });

@@ -2739,7 +2739,16 @@ export class CasperApp {
       // The same exact channel as /mcp writes: only a digit typed after the box appeared answers it.
       const digit = await this.chooseExact(box.preview, box.question, box.choices, signal);
       if (digit === undefined && this.approvalStopped(signal)) throw new NotExecutedError("cancelled");
-      const result = digit === undefined ? "no" : box.answers[digit] ?? "no";
+      let result = digit === undefined ? "no" : box.answers[digit] ?? "no";
+      // "Yes to everything" asks once more, so a digit typed from habit (3 or 4 in another box) never grants it.
+      if (result === "allow-all") {
+        const product = this.mcp?.productLabel(call.plan.server) ?? call.plan.server;
+        const sure = await this.chooseExact(
+          `No box will ask about any change on ${terminalText(product)} until ctrl+o or the session ends.\n${numberedLines(["No", "Yes to everything"])}`,
+          "Type 1 or 2: ", ["1", "2"], signal);
+        if (sure === undefined && this.approvalStopped(signal)) throw new NotExecutedError("cancelled");
+        if (sure !== "2") result = "no";
+      }
       // A call you allowed that can change things: undo can't reach it, and /undo says so.
       if ((result === "yes" || result === "yes-session" || result === "allow-all") && planLabel(call.plan) !== "read") this.taskChangeServers.add(call.plan.server);
       if (!this.closing) {

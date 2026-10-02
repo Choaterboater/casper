@@ -232,3 +232,13 @@ test("a hand-edited kinds entry with an unknown kind or a bad hash is ignored", 
   expect(again.rememberedKinds(definition())).toEqual(["admin"]);
   expect(again.rememberedKinds(definition({ name: "other" }))).toEqual([]);
 });
+
+test("review: /mcp forget also drops the server's remembered kinds", async () => {
+  const dir = await home();
+  const store = new ConsentStore(dir);
+  await store.load();
+  await store.remember(definition());
+  await store.rememberKinds(definition(), ["admin"]);
+  await store.forget("aruba-central");
+  expect(store.rememberedKinds(definition())).toEqual([]);
+});

@@ -411,9 +411,10 @@ test("allowing the kind shows the change box next; the same kind later skips the
 });
 
 test("an allowed kind ends when the person turns writes off or the server disconnects", async () => {
-  const { confirm } = answering("yes-session");
+  const { confirm } = answering("yes");
   const { confirmKind } = kindAnswers(true);
   const { broker, mcp, id } = await setup({ confirm, confirmKind, writesGate: true });
+  await mcp.setWrites("network", true);
   await broker.invoke(id("invite_user"), { email: "a@example.com" });
   expect(broker.kindAllowed("network", "admin")).toBe(true);
   await mcp.setWrites("network", false);
@@ -476,4 +477,14 @@ test("allow all ends when the person turns that server's writes off", async () =
   expect(broker.allowAllServers()).toEqual(["network"]);
   await mcp.setWrites("network", false);
   expect(broker.allowAllServers()).toEqual([]);
+});
+
+test("review: a session answer never covers a risky kind; each one still shows the change box", async () => {
+  const { confirm, boxes } = answering("yes-session", "yes", "no");
+  const { confirmKind } = kindAnswers(true);
+  const { broker, id } = await setup({ confirm, confirmKind, writesGate: true });
+  await broker.invoke(id("set_ssid"), { ssid: "corp" });
+  await broker.invoke(id("invite_user"), { email: "a@example.com" });
+  await expect(broker.invoke(id("invite_user"), { email: "b@example.com" })).rejects.toThrow("you said no");
+  expect(boxes).toHaveLength(3);
 });

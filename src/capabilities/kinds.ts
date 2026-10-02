@@ -63,8 +63,14 @@ export function changeKind(tool: Pick<MCPTool, "name" | "_meta">, label: Capabil
   return declared;
 }
 
+/** True when the call makes a risky or disruptive kind: it asks every time, with no "for this session" answer. */
+export function asksEveryTime(plan: ApprovalPlan): boolean {
+  return planKinds(plan).some((kind) => isRiskyKind(kind) || kind === "disruptive");
+}
+
 /** The kinds a planned call makes: each real tool behind a router, else the tool itself. */
 export function planKinds(plan: ApprovalPlan, tool?: Pick<MCPTool, "_meta">): ChangeKind[] {
-  if (plan.routed.length > 0) return plan.routed.map((call) => changeKind({ name: call.name }, nameLabel(call.name)));
+  // A router call is a change whatever its inner name reads as (invite_glp_user reads as a read): the words decide.
+  if (plan.routed.length > 0) return plan.routed.map((call) => nameLabel(call.name) === "diagnostic" ? "troubleshoot" : wordKind(call.name));
   return [changeKind({ name: plan.tool, ...(tool?._meta ? { _meta: tool._meta } : {}) }, plan.label)];
 }

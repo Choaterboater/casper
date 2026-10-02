@@ -149,7 +149,13 @@ export class ConsentStore {
   forget(name: string): Promise<boolean> {
     return this.serial(async () => {
       const data = await this.readRecords();
-      if (!(name in data.servers)) { this.data = data; return false; }
+      // Forgetting a server forgets its remembered kinds too.
+      const hadKinds = Boolean(data.kinds && name in data.kinds);
+      if (hadKinds) delete data.kinds![name];
+      if (!(name in data.servers)) {
+        if (hadKinds) await this.save(data); else this.data = data;
+        return false;
+      }
       delete data.servers[name];
       await this.save(data);
       return true;
