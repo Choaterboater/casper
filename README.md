@@ -37,7 +37,9 @@ are not tied to one model company.
 - **MCP for network servers.** Works with hpe-networking-mcp, junos-mcp-server, Mist, NetBox
   and others. Every server starts with writes off; presets for known servers send their own
   read-only settings where one exists. Every change asks you in plain words: `1 No · 2 Yes, this
-  once · 3 Yes, for this session`; destructive changes always ask. Only you can answer.
+  once · 3 Yes, for this session`, or last `Yes to everything on <product> this session`;
+  otherwise destructive changes always ask. Firmware, delete and admin changes stay off until
+  you allow them (in the box or with `/mcp allow`). Only you can answer.
   [MCP](docs/MCP.md) · [Presets](docs/MCP.md#presets)
 - **Read-only only when the product says so.** A server's `access_check` tool can confirm a
   read-only login; anything else shows `access not checked`. [Access check](docs/MCP.md#access-check)

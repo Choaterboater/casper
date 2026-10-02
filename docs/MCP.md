@@ -9,7 +9,9 @@ yes, and how much of each answer the AI reads.
 **When you'd use it.** When you want Casper to look things up in Aruba Central,
 Mist, ClearPass, NetBox, a Junos router and so on, through a server you trust.
 Every server starts with writes off. Every change asks you first, in plain words:
-`1 No · 2 Yes, this once · 3 Yes, for this session`.
+`1 No · 2 Yes, this once · 3 Yes, for this session`, and last
+`Yes to everything on <product> this session`. Firmware changes, deletes and admin
+changes are off until you allow them ([Change kinds](#change-kinds-and-mcp-allow)).
 
 Casper uses the pinned official MCP SDK (the library that speaks the protocol). No
 server and no credentials come with Casper.
@@ -373,11 +375,15 @@ Type 1 or 2:
 - The box title uses the product name from the preset, else the server name.
 - When your own settings still keep writes off, Casper says so:
   `Casper removed its read-only pins, but your own settings still keep writes off (HPE_MCP_ACCESS_PROFILE=safe-read-only in ~/.claude.json).`
-- While any server has writes on, the footer starts with `WRITES: <servers> · ctrl+o`.
+- While any server has writes on, the footer starts with `WRITES: <servers> · ctrl+o`
+  (`ALLOW ALL: <servers>` first for servers under "Yes to everything").
   It is never cut off.
 - ctrl+o (or `/mcp writes off`) turns writes off for every server at once, even
-  while Casper is working, ends every "for this session" answer and denies an open
-  box: `[mcp] Writes off for <server>. Every change asks you again.` A yes given in a
+  while Casper is working, ends every "for this session" answer, every change kind
+  allowed for this session and every "Yes to everything", and denies an open
+  box: `[mcp] Writes off for <server>. Every change asks you again.` (With writes
+  already off it says `[mcp] Allowed change kinds ended. Every change asks you again.`)
+  A yes given in a
   box that was open when writes went off does not count. A server that was running
   without pins is restarted with them once its calls finish.
 - A read-only login (see [Access check](#access-check)) never gets writes: changes
@@ -386,6 +392,57 @@ Type 1 or 2:
   box, and one-shot runs never turn writes on
   (`Writes can only be turned on in an interactive session.`; a change in a one-shot
   run is `Not executed (needs your approval, and this run cannot ask)`).
+
+### Change kinds and /mcp allow
+
+Each change also has a kind: configuration, troubleshooting, disruptive (reboot,
+bounce, disconnect), firmware, delete or admin (users, roles assigned, SSO, tokens).
+Casper reads it from the server's `_meta["casper/change-kind"]`, else from the tool's
+name; a router call uses the real tool. A server can name a kind stricter, never make
+a firmware, delete or admin name into a safe one. Vendor developer-site categories
+are a reference only.
+
+**Firmware changes, deletes and admin changes are off by default on every server.**
+The first such call asks about the kind before the change box:
+
+```text
+Firmware changes are off by default on Mist.
+  Runs: trigger device upgrade
+  1 No
+  2 Allow firmware changes for this session
+Type 1 or 2:
+```
+
+`2` allows that kind on that server until the session ends, ctrl+o, `/mcp writes off`
+or a disconnect; the change box still asks about each call. `1` runs nothing.
+One-shot runs refuse: `Not executed (Firmware changes are off by default on <server>,
+and this run cannot ask)`.
+
+**`/mcp allow <server>`** picks them ahead of time, from a numbered list (never a
+config file):
+
+```text
+Mist change kinds. Firmware changes, deletes and admin changes are off by default; every change still asks you.
+  Allowed now: none
+  1 Keep the defaults
+  2 Allow firmware changes
+  3 Allow deletes
+  4 Allow admin and account changes
+  5 Allow all change kinds
+  6 Allow everything (no asking) this session
+Type 1, 2, 3, 4, 5 or 6:
+```
+
+- For 2 to 5, then `1 This session · 2 Remember`. Remembered kinds are kept in
+  `~/.casper/mcp-consent.json` as a keyed hash of the server's definition, like a
+  remembered server: change its command, arguments or environment and they are gone.
+  Project servers and unpinned runners are this session only. ctrl+o does not forget
+  them; `/mcp allow <server> off` does.
+- 6 is "Yes to everything" for this session, as in the change box. It is never
+  remembered.
+- `/mcp allow <server> off` goes back to the defaults on that server.
+- A read-only login can't be widened. Only you can type `/mcp allow`; the AI has no way
+  to run it.
 
 ## Small model-facing surface
 
@@ -531,7 +588,8 @@ Every tool gets a label. From least to most strict: `read`, `diagnostic`,
     1 No
     2 Yes, this once
     3 Yes, for this session
-  Type 1, 2 or 3:
+    4 Yes to everything on Mist this session (no more asking, even reboots, deletes or an AI-set confirm)
+  Type 1, 2, 3 or 4:
   ```
 
   - The first line names the product (from the preset, else the server) and the real
@@ -556,6 +614,13 @@ Every tool gets a label. From least to most strict: `read`, `diagnostic`,
     disconnect). A **destructive** change (reboot, delete, bounce, upgrade…) never gets
     this answer and always asks, and so does any change where the AI set `confirm` or
     turned a preview off.
+  - `Yes to everything on <product> this session` (always last) runs it, and no later
+    call on that server asks at all: not reboots, not deletes or other risky kinds, not
+    a call where the AI set `confirm`. Only you can pick it; the AI can't. It is never
+    remembered, the footer shows `ALLOW ALL: <servers> · ctrl+o`, and ctrl+o,
+    `/mcp writes off`, a disconnect or the end of the session ends it. Each call it
+    covers is logged as `[approval] allowed (allow all): <server> · <tool>`. A read-only
+    login, a hidden tool or a preset's rule still refuses.
   - `Preview first` (listed second when the tool's own schema has a preview switch) runs
     the same call with the switch on (and confirm off), then shows the box again with
     `Last preview (just now)`. It is never offered through a router: Casper can't see
@@ -566,7 +631,7 @@ Every tool gets a label. From least to most strict: `read`, `diagnostic`,
     and a terminal that can't show the box (TERM=dumb, or output redirected while input
     is a terminal) is refused.
   - The transcript records `[approval] allowed`, `allowed for this session`, `allowed
-    (this session)`, `denied` or `preview first`.
+    (this session)`, `allowed (allow all)`, `denied` or `preview first`.
 - **Server questions reach only you.** Some servers ask before a risky action (MCP
   "elicitation"), for example `Confirm PORT BOUNCE on SG1 ports [1/1/1]?`.
   - It is shown as `<server> asks about the <tool> call you approved:`, numbered like
@@ -591,8 +656,9 @@ Every tool gets a label. From least to most strict: `read`, `diagnostic`,
   - When Casper is closing or the task was stopped, a pending approval gives
     `Not executed (cancelled)`, never `you said no`.
 - **No shortcuts for the AI.** There is no write flag and no approval token the AI can
-  set. "Yes, for this session" is yours to give, per server, and ends with the session
-  or ctrl+o; destructive changes still ask. A remembered server only connects on its
+  set. "Yes, for this session" and "Yes to everything" are yours to give, per server,
+  and end with the session or ctrl+o; under "Yes, for this session" destructive changes
+  still ask. A remembered server only connects on its
   own, with writes off. Calls that may ask run one at a time, and approvals and server
   questions are shown one at a time. The approval can't change the arguments, and a
   changed tool or a reconnect cancels a pending approval.
