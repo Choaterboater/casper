@@ -324,8 +324,8 @@ test("writes off: yes for this session leaves writes on until they are turned of
   expect(mcp.writesOn()).toEqual(["network"]);
   await broker.invoke(id("set_ssid"), { ssid: "guest" });
   await mcp.setWrites("network", false);
-  expect(broker.sessionGrant("network")).toBe(true);
-  // The grant ends with writes off: the next change asks (and answering no keeps writes off).
+  // The grant ends the moment writes go off: the next change asks (and answering no keeps writes off).
+  expect(broker.sessionGrant("network")).toBe(false);
   await expect(broker.invoke(id("set_ssid"), { ssid: "x" })).rejects.toThrow("you said no");
   expect(broker.sessionGrant("network")).toBe(false);
   expect(mcp.writesOn()).toEqual([]);
@@ -335,4 +335,34 @@ test("writes off and nobody to ask (one-shot): the change is not executed and wr
   const { broker, mcp, id } = await setup({ writesGate: true });
   await expect(broker.invoke(id("set_ssid"), { ssid: "corp" })).rejects.toThrow("needs your approval, and this run cannot ask");
   expect(mcp.writesOn()).toEqual([]);
+});
+
+test("a tool that runs commands never gets a session answer: each command asks (a 3 there counts only once)", async () => {
+  const { confirm, boxes } = answering("yes-session", "no");
+  const { broker, id } = await setup({ mode: "network-names", confirm });
+  await broker.invoke(id("execute_junos_command"), { router_name: "r1", command: "clear arp" });
+  expect(boxes[0]).not.toContain("for this session");
+  expect(broker.sessionGrant("network")).toBe(false);
+  await expect(broker.invoke(id("execute_junos_command"), { router_name: "r1", command: "request system zeroize" })).rejects.toThrow("you said no");
+  expect(boxes).toHaveLength(2);
+});
+
+test("writes the user turned on while the box was open stay on after a yes this once", async () => {
+  let mcpRef: MCPManager | undefined;
+  const confirm: ConfirmCapability = async () => { await mcpRef!.setWrites("network", true); return "yes"; };
+  const { broker, mcp, id } = await setup({ confirm, writesGate: true });
+  mcpRef = mcp;
+  await broker.invoke(id("set_ssid"), { ssid: "corp" });
+  expect(mcp.writesOn()).toEqual(["network"]);
+});
+
+test("ctrl+o ends a session answer for good: turning writes back on doesn't bring it back", async () => {
+  const { confirm, boxes } = answering("yes-session", "no");
+  const { broker, mcp, id } = await setup({ confirm, writesGate: true });
+  await broker.invoke(id("set_ssid"), { ssid: "corp" });
+  expect(broker.sessionGrant("network")).toBe(true);
+  await mcp.setWrites("network", false); // ctrl+o
+  await mcp.setWrites("network", true);  // /mcp writes network, then 2
+  await expect(broker.invoke(id("set_ssid"), { ssid: "x" })).rejects.toThrow("you said no");
+  expect(boxes).toHaveLength(2);
 });
