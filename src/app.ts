@@ -32,6 +32,7 @@ import { boundCapabilityResult, NotExecutedError } from "./capabilities/result";
 import { discoverMCPConfiguration, type MCPConfiguration } from "./mcp/config";
 import { MCPManager, type ServerQuestionHandler } from "./mcp/manager";
 import { ConsentStore } from "./mcp/consent";
+import { changeScopeText } from "./mcp/access";
 import { formatApproval, maskText, planLabel, TOO_LONG_TEXT, tooLongToShow } from "./capabilities/approval";
 import { CapabilityBroker, type ConfirmCapability } from "./capabilities/broker";
 import { Scrubber } from "./secrets/netconan";
@@ -2713,7 +2714,8 @@ export class CasperApp {
     if (!this.interactive) throw new NotExecutedError("needs your approval, and this run cannot ask");
     return this.oneAtATime(async () => {
       if (this.approvalStopped(signal)) throw new NotExecutedError("cancelled");
-      const box = formatApproval(call.plan, call.lastPreview, { product: this.mcp?.productLabel(call.plan.server) });
+      const scope = changeScopeText(this.mcp?.policy(call.plan.server).access);
+      const box = formatApproval(call.plan, call.lastPreview, { product: this.mcp?.productLabel(call.plan.server), ...(scope ? { scope } : {}) });
       // The same exact channel as /mcp writes: only a digit typed after the box appeared answers it.
       const digit = await this.chooseExact(box.preview, box.question, box.choices, signal);
       if (digit === undefined && this.approvalStopped(signal)) throw new NotExecutedError("cancelled");

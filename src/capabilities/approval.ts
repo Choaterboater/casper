@@ -426,10 +426,12 @@ export type ApprovalChoice = "no" | "preview" | "yes" | "yes-session";
  * then numbered choices. 1 is always No; "Preview first" only when the tool's own preview can run; a destructive
  * change gets no "for this session" answer. The technical line (server, tool, label) closes the box.
  */
-export function formatApproval(plan: ApprovalPlan, lastPreview?: LastPreview, options: FormatOptions & { product?: string } = {}):
+export function formatApproval(plan: ApprovalPlan, lastPreview?: LastPreview, options: FormatOptions & { product?: string; scope?: string } = {}):
 { preview: string; question: string; choices: string[]; answers: Record<string, ApprovalChoice> } {
   const single = plan.routed.length === 1 && !plan.routerUnclear ? plan.routed[0]! : undefined;
   const lines = [`Change in ${options.product ?? plan.server}: ${toolWords(single?.name ?? plan.tool)}`];
+  // Where the login can change things (access-check v2); the server enforces it.
+  if (options.scope) lines.push(`Your login can change: ${options.scope}`);
   if (plan.routerUnclear && !plan.routed.length) lines.push(`Runs: a tool Casper can't see (through ${plan.tool})`);
   else if (single) lines.push(`Runs: ${single.name} (through ${plan.tool})`);
   else if (plan.routed.length) {

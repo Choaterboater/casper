@@ -64,7 +64,7 @@ function accessResult(mode: string) {
     case "access-mixed": return text({ contract: "casper/access-check v1", products: [product("central", "read-only"), product("clearpass", "unknown")] });
     case "access-structured": return { content: [], structuredContent: { contract: "casper/access-check v1", products: [product("central", "read-only")] } };
     case "access-error": return { isError: true, content: [{ type: "text" as const, text: JSON.stringify({ contract: "casper/access-check v1", products: [product("central", "read-only")] }) }] };
-    case "access-wrong-contract": return text({ contract: "casper/access-check v2", products: [product("central", "read-only")] });
+    case "access-wrong-contract": return text({ contract: "casper/access-check v9", products: [product("central", "read-only")] });
     default: return text("not json {");
   }
 }

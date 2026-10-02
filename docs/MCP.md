@@ -335,6 +335,12 @@ may do.
 - **Anything else** (another answer, an error, a slow answer, or no `access_check`
   at all) is `access not checked`. A server that says its login can make changes
   (`login: can make changes (checked)`) unlocks nothing.
+- **Where the login can change things (v2).** A `casper/access-check v2` answer may add, per
+  product, `"can_change"` and `"read_only"` lists of `{"kind": "org" | "site" | "sitegroup",
+  "id", "name"}`. Casper shows them; the server enforces them. `/mcp` then shows
+  `login: can change Lab site (checked)` (or `2 sites and 1 org`), and the change box adds
+  `Your login can change: Lab site` under its first line. A name that isn't plain text, an
+  unknown kind, or more than 64 entries is dropped, never shown. v1 answers still work.
 - Only the parsed state is used. The server's text never reaches the AI.
 
 ### Turning writes on
