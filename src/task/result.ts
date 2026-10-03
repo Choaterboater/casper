@@ -1,4 +1,5 @@
 import { formatDuration, formatVerificationReport, reportText, type VerificationReport, type VerificationResult } from "../verify/evidence";
+import type { RiskyLine } from "../network/risky-receipt";
 import { isBuiltinCheck } from "../verify/named";
 import { DRY_RUN_LABEL } from "../network/checks";
 import type { ProjectCommand } from "../project/model";
@@ -110,6 +111,8 @@ export interface TaskResult {
   outsideWrites?: string[];
   /** Folders outside the project you allowed a shell command to write (~/ form): allowed, not known written. */
   outsideAllowed?: string[];
+  /** Dangerous lines in the config files this task changed (reload, shutdown, erase …): shown, never a pass or a fail. */
+  riskyLines?: RiskyLine[];
 }
 
 /** A security tools run in a receipt: how many problems, notes and checks not run, and each tool's state. */
@@ -255,6 +258,7 @@ export function formatTaskResult(task: TaskResult): string {
     ...(task.outsideAllowed?.length ? [`allowed shell writes to ${task.outsideAllowed.map(safe).join(", ")} (no undo copy)`] : []),
   ];
   if (outside.length) lines.push(receiptLine("outside", outside.join("; ")));
+  if (task.riskyLines?.length) lines.push(receiptLine("risky", task.riskyLines.map((risky) => `${safe(risky.file)}:${risky.line} ${safe(risky.text)} (${risky.reason})`).join(" · ")));
   if (task.undo && !(!task.undo.available && task.undo.reason === UNDO_NOTHING_CHANGED)) {
     lines.push(receiptLine("undo", task.undo.available ? `available${task.receipt ? ` (/undo ${task.receipt})` : ""}${task.undo.left?.length ? `; no copy of ${task.undo.left.map((entry) => safe(entry.path)).join(", ")}` : ""}` : `not available: ${safe(task.undo.reason)}`));
   }
@@ -431,6 +435,7 @@ function receiptParts(task: TaskResult, options: ReceiptOptions): { lines: strin
   else if (task.sandbox && labRan(report)) lines.push(`• Lab checks ran outside the sandbox (${LAB_OUTSIDE_WHY})`);
   for (const folder of task.outsideWrites ?? []) lines.push(`• Wrote outside the project: ${safe(folder)} (you allowed it; no undo copy)`);
   for (const folder of task.outsideAllowed ?? []) lines.push(`• Allowed writes outside the project: ${safe(folder)} (no undo copy)`);
+  for (const risky of task.riskyLines ?? []) lines.push(`• Risky config lines (not a check): ${safe(risky.file)}:${risky.line} ${safe(risky.text)} — ${risky.reason}`);
   if (task.browser) {
     const failed = task.browser.checks.filter((check) => check.status === "fail").map((check) => safe(check.name));
     // The answer may say the checks passed; the receipt is Casper's record, so it says where they differ.

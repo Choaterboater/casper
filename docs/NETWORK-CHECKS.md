@@ -113,6 +113,24 @@ they reach only listed hosts. Where no sandbox runs (Windows, bubblewrap missing
 docs say. Lab checks run outside the sandbox, because they log in to your devices with your
 own SSH keys; see [SECURITY.md](SECURITY.md).
 
+## Risky config lines in the receipt
+
+On by default. After a task changes config files (anything under a `configs/` folder, and
+`.cfg`, `.conf` and Junos `.set` files), the receipt lists each dangerous line and what it
+does. It is for reading: never a pass or a fail.
+
+```
+risky   configs/sw1.cfg:6 reload (reboots the switch) · r1.set:2 set interfaces ge-0/0/0 disable (disables the interface)
+```
+
+Dangerous means it can cause an outage or lose data: reload/reboot, shutdown (not
+`no shutdown`), erase/zeroize/format, factory resets, deleting files from flash, Junos
+`load override`, `delete interfaces|vlans`, `set interfaces X disable`, rollbacks, software
+installs and `clear …`. Descriptions, names, banners and quoted text are never read as
+commands. Saving (`write memory`, `commit`) is not dangerous. At most 20 lines are listed,
+with secrets hidden. The checker is the same one GreenCLI uses (`src/network/risky-lines.ts`,
+copied from GreenCLI; `bun scripts/sync-risky-lines.ts` re-copies it).
+
 ## Your lab
 
 Lab checks (device checks) reach real devices. They can reach **any** device; nothing
