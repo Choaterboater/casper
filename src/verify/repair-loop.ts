@@ -102,7 +102,10 @@ export async function verifyAndRepair(options: VerificationOptions): Promise<Ver
   // Explicit /verify starts fresh; model-selected checks share this task's store.
   const task = options.task ?? new VerificationTask(options.registry, options.cwd, options.onResult);
   const signal = options.signal ? AbortSignal.any([options.signal, task.signal]) : task.signal;
-  const checks = () => [...new Set([...options.checks, ...task.checks])];
+  // A device (lab) check runs again only when you named it here (/verify <name>): one the AI ran, or you skipped,
+  // is reported as it stands and never rerun on Casper's own, in this pass or after a repair.
+  const own = (name: CheckName) => options.checks.includes(name) || task.kindOf(name) !== "lab";
+  const checks = () => [...new Set([...options.checks, ...task.checks])].filter(own);
   let results: VerificationResult[] = [];
   let repairAttempts = 0;
   let budget = maxAttempts;
@@ -126,7 +129,7 @@ export async function verifyAndRepair(options: VerificationOptions): Promise<Ver
     // Recheck selected passes that cannot support reuse, and known-invalidated
     // failures that the model may already have fixed. Never loop just to obtain
     // freshness: self-mutating/unknown inputs still get an honest qualification.
-    const invalidated = results.filter((result) => result.status !== "skip"
+    const invalidated = results.filter((result) => result.status !== "skip" && own(result.name)
       && (result.freshness === "stale" || (result.status === "pass" && result.freshness !== "fresh")));
     // Requested checks the shared task has never run have no evidence at all yet.
     const unrun = options.checks.filter((name) => !results.some((result) => result.name === name));

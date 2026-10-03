@@ -65,7 +65,7 @@ test("an all-lab inventory gives a numbered ask with no Always choice for ansibl
   expect(result).toMatchObject({ status: "pass", kind: "lab", label: DRY_RUN_LABEL, hosts: ["lab-sw1", "lab-sw2", "lab-sw3"] });
   const argv = (await readFile(path.join(f.records, "ansible-playbook.argv"), "utf8")).trim().split("\n");
   expect(argv.slice(0, 3)).toEqual(["--check", "--diff", "-i"]);
-  expect(formatNetworkCheckLine(result)).toMatch(/^✓ aoscx-check {2}ansible --check on 3 lab switches {2}\(dry run not guaranteed · \d+\.\ds\)$/);
+  expect(formatNetworkCheckLine(result)).toMatch(/^✓ aoscx-check {2}ansible --check on 3 switches {2}\(dry run not guaranteed · \d+\.\ds\)$/);
   expect(networkEventFields(result)).toEqual({ kind: "lab", label: DRY_RUN_LABEL, hosts: ["lab-sw1", "lab-sw2", "lab-sw3"] });
   expect(countsTowardVerified(result)).toBe(false);
 });
@@ -86,22 +86,22 @@ test("other ways to reach past the inventory are warnings too: included files, v
   const f = await setup({ "lab-sw1": { ansible_host: "10.99.0.11" } });
   await writeProjectFile(f, "tasks/more.yml", "- ansible.builtin.set_fact:\n    ansible_host: 10.1.2.3\n");
   await writeProjectFile(f, "site.yml", `${SITE}    - ansible.builtin.import_tasks: tasks/more.yml\n`);
-  expect(await prepareLabCheck("aoscx-check", aoscxCheck, context(f))).toMatchObject({ state: "ready", ask: { warnings: [expect.stringContaining("tasks/more.yml uses ansible_host (line 2)")] } });
+  expect(await prepareLabCheck("aoscx-check", aoscxCheck, context(f))).toMatchObject({ state: "ready", ask: { warnings: expect.arrayContaining([expect.stringContaining("tasks/more.yml uses ansible_host (line 2)")]) } });
 
   await writeProjectFile(f, "vars/lab.yml", "proxy: \"-o ProxyCommand=ssh jump\"\n");
   await writeProjectFile(f, "site.yml", SITE.replace("  gather_facts: false\n", "  gather_facts: false\n  vars_files: [vars/lab.yml]\n"));
-  expect(await prepareLabCheck("aoscx-check", aoscxCheck, context(f))).toMatchObject({ state: "ready", ask: { warnings: [expect.stringContaining("vars/lab.yml uses an SSH proxy setting")] } });
+  expect(await prepareLabCheck("aoscx-check", aoscxCheck, context(f))).toMatchObject({ state: "ready", ask: { warnings: expect.arrayContaining([expect.stringContaining("vars/lab.yml uses an SSH proxy setting")]) } });
 
   await writeProjectFile(f, "site.yml", SITE.replace("  gather_facts: false\n", "  gather_facts: false\n  roles: [arubanetworks.aoscx.vlans]\n"));
-  expect(await prepareLabCheck("aoscx-check", aoscxCheck, context(f))).toMatchObject({ state: "ready", ask: { warnings: [expect.stringContaining("not in the project's roles/ folder")] } });
+  expect(await prepareLabCheck("aoscx-check", aoscxCheck, context(f))).toMatchObject({ state: "ready", ask: { warnings: expect.arrayContaining([expect.stringContaining("not in the project's roles/ folder")]) } });
 
   await writeProjectFile(f, "roles/vlans/tasks/main.yml", "- ansible.builtin.uri:\n    url: https://10.1.2.3/rest\n");
   await writeProjectFile(f, "site.yml", SITE.replace("  gather_facts: false\n", "  gather_facts: false\n  roles: [vlans]\n"));
-  expect(await prepareLabCheck("aoscx-check", aoscxCheck, context(f))).toMatchObject({ state: "ready", ask: { warnings: [expect.stringContaining("roles/vlans/tasks/main.yml uses")] } });
+  expect(await prepareLabCheck("aoscx-check", aoscxCheck, context(f))).toMatchObject({ state: "ready", ask: { warnings: expect.arrayContaining([expect.stringContaining("roles/vlans/tasks/main.yml uses")]) } });
 
   await writeProjectFile(f, "site.yml", SITE);
   await writeProjectFile(f, "group_vars/switches.yml", "ansible_host: 10.1.2.3\n");
-  expect(await prepareLabCheck("aoscx-check", aoscxCheck, context(f))).toMatchObject({ state: "ready", ask: { warnings: [expect.stringContaining("group_vars/switches.yml uses ansible_host")] } });
+  expect(await prepareLabCheck("aoscx-check", aoscxCheck, context(f))).toMatchObject({ state: "ready", ask: { warnings: expect.arrayContaining([expect.stringContaining("group_vars/switches.yml uses ansible_host")]) } });
   expect(await ran(f)).toBe(false);
 });
 
@@ -123,7 +123,7 @@ test("an inventory that is a program, or a link out of the project, is refused a
 test("a proxy (jump host) in the inventory's host variables is a warning", async () => {
   const f = await setup({ "lab-sw1": { ansible_host: "10.99.0.11", ansible_ssh_common_args: "-o ProxyJump=bastion" } });
   expect(await prepareLabCheck("aoscx-check", aoscxCheck, context(f)))
-    .toMatchObject({ state: "ready", ask: { warnings: [expect.stringContaining("ansible_ssh_common_args")] } });
+    .toMatchObject({ state: "ready", ask: { warnings: expect.arrayContaining([expect.stringContaining("ansible_ssh_common_args")]) } });
 });
 
 test("no lab list at all: the check still runs after your answer, and the box says no device is marked lab", async () => {
@@ -187,4 +187,59 @@ test("on Windows lab checks read not run", async () => {
   const f = await setup({ "lab-r1": { ansible_host: "10.99.0.21" } });
   const plan = await prepareLabCheck("junos-commit", junosCommit, { ...context(f), platform: "win32" });
   expect(plan).toMatchObject({ state: "not-run", result: { reason: "Ansible does not run on Windows; use WSL" } });
+});
+
+test("review: Always is voided by a changed change file or changed host variables", async () => {
+  const f = await setup({ "lab-r1": { ansible_host: "10.99.0.21" } });
+  const first = await prepareLabCheck("junos-commit", junosCommit, context(f));
+  if (first.state !== "ready") throw new Error("expected ready");
+  await writeProjectFile(f, "change.set", "set system host-name other\n");
+  const edited = await prepareLabCheck("junos-commit", junosCommit, context(f));
+  if (edited.state !== "ready") throw new Error("expected ready");
+  expect(edited.approvalKey).not.toBe(first.approvalKey);
+  await writeFile(path.join(f.records, "inventory.json"), inventoryJson({ "lab-r1": { ansible_host: "10.99.0.21", ansible_python_interpreter: "/tmp/x.sh" } }));
+  const vars = await prepareLabCheck("junos-commit", junosCommit, context(f));
+  if (vars.state !== "ready") throw new Error("expected ready");
+  expect(vars.approvalKey).not.toBe(edited.approvalKey);
+});
+
+test("review: a saved Always runs your own /verify, but a check the AI asks for still shows the box, without Always", async () => {
+  const { labCheckRunner } = await import("../src/app/lab-checks");
+  const f = await setup({ "lab-r1": { ansible_host: "10.99.0.21" } });
+  const state = path.join(f.home, ".casper", "projects", "p");
+  const plan = await prepareLabCheck("junos-commit", junosCommit, context(f));
+  if (plan.state !== "ready") throw new Error("expected ready");
+  await rememberLabAlways(state, "junos-commit", plan.approvalKey);
+  const shown: string[][] = [];
+  const host = (answer: string | undefined) => ({
+    canAsk: () => true, write: () => {}, stateDirectory: state, lab: LAB as LabSettings,
+    network: { path: f.path, tmpRoot: f.tmp, realHome: f.home },
+    pick: async (_question: string, options: { label: string }[]) => { shown.push(options.map((option) => option.label)); return answer; },
+  });
+  const ctx = { cwd: f.root, timeoutMs: 60_000 };
+  // Yours: Always holds, no box.
+  await labCheckRunner(host("Skip"), "user")("junos-commit", junosCommit, ctx);
+  expect(shown).toEqual([]);
+  expect(await ran(f)).toBe(true);
+  // The AI's: the box, with no Always choice; Skip sends nothing more.
+  const result = await labCheckRunner(host("Skip"), "ai")("junos-commit", junosCommit, ctx);
+  expect(shown).toEqual([["Skip", "Run it"]]);
+  expect(result.status).toBe("skip");
+  // And with nobody to ask, the AI's request sends nothing.
+  const quiet = await labCheckRunner({ ...host("Run it"), canAsk: () => false }, "ai")("junos-commit", junosCommit, ctx);
+  expect(quiet.status).toBe("skip");
+});
+
+test("review: every reach finding is shown (up to 5, then +N more), includes are still followed, and check_mode: false and plugin folders count", async () => {
+  const f = await setup({ "lab-sw1": { ansible_host: "10.99.0.11" } });
+  await writeProjectFile(f, "tasks/more.yml", "- ansible.builtin.shell: reboot\n");
+  await writeProjectFile(f, "site.yml", `${SITE}    - ansible.builtin.uri:\n        url: https://example.net\n    - ansible.builtin.import_tasks: tasks/more.yml\n    - arubanetworks.aoscx.aoscx_config:\n        save_when: always\n      check_mode: false\n`);
+  await writeProjectFile(f, "library/mine.py", "print('local code')\n");
+  const plan = await prepareLabCheck("aoscx-check", aoscxCheck, context(f));
+  if (plan.state !== "ready") throw new Error(`expected ready, got ${plan.state}`);
+  const text = plan.ask.warnings.join("\n");
+  expect(text).toContain("a URL");
+  expect(text).toContain("tasks/more.yml uses a command module");
+  expect(text).toContain("check_mode: false");
+  expect(text).toContain("library/");
 });

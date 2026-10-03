@@ -26,25 +26,30 @@ export function parseLabFile(text: string): string[] {
   return parsed.hosts;
 }
 
-/** Add hosts to lab.hosts in <home>/.casper/config.yaml, keeping everything else and its comments. */
-export async function addLabHosts(home: string, hosts: readonly string[]): Promise<{ file: string; added: string[]; already: string[] }> {
-  const folder = path.join(home, ".casper");
+/** Where /lab import writes: your config.yaml, or the profile's when the profile has its own lab list (it wins). */
+export function labConfigPlace(profile?: string): string {
+  return profile ? `~/.casper/profiles/${profile}/config.yaml` : "~/.casper/config.yaml";
+}
+
+/** Add hosts to lab.hosts in <home>/.casper/config.yaml (or the profile's), keeping everything else and its comments. */
+export async function addLabHosts(home: string, hosts: readonly string[], profile?: string): Promise<{ file: string; added: string[]; already: string[] }> {
+  const folder = profile ? path.join(home, ".casper", "profiles", profile) : path.join(home, ".casper");
   const file = path.join(folder, "config.yaml");
   let before: string | undefined;
   let mode = 0o600;
   try {
     const info = await lstat(file);
-    if (!info.isFile()) throw new Error("~/.casper/config.yaml is not a plain file; refusing to change it");
+    if (!info.isFile()) throw new Error(`${labConfigPlace(profile)} is not a plain file (a link?); refusing to change it. Add the hosts there yourself`);
     mode = info.mode & 0o777;
     before = await readFile(file, "utf8");
   } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
   const document = parseDocument(before ?? "");
-  if (document.errors.length) throw new Error(`~/.casper/config.yaml does not parse (${document.errors[0]!.message.split("\n")[0]}); fix it first`);
-  if (document.contents !== null && !isMap(document.contents)) throw new Error("~/.casper/config.yaml is not a mapping; refusing to change it");
+  if (document.errors.length) throw new Error(`${labConfigPlace(profile)} does not parse (${document.errors[0]!.message.split("\n")[0]}); fix it first`);
+  if (document.contents !== null && !isMap(document.contents)) throw new Error(`${labConfigPlace(profile)} is not a mapping; refusing to change it`);
   const lab = document.get("lab");
-  if (lab !== undefined && lab !== null && !isMap(lab)) throw new Error("lab in ~/.casper/config.yaml is not a mapping; refusing to change it");
+  if (lab !== undefined && lab !== null && !isMap(lab)) throw new Error(`lab in ${labConfigPlace(profile)} is not a mapping; refusing to change it`);
   const list = document.getIn(["lab", "hosts"]);
-  if (list !== undefined && list !== null && !isSeq(list)) throw new Error("lab.hosts in ~/.casper/config.yaml is not a list; refusing to change it");
+  if (list !== undefined && list !== null && !isSeq(list)) throw new Error(`lab.hosts in ${labConfigPlace(profile)} is not a list; refusing to change it`);
   const existing = new Set(isSeq(list) ? list.items.map((item) => String((item as { value?: unknown }).value ?? item).toLowerCase()) : []);
   const added = hosts.filter((host) => !existing.has(host.toLowerCase()));
   const already = hosts.filter((host) => existing.has(host.toLowerCase()));

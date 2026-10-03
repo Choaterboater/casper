@@ -1,9 +1,8 @@
 /**
- * The app's side of lab checks: /verify <name> on your own lab. Casper checks the lab list, the
- * inventory and the playbook text first (src/network/checks.ts prepareLabCheck), then asks one numbered
- * question, and only a person's answer starts anything. A run that cannot ask (one-shot, --json, a pipe)
- * sends nothing and says so. The AI never reaches this: casper_check refuses lab checks, and auto mode never
- * selects them.
+ * The app's side of device (lab) checks. Casper reads the inventory and the playbook text first
+ * (src/network/checks.ts prepareLabCheck), then asks one numbered question naming every device, and only a person's
+ * answer starts anything: for your own /verify <name>, or when the AI asks through casper_check. A run that cannot
+ * ask (one-shot, --json, a pipe) sends nothing and says so. Auto mode never selects device checks.
  */
 import { COMMIT_CHECK_LABEL, DRY_RUN_LABEL, labFailureAsk, prepareLabCheck, type NetworkCheckContext } from "../network/checks";
 import { labAlwaysAllowed, rememberLabAlways } from "../network/lab";
@@ -28,8 +27,12 @@ export interface LabCheckHost {
   network?: NetworkToolContext;
 }
 
-/** The runner the registry calls for a lab check during /verify <name>. */
-export function labCheckRunner(host: LabCheckHost): NamedCheckRunner {
+/**
+ * The runner the registry calls for a device (lab) check. `origin` "user" is your own /verify <name>: a saved
+ * "Always for this project" answer runs it without the box. "ai" is the AI asking through casper_check: the box
+ * shows every time, never offers Always, and a run that can't ask sends nothing.
+ */
+export function labCheckRunner(host: LabCheckHost, origin: "user" | "ai" = "user"): NamedCheckRunner {
   return async (name, spec, context) => {
     const networkContext: NetworkCheckContext = { ...host.network, root: context.cwd, ...(host.lab ? { lab: host.lab } : {}),
       ...(context.signal ? { signal: context.signal } : {}) };
@@ -39,13 +42,15 @@ export function labCheckRunner(host: LabCheckHost): NamedCheckRunner {
     const label = spec.preset === "ansible-check" ? DRY_RUN_LABEL : COMMIT_CHECK_LABEL;
     const skipped = (reason: string): VerificationResult => ({ name, cwd: context.cwd, status: "skip", kind: "lab", label, exitCode: null, signal: null,
       stdout: "", stderr: "", truncated: false, durationMs: 0, reason, repair: "never", hosts: plan.hosts.map((host) => host.name) });
-    if (plan.allowAlways && await labAlwaysAllowed(host.stateDirectory, name, plan.approvalKey)) {
+    const always = plan.allowAlways && origin === "user";
+    if (always && await labAlwaysAllowed(host.stateDirectory, name, plan.approvalKey)) {
       host.write(`Running ${name} on your lab (you chose Always for this project).\n`);
     } else {
       if (!host.canAsk()) return skipped(LAB_NEEDS_ANSWER);
       const warnings = plan.ask.warnings.map((line) => `${terminalText(line)}\n`).join("");
-      const answer = await host.pick(`${terminalText(plan.ask.text)}\n${warnings}${plan.ask.note}`, plan.ask.choices.map((label) => ({ label })), context.signal);
-      if (answer === "Always for this project" && plan.allowAlways) {
+      const choices = always ? plan.ask.choices : plan.ask.choices.filter((label) => label !== "Always for this project");
+      const answer = await host.pick(`${terminalText(plan.ask.text)}\n${warnings}${plan.ask.note}`, choices.map((label) => ({ label })), context.signal);
+      if (answer === "Always for this project" && always) {
         await rememberLabAlways(host.stateDirectory, name, plan.approvalKey);
       } else if (answer !== "Run it") return skipped(LAB_SKIPPED);
     }

@@ -77,7 +77,7 @@ export function reachWarningText(finding: ReachFinding): string {
 /** Host variables that can send Ansible somewhere other than the listed address. */
 const PROXY_VARIABLES = ["ansible_ssh_common_args", "ansible_ssh_extra_args", "ansible_ssh_args", "ansible_paramiko_proxy_command", "ansible_netconf_ssh_config", "ansible_psrp_proxy", "ansible_httpapi_proxy"];
 
-export interface InventoryHosts { hosts: LabHost[]; problem?: string; warnings?: string[] }
+export interface InventoryHosts { hosts: LabHost[]; problem?: string; warnings?: string[]; /** Digest of every host's variables. */ vars?: string }
 
 /** Read `ansible-inventory --list` JSON: every host and where it connects. */
 export function inventoryHostsFromJson(text: string): InventoryHosts {
@@ -110,7 +110,8 @@ export function inventoryHostsFromJson(text: string): InventoryHosts {
     if (typeof address === "string" && /\{\{|\{%/.test(address)) return { hosts, problem: `host ${name} builds ansible_host from a template` };
     hosts.push({ name, address: typeof address === "string" && address.trim() ? address.trim() : name });
   }
-  return { hosts, ...(warnings.length ? { warnings } : {}) };
+  const vars = createHash("sha256").update(JSON.stringify([...names].sort().map((name) => [name, hostvars[name] ?? {}]))).digest("hex");
+  return { hosts, vars, ...(warnings.length ? { warnings } : {}) };
 }
 
 /** Only plain inventory files: YAML or INI text, not a program, not a link out of the project. */
@@ -146,6 +147,7 @@ export async function labHosts(inventory: string, options: LabHostsOptions): Pro
 
 /** Lines that can point a playbook at hosts beyond its inventory, or run things Casper cannot check. */
 const REACH_PATTERNS: { what: string; re: RegExp }[] = [
+  { what: "check_mode: false (this task really runs, even under --check)", re: /^\s*-?\s*check_mode\s*:\s*(false|no|False|No)\b/ },
   { what: "delegate_to", re: /^\s*-?\s*delegate_to\s*:/ },
   { what: "add_host", re: /^\s*-?\s*(ansible\.builtin\.)?add_host\s*:/ },
   { what: "local_action", re: /^\s*-?\s*local_action\s*:/ },
@@ -159,16 +161,22 @@ const REACH_PATTERNS: { what: string; re: RegExp }[] = [
   { what: "a lookup that runs or fetches", re: /\b(lookup|query|q)\s*\(\s*['"](pipe|url|ansible\.builtin\.(pipe|url))['"]/ },
 ];
 
-function scanText(file: string, text: string): ReachFinding | undefined {
+/** Every line of a file that matches a reach pattern (one finding per line). */
+function scanText(file: string, text: string): ReachFinding[] {
+  const found: ReachFinding[] = [];
   const lines = text.split("\n");
   for (let index = 0; index < lines.length; index++) {
     const line = lines[index]!;
     if (/^\s*#/.test(line)) continue;
     const body = line.replace(/\s+#.*$/, "");
-    for (const pattern of REACH_PATTERNS) if (pattern.re.test(body)) return { file, line: index + 1, what: pattern.what };
+    const pattern = REACH_PATTERNS.find((candidate) => candidate.re.test(body));
+    if (pattern) found.push({ file, line: index + 1, what: pattern.what });
   }
-  return undefined;
+  return found;
 }
+
+/** Folders next to a playbook that Ansible loads as local code (they run on this machine, outside the sandbox). */
+const PLUGIN_FOLDERS = ["library", "module_utils", "action_plugins", "filter_plugins", "lookup_plugins", "callback_plugins", "connection_plugins", "plugins"];
 
 const INCLUDE = /^\s*-?\s*(?:ansible\.builtin\.)?(include_tasks|import_tasks|include_vars|include|include_role|import_role)\s*:\s*(.*)$/;
 
@@ -179,7 +187,13 @@ const INCLUDE = /^\s*-?\s*(?:ansible\.builtin\.)?(include_tasks|import_tasks|inc
  * Casper cannot read ahead (a templated name, a role from a collection) is itself a refusal.
  * Stricter than Ansible needs, and still only a text scan.
  */
-export async function scanPlaybookReach(root: string, playbook: string): Promise<ReachFinding | undefined> {
+export async function scanPlaybookReach(root: string, playbook: string): Promise<ReachFinding[]> {
+  const findings: ReachFinding[] = [];
+  const note = (finding: ReachFinding) => { if (findings.length < 200) findings.push(finding); };
+  for (const folder of PLUGIN_FOLDERS) {
+    const relative = path.posix.join(path.posix.dirname(playbook), folder);
+    try { if ((await lstat(path.join(root, relative))).isDirectory()) note({ file: `${relative}/`, line: 1, what: "local plugin code that runs on this machine" }); } catch { /* none */ }
+  }
   const seen = new Set<string>();
   const queue: string[] = [playbook];
   const playbookDir = path.posix.dirname(playbook);
@@ -189,17 +203,17 @@ export async function scanPlaybookReach(root: string, playbook: string): Promise
     const relative = queue.shift()!;
     if (seen.has(relative)) continue;
     seen.add(relative);
-    if (--budget < 0) return { file: playbook, line: 1, what: "more than 200 files" };
+    if (--budget < 0) { note({ file: playbook, line: 1, what: "more than 200 files (the rest not scanned)" }); break; }
     let absolute: string;
     let text: string;
     try {
       absolute = await resolveInside(root, relative);
       text = await readSmallText(absolute, MAX_SCAN_BYTES);
     } catch {
-      return { file: relative, line: 1, what: "a file Casper cannot read" };
+      note({ file: relative, line: 1, what: "a file Casper cannot read" });
+      continue;
     }
-    const found = scanText(relative, text);
-    if (found) return found;
+    for (const finding of scanText(relative, text)) note(finding);
     const base = path.posix.dirname(relative);
     const lines = text.split("\n");
     for (let index = 0; index < lines.length; index++) {
@@ -209,21 +223,22 @@ export async function scanPlaybookReach(root: string, playbook: string): Promise
         let target = include[2]!.trim().replace(/^['"]|['"]$/g, "");
         if (kind.endsWith("_role")) {
           const name = /name\s*:\s*['"]?([\w.-]+)/.exec(target)?.[1] ?? lines[index + 1]?.match(/^\s*name\s*:\s*['"]?([\w.-]+)/)?.[1];
-          if (!name) return { file: relative, line: index + 1, what: `${kind} with a name Casper cannot read ahead` };
+          if (!name) { note({ file: relative, line: index + 1, what: `${kind} with a name Casper cannot read ahead` }); continue; }
           const role = await roleFiles(root, base, name);
-          if (!role) return { file: relative, line: index + 1, what: `role ${name}, which is not in the project's roles/ folder` };
+          if (!role) { note({ file: relative, line: index + 1, what: `role ${name}, which is not in the project's roles/ folder` }); continue; }
           queue.push(...role);
           continue;
         }
         if (!target || target.includes("{{") || target.startsWith("/") || target.split("/").includes("..")) {
-          return { file: relative, line: index + 1, what: `${kind} with a file Casper cannot read ahead` };
+          note({ file: relative, line: index + 1, what: `${kind} with a file Casper cannot read ahead` });
+          continue;
         }
         queue.push(path.posix.normalize(path.posix.join(base, target)));
       }
     }
     const parsed = relative === playbook ? readPlaybook(relative, text) : undefined;
     if (relative === playbook) {
-      if (!parsed) return { file: relative, line: 1, what: "a file that is not a playbook" };
+      if (!parsed) { note({ file: relative, line: 1, what: "a file that is not a playbook" }); continue; }
       let value: unknown;
       try { value = parse(text, { logLevel: "silent", maxAliasCount: 50, uniqueKeys: false, strict: false }); } catch { value = undefined; }
       for (const play of Array.isArray(value) ? value : []) {
@@ -232,22 +247,23 @@ export async function scanPlaybookReach(root: string, playbook: string): Promise
         const files = typeof record.vars_files === "string" ? [record.vars_files] : Array.isArray(record.vars_files) ? record.vars_files : [];
         for (const file of files) {
           if (typeof file !== "string" || file.includes("{{") || file.startsWith("/") || file.split("/").includes("..")) {
-            return { file: relative, line: lineNumber(text, /vars_files/), what: "vars_files Casper cannot read ahead" };
+            note({ file: relative, line: lineNumber(text, /vars_files/), what: "vars_files Casper cannot read ahead" });
+            continue;
           }
           queue.push(path.posix.normalize(path.posix.join(base, file)));
         }
         const roles = Array.isArray(record.roles) ? record.roles : [];
         for (const role of roles) {
           const name = typeof role === "string" ? role : typeof role === "object" && role !== null ? (role as Record<string, unknown>).role ?? (role as Record<string, unknown>).name : undefined;
-          if (typeof name !== "string" || name.includes("{{")) return { file: relative, line: lineNumber(text, /roles\s*:/), what: "a role Casper cannot read ahead" };
+          if (typeof name !== "string" || name.includes("{{")) { note({ file: relative, line: lineNumber(text, /roles\s*:/), what: "a role Casper cannot read ahead" }); continue; }
           const files = await roleFiles(root, base, name);
-          if (!files) return { file: relative, line: lineNumber(text, new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))), what: `role ${name}, which is not in the project's roles/ folder` };
+          if (!files) { note({ file: relative, line: lineNumber(text, new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))), what: `role ${name}, which is not in the project's roles/ folder` }); continue; }
           queue.push(...files);
         }
       }
     }
   }
-  return undefined;
+  return findings;
 }
 
 function lineNumber(text: string, re: RegExp): number {
@@ -285,11 +301,17 @@ async function roleFiles(root: string, base: string, name: string): Promise<stri
 }
 
 /** A fingerprint of what the user agreed to: the check, the inventory file, the hosts and the change file. */
-export function labApprovalKey(check: string, parts: { inventory: string; hosts: readonly LabHost[]; files?: readonly string[] }): string {
+/**
+ * What "Always for this project" is bound to: the check, the inventory, every host and its address, the inventory's
+ * host variables, and each change file by path and contents. Any edit (by you or the AI) asks again.
+ */
+export function labApprovalKey(check: string, parts: { inventory: string; hosts: readonly LabHost[]; files?: readonly string[]; contents?: readonly string[]; vars?: string }): string {
   const hash = createHash("sha256");
   hash.update(`${check}\n${parts.inventory}\n`);
   for (const host of [...parts.hosts].sort((a, b) => a.name.localeCompare(b.name))) hash.update(`${host.name}=${host.address}\n`);
   for (const file of parts.files ?? []) hash.update(`file:${file}\n`);
+  for (const content of parts.contents ?? []) hash.update(`content:${createHash("sha256").update(content).digest("hex")}\n`);
+  if (parts.vars !== undefined) hash.update(`vars:${parts.vars}\n`);
   return hash.digest("hex");
 }
 

@@ -63,8 +63,8 @@ verify:
 | `junoser` | `junoser -c <file>` | Junoser can read the Junos config. Its grammar can lag new Junos releases, so "could not read" may mean newer syntax. |
 | `yanglint` | `yanglint -t config -p <models> <modules> <data>` | The data fits the YANG models. For AOS-CX the models for each release come from github.com/aruba/aoscx-yang (Apache-2.0). |
 | `hier-config` | A small Casper script that uses hier_config 3 from your project's Python | How many lines would change and how many would undo it. This is a report. It never passes or fails a task and never counts toward Verified. hier_config marks its Junos support as experimental. |
-| `junos-commit` | Juniper's `juniper.device.config` module with `check: true` and `commit: false` | Your lab routers accept the change (commit check). Juniper's module does not commit. |
-| `ansible-check` | `ansible-playbook --check --diff -i <inventory> <playbook>` | What the playbook would change on your lab switches. Labelled "dry run not guaranteed": some modules can still change devices in check mode. Its pass is shown, but on its own it never counts as Checks passed or Verified. |
+| `junos-commit` | Juniper's `juniper.device.config` module with `check: true` and `commit: false` | Your routers accept the change (commit check). Juniper's module does not commit. |
+| `ansible-check` | `ansible-playbook --check --diff -i <inventory> <playbook>` | What the playbook would change on your switches. Labelled "dry run not guaranteed": some modules can still change devices in check mode. Its pass is shown, but on its own it never counts as Checks passed or Verified. |
 
 Casper finds Ansible projects by itself: `ansible.cfg`, `galaxy.yml`,
 `collections/requirements.yml`, or playbooks (YAML lists of plays with `hosts:`). It
@@ -116,8 +116,9 @@ own SSH keys; see [SECURITY.md](SECURITY.md).
 ## Risky config lines in the receipt
 
 On by default. After a task changes config files (anything under a `configs/` folder, and
-`.cfg`, `.conf` and Junos `.set` files), the receipt lists each dangerous line and what it
-does. It is for reading: never a pass or a fail.
+`.cfg`, `.conf` and Junos `.set` files), the receipt lists each dangerous line the task
+added and what it does; lines that were already there, and comment lines, are not listed.
+It is for reading: never a pass or a fail.
 
 ```
 risky   configs/sw1.cfg:6 reload (reboots the switch) · r1.set:2 set interfaces ge-0/0/0 disable (disables the interface)
@@ -127,8 +128,8 @@ Dangerous means it can cause an outage or lose data: reload/reboot, shutdown (no
 `no shutdown`), erase/zeroize/format, factory resets, deleting files from flash, Junos
 `load override`, `delete interfaces|vlans`, `set interfaces X disable`, rollbacks, software
 installs and `clear …`. Descriptions, names, banners and quoted text are never read as
-commands. Saving (`write memory`, `commit`) is not dangerous. At most 20 lines are listed,
-with secrets hidden. The checker is the same one GreenCLI uses (`src/network/risky-lines.ts`,
+commands. Saving (`write memory`, `commit`) is not dangerous. At most 20 lines are listed
+("and N more" after that), with secrets hidden. The checker is the same one GreenCLI uses (`src/network/risky-lines.ts`,
 copied from GreenCLI; `bun scripts/sync-risky-lines.ts` re-copies it).
 
 ## Your lab
@@ -136,11 +137,16 @@ copied from GreenCLI; `bun scripts/sync-risky-lines.ts` re-copies it).
 Lab checks (device checks) reach real devices. They can reach **any** device; nothing
 reaches one without your answer:
 
-1. **Casper asks first, every time.** When the work needs a device check, the AI asks for
-   it (or you type `/verify <name>`), and Casper shows a numbered box naming every device.
-   Only your key press starts it; the AI can't answer the box, auto mode never asks for
-   one, and a failed device check is never repaired on its own. A run that cannot ask
-   (`casper -p`, `--json`, a pipe) sends nothing and says so:
+1. **Casper asks first.** When the work needs a device check, the AI asks for it (or you
+   type `/verify <name>`), and Casper shows a numbered box naming every device. You answer
+   with a digit and Enter, typed after the box appeared (keys typed before it never answer
+   it). The AI can't answer the box, auto mode never asks for one, a device check is never
+   rerun on its own (not after a repair, not at the end of a task), and a failed one is never
+   repaired without your answer. The one exception is yours: "Always for this project" on
+   `junos-commit` lets *your own* `/verify` run it without the box, and only while the
+   inventory, its host variables and the change file are exactly as they were; a check the
+   AI asks for always shows the box. A run that cannot ask (`casper -p`, `--json`, a pipe)
+   sends nothing and says so:
 
    ```
    – aoscx-check · not run: lab checks need your answer at the terminal, and this run cannot ask; nothing was sent
@@ -159,7 +165,8 @@ reaches one without your answer:
 
    `/lab import <file>` adds devices from a file without editing anything: GreenCLI's
    export of its `lab`-tagged hosts (`{"hosts": [...]}`), or one host per line. Casper
-   lists the new ones and asks `1 No · 2 Add them`; `/lab` shows the list.
+   lists the new ones and asks `1 No · 2 Add them`; `/lab` shows the list and the file it
+   comes from. When your profile has its own lab list (it replaces yours), the hosts go there.
 
    Entries are exact hostnames, single IP addresses or IP ranges. Casper does no DNS
    lookups and never guesses from a name: `lab-sw9` is not marked lab just because it
@@ -176,8 +183,10 @@ reaches one without your answer:
    `vars_files`, roles in `roles/`, `group_vars`, `host_vars`) for `delegate_to`,
    `add_host`, `local_action`, `import_playbook`, `ansible_host`, SSH proxy settings,
    `provider:` or `host:` task settings, URLs, command modules, `pipe`/`url` lookups, and
-   roles it cannot read. A jump host or proxy in the inventory's host variables is a
-   warning too. The box shows the first one found, and then there is no "Always":
+   roles it cannot read, plus `check_mode: false` (that task really runs, even under
+   `--check`) and plugin folders next to the playbook (`library/`, `filter_plugins/` …: local
+   code). A jump host or proxy in the inventory's host variables is a warning too. The box
+   lists up to five, then "+N more", and then there is no "Always":
 
    ```
    site.yml uses delegate_to (line 42), so it can reach devices not listed here.

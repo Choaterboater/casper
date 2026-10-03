@@ -5,7 +5,8 @@ import path from "node:path";
 import { PassThrough } from "node:stream";
 import { CasperApp } from "../src/app";
 import type { CasperEvent } from "../src/app/json-events";
-import { labApprovalKey, rememberLabAlways } from "../src/network/lab";
+import { rememberLabAlways } from "../src/network/lab";
+import { prepareLabCheck } from "../src/network/checks";
 import { loadProjectContext } from "../src/project/context";
 import { projectStateDirectory } from "../src/project/model";
 import { SkillRegistry } from "../src/skills/registry";
@@ -150,9 +151,11 @@ test("Always for this project lets junos-commit run without asking, and its chec
   // The answer names the inventory and change file by their real paths (macOS's temp folder is /private/var).
   const root = await realpath(f.root);
   const state = projectStateDirectory(f.root, f.home);
-  const inventory = path.join(root, "lab.yml");
-  await rememberLabAlways(state, "junos-commit", labApprovalKey("junos-commit", { inventory, hosts: [{ name: "lab-r1", address: "10.99.0.21" }],
-    files: [path.join(root, "change.set")] }));
+  // The key binds the inventory, hosts, host variables and the change file's contents: take it from the plan itself.
+  const plan = await prepareLabCheck("junos-commit", { kind: "lab", preset: "junos-commit", inventory: "lab.yml", files: ["change.set"] },
+    { root, path: f.path, tmpRoot: f.tmp, realHome: f.home, lab: { hosts: ["10.99.0.0/24"] } });
+  if (plan.state !== "ready") throw new Error(`expected ready, got ${plan.state}`);
+  await rememberLabAlways(state, "junos-commit", plan.approvalKey);
   const { app, output, events } = makeApp(f);
   try {
     await app.runOnce("/verify junos-commit", f.root);
@@ -166,7 +169,8 @@ test("Always for this project lets junos-commit run without asking, and its chec
 
 /** A plain terminal: typed lines, no ask panel. */
 function plainTerminal(f: NetworkFixture) {
-  const input = Object.assign(new PassThrough(), { isTTY: true, setRawMode() {} });
+  // Piped input, as the exact-answer channel takes on the plain terminal (a cooked TTY with redirected output is refused).
+  const input = new PassThrough();
   let text = "";
   let pending: { test: (visible: string) => boolean; resolve: () => void } | undefined;
   const writer = Object.assign(new EventEmitter(), { isTTY: false, columns: 200, rows: 40, write(chunk: string) {
@@ -193,7 +197,7 @@ test("on the plain terminal the AOS-CX lab check asks with no Always choice, run
   try {
     await t.until((text) => text.endsWith("> "));
     t.input.write("/verify aoscx-check\n");
-    await t.until((text) => text.includes("Type 1-2 (Enter for 1): "));
+    await t.until((text) => text.includes("Type 1 or 2: "));
     expect(t.visible()).toContain("Run aoscx-check on 1 device? It uses ansible --check, and a dry run is not guaranteed: some modules can still change the switches. lab-sw1\n");
     expect(t.visible()).toContain("  1 Skip\n  2 Run it\n");
     expect(t.visible()).not.toContain("Always for this project");
@@ -226,7 +230,7 @@ test("Skip at the lab ask sends nothing, and so does Enter", async () => {
   try {
     await t.until((text) => text.endsWith("> "));
     t.input.write("/verify aoscx-check\n");
-    await t.until((text) => text.includes("Type 1-2 (Enter for 1): "));
+    await t.until((text) => text.includes("Type 1 or 2: "));
     // Enter picks 1, which is Skip: a stray Enter never reaches a device.
     t.input.write("\n");
     await t.until((text) => text.includes("aoscx-check · not run: you chose Skip; nothing was sent"));
