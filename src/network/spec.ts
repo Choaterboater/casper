@@ -221,7 +221,7 @@ export function autoNetworkCheckNames(checks: Record<string, NetworkCheckSpec>):
   return Object.entries(checks).filter(([, spec]) => spec.kind === "offline" && spec.after !== "ask").map(([name]) => name);
 }
 
-/** Names the model may run through casper_check: offline and report checks, never lab ones. */
+/** Named checks offered to the model by default: offline and report checks (device checks are added only where a person can be asked). */
 export function modelNetworkCheckNames(checks: Record<string, NetworkCheckSpec>): string[] {
   return Object.entries(checks).filter(([, spec]) => spec.kind !== "lab").map(([name]) => name);
 }

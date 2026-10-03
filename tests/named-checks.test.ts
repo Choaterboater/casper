@@ -233,3 +233,22 @@ describe("what a named check means for the run", () => {
     expect(manualChecks(selectedChecks(["test"], { test: "t" }, named), named)).toEqual(["syntax", "slow", "diff"]);
   });
 });
+
+describe("review: device checks are never rerun on their own", () => {
+  test("a device check the AI ran (or you skipped) is not run again by end-of-task verification or a repair", async () => {
+    const { verifyAndRepair } = await import("../src/verify/repair-loop");
+    const root = await mkdtemp(path.join(os.tmpdir(), "casper-lab-rerun-"));
+    dirs.push(root);
+    let labRuns = 0;
+    const registry = VerifierRegistry.forProject(model(root, {
+      "junos-commit": { kind: "lab", preset: "junos-commit", files: ["c.set"], inventory: "lab.yml" },
+    }, { test: "true" }), 10_000, undefined, {
+      runLab: async (name) => { labRuns++; return result({ name, cwd: root, status: "pass", kind: "lab", label: "commit check only; not committed" }); },
+    });
+    const task = new VerificationTask(registry, root);
+    await task.tool()!.execute({ check: "junos-commit" });
+    expect(labRuns).toBe(1);
+    await verifyAndRepair({ task, checks: ["test"], cwd: root, request: "Check" });
+    expect(labRuns).toBe(1);
+  });
+});

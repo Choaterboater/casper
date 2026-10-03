@@ -3,7 +3,7 @@ import type { DebugRequest, DebugSession } from "./debug/session";
 import { promisify } from "node:util";
 import os from "node:os";
 import { resolveEntry } from "./sandbox/policy";
-import { riskyLinesIn } from "./network/risky-receipt";
+import { riskyBaseline, riskyLinesIn } from "./network/risky-receipt";
 import type { LabSettings } from "./network/spec";
 import path from "node:path";
 import { realpathSync } from "node:fs";
@@ -1455,6 +1455,8 @@ export class CasperApp {
     const [before, undoStart] = await Promise.all([this.snapshotWorkspace(workspaceRoot, this.commandAbort?.signal),
       this.taskUndo.begin(workspaceRoot, session, this.commandAbort?.signal)]);
     edits.before = before;
+    // The risky lines already in the project's config files, so the receipt lists only the ones this task adds.
+    const riskyBefore = before ? await riskyBaseline(workspaceRoot, [...before.keys()]).catch(() => undefined) : undefined;
     // verification.checklist: the cases the request states, listed before the model starts, so it tests each one.
     // Unset, it is on for interactive code changes and off otherwise: questions, docs, refactors and one-shot runs.
     // At most one question before work: after the new-project question there is no checklist panel.
@@ -1650,14 +1652,14 @@ export class CasperApp {
       const browser = !this.closing && this.browser ? await this.browser.report() : undefined;
       const outsideWrites = outsideWritesReceipt(this.sandbox);
       // Dangerous lines in the config files this task changed (reload, shutdown …): a report, never a pass or a fail.
-      const riskyLines = changedPaths && !this.closing ? await riskyLinesIn(workspaceRoot, changedPaths).catch(() => []) : [];
+      const riskyLines = changedPaths && !this.closing ? await riskyLinesIn(workspaceRoot, changedPaths, riskyBefore).catch(() => []) : [];
       const services = !this.closing && this.services && !this.services.closed
         ? this.services.status().map(({ name, origin, state }) => ({ name, ...(origin ? { origin } : {}), state })) : [];
       const snapshotFailure = !changedPaths && this.snapshotFailure ? { reason: this.snapshotFailure,
         edited: observations.observedEdits.map((file) => { const relative = path.relative(workspaceRoot, path.resolve(workspaceRoot, file));
           return relative && !relative.startsWith("..") && !path.isAbsolute(relative) ? relative.split(path.sep).join("/") : file; }) } : undefined;
       this.lastTaskResult = { execution, verification, ...observations, ...(snapshotFailure ? { snapshotFailure } : {}), ...(browser?.checks.length ? { browser, ...(browser.status !== "pass" && answerClaimsBrowserPass(this.lastAnswer) ? { browserClaimed: true } : {}) } : {}),
-        ...(services.length ? { services } : {}), ...(riskyLines.length ? { riskyLines } : {}),
+        ...(services.length ? { services } : {}), ...(riskyLines.length ? { riskyLines: [...riskyLines], ...(riskyLines.more ? { riskyMore: riskyLines.more } : {}) } : {}),
         // Smoke checks ran even without a configured command, so "no checks" no longer describes the task.
         verificationMode, ...(!flag && !configured && verificationMode === "auto" ? { verificationDefaulted: true as const } : {}),
         ...(autoChecks?.skipped && !verification?.smoke && !verification?.pages ? { autoSkipped: autoChecks.skipped } : {}),
@@ -1905,9 +1907,9 @@ export class CasperApp {
     // A standalone verification task (/verify, branch checks) owns its objective; post-task
     // verification passes `task` and continues the parent request's delegation budget.
     if (!task) this.delegateToolForTask = undefined;
-    // Lab checks start only here, from the user's own /verify <name>, and only after a person answers.
+    // Your own /verify (no parent task) may use a saved "Always"; anything the AI asked for shows the box every time.
     const evidence = task ?? new VerificationTask(
-      VerifierRegistry.forProject(context.model, context.verification.timeoutMs, this.blockOnCleanupFailure, this.taskNetworkOptions()), this.activeWorkspaceRoot(),
+      VerifierRegistry.forProject(context.model, context.verification.timeoutMs, this.blockOnCleanupFailure, this.taskNetworkOptions(task ? "ai" : "user")), this.activeWorkspaceRoot(),
       (result) => this.writeCheckResult(result),
     );
     // /verify <lab check> alone: a failure asks before any repair (Stop first); nothing touches the lab again on its own.
@@ -1966,8 +1968,8 @@ export class CasperApp {
         // Out of tries: one numbered offer to try once more on the big model. Only a person answers it; one-shot
         // and --json runs never get it, so they never spend on a bigger model on their own.
         onRepairLimit: repair && this.interactive && this.terminal.canAsk ? (failures, signal) => this.askBigModelRetry(failures, signal) : undefined,
-        onLabFailure: (repair || labOnly) && this.interactive && this.terminal.canAsk
-          ? (failures, signal) => askLabFailure({ pick: (question, options, answerSignal) => this.terminal.pick(question, options, answerSignal) }, failures, signal) : undefined,
+        onLabFailure: (repair || labOnly) && this.interactive
+          ? (failures, signal) => askLabFailure({ pick: (question, options, answerSignal) => this.exactPick(question, options, answerSignal) }, failures, signal) : undefined,
         // A check that was already failing before the change is not the change's doing: say so, and ask before paying to fix it.
         beforeRepair: repair && task && task === this.checkTask && this.taskBaseline ? (failures, signal) => this.repairPreexisting(failures, signal) : undefined,
         // Only a person can say whether a check that did not finish is worth a paid repair.
@@ -2012,12 +2014,29 @@ export class CasperApp {
    * for the AI's casper_check in this session. Only a person's answer starts a device check; a run that can't ask
    * (one-shot, --json, a pipe, auto mode) sends nothing. Helpers (subagents) never get it.
    */
-  private taskNetworkOptions(): { network?: NetworkToolContext; runLab: NamedCheckRunner } {
+  private taskNetworkOptions(origin: "user" | "ai" = "ai"): { network?: NetworkToolContext; runLab?: NamedCheckRunner } {
     const context = this.projectContext!;
+    // Where nobody can answer the box (one-shot, --json, a pipe), the AI isn't offered device checks at all.
+    if (origin === "ai" && !this.interactive) return this.networkOptions();
     return { ...this.networkOptions(), runLab: labCheckRunner({
-      canAsk: () => this.interactive && this.terminal.canAsk && !this.closing, pick: (question, options, signal) => this.terminal.pick(question, options, signal),
+      // The exact channel below decides whether a box can be answered (a cooked TTY with redirected output can't).
+      canAsk: () => this.interactive && !this.closing,
+      pick: (question, options, signal) => this.exactPick(question, options, signal),
       write: (text) => { if (!this.closing) this.output.write(text); }, stateDirectory: context.stateDirectory, ...(context.lab ? { lab: context.lab } : {}),
-      ...(this.networkTools ? { network: this.networkTools } : {}) }) };
+      ...(this.networkTools ? { network: this.networkTools } : {}) }, origin) };
+  }
+
+  /**
+   * A device-check box on the same exact channel as the MCP change box: a digit typed after the box appeared, then
+   * Enter. Keys typed before it (mid-sentence) never answer it, and boxes come one at a time. The chosen label, or
+   * undefined (no answer, cancelled, a terminal that can't take an exact answer).
+   */
+  private async exactPick(question: string, options: { label: string; description?: string }[], signal?: AbortSignal): Promise<string | undefined> {
+    const labels = options.map((option) => option.description ? `${option.label} · ${option.description}` : option.label);
+    const digits = labels.map((_, index) => String(index + 1));
+    const prompt = digits.length === 2 ? "Type 1 or 2: " : `Type ${digits.slice(0, -1).join(", ")} or ${digits.at(-1)}: `;
+    const digit = await this.chooseAnswer(`${question}\n${numberedLines(labels)}`, prompt, digits, signal);
+    return digit === undefined ? undefined : options[Number(digit) - 1]?.label;
   }
 
   private networkOptions(): { network?: NetworkToolContext } {

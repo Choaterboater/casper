@@ -78,7 +78,21 @@ test("/lab import lists the new hosts, asks 1 No · 2 Add them, and only 2 write
   expect(first).toContain("[lab] Nothing added.");
   await expect(readFile(path.join(dir, ".casper/config.yaml"), "utf8")).rejects.toThrow();
   const second = await session(dir, project, [`/lab import ${path.join(dir, "greencli-lab.txt")}`, "/lab"], ["2"]);
-  expect(second).toContain("[lab] Added 2 devices: lab-sw1, 10.99.0.11. Device checks no longer call them \"not marked lab\".");
-  expect(second).toContain("Lab devices: lab-sw1, 10.99.0.11");
+  expect(second).toContain("[lab] Added 2 devices to ~/.casper/config.yaml: lab-sw1, 10.99.0.11. Device checks no longer call them \"not marked lab\".");
+  expect(second).toContain("Lab devices: lab-sw1, 10.99.0.11 (from ~/.casper/config.yaml)");
   expect(await readFile(path.join(dir, ".casper/config.yaml"), "utf8")).toContain("- 10.99.0.11");
+});
+
+test("review: when the profile has its own lab list (it wins), /lab import adds to the profile's file", async () => {
+  const dir = await home();
+  const project = path.join(dir, "project");
+  await mkdir(path.join(project, ".casper"), { recursive: true });
+  await mkdir(path.join(dir, ".casper/profiles/default"), { recursive: true });
+  await writeFile(path.join(dir, ".casper/profiles/default/config.yaml"), "lab:\n  hosts:\n    - lab-r1\n");
+  await writeFile(path.join(dir, "lab.txt"), "lab-r2\n");
+  const output = await session(dir, project, [`/lab import ${path.join(dir, "lab.txt")}`, "/lab"], ["2"]);
+  expect(output).toContain("Add 1 device to your lab list (~/.casper/profiles/default/config.yaml)? lab-r2");
+  expect(output).toContain("Lab devices: lab-r1, lab-r2 (from ~/.casper/profiles/default/config.yaml)");
+  expect(await readFile(path.join(dir, ".casper/profiles/default/config.yaml"), "utf8")).toContain("- lab-r2");
+  await expect(readFile(path.join(dir, ".casper/config.yaml"), "utf8")).rejects.toThrow();
 });

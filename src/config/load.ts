@@ -81,6 +81,8 @@ export interface LoadedConfiguration {
   pages?: PagesSetting;
   /** The user's lab devices (lab.hosts), from ~/.casper/config.yaml or the profile only; never a project file. */
   lab?: LabSettings;
+  /** The profile whose own lab list replaces yours (~/.casper/profiles/<name>/config.yaml), when it has one. */
+  labProfile?: string;
   /** The shell sandbox: your settings (sandbox, shell.keepEnv) and the project's extra denies. */
   sandbox: { user: SandboxUserSettings; project: SandboxProjectSettings };
   /** Web lookups, from ~/.casper/config.yaml or the profile only; never a project file. */
@@ -739,5 +741,6 @@ export async function loadConfiguration(
     projectRules: (await readProjectFile(options.projectRoot, ".casper/rules.md", MAX_PROJECT_RULES_BYTES))?.trim() || null,
     projectOverrides: overrides,
     ...(lab ? { lab } : {}),
+    ...(parseLabSettings(profileDocument.lab, "profile") ? { labProfile: selectedProfile } : {}),
   };
 }

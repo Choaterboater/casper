@@ -113,6 +113,8 @@ export interface TaskResult {
   outsideAllowed?: string[];
   /** Dangerous lines in the config files this task changed (reload, shutdown, erase …): shown, never a pass or a fail. */
   riskyLines?: RiskyLine[];
+  /** How many more risky lines there were past the 20 listed. */
+  riskyMore?: number;
 }
 
 /** A security tools run in a receipt: how many problems, notes and checks not run, and each tool's state. */
@@ -258,7 +260,8 @@ export function formatTaskResult(task: TaskResult): string {
     ...(task.outsideAllowed?.length ? [`allowed shell writes to ${task.outsideAllowed.map(safe).join(", ")} (no undo copy)`] : []),
   ];
   if (outside.length) lines.push(receiptLine("outside", outside.join("; ")));
-  if (task.riskyLines?.length) lines.push(receiptLine("risky", task.riskyLines.map((risky) => `${safe(risky.file)}:${risky.line} ${safe(risky.text)} (${risky.reason})`).join(" · ")));
+  if (task.riskyLines?.length) lines.push(receiptLine("risky", task.riskyLines.map((risky) => `${safe(risky.file)}:${risky.line} ${safe(risky.text)} (${risky.reason})`).join(" · ")
+    + (task.riskyMore ? ` · and ${task.riskyMore} more` : "")));
   if (task.undo && !(!task.undo.available && task.undo.reason === UNDO_NOTHING_CHANGED)) {
     lines.push(receiptLine("undo", task.undo.available ? `available${task.receipt ? ` (/undo ${task.receipt})` : ""}${task.undo.left?.length ? `; no copy of ${task.undo.left.map((entry) => safe(entry.path)).join(", ")}` : ""}` : `not available: ${safe(task.undo.reason)}`));
   }
@@ -436,6 +439,7 @@ function receiptParts(task: TaskResult, options: ReceiptOptions): { lines: strin
   for (const folder of task.outsideWrites ?? []) lines.push(`• Wrote outside the project: ${safe(folder)} (you allowed it; no undo copy)`);
   for (const folder of task.outsideAllowed ?? []) lines.push(`• Allowed writes outside the project: ${safe(folder)} (no undo copy)`);
   for (const risky of task.riskyLines ?? []) lines.push(`• Risky config lines (not a check): ${safe(risky.file)}:${risky.line} ${safe(risky.text)} — ${risky.reason}`);
+  if (task.riskyMore) lines.push(`• Risky config lines (not a check): and ${task.riskyMore} more`);
   if (task.browser) {
     const failed = task.browser.checks.filter((check) => check.status === "fail").map((check) => safe(check.name));
     // The answer may say the checks passed; the receipt is Casper's record, so it says where they differ.

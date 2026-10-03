@@ -183,6 +183,9 @@ export class VerificationTask {
     return next;
   }
 
+  /** The kind of a registered check ("lab" for a device check). */
+  kindOf(name: CheckName): ReturnType<VerifierRegistry["kind"]> { return this.registry.kind(name); }
+
   /** Undefined when no check can run: the AI is never offered a check that can only skip. */
   tool(): RuntimeTool | undefined {
     const names = this.registry.modelNames();

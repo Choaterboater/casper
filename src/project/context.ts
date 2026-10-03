@@ -42,6 +42,8 @@ export interface ProjectContext {
   warnings?: string[];
   /** The user's lab list (lab.hosts), from ~/.casper/config.yaml or the profile only. */
   lab?: LabSettings;
+  /** The profile whose own lab list is in force, when it has one (/lab import adds there). */
+  labProfile?: string;
   /** The shell sandbox settings: yours, and the project's extra denies (see src/sandbox/policy.ts). */
   sandbox?: LoadedConfiguration["sandbox"];
   /** Web lookups: yours only (web: in ~/.casper/config.yaml). Unset: on, with DuckDuckGo. */
@@ -108,6 +110,7 @@ export async function loadProjectContext(
     },
     warnings: configuration.warnings,
     ...(configuration.lab ? { lab: configuration.lab } : {}),
+    ...(configuration.labProfile ? { labProfile: configuration.labProfile } : {}),
     sandbox: configuration.sandbox,
     web: configuration.web,
   };

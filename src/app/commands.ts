@@ -1,5 +1,5 @@
 import path from "node:path";
-import { addLabHosts, parseLabFile } from "../network/lab-import";
+import { addLabHosts, labConfigPlace, parseLabFile } from "../network/lab-import";
 import type { LabSettings } from "../network/spec";
 import type { BrowserSession } from "../browser/session";
 import type { ServiceManager, ServiceStatus } from "../services/manager";
@@ -976,9 +976,11 @@ async function handleMCPAllow(host: CommandHost, name: string, off: boolean): Pr
  */
 async function handleLabCommand(host: CommandHost, prompt: string): Promise<void> {
   const current = host.projectContext?.lab?.hosts ?? [];
+  const profile = host.projectContext?.labProfile;
+  const place = labConfigPlace(profile);
   const match = /^\/lab\s+import\s+(.+?)\s*$/.exec(prompt);
   if (prompt.trim() === "/lab") {
-    host.output.write(`Lab devices: ${current.length ? current.map(terminalText).join(", ") : "none"}\n`
+    host.output.write(`Lab devices: ${current.length ? current.map(terminalText).join(", ") : "none"}${current.length ? ` (from ${place})` : ""}\n`
       + "They only mark devices as lab: any device can be checked, after your answer. /lab import <file> adds more.\n");
     return;
   }
@@ -992,18 +994,22 @@ async function handleLabCommand(host: CommandHost, prompt: string): Promise<void
     if (!info.isFile() || info.size > 256 * 1024) throw new Error("not a plain file under 256 KB");
     text = await readFile(file, "utf8");
   } catch (error) { throw new Error(`Can't read ${terminalText(given)}: ${error instanceof Error ? error.message : String(error)}`); }
-  const hosts = parseLabFile(text);
+  let hosts: string[];
+  try { hosts = parseLabFile(text); } catch (error) { throw new Error(`${terminalText(given)}: ${error instanceof Error ? error.message : String(error)}`); }
   const known = new Set(current.map((entry) => entry.toLowerCase()));
   const fresh = hosts.filter((entry) => !known.has(entry.toLowerCase()));
   if (!fresh.length) { host.output.write(`[lab] All ${hosts.length} are already in your lab list.\n`); return; }
   const shown = fresh.slice(0, 20).map(terminalText).join(", ") + (fresh.length > 20 ? ` and ${fresh.length - 20} more` : "");
   const devices = `${fresh.length} ${fresh.length === 1 ? "device" : "devices"}`;
-  const answer = await host.chooseAnswer(`Add ${devices} to your lab list (~/.casper/config.yaml)? ${shown}\n${numberedLines(LAB_IMPORT_CHOICES)}`,
+  const answer = await host.chooseAnswer(`Add ${devices} to your lab list (${place})? ${shown}\n${numberedLines(LAB_IMPORT_CHOICES)}`,
     "Type 1 or 2: ", ["1", "2"], host.commandAbort?.signal);
   if (answer !== "2") { host.output.write("[lab] Nothing added.\n"); return; }
-  const result = await addLabHosts(host.homeDir(), fresh);
+  const result = await addLabHosts(host.homeDir(), fresh, profile);
   host.setLab?.({ hosts: [...current, ...result.added] });
-  host.output.write(`[lab] Added ${devices}: ${shown}. Device checks no longer call them "not marked lab".\n`);
+  const added = `${result.added.length} ${result.added.length === 1 ? "device" : "devices"}`;
+  host.output.write(result.added.length
+    ? `[lab] Added ${added} to ${place}: ${result.added.slice(0, 20).map(terminalText).join(", ")}${result.added.length > 20 ? ` and ${result.added.length - 20} more` : ""}. Device checks no longer call them "not marked lab".\n`
+    : `[lab] They were already in ${place}.\n`);
 }
 
 /** "8 indexed (6 bundled)", or "2 indexed; bundled: off" when skills.bundled is false. */

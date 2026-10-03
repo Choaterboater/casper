@@ -32,7 +32,7 @@ export function autoNamedChecks(named: Record<string, NamedCheckSpec> | undefine
   return named ? autoNetworkCheckNames(named) : [];
 }
 
-/** Named checks the AI may run through casper_check and /verify runs with no names: never lab checks. */
+/** Named checks /verify runs with no names, and offered to the AI by default: never device (lab) checks, which need a box. */
 export function modelNamedChecks(named: Record<string, NamedCheckSpec> | undefined): string[] {
   return named ? modelNetworkCheckNames(named) : [];
 }

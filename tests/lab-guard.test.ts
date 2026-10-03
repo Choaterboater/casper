@@ -33,7 +33,7 @@ test("inventory JSON gives every host and its ansible_host; a proxy is a warning
     _meta: { hostvars: { "lab-sw1": { ansible_host: "10.99.0.5" }, "lab-sw2": {} } },
     all: { children: ["switches"] }, switches: { hosts: ["lab-sw1", "lab-sw2", "lab-sw3"] },
   }));
-  expect(listed).toEqual({ hosts: [
+  expect(listed).toMatchObject({ hosts: [
     { name: "lab-sw1", address: "10.99.0.5" }, { name: "lab-sw2", address: "lab-sw2" }, { name: "lab-sw3", address: "lab-sw3" },
   ] });
   const proxied = inventoryHostsFromJson(JSON.stringify({ _meta: { hostvars: { r1: { ansible_ssh_common_args: "-o ProxyCommand=ssh jump" } } } }));
