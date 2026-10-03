@@ -1,6 +1,8 @@
 # Casper
 
-A coding helper for your terminal that checks the AI's work before it tells you "done".
+A coding helper for your terminal. Build web apps, APIs, command-line tools and scripts in the language
+your project uses, and Casper checks the AI's work before it tells you "done". Network engineers get
+extra care built in (Aruba, Juniper, Mist, MCP servers with writes off).
 
 **Preview, unsigned.** This is an early preview, not a stable release. The programs are
 not signed, so your system may warn you. macOS is tested by hand; Windows x64 install and
