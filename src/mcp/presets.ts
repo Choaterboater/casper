@@ -336,6 +336,14 @@ const TABLE: Preset[] = [
     advice: "Access not checked. Use a read-only (Observer) org token for this server.",
   },
   {
+    // GreenCLI's own server (greencli-mcp, next to the app). It ships no write tools and has no switch to pin.
+    // Recognised by the program's file name, from any install folder. Only its access_check can say read-only.
+    id: "greencli-mcp",
+    label: "GreenCLI",
+    matchDefinition: (definition) => /^greencli-mcp(\.exe)?$/.test(stdio(definition)?.command.split(/[\\/]/).pop()?.toLowerCase() ?? ""),
+    noPinReason: "it has no read-only setting; GreenCLI ships no write tools",
+  },
+  {
     // A local Mist API server (Python mist_mcp) with a MIST_READ_ONLY switch: while it is on, the server
     // sends only GET to Mist. Recognised by what it runs or that switch, never by the server's name.
     id: "mist-mcp",
