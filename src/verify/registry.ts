@@ -32,8 +32,8 @@ export interface ForProjectOptions {
   wrap?: CommandWrap;
   /** Runs preset named checks; defaults to Casper's network check runner. */
   runPreset?: NamedCheckRunner;
-  /** Runs a lab check: only the app's /verify <name> passes one, after checking the lab list and asking the
-   * user. Without it a lab check never starts. */
+  /** Runs a device (lab) check after asking the person in a numbered box (the app passes one for /verify and for the
+   * AI's casper_check in an interactive session). Without it a lab check never starts. */
   runLab?: NamedCheckRunner;
   /** Tool PATH, temp folder and home for the default preset runner. */
   network?: NetworkToolContext;
@@ -63,6 +63,8 @@ const presetRunner = (network: NetworkToolContext = {}): NamedCheckRunner => asy
 
 export class VerifierRegistry {
   private readonly verifiers = new Map<CheckName, Verifier>();
+  /** A device (lab) check can run here, after a person answers its box: the AI may ask for one. */
+  private labAsks = false;
 
   register(verifier: Verifier): void {
     if (this.verifiers.has(verifier.name)) throw new Error(`Verifier already registered: ${verifier.name}`);
@@ -72,12 +74,17 @@ export class VerifierRegistry {
   /** Every registered check, built-in ones first. */
   names(): CheckName[] { return [...this.verifiers.keys()]; }
 
-  /** Checks the AI may run through casper_check: never lab checks or built-ins with no command. */
+  /** Checks the AI may run through casper_check: never built-ins with no command, and device (lab) checks only where
+   * a person can be asked (each one shows its box first; only the person's answer starts it). */
   modelNames(): CheckName[] {
-    return [...this.verifiers.values()].filter((verifier) => verifier.kind !== "lab" && verifier.runnable !== false).map((verifier) => verifier.name);
+    return [...this.verifiers.values()].filter((verifier) => (verifier.kind !== "lab" || this.labAsks) && verifier.runnable !== false)
+      .map((verifier) => verifier.name);
   }
 
   has(name: string): boolean { return this.verifiers.has(name); }
+
+  /** True when a device (lab) check can run here after a person answers its box. */
+  canAskForLab(): boolean { return this.labAsks; }
 
   kind(name: CheckName): Verifier["kind"] { return this.verifiers.get(name)?.kind; }
 
@@ -109,6 +116,7 @@ export class VerifierRegistry {
 
   static forProject(model: ProjectModel, timeoutMs = 120_000, onCleanupFailure?: () => void, options: ForProjectOptions = {}): VerifierRegistry {
     const registry = new VerifierRegistry();
+    registry.labAsks = Boolean(options.runLab);
     const cwd = model.project.root;
     let cleanupFailed = false;
     const blocked = (name: CheckName): VerificationResult => ({ name, cwd, status: "fail", ...nothing, reason: "Owned process cleanup is unconfirmed; no further checks started" });
@@ -140,7 +148,7 @@ export class VerifierRegistry {
         run: async (signal, runOptions) => {
           if (cleanupFailed) return blocked(name);
           if (frozen.kind === "lab") {
-            // Only the user's own /verify <name> gives a lab runner; the AI and auto mode never reach a device.
+            // Only a registry that can ask a person has a lab runner; nothing reaches a device without their answer.
             if (!options.runLab) return { name, cwd, status: "skip", ...nothing, kind: "lab", reason: labOnlyByYou(name), repair: "never" };
             return options.runLab(name, frozen, { cwd, timeoutMs: frozen.timeout ? frozen.timeout * 1000 : 600_000, ...(signal ? { signal } : {}) });
           }

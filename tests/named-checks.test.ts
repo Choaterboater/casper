@@ -133,6 +133,24 @@ describe("running named checks", () => {
       .toEqual(["typecheck", "lint", "test", "build", "docs"]);
   });
 
+  test("where a person can be asked, casper_check offers a device check and runs it only through the asking runner", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "casper-tool-"));
+    dirs.push(root);
+    const asked: string[] = [];
+    const registry = VerifierRegistry.forProject(model(root, {
+      "junos-commit": { kind: "lab", preset: "junos-commit", files: ["c.set"], inventory: "lab.yml" },
+    }), 10_000, undefined, {
+      // The app's runner shows the numbered box; here the person says Skip.
+      runLab: async (name) => { asked.push(name); return result({ name, cwd: root, status: "skip", kind: "lab", reason: "you chose Skip; nothing was sent" }); },
+    });
+    const tool = new VerificationTask(registry, root).tool()!;
+    expect((tool.inputSchema as { properties: { check: { enum: string[] } } }).properties.check.enum).toContain("junos-commit");
+    expect(tool.description).toContain("the user is asked first in a numbered box");
+    const ran = await tool.execute({ check: "junos-commit" });
+    expect(asked).toEqual(["junos-commit"]);
+    expect(ran.text).toContain("you chose Skip");
+  });
+
   test("casper_check offers named checks, refuses lab checks and hides secrets in named output", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "casper-tool-"));
     dirs.push(root);

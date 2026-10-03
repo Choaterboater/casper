@@ -78,7 +78,7 @@ import { parseChecklist, parseReview, requirementsReviewPrompt, ROUND_MAX_TURNS,
 import { extractChecklist, formatChecklistPrompt, normalizeCases } from "./task/checklist";
 import { checkCommands, isBuiltinCheck, labNamedChecks } from "./verify/named";
 import { autoDetectedChecks } from "./verify/migrations-check";
-import type { NetworkToolContext } from "./verify/registry";
+import type { NamedCheckRunner, NetworkToolContext } from "./verify/registry";
 import { buildNextRow, type NextItem } from "./tui/next-row";
 import { TaskUndo, type TaskUndoStart } from "./app/undo";
 import { SuggestionController, SUGGESTION_COMMAND } from "./app/suggestions";
@@ -1430,7 +1430,7 @@ export class CasperApp {
     const configured = context.verification.mode;
     const verificationMode = (await this.checksPlan(context)).mode;
     if (verificationMode !== "off") this.checkTask = new VerificationTask(
-      VerifierRegistry.forProject(context.model, context.verification.timeoutMs, this.blockOnCleanupFailure, this.networkOptions()), this.activeWorkspaceRoot(),
+      VerifierRegistry.forProject(context.model, context.verification.timeoutMs, this.blockOnCleanupFailure, this.taskNetworkOptions()), this.activeWorkspaceRoot(),
       (result) => this.writeCheckResult(result),
     );
     // Smoke checks are verification: they run only when Casper checks this task.
@@ -1551,7 +1551,7 @@ export class CasperApp {
           context = refreshed;
           // The same task keeps what the model's casper_check already recorded this turn; repair rounds rebuild
           // the model's tools (prepareCapabilities), so its casper_check offers the new checks.
-          this.checkTask?.useRegistry(VerifierRegistry.forProject(context.model, context.verification.timeoutMs, this.blockOnCleanupFailure, this.networkOptions()));
+          this.checkTask?.useRegistry(VerifierRegistry.forProject(context.model, context.verification.timeoutMs, this.blockOnCleanupFailure, this.taskNetworkOptions()));
         }
       }
       // A request cut short by --max-turns is unfinished work: checking it would only start repairs.
@@ -1903,10 +1903,7 @@ export class CasperApp {
     if (!task) this.delegateToolForTask = undefined;
     // Lab checks start only here, from the user's own /verify <name>, and only after a person answers.
     const evidence = task ?? new VerificationTask(
-      VerifierRegistry.forProject(context.model, context.verification.timeoutMs, this.blockOnCleanupFailure, { ...this.networkOptions(), runLab: labCheckRunner({
-        canAsk: () => this.interactive && this.terminal.canAsk && !this.closing, pick: (question, options, signal) => this.terminal.pick(question, options, signal),
-        write: (text) => { if (!this.closing) this.output.write(text); }, stateDirectory: context.stateDirectory, ...(context.lab ? { lab: context.lab } : {}),
-        ...(this.networkTools ? { network: this.networkTools } : {}) }) }), this.activeWorkspaceRoot(),
+      VerifierRegistry.forProject(context.model, context.verification.timeoutMs, this.blockOnCleanupFailure, this.taskNetworkOptions()), this.activeWorkspaceRoot(),
       (result) => this.writeCheckResult(result),
     );
     // /verify <lab check> alone: a failure asks before any repair (Stop first); nothing touches the lab again on its own.
@@ -2004,6 +2001,19 @@ export class CasperApp {
   private clearSteps(): void {
     this.steps.clear();
     this.terminal.setSteps(undefined);
+  }
+
+  /**
+   * The network tools plus a device (lab) check runner that asks the person in a numbered box first: for /verify and
+   * for the AI's casper_check in this session. Only a person's answer starts a device check; a run that can't ask
+   * (one-shot, --json, a pipe, auto mode) sends nothing. Helpers (subagents) never get it.
+   */
+  private taskNetworkOptions(): { network?: NetworkToolContext; runLab: NamedCheckRunner } {
+    const context = this.projectContext!;
+    return { ...this.networkOptions(), runLab: labCheckRunner({
+      canAsk: () => this.interactive && this.terminal.canAsk && !this.closing, pick: (question, options, signal) => this.terminal.pick(question, options, signal),
+      write: (text) => { if (!this.closing) this.output.write(text); }, stateDirectory: context.stateDirectory, ...(context.lab ? { lab: context.lab } : {}),
+      ...(this.networkTools ? { network: this.networkTools } : {}) }) };
   }
 
   private networkOptions(): { network?: NetworkToolContext } {
