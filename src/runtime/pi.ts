@@ -550,7 +550,8 @@ export class PiRuntime implements AgentRuntime {
     }
     this.readOnly = true;
     return this.create({ cwd: options.cwd, systemPromptAppend: options.systemPromptAppend,
-      ...(options.scrubToolOutput ? { scrubToolOutput: options.scrubToolOutput } : {}) }, options);
+      ...(options.scrubToolOutput ? { scrubToolOutput: options.scrubToolOutput } : {}),
+      ...(options.privatePaths?.length ? { privatePaths: options.privatePaths } : {}) }, options);
   }
 
   private async create(options: RuntimeStartOptions, readOnly?: RuntimeReadOnlyStartOptions): Promise<RuntimeSession> {
@@ -576,7 +577,7 @@ export class PiRuntime implements AgentRuntime {
 
     const createRuntime: CreateAgentSessionRuntimeFactory = async ({ cwd, sessionManager, sessionStartEvent }) => {
       readOnly?.signal.throwIfAborted();
-      const pathContext = { root: cwd, home: os.homedir(), agentDir };
+      const pathContext = { root: cwd, home: os.homedir(), agentDir, ...(options.privatePaths?.length ? { denyRead: options.privatePaths } : {}) };
       const extensionFactory = (pi: ExtensionAPI) => {
         // Runs after the runtime's own attribution, so Casper's identity replaces Pi's. With
         // CASPER_TELEMETRY=0 there is none to add, and the runtime's is off too (agent-store.ts).

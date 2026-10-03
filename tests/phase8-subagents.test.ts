@@ -489,3 +489,11 @@ describe("Phase 8 bounded subagents", () => {
     await expect(app.runOnce("/delegate reviewer inspect")).rejects.toThrow("Delegation failed");
   });
 });
+
+test("review: a helper gets the project's denyRead as private paths, like the main AI", async () => {
+  const child = new ChildRuntime();
+  const agents = new SubagentManager({ runtimeFactory: () => child, cleanupGraceMs: 20, privatePaths: () => ["/data/greencli-logs"] });
+  cleanup.push(() => agents.close());
+  await agents.run(task);
+  expect(child.options?.privatePaths).toEqual(["/data/greencli-logs"]);
+});

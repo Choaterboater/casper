@@ -171,6 +171,11 @@ sandbox:
   denyWrite: [docs/released]
 ```
 
+`denyRead` places are private to the AI's file tools too (read, grep, find, ls, edit, write) and to its
+helpers, like `~/.ssh`. A `denyRead` folder inside the project doesn't stop a search of the whole project; shell
+commands can't see into it, but the file tools' own search of the project may still match
+inside it. Keep secrets outside the project where you can.
+
 Any other `sandbox` or `shell` key in a project file is named at startup and ignored, and a repo's
 `.pi/sandbox.json` is never read.
 

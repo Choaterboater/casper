@@ -77,6 +77,8 @@ export interface SubagentManagerOptions {
   reviewTimeoutMs?: number;
   /** The user's cache setting (`cache: off` turns a child's cache off too). */
   cache?: () => PromptCacheSetting | undefined;
+  /** The project's sandbox.denyRead (absolute): a helper's file tools refuse them like the main session's. */
+  privatePaths?: () => readonly string[];
   /** Each helper's start, steps and end, for the steps pane. Display only; never shown to a model. */
   onActivity?: (activity: HelperActivity) => void;
 }
@@ -412,6 +414,7 @@ export class SubagentManager {
           ...(options.scrubToolOutput ? { scrubToolOutput: options.scrubToolOutput } : {}),
           ...(options.beforeToolGate ? { beforeToolGate: options.beforeToolGate } : {}),
           ...(this.options.cache?.() ? { cache: this.options.cache() } : {}),
+          ...(this.options.privatePaths?.().length ? { privatePaths: this.options.privatePaths() } : {}),
           systemPromptAppend: options.systemPromptAppend,
         });
         controller.signal.throwIfAborted();

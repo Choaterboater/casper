@@ -33,6 +33,8 @@ export interface PathContext {
   home?: string;
   /** Pi's state folder (CASPER_AGENT_DIR): its auth.json is private too. */
   agentDir?: string;
+  /** The project's sandbox.denyRead, as absolute paths: private to the file tools as well as to shell commands. */
+  denyRead?: readonly string[];
 }
 
 const UNICODE_SPACES = /[  -   　]/g;
@@ -80,23 +82,49 @@ function variants(absolute: string): string[] {
 }
 
 /** Private places, each as typed (~/.ssh) and as its absolute paths. */
-export function privatePlaces(context: PathContext): Array<{ shown: string; paths: string[] }> {
+export interface PrivatePlace {
+  shown: string;
+  paths: string[];
+  /** Why it is private, for the refusal: "keys and logins", or the project's own denyRead. */
+  why: string;
+  /** Whether a search of a folder that holds it is refused too. Not for a denyRead folder inside the project:
+   * a search of the project still runs (the sandbox hides that folder from shell commands). */
+  below: boolean;
+}
+
+export function privatePlaces(context: PathContext): PrivatePlace[] {
   const home = context.home ?? os.homedir();
-  const places = PRIVATE_PATHS.map((entry) => ({ shown: `~/${entry}`, paths: variants(path.join(home, entry)) }));
-  if (context.agentDir) places.push({ shown: "Casper's login file (auth.json)", paths: variants(path.join(context.agentDir, "auth.json")) });
+  const why = "keys and logins";
+  const places: PrivatePlace[] = PRIVATE_PATHS.map((entry) => ({ shown: `~/${entry}`, paths: variants(path.join(home, entry)), why, below: true }));
+  if (context.agentDir) places.push({ shown: "Casper's login file (auth.json)", paths: variants(path.join(context.agentDir, "auth.json")), why, below: true });
+  for (const entry of context.denyRead ?? []) {
+    const inside = within(context.root, entry);
+    const relative = (from: string) => path.relative(from, entry).split(path.sep).join("/");
+    const shown = inside ? relative(context.root) || "." : within(home, entry) ? `~/${relative(home)}` : entry;
+    places.push({ shown, paths: variants(entry), why: "this project's sandbox.denyRead", below: !inside });
+  }
   return places;
 }
 
 /** The private place `absolute` is in, if any. */
 export function privatePlace(absolute: string, context: PathContext): string | undefined {
+  return privatePlaceFor(absolute, context)?.shown;
+}
+
+function privatePlaceFor(absolute: string, context: PathContext): PrivatePlace | undefined {
   const candidates = variants(absolute);
-  return privatePlaces(context).find((place) => place.paths.some((entry) => candidates.some((candidate) => within(entry, candidate))))?.shown;
+  return privatePlaces(context).find((place) => place.paths.some((entry) => candidates.some((candidate) => within(entry, candidate))));
+}
+
+/** Why a shown private place is private ("keys and logins" unless it is the project's own denyRead). */
+function whyPrivate(shown: string, context: PathContext): string {
+  return privatePlaces(context).find((place) => place.shown === shown)?.why ?? "keys and logins";
 }
 
 /** A private place inside the folder `absolute` (grep over ~ would read ~/.ssh). */
 export function privatePlaceBelow(absolute: string, context: PathContext): string | undefined {
   const candidates = variants(absolute);
-  return privatePlaces(context).find((place) => place.paths.some((entry) => candidates.some((candidate) => within(candidate, entry))))?.shown;
+  return privatePlaces(context).find((place) => place.below && place.paths.some((entry) => candidates.some((candidate) => within(candidate, entry))))?.shown;
 }
 
 function readText(file: string): string | undefined {
@@ -212,7 +240,7 @@ export function fileToolGate(toolName: string, input: Record<string, unknown> | 
   const verb = write ? "Not done" : "Not read";
   for (const candidate of toolName === "read" ? readVariants(absolute) : [absolute]) {
     const place = privatePlace(candidate, context);
-    if (place) return `${verb}: ${place} is private (keys and logins). Casper keeps it from the AI.`;
+    if (place) return `${verb}: ${place} is private (${whyPrivate(place, context)}). Casper keeps it from the AI.`;
     const kind = classifyPath(candidate, context, write);
     if (kind === "linksOut") return `${verb}: ${given} is a link to a place outside this project. Casper doesn't follow links out.`;
     if (kind === "gitInternal") return `Not done: ${gitInternalPart(candidate, context.root, home)} belongs to git itself. Casper doesn't let the AI change it.`;
@@ -330,7 +358,7 @@ export function privatePathCommand(command: string, context: PathContext): strin
     const names = entry ? homes.map((prefix) => `${prefix}[\\\\/]+${entry.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\//g, "[\\\\/]+")}`) : [];
     for (const absolute of place.paths) names.push(absolute.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
     const pattern = new RegExp(`(?:^|[\\s'"=:(<>|;&])(?:${names.join("|")})(?=$|[\\\\/\\s'";&|)<>*?])`);
-    if (pattern.test(text)) return `Not run: this command reads ${place.shown}, which is private (keys and logins). Casper keeps it from the AI. Ask the user instead.`;
+    if (pattern.test(text)) return `Not run: this command reads ${place.shown}, which is private (${place.why}). Casper keeps it from the AI. Ask the user instead.`;
   }
   // `cd ~/.ssh`, `cd $HOME` then a relative name: a command that goes home and names a private place by itself.
   if (/(?:^|[\s;&|(])cd\s+(?:~|\$HOME|\$\{HOME\}|"\$HOME")\/?(?=$|[\s;&|)])/.test(text)) {
@@ -338,7 +366,7 @@ export function privatePathCommand(command: string, context: PathContext): strin
     if (bare) return `Not run: this command reads ~/${bare}, which is private (keys and logins). Casper keeps it from the AI. Ask the user instead.`;
   }
   const shown = privateWord(text, context, home);
-  if (shown) return `Not run: this command reads ${shown}, which is private (keys and logins). Casper keeps it from the AI. Ask the user instead.`;
+  if (shown) return `Not run: this command reads ${shown}, which is private (${whyPrivate(shown, context)}). Casper keeps it from the AI. Ask the user instead.`;
   return undefined;
 }
 

@@ -175,7 +175,8 @@ Each row names the test that fails without it.
   provider you picked, with secrets hidden as [SECRETS.md](SECRETS.md) says. Use read-only credentials
   for AI work where you can.
 - **Private places are by name.** A key kept somewhere else (for example `~/work/deploy-key`) is not on
-  the list; add it with `sandbox.denyRead` in your own config.
+  the list; add it with `sandbox.denyRead` in the project's `.casper/project.yaml`. The file tools refuse
+  those places too, not only shell commands.
 - **A link can be swapped** between the file tools' check and the open (a race). The check uses the real
   path of the longest part that exists, which narrows this, and Windows has no no-follow open at all.
 - **ansible-lint loads the repository's own Ansible plugins** (`library/`, `filter_plugins/`). With the
