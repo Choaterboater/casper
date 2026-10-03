@@ -43,10 +43,11 @@ export function labCheckRunner(host: LabCheckHost): NamedCheckRunner {
       host.write(`Running ${name} on your lab (you chose Always for this project).\n`);
     } else {
       if (!host.canAsk()) return skipped(LAB_NEEDS_ANSWER);
-      const answer = await host.pick(`${terminalText(plan.ask.text)}\n${plan.ask.note}`, plan.ask.choices.map((label) => ({ label })), context.signal);
+      const warnings = plan.ask.warnings.map((line) => `${terminalText(line)}\n`).join("");
+      const answer = await host.pick(`${terminalText(plan.ask.text)}\n${warnings}${plan.ask.note}`, plan.ask.choices.map((label) => ({ label })), context.signal);
       if (answer === "Always for this project" && plan.allowAlways) {
         await rememberLabAlways(host.stateDirectory, name, plan.approvalKey);
-      } else if (answer !== "Run on the lab") return skipped(LAB_SKIPPED);
+      } else if (answer !== "Run it") return skipped(LAB_SKIPPED);
     }
     return fromNetworkResult(await plan.run());
   };

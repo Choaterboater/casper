@@ -118,14 +118,15 @@ async function labProject(hosts: Record<string, Record<string, unknown>>, check:
   return f;
 }
 
-test("a lab check that would reach a device off the lab list is refused by name, and nothing is started", async () => {
+test("a device off the lab list is not refused: a run that can't ask sends nothing and says it needs your answer", async () => {
   const f = fixture = await labProject({ "lab-sw1": { ansible_host: "10.99.0.11" }, "core-sw1": { ansible_host: "10.1.2.3" } }, "aoscx-check");
   const { app, output, prompts } = makeApp(f);
   try {
     await app.runOnce("/status", f.root);
     expect(output()).toContain("lab: aoscx-check, junos-commit (you start these: /verify <name>)");
     await app.runOnce("/verify aoscx-check", f.root);
-    expect(output()).toContain("Refused: aoscx-check would reach core-sw1 (10.1.2.3), which is not in your lab list (~/.casper/config.yaml lab.hosts). Nothing was sent.");
+    expect(output()).not.toContain("Refused");
+    expect(output()).toContain("aoscx-check · not run: lab checks need your answer at the terminal, and this run cannot ask; nothing was sent");
     expect(await ran(f, "ansible-playbook")).toBe(false);
     expect(prompts).toEqual([]);
   } finally { await app.close(); }
@@ -193,8 +194,8 @@ test("on the plain terminal the AOS-CX lab check asks with no Always choice, run
     await t.until((text) => text.endsWith("> "));
     t.input.write("/verify aoscx-check\n");
     await t.until((text) => text.includes("Type 1-2 (Enter for 1): "));
-    expect(t.visible()).toContain("Run aoscx-check on your lab? It uses ansible --check, and a dry run is not guaranteed: some modules can still change the switches. lab-sw1\n");
-    expect(t.visible()).toContain("  1 Skip\n  2 Run on the lab\n");
+    expect(t.visible()).toContain("Run aoscx-check on 1 device? It uses ansible --check, and a dry run is not guaranteed: some modules can still change the switches. lab-sw1\n");
+    expect(t.visible()).toContain("  1 Skip\n  2 Run it\n");
     expect(t.visible()).not.toContain("Always for this project");
     expect(await ran(f, "ansible-playbook")).toBe(false);
     t.input.write("2\n");
