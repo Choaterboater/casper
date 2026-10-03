@@ -212,3 +212,21 @@ test("the changing-things line points MCP changes at Casper's change box (no sec
   expect(STOP_AND_ASK_LINE).toContain("ask the user first");
   expect(STOP_AND_ASK_LINE).toContain("exact call");
 });
+
+test("safe-push steps: Junos commits confirmed, AOS-CX uses checkpoint auto, and both start with one test device and stop at the first error", async () => {
+  const junos = await readFile(path.join(NETWORK, "junos/SKILL.md"), "utf8");
+  const aoscx = await readFile(path.join(NETWORK, "aoscx/SKILL.md"), "utf8");
+  expect(junos).toContain("commit(confirm=5");
+  expect(aoscx).toContain("`checkpoint auto <minutes>`");
+  expect(aoscx).toContain("`checkpoint auto confirm`");
+  for (const body of [junos, aoscx]) {
+    expect(body).toMatch(/one test (device|switch) first, then one at a time; stop at the first error/);
+  }
+});
+
+test("review: AOS-CX confirms the checkpoint before saving to startup, and says so before the writes", async () => {
+  const aoscx = await readFile(path.join(NETWORK, "aoscx/SKILL.md"), "utf8");
+  const order = aoscx.indexOf("`checkpoint auto confirm`, then save to startup");
+  expect(order).toBeGreaterThan(0);
+  expect(order).toBeLessThan(aoscx.indexOf("fullconfigs/startup-config"));
+});

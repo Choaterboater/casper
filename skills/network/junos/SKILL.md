@@ -10,7 +10,7 @@ casper-skill:
     strong: ["pyez", "junos-eznc", "jnpr.junos", "juniper.device", "junipernetworks.junos", "junos pyez", "junos netconf", "commit confirmed"]
     weak: ["junos", "display set", "commit check"]
   frameworks: [junos]
-  version: 2
+  version: 3
 ---
 # Junos with PyEZ and NETCONF
 
@@ -104,13 +104,15 @@ except (LockError, ConfigLoadError, CommitError) as e:
 - WRITE: undo before commit: `cu.rollback(0)`; after: `cu.rollback(1)` then commit.
 - WRITE: `request system configuration rescue save` (known-good copy; `rollback rescue`
   loads it back), reboot, software install, zeroize.
+- Many devices: one test device first, then one at a time; stop at the first error and say
+  what changed where.
 - `juniper.device.config` commits by default when `load` is set: pass `commit: false`
   and `check: true` for a check only (Casper's `junos-commit` lab check does this).
 
 ## Paging and rate limits
 - No paging: each RPC returns all it has. Ask for less (`interface_name`, `filter_xml`,
   `terse=True`); big tables (routes, MACs) can pass `dev.timeout`.
-- Session and rate limits: check the current docs. Reuse one session per device.
+- Reuse one session per device.
 
 ## Common traps
 - Config mode: `exclusive` locks the shared candidate (LockError if someone is editing);
@@ -132,6 +134,4 @@ except (LockError, ConfigLoadError, CommitError) as e:
 ## Public docs
 - https://www.juniper.net/documentation/product/us/en/junos-pyez/
 - https://github.com/Juniper/py-junos-eznc
-- https://pypi.org/project/junos-eznc/
 - https://github.com/Juniper/ansible-junos-stdlib
-- https://www.rfc-editor.org/rfc/rfc6242

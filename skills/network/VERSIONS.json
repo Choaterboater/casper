@@ -1,7 +1,7 @@
 {
   "network-aoscx-rest": {
-    "version": 2,
-    "sha256": "47c17e6033528d7c08ed7defdc40798c725f723c06484db5e0f246e99c4f5725"
+    "version": 3,
+    "sha256": "b53aeb72abe5c04cd002c581284e107a1fa8d52d393aa1c5108c1883ca085843"
   },
   "network-central-classic-api": {
     "version": 2,
@@ -16,8 +16,8 @@
     "sha256": "eaca29055e28f839274ede2fe6b24dfab1a44e2fdca7437567594ea3301fcc81"
   },
   "network-junos-pyez": {
-    "version": 2,
-    "sha256": "61218a3884633e9dda0acce6a5f72708704ebb768fd665223959089d271afcd9"
+    "version": 3,
+    "sha256": "7f81e4fd24b5b3742d277a16ffcdbf90c29b48770755ec0f2bb422305719792f"
   },
   "network-mist-api": {
     "version": 2,
