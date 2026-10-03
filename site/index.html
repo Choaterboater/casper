@@ -38,7 +38,7 @@
       <section class="hero" aria-labelledby="hero-title">
         <img class="hero-logo" src="assets/logo.svg" alt="Casper's ghost logo" width="88" height="88">
         <h1 id="hero-title">Casper</h1>
-        <p class="lead">A coding helper for your terminal that checks the AI's work before it tells you "done".</p>
+        <p class="lead">A coding helper for your terminal. Build web apps, APIs, command-line tools and scripts in the language your project uses, and Casper checks the AI's work before it tells you "done". Network engineers get extra care built in.</p>
         <p class="muted small">Version 0.2.21 · early preview, not signed · MIT licence</p>
 
         <div class="cmd"><span class="cmd-label">macOS / Linux</span><pre><code>curl -fsSL https://github.com/Choaterboater/casper/releases/download/v0.2.21/install.sh | sh</code></pre></div>
@@ -55,6 +55,7 @@
       <section aria-labelledby="why">
         <h2 id="why">Why Casper</h2>
         <ul>
+          <li>It builds anything you'd build in a terminal: web apps, APIs, CLIs and scripts, in TypeScript, Python, Go, Rust or whatever your project uses. <code>casper new web-app</code> or <code>casper new python-cli</code> starts a project with tests, with no model call.</li>
           <li>It does not take the AI's word for "done". It runs your project's own tests, lint and build.</li>
           <li>Where it can, it proves the change: the tests fail without it and pass with it.</li>
           <li>Every coding task ends with a short receipt. Line 1 is the verdict.</li>
@@ -68,6 +69,21 @@
         <h2 id="highlights">Highlights</h2>
         <p>The short version. Each card opens that part of the tour.</p>
         <div class="grid">
+          <a class="card" href="https://github.com/Choaterboater/casper/blob/main/docs/NEW.md">
+            <span class="icon" aria-hidden="true">✚</span>
+            <h3>Builds anything</h3>
+            <p>Web apps, APIs, CLIs and scripts in your project's language. <code>casper new</code> starts one with tests and a first commit, no tokens used.</p>
+          </a>
+          <a class="card" href="https://github.com/Choaterboater/casper/blob/main/docs/BROWSER.md">
+            <span class="icon" aria-hidden="true">◱</span>
+            <h3>Sees your web app</h3>
+            <p>Starts your dev server, opens the page in a throwaway browser, clicks, types and takes screenshots, then replays the same check after a fix.</p>
+          </a>
+          <a class="card" href="https://github.com/Choaterboater/casper/blob/main/docs/LSP.md">
+            <span class="icon" aria-hidden="true">⌘</span>
+            <h3>Knows your code</h3>
+            <p>Language servers report errors right after each edit, a step debugger stops at a line, and read-only helpers search or review a big project.</p>
+          </a>
           <a class="card" href="tour.html#receipts">
             <span class="icon" aria-hidden="true">✓</span>
             <h3>Receipts with a verdict</h3>
