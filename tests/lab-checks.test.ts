@@ -34,13 +34,14 @@ async function setup(hosts: Record<string, Record<string, unknown>>, playbookBod
 const context = (f: NetworkFixture) => ({ root: f.root, path: f.path, tmpRoot: f.tmp, realHome: f.home, lab: LAB as LabSettings | undefined });
 const ran = (f: NetworkFixture) => stat(path.join(f.records, "ansible-playbook.ran")).then(() => true, () => false);
 
-test("an inventory host outside the lab list is refused by name and address, and nothing is started", async () => {
+test("any device may be checked: one not marked lab is named in the box, and nothing is started before your answer", async () => {
   const f = await setup({ "lab-sw1": { ansible_host: "10.99.0.11" }, "core-sw1": { ansible_host: "10.1.2.3" } });
   const plan = await prepareLabCheck("aoscx-check", aoscxCheck, context(f));
-  expect(plan.state).toBe("refused");
-  if (plan.state !== "refused") return;
-  expect(plan.message).toBe("Refused: aoscx-check would reach core-sw1 (10.1.2.3), which is not in your lab list (~/.casper/config.yaml lab.hosts). Nothing was sent.");
-  expect(plan.result.status).toBe("skip");
+  expect(plan.state).toBe("ready");
+  if (plan.state !== "ready") return;
+  expect(plan.ask.text).toContain("core-sw1, lab-sw1");
+  expect(plan.ask.warnings).toEqual(["Not marked lab: core-sw1 (10.1.2.3)."]);
+  expect(numberedChoices(plan.ask.choices)).toBe("1 Skip · 2 Run it");
   expect(await ran(f)).toBe(false);
   const argv = (await readFile(path.join(f.records, "ansible-inventory.argv"), "utf8")).trim().split("\n");
   expect(argv[0]).toBe("-i");
@@ -54,8 +55,9 @@ test("an all-lab inventory gives a numbered ask with no Always choice for ansibl
   expect(plan.state).toBe("ready");
   if (plan.state !== "ready") return;
   expect(plan.allowAlways).toBe(false);
-  expect(plan.ask.text).toBe("Run aoscx-check on your lab? It uses ansible --check, and a dry run is not guaranteed: some modules can still change the switches. lab-sw1, lab-sw2, lab-sw3");
-  expect(numberedChoices(plan.ask.choices)).toBe("1 Skip · 2 Run on the lab");
+  expect(plan.ask.text).toBe("Run aoscx-check on 3 devices? It uses ansible --check, and a dry run is not guaranteed: some modules can still change the switches. lab-sw1, lab-sw2, lab-sw3");
+  expect(plan.ask.warnings).toEqual([]);
+  expect(numberedChoices(plan.ask.choices)).toBe("1 Skip · 2 Run it");
   expect(plan.ask.note).toBe(LAB_LIMIT_NOTE);
   // Preparing asked nothing of the devices: only the inventory was read.
   expect(await ran(f)).toBe(false);
@@ -68,34 +70,38 @@ test("an all-lab inventory gives a numbered ask with no Always choice for ansibl
   expect(countsTowardVerified(result)).toBe(false);
 });
 
-test("a playbook with delegate_to is refused with its line, before any device is reached", async () => {
+test("a playbook with delegate_to is shown as a warning with its line; you decide, and nothing ran yet", async () => {
   const f = await setup({ "lab-sw1": { ansible_host: "10.99.0.11" } });
   await writeProjectFile(f, "site.yml", `${SITE}      delegate_to: jump1\n`);
   const plan = await prepareLabCheck("aoscx-check", aoscxCheck, context(f));
-  expect(plan).toMatchObject({ state: "refused", message: "Refused: site.yml uses delegate_to (line 6), so it can reach hosts outside the lab inventory. Nothing was sent." });
+  expect(plan.state).toBe("ready");
+  if (plan.state !== "ready") return;
+  expect(plan.ask.warnings).toEqual(["site.yml uses delegate_to (line 6), so it can reach devices not listed here."]);
+  expect(plan.allowAlways).toBe(false);
+  expect(numberedChoices(plan.ask.choices)).toBe("1 Skip · 2 Run it");
   expect(await ran(f)).toBe(false);
 });
 
-test("other ways to reach past the inventory are refused too: included files, vars_files, roles and group_vars", async () => {
+test("other ways to reach past the inventory are warnings too: included files, vars_files, roles and group_vars", async () => {
   const f = await setup({ "lab-sw1": { ansible_host: "10.99.0.11" } });
   await writeProjectFile(f, "tasks/more.yml", "- ansible.builtin.set_fact:\n    ansible_host: 10.1.2.3\n");
   await writeProjectFile(f, "site.yml", `${SITE}    - ansible.builtin.import_tasks: tasks/more.yml\n`);
-  expect(await prepareLabCheck("aoscx-check", aoscxCheck, context(f))).toMatchObject({ state: "refused", message: expect.stringContaining("tasks/more.yml uses ansible_host (line 2)") });
+  expect(await prepareLabCheck("aoscx-check", aoscxCheck, context(f))).toMatchObject({ state: "ready", ask: { warnings: [expect.stringContaining("tasks/more.yml uses ansible_host (line 2)")] } });
 
   await writeProjectFile(f, "vars/lab.yml", "proxy: \"-o ProxyCommand=ssh jump\"\n");
   await writeProjectFile(f, "site.yml", SITE.replace("  gather_facts: false\n", "  gather_facts: false\n  vars_files: [vars/lab.yml]\n"));
-  expect(await prepareLabCheck("aoscx-check", aoscxCheck, context(f))).toMatchObject({ state: "refused", message: expect.stringContaining("vars/lab.yml uses an SSH proxy setting") });
+  expect(await prepareLabCheck("aoscx-check", aoscxCheck, context(f))).toMatchObject({ state: "ready", ask: { warnings: [expect.stringContaining("vars/lab.yml uses an SSH proxy setting")] } });
 
   await writeProjectFile(f, "site.yml", SITE.replace("  gather_facts: false\n", "  gather_facts: false\n  roles: [arubanetworks.aoscx.vlans]\n"));
-  expect(await prepareLabCheck("aoscx-check", aoscxCheck, context(f))).toMatchObject({ state: "refused", message: expect.stringContaining("not in the project's roles/ folder") });
+  expect(await prepareLabCheck("aoscx-check", aoscxCheck, context(f))).toMatchObject({ state: "ready", ask: { warnings: [expect.stringContaining("not in the project's roles/ folder")] } });
 
   await writeProjectFile(f, "roles/vlans/tasks/main.yml", "- ansible.builtin.uri:\n    url: https://10.1.2.3/rest\n");
   await writeProjectFile(f, "site.yml", SITE.replace("  gather_facts: false\n", "  gather_facts: false\n  roles: [vlans]\n"));
-  expect(await prepareLabCheck("aoscx-check", aoscxCheck, context(f))).toMatchObject({ state: "refused", message: expect.stringContaining("roles/vlans/tasks/main.yml uses") });
+  expect(await prepareLabCheck("aoscx-check", aoscxCheck, context(f))).toMatchObject({ state: "ready", ask: { warnings: [expect.stringContaining("roles/vlans/tasks/main.yml uses")] } });
 
   await writeProjectFile(f, "site.yml", SITE);
   await writeProjectFile(f, "group_vars/switches.yml", "ansible_host: 10.1.2.3\n");
-  expect(await prepareLabCheck("aoscx-check", aoscxCheck, context(f))).toMatchObject({ state: "refused", message: expect.stringContaining("group_vars/switches.yml uses ansible_host") });
+  expect(await prepareLabCheck("aoscx-check", aoscxCheck, context(f))).toMatchObject({ state: "ready", ask: { warnings: [expect.stringContaining("group_vars/switches.yml uses ansible_host")] } });
   expect(await ran(f)).toBe(false);
 });
 
@@ -114,18 +120,19 @@ test("an inventory that is a program, or a link out of the project, is refused a
     .toMatchObject({ state: "refused", message: expect.stringContaining("leads outside the project") });
 });
 
-test("a proxy setting in the inventory's host variables is refused", async () => {
+test("a proxy (jump host) in the inventory's host variables is a warning", async () => {
   const f = await setup({ "lab-sw1": { ansible_host: "10.99.0.11", ansible_ssh_common_args: "-o ProxyJump=bastion" } });
-  expect(await prepareLabCheck("aoscx-check", aoscxCheck, context(f))).toMatchObject({ state: "refused", message: expect.stringContaining("ansible_ssh_common_args") });
+  expect(await prepareLabCheck("aoscx-check", aoscxCheck, context(f)))
+    .toMatchObject({ state: "ready", ask: { warnings: [expect.stringContaining("ansible_ssh_common_args")] } });
 });
 
-test("no lab declared: not run with the 'tell Casper your lab first' line, nothing read", async () => {
+test("no lab list at all: the check still runs after your answer, and the box says no device is marked lab", async () => {
   const f = await setup({ "lab-sw1": { ansible_host: "10.99.0.11" } });
   const plan = await prepareLabCheck("junos-commit", junosCommit, { ...context(f), lab: undefined });
-  expect(plan.state).toBe("not-run");
-  if (plan.state !== "not-run") return;
-  expect(formatNetworkCheckLine(plan.result)).toBe("– junos-commit  not run: tell Casper your lab first: add lab.hosts to ~/.casper/config.yaml");
-  expect(await stat(path.join(f.records, "ansible-inventory.ran")).then(() => true, () => false)).toBe(false);
+  expect(plan.state).toBe("ready");
+  if (plan.state !== "ready") return;
+  expect(plan.ask.warnings).toEqual(["Not marked lab: lab-sw1 (10.99.0.11)."]);
+  expect(numberedChoices(plan.ask.choices)).toBe("1 Skip · 2 Run it · 3 Always for this project");
 });
 
 test("junos-commit asks with an Always choice and runs Juniper's config module with check on and commit off", async () => {
@@ -134,8 +141,8 @@ test("junos-commit asks with an Always choice and runs Juniper's config module w
   expect(plan.state).toBe("ready");
   if (plan.state !== "ready") return;
   expect(plan.allowAlways).toBe(true);
-  expect(plan.ask.text).toBe("Run junos-commit on your lab? It loads the change on 2 lab routers, runs commit check, then rolls back. lab-r1, lab-r2");
-  expect(numberedChoices(plan.ask.choices)).toBe("1 Skip · 2 Run on the lab · 3 Always for this project");
+  expect(plan.ask.text).toBe("Run junos-commit on 2 devices? It loads the change, runs commit check, then rolls back. lab-r1, lab-r2");
+  expect(numberedChoices(plan.ask.choices)).toBe("1 Skip · 2 Run it · 3 Always for this project");
   const result = await plan.run();
   expect(result.status).toBe("pass");
   const argv = (await readFile(path.join(f.records, "ansible-playbook.argv"), "utf8")).trim().split("\n");

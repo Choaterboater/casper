@@ -21,8 +21,6 @@ import type { LabSettings } from "./spec";
  * Reused unchanged by the later lab gate.
  */
 
-export const LAB_CONFIG_PLACE = "~/.casper/config.yaml lab.hosts";
-export const NO_LAB_REASON = "tell Casper your lab first: add lab.hosts to ~/.casper/config.yaml";
 export const LAB_LIMIT_NOTE = "Casper checked the inventory and the playbook text; it cannot block other network traffic yet.";
 export const labModelRefusal = (name: string): string => `Lab checks run only when you start them: /verify ${name}`;
 
@@ -33,7 +31,6 @@ export interface LabHost {
   address: string;
 }
 
-export type LabGuard = { ok: true } | { ok: false; host?: LabHost; reason: string };
 
 function toHost(value: string | LabHost): LabHost {
   return typeof value === "string" ? { name: value, address: value } : value;
@@ -62,40 +59,25 @@ function onList(target: string, lab: { ips: BlockList; names: Set<string> }): bo
   return lab.names.has(text.toLowerCase().replace(/\.$/, ""));
 }
 
-/**
- * Every host must be on the lab list. A host with ansible_host is checked by
- * that address (where Ansible connects); a host without it by its name, which
- * must be listed exactly. Any miss refuses the whole check.
- */
-export function guardLab(hosts: readonly (string | LabHost)[], settings: LabSettings | undefined): LabGuard {
-  if (!settings || !settings.hosts.length) return { ok: false, reason: NO_LAB_REASON };
-  if (!hosts.length) return { ok: false, reason: "the inventory lists no hosts" };
+/** The hosts not on your lab list (all of them when you have none). Only for the box's warning: any device may be checked. */
+export function notLabHosts(hosts: readonly LabHost[], settings: LabSettings | undefined): LabHost[] {
+  if (!settings || !settings.hosts.length) return [...hosts];
   const lab = matcher(settings);
-  for (const raw of hosts) {
-    const host = toHost(raw);
-    if (!onList(host.address, lab)) return { ok: false, host, reason: "not in your lab list" };
-  }
-  return { ok: true };
+  return hosts.filter((host) => !onList(host.address, lab));
 }
 
-const describeHost = (host: LabHost): string => host.address !== host.name ? `${host.name} (${host.address})` : host.name;
-
-export function labRefusalText(check: string, guard: Exclude<LabGuard, { ok: true }>): string {
-  if (guard.host) return `Refused: ${check} would reach ${describeHost(guard.host)}, which is not in your lab list (${LAB_CONFIG_PLACE}). Nothing was sent.`;
-  if (guard.reason === NO_LAB_REASON) return `${check} not run: ${NO_LAB_REASON}`;
-  return `Refused: ${check}: ${guard.reason}. Nothing was sent.`;
-}
+export const describeHost = (host: LabHost): string => host.address !== host.name ? `${host.name} (${host.address})` : host.name;
 
 export interface ReachFinding { file: string; line: number; what: string }
 
-export function reachRefusalText(finding: ReachFinding): string {
-  return `Refused: ${finding.file} uses ${finding.what} (line ${finding.line}), so it can reach hosts outside the lab inventory. Nothing was sent.`;
+export function reachWarningText(finding: ReachFinding): string {
+  return `${finding.file} uses ${finding.what} (line ${finding.line}), so it can reach devices not listed here.`;
 }
 
 /** Host variables that can send Ansible somewhere other than the listed address. */
 const PROXY_VARIABLES = ["ansible_ssh_common_args", "ansible_ssh_extra_args", "ansible_ssh_args", "ansible_paramiko_proxy_command", "ansible_netconf_ssh_config", "ansible_psrp_proxy", "ansible_httpapi_proxy"];
 
-export interface InventoryHosts { hosts: LabHost[]; problem?: string }
+export interface InventoryHosts { hosts: LabHost[]; problem?: string; warnings?: string[] }
 
 /** Read `ansible-inventory --list` JSON: every host and where it connects. */
 export function inventoryHostsFromJson(text: string): InventoryHosts {
@@ -112,12 +94,15 @@ export function inventoryHostsFromJson(text: string): InventoryHosts {
     if (Array.isArray(list)) for (const name of list) if (typeof name === "string") names.add(name);
   }
   const hosts: LabHost[] = [];
+  const warnings: string[] = [];
   for (const name of [...names].sort()) {
     const vars = hostvars[name] ?? {};
+    // A jump host or proxy is normal on a network; the box names it, and you decide.
     for (const key of PROXY_VARIABLES) {
       const setting = vars[key];
       if (setting !== undefined && setting !== null && String(setting).trim() !== "") {
-        return { hosts, problem: `host ${name} sets ${key}, which can route the connection through another machine` };
+        warnings.push(`Host ${name} sets ${key}, so the connection can go through another machine.`);
+        break;
       }
     }
     const address = vars.ansible_host ?? vars.ansible_ssh_host;
@@ -125,7 +110,7 @@ export function inventoryHostsFromJson(text: string): InventoryHosts {
     if (typeof address === "string" && /\{\{|\{%/.test(address)) return { hosts, problem: `host ${name} builds ansible_host from a template` };
     hosts.push({ name, address: typeof address === "string" && address.trim() ? address.trim() : name });
   }
-  return { hosts };
+  return { hosts, ...(warnings.length ? { warnings } : {}) };
 }
 
 /** Only plain inventory files: YAML or INI text, not a program, not a link out of the project. */

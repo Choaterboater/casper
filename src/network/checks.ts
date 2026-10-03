@@ -8,8 +8,8 @@ import { readProjectPlaybook } from "./ansible";
 import { ansibleWorkspace, plainWorkspace, pythonWorkspace, type ToolWorkspace } from "./environment";
 import { expandFiles, resolveInside } from "./files";
 import {
-  checkInventoryFile, guardLab, labApprovalKey, labHosts, labModelRefusal, labRefusalText, LAB_LIMIT_NOTE, NO_LAB_REASON,
-  reachRefusalText, scanPlaybookReach, type LabHost,
+  checkInventoryFile, labApprovalKey, labHosts, labModelRefusal, LAB_LIMIT_NOTE,
+  describeHost, notLabHosts, reachWarningText, scanPlaybookReach, type LabHost,
 } from "./lab";
 import { runArgv, type ArgvRunResult } from "./run";
 import type { HierConfigReport, LabSettings, NetworkCheckResult, NetworkCheckSpec, NetworkPreset } from "./spec";
@@ -287,10 +287,12 @@ export async function runNetworkCheck(name: string, spec: NetworkCheckSpec, cont
 export interface LabAsk {
   /** The question, then the hosts. */
   text: string;
-  /** Numbered choices, in order: "Skip" (so Enter never reaches a device), "Run on the lab", then "Always for this project" (junos-commit only). */
+  /** Numbered choices, in order: "Skip" (so Enter never reaches a device), "Run it", then "Always for this project" (junos-commit only). */
   choices: string[];
   /** Always the limit of what Casper checked. */
   note: string;
+  /** Plain lines shown above the choices: devices not marked lab, ways the run can reach other devices. */
+  warnings: string[];
 }
 
 export type LabPlan =
@@ -303,21 +305,17 @@ function formatHosts(hosts: readonly LabHost[]): string {
   return names.join(", ") + (hosts.length > 12 ? ` and ${hosts.length - 12} more` : "");
 }
 
-export function labAskFor(name: string, preset: NetworkPreset, hosts: readonly LabHost[]): LabAsk {
+/** The device-check box. 1 is always Skip; "Always" only for junos-commit with no warning about reach. */
+export function labAskFor(name: string, preset: NetworkPreset, hosts: readonly LabHost[], warnings: readonly string[] = [], allowAlways = preset === "junos-commit"): LabAsk {
   const count = hosts.length;
-  if (preset === "junos-commit") {
-    return {
-      text: `Run ${name} on your lab? It loads the change on ${count} lab ${count === 1 ? "router" : "routers"}, runs commit check, then rolls back. ${formatHosts(hosts)}`,
-      choices: ["Skip", "Run on the lab", "Always for this project"], note: LAB_LIMIT_NOTE,
-    };
-  }
-  return {
-    text: `Run ${name} on your lab? It uses ansible --check, and a dry run is not guaranteed: some modules can still change the switches. ${formatHosts(hosts)}`,
-    choices: ["Skip", "Run on the lab"], note: LAB_LIMIT_NOTE,
-  };
+  const devices = `${count} ${count === 1 ? "device" : "devices"}`;
+  const text = preset === "junos-commit"
+    ? `Run ${name} on ${devices}? It loads the change, runs commit check, then rolls back. ${formatHosts(hosts)}`
+    : `Run ${name} on ${devices}? It uses ansible --check, and a dry run is not guaranteed: some modules can still change the switches. ${formatHosts(hosts)}`;
+  return { text, choices: ["Skip", "Run it", ...(allowAlways ? ["Always for this project"] : [])], note: LAB_LIMIT_NOTE, warnings: [...warnings] };
 }
 
-/** "1 Skip · 2 Run on the lab" */
+/** "1 Skip · 2 Run it" */
 export function numberedChoices(choices: readonly string[]): string {
   return choices.map((choice, index) => `${index + 1} ${choice}`).join(" · ");
 }
@@ -343,7 +341,6 @@ export async function prepareLabCheck(name: string, spec: NetworkCheckSpec, cont
   const refuse = (message: string): LabPlan => ({ state: "refused", message, result: notRun(base, message, "lab") });
   if (spec.kind !== "lab" || (spec.preset !== "junos-commit" && spec.preset !== "ansible-check")) throw new Error(`${name} is not a lab check`);
   if ((context.platform ?? process.platform) === "win32") return skip(WINDOWS_REASON, "platform");
-  if (!context.lab || !context.lab.hosts.length) return skip(NO_LAB_REASON, "lab");
   const playbookTool = which("ansible-playbook", context);
   const inventoryTool = which("ansible-inventory", context);
   if (!playbookTool) return skip(`ansible-playbook is not installed (${INSTALL_HINTS["ansible-playbook"]})`, "tool");
@@ -359,20 +356,24 @@ export async function prepareLabCheck(name: string, spec: NetworkCheckSpec, cont
       files = await expandFiles(context.root, spec.files ?? []);
       if (files.length !== 1) throw new Error("junos-commit needs exactly one change file");
     } catch (error) { return skip(error instanceof Error ? error.message : String(error), "input"); }
-  } else {
-    for (const playbook of spec.playbooks ?? []) {
-      try { await resolveInside(context.root, playbook); } catch (error) { return skip(error instanceof Error ? error.message : String(error), "input"); }
-      const finding = await scanPlaybookReach(context.root, playbook);
-      if (finding) return refuse(reachRefusalText(finding));
-    }
+  }
+  // Ways the run can reach devices not listed in the box: shown as warnings; you decide.
+  const reach: string[] = [];
+  for (const playbook of spec.preset === "ansible-check" ? spec.playbooks ?? [] : []) {
+    try { await resolveInside(context.root, playbook); } catch (error) { return skip(error instanceof Error ? error.message : String(error), "input"); }
+    const finding = await scanPlaybookReach(context.root, playbook);
+    if (finding) reach.push(reachWarningText(finding));
   }
 
   const listed = await withWorkspace(() => ansibleWorkspace({ tmpRoot: context.tmpRoot, realHome: context.realHome, path: context.path }),
     (workspace) => labHosts(inventory, { cwd: context.root, env: workspace.env, ansibleInventory: inventoryTool, signal: context.signal }));
   if (listed.vault) return skip(VAULT_REASON, "vault");
   if (listed.problem) return refuse(`Refused: ${name}: ${listed.problem}. Nothing was sent.`);
-  const guard = guardLab(listed.hosts, context.lab);
-  if (!guard.ok) return guard.reason === NO_LAB_REASON ? skip(NO_LAB_REASON, "lab") : refuse(labRefusalText(name, guard));
+  if (!listed.hosts.length) return refuse(`Refused: ${name}: the inventory lists no hosts. Nothing was sent.`);
+  reach.push(...listed.warnings ?? []);
+  // Any device may be checked; the box names the ones not marked lab.
+  const notLab = notLabHosts(listed.hosts, context.lab);
+  const warnings = [...(notLab.length ? [`Not marked lab: ${notLab.slice(0, 12).map(describeHost).join(", ")}${notLab.length > 12 ? ` and ${notLab.length - 12} more` : ""}.`] : []), ...reach];
 
   const hosts = listed.hosts;
   const approvalKey = labApprovalKey(name, { inventory, hosts, files: files.map((file) => file.absolute) });
@@ -398,8 +399,8 @@ export async function prepareLabCheck(name: string, spec: NetworkCheckSpec, cont
       });
     });
   return {
-    state: "ready", hosts, approvalKey, allowAlways: spec.preset === "junos-commit",
-    ask: labAskFor(name, spec.preset, hosts), run,
+    state: "ready", hosts, approvalKey, allowAlways: spec.preset === "junos-commit" && !reach.length,
+    ask: labAskFor(name, spec.preset, hosts, warnings, spec.preset === "junos-commit" && !reach.length), run,
   };
 }
 
