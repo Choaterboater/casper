@@ -69,7 +69,7 @@ export interface ChecksPlan {
 export function describeChecksPlan(plan: ChecksPlan): string {
   if (plan.mode === "off") return "off for this session (--no-verify or verification.mode: off)";
   const manual = (plan.manual?.length ? ` · with /verify <name> only: ${plan.manual.join(", ")}` : "")
-    + (plan.lab?.length ? ` · lab: ${plan.lab.join(", ")} (you start these: /verify <name>)` : "")
+    + (plan.lab?.length ? ` · lab: ${plan.lab.join(", ")} (device checks: Casper asks before each one)` : "")
     + (plan.found?.length ? ` · found, not saved: ${plan.found.join(", ")} (/verify add <name> saves one)` : "");
   // Pages run only in auto mode (Casper opens them itself after a change).
   const checks = [...plan.checks, ...(plan.pages && plan.mode === "auto" ? [`pages (${plan.pages})`] : [])];

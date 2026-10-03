@@ -123,7 +123,7 @@ test("a device off the lab list is not refused: a run that can't ask sends nothi
   const { app, output, prompts } = makeApp(f);
   try {
     await app.runOnce("/status", f.root);
-    expect(output()).toContain("lab: aoscx-check, junos-commit (you start these: /verify <name>)");
+    expect(output()).toContain("lab: aoscx-check, junos-commit (device checks: Casper asks before each one)");
     await app.runOnce("/verify aoscx-check", f.root);
     expect(output()).not.toContain("Refused");
     expect(output()).toContain("aoscx-check · not run: lab checks need your answer at the terminal, and this run cannot ask; nothing was sent");
