@@ -13,8 +13,8 @@ Your own skills work the same way in both; see [CONFIGURATION.md](CONFIGURATION.
 | `network-mist-api` | Juniper Mist cloud API: tokens, cloud hosts, org and site IDs, paging, 429 backoff, webhooks, `mistapi` |
 | `network-central-api` | New HPE Aruba Networking Central (GreenLake sign-in): client credentials, monitoring and config paths, scopes, pycentral 2.x |
 | `network-central-classic-api` | Classic Central API gateway: access and refresh tokens, `monitoring/v2/aps` style paths, offset paging, rate-limit headers |
-| `network-aoscx-rest` | AOS-CX switch REST API: login and logout, REST version in the path, `depth`/`attributes`/`selector`, checkpoints, pyaoscx, Ansible |
-| `network-junos-pyez` | Junos with PyEZ and NETCONF: facts, RPCs, tables, `\| display set`, lock, diff, `commit check`, `commit confirmed`, rollback |
+| `network-aoscx-rest` | AOS-CX switch REST API: login and logout, REST version in the path, `depth`/`attributes`/`selector`, checkpoints and `checkpoint auto`, pyaoscx, Ansible, one test switch first |
+| `network-junos-pyez` | Junos with PyEZ and NETCONF: facts, RPCs, tables, `\| display set`, lock, diff, `commit check`, `commit confirmed`, rollback, one test device first |
 | `network-clearpass-api` | ClearPass Policy Manager REST API: API clients, OAuth token, endpoints, sessions, guests, paging, CoA traps |
 
 Every skill has the same eight parts, in this order: When to use · Sign-in and tokens · Read first ·

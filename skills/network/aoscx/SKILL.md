@@ -10,7 +10,7 @@ casper-skill:
     strong: ["aos cx", "aoscx", "arubaos cx", "pyaoscx", "aruba cx", "cx switch", "cx switches", "arubanetworks.aoscx"]
     weak: ["cx"]
   frameworks: [aoscx]
-  version: 2
+  version: 3
 ---
 # AOS-CX switch REST API
 
@@ -26,7 +26,6 @@ the path). For fleet work through Central, use a Central skill.
   decides what a login may do.
 - Login is `POST /rest/v10.09/login` with form fields `username` and `password`; it sets a
   session cookie. Always end with `POST /rest/v10.09/logout` in a `finally`.
-- Sessions per switch are limited and idle ones time out: check the current docs.
 - Keep certificate checks on: `verify` = the switch's CA or cert file (`AOSCX_CA_BUNDLE`).
   The name you connect to must match the certificate.
 
@@ -51,7 +50,6 @@ def close_session(s, base):
 ```
 
 ## Read first
-These calls ask for data. Run them first to learn the switch.
 - `GET /rest/v10.09/firmware`: `current_version` of the software.
 - `GET /rest/v10.09/system?attributes=hostname,platform_name`
 - `GET /rest/v10.09/system/interfaces?depth=2&attributes=name,admin_state,link_state`
@@ -85,26 +83,28 @@ Casper also asks before a shell command reaches a new host.
 - Changes need `https-server rest access-mode read-write` on the switch.
 
 WRITE: `PUT /rest/v10.09/fullconfigs/<checkpoint_name>?from=/rest/v10.09/fullconfigs/running-config` saves a checkpoint.
+WRITE: undo: copy the checkpoint back (`from=` it, to `running-config`).
+
+WRITE: order: CLI `checkpoint auto <minutes>` (rolls back unless confirmed), change, check, `checkpoint auto confirm`, then save to startup.
 
 WRITE: `PUT /rest/v10.09/system/vlans/<vlan_id>` replaces one VLAN.
 
 WRITE: `PUT /rest/v10.09/fullconfigs/startup-config?from=/rest/v10.09/fullconfigs/running-config` saves running to startup.
 
-WRITE: undo by copying the checkpoint back: `from=` the checkpoint, to `running-config`.
-
 WRITE: any `POST` or `DELETE`, firmware upload, reboot.
+
+Many switches: one test switch first, then one at a time; stop at the first error and say what changed where.
 
 WRITE: on a factory-default switch, pyaoscx `Session.open()` also sets the admin login.
 
 ## Paging and rate limits
 - No paging: a list call returns the whole table. Keep answers small with `depth`,
   `attributes` and `selector`; big tables (MAC, routes) are slow at high depth.
-- Rate and session limits: check the current docs. On HTTP 429 or 503 wait, then retry with
-  backoff. One session per switch.
+- On HTTP 429 or 503 wait, then retry with backoff. One session per switch.
 
 ## Common traps
-- Session leaks: a login without logout holds a slot until it times out; new logins then
-  fail. Always log out in `finally`.
+- Session leaks: a login without logout holds a slot until it times out (new logins fail).
+  Always log out in `finally`.
 - Version mismatch: a REST version your firmware does not serve gives 404. pyaoscx 2.6.0 knows
   `10.04`, `10.08`, `10.09`; the Ansible collection defaults to `10.04`
   (`ansible_aoscx_rest_version`).
@@ -128,5 +128,4 @@ WRITE: on a factory-default switch, pyaoscx `Session.open()` also sets the admin
 ## Public docs
 - https://developer.arubanetworks.com/aruba-aoscx/docs/about-the-rest-api
 - https://github.com/aruba/pyaoscx
-- https://pypi.org/project/pyaoscx/
 - https://github.com/aruba/aoscx-ansible-collection
