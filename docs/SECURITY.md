@@ -146,7 +146,7 @@ Each row names the test that fails without it.
 | The AI security review reads with look-only tools only, never opens key or `.env` files or files gitleaks flagged, and its greps leave their lines out; what it reads is scrubbed as above. | `Not read: .env may hold secrets (a key, a .env file or a file gitleaks flagged). Casper keeps it from the AI review.` | `tests/secrets-pi.integration.test.ts` › “the AI security review's child can't read .env, keys or a file gitleaks flagged, and its greps leave them out”; `tests/security-ai-app.test.ts` › “casper "/security-review ai" runs one read-only review child on the review model, with the review's own bounds and read gate” |
 | An AI review finding is shown only with a real file:line in the project and an example input, and is labelled the AI's opinion; nothing it says can approve or hide an ignore. | `(the AI's opinion, not checked by a tool)` | `tests/security-ai-review.test.ts` › “Run the AI review: one bounded child reads the changed files; only real file:line findings with an input are shown, as its opinion”; `tests/security-ai-review.test.ts` › “nothing the AI answers approves or hides an ignore: approvals come only from a person” |
 | When a lab check ran, the receipt says it ran outside the sandbox. | `• Lab checks ran outside the sandbox (they log in to your lab devices with your own keys)` | `tests/sandbox-wiring.test.ts` › “with the sandbox on, a receipt whose lab check ran says it ran outside the sandbox; a lab check that did not run says nothing” |
-| Lab checks run only when you start them, only on hosts in your own lab list. | the lab question | `tests/lab-checks.test.ts` › “an inventory host outside the lab list is refused by name and address, and nothing is started” |
+| Lab checks reach a device only after your answer in a numbered box that names every device, and say which aren't marked lab. | the lab question | `tests/lab-checks.test.ts` › “any device may be checked: one not marked lab is named in the box, and nothing is started before your answer” |
 | Security tools are installed only after you pick Install, from pinned hashes. | `1 Stop · 2 Run what's installed · 3 Install them` | `tests/security-command.test.ts` › “missing tools get one numbered ask before any download; Enter (1 Stop) runs nothing and downloads nothing”; `tests/tool-pins.test.ts` › “every binary pin matches its release's checksum file” |
 | Casper's release workflow pins every action to a commit, and the job that can publish runs no project code. | — | `tests/release-workflows.test.ts` › “every action in every workflow is pinned to a full commit”; `tests/release-workflows.test.ts` › “the release job that can write runs no project code, and the build waits for green previews” |
 
@@ -162,8 +162,9 @@ Each row names the test that fails without it.
 - **MCP servers, language servers, the debugger and the browser** are not in the sandbox. They run as
   your user, with your files and network, after you approve them. Review a server before you connect it.
 - **Lab checks** (`junos-commit`, AOS-CX `ansible --check`) run outside the sandbox: they log in to
-  your devices with your own SSH keys. Only you start them, after a numbered question, and only on hosts
-  in your lab list; Casper checks the inventory and playbook text but can't block other traffic yet.
+  your devices with your own SSH keys. Nothing reaches a device without your answer in a numbered box that
+  names every device (any device may be checked; ones not in your lab list are named as such); Casper checks
+  the inventory and playbook text for other reach and warns, but can't block other traffic yet.
 - **Dev servers and services keep the machine's network** on Linux (so the host can reach them). A
   page they serve can call any address. On macOS they reach only listed hosts.
 - **On Linux the sandbox has its own `localhost`.** A command that goes straight to `localhost` reaches

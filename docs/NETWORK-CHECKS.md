@@ -9,11 +9,11 @@ The banner and `/status` list them: the ones that run after each change, the lab
 checks you start yourself, and the ones Casper found but you have not saved:
 
 ```
-checks    test, aruba-syntax — run after each change · lab: junos-commit, aoscx-check (you start these: /verify <name>) · found, not saved: junos-render (/verify add <name> saves one)
+checks    test, aruba-syntax — run after each change · lab: junos-commit, aoscx-check (device checks: Casper asks before each one) · found, not saved: junos-render (/verify add <name> saves one)
 ```
 
 Run one with `/verify <name>`. The AI can run the ordinary ones and reports with
-`casper_check`, never a lab check.
+`casper_check`, and can ask for a lab check: Casper then asks you in a numbered box first.
 
 ## Named checks
 
@@ -115,17 +115,21 @@ own SSH keys; see [SECURITY.md](SECURITY.md).
 
 ## Your lab
 
-Lab checks reach real devices. They run only when all of these are true:
+Lab checks (device checks) reach real devices. They can reach **any** device; nothing
+reaches one without your answer:
 
-1. You started them with `/verify <name>` and picked 1 in the numbered ask. The
-   model can never start one, auto mode never runs one, and a failed lab check is
-   never repaired on its own. A run that cannot ask (`casper -p`, `--json`, a pipe)
-   sends nothing and says so:
+1. **Casper asks first, every time.** When the work needs a device check, the AI asks for
+   it (or you type `/verify <name>`), and Casper shows a numbered box naming every device.
+   Only your key press starts it; the AI can't answer the box, auto mode never asks for
+   one, and a failed device check is never repaired on its own. A run that cannot ask
+   (`casper -p`, `--json`, a pipe) sends nothing and says so:
 
    ```
    – aoscx-check · not run: lab checks need your answer at the terminal, and this run cannot ask; nothing was sent
    ```
-2. You declared your lab in `~/.casper/config.yaml` (or a profile):
+2. **The `lab` list only labels devices.** Devices not on it are named in the box
+   (`Not marked lab: core-sw1 (10.1.2.3).`) so a production box can't slip in unseen. The
+   list is optional, in `~/.casper/config.yaml` (or a profile):
 
    ```yaml
    lab:
@@ -136,35 +140,37 @@ Lab checks reach real devices. They run only when all of these are true:
    ```
 
    Entries are exact hostnames, single IP addresses or IP ranges. Casper does no DNS
-   lookups and never guesses from a name: `lab-sw9` is not in the lab just because it
-   says "lab". A project file cannot set `lab`:
+   lookups and never guesses from a name: `lab-sw9` is not marked lab just because it
+   says "lab". A host with `ansible_host` is matched by that address. A project file
+   cannot set `lab`:
 
    ```
    lab is your setting, not the project's: move it from .casper/project.yaml to ~/.casper/config.yaml
    ```
-3. Every host in the check's inventory is on that list. A host with `ansible_host` is
-   checked by that address. The inventory must be a plain YAML or INI file inside the
-   project, not a program.
-4. For `ansible-check`, the playbook and every file it pulls in (task files,
-   `vars_files`, roles in `roles/`, `group_vars`, `host_vars`) name no other targets:
-   no `delegate_to`, `add_host`, `local_action`, `import_playbook`, `ansible_host`,
-   SSH proxy settings, `provider:` or `host:` task settings, URLs, command modules or
-   `pipe`/`url` lookups. A role Casper cannot read (for example one from a collection) is
-   refused as well.
+3. **The inventory must be a plain YAML or INI file inside the project**, not a program
+   or a link out of the project. That one is still refused.
+4. **Ways a run can reach devices not listed in the box are warnings.** For
+   `ansible-check`, Casper scans the playbook and every file it pulls in (task files,
+   `vars_files`, roles in `roles/`, `group_vars`, `host_vars`) for `delegate_to`,
+   `add_host`, `local_action`, `import_playbook`, `ansible_host`, SSH proxy settings,
+   `provider:` or `host:` task settings, URLs, command modules, `pipe`/`url` lookups, and
+   roles it cannot read. A jump host or proxy in the inventory's host variables is a
+   warning too. The box shows the first one found, and then there is no "Always":
+
+   ```
+   site.yml uses delegate_to (line 42), so it can reach devices not listed here.
+   Host r1 sets ansible_ssh_common_args, so the connection can go through another machine.
+   ```
+
+The boxes:
 
 ```
-Refused: junos-commit would reach core-sw1 (10.1.2.3), which is not in your lab list (~/.casper/config.yaml lab.hosts). Nothing was sent.
-Refused: site.yml uses delegate_to (line 42), so it can reach hosts outside the lab inventory. Nothing was sent.
-```
+Run junos-commit on 2 devices? It loads the change, runs commit check, then rolls back. lab-r1, core-r1
+Not marked lab: core-r1 (10.1.2.3).
+1 Skip · 2 Run it · 3 Always for this project
 
-The asks:
-
-```
-Run junos-commit on your lab? It loads the change on 2 lab routers, runs commit check, then rolls back. lab-r1, lab-r2
-1 Skip · 2 Run on the lab · 3 Always for this project
-
-Run aoscx-check on your lab? It uses ansible --check, and a dry run is not guaranteed: some modules can still change the switches. lab-sw1, lab-sw2, lab-sw3
-1 Skip · 2 Run on the lab
+Run aoscx-check on 3 devices? It uses ansible --check, and a dry run is not guaranteed: some modules can still change the switches. lab-sw1, lab-sw2, lab-sw3
+1 Skip · 2 Run it
 ```
 
 Skip is first, so Enter never reaches a device.

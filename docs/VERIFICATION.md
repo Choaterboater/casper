@@ -698,11 +698,11 @@ file; the project file wins (see [CONFIGURATION.md](CONFIGURATION.md)).
   loading. From v0.2.16, other checks get a name of their own under `verify.checks.<name>` (a
   `run:` command, or a ready-made `preset:` that Casper runs without a shell). A named check runs
   after each change unless it says `after: ask`; a report (a diff) never makes a run pass or fail;
-  a lab check runs only when you start it with `/verify <name>` and pick 2 Run on the lab in the
-  numbered ask (see [NETWORK-CHECKS.md](NETWORK-CHECKS.md)). Ready-made checks Casper finds for
+  a lab check reaches devices only after you pick 2 Run it in its numbered box, whether you typed
+  `/verify <name>` or the AI asked for it (see [NETWORK-CHECKS.md](NETWORK-CHECKS.md)). Ready-made checks Casper finds for
   Ansible playbooks are listed in the banner as found, not saved, and run only after you save one
-  with `/verify add <name>`. `lab.hosts` is your own setting in `~/.casper/config.yaml`; a
-  project file cannot set it.
+  with `/verify add <name>`. `lab.hosts` (optional: it only marks devices as lab) is your own
+  setting in `~/.casper/config.yaml`; a project file cannot set it.
 - Commands and declared scopes are read at startup and do not change during repair. Restart
   Casper after changing configuration or manifests.
 - Casper runs the checks one at a time, at the project root, with the platform shell and your
