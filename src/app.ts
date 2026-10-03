@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import type { DebugRequest, DebugSession } from "./debug/session";
 import { promisify } from "node:util";
 import os from "node:os";
+import { resolveEntry } from "./sandbox/policy";
 import path from "node:path";
 import { realpathSync } from "node:fs";
 import { stat } from "node:fs/promises";
@@ -411,6 +412,7 @@ export class CasperApp {
     // configs only; .env, credential files and secret env values are always hidden).
     scrubToolOutput: (toolName, input, texts, signal) => scrubToolOutput(this.scrubber, toolName, input, texts, signal, { configs: this.scrubFiles }),
     cache: () => this.projectContext?.cache,
+    privatePaths: () => this.projectPrivatePaths(),
     // Inside tmux or iTerm2 each helper's steps show in the view-only steps pane; nowhere else.
     onActivity: (activity) => this.terminal.logHelper(helperActivityLine(activity, this.projectContext ? this.activeWorkspaceRoot() : undefined)),
     });
@@ -914,6 +916,8 @@ export class CasperApp {
           scrubToolOutput: (toolName, input, texts, signal) => scrubToolOutput(this.scrubber, toolName, input, texts, signal, { configs: this.scrubFiles }),
           ...(this.shell ? { shell: this.shell } : {}),
           ...(context.cache ? { cache: context.cache } : {}),
+          // The project's sandbox.denyRead (GreenCLI lists its data and log folders there): the file tools refuse them too.
+          privatePaths: this.projectPrivatePaths(),
         });
         const resumeNotice = await (await this.ensureSessionWorkspace()).resumeActive(this.session);
         if (resumeNotice) this.output.write(`[sessions] ${resumeNotice}\n`);
@@ -2685,6 +2689,13 @@ export class CasperApp {
     const where = places.length > 1 ? `${places.slice(0, -1).join(", ")} and ${places.at(-1)}` : places[0];
     this.output.write(`[mcp] Found ${names.length} server${names.length === 1 ? "" : "s"} in ${where}. Run /mcp to see them.\n`);
     await this.mcpConsent.markImportSet(names).catch(() => {});
+  }
+
+  /** The project's sandbox.denyRead as absolute paths, resolved like the shell sandbox does (from the session's folder). */
+  private projectPrivatePaths(): string[] {
+    if (!this.projectContext) return [];
+    const root = this.activeWorkspaceRoot();
+    return (this.projectContext.sandbox?.project.denyRead ?? []).map((entry) => resolveEntry(entry, root, os.homedir()));
   }
 
   /** The broker's per-server allowances, for /mcp allow (the user's own command). */

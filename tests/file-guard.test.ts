@@ -137,3 +137,20 @@ test("a shell command that reaches ~/.ssh by .., cd, ~user, quotes, a glob or a 
     expect([command, privatePathCommand(command, documents)]).toEqual([command, undefined]);
   }
 });
+
+test("a project's sandbox.denyRead is private to the file tools too, not only to shell commands", () => {
+  const logs = path.join(root, "outside");
+  const denied = { ...context, denyRead: [logs] };
+  expect(fileToolGate("read", { path: path.join(logs, "secret.txt") }, denied)).toContain("is private");
+  expect(fileToolGate("grep", { pattern: "x", path: root }, denied)).toContain("holds private files");
+  expect(fileToolGate("read", { path: path.join(logs, "secret.txt") }, context)).toBeUndefined();
+});
+
+test("review: a denyRead folder inside the project blocks reads of it, not a search of the project", async () => {
+  await mkdir(path.join(project, "secrets"), { recursive: true });
+  const denied = { ...context, denyRead: [path.join(project, "secrets")] };
+  expect(fileToolGate("read", { path: "secrets/key.pem" }, denied)).toContain("this project's sandbox.denyRead");
+  expect(fileToolGate("grep", { pattern: "x" }, denied)).toBeUndefined();
+  expect(privatePathCommand("grep -r foo .", denied)).toBeUndefined();
+  expect(privatePathCommand("cat secrets/key.pem", denied)).toContain("private");
+});

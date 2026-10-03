@@ -534,3 +534,27 @@ test("interactive run: 1 at the allow-all check denies the change and allows not
   expect(result).toContain("you said no");
   expect(app.allowances!.allowAllOn("net")).toBe(false);
 });
+
+test("the project's sandbox.denyRead reaches the file tools as private paths (GreenCLI lists its data there)", async () => {
+  const { root, home, project } = await fixture();
+  const logs = path.join(root, "greencli-logs");
+  await writeFile(path.join(project, ".casper/project.yaml"), `sandbox:\n  denyRead:\n    - "${logs}"\n`);
+  let seen: readonly string[] | undefined;
+  const runtime: AgentRuntime = {
+    async start(options: RuntimeStartOptions) {
+      seen = options.privatePaths;
+      return { setTools: () => {}, prompt: async () => {}, abort: async () => {}, subscribe: () => () => {}, getState: () => ({ cwd: options.cwd, isStreaming: false }) };
+    },
+    async dispose() {},
+  };
+  const app = new CasperApp({
+    runtimeFactory: () => runtime,
+    loadProjectContext: (info) => loadProjectContext(info, { homeDir: home }),
+    loadSkillRegistry: (context) => SkillRegistry.discover({ projectRoot: context.info.root, homeDir: home }),
+    loadMCPConfiguration: () => discoverMCPConfiguration({ projectRoot: project, homeDir: home }),
+    output: { write: () => {} },
+  });
+  cleanup.push(() => app.close());
+  await app.runOnce("hello", project);
+  expect(seen).toEqual([logs]);
+});

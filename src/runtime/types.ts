@@ -39,6 +39,8 @@ export interface RuntimeStartOptions {
   /** How the AI's bash runs: in the shell sandbox, or after a question when no sandbox can run. Unset: as it is
    * (provider keys are always taken out of its environment). */
   shell?: RuntimeShell;
+  /** The project's sandbox.denyRead (absolute): the file tools refuse these like ~/.ssh. */
+  privatePaths?: readonly string[];
   /** How long the provider keeps the prompt cache (`cache:` in ~/.casper/config.yaml). Unset: auto. */
   cache?: PromptCacheSetting;
 }
@@ -85,6 +87,8 @@ export interface RuntimeReadOnlyStartOptions {
   beforeToolGate?: RuntimeStartOptions["beforeToolGate"];
   /** The parent session's cache setting. A child lives for minutes, so only off changes it: it keeps the short cache. */
   cache?: PromptCacheSetting;
+  /** The project's sandbox.denyRead (absolute), as for the main session. */
+  privatePaths?: readonly string[];
 }
 
 export interface RuntimeStatus {

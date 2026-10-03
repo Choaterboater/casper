@@ -155,7 +155,7 @@ export interface SandboxPolicy {
 const unique = (values: string[]) => [...new Set(values.filter(Boolean))];
 
 /** `~/x` and relative paths (from the project) as absolute paths. */
-function resolveEntry(entry: string, root: string, home: string): string {
+export function resolveEntry(entry: string, root: string, home: string): string {
   if (entry === "~") return home;
   if (entry.startsWith("~/")) return path.join(home, entry.slice(2));
   return path.resolve(root, entry);
