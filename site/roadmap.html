@@ -75,6 +75,9 @@
           <li><a href="#later">Later, not scheduled</a>
             <ul>
               <li><a href="#packs">Vendor packs</a></li>
+              <li><a href="#ops-chat">Ask about your infrastructure</a></li>
+              <li><a href="#quarantine">Reading untrusted text safely</a></li>
+              <li><a href="#schedule">Scheduled jobs with an AI on call</a></li>
               <li><a href="#policy">Tool rules you write</a></li>
             </ul>
           </li>
@@ -387,6 +390,50 @@
             code.</li>
             <li><strong>Vendor plugin formats.</strong> If HPE or another vendor publishes its own
             plugin format, Casper reads it as a pack, with the same rules.</li>
+          </ul>
+        </article>
+
+        <article class="card" id="ops-chat" aria-labelledby="ops-chat-h">
+          <h3 id="ops-chat-h">Ask about your infrastructure · chat that investigates your VMs and services <span class="badge">idea, not scheduled</span></h3>
+          <p>Ask in plain words, on demand: "why is my VoIP server rejecting calls?" Casper looks at
+          the logs, services and settings it can reach, says what it found and what it would change,
+          and changes nothing without your yes.</p>
+          <ul>
+            <li><strong>Already there:</strong> chat in the terminal, ssh to hosts you allow (it asks
+            first), MCP servers with writes off, and the yes/no change box.</li>
+            <li><strong>To add:</strong> ready connections for VM platforms (Proxmox first, then
+            others), read-only by default; a "check this service" skill (logs, ports, certificates,
+            recent changes); and a chat you can reach away from the terminal.</li>
+          </ul>
+        </article>
+
+        <article class="card" id="quarantine" aria-labelledby="quarantine-h">
+          <h3 id="quarantine-h">Reading untrusted text safely · tools that only hand back strict JSON <span class="badge">idea, not scheduled</span></h3>
+          <p>Some text should never steer the AI: a WordPress log, an email from a stranger, a web
+          form. A quarantined reader reads it in a sandbox, with no tools, and returns only JSON
+          that matches a schema you set (for example sender, subject, asks for a payment: yes/no).
+          The main AI sees that JSON, never the text, so instructions hidden in the text can't reach it.</p>
+          <ul>
+            <li><strong>Already there:</strong> the shell sandbox, MCP tool arguments checked against
+            their schemas, and secrets hidden in results.</li>
+            <li><strong>To add:</strong> the quarantined reader itself (a separate model call with no
+            tools), strict schema checks on what comes back (anything else is dropped), and a way to
+            offer it as an MCP tool such as "read this untrusted email".</li>
+          </ul>
+        </article>
+
+        <article class="card" id="schedule" aria-labelledby="schedule-h">
+          <h3 id="schedule-h">Scheduled jobs with an AI on call · recurring tasks that can investigate their own failures <span class="badge">idea, not scheduled</span></h3>
+          <p>Run a job on a schedule, for example "sync time entries from this database to
+          QuickBooks every night". The job itself is a plain script, so it does the same thing every
+          time. When it fails, or a record is missing a code, an AI looks into it, says why, and fixes
+          what it is allowed to.</p>
+          <ul>
+            <li><strong>Already there:</strong> Casper runs scripts and checks, reads failures, and
+            repairs them in a bounded loop.</li>
+            <li><strong>To add:</strong> the scheduler; a written list of what the AI may do on its
+            own when nobody is there to press yes (everything else waits for you, with a summary); and
+            a log of every run and every change.</li>
           </ul>
         </article>
 
