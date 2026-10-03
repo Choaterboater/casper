@@ -1,4 +1,6 @@
 import path from "node:path";
+import { addLabHosts, parseLabFile } from "../network/lab-import";
+import type { LabSettings } from "../network/spec";
 import type { BrowserSession } from "../browser/session";
 import type { ServiceManager, ServiceStatus } from "../services/manager";
 import { runTasksCommand, type BackgroundTask } from "./background";
@@ -45,14 +47,14 @@ import { TOOL_CALL_LIMIT, type TaskObservations } from "../task/observations";
 import { formatTaskResult, NO_CHECKS_FOUND, type TaskResult } from "../task/result";
 import { UndoStore } from "../task/undo";
 import { tildePath } from "../new/scaffold";
-import { stat } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import type { SessionWorkspaceManager } from "../sessions/manager";
 import { formatProjectContext } from "../project/context";
 import { runSecurityReview, type SecurityAIReview, type SecurityReviewHost } from "./security-review";
 import { sandboxReport, sandboxStatusLine } from "./sandbox";
 import { webStatusLine } from "../web/tools";
 import type { ShellSandbox } from "../sandbox/manager";
-import { allowKindsChoices, MCP_ALLOW_KEEP_CHOICES, MCP_REMEMBER_CHOICES, MCP_WRITES_CHOICES, numberedLines } from "./safe-choices";
+import { allowKindsChoices, LAB_IMPORT_CHOICES, MCP_ALLOW_KEEP_CHOICES, MCP_REMEMBER_CHOICES, MCP_WRITES_CHOICES, numberedLines } from "./safe-choices";
 import { KIND_TEXT, RISKY_KINDS } from "../capabilities/kinds";
 
 /** Output sink for the app; lives here so the command host stays import-cycle-free. */
@@ -82,6 +84,8 @@ export interface CommandHost {
   readonly skillRegistry?: SkillRegistry;
   readonly projectContext?: ProjectContext;
   readonly mcp?: MCPManager;
+  /** /lab import added hosts: the session's lab list from now on (it is also saved in ~/.casper/config.yaml). */
+  setLab?(settings: LabSettings): void;
   /** Ends every allowed change kind and session answer (ctrl+o, /mcp writes off). True when any were in force. */
   endAllowances?(): boolean;
   /** The broker's per-server allowances, for /mcp allow. Only the user's typed command reaches it. */
@@ -221,6 +225,10 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
     }
     if (prompt === "/permissions") {
       host.output.write(`${permissionsText(host.sandbox)}\n`);
+      return;
+    }
+    if (prompt === "/lab" || prompt.startsWith("/lab ")) {
+      await handleLabCommand(host, prompt);
       return;
     }
     if (prompt === "/sandbox" || prompt.startsWith("/sandbox ")) {
@@ -960,6 +968,42 @@ async function handleMCPAllow(host: CommandHost, name: string, off: boolean): Pr
     host.output.write(`[mcp] ${terminalText(result.reason)}\n`);
   }
   host.output.write(`[mcp] ${words} allowed on ${name} for this session.\n`);
+}
+
+/**
+ * /lab shows your lab list; /lab import <file> adds devices to it from a file (GreenCLI's export of lab-tagged hosts,
+ * or one host per line). The list only marks devices as lab: any device may be checked, after your answer.
+ */
+async function handleLabCommand(host: CommandHost, prompt: string): Promise<void> {
+  const current = host.projectContext?.lab?.hosts ?? [];
+  const match = /^\/lab\s+import\s+(.+?)\s*$/.exec(prompt);
+  if (prompt.trim() === "/lab") {
+    host.output.write(`Lab devices: ${current.length ? current.map(terminalText).join(", ") : "none"}\n`
+      + "They only mark devices as lab: any device can be checked, after your answer. /lab import <file> adds more.\n");
+    return;
+  }
+  if (!match) throw new Error("Use /lab or /lab import <file>.");
+  if (!host.interactive) throw new Error("/lab import asks you first; run it in an interactive session.");
+  const given = match[1]!.replace(/^["']|["']$/g, "");
+  const file = given === "~" || given.startsWith("~/") ? path.join(host.homeDir(), given.slice(2)) : path.resolve(host.activeWorkspaceRoot(), given);
+  let text: string;
+  try {
+    const info = await stat(file);
+    if (!info.isFile() || info.size > 256 * 1024) throw new Error("not a plain file under 256 KB");
+    text = await readFile(file, "utf8");
+  } catch (error) { throw new Error(`Can't read ${terminalText(given)}: ${error instanceof Error ? error.message : String(error)}`); }
+  const hosts = parseLabFile(text);
+  const known = new Set(current.map((entry) => entry.toLowerCase()));
+  const fresh = hosts.filter((entry) => !known.has(entry.toLowerCase()));
+  if (!fresh.length) { host.output.write(`[lab] All ${hosts.length} are already in your lab list.\n`); return; }
+  const shown = fresh.slice(0, 20).map(terminalText).join(", ") + (fresh.length > 20 ? ` and ${fresh.length - 20} more` : "");
+  const devices = `${fresh.length} ${fresh.length === 1 ? "device" : "devices"}`;
+  const answer = await host.chooseAnswer(`Add ${devices} to your lab list (~/.casper/config.yaml)? ${shown}\n${numberedLines(LAB_IMPORT_CHOICES)}`,
+    "Type 1 or 2: ", ["1", "2"], host.commandAbort?.signal);
+  if (answer !== "2") { host.output.write("[lab] Nothing added.\n"); return; }
+  const result = await addLabHosts(host.homeDir(), fresh);
+  host.setLab?.({ hosts: [...current, ...result.added] });
+  host.output.write(`[lab] Added ${devices}: ${shown}. Device checks no longer call them "not marked lab".\n`);
 }
 
 /** "8 indexed (6 bundled)", or "2 indexed; bundled: off" when skills.bundled is false. */

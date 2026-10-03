@@ -4,6 +4,7 @@ import { promisify } from "node:util";
 import os from "node:os";
 import { resolveEntry } from "./sandbox/policy";
 import { riskyLinesIn } from "./network/risky-receipt";
+import type { LabSettings } from "./network/spec";
 import path from "node:path";
 import { realpathSync } from "node:fs";
 import { stat } from "node:fs/promises";
@@ -2713,6 +2714,11 @@ export class CasperApp {
 
   /** The broker's per-server allowances, for /mcp allow (the user's own command). */
   get allowances(): CapabilityBroker | undefined { return this.broker; }
+
+  /** /lab import added hosts: this session uses the new lab list at once (it is saved in ~/.casper/config.yaml too). */
+  setLab(settings: LabSettings): void {
+    if (this.projectContext) this.projectContext = { ...this.projectContext, lab: settings };
+  }
 
   /** Ends every allowed change kind and session answer, on every server. */
   endAllowances(): boolean { return this.broker?.endAllowances() ?? false; }

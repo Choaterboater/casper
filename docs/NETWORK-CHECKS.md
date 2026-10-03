@@ -157,6 +157,10 @@ reaches one without your answer:
        - lab-r1
    ```
 
+   `/lab import <file>` adds devices from a file without editing anything: GreenCLI's
+   export of its `lab`-tagged hosts (`{"hosts": [...]}`), or one host per line. Casper
+   lists the new ones and asks `1 No · 2 Add them`; `/lab` shows the list.
+
    Entries are exact hostnames, single IP addresses or IP ranges. Casper does no DNS
    lookups and never guesses from a name: `lab-sw9` is not marked lab just because it
    says "lab". A host with `ansible_host` is matched by that address. A project file
