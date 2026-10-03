@@ -3,6 +3,7 @@ import type { DebugRequest, DebugSession } from "./debug/session";
 import { promisify } from "node:util";
 import os from "node:os";
 import { resolveEntry } from "./sandbox/policy";
+import { riskyLinesIn } from "./network/risky-receipt";
 import path from "node:path";
 import { realpathSync } from "node:fs";
 import { stat } from "node:fs/promises";
@@ -1647,13 +1648,15 @@ export class CasperApp {
       const observations = this.observations.snapshot(changedPaths, changedDuringChecks);
       const browser = !this.closing && this.browser ? await this.browser.report() : undefined;
       const outsideWrites = outsideWritesReceipt(this.sandbox);
+      // Dangerous lines in the config files this task changed (reload, shutdown …): a report, never a pass or a fail.
+      const riskyLines = changedPaths && !this.closing ? await riskyLinesIn(workspaceRoot, changedPaths).catch(() => []) : [];
       const services = !this.closing && this.services && !this.services.closed
         ? this.services.status().map(({ name, origin, state }) => ({ name, ...(origin ? { origin } : {}), state })) : [];
       const snapshotFailure = !changedPaths && this.snapshotFailure ? { reason: this.snapshotFailure,
         edited: observations.observedEdits.map((file) => { const relative = path.relative(workspaceRoot, path.resolve(workspaceRoot, file));
           return relative && !relative.startsWith("..") && !path.isAbsolute(relative) ? relative.split(path.sep).join("/") : file; }) } : undefined;
       this.lastTaskResult = { execution, verification, ...observations, ...(snapshotFailure ? { snapshotFailure } : {}), ...(browser?.checks.length ? { browser, ...(browser.status !== "pass" && answerClaimsBrowserPass(this.lastAnswer) ? { browserClaimed: true } : {}) } : {}),
-        ...(services.length ? { services } : {}),
+        ...(services.length ? { services } : {}), ...(riskyLines.length ? { riskyLines } : {}),
         // Smoke checks ran even without a configured command, so "no checks" no longer describes the task.
         verificationMode, ...(!flag && !configured && verificationMode === "auto" ? { verificationDefaulted: true as const } : {}),
         ...(autoChecks?.skipped && !verification?.smoke && !verification?.pages ? { autoSkipped: autoChecks.skipped } : {}),

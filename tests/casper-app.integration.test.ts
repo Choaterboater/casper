@@ -239,6 +239,39 @@ test("local skill commands work without starting an unavailable runtime", async 
     }
   });
 
+  test("a task that changes a config file lists its dangerous lines in the receipt (a report, not a check)", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "casper-risky-app-"));
+    const homeDir = await mkdtemp(path.join(os.tmpdir(), "casper-risky-home-"));
+    tempDirs.push(root, homeDir);
+    await execFileAsync("git", ["init", "-b", "main"], { cwd: root });
+    await mkdir(path.join(root, "configs"), { recursive: true });
+    await writeFile(path.join(root, "configs/sw1.cfg"), "hostname sw1\n");
+    await execFileAsync("git", ["-c", "user.email=t@t", "-c", "user.name=t", "add", "."], { cwd: root });
+    await execFileAsync("git", ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init"], { cwd: root });
+    const runtime: AgentRuntime = {
+      async start(options: RuntimeStartOptions): Promise<RuntimeSession> {
+        return {
+          async prompt() { await writeFile(path.join(root, "configs/sw1.cfg"), "hostname sw1\ndescription reload later\nreload\n"); },
+          setTools() {}, async abort() {}, subscribe() { return () => {}; },
+          getState: () => ({ cwd: options.cwd, isStreaming: false }),
+        };
+      },
+      async dispose() {},
+    };
+    let output = "";
+    const app = new CasperApp({
+      runtimeFactory: () => runtime,
+      loadProjectContext: (project) => loadProjectContext(project, { homeDir }),
+      loadSkillRegistry: (context) => SkillRegistry.discover({ projectRoot: context.info.root, homeDir }),
+      output: { write: (text) => { output += text; } },
+    });
+    try {
+      await app.runOnce("Add a reload to sw1", root);
+      expect(app.getLastTaskResult()).toMatchObject({ riskyLines: [{ file: "configs/sw1.cfg", line: 3, text: "reload", reason: "reboots the switch" }] });
+      expect(output).toContain("configs/sw1.cfg:3 reload");
+    } finally { await app.close(); }
+  });
+
   test("receipts report the workspace diff, not tool names, and /output replays retained tool output", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "casper-receipt-"));
     const homeDir = await mkdtemp(path.join(os.tmpdir(), "casper-receipt-home-"));
