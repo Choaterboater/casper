@@ -354,3 +354,13 @@ test("the enable text notices when the user's own settings still keep writes off
   expect(writesTitle("aruba-central", matchPreset(stdio("aruba-central", "centralmcp", [])))).toBe("Central writes are off.");
   expect(writesTitle("my-server")).toBe("my-server writes are off.");
 });
+
+test("GreenCLI's read-only server is recognised by its program, wherever GreenCLI is installed", () => {
+  for (const command of ["/Applications/GreenCLI.app/Contents/MacOS/greencli-mcp", "C:\\Program Files\\GreenCLI\\greencli-mcp.exe", "/usr/bin/greencli-mcp"]) {
+    const match = matchPreset(stdio("greencli", command, []));
+    expect(match?.preset.id).toBe("greencli-mcp");
+    expect(match?.preset.label).toBe("GreenCLI");
+  }
+  // Not by the server's name alone.
+  expect(matchPreset(stdio("greencli", "/usr/bin/node", ["server.js"]))?.preset.id).not.toBe("greencli-mcp");
+});

@@ -5,6 +5,7 @@ import path from "node:path";
 import { discoverMCPConfiguration, resolveEnvironment } from "../src/mcp/config";
 import { vscodeUserDirs } from "../src/mcp/import";
 import { MCPManager } from "../src/mcp/manager";
+import { matchPreset } from "../src/mcp/presets";
 
 const cleanup: string[] = [];
 afterEach(async () => { for (const dir of cleanup.splice(0)) await rm(dir, { recursive: true, force: true }); });
@@ -113,4 +114,15 @@ test("${VAR:-fallback} uses the fallback when VAR is unset or empty, and VAR whe
   } finally {
     if (saved === undefined) delete process.env[name]; else process.env[name] = saved;
   }
+});
+
+test("GreenCLI's MCP export, saved as a project .mcp.json, loads as written and gets the GreenCLI preset", async () => {
+  const { home, project } = await tempHome();
+  // Byte for byte what GreenCLI writes (src/utils/mcpExport.ts).
+  await put(path.join(project, ".mcp.json"), { mcpServers: { greencli: { type: "stdio", command: "/Applications/GreenCLI.app/Contents/MacOS/greencli-mcp", args: [] } } });
+  const configuration = await discoverMCPConfiguration({ projectRoot: project, homeDir: home, platform: "linux" });
+  const greencli = configuration.servers.find((server) => server.name === "greencli");
+  expect(greencli).toMatchObject({ scope: "project", transport: { type: "stdio", command: "/Applications/GreenCLI.app/Contents/MacOS/greencli-mcp", args: [] } });
+  expect(configuration.diagnostics).toEqual([]);
+  expect(matchPreset(greencli!)?.preset.id).toBe("greencli-mcp");
 });
