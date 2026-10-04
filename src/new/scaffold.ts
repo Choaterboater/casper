@@ -13,6 +13,7 @@ import {
   EMPTY_TEMPLATE, getTemplate, initArgv, MARKER_FILE, NAME_RULE, PACKAGE_HOST, renderFiles, renderValues, validName,
   type TemplateManifest, type TemplateTool,
 } from "./templates";
+import { isOutside } from "../platform/inside";
 
 /**
  * `casper new`: a local step that costs no model tokens. It runs the real init tool (uv init or
@@ -166,7 +167,7 @@ export function tildePath(dir: string, home: string): string {
   for (const base of new Set([home, real])) {
     const relative = path.relative(base, dir);
     if (relative === "") return "~";
-    if (!relative.startsWith("..") && !path.isAbsolute(relative)) return `~/${relative.split(path.sep).join("/")}`;
+    if (!isOutside(relative)) return `~/${relative.split(path.sep).join("/")}`;
   }
   return dir;
 }

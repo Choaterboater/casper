@@ -8,6 +8,7 @@ import { lstat, readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import { scrubText } from "../secrets/scrub";
 import { classifyLine } from "./risky-lines";
+import { isOutside } from "../platform/inside";
 
 export interface RiskyLine { file: string; line: number; text: string; reason: string }
 /** Each config file's dangerous lines (trimmed text → how many times), from before the task. */
@@ -32,7 +33,7 @@ async function readInside(root: string, relative: string): Promise<{ file: strin
     if (!info.isFile() || info.size > MAX_FILE_BYTES) return undefined;
     const [real, realRoot] = await Promise.all([realpath(absolute), realpath(root)]);
     const inside = path.relative(realRoot, real);
-    if (!inside || inside.startsWith("..") || path.isAbsolute(inside)) return undefined;
+    if (!inside || isOutside(inside)) return undefined;
     return { file: path.relative(root, absolute).split(path.sep).join("/"), text: await readFile(absolute, "utf8") };
   } catch { return undefined; }
 }
