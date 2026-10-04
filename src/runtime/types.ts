@@ -53,8 +53,9 @@ export interface RuntimeShell {
   finished?(id: string): void;
   /** After a held command failed: what the sandbox refused, as one line the AI reads, or undefined. */
   refused?(id: string, output: string): Promise<string | undefined>;
-  /** When no sandbox runs: a numbered question first; a reason refuses the command. */
-  approve?(command: string, signal?: AbortSignal): Promise<string | undefined>;
+  /** When no sandbox runs: a numbered question first; a reason refuses the command. `reached`: this command's
+   * "Reach <host>?" was already answered (a service start asked before the sandbox failed on it); not asked again. */
+  approve?(command: string, signal?: AbortSignal, options?: { reached?: boolean }): Promise<string | undefined>;
   /** Before the AI's edit or write lands outside the project: a reason refuses it; undefined lets it run. Works
    * with no sandbox too. */
   outsideWrite?(absolute: string): Promise<string | undefined>;

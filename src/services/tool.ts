@@ -54,7 +54,7 @@ function showBody(bytes: Buffer, complete: boolean, contentType: string): string
  * is the current task's smoke checks, which `check` records into and Casper replays after the change. */
 /** `approve`: the same gate the AI's bash has when no sandbox runs (a numbered question), or undefined to start. */
 export function serviceTool(manager: () => ServiceManager, lifetime?: AbortSignal, smoke?: () => SmokeChecks | undefined,
-  approve?: (command: string, signal: AbortSignal) => Promise<string | undefined>): RuntimeTool {
+  approve?: (command: string, signal: AbortSignal, options?: { reached?: boolean }) => Promise<string | undefined>): RuntimeTool {
   const describe = (services: ServiceManager, name: string) => services.status().find(service => service.name === name)!;
 
   /** A request goes to a managed service's origin (by name and path, or by its URL) or to another loopback URL; nothing else. */
@@ -136,7 +136,7 @@ export function serviceTool(manager: () => ServiceManager, lifetime?: AbortSigna
       if (refused) throw new Error(refused);
       // Joining the same command then takes the declared start's path, so a stale one restarts.
       // The sandbox may fail to start on this very command: then it asks too, before it runs not sandboxed.
-      return start((await services.startCommand(command, { ready: spec, timeoutMs, ...(approve ? { approve: (inner: AbortSignal) => approve(command, inner) } : {}) }, signal)).name);
+      return start((await services.startCommand(command, { ready: spec, timeoutMs, ...(approve ? { approve: (inner: AbortSignal) => approve(command, inner, { reached: true }) } : {}) }, signal)).name);
     }
     const name = string(args.service, "service");
     if (action === "start") return start(name);

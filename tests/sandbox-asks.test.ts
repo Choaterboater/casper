@@ -374,3 +374,25 @@ test("a password the AI typed into sshpass is hidden in the question", async () 
   expect(terminal.asked[0]!.question).toBe("Reach 198.51.100.20?  sshpass -p '<secret hidden>' ssh root@198.51.100.20 id");
   await sandbox.close();
 });
+
+test("an ad-hoc service that reaches another machine asks Reach once, even when the sandbox then fails to start on it", async () => {
+  const { serviceTool } = await import("../src/services/tool");
+  const { home, project, context } = await labFixture();
+  const failing = { ...fakeEngine(), initialize: async () => { throw new Error("bwrap: setting up uid map: Permission denied"); } };
+  const terminal = host(["Yes, this time", "No"]);
+  const sandbox = createSessionSandbox(terminal.value, context, { root: () => project, home, seams: { engine: failing, problem: () => undefined, platform: "linux" } });
+  const shell = runtimeShell(terminal.value, sandbox, new SandboxStore(context.stateDirectory));
+  let second: string | undefined = "not asked";
+  // The manager's start: the sandbox fails on this command, so it asks before running it not sandboxed.
+  const manager = { root: project, takeCrashes: () => [],
+    startCommand: async (command: string, options: { approve?: (signal: AbortSignal) => Promise<string | undefined> }, signal: AbortSignal) => {
+      await sandbox.wrap(command, { cwd: project }).catch(() => {});
+      second = await options.approve!(signal);
+      throw new Error("stopped here");
+    } };
+  const tool = serviceTool(() => manager as never, undefined, undefined, (command, signal, options) => shell.approve!(command, signal, options));
+  await tool.execute({ action: "start", command: "ssh -N -L 8080:localhost:80 build-server" }, new AbortController().signal);
+  expect(second).toBeUndefined();
+  expect(terminal.asked.map((entry) => entry.question)).toEqual(["Reach 198.51.100.20 (build-server)?  ssh -N -L 8080:localhost:80 build-server"]);
+  await sandbox.close();
+});
