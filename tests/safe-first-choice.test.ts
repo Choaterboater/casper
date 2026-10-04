@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
-  ALREADY_FAILING_CHOICES, APPROVE_CHOICES, APPROVE_ONCE_CHOICES, APPROVE_ONCE_PREVIEW_CHOICES, APPROVE_PREVIEW_CHOICES, allowKindsChoices, kindAllowChoices, LAB_IMPORT_CHOICES, MCP_ALLOW_KEEP_CHOICES, NETWORK_SETUP_CHOICES, NETWORK_UPDATE_CHOICES, MCP_REMEMBER_CHOICES, MCP_WRITES_CHOICES, modelFailedChoices, PLAN_CHOICES, PLAN_QUESTION, REMEMBER_BIG_MODEL_CHOICES,
+  ADD_LOGIN_CHOICES, ALREADY_FAILING_CHOICES, forgetLoginChoices, APPROVE_CHOICES, APPROVE_ONCE_CHOICES, APPROVE_ONCE_PREVIEW_CHOICES, APPROVE_PREVIEW_CHOICES, allowKindsChoices, kindAllowChoices, LAB_IMPORT_CHOICES, MCP_ALLOW_KEEP_CHOICES, NETWORK_SETUP_CHOICES, NETWORK_UPDATE_CHOICES, MCP_REMEMBER_CHOICES, MCP_WRITES_CHOICES, modelFailedChoices, PLAN_CHOICES, PLAN_QUESTION, REMEMBER_BIG_MODEL_CHOICES,
   REPAIR_LIMIT_STOP, spendChoices, undoChangedChoices, missingFolderChoices, workFolderChoices, unfinishedChoices, HOST_CHOICES, SHELL_COMMAND_CHOICES, AI_REVIEW_CHOICES, REACH_CHOICES, writeChoices,
 } from "../src/app/safe-choices";
 import { planEditorHeading } from "../src/flows/plan";
@@ -45,6 +45,8 @@ const firsts: Array<[string, string, string]> = [
   ["/lab import", LAB_IMPORT_CHOICES[0], "No"],
   ["network server setup", NETWORK_SETUP_CHOICES[0], "Not now"],
   ["network server update", NETWORK_UPDATE_CHOICES[0], "Not now"],
+  ["network login", ADD_LOGIN_CHOICES[0], "Not now"],
+  ["forget a network login", forgetLoginChoices("Mist")[0]!, "Keep the Mist login"],
   ["/mcp allow: keep it", MCP_ALLOW_KEEP_CHOICES[0], "This session"],
   ["advisory download", OSV_UPDATE_QUESTION.choices[0]!, "Stop"],
   ["new ignore", IGNORE_CHOICES[0], "Leave it flagged"],

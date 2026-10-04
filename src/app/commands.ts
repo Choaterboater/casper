@@ -22,6 +22,8 @@ import { READ_ONLY_LOGIN_ENABLE_TEXT } from "../mcp/access";
 import { ownSettingsNote, writesTitle } from "../mcp/presets";
 import type { MCPConfiguration } from "../mcp/config";
 import { addUserServer, DOCS_TOOL_NAMES, docsOnlyDefinition, docsPinned, isDocsOnlyDefinition, MCP_FILE_LABEL } from "../mcp/docs";
+import { askForLogin, askToForgetLogin, loginLines, type LoginHost } from "../mcp/network/ask-login";
+import { getsLogins, isNetworkProduct } from "../mcp/network/logins";
 import { networkSetupLine, runNetworkSetup, type SetupHost } from "../mcp/network/setup";
 import type { Scrubber } from "../secrets/netconan";
 import { defaultRunGit, runReferenceAdd } from "../references/catalog";
@@ -125,6 +127,8 @@ export interface CommandHost {
   confirmExact(preview: string, question: string, signal?: AbortSignal): Promise<boolean>;
   /** The host for /mcp setup network: the exact channel, the MCP manager, and the install seams. */
   networkSetupHost(): SetupHost;
+  /** The host for /mcp login: the exact channel, the private prompt, and restarts through the MCP manager. */
+  networkLoginHost(): LoginHost;
   /** One exact typed answer from the user (never the model), or undefined when nobody answered. */
   chooseAnswer(preview: string, question: string, choices: readonly string[], signal?: AbortSignal): Promise<string | undefined>;
   git(args: string[]): Promise<string>;
@@ -733,7 +737,7 @@ async function handleDelegateCommand(host: CommandHost, prompt: string): Promise
     if (result.status !== "completed") throw new Error(`Delegation ${result.status}; see the bounded report above`);
   }
 
-const MCP_USAGE = "Usage: /mcp | /mcp setup network | /mcp connect <name> | /mcp disconnect <name> | /mcp reload | /mcp writes <name> | /mcp writes off | /mcp allow <name> [off] | /mcp forget <name> | /mcp junos-show <name> on|off | /mcp docs";
+const MCP_USAGE = "Usage: /mcp | /mcp setup network | /mcp login [mist|central|clearpass] [forget] | /mcp connect <name> | /mcp disconnect <name> | /mcp reload | /mcp writes <name> | /mcp writes off | /mcp allow <name> [off] | /mcp forget <name> | /mcp junos-show <name> on|off | /mcp docs";
 /** What "writes off" means, said once under the list: the server runs pinned and every change asks. */
 const WRITES_OFF_TEXT = "Writes off: the server runs with its read-only settings, and every change asks you first. Answer 2 or 3 in the change box to allow it, or /mcp writes <name> to turn writes on now.";
 
@@ -761,6 +765,17 @@ async function handleMCPCommand(host: CommandHost, prompt: string): Promise<void
       if (name !== "network" || extra.length) throw new Error(MCP_USAGE);
       // Only the person types this; the AI has no way to run a slash command.
       await runNetworkSetup(host.networkSetupHost(), { explicit: true });
+      host.updateFooter();
+      return;
+    } else if (action === "login") {
+      if ((name && !isNetworkProduct(name)) || extra.length > 1 || (extra.length === 1 && extra[0] !== "forget")) throw new Error(MCP_USAGE);
+      // Only the person types this; the AI has no way to run a slash command.
+      const login = host.networkLoginHost();
+      // Casper's network server (its own entry, or one you added that runs casper-network-mcp), if there is one.
+      const server = mcp.status().map((status) => status.name).find((server) => getsLogins(mcp.definition(server)));
+      if (!name || !isNetworkProduct(name)) host.output.write(`${(await loginLines(login, server)).join("\n")}\n`);
+      else if (extra[0] === "forget") await askToForgetLogin(login, server, name);
+      else await askForLogin(login, server, name, { explicit: true });
       host.updateFooter();
       return;
     } else if (action === "docs") {

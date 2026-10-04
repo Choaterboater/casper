@@ -10,6 +10,9 @@ import type { MCPTool } from "./manager";
  *                  "identity"?: string, "role"?: string,
  *                  "server_gate"?: {"env_var": string, "state": string}}]}
  *
+ * v2 may also say "login": "missing" (no login for that product yet) and name a flag instead of an env var in
+ * "server_gate": {"flag": "--read-only", "state": "off"}.
+ *
  * Only this answer can make Casper call a login read-only, and only when every product says so.
  * Anything else, including no answer, a malformed answer or an error, is "unknown". The result
  * only ever restricts: "read-write" unlocks nothing. Server text never reaches the model; only the
@@ -31,8 +34,10 @@ export interface AccessProduct {
   access: AccessState;
   identity?: string;
   role?: string;
-  /** The server's own write gate for this product, when it reports one. */
-  gate?: { envVar: string; off: boolean };
+  /** The server's own write gate for this product, when it reports one: an env var (v1) or a flag (v2). */
+  gate?: { name: string; off: boolean };
+  /** v2: the server has no login for this product ("login": "missing"). */
+  loginMissing?: true;
   /** v2: where this login can change things, and where it can only read (plain names only). */
   canChange?: AccessScope[];
   readOnly?: AccessScope[];
@@ -44,6 +49,7 @@ const UNKNOWN: AccessCheck = Object.freeze({ state: "unknown", products: [] }) a
 const PRODUCT = /^[a-z0-9][a-z0-9_.-]{0,31}$/i;
 const PLAIN = /^[A-Za-z0-9 _.@:/+-]{1,64}$/;
 const ENV_NAME = /^[A-Z][A-Z0-9_]{0,63}$/;
+const FLAG_NAME = /^--[a-z][a-z0-9-]{0,31}$/;
 const GATE_OFF = new Set(["disabled", "off"]);
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -116,9 +122,13 @@ export function parseAccessCheck(result: unknown): AccessCheck {
     if (role) product.role = role;
     const gate = item.server_gate;
     if (record(gate) && typeof gate.env_var === "string" && ENV_NAME.test(gate.env_var) && typeof gate.state === "string") {
-      product.gate = { envVar: gate.env_var, off: GATE_OFF.has(gate.state.toLowerCase()) };
+      product.gate = { name: gate.env_var, off: GATE_OFF.has(gate.state.toLowerCase()) };
+    } else if (v2 && record(gate) && typeof gate.flag === "string" && FLAG_NAME.test(gate.flag) && typeof gate.state === "string") {
+      // v2 may name the flag that keeps the server read-only (casper-network-mcp's --read-only).
+      product.gate = { name: gate.flag, off: GATE_OFF.has(gate.state.toLowerCase()) };
     }
     if (v2) {
+      if (item.login === "missing") product.loginMissing = true;
       const canChange = scopes(item.can_change);
       const readOnly = scopes(item.read_only);
       if (canChange) product.canChange = canChange;
@@ -126,9 +136,11 @@ export function parseAccessCheck(result: unknown): AccessCheck {
     }
     products.push(product);
   }
-  const state: AccessState = products.every((product) => product.access === "read-only")
+  // A product with no login can't do anything, so it doesn't count; with no login at all the state is unknown.
+  const counted = products.filter((product) => !product.loginMissing);
+  const state: AccessState = counted.length && counted.every((product) => product.access === "read-only")
     ? "read-only"
-    : products.some((product) => product.access === "read-write") ? "read-write" : "unknown";
+    : counted.some((product) => product.access === "read-write") ? "read-write" : "unknown";
   return { state, products };
 }
 

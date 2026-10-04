@@ -121,7 +121,9 @@ import { refreshUpdateCheck, updateChecksOff, updateNotice } from "./update/noti
 import { createSessionSandbox, outsideWritesReceipt, runtimeShell, sandboxReceipt, sandboxStartupNotes, sandboxStatusLine, type SandboxHost } from "./app/sandbox";
 import { useSandbox, currentSandbox, type ShellSandbox, type ShellSandboxOptions } from "./sandbox/manager";
 import { SandboxStore } from "./sandbox/store";
-import { loginFile } from "./mcp/network/logins";
+import { loginMissingAnswer, type LoginHost } from "./mcp/network/ask-login";
+import { loginFile, type NetworkProduct } from "./mcp/network/logins";
+import { withLoginDisplay } from "./tui/login";
 import { namesNetworkProduct, runNetworkSetup, runNetworkUpdate, shouldOfferNetworkSetup, shouldOfferNetworkUpdate, type SetupHost } from "./mcp/network/setup";
 import type { RuntimeShell } from "./runtime/types";
 import { askBuildRequest, buildRequestNote, isEmptyFolder, newProjectFromQuestions, newProjectInEmptyFolder, offerMissingFolder, opened,
@@ -370,6 +372,8 @@ export class CasperApp {
   /** Setup is offered at most once a session, and an update asked about at most once. */
   private networkSetupOffered = false;
   private networkUpdateAsked = false;
+  /** Network products the person said Not now to this session: the AI's next try doesn't ask again (/mcp login does). */
+  private readonly loginNotNow = new Set<NetworkProduct>();
   /** `casper new` on a terminal: the exit code when no project was opened (1 when nothing was created). */
   newProjectExitCode?: number;
   /** The build-request question is asked at most once per session. */
@@ -568,7 +572,9 @@ export class CasperApp {
         this.taskChangeServers.add(server);
         if (!this.closing) this.output.write(`[approval] allowed (allow all): ${terminalText(server)} · ${terminalText(tool)}\n`);
       },
-      onAllowAllStart: () => this.updateFooter() });
+      onAllowAllStart: () => this.updateFooter(),
+      // A product with no login: the person is asked (never the AI); the AI gets one line back.
+      onLoginMissing: (server, product) => loginMissingAnswer(this.networkLoginHost(), server, product) });
     this.lifecycle.add({ name: "references", close: () => this.references!.close() });
     // Web lookups never ask: the checks in src/web/url.ts hold instead. Off only with web: off in your own config.
     this.web?.close();
@@ -2818,6 +2824,31 @@ export class CasperApp {
     if (!await shouldOfferNetworkSetup(host.homeDir, configured)) return;
     this.networkSetupOffered = true;
     await runNetworkSetup(host, { explicit: false });
+  }
+
+  /**
+   * The network server's login host: the question on the exact channel and the values in the private prompt (only the
+   * person, never the AI's ask tool), both in the approval queue; the restart after a save goes through the manager.
+   */
+  networkLoginHost(): LoginHost {
+    return {
+      homeDir: this.sessionHomeDir ?? os.homedir(),
+      interactive: this.interactive,
+      notNow: this.loginNotNow,
+      // The private prompt needs Casper's full terminal (piped input has no way to hide what you type).
+      canAsk: () => this.interactive && !this.closing && !!this.terminal.exclusiveHost(),
+      chooseAnswer: (preview, question, choices) => this.chooseExact(preview, question, choices, this.commandAbort?.signal),
+      privateInput: async (label) => {
+        const picker = this.terminal.exclusiveHost();
+        if (!picker || this.closing) return undefined;
+        const signal = this.commandAbort?.signal ?? new AbortController().signal;
+        return picker.run((io) => withLoginDisplay(io, signal, (display) => display.privateInput(label))).catch(() => undefined);
+      },
+      write: (text) => { if (!this.closing) this.output.write(text); },
+      restart: async (name) => { await this.mcp?.restartAfterCalls(name); },
+      access: (name) => { try { return this.mcp?.policy(name).access; } catch { return undefined; } },
+      exclusive: (work) => this.oneAtATime(work),
+    };
   }
 
   /** ~/.casper/network-logins.json: its tokens are hidden in every tool output the AI reads. */

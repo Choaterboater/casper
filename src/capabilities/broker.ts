@@ -13,6 +13,8 @@ import {
   type ApprovalPlan, type LastPreview,
 } from "./approval";
 import { toolLabel } from "./labels";
+import { loginMissing } from "../mcp/network/ask-login";
+import type { NetworkProduct } from "../mcp/network/logins";
 import { asksEveryTime, isRiskyKind, KIND_TEXT, planKinds, type ChangeKind } from "./kinds";
 import { boundCapabilityResult, capabilityErrorResult, NotExecutedError, OutcomeUnknownError, type BoundedCapabilityResult } from "./result";
 import { indexWords, termScore, tokenize } from "./search";
@@ -69,6 +71,10 @@ export type ConfirmCapability = (call: {
 
 /** Ask the user whether a change kind that is off by default (firmware, delete, admin) may run on this server for
  * the rest of the session. Only their answer counts; true allows it. */
+/** A product of Casper's network server had no login: the host asks the person (never the AI) and returns the
+ * one line the AI gets back instead of the server's answer. */
+export type LoginMissingHandler = (server: string, product: NetworkProduct, signal: AbortSignal) => Promise<string>;
+
 export type ConfirmKind = (ask: { server: string; kind: ChangeKind; realTool: string }, signal?: AbortSignal) => Promise<boolean>;
 
 /** Hides device secrets in an MCP result before the model sees it. The app passes its shared
@@ -167,9 +173,11 @@ export class CapabilityBroker {
    */
   /** Told when a change runs on the user's "Yes, for this session" without a box (for the transcript). */
   private readonly onSessionCovered?: (server: string, realTool: string) => void;
+  private readonly onLoginMissing?: LoginMissingHandler;
   constructor(private readonly manager: MCPManager, private readonly confirm?: ConfirmCapability,
     options: { writesGate?: boolean; scrubber?: ResultScrubber; onSessionCovered?: (server: string, realTool: string) => void; confirmKind?: ConfirmKind;
-      onAllowAll?: (server: string, realTool: string) => void; onAllowAllStart?: (server: string) => void } = {}) {
+      onAllowAll?: (server: string, realTool: string) => void; onAllowAllStart?: (server: string) => void; onLoginMissing?: LoginMissingHandler } = {}) {
+    if (options.onLoginMissing) this.onLoginMissing = options.onLoginMissing;
     if (options.onAllowAll) this.onAllowAll = options.onAllowAll;
     if (options.onAllowAllStart) this.onAllowAllStart = options.onAllowAllStart;
     this.writesGate = options.writesGate ?? false;
@@ -343,6 +351,13 @@ export class CapabilityBroker {
         approved ? { approved: { capabilityId: id, realTool: approved, label } } : {});
     } finally {
       if (turnedOn && answer?.once) await this.manager.setWrites(plan.server, false, { once: true }).catch(() => {});
+    }
+    // Casper's network server (recognised by what it runs) had no login for this product: the person is asked, and
+    // the AI gets one line back. Any other server's look-alike answer is an ordinary result.
+    const login = this.onLoginMissing && policy.match?.preset.logins && policy.match.by === "definition" ? loginMissing(raw) : undefined;
+    if (login) {
+      const text = await this.onLoginMissing!(capability.descriptor.source, login, combined);
+      return { isError: true, executed: true, summary: text, truncated: false, originalBytes: Buffer.byteLength(text) };
     }
     // 7. Hide device secrets (passwords, keys, SNMP communities) before anything else reads the result.
     const scrubbed = await this.scrub(raw, combined);
