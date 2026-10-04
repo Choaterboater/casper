@@ -73,15 +73,16 @@ function typedTemplate(answer: string): string | undefined {
 }
 
 /**
- * "What are you building?" A short list of kinds (Network, MCP server, Web app or dashboard, Python tool,
- * My own), then, for a kind with more than one template, which one, with Back first. The template id,
+ * "What are you building?" A short list of kinds (My own, Network, MCP server, Web app or dashboard,
+ * Python tool), then, for a kind with more than one template, which one, with Back first. The template id,
  * EMPTY_TEMPLATE, "extra", or undefined for Esc. Nothing is locked in: Back returns to the kinds.
  */
 export async function askTemplate(flow: NewProjectFlow, options: AskTemplateOptions = {}): Promise<string | "extra" | undefined> {
   const menu = templateMenu();
   const empty = options.empty ?? true;
-  const kinds: Choice[] = [...(options.extra ? [options.extra] : []), ...menu.groups.map(({ label, description }) => ({ label, description })),
-    ...(empty ? [EMPTY_CHOICE] : [])];
+  // My own leads the kinds: Casper builds anything, so Enter there is "an empty project, I'll describe it".
+  const kinds: Choice[] = [...(options.extra ? [options.extra] : []), ...(empty ? [EMPTY_CHOICE] : []),
+    ...menu.groups.map(({ label, description }) => ({ label, description }))];
   for (let round = 0; round < PICK_TRIES; round++) {
     const answer = await choose(flow, options.question ?? menu.question, kinds);
     if (answer === undefined) return undefined;

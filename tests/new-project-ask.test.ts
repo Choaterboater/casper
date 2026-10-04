@@ -215,7 +215,7 @@ test("3 Other kind shows Use this folder, then the kinds, then the name question
     h.input.write("3");
     await h.until(text => text.includes("What are you building?"));
     expect(h.visible().slice(h.visible().lastIndexOf("What are you building?"))).toContain("1 Use this folder");
-    h.input.write("5");
+    h.input.write("6");
     await h.until(text => text.includes("Name it? (Enter for mist-aps)"));
     h.input.write("\r");
     await h.until(() => h.prompts.length === 1);
@@ -385,7 +385,7 @@ test("the home-folder question ends with New project, which asks the kind and th
     expect(h.visible()).toContain("3 New project");
     h.input.write("3");
     await h.until(text => text.includes("What are you building?"));
-    h.input.write("2");
+    h.input.write("3");
     await h.until(text => text.includes("Name it? (Enter for "));
     h.input.write("site-mcp\r");
     await h.until(text => text.includes("idle"));
