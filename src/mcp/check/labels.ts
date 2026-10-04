@@ -159,7 +159,9 @@ const REFUSAL_WORDS = /refus|block|not read.?only|raises|PermissionError/i;
 /**
  * The router contract (find_tool + invoke_read_tool): the finder and the read dispatcher are
  * read-only, invoke_read_tool takes a text `name`, and every dispatcher that can reach write tools
- * (invoke_tool, invoke_tools_batch, any other non-read *_batch) is labeled destructive. It looks for a
+ * (invoke_tool, invoke_tools_batch, any other non-read *_batch) is labeled destructive; casper-network-mcp,
+ * recognised by what it runs, may label invoke_tool a write, because Casper judges each call there by the
+ * real tool. It looks for a
  * test that shows invoke_read_tool refuses write tools. The refusal is never probed live: that would
  * mean calling a dispatcher with a write tool's name.
  */
@@ -181,14 +183,22 @@ export function routerContract(tools: readonly CheckTool[], testFiles: ReadonlyM
     findings.push({ section: "server", status: "fail", label: "router", text: "invoke_read_tool has no text \"name\" field for the tool to run." });
   }
   const dispatchers = tools.filter((tool) => tool.name === "invoke_tool" || (/_batch$/.test(tool.name) && /^invoke_/.test(tool.name) && !isReadDispatcher(tool.name)));
+  // Casper's own network server, recognised by what it runs: Casper judges each invoke_tool call by the one real
+  // tool it runs (its name and find_tool kind), so a write label is right there. Batches never are.
+  const byRealTool = (tool: CheckTool) => tool.name === "invoke_tool" && preset?.by === "definition"
+    && !!preset.preset.routedByRealTool && tool.annotations?.readOnlyHint !== true;
   for (const tool of dispatchers) {
+    if (byRealTool(tool)) continue;
     if (tool.annotations?.destructiveHint !== true || tool.annotations?.readOnlyHint === true) {
       broken = true;
       findings.push({ section: "server", status: "fail", label: "router", text: `${tool.name} can reach write tools but is not labeled destructive.` });
     }
   }
   if (!broken) {
-    const shown = ["find_tool", "invoke_read_tool", ...dispatchers.map((tool) => tool.name)].map((name) => `${name} ${serverLabelWord(byName.get(name)!)}`);
+    const shown = ["find_tool", "invoke_read_tool", ...dispatchers.map((tool) => tool.name)].map((name) => {
+      const tool = byName.get(name)!;
+      return `${name} ${serverLabelWord(tool)}${byRealTool(tool) && tool.annotations?.destructiveHint !== true ? " (Casper judges each call by the real tool)" : ""}`;
+    });
     findings.push({ section: "server", status: "ok", label: "router", text: shown.join(" · ") });
   }
   const tested = [...testFiles].find(([, text]) => text.includes("invoke_read_tool") && REFUSAL_WORDS.test(text));
@@ -199,7 +209,9 @@ export function routerContract(tools: readonly CheckTool[], testFiles: ReadonlyM
     const all = preset ? ALL_TOOLS_HINT[preset.preset.id] : undefined;
     findings.push({ section: "server", status: "note", label: "router", text: all
       ? `Only the router's ${tools.length} tools are visible. To check every backend tool: ${all}`
-      : `Only the router's ${tools.length} tools are visible. Start it in its direct mode to check every backend tool.` });
+      : preset?.preset.routedByRealTool
+        ? `Only the router's ${tools.length} tools are visible. Its other tools are found with find_tool.`
+        : `Only the router's ${tools.length} tools are visible. Start it in its direct mode to check every backend tool.` });
   }
   return findings;
 }

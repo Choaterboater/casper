@@ -5,6 +5,8 @@ import path from "node:path";
 import { checkLabels, routerContract, type CheckTool } from "../src/mcp/check/labels";
 import { repoUsesElicitation } from "../src/mcp/check/server";
 import { fixtureTools } from "./fixtures/mcp-check-server";
+import { matchPreset } from "../src/mcp/presets";
+import type { MCPTool } from "../src/mcp/manager";
 
 const temps: string[] = [];
 afterEach(async () => { for (const dir of temps.splice(0)) await rm(dir, { recursive: true, force: true }); });
@@ -92,4 +94,32 @@ test("the router contract: dispatchers that reach write tools must be labeled de
   expect(good.some((line) => line.startsWith("fail"))).toBe(false);
   // Not a router: no router findings at all.
   expect(routerContract(fixtureTools("good"), new Map())).toEqual([]);
+});
+
+test("the router contract: Casper's network server may label invoke_tool a write, because Casper judges each call by the real tool", () => {
+  const WRITE = { readOnlyHint: false, destructiveHint: false };
+  const tools = [
+    tool("find_tool", RO, { query: { type: "string" } }),
+    tool("invoke_read_tool", RO, { name: { type: "string" } }),
+    tool("invoke_tool", WRITE, { name: { type: "string" } }),
+    tool("access_check", RO),
+  ];
+  const network = matchPreset({ name: "network", source: "x", cwd: "/", disabled: false,
+    transport: { type: "stdio", command: "/home/someone/.casper/tools/casper-network-mcp/venv/bin/casper-network-mcp", args: ["--read-only"], env: {} } }, tools as unknown as MCPTool[]);
+  expect(network?.by).toBe("definition");
+  const ok = texts(routerContract(tools, new Map(), network));
+  expect(ok).toContain("ok find_tool read · invoke_read_tool read · invoke_tool write (Casper judges each call by the real tool)");
+  expect(ok.some((line) => line.startsWith("fail"))).toBe(false);
+  // Recognised only by its tools (not by what it runs), or any other router: still a problem.
+  const byTools = matchPreset({ name: "other", source: "x", cwd: "/", disabled: false,
+    transport: { type: "stdio", command: "/opt/net/bin/server", args: [], env: {} } }, tools as unknown as MCPTool[]);
+  expect(byTools?.by).toBe("tools");
+  expect(texts(routerContract(tools, new Map(), byTools))).toContain("fail invoke_tool can reach write tools but is not labeled destructive.");
+  expect(texts(routerContract(tools, new Map()))).toContain("fail invoke_tool can reach write tools but is not labeled destructive.");
+  // A batch dispatcher is never judged by one real tool.
+  const batch = texts(routerContract([...tools, tool("invoke_tools_batch", WRITE, { calls: { type: "array" } })], new Map(), network));
+  expect(batch).toContain("fail invoke_tools_batch can reach write tools but is not labeled destructive.");
+  // A read-only label on invoke_tool is still wrong.
+  const lying = texts(routerContract([tools[0]!, tools[1]!, tool("invoke_tool", RO, { name: { type: "string" } })], new Map(), network));
+  expect(lying).toContain("fail invoke_tool can reach write tools but is not labeled destructive.");
 });
