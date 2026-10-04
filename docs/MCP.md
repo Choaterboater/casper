@@ -83,8 +83,8 @@ file and set no variable.
    over an entry you already have), remembers it, and connects it with writes off.
    `1` is kept: Casper doesn't offer again, and `/mcp` shows
    `network: not set up — /mcp setup network`. Casper doesn't offer it when you
-   already have a network server such as hpe-networking-mcp; `/mcp setup network`
-   still works.
+   already have hpe-networking-mcp, casper-network-mcp or a server named `network`;
+   `/mcp setup network` still works.
 2. The first time the AI uses a product with no login, Casper asks you (never the AI):
 
    ```text
@@ -99,7 +99,9 @@ file and set no variable.
    token. Central means new Central (through GreenLake) only for now: classic Central
    logins don't work yet, and the question says so. Casper restarts the server with the
    login and checks what it can do with `access_check`, for example
-   `Mist login: can change Branch-12 (checked)`.
+   `Mist login: can change Branch-12 (checked)`. Mist and ClearPass logins are checked;
+   casper-network-mcp 0.1.0 can't check a Central login yet, so it shows
+   `Central login: saved (not checked)`.
    `/mcp login mist` adds or replaces it any time; `/mcp login mist forget` removes it.
 
    When the product turns a saved login down (an expired ClearPass token, a revoked Mist
