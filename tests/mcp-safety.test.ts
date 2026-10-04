@@ -47,7 +47,8 @@ async function setup(options: {
 function answering(...answers: ApprovalAnswer[]) {
   const boxes: string[] = [];
   const confirm: ConfirmCapability = async (call) => {
-    boxes.push(formatApproval(call.plan, call.lastPreview).preview + formatApproval(call.plan, call.lastPreview).question);
+    const box = formatApproval(call.plan, call.lastPreview, call.tool ? { tool: call.tool } : {});
+    boxes.push(box.preview + box.question);
     return answers.shift() ?? false;
   };
   return { confirm, boxes };
@@ -294,6 +295,21 @@ test("yes for this session covers later non-destructive changes on that server; 
   broker.endSessionGrants("network");
   expect(broker.sessionGrant("network")).toBe(false);
   await expect(broker.invoke(id("set_ssid"), { ssid: "x" })).rejects.toThrow("you said no");
+  expect(boxes).toHaveLength(3);
+});
+
+test("review: a tool the server tags as firmware asks every time: no session answer in its box, and a session grant never covers it", async () => {
+  const { confirm, boxes } = answering("yes-session", "yes-session", "no");
+  const { confirmKind } = kindAnswers(true);
+  const { broker, id } = await setup({ confirm, confirmKind, writesGate: true });
+  await broker.invoke(id("set_ssid"), { ssid: "corp" });
+  expect(broker.sessionGrant("network")).toBe(true);
+  await broker.invoke(id("update_device_settings"), { serial_number: "SG1" });
+  expect(boxes).toHaveLength(2);
+  expect(boxes[1]).toContain("Yes, this once");
+  expect(boxes[1]).not.toContain("for this session");
+  // A 3 typed there counted once: the next call shows the box again.
+  await expect(broker.invoke(id("update_device_settings"), { serial_number: "SG2" })).rejects.toThrow("you said no");
   expect(boxes).toHaveLength(3);
 });
 

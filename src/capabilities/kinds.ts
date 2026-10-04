@@ -63,9 +63,10 @@ export function changeKind(tool: Pick<MCPTool, "name" | "_meta">, label: Capabil
   return declared;
 }
 
-/** True when the call makes a risky or disruptive kind: it asks every time, with no "for this session" answer. */
-export function asksEveryTime(plan: ApprovalPlan): boolean {
-  return planKinds(plan).some((kind) => isRiskyKind(kind) || kind === "disruptive");
+/** True when the call makes a risky or disruptive kind: it asks every time, with no "for this session" answer.
+ * Pass the tool so a direct call's server tag counts. */
+export function asksEveryTime(plan: ApprovalPlan, tool?: Pick<MCPTool, "_meta">): boolean {
+  return planKinds(plan, tool).some((kind) => isRiskyKind(kind) || kind === "disruptive");
 }
 
 /** The kinds a planned call makes: each real tool behind a router, else the tool itself. */

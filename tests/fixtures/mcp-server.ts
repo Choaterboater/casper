@@ -99,6 +99,9 @@ export function fixtureServer(mode = "generic") {
       { name: "set_ssid", description: "Set an SSID and its passphrase", inputSchema: ssid, annotations: { readOnlyHint: false } },
       // An admin change: a risky kind, off by default until the person allows it.
       { name: "invite_user", description: "Invite an admin user", inputSchema: { type: "object", properties: { email: { type: "string" } } }, annotations: { readOnlyHint: false } },
+      // A firmware change by the server's own tag; the name alone reads as a plain config change.
+      { name: "update_device_settings", description: "Update device settings", inputSchema: serial, annotations: { readOnlyHint: false },
+        _meta: { "casper/change-kind": "firmware" } },
       read("get_clients", "List wireless clients", {
         type: "object", properties: { site: { type: "string" }, confirm: { type: "boolean" } },
       }),

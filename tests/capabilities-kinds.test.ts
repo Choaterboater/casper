@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { buildPlan } from "../src/capabilities/approval";
-import { changeKind, planKinds, RISKY_KINDS, isRiskyKind } from "../src/capabilities/kinds";
+import { asksEveryTime, changeKind, planKinds, RISKY_KINDS, isRiskyKind } from "../src/capabilities/kinds";
 import { toolLabel } from "../src/capabilities/labels";
 import type { MCPTool } from "../src/mcp/manager";
 
@@ -66,4 +66,17 @@ test("review: a router call to a tool whose name reads as a read still gets its 
   const call = buildPlan({ server: "net", tool: "invoke_tool", label: "destructive", schema: router,
     arguments: { name: "invite_glp_user", arguments: {} } });
   expect(planKinds(call)).toEqual(["admin"]);
+});
+
+test("review: a server's own firmware or delete tag asks every time on a direct call; a router call goes by the words", () => {
+  const direct = buildPlan({ server: "net", tool: "update_device_settings", label: "write", schema: { type: "object" }, arguments: {} });
+  const tagged = { _meta: { "casper/change-kind": "firmware" } };
+  expect(asksEveryTime(direct)).toBe(false);
+  expect(asksEveryTime(direct, tagged)).toBe(true);
+  expect(asksEveryTime(direct, { _meta: { "casper/change-kind": "delete" } })).toBe(true);
+  expect(asksEveryTime(direct, { _meta: { "casper/change-kind": "config" } })).toBe(false);
+  const router = { type: "object" as const, properties: { name: { type: "string" }, arguments: { type: "object" } } };
+  const routed = buildPlan({ server: "net", tool: "invoke_tool", label: "write", schema: router,
+    arguments: { name: "update_device_settings", arguments: {} } });
+  expect(asksEveryTime(routed, tagged)).toBe(false);
 });
