@@ -438,10 +438,12 @@ export type ApprovalChoice = "no" | "preview" | "yes" | "yes-session" | "allow-a
  * change gets no "for this session" answer. The technical line (server, tool, label) closes the box.
  */
 export function formatApproval(plan: ApprovalPlan, lastPreview?: LastPreview,
-  options: FormatOptions & { product?: string; scope?: string; tool?: Pick<MCPTool, "_meta"> } = {}):
+  options: FormatOptions & { product?: string; toolProduct?: string; scope?: string; tool?: Pick<MCPTool, "_meta"> } = {}):
 { preview: string; question: string; choices: string[]; answers: Record<string, ApprovalChoice> } {
   const single = plan.routed.length === 1 && !plan.routerUnclear ? plan.routed[0]! : undefined;
-  const lines = [`Change in ${options.product ?? plan.server}: ${toolWords(single?.name ?? plan.tool)}`];
+  // The product the one real tool belongs to, when the server said ("Mist"); "Yes to everything" still names the
+  // whole server, because that is what it covers.
+  const lines = [`Change in ${options.toolProduct ?? options.product ?? plan.server}: ${toolWords(single?.name ?? plan.tool)}`];
   // Where the login can change things (access-check v2); the server enforces it.
   if (options.scope) lines.push(`Your login can change: ${options.scope}`);
   if (plan.routerUnclear && !plan.routed.length) lines.push(`Runs: a tool Casper can't see (through ${plan.tool})`);

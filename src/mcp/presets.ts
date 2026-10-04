@@ -55,6 +55,9 @@ export interface Preset {
   /** A call whose kinds are all "troubleshoot" runs without turning writes on: the server's own gate lets its
    * hand-checked troubleshooting list through its read-only pin. */
   troubleshootRunsPinned?: true;
+  /** invoke_tool running one tool Casper can see is judged as a write plus that tool's own name and kind, not as a
+   * destructive dispatcher (only when recognised by its definition). Risky and disruptive kinds still ask every time. */
+  routedByRealTool?: true;
 }
 
 // ---------------------------------------------------------------------------
@@ -264,7 +267,7 @@ const CANT_PIN_REMOTE = "it runs elsewhere";
 const TABLE: Preset[] = [
   {
     // casper-network-mcp, the server Casper sets up itself (Mist, Central, ClearPass behind one router).
-    // --read-only is its only write switch. No tighten: invoke_tool is a write, and the real tool's kind
+    // --read-only is its only write switch. No tighten: invoke_tool is a write (routedByRealTool), and the real tool's kind
     // (its name words and find_tool's kind) makes risky calls ask every time; tightening it to destructive
     // would take "Yes, for this session" away from every change. invoke_tool stays visible, so a change can
     // reach the box that turns writes on. Before hpe-networking-mcp: both have find_tool.
@@ -275,6 +278,7 @@ const TABLE: Preset[] = [
     pins: { env: {}, appendArgs: ["--read-only"] },
     logins: true,
     troubleshootRunsPinned: true,
+    routedByRealTool: true,
     limits: { callMs: 300_000 },
   },
   {
