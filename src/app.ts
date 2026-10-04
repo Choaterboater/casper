@@ -713,7 +713,7 @@ export class CasperApp {
     const choice = answer?.[0]?.trim();
     if (!choice) return cwd; // Esc, empty, or the plain-line fallback keeps the launch folder.
     if (choice === NEW_PROJECT_CHOICE) {
-      const result = await this.newProjectFlowWithAbort((flow) => newProjectFromQuestions(flow, {}, fromHome ? undefined : cwd));
+      const result = await this.newProjectFlowWithAbort((flow) => newProjectFromQuestions(flow, {}, fromHome ? undefined : cwd, (text) => { this.queuedPrompt = text; }));
       return opened(result) ? result.dir : cwd;
     }
     const resolved = byLabel.get(choice) ?? path.resolve(cwd, choice.replace(/^~(?=\/|$)/, home));
@@ -753,7 +753,7 @@ export class CasperApp {
     let workspace = cwd;
     if (!this.projectContext && this.newProjectRequest) {
       // `casper new` on a terminal: the project first, then Casper opens there. Nothing built: no session.
-      const result = await this.newProjectFlowWithAbort((flow) => newProjectFromQuestions(flow, this.newProjectRequest!));
+      const result = await this.newProjectFlowWithAbort((flow) => newProjectFromQuestions(flow, this.newProjectRequest!, undefined, (text) => { this.queuedPrompt = text; }));
       if (!opened(result)) {
         if (!result && !this.closing) this.output.write("Nothing was created.\n");
         this.newProjectExitCode = result?.exitCode ?? 1;
@@ -1258,11 +1258,13 @@ export class CasperApp {
       this.output.write(`/new needs a template and a name when Casper can't ask. ${usage}\n`);
       return;
     }
-    const result = await newProjectFromQuestions(this.newProjectFlow(), command);
+    // A request typed at "What are you building?" runs next, in the new project when the conversation can move there.
+    let typed: string | undefined;
+    const result = await newProjectFromQuestions(this.newProjectFlow(), command, undefined, (text) => { typed = text; });
     if (this.closing) return;
     if (!result) { this.output.write("Nothing was created.\n"); return; }
     if (!opened(result) || this.commandAbort?.signal.aborted) return;
-    if (this.canMoveWorkspace()) { await this.openWorkspaceBeforeRuntime(result.dir); return; }
+    if (this.canMoveWorkspace()) { await this.openWorkspaceBeforeRuntime(result.dir); if (typed) this.queuedPrompt = typed; return; }
     this.output.write(`[folder] This conversation stays in ${terminalText(tildePath(this.activeWorkspaceRoot(), this.sessionHomeDir ?? os.homedir()))}. `
       + `Open the new project with: cd ${terminalText(result.displayDir)} && casper\n`);
   }

@@ -91,7 +91,14 @@ export async function askTemplate(flow: NewProjectFlow, options: AskTemplateOpti
     if (!group) {
       const typed = typedTemplate(answer);
       if (typed && (empty || typed !== EMPTY_TEMPLATE)) return typed;
-      if (options.extra && options.request && looksLikeRequest(answer)) { options.request(answer.trim()); return "extra"; }
+      if (options.request && looksLikeRequest(answer)) {
+        options.request(answer.trim());
+        if (options.extra) return "extra";
+        // No way out to answer: the words pick the kind they read as, or an empty project Casper builds from them.
+        const suggestion = newProjectSuggestion(answer, listTemplates());
+        if (typeof suggestion === "object") return suggestion.template;
+        if (empty) return EMPTY_TEMPLATE;
+      }
       flow.write(`[new] ${answer.trim()} isn't one of the choices.`);
       return undefined;
     }
@@ -156,17 +163,25 @@ export function opened(result: NewProjectResult | undefined): result is NewProje
 }
 
 /** The full question set for `casper new` and /new: the kind and the name when missing, then the build
- * in `parent` (~/Projects by default). Undefined when the user stopped at a question. */
-export async function newProjectFromQuestions(flow: NewProjectFlow, given: { template?: string; name?: string }, parentDir?: string): Promise<NewProjectResult | undefined> {
-  const template = given.template ?? await askTemplate(flow);
+ * in `parent` (~/Projects by default). Undefined when the user stopped at a question. A request typed at
+ * "What are you building?" (three words or more) picks the kind and the name, and goes to `request` to run
+ * as the first request in the new project. */
+export async function newProjectFromQuestions(flow: NewProjectFlow, given: { template?: string; name?: string }, parentDir?: string,
+  request?: (text: string) => void): Promise<NewProjectResult | undefined> {
+  let typed: string | undefined;
+  const template = given.template ?? await askTemplate(flow, request ? { request: (text) => { typed = text; } } : {});
   if (!template || template === "extra") return undefined;
   const parent = parentDir ?? await projectsFolder(flow.homeDir);
   let name = given.name;
   const taken = name ? await nameProblem(parent, name, flow.homeDir) : undefined;
   if (taken) flow.write(`[new] ${taken}`);
-  if (!name || taken) name = await askName(flow, parent, defaultNameFor(template));
+  const suggested = typed === undefined ? undefined : newProjectSuggestion(typed, listTemplates());
+  const fallback = typeof suggested === "object" ? suggested.name : (typed && projectSlug(typed)) || defaultNameFor(template);
+  if (!name || taken) name = await askName(flow, parent, fallback);
   if (!name) return undefined;
-  return buildProject(flow, parent, template, name);
+  const result = await buildProject(flow, parent, template, name);
+  if (typed !== undefined && opened(result)) request?.(typed);
+  return result;
 }
 
 /** Empty: no entries at all (createProject only builds in an empty folder). */

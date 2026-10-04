@@ -110,3 +110,30 @@ test("words at the name question become the next Enter choice", async () => {
   expect(s.asked[2]!.question).toBe("Name it? (Enter for config-backup-tool)");
   expect(s.created.map(({ template, name }) => ({ template, name }))).toEqual([{ template: "empty", name: "config-backup-tool" }]);
 });
+
+test("a request typed at What are you building? builds the kind it reads as and keeps the words as the first request", async () => {
+  const s = await scripted(["build a react web app for my lab inventory", ""]);
+  const queued: string[] = [];
+  const result = await newProjectFromQuestions(s.flow, {}, undefined, (text) => queued.push(text));
+  expect(result?.status).toBe("ready");
+  expect(s.created.map(({ template }) => template)).toEqual(["web-app"]);
+  expect(queued).toEqual(["build a react web app for my lab inventory"]);
+});
+
+test("a request with no clear kind at What are you building? builds an empty project named from the words", async () => {
+  const s = await scripted(["a nightly backup of my switch configs", ""]);
+  const queued: string[] = [];
+  await newProjectFromQuestions(s.flow, {}, undefined, (text) => queued.push(text));
+  expect(s.asked[1]!.question).toMatch(/^Name it\? \(Enter for [a-z]/);
+  expect(s.created.map(({ template }) => template)).toEqual(["empty"]);
+  expect(s.created[0]!.name).not.toBe("my-project");
+  expect(queued).toEqual(["a nightly backup of my switch configs"]);
+});
+
+test("one or two words that aren't a choice are still not a request", async () => {
+  const s = await scripted(["blah thing"]);
+  const queued: string[] = [];
+  expect(await newProjectFromQuestions(s.flow, {}, undefined, (text) => queued.push(text))).toBeUndefined();
+  expect(queued).toEqual([]);
+  expect(s.created).toEqual([]);
+});
