@@ -1,5 +1,5 @@
 import type { InteractiveTerminal } from "../tui/terminal";
-import { BUSY_GLYPH, formatDuration, formatToolActivity, redactPreview, terminalText } from "../tui/format";
+import { BUSY_GLYPH, displayPath, formatDuration, formatToolActivity, redactPreview, terminalText } from "../tui/format";
 import type { RuntimeEvent } from "../runtime/types";
 import type { OutputWriter } from "./commands";
 import { SPEND_STOP_REASON } from "../task/spend";
@@ -243,6 +243,13 @@ export class RuntimeEventView {
     else if (ran.length) {
       for (const step of ran) if (step.failed && !step.retried) this.output.write(`${step.printed}\n`);
       this.output.write(`${stepSummary(ran)}\n`);
+      // The files the folded edits changed, so a wrong one is easy to spot as it happens.
+      const changed = [...new Set(ran.filter(step => step.kind === "edit" && !step.failed && step.path !== undefined)
+        .map(step => displayPath(step.path!, this.fit())))];
+      if (changed.length) {
+        const shown = changed.slice(0, 5).join(", ");
+        this.output.write(`  changed ${redactPreview(shown)}${changed.length > 5 ? ` +${changed.length - 5} more` : ""}\n`);
+      }
     }
     this.endedWithNewline = true;
     this.renderBox();

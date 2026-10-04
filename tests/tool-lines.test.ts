@@ -90,8 +90,22 @@ test("rich terminal: the Working box keeps the last 3 steps, then folds them int
   expect(t.screen).toEqual([]);
   t.handle({ type: "assistant_text_delta", delta: "Fixed it." });
   // The failed edit was tried again at once: counted, not printed. The failed command prints with its cause.
-  expect(t.screen).toEqual(["✗ bash · python3 -m pytest … — failed", "  1 failed", "• 3 edits · 1 command · 1 read · 2 failed"]);
+  expect(t.screen).toEqual(["✗ bash · python3 -m pytest … — failed", "  1 failed", "• 3 edits · 1 command · 1 read · 2 failed", "  changed a.py, b.py"]);
   expect(t.box).toBeUndefined();
+});
+
+test("the folded line names the changed files under it, a few at most; nothing changed, no line", () => {
+  const t = fakeTerminal(true);
+  const files = ["a.py", "b.py", "c.py", "d.py", "e.py", "f.py", "g.py"];
+  files.forEach((file, index) => t.handle(start(String(index), "edit", { path: `/work/app/${file}` }), end(String(index), "edit", { path: `/work/app/${file}` })));
+  t.handle(start("r", "read", { path: "/work/app/a.py" }), end("r", "read", { path: "/work/app/a.py" }));
+  t.handle({ type: "assistant_text_delta", delta: "Done." });
+  expect(t.screen).toEqual(["✓ 7 edits · 1 read", "  changed a.py, b.py, c.py, d.py, e.py +2 more"]);
+  const reads = fakeTerminal(true);
+  reads.handle(start("1", "read", { path: "/work/app/a.py" }), end("1", "read", { path: "/work/app/a.py" }));
+  reads.handle(start("2", "bash", { command: "ls" }), end("2", "bash", { command: "ls" }));
+  reads.handle({ type: "assistant_text_delta", delta: "Done." });
+  expect(reads.screen).toEqual(["✓ 1 command · 1 read"]);
 });
 
 test("the Working box never stays after the receipt, even for a tool that ends after its turn", async () => {

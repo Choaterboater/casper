@@ -3209,7 +3209,7 @@ export class CasperApp {
     this.displayChoice = (argument as DisplayLevel) || nextDisplay(this.displayLevel());
     const words: Record<DisplayLevel, string> = {
       quiet: "the model's words, failures and receipts",
-      normal: "steps fold into one summary line",
+      normal: "steps fold into one summary line, with the changed files under it",
       detailed: "every step, with a small diff under each edit",
     };
     this.output.write(`[details] ${this.displayChoice}: ${words[this.displayChoice]}. For this session; display: in ~/.casper/config.yaml sets the default.\n`);

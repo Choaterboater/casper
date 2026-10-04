@@ -1,5 +1,5 @@
 /** How much of the work shows on screen. quiet: the model's words, failures and receipts. normal: steps fold
- * into one summary line. detailed: every step, with a small diff under each edit. */
+ * into one summary line, with the changed files under it. detailed: every step, with a small diff under each edit. */
 export const DISPLAY_LEVELS = ["quiet", "normal", "detailed"] as const;
 export type DisplayLevel = typeof DISPLAY_LEVELS[number];
 
