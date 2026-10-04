@@ -19,10 +19,17 @@ const MAX_LINES = 20;
 const MAX_BASELINE_FILES = 300;
 const COMMENT = /^\s*(?:!|#|\/\/|\/\*)/;
 
-/** Config files: anything under a configs/ folder, and .cfg, .conf and Junos .set files. */
+/** Folders whose every file is a config (Oxidized keeps its backups with no extension). */
+const CONFIG_FOLDERS = new Set(["configs", "oxidized"]);
+/** Folders where a .txt backup or a Jinja template is a config. */
+const CONFIG_TEXT_FOLDERS = new Set(["config", "configs", "backup", "backups", "oxidized", "templates"]);
+
+/** Config files: anything under a configs/ or oxidized/ folder; .cfg, .conf and Junos .set files; and .txt backups and
+ * .j2/.jinja templates under config, configs, backup(s), oxidized or templates. */
 export function isConfigFile(relative: string): boolean {
-  const parts = relative.split(/[\\/]/);
-  return parts.slice(0, -1).includes("configs") || /\.(cfg|conf|set)$/i.test(relative);
+  const folders = relative.split(/[\\/]/).slice(0, -1).map((part) => part.toLowerCase());
+  if (folders.some((folder) => CONFIG_FOLDERS.has(folder)) || /\.(cfg|conf|set)$/i.test(relative)) return true;
+  return /\.(txt|j2|jinja2?)$/i.test(relative) && folders.some((folder) => CONFIG_TEXT_FOLDERS.has(folder));
 }
 
 /** A plain file inside the project (not a link out of it), read as text; undefined otherwise. */

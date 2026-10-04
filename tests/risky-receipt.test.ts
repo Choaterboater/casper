@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { riskyBaseline, riskyLinesIn } from "../src/network/risky-receipt";
+import { isConfigFile, riskyBaseline, riskyLinesIn } from "../src/network/risky-receipt";
 import { formatReceipt, formatTaskResult, type TaskResult } from "../src/task/result";
 
 const dirs: string[] = [];
@@ -46,4 +46,14 @@ test("review: only risky lines the task added are listed; comments never count; 
   const many = await riskyLinesIn(root, ["configs/many.cfg"], new Map());
   expect(many).toHaveLength(20);
   expect(many.more).toBe(5);
+});
+
+test("the usual network config files are read: backups as .txt, Jinja templates, and config, backups, oxidized and templates folders", () => {
+  for (const file of [
+    "configs/sw1.cfg", "r1.set", "lab/core.conf", "configs/notes", "config/sw1.txt", "backups/2026-10-01/core-sw1.txt", "backup/sw1.txt",
+    "oxidized/core-sw1", "oxidized/output/sw1.txt", "templates/access-switch.j2", "roles/aoscx/templates/base.jinja", "templates/edge.jinja2",
+  ]) expect(isConfigFile(file)).toBe(true);
+  for (const file of ["notes.txt", "docs/README.txt", "src/templates/page.html", "templates/README.md", "requirements.txt", "web/page.j2.html"]) {
+    expect(isConfigFile(file)).toBe(false);
+  }
 });
