@@ -1,8 +1,13 @@
+import os from "node:os";
 import { CredentialSynchronizationError, ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { tildePath } from "../new/scaffold";
 import { privateFileProblem } from "../platform/private-file";
 import { withLoginDisplay } from "../tui/login";
 import { openRouterAttribution } from "./openrouter-attribution";
 import type { RuntimeAuthenticationOptions, RuntimeAuthenticationResult, RuntimeAuthProvider } from "./types";
+
+/** The home folder now (tests and wrappers change HOME after start). */
+const home = () => process.env.HOME ?? process.env.USERPROFILE ?? os.homedir();
 
 const providerNames: Record<RuntimeAuthProvider, string> = {
   openrouter: "OpenRouter", anthropic: "Anthropic (Claude)", "openai-codex": "OpenAI Codex (ChatGPT plan)", "github-copilot": "GitHub Copilot",
@@ -78,10 +83,12 @@ export async function authenticatePi(options: RuntimeAuthenticationOptions, dest
   let invoked = false;
   let provider = options.provider;
   try {
-    // Refuse an unusable destination before the picker and consent, naming the component to fix.
+    // Refuse an unusable destination before the picker, naming the component to fix.
     const early = await privateFileProblem(destination, signal);
     if (early) return { status: "failed", effect: "none", reason: "destination", detail: early };
     return await options.terminalHost.run((io) => withLoginDisplay(io, signal, async (display): Promise<RuntimeAuthenticationResult> => {
+      const saved = `Saved in ${tildePath(destination, home())}, only on this computer.`;
+      display.setNote(saved);
       // One numbered list (provider and method together); a provider with one way skips it.
       const ways = signInWays(provider);
       const pickedId = ways.length === 1 ? ways[0]!.id
@@ -93,23 +100,19 @@ export async function authenticatePi(options: RuntimeAuthenticationOptions, dest
       const method = way.method;
       // Browser sign-in (loopback listener + authorization page) vs device-code oauth.
       const browser = method === "oauth" && (selected === "anthropic" || selected === "openrouter");
-      const disclosure = selected === "github-copilot"
-        ? "Sign-in may enable model policies on your GitHub account. Cancellation cannot undo remote changes."
-        : selected === "anthropic" ? "API use is billed separately. Claude subscription sign-in is documented as per-token extra usage, not plan limits."
-        : selected === "openrouter"
-          ? method === "api_key" ? "Usage is billed from OpenRouter credits. Use an API key from OpenRouter."
-            : "Usage is billed from OpenRouter credits. Browser sign-in exchanges an authorization code for a user-controlled OpenRouter API key."
-          : "Device-code access must be enabled by the provider.";
-      if (!await display.consent(destination, selected, method === "api_key" ? "an API key" : browser ? "browser authorization" : "a device code",
-        disclosure + (browser ? "\nStarts a temporary loopback callback listener. Redirect URLs/codes belong only in the private login prompt." : "")) || display.signal.aborted) {
-        return { status: "cancelled", effect: "none" };
-      }
+      // Picking the way is the consent (as in Claude Code and Codex); the next screen still says what it costs.
+      const disclosure = selected === "github-copilot" ? "Signing in may turn on model policies on your GitHub account."
+        : selected === "anthropic" ? "API use is billed per token; a Claude plan sign-in is billed per token as extra usage."
+        : selected === "openrouter" ? "Usage is billed from your OpenRouter credits."
+        : "";
+      display.setNote([saved, disclosure].filter(Boolean).join("\n"));
+      if (display.signal.aborted) return { status: "cancelled", effect: "none" };
       // The SDK reads this override when its lazy OAuth module loads. Never allow a public listener.
       if (browser && [process.env.CASPER_OAUTH_CALLBACK_HOST, process.env.PI_OAUTH_CALLBACK_HOST]
         .some(host => host && host !== "127.0.0.1")) {
         return { status: "failed", effect: "none", reason: "unavailable" };
       }
-      // Re-check after consent: the preflight above is not atomic.
+      // Re-check after the pick: the preflight above is not atomic.
       try {
         const problem = await privateFileProblem(destination, display.signal);
         if (problem) return { status: "failed", effect: "none", reason: "destination", detail: problem };

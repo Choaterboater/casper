@@ -6,7 +6,7 @@ import { withLoginSurface } from "./support/login-surface";
 
 const items = [{ id: "codex", label: "OpenAI Codex" }, { id: "copilot", label: "GitHub Copilot" }] as const;
 
-test("login picker accepts application arrows and batched navigation without carrying input into consent", async () => {
+test("login picker accepts application arrows and batched navigation without carrying input into the next screen", async () => {
   const input = new PassThrough();
   const controller = new AbortController();
   let screen = "";
@@ -14,23 +14,23 @@ test("login picker accepts application arrows and batched navigation without car
   let completed = false;
   const pending = withLoginSurface({ input, output: { write(text) { screen += text; } }, color: false, onEOF() {} }, io => withLoginDisplay(io, controller.signal, async display => {
     choice = await display.choose("Choose provider", items);
-    const consent = await display.consent("/synthetic/auth.json", choice ?? "none", "a device code", "Synthetic provider.");
+    const next = await display.choose("Next screen", items);
     completed = true;
-    return consent;
+    return next;
   }));
   try {
     await waitFor(() => screen.includes("Choose provider"));
     input.write("\x1bOB");
-    input.write("\rY");
-    await waitFor(() => screen.includes("Press Y"));
+    input.write("\r1");
+    await waitFor(() => screen.includes("Next screen"));
     expect(choice).toBe("copilot");
-    expect(completed).toBe(false);
-    input.write("\x1b[200~Y\x1b[201~");
-    input.write("YES");
     await Bun.sleep(30);
     expect(completed).toBe(false);
-    input.write("Y");
-    expect(await pending).toBe(true);
+    input.write("\x1b[200~1\x1b[201~");
+    await Bun.sleep(30);
+    expect(completed).toBe(false);
+    input.write("2");
+    expect(await pending).toBe("copilot");
   } finally { controller.abort(); await pending; input.destroy(); }
 });
 

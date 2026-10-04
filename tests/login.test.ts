@@ -51,7 +51,6 @@ test("API-key login verifies with the provider, keeps secrets off screen, and pr
         const result = await runtime.authenticate({ provider: ${JSON.stringify(provider)}, terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
           screen += text;
           if (text.includes('Type a number')) setImmediate(() => input.write('\\r'));
-          if (text.includes('Press Y')) setImmediate(() => input.write('Y'));
           if (text.includes('Private API key')) setImmediate(() => { input.write('\\x1b[200~synthetic-private-key\\x1b[201~'); setTimeout(() => input.write('\\r'), 20); });
         } } }, operation) } });
         console.log(JSON.stringify({ result, screen, calls, headers }));
@@ -72,7 +71,7 @@ test("API-key login verifies with the provider, keeps secrets off screen, and pr
     if (provider === "openrouter") {
       expect(result.screen).toContain("Sign in to OpenRouter");
       expect(result.screen).toContain("sign in with your browser");
-      expect(result.screen).toContain("Use an API key from OpenRouter.");
+      expect(result.screen).toContain("Usage is billed from your OpenRouter credits.");
     }
     expect(JSON.parse(await readFile(path.join(agent, "auth.json"), "utf8"))).toEqual({ unrelated: { type: "api_key", key: "keep" }, [provider]: { type: "api_key", key: "synthetic-private-key" } });
     expect(await Bun.file(path.join(agent, "sessions")).exists()).toBe(false);
@@ -94,7 +93,6 @@ test("Enter at the numbered sign-in list picks OpenRouter with an API key", asyn
       const result = await runtime.authenticate({ terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
         screen += text;
         if (text.includes('Type a number')) setImmediate(() => input.write('\\r'));
-        if (text.includes('Press Y')) setImmediate(() => input.write('Y'));
         if (text.includes('Private API key')) setImmediate(() => { input.write('synthetic-key'); setTimeout(() => input.write('\\r'), 20); });
       } } }, operation) } });
       console.log(JSON.stringify({ result, screen }));
@@ -103,6 +101,34 @@ test("Enter at the numbered sign-in list picks OpenRouter with an API key", asyn
   const result = JSON.parse(output);
   expect(result.result).toEqual({ status: "saved" });
   expect(Bun.stripANSI(result.screen)).toContain("1 OpenRouter");
+  expect(JSON.parse(await readFile(path.join(agent, "auth.json"), "utf8")).openrouter.key).toBe("synthetic-key");
+});
+
+test("picking a sign-in way is the consent: no confirm screen, and one plain line says where the key is saved", async () => {
+  const f = await fixture(); const agent = f.env.PI_CODING_AGENT_DIR;
+  await mkdir(agent, { recursive: true });
+  const output = await f.run(`
+    import { PiRuntime } from ${JSON.stringify(path.join(repo, "src/runtime/pi.ts"))};
+    import { PassThrough } from 'node:stream';
+    globalThis.fetch = async (input) => {
+      if (String(input) === 'https://openrouter.ai/api/v1/auth/key') return Response.json({}, { status: 200 });
+      throw new Error('NETWORK_FORBIDDEN');
+    };
+    const runtime = new PiRuntime(); const input = new PassThrough(); let screen = '';
+    try {
+      const result = await runtime.authenticate({ provider: 'openrouter', terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
+        screen += text;
+        if (text.includes('Sign in to OpenRouter')) setImmediate(() => input.write('1'));
+        if (text.includes('Private API key')) setImmediate(() => { input.write('synthetic-key'); setTimeout(() => input.write('\\r'), 20); });
+      } } }, operation) } });
+      console.log(JSON.stringify({ result, screen }));
+    } finally { await runtime.dispose(); input.destroy(); }
+  `);
+  const result = JSON.parse(output);
+  expect(result.result).toEqual({ status: "saved" });
+  const screen = Bun.stripANSI(result.screen).replace(/[│\s]+/g, " ");
+  expect(screen).toContain("Saved in ~/.pi/agent/auth.json, only on this computer.");
+  for (const jargon of ["Press Y", "consent", "parent/child", "loopback", "defaults will not change"]) expect(screen).not.toContain(jargon);
   expect(JSON.parse(await readFile(path.join(agent, "auth.json"), "utf8")).openrouter.key).toBe("synthetic-key");
 });
 
@@ -127,7 +153,6 @@ test("a provider-rejected API key is never saved and prompts again", async () =>
       const result = await runtime.authenticate({ provider: 'openrouter', terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
         screen += text;
         if (text.includes('Type a number')) setImmediate(() => input.write('\\r'));
-        if (text.includes('Press Y')) setImmediate(() => input.write('Y'));
         if (text.includes('Private API key') && sent < keys.length) {
           const key = keys[sent++];
           setImmediate(() => { input.write(key); setTimeout(() => input.write('\\r'), 20); });
@@ -158,7 +183,6 @@ test("an unverifiable API key can be saved explicitly after the network-choice p
       const result = await runtime.authenticate({ provider: 'openrouter', terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
         screen += text;
         if (text.includes('Sign in to OpenRouter')) setImmediate(() => input.write('\\r'));
-        if (text.includes('Press Y')) setImmediate(() => input.write('Y'));
         if (text.includes('Private API key') && !screen.includes('Key could not be verified')) setImmediate(() => { input.write('synthetic-unverified-key'); setTimeout(() => input.write('\\r'), 20); });
         if (text.includes('Key could not be verified')) setImmediate(() => { input.write('\\x1b[B'); setTimeout(() => input.write('\\r'), 20); });
       } } }, operation) } });
@@ -195,7 +219,6 @@ test("OpenRouter browser sign-in exchanges the pasted authorization code and sav
       const result = await runtime.authenticate({ provider: 'openrouter', terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
         screen += text;
         if (text.includes('Type a number')) setImmediate(() => { input.write('\\x1b[B'); setTimeout(() => input.write('\\r'), 20); });
-        if (text.includes('Press Y')) setImmediate(() => input.write('Y'));
         const displayed = Bun.stripANSI(text).replace(/[\\r\\n]/g, '');
         if (!authorized && displayed.includes('https://openrouter.ai/auth')) authorized = true;
         if (authorized && text.includes('Private authorization code')) setImmediate(() => { input.write('synthetic-private-code'); setTimeout(() => input.write('\\r'), 20); });
@@ -221,9 +244,8 @@ test("Copilot device login discloses account policy changes and saves only Copil
   const output = await f.run(`
     import { PiRuntime } from ${JSON.stringify(path.join(repo, "src/runtime/pi.ts"))};
     import { PassThrough } from 'node:stream';
-    const calls = []; let consent = false; let screen = '';
+    const calls = []; let screen = '';
     globalThis.fetch = async (input, init) => {
-      if (!consent) throw new Error('TRANSPORT_BEFORE_CONSENT');
       const url = String(input); calls.push([url, init?.method ?? 'GET']);
       if (url === 'https://github.com/login/device/code') return Response.json({ device_code: 'synthetic-device', user_code: 'ABCD-EFGH', verification_uri: 'https://github.com/login/device', interval: 0, expires_in: 60 });
       if (url === 'https://github.com/login/oauth/access_token') return Response.json({ access_token: 'synthetic-github-secret' });
@@ -235,14 +257,14 @@ test("Copilot device login discloses account policy changes and saves only Copil
     const runtime = new PiRuntime(); const input = new PassThrough();
     try {
       const result = await runtime.authenticate({ provider: 'github-copilot', terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
-        screen += text; if (text.includes('Press Y')) setImmediate(() => { consent = true; input.write('Y'); });
+        screen += text;
       } } }, operation) } });
       console.log(JSON.stringify({ result, screen, calls }));
     } finally { await runtime.dispose(); input.destroy(); }
   `);
   const result = JSON.parse(output);
   expect(result.result).toEqual({ status: "saved" });
-  expect(result.screen).toContain("enable model policies");
+  expect(result.screen).toContain("may turn on model policies on your GitHub account");
   expect(result.screen).not.toContain("synthetic-github-secret");
   expect(result.screen).not.toContain("synthetic-copilot-secret");
   expect(result.calls).toEqual([
@@ -278,7 +300,6 @@ test("Anthropic browser sign-in completes through private manual input or real l
         const result = await runtime.authenticate({ provider, terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
           screen += text;
           if (text.includes('Type a number')) setImmediate(() => { input.write('\\x1b[B'); setTimeout(() => input.write('\\r'), 20); });
-          if (text.includes('Press Y')) setImmediate(() => input.write('Y'));
           const displayed = Bun.stripANSI(text).replace(/[\\r\\n]/g, '');
           const url = displayed.match(/https:\\/\\/[^ ╭]+/)?.[0];
           if (url && !authUrl) {
@@ -325,7 +346,6 @@ test("private key entry rejects executable syntax, multiline and oversized unfin
         const result = await runtime.authenticate({ provider: 'anthropic', terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
           screen += text;
           if (text.includes('Type a number')) setImmediate(() => input.write('\\r'));
-          if (text.includes('Press Y')) setImmediate(() => input.write('Y'));
           if (text.includes('Private API key')) setImmediate(() => { input.write('\\x1b[200~' + ${literal} + ${key.length > 8192 ? "''" : "'\\x1b[201~'"}); setTimeout(() => input.write('\\r'), 20); });
         } } }, operation) } });
         console.log(JSON.stringify({ result, safe: !screen.includes('SHOULD_NOT_EXIST') && !screen.includes('SECRET_ENV') && !screen.includes('line1') }));
@@ -358,7 +378,6 @@ test("API-key replacement refreshes the selected non-Codex parent without changi
     try {
       const result = await runtime.authenticate({ provider: 'anthropic', terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
         if (text.includes('Type a number')) setImmediate(() => input.write('\\r'));
-        if (text.includes('Press Y')) setImmediate(() => input.write('Y'));
         if (text.includes('Private API key')) setImmediate(() => { input.write('synthetic-new'); setTimeout(() => input.write('\\r'), 20); });
       } } }, operation) } }); console.log(JSON.stringify({ result, before, after: session.getStatus() }));
     } finally { await runtime.dispose(); input.destroy(); }
@@ -386,7 +405,6 @@ test("provider refusal and occupied browser port expose no diagnostics and prese
         const result = await runtime.authenticate({ provider: 'anthropic', terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
           screen += text;
           if (text.includes('Type a number')) setImmediate(() => { input.write('\\x1b[B'); setTimeout(() => input.write('\\r'), 20); });
-          if (text.includes('Press Y')) setImmediate(() => input.write('Y'));
           if (text.includes('Private authorization code')) setImmediate(() => { input.write('private-code'); setTimeout(() => input.write('\\r'), 20); });
         } } }, operation) } }); console.log(JSON.stringify({ result, calls, safe: !screen.includes('PRIVATE_PROVIDER_DIAGNOSTIC') && !screen.includes('private-code') }));
       } finally { await runtime.dispose(); input.destroy(); if (occupied) await new Promise(resolve => server.close(resolve)); }
@@ -399,14 +417,14 @@ test("provider refusal and occupied browser port expose no diagnostics and prese
   }
 });
 
-test("cancelling between provider selection and consent is cancellation, not login failure", async () => {
+test("Ctrl+C at the sign-in list is cancellation, not login failure", async () => {
   const f = await fixture();
   const output = await f.run(`
     import { PiRuntime } from ${JSON.stringify(path.join(repo, "src/runtime/pi.ts"))}; import { PassThrough } from 'node:stream';
     const runtime = new PiRuntime(); const input = new PassThrough();
     try {
       const result = await runtime.authenticate({ terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
-        if (text.includes('Type a number')) setImmediate(() => { input.write('\\r'); queueMicrotask(() => input.write('\\x03')); });
+        if (text.includes('Type a number')) setImmediate(() => input.write('\\x03'));
       } } }, operation) } }); console.log(JSON.stringify(result));
     } finally { await runtime.dispose(); input.destroy(); }
   `);
@@ -414,7 +432,7 @@ test("cancelling between provider selection and consent is cancellation, not log
   expect(await Bun.file(path.join(f.env.PI_CODING_AGENT_DIR, "auth.json")).exists()).toBe(false);
 });
 
-test("runtime login cancellation before consent never creates auth or starts a session", async () => {
+test("Esc at the sign-in list never creates auth or starts a session, and the list says where a key would be saved", async () => {
   const f = await fixture();
   const output = await f.run(`
     import { PiRuntime } from ${JSON.stringify(path.join(repo, "src/runtime/pi.ts"))};
@@ -422,16 +440,16 @@ test("runtime login cancellation before consent never creates auth or starts a s
     const runtime = new PiRuntime(); const input = new PassThrough(); let screen = '';
     globalThis.fetch = () => { throw new Error('NETWORK_FORBIDDEN'); };
     try {
-      const result = await runtime.authenticate({ provider: 'openai-codex', terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
-        screen += text; if (text.includes('Press Y')) setTimeout(() => input.write('\\x1b'), 0);
+      const result = await runtime.authenticate({ terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
+        screen += text; if (text.includes('Type a number')) setTimeout(() => input.write('\\x1b'), 0);
       } } }, operation) } });
       console.log(JSON.stringify({ result, screen }));
     } finally { await runtime.dispose(); input.destroy(); }
   `);
   const result = JSON.parse(output);
   expect(result.result).toEqual({ status: "cancelled", effect: "none" });
-  const consent = Bun.stripANSI(result.screen).split(/\r?\n/).map(line => line.replace(/^│\s?|\s?│$/g, "").trim()).join("");
-  expect(consent).toContain(path.join(f.env.PI_CODING_AGENT_DIR, "auth.json"));
+  const list = Bun.stripANSI(result.screen).split(/\r?\n/).map(line => line.replace(/^│\s?|\s?│$/g, "").trim()).join(" ");
+  expect(list).toContain("Saved in ~/.pi/agent/auth.json, only on this computer.");
   expect(await Bun.file(path.join(f.env.PI_CODING_AGENT_DIR, "auth.json")).exists()).toBe(false);
 });
 
@@ -464,7 +482,6 @@ test("pinned Codex device flow saves provider-scoped credentials and refreshes a
     try {
       const result = await runtime.authenticate({ provider: 'openai-codex', terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
         screen += text;
-        if (text.includes('Press Y')) setImmediate(() => input.write('Y'));
       } } }, operation) } });
       const after = session.getStatus();
       console.log(JSON.stringify({ result, before, after, calls, safeScreen: !screen.includes('synthetic-new') && !screen.includes('synthetic-code') }));
@@ -505,7 +522,7 @@ test("a committed credential with failed synchronization blocks stale parent aut
     const original = ModelRuntime.prototype.refresh; ModelRuntime.prototype.refresh = async () => { throw new Error('synthetic sync failure'); };
     const input = new PassThrough();
     try {
-      const result = await runtime.authenticate({ provider: 'openai-codex', terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) { if (text.includes('Press Y')) setImmediate(() => input.write('Y')); } } }, operation) } });
+      const result = await runtime.authenticate({ provider: 'openai-codex', terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write() {} } }, operation) } });
       let blocked; try { await session.prompt('MUST_NOT_SEND'); } catch (error) { blocked = error.message; }
       console.log(JSON.stringify({ result, before, after: session.getStatus(), blocked, fetches }));
     } finally { ModelRuntime.prototype.refresh = original; await runtime.dispose(); input.destroy(); }
@@ -533,7 +550,7 @@ test("cancellation while polling prevents late provider completion from saving",
     const runtime = new PiRuntime(); const input = new PassThrough(); let screen = '';
     try {
       const pending = runtime.authenticate({ provider: 'openai-codex', terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
-        screen += text; if (text.includes('Press Y')) setImmediate(() => input.write('Y'));
+        screen += text;
         if (text.includes('Waiting for authorization')) setImmediate(() => input.write('\\x1b'));
       } } }, operation) } });
       const result = await pending;
@@ -556,7 +573,7 @@ test("hostile device fields fail closed without saving or rendering controls", a
     const runtime = new PiRuntime(); const input = new PassThrough(); let screen = '';
     try {
       const result = await runtime.authenticate({ provider: 'openai-codex', terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
-        screen += text; if (text.includes('Press Y')) setImmediate(() => input.write('Y'));
+        screen += text;
       } } }, operation) } });
       console.log(JSON.stringify({ result, screen }));
     } finally { await runtime.dispose(); input.destroy(); }
@@ -580,7 +597,7 @@ posixOnly("unsafe auth files fail before network without repairing modes or foll
       import { PiRuntime } from ${JSON.stringify(path.join(repo, "src/runtime/pi.ts"))}; import { PassThrough } from 'node:stream';
       let fetches = 0; globalThis.fetch = async () => { fetches++; throw new Error('NETWORK_FORBIDDEN'); };
       const runtime = new PiRuntime(); const input = new PassThrough();
-      try { const result = await runtime.authenticate({ provider: 'openai-codex', terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) { if (text.includes('Press Y')) setImmediate(() => input.write('Y')); } } }, operation) } });
+      try { const result = await runtime.authenticate({ provider: 'openai-codex', terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write() {} } }, operation) } });
         console.log(JSON.stringify({ result, fetches })); } finally { await runtime.dispose(); input.destroy(); }
     `);
     expect(JSON.parse(output)).toMatchObject({ result: { status: "failed", effect: "none", reason: "destination" }, fetches: 0 });
@@ -602,7 +619,6 @@ posixOnly("login saves through a symlinked HOME ancestor", async () => {
     try {
       const result = await runtime.authenticate({ provider: 'anthropic', terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
         if (text.includes('Type a number')) setImmediate(() => input.write('\\r'));
-        if (text.includes('Press Y')) setImmediate(() => input.write('Y'));
         if (text.includes('Private API key')) setImmediate(() => { input.write('\\x1b[200~synthetic-private-key\\x1b[201~'); setTimeout(() => input.write('\\r'), 20); });
       } } }, operation) } });
       console.log(JSON.stringify(result));
@@ -647,11 +663,10 @@ test("CASPER_OAUTH_CALLBACK_HOST cannot expose browser sign-in on a public liste
     process.env.CASPER_OAUTH_CALLBACK_HOST = '0.0.0.0';
     let requests = 0;
     globalThis.fetch = async () => { requests++; throw new Error('NETWORK_FORBIDDEN'); };
-    const runtime = new PiRuntime(); const input = new PassThrough(); let chosen = false; let consented = false;
+    const runtime = new PiRuntime(); const input = new PassThrough(); let chosen = false;
     try {
       const result = await runtime.authenticate({ provider: 'anthropic', terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
         if (!chosen && text.includes('Type a number')) { chosen = true; setImmediate(() => input.write('\\x1b[B\\r')); }
-        if (!consented && text.includes('Press Y')) { consented = true; setImmediate(() => input.write('Y')); }
         if (text.includes('Private authorization')) setImmediate(() => input.write('\\x1b'));
       } } }, operation) } });
       console.log(JSON.stringify({ result, requests }));

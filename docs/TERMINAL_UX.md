@@ -270,8 +270,10 @@ unreported failed-request cost is unknown, not zero.
 1 OpenRouter · paste an API key, 2 OpenRouter · sign in with your browser, 3-4 the same for
 Anthropic (Claude), then OpenAI Codex and GitHub Copilot. Press a number, or Up/Down and
 Enter (Enter alone picks 1); Esc cancels. `/login <provider-id>` lists only that provider's
-ways, and opens the only one straight away. Every method requires fresh consent to provider-scoped
-credential replacement in Casper's store (`~/.casper/agent/auth.json`); login does not select a model. Browser sign-in opens the system
+ways, and opens the only one straight away. Picking a row is your go-ahead, as in Claude Code
+and Codex: no confirm screen follows. The list says where the key goes (`Saved in
+~/.casper/agent/auth.json, only on this computer.`), and the next screen says what the provider
+charges. Only that provider's saved sign-in is replaced. Browser sign-in opens the system
 browser automatically; offline mode (CASPER_OFFLINE=1) suppresses the launch and keeps the URL
 printed for manual opening.
 Typed API keys are verified with the provider before they are stored; a rejected
@@ -284,7 +286,7 @@ The list reuses Pi's selection list: a digit picks its row at once, Up/Down move
 visible highlight in place, Enter confirms that item, and Esc exits without contacting
 the provider. Navigation accepts Pi's decoded arrow/Enter sequences, including
 fragmented or batched terminal input. Trailing keys cannot answer the next prompt;
-pasted text cannot grant consent or submit a private credential.
+pasted text cannot pick a row or submit a private credential.
 All login panels render through the host surface; terminal-control bytes never
 pass through the untrusted-text sanitizer or get appended as transcript text.
 

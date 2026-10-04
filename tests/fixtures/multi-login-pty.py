@@ -28,12 +28,7 @@ def run_case(bun, repo, root, provider, browser=False, action="save", no_color=F
             # Arrow to the row, then Enter: the list is numbered, but arrows still work.
             for _ in range(row - 1): s.send("\x1b[B"); s.pump(0.03)
             s.send("\n")
-        s.until("Press Y to consent")
         auth = s.root / "home/.casper/agent/auth.json"
-        assert not auth.exists()
-        s.send("\x1b[200~Y\x1b[201~"); s.pump(0.05)
-        assert not auth.exists(), "paste granted consent"
-        s.send("Y")
         secret = "synthetic-private-manual-code" if browser else "synthetic-private-api-key"
         if provider != "github-copilot":
             s.until("Private authorization code" if browser else "Private API key")
@@ -86,4 +81,4 @@ if __name__ == "__main__":
     for i, (provider, browser, action, no_color) in enumerate(cases):
         case = pathlib.Path(root) / str(i); case.mkdir()
         run_case(bun, repo, case, provider, browser, action, no_color)
-    print("MULTI LOGIN PTY PASS: providers, methods, consent, hidden paste, history, cancellation, EOF and SIGTERM")
+    print("MULTI LOGIN PTY PASS: providers, methods, hidden paste, history, cancellation, EOF and SIGTERM")

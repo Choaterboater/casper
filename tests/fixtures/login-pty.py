@@ -38,18 +38,17 @@ def success(bun, repo, root, no_color):
             assert "\\u{d}" not in screen, screen
             for label in ("OpenAI Codex", "GitHub Copilot"):
                 assert screen.count(label) == 1, screen
-        s.send("5")
-        s.until("Press Y to consent")
-        assert "Type a number" not in s.screen.text(), s.screen.text()
+        assert "only on this computer" in s.screen.text(), s.screen.text()
         auth = s.root / "home/.casper/agent/auth.json"
-        assert not auth.exists(), "consent screen created auth storage"
-        # Bracketed paste and unrelated text are ignored, not echoed or reused as consent.
+        assert not auth.exists(), "the sign-in list created auth storage"
+        # Picking the row is the consent: no confirm screen follows.
+        s.send("5")
+        s.until("https://auth.openai.com/codex/device")
+        assert "Type a number" not in s.screen.text(), s.screen.text()
+        # Bracketed paste on the waiting screen is ignored, not echoed.
         s.send("\x1b[200~PASTED_SYNTHETIC_SECRET\x1b[201~")
         s.pump(0.1)
         assert "PASTED_SYNTHETIC_SECRET" not in s.screen.text(), s.screen.text()
-        assert not auth.exists(), "paste unexpectedly granted consent"
-        s.send("Y")
-        s.until("https://auth.openai.com/codex/device")
         s.until("ABCD-EFGH")
         s.send("discard-me")
         (s.root / "authorize").touch()
@@ -86,8 +85,8 @@ def cancel_and_eof(bun, repo, root, eof=False):
     try:
         s.until("/help · /status · /login")
         s.until("│ idle")
-        s.send("/login openai-codex\n")
-        s.until("Press Y to consent")
+        s.send("/login\n")
+        s.until("Type a number")
         s.send("\x04" if eof else "\x1b")
         if eof:
             wait_exit(s)
@@ -104,7 +103,7 @@ def sigterm(bun, repo, root):
     try:
         s.until("/help · /status · /login")
         s.until("│ idle")
-        s.send("/login openai-codex\n"); s.until("Press Y to consent")
+        s.send("/login\n"); s.until("Type a number")
         s.process.terminate()
         deadline = time.monotonic() + 5
         while s.process.poll() is None and time.monotonic() < deadline: s.pump(0.05)
@@ -112,7 +111,7 @@ def sigterm(bun, repo, root):
         # harness separately asserts Casper's graceful shutdown exit code 143.
         assert s.process.poll() in (-signal.SIGTERM, 143), (s.process.poll(), s.screen.text()[-4000:])
         auth = s.root / "home/.casper/agent/auth.json"
-        assert not auth.exists(), "SIGTERM before consent created auth state"
+        assert not auth.exists(), "SIGTERM at the sign-in list created auth state"
     finally: s.close()
 
 
@@ -139,4 +138,4 @@ if __name__ == "__main__":
         case = pathlib.Path(root) / name; case.mkdir(); cancel_and_eof(bun, repo, str(case), eof)
     case = pathlib.Path(root) / "sigterm"; case.mkdir(); sigterm(bun, repo, str(case))
     case = pathlib.Path(root) / "dumb"; case.mkdir(); dumb(bun, repo, str(case))
-    print("LOGIN PTY PASS: consent, device display, paste disposal, save, draft/history, cancel, EOF, SIGTERM, NO_COLOR and TERM=dumb")
+    print("LOGIN PTY PASS: numbered list, device display, paste disposal, save, draft/history, cancel, EOF, SIGTERM, NO_COLOR and TERM=dumb")
