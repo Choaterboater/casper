@@ -141,8 +141,9 @@ export async function runNetworkSetup(host: SetupHost, _options: { explicit: boo
   }
   const answer = await ask(host, networkSetupQuestion());
   if (answer !== "2") {
-    // Only the person's 1 is kept; nobody answering (closed, cancelled) keeps nothing.
-    if (answer === "1") await writeSetupState(host.homeDir, { answer: "not-now" });
+    // The person's 1, Enter or any other answer is kept, so the offer never nags; nobody answering (closed,
+    // cancelled) keeps nothing.
+    if (answer !== undefined) await writeSetupState(host.homeDir, { answer: "not-now" });
     if (answer !== undefined) host.write(`${NOT_NOW}\n`);
     return "not-now";
   }
@@ -182,7 +183,7 @@ export async function runNetworkUpdate(host: SetupHost, options: { explicit: boo
   if (!host.canAsk()) { host.write(`${CANT_ASK_UPDATE}\n`); return "cant-ask"; }
   const answer = await ask(host, updateQuestion(update.from));
   if (answer !== "2") {
-    if (answer === "1") await writeSetupState(host.homeDir, { updateNotNow: update.to });
+    if (answer !== undefined) await writeSetupState(host.homeDir, { updateNotNow: update.to });
     if (answer !== undefined) host.write(`Not updated. The network server keeps ${update.from}. Type /mcp setup network to update.\n`);
     return "not-now";
   }
