@@ -100,6 +100,13 @@ test("webhook and DSN environment values are hidden even without a password in t
   expect(out!.texts[0]).toBe(`<secret hidden>\n${env.TOKEN_URL}`);
 });
 
+test("a webhook or DSN on this machine (localhost, 127.x, ::1) is not a login and stays shown", () => {
+  const env = { STRIPE_WEBHOOK_URL: "http://localhost:4242/webhooks", DATABASE_DSN: "postgres://localhost/app", LOCAL_DSN: "postgres://127.0.0.1:5432/app",
+    V6_WEBHOOK: "http://[::1]:9000/hook", DEV_WEBHOOK: "http://app.localhost:3000/hook", SLACK_WEBHOOK_URL: "https://hooks.slack.com/services/T0/B0/abcd1234",
+    LOOKALIKE_WEBHOOK: "https://localhost.example.com/hook" };
+  expect(secretEnvValues(env).sort()).toEqual([env.LOOKALIKE_WEBHOOK, env.SLACK_WEBHOOK_URL].sort());
+});
+
 test("keys in Casper's login file are hidden wherever they show up", async () => {
   const { mkdtemp, writeFile, rm } = await import("node:fs/promises");
   const os = await import("node:os"); const path = await import("node:path");
