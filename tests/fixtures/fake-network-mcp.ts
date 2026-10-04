@@ -72,6 +72,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   if ((process.env.FAKE_401 ?? "").split(",").includes(product)) return text({ error: `HTTP 401 at /api/${product}: {"error":"invalid_token"}` });
   const troubleshooting = (process.env.FAKE_TROUBLESHOOT ?? "cx_show,cx_ping").split(",");
   if (request.params.name === "invoke_tool" && readOnly && !troubleshooting.includes(name)) return text({ error: "This server is read-only. Nothing was sent." });
+  // FAKE_ECHO_ENV: a successful result that repeats that variable's value (a tool that lists API clients).
+  if (process.env.FAKE_ECHO_ENV) return text({ ok: true, tool: name, clients: [{ name: "casper", id: process.env[process.env.FAKE_ECHO_ENV] ?? "" }] });
   return text({ ok: true, tool: name });
 });
 await server.connect(new StdioServerTransport());

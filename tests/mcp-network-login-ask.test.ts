@@ -423,3 +423,11 @@ test("Not now on the replace box keeps the old login and tells the AI not to ask
   expect(once.toolResultText).toBe("The ClearPass login didn't work (it may have expired). The person can replace it: run casper and type /mcp login clearpass.");
   expect(once.prompts).toEqual([]);
 });
+
+test("a login value the server echoes in a successful result is hidden from the AI", async () => {
+  const home = await tempHome();
+  await saveLogin(home, "central", { CENTRAL_BASE_URL: "https://us1.api.central.arubanetworks.com", CENTRAL_CLIENT_ID: "cid-EXAMPLE-777", CENTRAL_CLIENT_SECRET: "sec-EXAMPLE-888" });
+  const run = await brokerRun({ interactive: true, home, env: { FAKE_ECHO_ENV: "CENTRAL_CLIENT_ID" }, tool: "central_list_api_clients" });
+  expect(run.transcript).toContain("<secret hidden>");
+  expect(run.transcript).not.toContain("cid-EXAMPLE-777");
+});

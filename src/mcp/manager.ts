@@ -153,6 +153,8 @@ interface Entry {
   output?: ServerOutput;
   /** Resolved secret values of this definition, hidden from any server text. */
   secrets: string[];
+  /** The saved network logins among them. */
+  loginSecrets: readonly string[];
   /** Exit code of the current child, once it has exited (null when it was killed by a signal). */
   exitCode?: number | null;
   exited?: boolean;
@@ -237,7 +239,7 @@ function newEntry(definition: MCPServerDefinition, consent?: ConsentStore): Entr
   const personal = definition.scope !== "project";
   return {
     definition, state: definition.disabled ? "disabled" : "disconnected",
-    tools: [], abort: new AbortController(), dirty: false, attempts: [], generation: 0, secrets: [], inFlight: 0,
+    tools: [], abort: new AbortController(), dirty: false, attempts: [], generation: 0, secrets: [], loginSecrets: [], inFlight: 0,
     // Remembered approval only ever means "connect with writes off"; project servers always ask.
     approved: personal && !definition.disabled && (consent?.has(definition) ?? false),
     consent: personal ? consent?.state(definition) ?? "none" : "none",
@@ -334,6 +336,12 @@ export class MCPManager {
   }
 
   /** How the broker must treat this server's tools. */
+  /** The saved network logins this server was started with (only Casper's network server has any), so they are hidden
+   * in its results too, even a Central client ID that matches no secret pattern. */
+  loginValues(server: string): readonly string[] {
+    return [...this.entries.get(server)?.loginSecrets ?? []];
+  }
+
   policy(server: string): ServerPolicy {
     const entry = this.entries.get(server);
     if (!entry) return { writes: "off", showOptIn: false };
@@ -808,7 +816,8 @@ export class MCPManager {
     // changed or forgotten login counts at the next restart). They are never part of the definition.
     const logins = this.homeDir && getsLogins(entry.definition)
       ? await loginEnv(this.homeDir, (text) => this.onNote?.(`[mcp] ${text}`)).catch(() => ({})) : {};
-    entry.secrets = resolvedSecrets(entry.definition, loginSecretValues(logins));
+    entry.loginSecrets = loginSecretValues(logins);
+    entry.secrets = resolvedSecrets(entry.definition, entry.loginSecrets);
     entry.access = undefined;
     // While writes are off, the preset's read-only settings go to the server (env beats the user's own).
     const pinMatch = this.match(entry);
