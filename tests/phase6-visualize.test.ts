@@ -130,6 +130,15 @@ test("Mermaid flowchart escapes labels, groups subgraphs, and labels edges", asy
   expect(lr.content).toContain("flowchart LR");
 });
 
+test("Mermaid flowchart encodes < and > in node, group and edge labels", async () => {
+  const graph = parseVisualizationGraph({ type: "flowchart", title: "T", nodes: [{ id: "a", label: "List<T>", group: "a<b>" }, { id: "b", label: "x > y" }], edges: [{ from: "a", to: "b", label: "<br>" }] });
+  const result = await new MermaidProvider().render(graph);
+  expect(result.content).toContain('subgraph g0 ["a#lt;b#gt;"]');
+  expect(result.content).toContain('n0["List#lt;T#gt;"]');
+  expect(result.content).toContain('n1["x #gt; y"]');
+  expect(result.content).toContain("n0 -->|#lt;br#gt;| n1");
+});
+
 test("Mermaid mindmap projects a tree, strips shape characters, and discloses cross edges", async () => {
   const graph: VisualizationGraph = { type: "mindmap", title: "Casper (core)", nodes: [
     { id: "core", label: "Casper [core]" }, { id: "mcp", label: "MCP (broker)", group: "capabilities" }, { id: "lsp", label: "LSP" }, { id: "pi", label: "Pi runtime" },

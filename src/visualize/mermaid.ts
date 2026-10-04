@@ -12,14 +12,19 @@ export class MermaidProvider implements VisualizationProvider {
   }
 }
 
+/** Mermaid entity codes shared by quoted and edge labels; `<` and `>` would otherwise be read as HTML. */
+function encode(text: string): string {
+  return text.replace(/\s+/g, " ").replace(/#/g, "#35;").replace(/"/g, "#quot;").replace(/</g, "#lt;").replace(/>/g, "#gt;");
+}
+
 /** Quoted flowchart label: Mermaid entity codes for characters that break its parser. */
 function quote(text: string): string {
-  return `"${text.replace(/\s+/g, " ").replace(/#/g, "#35;").replace(/"/g, "#quot;")}"`;
+  return `"${encode(text)}"`;
 }
 
 /** Edge labels are pipe-delimited and cannot use the quoted-text form. */
 function edgeLabel(text: string): string {
-  return text.replace(/\s+/g, " ").replace(/#/g, "#35;").replace(/\|/g, "#124;").replace(/"/g, "#quot;");
+  return encode(text).replace(/\|/g, "#124;");
 }
 
 /** Mindmap lines are unquoted; drop shape/comment characters instead of encoding. */
