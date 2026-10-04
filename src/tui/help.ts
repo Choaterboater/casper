@@ -32,6 +32,8 @@ export const HELP_TEXT = `Casper — your coding companion
   /verify [checks ...]   Run this project's checks (in the sandbox); /verify repair fixes failures
   /sandbox               What the shell sandbox holds here; /sandbox forget <host>
   /security-review       Run the pinned security tools here, then offer an AI review (asks first)
+  /mcp setup network     Set up Casper's network server for Mist, Central and ClearPass (asks first)
+  /mcp login             Add, replace or forget a Mist, Central or ClearPass login (you type it)
   /browser               Disposable browser status; website tasks can reproduce bugs
   /services              Declared services: status, logs, start, restart, stop (no model)
   /tasks                 What runs in the background (dev servers, helpers, checks); stop one
@@ -164,6 +166,8 @@ Local commands:
   /skills trust <id> <sha256>       Approve the exact reviewed skill content
   /skills block <id>                Prevent future skill injection
   /mcp                              Show redacted MCP status (no connection)
+  /mcp setup network                Set up Casper's network server (Mist, Central, ClearPass): 1 Not now · 2 Set it up
+  /mcp login [mist|central|clearpass] [forget]  Add, replace or forget a network login; only you type it
   /mcp connect <name>               Connect this server; your own or imported ones can be remembered
   /mcp disconnect <name>            Disconnect and revoke consent for this process
   /mcp reload                       Re-read MCP files; changed servers need consent again

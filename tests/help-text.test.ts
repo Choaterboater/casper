@@ -59,3 +59,9 @@ test("help lists casper <folder>, /undo, /redo, /diff n and /receipt n", () => {
   expect(FULL_HELP_TEXT).toContain("options go before the prompt (quote the whole request to send them as words)");
   for (const entry of ["/undo [n]", "/redo [n]", "/diff [n|list]", "/receipt <n>, /receipt list"]) expect(FULL_HELP_TEXT).toContain(entry);
 });
+
+test("/help lists setting up Casper's network server and its logins", () => {
+  for (const text of [HELP_TEXT, FULL_HELP_TEXT]) expect(text).toContain("/mcp setup network");
+  expect(HELP_TEXT).toContain("/mcp login ");
+  expect(FULL_HELP_TEXT).toContain("/mcp login [mist|central|clearpass] [forget]");
+});

@@ -187,6 +187,25 @@ The change was not made.</pre>
         </details>
 
         <details>
+          <summary>Where are my network logins kept?</summary>
+          <p>Only in Casper's own private file, <code>~/.casper/network-logins.json</code>. Only you can
+          read it (mode 0600), and the AI's tools and shell can't open it. Casper hands the logins to its
+          network server when it starts, never puts them in <code>mcp.json</code>, and hides the tokens
+          and secrets anywhere they turn up. You type each one yourself, hidden, the first time a product
+          is used or with <code>/mcp login mist</code> (or <code>central</code>, <code>clearpass</code>);
+          the AI can't. <code>/mcp login mist forget</code> removes one. No env file, nothing to edit.</p>
+        </details>
+
+        <details>
+          <summary>Can I use my own server?</summary>
+          <p>Yes. Casper's own network server is offered, never forced. Answer <code>1 Not now</code> and
+          put any server you like in <code>~/.casper/mcp.json</code>: hpe-networking-mcp, junos-mcp-server,
+          NetBox, one you built with <code>casper new</code>, or anything else. Casper doesn't offer its
+          own when you already have a network server, and the same rules hold for every server: writes
+          start off, and every change asks you. See <a href="network.html#setup">Hook up your servers</a>.</p>
+        </details>
+
+        <details>
           <summary>Does it ask before running every command?</summary>
           <p>Not every one. Casper's approvals cover specific things: MCP calls that may change
           something, connecting a server, reaching another machine over <code>ssh</code>, a write
