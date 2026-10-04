@@ -122,7 +122,7 @@ import { createSessionSandbox, outsideWritesReceipt, runtimeShell, sandboxReceip
 import { useSandbox, currentSandbox, type ShellSandbox, type ShellSandboxOptions } from "./sandbox/manager";
 import { SandboxStore } from "./sandbox/store";
 import { loginMissingAnswer, type LoginHost } from "./mcp/network/ask-login";
-import { loginFile, type NetworkProduct } from "./mcp/network/logins";
+import { loginFile, PRODUCT_LABELS, type NetworkProduct } from "./mcp/network/logins";
 import { withLoginDisplay } from "./tui/login";
 import { namesNetworkProduct, runNetworkSetup, runNetworkUpdate, shouldOfferNetworkSetup, shouldOfferNetworkUpdate, type SetupHost } from "./mcp/network/setup";
 import type { RuntimeShell } from "./runtime/types";
@@ -2879,9 +2879,12 @@ export class CasperApp {
     if (!this.interactive) throw new NotExecutedError("needs your approval, and this run cannot ask");
     return this.oneAtATime(async () => {
       if (this.approvalStopped(signal)) throw new NotExecutedError("cancelled");
-      const scope = changeScopeText(this.mcp?.policy(call.plan.server).access);
+      // A routed tool's own product (Mist, Central, ClearPass): the box names it, and the reach is that login's.
+      const access = this.mcp?.policy(call.plan.server).access;
+      const scope = changeScopeText(call.product && access ? { ...access, products: access.products.filter((item) => item.product === call.product) } : access);
       const box = formatApproval(call.plan, call.lastPreview, {
-        product: this.mcp?.productLabel(call.plan.server), ...(scope ? { scope } : {}), ...(call.tool ? { tool: call.tool } : {}),
+        product: this.mcp?.productLabel(call.plan.server), ...(call.product ? { toolProduct: PRODUCT_LABELS[call.product] } : {}),
+        ...(scope ? { scope } : {}), ...(call.tool ? { tool: call.tool } : {}),
       });
       // The same exact channel as /mcp writes: only a digit typed after the box appeared answers it.
       const digit = await this.chooseExact(box.preview, box.question, box.choices, signal);

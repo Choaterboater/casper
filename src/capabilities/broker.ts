@@ -69,6 +69,8 @@ export type ConfirmCapability = (call: {
   lastPreview?: LastPreview;
   /** The tool's server tags (`_meta`), so the box reads the server's change kind. */
   tool?: Pick<MCPTool, "_meta">;
+  /** The product Casper's network server said the one routed tool belongs to (from find_tool). */
+  product?: NetworkProduct;
 }, signal?: AbortSignal) => Promise<ApprovalAnswer>;
 
 /** Ask the user whether a change kind that is off by default (firmware, delete, admin) may run on this server for
@@ -296,11 +298,17 @@ export class CapabilityBroker {
     const notes = approvalNotes(policy.match, capability.tool);
     const noPreview = hasNoPreview(policy.match, capability.tool);
     // Each routed tool carries the kind the server's find_tool gave it: it can only make the call stricter.
+    // Casper's own network server (recognised by what it runs): invoke_tool running one tool Casper can see is judged
+    // by that tool (a write, plus its name and kind), not as a destructive dispatcher, so a plain change can be
+    // allowed for the session. Destructive names and risky or disruptive kinds still ask every time.
+    const byRealTool = Boolean(policy.match?.preset.routedByRealTool) && policy.match?.by === "definition"
+      && capability.tool.name === "invoke_tool" && capability.tool.annotations?.destructiveHint !== true;
     const plan = withHitKinds(buildPlan({
       server: capability.descriptor.source, tool: capability.tool.name, label: capability.descriptor.safety,
       schema: capability.tool.inputSchema, arguments: frozenArgs,
       ...(notes.length || noPreview ? { hint: { ...(notes.length ? { executeNote: notes.join(" ") } : {}), ...(noPreview ? { noPreview } : {}) } } : {}),
     }), this.hitKinds(capability.descriptor.source));
+    if (byRealTool && plan.routed.length === 1 && !plan.routerUnclear) plan.label = "write";
     const label = planLabel(plan);
     // A router call is judged by the real tools it runs: a write behind a read router is refused
     // like the write tool itself while writes are off (or for a read-only login).
@@ -397,6 +405,8 @@ export class CapabilityBroker {
     if (!this.confirm) throw new NotExecutedError("needs your approval, and this run cannot ask");
     const realTool = realToolOf(plan);
     const slot = this.previewSlot(capability, plan);
+    const product = capability.policy.match?.preset.logins && plan.routed.length === 1 && !plan.routerUnclear
+      ? this.hitProduct(plan.server, plan.routed[0]!.name) : undefined;
     for (let previews = 0; ; previews++) {
       const lastPreview = this.previews.get(slot);
       // After the last allowed preview the box is shown once more, without "p", so the user sees it.
@@ -405,6 +415,7 @@ export class CapabilityBroker {
         capability: structuredClone(capability.descriptor), arguments: structuredClone(plan.arguments),
         plan: structuredClone(shown), ...(lastPreview ? { lastPreview: { ...lastPreview } } : {}),
         ...(capability.tool._meta ? { tool: { _meta: structuredClone(capability.tool._meta) } } : {}),
+        ...(product ? { product } : {}),
       }, signal);
       notCancelled(signal);
       if (answer === true || answer === "yes") return { realTool, once: true };
