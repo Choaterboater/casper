@@ -17,7 +17,7 @@ import type { VerificationMode } from "./verify/mode";
 
 import { redactPreview, terminalText } from "./tui/format";
 import { formatJsonEvent, receiptEvent, type CasperEvent } from "./app/json-events";
-import { HELP_TEXT } from "./tui/help";
+import { CLI_HELP_TEXT, wrapHelp } from "./tui/help";
 import { CASPER_VERSION } from "./version";
 import licenseNotices from "../THIRD_PARTY_NOTICES.txt" with { type: "text" };
 
@@ -192,7 +192,7 @@ export async function runCli(): Promise<void> {
     return;
   }
   if (options.info === "help") {
-    process.stdout.write(HELP_TEXT);
+    process.stdout.write(wrapHelp(CLI_HELP_TEXT, process.stdout.isTTY ? process.stdout.columns : undefined));
     return;
   }
   if (options.info === "version") {

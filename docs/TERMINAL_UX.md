@@ -3,7 +3,8 @@
 **What this is:** a guide to Casper's terminal screen: what you see, the keys,
 and the `/` commands. **When you'd use it:** when you are learning Casper, or
 want to know what a symbol, key or command does. `/help` shows a short list in
-Casper, and `/help all` the full one.
+Casper, `/help <word>` only the lines that mention a word (`/help mcp`), and
+`/help all` the full one. A mistyped command gets "Did you mean …?".
 
 ## Quick reference
 
@@ -31,7 +32,7 @@ over the network, and `/references add` downloads files after asking you.
 
 | Command | What it does |
 | --- | --- |
-| `/help`, `/help all` | Short help, or the full reference |
+| `/help`, `/help <word>`, `/help all` | Short help, the lines that mention a word, or the full reference |
 | `/status` | Model, login, integrations and local storage |
 | `/model`, `/effort` | Pick a model or reasoning effort (see [Model and effort](#model-and-effort)) |
 | `/login [provider]` | Sign in to a provider (see [Provider login](#provider-login)) |

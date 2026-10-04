@@ -1037,7 +1037,7 @@ export class CasperApp {
     if (this.commandActive) throw new Error("Another command is active; wait for active subagents or workspace transition");
     // Keep local status/help and cleanup available, but never forget an uncertain
     // tree just because its originating command or model tool has finished.
-    if (!/^\/(?:help(?: all)?|status|project|permissions|mcp|lsp|browser|debug|services|tasks|exit|quit|browser close|debug stop)$/.test(prompt)
+    if (!/^\/(?:help(?: \S.*)?|status|project|permissions|mcp|lsp|browser|debug|services|tasks|exit|quit|browser close|debug stop)$/.test(prompt)
       && !/^\/(?:mcp|lsp) disconnect\s/.test(prompt) && !/^\/(?:services|tasks) stop\s/.test(prompt) && !/^\/services logs\s/.test(prompt)) {
       if (this.cleanupError) throw this.cleanupError;
       this.browser?.assertCleanup(); this.mcp?.assertCleanup(); this.lsp?.assertCleanup(); this.services?.assertCleanup();
@@ -3043,7 +3043,7 @@ export class CasperApp {
     if (this.closing) return "Casper is closing";
     // No task yet: Casper is still opening a folder or project. Nothing is loaded to show, so the line waits.
     if (!this.commandActive || !this.projectContext) return "draft kept · Enter again once Casper has opened the project";
-    if (/^\/(?:help(?: all)?|status|usage|context|permissions)$/.test(line)) {
+    if (/^\/(?:help(?: \S.*)?|status|usage|context|permissions)$/.test(line)) {
       void runSlashCommand(this, line).catch((error) => { this.output.write(`[error] ${terminalText(error instanceof Error ? error.message : String(error))}\n`); });
       return true;
     }

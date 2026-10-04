@@ -463,10 +463,10 @@ test("casper new opens the app only for a person at a terminal; --list and scrip
   expect(terminalNewProject(parseCliArgs(["build", "a", "tool"]), true)).toBeUndefined();
 });
 
-test("/new is in the command palette and both help texts; casper new is in the short help", () => {
+test("/new is in the command palette and the full help; casper new is in the short help", () => {
   expect(COMMANDS.find(command => command.name === "new")?.description).toBe("Start a new project in ~/Projects (no model)");
-  expect(HELP_TEXT).toContain("casper new [name]      Start a new project (Python tool, MCP server, Mist scripts)");
-  expect(HELP_TEXT).toContain("/new [name]            Start a new project in ~/Projects (no model)");
+  expect(HELP_TEXT).toContain("casper new [name]");
+  expect(FULL_HELP_TEXT).toContain("/new [name]                       Start a new project in ~/Projects (no model)");
   expect(FULL_HELP_TEXT).toContain("/new <template> <name>");
   expect(FULL_HELP_TEXT).toContain("casper new [name]");
 });

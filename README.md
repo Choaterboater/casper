@@ -154,7 +154,7 @@ in a sandbox (a sealed-off area). Use Casper only in projects you trust, or star
 
 | Command | What it does |
 | --- | --- |
-| `/help` | Short command guide; `/help all` for the full list |
+| `/help` | Short command guide; `/help <word>` searches it, `/help all` shows everything |
 | `/status` | Project, model and connections |
 | `/model`, `/effort` | Pick a model and how hard it thinks (`/effort auto` lets Casper choose) |
 | `/verify` | Run the checks with no model |

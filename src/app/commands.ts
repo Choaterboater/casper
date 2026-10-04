@@ -9,7 +9,7 @@ import { formatSubagentReport, SubagentManager, type SubagentRole } from "../age
 import { formatReferenceResult, type ReferenceLibrary } from "../references/library";
 import { ProjectMemory } from "../memory/store";
 import { modelPreference } from "../tui/model-preference";
-import { HELP_TEXT, FULL_HELP_TEXT, LOGIN_HELP } from "../tui/help";
+import { HELP_TEXT, FULL_HELP_TEXT, LOGIN_HELP, helpFor, unknownCommandMessage, wrapHelp } from "../tui/help";
 import { formatTerminalJSON } from "../tui/json";
 import { formatCacheHitRate, formatCostLong, formatCostShort, formatTokenSplit } from "../tui/usage";
 import { effortChoices } from "../tui/effort";
@@ -158,8 +158,10 @@ export const VERIFY_USAGE = "Usage: /verify [repair] [typecheck|lint|test|build|
 
 export async function runSlashCommand(host: CommandHost, prompt: string): Promise<VerificationReport | undefined> {
     if (host.closing) return;
-    if (prompt === "/help" || prompt === "/help all") {
-      host.output.write(prompt === "/help" ? HELP_TEXT : FULL_HELP_TEXT);
+    if (/^\/help(?:\s|$)/.test(prompt)) {
+      const word = prompt.slice(5).trim();
+      // Laid out for this terminal's width; piped output gets the text unchanged.
+      host.output.write(wrapHelp(!word ? HELP_TEXT : word === "all" ? FULL_HELP_TEXT : helpFor(word), host.interactive ? host.terminal.columns : undefined));
       return;
     }
     if (/^\/login(?:\s|$)/.test(prompt)) {
@@ -511,7 +513,7 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       }
       return host.runVerification(args.length ? args : host.projectContext ? defaultVerifyNames(host.projectContext.model) : CHECK_NAMES, repair);
     }
-    throw new Error(`Unknown command ${JSON.stringify(prompt.split(/\s+/)[0])}. Type /help for local commands.`);
+    throw new Error(unknownCommandMessage(prompt.split(/\s+/)[0]!));
   }
 
 async function handleMemoryCommand(host: CommandHost, prompt: string): Promise<void> {
