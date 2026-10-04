@@ -320,9 +320,9 @@ it. What each version changed, in more detail: [RELEASE.md](docs/RELEASE.md).
 - The receipt's browser line says so when the answer claims the browser checks passed and
   Casper's record says they failed, or none of them finished.
 
-## Coming next
+## Planned next
 
-**v0.3: crews.**
+**v0.3: crews** (planned, not started).
 - For a big job, the AI splits the work on its own: builders in their own copies of the project,
   a reviewer for each part, a fixer, then one merge and the full tests. No command needed.
 - The status bar shows the crew (`crew 2/3 building · 1 reviewing · $0.40`), and `/crew` shows
@@ -331,7 +331,8 @@ it. What each version changed, in more detail: [RELEASE.md](docs/RELEASE.md).
   ("keep it under $2", "no crew for this") holds for the whole crew. `crew: off` turns crews off.
 
 Later, not scheduled: vendor packs (`casper pack add aruba` sets up a vendor's MCP server,
-read-only preset, references and skill in one step), `casper doctor` (Casper checks and fixes its
+read-only preset, references and skill in one step), chat that investigates your infrastructure,
+a reader for untrusted text that hands back only strict JSON, scheduled jobs with an AI on call, `casper doctor` (Casper checks and fixes its
 own setup), a terminal check (Casper tries a command-line program like a person), community lessons (fixes proven by passing checks, shared as a pack) and tool rules you
 write (for example, bounces only on lab sites in a maintenance window). See the [roadmap](https://choaterboater.github.io/casper/roadmap.html#later).
 
