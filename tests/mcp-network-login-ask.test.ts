@@ -158,6 +158,8 @@ test("a login the product itself makes read-only reads read-only", async () => {
 test("1 Not now adds nothing and doesn't restart the server", async () => {
   const run = await brokerRun({ interactive: true, answers: ["1"], secrets: [] });
   expect(run.prompts).toHaveLength(1);
+  // Kept for the session, per product: the AI's next Mist call doesn't ask again.
+  expect([...run.notNow]).toEqual(["mist"]);
   expect(run.output).toContain("Not added. Type /mcp login mist any time.");
   expect(run.toolResultText).toContain("didn't add one now");
   expect(await readLogins(run.home)).toEqual({});
