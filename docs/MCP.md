@@ -119,7 +119,8 @@ file and set no variable.
 
 When Casper ships a newer pinned version, it asks before your first request in a session:
 `Casper's network server has an update (0.1.0 → 0.2.0 …)` with `1 Not now · 2 Update it`
-(`1` is kept for that version).
+(`1` is kept for that version). A newer version that another, newer Casper on the same
+computer installed is kept as it is: Casper never offers to go back.
 The new version is built beside the old one while it runs; then, once its running calls
 finish, the server stops, the folders are swapped and it starts again. A failed update
 keeps the old version running. Your `network` entry and what you remembered stay as they are.

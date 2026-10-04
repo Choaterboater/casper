@@ -120,12 +120,26 @@ export async function shouldOfferNetworkSetup(homeDir: string, configured: reado
   return (await readSetupState(homeDir)).answer !== "not-now";
 }
 
-/** The installed version when Casper's own entry runs an older (or newer) pin than this Casper's. */
+/** True when version `a` is older than `b` (dotted numbers; anything else is never older). */
+function olderThan(a: string, b: string): boolean {
+  const parse = (version: string) => /^\d+(?:\.\d+)*$/.test(version) ? version.split(".").map(Number) : undefined;
+  const left = parse(a);
+  const right = parse(b);
+  if (!left || !right) return false;
+  for (let index = 0; index < Math.max(left.length, right.length); index++) {
+    const difference = (left[index] ?? 0) - (right[index] ?? 0);
+    if (difference) return difference < 0;
+  }
+  return false;
+}
+
+/** The installed version when Casper's own entry runs an older pin than this Casper's. A newer one (put there by a
+ * newer Casper on the same machine) is kept: offering it would be a downgrade. */
 async function availableUpdate(homeDir: string, configured: readonly MCPServerDefinition[]): Promise<{ name: string; from: string; to: string } | undefined> {
   const ours = configured.find((definition) => isCaspersEntry(definition, homeDir));
   if (!ours) return undefined;
   const installed = await installedVersion(homeDir, NETWORK_SERVER);
-  return installed && installed !== NETWORK_SERVER.version ? { name: ours.name, from: installed, to: NETWORK_SERVER.version } : undefined;
+  return installed && olderThan(installed, NETWORK_SERVER.version) ? { name: ours.name, from: installed, to: NETWORK_SERVER.version } : undefined;
 }
 
 /** An update to ask about at start: there is one, and the person hasn't said Not now to this version. */
@@ -166,7 +180,7 @@ export async function runNetworkSetup(host: SetupHost, _options: { explicit: boo
   const ours = configured.find((definition) => isCaspersEntry(definition, host.homeDir));
   if (ours) {
     const installed = await installedVersion(host.homeDir, NETWORK_SERVER);
-    if (installed && installed !== NETWORK_SERVER.version) {
+    if (installed && olderThan(installed, NETWORK_SERVER.version)) {
       const updated = await runNetworkUpdate(host, { explicit: true });
       return updated === "current" ? "exists" : updated;
     }
@@ -221,7 +235,7 @@ export async function runNetworkSetup(host: SetupHost, _options: { explicit: boo
 }
 
 /**
- * When this Casper pins a different version than the one installed: 1 Not now · 2 Update it. On 2 the new version is
+ * When this Casper pins a newer version than the one installed: 1 Not now · 2 Update it. On 2 the new version is
  * built beside the old one while it runs; then, once its running calls finish, the server stops, the folders are
  * swapped (the command in ~/.casper/mcp.json, its hash and its remembered approval stay) and it starts again. A swap
  * that fails (Windows keeps a running program's folder locked) puts the old folder back and starts that. Not now is
