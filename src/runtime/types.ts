@@ -285,6 +285,11 @@ export interface RuntimeSession {
   /** `maxTurns` stops the request gracefully after that many model turns (tools of the last turn
    * still finish) and emits turn_limit; unset means no Casper turn limit. */
   prompt(text: string, signal?: AbortSignal, options?: { request: string; maxTurns?: number }): Promise<void>;
+  /** A line the user typed while the model works: the model reads it at its next step. False, with nothing sent,
+   * when no prompt is running (the caller keeps it as the next request). */
+  steer?(text: string): Promise<boolean>;
+  /** Lines steered in that the model never read (the run ended first); they are taken out of the runtime. */
+  takeUnsent?(): string[];
   abort(): Promise<void>;
   subscribe(listener: RuntimeEventListener): () => void;
   getState(): RuntimeState;

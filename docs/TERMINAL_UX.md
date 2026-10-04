@@ -11,7 +11,7 @@ Casper, and `/help all` the full one.
 
 | Key | What it does |
 | --- | --- |
-| Enter | Send the request (during work, keeps your draft; nothing is queued) |
+| Enter | Send the request (during work: the AI reads it at its next step, or it is queued for after the task) |
 | Shift+Enter or Ctrl+J | New line in the prompt (Shift+Enter only where the terminal supports it) |
 | Up / Down | Earlier prompts from this session |
 | `/` | Command list with fuzzy search; Tab completes |
@@ -340,11 +340,18 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   it first). Typing `/` keeps the command menu; the commands that must wait are dimmed and say
   `waits for this task`. Any other command keeps its draft and says why for a moment
   (`/undo waits until this task ends · draft kept`).
+- Anything else you type during work goes to the AI. While the model is working it reads the
+  line at its next step (`↳ sent to the AI · it reads this at its next step`); while Casper
+  runs checks or writes the receipt, the line is queued and runs as the next request
+  (`↳ queued · runs when this task ends`). A line the AI never got to read runs next too. Esc
+  stops the task and puts queued lines back in the prompt instead of running them. Queued
+  lines live outside the prompt, so a queued line never answers an approval box.
   Pickers borrow exclusive input ownership; pretyped text cannot answer a later
   exact approval. NO_COLOR keeps input controls, while TERM=dumb/redirected output
   uses plain line input and retains existing fail-closed cooked-terminal approval.
   Plain lines that arrive before the first prompt (a fast typist, or a pipe) are
-  read in order once Casper starts reading; lines typed during work are dropped.
+  read in order once Casper starts reading. On a plain terminal, lines a person types during
+  work go to the AI or the queue as above; piped lines that arrive during work are dropped.
 
 Daily commands include `/help`, `/status`, `/project`, `/diff`, `/verify`, `/skills`,
 `/mcp`, `/lsp`, `/browser`, `/permissions`, `/model`, `/effort` and:

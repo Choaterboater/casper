@@ -741,7 +741,8 @@ Shift+Tab cycles reasoning effort, including auto, and remembers where it stops,
 Shift+Enter (when supported) or Ctrl+J inserts a newline; Up/Down recalls history.
 Esc stops active work. Ctrl-C cancels work; idle, it clears a draft; twice on empty exits.
 Ctrl+L redraws the screen. See docs/TERMINAL_UX.md for limits.
-Enter during work retains your draft; it does not queue a request.
+Enter during work sends your line to the AI (it reads it at its next step) or queues it for after the task;
+Esc gives queued lines back. A queued line never answers an approval.
 Approvals require a fresh yes. Task completion is not verification.
 After the model edits files, Casper runs the project's checks itself and repairs failures (auto
 mode), by default, with no command from you; slow checks (a minute or more) are offered as /verify

@@ -21,7 +21,8 @@ export interface TerminalHost {
 export type TerminalOutput = RuntimePickerIO["output"] & { isTTY?: boolean };
 
 /** Terminal ownership boundary. Rich raw editor on a TTY; line input otherwise.
- * Neither path queues submissions made during work or treats a stale draft as consent; plain
+ * Lines typed during work go to the app (sent to the AI, queued, or run now), never to an approval; neither path
+ * treats a stale draft as consent; plain
  * input typed before the first prompt is read (a person or a pipe may be ahead of startup). */
 export class InteractiveTerminal {
   readonly color: boolean;
@@ -46,6 +47,7 @@ export class InteractiveTerminal {
   private titleSaved = false;
   private title?: string;
   private undoHost?: () => void;
+  private busySubmit?: (line: string, plain?: boolean) => true | string;
 
   constructor(private readonly input: Readable, private readonly output: TerminalOutput,
     private readonly onInterrupt: () => void, private readonly onEOF: () => void, private readonly host?: TerminalHost) {
@@ -76,6 +78,11 @@ export class InteractiveTerminal {
         this.nextKeys = undefined;
         resolve(offered ?? line);
       } else if (!this.busy || sameChunk) this.earlyLines.push(line);
+      else if ((this.input as NodeJS.ReadStream).isTTY && this.busySubmit && line.trim()) {
+        // A person typing during work: the same as Enter on the rich terminal (sent to the AI, queued, or run now).
+        const answer = this.busySubmit(line.trim(), true);
+        if (answer !== true) this.write(`[input] ${answer}\n`);
+      }
     });
     this.rl.on("SIGINT", () => this.interrupt());
     this.rl.once("close", () => {
@@ -126,8 +133,12 @@ export class InteractiveTerminal {
   setAttentionAfter(ms: number): void { this.surface?.setAttentionAfter(ms); }
   /** Rich terminal only. Shift+Tab cycles effort; plain line input has no equivalent key. */
   setEffortCycle(handler: (() => void) | undefined): void { this.surface?.setEffortCycle(handler); }
-  /** Enter while Casper works (rich terminal): true ran it now; text is why the draft waits. */
-  setBusySubmit(handler: ((line: string) => true | string) | undefined): void { this.surface?.setBusySubmit(handler); }
+  /** Enter while Casper works: true took it (ran it, sent it to the AI or queued it); text is why it waits. `plain`:
+   * the plain terminal, which has no draft to keep. */
+  setBusySubmit(handler: ((line: string, plain?: boolean) => true | string) | undefined): void {
+    this.busySubmit = handler;
+    this.surface?.setBusySubmit(handler && (line => handler(line)));
+  }
   /** Rich terminal only. Ctrl+T shows the last finished step in full. */
   setExpandLast(handler: (() => void) | undefined): void { this.surface?.setExpandLast(handler); }
   flashNote(text: string): void { this.surface?.flashNote(text); }
@@ -197,6 +208,13 @@ export class InteractiveTerminal {
     if (this.surface) { this.surface.endAssistant(); return; }
     if (this.assistantOpen) this.output.write("\n");
     this.assistantOpen = false;
+  }
+
+  /** Put queued lines back in the prompt draft. False on the plain terminal, which has no draft to hold them. */
+  restoreDraft(text: string): boolean {
+    if (!this.surface) return false;
+    this.surface.restoreDraft(text);
+    return true;
   }
 
   /** Print the receipt's next-step row and offer its keys until the next line or key. Nothing waits on it. */

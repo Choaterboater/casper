@@ -267,6 +267,9 @@ export class CasperApp {
   session?: RuntimeSession;
   /** A request typed at a startup question: the first request of the session. */
   private queuedPrompt?: string;
+  /** Lines typed during a task that the AI could not read then: each runs as the next request, in order. They live
+   * here, never in the prompt editor, so no queued line can ever answer an approval box. */
+  private readonly queuedLines: string[] = [];
   /** /details for this session; unset follows display: in the config. */
   private displayChoice?: DisplayLevel;
   closing = false;
@@ -453,7 +456,7 @@ export class CasperApp {
     this.terminal = new InteractiveTerminal(this.input, options.output ?? process.stdout,
       () => this.cancelCurrent(), () => { if (this.commandActive && !this.closing) void this.close().catch(() => {}); }, host);
     this.terminal.setEffortCycle(() => this.cycleEffort());
-    this.terminal.setBusySubmit((line) => this.submitDuringWork(line));
+    this.terminal.setBusySubmit((line, plain) => this.submitDuringWork(line, plain));
     // ctrl+o: MCP writes off everywhere, at once, even while work runs.
     this.terminal.setWritesRevert(() => this.revertWrites());
     // ctrl+t: the last step in full, even while work runs.
@@ -774,9 +777,10 @@ export class CasperApp {
       this.cancelBeforeCommand = false;
       this.updateFooter();
       // A request typed at the empty-folder question runs first, as if typed at the prompt.
-      const queued = this.queuedPrompt;
+      const queued = this.queuedPrompt ?? this.queuedLines.shift();
       this.queuedPrompt = undefined;
-      if (queued) this.events.writePrompt(queued);
+      // A queued line is a request of its own: the last receipt's row no longer applies.
+      if (queued) { this.terminal.offerNext(undefined); this.events.writePrompt(queued); }
       const line = queued ?? await this.terminal.readCommand();
       if (line === undefined) break;
       if (this.cancelBeforeCommand) {
@@ -800,6 +804,7 @@ export class CasperApp {
         const message = error instanceof Error ? error.message : String(error);
         if (!this.commandAbort?.signal.aborted && this.events.lastError !== message) this.output.write(`[error] ${message}\n`);
       }
+      this.settleQueuedLines();
     }
     this.terminal.close();
     this.interactive = false;
@@ -3038,9 +3043,23 @@ export class CasperApp {
     this.events.writePrompt(prompt);
   }
 
-  /** Enter while a task runs (rich terminal). Commands that only show something, and /effort <level>, run now;
-   * anything else keeps its draft with the reason. Nothing is queued to run after the task. */
-  private submitDuringWork(line: string): true | string {
+  /** After a task: lines the AI never read join the queue. A stopped task runs nothing more: its queued lines go
+   * back into the prompt (the rich terminal) for you to send or clear. */
+  private settleQueuedLines(): void {
+    let unsent: string[] = [];
+    try { unsent = this.session?.takeUnsent?.() ?? []; } catch { /* nothing left to take */ }
+    this.queuedLines.unshift(...unsent);
+    if (!this.queuedLines.length || !this.commandAbort?.signal.aborted || this.closing) return;
+    const lines = this.queuedLines.splice(0);
+    const count = `${lines.length} queued line${lines.length === 1 ? "" : "s"}`;
+    if (this.terminal.restoreDraft(lines.join("\n"))) this.output.write(`[cancel] Your ${count} ${lines.length === 1 ? "is" : "are"} back in the prompt; Enter sends ${lines.length === 1 ? "it" : "them"}.\n`);
+    else this.output.write(`[cancel] Dropped your ${count}; type ${lines.length === 1 ? "it" : "them"} again to send.\n`);
+  }
+
+  /** Enter while a task runs. Commands that only show something, and /effort, run now; other commands keep their
+   * draft with the reason. Anything else goes to the AI: it reads the line at its next step, or, when it is not working
+   * right now (checks, a receipt), the line is queued and runs as the next request. */
+  private submitDuringWork(line: string, plain = false): true | string {
     if (this.closing) return "Casper is closing";
     // No task yet: Casper is still opening a folder or project. Nothing is loaded to show, so the line waits.
     if (!this.commandActive || !this.projectContext) return "draft kept · Enter again once Casper has opened the project";
@@ -3056,8 +3075,19 @@ export class CasperApp {
       void this.handleSlashCommand(line).catch(failed);
       return true;
     }
-    if (line.startsWith("/")) return `${terminalText(line.split(/\s+/)[0]!)} waits until this task ends · draft kept`;
-    return "draft kept · Enter again when this task ends";
+    if (line.startsWith("/")) return `${terminalText(line.split(/\s+/)[0]!)} waits until this task ends${plain ? "; type it again then" : " · draft kept"}`;
+    void this.steerOrQueue(line);
+    return true;
+  }
+
+  private async steerOrQueue(line: string): Promise<void> {
+    let sent = false;
+    try { sent = await this.session?.steer?.(line) ?? false; } catch { sent = false; }
+    if (this.closing) return;
+    if (sent) { this.output.write("  ↳ sent to the AI · it reads this at its next step\n"); return; }
+    this.queuedLines.push(line);
+    const waiting = this.queuedLines.length;
+    this.output.write(`  ↳ queued · runs when this task ends${waiting > 1 ? ` (${waiting} waiting)` : ""} · Esc stops the task and gives it back\n`);
   }
 
   /** /effort <level> during a task: the model's next step uses it; the step already running keeps its level. */

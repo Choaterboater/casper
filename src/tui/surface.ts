@@ -97,7 +97,7 @@ export type AskOrigin = "ai" | "casper";
 /** The muted first line of every question the AI asks, so it never looks like a Casper approval. */
 export const AI_ASKS_LABEL = "The AI asks:";
 
-/** Main-screen renderer: terminal scrollback, one editor, no autonomous input queue. */
+/** Main-screen renderer: terminal scrollback, one editor. Lines typed during work go to the app, never to a question. */
 export class TerminalSurface {
   private readonly tui: TuiMainScreen;
   private readonly terminal: StreamTerminal;
@@ -183,8 +183,7 @@ export class TerminalSurface {
       if (this.pendingAsk) { this.answerAsk(value); return; }
       if (this.confirmation) { this.confirmation(value.trim()); return; }
       if (!this.command) {
-        // While Casper works, a command that only shows something (or sets effort) runs now; anything else
-        // keeps its draft, with the reason. Nothing is queued to run later.
+        // While Casper works the app takes the line (runs it, sends it to the AI or queues it), or says why it waits.
         const answer = value.trim() ? this.onBusySubmit?.(value.trim()) : undefined;
         if (answer === true) {
           this.editor.addToHistory(value); this.editor.setText("");
@@ -498,6 +497,14 @@ private updateSpinner(): void {
   /** What rings: BEL, plus iTerm2's notification (through tmux when inside it); see host-terminal.ts. */
   setBell(sequence: string): void { this.bell = sequence; }
   setAttentionAfter(ms: number): void { this.attentionAfterMs = ms; }
+
+  /** Put text back in the prompt (queued lines of a stopped task), ahead of anything typed since. */
+  restoreDraft(text: string): void {
+    if (this.closed || !text) return;
+    const typed = this.editor.getExpandedText();
+    this.editor.setText(typed ? `${text}\n${typed}` : text);
+    this.render();
+  }
 
   /** Offer the receipt's next-step row: until another key or command, a lone key from `keys` submits its command. */
   offerNext(keys: ReadonlyMap<string, string> | undefined): void { this.nextKeys = keys?.size ? new Map(keys) : undefined; }

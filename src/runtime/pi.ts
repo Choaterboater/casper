@@ -82,6 +82,8 @@ class PiRuntimeSession implements RuntimeSession {
   private readonly writes = new Map<string, { before: string | undefined | null; after: string }>();
   private unsubscribePi?: () => void;
   private promptActive = false;
+  /** Steered lines the model never read; see takeUnsent. */
+  private readonly unsent: string[] = [];
   private progressChars = 0;
   private progressReported = 0;
   private promptController?: AbortController;
@@ -332,12 +334,30 @@ class PiRuntimeSession implements RuntimeSession {
       });
       throw error;
     } finally {
+      // A line steered in after the model's last step is not lost: it comes back through takeUnsent.
+      if (session.pendingMessageCount) { const left = session.clearQueue(); this.unsent.push(...left.steering, ...left.followUp); }
       agent.streamFunction = stream;
       if (maxTurns !== undefined) agent.finishTurn = previousFinish;
       promptSignal.removeEventListener("abort", cancel);
       this.promptController = undefined;
       this.promptActive = false;
     }
+  }
+
+  async steer(text: string): Promise<boolean> {
+    const session = this.runtime.session;
+    if (this.readOnly || !this.promptActive || !session.isStreaming) return false;
+    await session.steer(text);
+    return true;
+  }
+
+  takeUnsent(): string[] {
+    const left = this.unsent.splice(0);
+    if (!this.promptActive) {
+      const queued = this.runtime.session.clearQueue();
+      left.push(...queued.steering, ...queued.followUp);
+    }
+    return left;
   }
 
   abort(): Promise<void> {
