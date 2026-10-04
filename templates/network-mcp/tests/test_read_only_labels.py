@@ -1,9 +1,14 @@
-"""Safety tests: every tool says whether it changes things, and writes stay off by default."""
+"""Safety tests: every tool says whether it changes things and what kind of change it makes, and
+--read-only is the only switch that keeps changes off."""
+
+import importlib
 
 import pytest
 from mcp import Client
 
-from {{module}}.server import server, writes_enabled
+from {{module}}.server import CHANGE_KIND, CHANGE_KINDS, server
+
+server_module = importlib.import_module("{{module}}.server")
 
 pytestmark = pytest.mark.anyio
 
@@ -29,19 +34,21 @@ async def test_read_only_tools_are_not_destructive() -> None:
             assert not tool.annotations.destructive_hint, tool.name
 
 
-def test_writes_are_off_by_default() -> None:
-    assert writes_enabled() is False
+async def test_every_tool_that_changes_things_names_its_kind() -> None:
+    async with Client(server) as client:
+        tools = (await client.list_tools()).tools
+    missing = [
+        tool.name
+        for tool in tools
+        if not (tool.annotations and tool.annotations.read_only_hint)
+        and (tool.meta or {}).get(CHANGE_KIND) not in CHANGE_KINDS
+    ]
+    assert not missing, f"add meta={{CHANGE_KIND: ...}} to: {', '.join(missing)}"
 
 
-@pytest.mark.parametrize("value", ["false", "0", "no", "off", " FALSE "])
-def test_writes_turn_on_only_when_read_only_is_off(
-    monkeypatch: pytest.MonkeyPatch, value: str
-) -> None:
-    monkeypatch.setenv("{{env}}_READ_ONLY", value)
-    assert writes_enabled() is True
-
-
-@pytest.mark.parametrize("value", ["true", "1", "yes", "", "anything"])
-def test_other_values_keep_writes_off(monkeypatch: pytest.MonkeyPatch, value: str) -> None:
-    monkeypatch.setenv("{{env}}_READ_ONLY", value)
-    assert writes_enabled() is False
+def test_read_only_is_a_start_flag(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(server.__class__, "run", lambda self, *args, **kwargs: None)
+    server_module.main(["--read-only"])
+    assert server_module.READ_ONLY is True
+    server_module.main([])
+    assert server_module.READ_ONLY is False

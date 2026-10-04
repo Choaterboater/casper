@@ -6,10 +6,14 @@ official MCP Python SDK 2.x (`MCPServer`).
 ## What it has
 
 - `access_check`: asks Mist what your token may do (`GET /api/v1/self`) and answers in the
-  `casper/access-check v1` shape, so Casper can show "login: read-only (checked)".
-- Every tool says whether it changes things (`readOnlyHint` / `destructiveHint`).
+  `casper/access-check v2` shape, so Casper can show "login: read-only (checked)" or where the
+  login can change things. With no token it says the login is missing.
+- Every tool says whether it changes things (`readOnlyHint` / `destructiveHint`), and every
+  tool that changes things says what kind of change it makes (`meta={CHANGE_KIND: "config"}`;
+  also `troubleshoot`, `disruptive`, `firmware`, `delete`, `admin`).
   `tests/test_read_only_labels.py` fails when a tool doesn't.
-- Write tools stay off unless `{{env}}_READ_ONLY=false`. There are none yet.
+- `--read-only` keeps every change off. It is read once, at start. There are no write tools yet;
+  when you add one, check `READ_ONLY` first.
 
 ## Settings
 
@@ -17,10 +21,9 @@ official MCP Python SDK 2.x (`MCPServer`).
 | --- | --- |
 | `MIST_API_TOKEN` | a Mist API token; use a read-only one |
 | `MIST_HOST` | the Mist API host, default `api.mist.com` |
-| `{{env}}_READ_ONLY` | `true` (default) keeps write tools off |
 
 Never put a real token in a file. `.mcp.json.example` and `examples/mcp.json` use
-`${MIST_API_TOKEN}` from your shell.
+`${MIST_API_TOKEN}` from your shell and start the server with `--read-only`.
 
 ## Check it
 
@@ -38,5 +41,5 @@ saved. Look through the recorded file before you commit it.
 ## Run it
 
 ```sh
-MIST_API_TOKEN=... uv run {{name}}
+MIST_API_TOKEN=... uv run {{name}} --read-only
 ```

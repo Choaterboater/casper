@@ -1,4 +1,9 @@
+import importlib
+
 import pytest
+
+# The module, not the MCPServer object the package also calls `server`.
+server_module = importlib.import_module("{{module}}.server")
 
 
 @pytest.fixture
@@ -11,7 +16,7 @@ def sample_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     """Tests never use your real token or host. Sample data, not from your org."""
     monkeypatch.setenv("MIST_API_TOKEN", "sample-token")
     monkeypatch.setenv("MIST_HOST", "api.mist.com")
-    monkeypatch.delenv("{{env}}_READ_ONLY", raising=False)
+    monkeypatch.setattr(server_module, "READ_ONLY", False)
 
 
 @pytest.fixture(scope="module")
