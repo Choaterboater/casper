@@ -1,4 +1,4 @@
-import { ADD_LOGIN_CHOICES, forgetLoginChoices, numberedLines } from "../../app/safe-choices";
+import { ADD_LOGIN_CHOICES, forgetLoginChoices, numberedLines, REPLACE_LOGIN_CHOICES } from "../../app/safe-choices";
 import type { AccessCheck, AccessProduct } from "../access";
 import { forgetLogin, isNetworkProduct, LOGIN_FIELDS, NETWORK_PRODUCTS, PRODUCT_LABELS, readLogins, saveLogin, type LoginField, type NetworkProduct } from "./logins";
 
@@ -32,22 +32,50 @@ export interface LoginHost {
 
 export type LoginResult = "added" | "not-now" | "cant-ask" | "failed";
 
-/** What casper-network-mcp says when a product has no login: exactly {"error":"login_missing","product":<a product it knows>}. */
-export function loginMissing(result: unknown): NetworkProduct | undefined {
-  const record = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
-  if (!record(result)) return undefined;
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
+
+/** The server's short error answer: one JSON object (as structuredContent or one small text block), unwrapped. */
+function errorBody(result: unknown): Record<string, unknown> | undefined {
+  if (!isRecord(result)) return undefined;
   let body: unknown = result.structuredContent;
   if (body === undefined) {
     const content = Array.isArray(result.content) ? result.content : [];
-    const texts = content.filter((item): item is { type: "text"; text: string } => record(item) && item.type === "text" && typeof item.text === "string");
+    const texts = content.filter((item): item is { type: "text"; text: string } => isRecord(item) && item.type === "text" && typeof item.text === "string");
     if (texts.length !== 1 || texts[0]!.text.length > 1024) return undefined;
     try { body = JSON.parse(texts[0]!.text); } catch { return undefined; }
   }
   // FastMCP wraps a plain return value as {"result": …}.
-  if (record(body) && Object.keys(body).length === 1 && record(body.result)) body = body.result;
-  if (!record(body) || body.error !== "login_missing" || Object.keys(body).some((key) => key !== "error" && key !== "product")) return undefined;
+  if (isRecord(body) && Object.keys(body).length === 1 && isRecord(body.result)) body = body.result;
+  return isRecord(body) ? body : undefined;
+}
+
+/** Exactly {"error": <code>, "product": <a product it knows>}. */
+function productError(result: unknown, code: string): NetworkProduct | undefined {
+  const body = errorBody(result);
+  if (!body || body.error !== code || Object.keys(body).some((key) => key !== "error" && key !== "product")) return undefined;
   return isNetworkProduct(body.product) ? body.product : undefined;
 }
+
+/** What casper-network-mcp says when a product has no login: exactly {"error":"login_missing","product":<a product it knows>}. */
+export function loginMissing(result: unknown): NetworkProduct | undefined {
+  return productError(result, "login_missing");
+}
+
+/**
+ * A saved login the product no longer takes (expired, revoked): {"error":"login_expired","product":…}, or, from a server
+ * that passes the product's own answer through (casper-network-mcp 0.1.0), {"error":"HTTP 401 …"} for a tool whose
+ * product Casper knows.
+ */
+export function loginExpired(result: unknown, toolProduct?: NetworkProduct): NetworkProduct | undefined {
+  const named = productError(result, "login_expired");
+  if (named) return named;
+  const body = errorBody(result);
+  if (!toolProduct || !body || Object.keys(body).length !== 1 || typeof body.error !== "string") return undefined;
+  return /^HTTP 401\b/.test(body.error) ? toolProduct : undefined;
+}
+
+/** Why the person is asked: no login yet, or a saved one the product turned down. */
+export type LoginTrouble = "missing" | "expired";
 
 const ASKS: Record<NetworkProduct, string> = {
   mist: "Casper will ask for a Mist API token. Use one that can reach only the sites you want, not an admin token.",
@@ -55,9 +83,16 @@ const ASKS: Record<NetworkProduct, string> = {
   clearpass: "Casper will ask for a ClearPass API token. Use one with only the access you need, not an admin one.",
 };
 
+const didntWork = (label: string) => `The ${label} login didn't work (it may have expired).`;
+
 /** The line for the person when nobody can be asked here. */
-function cantAskLine(host: LoginHost, product: NetworkProduct): string {
+function cantAskLine(host: LoginHost, product: NetworkProduct, trouble: LoginTrouble = "missing"): string {
   const label = PRODUCT_LABELS[product];
+  if (trouble === "expired") {
+    return host.interactive
+      ? `${didntWork(label)} Replacing it needs Casper's full terminal, where it stays hidden. Type /mcp login ${product} there.`
+      : `${didntWork(label)} Run casper and type /mcp login ${product}.`;
+  }
   return host.interactive
     ? `Adding a ${label} login needs Casper's full terminal, where it stays hidden. Type /mcp login ${product} there.`
     : `${label} has no login yet. Run casper and type /mcp login ${product}.`;
@@ -100,11 +135,14 @@ async function askField(host: LoginHost, field: LoginField): Promise<string | un
 }
 
 /** The question, each field, then the save. Not now when the person says so or leaves a field empty. */
-async function askAndSave(host: LoginHost, product: NetworkProduct): Promise<LoginResult> {
+async function askAndSave(host: LoginHost, product: NetworkProduct, trouble: LoginTrouble): Promise<LoginResult> {
   const label = PRODUCT_LABELS[product];
   const saved = !!(await readLogins(host.homeDir))[product];
-  const intro = saved ? `Replace the ${label} login? ${ASKS[product]}` : `${label} isn't set up yet. ${ASKS[product]}`;
-  const answer = await host.chooseAnswer(`${intro}\n${numberedLines(ADD_LOGIN_CHOICES)}`, "Type 1 or 2: ", ["1", "2"]);
+  const expired = trouble === "expired" && saved;
+  const intro = expired ? `The ${label} login didn't work (${label} turned it down; it may have expired). Replace it? ${ASKS[product]}`
+    : saved ? `Replace the ${label} login? ${ASKS[product]}` : `${label} isn't set up yet. ${ASKS[product]}`;
+  const choices = expired ? REPLACE_LOGIN_CHOICES : ADD_LOGIN_CHOICES;
+  const answer = await host.chooseAnswer(`${intro}\n${numberedLines(choices)}`, "Type 1 or 2: ", ["1", "2"]);
   const notNow = () => {
     if (answer !== undefined) host.notNow?.add(product);
     host.write(`Not added. Type /mcp login ${product} any time.\n`);
@@ -128,12 +166,12 @@ async function askAndSave(host: LoginHost, product: NetworkProduct): Promise<Log
   return "added";
 }
 
-async function addLogin(host: LoginHost, server: string | undefined, product: NetworkProduct, explicit: boolean): Promise<{ result: LoginResult; reach?: string }> {
+async function addLogin(host: LoginHost, server: string | undefined, product: NetworkProduct, explicit: boolean, trouble: LoginTrouble = "missing"): Promise<{ result: LoginResult; reach?: string }> {
   const label = PRODUCT_LABELS[product];
-  if (!host.canAsk()) { host.write(`${cantAskLine(host, product)}\n`); return { result: "cant-ask" }; }
+  if (!host.canAsk()) { host.write(`${cantAskLine(host, product, trouble)}\n`); return { result: "cant-ask" }; }
   // Said Not now this session: the AI's next try doesn't ask again; /mcp login does.
   if (!explicit && host.notNow?.has(product)) return { result: "not-now" };
-  const asked = await (host.exclusive ? host.exclusive(() => askAndSave(host, product)) : askAndSave(host, product));
+  const asked = await (host.exclusive ? host.exclusive(() => askAndSave(host, product, trouble)) : askAndSave(host, product, trouble));
   if (asked !== "added") return { result: asked };
   host.notNow?.delete(product);
   if (!server) {
@@ -152,10 +190,18 @@ export async function askForLogin(host: LoginHost, server: string | undefined, p
   return (await addLogin(host, server, product, options.explicit === true)).result;
 }
 
-/** What the AI's call gets back when the product had no login: whether one was added, never a value. */
-export async function loginMissingAnswer(host: LoginHost, server: string, product: NetworkProduct): Promise<string> {
+/** What the AI's call gets back when the product had no login (or turned the saved one down): whether one was added,
+ * never a value. */
+export async function loginMissingAnswer(host: LoginHost, server: string, product: NetworkProduct, trouble: LoginTrouble = "missing"): Promise<string> {
   const label = PRODUCT_LABELS[product];
-  const { result, reach } = await addLogin(host, server, product, false);
+  const { result, reach } = await addLogin(host, server, product, false, trouble);
+  if (trouble === "expired") {
+    if (result === "added") return `${label} login replaced${reach ? ` (${reach})` : ""}. Call the tool again.`;
+    if (result === "cant-ask") {
+      return `${didntWork(label)} The person can replace it: ${host.interactive ? `type /mcp login ${product} in Casper's full terminal` : `run casper and type /mcp login ${product}`}.`;
+    }
+    return `The ${label} login didn't work (it may have expired), and the person didn't replace it now. Don't ask them in chat; they can type /mcp login ${product}.`;
+  }
   if (result === "added") return `${label} login added${reach ? ` (${reach})` : ""}. Call the tool again.`;
   if (result === "cant-ask") {
     return host.interactive

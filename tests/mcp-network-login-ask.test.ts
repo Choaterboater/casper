@@ -12,7 +12,7 @@ import { loadProjectContext } from "../src/project/context";
 import type { AgentRuntime, RuntimeStartOptions, RuntimeTool } from "../src/runtime/types";
 import { SkillRegistry } from "../src/skills/registry";
 import { MCPManager } from "../src/mcp/manager";
-import { askForLogin, askToForgetLogin, loginLines, loginMissing, loginMissingAnswer, type LoginHost } from "../src/mcp/network/ask-login";
+import { askForLogin, askToForgetLogin, loginExpired, loginLines, loginMissing, loginMissingAnswer, type LoginHost } from "../src/mcp/network/ask-login";
 import { LOGIN_FILE, readLogins, saveLogin } from "../src/mcp/network/logins";
 import { networkServerEntry } from "../src/mcp/network/server";
 import { withLoginDisplay } from "../src/tui/login";
@@ -47,7 +47,7 @@ interface Run {
  */
 async function brokerRun(options: {
   interactive: boolean; answers?: string[]; secrets?: string[];
-  reach?: Record<string, unknown>; invent?: string; tool?: string; home?: string;
+  reach?: Record<string, unknown>; invent?: string; tool?: string; home?: string; env?: Record<string, string>;
   scope?: "user" | "project"; call?: { id: string; arguments: Record<string, unknown> };
 }): Promise<Run> {
   const home = options.home ?? await tempHome();
@@ -55,7 +55,8 @@ async function brokerRun(options: {
   const entry = networkServerEntry(home).command;
   await mkdir(path.dirname(entry), { recursive: true });
   const env = [`FAKE_CALLS_FILE='${calls}'`, `FAKE_REACH='${JSON.stringify(options.reach ?? {})}'`,
-    ...options.invent ? [`FAKE_INVENT_PRODUCT='${options.invent}'`] : []].join(" ");
+    ...options.invent ? [`FAKE_INVENT_PRODUCT='${options.invent}'`] : [],
+    ...Object.entries(options.env ?? {}).map(([name, value]) => `${name}='${value}'`)].join(" ");
   await writeFile(entry, `#!/bin/sh\n${env} exec "${process.execPath}" "${fakeServer}" "$@"\n`);
   await chmod(entry, 0o755);
   const definition: MCPServerDefinition = { name: "network", source: path.join(home, ".casper/mcp.json"), scope: options.scope ?? "user", cwd: home, disabled: false,
@@ -83,7 +84,7 @@ async function brokerRun(options: {
     access: (server) => manager.policy(server).access,
   };
   const broker = new CapabilityBroker(manager, undefined, {
-    writesGate: true, onLoginMissing: (server, product) => loginMissingAnswer(host, server, product),
+    writesGate: true, onLoginMissing: (server, product, _signal, trouble) => loginMissingAnswer(host, server, product, trouble),
   });
   const result = options.call ? await broker.invoke(options.call.id, options.call.arguments)
     : await broker.invoke("mcp:network:invoke_read_tool", { name: options.tool ?? "mist_list_sites", arguments: {} });
@@ -380,4 +381,45 @@ test("app: a 2 typed before the login question never answers it, and the questio
 test("the Central question says it is new Central (GreenLake) only for now", async () => {
   const run = await brokerRun({ interactive: true, tool: "central_list_sites", answers: ["1"] });
   expect(run.prompts[0]).toBe("Central isn't set up yet. Casper will ask for a Central API client ID and secret (new Central, through GreenLake, only for now; classic Central logins don't work yet). Use a client with only the access you need, not an admin one.\n  1 Not now\n  2 Add a login\n");
+});
+
+test("login_expired, or the product's own 401 for a tool of that product, reads as a login that stopped working", () => {
+  expect(loginExpired(textResult({ error: "login_expired", product: "clearpass" }))).toBe("clearpass");
+  expect(loginExpired(textResult({ error: "login_expired", product: "clearpass", note: "x" }))).toBeUndefined();
+  expect(loginExpired(textResult({ error: "login_expired", product: "../x" }))).toBeUndefined();
+  expect(loginExpired(textResult({ error: "HTTP 401 at /api/endpoint: {\"error\":\"invalid_token\"}" }), "clearpass")).toBe("clearpass");
+  // A 401 needs the tool's product; any other status is an ordinary error.
+  expect(loginExpired(textResult({ error: "HTTP 401 at /api/endpoint: no" }))).toBeUndefined();
+  expect(loginExpired(textResult({ error: "HTTP 403 at /api/endpoint: no" }), "clearpass")).toBeUndefined();
+  expect(loginExpired(textResult({ error: "login_missing", product: "mist" }), "mist")).toBeUndefined();
+});
+
+const CLEARPASS_LOGIN = { CLEARPASS_BASE_URL: "https://cppm.example.com", CLEARPASS_API_TOKEN: "cp_OLD_EXAMPLE_1" };
+
+async function replacesTurnedDownLogin(env: Record<string, string>): Promise<void> {
+  const home = await tempHome();
+  await saveLogin(home, "clearpass", CLEARPASS_LOGIN);
+  const run = await brokerRun({ interactive: true, home, env, tool: "clearpass_list_roles", answers: ["2"], secrets: ["cppm.example.com", "cp_NEW_EXAMPLE_2"],
+    reach: { clearpass: { access: "read-only" } } });
+  expect(run.prompts[0]).toBe("The ClearPass login didn't work (ClearPass turned it down; it may have expired). Replace it? Casper will ask for a ClearPass API token. Use one with only the access you need, not an admin one.\n  1 Not now\n  2 Replace the login\n");
+  expect((await readLogins(run.home)).clearpass).toEqual({ CLEARPASS_BASE_URL: "https://cppm.example.com", CLEARPASS_API_TOKEN: "cp_NEW_EXAMPLE_2" });
+  expect(run.restarts).toEqual(["network"]);
+  expect(run.toolResultText).toBe("ClearPass login replaced (read-only). Call the tool again.");
+  expect(run.transcript).not.toContain("cp_NEW_EXAMPLE_2");
+}
+
+test("a saved login the product no longer takes (login_expired) brings up the replace box; 2 replaces it", () => replacesTurnedDownLogin({ FAKE_EXPIRED: "clearpass" }));
+test("a saved login the product no longer takes (an HTTP 401) brings up the replace box; 2 replaces it", () => replacesTurnedDownLogin({ FAKE_401: "clearpass" }));
+
+test("Not now on the replace box keeps the old login and tells the AI not to ask in chat; a one-shot run says what to type", async () => {
+  const home = await tempHome();
+  await saveLogin(home, "clearpass", CLEARPASS_LOGIN);
+  const run = await brokerRun({ interactive: true, home, env: { FAKE_401: "clearpass" }, tool: "clearpass_list_roles", answers: ["1"] });
+  expect(run.toolResultText).toBe("The ClearPass login didn't work (it may have expired), and the person didn't replace it now. Don't ask them in chat; they can type /mcp login clearpass.");
+  expect((await readLogins(home)).clearpass).toEqual(CLEARPASS_LOGIN);
+  expect(run.restarts).toEqual([]);
+  const once = await brokerRun({ interactive: false, home, env: { FAKE_EXPIRED: "clearpass" }, tool: "clearpass_list_roles" });
+  expect(once.output).toBe("The ClearPass login didn't work (it may have expired). Run casper and type /mcp login clearpass.\n");
+  expect(once.toolResultText).toBe("The ClearPass login didn't work (it may have expired). The person can replace it: run casper and type /mcp login clearpass.");
+  expect(once.prompts).toEqual([]);
 });

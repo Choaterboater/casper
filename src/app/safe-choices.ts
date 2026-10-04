@@ -97,6 +97,8 @@ export const NETWORK_UPDATE_CHOICES = ["Not now", "Update it"] as const;
 
 /** "Mist isn't set up yet. Casper will ask for a Mist API token …": only "2" asks for the login. */
 export const ADD_LOGIN_CHOICES = ["Not now", "Add a login"] as const;
+/** "The ClearPass login didn't work (… it may have expired). Replace it?": only "2" asks for the new login. */
+export const REPLACE_LOGIN_CHOICES = ["Not now", "Replace the login"] as const;
 /** /mcp login <product> forget: only "2" forgets it. */
 export function forgetLoginChoices(product: string): string[] {
   return [`Keep the ${product} login`, `Forget the ${product} login`];

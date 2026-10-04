@@ -13,7 +13,7 @@ import {
   type ApprovalPlan, type LastPreview,
 } from "./approval";
 import { toolLabel } from "./labels";
-import { loginMissing } from "../mcp/network/ask-login";
+import { loginExpired, loginMissing, type LoginTrouble } from "../mcp/network/ask-login";
 import { getsLogins, isNetworkProduct, PRODUCT_LABELS, type NetworkProduct } from "../mcp/network/logins";
 import {
   asksEveryTime, hitKindsFrom, isRiskyKind, KIND_TEXT, MAX_HITS_PER_SERVER, planKinds, riskier, withHitKinds, type ChangeKind, type RouterHit,
@@ -77,7 +77,7 @@ export type ConfirmCapability = (call: {
  * the rest of the session. Only their answer counts; true allows it. */
 /** A product of Casper's network server had no login: the host asks the person (never the AI) and returns the
  * one line the AI gets back instead of the server's answer. */
-export type LoginMissingHandler = (server: string, product: NetworkProduct, signal: AbortSignal) => Promise<string>;
+export type LoginMissingHandler = (server: string, product: NetworkProduct, signal: AbortSignal, trouble?: LoginTrouble) => Promise<string>;
 
 export type ConfirmKind = (ask: { server: string; kind: ChangeKind; realTool: string }, signal?: AbortSignal) => Promise<boolean>;
 
@@ -387,9 +387,12 @@ export class CapabilityBroker {
     // Casper's network server (recognised by what it runs) had no login for this product: the person is asked, and
     // the AI gets one line back. Any other server's look-alike answer is an ordinary result.
     const ownNetwork = this.getsLogins(capability);
-    const login = this.onLoginMissing && ownNetwork ? loginMissing(raw) : undefined;
+    // A saved login the product turned down (expired, revoked) asks to replace it the same way.
+    const missing = this.onLoginMissing && ownNetwork ? loginMissing(raw) : undefined;
+    const expired = this.onLoginMissing && ownNetwork && !missing ? loginExpired(raw, this.toolProduct(plan)) : undefined;
+    const login = missing ?? expired;
     if (login) {
-      const text = await this.onLoginMissing!(capability.descriptor.source, login, combined);
+      const text = await this.onLoginMissing!(capability.descriptor.source, login, combined, expired ? "expired" : "missing");
       return { isError: true, executed: true, summary: text, truncated: false, originalBytes: Buffer.byteLength(text) };
     }
     // The AI asked access_check first: tell it Casper asks for a missing login, so it never asks in chat or suggests config.
@@ -405,6 +408,14 @@ export class CapabilityBroker {
     if (note) result.summary = `${result.summary} ${note}`;
     if (missingNote) result.summary = `${result.summary} ${missingNote}`;
     return result;
+  }
+
+  /** The product of the one real tool a call runs: what find_tool said, else its name's prefix (mist_, central_, clearpass_). */
+  private toolProduct(plan: ApprovalPlan): NetworkProduct | undefined {
+    if (plan.routed.length !== 1 || plan.routerUnclear) return undefined;
+    const name = plan.routed[0]!.name;
+    const prefix = name.split("_")[0];
+    return this.hitProduct(plan.server, name) ?? (isNetworkProduct(prefix) ? prefix : undefined);
   }
 
   /** Casper's own network server, by what it runs and not a project's: the one that gets the saved logins. */

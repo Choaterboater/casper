@@ -94,9 +94,15 @@ file and set no variable.
    `2` asks for the Mist cloud (a numbered list) and the token, typed hidden. Central
    asks for its region, API client ID and secret; ClearPass for its address and API
    token. Central means new Central (through GreenLake) only for now: classic Central
-   logins don't work yet, and the question says so. Casper restarts the server with the login and checks what it can do with
-   `access_check`, for example `Mist login: can change Branch-12 (checked)`.
+   logins don't work yet, and the question says so. Casper restarts the server with the
+   login and checks what it can do with `access_check`, for example
+   `Mist login: can change Branch-12 (checked)`.
    `/mcp login mist` adds or replaces it any time; `/mcp login mist forget` removes it.
+
+   When the product turns a saved login down (an expired ClearPass token, a revoked Mist
+   token: the server answers `login_expired`, or passes the product's `HTTP 401` through),
+   Casper asks the same way: `The ClearPass login didn't work (ClearPass turned it down; it
+   may have expired). Replace it?` with `1 Not now · 2 Replace the login`.
 3. Every change asks you in the change box, like any server
    ([Turning writes on](#turning-writes-on)). The box names the product
    (`Change in Mist: ...`), and a disruptive, firmware, delete or admin change asks every

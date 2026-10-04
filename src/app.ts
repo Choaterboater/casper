@@ -574,7 +574,7 @@ export class CasperApp {
       },
       onAllowAllStart: () => this.updateFooter(),
       // A product with no login: the person is asked (never the AI); the AI gets one line back.
-      onLoginMissing: (server, product) => loginMissingAnswer(this.networkLoginHost(), server, product) });
+      onLoginMissing: (server, product, _signal, trouble) => loginMissingAnswer(this.networkLoginHost(), server, product, trouble) });
     this.lifecycle.add({ name: "references", close: () => this.references!.close() });
     // Web lookups never ask: the checks in src/web/url.ts hold instead. Off only with web: off in your own config.
     this.web?.close();

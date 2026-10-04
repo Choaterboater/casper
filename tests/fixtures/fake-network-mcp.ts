@@ -15,6 +15,7 @@ import { CallToolRequestSchema, ListToolsRequestSchema, type Tool } from "@model
  *   the real server's SDK sends a list: one text block per hit, and structuredContent {result: hits}.
  * Like the real server's gate, --read-only refuses changes but lets the listed troubleshooting tools through
  *   (FAKE_TROUBLESHOOT: comma-separated names; default cx_show, cx_ping).
+ * FAKE_EXPIRED, FAKE_401: see below.
  */
 const readOnly = process.argv.includes("--read-only");
 const calls = process.env.FAKE_CALLS_FILE;
@@ -65,6 +66,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const product = name.split("_")[0]!;
   if (process.env.FAKE_INVENT_PRODUCT) return text({ error: "login_missing", product: process.env.FAKE_INVENT_PRODUCT });
   if (LOGIN[product] && !hasLogin(product)) return text({ error: "login_missing", product });
+  // FAKE_EXPIRED / FAKE_401: comma-separated products whose saved login the product no longer takes, answered the
+  // newer way ({"error": "login_expired"}) or the 0.1.0 way (the product's own HTTP 401 passed through).
+  if ((process.env.FAKE_EXPIRED ?? "").split(",").includes(product)) return text({ error: "login_expired", product });
+  if ((process.env.FAKE_401 ?? "").split(",").includes(product)) return text({ error: `HTTP 401 at /api/${product}: {"error":"invalid_token"}` });
   const troubleshooting = (process.env.FAKE_TROUBLESHOOT ?? "cx_show,cx_ping").split(",");
   if (request.params.name === "invoke_tool" && readOnly && !troubleshooting.includes(name)) return text({ error: "This server is read-only. Nothing was sent." });
   return text({ ok: true, tool: name });
