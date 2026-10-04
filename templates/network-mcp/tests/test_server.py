@@ -76,6 +76,24 @@ async def test_a_write_login_says_where_it_can_change_things() -> None:
     assert product["can_change"] == [{"kind": "site", "id": SITE, "name": "Branch-12"}]
 
 
+@respx.mock
+async def test_a_write_role_it_cannot_list_sends_no_scope_lists() -> None:
+    # A site group or an MSP can't be listed as sites: a shorter list would understate the reach.
+    branch = {"scope": "site", "role": "write", "site_id": SITE, "name": "Branch-12"}
+    unlisted = [
+        {"scope": "sitegroup", "role": "write", "sitegroup_id": "sg-1", "name": "Branches"},
+        {"scope": "msp", "role": "admin", "msp_id": "msp-1", "name": "Example MSP"},
+    ]
+    for scope in unlisted:
+        me = {"email": "ops@example.com", "privileges": [scope, branch]}
+        mocked = httpx.Response(200, json=me)
+        respx.get("https://api.mist.com/api/v1/self").mock(return_value=mocked)
+        product = (await access())["products"][0]
+        assert product["access"] == "read-write"
+        assert "can_change" not in product
+        assert "read_only" not in product
+
+
 async def test_no_token_is_a_missing_login(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("MIST_API_TOKEN")
     product = (await access())["products"][0]

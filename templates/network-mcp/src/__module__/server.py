@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 from typing import Any
 
 import httpx
@@ -58,6 +59,11 @@ def mist_client() -> httpx.AsyncClient:
     )
 
 
+#: What Casper accepts in a scope list: at most 64 entries, each id and name short and plain.
+MAX_SCOPES = 64
+PLAIN = re.compile(r"^[A-Za-z0-9 _.@:/+-]{1,64}$")
+
+
 def mist_report(me: dict[str, Any]) -> dict[str, Any]:
     """The Mist part of the answer: read-write when any role is admin or write, read-only when
     every role reads, else unknown. Lists the orgs and sites it can change, and where it can
@@ -82,14 +88,23 @@ def mist_report(me: dict[str, Any]) -> dict[str, Any]:
         return entry
     can_change: list[dict[str, str]] = []
     read_only: list[dict[str, str]] = []
+    # All or nothing: a privilege this server can't list (a site group, an MSP, a name that
+    # isn't plain) would make a shorter list understate where the login can change things,
+    # so then neither list is sent.
+    complete = True
     for privilege in privileges:
         scope = privilege.get("scope")
         scope_id = privilege.get(f"{scope}_id") if scope in ("org", "site") else None
-        if not isinstance(scope_id, str):
+        name = str(privilege.get("name") or scope_id)
+        plain = isinstance(scope_id, str) and PLAIN.match(scope_id) and PLAIN.match(name)
+        if not plain:
+            complete = False
             continue
-        item = {"kind": str(scope), "id": scope_id, "name": str(privilege.get("name") or scope_id)}
+        item = {"kind": str(scope), "id": scope_id, "name": name}
         writes = str(privilege.get("role", "")).lower() in {"admin", "write"}
         (can_change if writes else read_only).append(item)
+    if not complete or len(can_change) > MAX_SCOPES or len(read_only) > MAX_SCOPES:
+        return entry
     if can_change:
         entry["can_change"] = can_change
     if read_only:
