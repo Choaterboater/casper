@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { DEAD_PROXY } from "../src/mcp/check/sandbox";
 import { SecurityCheck, type SecurityReport } from "../src/security/run";
-import { RUFF_SECURITY_RULES } from "../src/security/tools";
+import { RUFF_SECURITY_RULES, toolArgs } from "../src/security/tools";
 import { fakeTools, fixtureRepo } from "./fixtures/security-tools/setup";
 
 let root: string;
@@ -85,4 +85,12 @@ test("every tool ran in the repo with the clean env: no tokens, dead proxy", asy
     expect(seen.env.HTTPS_PROXY).toBe(DEAD_PROXY);
     expect(seen.env.HOME).toBe(path.join(home, ".casper", "security", "home"));
   }
+});
+
+test("ansible-lint file names come after -- and a name starting with - gets ./, so it is never read as an option", () => {
+  const args = toolArgs("ansible-lint", {
+    root: "/repo", semgrepRules: [], gitleaksConfig: "", gitleaksIgnoreDir: "",
+    ansibleTargets: ["site.yml", "--exclude=site.yml", "-x.yml"],
+  });
+  expect(args.slice(args.indexOf("--"))).toEqual(["--", "site.yml", "./--exclude=site.yml", "./-x.yml"]);
 });
