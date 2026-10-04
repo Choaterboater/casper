@@ -260,8 +260,9 @@ the setup (all fail, no spawned PID survives) and the solved server with one beh
 removed at a time (only that behavior's test fails).
 
 All network data is synthetic: documentation address ranges, `example.com`, made-up
-MACs and serials. The TLS key in `portcheck/acceptance/certs` is a throwaway
-self-signed test key for `portcheck.example.com`.
+MACs and serials. The portcheck acceptance test makes a throwaway self-signed
+certificate for `portcheck.example.com` with `openssl` each time it runs; no key is
+kept in the repository.
 
 `tests/eval-packs.test.ts` checks, with no model: the hidden tests never reach the
 candidate, the reference solution satisfies every acceptance and convention
