@@ -19,7 +19,7 @@ bun install --frozen-lockfile     # once; needs network or a warm cache
 bun tools/platform-report.ts      # Step 1: must end with exit code 0
 bun run typecheck                 # Step 2
 bun test tests/platform-processes.test.ts
-bun test                          # full suite, one file at a time (serial)
+bun run test                      # full suite, files in parallel (slowest first)
 bun tools/terminal-demo.ts        # Step 4: look at the screen yourself
 ```
 
@@ -35,7 +35,7 @@ or needs model credentials. The sign-in tests use fake provider answers.
 
 | Workflow | What it runs | Evidence it keeps |
 | --- | --- | --- |
-| [Linux preview](../.github/workflows/linux-preview.yml) | Ubuntu 24.04, Bun 1.4.0, records `python3` and its PTY modules; locked install; platform probe; typecheck; focused platform/terminal/login/model/debugger suite; full serial `bun test` | `linux-preview-evidence`: host, install, probe, typecheck, focused and full-suite logs, kept 14 days, uploaded even when a check fails |
+| [Linux preview](../.github/workflows/linux-preview.yml) | Ubuntu 24.04, Bun 1.4.0, records `python3` and its PTY modules; locked install; platform probe; typecheck; focused platform/terminal/login/model/debugger suite; full `bun run test` (files in parallel) | `linux-preview-evidence`: host, install, probe, typecheck, focused and full-suite logs, kept 14 days, uploaded even when a check fails |
 | [Windows preview](../.github/workflows/windows-preview.yml) | `windows-latest`, Bun 1.4.0, locked install; typecheck; platform probe; focused platform/terminal/login/model suite; release-compile test; release build; installer test under Windows PowerShell 5.1 and PowerShell 7 | `windows-verification`: host and per-step logs, uploaded even on failure; the built files go to `windows-preview` |
 
 On Linux the Python PTY tests run (Windows skips them). A PTY is a fake terminal a
@@ -108,11 +108,13 @@ full suite:
 
 ```bash
 bun test tests/platform-processes.test.ts tests/login-picker.test.ts tests/login.test.ts tests/terminal-review.test.ts tests/terminal-ux.test.ts tests/terminal-discovery.test.ts tests/daily-terminal.test.ts tests/model-routing.test.ts tests/auto-effort.test.ts tests/model-selection.test.ts tests/phase10-debugger-app.test.ts
-bun test
+bun run test
 ```
 
-Run the full suite with plain `bun test`, one file at a time. `bun run test:fast`
-(parallel) is optional and is not this check. These tests use fake provider and
+`bun run test` runs the test files in parallel, slowest first (from
+`tests/timings.json`; refresh it with `bun run test:timings`), then the real
+debugger file on its own. The evaluation bench's own tests (`tests/eval-*`) are not
+part of it: run them with `bun run test:evals` after changing `evals/`. These tests use fake provider and
 adapter answers and real local processes, not paid model calls. Do not give them real
 provider credentials.
 

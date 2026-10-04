@@ -13,7 +13,7 @@ Quick start (from a source checkout, after `bun install --frozen-lockfile`):
 
 ```bash
 bun tools/eval.ts --list                         # see the tasks; no model call
-bun test tests/eval-suite.test.ts                # test the bench itself; no model call
+bun run test:evals                               # test the bench itself; no model call
 bun tools/eval.ts --task fix-failing-test        # one real task; PROVIDER CALLS
 ```
 
