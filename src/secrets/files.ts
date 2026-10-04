@@ -3,7 +3,7 @@ import path from "node:path";
 import { isSecretName, scrubAssignments, scrubExactValues, scrubUrlPasswords } from "./assignments";
 import { KIND_ORDER, keepLiterally, PEM_BEGIN, type SecretKind } from "./patterns";
 import { scrubProseSecrets } from "./prose";
-import { scrubText, type ScrubTextResult } from "./scrub";
+import { scrubText, snakeKey, type ScrubTextResult } from "./scrub";
 
 export { isSecretName, scrubAssignments, scrubExactValues, scrubUrlPasswords };
 
@@ -23,17 +23,22 @@ export function isSecretFile(filePath: string): boolean {
 
 /** Environment names that hold credentials (matches the MCP check's list). */
 const SECRET_ENV_NAME = /(TOKEN|SECRET|PASSWORD|PASSWD|API_?KEY|PRIVATE_KEY|CLIENT_SECRET|BEARER|CREDENTIAL)/i;
+/** Names whose URL value is the login: SLACK_WEBHOOK_URL, TEAMS_WEBHOOK, SENTRY_DSN. */
+const WEBHOOK_OR_DSN = /(?:^|_)(?:webhook|dsn)(?:_|$)/;
 
 /**
  * The values of Casper's own secret-named environment variables (provider keys, MIST_API_TOKEN,
  * CENTRAL_CLIENT_SECRET ...), longest first. Short values, paths and URLs are left out: hiding
- * them everywhere would hide ordinary text.
+ * them everywhere would hide ordinary text. Webhook and DSN addresses (SLACK_WEBHOOK_URL, SENTRY_DSN)
+ * are the login itself, so those stay in.
  */
 export function secretEnvValues(env: NodeJS.ProcessEnv = process.env): string[] {
   const values = new Set<string>();
   for (const [name, value] of Object.entries(env)) {
     if (!value || value.length < 8 || !(SECRET_ENV_NAME.test(name) || isSecretName(name))) continue;
-    if (/^(?:\/|~|[A-Za-z]:[\\/]|\.{1,2}[\\/])/.test(value) || /^[a-z][\w+.-]*:\/\/[^@]*$/i.test(value)) continue;
+    if (/^(?:\/|~|[A-Za-z]:[\\/]|\.{1,2}[\\/])/.test(value)) continue;
+    // A webhook or DSN address is itself the login, so it stays on the list; other plain URLs don't.
+    if (/^[a-z][\w+.-]*:\/\/[^@]*$/i.test(value) && !WEBHOOK_OR_DSN.test(snakeKey(name))) continue;
     if (/^\d+$/.test(value) || /^(?:true|false|yes|no|on|off)$/i.test(value) || keepLiterally(value)) continue;
     values.add(value);
   }
