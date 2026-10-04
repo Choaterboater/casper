@@ -353,3 +353,19 @@ test("review: a batch, an unclear call, or an invoke_tool the server marks destr
   expect(marked.boxes).toHaveLength(1);
   expect(choiceLines(marked.boxes[0]!)).not.toContain("Yes, for this session");
 });
+
+test("without a find_tool hit, the box takes the product from the tool's name, and shows no other product's reach", async () => {
+  const s = await networkSession({
+    answers: ["1", "1"],
+    reach: { mist: { access: "read-write", can_change: [site("Branch-12")] } },
+    steps: [async (ai) => {
+      await ai.call("invoke_tool", { name: "clearpass_update_role", arguments: { id: 1 } });
+      await ai.call("invoke_tool", { name: "set_banner", arguments: { text: "hi" } });
+    }],
+  });
+  expect(s.boxes).toHaveLength(2);
+  expect(s.boxes[0]).toStartWith("Change in ClearPass: clearpass update role\n");
+  expect(s.boxes[0]).not.toContain("Your login can change");
+  // A tool of no known product on a server with more than one: the reach is unknown, so no line.
+  expect(s.boxes[1]).not.toContain("Your login can change");
+});

@@ -2895,7 +2895,10 @@ export class CasperApp {
       if (this.approvalStopped(signal)) throw new NotExecutedError("cancelled");
       // A routed tool's own product (Mist, Central, ClearPass): the box names it, and the reach is that login's.
       const access = this.mcp?.policy(call.plan.server).access;
-      const scope = changeScopeText(call.product && access ? { ...access, products: access.products.filter((item) => item.product === call.product) } : access);
+      // A tool of no known product on a server with more than one: whose reach applies isn't known, so no line.
+      const products = new Set(access?.products.map((item) => item.product));
+      const scope = !access ? undefined : call.product ? changeScopeText({ ...access, products: access.products.filter((item) => item.product === call.product) })
+        : products.size > 1 ? undefined : changeScopeText(access);
       const box = formatApproval(call.plan, call.lastPreview, {
         product: this.mcp?.productLabel(call.plan.server), ...(call.product ? { toolProduct: PRODUCT_LABELS[call.product] } : {}),
         ...(scope ? { scope } : {}), ...(call.tool ? { tool: call.tool } : {}),

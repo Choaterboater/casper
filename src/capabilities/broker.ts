@@ -448,8 +448,7 @@ export class CapabilityBroker {
     if (!this.confirm) throw new NotExecutedError("needs your approval, and this run cannot ask");
     const realTool = realToolOf(plan);
     const slot = this.previewSlot(capability, plan);
-    const product = capability.policy.match?.preset.logins && plan.routed.length === 1 && !plan.routerUnclear
-      ? this.hitProduct(plan.server, plan.routed[0]!.name) : undefined;
+    const product = capability.policy.match?.preset.logins ? this.toolProduct(plan) : undefined;
     for (let previews = 0; ; previews++) {
       const lastPreview = this.previews.get(slot);
       // After the last allowed preview the box is shown once more, without "p", so the user sees it.
