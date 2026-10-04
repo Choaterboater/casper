@@ -1,5 +1,6 @@
 import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
 import { EventEmitter } from "node:events";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -68,6 +69,10 @@ function harness(home: string, options: { surface?: Surface; newProject?: { temp
   conversation?: { continue: true } } = {}): Harness {
   const surface = options.surface ?? "rich";
   const rich = surface === "rich";
+  // The request names Mist; these tests are about the build question, so the network server's setup was already
+  // answered "Not now" (tests/mcp-network-setup.test.ts covers that question).
+  mkdirSync(path.join(home, ".casper"), { recursive: true });
+  writeFileSync(path.join(home, ".casper", "network-setup.json"), "{\"answer\":\"not-now\"}\n");
   const created: NewProjectOptions[] = [];
   const starts: string[] = [];
   const prompts: string[] = [];

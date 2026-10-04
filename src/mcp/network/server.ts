@@ -1,3 +1,6 @@
+import { randomBytes } from "node:crypto";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import path from "node:path";
 import { lockedEntryPath } from "../../security/install";
 import type { LockedSpec } from "../../security/tools";
 import networkLock from "./casper-network-mcp.lock.txt" with { type: "text" };
@@ -27,4 +30,43 @@ export const NETWORK_SERVER: LockedSpec = {
 /** The entry written to ~/.casper/mcp.json: the installed program by its absolute path, never a package runner. */
 export function networkServerEntry(homeDir: string, platform: NodeJS.Platform = process.platform): { command: string; args: string[]; env: Record<string, string> } {
   return { command: lockedEntryPath(homeDir, NETWORK_SERVER, platform), args: [], env: {} };
+}
+
+/** What you answered about setting it up, kept in ~/.casper/network-setup.json. */
+export interface NetworkSetupState {
+  /** "not-now": don't offer setup again; /mcp setup network still works. */
+  answer?: "not-now";
+  /** "Not now" to the update to this pinned version: not asked again for it. */
+  updateNotNow?: string;
+}
+
+export const NETWORK_SETUP_FILE = path.join(".casper", "network-setup.json");
+
+export async function readSetupState(homeDir: string): Promise<NetworkSetupState> {
+  try {
+    const parsed: unknown = JSON.parse(await readFile(path.join(homeDir, NETWORK_SETUP_FILE), "utf8"));
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    const record = parsed as Record<string, unknown>;
+    return {
+      ...(record.answer === "not-now" ? { answer: "not-now" as const } : {}),
+      ...(typeof record.updateNotNow === "string" && /^\d+\.\d+\.\d+$/.test(record.updateNotNow) ? { updateNotNow: record.updateNotNow } : {}),
+    };
+  } catch {
+    return {};
+  }
+}
+
+/** Merges `change` into the file (0600), through a temporary file that replaces it. */
+export async function writeSetupState(homeDir: string, change: NetworkSetupState): Promise<void> {
+  const file = path.join(homeDir, NETWORK_SETUP_FILE);
+  const next = { ...await readSetupState(homeDir), ...change };
+  await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
+  const temporary = `${file}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
+  try {
+    await writeFile(temporary, `${JSON.stringify(next)}\n`, { flag: "wx", mode: 0o600 });
+    await rename(temporary, file);
+  } catch (error) {
+    await rm(temporary, { force: true }).catch(() => {});
+    throw error;
+  }
 }

@@ -438,6 +438,14 @@ export class MCPManager {
     if (entry.pins.kind === "pinned" && (entry.state === "ready" || entry.state === "connecting")) await this.restart(entry);
   }
 
+  /** Restart a connected server once its running calls finish (a login saved, its program updated). */
+  async restartAfterCalls(name: string): Promise<void> {
+    const entry = this.entry(name);
+    if (entry.state !== "ready" && entry.state !== "connecting") return;
+    await this.idle(entry);
+    if (!this.closed) await this.restart(entry);
+  }
+
   /** Restart with the read-only pins once no call is running, if the connection has none. */
   private repin(entry: Entry): Promise<void> {
     if (entry.repin) return entry.repin;

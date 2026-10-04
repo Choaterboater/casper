@@ -22,6 +22,7 @@ import { READ_ONLY_LOGIN_ENABLE_TEXT } from "../mcp/access";
 import { ownSettingsNote, writesTitle } from "../mcp/presets";
 import type { MCPConfiguration } from "../mcp/config";
 import { addUserServer, DOCS_TOOL_NAMES, docsOnlyDefinition, docsPinned, isDocsOnlyDefinition, MCP_FILE_LABEL } from "../mcp/docs";
+import { networkSetupLine, runNetworkSetup, type SetupHost } from "../mcp/network/setup";
 import type { Scrubber } from "../secrets/netconan";
 import { defaultRunGit, runReferenceAdd } from "../references/catalog";
 import { formatDuration } from "../mcp/clock";
@@ -122,6 +123,8 @@ export interface CommandHost {
   ensureSessionWorkspace(): Promise<SessionWorkspaceManager>;
   stopDebugger(): Promise<void>;
   confirmExact(preview: string, question: string, signal?: AbortSignal): Promise<boolean>;
+  /** The host for /mcp setup network: the exact channel, the MCP manager, and the install seams. */
+  networkSetupHost(): SetupHost;
   /** One exact typed answer from the user (never the model), or undefined when nobody answered. */
   chooseAnswer(preview: string, question: string, choices: readonly string[], signal?: AbortSignal): Promise<string | undefined>;
   git(args: string[]): Promise<string>;
@@ -730,7 +733,7 @@ async function handleDelegateCommand(host: CommandHost, prompt: string): Promise
     if (result.status !== "completed") throw new Error(`Delegation ${result.status}; see the bounded report above`);
   }
 
-const MCP_USAGE = "Usage: /mcp | /mcp connect <name> | /mcp disconnect <name> | /mcp reload | /mcp writes <name> | /mcp writes off | /mcp allow <name> [off] | /mcp forget <name> | /mcp junos-show <name> on|off | /mcp docs";
+const MCP_USAGE = "Usage: /mcp | /mcp setup network | /mcp connect <name> | /mcp disconnect <name> | /mcp reload | /mcp writes <name> | /mcp writes off | /mcp allow <name> [off] | /mcp forget <name> | /mcp junos-show <name> on|off | /mcp docs";
 /** What "writes off" means, said once under the list: the server runs pinned and every change asks. */
 const WRITES_OFF_TEXT = "Writes off: the server runs with its read-only settings, and every change asks you first. Answer 2 or 3 in the change box to allow it, or /mcp writes <name> to turn writes on now.";
 
@@ -753,6 +756,12 @@ async function handleMCPCommand(host: CommandHost, prompt: string): Promise<void
     } else if (action === "allow") {
       if (!name || extra.length > 1 || (extra.length === 1 && extra[0] !== "off")) throw new Error(MCP_USAGE);
       await handleMCPAllow(host, name, extra[0] === "off");
+      return;
+    } else if (action === "setup") {
+      if (name !== "network" || extra.length) throw new Error(MCP_USAGE);
+      // Only the person types this; the AI has no way to run a slash command.
+      await runNetworkSetup(host.networkSetupHost(), { explicit: true });
+      host.updateFooter();
       return;
     } else if (action === "docs") {
       if (name) throw new Error(MCP_USAGE);
@@ -791,6 +800,11 @@ async function handleMCPCommand(host: CommandHost, prompt: string): Promise<void
       // Already redacted by the manager (known secrets and token shapes); shown to you, never to the model.
       ...(status.serverOutput?.length ? ["  Last lines from the server:", ...status.serverOutput.map((line) => `    | ${terminalText(line)}`)] : []),
     ].join("\n")).join("\n") + `\n${statuses.some((status) => status.writes === "off") ? `${WRITES_OFF_TEXT}\n` : ""}` : "No MCP servers configured.\n");
+    if (!action) {
+      const network = host.networkSetupHost();
+      const line = await networkSetupLine(network.homeDir, await network.configured());
+      if (line) host.output.write(`${line}\n`);
+    }
     if (action === "connect" && statuses.find((status) => status.name === name)?.state !== "ready") {
       throw new Error("MCP connection failed; no tools exposed");
     }
