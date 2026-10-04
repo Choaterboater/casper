@@ -7,6 +7,7 @@ import { projectStateDirectory } from "../project/model";
 import { readReferenceFile, referenceText } from "../references/files";
 import { READ_ONLY_STATE_CONFLICT, type AgentRuntime } from "../runtime/types";
 import { MAX_SKILL_BYTES } from "../skills/metadata";
+import { isOutside } from "../platform/inside";
 export { formatTerminalJSON as formatLearningResult } from "../tui/json";
 
 const STORE_BYTES = 1_048_576;
@@ -139,7 +140,7 @@ function storedDraft(value: unknown, root: string): LearningDraft {
 }
 function inside(root: string, file: string): boolean {
   const relative = path.relative(root, file);
-  return relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
+  return !isOutside(relative);
 }
 
 const GOAL = `Inspect this local repository for at most four reusable patterns. Do not execute project code, shell commands or tests. Use only read/grep/find/ls, stay within this repository, and avoid hidden, dependency, generated and sensitive files. No cloning, network retrieval, edits, promotion or policy changes.

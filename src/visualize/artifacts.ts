@@ -4,6 +4,7 @@ import { closeSync, constants, mkdtempSync, readFileSync, rmSync, writeFileSync 
 import fs, { type FileHandle } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { isOutside } from "../platform/inside";
 
 // Node exposes file handles but not directory-relative creation. Casper is a Bun
 // application; these POSIX calls pin directory setup and artifact writes/cleanup to the validated
@@ -43,7 +44,7 @@ export class ArtifactDirectory {
 
   static async open(destination: string, workspace: string, check: () => void): Promise<ArtifactDirectory> {
     const relative = path.relative(workspace, destination);
-    if (!relative || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative))) throw new Error("Visualization artifacts must stay outside the workspace");
+    if (!relative || !isOutside(relative)) throw new Error("Visualization artifacts must stay outside the workspace");
     const native = nativeOperations();
     const root = await fs.open("/", constants.O_RDONLY | constants.O_DIRECTORY);
     let fd = root.fd;
@@ -70,7 +71,7 @@ export class ArtifactDirectory {
         check();
         const canonical = await fs.realpath(destination);
         const relative = path.relative(workspace, canonical);
-        if (!relative || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative))) throw new Error("Visualization artifacts must stay outside the workspace");
+        if (!relative || !isOutside(relative)) throw new Error("Visualization artifacts must stay outside the workspace");
         const directory = new ArtifactDirectory(handle, native, destination);
         await directory.assertCurrent(); check(); return directory;
       } catch (error) { await handle.close(); throw error; }

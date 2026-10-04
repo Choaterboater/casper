@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { applyTextEdits, type TextEdit } from "./edits";
 import { record } from "./protocol";
+import { isOutside } from "../platform/inside";
 
 export const MAX_FILE_BYTES = 1024 * 1024;
 export interface Snapshot { path: string; text: string; dev: number; ino: number }
@@ -13,7 +14,7 @@ export async function projectPath(root: string, input: string): Promise<string> 
   const target = input.startsWith("file:") ? fileURLToPath(input) : path.resolve(root, input);
   const canonical = await realpath(target);
   const relative = path.relative(root, canonical);
-  if (!relative || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)
+  if (!relative || isOutside(relative)
     || relative.split(path.sep).some((part) => [".git", ".casper", "node_modules"].includes(part))) {
     throw new Error("LSP path is outside the editable project");
   }

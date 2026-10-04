@@ -1,6 +1,8 @@
 /** Which pages a page check opens after edits, from the changed files and the routing conventions of
  * the project's framework. Pure: no file system, no prompt text. */
 
+import { isOutside } from "../platform/inside";
+
 export const MAX_PAGES = 5;
 export const MAX_CONFIGURED_PAGES = 8;
 
@@ -128,7 +130,7 @@ export function changedPages(frameworks: readonly string[], changedPaths: readon
   let fallback = false, codeChanged = false;
   for (const raw of changedPaths) {
     const file = raw.replace(/\\/g, "/").replace(/^\.\//, "");
-    if (!file || file.startsWith("/") || file.startsWith("../")) continue;
+    if (!file || file.startsWith("/") || isOutside(file)) continue;
     if (NOT_PAGES.test(file) || TEST_FILE.test(file)) continue;
     if (!DOCS.test(file)) codeChanged = true;
     let route: Route | "not-page" = undefined;

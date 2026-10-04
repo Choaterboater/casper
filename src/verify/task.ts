@@ -6,6 +6,7 @@ import { checkResultForModel } from "./model-output";
 import type { VerifierRegistry } from "./registry";
 import type { VerificationScope } from "./scope";
 import { workspaceState } from "./workspace-state";
+import { isOutside } from "../platform/inside";
 
 /** Keep the referent AND the symlink entries traversed to reach it. A link can
  * be an included input even when its referent is excluded or outside the scope.
@@ -82,8 +83,7 @@ export function editAffects(cwd: string, file: string): (scope?: VerificationSco
   const root = pathIdentity(cwd, budget)?.target;
   const observed = pathIdentity(path.resolve(cwd, file), budget);
   const targets = observed ? [observed.target, ...observed.links] : [];
-  const outside = (relative: string) => relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative);
-  if (root && observed && targets.every((target) => outside(path.relative(root, target)))) return () => false;
+  if (root && observed && targets.every((target) => isOutside(path.relative(root, target)))) return () => false;
   return (scope) => {
     if (!scope) return true;
     // Resolve both sides: e.g. declared SRC and actual src on a case-insensitive
@@ -104,13 +104,13 @@ export function editAffects(cwd: string, file: string): (scope?: VerificationSco
       if (input.links.some((link) => observed.links.includes(link))) return true;
       return targets.some((target) => {
         const relative = path.relative(input.target, target);
-        if (outside(relative)) return !outside(path.relative(target, input.target)); // Edit of an input's ancestor.
+        if (isOutside(relative)) return !isOutside(path.relative(target, input.target)); // Edit of an input's ancestor.
         // Exclusions need known traversal spelling. A missing suffix cannot
         // prove it was excluded (e.g. removed GENERATED visited as generated).
         // Never resolve an exclusion through its own symlink.
         const knownTarget = target === observed.target ? observed.missingParent ?? target : target;
         const knownRelative = path.relative(input.target, knownTarget);
-        if (outside(knownRelative)) return true;
+        if (isOutside(knownRelative)) return true;
         const scopedPath = path.posix.join(entry, knownRelative.split(path.sep).join("/"));
         return !scope.exclude?.some((excluded) => scopedPath === excluded || scopedPath.startsWith(excluded + "/"));
       });

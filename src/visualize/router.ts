@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import type { VisualizationGraph, VisualizationProvider, VisualizationResult, VisualizationType } from "./types";
 import { ArtifactDirectory, artifactFilesystemSupported } from "./artifacts";
+import { isOutside } from "../platform/inside";
 
 export interface VisualizationSettings {
   /** Providers to render, in preference order; the first result is shown inline. */
@@ -81,7 +82,7 @@ export class VisualizationRouter {
       check();
       const assertOutside = (target: string) => {
         const relative = path.relative(workspace, target);
-        if (!relative || (!path.isAbsolute(relative) && relative !== ".." && !relative.startsWith(`..${path.sep}`))) {
+        if (!relative || !isOutside(relative)) {
           throw new Error("Visualization artifacts must stay outside the workspace");
         }
       };

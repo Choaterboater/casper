@@ -1,13 +1,14 @@
 import { lstat, readdir, realpath } from "node:fs/promises";
 import path from "node:path";
 import { readReferenceFile, referenceText } from "../references/files";
+import { isOutside } from "../platform/inside";
 
 export const MAX_SCAN_BYTES = 256 * 1024;
 export const MAX_FOLDER_FILES = 200;
 
 function inside(root: string, candidate: string): boolean {
   const relative = path.relative(root, candidate);
-  return !!relative && relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
+  return !!relative && !isOutside(relative);
 }
 
 /** The real path of a project file or folder. Links that lead out of the project, and missing paths, are errors. */

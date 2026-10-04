@@ -19,6 +19,7 @@ import type { SandboxProjectSettings, SandboxUserSettings } from "../sandbox/pol
 import { PROMPT_CACHE_SETTINGS, type PromptCacheSetting } from "../runtime/cache";
 import { DISPLAY_LEVELS, type DisplayLevel } from "../tui/display";
 import { DEFAULT_SPEND_LIMITS, type SpendLimits } from "../task/spend";
+import { isOutside } from "../platform/inside";
 
 export type Autonomy = "low" | "medium" | "high";
 export type AskQuestions = "beforeChanges" | "onlyWhenBlocked";
@@ -161,7 +162,7 @@ async function readProjectFile(projectRoot: string, relative: string, maxBytes: 
     throw error;
   }
   const inside = path.relative(await realpath(projectRoot), real);
-  if (!inside || inside === ".." || inside.startsWith(`..${path.sep}`) || path.isAbsolute(inside)) {
+  if (!inside || isOutside(inside)) {
     throw new Error(`${relative} resolves outside the project; refusing to read it`);
   }
   try {
