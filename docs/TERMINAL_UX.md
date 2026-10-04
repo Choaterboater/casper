@@ -61,7 +61,9 @@ persistent footer, with no alternate-screen takeover. Casper owns the terminal
 before it prints the startup banner, so the banner, model status and diagnostics
 are transcript lines like everything else. A model is not started just to paint
 the footer. A saved default is shown as an advisory startup snapshot; after
-runtime initialization the footer uses the active conversation's model.
+runtime initialization the footer uses the active conversation's model. Before any
+sign-in, the banner and footer say `not signed in · type a request to sign in`, and `/model`
+opens sign-in instead of an empty picker.
 
 On a rich terminal at least 58 columns wide the transcript opens with the
 wordmark — the Casper ghost (bold white) beside a block-letter `CASPER` (accent)
