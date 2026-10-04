@@ -32,8 +32,9 @@ export interface ManagedProcessOptions {
    * so the host can reach it on loopback, but writes only the project and temp and never reads private places. */
   sandbox?: ShellSandbox | false;
   /** When the sandbox fails to start on this run: whether it may go ahead not sandboxed (a string refuses it, and
-   * says why). Unset: it goes ahead, as checks and declared services do. */
-  unsandboxed?: () => Promise<string | undefined>;
+   * says why). Unset: it goes ahead, as checks and declared services do. An object goes ahead with a new env and
+   * readiness (the port taken while you answered). */
+  unsandboxed?: () => Promise<string | undefined | { env: Record<string, string>; ready: Readiness }>;
   /** Called when the root exits on its own after readiness (a crash); the owner decides the cleanup. */
   onExit?: (details: { code: number | null; signal: NodeJS.Signals | null }) => void;
 }
@@ -112,10 +113,13 @@ export class ManagedProcess {
   private exitDetails?: { code: number | null; signal: NodeJS.Signals | null };
   private readonly logBytes: number;
   private readonly label: string;
-  constructor(private readonly options: ManagedProcessOptions) {
+  constructor(private options: ManagedProcessOptions) {
     this.logBytes = options.logBytes ?? 16_384;
     this.label = options.label ?? "Managed process";
-    const ready = options.ready;
+    this.checkReady(options.ready);
+  }
+
+  private checkReady(ready: Readiness): void {
     if ("http" in ready) {
       if (ready.http.protocol !== "http:") throw new Error(`${this.label} readiness needs a loopback http: URL`);
       loopbackHost(ready.http.hostname);
@@ -167,8 +171,9 @@ export class ManagedProcess {
         // The sandbox failed to start just now (it said so): start as later runs will, not sandboxed.
         if (!sandbox.failure) { await rm(home, { recursive: true, force: true }); throw new ManagedProcessError("exited", `${this.label} could not start: ${error instanceof Error ? error.message : String(error)}`, ""); }
         if (this.options.unsandboxed) {
-          const refused = await this.options.unsandboxed();
-          if (refused) { await rm(home, { recursive: true, force: true }); throw new ManagedProcessError("exited", refused, ""); }
+          const answer = await this.options.unsandboxed();
+          if (typeof answer === "string") { await rm(home, { recursive: true, force: true }); throw new ManagedProcessError("exited", answer, ""); }
+          if (answer) { this.checkReady(answer.ready); this.options = { ...this.options, env: answer.env, ready: answer.ready }; }
           // Time spent answering is not startup time.
           began = performance.now();
         }
