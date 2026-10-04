@@ -511,6 +511,16 @@ test("interactive run: a risky kind asks first (1 No · 2 Allow), then the chang
   expect(result).toContain("invite_user");
 });
 
+test("review: the real change box for a tool the server tags as firmware offers 1 No and 2 Yes, this once, and no session answer", async () => {
+  const { output, result } = await networkRun(["2", "2"], { id: "mcp:net:update_device_settings", arguments: { serial_number: "SG1" } });
+  const box = output.indexOf("Change in HPE networking: update device settings");
+  expect(box).toBeGreaterThanOrEqual(0);
+  expect(output.slice(box)).toContain("  1 No\n  2 Yes, this once\n");
+  expect(output.slice(box)).not.toContain("for this session");
+  expect(output).toContain("[approval] allowed\n");
+  expect(result).toContain("update_device_settings");
+});
+
 test("interactive run: 1 at the kind box runs nothing and shows no change box", async () => {
   const { output, result } = await networkRun(["1"], { id: "mcp:net:invite_user", arguments: { email: "a@example.com" } });
   expect(output).toContain("Admin and account changes are off by default on HPE networking.");
