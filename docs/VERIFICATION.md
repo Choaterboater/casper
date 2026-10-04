@@ -219,7 +219,21 @@ again, an interactive terminal asks `1 Stop · 2 Retry` (Enter stops; before v0.
 last. When the model run fails after it edited
 files, Casper still runs the checks on those edits, without a repair, and the verdict says how
 they fared (`✗ Failed — the model run failed; changes already made are kept; the checks pass on
-those changes`), followed by a `• Next:` line suggesting another model.
+those changes`), followed by a `• Next:` line for the cause.
+
+The `[error]` line names the cause in plain words with one next step, and Ctrl+T shows the
+provider's own message (a plain terminal prints it on the next line):
+
+| Cause | Next step |
+| --- | --- |
+| The key is wrong or expired (401) | `/login` to sign in again |
+| Out of credits (402, "quota") | Add credits on the provider's site, or `/model` to pick another model |
+| Rate limited or overloaded (429, 529) | Wait a minute, then ask again |
+| Can't reach the provider (offline, DNS) | Check your internet connection, then ask again |
+| The conversation is too long | `/compact`, then ask again |
+| The provider can't run this model | `/model` to pick another model |
+
+Any other error keeps the provider's text, and the receipt suggests another model.
 
 ## Independent acceptance check (experimental)
 

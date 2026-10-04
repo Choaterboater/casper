@@ -1,4 +1,5 @@
 import { formatDuration, formatVerificationReport, reportText, type VerificationReport, type VerificationResult } from "../verify/evidence";
+import { modelErrorNext, type ModelErrorCause } from "../runtime/model-errors";
 import type { RiskyLine } from "../network/risky-receipt";
 import { isBuiltinCheck } from "../verify/named";
 import { DRY_RUN_LABEL } from "../network/checks";
@@ -36,6 +37,8 @@ export interface TaskUsage {
 /** Execution completion is not behavioral acceptance or proof of correctness. */
 export interface TaskResult {
   execution: "completed" | "failed" | "cancelled";
+  /** Why the model run failed, when the provider's error names a cause (bad key, no credits, rate limit …). */
+  modelError?: ModelErrorCause;
   verification?: VerificationReport;
   browser?: BrowserReport;
   /** The model's answer says the browser checks passed; only said when Casper's record disagrees. */
@@ -522,7 +525,8 @@ function withVerdict(task: TaskResult, body: string[], options: ReceiptOptions):
       if (task.execution === "failed") {
         // Casper checked the edits the model left: say how they fared, then what to do next.
         const checked = !report?.results.length ? "" : failedChecks.length ? `; on those changes ${failedChecks.join(", ")}` : "; the checks pass on those changes";
-        const next = `• Next: ${options.surface === "one-shot" ? "casper --model <provider/id> \"…\" to try another model" : "/model to try another model, then ask again"}`;
+        const next = `• Next: ${modelErrorNext(task.modelError, options.surface === "one-shot")
+          ?? (options.surface === "one-shot" ? "casper --model <provider/id> \"…\" to try another model" : "/model to try another model, then ask again")}`;
         const verdict = task.changedPaths?.length === 0 && !task.possibleMutations
           ? "✗ Failed — the model run failed before changing any files" : `✗ Failed — the model run failed; changes already made are kept${checked}`;
         lines = [verdict, ...body, next];

@@ -21,7 +21,7 @@ Casper, `/help <word>` only the lines that mention a word (`/help mcp`), and
 | Esc | Stop the current work |
 | Ctrl+C | Cancel work; when idle, clear the draft; twice on an empty prompt exits |
 | Ctrl+D | Exit when the prompt is empty |
-| Ctrl+T | Show the last step in full: an edit's whole diff, or what a command printed (works during work too) |
+| Ctrl+T | Show the last step in full: an edit's whole diff, what a command printed, or the provider's own words after an `[error]` (works during work too) |
 | Ctrl+L | Redraw the screen |
 | Ctrl+O | Turn MCP writes off for every server at once (see [MCP.md](MCP.md)) |
 

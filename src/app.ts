@@ -130,6 +130,7 @@ import { askBuildRequest, buildRequestNote, isEmptyFolder, newProjectFromQuestio
   type NewProjectFlow } from "./app/new-project";
 import { listLines } from "./new/command";
 import { defaultNameFor } from "./new/templates";
+import { explainModelError } from "./runtime/model-errors";
 import { tildePath, type NewProjectOptions, type NewProjectResult } from "./new/scaffold";
 
 export type { OutputWriter } from "./app/commands";
@@ -1484,6 +1485,7 @@ export class CasperApp {
     edits.before = before;
     // The risky lines already in the project's config files, so the receipt lists only the ones this task adds.
     const riskyBefore = before ? await riskyBaseline(workspaceRoot, [...before.keys()]).catch(() => undefined) : undefined;
+    let thrownError: string | undefined;
     // verification.checklist: the cases the request states, listed before the model starts, so it tests each one.
     // Unset, it is on for interactive code changes and off otherwise: questions, docs, refactors and one-shot runs.
     // At most one question before work: after the new-project question there is no checklist panel.
@@ -1656,6 +1658,7 @@ export class CasperApp {
       }
     } catch (error) {
       this.taskRuntimeFailed = true;
+      thrownError = error instanceof Error ? error.message : String(error);
       throw error;
     } finally {
       this.taskBaseline = undefined;
@@ -1685,7 +1688,8 @@ export class CasperApp {
       const snapshotFailure = !changedPaths && this.snapshotFailure ? { reason: this.snapshotFailure,
         edited: observations.observedEdits.map((file) => { const relative = path.relative(workspaceRoot, path.resolve(workspaceRoot, file));
           return relative && !isOutside(relative) ? relative.split(path.sep).join("/") : file; }) } : undefined;
-      this.lastTaskResult = { execution, verification, ...observations, ...(snapshotFailure ? { snapshotFailure } : {}), ...(browser?.checks.length ? { browser, ...(browser.status !== "pass" && answerClaimsBrowserPass(this.lastAnswer) ? { browserClaimed: true } : {}) } : {}),
+      const modelError = execution === "failed" ? explainModelError(this.events.lastError ?? thrownError ?? "")?.cause : undefined;
+      this.lastTaskResult = { execution, ...(modelError ? { modelError } : {}), verification, ...observations, ...(snapshotFailure ? { snapshotFailure } : {}), ...(browser?.checks.length ? { browser, ...(browser.status !== "pass" && answerClaimsBrowserPass(this.lastAnswer) ? { browserClaimed: true } : {}) } : {}),
         ...(services.length ? { services } : {}), ...(riskyLines.length ? { riskyLines: [...riskyLines], ...(riskyLines.more ? { riskyMore: riskyLines.more } : {}) } : {}),
         // Smoke checks ran even without a configured command, so "no checks" no longer describes the task.
         verificationMode, ...(!flag && !configured && verificationMode === "auto" ? { verificationDefaulted: true as const } : {}),
