@@ -335,3 +335,12 @@ test("review: a risky or disruptive kind gets no session answer in the box", () 
   expect(invite.preview).not.toContain("for this session");
   expect(Object.values(invite.answers)).toEqual(["no", "yes", "allow-all"]);
 });
+
+test("review: a tool the server tags as firmware gets no session answer; yes this once stays", () => {
+  const settings = plan("update_device_settings", { serial: "SG1" });
+  expect(formatApproval(settings).preview).toContain("for this session");
+  const box = formatApproval(settings, undefined, { tool: { _meta: { "casper/change-kind": "firmware" } } });
+  expect(box.preview).toContain("  1 No\n  2 Yes, this once\n");
+  expect(box.preview).not.toContain("for this session");
+  expect(Object.values(box.answers)).toEqual(["no", "yes", "allow-all"]);
+});

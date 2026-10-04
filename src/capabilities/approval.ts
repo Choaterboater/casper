@@ -427,7 +427,8 @@ export type ApprovalChoice = "no" | "preview" | "yes" | "yes-session" | "allow-a
  * then numbered choices. 1 is always No; "Preview first" only when the tool's own preview can run; a destructive
  * change gets no "for this session" answer. The technical line (server, tool, label) closes the box.
  */
-export function formatApproval(plan: ApprovalPlan, lastPreview?: LastPreview, options: FormatOptions & { product?: string; scope?: string } = {}):
+export function formatApproval(plan: ApprovalPlan, lastPreview?: LastPreview,
+  options: FormatOptions & { product?: string; scope?: string; tool?: Pick<MCPTool, "_meta"> } = {}):
 { preview: string; question: string; choices: string[]; answers: Record<string, ApprovalChoice> } {
   const single = plan.routed.length === 1 && !plan.routerUnclear ? plan.routed[0]! : undefined;
   const lines = [`Change in ${options.product ?? plan.server}: ${toolWords(single?.name ?? plan.tool)}`];
@@ -458,7 +459,7 @@ export function formatApproval(plan: ApprovalPlan, lastPreview?: LastPreview, op
     lines.push(`Last preview (${ago(lastPreview.at, options.now ?? Date.now())}): ${cut}`);
   } else if (offer) lines.push("No preview yet.");
   lines.push(`MCP · ${plan.server} · ${plan.tool}  [${planLabel(plan)}]`);
-  const onceOnly = !sessionAllowed(planLabel(plan)) || asksEveryTime(plan);
+  const onceOnly = !sessionAllowed(planLabel(plan)) || asksEveryTime(plan, options.tool);
   const all = approveAllLabel(options.product ?? plan.server);
   const labels: readonly string[] = [...(onceOnly ? (offer ? APPROVE_ONCE_PREVIEW_CHOICES : APPROVE_ONCE_CHOICES)
     : offer ? APPROVE_PREVIEW_CHOICES : APPROVE_CHOICES), all];

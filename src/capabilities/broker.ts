@@ -63,6 +63,8 @@ export type ConfirmCapability = (call: {
   plan: ApprovalPlan;
   /** The last preview of the same call on this connection, redacted. */
   lastPreview?: LastPreview;
+  /** The tool's server tags (`_meta`), so the box reads the server's change kind. */
+  tool?: Pick<MCPTool, "_meta">;
 }, signal?: AbortSignal) => Promise<ApprovalAnswer>;
 
 /** Ask the user whether a change kind that is off by default (firmware, delete, admin) may run on this server for
@@ -297,7 +299,7 @@ export class CapabilityBroker {
     // Risky kinds (firmware, delete, admin) are off by default: the user allows the kind first, then the change box asks.
     if (needsApproval(plan) && !optedIn && !allCovered) await this.allowRiskyKinds(capability, plan, combined);
     // Covered by the user's "Yes, for this session": approved without a box, so server questions still reach them.
-    const covered = allCovered || (needsApproval(plan) && !optedIn && this.sessionCovers(plan, capability.policy));
+    const covered = allCovered || (needsApproval(plan) && !optedIn && this.sessionCovers(plan, capability));
     const writesBefore = this.writes(policy);
     const answer = covered ? { realTool: realToolOf(plan), once: false }
       : needsApproval(plan) && !optedIn ? await this.approve(capability, plan, combined) : undefined;
@@ -375,12 +377,13 @@ export class CapabilityBroker {
       const answer = await this.confirm({
         capability: structuredClone(capability.descriptor), arguments: structuredClone(plan.arguments),
         plan: structuredClone(shown), ...(lastPreview ? { lastPreview: { ...lastPreview } } : {}),
+        ...(capability.tool._meta ? { tool: { _meta: structuredClone(capability.tool._meta) } } : {}),
       }, signal);
       notCancelled(signal);
       if (answer === true || answer === "yes") return { realTool, once: true };
       if (answer === "allow-all") return { realTool, once: false, all: true };
       // "For this session" only where it is offered; anywhere else it counts as this once.
-      if (answer === "yes-session") return sessionAllowed(planLabel(shown)) && !asksEveryTime(shown) ? { realTool, once: false, session: true } : { realTool, once: true };
+      if (answer === "yes-session") return sessionAllowed(planLabel(shown)) && !asksEveryTime(shown, capability.tool) ? { realTool, once: false, session: true } : { realTool, once: true };
       if (answer !== "preview" || !canPreview(shown)) break;
       // Only send what Casper itself reads as a preview.
       const previewArgs = previewArguments(plan);
@@ -493,11 +496,11 @@ export class CapabilityBroker {
 
   /** A session answer covers a change that is not destructive and that the AI didn't mark confirmed or preview-off.
    * It stands only while the server's writes are on: ctrl+o, /mcp writes off or a disconnect ends it. */
-  private sessionCovers(plan: ApprovalPlan, policy: ServerPolicy): boolean {
+  private sessionCovers(plan: ApprovalPlan, capability: Capability): boolean {
     if (!this.sessionGrant(plan.server)) return false;
-    if (this.writes(policy) === "off") { this.sessionGrants.delete(plan.server); return false; }
+    if (this.writes(capability.policy) === "off") { this.sessionGrants.delete(plan.server); return false; }
     // Risky and disruptive kinds ask every time, like destructive changes.
-    if (asksEveryTime(plan)) return false;
+    if (asksEveryTime(plan, capability.tool)) return false;
     return sessionAllowed(planLabel(plan)) && !plan.routerUnclear
       && aiConfirm(plan.arguments).length === 0 && previewSwitchedOff(plan.arguments).length === 0;
   }

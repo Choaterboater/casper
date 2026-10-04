@@ -2784,7 +2784,9 @@ export class CasperApp {
     return this.oneAtATime(async () => {
       if (this.approvalStopped(signal)) throw new NotExecutedError("cancelled");
       const scope = changeScopeText(this.mcp?.policy(call.plan.server).access);
-      const box = formatApproval(call.plan, call.lastPreview, { product: this.mcp?.productLabel(call.plan.server), ...(scope ? { scope } : {}) });
+      const box = formatApproval(call.plan, call.lastPreview, {
+        product: this.mcp?.productLabel(call.plan.server), ...(scope ? { scope } : {}), ...(call.tool ? { tool: call.tool } : {}),
+      });
       // The same exact channel as /mcp writes: only a digit typed after the box appeared answers it.
       const digit = await this.chooseExact(box.preview, box.question, box.choices, signal);
       if (digit === undefined && this.approvalStopped(signal)) throw new NotExecutedError("cancelled");
