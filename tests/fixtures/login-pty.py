@@ -30,18 +30,17 @@ def success(bun, repo, root, no_color):
         s.until("│ idle")
         draft = "d" * 95
         s.send("/login\n" + draft + "\x1b[D\x1b[D")
-        s.until("Choose provider")
-        s.until("Up/Down: choose")
-        for key, selected in (("\x1b[B", "GitHub Copilot"), ("\x1b[B", "Anthropic / Claude"), ("\x1b[A", "GitHub Copilot"), ("\x1b[A", "OpenAI Codex")):
+        s.until("Type a number")
+        for key, selected in (("\x1b[B", "2 OpenRouter"), ("\x1b[B", "3 Anthropic"), ("\x1b[A", "2 OpenRouter"), ("\x1b[A", "1 OpenRouter")):
             s.send(key); s.pump(0.1)
             screen = s.screen.text()
             assert "→ " + selected in screen, screen
             assert "\\u{d}" not in screen, screen
-            for label in ("OpenAI Codex", "GitHub Copilot", "Anthropic / Claude", "OpenRouter"):
+            for label in ("OpenAI Codex", "GitHub Copilot"):
                 assert screen.count(label) == 1, screen
-        s.send("\n")
+        s.send("5")
         s.until("Press Y to consent")
-        assert "Choose provider" not in s.screen.text(), s.screen.text()
+        assert "Type a number" not in s.screen.text(), s.screen.text()
         auth = s.root / "home/.casper/agent/auth.json"
         assert not auth.exists(), "consent screen created auth storage"
         # Bracketed paste and unrelated text are ignored, not echoed or reused as consent.

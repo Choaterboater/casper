@@ -107,7 +107,7 @@ def exercise_empty_eof(bun, repo, root):
         s.send("hello\n")
         # With no model, Casper opens sign-in itself instead of printing a fake failed receipt.
         s.until("No model yet. Sign in to a provider to start")
-        s.until("Login · Choose provider")
+        s.until("Type a number")
         s.send("\x1b")
         s.until("[login] Cancelled; no credential saved.")
         s.until("[model] No Casper model selected")

@@ -50,7 +50,7 @@ test("API-key login verifies with the provider, keeps secrets off screen, and pr
       try {
         const result = await runtime.authenticate({ provider: ${JSON.stringify(provider)}, terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
           screen += text;
-          if (text.includes('Choose sign-in method')) setImmediate(() => input.write('\\r'));
+          if (text.includes('Type a number')) setImmediate(() => input.write('\\r'));
           if (text.includes('Press Y')) setImmediate(() => input.write('Y'));
           if (text.includes('Private API key')) setImmediate(() => { input.write('\\x1b[200~synthetic-private-key\\x1b[201~'); setTimeout(() => input.write('\\r'), 20); });
         } } }, operation) } });
@@ -70,13 +70,40 @@ test("API-key login verifies with the provider, keeps secrets off screen, and pr
     }
     expect(result.screen).not.toContain("synthetic-private-key");
     if (provider === "openrouter") {
-      expect(result.screen).toContain("Choose sign-in method");
-      expect(result.screen).toContain("Browser sign-in");
+      expect(result.screen).toContain("Sign in to OpenRouter");
+      expect(result.screen).toContain("sign in with your browser");
       expect(result.screen).toContain("Use an API key from OpenRouter.");
     }
     expect(JSON.parse(await readFile(path.join(agent, "auth.json"), "utf8"))).toEqual({ unrelated: { type: "api_key", key: "keep" }, [provider]: { type: "api_key", key: "synthetic-private-key" } });
     expect(await Bun.file(path.join(agent, "sessions")).exists()).toBe(false);
   }
+});
+
+test("Enter at the numbered sign-in list picks OpenRouter with an API key", async () => {
+  const f = await fixture(); const agent = f.env.PI_CODING_AGENT_DIR;
+  await mkdir(agent, { recursive: true });
+  const output = await f.run(`
+    import { PiRuntime } from ${JSON.stringify(path.join(repo, "src/runtime/pi.ts"))};
+    import { PassThrough } from 'node:stream';
+    globalThis.fetch = async (input) => {
+      if (String(input) === 'https://openrouter.ai/api/v1/auth/key') return Response.json({}, { status: 200 });
+      throw new Error('NETWORK_FORBIDDEN');
+    };
+    const runtime = new PiRuntime(); const input = new PassThrough(); let screen = '';
+    try {
+      const result = await runtime.authenticate({ terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
+        screen += text;
+        if (text.includes('Type a number')) setImmediate(() => input.write('\\r'));
+        if (text.includes('Press Y')) setImmediate(() => input.write('Y'));
+        if (text.includes('Private API key')) setImmediate(() => { input.write('synthetic-key'); setTimeout(() => input.write('\\r'), 20); });
+      } } }, operation) } });
+      console.log(JSON.stringify({ result, screen }));
+    } finally { await runtime.dispose(); input.destroy(); }
+  `);
+  const result = JSON.parse(output);
+  expect(result.result).toEqual({ status: "saved" });
+  expect(Bun.stripANSI(result.screen)).toContain("1 OpenRouter");
+  expect(JSON.parse(await readFile(path.join(agent, "auth.json"), "utf8")).openrouter.key).toBe("synthetic-key");
 });
 
 test("a provider-rejected API key is never saved and prompts again", async () => {
@@ -99,7 +126,7 @@ test("a provider-rejected API key is never saved and prompts again", async () =>
     try {
       const result = await runtime.authenticate({ provider: 'openrouter', terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
         screen += text;
-        if (text.includes('Choose sign-in method')) setImmediate(() => input.write('\\r'));
+        if (text.includes('Type a number')) setImmediate(() => input.write('\\r'));
         if (text.includes('Press Y')) setImmediate(() => input.write('Y'));
         if (text.includes('Private API key') && sent < keys.length) {
           const key = keys[sent++];
@@ -130,7 +157,7 @@ test("an unverifiable API key can be saved explicitly after the network-choice p
     try {
       const result = await runtime.authenticate({ provider: 'openrouter', terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
         screen += text;
-        if (text.includes('Choose sign-in method')) setImmediate(() => input.write('\\r'));
+        if (text.includes('Sign in to OpenRouter')) setImmediate(() => input.write('\\r'));
         if (text.includes('Press Y')) setImmediate(() => input.write('Y'));
         if (text.includes('Private API key') && !screen.includes('Key could not be verified')) setImmediate(() => { input.write('synthetic-unverified-key'); setTimeout(() => input.write('\\r'), 20); });
         if (text.includes('Key could not be verified')) setImmediate(() => { input.write('\\x1b[B'); setTimeout(() => input.write('\\r'), 20); });
@@ -167,7 +194,7 @@ test("OpenRouter browser sign-in exchanges the pasted authorization code and sav
     try {
       const result = await runtime.authenticate({ provider: 'openrouter', terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
         screen += text;
-        if (text.includes('Choose sign-in method')) setImmediate(() => { input.write('\\x1b[B'); setTimeout(() => input.write('\\r'), 20); });
+        if (text.includes('Type a number')) setImmediate(() => { input.write('\\x1b[B'); setTimeout(() => input.write('\\r'), 20); });
         if (text.includes('Press Y')) setImmediate(() => input.write('Y'));
         const displayed = Bun.stripANSI(text).replace(/[\\r\\n]/g, '');
         if (!authorized && displayed.includes('https://openrouter.ai/auth')) authorized = true;
@@ -180,7 +207,7 @@ test("OpenRouter browser sign-in exchanges the pasted authorization code and sav
   expect(result.result).toEqual({ status: "saved" });
   expect(result.authorized).toBe(true);
   expect(result.calls).toEqual(["https://openrouter.ai/api/v1/auth/keys"]);
-  expect(result.screen).toContain("Browser sign-in");
+  expect(result.screen).toContain("sign in with your browser");
   expect(result.screen).toContain("https://openrouter.ai/auth");
   expect(result.screen).not.toContain("sk-or-synthetic-key");
   expect(result.screen).not.toContain("synthetic-private-code");
@@ -250,7 +277,7 @@ test("Anthropic browser sign-in completes through private manual input or real l
       try {
         const result = await runtime.authenticate({ provider, terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
           screen += text;
-          if (text.includes('Choose sign-in method')) setImmediate(() => { input.write('\\x1b[B'); setTimeout(() => input.write('\\r'), 20); });
+          if (text.includes('Type a number')) setImmediate(() => { input.write('\\x1b[B'); setTimeout(() => input.write('\\r'), 20); });
           if (text.includes('Press Y')) setImmediate(() => input.write('Y'));
           const displayed = Bun.stripANSI(text).replace(/[\\r\\n]/g, '');
           const url = displayed.match(/https:\\/\\/[^ ╭]+/)?.[0];
@@ -297,7 +324,7 @@ test("private key entry rejects executable syntax, multiline and oversized unfin
       try {
         const result = await runtime.authenticate({ provider: 'anthropic', terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
           screen += text;
-          if (text.includes('Choose sign-in method')) setImmediate(() => input.write('\\r'));
+          if (text.includes('Type a number')) setImmediate(() => input.write('\\r'));
           if (text.includes('Press Y')) setImmediate(() => input.write('Y'));
           if (text.includes('Private API key')) setImmediate(() => { input.write('\\x1b[200~' + ${literal} + ${key.length > 8192 ? "''" : "'\\x1b[201~'"}); setTimeout(() => input.write('\\r'), 20); });
         } } }, operation) } });
@@ -330,7 +357,7 @@ test("API-key replacement refreshes the selected non-Codex parent without changi
     const before = session.getStatus(); const input = new PassThrough();
     try {
       const result = await runtime.authenticate({ provider: 'anthropic', terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
-        if (text.includes('Choose sign-in method')) setImmediate(() => input.write('\\r'));
+        if (text.includes('Type a number')) setImmediate(() => input.write('\\r'));
         if (text.includes('Press Y')) setImmediate(() => input.write('Y'));
         if (text.includes('Private API key')) setImmediate(() => { input.write('synthetic-new'); setTimeout(() => input.write('\\r'), 20); });
       } } }, operation) } }); console.log(JSON.stringify({ result, before, after: session.getStatus() }));
@@ -358,7 +385,7 @@ test("provider refusal and occupied browser port expose no diagnostics and prese
       try {
         const result = await runtime.authenticate({ provider: 'anthropic', terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
           screen += text;
-          if (text.includes('Choose sign-in method')) setImmediate(() => { input.write('\\x1b[B'); setTimeout(() => input.write('\\r'), 20); });
+          if (text.includes('Type a number')) setImmediate(() => { input.write('\\x1b[B'); setTimeout(() => input.write('\\r'), 20); });
           if (text.includes('Press Y')) setImmediate(() => input.write('Y'));
           if (text.includes('Private authorization code')) setImmediate(() => { input.write('private-code'); setTimeout(() => input.write('\\r'), 20); });
         } } }, operation) } }); console.log(JSON.stringify({ result, calls, safe: !screen.includes('PRIVATE_PROVIDER_DIAGNOSTIC') && !screen.includes('private-code') }));
@@ -379,7 +406,7 @@ test("cancelling between provider selection and consent is cancellation, not log
     const runtime = new PiRuntime(); const input = new PassThrough();
     try {
       const result = await runtime.authenticate({ terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
-        if (text.includes('Choose provider')) setImmediate(() => { input.write('\\r'); queueMicrotask(() => input.write('\\x03')); });
+        if (text.includes('Type a number')) setImmediate(() => { input.write('\\r'); queueMicrotask(() => input.write('\\x03')); });
       } } }, operation) } }); console.log(JSON.stringify(result));
     } finally { await runtime.dispose(); input.destroy(); }
   `);
@@ -574,7 +601,7 @@ posixOnly("login saves through a symlinked HOME ancestor", async () => {
     const runtime = new PiRuntime(); const input = new PassThrough();
     try {
       const result = await runtime.authenticate({ provider: 'anthropic', terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
-        if (text.includes('Choose sign-in method')) setImmediate(() => input.write('\\r'));
+        if (text.includes('Type a number')) setImmediate(() => input.write('\\r'));
         if (text.includes('Press Y')) setImmediate(() => input.write('Y'));
         if (text.includes('Private API key')) setImmediate(() => { input.write('\\x1b[200~synthetic-private-key\\x1b[201~'); setTimeout(() => input.write('\\r'), 20); });
       } } }, operation) } });
@@ -623,7 +650,7 @@ test("CASPER_OAUTH_CALLBACK_HOST cannot expose browser sign-in on a public liste
     const runtime = new PiRuntime(); const input = new PassThrough(); let chosen = false; let consented = false;
     try {
       const result = await runtime.authenticate({ provider: 'anthropic', terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
-        if (!chosen && text.includes('Choose sign-in method')) { chosen = true; setImmediate(() => input.write('\\x1b[B\\r')); }
+        if (!chosen && text.includes('Type a number')) { chosen = true; setImmediate(() => input.write('\\x1b[B\\r')); }
         if (!consented && text.includes('Press Y')) { consented = true; setImmediate(() => input.write('Y')); }
         if (text.includes('Private authorization')) setImmediate(() => input.write('\\x1b'));
       } } }, operation) } });

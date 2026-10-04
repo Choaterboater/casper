@@ -266,9 +266,11 @@ unreported failed-request cost is unknown, not zero.
 
 ### Provider login
 
-`/login` offers Codex and GitHub Copilot device-code login, Anthropic/Claude and
-OpenRouter API-key or browser sign-in. `/login <provider-id>` skips only the
-provider chooser. Every method requires fresh consent to provider-scoped
+`/login` shows one numbered list of providers and ways to sign in, OpenRouter first:
+1 OpenRouter · paste an API key, 2 OpenRouter · sign in with your browser, 3-4 the same for
+Anthropic (Claude), then OpenAI Codex and GitHub Copilot. Press a number, or Up/Down and
+Enter (Enter alone picks 1); Esc cancels. `/login <provider-id>` lists only that provider's
+ways, and opens the only one straight away. Every method requires fresh consent to provider-scoped
 credential replacement in Casper's store (`~/.casper/agent/auth.json`); login does not select a model. Browser sign-in opens the system
 browser automatically; offline mode (CASPER_OFFLINE=1) suppresses the launch and keeps the URL
 printed for manual opening.
@@ -278,8 +280,8 @@ can be retried, saved explicitly, or cancelled. Keys and callback codes/URLs use
 separate hidden prompt (live character count, contents never rendered), never chat/history.
 Escape/Ctrl-C cancel; EOF and shutdown drain the login lifecycle.
 
-Provider and method choices reuse Pi's selection list: Up/Down moves the visible
-highlight in place, Enter confirms that item, and Cancel exits without contacting
+The list reuses Pi's selection list: a digit picks its row at once, Up/Down moves the
+visible highlight in place, Enter confirms that item, and Esc exits without contacting
 the provider. Navigation accepts Pi's decoded arrow/Enter sequences, including
 fragmented or batched terminal input. Trailing keys cannot answer the next prompt;
 pasted text cannot grant consent or submit a private credential.

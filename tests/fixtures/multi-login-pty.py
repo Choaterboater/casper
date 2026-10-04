@@ -21,13 +21,12 @@ def run_case(bun, repo, root, provider, browser=False, action="save", no_color=F
         s.until("│ idle")
         # Navigate the chooser rather than only testing direct commands.
         s.send("/login\n")
-        s.until("Choose provider"); s.until("Up/Down: choose")
-        index = ["openai-codex", "github-copilot", "anthropic", "openrouter"].index(provider)
-        for _ in range(index): s.send("\x1b[B"); s.pump(0.03)
-        s.send("\n")
-        if provider in ("anthropic", "openrouter"):
-            s.until("Choose sign-in method")
-            if browser: s.send("\x1b[B"); s.pump(0.03)
+        s.until("Type a number")
+        row = {"openrouter": 1, "anthropic": 3, "github-copilot": 6}[provider] + (1 if browser else 0)
+        if row == 1: s.send("\n")
+        else:
+            # Arrow to the row, then Enter: the list is numbered, but arrows still work.
+            for _ in range(row - 1): s.send("\x1b[B"); s.pump(0.03)
             s.send("\n")
         s.until("Press Y to consent")
         auth = s.root / "home/.casper/agent/auth.json"

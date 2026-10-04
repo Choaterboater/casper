@@ -4,12 +4,26 @@ import { withLoginDisplay } from "../tui/login";
 import { openRouterAttribution } from "./openrouter-attribution";
 import type { RuntimeAuthenticationOptions, RuntimeAuthenticationResult, RuntimeAuthProvider } from "./types";
 
-const providers: readonly { id: RuntimeAuthProvider; label: string }[] = [
-  { id: "openai-codex", label: "OpenAI Codex — device code" },
-  { id: "github-copilot", label: "GitHub Copilot — device code (github.com)" },
-  { id: "anthropic", label: "Anthropic / Claude — API key or browser sign-in" },
-  { id: "openrouter", label: "OpenRouter — API key or browser sign-in" },
-];
+const providerNames: Record<RuntimeAuthProvider, string> = {
+  openrouter: "OpenRouter", anthropic: "Anthropic (Claude)", "openai-codex": "OpenAI Codex (ChatGPT plan)", "github-copilot": "GitHub Copilot",
+};
+
+/** One way to sign in: a provider and its method, one numbered row. */
+export interface SignInWay { id: string; provider: RuntimeAuthProvider; method: "api_key" | "oauth"; label: string }
+
+/** Every way to sign in, provider and method together in one list, OpenRouter first (Enter picks it).
+ * With a provider, only that provider's ways. */
+export function signInWays(provider?: RuntimeAuthProvider): SignInWay[] {
+  const ways: SignInWay[] = [
+    { id: "openrouter:api_key", provider: "openrouter", method: "api_key", label: "OpenRouter · paste an API key" },
+    { id: "openrouter:oauth", provider: "openrouter", method: "oauth", label: "OpenRouter · sign in with your browser" },
+    { id: "anthropic:api_key", provider: "anthropic", method: "api_key", label: "Anthropic (Claude) · paste an API key" },
+    { id: "anthropic:oauth", provider: "anthropic", method: "oauth", label: "Anthropic (Claude) · sign in with your browser" },
+    { id: "openai-codex:oauth", provider: "openai-codex", method: "oauth", label: "OpenAI Codex (ChatGPT plan) · enter a code at openai.com" },
+    { id: "github-copilot:oauth", provider: "github-copilot", method: "oauth", label: "GitHub Copilot · enter a code at github.com" },
+  ];
+  return provider ? ways.filter((way) => way.provider === provider) : ways;
+}
 
 /** Accept only Anthropic's HTTPS authorization page and loopback callback. */
 function validAuthorizationUrl(provider: RuntimeAuthProvider, value: string): boolean {
@@ -58,7 +72,7 @@ export async function authenticatePi(options: RuntimeAuthenticationOptions, dest
   lifetime: AbortSignal): Promise<RuntimeAuthenticationResult & { provider?: RuntimeAuthProvider }> {
   const signal = AbortSignal.any([lifetime, ...(options.signal ? [options.signal] : [])]);
   if (signal.aborted) return { status: "cancelled", effect: "none" };
-  if ((options.provider !== undefined && !providers.some(item => item.id === options.provider)) || process.env.CASPER_TUI_WRITE_LOG || process.env.PI_TUI_WRITE_LOG) {
+  if ((options.provider !== undefined && !Object.hasOwn(providerNames, options.provider)) || process.env.CASPER_TUI_WRITE_LOG || process.env.PI_TUI_WRITE_LOG) {
     return { status: "failed", effect: "none", reason: "unavailable" };
   }
   let invoked = false;
@@ -68,13 +82,15 @@ export async function authenticatePi(options: RuntimeAuthenticationOptions, dest
     const early = await privateFileProblem(destination, signal);
     if (early) return { status: "failed", effect: "none", reason: "destination", detail: early };
     return await options.terminalHost.run((io) => withLoginDisplay(io, signal, async (display): Promise<RuntimeAuthenticationResult> => {
-      provider ??= await display.choose("Choose provider", providers);
-      if (!provider) return { status: "cancelled", effect: "none" };
-      const selected = provider;
-      const method = selected === "anthropic" || selected === "openrouter"
-        ? await display.choose("Choose sign-in method", [{ id: "api_key", label: "API key" }, { id: "oauth", label: "Browser sign-in" }] as const)
-        : "oauth";
-      if (!method) return { status: "cancelled", effect: "none" };
+      // One numbered list (provider and method together); a provider with one way skips it.
+      const ways = signInWays(provider);
+      const pickedId = ways.length === 1 ? ways[0]!.id
+        : await display.choose(provider ? `Sign in to ${providerNames[provider]}` : "Sign in", ways);
+      const way = ways.find((item) => item.id === pickedId);
+      if (!way) return { status: "cancelled", effect: "none" };
+      provider = way.provider;
+      const selected = way.provider;
+      const method = way.method;
       // Browser sign-in (loopback listener + authorization page) vs device-code oauth.
       const browser = method === "oauth" && (selected === "anthropic" || selected === "openrouter");
       const disclosure = selected === "github-copilot"

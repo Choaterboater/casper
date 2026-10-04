@@ -148,7 +148,7 @@ bun (Join-Path $Source 'src\cli.ts')
 
 - Try `/help` and `/status`, then `/login`.
 - Move with Up/Down. The highlight should move in place, with no new `Selected:` lines.
-- Try Escape and the Cancel item. Open `/login` again, pick a provider, and cancel at
+- Try Escape. Open `/login` again, press a number, and cancel at
   the next screen. **Do not press Y at consent, type any secret, open a login link or
   send a prompt to a model.**
 - Check that the provider you picked is the one that opened, and that after cancel

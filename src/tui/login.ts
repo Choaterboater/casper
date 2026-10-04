@@ -99,13 +99,12 @@ export async function withLoginDisplay<T>(io: RuntimeLoginIO, parentSignal: Abor
       choose: async (title, items) => {
         await fresh();
         if (signal.aborted) return undefined;
-        const list = new SelectList([...items.map((item, index) => ({ value: String(index), label: terminalText(item.label) })),
-          { value: String(items.length), label: "Cancel" }], 8,
+        // Numbered rows: a digit picks its row at once, Enter picks the highlighted one (1 at first). Esc cancels.
+        const list = new SelectList(items.map((item, index) => ({ value: String(index), label: `${index + 1} ${terminalText(item.label)}` })), 9,
         { selectedPrefix: accent, selectedText: accent, description: muted, scrollInfo: muted, noMatch: text => panelColor(text, "warning", io.color) });
-        const panel = new Panel(`Login · ${terminalText(title)}`, io.color);
-        panel.addChild(new Text(muted("Up/Down: choose · Enter: continue"), 0, 1));
+        const panel = new Panel(terminalText(title), io.color);
         panel.addChild(list);
-        panel.addChild(new Text("Esc / Ctrl+C: cancel login", 0, 1));
+        panel.addChild(new Text(muted(items.length > 1 ? `Type a number (1-${Math.min(items.length, 9)}), or Up/Down and Enter · Esc cancels` : "Enter continues · Esc cancels"), 0, 1));
         mount(panel);
         try {
           const choice = await new Promise<number | undefined>(resolve => {
@@ -119,6 +118,8 @@ export async function withLoginDisplay<T>(io: RuntimeLoginIO, parentSignal: Abor
             selecting = true;
             answer = key => {
               if (signal.aborted) { finish(); return; }
+              const digit = /^[1-9]$/.test(key) ? Number(key) - 1 : -1;
+              if (digit >= 0 && digit < items.length) { finish(digit); return; }
               if (matchesKey(key, "up") || matchesKey(key, "down") || matchesKey(key, "enter")) {
                 list.handleInput(key);
                 if (selecting) io.requestRender();

@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { PassThrough } from "node:stream";
 import { withLoginDisplay } from "../src/tui/login";
+import { signInWays } from "../src/runtime/pi-auth";
 import { withLoginSurface } from "./support/login-surface";
 
 const items = [{ id: "codex", label: "OpenAI Codex" }, { id: "copilot", label: "GitHub Copilot" }] as const;
@@ -33,7 +34,7 @@ test("login picker accepts application arrows and batched navigation without car
   } finally { controller.abort(); await pending; input.destroy(); }
 });
 
-test("login picker handles fragmented and batched arrows, wraparound, encoded Enter and cancellation", async () => {
+test("login picker handles fragmented and batched arrows, wraparound and encoded Enter", async () => {
   const input = new PassThrough();
   const controller = new AbortController();
   let screen = "";
@@ -47,10 +48,10 @@ test("login picker handles fragmented and batched arrows, wraparound, encoded En
     expect(completed).toBe(false);
     input.write("\x1b");
     input.write("[B");
-    input.write("\x1b[B\x1b[B\x1b[A"); // Copilot -> Cancel -> Codex -> Cancel.
+    input.write("\x1b[B\x1b[B\x1b[A"); // Copilot -> Codex (wraps) -> Copilot -> Codex.
     input.write("\x1b[13u");
     await waitFor(() => completed);
-    expect(await pending).toBeUndefined();
+    expect(await pending).toBe("codex");
   } finally { controller.abort(); await pending; input.destroy(); }
 });
 
@@ -81,3 +82,34 @@ async function waitFor(predicate: () => boolean): Promise<void> {
     await Bun.sleep(5);
   }
 }
+
+test("the sign-in list is numbered: a digit picks that row at once, and Esc cancels", async () => {
+  for (const [key, expected] of [["2", "copilot"], ["1", "codex"], ["\x1b", undefined]] as const) {
+    const input = new PassThrough();
+    const controller = new AbortController();
+    let screen = "";
+    const pending = withLoginSurface({ input, output: { write(text) { screen += text; } }, color: false, onEOF() {} }, io => withLoginDisplay(io, controller.signal,
+      display => display.choose("Sign in", items)));
+    try {
+      await waitFor(() => screen.includes("Sign in"));
+      const visible = Bun.stripANSI(screen);
+      expect(visible).toContain("1 OpenAI Codex");
+      expect(visible).toContain("2 GitHub Copilot");
+      expect(visible).toContain("Esc cancels");
+      expect(visible).not.toContain("Cancel\n");
+      input.write(key);
+      expect(await pending).toBe(expected);
+    } finally { controller.abort(); await pending; input.destroy(); }
+  }
+});
+
+test("one sign-in list: OpenRouter first, provider and method together; /login <provider> lists only its ways", () => {
+  const ways = signInWays();
+  expect(ways.map(({ provider, method }) => `${provider}:${method}`).slice(0, 4))
+    .toEqual(["openrouter:api_key", "openrouter:oauth", "anthropic:api_key", "anthropic:oauth"]);
+  expect(ways.map(({ provider }) => provider)).toContain("openai-codex");
+  expect(ways.map(({ provider }) => provider)).toContain("github-copilot");
+  for (const way of ways) expect(way.label).not.toMatch(/device code|oauth|loopback/i);
+  expect(signInWays("anthropic").map(({ method }) => method)).toEqual(["api_key", "oauth"]);
+  expect(signInWays("github-copilot")).toHaveLength(1);
+});

@@ -128,8 +128,8 @@ casper
 If you start Casper in your home folder or a folder that only holds projects (such as
 `~/Projects`), it asks which project to open: press its number, or Esc to stay.
 
-**Sign in.** Type `/login` and pick a provider (OpenAI Codex, GitHub Copilot, Anthropic,
-OpenRouter). If you skip this, Casper opens sign-in on your first request and picks that
+**Sign in.** Type `/login` and press a number: one list of providers and ways to sign in,
+OpenRouter first (Enter picks it), then Anthropic, OpenAI Codex and GitHub Copilot. If you skip this, Casper opens sign-in on your first request and picks that
 provider's default model (OpenRouter: `deepseek/deepseek-v4.1-flash`). `/model` picks another;
 Casper never replaces a model you chose. Type keys or codes only in the private login prompt,
 never in chat. Your provider's plans and charges still apply.
