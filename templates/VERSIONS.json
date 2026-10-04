@@ -12,8 +12,8 @@
     "sha256": "4d063b17be8c6332c979d45b8951c56a697c0ce1b8e4d6d0b8de02d90430381a"
   },
   "network-mcp": {
-    "version": 1,
-    "sha256": "332bea12ee31d5d9dc7d9b9217ce06e9b319aed1ca3ec78edb7d0600ce4b09ce"
+    "version": 2,
+    "sha256": "655737a89e3e6d25c00578be3a90dbc8e9b609fda896877a9e901381cd186bf5"
   },
   "noc-dashboard": {
     "version": 1,

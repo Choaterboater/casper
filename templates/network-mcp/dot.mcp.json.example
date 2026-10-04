@@ -2,11 +2,10 @@
   "mcpServers": {
     "{{name}}": {
       "command": "uv",
-      "args": ["run", "--directory", "/path/to/{{name}}", "{{name}}"],
+      "args": ["run", "--directory", "/path/to/{{name}}", "{{name}}", "--read-only"],
       "env": {
         "MIST_API_TOKEN": "${MIST_API_TOKEN}",
-        "MIST_HOST": "api.mist.com",
-        "{{env}}_READ_ONLY": "true"
+        "MIST_HOST": "api.mist.com"
       }
     }
   }

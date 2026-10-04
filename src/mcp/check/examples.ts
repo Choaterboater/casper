@@ -142,7 +142,13 @@ function stringEntries(value: unknown): Array<[string, string]> {
 
 /** Whether this example sets any read-only or write switch at all. */
 export function hasAccessSwitch(entries: Record<string, ExampleEntry>): boolean {
-  return Object.values(entries).some((entry) => stringEntries(entry.env).some(([name, value]) => writeSwitchOn(name, value) || writeSwitchOff(name, value)));
+  return Object.values(entries).some((entry) => readOnlyArg(entry)
+    || stringEntries(entry.env).some(([name, value]) => writeSwitchOn(name, value) || writeSwitchOff(name, value)));
+}
+
+/** A `--read-only` argument (casper-network-mcp and servers made from Casper's network-mcp template). */
+function readOnlyArg(entry: ExampleEntry): boolean {
+  return Array.isArray(entry.args) && entry.args.some((arg) => typeof arg === "string" && /^--read-?only$/i.test(arg));
 }
 
 /** For a server Casper has a preset for (WP4): the setting that keeps it read-only, when this entry

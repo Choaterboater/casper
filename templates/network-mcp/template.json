@@ -1,9 +1,9 @@
 {
   "id": "network-mcp",
-  "version": 1,
+  "version": 2,
   "kind": "MCP server",
   "title": "MCP server for your network",
-  "description": "An MCP server in Python (official MCP SDK 2.x), read-only by default, with in-memory tests.",
+  "description": "An MCP server in Python (official MCP SDK 2.x), read-only with --read-only, with in-memory tests.",
   "defaultName": "my-mcp",
   "tool": "uv",
   "init": ["uv", "init", "--package", "--app", "--no-workspace", "--vcs", "none", "--name", "{{name}}", "."],

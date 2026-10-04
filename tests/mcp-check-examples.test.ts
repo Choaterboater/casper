@@ -65,6 +65,14 @@ test("no example config at all is a warning; examples without a read-only switch
   ]);
 });
 
+test("a --read-only argument is a read-only switch: the example keeps writes off", async () => {
+  const flag = { mcpServers: { mine: { command: "uv", args: ["run", "--directory", "/path/to/mine", "mine", "--read-only"], env: { MIST_API_TOKEN: "${MIST_API_TOKEN}" } } } };
+  const findings = reviewExampleConfigs(await findExampleConfigs(await repo({ ".mcp.json.example": flag })));
+  expect(findings.map((finding) => [finding.status, finding.label, finding.text])).toEqual([
+    ["ok", ".mcp.json.example", "keeps writes off"],
+  ]);
+});
+
 test("the start definition replaces /path/to/<repo> and ${workspaceFolder} with the repo folder", async () => {
   const root = await repo({
     ".vscode/mcp.json.example": { servers: { hpe: { command: "${workspaceFolder}/.venv/bin/hpe-networking-mcp", args: ["--config", "${workspaceFolder}/config.yaml"] } } },

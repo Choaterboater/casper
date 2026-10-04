@@ -68,6 +68,26 @@ test("network-mcp: Casper finds the safety test, and it fails a tool without rea
   expect(server).toContain('"contract": ACCESS_CONTRACT');
 });
 
+test("network-mcp: access-check v2, change kinds and a --read-only flag, with no read-only env switch", () => {
+  const files = render("network-mcp");
+  const server = text(files, "src/demo_proj/server.py");
+  expect(server).toContain('ACCESS_CONTRACT = "casper/access-check v2"');
+  expect(server).toContain('{"flag": "--read-only", "state": "off" if READ_ONLY else "on"}');
+  expect(server).toContain('"login": "missing"');
+  expect(server).toContain('CHANGE_KIND = "casper/change-kind"');
+  expect(server).toContain('"--read-only", action="store_true"');
+  // No *_READ_ONLY (or any other) env switch for writes, anywhere in the template.
+  for (const file of files) expect(`${file.path}: ${/_READ_?ONLY|_WRITES?\b/.test(file.text)}`).toBe(`${file.path}: false`);
+  for (const example of [".mcp.json.example", "examples/mcp.json"]) {
+    const entry = (JSON.parse(text(files, example)) as { mcpServers: Record<string, { args: string[]; env: Record<string, string> }> }).mcpServers["demo-proj"]!;
+    expect(entry.args).toContain("--read-only");
+    expect(Object.keys(entry.env).sort()).toEqual(["MIST_API_TOKEN", "MIST_HOST"]);
+  }
+  const labels = text(files, "tests/test_read_only_labels.py");
+  expect(labels).toContain("CHANGE_KIND");
+  expect(labels).toContain("--read-only");
+});
+
 test("mist-python: recorded answers are sample data, replay-only, and never keep the token", () => {
   const files = render("mist-python");
   const cassettes = files.filter((file) => file.path.startsWith("tests/cassettes/"));
