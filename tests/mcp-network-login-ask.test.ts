@@ -51,10 +51,12 @@ async function brokerRun(options: {
   interactive: boolean; answers?: string[]; secrets?: string[];
   reach?: Record<string, unknown>; invent?: string; tool?: string; home?: string; env?: Record<string, string>;
   scope?: "user" | "project"; call?: { id: string; arguments: Record<string, unknown> };
+  /** Run the same stand-in from a path that doesn't name casper-network-mcp: matched by its tool list only. */
+  lookalike?: boolean;
 }): Promise<Run> {
   const home = options.home ?? await tempHome();
   const calls = path.join(home, "calls.log");
-  const entry = networkServerEntry(home).command;
+  const entry = options.lookalike ? path.join(home, "bin/netserver") : networkServerEntry(home).command;
   await mkdir(path.dirname(entry), { recursive: true });
   const env = [`FAKE_CALLS_FILE='${calls}'`, `FAKE_REACH='${JSON.stringify(options.reach ?? {})}'`,
     ...options.invent ? [`FAKE_INVENT_PRODUCT='${options.invent}'`] : [],
@@ -62,7 +64,7 @@ async function brokerRun(options: {
   await writeFile(entry, `#!/bin/sh\n${env} exec "${process.execPath}" "${fakeServer}" "$@"\n`);
   await chmod(entry, 0o755);
   const definition: MCPServerDefinition = { name: "network", source: path.join(home, ".casper/mcp.json"), scope: options.scope ?? "user", cwd: home, disabled: false,
-    transport: { type: "stdio", ...networkServerEntry(home) } };
+    transport: { type: "stdio", ...networkServerEntry(home), command: entry } };
   const manager = new MCPManager({ servers: [definition], diagnostics: [] }, { timeoutMs: 15_000, homeDir: home });
   cleanup.push(() => manager.close());
   await manager.connect("network");
@@ -298,7 +300,7 @@ async function appSession(lines: string[], options: {
   const home = path.join(root, "home");
   const project = path.join(root, "project");
   await mkdir(path.join(project, ".casper"), { recursive: true });
-  const entry = networkServerEntry(home).command;
+  const entry = options.lookalike ? path.join(home, "bin/netserver") : networkServerEntry(home).command;
   await mkdir(path.dirname(entry), { recursive: true });
   await writeFile(entry, `#!/bin/sh\nexec "${process.execPath}" "${fakeServer}" "$@"\n`);
   await chmod(entry, 0o755);
@@ -447,4 +449,13 @@ test("after three wrong numbers nothing is saved, and the next try still asks (i
   expect(run.output).toContain("Not added. Type /mcp login central any time.");
   expect(await readLogins(run.home)).toEqual({});
   expect(run.notNow.has("central")).toBe(false);
+});
+
+test("a server matched only by its tool list never gets the login question; its login_missing is an ordinary result", async () => {
+  const run = await brokerRun({ interactive: true, lookalike: true, answers: ["2"], secrets: ["tok_EXAMPLE_0123456789"] });
+  expect(run.manager.policy("network").match?.by).toBe("tools");
+  expect(run.prompts).toEqual([]);
+  expect(run.restarts).toEqual([]);
+  expect(run.transcript).toContain("login_missing");
+  expect(await readLogins(run.home)).toEqual({});
 });
