@@ -245,8 +245,18 @@ test("/mcp login lists each product; forgetting restarts the server without it",
   expect(await readLogins(run.home)).toEqual({});
   expect(await readFile(path.join(run.home, LOGIN_FILE), "utf8").catch(() => "")).not.toContain("tok_EXAMPLE_0123456789");
   expect(run.manager.policy("network").access?.products.find((product) => product.product === "mist")?.loginMissing).toBe(true);
-  // A one-shot run never asks to forget.
+  // Nothing to forget says so.
   expect(await askToForgetLogin({ ...host, interactive: false }, "network", "clearpass")).toBe("none");
+  // A one-shot run never asks to forget a saved login: it says what to type and keeps it.
+  const saved = { CLEARPASS_BASE_URL: "https://cppm.example.com", CLEARPASS_API_TOKEN: "cp_EXAMPLE_4455" };
+  await saveLogin(run.home, "clearpass", saved);
+  let asked = 0;
+  let said = "";
+  const once: LoginHost = { ...host, interactive: false, chooseAnswer: async () => { asked++; return "2"; }, write: (text) => { said += text; } };
+  expect(await askToForgetLogin(once, "network", "clearpass")).toBe("cant-ask");
+  expect(said).toBe("Type /mcp login clearpass forget in the terminal.\n");
+  expect(asked).toBe(0);
+  expect((await readLogins(run.home)).clearpass).toEqual(saved);
 });
 
 test("/mcp login <product> asks even after Not now; a one-shot run says what to type", async () => {
