@@ -127,6 +127,20 @@ test("Not now installs nothing and isn't asked again", async () => {
   expect(await networkSetupLine(host.homeDir, [])).toBe("network: not set up — /mcp setup network");
 });
 
+test("Enter (or any other answer) counts as Not now and isn't asked again", async () => {
+  // The terminal turns Enter or unknown text into "no"; the offer must not come back every session.
+  const host = await fakeSetupHost({ answers: ["no"] });
+  expect(await runNetworkSetup(host, { explicit: false })).toBe("not-now");
+  expect(host.installs).toEqual([]);
+  expect(await shouldOfferNetworkSetup(host.homeDir, [])).toBe(false);
+
+  const update = await fakeSetupHost({ answers: ["no"] });
+  await update.installer!(pinned("0.0.9"), { homeDir: update.homeDir, ...update.install });
+  await writeMcp(update.homeDir, { network: networkServerEntry(update.homeDir) });
+  expect(await runNetworkUpdate(update, { explicit: false })).toBe("not-now");
+  expect(await shouldOfferNetworkUpdate(update.homeDir, await update.configured())).toBeUndefined();
+});
+
 test("one-shot never asks or installs", async () => {
   const host = await fakeSetupHost({ canAsk: false });
   expect(await runNetworkSetup(host, { explicit: true })).toBe("cant-ask");
