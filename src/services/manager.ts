@@ -47,6 +47,8 @@ interface Slot {
   cleanup?: "unknown";
   /** A crash after readiness that no tool call has reported yet. */
   crashUnreported?: boolean;
+  /** An ad-hoc command's question when the sandbox fails to start on it (see ManagedProcessOptions.unsandboxed). */
+  approve?: (signal: AbortSignal) => Promise<string | undefined>;
 }
 
 const HOST = "127.0.0.1";
@@ -111,7 +113,8 @@ export class ServiceManager {
    * stale) and no env beyond PORT/HOST. The same command already running is joined, not duplicated
    * (the caller makes it fresh); one that stopped, failed or crashed is relaunched under its name.
    * At most MAX_SERVICES ad-hoc slots are kept: past that the oldest one not running is dropped. */
-  async startCommand(command: string, options: { ready?: ServiceSpec["ready"]; timeoutMs?: number }, signal: AbortSignal): Promise<ServiceStatus> {
+  async startCommand(command: string, options: { ready?: ServiceSpec["ready"]; timeoutMs?: number;
+    approve?: (signal: AbortSignal) => Promise<string | undefined> }, signal: AbortSignal): Promise<ServiceStatus> {
     if (this.closing) throw new Error("Casper's services were stopped with the conversation; start them again after it changes");
     const ready = options.ready ?? { http: "/" }, timeoutMs = options.timeoutMs ?? 30_000;
     if (!command.trim() || Buffer.byteLength(command) > 4096) throw new Error("command must be a nonempty shell command of at most 4 KiB");
@@ -124,7 +127,7 @@ export class ServiceManager {
     const spec: ServiceSpec = { command, port: "auto", ready, timeoutMs };
     const same = adhoc.find(slot => slot.spec.command === command);
     if (same && running(same)) return same.work ?? this.describe(same);
-    if (same) { same.spec = spec; return this.launch(same, signal); }
+    if (same) { same.spec = spec; same.approve = options.approve; return this.launch(same, signal); }
     if (adhoc.filter(running).length >= MAX_SERVICES) throw new Error(`At most ${MAX_SERVICES} ad-hoc services run at once; stop one first`);
     if (adhoc.length >= MAX_SERVICES) {
       // Oldest first (insertion order); its crash, if any, was reported at the start of this call.
@@ -132,7 +135,7 @@ export class ServiceManager {
       this.slots.delete(oldest.name);
       if (oldest.process) this.retired.push(this.closeProcess(oldest).catch(() => {}));
     }
-    const slot: Slot = { name: `adhoc-${++this.adhocCount}`, spec, state: "idle", stale: false };
+    const slot: Slot = { name: `adhoc-${++this.adhocCount}`, spec, state: "idle", stale: false, ...(options.approve ? { approve: options.approve } : {}) };
     this.slots.set(slot.name, slot);
     return this.launch(slot, signal);
   }
@@ -274,6 +277,7 @@ export class ServiceManager {
           env: { ...spec.env, PORT: String(port), HOST },
           ready: "http" in spec.ready ? { http: new URL(spec.ready.http, origin) } : { log: spec.ready.log },
           timeoutMs: spec.timeoutMs, label: `Service ${name}`, tempPrefix: "casper-service-", platform: this.options.platform,
+          ...(slot.approve ? { unsandboxed: () => slot.approve!(signal) } : {}),
           onExit: details => this.crashed(slot, managed, details) });
         slot.process = managed;
         slot.stopping = undefined;
