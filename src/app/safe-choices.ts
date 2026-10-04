@@ -95,6 +95,13 @@ export const NETWORK_SETUP_CHOICES = ["Not now", "Set it up"] as const;
 /** "Casper's network server has an update (0.1.0 → 0.2.0 …)": only "2" downloads it; "Not now" keeps the old one. */
 export const NETWORK_UPDATE_CHOICES = ["Not now", "Update it"] as const;
 
+/** "Mist isn't set up yet. Casper will ask for a Mist API token …": only "2" asks for the login. */
+export const ADD_LOGIN_CHOICES = ["Not now", "Add a login"] as const;
+/** /mcp login <product> forget: only "2" forgets it. */
+export function forgetLoginChoices(product: string): string[] {
+  return [`Keep the ${product} login`, `Forget the ${product} login`];
+}
+
 /** /mcp writes <name>: only "2" turns writes on. */
 export const MCP_WRITES_CHOICES = ["Keep writes off", "Enable for this server"] as const;
 

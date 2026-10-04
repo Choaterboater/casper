@@ -30,8 +30,8 @@ test("a server whose products all say read-only is a read-only login", async () 
   const { tool, result } = await check("access-ro");
   expect(tool?.name).toBe("access_check");
   expect(result).toEqual({ state: "read-only", products: [
-    { product: "central", access: "read-only", identity: "svc-casper@example.net", role: "Observer", gate: { envVar: "HPE_MCP_CENTRAL_WRITES", off: true } },
-    { product: "mist", access: "read-only", identity: "svc-casper@example.net", role: "Observer", gate: { envVar: "HPE_MCP_MIST_WRITES", off: true } },
+    { product: "central", access: "read-only", identity: "svc-casper@example.net", role: "Observer", gate: { name: "HPE_MCP_CENTRAL_WRITES", off: true } },
+    { product: "mist", access: "read-only", identity: "svc-casper@example.net", role: "Observer", gate: { name: "HPE_MCP_MIST_WRITES", off: true } },
   ] });
   expect(accessStatusText(result)).toBe("login: read-only (checked)");
   expect(accessModelLines("aruba-central", result, "on")).toEqual(["aruba-central: login is read-only. Write tools are hidden. Don't plan changes on it."]);

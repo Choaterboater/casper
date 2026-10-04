@@ -944,7 +944,8 @@ export class MCPManager {
         signal: AbortSignal.any([signal, AbortSignal.timeout(Math.min(callMs, connectMs))]), timeout: SDK_REQUEST_TIMEOUT_MS,
       });
       const parsed = parseAccessCheck(raw);
-      return parsed.state === "unknown" ? undefined : parsed;
+      // An unknown answer is "not checked", unless it says which products have no login yet (v2): that is kept.
+      return parsed.state === "unknown" && !parsed.products.some((product) => product.loginMissing) ? undefined : parsed;
     } catch {
       return undefined;
     }
