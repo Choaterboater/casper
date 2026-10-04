@@ -487,3 +487,29 @@ test("app: a one-shot run never asks, installs or offers setup", async () => {
   expect(installs).toEqual([]);
   expect(await exists(path.join(home, ".casper/mcp.json"))).toBe(false);
 });
+
+test("app: an older installed server is asked about once, before the first request's turn; a one-shot run never asks", async () => {
+  const { home, project } = await appFixture();
+  const install = await fakeInstall();
+  const { installLockedSpec } = await import("../src/security/install");
+  expect((await installLockedSpec(pinned("0.0.9"), { homeDir: home, env: install.env, run: install.run })).ok).toBe(true);
+  await writeMcp(home, { network: networkServerEntry(home) });
+  const question = `Casper's network server has an update (0.0.9 → ${NETWORK_SERVER.version}`;
+  const first = await session(home, project, ["add a test for parseConfig", "rename a variable"], ["1"]);
+  expect(first.output.split(question).length - 1).toBe(1);
+  const prompts = [...first.output.matchAll(/> /g)].map((match) => match.index!);
+  // Asked after the first request was typed and before its turn ended (the next prompt).
+  expect(first.output.indexOf(question)).toBeGreaterThan(prompts[0]!);
+  expect(first.output.indexOf(question)).toBeLessThan(prompts[1]!);
+  expect(first.turns()).toBe(2);
+  // Not now is kept for that version: a later session doesn't ask.
+  const next = await session(home, project, ["add a test"]);
+  expect(next.output).not.toContain(question);
+
+  const other = await appFixture();
+  await installLockedSpec(pinned("0.0.9"), { homeDir: other.home, env: install.env, run: install.run });
+  await writeMcp(other.home, { network: networkServerEntry(other.home) });
+  const once = await session(other.home, other.project, ["add a test for parseConfig"], [], { interactive: false });
+  expect(once.output).not.toContain(question);
+  expect(await installedVersion(other.home, NETWORK_SERVER)).toBe("0.0.9");
+});
