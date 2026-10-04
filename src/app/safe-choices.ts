@@ -89,6 +89,12 @@ export const MCP_ALLOW_KEEP_CHOICES = ["This session", "Remember"] as const;
 /** /lab import <file>: only "2" adds the hosts to your lab list. */
 export const LAB_IMPORT_CHOICES = ["No", "Add them"] as const;
 
+/** "Casper can set up its network server …": only "2" installs it. Asked once on the first network question, or by
+ * /mcp setup network; "Not now" is kept, so it isn't asked again until you type that. */
+export const NETWORK_SETUP_CHOICES = ["Not now", "Set it up"] as const;
+/** "Casper's network server has an update (0.1.0 → 0.2.0 …)": only "2" downloads it; "Not now" keeps the old one. */
+export const NETWORK_UPDATE_CHOICES = ["Not now", "Update it"] as const;
+
 /** /mcp writes <name>: only "2" turns writes on. */
 export const MCP_WRITES_CHOICES = ["Keep writes off", "Enable for this server"] as const;
 

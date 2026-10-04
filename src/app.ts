@@ -121,6 +121,7 @@ import { refreshUpdateCheck, updateChecksOff, updateNotice } from "./update/noti
 import { createSessionSandbox, outsideWritesReceipt, runtimeShell, sandboxReceipt, sandboxStartupNotes, sandboxStatusLine, type SandboxHost } from "./app/sandbox";
 import { useSandbox, currentSandbox, type ShellSandbox, type ShellSandboxOptions } from "./sandbox/manager";
 import { SandboxStore } from "./sandbox/store";
+import { namesNetworkProduct, runNetworkSetup, runNetworkUpdate, shouldOfferNetworkSetup, shouldOfferNetworkUpdate, type SetupHost } from "./mcp/network/setup";
 import type { RuntimeShell } from "./runtime/types";
 import { askBuildRequest, buildRequestNote, isEmptyFolder, newProjectFromQuestions, newProjectInEmptyFolder, offerMissingFolder, opened,
   type NewProjectFlow } from "./app/new-project";
@@ -182,6 +183,8 @@ export interface CasperAppOptions {
   networkTools?: NetworkToolContext;
   /** Fake security tools and downloads for /security-review (tests). */
   securitySeams?: Pick<SecurityReviewHost, "check" | "install">;
+  /** A fake uv and runner for the network server's install (tests). */
+  networkSeams?: { install?: SetupHost["install"] };
   /** --no-sandbox: the shell sandbox is off for this run, and the receipt says so. */
   noSandbox?: boolean;
   /** Tests: the sandbox's engine, machine check or platform. */
@@ -362,6 +365,10 @@ export class CasperApp {
   private readonly createProjectFn?: CasperAppOptions["createProject"];
   private readonly networkTools?: NetworkToolContext;
   readonly securitySeams?: Pick<SecurityReviewHost, "check" | "install">;
+  private readonly networkSeams?: CasperAppOptions["networkSeams"];
+  /** Setup is offered at most once a session, and an update asked about at most once. */
+  private networkSetupOffered = false;
+  private networkUpdateAsked = false;
   /** `casper new` on a terminal: the exit code when no project was opened (1 when nothing was created). */
   newProjectExitCode?: number;
   /** The build-request question is asked at most once per session. */
@@ -405,6 +412,7 @@ export class CasperApp {
     this.pageOpenerFn = options.pageOpener ?? pageOpener;
     this.networkTools = options.networkTools;
     this.securitySeams = options.securitySeams;
+    this.networkSeams = options.networkSeams;
     this.subagents = new SubagentManager({ runtimeFactory: async () => {
       if (this.workspaceTransition || this.workspaceNeedsRebind) throw new Error("Workspace transition is in progress; delegation is blocked");
       const child = await (options.subagentRuntimeFactory ?? freshPiRuntime)();
@@ -1388,6 +1396,8 @@ export class CasperApp {
     // A flow the user picked, or /plan, is already this task's one choice before work: no other panel.
     this.beforeWorkAsked = Boolean(options.flow || options.planFirst);
     if (await this.offerNewProject(prompt) === "stop" || this.closing || this.commandAbort?.signal.aborted) return;
+    await this.offerNetworkServer(prompt);
+    if (this.closing || this.commandAbort?.signal.aborted) return;
     const previous = this.observations.spent();
     this.spentBefore = { tokens: this.spentBefore.tokens + previous.tokens, cost: this.spentBefore.cost + previous.cost };
     this.observations = new TaskObservations();
@@ -2759,6 +2769,52 @@ export class CasperApp {
     for (const server of on) this.output.write(`[mcp] Writes off for ${server}. Every change asks you again.\n`);
     this.updateFooter();
     return true;
+  }
+
+  /**
+   * The network server's setup host: questions on the exact channel (only the person, never the AI's ask tool),
+   * and connecting goes through the same manager as /mcp connect.
+   */
+  networkSetupHost(): SetupHost {
+    const home = this.sessionHomeDir ?? os.homedir();
+    return {
+      homeDir: home,
+      // The exact channel works wherever approvals do (it refuses a cooked terminal itself).
+      canAsk: () => this.interactive && !this.closing,
+      chooseAnswer: (preview, question, choices) => this.chooseAnswer(preview, question, choices, this.commandAbort?.signal),
+      write: (text) => { if (!this.closing) this.output.write(text); },
+      configured: async () => this.mcp ? this.mcp.status().map((status) => this.mcp!.definition(status.name)) : [],
+      connect: async (name) => {
+        if (!this.mcp || !this.reloadMCPConfiguration) return { ok: false, message: "MCP is not available in this session" };
+        await this.mcp.reload(await this.reloadMCPConfiguration());
+        await this.mcp.connect(name);
+        const status = this.mcp.status().find((entry) => entry.name === name);
+        if (status?.state !== "ready") return { ok: false, ...(status?.error ? { message: status.error } : {}) };
+        const remembered = await this.mcp.remember(name);
+        if (!remembered.remembered) this.output.write(`[mcp] ${terminalText(remembered.reason)}\n`);
+        this.updateFooter();
+        return { ok: true };
+      },
+      restart: async (name) => { await this.mcp?.restartAfterCalls(name); },
+      ...(this.networkSeams?.install ? { install: this.networkSeams.install } : {}),
+    };
+  }
+
+  /** Before the AI's turn: an update to Casper's network server (asked once a session), and setup on the first request
+   * that names a network product. Interactive only; the AI never starts either. */
+  private async offerNetworkServer(prompt: string): Promise<void> {
+    if (!this.interactive || this.closing || !this.mcp) return;
+    if (this.networkUpdateAsked && (this.networkSetupOffered || !namesNetworkProduct(prompt))) return;
+    const host = this.networkSetupHost();
+    const configured = await host.configured();
+    if (!this.networkUpdateAsked) {
+      this.networkUpdateAsked = true;
+      if (await shouldOfferNetworkUpdate(host.homeDir, configured)) await runNetworkUpdate(host, { explicit: false });
+    }
+    if (this.networkSetupOffered || !namesNetworkProduct(prompt) || this.closing) return;
+    if (!await shouldOfferNetworkSetup(host.homeDir, configured)) return;
+    this.networkSetupOffered = true;
+    await runNetworkSetup(host, { explicit: false });
   }
 
   /** One exact typed answer from the user, in the same one-at-a-time queue as approvals. */
