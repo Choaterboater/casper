@@ -18,6 +18,7 @@ import { ownSpawnedTree, type OwnedProcesses, ProcessCleanupError, terminateTree
 import { CASPER_VERSION } from "../version";
 import { NotExecutedError, OutcomeUnknownError } from "../capabilities/result";
 import { scrubText } from "../secrets/scrub";
+import { getsLogins, loginEnv, loginSecretValues } from "./network/logins";
 import { CallClock } from "./clock";
 import { classifyCallError, describeFailure, redactServerText, ServerOutput, stoppedMessage } from "./server-output";
 
@@ -107,6 +108,9 @@ export interface MCPManagerOptions {
   onNote?: (text: string) => void;
   /** Remembered approval. Only your own and imported servers can be remembered, never project ones. */
   consent?: ConsentStore;
+  /** The home folder whose ~/.casper/network-logins.json Casper's network server starts with. Without it, no
+   * saved login is added to any server. */
+  homeDir?: string;
 }
 
 /** The call the user approved: its server questions may reach the user. */
@@ -263,12 +267,14 @@ export class MCPManager {
   private readonly elicit?: ServerQuestionHandler;
   private readonly onNote?: (text: string) => void;
   private readonly consent?: ConsentStore;
+  private readonly homeDir?: string;
 
   constructor(configuration: MCPConfiguration, options: MCPManagerOptions = {}) {
     this.diagnostics = [...configuration.diagnostics, ...options.consent?.diagnostics ?? []];
     this.elicit = options.elicit;
     this.onNote = options.onNote;
     this.consent = options.consent;
+    this.homeDir = options.homeDir;
     this.defaults = {
       connectMs: options.connectTimeoutMs ?? options.timeoutMs ?? MCP_LIMITS.connectMs,
       callMs: options.callTimeoutMs ?? options.timeoutMs ?? MCP_LIMITS.callMs,
@@ -785,7 +791,11 @@ export class MCPManager {
     entry.exited = false;
     entry.exitCode = undefined;
     entry.output = undefined;
-    entry.secrets = resolvedSecrets(entry.definition);
+    // Casper's own network server starts with the saved logins (read fresh on every start, so a saved,
+    // changed or forgotten login counts at the next restart). They are never part of the definition.
+    const logins = this.homeDir && getsLogins(entry.definition)
+      ? await loginEnv(this.homeDir, (text) => this.onNote?.(`[mcp] ${text}`)).catch(() => ({})) : {};
+    entry.secrets = resolvedSecrets(entry.definition, loginSecretValues(logins));
     entry.access = undefined;
     // While writes are off, the preset's read-only settings go to the server (env beats the user's own).
     const pinMatch = this.match(entry);
@@ -835,7 +845,7 @@ export class MCPManager {
         if (!current()) throw new Error("stale connection");
         transport = entry.stdio = new StdioClientTransport({
           command: resolveEnvironment(config.command), args: config.args.map(resolveEnvironment),
-          env: Object.fromEntries(Object.entries(config.env).map(([k, v]) => [k, resolveEnvironment(v)])),
+          env: { ...Object.fromEntries(Object.entries(config.env).map(([k, v]) => [k, resolveEnvironment(v)])), ...logins },
           cwd: entry.definition.cwd, stderr: "pipe", maxBufferSize: MAX_WIRE_BYTES,
         });
         // Attached before start: the pipe always drains, so a chatty server never blocks on stderr.

@@ -364,3 +364,26 @@ test("GreenCLI's read-only server is recognised by its program, wherever GreenCL
   // Not by the server's name alone.
   expect(matchPreset(stdio("greencli", "/usr/bin/node", ["server.js"]))?.preset.id).not.toBe("greencli-mcp");
 });
+
+test("the network preset pins --read-only and matches the installed command", () => {
+  const def = stdio("network", "/home/someone/.casper/tools/casper-network-mcp/venv/bin/casper-network-mcp", []);
+  const match = matchPreset(def, []);
+  expect(match?.preset.id).toBe("casper-network-mcp");
+  expect(match?.preset.logins).toBe(true);
+  expect(match?.preset.troubleshootRunsPinned).toBe(true);
+  const plan = planPins(def, match!.preset);
+  expect(plan.kind).toBe("pinned");
+  expect(plan.kind === "pinned" && plan.transport.args).toEqual(["--read-only"]);
+  expect(plan.kind === "pinned" && plan.transport.env).toEqual({});
+  const invoke = { name: "invoke_tool", inputSchema: { type: "object" }, annotations: { readOnlyHint: false, destructiveHint: false } } as MCPTool;
+  expect(tightenSafety(match, invoke, "write")).toBe("write"); // never raised to destructive by the preset
+  // invoke_tool stays visible while writes are off: a change must be able to reach the box that turns them on.
+  expect(match!.preset.hideWhenWritesOff).toBeUndefined();
+  // Run by hand through uvx or python -m, it is still recognised; the hpe router keeps its own preset.
+  expect(matchPreset(stdio("net", "uvx", ["casper-network-mcp==0.1.0"]))?.preset.id).toBe("casper-network-mcp");
+  expect(matchPreset(stdio("net", "python", ["-m", "casper_network_mcp"]))?.preset.id).toBe("casper-network-mcp");
+  expect(matchPreset(stdio("hpe", "python", hpeRouterArgs))?.preset.id).toBe("hpe-networking-mcp");
+  // By its tool list alone, the four router tools and access_check.
+  const tools = ["find_tool", "invoke_read_tool", "invoke_tool", "access_check"].map((name) => tool(name));
+  expect(matchPreset(stdio("other", "/opt/net/bin/server", []), tools)?.preset.id).toBe("casper-network-mcp");
+});

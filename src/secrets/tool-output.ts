@@ -1,7 +1,7 @@
 import { scrubNote, type Scrubber } from "./netconan";
 import { KIND_ORDER, type SecretKind } from "./patterns";
 import path from "node:path";
-import { isSecretFile, loginFileValues, scrubPlainSecrets } from "./files";
+import { isSecretFile, loginFileValues, networkLoginValues, scrubPlainSecrets } from "./files";
 import { casperAgentDir } from "../runtime/agent-store";
 import { scrubText, shouldScrubCommandOutput, shouldScrubRead, type ScrubTextResult } from "./scrub";
 
@@ -20,6 +20,8 @@ export interface ToolOutputScrubOptions {
   env?: NodeJS.ProcessEnv;
   /** Casper's login file, whose keys are hidden wherever they show up; defaults to <agent dir>/auth.json. */
   loginFile?: string;
+  /** Casper's network login file (~/.casper/network-logins.json), whose tokens are hidden too. */
+  networkLoginFile?: string;
 }
 
 /**
@@ -47,7 +49,8 @@ export async function scrubToolOutput(scrubber: Pick<Scrubber, "scrubText">, too
   let failed = false;
   const kinds = new Set<SecretKind>();
   const out: string[] = [];
-  const values = loginFileValues(options.loginFile ?? path.join(casperAgentDir(), "auth.json"));
+  const values = [...loginFileValues(options.loginFile ?? path.join(casperAgentDir(), "auth.json")),
+    ...options.networkLoginFile ? networkLoginValues(options.networkLoginFile) : []];
   for (const text of texts) {
     let next = text;
     if (device) {
