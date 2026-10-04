@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { buildPlan, planLabel } from "../src/capabilities/approval";
 import { CapabilityBroker } from "../src/capabilities/broker";
-import { asksEveryTime, changeKind, hitKindsFrom, planKinds, RISKY_KINDS, isRiskyKind, withHitKinds } from "../src/capabilities/kinds";
+import { asksEveryTime, changeKind, hitKindsFrom, MAX_HITS_PER_SERVER, planKinds, RISKY_KINDS, isRiskyKind, withHitKinds } from "../src/capabilities/kinds";
 import type { MCPServerDefinition } from "../src/mcp/config";
 import { MCPManager } from "../src/mcp/manager";
 import { networkServerEntry } from "../src/mcp/network/server";
@@ -141,7 +141,7 @@ const fakeServer = path.join(import.meta.dir, "fixtures/fake-network-mcp.ts");
 const cleanup: (() => Promise<unknown>)[] = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
 
-async function troubleshootRun(preset: "network" | "hpe", tool = "cx_show") {
+async function troubleshootRun(preset: "network" | "hpe", tool = "cx_show", options: { destructive?: boolean } = {}) {
   const home = await mkdtemp(path.join(os.tmpdir(), "casper-hit-kinds-"));
   cleanup.push(() => rm(home, { recursive: true, force: true }));
   const calls = path.join(home, "calls.log");
@@ -149,7 +149,8 @@ async function troubleshootRun(preset: "network" | "hpe", tool = "cx_show") {
   const entry = preset === "network" ? networkServerEntry(home).command : path.join(home, "bin/hpe-mcp-router");
   await mkdir(path.dirname(entry), { recursive: true });
   const hits = [{ name: tool, product: "central", summary: "Run a check.", kind: "troubleshoot", label: "diagnostic" }];
-  await writeFile(entry, `#!/bin/sh\nFAKE_CALLS_FILE='${calls}' FAKE_HITS='${JSON.stringify(hits)}' exec "${process.execPath}" "${fakeServer}" "$@"\n`);
+  const destructive = options.destructive ? "FAKE_INVOKE_DESTRUCTIVE=1 " : "";
+  await writeFile(entry, `#!/bin/sh\n${destructive}FAKE_CALLS_FILE='${calls}' FAKE_HITS='${JSON.stringify(hits)}' exec "${process.execPath}" "${fakeServer}" "$@"\n`);
   await chmod(entry, 0o755);
   const definition: MCPServerDefinition = { name: "network", source: path.join(home, ".casper/mcp.json"), scope: "user", cwd: home, disabled: false,
     transport: { type: "stdio", command: entry, args: [], env: preset === "hpe" ? { HPE_MCP_EXAMPLE: "1" } : {} } };
@@ -162,9 +163,10 @@ async function troubleshootRun(preset: "network" | "hpe", tool = "cx_show") {
   const boxes: string[] = [];
   const broker = new CapabilityBroker(manager, async (call) => { boxes.push(planLabel(call.plan)); return "yes"; }, { writesGate: true });
   await broker.invoke("mcp:network:find_tool", { query: "show interfaces on the closet switch" });
-  const result = await broker.invoke("mcp:network:invoke_read_tool", { name: tool, arguments: { command: "show interfaces" } });
+  const via = options.destructive ? "invoke_tool" : "invoke_read_tool";
+  const result = await broker.invoke(`mcp:network:${via}`, { name: tool, arguments: { command: "show interfaces" } });
   const lines = (await readFile(calls, "utf8")).split("\n");
-  return { preset: manager.policy("network").match?.preset.id, result, boxes, setWrites, starts: lines.filter((line) => line.startsWith("start ")), ran: lines.some((line) => line.startsWith("call invoke_read_tool")) };
+  return { preset: manager.policy("network").match?.preset.id, result, boxes, setWrites, starts: lines.filter((line) => line.startsWith("start ")), ran: lines.some((line) => line.startsWith(`call ${via}`)) };
 }
 
 test("an approved troubleshoot call on the network preset runs pinned, with no restart", async () => {
@@ -224,4 +226,50 @@ test("review: a later find_tool that names a lower kind never lowers the kept on
   expect(broker.hitKinds("network").get("mist_update_device")).toBe("firmware");
   await expect(broker.invoke("mcp:network:invoke_tool", { name: "mist_update_device", arguments: {} })).rejects.toThrow("you said no");
   expect(kinds).toEqual(["firmware"]);
+});
+
+test("review: a troubleshoot hit through a tool the server marks destructive never runs pinned: writes are turned on for it", async () => {
+  const run = await troubleshootRun("network", "cx_show", { destructive: true });
+  expect(run.boxes).toEqual(["destructive"]);
+  expect(run.setWrites).toEqual([true, false]);
+  expect(run.ran).toBe(true);
+});
+
+async function hitServer(hits: unknown[], later?: unknown[]) {
+  const home = await mkdtemp(path.join(os.tmpdir(), "casper-hit-kinds-"));
+  cleanup.push(() => rm(home, { recursive: true, force: true }));
+  const entry = networkServerEntry(home).command;
+  await mkdir(path.dirname(entry), { recursive: true });
+  await writeFile(path.join(home, "hits.json"), JSON.stringify(hits));
+  await writeFile(path.join(home, "later.json"), JSON.stringify(later ?? hits));
+  await writeFile(entry, `#!/bin/sh\nFAKE_HITS="$(cat '${path.join(home, "hits.json")}')" FAKE_HITS_LATER="$(cat '${path.join(home, "later.json")}')" exec "${process.execPath}" "${fakeServer}" "$@"\n`);
+  await chmod(entry, 0o755);
+  const definition: MCPServerDefinition = { name: "network", source: path.join(home, ".casper/mcp.json"), scope: "user", cwd: home, disabled: false,
+    transport: { type: "stdio", ...networkServerEntry(home) } };
+  const manager = new MCPManager({ servers: [definition], diagnostics: [] }, { timeoutMs: 15_000, homeDir: home });
+  cleanup.push(() => manager.close());
+  await manager.connect("network");
+  return { manager, broker: new CapabilityBroker(manager, async () => "no", { writesGate: true }) };
+}
+
+test("review: find_tool hits are forgotten when the server's definition changes", async () => {
+  const { manager, broker } = await hitServer([{ name: "mist_update_device", product: "mist", summary: "x", kind: "firmware", label: "write" }]);
+  await broker.invoke("mcp:network:find_tool", { query: "upgrade" });
+  expect(broker.hitKinds("network").get("mist_update_device")).toBe("firmware");
+  const real = manager.definition.bind(manager);
+  manager.definition = (name) => ({ ...real(name), cwd: path.join(real(name).cwd, "elsewhere") });
+  expect(broker.hitKinds("network").size).toBe(0);
+});
+
+test("review: past the limit of hits kept per server, the oldest is dropped", async () => {
+  const hit = (index: number) => ({ name: `mist_tool_${index}`, product: "mist", summary: "x", kind: "config", label: "write" });
+  // One find_tool fills the cache; the next one names one more tool.
+  const { broker } = await hitServer(Array.from({ length: MAX_HITS_PER_SERVER }, (_value, index) => hit(index)), [hit(MAX_HITS_PER_SERVER)]);
+  await broker.invoke("mcp:network:find_tool", { query: "everything" });
+  expect(broker.hitKinds("network").size).toBe(MAX_HITS_PER_SERVER);
+  await broker.invoke("mcp:network:find_tool", { query: "one more" });
+  const kept = broker.hitKinds("network");
+  expect(kept.size).toBe(MAX_HITS_PER_SERVER);
+  expect(kept.has("mist_tool_0")).toBe(false);
+  expect(kept.has(`mist_tool_${MAX_HITS_PER_SERVER}`)).toBe(true);
 });
