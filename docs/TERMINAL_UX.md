@@ -21,6 +21,7 @@ Casper, `/help <word>` only the lines that mention a word (`/help mcp`), and
 | Esc | Stop the current work |
 | Ctrl+C | Cancel work; when idle, clear the draft; twice on an empty prompt exits |
 | Ctrl+D | Exit when the prompt is empty |
+| Ctrl+T | Show the last step in full: an edit's whole diff, or what a command printed (works during work too) |
 | Ctrl+L | Redraw the screen |
 | Ctrl+O | Turn MCP writes off for every server at once (see [MCP.md](MCP.md)) |
 
@@ -32,24 +33,42 @@ over the network, and `/references add` downloads files after asking you.
 
 | Command | What it does |
 | --- | --- |
-| `/help`, `/help <word>`, `/help all` | Short help, the lines that mention a word, or the full reference |
-| `/status` | Model, login, integrations and local storage |
-| `/model`, `/effort` | Pick a model or reasoning effort (see [Model and effort](#model-and-effort)) |
+| `/help`, `/help <word>`, `/help all` | Short help, the lines that mention a word (`/help mcp`), or the full reference |
+| `/status` | Project, model, sign-in and connections |
+| `/model`, `/model big <model>` | Pick a model (remembered; `--session` for this conversation only); your big model for when repairs run out |
+| `/effort [level\|auto]` | Reasoning effort, or `auto` per request; Shift+Tab cycles it (see [Model and effort](#model-and-effort)) |
 | `/login [provider]` | Sign in to a provider (see [Provider login](#provider-login)) |
 | `/context`, `/usage` | Context estimate; session tokens and estimated cost |
 | `/compact [instructions]` | Summarize the conversation (**makes a model request**) |
-| `/clear`, `/resume [id]` | New conversation; list or reopen a saved one |
-| `/diff` | Git status and tracked changes against HEAD |
-| `/output [n]` | Full output of a recent tool call from the last task |
-| `/receipt` | Detailed evidence behind the last task's receipt |
-| `/verify [checks]`, `/verify repair` | Run the project's checks; repair failures |
-| `/project`, `/permissions` | Project context; what is and is not enforced |
-| `/skills`, `/references`, `/memory`, `/secrets` | Skills; local reference search; saved facts ([MEMORY.md](MEMORY.md)); secret hiding ([SECRETS.md](SECRETS.md)) |
-| `/mcp`, `/lsp` | MCP servers ([MCP.md](MCP.md)); language servers ([LSP.md](LSP.md)) |
-| `/browser`, `/services`, `/debug` | Browser ([BROWSER.md](BROWSER.md)); dev servers ([SERVICES.md](SERVICES.md)); debugger ([DEBUGGER.md](DEBUGGER.md)) |
-| `/tree`, `/branch`, `/switch` | Named sessions and worktrees ([SESSIONS.md](SESSIONS.md)) |
-| `/delegate <explorer\|reviewer> <goal>` | Read-only helper agent ([DELEGATION.md](DELEGATION.md)) |
+| `/clear` | Start a fresh conversation; files and saved conversations stay |
+| `/resume [id]` | List saved conversations in this folder, or reopen one |
+| `/diff [n\|list]` | The last task's changes (also outside git), task n's, or a list to pick from; before any task, git's view |
+| `/undo [n]`, `/redo [n]` | Put the last task's (or task n's) files back, or back again (no model; [UNDO.md](UNDO.md)) |
+| `/new [name]` | Start a new project in ~/Projects (no model; [NEW.md](NEW.md)) |
+| `/plan <request>` | Plan first: the model writes a plan and cases to test, you edit it, then build |
+| `/suggestions [on\|off]` | List the suggested next steps, or turn them on or off |
+| `/details [quiet\|normal\|detailed]` | How much work shows; Ctrl+T shows the last step in full |
+| `/output [n\|all]` | Full command and output of a recent tool call from the last task |
+| `/receipt [n\|list]` | The last task's receipt in detail, a saved one, or the last 10 |
+| `/verify [checks]`, `/verify repair`, `/verify add <name>` | Run the project's checks; repair failures; save a check Casper found ([VERIFICATION.md](VERIFICATION.md)) |
+| `/security-review` | Run the pinned security tools here, then offer an AI review (asks first; [SECURITY_CHECKS.md](SECURITY_CHECKS.md)) |
+| `/project [name]` | Project context and checks; open a project folder inside this one |
+| `/permissions` | What each tool may do here and when Casper asks you |
+| `/sandbox`, `/sandbox forget <host>` | What the shell sandbox holds; forget a host you allowed |
+| `/lab`, `/lab import <file>` | Your lab devices; add more from a file ([NETWORK-CHECKS.md](NETWORK-CHECKS.md)) |
+| `/skills` | Skills and whether you trust them ([SKILLS.md](SKILLS.md)) |
+| `/mcp` | MCP servers: connect, writes on or off, allow, forget, docs ([MCP.md](MCP.md)) |
+| `/lsp` | Language servers ([LSP.md](LSP.md)) |
+| `/browser` | A disposable browser; screenshots ([BROWSER.md](BROWSER.md)) |
+| `/services` | Dev servers the project declares ([SERVICES.md](SERVICES.md)) |
+| `/tasks [stop <n>\|all]` | What runs in the background; stop one |
+| `/debug` | The local debugger ([DEBUGGER.md](DEBUGGER.md)) |
+| `/tree`, `/branch <name>`, `/switch <name>` | Named conversations, each with its own workspace ([SESSIONS.md](SESSIONS.md)) |
+| `/memory` | Project facts you saved, and task outcomes ([MEMORY.md](MEMORY.md)) |
+| `/references` | Search local reference sources; download a vendor spec repo ([REFERENCES.md](REFERENCES.md)) |
+| `/secrets` | What Casper hides from the AI ([SECRETS.md](SECRETS.md)) |
 | `/visualize [repo [dir]]` | Diagrams ([VISUALIZATION.md](VISUALIZATION.md)) |
+| `/delegate <explorer\|reviewer> <goal>` | A read-only helper AI on one goal (uses a model; [DELEGATION.md](DELEGATION.md)) |
 | `/exit`, `/quit` | Exit |
 
 An unknown `/` command is rejected on your machine. It is never sent to a model.
@@ -352,15 +371,18 @@ Daily commands include `/help`, `/status`, `/project`, `/diff`, `/verify`, `/ski
 | `/context` | Runtime context estimate and counts; no invented per-file token attribution |
 | `/usage` | Tokens split into out, new and cached plus the raw counts; catalog cost estimate for the whole session, or the subscription name with the pay-per-token figure; not billing |
 | `/compact [instructions]` | Explicit cancellable model-assisted summary; **can make a model request** |
-| `/clear` | Fresh saved conversation, no workspace rollback; prior conversation remains resumable |
+| `/clear` | Fresh saved conversation; files stay as they are (`/undo` puts a task's files back); the earlier conversation stays resumable |
 | `/resume` | List saved conversation IDs in this workspace |
 | `/resume <exact-id>` | Restore one of those conversations, keeping named workspace linkage consistent |
 | `/tree`, `/switch <name>` | Existing named-workspace navigation and its approval policy |
 | `/output [n]` | Full command and output of the last task's n-th most recent tool call (1 = latest; 20 retained per task); out-of-range n is a usage error |
 
-`/diff` shows Git status and tracked changes against HEAD, without external diff or
-textconv drivers. Untracked names are listed, not file contents. Each Git command
-has a five-second deadline and 64 KiB output limit; large output is marked truncated.
+`/diff` shows the last task's changes in this folder, also outside git (`/diff 12` a
+saved task's, `/diff list` picks one). Before any task it shows Git status and tracked
+changes against HEAD, without external diff or textconv drivers; untracked names are
+listed, not file contents, each Git command has a five-second deadline and 64 KiB
+output limit, and large output is marked truncated. `/undo` puts the last task's files
+back and `/redo` undoes that (see [UNDO.md](UNDO.md)).
 After a task that changed files, the receipt names the changed paths (from a before/after
 tree digest), or how many past three. The per-file table (a bounded `git diff --stat`) is shown
 with `--verbose`; `/diff` shows the task's full changes.
@@ -396,8 +418,9 @@ surface, not live-model usefulness or human visual sign-off.
 
 macOS terminal behavior is exercised with real PTYs. Windows and Linux need host
 runs; exhaustive terminal compatibility is not claimed. Conversation/token storage
-is not automatically redacted. There is no workspace rollback, automatic shell
-shortcut, queued prompt execution or enforced permission-mode selector.
+is not automatically redacted. `/undo` puts back the files a task changed (see
+[UNDO.md](UNDO.md)); there is no automatic shell shortcut, queued prompt execution
+or enforced permission-mode selector.
 
 ## Design references and reuse
 
