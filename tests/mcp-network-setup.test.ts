@@ -238,6 +238,30 @@ test("a server you added yourself (hpe-networking-mcp, or casper-network-mcp by 
   expect(await shouldOfferNetworkSetup(home, [own])).toBe(false);
 });
 
+test("a server you named 'network' yourself means no offer", async () => {
+  const home = await temp("casper-network-home-");
+  const mine = { name: "network", source: "x", cwd: "/", disabled: false, transport: { type: "stdio", command: "/opt/x", args: [], env: {} } } as MCPServerDefinition;
+  expect(await shouldOfferNetworkSetup(home, [mine])).toBe(false);
+  expect(await networkSetupLine(home, [mine])).toBeUndefined();
+});
+
+test("Casper's entry with its folder gone: /mcp says not installed, and 2 installs it again without touching mcp.json", async () => {
+  const host = await fakeSetupHost({ answers: ["2"] });
+  await writeMcp(host.homeDir, { network: networkServerEntry(host.homeDir) });
+  const before = await readFile(path.join(host.homeDir, ".casper/mcp.json"), "utf8");
+  expect(await networkSetupLine(host.homeDir, await host.configured())).toBe("network: not installed — /mcp setup network");
+  expect(await runNetworkSetup(host, { explicit: true })).toBe("installed");
+  expect(host.installs).toEqual([NETWORK_SERVER.version]);
+  expect(await readFile(path.join(host.homeDir, ".casper/mcp.json"), "utf8")).toBe(before);
+  expect(host.connected.map((item) => item.name)).toEqual(["network"]);
+  expect(await networkSetupLine(host.homeDir, await host.configured())).toBeUndefined();
+  // Set up already: says so and asks nothing.
+  const again = await fakeSetupHost({ answers: ["2"], homeDir: host.homeDir });
+  expect(await runNetworkSetup(again, { explicit: true })).toBe("exists");
+  expect(again.asked).toEqual([]);
+  expect(again.output).toContain(`The network server is already set up (casper-network-mcp ${NETWORK_SERVER.version}). /mcp connect network connects it.`);
+});
+
 test("nobody answering the setup question installs and remembers nothing", async () => {
   const host = await fakeSetupHost({ answers: [] });
   expect(await runNetworkSetup(host, { explicit: false })).toBe("not-now");
