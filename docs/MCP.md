@@ -60,8 +60,11 @@ For Mist, Central and ClearPass, Casper sets up its own server
 ([casper-network-mcp](https://github.com/Choaterboater/casper-network-mcp)). You edit no
 file and set no variable.
 
-1. Ask about Mist, Central, ClearPass, Aruba, Wi-Fi, an SSID, a switch port or an access
-   point, or type `/mcp setup network`. Casper asks once:
+1. Ask about Mist, Marvis, Central, GreenLake, ClearPass, an SSID, a WLAN, a switch port
+   or an access point, or type `/mcp setup network`. Everyday words such as "central",
+   "mist", "aruba" or "Wi-Fi" count only next to a network word (site, AP, switch,
+   device, VLAN …), so "central logging" or "a wifi icon" in a web app never brings it up.
+   Casper asks once:
 
    ```text
    Casper can set up its network server (casper-network-mcp 0.1.0, about 60 MB from pypi.org, installed with uv into ~/.casper/tools).

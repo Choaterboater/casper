@@ -108,10 +108,19 @@ test("setup choices are safe first", () => {
 });
 
 test("the offer comes for Mist, Central, ClearPass and Wi-Fi questions, not for others", () => {
-  for (const prompt of ["list the Mist APs at Branch-12", "Which Central sites are down?", "check clearpass auth", "why is the wifi slow", "add a WLAN", "rename the SSID", "bounce switch port 1/1/3", "an access point is offline", "Aruba gateway health"]) {
+  for (const prompt of [
+    "list the Mist APs at Branch-12", "Which Central sites are down?", "check clearpass auth", "why is the wifi slow on the APs", "add a WLAN",
+    "rename the SSID", "bounce switch port 1/1/3", "an access point is offline", "Aruba gateway health", "what does Marvis say about Branch-12",
+    "cppm endpoints for 10.1.1.5", "list my GreenLake devices", "Aruba Central inventory", "juniper mist webhooks", "is the Wi-Fi down at the site",
+  ]) {
     expect(namesNetworkProduct(prompt)).toBe(true);
   }
-  for (const prompt of ["add a test for parseConfig", "mistake in the readme", "the centralized logger", "switch to the main branch"]) {
+  for (const prompt of [
+    "add a test for parseConfig", "mistake in the readme", "the centralized logger", "switch to the main branch",
+    // Web and code words: loose words count only next to a network word.
+    "add central logging to the API", "refactor the central store", "add a mist effect to the hero image", "add a wifi icon to the settings page",
+    "move this into a central place", "aruba beach photos for the travel blog",
+  ]) {
     expect(namesNetworkProduct(prompt)).toBe(false);
   }
 });

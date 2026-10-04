@@ -4,6 +4,7 @@ import type { LockedSpec } from "../../security/tools";
 import type { MCPServerDefinition } from "../config";
 import { addUserServer, MCP_FILE_LABEL, ServerExistsError } from "../docs";
 import { matchPreset } from "../presets";
+import { normaliseWords } from "../../skills/bundled";
 import { NETWORK_SERVER, NETWORK_SERVER_NAME, networkServerEntry, readSetupState, writeSetupState } from "./server";
 
 /**
@@ -55,9 +56,31 @@ function updateQuestion(from: string): NumberedQuestion {
   };
 }
 
-/** A request that names a network product: Mist, Central, ClearPass, Aruba, Wi-Fi, a WLAN, an SSID, a switch port or an access point. */
+/** Words that name a network product or thing on their own (the network skills' strong triggers, plus a few more). */
+const STRONG_NETWORK_WORDS = [
+  "mist api", "juniper mist", "mistapi", "mist org", "mist site", "mist sites", "marvis", "clearpass", "cppm", "pyclearpass",
+  "aruba central", "aruba networking central", "new central", "classic central", "central classic", "central api", "pycentral",
+  "greenlake", "glp", "wlan", "wlans", "ssid", "ssids", "switch port", "switch ports", "switchport", "switchports",
+  "access point", "access points",
+];
+/** Words that are also everyday web and code words ("central store", "mist effect", "wifi icon"): they count only
+ * next to a network word. */
+const LOOSE_NETWORK_WORDS = ["mist", "central", "aruba", "wifi", "wi fi", "wireless"];
+/** The network words a loose word needs in the same request. */
+const NETWORK_NOUNS = new Set([
+  "ap", "aps", "site", "sites", "switch", "switches", "gateway", "gateways", "clients", "device", "devices", "org", "vlan", "vlans",
+  "radio", "radios", "rf", "roaming", "controller", "controllers", "inventory", "firmware", "network", "networks", "sitegroup",
+]);
+
+/** A request that names a network product: Mist, Marvis, Central, GreenLake, ClearPass, Aruba, Wi-Fi, a WLAN, an SSID,
+ * a switch port or an access point. Strong words count on their own (as in the network skills' matcher); loose ones
+ * only next to a network word, so "central logging" or "a wifi icon" in a web app never brings up the offer. */
 export function namesNetworkProduct(prompt: string): boolean {
-  return /\b(?:mist|central|clearpass|aruba|wi-?fi|wlans?|ssids?|switch ?ports?|access ?points?)\b/i.test(prompt);
+  const words = normaliseWords(prompt);
+  const text = ` ${words.join(" ")} `;
+  const has = (phrase: string) => text.includes(` ${phrase} `);
+  if (STRONG_NETWORK_WORDS.some(has)) return true;
+  return LOOSE_NETWORK_WORDS.some(has) && words.some((word) => NETWORK_NOUNS.has(word));
 }
 
 function stdioWords(definition: MCPServerDefinition): string[] {
