@@ -283,6 +283,19 @@ test("Not now on an update keeps the old version and doesn't ask again for that 
   expect(await installedVersion(host.homeDir, NETWORK_SERVER)).toBe(NETWORK_SERVER.version);
 });
 
+test("a newer version installed by another Casper is kept: no 'update' that is really a downgrade", async () => {
+  const host = await fakeSetupHost({ answers: ["2"] });
+  await host.installer!(pinned("99.0.0"), { homeDir: host.homeDir, ...host.install });
+  await writeMcp(host.homeDir, { network: networkServerEntry(host.homeDir) });
+  const configured = await host.configured();
+  expect(await shouldOfferNetworkUpdate(host.homeDir, configured)).toBeUndefined();
+  expect(await networkSetupLine(host.homeDir, configured)).toBeUndefined();
+  expect(await runNetworkUpdate(host, { explicit: false })).toBe("current");
+  expect(await runNetworkSetup(host, { explicit: true })).toBe("exists");
+  expect(host.asked).toEqual([]);
+  expect(await installedVersion(host.homeDir, NETWORK_SERVER)).toBe("99.0.0");
+});
+
 test("a hand-added server pointing elsewhere is never updated", async () => {
   const host = await fakeSetupHost({ answers: ["2"] });
   await host.installer!(pinned("0.0.9"), { homeDir: host.homeDir, ...host.install });
