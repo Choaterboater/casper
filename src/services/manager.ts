@@ -52,6 +52,7 @@ interface Slot {
 }
 
 const HOST = "127.0.0.1";
+const portTaken = (port: number, name: string) => `Port ${port} is in use by a process Casper didn't start; stop that process or set services.${name}.port: auto. Casper never replaces a process it does not own.`;
 const TAIL_LINES = 20;
 
 /**
@@ -264,7 +265,7 @@ export class ServiceManager {
           port = slot.port !== undefined && !(await portInUse(HOST, slot.port)) ? slot.port : await freePort(HOST);
         } else {
           port = spec.port;
-          if (await portInUse(HOST, port)) throw new Error(`Port ${port} is in use by a process Casper didn't start; stop that process or set services.${name}.port: auto. Casper never replaces a process it does not own.`);
+          if (await portInUse(HOST, port)) throw new Error(portTaken(port, name));
         }
         signal.throwIfAborted();
         if (this.closing) throw new Error("Casper's services were stopped with the conversation; start them again after it changes");
@@ -272,12 +273,21 @@ export class ServiceManager {
         if (slot.process) await this.closeProcess(slot);
         signal.throwIfAborted();
         slot.port = port;
-        const origin = `http://${HOST}:${port}`;
+        const target = (at: number) => ({ env: { ...spec.env, PORT: String(at), HOST },
+          ready: "http" in spec.ready ? { http: new URL(spec.ready.http, `http://${HOST}:${at}`) } : { log: spec.ready.log } });
+        // The answer may take a while: a port something else took meanwhile is picked again (auto) or refused.
+        const unsandboxed = async () => {
+          const refused = await slot.approve!(signal);
+          if (refused) return refused;
+          if (!(await portInUse(HOST, port))) return undefined;
+          if (spec.port !== "auto") return portTaken(port, name);
+          slot.port = await freePort(HOST);
+          return target(slot.port);
+        };
         const managed: ManagedProcess = new ManagedProcess({ command: spec.command, cwd: this.options.projectRoot,
-          env: { ...spec.env, PORT: String(port), HOST },
-          ready: "http" in spec.ready ? { http: new URL(spec.ready.http, origin) } : { log: spec.ready.log },
+          ...target(port),
           timeoutMs: spec.timeoutMs, label: `Service ${name}`, tempPrefix: "casper-service-", platform: this.options.platform,
-          ...(slot.approve ? { unsandboxed: () => slot.approve!(signal) } : {}),
+          ...(slot.approve ? { unsandboxed } : {}),
           onExit: details => this.crashed(slot, managed, details) });
         slot.process = managed;
         slot.stopping = undefined;

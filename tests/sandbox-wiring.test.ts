@@ -139,6 +139,32 @@ posixOnly("the service tool refuses a command that names ~/.ssh, and one that re
   await services.close();
 });
 
+posixOnly("a service whose port is taken while you answer the sandbox question gets a new port and starts", async () => {
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-sandbox-wiring-")));
+  roots.push(root);
+  const engine = { ...fakeEngine(), initialize: async () => { throw new Error("bwrap: setting up uid map: Permission denied"); } };
+  useSandbox(new ShellSandbox({ root: () => root, home: path.join(root, "home"), engine, problem: () => undefined, platform: "linux" }));
+  const services = new ServiceManager({ projectRoot: root, services: {} });
+  const server = path.join(import.meta.dir, "fixtures", "service-server.ts");
+  let taken: number | undefined;
+  let other: ReturnType<typeof Bun.serve> | undefined;
+  try {
+    const started = await services.startCommand(`"${process.execPath}" "${server}"`, { ready: { http: "/health" }, timeoutMs: 10_000,
+      approve: async () => {
+        // Something else takes the port while the question is open.
+        taken = Number(new URL(services.status()[0]!.origin!).port);
+        other = Bun.serve({ hostname: "127.0.0.1", port: taken, fetch: () => new Response("not yours") });
+        return undefined;
+      } }, new AbortController().signal);
+    expect(started.state).toBe("ready");
+    expect(taken).toBeDefined();
+    expect(new URL(started.origin!).port).not.toBe(String(taken));
+  } finally {
+    other?.stop(true);
+    await services.close();
+  }
+});
+
 test("the AI's bash: the sandbox wraps it, and a refusal is added to what the AI reads", async () => {
   const ran: string[] = [];
   const local = { async exec(command: string, _cwd: string, options: { onData: (data: Buffer) => void }) {
