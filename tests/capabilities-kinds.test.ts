@@ -141,14 +141,14 @@ const fakeServer = path.join(import.meta.dir, "fixtures/fake-network-mcp.ts");
 const cleanup: (() => Promise<unknown>)[] = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
 
-async function troubleshootRun(preset: "network" | "hpe") {
+async function troubleshootRun(preset: "network" | "hpe", tool = "cx_show") {
   const home = await mkdtemp(path.join(os.tmpdir(), "casper-hit-kinds-"));
   cleanup.push(() => rm(home, { recursive: true, force: true }));
   const calls = path.join(home, "calls.log");
   // The same stand-in, installed where Casper installs its network server, or under hpe-networking-mcp's program name.
   const entry = preset === "network" ? networkServerEntry(home).command : path.join(home, "bin/hpe-mcp-router");
   await mkdir(path.dirname(entry), { recursive: true });
-  const hits = [{ name: "cx_show", product: "central", summary: "Run a show command.", kind: "troubleshoot", label: "diagnostic" }];
+  const hits = [{ name: tool, product: "central", summary: "Run a check.", kind: "troubleshoot", label: "diagnostic" }];
   await writeFile(entry, `#!/bin/sh\nFAKE_CALLS_FILE='${calls}' FAKE_HITS='${JSON.stringify(hits)}' exec "${process.execPath}" "${fakeServer}" "$@"\n`);
   await chmod(entry, 0o755);
   const definition: MCPServerDefinition = { name: "network", source: path.join(home, ".casper/mcp.json"), scope: "user", cwd: home, disabled: false,
@@ -162,7 +162,7 @@ async function troubleshootRun(preset: "network" | "hpe") {
   const boxes: string[] = [];
   const broker = new CapabilityBroker(manager, async (call) => { boxes.push(planLabel(call.plan)); return "yes"; }, { writesGate: true });
   await broker.invoke("mcp:network:find_tool", { query: "show interfaces on the closet switch" });
-  const result = await broker.invoke("mcp:network:invoke_read_tool", { name: "cx_show", arguments: { command: "show interfaces" } });
+  const result = await broker.invoke("mcp:network:invoke_read_tool", { name: tool, arguments: { command: "show interfaces" } });
   const lines = (await readFile(calls, "utf8")).split("\n");
   return { preset: manager.policy("network").match?.preset.id, result, boxes, setWrites, starts: lines.filter((line) => line.startsWith("start ")), ran: lines.some((line) => line.startsWith("call invoke_read_tool")) };
 }
@@ -183,4 +183,45 @@ test("a troubleshoot call on a preset without troubleshootRunsPinned still turns
   expect(run.boxes).toEqual(["diagnostic"]);
   expect(run.setWrites).toEqual([true, false]);
   expect(run.ran).toBe(true);
+});
+
+test("review: a troubleshoot hit on a name that reads as a read is a troubleshooting check, not a config change", () => {
+  const hits = (name: string) => new Map([[name, "troubleshoot" as const]]);
+  for (const name of ["get_lldp_neighbors", "get_cx_mac_table", "find_mac_on_switch", "aos_s_arp", "ap_https", "mist_arp_from_device", "central_initiate_cx_http_v1"]) {
+    expect(planKinds(routedPlan("invoke_read_tool", name), undefined, hits(name))).toEqual(["troubleshoot"]);
+  }
+  // Without the hit a routed read name is still judged a change; a hit never lowers a name that reads as a change or runs commands.
+  expect(planKinds(routedPlan("invoke_read_tool", "get_lldp_neighbors"))).toEqual(["config"]);
+  expect(planKinds(routedPlan("invoke_tool", "set_port_vlan"), undefined, hits("set_port_vlan"))).toEqual(["config"]);
+  expect(planKinds(routedPlan("invoke_read_tool", "run_troubleshooting_bundle"), undefined, hits("run_troubleshooting_bundle"))).toEqual(["config"]);
+});
+
+test("review: an approved LLDP check on the network preset runs pinned, with no restart", async () => {
+  const run = await troubleshootRun("network", "get_lldp_neighbors");
+  expect(run.boxes).toEqual(["diagnostic"]);
+  expect(run.setWrites).toEqual([]);
+  expect(run.starts).toEqual(['start ["--read-only"]']);
+  expect(run.ran).toBe(true);
+});
+
+test("review: a later find_tool that names a lower kind never lowers the kept one", async () => {
+  const home = await mkdtemp(path.join(os.tmpdir(), "casper-hit-kinds-"));
+  cleanup.push(() => rm(home, { recursive: true, force: true }));
+  const entry = networkServerEntry(home).command;
+  await mkdir(path.dirname(entry), { recursive: true });
+  const hit = (kind: string) => [{ name: "mist_update_device", product: "mist", summary: "Update a device.", kind, label: "write" }];
+  await writeFile(entry, `#!/bin/sh\nFAKE_HITS='${JSON.stringify(hit("firmware"))}' FAKE_HITS_LATER='${JSON.stringify(hit("config"))}' exec "${process.execPath}" "${fakeServer}" "$@"\n`);
+  await chmod(entry, 0o755);
+  const definition: MCPServerDefinition = { name: "network", source: path.join(home, ".casper/mcp.json"), scope: "user", cwd: home, disabled: false,
+    transport: { type: "stdio", ...networkServerEntry(home) } };
+  const manager = new MCPManager({ servers: [definition], diagnostics: [] }, { timeoutMs: 15_000, homeDir: home });
+  cleanup.push(() => manager.close());
+  await manager.connect("network");
+  const kinds: string[] = [];
+  const broker = new CapabilityBroker(manager, async () => "no", { writesGate: true, confirmKind: async (ask) => { kinds.push(ask.kind); return false; } });
+  await broker.invoke("mcp:network:find_tool", { query: "upgrade the switch" });
+  await broker.invoke("mcp:network:find_tool", { query: "update the switch" });
+  expect(broker.hitKinds("network").get("mist_update_device")).toBe("firmware");
+  await expect(broker.invoke("mcp:network:invoke_tool", { name: "mist_update_device", arguments: {} })).rejects.toThrow("you said no");
+  expect(kinds).toEqual(["firmware"]);
 });

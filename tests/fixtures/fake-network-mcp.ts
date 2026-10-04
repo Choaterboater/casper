@@ -8,6 +8,7 @@ import { CallToolRequestSchema, ListToolsRequestSchema, type Tool } from "@model
  * variables, `{"error": "login_missing", "product": …}` for a product with no login, and access_check v2 with
  * `server_gate: {flag: "--read-only", state}`. Nothing here contacts a vendor API.
  *
+ * FAKE_INVOKE_DESTRUCTIVE=1: invoke_tool is annotated destructiveHint: true.
  * FAKE_REACH: JSON per product, what the login itself can do ({access, can_change}), reported whether or not
  *   --read-only is set. FAKE_CALLS_FILE: one line per start and per call. FAKE_INVENT_PRODUCT: login_missing
  *   names that product instead. FAKE_HITS: find_tool's hits ([{name, product, summary, kind, label}]), sent the way
@@ -31,7 +32,7 @@ const call = object({ name: { type: "string" }, arguments: { type: "object" } },
 const tools: Tool[] = [
   { name: "find_tool", description: "Find a Mist, Central or ClearPass tool.", inputSchema: object({ query: { type: "string" } }, ["query"]), annotations: { readOnlyHint: true, destructiveHint: false } },
   { name: "invoke_read_tool", description: "Run a read tool.", inputSchema: call, annotations: { readOnlyHint: true, destructiveHint: false } },
-  { name: "invoke_tool", description: "Run a change tool.", inputSchema: call, annotations: { readOnlyHint: false, destructiveHint: false } },
+  { name: "invoke_tool", description: "Run a change tool.", inputSchema: call, annotations: { readOnlyHint: false, destructiveHint: process.env.FAKE_INVOKE_DESTRUCTIVE === "1" } },
   { name: "access_check", description: "What each login can do.", inputSchema: object(), annotations: { readOnlyHint: true, destructiveHint: false } },
 ];
 
@@ -47,6 +48,7 @@ function accessCheck() {
   });
 }
 
+let findCalls = 0;
 const server = new Server({ name: "casper-network-mcp", version: "0.0.0-fake" }, { capabilities: { tools: {} } });
 server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools }));
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
@@ -54,7 +56,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   log(`call ${request.params.name} ${JSON.stringify(args)}`);
   if (request.params.name === "access_check") return accessCheck();
   if (request.params.name === "find_tool") {
-    const hits = JSON.parse(process.env.FAKE_HITS ?? "[]") as unknown[];
+    // FAKE_HITS_LATER: what every find_tool after the first finds instead.
+    const later = findCalls++ > 0 && process.env.FAKE_HITS_LATER;
+    const hits = JSON.parse((later || process.env.FAKE_HITS) ?? "[]") as unknown[];
     return { content: hits.map((hit) => ({ type: "text" as const, text: JSON.stringify(hit) })), structuredContent: { result: hits } };
   }
   const name = typeof args.name === "string" ? args.name : "";

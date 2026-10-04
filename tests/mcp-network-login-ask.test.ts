@@ -43,11 +43,12 @@ interface Run {
 /**
  * Casper's network server (a stand-in for casper-network-mcp, installed where Casper installs it) behind the real
  * manager and broker, with the login host as a fake: `answers` arrive on the exact-answer channel, `secrets` at the
- * private prompt, and `askTool` is what the AI's ask tool would say (the login host has no channel for it).
+ * private prompt. `scope: "project"` runs it as a project's server; `call` is the AI's call (a Mist read by default).
  */
 async function brokerRun(options: {
-  interactive: boolean; answers?: string[]; secrets?: string[]; askTool?: string[];
+  interactive: boolean; answers?: string[]; secrets?: string[];
   reach?: Record<string, unknown>; invent?: string; tool?: string; home?: string;
+  scope?: "user" | "project"; call?: { id: string; arguments: Record<string, unknown> };
 }): Promise<Run> {
   const home = options.home ?? await tempHome();
   const calls = path.join(home, "calls.log");
@@ -57,7 +58,7 @@ async function brokerRun(options: {
     ...options.invent ? [`FAKE_INVENT_PRODUCT='${options.invent}'`] : []].join(" ");
   await writeFile(entry, `#!/bin/sh\n${env} exec "${process.execPath}" "${fakeServer}" "$@"\n`);
   await chmod(entry, 0o755);
-  const definition: MCPServerDefinition = { name: "network", source: path.join(home, ".casper/mcp.json"), scope: "user", cwd: home, disabled: false,
+  const definition: MCPServerDefinition = { name: "network", source: path.join(home, ".casper/mcp.json"), scope: options.scope ?? "user", cwd: home, disabled: false,
     transport: { type: "stdio", ...networkServerEntry(home) } };
   const manager = new MCPManager({ servers: [definition], diagnostics: [] }, { timeoutMs: 15_000, homeDir: home });
   cleanup.push(() => manager.close());
@@ -84,7 +85,8 @@ async function brokerRun(options: {
   const broker = new CapabilityBroker(manager, undefined, {
     writesGate: true, onLoginMissing: (server, product) => loginMissingAnswer(host, server, product),
   });
-  const result = await broker.invoke("mcp:network:invoke_read_tool", { name: options.tool ?? "mist_list_sites", arguments: {} });
+  const result = options.call ? await broker.invoke(options.call.id, options.call.arguments)
+    : await broker.invoke("mcp:network:invoke_read_tool", { name: options.tool ?? "mist_list_sites", arguments: {} });
   run.toolResultText = result.summary;
   run.transcript = `${run.output}\n${JSON.stringify(result)}`;
   return run;
@@ -147,8 +149,7 @@ test("a login the product itself makes read-only reads read-only", async () => {
   expect((await readLogins(run.home)).mist?.MIST_HOST).toBe("https://api.ac2.mist.com");
 });
 
-test("a key typed ahead never fills the token or answers the question", async () => {
-  // The exact-answer channel drops "2abc" typed before the question appeared; the person's first fresh answer is 1.
+test("1 Not now adds nothing and doesn't restart the server", async () => {
   const run = await brokerRun({ interactive: true, answers: ["1"], secrets: [] });
   expect(run.prompts).toHaveLength(1);
   expect(run.output).toContain("Not added. Type /mcp login mist any time.");
@@ -179,13 +180,24 @@ test("the private prompt never takes keys typed before it appeared", async () =>
   } finally { controller.abort(); await pending.catch(() => {}); input.destroy(); }
 });
 
-test("the AI's ask tool can't answer the login question", async () => {
-  // Its answer has no way into the exact channel: nobody answered, so nothing is saved and Not now isn't kept.
-  const run = await brokerRun({ interactive: true, askTool: ["2"], answers: [] });
-  expect(run.prompts).toHaveLength(1);
-  expect(await readLogins(run.home)).toEqual({});
+test("review: a project's casper-network-mcp never gets the login question; login_missing is an ordinary result", async () => {
+  const run = await brokerRun({ interactive: true, scope: "project", answers: ["2"], secrets: ["tok_EXAMPLE_0123456789"] });
+  expect(run.prompts).toEqual([]);
   expect(run.restarts).toEqual([]);
-  expect(run.output).not.toContain("Not added");
+  expect(await readLogins(run.home)).toEqual({});
+  expect(run.transcript).toContain("login_missing");
+  expect(run.toolResultText).not.toContain("Mist login added");
+});
+
+test("review: when the AI calls access_check first, it is told Casper asks for missing logins", async () => {
+  const home = await tempHome();
+  await saveLogin(home, "mist", { MIST_HOST: "https://api.mist.com", MIST_API_TOKEN: "tok_EXAMPLE_0123456789" });
+  const run = await brokerRun({ interactive: true, home, call: { id: "mcp:network:access_check", arguments: {} }, reach: { mist: { access: "read-write" } } });
+  expect(run.prompts).toEqual([]);
+  expect(run.toolResultText).toContain("Central and ClearPass have no login yet. Call one of their tools and Casper asks the person for it (or they type /mcp login <product>). Don't ask for a login in chat.");
+  // A project's server never gets the logins, so it gets no such line either.
+  const project = await brokerRun({ interactive: true, scope: "project", call: { id: "mcp:network:access_check", arguments: {} } });
+  expect(project.toolResultText).not.toContain("no login yet");
 });
 
 test("a product name the server invents is ignored", async () => {
@@ -275,7 +287,9 @@ test("v2 server_gate with a flag confirms the pin", () => {
 
 // --- In the app -------------------------------------------------------------------------------------------------
 
-async function appSession(lines: string[], options: { interactive?: boolean; model?: (tools: RuntimeTool[]) => Promise<void> } = {}) {
+async function appSession(lines: string[], options: {
+  interactive?: boolean; model?: (tools: RuntimeTool[]) => Promise<void>; answers?: string[]; onApp?: (app: CasperApp) => void;
+} = {}) {
   const root = await tempHome();
   const home = path.join(root, "home");
   const project = path.join(root, "project");
@@ -297,6 +311,7 @@ async function appSession(lines: string[], options: { interactive?: boolean; mod
   const input = new PassThrough();
   let output = "";
   const pending = [...lines];
+  const answers = [...options.answers ?? []];
   const app = new CasperApp({
     runtimeFactory: () => runtime, input, sessionHomeDir: home,
     loadProjectContext: (info) => loadProjectContext(info, { homeDir: home }),
@@ -305,10 +320,11 @@ async function appSession(lines: string[], options: { interactive?: boolean; mod
     output: { write: (text) => {
       output += text;
       if (text === "> ") queueMicrotask(() => input.write(`${pending.shift() ?? "/exit"}\n`));
-      if (/Type [\d, ]*\d or \d: $/.test(text)) queueMicrotask(() => input.write("1\n"));
+      if (/Type [\d, ]*\d or \d: $/.test(text)) queueMicrotask(() => input.write(`${answers.shift() ?? "1"}\n`));
     } },
   });
   cleanup.push(() => app.close());
+  options.onApp?.(app);
   if (options.interactive === false) for (const line of lines) await app.runOnce(line, project);
   else await app.runInteractive(project);
   return { output: () => output, home };
@@ -334,5 +350,29 @@ test("app: on piped input the AI's Mist call gets one line, and nothing asks for
   expect(reply).toContain("Mist has no login yet. The person can add one: type /mcp login mist in Casper's full terminal.");
   expect(run.output()).toContain("Adding a Mist login needs Casper's full terminal, where it stays hidden. Type /mcp login mist there.");
   expect(run.output()).not.toContain("Mist API token");
+  expect(await readLogins(run.home)).toEqual({});
+});
+
+test("app: a 2 typed before the login question never answers it, and the question never goes through the AI's ask channel", async () => {
+  let asks = 0;
+  let privatePrompts = 0;
+  const run = await appSession(["/mcp connect network", "list the Mist sites\n2abc"], {
+    answers: ["1", "1"],
+    onApp: (app) => {
+      // Piped input has no private prompt; this one stands in for Casper's full terminal and counts its use.
+      Object.assign(app.terminal, { exclusiveHost: () => ({ run: async () => { privatePrompts++; return undefined; } }) });
+      const ask = app.terminal.ask.bind(app.terminal);
+      app.terminal.ask = (...args: Parameters<typeof ask>) => { asks++; return ask(...args); };
+    },
+    model: async (tools) => {
+      const call = tools.find((tool) => tool.name === "call_capability")!;
+      await call.execute({ id: "mcp:network:invoke_read_tool", arguments: { name: "mist_list_sites", arguments: {} } });
+    },
+  });
+  expect(run.output()).toContain("Mist isn't set up yet.");
+  expect(run.output()).toContain("[input] Discarded 1 line(s) entered before this approval appeared.");
+  expect(run.output()).toContain("Not added. Type /mcp login mist any time.");
+  expect(privatePrompts).toBe(0);
+  expect(asks).toBe(0);
   expect(await readLogins(run.home)).toEqual({});
 });

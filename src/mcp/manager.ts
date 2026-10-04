@@ -444,12 +444,17 @@ export class MCPManager {
     if (entry.pins.kind === "pinned" && (entry.state === "ready" || entry.state === "connecting")) await this.restart(entry);
   }
 
-  /** Restart a connected server once its running calls finish (a login saved, its program updated). */
-  async restartAfterCalls(name: string): Promise<void> {
+  /**
+   * Restart a connected server once its running calls finish (a login saved, its program updated). `whileStopped` runs
+   * after the server stopped and before it starts again (an update swaps its folder then); the server starts again
+   * even when it fails, and its error is thrown after. A server that isn't running just runs `whileStopped`.
+   */
+  async restartAfterCalls(name: string, options: { whileStopped?: () => Promise<void> } = {}): Promise<void> {
     const entry = this.entry(name);
-    if (entry.state !== "ready" && entry.state !== "connecting") return;
+    if (entry.state !== "ready" && entry.state !== "connecting") { await options.whileStopped?.(); return; }
     await this.idle(entry);
-    if (!this.closed) await this.restart(entry);
+    if (this.closed) { await options.whileStopped?.(); return; }
+    await this.restart(entry, options.whileStopped);
   }
 
   /** Restart with the read-only pins once no call is running, if the connection has none. */
@@ -470,7 +475,7 @@ export class MCPManager {
   }
 
   /** Close this connection and, when the server is still approved, open it again. */
-  private async restart(entry: Entry): Promise<void> {
+  private async restart(entry: Entry, whileStopped?: () => Promise<void>): Promise<void> {
     entry.abort.abort();
     await entry.work?.catch(() => {});
     await entry.refresh;
@@ -480,7 +485,15 @@ export class MCPManager {
     entry.error = undefined;
     // Casper restarted it on purpose: that does not spend the reconnect budget.
     entry.attempts = [];
-    if (entry.approved) await this.ensureConnected(entry);
+    if (!whileStopped) {
+      if (entry.approved) await this.ensureConnected(entry);
+      return;
+    }
+    let failed: { error: unknown } | undefined;
+    try { await whileStopped(); } catch (error) { failed = { error }; }
+    // A start that fails after the work is kept in the server's status (/mcp shows it); the work's own error wins.
+    if (entry.approved) await this.ensureConnected(entry).catch(() => {});
+    if (failed) throw failed.error;
   }
 
   /** Changes whenever routable metadata or connection identity changes. */

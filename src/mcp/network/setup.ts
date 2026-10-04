@@ -26,8 +26,9 @@ export interface SetupHost {
   configured(): Promise<readonly MCPServerDefinition[]>;
   /** Re-reads ~/.casper/mcp.json, connects `name` and remembers it (the person's 2 counts as /mcp connect + Remember). */
   connect(name: string): Promise<{ ok: boolean; message?: string }>;
-  /** Restarts a connected server once its running calls finish. */
-  restart(name: string): Promise<void>;
+  /** Restarts a connected server once its running calls finish; `whileStopped` runs while it is stopped (just runs, when
+   * it isn't connected). It starts again even when `whileStopped` fails. */
+  restart(name: string, whileStopped?: () => Promise<void>): Promise<void>;
   /** Test seams for the download. */
   install?: Pick<InstallOptions, "env" | "run" | "platform">;
   installer?: (spec: LockedSpec, options: InstallOptions & { uvMissing?: string }) => Promise<{ ok: boolean; message: string; entryPath?: string }>;
@@ -109,9 +110,9 @@ async function ask(host: SetupHost, question: NumberedQuestion): Promise<string 
   return host.chooseAnswer(`${question.text}\n${numberedLines(question.choices)}`, "Type 1 or 2: ", ["1", "2"]);
 }
 
-function install(host: SetupHost) {
+function install(host: SetupHost, swap?: (renames: () => Promise<void>) => Promise<void>) {
   return (host.installer ?? installLockedSpec)(NETWORK_SERVER, {
-    homeDir: host.homeDir, write: (text) => host.write(text), uvMissing: UV_MISSING_NETWORK, ...host.install,
+    homeDir: host.homeDir, write: (text) => host.write(text), uvMissing: UV_MISSING_NETWORK, ...host.install, ...(swap ? { swap } : {}),
   });
 }
 
@@ -168,9 +169,11 @@ export async function runNetworkSetup(host: SetupHost, _options: { explicit: boo
 }
 
 /**
- * When this Casper pins a different version than the one installed: 1 Not now · 2 Update it. On 2 the folder
- * is replaced in place (the command in ~/.casper/mcp.json, its hash and its remembered approval stay), then
- * the server restarts once its running calls finish. Not now is kept per version.
+ * When this Casper pins a different version than the one installed: 1 Not now · 2 Update it. On 2 the new version is
+ * built beside the old one while it runs; then, once its running calls finish, the server stops, the folders are
+ * swapped (the command in ~/.casper/mcp.json, its hash and its remembered approval stay) and it starts again. A swap
+ * that fails (Windows keeps a running program's folder locked) puts the old folder back and starts that. Not now is
+ * kept per version.
  */
 export async function runNetworkUpdate(host: SetupHost, options: { explicit: boolean }): Promise<UpdateResult> {
   const update = await availableUpdate(host.homeDir, await host.configured());
@@ -183,12 +186,16 @@ export async function runNetworkUpdate(host: SetupHost, options: { explicit: boo
     if (answer !== undefined) host.write(`Not updated. The network server keeps ${update.from}. Type /mcp setup network to update.\n`);
     return "not-now";
   }
-  const installed = await install(host);
+  let swapFailed = false;
+  const installed = await install(host, (renames) => host.restart(update.name, async () => {
+    try { await renames(); } catch (error) { swapFailed = true; throw error; }
+  }));
   if (!installed.ok) {
-    host.write(`${installed.message}\nThe network server keeps ${update.from}.\n`);
+    host.write(swapFailed
+      ? `Casper couldn't swap in the new version (its files are in use). The network server keeps ${update.from} and is running again. Close any other Casper window, then type /mcp setup network.\n`
+      : `${installed.message}\nThe network server keeps ${update.from}.\n`);
     return "failed";
   }
-  await host.restart(update.name);
   host.write(`Network server updated to ${update.to}.\n`);
   return "updated";
 }

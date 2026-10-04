@@ -50,6 +50,10 @@ type Step = string | ((ctx: Ctx) => Promise<void>);
 
 async function networkSession(options: {
   reach?: Record<string, unknown>; steps: Step[]; answers?: string[]; interactive?: boolean;
+  /** Run the same stand-in from a path that doesn't name casper-network-mcp: matched by its tool list only. */
+  lookalike?: boolean;
+  /** More of the stand-in's FAKE_* settings. */
+  env?: Record<string, string>;
 }) {
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-network-e2e-"));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
@@ -57,12 +61,15 @@ async function networkSession(options: {
   const project = path.join(root, "project");
   await mkdir(path.join(project, ".casper"), { recursive: true });
   const calls = path.join(root, "calls.log");
-  const entry = networkServerEntry(home).command;
+  const entry = options.lookalike ? path.join(root, "bin/netserver") : networkServerEntry(home).command;
   await mkdir(path.dirname(entry), { recursive: true });
   const reach = options.reach ?? { mist: { access: "read-write", can_change: [site("Branch-12")] } };
-  await writeFile(entry, `#!/bin/sh\nFAKE_CALLS_FILE='${calls}' FAKE_REACH='${JSON.stringify(reach)}' FAKE_HITS='${JSON.stringify(HITS)}' exec "${process.execPath}" "${fakeServer}" "$@"\n`);
+  const extra = Object.entries(options.env ?? {}).map(([name, value]) => `${name}='${value}' `).join("");
+  await writeFile(entry, `#!/bin/sh\n${extra}FAKE_CALLS_FILE='${calls}' FAKE_REACH='${JSON.stringify(reach)}' FAKE_HITS='${JSON.stringify(HITS)}' exec "${process.execPath}" "${fakeServer}" "$@"\n`);
   await chmod(entry, 0o755);
-  await writeFile(path.join(home, ".casper/mcp.json"), JSON.stringify({ mcpServers: { network: networkServerEntry(home) } }));
+  await mkdir(path.join(home, ".casper"), { recursive: true });
+  await writeFile(path.join(home, ".casper/mcp.json"), JSON.stringify({ mcpServers: {
+    network: options.lookalike ? { command: entry, args: [], env: {} } : networkServerEntry(home) } }));
   await saveLogin(home, "mist", { MIST_HOST: "https://api.mist.com", MIST_API_TOKEN: "tok_EXAMPLE_0123456789" });
   const log = async () => (await readFile(calls, "utf8").catch(() => "")).split("\n");
   const serverArgs = async () => JSON.parse((await log()).filter((line) => line.startsWith("start ")).at(-1)!.slice("start ".length)) as string[];
@@ -292,4 +299,57 @@ test("/mcp says the read-only pin was confirmed", async () => {
   expect(confirmed).toBe(true);
   expect(s.output).toContain("preset: casper-network-mcp (read-only pinned: --read-only)");
   expect(s.output).not.toContain("read-only pins sent, not confirmed");
+});
+
+test("review: a tool find_tool never named asks every time, even after 'Yes, for this session'", async () => {
+  // central_replaceimage_v1 is a firmware change on the real server, but its name reads as config and the AI never searched for it.
+  const s = await networkSession({
+    answers: ["3", "1", "1"],
+    steps: [async (ai) => {
+      await ai.call("find_tool", { query: "change the guest wlan vlan" });
+      await ai.call("invoke_tool", WLAN);
+      await ai.call("invoke_tool", { name: "central_replaceimage_v1", arguments: { serial: "SN1" } });
+      await ai.call("invoke_tool", { name: "mist_update_org_inventory_assignment", arguments: { org_id: "o1" } });
+    }],
+  });
+  expect(s.boxes).toHaveLength(3);
+  for (const box of s.boxes.slice(1)) expect(choiceLines(box)).toEqual(["No", "Yes, this once", approveAllLabel("Network")]);
+  expect(await s.ran("central_replaceimage_v1")).toBe(0);
+  expect(await s.ran("mist_update_org_inventory_assignment")).toBe(0);
+});
+
+test("review: a look-alike matched only by its tool list keeps invoke_tool destructive", async () => {
+  const s = await networkSession({
+    lookalike: true, answers: ["1"],
+    steps: [async (ai) => {
+      expect(ai.manager().policy("network").match).toMatchObject({ by: "tools" });
+      await ai.call("find_tool", { query: "change the guest wlan vlan" });
+      await ai.call("invoke_tool", WLAN);
+    }],
+  });
+  expect(s.boxes).toHaveLength(1);
+  expect(s.boxes[0]).toContain("[destructive]");
+  expect(choiceLines(s.boxes[0]!)).not.toContain("Yes, for this session");
+});
+
+test("review: a batch, an unclear call, or an invoke_tool the server marks destructive offers no session answer", async () => {
+  const batch = await networkSession({
+    answers: ["1", "1"],
+    steps: [async (ai) => {
+      await ai.call("find_tool", { query: "wlan vlan, site settings" });
+      await ai.call("invoke_tool", { ...WLAN, calls: [SETTING] });
+      await ai.call("invoke_tool", { name: "" });
+    }],
+  });
+  expect(batch.boxes).toHaveLength(2);
+  for (const box of batch.boxes) expect(choiceLines(box)).not.toContain("Yes, for this session");
+  const marked = await networkSession({
+    env: { FAKE_INVOKE_DESTRUCTIVE: "1" }, answers: ["1"],
+    steps: [async (ai) => {
+      await ai.call("find_tool", { query: "change the guest wlan vlan" });
+      await ai.call("invoke_tool", WLAN);
+    }],
+  });
+  expect(marked.boxes).toHaveLength(1);
+  expect(choiceLines(marked.boxes[0]!)).not.toContain("Yes, for this session");
 });

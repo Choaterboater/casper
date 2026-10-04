@@ -2804,7 +2804,10 @@ export class CasperApp {
         this.updateFooter();
         return { ok: true };
       },
-      restart: async (name) => { await this.mcp?.restartAfterCalls(name); },
+      restart: async (name, whileStopped) => {
+        if (this.mcp) await this.mcp.restartAfterCalls(name, whileStopped ? { whileStopped } : {});
+        else await whileStopped?.();
+      },
       ...(this.networkSeams?.install ? { install: this.networkSeams.install } : {}),
     };
   }

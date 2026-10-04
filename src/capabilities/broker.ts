@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { isRecord } from "../mcp/config";
 import type { MCPManager, MCPTool, ServerPolicy } from "../mcp/manager";
-import { accessModelLines, readOnlyLoginReason, writesOffReason } from "../mcp/access";
+import { ACCESS_TOOL, accessModelLines, parseAccessCheck, readOnlyLoginReason, writesOffReason } from "../mcp/access";
 import { approvalNotes, guardArguments, hasNoPreview, isHidden, tightenSafety } from "../mcp/presets";
 import type { RuntimeTool } from "../runtime/types";
 import { redactPreview } from "../tui/format";
@@ -14,7 +14,7 @@ import {
 } from "./approval";
 import { toolLabel } from "./labels";
 import { loginMissing } from "../mcp/network/ask-login";
-import type { NetworkProduct } from "../mcp/network/logins";
+import { getsLogins, isNetworkProduct, PRODUCT_LABELS, type NetworkProduct } from "../mcp/network/logins";
 import {
   asksEveryTime, hitKindsFrom, isRiskyKind, KIND_TEXT, MAX_HITS_PER_SERVER, planKinds, riskier, withHitKinds, type ChangeKind, type RouterHit,
 } from "./kinds";
@@ -97,6 +97,17 @@ const MAX_PREVIEWS = 3;
 
 /** The tool-definition half of a fingerprint ("<generation>:<hash>"). */
 function toolPart(fingerprint: string): string { return fingerprint.slice(fingerprint.indexOf(":") + 1); }
+
+/** One line for the AI when access_check says a product has no login yet; undefined when every product has one. */
+function missingLoginsNote(raw: unknown): string | undefined {
+  const products = parseAccessCheck(raw).products.filter((item) => item.loginMissing).map((item) => item.product).filter(isNetworkProduct);
+  if (!products.length) return undefined;
+  const names = products.map((product) => PRODUCT_LABELS[product]);
+  if (names.length === 1) {
+    return `${names[0]} has no login yet. Call one of its tools and Casper asks the person for it (or they type /mcp login ${products[0]}). Don't ask for a login in chat.`;
+  }
+  return `${names.slice(0, -1).join(", ")} and ${names.at(-1)} have no login yet. Call one of their tools and Casper asks the person for it (or they type /mcp login <product>). Don't ask for a login in chat.`;
+}
 
 /** The real tool name(s) an approval is for: the routed tools, or the tool itself. */
 function realToolOf(plan: ApprovalPlan): string {
@@ -298,17 +309,19 @@ export class CapabilityBroker {
     const notes = approvalNotes(policy.match, capability.tool);
     const noPreview = hasNoPreview(policy.match, capability.tool);
     // Each routed tool carries the kind the server's find_tool gave it: it can only make the call stricter.
-    // Casper's own network server (recognised by what it runs): invoke_tool running one tool Casper can see is judged
-    // by that tool (a write, plus its name and kind), not as a destructive dispatcher, so a plain change can be
-    // allowed for the session. Destructive names and risky or disruptive kinds still ask every time.
+    // Casper's own network server (recognised by what it runs): invoke_tool running one tool Casper can see, whose kind
+    // find_tool told Casper, is judged by that tool (a write, plus its name and kind), not as a destructive dispatcher,
+    // so a plain change can be allowed for the session. Destructive names and risky or disruptive kinds still ask every
+    // time. A tool find_tool never named stays destructive: its name alone can't tell a firmware change from a config one.
     const byRealTool = Boolean(policy.match?.preset.routedByRealTool) && policy.match?.by === "definition"
       && capability.tool.name === "invoke_tool" && capability.tool.annotations?.destructiveHint !== true;
+    const hitKinds = this.hitKinds(capability.descriptor.source);
     const plan = withHitKinds(buildPlan({
       server: capability.descriptor.source, tool: capability.tool.name, label: capability.descriptor.safety,
       schema: capability.tool.inputSchema, arguments: frozenArgs,
       ...(notes.length || noPreview ? { hint: { ...(notes.length ? { executeNote: notes.join(" ") } : {}), ...(noPreview ? { noPreview } : {}) } } : {}),
-    }), this.hitKinds(capability.descriptor.source));
-    if (byRealTool && plan.routed.length === 1 && !plan.routerUnclear) plan.label = "write";
+    }), hitKinds);
+    if (byRealTool && plan.routed.length === 1 && !plan.routerUnclear && hitKinds.has(plan.routed[0]!.name)) plan.label = "write";
     const label = planLabel(plan);
     // A router call is judged by the real tools it runs: a write behind a read router is refused
     // like the write tool itself while writes are off (or for a read-only login).
@@ -373,11 +386,14 @@ export class CapabilityBroker {
     }
     // Casper's network server (recognised by what it runs) had no login for this product: the person is asked, and
     // the AI gets one line back. Any other server's look-alike answer is an ordinary result.
-    const login = this.onLoginMissing && policy.match?.preset.logins && policy.match.by === "definition" ? loginMissing(raw) : undefined;
+    const ownNetwork = this.getsLogins(capability);
+    const login = this.onLoginMissing && ownNetwork ? loginMissing(raw) : undefined;
     if (login) {
       const text = await this.onLoginMissing!(capability.descriptor.source, login, combined);
       return { isError: true, executed: true, summary: text, truncated: false, originalBytes: Buffer.byteLength(text) };
     }
+    // The AI asked access_check first: tell it Casper asks for a missing login, so it never asks in chat or suggests config.
+    const missingNote = ownNetwork && capability.tool.name === ACCESS_TOOL ? missingLoginsNote(raw) : undefined;
     if (capability.router && capability.tool.name === "find_tool") this.rememberHits(capability.descriptor.source, raw);
     // 7. Hide device secrets (passwords, keys, SNMP communities) before anything else reads the result.
     const scrubbed = await this.scrub(raw, combined);
@@ -387,7 +403,15 @@ export class CapabilityBroker {
     const note = scrubNote(scrubbed);
     if (scrubbed.hidden > 0) result.secretsHidden = scrubbed.hidden;
     if (note) result.summary = `${result.summary} ${note}`;
+    if (missingNote) result.summary = `${result.summary} ${missingNote}`;
     return result;
+  }
+
+  /** Casper's own network server, by what it runs and not a project's: the one that gets the saved logins. */
+  private getsLogins(capability: Capability): boolean {
+    const { match } = capability.policy;
+    if (!match?.preset.logins || match.by !== "definition") return false;
+    try { return getsLogins(this.manager.definition(capability.descriptor.source)); } catch { return false; }
   }
 
   /** The call already ran, so scrubbing never fails it: any problem (or an abort during netconan)
