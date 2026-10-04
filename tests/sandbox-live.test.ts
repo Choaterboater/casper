@@ -99,7 +99,15 @@ needsSandbox("git's own files stay read-only: no hook, no core.hooksPath", async
   expect(await readFile(path.join(root, ".git", "config"), "utf8")).not.toContain("hooksPath");
 });
 
-needsSandbox("a refused write is named: blocked by the sandbox (wanted to write ...)", async () => {
+/**
+ * macOS names a refused write only through `log stream` (the runtime's monitor). macOS lets only admin accounts
+ * run it ("log: Must be admin to run 'stream' command"), so on a standard account nothing can be named: skip there.
+ */
+const sandboxLogRefused = sandboxAvailable && process.platform === "darwin"
+  && Bun.spawnSync(["/usr/bin/log", "stream", "--style", "compact"], { timeout: 1000, stdout: "ignore", stderr: "pipe" })
+    .stderr.toString().includes("Must be admin");
+
+test.skipIf(!sandboxAvailable || sandboxLogRefused)("a refused write is named: blocked by the sandbox (wanted to write ...)", async () => {
   const result = await run(`echo x > ${outside}/named.txt`);
   expect(result.code).not.toBe(0);
   // The monitor reports shortly after the command ends.
