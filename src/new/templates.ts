@@ -90,6 +90,9 @@ export function listTemplates(): TemplateManifest[] {
 
 /** `casper new empty <name>` and "My own": no template, just a folder with git. */
 export const EMPTY_TEMPLATE = "empty";
+
+/** The help row for `casper new`: every kind it builds, by the word you type. */
+export const NEW_HELP_LINE = `casper new [kind] [name]  Start a new project; asks what is missing, then opens Casper there. Kinds: ${[...listTemplates().map((template) => template.id), EMPTY_TEMPLATE].join(", ")} (casper new --list says what each is)`;
 const EMPTY_DEFAULT_NAME = "my-project";
 
 /** A template id Casper can build: a ready template, or empty. */

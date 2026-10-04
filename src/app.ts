@@ -129,6 +129,7 @@ import type { RuntimeShell } from "./runtime/types";
 import { askBuildRequest, buildRequestNote, isEmptyFolder, newProjectFromQuestions, newProjectInEmptyFolder, offerMissingFolder, opened,
   type NewProjectFlow } from "./app/new-project";
 import { listLines } from "./new/command";
+import { defaultNameFor } from "./new/templates";
 import { tildePath, type NewProjectOptions, type NewProjectResult } from "./new/scaffold";
 
 export type { OutputWriter } from "./app/commands";
@@ -1254,7 +1255,10 @@ export class CasperApp {
     const command = parseNewArgs(words);
     if (!command) { this.output.write(`${usage}\n`); return; }
     if (command.list) { this.output.write(`${listLines().join("\n")}\n`); return; }
-    if ((!this.interactive || !this.terminal.canAsk) && (!command.template || !command.name)) {
+    const canAsk = this.interactive && this.terminal.canAsk;
+    // A lone kind word where nobody can be asked the name: the kind's usual name, like casper new.
+    if (!canAsk && command.template && !command.name) command.name = defaultNameFor(command.template);
+    if (!canAsk && (!command.template || !command.name)) {
       this.output.write(`/new needs a template and a name when Casper can't ask. ${usage}\n`);
       return;
     }

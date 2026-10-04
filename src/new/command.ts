@@ -4,7 +4,7 @@ import path from "node:path";
 import { NEW_USAGE, type NewCommand } from "../cli-args";
 import { formatNewProjectReceipt } from "./receipt";
 import { createProject, startingLine, tildePath, type NewProjectResult, type ToolRunner } from "./scaffold";
-import { EMPTY_TEMPLATE, listTemplates } from "./templates";
+import { defaultNameFor, EMPTY_TEMPLATE, listTemplates } from "./templates";
 
 /**
  * `casper new` from the command line. With a terminal the app asks for the kind and the name;
@@ -13,7 +13,7 @@ import { EMPTY_TEMPLATE, listTemplates } from "./templates";
  */
 
 export { NEW_USAGE, parseNewArgs, type NewCommand } from "../cli-args";
-export const NEW_HELP_LINE = "casper new [name]    Start a new project (network, MCP server, web app, Python tool, or your own)";
+export { NEW_HELP_LINE } from "./templates";
 
 /** One plain line per ready template, then empty. */
 export function listLines(): string[] {
@@ -42,11 +42,20 @@ export async function projectsFolder(home: string): Promise<string> {
 }
 
 export async function runNewCommand(options: RunNewOptions): Promise<{ exitCode: number; result?: NewProjectResult }> {
-  const { command, write } = options;
+  const { write } = options;
+  let { command } = options;
+  if (command.help) {
+    write(NEW_USAGE);
+    write("A lone kind word builds that kind and asks only the name (scripts get its usual name). The kinds:");
+    for (const line of listLines()) write(`  ${line}`);
+    return { exitCode: 0 };
+  }
   if (command.list) {
     for (const line of listLines()) write(line);
     return { exitCode: 0 };
   }
+  // A lone kind word, where nobody can be asked the name: the kind's usual name.
+  if (command.template && !command.name) command = { ...command, name: defaultNameFor(command.template) };
   if (!command.template || !command.name) {
     write(`casper new needs a template and a name when it can't ask. ${NEW_USAGE}`);
     write("Templates: " + [...listTemplates().map((t) => t.id), EMPTY_TEMPLATE].join(", "));

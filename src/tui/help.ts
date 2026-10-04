@@ -1,5 +1,7 @@
 import { COMMANDS } from "./commands";
 import { WRITES_OFF_MEANING } from "../mcp/presets";
+import { UPDATE_HELP } from "../cli-args";
+import { NEW_HELP_LINE } from "../new/templates";
 
 export const HELP_TEXT = `Casper — your coding companion
 
@@ -39,10 +41,10 @@ Usage:
   casper learn promote <repo> <id> <sha256> <number> <disposition> [skill-name]  Record your promote or ignore decision for that exact draft
   casper mcp check [repo]  Check an MCP server you built: its tests, labels and configs (no tool calls unless --live)
   casper mcp check [repo] [--server <name>] [--live] [--quick] [--strict] [--json] [--env NAME=VALUE]... [-- <start command>...]  Runs the repo's own doctor and tests; only run it on repos you trust
-  casper new [name]    Start a new project (Python tool, MCP server, Mist scripts); asks what is missing, then opens Casper there
+  ${NEW_HELP_LINE}
   casper new <template> <name>  Start a new project in ~/Projects without questions (scripts; casper new --list shows templates)
   casper security [repo] [--json] [--strict] [--install] [--mcp-tools <file>]  Run the security tools on a repo (no model); installs tools only with --install. Exit 0 no problems, 1 problems, 64 usage mistake
-  casper update [--check]  Update Casper (no model): an installed release runs the newest release's own installer on this program's folder; a source checkout pulls with git (fast-forward only) and runs bun install when its lockfile changed. --check only says what is newer. Exit 0 updated or nothing to do, 1 not finished (the message says what is left), 64 usage mistake
+  casper update [--check]  ${UPDATE_HELP}
   casper --cd <path> ...  Work in that folder instead of the current directory
   casper --continue ...  Continue this folder's most recent conversation
   casper --resume <id-prefix> ...  Continue the saved conversation whose ID starts with this

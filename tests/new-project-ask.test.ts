@@ -468,7 +468,7 @@ test("/new is in the command palette and the full help; casper new is in the sho
   expect(HELP_TEXT).toContain("casper new [name]");
   expect(FULL_HELP_TEXT).toContain("/new [name]                       Start a new project in ~/Projects (no model)");
   expect(FULL_HELP_TEXT).toContain("/new <template> <name>");
-  expect(FULL_HELP_TEXT).toContain("casper new [name]");
+  expect(FULL_HELP_TEXT).toContain("casper new [kind] [name]");
 });
 
 test("typed no or yes answers the build question and is never a project name", async () => {
