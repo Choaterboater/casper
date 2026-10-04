@@ -257,7 +257,7 @@ const CANT_PIN_REMOTE = "it runs elsewhere";
 
 const TABLE: Preset[] = [
   {
-    // secure-ssid/hpe-networking-mcp. Recognised by what it runs, never by its name, because
+    // hpe-networking-mcp. Recognised by what it runs, never by its name, because
     // another project uses the same name.
     id: "hpe-networking-mcp",
     label: "HPE networking",

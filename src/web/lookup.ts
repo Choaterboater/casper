@@ -19,7 +19,7 @@ import { bareHost, resolvePublic, systemDns, webTarget, type WebAddress, type We
  * out), and what comes back has its secrets hidden and says it is untrusted.
  */
 
-export const USER_AGENT = `Casper/${CASPER_VERSION} (+https://github.com/secure-ssid/casper)`;
+export const USER_AGENT = `Casper/${CASPER_VERSION} (+https://github.com/Choaterboater/casper)`;
 export const TIMEOUT_MS = 15_000;
 export const MAX_HOPS = 5;
 export const READ_LIMIT = 2 * 1024 * 1024;
