@@ -83,6 +83,8 @@ export interface CommandHost {
   checksPlan(context: ProjectContext): Promise<ChecksPlan>;
   /** The provider of the last successful /login, preferred when Casper picks a first model. */
   loginProvider?: RuntimeAuthProvider;
+  /** False until a sign-in exists (the footer says how to start). */
+  signedIn?: boolean;
   readonly observations: TaskObservations;
   readonly skillRegistry?: SkillRegistry;
   readonly projectContext?: ProjectContext;
@@ -192,6 +194,15 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       }
       if (!session.selectModel) throw new Error("This runtime does not support model selection.");
       const sessionOnly = /^--session(?:\s|$)/.test(argument);
+      // Nothing signed in: an empty picker helps no one, so /model opens sign-in (which then picks a model).
+      if (host.interactive && host.terminal.rich && !argument.replace(/^--session/, "").trim()) {
+        const available = await session.selectModel({ signal: host.commandAbort?.signal }).catch(() => undefined);
+        if (available?.models && !available.models.length) {
+          host.output.write("[model] Not signed in yet. Pick a way to sign in; Esc cancels.\n");
+          await runLogin(host);
+          return;
+        }
+      }
       const result = await session.selectModel({ query: (sessionOnly ? argument.slice(9).trim() : argument) || undefined,
         persist: !sessionOnly, signal: host.commandAbort?.signal,
         picker: host.interactive ? host.terminal.modelPickerHost() : undefined });
@@ -1115,6 +1126,7 @@ export async function runLogin(host: CommandHost, provider?: RuntimeAuthProvider
     if (result.status === "saved") {
       // Login never starts a conversation: with none open yet, the first request picks the model.
       host.loginProvider = provider;
+      host.signedIn = true;
       const picked = host.session ? await host.session.selectDefaultModel?.({ provider, signal: host.commandAbort?.signal }).catch(() => undefined) : undefined;
       if (picked?.selected) {
         host.output.write(`[login] Credential saved and verified; no model call was made. Casper picked ${picked.status.provider}/${picked.status.model} and saved it as your default. Use /model to choose another.\n`);

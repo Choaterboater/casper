@@ -25,3 +25,18 @@ export async function modelPreference(home: string): Promise<string | undefined>
     } finally { await file.close(); }
   } catch { return undefined; }
 }
+
+/** Whether any sign-in exists: a provider in Casper's saved sign-ins, or a provider key in the environment.
+ * Advisory (the banner and footer only): it reads which providers are there, never a key. */
+export async function hasSignIn(agentDir: string, env: NodeJS.ProcessEnv = process.env): Promise<boolean> {
+  if (Object.entries(env).some(([name, value]) => value && /^[A-Z0-9_]+_API_KEY$|^COPILOT_GITHUB_TOKEN$|^ANTHROPIC_(?:AUTH|OAUTH)_TOKEN$/.test(name))) return true;
+  try {
+    const file = await openNoFollow(path.join(agentDir, "auth.json"));
+    try {
+      const stat = await file.stat();
+      if (!stat.isFile() || stat.size > 1024 * 1024) return stat.isFile();
+      const value: unknown = JSON.parse((await file.readFile("utf8")) || "{}");
+      return Boolean(value && typeof value === "object" && Object.keys(value).length);
+    } finally { await file.close(); }
+  } catch { return false; }
+}

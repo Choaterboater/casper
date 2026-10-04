@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
 import { WORDMARK_COLUMNS, wordmarkHeader } from "../src/tui/banner";
-import { formatRuntimeStatus, formatToolActivity, markdownTheme, redactPreview, terminalText } from "../src/tui/format";
+import { formatRuntimeStatus, noModelFooter, formatToolActivity, markdownTheme, redactPreview, terminalText } from "../src/tui/format";
 import { InteractiveTerminal } from "../src/tui/terminal";
 import { posixOnly } from "./support/platform";
 import { cleanEnv } from "./support/env";
@@ -73,7 +73,8 @@ test("the startup wordmark gives way to the one-line header when the window narr
 });
 
 test("model and auth display distinguishes uninitialized, missing, configured and unknown", () => {
-  expect(formatRuntimeStatus()).toContain("none saved yet");
+  expect(formatRuntimeStatus(undefined, undefined, false)).toBe(" model     not signed in · type a request to sign in");
+  expect(formatRuntimeStatus(undefined, undefined, true)).toBe(" model     none yet · your first request picks one (/model to choose)");
   expect(formatRuntimeStatus({ provider: "fixture", model: "test", auth: "configured" })).toContain("not a connection test");
   expect(formatRuntimeStatus({ provider: "fixture", model: "test", auth: "missing" })).toContain("credentials missing");
   expect(formatRuntimeStatus({ auth: "unknown" })).toContain("none selected");
@@ -138,9 +139,26 @@ test("piped stdin runs every line through the real CLI", async () => {
   expect({ code, status: status >= 0, help: help > status, unknown: unknown > help }).toEqual({ code: 0, status: true, help: true, unknown: true });
 }, 30_000);
 
+test("with no sign-in, the banner says so in one line and how to start; the footer says the same", async () => {
+  expect(noModelFooter(false)).toBe("not signed in · type a request to sign in");
+  expect(noModelFooter(true)).not.toContain("not initialized");
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-banner-")); roots.push(root);
+  const home = path.join(root, "home"); const project = path.join(root, "project");
+  await Promise.all([mkdir(home), mkdir(project)]);
+  const env = cleanEnv({ HOME: home, USERPROFILE: home, CASPER_PROFILE: "default" });
+  for (const name of Object.keys(env)) if (/_API_KEY$|_TOKEN$/.test(name)) delete env[name];
+  const child = Bun.spawn([process.execPath, path.resolve(import.meta.dir, "../src/cli.ts")], {
+    cwd: project, env, stdin: new Blob(["/exit\n"]), stdout: "pipe", stderr: "pipe",
+  });
+  const [stdout, code] = await Promise.all([new Response(child.stdout).text(), child.exited]);
+  expect(code).toBe(0);
+  expect(stdout).toContain(" model     not signed in · type a request to sign in\n");
+  expect(stdout).not.toContain(" auth      ");
+}, 30_000);
+
 test("the startup banner names a saved default model instead of saying no model is set up", async () => {
   expect(formatRuntimeStatus(undefined, "default fixture/first · high")).toBe(
-    " model     default fixture/first · high (starts on your first prompt; /model to change)\n auth      checked when the model starts");
+    " model     default fixture/first · high (starts on your first prompt; /model to change)");
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-banner-")); roots.push(root);
   const home = path.join(root, "home"); const project = path.join(root, "project");
   await Promise.all([mkdir(path.join(home, ".casper"), { recursive: true }), mkdir(project)]);

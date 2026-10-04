@@ -8,7 +8,7 @@ import type { LabSettings } from "./network/spec";
 import path from "node:path";
 import { realpathSync } from "node:fs";
 import { stat } from "node:fs/promises";
-import { modelPreference } from "./tui/model-preference";
+import { hasSignIn, modelPreference } from "./tui/model-preference";
 import { HELP_TEXT, FULL_HELP_TEXT, LOGIN_HELP } from "./tui/help";
 import { BrowserSession } from "./browser/session";
 import { browserDefaults } from "./browser/discovery";
@@ -24,7 +24,7 @@ import { sessionTitle, windowTitle } from "./tui/session-title";
 import { DISPLAY_LEVELS, nextDisplay, type DisplayLevel } from "./tui/display";
 import { pickEffort } from "./tui/effort-picker";
 import { nextEffort } from "./tui/effort";
-import { formatEffort, formatRuntimeStartLine, formatRuntimeStatus, formatToolActivity, redactPreview, terminalText } from "./tui/format";
+import { formatEffort, formatRuntimeStartLine, formatRuntimeStatus, formatToolActivity, noModelFooter, redactPreview, terminalText } from "./tui/format";
 import { ProjectMemory, type TaskOutcome } from "./memory/store";
 import { discoverReferenceConfiguration, type ReferenceConfiguration } from "./references/config";
 import { formatReferenceResult, ReferenceLibrary } from "./references/library";
@@ -103,7 +103,7 @@ import { artifactFilesystemSupported } from "./visualize/artifacts";
 import { describeVisualization } from "./visualize/tools";
 import { assembleTaskTools } from "./app/capabilities";
 import { DEFAULT_WEB } from "./config/load";
-import { casperAgentDir } from "./runtime/agent-store";
+import { AGENT_DIR_ENV, casperAgentDir } from "./runtime/agent-store";
 import { loginValuesFrom, WebLookup, webProvider, type WebLookupOptions } from "./web/lookup";
 import { webTools } from "./web/tools";
 import { systemPromptAppend } from "./app/prompt";
@@ -341,6 +341,8 @@ export class CasperApp {
     void this.session?.abort().catch(() => {});
   };
   private savedModelDisplay?: string;
+  /** False when no sign-in exists (no saved provider, no provider key): the banner and footer say how to start. */
+  signedIn?: boolean;
   private taskRuntimeCancelled = false;
   private lastTaskResult?: TaskResult;
   /** Tokens the AI security review spent in this command (no task to carry them). */
@@ -605,9 +607,10 @@ export class CasperApp {
     for (const note of sandboxStartupNotes(context.info.root)) this.output.write(`${note}\n`);
     // A returning user's saved default is known before the runtime starts; say so, not "not initialized".
     if (!this.session) this.savedModelDisplay = await modelPreference(this.sessionHomeDir ?? os.homedir());
+    if (!this.session) await this.checkSignIn();
     // --model names the model for this run: show it, not the saved default it overrides.
     const shown = this.runModel && !this.session ? `${terminalText(this.runModel)} for this run (--model)` : this.savedModelDisplay;
-    this.output.write(`${formatRuntimeStatus(this.session?.getStatus?.(), shown)}\n`);
+    this.output.write(`${formatRuntimeStatus(this.session?.getStatus?.(), shown, this.signedIn)}\n`);
     for (const warning of [...this.startupWarnings, ...context.warnings ?? []]) this.output.write(`[config] ${terminalText(warning)}\n`);
     for (const diagnostic of referenceConfiguration.diagnostics) this.output.write(`[references] ${formatReferenceResult(diagnostic)}\n`);
     this.reportSkillWarnings();
@@ -768,6 +771,7 @@ export class CasperApp {
     }
 
     this.savedModelDisplay = await modelPreference(this.sessionHomeDir ?? os.homedir());
+    await this.checkSignIn();
     this.updateFooter();
     while (!this.closing) {
       this.cancelBeforeCommand = false;
@@ -2221,6 +2225,12 @@ export class CasperApp {
 
   async savedModel(): Promise<string | undefined> { return modelPreference(this.sessionHomeDir ?? os.homedir()); }
 
+  /** Whether any sign-in exists yet, for the banner and footer only. */
+  private async checkSignIn(): Promise<void> {
+    const agentDir = process.env[AGENT_DIR_ENV] && process.env[AGENT_DIR_ENV] !== "undefined" ? process.env[AGENT_DIR_ENV]! : casperAgentDir();
+    this.signedIn = await hasSignIn(agentDir);
+  }
+
   private async retryModelFailure(session: RuntimeSession, request: string): Promise<void> {
     for (let attempt = 1; ; attempt++) {
       const error = this.events.lastError ?? "";
@@ -3215,7 +3225,8 @@ export class CasperApp {
       const percent = usage?.context?.percent;
       const effort = (status && formatEffort(status)) ?? "effort —";
       const model = status?.model ? `${status.provider}/${status.model} · ${effort}`
-        : this.session ? "no model selected · /model" : (this.runModel ? `${terminalText(this.runModel)} (--model)` : this.savedModelDisplay) ?? "model not initialized · /model";
+        : this.session ? this.signedIn === false ? noModelFooter(false) : "no model selected · /model"
+        : (this.runModel ? `${terminalText(this.runModel)} (--model)` : this.savedModelDisplay) ?? noModelFooter(this.signedIn);
       // The current task's tokens and the session's total, with cost from the provider or the model's price; a free
       // model shows tokens only. A subscription pays no per-token price: its figure is only what the tokens would cost.
       const spent = this.observations.spent();
