@@ -13,7 +13,7 @@ import type { AgentRuntime, RuntimeStartOptions, RuntimeTool } from "../src/runt
 import { SkillRegistry } from "../src/skills/registry";
 import { MCPManager } from "../src/mcp/manager";
 import { askForLogin, askToForgetLogin, loginExpired, loginLines, loginMissing, loginMissingAnswer, type LoginHost } from "../src/mcp/network/ask-login";
-import { LOGIN_FILE, readLogins, saveLogin } from "../src/mcp/network/logins";
+import { LOGIN_FILE, readLogins, saveLogin, type NetworkProduct } from "../src/mcp/network/logins";
 import { networkServerEntry } from "../src/mcp/network/server";
 import { withLoginDisplay } from "../src/tui/login";
 import { withLoginSurface } from "./support/login-surface";
@@ -38,6 +38,8 @@ interface Run {
   transcript: string;
   starts: () => Promise<string[]>;
   manager: MCPManager;
+  /** The products said Not now to in this session. */
+  notNow: Set<string>;
 }
 
 /**
@@ -66,12 +68,13 @@ async function brokerRun(options: {
   await manager.connect("network");
   const answers = [...options.answers ?? []];
   const secrets = [...options.secrets ?? []];
+  const notNow = new Set<NetworkProduct>();
   const run: Run = {
-    home, output: "", prompts: [], restarts: [], toolResultText: "", transcript: "", manager,
+    home, output: "", prompts: [], restarts: [], toolResultText: "", transcript: "", manager, notNow,
     starts: async () => (await readFile(calls, "utf8")).split("\n").filter((line) => line.startsWith("start ")),
   };
   const host: LoginHost = {
-    homeDir: home, interactive: options.interactive, notNow: new Set(),
+    homeDir: home, interactive: options.interactive, notNow,
     canAsk: () => options.interactive,
     chooseAnswer: async (preview, _question, choices) => {
       run.prompts.push(preview);
@@ -430,4 +433,18 @@ test("a login value the server echoes in a successful result is hidden from the 
   const run = await brokerRun({ interactive: true, home, env: { FAKE_ECHO_ENV: "CENTRAL_CLIENT_ID" }, tool: "central_list_api_clients" });
   expect(run.transcript).toContain("<secret hidden>");
   expect(run.transcript).not.toContain("cid-EXAMPLE-777");
+});
+
+test("a mistyped region is asked again, so one typo never throws the person's yes away", async () => {
+  const run = await brokerRun({ interactive: true, tool: "central_list_sites", answers: ["2", "16", "3"], secrets: ["cid-EXAMPLE-1", "sec-EXAMPLE-2"] });
+  expect(run.prompts[2]).toBe("That isn't one of them. Type a number from 1 to 15.\n");
+  expect((await readLogins(run.home)).central).toEqual({ CENTRAL_BASE_URL: "https://us4.api.central.arubanetworks.com", CENTRAL_CLIENT_ID: "cid-EXAMPLE-1", CENTRAL_CLIENT_SECRET: "sec-EXAMPLE-2" });
+  expect(run.output).not.toContain("Not added.");
+});
+
+test("after three wrong numbers nothing is saved, and the next try still asks (it isn't Not now)", async () => {
+  const run = await brokerRun({ interactive: true, tool: "central_list_sites", answers: ["2", "16", "0", "us1"] });
+  expect(run.output).toContain("Not added. Type /mcp login central any time.");
+  expect(await readLogins(run.home)).toEqual({});
+  expect(run.notNow.has("central")).toBe(false);
 });
