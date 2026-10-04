@@ -93,7 +93,7 @@ import { askLabFailure, labCheckRunner } from "./app/lab-checks";
 import type { SecurityAIReview, SecurityReviewHost } from "./app/security-review";
 import type { TaskClassification } from "./task/classify";
 import type { ProjectCommand } from "./project/model";
-import { describeChecksPlan, manualChecks, planAutoChecks, resolveVerificationMode, selectedChecks, type ChecksPlan, type VerificationMode } from "./verify/mode";
+import { describeChecksPlan, hasChecks, manualChecks, planAutoChecks, resolveVerificationMode, selectedChecks, type ChecksPlan, type VerificationMode } from "./verify/mode";
 import { measuredCheckTime, recordCheckTimings } from "./verify/timings";
 import { MermaidProvider } from "./visualize/mermaid";
 import { MindMeshProvider } from "./visualize/mindmesh";
@@ -603,7 +603,7 @@ export class CasperApp {
     // The shell line is always there in a session; a one-shot run shows it only when nothing holds its commands.
     const shell = this.sandbox && (this.interactive || !this.sandbox.on) ? sandboxStatusLine(this.sandbox) : undefined;
     this.output.write(renderBanner(context, { wordmark, interactive: this.interactive, ...(shell ? { shell } : {}),
-      ...(this.interactive ? { checks: describeChecksPlan(await this.checksPlan(context)) } : {}) }));
+      ...(this.interactive ? await this.bannerChecks(context) : {}) }));
     for (const note of sandboxStartupNotes(context.info.root)) this.output.write(`${note}\n`);
     // A returning user's saved default is known before the runtime starts; say so, not "not initialized".
     if (!this.session) this.savedModelDisplay = await modelPreference(this.sessionHomeDir ?? os.homedir());
@@ -1247,6 +1247,12 @@ export class CasperApp {
     const result = await offerMissingFolder(this.newProjectFlow(), typed, root, terminalText(folder));
     if (this.closing || !opened(result) || this.commandAbort?.signal.aborted) return;
     await this.openWorkspaceBeforeRuntime(result.dir);
+  }
+
+  /** The banner's checks line; none when there is nothing to check yet and checking is on (/status still says it). */
+  private async bannerChecks(context: ProjectContext): Promise<{ checks?: string }> {
+    const plan = await this.checksPlan(context);
+    return plan.mode === "off" || hasChecks(plan) ? { checks: describeChecksPlan(plan) } : {};
   }
 
   /** /new [name] | /new <template> <name> | /new --list: the same local build as `casper new`, no model. */
@@ -3263,7 +3269,7 @@ export function proofSkipReason(options: { intent: string; testCommand?: string;
   if (options.intent === "refactor") return "a refactor should not change behavior, so no test is expected to fail without it";
   if (["document", "inspect", "visualize", "configure"].includes(options.intent)) return `Casper does not compare ${options.intent} requests with and without the change`;
   if (!options.testCommand && options.testsAddedNow) return "the tests came with this change, so there is no version without it to compare with";
-  if (!options.testCommand) return "there is no test command to compare with; add verify.test to .casper/project.yaml";
+  if (!options.testCommand) return 'there are no tests yet to compare with; say "add tests"';
   if (!options.snapshot) return "Casper could not record the workspace before the change";
   if (!options.changedCode) return "only non-code files changed";
   return "Casper did not compare the tests with and without the change";

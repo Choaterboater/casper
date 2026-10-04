@@ -6,7 +6,7 @@ import { CasperApp } from "../src/app";
 import { loadProjectContext } from "../src/project/context";
 import { SkillRegistry } from "../src/skills/registry";
 import { COMMANDS } from "../src/tui/commands";
-import { describeChecksPlan } from "../src/verify/mode";
+import { describeChecksPlan, hasChecks } from "../src/verify/mode";
 
 const dirs: string[] = [];
 afterEach(async () => { for (const dir of dirs.splice(0)) await rm(dir, { recursive: true, force: true }); });
@@ -16,7 +16,10 @@ test("the checks line says what runs and when, in plain words", () => {
   expect(describeChecksPlan({ mode: "offer", checks: ["test"], slow: true })).toBe("test — offered with /verify (they take a minute or more)");
   expect(describeChecksPlan({ mode: "offer", checks: ["test"] })).toBe("test — offered with /verify (verification.mode: offer)");
   expect(describeChecksPlan({ mode: "off", checks: ["test"] })).toBe("off for this session (--no-verify or verification.mode: off)");
-  expect(describeChecksPlan({ mode: "auto", checks: [] })).toBe("none found; add verify.test to .casper/project.yaml");
+  expect(describeChecksPlan({ mode: "auto", checks: [] })).toBe('none yet; say "add tests" and Casper writes some');
+  expect(hasChecks({ mode: "auto", checks: [] })).toBe(false);
+  expect(hasChecks({ mode: "auto", checks: [], found: ["ansible-syntax"] })).toBe(true);
+  expect(hasChecks({ mode: "auto", checks: ["test"] })).toBe(true);
 });
 
 test("/receipt is in the command list", () => {
@@ -77,4 +80,28 @@ test("/status names the dev server of a web project before it ever runs; pages: 
   };
   expect(await status("verify:\n  test: bun test\n")).toContain(" checks    test, pages (bun run dev) — run after each change");
   expect(await status("verify:\n  test: bun test\npages: off\n")).toContain(" checks    test — run after each change");
+});
+
+test("the banner leaves out the checks line when there are none", async () => {
+  const { PassThrough } = await import("node:stream");
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-banner-checks-")); dirs.push(root);
+  const home = path.join(root, "home"); const project = path.join(root, "project");
+  await mkdir(home); await mkdir(project);
+  const banner = async (yaml?: string) => {
+    if (yaml) { await mkdir(path.join(project, ".casper"), { recursive: true }); await writeFile(path.join(project, ".casper/project.yaml"), yaml); }
+    const input = new PassThrough();
+    let output = "";
+    const app = new CasperApp({ input, runtimeFactory: () => { throw new Error("no runtime"); }, sessionHomeDir: path.join(home, ".casper"),
+      loadProjectContext: (info) => loadProjectContext(info, { homeDir: home }),
+      loadSkillRegistry: (context) => SkillRegistry.discover({ projectRoot: context.info.root, homeDir: home }),
+      loadMCPConfiguration: async () => ({ servers: [], diagnostics: [] }),
+      output: { write(text: string) { output += text; } } });
+    try { input.end(); await app.runInteractive(project); } finally { await app.close(); }
+    return output;
+  };
+  const none = await banner();
+  expect(none).toContain(" project   ");
+  expect(none).not.toContain(" checks ");
+  expect(none).not.toContain("verify.test");
+  expect(await banner("verify:\n  test: bun test\n")).toContain(" checks    test — run after each change");
 });

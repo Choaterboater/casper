@@ -1178,9 +1178,10 @@ export async function noChecksNote(model: ProjectModel, root: string, homeDir: s
   const names = defaultVerifyNames(model);
   const runnable = names.some((name) => !(CHECK_NAMES as readonly string[]).includes(name) || model.commands[name as keyof ProjectModel["commands"]]?.trim());
   if (runnable) return undefined;
-  const lines = [`No checks found in ${path.basename(root) || root}.`];
+  const folder = path.basename(root) || root;
   const children = await childProjectsWithTests(root, homeDir).catch(() => []);
+  if (!children.length) return `[verify] No tests in ${folder} yet. Say "add tests" and Casper writes some.\n`;
+  const lines = [`No checks found in ${folder}.`];
   for (const child of children) lines.push(`Tests found in ${child.relative}: /project ${child.relative}`);
-  if (!children.length) lines.push("To add one: verify.test in .casper/project.yaml.");
   return `[verify] ${lines.join(" ")}\n`;
 }

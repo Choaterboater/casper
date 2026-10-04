@@ -467,7 +467,7 @@ function changedShort(paths: string[], safe: (text: string) => string): string {
 }
 
 /** The full no-checks line, shown once per session; later receipts say it short. */
-export const NO_CHECKS_LINE = "• Not verified — no checks configured. Add verify.test to .casper/project.yaml.";
+export const NO_CHECKS_LINE = '• Not checked — no tests yet. Say "add tests".';
 
 /** The undo reason when a task changed nothing: nothing to say on the receipt. */
 export const UNDO_NOTHING_CHANGED = "no files changed";
@@ -545,7 +545,7 @@ function withVerdict(task: TaskResult, body: string[], options: ReceiptOptions):
         : task.turnLimit !== undefined
         ? `• Incomplete — stopped after ${task.turnLimit} ${task.turnLimit === 1 ? "turn" : "turns"} (--max-turns); changes so far are kept; ${options.surface === "one-shot" ? "casper --continue" : "send another request"} to go on`
         : task.remoteNotRun?.length ? `• Incomplete — ${remoteNotRunVerdict(task.remoteNotRun, safe)}`
-        : report?.reason === NO_CHECKS_FOUND && !report.results.length ? "• Not checked — no checks found in this folder"
+        : report?.reason === NO_CHECKS_FOUND && !report.results.length ? NO_CHECKS_LINE
         : "• Incomplete — not every check ran", ...body];
       break;
     case "verified":
@@ -564,7 +564,7 @@ function withVerdict(task: TaskResult, body: string[], options: ReceiptOptions):
       break;
     }
     case "not_verified":
-      lines = promote("• Not verified", `• Not verified — ${notVerifiedReason(task)}`); break;
+      lines = body.includes(NO_CHECKS_LINE) ? promote(NO_CHECKS_LINE, NO_CHECKS_LINE) : promote("• Not verified", `• Not verified — ${notVerifiedReason(task)}`); break;
     case "unchanged":
       lines = body.length ? promote("• No files changed", "• No files changed") : body; break;
   }
@@ -673,7 +673,7 @@ function checkLine(result: VerificationResult, safe: (text: string) => string, s
   // A named check that could not run (a missing tool, a lab check) says why in its own words.
   if (result.status === "skip" && !isBuiltinCheck(name)) return `• Not verified — ${name} not run: ${safe(result.reason ?? "skipped").replace(/\.$/, "")}`;
   if (result.status === "skip") {
-    return result.command ? `• Not verified — ${name} was skipped.` : `• Not verified — ${name} has no command. Add verify.${name} to .casper/project.yaml.`;
+    return result.command ? `• Not verified — ${name} was skipped.` : `• Not verified — ${name} has no command here. Say ${name === "test" ? '"add tests"' : `"set up ${name}"`}.`;
   }
   if (result.status === "pass") {
     if (result.freshness === "stale") return `• Not verified — stale: files changed after the last passing ${name}. Run ${slash(`/verify ${name}`)}.`;

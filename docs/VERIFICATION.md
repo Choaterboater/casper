@@ -62,7 +62,9 @@ declared scope (see [Configuration](#configuration)) contains none of the change
 Casper could not compare the workspace, it runs every selected check.
 
 **No checks set up.** If files changed but there are no checks, the change is `not_verified`
-(`• Not verified — no checks configured. Add verify.test to .casper/project.yaml.`). The one-shot
+(`• Not checked — no tests yet. Say "add tests".`), and the model writes tests and the check when
+you ask. The startup banner shows no checks line until there is something to check; `/status`
+says `none yet; say "add tests" and Casper writes some`. The one-shot
 exit code depends on who asked for checking:
 
 - checking only by default: exit 0;
@@ -81,8 +83,8 @@ session. A one-shot run prints `[folder] The work is in ~/Documents/sample-tools
 
 **`/verify` with nothing to run (from v0.2.19)** prints one line instead of one line per check:
 `[verify] No checks found in Documents. Tests found in sample-tools: /project sample-tools`, or
-`To add one: verify.test in .casper/project.yaml.` when no folder inside has tests. The receipt says
-`• Not checked — no checks found in this folder` and a one-shot run exits 2, so a script never
+`[verify] No tests in Documents yet. Say "add tests" and Casper writes some.` when no folder inside
+has tests. The receipt says `• Not checked — no tests yet. Say "add tests".` and a one-shot run exits 2, so a script never
 passes with nothing checked. In a project that has only tests, `/verify` says
 `[verify] No typecheck, lint or build command here, so Casper runs test.` and runs that.
 
@@ -151,7 +153,7 @@ The lines below the verdict give the evidence:
 ✗ test timed out after 10m — it did not finish, so it was not checked; /verify test to run it again, or raise verification.timeoutMs in .casper/project.yaml
 ✗ lint could not start (exit 127) — check verify.lint in .casper/project.yaml
 • Not verified — test ran via bash only (npm test: passed). Run /verify test to record a check.
-• Not verified — no checks configured. Add verify.test to .casper/project.yaml.
+• Not checked — no tests yet. Say "add tests".
 • Not verified — stale: files changed after the last passing test. Run /verify test.
 • No files changed, so Casper ran no checks
 ✓ Proven: test fails without this change (exit 1) and passes with it
