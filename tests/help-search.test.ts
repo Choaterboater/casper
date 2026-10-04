@@ -76,3 +76,13 @@ test("/help mcp and a mistyped command work in the app", async () => {
   const typo = await run("/verfy typecheck");
   expect(typo.error).toContain("Did you mean /verify?");
 });
+
+test("writes off is said in one sentence everywhere: /mcp, /help all and MCP.md", async () => {
+  const { WRITES_OFF_MEANING } = await import("../src/mcp/presets");
+  const { readFile } = await import("node:fs/promises");
+  expect(WRITES_OFF_MEANING).toBe("Writes off: the server runs with its read-only settings, and every change asks you first.");
+  expect(FULL_HELP_TEXT).toContain(WRITES_OFF_MEANING);
+  expect(await readFile(new URL("../docs/MCP.md", import.meta.url), "utf8")).toContain(WRITES_OFF_MEANING);
+  const commands = await readFile(new URL("../src/app/commands.ts", import.meta.url), "utf8");
+  expect(commands).toContain("`${WRITES_OFF_MEANING} ");
+});

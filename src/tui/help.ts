@@ -1,4 +1,5 @@
 import { COMMANDS } from "./commands";
+import { WRITES_OFF_MEANING } from "../mcp/presets";
 
 export const HELP_TEXT = `Casper — your coding companion
 
@@ -184,7 +185,7 @@ One-shot exit codes: 0 pass (or nothing to verify), 1 check failed or blocked, 2
 Exit 0 does not certify behavior beyond the checks; /receipt shows scope and freshness.
 MCP connection runs a configured program or contacts its URL. Review its source first.
 Servers from ~/.claude.json, ~/.mcp.json and VS Code are listed too; each needs /mcp connect once.
-Every MCP server starts with writes off. Writes off: the server runs with its read-only settings, and every change asks you first. /mcp writes <name> turns writes on; ctrl+o turns them off again. A remembered server always starts with writes off.
+Every MCP server starts with writes off. ${WRITES_OFF_MEANING} /mcp writes <name> turns writes on; ctrl+o turns them off again. A remembered server always starts with writes off.
 A login is read-only only when the product says so (access_check); labels only make things stricter.
 MCP changes ask you in a numbered box; one-shot runs can't ask, so they are refused. The AI can't approve.
 Known device secrets (passwords, keys, SNMP communities) in MCP results, config files and config-like command output are shown to the AI as <secret hidden> (best effort, known formats only); a change that carries the marker back is refused. See docs/SECRETS.md.

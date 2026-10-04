@@ -434,7 +434,7 @@ may do.
 
 ### Turning writes on
 
-Every server starts with writes off, including remembered ones. Writes off means:
+Every server starts with writes off, including remembered ones. Writes off: the server runs with its read-only settings, and every change asks you first. In detail:
 
 - the server runs with its preset's read-only pins, where it has one;
 - every change asks you first, in the change box (see [Safety](#safety)); nothing changes without your answer;

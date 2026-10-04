@@ -1,4 +1,7 @@
 import path from "node:path";
+
+/** What "writes off" means, in the one sentence /mcp, /help all and the docs all use. */
+export const WRITES_OFF_MEANING = "Writes off: the server runs with its read-only settings, and every change asks you first.";
 import type { CapabilitySafety } from "../capabilities/broker";
 import type { MCPServerDefinition } from "./config";
 import type { MCPTool } from "./manager";
