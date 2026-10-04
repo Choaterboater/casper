@@ -216,10 +216,13 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       let choice = args[0] ? { level: args[0], persist: args[1] !== "--session" } : undefined;
       const status = session.getStatus?.();
       if (!choice) {
-        const picker = host.interactive ? host.terminal.exclusiveHost() : undefined;
+        // During a task an approval or question can arrive while the picker is open: the picker gives way to it.
+        const yielded = new AbortController();
+        const picker = host.interactive ? host.terminal.exclusiveHost({ onYield: () => yielded.abort() }) : undefined;
         if (picker && session.setEffort && status?.model) {
           const levels = effortChoices(status.availableThinkingLevels);
-          choice = await picker.mount(view => pickEffort(view, levels, status.configuredEffort ?? status.thinkingLevel, host.commandAbort?.signal));
+          const signal = host.commandAbort ? AbortSignal.any([yielded.signal, host.commandAbort.signal]) : yielded.signal;
+          choice = await picker.mount(view => pickEffort(view, levels, status.configuredEffort ?? status.thinkingLevel, signal));
           if (!choice) return;
         } else if (!status?.model) { host.output.write("Effort: no model selected. Use /model first; levels depend on the model.\n"); return; }
         else {

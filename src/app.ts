@@ -110,7 +110,8 @@ import { systemPromptAppend } from "./app/prompt";
 import type { VisualizationProvider } from "./visualize/types";
 import { SessionWorkspaceManager, type ReturnAction } from "./sessions/manager";
 import { runLogin, runSlashCommand, type OutputWriter } from "./app/commands";
-import type { BackgroundTask } from "./app/background";
+import { runTasksCommand, type BackgroundTask } from "./app/background";
+import { runsDuringWork } from "./tui/commands";
 import { detectHostTerminal } from "./tui/host-terminal";
 import { NEW_USAGE, parseNewArgs, UsageError } from "./cli-args";
 import { checkEvent, phaseEvent, RuntimeEventMapper, sessionStartEvent, type CasperEvent, type PhaseEvent } from "./app/json-events";
@@ -3043,12 +3044,18 @@ export class CasperApp {
     if (this.closing) return "Casper is closing";
     // No task yet: Casper is still opening a folder or project. Nothing is loaded to show, so the line waits.
     if (!this.commandActive || !this.projectContext) return "draft kept · Enter again once Casper has opened the project";
-    if (/^\/(?:help(?: all)?|status|usage|context|permissions)$/.test(line)) {
-      void runSlashCommand(this, line).catch((error) => { this.output.write(`[error] ${terminalText(error instanceof Error ? error.message : String(error))}\n`); });
+    if (runsDuringWork(line)) {
+      const effort = /^\/effort\s+(\S+)(?:\s+(--session))?$/.exec(line);
+      if (effort) { void this.setEffortDuringWork(effort[1]!, !effort[2]); return true; }
+      const failed = (error: unknown) => { this.output.write(`[error] ${terminalText(error instanceof Error ? error.message : String(error))}\n`); };
+      if (line === "/tasks") {
+        void runTasksCommand({ tasks: () => this.backgroundTasks(), write: text => this.output.write(text), canAsk: () => false,
+          pick: async () => undefined, duringWork: true }).catch(failed);
+        return true;
+      }
+      void this.handleSlashCommand(line).catch(failed);
       return true;
     }
-    const effort = /^\/effort\s+(\S+)(?:\s+(--session))?$/.exec(line);
-    if (effort) { void this.setEffortDuringWork(effort[1]!, !effort[2]); return true; }
     if (line.startsWith("/")) return `${terminalText(line.split(/\s+/)[0]!)} waits until this task ends · draft kept`;
     return "draft kept · Enter again when this task ends";
   }

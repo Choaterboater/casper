@@ -3,7 +3,7 @@ import {
   matchesKey, setCapabilityOverrides, TuiMainScreen, truncateToWidth, visibleWidth, wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 import type { RuntimeModelPickerHost, RuntimePickerIO, RuntimePickerView } from "../runtime/types";
-import { COMMANDS } from "./commands";
+import { COMMANDS, RUNS_DURING_WORK } from "./commands";
 import { BUSY_GLYPH, hasTerminalControls, markdownTheme, paint, PROMPT_GLYPH, terminalText } from "./format";
 import { StreamingMarkdown } from "./markdown-stream";
 import { renderPanel } from "./presentation";
@@ -139,6 +139,8 @@ export class TerminalSurface {
   private waitStart?: number;
   /** Component shown in place of the editor while a picker is mounted. */
   private slot?: Component;
+  /** Closes a picker that gives way to an approval or question (one opened during a task). */
+  private slotYield?: () => void;
   /** Raw input is on loan to a line-oriented flow; the surface keeps rendering. */
   private lending = false;
   private command?: (text?: string) => void;
@@ -443,8 +445,18 @@ private updateSpinner(): void {
   private configureAutocomplete(): void {
     const provider = this.autocomplete;
     if (!provider) return;
-    this.editor.setAutocompleteProvider(this.busy || this.confirmation || this.pendingAsk || this.pendingEdit
-      ? { ...provider, triggerCharacters: [], getSuggestions: async () => null } : provider);
+    if (this.confirmation || this.pendingAsk || this.pendingEdit) {
+      this.editor.setAutocompleteProvider({ ...provider, triggerCharacters: [], getSuggestions: async () => null });
+      return;
+    }
+    if (!this.busy) { this.editor.setAutocompleteProvider(provider); return; }
+    // During a task the menu stays; the commands that wait for the task are dimmed and say so.
+    this.editor.setAutocompleteProvider({ ...provider, getSuggestions: async (...args) => {
+      const result = await provider.getSuggestions(...args);
+      if (!result?.prefix.startsWith("/")) return result;
+      return { ...result, items: result.items.map(item => RUNS_DURING_WORK.has(item.value) ? item
+        : { ...item, label: this.muted(item.label || item.value), description: `waits for this task${item.description ? ` · ${item.description}` : ""}` }) };
+    } });
   }
   private render(): void { if (this.started && !this.closed) this.tui.requestRender(); }
   write(text: string): void {
@@ -511,6 +523,7 @@ private updateSpinner(): void {
    * draft never answers. This channel is the user's alone: the model's ask tool never reaches it.
    */
   choose(preview: string, question: string, choices: readonly string[], signal?: AbortSignal): Promise<string | undefined> {
+    this.yieldSlot();
     if (this.closed || this.slot || this.lending || this.confirmation || this.pendingEdit || signal?.aborted) return Promise.resolve(undefined);
     this.endAssistant();
     const draft = this.editor.getExpandedText();
@@ -535,6 +548,7 @@ private updateSpinner(): void {
 
   /** One structured clarification with a standalone question, navigable choices and free-text input. */
   ask(question: string, options: { label: string; description?: string }[], multi: boolean, signal?: AbortSignal, from: AskOrigin = "casper"): Promise<string[] | undefined> {
+    this.yieldSlot();
     if (this.closed || this.slot || this.lending || this.confirmation || this.pendingAsk || this.pendingEdit || signal?.aborted) return Promise.resolve(undefined);
     this.endAssistant(); this.activity = undefined;
     const draft = this.editor.getExpandedText();
@@ -585,6 +599,7 @@ private updateSpinner(): void {
    * returns the editor's lines as they stand (blank ones included); Esc, Ctrl+C, abort or close return
    * undefined. A pretyped draft is set aside and restored. The caller records the outcome. */
   editLines(heading: string, hint: string, lines: readonly string[], signal?: AbortSignal): Promise<string[] | undefined> {
+    this.yieldSlot();
     if (this.closed || this.slot || this.lending || this.confirmation || this.pendingAsk || this.pendingEdit || signal?.aborted) return Promise.resolve(undefined);
     this.endAssistant(); this.activity = undefined;
     const draft = this.editor.getExpandedText();
@@ -646,8 +661,18 @@ private updateSpinner(): void {
     if (text) this.pendingAsk?.([text]);
   }
 
-  exclusiveHost(): RuntimeModelPickerHost | undefined {
-    if (this.closed || this.slot || this.lending || this.confirmation || this.pendingEdit || !this.started) return undefined;
+  /** A picker that gives way: an approval or question that opens while it is mounted closes it first. */
+  private yieldSlot(): void {
+    const close = this.slotYield;
+    if (!this.slot || !close) return;
+    this.slotYield = undefined; this.slot = undefined;
+    close();
+    this.tui.setFocus(this.editor);
+  }
+
+  /** `onYield`: the picker gives way to an approval or question (it must then close itself); see yieldSlot. */
+  exclusiveHost(options: { onYield?: () => void } = {}): RuntimeModelPickerHost | undefined {
+    if (this.closed || this.slot || this.lending || this.confirmation || this.pendingAsk || this.pendingEdit || !this.started) return undefined;
     const claim = () => {
       if (this.closed || this.slot || this.lending || this.confirmation) throw new Error("Terminal input is unavailable.");
       this.endAssistant();
@@ -669,10 +694,10 @@ private updateSpinner(): void {
       mount: async operation => {
         claim();
         const view: RuntimePickerView = { tui: this.tui, color: this.io.color, onEOF: () => this.close(),
-          show: component => { this.slot = component; this.render(); } };
+          show: component => { this.slot = component; this.slotYield = options.onYield; this.render(); } };
         try { return await operation(view); }
         finally {
-          this.slot = undefined;
+          this.slot = undefined; this.slotYield = undefined;
           if (!this.closed) { this.tui.setFocus(this.editor); this.render(); }
         }
       },

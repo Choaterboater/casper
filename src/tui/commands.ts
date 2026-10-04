@@ -44,3 +44,19 @@ export const COMMANDS: SlashCommand[] = [
   { name: "login", description: "Set up provider credentials in a private login flow" },
   { name: "exit", description: "Leave Casper" },
 ];
+
+/** Commands that only show something (or set effort or the display level) and so run while a task works. */
+export const RUNS_DURING_WORK: ReadonlySet<string> = new Set([
+  "help", "status", "usage", "context", "permissions", "effort", "diff", "tasks", "details", "receipt", "output",
+  "mcp", "tree", "project", "sandbox", "secrets", "skills", "lsp",
+]);
+
+/** This exact line runs now during a task; every other line waits for the task to end. */
+export function runsDuringWork(line: string): boolean {
+  return /^\/(?:help(?: all)?|status|usage|context|permissions|tree|project|sandbox|secrets|skills|lsp|mcp)$/.test(line)
+    || /^\/(?:diff|receipt)(?:\s+(?:\d+|list))?$/.test(line)
+    || /^\/output(?:\s+(?:\d+|all))?$/.test(line)
+    || /^\/details(?:\s+(?:quiet|normal|detailed))?$/.test(line)
+    || /^\/tasks(?:\s+stop\s+(?:\d+|all))?$/.test(line)
+    || /^\/effort(?:\s+[^\s-]\S*(?:\s+--session)?)?$/.test(line);
+}

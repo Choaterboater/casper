@@ -333,10 +333,13 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   empty editor the first Ctrl+C only shows `Ctrl-C again to exit`; a second within two
   seconds exits, any other key disarms it. Ctrl+D exits an empty editor at once.
   Ctrl+L forces a redraw.
-- Enter during work runs a command that only shows something (`/help`, `/status`, `/usage`,
-  `/context`, `/permissions`) or `/effort <level>` at once. Anything else keeps its draft and
-  says why (`/undo waits until this task ends · draft kept`); it never queues an automatic
-  next request.
+- Enter during work runs a command that only shows something at once: `/help`, `/status`,
+  `/usage`, `/context`, `/permissions`, `/diff`, `/receipt`, `/output`, `/tasks` (and
+  `/tasks stop <n>`), `/details`, `/mcp`, `/lsp`, `/skills`, `/sandbox`, `/secrets`, `/tree`,
+  `/project`, and `/effort` (a bare `/effort` opens its picker; an approval that arrives closes
+  it first). Typing `/` keeps the command menu; the commands that must wait are dimmed and say
+  `waits for this task`. Any other command keeps its draft and says why for a moment
+  (`/undo waits until this task ends · draft kept`).
   Pickers borrow exclusive input ownership; pretyped text cannot answer a later
   exact approval. NO_COLOR keeps input controls, while TERM=dumb/redirected output
   uses plain line input and retains existing fail-closed cooked-terminal approval.

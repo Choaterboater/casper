@@ -267,7 +267,7 @@ export class InteractiveTerminal {
   }
 
   modelPickerHost(): RuntimeModelPickerHost | undefined { return this.exclusiveHost(); }
-  exclusiveHost(): RuntimeModelPickerHost | undefined { return this.surface?.exclusiveHost(); }
+  exclusiveHost(options?: { onYield?: () => void }): RuntimeModelPickerHost | undefined { return this.surface?.exclusiveHost(options); }
 
   /** Structured clarification on the rich surface; undefined when skipped or unavailable. */
   ask(question: string, options: { label: string; description?: string }[], multi: boolean, signal?: AbortSignal, from: AskOrigin = "casper"): Promise<string[] | undefined> {
