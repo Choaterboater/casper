@@ -16,7 +16,9 @@ async function fixture() {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-login-"))); roots.push(root);
   const home = path.join(root, "home"); const project = path.join(root, "project");
   await mkdir(home); await mkdir(project);
-  const env = { ...isolatedEnvironment(home), TMPDIR: root, PI_CODING_AGENT_DIR: path.join(home, ".pi/agent"), CASPER_OFFLINE: "1", PI_OFFLINE: "1", PI_TELEMETRY: "0" };
+  const env = { ...isolatedEnvironment(home), TMPDIR: root, PI_CODING_AGENT_DIR: path.join(home, ".pi/agent"), CASPER_OFFLINE: "1", PI_OFFLINE: "1", PI_TELEMETRY: "0",
+    // Over SSH Codex signs in with a device code; the desktop browser test clears this.
+    SSH_CONNECTION: "synthetic 1 synthetic 2" };
   async function run(body: string, args: string[] = []) {
     body = `import { withLoginSurface } from ${JSON.stringify(path.join(repo, "tests/support/login-surface.ts"))};\n${body}`;
     const child = Bun.spawn([process.execPath, "-e", body, ...args], { cwd: project, env, stdout: "pipe", stderr: "pipe" });
@@ -451,6 +453,45 @@ test("Esc at the sign-in list never creates auth or starts a session, and the li
   const list = Bun.stripANSI(result.screen).split(/\r?\n/).map(line => line.replace(/^│\s?|\s?│$/g, "").trim()).join(" ");
   expect(list).toContain("Saved in ~/.pi/agent/auth.json, only on this computer.");
   expect(await Bun.file(path.join(f.env.PI_CODING_AGENT_DIR, "auth.json")).exists()).toBe(false);
+});
+
+test("Codex on a desktop signs in with the browser (device code only over SSH or with no display)", async () => {
+  const f = await fixture(); const agent = f.env.PI_CODING_AGENT_DIR;
+  await mkdir(agent, { recursive: true });
+  const output = await f.run(`
+    delete process.env.SSH_CONNECTION; process.env.DISPLAY = ':0';
+    import { PiRuntime } from ${JSON.stringify(path.join(repo, "src/runtime/pi.ts"))};
+    import { signInWays } from ${JSON.stringify(path.join(repo, "src/runtime/pi-auth.ts"))};
+    import { PassThrough } from 'node:stream';
+    const payload = Buffer.from(JSON.stringify({ 'https://api.openai.com/auth': { chatgpt_account_id: 'synthetic-account' } })).toString('base64url');
+    const calls = [];
+    globalThis.fetch = async (input, init) => {
+      const url = String(input); calls.push(url);
+      if (url === 'https://auth.openai.com/oauth/token') {
+        const body = new URLSearchParams(String(init.body));
+        if (body.get('code') !== 'synthetic-private-code' || body.get('redirect_uri') !== 'http://localhost:1455/auth/callback') throw new Error('INVALID_EXCHANGE');
+        return Response.json({ access_token: 'x.' + payload + '.x', refresh_token: 'synthetic-refresh', expires_in: 3600 });
+      }
+      throw new Error('UNEXPECTED_NETWORK');
+    };
+    const label = signInWays('openai-codex')[0].label;
+    const runtime = new PiRuntime(); const input = new PassThrough(); let screen = ''; let shown = false;
+    try {
+      const result = await runtime.authenticate({ provider: 'openai-codex', terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
+        screen += text;
+        if (Bun.stripANSI(text).replace(/[\\r\\n]/g, '').includes('https://auth.openai.com/oauth/authorize')) shown = true;
+        if (shown && text.includes('Private authorization code')) setImmediate(() => { input.write('synthetic-private-code'); setTimeout(() => input.write('\\r'), 20); });
+      } } }, operation) } });
+      console.log(JSON.stringify({ result, calls, shown, label, safe: !screen.includes('synthetic-private-code') }));
+    } finally { await runtime.dispose(); input.destroy(); }
+  `);
+  const result = JSON.parse(output);
+  expect(result.label).toContain("sign in with your browser");
+  expect(result.result).toEqual({ status: "saved" });
+  expect(result.shown).toBe(true);
+  expect(result.calls).toEqual(["https://auth.openai.com/oauth/token"]);
+  expect(result.safe).toBe(true);
+  expect(JSON.parse(await readFile(path.join(agent, "auth.json"), "utf8"))["openai-codex"].refresh).toBe("synthetic-refresh");
 });
 
 test("pinned Codex device flow saves provider-scoped credentials and refreshes an active parent without changing its model", async () => {

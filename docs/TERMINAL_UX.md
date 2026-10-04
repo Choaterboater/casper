@@ -268,7 +268,9 @@ unreported failed-request cost is unknown, not zero.
 
 `/login` shows one numbered list of providers and ways to sign in, OpenRouter first:
 1 OpenRouter · paste an API key, 2 OpenRouter · sign in with your browser, 3-4 the same for
-Anthropic (Claude), then OpenAI Codex and GitHub Copilot. Press a number, or Up/Down and
+Anthropic (Claude), then OpenAI Codex and GitHub Copilot. OpenAI Codex opens your browser on
+a desktop; over SSH or on Linux with no display it shows a code to enter at openai.com
+instead (some accounts must turn that on first). GitHub Copilot always uses a code. Press a number, or Up/Down and
 Enter (Enter alone picks 1); Esc cancels. `/login <provider-id>` lists only that provider's
 ways, and opens the only one straight away. Picking a row is your go-ahead, as in Claude Code
 and Codex: no confirm screen follows. The list says where the key goes (`Saved in

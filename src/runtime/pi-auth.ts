@@ -13,6 +13,14 @@ const providerNames: Record<RuntimeAuthProvider, string> = {
   openrouter: "OpenRouter", anthropic: "Anthropic (Claude)", "openai-codex": "OpenAI Codex (ChatGPT plan)", "github-copilot": "GitHub Copilot",
 };
 
+/** Over SSH, or on Linux with no display, a browser on this machine can't finish a sign-in: Codex uses a
+ * device code there (which some accounts must turn on first), and its browser sign-in everywhere else. */
+function noBrowserHere(): boolean {
+  const env = process.env;
+  if (env.SSH_CONNECTION || env.SSH_CLIENT || env.SSH_TTY) return true;
+  return process.platform === "linux" && !env.DISPLAY && !env.WAYLAND_DISPLAY;
+}
+
 /** One way to sign in: a provider and its method, one numbered row. */
 export interface SignInWay { id: string; provider: RuntimeAuthProvider; method: "api_key" | "oauth"; label: string }
 
@@ -24,13 +32,14 @@ export function signInWays(provider?: RuntimeAuthProvider): SignInWay[] {
     { id: "openrouter:oauth", provider: "openrouter", method: "oauth", label: "OpenRouter · sign in with your browser" },
     { id: "anthropic:api_key", provider: "anthropic", method: "api_key", label: "Anthropic (Claude) · paste an API key" },
     { id: "anthropic:oauth", provider: "anthropic", method: "oauth", label: "Anthropic (Claude) · sign in with your browser" },
-    { id: "openai-codex:oauth", provider: "openai-codex", method: "oauth", label: "OpenAI Codex (ChatGPT plan) · enter a code at openai.com" },
+    { id: "openai-codex:oauth", provider: "openai-codex", method: "oauth",
+      label: `OpenAI Codex (ChatGPT plan) · ${noBrowserHere() ? "enter a code at openai.com" : "sign in with your browser"}` },
     { id: "github-copilot:oauth", provider: "github-copilot", method: "oauth", label: "GitHub Copilot · enter a code at github.com" },
   ];
   return provider ? ways.filter((way) => way.provider === provider) : ways;
 }
 
-/** Accept only Anthropic's HTTPS authorization page and loopback callback. */
+/** Accept only the provider's own HTTPS authorization page, with its callback on this machine. */
 function validAuthorizationUrl(provider: RuntimeAuthProvider, value: string): boolean {
   if (typeof value !== "string" || value.length > 8192 || !/^[\x21-\x7e]+$/.test(value)) return false;
   try {
@@ -42,6 +51,10 @@ function validAuthorizationUrl(provider: RuntimeAuthProvider, value: string): bo
     }
     if (provider === "openrouter") {
       return url.origin === "https://openrouter.ai" && url.pathname === "/auth";
+    }
+    if (provider === "openai-codex") {
+      return url.origin === "https://auth.openai.com" && url.pathname === "/oauth/authorize" &&
+        url.searchParams.get("redirect_uri") === "http://localhost:1455/auth/callback";
     }
     return false;
   } catch { return false; }
@@ -99,7 +112,7 @@ export async function authenticatePi(options: RuntimeAuthenticationOptions, dest
       const selected = way.provider;
       const method = way.method;
       // Browser sign-in (loopback listener + authorization page) vs device-code oauth.
-      const browser = method === "oauth" && (selected === "anthropic" || selected === "openrouter");
+      const browser = method === "oauth" && (selected === "anthropic" || selected === "openrouter" || (selected === "openai-codex" && !noBrowserHere()));
       // Picking the way is the consent (as in Claude Code and Codex); the next screen still says what it costs.
       const disclosure = selected === "github-copilot" ? "Signing in may turn on model policies on your GitHub account."
         : selected === "anthropic" ? "API use is billed per token; a Claude plan sign-in is billed per token as extra usage."
@@ -122,6 +135,7 @@ export async function authenticatePi(options: RuntimeAuthenticationOptions, dest
       const flow = AbortSignal.any([display.signal, deadline.signal]);
       let active = true;
       let promptHandled = false;
+      let codexAsked = false;
       let authorizationShown = false;
       let verificationCancelled = false;
       try {
@@ -133,6 +147,14 @@ export async function authenticatePi(options: RuntimeAuthenticationOptions, dest
           signal: flow,
           prompt: async (prompt) => {
             flow.throwIfAborted(); prompt.signal?.throwIfAborted();
+            // Codex asks browser or device code first; the browser path then asks for the pasted code.
+            if (active && !codexAsked && selected === "openai-codex" && prompt.type === "select" && prompt.message === "Select OpenAI Codex login method:" &&
+              prompt.options.length === 2 && prompt.options[0]?.id === "browser" && prompt.options[1]?.id === "device_code") {
+              codexAsked = true;
+              if (browser) return "browser";
+              promptHandled = true;
+              return "device_code";
+            }
             if (!active || promptHandled) throw new Error("unsupported interaction");
             promptHandled = true;
             if (method === "api_key" && prompt.type === "secret") {
@@ -157,8 +179,6 @@ export async function authenticatePi(options: RuntimeAuthenticationOptions, dest
                 if (choice !== "retry") { verificationCancelled = true; deadline.abort(); throw new Error("verification cancelled"); }
               }
             }
-            if (selected === "openai-codex" && prompt.type === "select" && prompt.message === "Select OpenAI Codex login method:" &&
-              prompt.options.length === 2 && prompt.options[0]?.id === "browser" && prompt.options[1]?.id === "device_code") return "device_code";
             if (selected === "github-copilot" && prompt.type === "text" && prompt.message === "GitHub Enterprise URL/domain (blank for github.com)") return "";
             if (browser && authorizationShown && prompt.type === "manual_code") {
               return display.privateInput("Private authorization code / redirect URL (or finish in your browser)",

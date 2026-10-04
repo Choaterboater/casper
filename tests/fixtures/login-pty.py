@@ -23,8 +23,9 @@ def wait_exit(s, timeout=5):
 
 
 def success(bun, repo, root, no_color):
+    # Over SSH, Codex signs in with a device code (on a desktop it opens the browser).
     s = Session(bun, repo, root, no_color, app="src/cli.ts", preload="tests/fixtures/login-preload.ts",
-                extra_env={"CASPER_OFFLINE": "1", "PI_TELEMETRY": "0"})
+                extra_env={"CASPER_OFFLINE": "1", "PI_TELEMETRY": "0", "SSH_CONNECTION": "synthetic 1 synthetic 2"})
     try:
         s.until("/help · /status · /login")
         s.until("│ idle")
