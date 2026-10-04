@@ -3,7 +3,7 @@ import { chmod, copyFile, lstat, mkdir, readdir, readFile, rename, rm, stat, wri
 import path from "node:path";
 import { installEnv, securityEnv } from "./env";
 import { runTool, type ToolRunner } from "./spawn";
-import { hostPlatform, pinnedToolDir, pinnedToolPath, SECURITY_TOOLS, type SecurityToolSpec } from "./tools";
+import { hostPlatform, pinnedToolDir, pinnedToolPath, SECURITY_TOOLS, type LockedSpec, type SecurityToolSpec, type UvLockSource } from "./tools";
 import type { SecurityToolId } from "./types";
 
 /**
@@ -129,6 +129,7 @@ export class ChecksumError extends Error {
 }
 
 export const UV_MISSING = "Security checks need uv to install Python tools.";
+export const UV_MISSING_NETWORK = "Setting up the network server needs uv. Install it from docs.astral.sh/uv, then type /mcp setup network.";
 
 export interface InstallOptions {
   homeDir: string;
@@ -143,7 +144,7 @@ export interface InstallOptions {
   write?: (text: string) => void;
 }
 
-export interface InstallResult { id: SecurityToolId; ok: boolean; message: string }
+export interface InstallResult { id: string; ok: boolean; message: string }
 
 async function defaultFetch(url: string): Promise<Uint8Array> {
   const response = await fetch(url, { redirect: "follow" });
@@ -208,37 +209,124 @@ async function installBinary(spec: SecurityToolSpec, options: InstallOptions): P
   }
 }
 
-async function installLocked(spec: SecurityToolSpec, options: InstallOptions): Promise<InstallResult> {
-  if (spec.source.kind !== "uv-lock") throw new Error("not a Python tool");
+interface LockedBuild { label: string; version: string; source: UvLockSource; relocatable: boolean }
+
+/** The program inside a locked venv folder. */
+function venvEntry(dir: string, entry: string, platform: NodeJS.Platform): string {
+  return platform === "win32" ? path.join(dir, "venv", "Scripts", `${entry}.exe`) : path.join(dir, "venv", "bin", entry);
+}
+
+/**
+ * Builds a hash-locked venv in `dir` (emptied first). The marker, written last by the caller, is what
+ * makes it count; on any failure the folder is removed and the error thrown.
+ */
+async function buildLockedVenv(build: LockedBuild, dir: string, uv: string, options: InstallOptions): Promise<void> {
   const env = installEnv(options.env ?? process.env);
   const platform = options.platform ?? process.platform;
-  const uv = await onPath("uv", env, platform);
-  if (!uv) return { id: spec.id, ok: false, message: UV_MISSING };
   const run = options.run ?? runTool;
-  // A venv is not relocatable, so it is built in place; the marker file, written last, is what makes
-  // it count. A half-built folder has no marker and is rebuilt next time.
-  const dir = pinnedToolDir(options.homeDir, spec);
+  const { label, version, source } = build;
   await rm(dir, { recursive: true, force: true });
   await mkdir(dir, { recursive: true, mode: 0o700 });
   try {
-    const lockFile = path.join(dir, spec.source.lockName);
-    await writeFile(lockFile, spec.source.lock);
-    options.write?.(`Installing ${spec.label} ${spec.version} (hash-locked)…\n`);
+    const lockFile = path.join(dir, source.lockName);
+    await writeFile(lockFile, source.lock);
+    options.write?.(`Installing ${label} ${version} (hash-locked)…\n`);
     const venv = path.join(dir, "venv");
-    const made = await run({ file: uv, args: ["venv", "--quiet", "--no-project", "--python", spec.source.python, venv], cwd: dir, env, timeoutMs: 600_000 });
-    if (made.exitCode !== 0) throw new Error(`${spec.label}: uv could not make a Python ${spec.source.python} environment`);
+    // A venv built in one folder and moved to another needs relative paths in its scripts.
+    const made = await run({ file: uv, args: ["venv", "--quiet", "--no-project", ...(build.relocatable ? ["--relocatable"] : []), "--python", source.python, venv], cwd: dir, env, timeoutMs: 600_000 });
+    if (made.exitCode !== 0) throw new Error(`${label}: uv could not make a Python ${source.python} environment`);
     const python = platform === "win32" ? path.join(venv, "Scripts", "python.exe") : path.join(venv, "bin", "python");
     const installed = await run({
       file: uv, args: ["pip", "install", "--quiet", "--python", python, "--require-hashes", "--no-deps", "--only-binary", ":all:", "-r", lockFile],
       cwd: dir, env, timeoutMs: 1_200_000,
     });
-    if (installed.exitCode !== 0) throw new Error(`${spec.label}: the hash-locked install failed`);
-    if (!(await isFile(pinnedToolPath(options.homeDir, spec, platform)))) throw new Error(`${spec.label}: the install did not create ${spec.source.entry}`);
-    await finish(spec, dir, pinFingerprint(spec, platform, options.arch)!);
-    return { id: spec.id, ok: true, message: `${spec.label} ${spec.version} installed` };
+    if (installed.exitCode !== 0) throw new Error(`${label}: the hash-locked install failed`);
+    if (!(await isFile(venvEntry(dir, source.entry, platform)))) throw new Error(`${label}: the install did not create ${source.entry}`);
   } catch (error) {
     await rm(dir, { recursive: true, force: true });
     throw error;
+  }
+}
+
+async function installLocked(spec: SecurityToolSpec, options: InstallOptions): Promise<InstallResult> {
+  if (spec.source.kind !== "uv-lock") throw new Error("not a Python tool");
+  const uv = await onPath("uv", installEnv(options.env ?? process.env), options.platform ?? process.platform);
+  if (!uv) return { id: spec.id, ok: false, message: UV_MISSING };
+  // Security tools keep a folder per version, built in place.
+  const dir = pinnedToolDir(options.homeDir, spec);
+  await buildLockedVenv({ label: spec.label, version: spec.version, source: spec.source, relocatable: false }, dir, uv, options);
+  try {
+    await finish(spec, dir, pinFingerprint(spec, options.platform ?? process.platform, options.arch)!);
+  } catch (error) {
+    await rm(dir, { recursive: true, force: true });
+    throw error;
+  }
+  return { id: spec.id, ok: true, message: `${spec.label} ${spec.version} installed` };
+}
+
+// ---------------------------------------------------------------------------------------------------------
+// Locked programs in a version-less folder (MCP servers)
+
+/** ~/.casper/tools/<id>: no version in the name, so a saved command never goes stale. */
+function lockedDir(homeDir: string, spec: LockedSpec): string {
+  return path.join(toolsRoot(homeDir), spec.id);
+}
+
+/** The program a locked spec installs: ~/.casper/tools/<id>/venv/bin/<entry>. */
+export function lockedEntryPath(homeDir: string, spec: LockedSpec, platform: NodeJS.Platform = process.platform): string {
+  return venvEntry(lockedDir(homeDir, spec), spec.source.entry, platform);
+}
+
+/** The version Casper installed there, from its marker; undefined when nothing complete is installed. */
+export async function installedVersion(homeDir: string, spec: LockedSpec, platform: NodeJS.Platform = process.platform): Promise<string | undefined> {
+  try {
+    const marker = JSON.parse(await readFile(path.join(lockedDir(homeDir, spec), MARKER), "utf8")) as Partial<InstalledMarker>;
+    if (marker.id !== spec.id || typeof marker.version !== "string") return undefined;
+    return await isFile(lockedEntryPath(homeDir, spec, platform)) ? marker.version : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+const isDir = (dir: string) => lstat(dir).then((details) => details.isDirectory(), () => false);
+
+/**
+ * Installs a locked spec into ~/.casper/tools/<id>. A new version is built in <id>.new and swapped in
+ * by rename only once its marker is written; a failed or killed install leaves the old folder working.
+ * Never throws.
+ */
+export async function installLockedSpec(spec: LockedSpec, options: InstallOptions & { uvMissing?: string }): Promise<{ ok: boolean; message: string; entryPath?: string }> {
+  const platform = options.platform ?? process.platform;
+  const uv = await onPath("uv", installEnv(options.env ?? process.env), platform);
+  if (!uv) return { ok: false, message: options.uvMissing ?? `${spec.label} needs uv to install. Install it from docs.astral.sh/uv.` };
+  const target = lockedDir(options.homeDir, spec);
+  const staging = `${target}.new`;
+  const old = `${target}.old`;
+  try {
+    await mkdir(toolsRoot(options.homeDir), { recursive: true, mode: 0o700 });
+    // A swap killed between its two renames left only <id>.old: put it back first.
+    if (!(await isDir(target)) && await isDir(old)) await rename(old, target);
+    await rm(old, { recursive: true, force: true });
+    await buildLockedVenv({ label: spec.label, version: spec.version, source: spec.source, relocatable: true }, staging, uv, options);
+    try {
+      const marker: InstalledMarker = { id: spec.id, version: spec.version, pin: createHash("sha256").update(spec.source.lock).digest("hex") };
+      await writeFile(path.join(staging, MARKER), `${JSON.stringify(marker)}\n`);
+      const hadOld = await isDir(target);
+      if (hadOld) await rename(target, old);
+      try {
+        await rename(staging, target);
+      } catch (error) {
+        if (hadOld) await rename(old, target).catch(() => undefined);
+        throw error;
+      }
+    } catch (error) {
+      await rm(staging, { recursive: true, force: true });
+      throw error;
+    }
+    await rm(old, { recursive: true, force: true });
+    return { ok: true, message: `${spec.label} ${spec.version} installed`, entryPath: lockedEntryPath(options.homeDir, spec, platform) };
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : String(error) };
   }
 }
 

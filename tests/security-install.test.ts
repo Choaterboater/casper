@@ -1,11 +1,12 @@
 import { afterEach, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { chmod, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { findTool, installQuestion, installTool, numberedChoices, ownCopyLine, UV_MISSING } from "../src/security/install";
+import { findTool, installedVersion, installLockedSpec, installQuestion, installTool, lockedEntryPath, numberedChoices, ownCopyLine, UV_MISSING } from "../src/security/install";
 import { SecurityCheck } from "../src/security/run";
-import { hostPlatform, pinnedToolDir, SECURITY_TOOLS, type SecurityToolSpec } from "../src/security/tools";
+import type { ToolRunner } from "../src/security/spawn";
+import { hostPlatform, pinnedToolDir, SECURITY_TOOLS, type LockedSpec, type SecurityToolSpec } from "../src/security/tools";
 import { fakeTools, fixtureRepo, run } from "./fixtures/security-tools/setup";
 
 const temps: string[] = [];
@@ -132,4 +133,116 @@ test("a check with tools missing reports them and downloads nothing ('2 Run what
   expect(report.missing).toEqual(["semgrep", "zizmor", "osv-scanner", "ansible-lint"]);
   expect(report.tools.find((tool) => tool.id === "semgrep")).toMatchObject({ status: "not-run", text: "not installed" });
   expect(await readdir(path.join(home, ".casper")).then((names) => names.sort())).toEqual(["security"]);
+});
+
+// ---------------------------------------------------------------------------------------------------------
+// One locked installer for tools and MCP servers
+
+const exists = (file: string) => stat(file).then(() => true, () => false);
+
+async function fakeUvDir(): Promise<string> {
+  const bin = await temp("casper-locked-uv-");
+  await writeFile(path.join(bin, "uv"), "#!/bin/sh\nexit 0\n");
+  await chmod(path.join(bin, "uv"), 0o755);
+  return bin;
+}
+
+function lockedSpec(version: string): LockedSpec {
+  return {
+    id: "casper-network-mcp", label: "casper-network-mcp", version,
+    source: { kind: "uv-lock", package: "casper-network-mcp", lock: `casper-network-mcp==${version} --hash=sha256:00\n`,
+      lockName: "casper-network-mcp.lock.txt", python: ">=3.12", entry: "casper-network-mcp" },
+    approxMB: 40, hosts: ["pypi.org", "files.pythonhosted.org"],
+  };
+}
+
+/** uv as a fake: `pip install` writes the entry next to the venv's python (wherever the venv is being built), or exits 1. */
+function fakeRun(calls: string[][], options: { pipExit?: number } = {}): ToolRunner {
+  return async (run) => {
+    calls.push([...run.args]);
+    if (run.args[0] === "pip") {
+      if (options.pipExit) return { exitCode: options.pipExit, signal: null, stdout: "", stderr: "" };
+      const python = run.args[run.args.indexOf("--python") + 1]!;
+      await mkdir(path.dirname(python), { recursive: true });
+      await writeFile(path.join(path.dirname(python), "casper-network-mcp"), "#!/bin/sh\n");
+    }
+    return { exitCode: 0, signal: null, stdout: "", stderr: "" };
+  };
+}
+
+test("a non-security locked spec installs into ~/.casper/tools/<id>/venv with the marker written last", async () => {
+  const home = await temp("casper-locked-home-");
+  const calls: string[][] = [];
+  const spec = lockedSpec("0.1.0");
+  const result = await installLockedSpec(spec, { homeDir: home, env: { PATH: await fakeUvDir() }, run: fakeRun(calls) });
+  expect(result.ok).toBe(true);
+  expect(result.entryPath).toBe(lockedEntryPath(home, spec));
+  expect(lockedEntryPath(home, spec, "darwin")).toBe(path.join(home, ".casper", "tools", "casper-network-mcp", "venv", "bin", "casper-network-mcp"));
+  expect(calls.some((args) => args.includes("--require-hashes") && args.includes("--no-deps"))).toBe(true);
+  // Built elsewhere and moved into place, so the venv must not hold absolute paths to where it was built.
+  expect(calls[0]).toEqual(expect.arrayContaining(["venv", "--relocatable"]));
+  expect(await exists(path.join(home, ".casper/tools/casper-network-mcp/.casper-installed.json"))).toBe(true);
+  expect(await exists(lockedEntryPath(home, spec))).toBe(true);
+  expect(await installedVersion(home, spec)).toBe("0.1.0");
+  expect((await readdir(path.join(home, ".casper", "tools"))).sort()).toEqual(["casper-network-mcp"]);
+});
+
+test("a failed locked install leaves nothing behind", async () => {
+  const home = await temp("casper-locked-home-");
+  const spec = lockedSpec("0.1.0");
+  const result = await installLockedSpec(spec, { homeDir: home, env: { PATH: await fakeUvDir() }, run: fakeRun([], { pipExit: 1 }) });
+  expect(result.ok).toBe(false);
+  expect(result.message).toBe("casper-network-mcp: the hash-locked install failed");
+  expect(await exists(path.join(home, ".casper", "tools", "casper-network-mcp"))).toBe(false);
+  expect(await readdir(path.join(home, ".casper", "tools")).catch(() => [])).toEqual([]);
+  expect(await installedVersion(home, spec)).toBeUndefined();
+});
+
+test("a locked install without uv says so in the caller's words and installs nothing", async () => {
+  const home = await temp("casper-locked-home-");
+  const result = await installLockedSpec(lockedSpec("0.1.0"), { homeDir: home, env: { PATH: "/nonexistent" }, uvMissing: "Needs uv." });
+  expect(result).toEqual({ ok: false, message: "Needs uv." });
+  expect(await readdir(path.join(home, ".casper", "tools")).catch(() => [])).toEqual([]);
+});
+
+test("a newer version replaces the folder in place; the entry path does not change", async () => {
+  const home = await temp("casper-locked-home-");
+  const uv = await fakeUvDir();
+  const first = await installLockedSpec(lockedSpec("0.1.0"), { homeDir: home, env: { PATH: uv }, run: fakeRun([]) });
+  const second = await installLockedSpec(lockedSpec("0.2.0"), { homeDir: home, env: { PATH: uv }, run: fakeRun([]) });
+  expect(second.ok).toBe(true);
+  expect(second.entryPath).toBe(first.entryPath!);
+  expect(lockedEntryPath(home, lockedSpec("0.2.0"))).toBe(lockedEntryPath(home, lockedSpec("0.1.0")));
+  expect(await installedVersion(home, lockedSpec("0.2.0"))).toBe("0.2.0");
+  expect(await readFile(path.join(home, ".casper/tools/casper-network-mcp/casper-network-mcp.lock.txt"), "utf8")).toContain("==0.2.0");
+  expect(await readdir(path.join(home, ".casper", "tools"))).toEqual(["casper-network-mcp"]);
+});
+
+test("a failed upgrade keeps the old version working", async () => {
+  const home = await temp("casper-locked-home-");
+  const uv = await fakeUvDir();
+  await installLockedSpec(lockedSpec("0.1.0"), { homeDir: home, env: { PATH: uv }, run: fakeRun([]) });
+  const upgrade = await installLockedSpec(lockedSpec("0.2.0"), { homeDir: home, env: { PATH: uv }, run: fakeRun([], { pipExit: 1 }) });
+  expect(upgrade.ok).toBe(false);
+  expect(await installedVersion(home, lockedSpec("0.2.0"))).toBe("0.1.0");
+  expect(await exists(lockedEntryPath(home, lockedSpec("0.1.0")))).toBe(true);
+  expect(await readdir(path.join(home, ".casper", "tools"))).toEqual(["casper-network-mcp"]);
+});
+
+test("an install killed between the two renames is put back by the next install", async () => {
+  const home = await temp("casper-locked-home-");
+  const uv = await fakeUvDir();
+  await installLockedSpec(lockedSpec("0.1.0"), { homeDir: home, env: { PATH: uv }, run: fakeRun([]) });
+  const tools = path.join(home, ".casper", "tools");
+  const { rename } = await import("node:fs/promises");
+  await rename(path.join(tools, "casper-network-mcp"), path.join(tools, "casper-network-mcp.old"));
+  const retry = await installLockedSpec(lockedSpec("0.2.0"), { homeDir: home, env: { PATH: uv }, run: fakeRun([], { pipExit: 1 }) });
+  expect(retry.ok).toBe(false);
+  expect(await installedVersion(home, lockedSpec("0.2.0"))).toBe("0.1.0");
+  expect(await readdir(tools)).toEqual(["casper-network-mcp"]);
+});
+
+test("security tools keep their versioned folders", () => {
+  const semgrep = SECURITY_TOOLS.semgrep;
+  expect(pinnedToolDir("/home/someone", semgrep)).toBe(path.join("/home/someone", ".casper", "tools", `${semgrep.id}-${semgrep.version}`));
 });
