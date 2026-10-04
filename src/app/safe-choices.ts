@@ -95,6 +95,8 @@ export const LAB_IMPORT_CHOICES = ["No", "Add them"] as const;
 /** "Casper can set up its network server …": only "2" installs it. Asked once on the first network question, or by
  * /mcp setup network; "Not now" is kept, so it isn't asked again until you type that. */
 export const NETWORK_SETUP_CHOICES = ["Not now", "Set it up"] as const;
+/** The same question when uv isn't installed: only "2" runs uv's official installer (shown first), then sets it up. */
+export const NETWORK_SETUP_UV_CHOICES = ["Not now", "Install uv, then set it up"] as const;
 /** "Casper's network server has an update (0.1.0 → 0.2.0 …)": only "2" downloads it; "Not now" keeps the old one. */
 export const NETWORK_UPDATE_CHOICES = ["Not now", "Update it"] as const;
 

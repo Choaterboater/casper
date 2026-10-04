@@ -1,11 +1,13 @@
-import { NETWORK_SETUP_CHOICES, NETWORK_UPDATE_CHOICES, numberedLines } from "../../app/safe-choices";
-import { installedVersion, installLockedSpec, UV_MISSING_NETWORK, type InstallOptions, type NumberedQuestion } from "../../security/install";
+import { NETWORK_SETUP_CHOICES, NETWORK_SETUP_UV_CHOICES, NETWORK_UPDATE_CHOICES, numberedLines } from "../../app/safe-choices";
+import { installEnv } from "../../security/env";
+import { findUv, installedVersion, installLockedSpec, UV_MISSING_NETWORK, type InstallOptions, type NumberedQuestion } from "../../security/install";
 import type { LockedSpec } from "../../security/tools";
 import type { MCPServerDefinition } from "../config";
 import { addUserServer, MCP_FILE_LABEL, ServerExistsError } from "../docs";
 import { matchPreset } from "../presets";
 import { normaliseWords } from "../../skills/bundled";
 import { NETWORK_SERVER, NETWORK_SERVER_NAME, networkServerEntry, readSetupState, writeSetupState } from "./server";
+import { runUvInstaller, uvInstaller } from "./uv";
 
 /**
  * Casper sets up its own network server after one numbered question (1 Not now · 2 Set it up). Only the
@@ -33,6 +35,8 @@ export interface SetupHost {
   /** Test seams for the download. */
   install?: Pick<InstallOptions, "env" | "run" | "platform">;
   installer?: (spec: LockedSpec, options: InstallOptions & { uvMissing?: string }) => Promise<{ ok: boolean; message: string; entryPath?: string }>;
+  /** Runs uv's official installer (test seam). */
+  uvInstaller?: () => Promise<{ ok: boolean; message?: string }>;
 }
 
 const CANT_ASK_SETUP = "This run can't ask you. Type /mcp setup network in the terminal to set up the network server.";
@@ -47,6 +51,18 @@ export function networkSetupQuestion(): NumberedQuestion {
       + "It starts read-only. Logins are asked per product the first time you use it.",
     choices: [...NETWORK_SETUP_CHOICES],
   };
+}
+
+/** The same question when uv isn't installed: it says so and shows uv's official installer, which 2 runs first. */
+export function networkSetupUvQuestion(platform: NodeJS.Platform = process.platform): NumberedQuestion {
+  return {
+    text: `${networkSetupQuestion().text}\nIt needs uv, which isn't installed. Casper installs it first with uv's official installer:\n  ${uvInstaller(platform).shown}`,
+    choices: [...NETWORK_SETUP_UV_CHOICES],
+  };
+}
+
+function hasUv(host: SetupHost): Promise<boolean> {
+  return findUv(installEnv(host.install?.env ?? process.env), host.homeDir, host.install?.platform ?? process.platform).then(Boolean);
 }
 
 function updateQuestion(from: string): NumberedQuestion {
@@ -162,13 +178,25 @@ export async function runNetworkSetup(host: SetupHost, _options: { explicit: boo
     host.write(`${NETWORK_SERVER_NAME} is already in ${MCP_FILE_LABEL}. Nothing changed.\n`);
     return "exists";
   }
-  const answer = await ask(host, networkSetupQuestion());
+  // No uv: the question says so and 2 installs it first, so the setup never dead-ends.
+  const needsUv = !await hasUv(host);
+  const answer = await ask(host, needsUv ? networkSetupUvQuestion(host.install?.platform) : networkSetupQuestion());
   if (answer !== "2") {
     // The person's 1, Enter or any other answer is kept, so the offer never nags; nobody answering (closed,
     // cancelled) keeps nothing.
     if (answer !== undefined) await writeSetupState(host.homeDir, { answer: "not-now" });
     if (answer !== undefined) host.write(`${NOT_NOW}\n`);
     return "not-now";
+  }
+  if (needsUv) {
+    host.write("Installing uv…\n");
+    let uv: { ok: boolean; message?: string };
+    try { uv = await (host.uvInstaller ?? (() => runUvInstaller(host.install?.platform, host.install?.env)))(); }
+    catch (error) { uv = { ok: false, message: error instanceof Error ? error.message : String(error) }; }
+    if (!uv.ok || !await hasUv(host)) {
+      host.write(`uv didn't install${uv.message ? ` (${uv.message})` : ""}. Install it from docs.astral.sh/uv, then type /mcp setup network.\n`);
+      return "failed";
+    }
   }
   const installed = await install(host);
   if (!installed.ok) { host.write(`${installed.message}\n`); return "failed"; }

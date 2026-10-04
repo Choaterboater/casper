@@ -128,6 +128,21 @@ export class ChecksumError extends Error {
   }
 }
 
+/**
+ * uv: on PATH, or where uv's official installer puts it (UV_INSTALL_DIR, XDG_BIN_HOME, ~/.local/bin, then the older
+ * ~/.cargo/bin), so a uv installed during this session is found before the shell's PATH picks it up.
+ */
+export async function findUv(env: NodeJS.ProcessEnv, homeDir: string, platform: NodeJS.Platform = process.platform): Promise<string | undefined> {
+  const found = await onPath("uv", env, platform);
+  if (found) return found;
+  const name = platform === "win32" ? "uv.exe" : "uv";
+  const dirs = [env.UV_INSTALL_DIR, env.XDG_BIN_HOME, path.join(homeDir, ".local", "bin"), path.join(homeDir, ".cargo", "bin")];
+  for (const dir of dirs) {
+    if (dir && path.isAbsolute(dir) && await isFile(path.join(dir, name))) return path.join(dir, name);
+  }
+  return undefined;
+}
+
 export const UV_MISSING = "Security checks need uv to install Python tools.";
 export const UV_MISSING_NETWORK = "Setting up the network server needs uv. Install it from docs.astral.sh/uv, then type /mcp setup network.";
 
@@ -300,7 +315,7 @@ export async function installLockedSpec(spec: LockedSpec, options: InstallOption
   uvMissing?: string; swap?: (renames: () => Promise<void>) => Promise<void>;
 }): Promise<{ ok: boolean; message: string; entryPath?: string }> {
   const platform = options.platform ?? process.platform;
-  const uv = await onPath("uv", installEnv(options.env ?? process.env), platform);
+  const uv = await findUv(installEnv(options.env ?? process.env), options.homeDir, platform);
   if (!uv) return { ok: false, message: options.uvMissing ?? `${spec.label} needs uv to install. Install it from docs.astral.sh/uv.` };
   const target = lockedDir(options.homeDir, spec);
   const staging = `${target}.new`;
