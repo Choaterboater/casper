@@ -84,9 +84,12 @@ export function asksEveryTime(plan: ApprovalPlan, tool?: Pick<MCPTool, "_meta">,
  */
 export function planKinds(plan: ApprovalPlan, tool?: Pick<MCPTool, "_meta">, hitKinds?: ReadonlyMap<string, ChangeKind>): ChangeKind[] {
   // A router call is a change whatever its inner name reads as (invite_glp_user reads as a read): the words decide.
+  // A name Casper reads as a read that find_tool calls a troubleshooting check (get_lldp_neighbors) is one: that raises it
+  // from a read, so it doesn't count as a config change. A name that reads as a change or as running commands keeps its words.
   if (plan.routed.length > 0) return plan.routed.map((call) => {
-    const own = nameLabel(call.name) === "diagnostic" ? "troubleshoot" : wordKind(call.name);
     const hit = hitKinds?.get(call.name) ?? call.kind;
+    const label = nameLabel(call.name);
+    const own = label === "diagnostic" || (label === "read" && hit === "troubleshoot") ? "troubleshoot" : wordKind(call.name);
     return isChangeKind(hit) && hit !== "read" ? riskier(own, hit) : own;
   });
   return [changeKind({ name: plan.tool, ...(tool?._meta ? { _meta: tool._meta } : {}) }, plan.label)];

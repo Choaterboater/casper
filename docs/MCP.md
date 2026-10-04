@@ -97,13 +97,17 @@ file and set no variable.
    ([Turning writes on](#turning-writes-on)). The box names the product
    (`Change in Mist: ...`), and a disruptive, firmware, delete or admin change asks every
    time. The real tool's kind comes from the server's `find_tool` and can only make a
-   call stricter.
+   call stricter. A tool `find_tool` never named asks every time, with no
+   "Yes, for this session".
+   If the AI calls `access_check` first, it is told that a product with no login is
+   asked for when it calls that product's tool, so it never asks you in chat.
 
 When Casper ships a newer pinned version, it asks before your first request in a session:
 `Casper's network server has an update (0.1.0 → 0.2.0 …)` with `1 Not now · 2 Update it`
 (`1` is kept for that version).
-The update replaces the folder in place; a failed update keeps the old version. Your
-`network` entry and what you remembered stay as they are.
+The new version is built beside the old one while it runs; then, once its running calls
+finish, the server stops, the folders are swapped and it starts again. A failed update
+keeps the old version running. Your `network` entry and what you remembered stay as they are.
 
 One-shot runs never install, never ask for a login and never turn writes on. They print
 one line instead, such as `Mist has no login yet. Run casper and type /mcp login mist.`

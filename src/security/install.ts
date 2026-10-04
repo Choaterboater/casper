@@ -293,9 +293,12 @@ const isDir = (dir: string) => lstat(dir).then((details) => details.isDirectory(
 /**
  * Installs a locked spec into ~/.casper/tools/<id>. A new version is built in <id>.new and swapped in
  * by rename only once its marker is written; a failed or killed install leaves the old folder working.
- * Never throws.
+ * `swap` runs the two renames: the caller stops the running program around them (Windows can't rename a folder
+ * a running program uses), and a failed swap puts the old folder back. Never throws.
  */
-export async function installLockedSpec(spec: LockedSpec, options: InstallOptions & { uvMissing?: string }): Promise<{ ok: boolean; message: string; entryPath?: string }> {
+export async function installLockedSpec(spec: LockedSpec, options: InstallOptions & {
+  uvMissing?: string; swap?: (renames: () => Promise<void>) => Promise<void>;
+}): Promise<{ ok: boolean; message: string; entryPath?: string }> {
   const platform = options.platform ?? process.platform;
   const uv = await onPath("uv", installEnv(options.env ?? process.env), platform);
   if (!uv) return { ok: false, message: options.uvMissing ?? `${spec.label} needs uv to install. Install it from docs.astral.sh/uv.` };
@@ -311,14 +314,17 @@ export async function installLockedSpec(spec: LockedSpec, options: InstallOption
     try {
       const marker: InstalledMarker = { id: spec.id, version: spec.version, pin: createHash("sha256").update(spec.source.lock).digest("hex") };
       await writeFile(path.join(staging, MARKER), `${JSON.stringify(marker)}\n`);
-      const hadOld = await isDir(target);
-      if (hadOld) await rename(target, old);
-      try {
-        await rename(staging, target);
-      } catch (error) {
-        if (hadOld) await rename(old, target).catch(() => undefined);
-        throw error;
-      }
+      const renames = async () => {
+        const hadOld = await isDir(target);
+        if (hadOld) await rename(target, old);
+        try {
+          await rename(staging, target);
+        } catch (error) {
+          if (hadOld) await rename(old, target).catch(() => undefined);
+          throw error;
+        }
+      };
+      await (options.swap ? options.swap(renames) : renames());
     } catch (error) {
       await rm(staging, { recursive: true, force: true });
       throw error;

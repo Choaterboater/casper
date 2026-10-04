@@ -62,10 +62,10 @@ interface FakeSetupHost extends SetupHost {
 
 /**
  * The setup flow's host, as a fake. `answers` come through the exact-answer channel (digits typed after the
- * question appeared). `askTool` is what the AI's ask tool would answer: the setup host has no channel for it.
+ * question appeared).
  * `servers` are the definitions in ~/.casper/mcp.json (connect re-reads them).
  */
-async function fakeSetupHost(options: { answers?: string[]; askTool?: string[]; canAsk?: boolean; pipExit?: number; homeDir?: string } = {}): Promise<FakeSetupHost> {
+async function fakeSetupHost(options: { answers?: string[]; canAsk?: boolean; pipExit?: number; homeDir?: string } = {}): Promise<FakeSetupHost> {
   const homeDir = options.homeDir ?? await temp("casper-network-home-");
   const answers = [...options.answers ?? []];
   const install = await fakeInstall({ pipExit: options.pipExit });
@@ -83,7 +83,7 @@ async function fakeSetupHost(options: { answers?: string[]; askTool?: string[]; 
       return configuration.servers;
     },
     connect: async (name) => { host.connected.push({ name, writes: "off", remembered: true }); return { ok: true }; },
-    restart: async (name) => { host.restarts.push(name); },
+    restart: async (name, whileStopped) => { host.restarts.push(name); await whileStopped?.(); },
     install: { env: install.env, run: install.run },
     installer: async (spec, installOptions) => {
       host.installs.push(spec.version);
@@ -177,12 +177,11 @@ test("a server you added yourself (hpe-networking-mcp, or casper-network-mcp by 
   expect(await shouldOfferNetworkSetup(home, [own])).toBe(false);
 });
 
-test("the AI's ask tool can't answer the setup question", async () => {
-  // The setup host has no channel for the AI's ask tool: only a digit typed in the terminal answers it.
-  const host = await fakeSetupHost({ askTool: ["2"] });
+test("nobody answering the setup question installs and remembers nothing", async () => {
+  const host = await fakeSetupHost({ answers: [] });
   expect(await runNetworkSetup(host, { explicit: false })).toBe("not-now");
   expect(host.installs).toEqual([]);
-  // Nobody answered: nothing is remembered either, so it can be offered again in a later session.
+  // Nothing is remembered either, so it can be offered again in a later session.
   expect(await exists(path.join(host.homeDir, ".casper/network-setup.json"))).toBe(false);
   expect(await exists(path.join(host.homeDir, ".casper/mcp.json"))).toBe(false);
 });
@@ -241,6 +240,64 @@ test("one-shot never asks about or installs an update", async () => {
   expect(await installedVersion(host.homeDir, NETWORK_SERVER)).toBe("0.0.9");
 });
 
+test("review: an update builds the new version while the old one runs and swaps the folders only while the server is stopped", async () => {
+  const host = await fakeSetupHost({ answers: ["2"] });
+  await host.installer!(pinned("0.0.9"), { homeDir: host.homeDir, ...host.install });
+  await writeMcp(host.homeDir, { network: networkServerEntry(host.homeDir) });
+  const staging = `${path.dirname(path.dirname(path.dirname(networkServerEntry(host.homeDir).command)))}.new`;
+  const seen: string[] = [];
+  host.restart = async (_name, whileStopped) => {
+    seen.push(`stop: running ${await installedVersion(host.homeDir, NETWORK_SERVER)}, new one built ${await exists(staging)}`);
+    await whileStopped?.();
+    seen.push(`start: ${await installedVersion(host.homeDir, NETWORK_SERVER)}`);
+  };
+  expect(await runNetworkUpdate(host, { explicit: false })).toBe("updated");
+  expect(seen).toEqual(["stop: running 0.0.9, new one built true", `start: ${NETWORK_SERVER.version}`]);
+});
+
+test("review: when the folders can't be swapped, the old version starts again and the person is told what to do", async () => {
+  const host = await fakeSetupHost({ answers: ["2"] });
+  await host.installer!(pinned("0.0.9"), { homeDir: host.homeDir, ...host.install });
+  await writeMcp(host.homeDir, { network: networkServerEntry(host.homeDir) });
+  const target = path.dirname(path.dirname(path.dirname(networkServerEntry(host.homeDir).command)));
+  const started: string[] = [];
+  host.restart = async (_name, whileStopped) => {
+    // Something holds the folder (as a running program does on Windows): the first rename fails.
+    await mkdir(path.join(`${target}.old`, "busy"), { recursive: true });
+    try { await whileStopped?.(); } finally { started.push(String(await installedVersion(host.homeDir, NETWORK_SERVER))); }
+  };
+  expect(await runNetworkUpdate(host, { explicit: false })).toBe("failed");
+  expect(started).toEqual(["0.0.9"]);
+  expect(host.output).toContain("Casper couldn't swap in the new version (its files are in use). The network server keeps 0.0.9 and is running again. Close any other Casper window, then type /mcp setup network.");
+  expect(await installedVersion(host.homeDir, NETWORK_SERVER)).toBe("0.0.9");
+  expect(await exists(`${target}.new`)).toBe(false);
+});
+
+test("review: restartAfterCalls runs whileStopped with the server stopped, then starts it again", async () => {
+  const { MCPManager } = await import("../src/mcp/manager");
+  const home = await temp("casper-network-restart-");
+  const entry = path.join(home, "bin/server");
+  await mkdir(path.dirname(entry), { recursive: true });
+  const calls = path.join(home, "calls.log");
+  await writeFile(entry, `#!/bin/sh\nFAKE_CALLS_FILE='${calls}' exec "${process.execPath}" "${path.join(import.meta.dir, "fixtures/fake-network-mcp.ts")}" "$@"\n`);
+  await chmod(entry, 0o755);
+  const definition: MCPServerDefinition = { name: "network", source: path.join(home, ".casper/mcp.json"), scope: "user", cwd: home, disabled: false,
+    transport: { type: "stdio", command: entry, args: [], env: {} } };
+  const manager = new MCPManager({ servers: [definition], diagnostics: [] }, { timeoutMs: 15_000, homeDir: home });
+  cleanup.push(() => manager.close());
+  await manager.connect("network");
+  const starts = async () => (await readFile(calls, "utf8")).split("\n").filter((line) => line.startsWith("start ")).length;
+  const before = await starts();
+  let during: string | undefined;
+  await manager.restartAfterCalls("network", { whileStopped: async () => { during = manager.status().find((item) => item.name === "network")?.state; } });
+  expect(during).toBe("disconnected");
+  expect(await starts()).toBe(before + 1);
+  expect(manager.status().find((item) => item.name === "network")?.state).toBe("ready");
+  // A failed swap still starts the server again, then says why.
+  await expect(manager.restartAfterCalls("network", { whileStopped: async () => { throw new Error("in use"); } })).rejects.toThrow("in use");
+  expect(manager.status().find((item) => item.name === "network")?.state).toBe("ready");
+});
+
 // --- In the app: the real exact-answer channel ---------------------------------------------------
 
 async function appFixture() {
@@ -253,7 +310,7 @@ async function appFixture() {
 }
 
 /** An interactive session: `lines` are typed at each prompt (with any type-ahead), `answers` at each numbered box. */
-async function session(home: string, project: string, lines: string[], answers: string[] = [], options: { interactive?: boolean } = {}) {
+async function session(home: string, project: string, lines: string[], answers: string[] = [], options: { interactive?: boolean; onApp?: (app: CasperApp) => void } = {}) {
   let turns = 0;
   const runtime: AgentRuntime = {
     async start(start: RuntimeStartOptions) {
@@ -281,6 +338,7 @@ async function session(home: string, project: string, lines: string[], answers: 
     } },
   });
   cleanup.push(() => app.close());
+  options.onApp?.(app);
   if (options.interactive === false) {
     for (const line of lines) await app.runOnce(line, project);
   } else {
@@ -289,9 +347,14 @@ async function session(home: string, project: string, lines: string[], answers: 
   return { output, app, turns: () => turns, installs: install.calls };
 }
 
-test("app: the first Mist question offers setup once; a 2 typed ahead is discarded; 1 is remembered across sessions", async () => {
+test("app: the first Mist question offers setup once; a 2 typed ahead is discarded; the AI's ask channel is never used; 1 is remembered across sessions", async () => {
   const { home, project } = await appFixture();
-  const first = await session(home, project, ["list the Mist APs at Branch-12\n2", "list the Mist APs again"], ["1"]);
+  let asks = 0;
+  const first = await session(home, project, ["list the Mist APs at Branch-12\n2", "list the Mist APs again"], ["1"], { onApp: (app) => {
+    const ask = app.terminal.ask.bind(app.terminal);
+    app.terminal.ask = (...args: Parameters<typeof ask>) => { asks++; return ask(...args); };
+  } });
+  expect(asks).toBe(0);
   expect(first.output).toContain("[input] Discarded 1 line(s) entered before this approval appeared.");
   expect(first.output).toContain("Casper can set up its network server (casper-network-mcp");
   expect(first.output).toContain("  1 Not now\n  2 Set it up\nType 1 or 2: ");
