@@ -52,6 +52,7 @@ import type {
   RuntimeModelInfo,
   RuntimeConversation,
 } from "./types";
+import { isOutside } from "../platform/inside";
 
 class PiToolController {
   private tools: RuntimeTool[];
@@ -444,7 +445,7 @@ export function containedContextFile(file: string, cwd: string, agentDir?: strin
   const resolved = path.resolve(file);
   const within = (root: string, target: string) => {
     const inside = path.relative(root, target);
-    return Boolean(inside) && inside !== ".." && !inside.startsWith(`..${path.sep}`) && !path.isAbsolute(inside);
+    return Boolean(inside) && !isOutside(inside);
   };
   try {
     if (agentDir && path.dirname(resolved) === path.resolve(agentDir)) return true;
@@ -484,7 +485,7 @@ async function checkReadOnlyState(options: RuntimeReadOnlyStartOptions, agentDir
   for (const target of [agentDir, `${agentDir}/auth.json`, path.join(agentDir, "models-store.json")]) {
     const destination = await canonicalStatePath(target, options.signal);
     const relative = path.relative(root, destination);
-    if (!relative || (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative))) {
+    if (!relative || !isOutside(relative)) {
       throw new Error(READ_ONLY_STATE_CONFLICT);
     }
   }

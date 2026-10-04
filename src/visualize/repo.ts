@@ -1,6 +1,7 @@
 import { lstat, readdir, readFile, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { GRAPH_LIMITS, parseVisualizationGraph, type GraphEdge, type GraphNode, type VisualizationGraph } from "./types";
+import { isOutside } from "../platform/inside";
 
 const IGNORED_DIRECTORIES = new Set(["node_modules", ".git", "dist", "build", "out", "coverage", ".next", ".turbo", ".cache", "vendor", "target", "__pycache__"]);
 const SOURCE_EXTENSIONS = [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"];
@@ -52,7 +53,7 @@ export async function buildRepoGraph(options: RepoGraphOptions): Promise<RepoGra
   const requestedScope = path.resolve(root, options.scope ?? ".");
   const assertInside = (target: string) => {
     const relative = path.relative(root, target);
-    if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    if (isOutside(relative)) {
       throw new Error("Visualization scope must stay inside the project");
     }
   };

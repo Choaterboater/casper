@@ -3,6 +3,7 @@ import { access, realpath, stat } from "node:fs/promises";
 import { openNoFollow } from "../platform/files";
 import path from "node:path";
 import { createHash } from "node:crypto";
+import { isOutside } from "../platform/inside";
 
 export function record(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -20,7 +21,7 @@ export async function projectFile(root: string, input: string, directory = false
   if (!text(input) || path.isAbsolute(input)) throw new Error("Debugger paths must be project-relative");
   const resolved = await realpath(path.resolve(root, input));
   const relative = path.relative(root, resolved);
-  if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) throw new Error("Debugger path leaves the project");
+  if (isOutside(relative)) throw new Error("Debugger path leaves the project");
   const info = await stat(resolved);
   if (directory ? !info.isDirectory() : !info.isFile()) throw new Error("Debugger path has an unsupported file type");
   return resolved;

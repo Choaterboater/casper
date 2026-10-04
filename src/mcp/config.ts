@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { isValidProfileName } from "../config/profile";
 import { duplicateDiagnostics, importAll, type ImportedFrom } from "./import";
+import { isOutside } from "../platform/inside";
 
 /** Where a discovered definition came from; programmatic definitions carry none.
  * "imported" definitions come from other tools' files (WP4) and always start outside the project. */
@@ -83,7 +84,7 @@ export function startFolder(value: unknown, scope: ServerDefinitionScope, projec
       const inside = path.relative(root!, folder!);
       return path.resolve(projectRoot) === path.resolve(home)
         ? inside === ""
-        : inside === "" || !(inside === ".." || inside.startsWith(`..${path.sep}`) || path.isAbsolute(inside));
+        : inside === "" || !isOutside(inside);
     });
     if (!inProject) return wanted;
     report?.diagnostics.push(`${report.name}: starts in your home folder, not in this project.`);
@@ -95,7 +96,7 @@ export function startFolder(value: unknown, scope: ServerDefinitionScope, projec
     const resolved = path.resolve(projectRoot, value);
     const inside = path.relative(projectRoot, resolved);
     // Absolute is fine while it stays inside: opened on your home folder, ~/.mcp.json names folders under ~.
-    if (inside === ".." || inside.startsWith(`..${path.sep}`) || path.isAbsolute(inside)) throw new Error("cwd outside the project");
+    if (isOutside(inside)) throw new Error("cwd outside the project");
     return resolved;
   }
   return personalFolder(value, projectRoot, home);

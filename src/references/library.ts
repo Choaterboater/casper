@@ -7,6 +7,7 @@ import type { ReferenceConfiguration, ReferenceSource } from "./config";
 import { readReferenceFile, referenceText } from "./files";
 import { formatTerminalJSON as formatReferenceResult } from "../tui/json";
 import { scrubText } from "../secrets/scrub";
+import { isOutside } from "../platform/inside";
 
 export { formatReferenceResult };
 
@@ -164,7 +165,7 @@ export class ReferenceLibrary {
           }
           const canonical = await realpath(target);
           const inside = path.relative(root, canonical);
-          if (inside === ".." || inside.startsWith(`..${path.sep}`) || path.isAbsolute(inside)) {
+          if (isOutside(inside)) {
             issue(`${source.id}: path no longer inside reference root: ${relative}`);
             return;
           }
