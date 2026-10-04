@@ -135,7 +135,8 @@ export function serviceTool(manager: () => ServiceManager, lifetime?: AbortSigna
       const refused = gitGuardReason(command) ?? gitInternalsCommand(command, services.root) ?? privatePathCommand(command, { root: services.root }) ?? await approve?.(command, signal);
       if (refused) throw new Error(refused);
       // Joining the same command then takes the declared start's path, so a stale one restarts.
-      return start((await services.startCommand(command, { ready: spec, timeoutMs }, signal)).name);
+      // The sandbox may fail to start on this very command: then it asks too, before it runs not sandboxed.
+      return start((await services.startCommand(command, { ready: spec, timeoutMs, ...(approve ? { approve: (inner: AbortSignal) => approve(command, inner) } : {}) }, signal)).name);
     }
     const name = string(args.service, "service");
     if (action === "start") return start(name);

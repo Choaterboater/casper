@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
+import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -209,6 +210,59 @@ posixOnly("when the sandbox fails to start on a check or a tool run, that run st
   await managed.close();
   expect(sandboxReceipt(serviceSandbox)?.held).toBe(false);
   await serviceSandbox.close();
+});
+
+posixOnly("when the sandbox fails to start on an ad-hoc service the AI started, it asks first, once per service; a declared service still goes ahead", async () => {
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-sandbox-wiring-")));
+  roots.push(root);
+  const failing = () => {
+    const engine = { ...fakeEngine(), initialize: async () => { throw new Error("bwrap: setting up uid map: Permission denied"); } };
+    const sandbox = new ShellSandbox({ root: () => root, home: path.join(root, "home"), engine, problem: () => undefined, platform: "linux" });
+    useSandbox(sandbox);
+    return sandbox;
+  };
+  // No: nothing starts, and the AI reads why.
+  let sandbox = failing();
+  let services = new ServiceManager({ projectRoot: root, services: {} });
+  const asked: string[] = [];
+  const no = serviceTool(() => services, undefined, undefined, async (command) => {
+    if (!sandbox.asksFirst) return undefined;
+    asked.push(command); return "Not run: the user said no to this command.";
+  });
+  const command = "echo ready-${CASPER_FAKE_HELD:-plain} > started.txt; echo ready-plain; sleep 5";
+  await expect(no.execute({ action: "start", command, ready: { log: "ready-plain" }, timeoutMs: 5_000 }, new AbortController().signal))
+    .resolves.toMatchObject({ isError: true, text: expect.stringContaining("the user said no to this command") });
+  expect(asked).toEqual([command]);
+  expect(existsSync(path.join(root, "started.txt"))).toBe(false);
+  await services.close();
+  await sandbox.close();
+
+  // Yes: it starts not sandboxed, and a restart after edits does not ask again.
+  sandbox = failing();
+  services = new ServiceManager({ projectRoot: root, services: {} });
+  asked.length = 0;
+  const yes = serviceTool(() => services, undefined, undefined, async (command) => {
+    if (!sandbox.asksFirst) return undefined;
+    asked.push(command); return undefined;
+  });
+  await expect(yes.execute({ action: "start", command, ready: { log: "ready-plain" }, timeoutMs: 5_000 }, new AbortController().signal))
+    .resolves.not.toMatchObject({ isError: true });
+  expect(asked).toEqual([command]);
+  const name = services.status()[0]!.name;
+  await services.restart(name, new AbortController().signal);
+  expect(asked).toEqual([command]);
+  await services.close();
+  await sandbox.close();
+
+  // A declared service is the project's own: it goes ahead not sandboxed, with no question.
+  sandbox = failing();
+  services = new ServiceManager({ projectRoot: root, services: { web: { command: "echo ready-plain; sleep 5", port: "auto", ready: { log: "ready-plain" }, timeoutMs: 5_000 } } });
+  asked.length = 0;
+  const declared = serviceTool(() => services, undefined, undefined, async (command) => { asked.push(command); return "Not run."; });
+  await expect(declared.execute({ action: "start", service: "web" }, new AbortController().signal)).resolves.not.toMatchObject({ isError: true });
+  expect(asked).toEqual([]);
+  await services.close();
+  await sandbox.close();
 });
 
 posixOnly("every held run tells the sandbox when it ended, so its stand-in files leave your project: checks, tool runs, services, casper new and the AI's bash", async () => {

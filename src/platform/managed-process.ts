@@ -31,6 +31,9 @@ export interface ManagedProcessOptions {
   /** The shell sandbox that holds it (the session's by default; `false`: none). It keeps the machine's own network,
    * so the host can reach it on loopback, but writes only the project and temp and never reads private places. */
   sandbox?: ShellSandbox | false;
+  /** When the sandbox fails to start on this run: whether it may go ahead not sandboxed (a string refuses it, and
+   * says why). Unset: it goes ahead, as checks and declared services do. */
+  unsandboxed?: () => Promise<string | undefined>;
   /** Called when the root exits on its own after readiness (a crash); the owner decides the cleanup. */
   onExit?: (details: { code: number | null; signal: NodeJS.Signals | null }) => void;
 }
@@ -140,7 +143,7 @@ export class ManagedProcess {
   async start(signal: AbortSignal): Promise<{ readyMs: number; httpStatus?: number }> {
     if (this.child) throw new Error(`${this.label} was already started`);
     if (this.stopWork) throw new ManagedProcessError("closed", `${this.label} was closed before it started`, "");
-    const began = performance.now();
+    let began = performance.now();
     const fail = async (reason: ManagedProcessError["reason"], message: string): Promise<never> => {
       // Let buffered output drain so the tail shows why it exited.
       if (reason === "exited" && this.exited) await Promise.race([this.exited, new Promise(resolve => setTimeout(resolve, 150))]);
@@ -163,6 +166,12 @@ export class ManagedProcess {
       catch (error) {
         // The sandbox failed to start just now (it said so): start as later runs will, not sandboxed.
         if (!sandbox.failure) { await rm(home, { recursive: true, force: true }); throw new ManagedProcessError("exited", `${this.label} could not start: ${error instanceof Error ? error.message : String(error)}`, ""); }
+        if (this.options.unsandboxed) {
+          const refused = await this.options.unsandboxed();
+          if (refused) { await rm(home, { recursive: true, force: true }); throw new ManagedProcessError("exited", refused, ""); }
+          // Time spent answering is not startup time.
+          began = performance.now();
+        }
       }
       if (signal.aborted) { await rm(home, { recursive: true, force: true }); return aborted(); }
     }
