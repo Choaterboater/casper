@@ -17,7 +17,7 @@ export const HELP_TEXT = `Casper — your coding companion
   /suggestions [on|off]  List the suggested next steps, or turn them on or off
   /context, /usage       Context estimate, session tokens and cost availability
   /compact               Summarize context (sends a model request)
-  /clear, /resume        Fresh conversation or list/resume a saved conversation
+  /clear, /resume        Fresh conversation, or pick a saved one to go back to
   /diff [n|list]         The last task's changes (also outside git); git's view before any task
   /undo, /redo           Put the last task's files back, or back again (no model; docs/UNDO.md)
   /new [name]            Start a new project in ~/Projects (no model)
@@ -126,7 +126,7 @@ Local commands:
   /usage                            Session tokens, cache share and optional catalog cost estimate
   /compact [instructions]           Summarize context using the model (not a local-only command)
   /clear                            New conversation; no file rollback
-  /resume [exact-session-id]        List/resume conversations in the current workspace
+  /resume [id]                      Pick a saved conversation (or give the start of its ID)
   /diff [n|list]                    Task n's changes (default: the last task in this folder), also outside git; list picks one
                                     Before any task in this folder: git status plus tracked diff against HEAD
   /undo [n]                         Put back the files of the last task (or task n); files changed since are left alone
@@ -216,7 +216,7 @@ Shift+Tab cycles auto and the model's supported levels and saves the level it st
 /effort auto lets Casper pick per request: low for reading/explaining/diagrams, medium for tests and
 configuration, high for fixes, features and refactors, from the model's supported levels.
 Context is estimated and may be unavailable; cost estimates are not subscription billing.
-/clear preserves saved conversations and workspace files. /resume uses exact IDs; /switch uses workspace names.
+/clear preserves saved conversations and workspace files. /resume takes the start of an ID; /switch uses workspace names.
 Esc/Ctrl-C cancel the picker. Plain/redirected terminals list models; use an exact ID to select.
 Restored conversations retain their model; missing/unavailable selections block sending.
 Without a restored selection or Casper default, choose with /model; there is no other fallback.

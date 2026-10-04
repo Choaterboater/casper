@@ -3,6 +3,7 @@ import { lstat, realpath } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { READ_ONLY_STATE_CONFLICT } from "./types";
+import { matchConversation } from "../sessions/resume";
 import { PiModels } from "./pi-models";
 import { authenticatePi } from "./pi-auth";
 import { isOpenRouterModel, openRouterAttribution } from "./openrouter-attribution";
@@ -237,7 +238,20 @@ class PiRuntimeSession implements RuntimeSession {
   }
 
   async listConversations(): Promise<RuntimeConversation[]> {
-    return (await SessionManager.list(this.runtime.cwd)).map(info => ({ id: info.id, name: info.name, modified: info.modified.toISOString() }));
+    return (await SessionManager.list(this.runtime.cwd)).map(info => ({ id: info.id, name: info.name, modified: info.modified.toISOString(),
+      firstMessage: info.firstMessage.slice(0, 4000), messages: info.messageCount }));
+  }
+
+  recentTurns(count: number): Array<{ role: "user" | "assistant"; text: string }> {
+    const turns: Array<{ role: "user" | "assistant"; text: string }> = [];
+    for (const message of this.runtime.session.messages) {
+      if (message.role !== "user" && message.role !== "assistant") continue;
+      const content = message.content;
+      const text = typeof content === "string" ? content
+        : content.map(part => part.type === "text" ? part.text : "").filter(Boolean).join("\n");
+      if (text.trim()) turns.push({ role: message.role, text });
+    }
+    return turns.slice(-Math.max(0, count));
   }
 
   private persistUnwrittenConversation(): void {
@@ -258,10 +272,10 @@ class PiRuntimeSession implements RuntimeSession {
 
   async resumeConversation(id: string, options: { keepUnwritten?: boolean } = {}): Promise<void> {
     if (this.busy || this.readOnly || this.models.busy) throw new Error("Wait for active work before resuming.");
-    const saved = (await SessionManager.list(this.runtime.cwd)).filter(info => info.id === id);
-    if (saved.length !== 1) throw new Error("Unknown or ambiguous conversation ID in this workspace. Use /resume to list IDs.");
+    // The exact ID, or the one that starts with it.
+    const saved = matchConversation(await SessionManager.list(this.runtime.cwd), id);
     if (options.keepUnwritten !== false) this.persistUnwrittenConversation();
-    const result = await this.runtime.switchSession(saved[0]!.path, { cwdOverride: this.runtime.cwd });
+    const result = await this.runtime.switchSession(saved.path, { cwdOverride: this.runtime.cwd });
     if (result.cancelled) throw new Error("Resume cancelled.");
   }
 

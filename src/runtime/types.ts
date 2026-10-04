@@ -194,7 +194,11 @@ export interface RuntimeUsage {
   messages: number;
 }
 
-export interface RuntimeConversation { id: string; name?: string; modified: string; }
+export interface RuntimeConversation {
+  id: string; name?: string; modified: string;
+  /** The first message sent (Casper's wrapper included; see requestOf) and how many messages it has. */
+  firstMessage?: string; messages?: number;
+}
 
 export interface RuntimeState {
   cwd: string;
@@ -285,6 +289,8 @@ export interface RuntimeSession {
   /** `keepUnwritten: false` drops a new conversation that has no saved response yet instead of
    * saving it for /resume (a startup `--resume` has nothing worth keeping). */
   resumeConversation?(id: string, options?: { keepUnwritten?: boolean }): Promise<void>;
+  /** The conversation's last messages with text, oldest first (shown after /resume). */
+  recentTurns?(count: number): Array<{ role: "user" | "assistant"; text: string }>;
   compact?(instructions?: string, signal?: AbortSignal): Promise<void>;
   /** `maxTurns` stops the request gracefully after that many model turns (tools of the last turn
    * still finish) and emits turn_limit; unset means no Casper turn limit. */

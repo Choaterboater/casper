@@ -709,7 +709,7 @@ behavioral pass/fail result; required interaction alone does not count as rescue
 ### Workflow protocols
 
 - **Cancel/resume:** interrupt active work after a real edit, verify work stops,
-  exit cleanly, start a different Casper process, `/resume <exact-id>`, compare
+  exit cleanly, start a different Casper process, `/resume <id>`, compare
   retained workspace state, and continue without restating prior instructions.
   A unique conversation-only marker in the original prompt must appear in the
   final answer and nowhere in scanned workspace text. Host evidence must cover

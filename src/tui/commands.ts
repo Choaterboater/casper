@@ -10,7 +10,7 @@ export const COMMANDS: SlashCommand[] = [
   { name: "usage", description: "Inspect session tokens and available cost estimates" },
   { name: "compact", description: "Summarize context (sends a model request)" },
   { name: "clear", description: "Start a fresh conversation; keep files and saved conversations" },
-  { name: "resume", description: "List or resume saved conversations in this workspace" },
+  { name: "resume", description: "Go back to a saved conversation (a numbered list)" },
   { name: "diff", description: "The last task's changes: /diff 12, /diff list" },
   { name: "undo", description: "Put the last task's files back (no model)" },
   { name: "redo", description: "Put an undone task's files back again" },

@@ -117,7 +117,7 @@ test("context and usage are local; fresh conversations retain saved sessions wit
   expect((await f.cli("/clear")).exit).toBe(0);
   const listed = await f.cli("/resume");
   expect(listed.exit).toBe(0);
-  expect(listed.stdout).toContain("Use /resume <exact-id>");
+  expect(listed.stdout).toContain("Use /resume <id> (its first few characters are enough)");
   const result = await f.run(`
 const before = session.getSessionInfo();
 await session.selectModel({ query: 'fixture/second', persist: false });

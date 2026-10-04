@@ -362,8 +362,8 @@ Daily commands include `/help`, `/status`, `/project`, `/diff`, `/verify`, `/ski
 | `/usage` | Tokens split into out, new and cached plus the raw counts; catalog cost estimate for the whole session, or the subscription name with the pay-per-token figure; not billing |
 | `/compact [instructions]` | Explicit cancellable model-assisted summary; **can make a model request** |
 | `/clear` | Fresh saved conversation, no workspace rollback; prior conversation remains resumable |
-| `/resume` | List saved conversation IDs in this workspace |
-| `/resume <exact-id>` | Restore one of those conversations, keeping named workspace linkage consistent |
+| `/resume` | Pick a saved conversation from a numbered list (title · when · messages; 1 stays here); then the last few turns show |
+| `/resume <id>` | Go back to that conversation; the first few characters of its ID are enough |
 | `/tree`, `/switch <name>` | Existing named-workspace navigation and its approval policy |
 | `/output [n]` | Full command and output of the last task's n-th most recent tool call (1 = latest; 20 retained per task); out-of-range n is a usage error |
 
