@@ -78,3 +78,22 @@ test("in a narrow terminal the footer keeps the current stage and the time", asy
     session.terminal.setSteps(undefined);
   } finally { session.close(); }
 }, 15_000);
+
+test("Enter mid-task shows its note for a moment, then the steps and timer come back", async () => {
+  process.env.TERM = "xterm-256color";
+  const session = interactiveTerminal();
+  session.terminal.setBusySubmit(line => `${line} waits until this task ends · draft kept`);
+  try {
+    session.terminal.setStatus("project │ fixture/demo │ working"); session.terminal.start();
+    const command = session.terminal.readCommand();
+    session.input.write("go\r");
+    await command;
+    session.terminal.setSteps("checklist ✓ · building");
+    session.input.write("/undo\r");
+    await session.screen.until(output => output.includes("/undo waits until this task ends"));
+    expect(session.terminal.footerLine(100)).toContain("waits until this task ends");
+    await Bun.sleep(2600);
+    expect(Bun.stripANSI(session.terminal.footerLine(100)!)).toContain("checklist ✓ · building");
+    session.terminal.setSteps(undefined);
+  } finally { session.close(); }
+}, 15_000);

@@ -190,8 +190,8 @@ export class TerminalSurface {
           return;
         }
         this.editor.setText(value);
-        this.note = answer ?? "draft retained · Enter again when idle";
-        this.render();
+        // A timed note: the steps and the timer come back on their own.
+        this.flashNote(answer ?? "draft kept · Enter again when this task ends", 2400);
         return;
       }
       if (!value.trim()) { this.editor.setText(""); return; } // Enter on an empty box is not a transcript event.
