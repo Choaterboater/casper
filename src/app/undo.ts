@@ -186,7 +186,7 @@ export class TaskUndo {
     return { stat };
   }
 
-  /** "Next: 1 Undo · 2 Show diff" for a task that can be undone. */
+  /** "Next: 1 Show diff · 2 Undo" for a task that can be undone. */
   nextItems(task: TaskResult): { undo?: { label: string; command: string }; diff?: { label: string; command: string } } {
     if (!task.undo?.available || !task.receipt) return {};
     return { undo: { label: "Undo", command: `/undo ${task.receipt}` }, diff: { label: "Show diff", command: `/diff ${task.receipt}` } };
@@ -243,7 +243,7 @@ export class TaskUndo {
     const undo = receipt.undo;
     if (!undo.paths.length) { this.refuse(`Task ${n} changed no files Casper keeps copies of, so there is nothing to undo.`); return; }
     if (undo.undone) {
-      this.refuse(`Task ${n} is already undone.${this.host.interactive ? " 1 Redo" : ` casper /redo ${n} puts its files back.`}`);
+      this.refuse(`Task ${n} is already undone.${this.host.interactive ? " 2 Redo" : ` casper /redo ${n} puts its files back.`}`);
       this.offer(buildNextRow({ undo: { label: "Redo", command: `/redo ${n}` } }));
       return;
     }
@@ -347,7 +347,7 @@ export class TaskUndo {
     const setting = receipt.setting!;
     const n = receipt.n;
     if (kind === "undo" && setting.undone) {
-      this.refuse(`Task ${n} is already undone.${this.host.interactive ? " 1 Redo" : ` casper /redo ${n} saves it again.`}`);
+      this.refuse(`Task ${n} is already undone.${this.host.interactive ? " 2 Redo" : ` casper /redo ${n} saves it again.`}`);
       this.offer(buildNextRow({ undo: { label: "Redo", command: `/redo ${n}` } }));
       return;
     }

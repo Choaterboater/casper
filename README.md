@@ -252,7 +252,7 @@ it. What each version changed, in more detail: [RELEASE.md](docs/RELEASE.md).
   servers run without AI provider keys.
 
 **v0.2.17: undo and a real safety net.**
-- `Next: 1 Undo · 2 Show diff` after each task; `/undo`, `/redo`, `/diff` and `/receipt` work on
+- `Next: 1 Show diff · 2 Undo` after each task; `/undo`, `/redo`, `/diff` and `/receipt` work on
   any saved task, also after a restart and outside git. Undo never overwrites a file you changed
   since. [UNDO.md](docs/UNDO.md)
 - A shell sandbox on Linux (bubblewrap, socat and ripgrep: `sudo apt install bubblewrap socat ripgrep`) and macOS:

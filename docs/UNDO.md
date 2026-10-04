@@ -9,10 +9,11 @@ The receipt of a task that changed files ends with a row:
 
 ```
 ✓ Verified · test passed · changed app.py, tests/test_app.py
-Next: 1 Undo · 2 Show diff
+Next: 1 Show diff · 2 Undo
 ```
 
-Type `1` on the empty prompt to undo the task, or `2` to see its diff. Enter alone does nothing, and anything
+Type `1` on the empty prompt to see the task's diff, or `2` to undo it. 1 only shows something, so a
+stray `1` never undoes a task. Enter alone does nothing, and anything
 else you type is simply your next request. The row is gone once you type something else.
 
 A one-shot run ends with the commands instead:

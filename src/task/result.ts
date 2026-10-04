@@ -476,7 +476,7 @@ export function undoPathsShown(task: Pick<TaskResult, "undo">, undoNamed?: Reado
 }
 
 /** The receipt's last lines about undo: what it can't put back, why it is not available, and (one-shot) the commands.
- * The interactive receipt's "Next: 1 Undo · 2 Show diff" row is printed by the app. */
+ * The interactive receipt's "Next: 1 Show diff · 2 Undo" row is printed by the app. */
 function undoLines(task: TaskResult, options: ReceiptOptions, safe: (text: string) => string): string[] {
   const undo = task.undo;
   if (!undo) return [];

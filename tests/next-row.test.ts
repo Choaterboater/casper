@@ -11,10 +11,10 @@ afterAll(() => { if (ambientTerm === undefined) delete process.env.TERM; else pr
 const undo = { label: "Undo", command: "/undo" };
 const diff = { label: "Show diff", command: "/diff" };
 
-test("slots 1 and 2 are Undo and Show diff; other steps start at 3, in plain words", () => {
+test("slots 1 and 2 are Show diff and Undo (1, the safe one, only shows); other steps start at 3, in plain words", () => {
   const row = buildNextRow({ undo, diff, more: [{ label: "Add a test that proves the fix", command: "/suggestion prove-fix", note: "uses tokens" }] })!;
-  expect(row.line).toBe("Next: 1 Undo · 2 Show diff · 3 Add a test that proves the fix (uses tokens)");
-  expect([...row.keys]).toEqual([["1", "/undo"], ["2", "/diff"], ["3", "/suggestion prove-fix"]]);
+  expect(row.line).toBe("Next: 1 Show diff · 2 Undo · 3 Add a test that proves the fix (uses tokens)");
+  expect([...row.keys]).toEqual([["1", "/diff"], ["2", "/undo"], ["3", "/suggestion prove-fix"]]);
   // Without undo the numbers do not move: the same key always means the same step.
   expect(buildNextRow({ more: [{ label: "Open the page", command: "/pages" }] })!.line).toBe("Next: 3 Open the page");
   expect(buildNextRow({})).toBeUndefined();
@@ -42,10 +42,10 @@ test("plain terminal: after the row, a line that is just its number runs that st
   try {
     terminal.start();
     terminal.offerNext(buildNextRow({ undo, diff }));
-    expect(plain.output).toBe("Next: 1 Undo · 2 Show diff\n");
+    expect(plain.output).toBe("Next: 1 Show diff · 2 Undo\n");
     const first = terminal.readCommand();
     input.write("2\n");
-    expect(await first).toBe("/diff");
+    expect(await first).toBe("/undo");
     // The row is used up: the same number next time is an ordinary request.
     const second = terminal.readCommand();
     input.write("2\n");
@@ -92,10 +92,10 @@ test("rich terminal: one key on the empty prompt runs the step; any other key fi
   try {
     terminal.start();
     terminal.offerNext(buildNextRow({ undo, diff }));
-    await until((text) => Bun.stripANSI(text).includes("Next: 1 Undo · 2 Show diff"));
+    await until((text) => Bun.stripANSI(text).includes("Next: 1 Show diff · 2 Undo"));
     const first = terminal.readCommand();
     input.write("1");
-    expect(await first).toBe("/undo");
+    expect(await first).toBe("/diff");
 
     terminal.offerNext(buildNextRow({ undo, diff }));
     const second = terminal.readCommand();
@@ -129,12 +129,12 @@ test("rich terminal: the row never answers a question that is open", async () =>
   } finally { terminal.close(); input.destroy(); }
 });
 
-test("rich terminal: Enter on the empty prompt never picks from the row (not even Undo in slot 1)", async () => {
+test("rich terminal: Enter on the empty prompt never picks from the row (not even Show diff in slot 1)", async () => {
   const { input, terminal, until } = richTerminal();
   try {
     terminal.start();
     terminal.offerNext(buildNextRow({ undo, diff }));
-    await until((text) => Bun.stripANSI(text).includes("Next: 1 Undo · 2 Show diff"));
+    await until((text) => Bun.stripANSI(text).includes("Next: 1 Show diff · 2 Undo"));
     const first = terminal.readCommand();
     input.write("\r");
     input.write("x");

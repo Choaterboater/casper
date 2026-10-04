@@ -175,9 +175,9 @@ test("undo rewinds the conversation when nothing was said since; after a later r
   const place = await folder();
   const s = session(place, [edit("notes.py", "print('two')\n"), edit("b.py", "b = 1\n")]);
   try {
-    expect(await s.send("fix the greeting in notes.py")).toContain("Next: 1 Undo · 2 Show diff");
+    expect(await s.send("fix the greeting in notes.py")).toContain("Next: 1 Show diff · 2 Undo");
     const undone = await s.send("/undo");
-    expect(undone).toContain("✓ Undone — 1 file is back as it was before task 1: notes.py\n• Conversation rewound to before task 1.\nNext: 1 Redo\n");
+    expect(undone).toContain("✓ Undone — 1 file is back as it was before task 1: notes.py\n• Conversation rewound to before task 1.\nNext: 2 Redo\n");
     expect(s.rewinds).toEqual([[null, "turn-0"]]);
     await s.send("add b.py");
     await s.send("what does notes.py do?");
@@ -195,8 +195,8 @@ test("redo puts the task's files back; a second undo says it is already undone",
   try {
     await s.send("fix the greeting in notes.py");
     await s.send("/undo");
-    expect(await s.send("/undo 1")).toContain("Task 1 is already undone. 1 Redo\nNext: 1 Redo\n");
-    const redone = await s.send("1");
+    expect(await s.send("/undo 1")).toContain("Task 1 is already undone. 2 Redo\nNext: 2 Redo\n");
+    const redone = await s.send("2");
     expect(redone).toContain("✓ Redone — 1 file is back as task 1 left it: notes.py");
     expect(await readFile(path.join(place.project, "notes.py"), "utf8")).toBe("print('two')\n");
     expect(await s.send("/redo 1")).toContain("Task 1 is not undone, so there is nothing to redo.");
@@ -207,7 +207,7 @@ test("the row under the receipt does nothing on Enter; only the typed number run
   const place = await folder();
   const s = session(place, [edit("notes.py", "print('two')\n")]);
   try {
-    expect(await s.send("fix the greeting in notes.py")).toContain("Next: 1 Undo · 2 Show diff\n");
+    expect(await s.send("fix the greeting in notes.py")).toContain("Next: 1 Show diff · 2 Undo\n");
     // Enter on the empty prompt: nothing runs, and the row is used up.
     const from = s.output().length;
     s.input.write("\n");
@@ -462,7 +462,7 @@ test("an undo that put nothing back (you saved the file while Casper asked) can 
     const answered = await s.send("2");
     expect(answered).toContain("• Nothing was put back for task 1.");
     expect(answered).toContain("• Not put back: a.py (it changed just now; Casper left it as it is)");
-    expect(answered).not.toContain("Next: 1 Redo");
+    expect(answered).not.toContain("Next: 2 Redo");
     await writeFile(path.join(place.project, "a.py"), "a = 1\n");
     await writeFile(path.join(place.project, "notes.py"), "print('two')\n");
     const again = await s.send("/undo 1");
