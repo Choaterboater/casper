@@ -115,8 +115,9 @@ own SSH keys; see [SECURITY.md](SECURITY.md).
 
 ## Risky config lines in the receipt
 
-On by default. After a task changes config files (anything under a `configs/` folder, and
-`.cfg`, `.conf` and Junos `.set` files), the receipt lists each dangerous line the task
+On by default. After a task changes config files (anything under a `configs/` or
+`oxidized/` folder; `.cfg`, `.conf` and Junos `.set` files; and `.txt` backups and `.j2`,
+`.jinja` templates under `config/`, `configs/`, `backups/`, `oxidized/` or `templates/`), the receipt lists each dangerous line the task
 added and what it does; lines that were already there, and comment lines, are not listed.
 It is for reading: never a pass or a fail.
 
