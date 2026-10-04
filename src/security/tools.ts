@@ -173,7 +173,8 @@ export function toolArgs(id: SecurityToolId, context: ToolArgsContext): string[]
     case "ansible-lint":
       return ["--offline", "-f", "codeclimate", "--nocolor",
         ...(context.ansibleConfig ? ["-c", context.ansibleConfig] : []), ...(context.ansibleIgnore ? ["-i", context.ansibleIgnore] : []),
-        ...(context.ansibleTargets ?? [])];
+        // File names after "--", and "./" on a name starting with "-", so a file is never read as an option.
+        ...(context.ansibleTargets?.length ? ["--", ...context.ansibleTargets.map((file) => file.startsWith("-") ? `./${file}` : file)] : [])];
     case "mcp-scanner":
       if (!context.mcpToolsJson) throw new Error("mcp-scanner needs the server's tool list");
       return ["--analyzers", "yara", "--format", "raw", "static", "--tools", context.mcpToolsJson];
