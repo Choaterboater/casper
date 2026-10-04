@@ -5,6 +5,7 @@ import { ACCESS_TOOL, accessModelLines, parseAccessCheck, readOnlyLoginReason, w
 import { approvalNotes, guardArguments, hasNoPreview, isHidden, tightenSafety } from "../mcp/presets";
 import type { RuntimeTool } from "../runtime/types";
 import { redactPreview } from "../tui/format";
+import { scrubExactValues } from "../secrets/assignments";
 import { containsHiddenSecret, scrubText, scrubValue, SECRET_MARKER } from "../secrets/scrub";
 import { scrubNote, type ScrubOutcome } from "../secrets/netconan";
 import { DOCS_TOOL_NAMES, DOCS_TOOL_NOTE, docsPinned } from "../mcp/docs";
@@ -399,7 +400,7 @@ export class CapabilityBroker {
     const missingNote = ownNetwork && capability.tool.name === ACCESS_TOOL ? missingLoginsNote(raw) : undefined;
     if (capability.router && capability.tool.name === "find_tool") this.rememberHits(capability.descriptor.source, raw);
     // 7. Hide device secrets (passwords, keys, SNMP communities) before anything else reads the result.
-    const scrubbed = await this.scrub(raw, combined);
+    const scrubbed = await this.scrub(raw, combined, capability.descriptor.source);
     if (planMode(plan) === "preview") this.previews.set(this.previewSlot(capability, plan), { text: previewText(scrubbed.value), at: Date.now() });
     // 8. Bound: per-list limits, the next-page cursor kept, duplicate text dropped.
     const result = boundCapabilityResult(scrubbed.value, 16_384, 50, { mcp: true });
@@ -427,9 +428,16 @@ export class CapabilityBroker {
 
   /** The call already ran, so scrubbing never fails it: any problem (or an abort during netconan)
    * falls back to Casper's own rules. */
-  private async scrub(raw: unknown, signal: AbortSignal): Promise<ScrubOutcome<unknown>> {
-    try { return await this.scrubber.scrubValue(raw, signal); }
-    catch { return { ...scrubValue(raw), netconan: "failed" }; }
+  private async scrub(raw: unknown, signal: AbortSignal, server: string): Promise<ScrubOutcome<unknown>> {
+    // First the saved logins this server was started with (a Central client ID matches no pattern), then the shared rules.
+    let values: readonly string[] = [];
+    try { values = this.manager.loginValues(server); } catch { /* not connected any more */ }
+    const exact = values.length ? scrubValue(raw, (text) => scrubExactValues(text, values)) : { value: raw, hidden: 0, kinds: [] };
+    let outcome: ScrubOutcome<unknown>;
+    try { outcome = await this.scrubber.scrubValue(exact.value, signal); }
+    catch { outcome = { ...scrubValue(exact.value), netconan: "failed" }; }
+    if (!exact.hidden) return outcome;
+    return { ...outcome, hidden: outcome.hidden + exact.hidden, kinds: [...new Set([...exact.kinds, ...outcome.kinds])] };
   }
 
   /**
