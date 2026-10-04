@@ -116,7 +116,7 @@ is. Only the value is replaced.
 | AOS-S | `password manager`, `operator` or `port-access` values after `plaintext`, `sha1` or `sha-256`, `radius-server host ... key X`, `snmp-server community X` |
 | Junos (set and curly) | `encrypted-password`, `simple-password`, `authentication-key`, `authentication-password`, `privacy-password`, `pre-shared-key`, `md5 N key`, SNMP community names, and any `$9$...` value anywhere |
 | Cisco IOS / NX-OS / ASA | `enable secret` and `enable password`, `username ... secret` or `password`, `snmp-server community`, SNMPv3 `auth`/`priv`, `key-string`, `crypto isakmp key`, `pre-shared-key`, `message-digest-key`, `ntp authentication-key`, `wpa-psk`, `standby ... authentication`, `passwd` |
-| Any | PEM private keys; the word after `password`, `secret` or `passwd` at the start of a line or after a space (common words like `manager` or `none` are skipped); `$1$`/`$2a$`/`$5$`/`$6$`/`$8$`/`$y$` hashes after a password, secret or hash word |
+| Any | PEM private keys; the word after `password`, `secret` or `passwd` at the start of a line or after a space on the same line (common words like `manager` or `none`, the key words themselves and bare punctuation such as `=` or `|` are skipped); `$1$`/`$2a$`/`$5$`/`$6$`/`$8$`/`$y$` hashes after a password, secret or hash word |
 
 Left as they are, on purpose: `******`, SSH public keys, certificates, and
 hpe-networking-mcp's own `hpe_mcp_secret_<32 hex>` tokens. That server swaps those
