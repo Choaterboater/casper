@@ -312,10 +312,13 @@ export function resolveEnvironment(value: string): string {
 /**
  * The secret-like values a server is given, for hiding them in its output: every resolved env and
  * header value, each ${VAR} value they name, and ${VAR}-resolved argument values. Only values of 4+
- * characters (shorter ones would hide ordinary text). Missing variables are skipped.
+ * characters (shorter ones would hide ordinary text). Missing variables are skipped. `logins` are the saved
+ * network logins Casper adds at start (never part of the definition).
  */
-export function resolvedSecrets(definition: MCPServerDefinition): string[] {
+export function resolvedSecrets(definition: MCPServerDefinition, logins: readonly string[] = []): string[] {
   const values = new Set<string>();
+  // The saved network logins this server was started with (already only secrets and client IDs, 4+ characters).
+  for (const value of logins) values.add(value);
   const add = (value: string | undefined) => { if (value !== undefined && value.length >= 4) values.add(value); };
   const take = (value: string, whole: boolean) => {
     const named = references(value);

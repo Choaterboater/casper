@@ -121,6 +121,7 @@ import { refreshUpdateCheck, updateChecksOff, updateNotice } from "./update/noti
 import { createSessionSandbox, outsideWritesReceipt, runtimeShell, sandboxReceipt, sandboxStartupNotes, sandboxStatusLine, type SandboxHost } from "./app/sandbox";
 import { useSandbox, currentSandbox, type ShellSandbox, type ShellSandboxOptions } from "./sandbox/manager";
 import { SandboxStore } from "./sandbox/store";
+import { loginFile } from "./mcp/network/logins";
 import { namesNetworkProduct, runNetworkSetup, runNetworkUpdate, shouldOfferNetworkSetup, shouldOfferNetworkUpdate, type SetupHost } from "./mcp/network/setup";
 import type { RuntimeShell } from "./runtime/types";
 import { askBuildRequest, buildRequestNote, isEmptyFolder, newProjectFromQuestions, newProjectInEmptyFolder, offerMissingFolder, opened,
@@ -421,7 +422,7 @@ export class CasperApp {
     },
     // A child's file reads reach a model too: same scrubbing, same /secrets files switch (device
     // configs only; .env, credential files and secret env values are always hidden).
-    scrubToolOutput: (toolName, input, texts, signal) => scrubToolOutput(this.scrubber, toolName, input, texts, signal, { configs: this.scrubFiles }),
+    scrubToolOutput: (toolName, input, texts, signal) => scrubToolOutput(this.scrubber, toolName, input, texts, signal, { configs: this.scrubFiles, networkLoginFile: this.networkLoginFile() }),
     cache: () => this.projectContext?.cache,
     privatePaths: () => this.projectPrivatePaths(),
     // Inside tmux or iTerm2 each helper's steps show in the view-only steps pane; nowhere else.
@@ -550,6 +551,8 @@ export class CasperApp {
     this.mcpConsent = consent;
     this.mcp = new MCPManager(mcpConfiguration, {
       consent,
+      // Casper's network server starts with the logins saved in ~/.casper/network-logins.json.
+      homeDir: this.sessionHomeDir ?? os.homedir(),
       elicit: (question, signal) => this.answerServerQuestion(question, signal),
       onNote: (text) => { if (!this.closing) this.output.write(`${text}\n`); },
     });
@@ -924,7 +927,7 @@ export class CasperApp {
           beforeToolWait: (_toolName, signal) => this.spendGate(signal),
           // Config files and config-looking command output (/secrets files off stops these for this
           // session), plus .env, credential files and secret env values (always).
-          scrubToolOutput: (toolName, input, texts, signal) => scrubToolOutput(this.scrubber, toolName, input, texts, signal, { configs: this.scrubFiles }),
+          scrubToolOutput: (toolName, input, texts, signal) => scrubToolOutput(this.scrubber, toolName, input, texts, signal, { configs: this.scrubFiles, networkLoginFile: this.networkLoginFile() }),
           ...(this.shell ? { shell: this.shell } : {}),
           ...(context.cache ? { cache: context.cache } : {}),
           // The project's sandbox.denyRead (GreenCLI lists its data and log folders there): the file tools refuse them too.
@@ -2081,7 +2084,7 @@ export class CasperApp {
         this.commandSpent = { turns: result.turns ?? 0, tokens: result.usage?.tokens ?? null, estimatedCost: result.usage?.estimatedCost ?? null };
         return result;
       },
-      scrub: (toolName, input, texts, signal) => scrubToolOutput(this.scrubber, toolName, input, texts, signal, { configs: true }),
+      scrub: (toolName, input, texts, signal) => scrubToolOutput(this.scrubber, toolName, input, texts, signal, { configs: true, networkLoginFile: this.networkLoginFile() }),
     };
   }
 
@@ -2815,6 +2818,11 @@ export class CasperApp {
     if (!await shouldOfferNetworkSetup(host.homeDir, configured)) return;
     this.networkSetupOffered = true;
     await runNetworkSetup(host, { explicit: false });
+  }
+
+  /** ~/.casper/network-logins.json: its tokens are hidden in every tool output the AI reads. */
+  private networkLoginFile(): string {
+    return loginFile(this.sessionHomeDir ?? os.homedir());
   }
 
   /** One exact typed answer from the user, in the same one-at-a-time queue as approvals. */

@@ -33,7 +33,8 @@ the operating system, not a list of words:
   `~/.git-credentials`, `~/.npmrc`, `~/.pypirc`, `~/.pgpass`, `~/.claude.json`, `~/.mcp.json`,
   `~/.claude/.credentials.json`, `~/.terraform.d/credentials.tfrc.json`, `~/.config/hub`,
   `~/.password-store`, `~/.local/share/keyrings`, `~/Library/Keychains`, Casper's and Pi's login files
-  (`~/.casper/agent/auth.json`, `~/.pi/agent/auth.json`), `~/.casper/mcp-consent.key`, or Casper's own
+  (`~/.casper/agent/auth.json`, `~/.pi/agent/auth.json`), `~/.casper/mcp-consent.key`, your network logins
+  (`~/.casper/network-logins.json`), or Casper's own
   records in `~/.casper/projects` (your security approvals, lab answers, remembered hosts and undo copies).
   With the sandbox off or unable to run, a shell command that names one of these places
   (`cat ~/.ssh/config`, `$HOME/.aws/...`) is still refused before it runs. From v0.2.19 Casper reads the

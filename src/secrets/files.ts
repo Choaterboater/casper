@@ -68,6 +68,25 @@ export function loginFileValues(file: string): string[] {
   return values;
 }
 
+/**
+ * The logins in Casper's network login file (~/.casper/network-logins.json): every token, secret and client ID,
+ * 4 characters or longer (a short one is still a login). Addresses are left out. Read fresh each time, so a
+ * login you forget stops being hidden and a new one is hidden at once.
+ */
+export function networkLoginValues(file: string): string[] {
+  let data: unknown;
+  try { if (statSync(file).size > 1024 * 1024) return []; data = JSON.parse(readFileSync(file, "utf8")); } catch { return []; }
+  if (!data || typeof data !== "object" || Array.isArray(data)) return [];
+  const values = new Set<string>();
+  for (const product of Object.values(data)) {
+    if (!product || typeof product !== "object" || Array.isArray(product)) continue;
+    for (const [name, value] of Object.entries(product)) {
+      if (typeof value === "string" && value.length >= 4 && /(?:TOKEN|SECRET|CLIENT_ID)$/.test(name)) values.add(value);
+    }
+  }
+  return [...values].sort((a, b) => b.length - a.length);
+}
+
 export interface PlainScrubOptions {
   /** The text is a .env, INI or credential file: every secret-named value goes. */
   secretFile?: boolean;

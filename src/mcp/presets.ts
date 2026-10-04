@@ -49,6 +49,12 @@ export interface Preset {
   advice?: string;
   /** Call and connect limits. They are not safety settings and never part of the definition hash. */
   limits?: { callMs?: number; connectMs?: number };
+  /** Casper's own network server: the logins saved in ~/.casper/network-logins.json go into its start env
+   * (only when recognised by its definition, never by its tool list, and never for a project's server). */
+  logins?: true;
+  /** A call whose kinds are all "troubleshoot" runs without turning writes on: the server's own gate lets its
+   * hand-checked troubleshooting list through its read-only pin. */
+  troubleshootRunsPinned?: true;
 }
 
 // ---------------------------------------------------------------------------
@@ -256,6 +262,21 @@ const HPE_GATES = [
 const CANT_PIN_REMOTE = "it runs elsewhere";
 
 const TABLE: Preset[] = [
+  {
+    // casper-network-mcp, the server Casper sets up itself (Mist, Central, ClearPass behind one router).
+    // --read-only is its only write switch. No tighten: invoke_tool is a write, and the real tool's kind
+    // (its name words and find_tool's kind) makes risky calls ask every time; tightening it to destructive
+    // would take "Yes, for this session" away from every change. invoke_tool stays visible, so a change can
+    // reach the box that turns writes on. Before hpe-networking-mcp: both have find_tool.
+    id: "casper-network-mcp",
+    label: "Network",
+    matchDefinition: (definition) => mentions(definition, /casper-network-mcp|casper_network_mcp/),
+    toolSignature: ["find_tool", "invoke_read_tool", "invoke_tool", "access_check"],
+    pins: { env: {}, appendArgs: ["--read-only"] },
+    logins: true,
+    troubleshootRunsPinned: true,
+    limits: { callMs: 300_000 },
+  },
   {
     // hpe-networking-mcp. Recognised by what it runs, never by its name, because
     // another project uses the same name.

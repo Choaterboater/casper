@@ -82,7 +82,7 @@ export const RUNNING_CONFIG = [
 
 /** FIXTURE_ENV_DUMP=1 adds get_env: the argv and the HPE_MCP_/CENTRALMCP_/CLEARPASS_ env it was started with. */
 function envDump() {
-  const prefixes = ["HPE_MCP_", "CENTRALMCP_", "CLEARPASS_"];
+  const prefixes = ["HPE_MCP_", "CENTRALMCP_", "CLEARPASS_", "MIST_", "CENTRAL_"];
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => prefixes.some((prefix) => key.startsWith(prefix))));
   return { content: [{ type: "text" as const, text: JSON.stringify({ argv: process.argv.slice(2), env }) }] };
 }
