@@ -28,6 +28,25 @@ export type ToolSource =
   | { kind: "binary"; assets: Partial<Record<PlatformKey, BinaryAsset>> }
   | { kind: "uv-lock"; package: string; lock: string; lockName: string; python: string; entry: string };
 
+/** The hash-locked Python install every locked program shares (security tools and MCP servers). */
+export type UvLockSource = Extract<ToolSource, { kind: "uv-lock" }>;
+
+/**
+ * A program Casper installs from a hash lock into one folder with no version in its name,
+ * ~/.casper/tools/<id>/, so a command saved elsewhere (an MCP server's entry) never goes stale. A new
+ * version replaces the folder in place; the marker inside says which version is there.
+ */
+export interface LockedSpec {
+  id: string;
+  label: string;
+  version: string;
+  source: UvLockSource;
+  /** Roughly how much disk the install takes, for the question. */
+  approxMB: number;
+  /** Where the install downloads from. */
+  hosts: string[];
+}
+
 export interface SecurityToolSpec {
   id: SecurityToolId;
   /** The name shown in the report ("ruff S", not "ruff"). */
