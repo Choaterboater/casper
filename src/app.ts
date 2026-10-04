@@ -698,7 +698,7 @@ export class CasperApp {
     }
     const resolved = byLabel.get(choice) ?? path.resolve(cwd, choice.replace(/^~(?=\/|$)/, home));
     const relative = path.relative(path.resolve(base), path.resolve(resolved));
-    if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    if (isOutside(relative)) {
       this.output.write(`[folder] ${terminalText(choice)} is outside ${fromHome ? "your home directory" : "the folder you opened"}; staying in ${folderName}.\n`);
       return cwd;
     }
@@ -2587,7 +2587,7 @@ export class CasperApp {
       browserSignal: this.commandAbort?.signal,
       services: { declared: Object.keys(this.projectContext?.services ?? {}).length > 0, live: this.services?.live({ detected: false }) ?? false },
       serviceTool: () => serviceTool(() => this.serviceManager(), this.commandAbort?.signal, () => this.smokeTask,
-        this.shell?.approve ? (command, signal) => this.shell!.approve!(command, signal) : undefined),
+        this.shell?.approve ? (command, signal, options) => this.shell!.approve!(command, signal, options) : undefined),
       offered: this.offeredTools,
     });
     if (this.closing) return;

@@ -167,7 +167,9 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, store: Sa
       return `Not done: ${decision === "no" ? writeDeclined(show(offer.target)) : writeCantAsk(show(offer.target))}`;
     },
     wroteOutside(absolute) { sandbox.noteOutsideWrite(absolute); },
-    async approve(command, signal) {
+    async approve(command, signal, options) {
+      // The host question already showed this command and you said yes, like bash's own start after a failed sandbox.
+      if (options?.reached) return remoteTargets(command, sandbox.home).length ? undefined : shell.approve!(command, signal);
       const remote = await reach(command, signal);
       if (remote.refused) return remote.refused;
       if (!sandbox.asksFirst) return undefined;
