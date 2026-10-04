@@ -15,7 +15,9 @@ import {
 import { toolLabel } from "./labels";
 import { loginMissing } from "../mcp/network/ask-login";
 import type { NetworkProduct } from "../mcp/network/logins";
-import { asksEveryTime, isRiskyKind, KIND_TEXT, planKinds, type ChangeKind } from "./kinds";
+import {
+  asksEveryTime, hitKindsFrom, isRiskyKind, KIND_TEXT, MAX_HITS_PER_SERVER, planKinds, riskier, withHitKinds, type ChangeKind, type RouterHit,
+} from "./kinds";
 import { boundCapabilityResult, capabilityErrorResult, NotExecutedError, OutcomeUnknownError, type BoundedCapabilityResult } from "./result";
 import { indexWords, termScore, tokenize } from "./search";
 import type { CompiledValidator } from "./validate";
@@ -174,6 +176,10 @@ export class CapabilityBroker {
   /** Told when a change runs on the user's "Yes, for this session" without a box (for the transcript). */
   private readonly onSessionCovered?: (server: string, realTool: string) => void;
   private readonly onLoginMissing?: LoginMissingHandler;
+  /** What each router server's find_tool said about its inner tools (kind, product), per server. Kept while the
+   * server's definition stays the same, so the restart that turns writes on keeps them; a changed definition or a
+   * server that is gone starts afresh. At most MAX_HITS_PER_SERVER names a server. */
+  private readonly hits = new Map<string, { definition: string; tools: Map<string, RouterHit> }>();
   constructor(private readonly manager: MCPManager, private readonly confirm?: ConfirmCapability,
     options: { writesGate?: boolean; scrubber?: ResultScrubber; onSessionCovered?: (server: string, realTool: string) => void; confirmKind?: ConfirmKind;
       onAllowAll?: (server: string, realTool: string) => void; onAllowAllStart?: (server: string) => void; onLoginMissing?: LoginMissingHandler } = {}) {
@@ -289,11 +295,12 @@ export class CapabilityBroker {
     // confirm/force set to true or a preview switch set to false asks even for a read tool.
     const notes = approvalNotes(policy.match, capability.tool);
     const noPreview = hasNoPreview(policy.match, capability.tool);
-    const plan = buildPlan({
+    // Each routed tool carries the kind the server's find_tool gave it: it can only make the call stricter.
+    const plan = withHitKinds(buildPlan({
       server: capability.descriptor.source, tool: capability.tool.name, label: capability.descriptor.safety,
       schema: capability.tool.inputSchema, arguments: frozenArgs,
       ...(notes.length || noPreview ? { hint: { ...(notes.length ? { executeNote: notes.join(" ") } : {}), ...(noPreview ? { noPreview } : {}) } } : {}),
-    });
+    }), this.hitKinds(capability.descriptor.source));
     const label = planLabel(plan);
     // A router call is judged by the real tools it runs: a write behind a read router is refused
     // like the write tool itself while writes are off (or for a read-only login).
@@ -326,7 +333,11 @@ export class CapabilityBroker {
     // Approved on a server whose writes are off right now (read fresh: the person may have turned them on while the
     // box was open): turn them on (it restarts without its read-only pins once its calls finish) before the change
     // runs. Only the call that turned them on, and only for "Yes, this once", turns them off again, on every way out.
-    const turnedOn = Boolean(answer) && label !== "read" && this.writesGate && this.writes(this.manager.policy(plan.server)) === "off";
+    // A troubleshooting check on a server whose own gate lets its checked list through the read-only pin runs pinned:
+    // the box still asked, but writes stay off, so a show command never restarts the server twice.
+    const pinnedCheck = Boolean(policy.match?.preset.troubleshootRunsPinned) && label !== "destructive"
+      && planKinds(plan, capability.tool).every((kind) => kind === "troubleshoot");
+    const turnedOn = Boolean(answer) && label !== "read" && !pinnedCheck && this.writesGate && this.writes(this.manager.policy(plan.server)) === "off";
     let raw: unknown;
     try {
       if (turnedOn) await this.manager.setWrites(plan.server, true);
@@ -359,6 +370,7 @@ export class CapabilityBroker {
       const text = await this.onLoginMissing!(capability.descriptor.source, login, combined);
       return { isError: true, executed: true, summary: text, truncated: false, originalBytes: Buffer.byteLength(text) };
     }
+    if (capability.router && capability.tool.name === "find_tool") this.rememberHits(capability.descriptor.source, raw);
     // 7. Hide device secrets (passwords, keys, SNMP communities) before anything else reads the result.
     const scrubbed = await this.scrub(raw, combined);
     if (planMode(plan) === "preview") this.previews.set(this.previewSlot(capability, plan), { text: previewText(scrubbed.value), at: Date.now() });
@@ -538,6 +550,43 @@ export class CapabilityBroker {
   }
 
   private writes(policy: ServerPolicy): "off" | "on" { return this.writesGate ? policy.writes : "on"; }
+
+  /** The definition a server's find_tool kinds belong to. */
+  private definitionKey(server: string): string {
+    try { return hash(JSON.stringify(this.manager.definition(server))); } catch { return ""; }
+  }
+
+  /** The find_tool hits kept for this server, or none when its definition changed since. */
+  private hitsFor(server: string): Map<string, RouterHit> | undefined {
+    const kept = this.hits.get(server);
+    if (!kept) return undefined;
+    if (kept.definition !== this.definitionKey(server)) { this.hits.delete(server); return undefined; }
+    return kept.tools;
+  }
+
+  /** The kind the server's find_tool gave each inner tool on this server. */
+  hitKinds(server: string): Map<string, ChangeKind> {
+    return new Map([...this.hitsFor(server) ?? []].map(([name, hit]) => [name, hit.kind]));
+  }
+
+  /** The product the server's find_tool named for an inner tool ("mist"), when it named one Casper knows. */
+  hitProduct(server: string, tool: string): RouterHit["product"] {
+    return this.hitsFor(server)?.get(tool)?.product;
+  }
+
+  /** Keep a find_tool result's kinds. A name seen again keeps the riskier kind; past the limit, the oldest go. */
+  private rememberHits(server: string, raw: unknown): void {
+    const found = hitKindsFrom(raw);
+    if (!found.size) return;
+    let tools = this.hitsFor(server);
+    if (!tools) { tools = new Map(); this.hits.set(server, { definition: this.definitionKey(server), tools }); }
+    for (const [name, hit] of found) {
+      const prev = tools.get(name);
+      tools.delete(name);
+      tools.set(name, prev ? { kind: riskier(prev.kind, hit.kind), ...(hit.product ?? prev.product ? { product: hit.product ?? prev.product! } : {}) } : hit);
+    }
+    while (tools.size > MAX_HITS_PER_SERVER) tools.delete(tools.keys().next().value!);
+  }
 
   /** The same hiding rule as sync(), applied to the label a call is judged by (a router's real tools). */
   private refuseByPolicy(capability: Capability, label: CapabilitySafety): void {

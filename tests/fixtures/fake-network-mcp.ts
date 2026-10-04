@@ -10,7 +10,10 @@ import { CallToolRequestSchema, ListToolsRequestSchema, type Tool } from "@model
  *
  * FAKE_REACH: JSON per product, what the login itself can do ({access, can_change}), reported whether or not
  *   --read-only is set. FAKE_CALLS_FILE: one line per start and per call. FAKE_INVENT_PRODUCT: login_missing
- *   names that product instead.
+ *   names that product instead. FAKE_HITS: find_tool's hits ([{name, product, summary, kind, label}]), sent the way
+ *   the real server's SDK sends a list: one text block per hit, and structuredContent {result: hits}.
+ * Like the real server's gate, --read-only refuses changes but lets the listed troubleshooting tools through
+ *   (FAKE_TROUBLESHOOT: comma-separated names; default cx_show, cx_ping).
  */
 const readOnly = process.argv.includes("--read-only");
 const calls = process.env.FAKE_CALLS_FILE;
@@ -50,12 +53,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const args = (request.params.arguments ?? {}) as Record<string, unknown>;
   log(`call ${request.params.name} ${JSON.stringify(args)}`);
   if (request.params.name === "access_check") return accessCheck();
-  if (request.params.name === "find_tool") return text({ hits: JSON.parse(process.env.FAKE_HITS ?? "[]") });
+  if (request.params.name === "find_tool") {
+    const hits = JSON.parse(process.env.FAKE_HITS ?? "[]") as unknown[];
+    return { content: hits.map((hit) => ({ type: "text" as const, text: JSON.stringify(hit) })), structuredContent: { result: hits } };
+  }
   const name = typeof args.name === "string" ? args.name : "";
   const product = name.split("_")[0]!;
   if (process.env.FAKE_INVENT_PRODUCT) return text({ error: "login_missing", product: process.env.FAKE_INVENT_PRODUCT });
   if (LOGIN[product] && !hasLogin(product)) return text({ error: "login_missing", product });
-  if (request.params.name === "invoke_tool" && readOnly) return text({ error: "This server is read-only. Nothing was sent." });
+  const troubleshooting = (process.env.FAKE_TROUBLESHOOT ?? "cx_show,cx_ping").split(",");
+  if (request.params.name === "invoke_tool" && readOnly && !troubleshooting.includes(name)) return text({ error: "This server is read-only. Nothing was sent." });
   return text({ ok: true, tool: name });
 });
 await server.connect(new StdioServerTransport());

@@ -5,6 +5,8 @@
  * server's `_meta["casper/change-kind"]` and Casper's own word lists.
  */
 import type { MCPTool } from "../mcp/manager";
+import { isRecord } from "../mcp/config";
+import { isNetworkProduct, type NetworkProduct } from "../mcp/network/logins";
 import type { ApprovalPlan } from "./approval";
 import { nameLabel, toolWords, type CapabilitySafety } from "./labels";
 
@@ -63,15 +65,72 @@ export function changeKind(tool: Pick<MCPTool, "name" | "_meta">, label: Capabil
   return declared;
 }
 
-/** True when the call makes a risky or disruptive kind: it asks every time, with no "for this session" answer.
- * Pass the tool so a direct call's server tag counts. */
-export function asksEveryTime(plan: ApprovalPlan, tool?: Pick<MCPTool, "_meta">): boolean {
-  return planKinds(plan, tool).some((kind) => isRiskyKind(kind) || kind === "disruptive");
+/** The riskier of two kinds, in CHANGE_KINDS order (read < troubleshoot < config < disruptive < firmware < delete < admin). */
+export function riskier(a: ChangeKind, b: ChangeKind): ChangeKind {
+  return CHANGE_KINDS.indexOf(b) > CHANGE_KINDS.indexOf(a) ? b : a;
 }
 
-/** The kinds a planned call makes: each real tool behind a router, else the tool itself. */
-export function planKinds(plan: ApprovalPlan, tool?: Pick<MCPTool, "_meta">): ChangeKind[] {
+/** True when the call makes a risky or disruptive kind: it asks every time, with no "for this session" answer.
+ * Pass the tool so a direct call's server tag counts, and the server's find_tool kinds for a routed call. */
+export function asksEveryTime(plan: ApprovalPlan, tool?: Pick<MCPTool, "_meta">, hitKinds?: ReadonlyMap<string, ChangeKind>): boolean {
+  return planKinds(plan, tool, hitKinds).some((kind) => isRiskyKind(kind) || kind === "disruptive");
+}
+
+/**
+ * The kinds a planned call makes: each real tool behind a router, else the tool itself. A routed tool's kind is the
+ * riskier of its name words and the kind the server's find_tool gave it (`hitKinds`, or the kind the broker put on
+ * the routed call): a server can raise a tool's risk, never lower it, and a declared `read` never counts, because a
+ * routed call that reaches the box is a change.
+ */
+export function planKinds(plan: ApprovalPlan, tool?: Pick<MCPTool, "_meta">, hitKinds?: ReadonlyMap<string, ChangeKind>): ChangeKind[] {
   // A router call is a change whatever its inner name reads as (invite_glp_user reads as a read): the words decide.
-  if (plan.routed.length > 0) return plan.routed.map((call) => nameLabel(call.name) === "diagnostic" ? "troubleshoot" : wordKind(call.name));
+  if (plan.routed.length > 0) return plan.routed.map((call) => {
+    const own = nameLabel(call.name) === "diagnostic" ? "troubleshoot" : wordKind(call.name);
+    const hit = hitKinds?.get(call.name) ?? call.kind;
+    return isChangeKind(hit) && hit !== "read" ? riskier(own, hit) : own;
+  });
   return [changeKind({ name: plan.tool, ...(tool?._meta ? { _meta: tool._meta } : {}) }, plan.label)];
+}
+
+/** What a router's find_tool said about one inner tool: its kind and, when it names one Casper knows, its product. */
+export interface RouterHit { kind: ChangeKind; product?: NetworkProduct }
+/** At most this many find_tool names are kept per server. */
+export const MAX_HITS_PER_SERVER = 500;
+
+/**
+ * The kinds in a find_tool result: `[{name, kind, product, …}]`, as the server's SDK sends a list (one text block per
+ * hit, or structuredContent `{result: [...]}`), or `{hits: [...]}`. A kind that isn't one of Casper's is left out;
+ * so is a product Casper doesn't know.
+ */
+export function hitKindsFrom(raw: unknown): Map<string, RouterHit> {
+  const items: unknown[] = [];
+  const take = (value: unknown) => {
+    if (Array.isArray(value)) items.push(...value);
+    else if (isRecord(value) && Array.isArray(value.result)) items.push(...value.result);
+    else if (isRecord(value) && Array.isArray(value.hits)) items.push(...value.hits);
+    else if (isRecord(value)) items.push(value);
+  };
+  if (isRecord(raw) && raw.structuredContent !== undefined) take(raw.structuredContent);
+  else if (isRecord(raw) && Array.isArray(raw.content)) for (const block of raw.content) {
+    if (!isRecord(block) || block.type !== "text" || typeof block.text !== "string") continue;
+    try { take(JSON.parse(block.text)); } catch { /* not a hit */ }
+  }
+  const hits = new Map<string, RouterHit>();
+  for (const item of items) {
+    if (!isRecord(item) || typeof item.name !== "string" || !item.name || item.name.length > 200 || !isChangeKind(item.kind)) continue;
+    const prev = hits.get(item.name);
+    const kind = prev ? riskier(prev.kind, item.kind) : item.kind;
+    hits.set(item.name, { kind, ...(isNetworkProduct(item.product) ? { product: item.product } : prev?.product ? { product: prev.product } : {}) });
+    if (hits.size >= MAX_HITS_PER_SERVER) break;
+  }
+  return hits;
+}
+
+/** The plan with each routed call carrying the kind the server's find_tool gave it, so the box and planLabel see it. */
+export function withHitKinds(plan: ApprovalPlan, hitKinds: ReadonlyMap<string, ChangeKind>): ApprovalPlan {
+  if (!plan.routed.some((call) => hitKinds.has(call.name))) return plan;
+  return { ...plan, routed: plan.routed.map((call) => {
+    const kind = hitKinds.get(call.name);
+    return kind && isChangeKind(kind) ? { ...call, kind } : call;
+  }) };
 }
