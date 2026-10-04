@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import os from "node:os";
 import path from "node:path";
 import {
-  REFERENCE_ADD_PROMPT, catalogListText, cloneCommands, planReferenceAdd, runReferenceAdd, SPEC_REPOS, type ReferenceAddHost,
+  catalogListText, cloneCommands, planReferenceAdd, runReferenceAdd, SPEC_REPOS, type ReferenceAddHost,
 } from "../src/references/catalog";
 import { addReferenceSource, discoverReferenceConfiguration } from "../src/references/config";
 import { ReferenceLibrary } from "../src/references/library";
@@ -107,15 +107,16 @@ test("addReferenceSource creates ~/.casper/references.yaml when it is missing an
 });
 
 test("the catalog lists the spec repos in plain words", () => {
-  expect(SPEC_REPOS.map((entry) => entry.id)).toEqual(["mist-openapi", "junos-yang", "pycentral", "pyaoscx", "pyclearpass", "mistapi", "junos-pyez"]);
+  // mist-openapi is gone: the repo no longer has the folder it fetched, so it gave nothing to search.
+  expect(SPEC_REPOS.map((entry) => entry.id)).toEqual(["junos-yang", "pycentral", "pyaoscx", "pyclearpass", "mistapi", "junos-pyez"]);
+  expect(planReferenceAdd("mist-openapi", undefined, "/h")).toMatchObject({ error: expect.stringContaining("Unknown name: mist-openapi") });
   expect(catalogListText()).toBe([
-    "mist-openapi  Mist API spec (MIT)",
-    "junos-yang    Junos YANG models, one release (needs a release, e.g. 23.4)",
-    "pycentral     Aruba Central Python SDK (MIT)",
-    "pyaoscx       AOS-CX Python SDK, REST API (Apache-2.0)",
-    "pyclearpass   ClearPass Python SDK, REST API (MIT)",
-    "mistapi       Mist API Python SDK (community) (MIT)",
-    "junos-pyez    Junos PyEZ Python library (Apache-2.0)",
+    "junos-yang   Junos YANG models, one release (needs a release, e.g. 23.4)",
+    "pycentral    Aruba Central Python SDK (MIT)",
+    "pyaoscx      AOS-CX Python SDK, REST API (Apache-2.0)",
+    "pyclearpass  ClearPass Python SDK, REST API (MIT)",
+    "mistapi      Mist API Python SDK (community) (MIT)",
+    "junos-pyez   Junos PyEZ Python library (Apache-2.0)",
   ].join("\n"));
 });
 
@@ -164,44 +165,50 @@ test("junos-yang needs a release; the clone is sparse, shallow and runs no hooks
   expect(request.plan.commands[1]).toEqual(["git", "-c", "core.hooksPath=/dev/null", "-C", "/h/.casper/reference-repos/junos-yang-23.4",
     "sparse-checkout", "set", "--no-cone", "/23.4/*/junos/conf/", "/23.4/*/common/"]);
   expect(request.plan.source).toMatchObject({ paths: ["23.4"], maxFileBytes: 4_194_304 });
-  const mist = SPEC_REPOS.find((entry) => entry.id === "mist-openapi")!;
-  expect(cloneCommands(mist, "/d")[1]).not.toContain("mist.openapi.json");
+  const pyez = SPEC_REPOS.find((entry) => entry.id === "junos-pyez")!;
+  expect(cloneCommands(pyez, "/d")[0]).toContain("--depth");
 });
 
-function host(answer: boolean, code = 0) {
+function host(answer: string | undefined, code = 0, reload?: () => Promise<void>) {
   const lines: string[] = [];
   const calls: string[][] = [];
   const prompts: string[] = [];
   const value: ReferenceAddHost = {
     print: (line) => { lines.push(line); },
-    confirmExact: async (prompt) => { prompts.push(prompt); return answer; },
+    choose: async (preview, question, choices) => { prompts.push(`${preview}${question}`); return answer !== undefined && choices.includes(answer) ? answer : answer === undefined ? undefined : "no"; },
     runGit: async (argv) => { calls.push(argv); return { code }; },
+    ...(reload ? { reload } : {}),
   };
   return { value, lines, calls, prompts };
 }
 
-test("/references add pycentral: nothing is downloaded or written unless the user types yes", async () => {
+test("/references add pycentral: nothing is downloaded or written unless the user picks 2 Download", async () => {
   const { home, config } = await fixture();
   await writeFile(config, "references: {}\n");
-  const no = host(false);
+  const no = host("1");
   expect(await runReferenceAdd("pycentral", undefined, home, no.value)).toBe(false);
   expect(no.calls).toEqual([]);
-  expect(no.prompts).toEqual([REFERENCE_ADD_PROMPT]);
+  expect(no.prompts).toEqual(["Download pycentral?\n  1 No\n  2 Download\nType 1 or 2: "]);
+  const enter = host("no");
+  expect(await runReferenceAdd("pycentral", undefined, home, enter.value)).toBe(false);
+  expect(enter.calls).toEqual([]);
   expect(no.lines[0]).toBe("Will run: git -c core.hooksPath=/dev/null clone --depth 1 --filter=blob:none --sparse https://github.com/aruba/pycentral.git ~/.casper/reference-repos/pycentral");
   expect(await readFile(config, "utf8")).toBe("references: {}\n");
 
-  const yes = host(true);
+  let reloaded = 0;
+  const yes = host("2", 0, async () => { reloaded++; });
   expect(await runReferenceAdd("pycentral", undefined, home, yes.value)).toBe(true);
+  expect(reloaded).toBe(1);
   const request = planReferenceAdd("pycentral", undefined, home);
   if (!("plan" in request)) throw new Error(request.error);
   expect(yes.calls).toEqual(request.plan.commands); // what was shown is what ran, argv only
   expect(yes.lines).toContain("Downloading (up to 5 minutes; Ctrl+C stops it)...");
   expect(no.lines).not.toContain("Downloading (up to 5 minutes; Ctrl+C stops it)...");
-  expect(yes.lines.at(-1)).toBe("Added pycentral to ~/.casper/references.yaml. Restart Casper to search it.");
+  expect(yes.lines.at(-1)).toBe("Added pycentral to ~/.casper/references.yaml. The AI can search it now.");
   const { discovered } = await library(home);
   expect(discovered.sources.map((entry) => entry.id)).toEqual(["pycentral"]);
 
-  const again = host(true);
+  const again = host("2");
   expect(await runReferenceAdd("pycentral", undefined, home, again.value)).toBe(false);
   expect(again.lines).toEqual(["pycentral is already in ~/.casper/references.yaml. Nothing changed."]);
   expect(again.calls).toEqual([]);
@@ -210,25 +217,26 @@ test("/references add pycentral: nothing is downloaded or written unless the use
 test("/references add: a failed download adds nothing", async () => {
   const { home, config } = await fixture();
   await writeFile(config, "references: {}\n");
-  const failed = host(true, 128);
+  const failed = host("2", 128);
   expect(await runReferenceAdd("pycentral", undefined, home, failed.value)).toBe(false);
   expect(failed.lines.at(-1)).toBe("Download failed (git exit 128). Nothing was added.");
   expect(await readFile(config, "utf8")).toBe("references: {}\n");
 });
 
-test("/references add mist-openapi points at lookup_api; no name lists the catalog", async () => {
+test("/references add tips point at Casper's own network server; no name lists the catalog", async () => {
   const { home } = await fixture();
-  const mist = host(true);
-  await runReferenceAdd("mist-openapi", undefined, home, mist.value);
-  expect(mist.lines.at(-1)).toBe("Tip: for exact Mist endpoints and fields, lookup_api in hpe-networking-mcp is faster and complete.");
-  const cx = host(true);
+  const mist = host("2");
+  await runReferenceAdd("mistapi", undefined, home, mist.value);
+  expect(mist.lines.at(-1)).toBe("Tip: mistapi is a community SDK. Casper's network server has a tool for every Mist API call (/mcp setup network).");
+  expect(mist.lines.join("\n")).not.toContain("hpe-networking-mcp");
+  const cx = host("2");
   await runReferenceAdd("pyaoscx", undefined, home, cx.value);
   expect(cx.lines.at(-2)).toBe("Added pyaoscx to ~/.casper/references.yaml. Restart Casper to search it.");
   expect(cx.lines.at(-1)).toBe("Tip: the SDK covers some firmware versions only. Your switch's own REST API reference is the final word for its firmware.");
-  const cppm = host(true);
+  const cppm = host("2");
   await runReferenceAdd("pyclearpass", undefined, home, cppm.value);
   expect(cppm.lines.at(-1)).toBe("Tip: your ClearPass server's API Explorer is the final word for its version.");
-  const list = host(true);
+  const list = host("2");
   await runReferenceAdd(undefined, undefined, home, list.value);
   expect(list.lines).toEqual([catalogListText()]);
 });

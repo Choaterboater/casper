@@ -86,6 +86,9 @@ export function allowKindsChoices(): string[] {
 /** After picking kinds in /mcp allow: this session, or remembered for this server's exact definition. */
 export const MCP_ALLOW_KEEP_CHOICES = ["This session", "Remember"] as const;
 
+/** /references add <name>: only "2" runs the shown git commands. */
+export const REFERENCE_ADD_CHOICES = ["No", "Download"] as const;
+
 /** /lab import <file>: only "2" adds the hosts to your lab list. */
 export const LAB_IMPORT_CHOICES = ["No", "Add them"] as const;
 

@@ -92,33 +92,43 @@ test("an MCP result the model reads through the app has its secrets hidden", asy
   expect(seen).toContain("4 secrets hidden before the AI saw this");
 });
 
-test("/references add lists the spec repos; a no downloads nothing; a yes runs the shown git commands and adds the entry", async () => {
+test("/references add lists the spec repos; 1 No downloads nothing; 2 Download runs the shown git commands, adds the entry and searches it with no restart", async () => {
   const { home, project } = await fixture();
   const runs: string[][] = [];
-  const runGit = async (argv: string[]) => { runs.push(argv); return { code: 0 }; };
-  const list = await session(home, project, ["/references add", "/references add junos-yang"], { runGit });
-  expect(list.output).toContain("mist-openapi  Mist API spec (MIT)");
-  expect(list.output).toContain("pycentral     Aruba Central Python SDK (MIT)");
+  const runGit = async (argv: string[]) => {
+    runs.push(argv);
+    // The clone makes the folder, so the new source can be listed at once.
+    if (argv.includes("clone")) await mkdir(argv.at(-1)!, { recursive: true });
+    return { code: 0 };
+  };
+  const list = await session(home, project, ["/references", "/references add", "/references add junos-yang"], { runGit });
+  expect(list.output).toContain("[references] None yet. /references add lists repos.");
+  expect(list.output).not.toContain("mist-openapi");
+  expect(list.output).toContain("pycentral    Aruba Central Python SDK (MIT)");
   expect(list.output).toContain("Usage: /references add junos-yang <release>, for example 23.4");
 
-  const declined = await session(home, project, ["/references add pycentral"], { runGit, yes: ["no"] });
+  const declined = await session(home, project, ["/references add pycentral"], { runGit, answers: ["1"] });
   expect(declined.output).toContain("Will run: git -c core.hooksPath=/dev/null clone --depth 1 --filter=blob:none --sparse https://github.com/aruba/pycentral.git ~/.casper/reference-repos/pycentral");
-  expect(declined.output).toContain("Download now? Type yes: ");
+  expect(declined.output).toContain("Download pycentral?\n  1 No\n  2 Download\nType 1 or 2: ");
+  expect(declined.output).not.toContain("Type yes");
   expect(declined.output).toContain("Nothing downloaded.");
   expect(runs).toEqual([]);
   expect(await Bun.file(path.join(home, ".casper/references.yaml")).exists()).toBe(false);
 
-  const added = await session(home, project, ["/references add pycentral", "/references add pycentral"], { runGit });
+  const added = await session(home, project, ["/references add pycentral", "/references", "/references add pycentral"], { runGit, answers: ["2"] });
   expect(runs[0]).toEqual(["git", "-c", "core.hooksPath=/dev/null", "clone", "--depth", "1", "--filter=blob:none", "--sparse",
     "https://github.com/aruba/pycentral.git", path.join(home, ".casper/reference-repos/pycentral")]);
-  expect(added.output).toContain("Added pycentral to ~/.casper/references.yaml. Restart Casper to search it.");
+  expect(added.output).toContain("Added pycentral to ~/.casper/references.yaml. The AI can search it now.");
+  expect(added.output).not.toContain("Restart Casper");
+  // The next /references in the same session already lists it.
+  expect(added.output).toMatch(/> \[references\] [^>]*"pycentral"/);
   expect(added.output).toContain("pycentral is already in ~/.casper/references.yaml. Nothing changed.");
   expect(await readFile(path.join(home, ".casper/references.yaml"), "utf8")).toContain("pycentral:");
 });
 
 test("/references add says so when git fails, and adds nothing", async () => {
   const { home, project } = await fixture();
-  const { output } = await session(home, project, ["/references add mist-openapi"], { runGit: async () => ({ code: 128 }) });
+  const { output } = await session(home, project, ["/references add pyaoscx"], { runGit: async () => ({ code: 128 }), answers: ["2"] });
   expect(output).toContain("Download failed (git exit 128). Nothing was added.");
   expect(await Bun.file(path.join(home, ".casper/references.yaml")).exists()).toBe(false);
 });

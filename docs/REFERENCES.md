@@ -80,24 +80,27 @@ writes nothing to memory.
 
 ```text
 /references add
-mist-openapi  Mist API spec (MIT)
-junos-yang    Junos YANG models, one release (needs a release, e.g. 23.4)
-pycentral     Aruba Central Python SDK (MIT)
-pyaoscx       AOS-CX Python SDK, REST API (Apache-2.0)
-pyclearpass   ClearPass Python SDK, REST API (MIT)
-mistapi       Mist API Python SDK (community) (MIT)
-junos-pyez    Junos PyEZ Python library (Apache-2.0)
+junos-yang   Junos YANG models, one release (needs a release, e.g. 23.4)
+pycentral    Aruba Central Python SDK (MIT)
+pyaoscx      AOS-CX Python SDK, REST API (Apache-2.0)
+pyclearpass  ClearPass Python SDK, REST API (MIT)
+mistapi      Mist API Python SDK (community) (MIT)
+junos-pyez   Junos PyEZ Python library (Apache-2.0)
 
 /references add pycentral
 Will run: git -c core.hooksPath=/dev/null clone --depth 1 --filter=blob:none --sparse https://github.com/aruba/pycentral.git ~/.casper/reference-repos/pycentral
 Will run: git -c core.hooksPath=/dev/null -C ~/.casper/reference-repos/pycentral sparse-checkout set pycentral docs
-Download now? Type yes:
+Download pycentral?
+  1 No
+  2 Download
+Type 1 or 2:
 Downloading (up to 5 minutes; Ctrl+C stops it)...
-Added pycentral to ~/.casper/references.yaml. Restart Casper to search it.
+Added pycentral to ~/.casper/references.yaml. The AI can search it now.
 ```
 
 - **You approve the exact commands.** Casper shows the git commands first and runs
-  them only after you type `yes`. Never in one-shot runs, never from the AI.
+  them only after you pick `2 Download` (Enter is No). Never in one-shot runs, never
+  from the AI.
 - **How git runs.** Without a shell, with repo hooks off and password prompts off,
   for at most 5 minutes. The clone is shallow (latest commit only) and sparse: only
   the folders shown are downloaded.
@@ -105,13 +108,10 @@ Added pycentral to ~/.casper/references.yaml. Restart Casper to search it.
   `/references add junos-yang 23.4` adds `junos-yang-23.4` with only that release's
   Junos config and common models, and a 4 MiB file limit. Single YANG files can
   still be larger than that, so search may be partial.
-- **`mist-openapi`** leaves out `mist.openapi.json` (one 3.5 MB line, useless for
-  line search). For exact Mist endpoints and fields, `lookup_api` in
-  hpe-networking-mcp is faster and complete; Casper prints that tip after adding it.
-  Known problem (checked 2026-09-30): the repo no longer has the `src` folder this
-  entry fetches, and its `mist.openapi.yaml` (about 4.3 MB) is over the 4 MiB search
-  limit, so this entry currently gives nothing to search. Use `mistapi` (v0.2.18) or
-  `lookup_api` instead.
+- **No Mist API spec entry.** The old `mist-openapi` entry was dropped: the repo no
+  longer has the folder it fetched, and its one spec file is over the 4 MiB search
+  limit, so it gave nothing to search. Use `mistapi`, or Casper's network server
+  (`/mcp setup network`), which has a tool for every Mist API call.
 - **The SDKs (`pyaoscx`, `pyclearpass`, `mistapi` and `junos-pyez` are new in
   v0.2.18).** `pycentral`, `pyaoscx` and `pyclearpass` are the
   public Python SDKs from the `aruba` GitHub organisation; `mistapi` (a community SDK
@@ -141,16 +141,16 @@ Added pycentral to ~/.casper/references.yaml. Restart Casper to search it.
 - **An existing `~/.casper/reference-repos/<id>` folder is never overwritten:**
   remove it first, or add it to `~/.casper/references.yaml` yourself.
 - **The file edit.** The entry is added to `~/.casper/references.yaml` without
-  touching other entries or comments. Profile files are never changed. Search picks
-  it up after a restart.
+  touching other entries or comments. Profile files are never changed. Casper reads
+  the file again at once, so `/references` and the AI's search see it with no restart.
 
 The folder layouts of `pycentral`, `pyaoscx`, `pyclearpass`, `mistapi` and
 `junos-pyez` were checked on 2026-09-30 with a shallow `--no-checkout` clone and
 `git ls-tree`. The other layouts were not checked against the live repos. If a
 download finds nothing to search, check the repo layout.
 
-Use `lookup_api` (hpe-networking-mcp docs tools, see [MCP.md](MCP.md)) for exact
-Mist and Central endpoints, and `search_references` for SDK code and YANG models.
+Use Casper's network server ([MCP.md](MCP.md#caspers-network-server)) for exact Mist,
+Central and ClearPass API calls, and `search_references` for SDK code and YANG models.
 
 ## Local commands and model tool
 
