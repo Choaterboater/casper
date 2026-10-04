@@ -76,7 +76,10 @@ file and set no variable.
 
    `2` installs that exact version, every package checked against a hash lock that
    ships inside Casper (the same way as `/security-review`'s tools; it needs
-   [uv](https://docs.astral.sh/uv/)). It adds `network` to `~/.casper/mcp.json` (never
+   [uv](https://docs.astral.sh/uv/)). When uv isn't installed, the question says so and
+   shows uv's official installer (`curl -LsSf https://astral.sh/uv/install.sh | sh`, or
+   the PowerShell one on Windows); then the choices are `1 Not now · 2 Install uv, then
+   set it up`, and `2` runs that installer first. It adds `network` to `~/.casper/mcp.json` (never
    over an entry you already have), remembers it, and connects it with writes off.
    `1` is kept: Casper doesn't offer again, and `/mcp` shows
    `network: not set up — /mcp setup network`. Casper doesn't offer it when you

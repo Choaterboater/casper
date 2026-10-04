@@ -58,6 +58,7 @@ interface FakeSetupHost extends SetupHost {
   connected: { name: string; writes: "off" | "on"; remembered: boolean }[];
   restarts: string[];
   asked: string[];
+  uvInstalls: number;
 }
 
 /**
@@ -65,10 +66,12 @@ interface FakeSetupHost extends SetupHost {
  * question appeared).
  * `servers` are the definitions in ~/.casper/mcp.json (connect re-reads them).
  */
-async function fakeSetupHost(options: { answers?: string[]; canAsk?: boolean; pipExit?: number; homeDir?: string } = {}): Promise<FakeSetupHost> {
+async function fakeSetupHost(options: { answers?: string[]; canAsk?: boolean; pipExit?: number; homeDir?: string; uvMissing?: boolean; uvInstall?: "ok" | "fail" } = {}): Promise<FakeSetupHost> {
   const homeDir = options.homeDir ?? await temp("casper-network-home-");
   const answers = [...options.answers ?? []];
   const install = await fakeInstall({ pipExit: options.pipExit });
+  // No uv on PATH: the PATH holds only an empty folder.
+  if (options.uvMissing) install.env = { PATH: await temp("casper-network-nouv-") };
   const host: FakeSetupHost = {
     homeDir, output: "", installs: [], connected: [], restarts: [], asked: [],
     canAsk: () => options.canAsk ?? true,
@@ -90,6 +93,16 @@ async function fakeSetupHost(options: { answers?: string[]; canAsk?: boolean; pi
       const { installLockedSpec } = await import("../src/security/install");
       return installLockedSpec(spec, installOptions);
     },
+    // uv's official installer, as a fake: it puts uv in ~/.local/bin, which is not on Casper's PATH.
+    uvInstaller: async () => {
+      host.uvInstalls++;
+      if (options.uvInstall === "fail") return { ok: false, message: "curl: (6) Could not resolve host: astral.sh" };
+      await mkdir(path.join(homeDir, ".local/bin"), { recursive: true });
+      await writeFile(path.join(homeDir, ".local/bin/uv"), "#!/bin/sh\nexit 0\n");
+      await chmod(path.join(homeDir, ".local/bin/uv"), 0o755);
+      return { ok: true };
+    },
+    uvInstalls: 0,
   };
   return host;
 }
@@ -148,6 +161,31 @@ test("Enter (or any other answer) counts as Not now and isn't asked again", asyn
   await writeMcp(update.homeDir, { network: networkServerEntry(update.homeDir) });
   expect(await runNetworkUpdate(update, { explicit: false })).toBe("not-now");
   expect(await shouldOfferNetworkUpdate(update.homeDir, await update.configured())).toBeUndefined();
+});
+
+test("no uv: the setup question says so, shows uv's official installer, and 2 installs uv then sets the server up", async () => {
+  const host = await fakeSetupHost({ answers: ["2"], uvMissing: true });
+  expect(await runNetworkSetup(host, { explicit: false })).toBe("installed");
+  expect(host.asked[0]).toContain("It needs uv, which isn't installed. Casper installs it first with uv's official installer:\n  curl -LsSf https://astral.sh/uv/install.sh | sh\n");
+  expect(host.asked[0]).toEndWith("  1 Not now\n  2 Install uv, then set it up\n");
+  expect(host.asked).toHaveLength(1);
+  expect(host.uvInstalls).toBe(1);
+  expect(host.installs).toEqual([NETWORK_SERVER.version]);
+  expect(host.connected).toEqual([{ name: "network", writes: "off", remembered: true }]);
+  expect(host.output).toContain("Network server ready (read-only).");
+});
+
+test("no uv: 1 installs nothing and is kept; a failed uv install says what to do and adds nothing", async () => {
+  const no = await fakeSetupHost({ answers: ["1"], uvMissing: true });
+  expect(await runNetworkSetup(no, { explicit: false })).toBe("not-now");
+  expect(no.uvInstalls).toBe(0);
+  expect(await shouldOfferNetworkSetup(no.homeDir, [])).toBe(false);
+
+  const failed = await fakeSetupHost({ answers: ["2"], uvMissing: true, uvInstall: "fail" });
+  expect(await runNetworkSetup(failed, { explicit: true })).toBe("failed");
+  expect(failed.output).toContain("uv didn't install (curl: (6) Could not resolve host: astral.sh). Install it from docs.astral.sh/uv, then type /mcp setup network.");
+  expect(failed.installs).toEqual([]);
+  expect(await exists(path.join(failed.homeDir, ".casper/mcp.json"))).toBe(false);
 });
 
 test("one-shot never asks or installs", async () => {
