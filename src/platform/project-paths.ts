@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { commandSegments } from "../sandbox/remote";
+import { isOutside } from "./inside";
 
 /**
  * Where a path the AI's file tools name really points. One list of private paths is shared by the
@@ -72,9 +73,9 @@ export function within(parent: string, child: string): boolean {
   if (!relative) return true;
   if (process.platform === "win32" || process.platform === "darwin") {
     const lower = path.relative(parent.toLowerCase(), child.toLowerCase());
-    return !lower.startsWith("..") && !path.isAbsolute(lower);
+    return !isOutside(lower);
   }
-  return !relative.startsWith("..") && !path.isAbsolute(relative);
+  return !isOutside(relative);
 }
 
 function variants(absolute: string): string[] {

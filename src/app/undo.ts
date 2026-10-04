@@ -17,6 +17,7 @@ import { isSecretFile } from "../secrets/files";
 import { redactPreview, terminalText } from "../tui/format";
 import { buildNextRow, type NextRow } from "../tui/next-row";
 import type { InteractiveTerminal } from "../tui/terminal";
+import { isOutside } from "../platform/inside";
 
 export interface UndoHost {
   readonly output: OutputWriter;
@@ -147,7 +148,7 @@ export class TaskUndo {
         // Files the task's own tools edited that no copy holds (ignored, secret): undo can't put them back either.
         const edited = (task.observedEdits ?? []).flatMap((file) => {
           const relative = path.relative(start.root, path.resolve(start.root, file)).split(path.sep).join("/");
-          return relative && !relative.startsWith("..") && !path.isAbsolute(relative) ? [relative] : [];
+          return relative && !isOutside(relative) ? [relative] : [];
         });
         const all = [...before.left, ...after.left, ...kept];
         for (const file of edited) {

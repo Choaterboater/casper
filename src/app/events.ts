@@ -8,6 +8,7 @@ import { inlineDiff, type DisplayLevel } from "../tui/display";
 import os from "node:os";
 import path from "node:path";
 import { tildePath } from "../new/scaffold";
+import { isOutside } from "../platform/inside";
 
 /** Session-owned effects the renderer needs; the app implements these against its state. */
 export interface RuntimeEventCallbacks {
@@ -142,7 +143,7 @@ export class RuntimeEventView {
     if (!root || stepKind(event.toolName) !== "read" || typeof target !== "string" || !target) return;
     const home = os.homedir();
     const absolute = path.resolve(root, target.startsWith("~/") ? path.join(home, target.slice(2)) : target);
-    const within = (base: string) => { const relative = path.relative(base, absolute); return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative)); };
+    const within = (base: string) => { const relative = path.relative(base, absolute); return relative === "" || !isOutside(relative); };
     if (within(root) || [os.tmpdir(), "/tmp", "/private/tmp", "/var/folders", "/private/var/folders"].some(within)) return;
     const folder = event.toolName === "read" ? path.dirname(absolute) : absolute;
     if (this.outsideFolders.has(folder)) return;

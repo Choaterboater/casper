@@ -8,6 +8,7 @@ import { detectProject, MCP_IMPORT, readHead } from "./detect";
 import { formatFindingText } from "./format";
 import { changesSinceHead, git, gitState } from "./git";
 import type { SecurityFinding } from "./types";
+import { isOutside } from "../platform/inside";
 
 /**
  * The optional AI review after /security-review's tools: what it may read, what it is asked, and the host-side
@@ -50,7 +51,7 @@ export async function validateModelFindings(root: string, raw: unknown, toolFind
       if (typeof candidate.line !== "number" || !Number.isInteger(candidate.line) || candidate.line < 1) return false;
       if (!isConcreteInput(candidate.input) || typeof candidate.why !== "string" || !candidate.why.trim()) return false;
       const relative = path.isAbsolute(candidate.file) ? path.relative(realRoot, candidate.file) : path.normalize(candidate.file);
-      if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) return false;
+      if (!relative || isOutside(relative)) return false;
       if (!(await parentsStayInside(realRoot, relative))) return false;
       // Never a line of a file the review was kept from (keys, .env files, files gitleaks flagged).
       if (!reviewMayRead(relative, toolFindings)) return false;
@@ -197,7 +198,7 @@ function realOrSame(absolute: string): string {
 /** A path as root-relative with forward slashes, or undefined outside the root. */
 function insideRoot(root: string, absolute: string): string | undefined {
   const relative = path.relative(root, absolute);
-  return relative && !relative.startsWith("..") && !path.isAbsolute(relative) ? relative.split(path.sep).join("/") : undefined;
+  return relative && !isOutside(relative) ? relative.split(path.sep).join("/") : undefined;
 }
 
 /**

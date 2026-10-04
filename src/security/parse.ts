@@ -1,6 +1,7 @@
 import path from "node:path";
 import { redactPreview, terminalText } from "../tui/format";
 import type { SecurityFinding, SecuritySeverity, SecurityToolId } from "./types";
+import { isOutside } from "../platform/inside";
 
 /**
  * Turns each tool's JSON into SecurityFindings. Everything a tool prints is untrusted: text is redacted
@@ -36,7 +37,7 @@ export function relativePath(root: string, file: unknown): string {
   if (typeof file !== "string" || !file) return "";
   const absolute = path.resolve(root, file);
   const relative = path.relative(root, absolute);
-  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) return path.basename(file);
+  if (!relative || isOutside(relative)) return path.basename(file);
   return relative.split(path.sep).join("/");
 }
 

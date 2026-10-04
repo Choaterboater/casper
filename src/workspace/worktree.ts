@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { safeGitArgs } from "../platform/git";
+import { isOutside } from "../platform/inside";
 
 const execFileAsync = promisify(execFile);
 
@@ -430,7 +431,7 @@ export class GitWorktreeManager {
     if (!required) return;
     const resolved = path.resolve(candidate);
     const relative = path.relative(path.resolve(this.managedRoot), resolved);
-    if (!relative || relative.startsWith("..") || path.isAbsolute(relative) || relative.includes(path.sep)) {
+    if (!relative || isOutside(relative) || relative.includes(path.sep)) {
       throw new Error("Refusing to operate on a worktree outside Casper's managed directory");
     }
   }

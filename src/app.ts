@@ -78,6 +78,7 @@ import { ChangeBaseline, changesCode, proofRepairPrompt, type ChangeProof } from
 import { independentAcceptance } from "./verify/acceptance";
 import { parseChecklist, parseReview, requirementsReviewPrompt, ROUND_MAX_TURNS, type RequirementsReview } from "./task/review";
 import { extractChecklist, formatChecklistPrompt, normalizeCases } from "./task/checklist";
+import { isOutside } from "./platform/inside";
 import { checkCommands, isBuiltinCheck, labNamedChecks } from "./verify/named";
 import { autoDetectedChecks } from "./verify/migrations-check";
 import type { NamedCheckRunner, NetworkToolContext } from "./verify/registry";
@@ -614,7 +615,7 @@ export class CasperApp {
     try { real = realpathSync(root); } catch { /* gone: compare as named */ }
     const inside = [root, real].some((base) => {
       const relative = path.relative(base, process.cwd());
-      return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+      return relative === "" || !isOutside(relative);
     });
     return inside ? {} : { folder: tildePath(root, this.sessionHomeDir ?? os.homedir()) };
   }
@@ -1202,7 +1203,7 @@ export class CasperApp {
     const home = this.sessionHomeDir ?? os.homedir();
     const folder = path.basename(root) || root;
     const typed = terminalText(name);
-    const inside = (dir: string) => { const relative = path.relative(root, dir); return relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative); };
+    const inside = (dir: string) => { const relative = path.relative(root, dir); return relative !== "" && !isOutside(relative); };
     const direct = path.resolve(root, name.replace(/^~(?=\/|$)/, home));
     let target: string | undefined;
     if (inside(direct) && (await stat(direct).catch(() => undefined))?.isDirectory()) target = direct;
@@ -1657,7 +1658,7 @@ export class CasperApp {
         ? this.services.status().map(({ name, origin, state }) => ({ name, ...(origin ? { origin } : {}), state })) : [];
       const snapshotFailure = !changedPaths && this.snapshotFailure ? { reason: this.snapshotFailure,
         edited: observations.observedEdits.map((file) => { const relative = path.relative(workspaceRoot, path.resolve(workspaceRoot, file));
-          return relative && !relative.startsWith("..") && !path.isAbsolute(relative) ? relative.split(path.sep).join("/") : file; }) } : undefined;
+          return relative && !isOutside(relative) ? relative.split(path.sep).join("/") : file; }) } : undefined;
       this.lastTaskResult = { execution, verification, ...observations, ...(snapshotFailure ? { snapshotFailure } : {}), ...(browser?.checks.length ? { browser, ...(browser.status !== "pass" && answerClaimsBrowserPass(this.lastAnswer) ? { browserClaimed: true } : {}) } : {}),
         ...(services.length ? { services } : {}), ...(riskyLines.length ? { riskyLines: [...riskyLines], ...(riskyLines.more ? { riskyMore: riskyLines.more } : {}) } : {}),
         // Smoke checks ran even without a configured command, so "no checks" no longer describes the task.
