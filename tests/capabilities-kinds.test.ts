@@ -1,6 +1,13 @@
-import { expect, test } from "bun:test";
-import { buildPlan } from "../src/capabilities/approval";
-import { asksEveryTime, changeKind, planKinds, RISKY_KINDS, isRiskyKind } from "../src/capabilities/kinds";
+import { afterEach, expect, test } from "bun:test";
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { buildPlan, planLabel } from "../src/capabilities/approval";
+import { CapabilityBroker } from "../src/capabilities/broker";
+import { asksEveryTime, changeKind, hitKindsFrom, planKinds, RISKY_KINDS, isRiskyKind, withHitKinds } from "../src/capabilities/kinds";
+import type { MCPServerDefinition } from "../src/mcp/config";
+import { MCPManager } from "../src/mcp/manager";
+import { networkServerEntry } from "../src/mcp/network/server";
 import { toolLabel } from "../src/capabilities/labels";
 import type { MCPTool } from "../src/mcp/manager";
 
@@ -79,4 +86,101 @@ test("review: a server's own firmware or delete tag asks every time on a direct 
   const routed = buildPlan({ server: "net", tool: "invoke_tool", label: "write", schema: router,
     arguments: { name: "update_device_settings", arguments: {} } });
   expect(asksEveryTime(routed, tagged)).toBe(false);
+});
+
+// --- Kinds from the server's find_tool hits (Plan D Task 6) ----------------------------------------------------
+
+const routerSchema = { type: "object" as const, properties: { name: { type: "string" }, arguments: { type: "object" } } };
+function routedPlan(tool: string, name: string) {
+  return buildPlan({ server: "network", tool, label: tool === "invoke_tool" ? "write" : "read", schema: routerSchema, arguments: { name, arguments: {} } });
+}
+
+test("a find_tool kind can raise a routed call's kind", () => {
+  const plan = routedPlan("invoke_tool", "update_device");
+  expect(planKinds(plan, undefined, new Map([["update_device", "firmware"]]))).toEqual(["firmware"]);
+  expect(asksEveryTime(plan, undefined, new Map([["update_device", "firmware"]]))).toBe(true);
+});
+
+test("a find_tool kind can never lower it", () => {
+  const plan = routedPlan("invoke_tool", "delete_site");
+  expect(planKinds(plan, undefined, new Map([["delete_site", "config"]]))).toEqual(["delete"]);
+  expect(planKinds(routedPlan("invoke_tool", "port_bounce"), undefined, new Map([["port_bounce", "troubleshoot"]]))).toEqual(["disruptive"]);
+});
+
+test("a declared read never makes invoke_tool a read", () => {
+  const plan = routedPlan("invoke_tool", "set_port_vlan");
+  expect(planKinds(plan, undefined, new Map([["set_port_vlan", "read"]]))).toEqual(["config"]);
+});
+
+test("hit kinds that aren't Casper's kinds are ignored", () => {
+  const hits = hitKindsFrom({ content: [], structuredContent: { result: [
+    { name: "set_port_vlan", kind: "superuser" }, { name: "update_device", kind: "firmware" }, { name: 7, kind: "admin" }, { kind: "delete" },
+  ] } });
+  expect([...hits.keys()]).toEqual(["update_device"]);
+  expect(hits.get("update_device")).toEqual({ kind: "firmware" });
+});
+
+test("hits are read the way the server's SDK sends a list: one text block per hit, or structuredContent.result", () => {
+  const hit = { name: "cx_show", product: "central", summary: "Run a show command.", kind: "troubleshoot", label: "diagnostic" };
+  expect(hitKindsFrom({ content: [{ type: "text", text: JSON.stringify(hit) }] }).get("cx_show")).toEqual({ kind: "troubleshoot", product: "central" });
+  expect(hitKindsFrom({ content: [{ type: "text", text: JSON.stringify([hit]) }] }).get("cx_show")?.kind).toBe("troubleshoot");
+  expect(hitKindsFrom({ content: [{ type: "text", text: "not json" }] }).size).toBe(0);
+  expect(hitKindsFrom({ content: [], structuredContent: { result: [{ ...hit, product: "elsewhere" }] } }).get("cx_show")).toEqual({ kind: "troubleshoot" });
+});
+
+test("a troubleshoot kind from find_tool makes a routed read call ask (diagnostic); a read kind changes nothing", async () => {
+  const { planLabel } = await import("../src/capabilities/approval");
+  expect(planLabel(withHitKinds(routedPlan("invoke_read_tool", "cx_show"), new Map([["cx_show", "troubleshoot"]])))).toBe("diagnostic");
+  expect(planLabel(withHitKinds(routedPlan("invoke_read_tool", "mist_list_sites"), new Map([["mist_list_sites", "read"]])))).toBe("read");
+  expect(planLabel(withHitKinds(routedPlan("invoke_read_tool", "mist_site_settings"), new Map([["mist_site_settings", "config"]])))).toBe("write");
+});
+
+// --- In the broker, with the network server's stand-in ---------------------------------------------------------
+
+const fakeServer = path.join(import.meta.dir, "fixtures/fake-network-mcp.ts");
+const cleanup: (() => Promise<unknown>)[] = [];
+afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
+
+async function troubleshootRun(preset: "network" | "hpe") {
+  const home = await mkdtemp(path.join(os.tmpdir(), "casper-hit-kinds-"));
+  cleanup.push(() => rm(home, { recursive: true, force: true }));
+  const calls = path.join(home, "calls.log");
+  // The same stand-in, installed where Casper installs its network server, or under hpe-networking-mcp's program name.
+  const entry = preset === "network" ? networkServerEntry(home).command : path.join(home, "bin/hpe-mcp-router");
+  await mkdir(path.dirname(entry), { recursive: true });
+  const hits = [{ name: "cx_show", product: "central", summary: "Run a show command.", kind: "troubleshoot", label: "diagnostic" }];
+  await writeFile(entry, `#!/bin/sh\nFAKE_CALLS_FILE='${calls}' FAKE_HITS='${JSON.stringify(hits)}' exec "${process.execPath}" "${fakeServer}" "$@"\n`);
+  await chmod(entry, 0o755);
+  const definition: MCPServerDefinition = { name: "network", source: path.join(home, ".casper/mcp.json"), scope: "user", cwd: home, disabled: false,
+    transport: { type: "stdio", command: entry, args: [], env: preset === "hpe" ? { HPE_MCP_EXAMPLE: "1" } : {} } };
+  const manager = new MCPManager({ servers: [definition], diagnostics: [] }, { timeoutMs: 15_000, homeDir: home });
+  cleanup.push(() => manager.close());
+  await manager.connect("network");
+  const setWrites: boolean[] = [];
+  const real = manager.setWrites.bind(manager);
+  manager.setWrites = async (name, on, options) => { setWrites.push(on); return real(name, on, options); };
+  const boxes: string[] = [];
+  const broker = new CapabilityBroker(manager, async (call) => { boxes.push(planLabel(call.plan)); return "yes"; }, { writesGate: true });
+  await broker.invoke("mcp:network:find_tool", { query: "show interfaces on the closet switch" });
+  const result = await broker.invoke("mcp:network:invoke_read_tool", { name: "cx_show", arguments: { command: "show interfaces" } });
+  const lines = (await readFile(calls, "utf8")).split("\n");
+  return { preset: manager.policy("network").match?.preset.id, result, boxes, setWrites, starts: lines.filter((line) => line.startsWith("start ")), ran: lines.some((line) => line.startsWith("call invoke_read_tool")) };
+}
+
+test("an approved troubleshoot call on the network preset runs pinned, with no restart", async () => {
+  const run = await troubleshootRun("network");
+  expect(run.preset).toBe("casper-network-mcp");
+  expect(run.boxes).toEqual(["diagnostic"]);
+  expect(run.setWrites).toEqual([]);
+  expect(run.starts).toEqual(['start ["--read-only"]']);
+  expect(run.ran).toBe(true);
+  expect(run.result.isError).toBeFalsy();
+});
+
+test("a troubleshoot call on a preset without troubleshootRunsPinned still turns writes on as today", async () => {
+  const run = await troubleshootRun("hpe");
+  expect(run.preset).toBe("hpe-networking-mcp");
+  expect(run.boxes).toEqual(["diagnostic"]);
+  expect(run.setWrites).toEqual([true, false]);
+  expect(run.ran).toBe(true);
 });

@@ -32,7 +32,11 @@ export interface ApprovalHint {
   noPreview?: boolean;
 }
 
-export interface RoutedCall { name: string; arguments: Record<string, unknown> }
+export interface RoutedCall {
+  name: string; arguments: Record<string, unknown>;
+  /** The kind the server's find_tool gave this tool (set by the broker). It can only make the call stricter. */
+  kind?: ChangeKind;
+}
 
 export interface ApprovalPlan {
   server: string;
@@ -116,9 +120,15 @@ export function buildPlan(input: {
   return { ...input, routed, routerUnclear };
 }
 
+/** The least label a server-given kind implies: a troubleshooting check asks (diagnostic), a change is a write. */
+function kindLabel(kind: ChangeKind | undefined): CapabilitySafety[] {
+  if (kind === undefined || kind === "read" || !(KIND_TEXT as Record<string, string>)[kind]) return [];
+  return [kind === "troubleshoot" ? "diagnostic" : "write"];
+}
+
 /** The label the call is judged by: the tool's own, the real tools' names, and "not read" for an unclear router. */
 export function planLabel(plan: ApprovalPlan): CapabilitySafety {
-  return strictest(plan.label, ...plan.routed.map((call) => nameLabel(call.name)),
+  return strictest(plan.label, ...plan.routed.map((call) => nameLabel(call.name)), ...plan.routed.flatMap((call) => kindLabel(call.kind)),
     ...(plan.routerUnclear ? ["external-action" as const] : []));
 }
 
