@@ -43,7 +43,7 @@
         <ul>
           <li><a href="#why">Why guard rails?</a></li>
           <li><a href="#rules">The house rules</a></li>
-          <li><a href="#setup">Hook up your servers</a></li>
+          <li><a href="#setup">Hook up your servers</a> (<a href="#setup-casper">Casper sets it up for you</a>)</li>
           <li><a href="#read-only">Read-only comes from the product</a></li>
           <li><a href="#asks">What asks first, and why the AI can't say yes</a></li>
           <li><a href="#writes">Writes are off until you say so</a></li>
@@ -60,7 +60,7 @@
         <div class="prose">
           <p>MCP (Model Context Protocol) is a standard way for an AI tool to talk to other programs, called MCP servers. A network MCP server gives the AI tools like "list the APs at a site" or "run a Junos show command".</p>
           <p>That is great for looking things up. But the same server may also have tools that bounce a port, push a config or reboot a switch. An AI can misread a question. It can pick the wrong site. It can be talked into things by text it reads. You don't want any of that to reach a core switch at 2 pm on a Tuesday.</p>
-          <p>So Casper sits between the AI and your servers. It decides which tools the AI can see, which ones need your yes, and how much of each answer the AI reads. No server and no credentials come with Casper; you bring the servers you trust.</p>
+          <p>So Casper sits between the AI and your servers. It decides which tools the AI can see, which ones need your yes, and how much of each answer the AI reads. No server and no credentials come with Casper. For Mist, Central and ClearPass it can set up its own server for you, after one question; any other server you trust works too.</p>
         </div>
       </section>
 
@@ -96,6 +96,26 @@
 
       <section id="setup" aria-labelledby="setup-title">
         <h2 id="setup-title">Hook up your servers</h2>
+
+        <h3 id="setup-casper">Casper sets it up for you (Mist, Central, ClearPass)</h3>
+        <div class="prose">
+          <p>Ask about Mist, Central, ClearPass, Aruba or Wi-Fi, or type <code>/mcp setup network</code>. Casper asks once:</p>
+        </div>
+        <div class="cmd"><span class="cmd-label">casper</span><pre><code>Casper can set up its network server (casper-network-mcp 0.1.0, about 60 MB from pypi.org, installed with uv into ~/.casper/tools).
+It starts read-only. Logins are asked per product the first time you use it.
+  1 Not now
+  2 Set it up
+Type 1 or 2:</code></pre></div>
+        <ul class="prose">
+          <li><code>2</code> installs <a href="https://github.com/Choaterboater/casper-network-mcp">casper-network-mcp</a> at the version Casper pins, every package checked by hash, and connects it with writes off (<code>--read-only</code>). You edit no file and set no variable. It needs <a href="https://docs.astral.sh/uv/">uv</a>.</li>
+          <li><code>1</code> is kept: Casper doesn't offer again. <code>/mcp</code> shows how to set it up later.</li>
+          <li>The first time the AI uses Mist, Central or ClearPass, Casper asks you for that login: <code>1 Not now · 2 Add a login</code>. You type it hidden; the AI never sees it. Use a narrow login, not an admin one.</li>
+          <li>Casper then checks what the login can do, for example <code>Mist login: can change Branch-12 (checked)</code>. Every change asks you in the change box, which names the product: <code>Change in Mist: …</code>.</li>
+          <li>Logins live only in Casper's own private file (<code>~/.casper/network-logins.json</code>). <code>/mcp login mist</code> replaces one; <code>/mcp login mist forget</code> removes it.</li>
+          <li>A one-shot run never installs and never asks for a login. It says what to type in the terminal instead.</li>
+        </ul>
+
+        <h3 id="setup-own">Your own servers</h3>
         <div class="prose">
           <p>Put your servers in <code>~/.casper/mcp.json</code>. It uses the common <code>mcpServers</code> format. Casper also finds servers you already set up in VS Code and a few other places; <code>/mcp</code> shows where each one came from.</p>
           <p>Two kinds of server work. A <strong>stdio</strong> server is a program Casper starts on your machine (<code>command</code> plus <code>args</code>). An <strong>HTTP</strong> server is a URL (HTTPS, or plain HTTP to <code>localhost</code> only).</p>

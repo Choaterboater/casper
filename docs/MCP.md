@@ -14,7 +14,9 @@ Every server starts with writes off. Every change asks you first, in plain words
 changes are off until you allow them ([Change kinds](#change-kinds-and-mcp-allow)).
 
 Casper uses the pinned official MCP SDK (the library that speaks the protocol). No
-server and no credentials come with Casper.
+server and no credentials come with Casper. For Mist, Central and ClearPass, Casper can
+set up its own network server for you after one question
+([Casper's network server](#caspers-network-server)).
 
 **Read-only comes from the product.** Casper calls a login read-only only when the
 product itself says so, through the server's `access_check` tool (see
@@ -51,6 +53,60 @@ read-only. Only you can approve a call or turn writes on; the AI can't. See
 
 Already set up servers in Claude Code or VS Code? Casper finds them; see the next
 section.
+
+### Casper's network server
+
+For Mist, Central and ClearPass, Casper sets up its own server
+([casper-network-mcp](https://github.com/Choaterboater/casper-network-mcp)). You edit no
+file and set no variable.
+
+1. Ask about Mist, Central, ClearPass, Aruba, Wi-Fi, an SSID, a switch port or an access
+   point, or type `/mcp setup network`. Casper asks once:
+
+   ```text
+   Casper can set up its network server (casper-network-mcp 0.1.0, about 60 MB from pypi.org, installed with uv into ~/.casper/tools).
+   It starts read-only. Logins are asked per product the first time you use it.
+     1 Not now
+     2 Set it up
+   Type 1 or 2:
+   ```
+
+   `2` installs that exact version, every package checked against a hash lock that
+   ships inside Casper (the same way as `/security-review`'s tools; it needs
+   [uv](https://docs.astral.sh/uv/)). It adds `network` to `~/.casper/mcp.json` (never
+   over an entry you already have), remembers it, and connects it with writes off.
+   `1` is kept: Casper doesn't offer again, and `/mcp` shows
+   `network: not set up — /mcp setup network`. Casper doesn't offer it when you
+   already have a network server such as hpe-networking-mcp; `/mcp setup network`
+   still works.
+2. The first time the AI uses a product with no login, Casper asks you (never the AI):
+
+   ```text
+   Mist isn't set up yet. Casper will ask for a Mist API token. Use one that can reach only the sites you want, not an admin token.
+     1 Not now
+     2 Add a login
+   Type 1 or 2:
+   ```
+
+   `2` asks for the Mist cloud (a numbered list) and the token, typed hidden. Central
+   asks for its region, API client ID and secret; ClearPass for its address and API
+   token. Casper restarts the server with the login and checks what it can do with
+   `access_check`, for example `Mist login: can change Branch-12 (checked)`.
+   `/mcp login mist` adds or replaces it any time; `/mcp login mist forget` removes it.
+3. Every change asks you in the change box, like any server
+   ([Turning writes on](#turning-writes-on)). The box names the product
+   (`Change in Mist: ...`), and a disruptive, firmware, delete or admin change asks every
+   time. The real tool's kind comes from the server's `find_tool` and can only make a
+   call stricter.
+
+When Casper ships a newer pinned version, it asks before your first request in a session:
+`Casper's network server has an update (0.1.0 → 0.2.0 …)` with `1 Not now · 2 Update it`
+(`1` is kept for that version).
+The update replaces the folder in place; a failed update keeps the old version. Your
+`network` entry and what you remembered stay as they are.
+
+One-shot runs never install, never ask for a login and never turn writes on. They print
+one line instead, such as `Mist has no login yet. Run casper and type /mcp login mist.`
 
 ## Configure and connect
 
@@ -169,6 +225,8 @@ type yes (see [Secrets and docs servers](#secrets-and-docs-servers)).
 
 ```text
 /mcp                           # status only; no connection, no model
+/mcp setup network             # set up Casper's network server (asks first)
+/mcp login [mist|central|clearpass] [forget]  # add, replace or forget a network login
 /mcp connect local-docs        # allow and connect this server for this run of Casper
 /mcp disconnect local-docs     # disconnect and take back that permission
 /mcp reload                    # re-read the files without restarting
@@ -268,6 +326,7 @@ an approval and never calls a server read-only.
 
 | Server | Recognised by | Pinned while writes are off | Hidden while writes are off |
 | --- | --- | --- | --- |
+| casper-network-mcp (Casper's network server) | `casper-network-mcp` or `casper_network_mcp` in the command, or its router tools | `--read-only` (added once); your saved logins are added to its environment when it starts | nothing: `invoke_tool` stays visible so a change can reach the box. Casper judges each `invoke_tool` call by the real tool it runs |
 | hpe-networking-mcp | `tool_router.py`, `hpe-mcp-router`, `hpe_networking_mcp`, `HPE_MCP_*` env, or its router tools | `HPE_MCP_ACCESS_PROFILE=safe-read-only`, `HPE_MCP_READONLY=1`, `HPE_MCP_PRODUCT_ACCESS=read-only`, every `HPE_MCP_*_WRITES=0` | `invoke_tool`, `invoke_tools_batch`, write and delete tools |
 | centralmcp (`aruba-*`) | `centralmcp` in the command or `CENTRALMCP_*` env | `CENTRALMCP_READONLY=1` | write and delete tools |
 | central-mcp-server | `central-mcp-server` in the command | nothing (no setting exists); must be pinned to a version (or be a local checkout) to be remembered | tools not marked read-only |
@@ -346,6 +405,10 @@ may do.
   unknown kind, or more than 64 entries drops the whole list, and a product that can make
   changes without saying where hides the line: Casper never shows a shorter reach than
   the real one. v1 answers still work.
+- **v2 also says** `"login": "missing"` for a product with no login yet (that product
+  doesn't count toward the overall state), and may name a flag instead of an env var:
+  `"server_gate": {"flag": "--read-only", "state": "off"}`. Casper's network server
+  answers in v2.
 - Only the parsed state is used. The server's text never reaches the AI.
 
 ### Turning writes on
@@ -687,6 +750,12 @@ server does**.
 
 ## Secrets and docs servers
 
+- **Network logins.** Logins for Casper's network server live only in
+  `~/.casper/network-logins.json`: written by Casper alone (mode 0600, never through a
+  link), added to that server's environment when it starts, never put in `mcp.json` or the
+  server's definition. The AI can't read the file, and the tokens and Central secret are
+  hidden in tool output and in the server's error output. Only you type them, in the
+  hidden prompt.
 - **Device secrets are hidden from the AI.** Every MCP result is scrubbed before it
   is cut to size. Passwords, RADIUS/TACACS keys, Wi-Fi PSKs, SNMP communities and
   similar values in config text or under secret-looking JSON keys become

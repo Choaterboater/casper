@@ -77,6 +77,13 @@ through. Check what a tool returns before you share it.
   are hidden wherever they turn up, so `printenv` shows the AI `<secret hidden>`. The
   keys and sign-in tokens in Casper's login file (`~/.casper/agent/auth.json`) are
   hidden the same way, so `cat` of that file in the AI's shell shows none of them.
+- **Network logins: always.** The Mist, Central and ClearPass logins you add for
+  Casper's network server (`/mcp login`) live only in `~/.casper/network-logins.json`
+  (mode 0600; the AI's tools and shell can't open it). Casper adds them to that
+  server's environment when it starts, never to `mcp.json`. The tokens, the Central
+  client ID and the Central secret are hidden wherever they turn up: in tool output,
+  in the AI's shell output and in what the server prints on its error output. The
+  addresses (Mist cloud, Central region, ClearPass address) are not secrets and stay.
 - **Command and grep output: only when it looks like a config.** Output from
   `bash`, `powershell` or `grep` (failed commands too) is scrubbed when it has two
   config lines such as `hostname`, `version 23.4;`, `## Last commit` or

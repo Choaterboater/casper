@@ -43,6 +43,11 @@ are not tied to one model company.
   otherwise destructive changes always ask. Firmware, delete and admin changes stay off until
   you allow them (in the box or with `/mcp allow`). Only you can answer.
   [MCP](docs/MCP.md) · [Presets](docs/MCP.md#presets)
+- **Casper sets up its network server.** Ask about Mist, Central or ClearPass (or type
+  `/mcp setup network`) and Casper offers `1 Not now · 2 Set it up` once. `2` installs a pinned,
+  hash-locked [casper-network-mcp](https://github.com/Choaterboater/casper-network-mcp) and
+  connects it read-only. Each product's login is asked the first time it is used, typed by you
+  (never the AI), and kept in Casper's own private file. [Casper's network server](docs/MCP.md#caspers-network-server)
 - **Read-only only when the product says so.** A server's `access_check` tool can confirm a
   read-only login; anything else shows `access not checked`. [Access check](docs/MCP.md#access-check)
 - **Check your own MCP server.** `casper mcp check [repo]` runs its tests and checks its

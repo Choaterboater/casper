@@ -69,6 +69,7 @@
           </li>
           <li><a href="#coming">Coming, not released</a>
             <ul>
+              <li><a href="#network-setup">Casper sets up its network server</a></li>
               <li><a href="#v030">v0.3: crews</a></li>
             </ul>
           </li>
@@ -335,6 +336,32 @@
         </aside>
 
         <div class="stack">
+        <article class="card" id="network-setup" aria-labelledby="network-setup-h">
+          <h3 id="network-setup-h">Casper sets up its network server · Mist, Central and ClearPass in one step <span class="badge soon">built, not released</span></h3>
+          <p>Built and tested; it comes in the next release. No file to edit, no variable to set.</p>
+          <ul>
+            <li><strong>One question.</strong> Ask about Mist, Central, ClearPass or Wi-Fi, or type
+            <code>/mcp setup network</code>: <code>1 Not now · 2 Set it up</code>. <code>2</code>
+            installs <a href="https://github.com/Choaterboater/casper-network-mcp">casper-network-mcp</a>
+            at the version Casper pins, every package checked by hash, and connects it read-only.
+            <code>1</code> is kept.</li>
+            <li><strong>Logins on first use.</strong> The first time the AI uses a product, Casper asks
+            you for its login (<code>1 Not now · 2 Add a login</code>), typed hidden, kept in Casper's
+            own private file. The AI never sees it. <code>/mcp login</code> changes or forgets one.</li>
+            <li><strong>It says where the login reaches.</strong> <code>Mist login: can change Branch-12
+            (checked)</code>, from the product itself.</li>
+            <li><strong>The same change box.</strong> Every change asks, and the box names the product.
+            Reboots, firmware, deletes and admin changes ask every time, also when the server says a tool
+            is one of those. <kbd>ctrl+o</kbd> turns writes off at once.</li>
+            <li><strong>Updates ask too.</strong> When Casper pins a newer version:
+            <code>1 Not now · 2 Update it</code>. A failed update keeps the old one.</li>
+            <li><strong>Your own servers still work.</strong> Nothing here replaces a server you set up
+            yourself. <code>casper new network-mcp</code> now builds a server the same way: a
+            <code>--read-only</code> start flag, the change kind on every tool that changes things, and
+            an <code>access_check</code> that says where the login can change things.</li>
+          </ul>
+        </article>
+
         <article class="card" id="v030" aria-labelledby="v030-h">
           <h3 id="v030-h">v0.3 · Crews <span class="badge soon">coming, not released</span></h3>
           <p>Big jobs get a team, on their own.</p>
