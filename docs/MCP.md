@@ -93,7 +93,8 @@ file and set no variable.
 
    `2` asks for the Mist cloud (a numbered list) and the token, typed hidden. Central
    asks for its region, API client ID and secret; ClearPass for its address and API
-   token. Casper restarts the server with the login and checks what it can do with
+   token. Central means new Central (through GreenLake) only for now: classic Central
+   logins don't work yet, and the question says so. Casper restarts the server with the login and checks what it can do with
    `access_check`, for example `Mist login: can change Branch-12 (checked)`.
    `/mcp login mist` adds or replaces it any time; `/mcp login mist forget` removes it.
 3. Every change asks you in the change box, like any server

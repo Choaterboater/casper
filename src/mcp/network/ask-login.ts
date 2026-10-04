@@ -51,7 +51,7 @@ export function loginMissing(result: unknown): NetworkProduct | undefined {
 
 const ASKS: Record<NetworkProduct, string> = {
   mist: "Casper will ask for a Mist API token. Use one that can reach only the sites you want, not an admin token.",
-  central: "Casper will ask for a Central API client ID and secret. Use a client with only the access you need, not an admin one.",
+  central: "Casper will ask for a Central API client ID and secret (new Central, through GreenLake, only for now; classic Central logins don't work yet). Use a client with only the access you need, not an admin one.",
   clearpass: "Casper will ask for a ClearPass API token. Use one with only the access you need, not an admin one.",
 };
 

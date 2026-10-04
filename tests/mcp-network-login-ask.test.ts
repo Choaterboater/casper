@@ -376,3 +376,8 @@ test("app: a 2 typed before the login question never answers it, and the questio
   expect(asks).toBe(0);
   expect(await readLogins(run.home)).toEqual({});
 });
+
+test("the Central question says it is new Central (GreenLake) only for now", async () => {
+  const run = await brokerRun({ interactive: true, tool: "central_list_sites", answers: ["1"] });
+  expect(run.prompts[0]).toBe("Central isn't set up yet. Casper will ask for a Central API client ID and secret (new Central, through GreenLake, only for now; classic Central logins don't work yet). Use a client with only the access you need, not an admin one.\n  1 Not now\n  2 Add a login\n");
+});
