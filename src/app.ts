@@ -88,7 +88,7 @@ import { SuggestionController, SUGGESTION_COMMAND } from "./app/suggestions";
 import { findFlow, formatFlowPrompt, loadFlowCatalog, type Flow, type FlowRule } from "./flows/catalog";
 import { beforeWorkPanel, readBeforeWorkAnswer, suggestBeforeWork } from "./flows/suggest";
 import { extractPlan, formatBuildPrompt, parsePlanLines, planEditorHeading, planEditorLines, planToolGate, type ParsedPlan } from "./flows/plan";
-import { PROJECT_YAML, saveNamedCheck, saveProjectCommand } from "./project/config-write";
+import { PROJECT_YAML, saveNamedCheck, saveProjectCommand, saveProjectTimeout } from "./project/config-write";
 import { askLabFailure, labCheckRunner } from "./app/lab-checks";
 import type { SecurityAIReview, SecurityReviewHost } from "./app/security-review";
 import type { TaskClassification } from "./task/classify";
@@ -2419,7 +2419,19 @@ export class CasperApp {
     this.events.ensureLineBreak();
     const answer = await this.terminal.ask(`${what}. Casper did not try to fix it. What now?`,
       options.map(({ label, description }) => ({ label, description })), false, signal);
-    return options.find((option) => option.label === answer?.[0])?.choice;
+    const choice = options.find((option) => option.label === answer?.[0])?.choice;
+    if (choice !== "more-time-saved") return choice;
+    // Saved for the user, no file to edit: every check in this project gets the longer limit from now on.
+    try {
+      const written = await saveProjectTimeout(this.activeWorkspaceRoot(), longer);
+      this.output.write(`[verify] Saved ${written.line} in ${PROJECT_YAML}: every check here gets ${formatDuration(longer)} from now on.\n`);
+      if (this.projectContext) {
+        try { this.projectContext = await this.loadProjectContextFn(this.projectContext.info); } catch { /* the file is read again at the next start */ }
+      }
+    } catch (error) {
+      this.output.write(`[verify] Not saved (${terminalText(error instanceof Error ? error.message : String(error))}); this run gets ${formatDuration(longer)}.\n`);
+    }
+    return "more-time";
   }
 
   /** The page check for these changed files, from project facts only: undefined when this is not a web project,

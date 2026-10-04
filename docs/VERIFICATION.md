@@ -150,7 +150,7 @@ The lines below the verdict give the evidence:
 ✓ test passed (npm run test, 1.3s)
 ✓ test passed earlier in this task, reused (npm run test, 1.3s)
 ✗ test failed (exit 1) — log above; /verify repair test to fix
-✗ test timed out after 10m — it did not finish, so it was not checked; /verify test to run it again, or raise verification.timeoutMs in .casper/project.yaml
+✗ test timed out after 10m — it did not finish, so it was not checked; /verify test to run it again (a session offers more time)
 ✗ lint could not start (exit 127) — check verify.lint in .casper/project.yaml
 • Not verified — test ran via bash only (npm test: passed). Run /verify test to record a check.
 • Not checked — no tests yet. Say "add tests".
@@ -204,8 +204,10 @@ now?` with:
 - `3 Fix it anyway`
 - `4 Allow more time` — four times the limit the check just had (at least a minute, at most an
   hour), again each time you pick it. The longer limit also applies to the model's own runs of
-  that check for the rest of the task. The choice names `verification.timeoutMs`, which keeps a
-  longer limit.
+  that check for the rest of the task.
+- `5 Allow more time from now on` — the same, and Casper saves that limit for every check in this
+  project (`verification.timeoutMs` in `.casper/project.yaml`, written for you):
+  `[verify] Saved verification.timeoutMs: 2400000 in .casper/project.yaml: every check here gets 40m from now on.`
 
 Enter or Esc stops (before v0.2.16 there was no Stop choice and `1` was Retry). Casper asks at
 most eight times per round of checks (the review round, when on, is a

@@ -686,7 +686,7 @@ function checkLine(result: VerificationResult, safe: (text: string) => string, s
   const timeout = /^Timed out after (\d+)ms$/.exec(result.reason ?? "");
   // Unfinished checks are not the code failing: Casper does not repair them, so it does not offer to.
   if (result.ended === "timeout") {
-    return `✗ ${name} timed out${timeout ? ` after ${duration(Number(timeout[1]))}` : ""} — it did not finish, so it was not checked; ${slash(`/verify ${name}`)} to run it again, or raise verification.timeoutMs in .casper/project.yaml`;
+    return `✗ ${name} timed out${timeout ? ` after ${duration(Number(timeout[1]))}` : ""} — it did not finish, so it was not checked; ${slash(`/verify ${name}`)} to run it again (a session offers more time)`;
   }
   // The sandbox refused something the check tried: the same words the AI sees, so it does not retry it.
   if (result.ended === "blocked") return `✗ ${name} — ${safe(result.reason ?? "blocked by the sandbox")}`;
