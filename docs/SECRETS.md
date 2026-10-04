@@ -72,7 +72,8 @@ through. Check what a tool returns before you share it.
   AI already has it, so the receipt says `A secret appeared in a command; change it after this task.`
 - **Your own secret environment values: always (from v0.2.16).** Exact copies of the
   values of Casper's secret-named environment variables (`OPENROUTER_API_KEY`,
-  `MIST_API_TOKEN`, `CENTRAL_CLIENT_SECRET` ...; 8 characters or longer, not paths)
+  `MIST_API_TOKEN`, `CENTRAL_CLIENT_SECRET`, `SLACK_WEBHOOK_URL`, `SENTRY_DSN` ...;
+  8 characters or longer, not paths, and not plain web addresses except webhook and DSN ones)
   are hidden wherever they turn up, so `printenv` shows the AI `<secret hidden>`. The
   keys and sign-in tokens in Casper's login file (`~/.casper/agent/auth.json`) are
   hidden the same way, so `cat` of that file in the AI's shell shows none of them.

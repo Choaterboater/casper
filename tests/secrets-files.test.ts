@@ -92,6 +92,14 @@ test("passwords inside addresses and webhook or DSN addresses are hidden", async
   expect(isSecretName("webhook_enabled")).toBe(false);
 });
 
+test("webhook and DSN environment values are hidden even without a password in them; other URLs stay", async () => {
+  const env = { SLACK_WEBHOOK_URL: "https://hooks.slack.com/services/T0/B0/abcd1234", TEAMS_WEBHOOK: "https://example.webhook.office.com/webhookb2/xyz789",
+    SENTRY_DSN: "https://o1.ingest.sentry.io/api/1/abcdef", TOKEN_URL: "https://auth.example.com/oauth/token", API_TOKEN_ENDPOINT: "https://api.example.com/v2" };
+  expect(secretEnvValues(env).sort()).toEqual([env.SENTRY_DSN, env.SLACK_WEBHOOK_URL, env.TEAMS_WEBHOOK].sort());
+  const out = await scrubToolOutput(scrubber, "bash", { command: "printenv" }, [`${env.SLACK_WEBHOOK_URL}\n${env.TOKEN_URL}`], undefined, { env });
+  expect(out!.texts[0]).toBe(`<secret hidden>\n${env.TOKEN_URL}`);
+});
+
 test("keys in Casper's login file are hidden wherever they show up", async () => {
   const { mkdtemp, writeFile, rm } = await import("node:fs/promises");
   const os = await import("node:os"); const path = await import("node:path");
