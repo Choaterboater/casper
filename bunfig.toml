@@ -2,5 +2,6 @@
 # their own test files: they run inside a copied work directory, never here.
 [test]
 root = "tests"
-# Strip ambient agent state (PI_*, CASPER_*, provider keys) before any test file runs.
+# Strip ambient agent state (PI_*, CASPER_*, provider keys) before any test file runs, and raise the
+# per-test timeout to 30 s (bun 1.4 reads no timeout from this file, so the preload sets it).
 preload = ["./tests/support/preload.ts"]
