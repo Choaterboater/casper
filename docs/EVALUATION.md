@@ -173,7 +173,7 @@ effort's classifier, whose model calls it does not total. Neither side counts co
 Transient provider errors (429, "Provider returned error", a dropped connection) get the same
 retry policy for Casper and Pi, since neither harness home has a `settings.json`: Pi's default of 3
 retries after 2, 4 and 8 s, then the run fails. Casper's delegated read-only children use that
-policy too (`tests/phase8-pi.integration.test.ts` pins both budgets against a loopback 429).
+policy too (`tests/phase8-pi-delegation.integration.test.ts` pins both budgets against a loopback 429).
 
 **Hidden acceptance tests.** Every pack fixture is the reference solution plus an
 `acceptance/` directory of tests the model never sees: the setup's `remove.json`

@@ -192,16 +192,16 @@ OS can still be a test bug.
 | macOS/Linux only because | Test files |
 | --- | --- |
 | Python 3 PTY tests | `daily-terminal`, `terminal-ux`, `terminal-layout`, `login`, `model-selection`, `phase10-debugger-app` |
-| Native shell commands the pinned Pi runs, whose text Casper reads — `rm`, `ln -s`, `test -f … && rm …`, `kill -TERM $$` | `phase8-pi.integration` (4 gates + 2 `!caseInsensitiveFilesystem \|\| !POSIX`), `work-driven-checks` (signal stop, cancel with `& wait`), `phase3-app` (process group, a child that ignores TERM, tests that match the configured command in the model's reported text), `pi-gate.integration`, `secrets-pi.integration` (hiding device secrets in file reads and command output) |
+| Native shell commands the pinned Pi runs, whose text Casper reads — `rm`, `ln -s`, `test -f … && rm …`, `kill -TERM $$` | `phase8-pi*.integration` (4 gates + 2 `!caseInsensitiveFilesystem \|\| !POSIX`), `work-driven-checks` (signal stop, cancel with `& wait`), `phase3-app` (process group, a child that ignores TERM, tests that match the configured command in the model's reported text), `pi-gate.integration`, `secrets-pi.integration` (hiding device secrets in file reads and command output) |
 | Shell scripts and shebang runs | `release-install` (the POSIX installer and its `#!/bin/sh` stand-in), `cli-flags` (`--version` through a PATH-style link; the source CLI run through its shebang) |
-| Creating symbolic links | `phase2-skills`, `phase5-lsp`, `phase6-review`, `phase6-visualize`, `phase9-learn`, `phase9-memory`, `phase9-references`, `phase10-browser`, `phase10-debugger`, `phase8-pi.integration`, `work-driven-checks`, `model-selection`, `eval-suite`, `context-files` |
+| Creating symbolic links | `phase2-skills`, `phase5-lsp`, `phase6-review`, `phase6-visualize`, `phase9-learn`, `phase9-memory`, `phase9-references`, `phase10-browser`, `phase10-debugger`, `phase8-pi*.integration`, `work-driven-checks`, `model-selection`, `eval-suite`, `context-files` |
 | FIFOs (`mkfifo`) | `phase9-learn`, `phase9-memory`, `phase9-references`, `review-config`, `coding-loop-evidence` |
 | Owner-only file permissions (`needsPosixModes`, `posixModes`, or checked inside a gated test) | `model-selection`, `coding-loop-evidence`, `phase9-learn`, `phase9-memory`, `phase10-browser`, `login`, `phase5-lsp`, `phase7-sessions`, `cli-flags` |
 | Process groups and POSIX signals | `platform-processes`, `phase3-app` |
 
 `phase3-verification`, the non-FIFO tests in `phase9-references`, and the rest of
 `work-driven-checks`, `phase3-app`, `coding-loop-evidence` and
-`phase8-pi.integration` run on Windows with no macOS/Linux-only test setup.
+`phase8-pi*.integration` run on Windows with no macOS/Linux-only test setup.
 
 The tests left on the list are macOS/Linux-only **by subject** (PTY, FIFO, link
 rights, permissions, process groups, signals), or because they check a native shell
