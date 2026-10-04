@@ -120,11 +120,22 @@ export function loginReach(check: AccessCheck | undefined, product: NetworkProdu
   return where ? `can change ${where}` : "can make changes";
 }
 
-async function askField(host: LoginHost, field: LoginField): Promise<string | undefined> {
+/** A numbered field is asked this many times in all when the answer isn't one of its numbers. */
+const FIELD_TRIES = 3;
+
+/** A field's value; "wrong" after FIELD_TRIES answers that weren't one of its numbers; undefined when cancelled or empty. */
+async function askField(host: LoginHost, field: LoginField): Promise<string | "wrong" | undefined> {
   if (field.choices) {
     const digits = field.choices.map((_choice, index) => String(index + 1));
-    const answer = await host.chooseAnswer(`${field.label}:\n${numberedLines(field.choices.map((choice) => choice.label))}`, `Type 1-${digits.length}: `, digits);
-    return answer && digits.includes(answer) ? field.choices[Number(answer) - 1]!.value : undefined;
+    let preview = `${field.label}:\n${numberedLines(field.choices.map((choice) => choice.label))}`;
+    for (let tries = 0; tries < FIELD_TRIES; tries++) {
+      const answer = await host.chooseAnswer(preview, `Type 1-${digits.length}: `, digits);
+      if (answer === undefined) return undefined;
+      if (digits.includes(answer)) return field.choices[Number(answer) - 1]!.value;
+      // A typo (16, 0, "us1") asks again, so it never throws away the person's yes.
+      preview = `That isn't one of them. Type a number from 1 to ${digits.length}.\n`;
+    }
+    return "wrong";
   }
   let value: string | undefined;
   try { value = (await host.privateInput(field.label))?.trim(); } catch { return undefined; }
@@ -155,6 +166,11 @@ async function askAndSave(host: LoginHost, product: NetworkProduct, trouble: Log
   const values: Record<string, string> = {};
   for (const field of LOGIN_FIELDS[product]) {
     const value = await askField(host, field);
+    if (value === "wrong") {
+      // Wrong numbers aren't a Not now: the AI's next try asks again.
+      host.write(`Not added. Type /mcp login ${product} any time.\n`);
+      return "not-now";
+    }
     if (value === undefined) return notNow();
     values[field.env] = value;
   }
