@@ -97,6 +97,8 @@ export interface CommandHost {
   readonly reloadMCPConfiguration?: () => Promise<MCPConfiguration>;
   readonly lsp?: LSPManager;
   readonly references?: ReferenceLibrary;
+  /** Reads the reference files again after /references add, so the new source is searched with no restart. */
+  reloadReferences?(): Promise<void>;
   /** The shared secret scrubber, for /secrets. */
   readonly scrubber: Scrubber;
   /** /secrets files on|off: scrub config files and config-looking command output (MCP results always). */
@@ -544,7 +546,7 @@ async function handleMemoryCommand(host: CommandHost, prompt: string): Promise<v
 async function handleReferencesCommand(host: CommandHost, prompt: string): Promise<void> {
     if (prompt.trim() === "/references") {
       const listing = host.references!.list();
-      if (!listing.sources.length && !listing.diagnostics.length) { host.output.write("[references] No reference sources configured (~/.casper/references.yaml or the profile's references.yaml).\n"); return; }
+      if (!listing.sources.length && !listing.diagnostics.length) { host.output.write("[references] None yet. /references add lists repos.\n"); return; }
       host.output.write(`[references] ${formatReferenceResult(listing)}\n`);
       return;
     }
@@ -553,9 +555,10 @@ async function handleReferencesCommand(host: CommandHost, prompt: string): Promi
       const signal = host.commandAbort?.signal;
       await runReferenceAdd(add[1], add[2], host.homeDir(), {
         print: (line) => { if (!host.closing) host.output.write(`${terminalText(line)}\n`); },
-        // Only the user's own typed yes downloads anything; one-shot runs never do.
-        confirmExact: (question) => host.confirmExact("", question, signal),
+        // Only the user's own typed 2 downloads anything; one-shot runs never do.
+        choose: (preview, question, choices) => host.chooseAnswer(preview, question, choices, signal),
         runGit: (argv) => (host.runGit ?? defaultRunGit)(argv, signal),
+        ...(host.reloadReferences ? { reload: () => host.reloadReferences!() } : {}),
       });
       return;
     }

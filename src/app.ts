@@ -443,7 +443,7 @@ export class CasperApp {
       projectRoot: context.info.root, profileName: context.profileName,
     }));
     this.loadReferenceConfigurationFn = options.loadReferenceConfiguration ?? ((context) => discoverReferenceConfiguration({
-      profileName: context.profileName,
+      profileName: context.profileName, ...(options.sessionHomeDir ? { homeDir: options.sessionHomeDir } : {}),
     }));
     this.input = options.input ?? process.stdin;
     // A real terminal (not an embedder's or a test's output) that is tmux or iTerm2: Casper fits itself to it.
@@ -2810,6 +2810,17 @@ export class CasperApp {
       },
       ...(this.networkSeams?.install ? { install: this.networkSeams.install } : {}),
     };
+  }
+
+  /** After /references add: the reference files read again; the next task's search tool uses them, and the old
+   * library (and any tool that captured it) is closed. */
+  async reloadReferences(): Promise<void> {
+    if (!this.projectContext || this.closing) return;
+    const configuration = await this.loadReferenceConfigurationFn(this.projectContext);
+    if (this.closing) return;
+    const old = this.references;
+    this.references = new ReferenceLibrary(configuration);
+    await old?.close();
   }
 
   /** Before the AI's turn: an update to Casper's network server (asked once a session), and setup on the first request
