@@ -926,6 +926,23 @@ test("the main session honors a settings.json retry budget: it recovers within i
   expect(f.payloads).toHaveLength(6);
 }, 15_000);
 
+test("a provider retry says so as it happens, and the error line waits until the retries run out", async () => {
+  let throttles = 1;
+  const f = await fixture(() => throttles-- > 0 ? throttled() : answer("MAIN_RECOVERED"));
+  const routing = { defaultProvider: "fixture", defaultModel: "fixture" };
+  await writeFile(path.join(f.agent, "settings.json"), JSON.stringify({ ...routing, retry: { maxRetries: 1, baseDelayMs: 1 } }));
+  const recovered = await f.run([cli, "Answer without tools"]);
+  expect(recovered.exit).toBe(0);
+  expect(recovered.stdout).toContain("Can't reach fixture · trying again in 1s (1 of 1)");
+  expect(recovered.stdout).not.toContain("[error]");
+  expect(recovered.stdout).toContain("MAIN_RECOVERED");
+  throttles = 2;
+  const exhausted = await f.run([cli, "Answer without tools"]);
+  expect(exhausted.exit).not.toBe(0);
+  expect(exhausted.stdout).toContain("trying again");
+  expect(exhausted.stdout.indexOf("[error]")).toBeGreaterThan(exhausted.stdout.indexOf("trying again"));
+}, 15_000);
+
 test("real CLI delegation reports a child that recovered from a 429 as completed", async () => {
   // Pi's real 2 s first backoff: the CLI offers no retry override for children, by design.
   let requests = 0;

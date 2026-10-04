@@ -51,6 +51,7 @@ import type {
   RuntimeUsage,
   RuntimeModelInfo,
   RuntimeConversation,
+  RuntimeEvent,
 } from "./types";
 import { isOutside } from "../platform/inside";
 
@@ -82,6 +83,8 @@ class PiRuntimeSession implements RuntimeSession {
   private readonly writes = new Map<string, { before: string | undefined | null; after: string }>();
   private unsubscribePi?: () => void;
   private promptActive = false;
+  /** A response that ended in a provider error, held until Pi says whether it retries. */
+  private heldError?: Extract<RuntimeEvent, { type: "assistant_response_end" }>;
   /** Steered lines the model never read; see takeUnsent. */
   private readonly unsent: string[] = [];
   private progressChars = 0;
@@ -399,11 +402,17 @@ class PiRuntimeSession implements RuntimeSession {
           if (event.message.role === "assistant") {
             const { totalTokens, cost } = event.message.usage ?? {};
             const reported = Number.isFinite(totalTokens) && Number.isFinite(cost?.total);
-            this.emit({
-              type: "assistant_response_end", stopReason: event.message.stopReason, errorMessage: event.message.errorMessage,
+            const end = {
+              type: "assistant_response_end" as const, stopReason: event.message.stopReason, errorMessage: event.message.errorMessage,
               ...(reported ? { usage: { tokens: totalTokens!, estimatedCost: cost!.total } } : {}),
-            });
+            };
+            // A provider error may be retried: Pi decides at agent_end, so the error waits until then.
+            if (event.message.stopReason === "error") this.heldError = end; else this.emit(end);
           }
+          break;
+        case "auto_retry_start":
+          this.emit({ type: "retry", provider: session.model?.provider, attempt: event.attempt, maxAttempts: event.maxAttempts,
+            delayMs: event.delayMs, errorMessage: event.errorMessage });
           break;
         case "message_update": {
           const update = event.assistantMessageEvent;
@@ -443,10 +452,13 @@ class PiRuntimeSession implements RuntimeSession {
             isError: event.isError, ...(lines ? { lines } : {}), ...(diff ? { diff } : {}) });
           break;
         }
-        case "agent_end":
+        case "agent_end": {
           this.toolInputs.clear();
+          const held = this.heldError; this.heldError = undefined;
+          if (held) this.emit(event.willRetry ? { ...held, retrying: true } : held);
           this.emit({ type: "message_end" });
           break;
+        }
       }
     });
   }
