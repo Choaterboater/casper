@@ -136,12 +136,14 @@ test("/diff list during a task prints the list with no picker, so nothing sits i
   try {
     await app.until(text => text.includes("idle"));
     app.input.write("change the notes\r");
-    await app.until(text => text.includes("Show diff"));
+    // The first task ends in about a second here; a loaded Windows CI runner was still on it ("working · 3s") when
+    // the 4 s default ran out, so the waits that span a task get more time.
+    await app.until(text => text.includes("Show diff"), 15_000);
     app.input.write("tidy up\r");
-    await app.until(() => second);
+    await app.until(() => second, 15_000);
     const from = app.screen().length;
     app.input.write("/diff list\r");
-    await app.until(text => text.slice(from).includes("/diff <task number> shows one."));
+    await app.until(text => text.slice(from).includes("/diff <task number> shows one."), 15_000);
     expect(app.screen().slice(from)).toContain("Task 1 · ");
     expect(app.screen().slice(from)).not.toContain("Show the changes of which task?");
     gate.resolve();

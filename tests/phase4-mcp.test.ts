@@ -331,7 +331,9 @@ test("cached descriptors, input validators, and safety decisions invalidate toge
 });
 
 test("dead servers do not poison healthy ones; reconnect is bounded and does not replay calls", async () => {
-  const mcp = manager([definition("good"), definition("bad", "stall")], 500);
+  // As below: only the stalling server keeps the short start limit. Starting a healthy one took 0.4-0.9 s on a
+  // loaded Windows CI runner, past 500 ms.
+  const mcp = manager([{ ...definition("good"), limits: { connectMs: 10_000 } }, definition("bad", "stall")], 500);
   await Promise.all([mcp.connect("good"), mcp.connect("bad")]);
   expect(mcp.status().find((status) => status.name === "good")?.state).toBe("ready");
   expect(mcp.status().find((status) => status.name === "bad")?.state).toBe("failed");
@@ -378,7 +380,8 @@ test("cancelled calls and successful reconnects spend no retry budget, and an ex
 });
 
 test("timeouts, caller cancellation, and close during handshake settle without late resurrection", async () => {
-  const mcp = manager([definition()], 500);
+  // The 0.5 s limit is for calls; starting the server gets a normal limit (see above).
+  const mcp = manager([{ ...definition(), limits: { connectMs: 10_000 } }], 500);
   await mcp.connect("generic");
   const broker = new CapabilityBroker(mcp);
   const abort = new AbortController();
