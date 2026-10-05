@@ -1,7 +1,22 @@
-# Keeps the commit pins of Casper's own GitHub Actions current.
+# Keeps the commit pins of Casper's own GitHub Actions and the app's packages current.
 version: 2
 updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+  # Reads package.json and bun.lock. Exact pins stay exact: Dependabot bumps a pin to the new version, never to a range.
+  - package-ecosystem: bun
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      # The engine packages move together, and pi-ai carries a patch (patches/) that must be redone on each bump.
+      pi:
+        patterns:
+          - "@earendil-works/*"
+      packages:
+        patterns:
+          - "*"
+        exclude-patterns:
+          - "@earendil-works/*"
