@@ -312,7 +312,7 @@ async function appSession(lines: string[], options: {
   const home = path.join(root, "home");
   const project = path.join(root, "project");
   await mkdir(path.join(project, ".casper"), { recursive: true });
-  const entry = options.lookalike ? path.join(home, "bin/netserver") : networkServerEntry(home).command;
+  const entry = networkServerEntry(home).command;
   await mkdir(path.dirname(entry), { recursive: true });
   await writeFile(entry, `#!/bin/sh\nexec "${process.execPath}" "${fakeServer}" "$@"\n`);
   await chmod(entry, 0o755);
