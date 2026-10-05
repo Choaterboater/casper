@@ -136,11 +136,20 @@ try {
     throw "Could not replace $Target (is casper.exe still running?): $($_.Exception.Message)"
   }
 
-  $UserPath = [string][Environment]::GetEnvironmentVariable('Path', 'User')
-  if (($UserPath -split ';') -notcontains $InstallDir) {
-    [Environment]::SetEnvironmentVariable('Path', (($UserPath.TrimEnd(';') + ';' + $InstallDir).TrimStart(';')), 'User')
-    Write-Host "Added $InstallDir to your user PATH; open a new terminal to use it."
-  }
+  # The user PATH is changed in the registry as Windows keeps it: entries like %USERPROFILE%\... stay as they are and
+  # the value keeps its type. [Environment]::SetEnvironmentVariable would write every entry out in full, as plain text.
+  $EnvKey = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey('Environment')
+  try {
+    $UserPath = [string]$EnvKey.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+    $Entries = $UserPath -split ';' | ForEach-Object { [Environment]::ExpandEnvironmentVariables($_) }
+    if ($Entries -notcontains $InstallDir) {
+      $Kind = if ($EnvKey.GetValueNames() -contains 'Path') { $EnvKey.GetValueKind('Path') } else { [Microsoft.Win32.RegistryValueKind]::ExpandString }
+      $EnvKey.SetValue('Path', (($UserPath.TrimEnd(';') + ';' + $InstallDir).TrimStart(';')), $Kind)
+      # Removing a name that was never set still tells Windows the environment changed, so new terminals get the PATH.
+      [Environment]::SetEnvironmentVariable('CASPER_INSTALL_REFRESH', $null, 'User')
+      Write-Host "Added $InstallDir to your user PATH; open a new terminal to use it."
+    }
+  } finally { $EnvKey.Close() }
   # When invoked directly with irm | iex, make casper usable in this terminal too.
   if (($env:Path -split ';') -notcontains $InstallDir) {
     $env:Path = ($env:Path.TrimEnd(';') + ';' + $InstallDir).TrimStart(';')
