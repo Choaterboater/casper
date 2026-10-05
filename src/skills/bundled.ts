@@ -250,13 +250,20 @@ export function webSkills(): BundledWebSkill[] {
   return cachedWeb;
 }
 
-/** Words that make a request UI work. Matched as whole words or phrases after normaliseWords. */
+/** Words that make a request UI work in any project. Matched as whole words or phrases after normaliseWords. */
 const UI_WORDS = [
-  "ui", "user interface", "frontend", "front end", "web page", "webpage", "landing page", "homepage", "home page",
-  "website", "web site", "web app", "webapp", "page", "pages", "layout", "css", "stylesheet", "style", "styles", "styling",
-  "html", "button", "buttons", "form", "forms", "navbar", "nav bar", "menu", "modal", "dialog", "sidebar", "header",
-  "footer", "component", "components", "screen", "theme", "dark mode", "responsive", "look", "looks", "design",
+  "ui", "user interface", "frontend", "front end", "web page", "webpage", "web pages", "landing page", "homepage", "home page",
+  "website", "web site", "web app", "webapp", "css", "stylesheet", "html", "navbar", "nav bar", "dark mode", "look and feel",
 ] as const;
+
+/** Words that also mean other things (a CSV header, an API page, a VLAN design, a log style): UI work only in a web project. */
+const WEB_PROJECT_WORDS = [
+  "page", "pages", "layout", "style", "styles", "styling", "button", "buttons", "form", "forms", "menu", "modal", "dialog",
+  "sidebar", "header", "footer", "component", "components", "screen", "theme", "responsive", "design",
+] as const;
+
+/** Frameworks that make a project a web app. */
+const WEB_FRAMEWORKS = ["react", "next", "vue", "nuxt", "svelte", "sveltekit", "angular", "vite", "electron", "tauri", "django", "flask"];
 
 /** Requests that ask about the UI rather than change it. */
 const QUESTION_INTENTS = new Set(["inspect", "document", "visualize"]);
@@ -265,7 +272,8 @@ const QUESTION_INTENTS = new Set(["inspect", "document", "visualize"]);
 const STYLING_FRAMEWORKS = ["tailwind", "styled-components", "emotion"];
 
 /** The frontend skill's pick: UI work (not a question about it), in a project with no styles, components, design
- * folder or styling package yet. 6 when picked, else 0. A local word match, no model call. */
+ * folder or styling package yet. A plain web word counts anywhere; a word with other meanings counts only in a
+ * project with a web framework. 6 when picked, else 0. A local word match, no model call. */
 export function scoreWebSkill(
   request: string,
   project: Pick<ProjectModel, "architecture" | "frameworks">,
@@ -275,7 +283,9 @@ export function scoreWebSkill(
   const { ui, styles, design } = project.architecture;
   if (ui || styles || design || project.frameworks.some((framework) => STYLING_FRAMEWORKS.includes(framework))) return 0;
   const text = normaliseWords(request).join(" ");
-  return UI_WORDS.some((word) => contains(text, word)) ? 6 : 0;
+  if (UI_WORDS.some((word) => contains(text, word))) return 6;
+  const web = project.frameworks.some((framework) => WEB_FRAMEWORKS.includes(framework));
+  return web && WEB_PROJECT_WORDS.some((word) => contains(text, word)) ? 6 : 0;
 }
 
 /** Every bundled skill: the network pack and the web skills. */

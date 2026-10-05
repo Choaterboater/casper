@@ -185,7 +185,9 @@ Share a public link too? Anyone with the link can open your app while Casper run
 On 2 Casper starts the tunnel as a `public-link` service (outside the shell sandbox, since its job is to
 reach the internet) and prints the `https://…trycloudflare.com` or `https://….ts.net` link. Vite accepts
 those host names in the preview. Without a person to ask (a script), there is no public link.
-`/preview stop` stops both; leaving Casper does too.
+`/preview stop` stops both and forgets them; leaving Casper does too. Both are Casper's own: the AI's
+service tool doesn't list them and can't start, restart or call them, so only `/preview` (and a new
+yes for the link) brings them back.
 
 ## Lifetime
 

@@ -105,7 +105,8 @@ export async function runPreview(host: PreviewHost, args: string, signal?: Abort
   const ours = (name: string) => manager.status().some((entry) => entry.name === name);
   if (args === "stop") {
     const stopped = [PUBLIC_SLOT, PREVIEW_SLOT].filter(ours);
-    for (const name of stopped) await manager.stop(name);
+    // Dropped, not just stopped: only a new /preview (and, for the link, a new yes) starts them again.
+    for (const name of stopped) await (manager.casperOnly(name) ? manager.drop(name) : manager.stop(name));
     host.output.write(stopped.length ? "[preview] Stopped. Nothing is shared now.\n" : "[preview] Nothing to stop.\n");
     return;
   }
@@ -115,7 +116,7 @@ export async function runPreview(host: PreviewHost, args: string, signal?: Abort
   const lan = (host.lanAddress ?? lanAddress)();
   const own = signal ?? new AbortController().signal;
   try {
-    manager.ensureSlot(PREVIEW_SLOT, previewSpec(web.spec), { listen: "network" });
+    manager.ensureSlot(PREVIEW_SLOT, previewSpec(web.spec), { listen: "network", owner: "casper" });
     await manager.ensureFresh(PREVIEW_SLOT, own);
   } catch (error) {
     host.output.write(`[preview] The app didn't start: ${firstLine(error)}\n`);
@@ -144,7 +145,7 @@ export async function runPreview(host: PreviewHost, args: string, signal?: Abort
     [{ label: "No", description: "keep it on your network" }, { label: yes, description: "until you leave Casper or /preview stop" }], signal);
   if (answer !== yes || signal?.aborted) return;
   try {
-    manager.ensureSlot(PUBLIC_SLOT, tunnelSpec(tunnel, port), { sandbox: false });
+    manager.ensureSlot(PUBLIC_SLOT, tunnelSpec(tunnel, port), { sandbox: false, owner: "casper" });
     await manager.ensureFresh(PUBLIC_SLOT, own);
   } catch (error) {
     host.output.write(`[preview] No public link: ${TOOL_NAME[tunnel.tool]} didn't give one. ${firstLine(error)}\n`);

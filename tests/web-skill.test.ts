@@ -12,10 +12,10 @@ import { classifyTask } from "../src/task/classify";
 const temporary: string[] = [];
 afterEach(async () => { await Promise.all(temporary.splice(0).map((dir) => rm(dir, { recursive: true, force: true }))); });
 
-function model(architecture: Record<string, string> = {}, frameworks: string[] = []): ProjectModel {
+function model(architecture: Record<string, string> = {}, frameworks: string[] = [], languages = ["typescript"]): ProjectModel {
   return {
     schemaVersion: 1, project: { name: "example", root: "/example", git: false },
-    languages: ["typescript"], frameworks, packageManager: "bun",
+    languages, frameworks, packageManager: "bun",
     commands: {}, architecture, conventions: [], detectedAt: "2026-01-01T00:00:00.000Z",
   } as ProjectModel;
 }
@@ -41,9 +41,28 @@ test("the skill is small, in Casper's own words, and covers the agreed topics", 
 });
 
 test("UI work in a project with no design yet picks it", async () => {
-  for (const prompt of ["build a landing page with a signup form", "add a settings page", "make the layout work on a phone",
-    "style the navbar and buttons", "create a web app to track my lab gear"]) {
+  // Plain web words pick it in any project, even an empty one.
+  for (const prompt of ["build a landing page with a signup form", "style the navbar and buttons", "create a web app to track my lab gear",
+    "add a dark mode to the website", "change the look and feel of the html report"]) {
     expect({ prompt, picked: await picked(prompt) }).toEqual({ prompt, picked: ["web-frontend"] });
+  }
+  // Words that also mean other things (page, form, layout, header, design …) count only in a web project.
+  const web = model({}, ["react", "vite"]);
+  for (const prompt of ["add a settings page", "make the layout work on a phone", "add a header with the logo", "design the signup form"]) {
+    expect({ prompt, picked: await picked(prompt, web) }).toEqual({ prompt, picked: ["web-frontend"] });
+  }
+});
+
+test("network, script and report work in a project that isn't a web app doesn't pick it", async () => {
+  const projects = [model({}, [], ["python"]), model({}, ["mistapi"], ["python"]), model(), model({}, [], [])];
+  for (const prompt of ["add a header row to the CSV report", "make the script look up each AP's site name",
+    "fix the paging so it fetches all pages from the Mist API", "add a form field to the Ansible inventory",
+    "design a VLAN plan and write the playbook", "change the style of the log output", "add a menu to the CLI",
+    "show the results on screen as a table", "add a theme option to the config", "split the parser into components"]) {
+    for (const project of projects) {
+      expect({ prompt, frameworks: project.frameworks, picked: (await picked(prompt, project)).includes("web-frontend") })
+        .toEqual({ prompt, frameworks: project.frameworks, picked: false });
+    }
   }
 });
 

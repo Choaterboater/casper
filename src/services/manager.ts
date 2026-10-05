@@ -57,8 +57,9 @@ const HOST = "127.0.0.1";
 
 /** How a slot Casper adds itself runs. `listen: "network"` sets HOST to 0.0.0.0, so phones on the same network can
  * open it (/preview); Casper still probes it on loopback. `sandbox: false` runs a tool the person installed and said
- * yes to (a tunnel) outside the shell sandbox, which would hold its network. */
-export interface SlotOptions { listen?: "network"; sandbox?: false }
+ * yes to (a tunnel) outside the shell sandbox, which would hold its network. `owner: "casper"`: only Casper starts it
+ * (/preview), so the AI's service tool and checks never see or start it. */
+export interface SlotOptions { listen?: "network"; sandbox?: false; owner?: "casper" }
 const portTaken = (port: number, name: string) => `Port ${port} is in use by a process Casper didn't start; stop that process or set services.${name}.port: auto. Casper never replaces a process it does not own.`;
 const TAIL_LINES = 20;
 
@@ -88,6 +89,10 @@ export class ServiceManager {
 
   get closed(): boolean { return this.closing !== undefined; }
   names(): string[] { return [...this.slots.keys()]; }
+  /** Whether only Casper starts this slot (the /preview app and public link); false for an unknown name. */
+  casperOnly(name: string): boolean { return this.slots.get(name)?.options?.owner === "casper"; }
+  /** Names the AI may use: every slot but Casper's own. */
+  aiNames(): string[] { return this.names().filter(name => !this.casperOnly(name)); }
   /** Whether any service is starting or ready. `detected: false` leaves out the dev server Casper started for its
    * own page check, so that server alone never hands the model the service tool (and its tokens) on later tasks. */
   live(options: { detected?: boolean } = {}): boolean {
@@ -170,6 +175,14 @@ export class ServiceManager {
     this.slots.set(name, slot);
     this.detected.add(name);
     return this.describe(slot);
+  }
+
+  /** Stops a slot Casper added and forgets it, so nothing can start it again until Casper adds it anew. */
+  async drop(name: string): Promise<void> {
+    if (!this.detected.has(name) || !this.slots.has(name)) return;
+    await this.stop(name);
+    this.slots.delete(name);
+    this.detected.delete(name);
   }
 
   async restart(name: string, signal: AbortSignal): Promise<ServiceStatus> {

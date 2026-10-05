@@ -3,6 +3,8 @@ import { chmod, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises
 import os from "node:os";
 import path from "node:path";
 import { ServiceManager } from "../src/services/manager";
+import { SmokeChecks } from "../src/services/smoke";
+import { serviceTool } from "../src/services/tool";
 import { findTunnel, lanAddress, previewSpec, PUBLIC_SLOT, runPreview, tunnelSpec, tunnelUrl, type PreviewHost, type Tunnel } from "../src/services/preview";
 
 /** /preview: on your network by default; a public link only after a numbered yes, through a tunnel tool you have. */
@@ -83,6 +85,8 @@ async function fixture(answers: string[], options: { tunnel?: boolean; canAsk?: 
 posixOnly("by default it runs on your network with no question, then asks once before a public link; 1 No keeps it local", async () => {
   const f = await fixture(["No"]);
   await runPreview(f.host, "");
+  await expect(new SmokeChecks([], () => f.manager).record({ name: "link", service: PUBLIC_SLOT, request: { method: "GET", path: "/" }, expect: { status: 200 } },
+    new AbortController().signal)).rejects.toThrow("must name a declared service");
   const origin = f.manager.origin("preview")!;
   const port = new URL(origin).port;
   expect(f.text()).toContain(`[preview] On your network: http://127.0.0.1:${port} · open it on a phone on the same Wi-Fi. Anyone on this network can open it; it stops when you leave Casper (or /preview stop).`);
@@ -98,7 +102,34 @@ posixOnly("2 Yes starts the tunnel and prints its link; /preview stop ends both"
   expect(f.manager.status().find((entry) => entry.name === PUBLIC_SLOT)?.state).toBe("ready");
   await runPreview(f.host, "stop");
   expect(f.text()).toContain("[preview] Stopped. Nothing is shared now.");
-  expect(f.manager.status().map((entry) => entry.state)).toEqual(["stopped", "stopped"]);
+  expect(f.manager.status()).toEqual([]);
+}, 30_000);
+
+posixOnly("the AI's service tool can't start the preview or the public link, before or after /preview stop", async () => {
+  const f = await fixture(["Yes, make a public link (cloudflared)"]);
+  await runPreview(f.host, "");
+  const tool = serviceTool(() => f.manager);
+  const call = async (args: Record<string, unknown>) => {
+    const result = await tool.execute(args, new AbortController().signal);
+    return { isError: result.isError === true, text: result.text };
+  };
+  // Casper's own slots are left out of what the AI sees.
+  expect((await call({ action: "status" })).text).not.toContain(PUBLIC_SLOT);
+  for (const service of [PUBLIC_SLOT, "preview"]) {
+    for (const action of ["start", "restart"]) {
+      const refused = await call({ action, service });
+      expect(refused.isError).toBe(true);
+      expect(refused.text).toContain("/preview");
+    }
+    expect((await call({ action: "request", service, path: "/" })).isError).toBe(true);
+  }
+  const origin = f.manager.origin("preview")!;
+  expect((await call({ action: "request", url: `${origin}/` })).isError).toBe(true);
+  await runPreview(f.host, "stop");
+  for (const service of [PUBLIC_SLOT, "preview"]) {
+    for (const action of ["start", "restart"]) expect((await call({ action, service })).isError).toBe(true);
+  }
+  expect(f.manager.status()).toEqual([]);
 }, 30_000);
 
 posixOnly("without a tunnel tool, one line and no question; without a person to ask, no public link", async () => {

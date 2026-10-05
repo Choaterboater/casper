@@ -94,10 +94,13 @@ values in one theme file, real HTML elements, a visible label on every field, a 
 It also lists what makes a page look machine-made (purple gradients, emoji as icons, everything in a
 card, lorem ipsum) so the AI skips them.
 
-- **Picked only for UI work in a project with no look of its own yet:** a request with a UI word
-  (page, form, layout, button, css, styles, web app …) that isn't a question, in a project where
-  Casper finds no styles, components or design folder and no styling package (Tailwind,
-  styled-components, Emotion). When the project has a look, the repo's style always wins and the
+- **Picked only for UI work in a project with no look of its own yet:** a request with a web word
+  (web app, website, landing page, html, css, navbar, frontend …), or, in a project with a web
+  framework (React, Vue, Svelte, Vite, Next, Django, Flask …), a word such as page, form, layout,
+  header, button or design, that isn't a question, in a project where Casper finds no styles,
+  components or design folder and no styling package (Tailwind, styled-components, Emotion). In a
+  Python, Ansible or Mist project, "add a header row to the CSV" or "fetch all pages from the API"
+  doesn't pick it. When the project has a look, the repo's style always wins and the
   skill stays out. `casper new web-app` and `vite-react` start with a theme file, so they follow
   that.
 - Zero tokens until picked; about 1,000 tokens when it is. It never installs anything or adds a
