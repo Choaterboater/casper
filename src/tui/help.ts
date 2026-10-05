@@ -166,7 +166,7 @@ Local commands:
   /skills                           List skill metadata and trust
   /skills diagnostics               Inspect discovery/activation warnings
   /skills inspect <id>              Inspect a skill and its content digest
-  /skills trust <id> <sha256>       Approve the exact reviewed skill content
+  /skills trust <id>                Show a skill, then 1 No · 2 Trust it (exactly what was shown)
   /skills block <id>                Prevent future skill injection
   /mcp                              Show redacted MCP status (no connection)
   /mcp setup network                Set up Casper's network server (Mist, Central, ClearPass): 1 Not now · 2 Set it up

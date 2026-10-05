@@ -521,12 +521,13 @@ bodies to the model:
 /skills
 /skills diagnostics
 /skills inspect <id>
-/skills trust <id> <sha256>
+/skills trust <id>
 /skills block <id>
 ```
 
-Use the exact ID from `/skills`. `inspect` prints the body and its SHA-256 hash; read it before
-running the printed `trust` command. Decisions are stored in `~/.casper/skills-trust.json`, keyed
+Use the exact ID from `/skills`. `trust` prints the body and its SHA-256 hash, then asks
+`1 No · 2 Trust it`; 2 trusts exactly what it showed. `/skills trust <id> <sha256>` still works for
+scripts. Decisions are stored in `~/.casper/skills-trust.json`, keyed
 by the real file path. Trust is checked against the file's current content each time the skill
 is used, so changing a reviewed skill needs another review. Changing its frontmatter needs a
 Casper restart to rebuild the list. A damaged or unreadable trust file is an error, and nothing is

@@ -111,6 +111,9 @@ export const REFERENCE_ADD_CHOICES = ["No", "Download"] as const;
 /** /mcp docs: "Add a docs-only copy (no passwords, no device access)?" Only "2" adds it. */
 export const DOCS_COPY_CHOICES = [NO, "Add it"] as const;
 
+/** /skills trust <id>: "Trust deploy as shown?" after the skill and its fingerprint. Only "2" trusts it. */
+export const SKILL_TRUST_CHOICES = [NO, "Trust it"] as const;
+
 /** /lab import <file>: only "2" adds the hosts to your lab list. */
 export const LAB_IMPORT_CHOICES = ["No", "Add them"] as const;
 

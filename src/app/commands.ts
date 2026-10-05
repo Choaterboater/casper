@@ -58,7 +58,7 @@ import { sandboxReport, sandboxStatusLine } from "./sandbox";
 import type { SessionYes } from "./session-yes";
 import { webStatusLine } from "../web/tools";
 import type { ShellSandbox } from "../sandbox/manager";
-import { allowKindsChoices, DOCS_COPY_CHOICES, LAB_IMPORT_CHOICES, MCP_ALLOW_KEEP_CHOICES, MCP_REMEMBER_CHOICES, MCP_WRITES_CHOICES } from "./safe-choices";
+import { allowKindsChoices, DOCS_COPY_CHOICES, SKILL_TRUST_CHOICES, LAB_IMPORT_CHOICES, MCP_ALLOW_KEEP_CHOICES, MCP_REMEMBER_CHOICES, MCP_WRITES_CHOICES } from "./safe-choices";
 import { KIND_TEXT, RISKY_KINDS } from "../capabilities/kinds";
 
 /** Output sink for the app; lives here so the command host stays import-cycle-free. */
@@ -1096,17 +1096,28 @@ async function handleSkillsCommand(host: CommandHost, prompt: string): Promise<v
           `SHA256: ${inspected.sha256}`,
           inspected.skill.source === "bundled"
             ? `Bundled with Casper and trusted. /skills block ${id} stops it; skills.bundled: false turns them all off.`
-            : `After reviewing: /skills trust ${id} ${inspected.sha256}`,
+            : `After reviewing: /skills trust ${id}${host.interactive ? "" : ` ${inspected.sha256}`}`,
           "",
         ].join("\n"));
       } else if (action === "trust" && id && sha256 && !extra.length) {
         await registry.trust(id, sha256);
         host.output.write(`Trusted reviewed content for ${id}.\n`);
+      } else if (action === "trust" && id && !sha256 && host.interactive) {
+        // Shows exactly what you trust, then 1 No · 2 Trust it: the fingerprint of what was shown, not a copied one.
+        const inspected = await registry.inspect(id);
+        const name = inspected.skill.id.replace(/@[a-f0-9]+$/, "");
+        const preview = [`Skill: ${inspected.skill.id}`, `File: ${inspected.skill.filePath}`, inspected.body, `SHA256: ${inspected.sha256}`, ""].join("\n");
+        if (await host.approveChoice(terminalText(preview), `Trust ${terminalText(name)} as shown?`, SKILL_TRUST_CHOICES, host.commandAbort?.signal) !== SKILL_TRUST_CHOICES[1]) {
+          host.output.write("[skills] Not trusted.\n");
+          return;
+        }
+        await registry.trust(id, inspected.sha256);
+        host.output.write(`Trusted reviewed content for ${inspected.skill.id}.\n`);
       } else if (action === "block" && id && !sha256) {
         await registry.block(id);
         host.output.write(`Blocked ${id} for future prompts.\n`);
       } else {
-        host.output.write("Usage: /skills | /skills inspect <id> | /skills trust <id> <sha256> | /skills block <id>\n");
+        host.output.write("Usage: /skills | /skills inspect <id> | /skills trust <id> | /skills block <id>\n");
       }
     } catch (error) {
       host.output.write(`[skills] ${error instanceof Error ? error.message : String(error)}\n`);
