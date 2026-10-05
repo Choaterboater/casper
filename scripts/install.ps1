@@ -167,5 +167,14 @@ try {
 } finally {
   $ProgressPreference = $PreviousProgressPreference
   Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $Tmp
-  if ($Staged) { Remove-Item -Force -ErrorAction SilentlyContinue $Staged }
+  if ($Staged) {
+    # The version probe just ran from this file, and Windows or antivirus can hold it for a moment after
+    # that, so removing it is tried again for about 5 seconds.
+    $CleanupClock = [Diagnostics.Stopwatch]::StartNew()
+    while (Test-Path -LiteralPath $Staged) {
+      Remove-Item -LiteralPath $Staged -Force -ErrorAction SilentlyContinue
+      if (-not (Test-Path -LiteralPath $Staged) -or $CleanupClock.Elapsed.TotalSeconds -ge 5) { break }
+      Start-Sleep -Milliseconds 250
+    }
+  }
 }

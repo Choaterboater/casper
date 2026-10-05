@@ -66,43 +66,57 @@ try {
     if ((Get-FileHash $Binary).Hash -ne $Before) { throw "Rejected $Failure replaced the existing binary" }
     if (Test-Path (Join-Path $env:CASPER_INSTALL_DIR '.casper-download.exe')) { throw 'Staged download leaked' }
   }
-  # Antivirus or a casper.exe that just closed can hold the file for a moment. Another process
-  # opens casper.exe without delete sharing. In the first case it lets go 2.5 s after the
-  # installer stages its download (so the first replace hits the held file); in the second it
-  # never lets go.
-  $env:CASPER_VERSION = $Expected
+  # Antivirus or a casper.exe that just closed can hold a file for a moment. Another process opens
+  # it without delete sharing:
+  # - releases: casper.exe, let go 2.5 s after the installer stages its download, so the first
+  #   replace hits the held file;
+  # - holds: casper.exe, never let go;
+  # - staged: the staged download itself, right after it is written, let go 2.5 s later, with a
+  #   version pin that fails, so the cleanup hits the held file.
   $env:CASPER_SHA256 = $null
   $Shell = (Get-Process -Id $PID).Path
   $StagedPath = Join-Path $env:CASPER_INSTALL_DIR '.casper-download.exe'
-  foreach ($Releases in @($true, $false)) {
-    $Ready = Join-Path $Temp ('held-' + $Releases)
-    $Wait = if ($Releases) {
-      "`$d = (Get-Date).AddSeconds(120); while (-not (Test-Path -LiteralPath '$StagedPath') -and (Get-Date) -lt `$d) { Start-Sleep -Milliseconds 50 }; Start-Sleep -Milliseconds 2500"
-    } else { 'Start-Sleep -Seconds 120' }
-    $Hold = "`$f = [IO.File]::Open('$Binary', 'Open', 'Read', 'Read'); New-Item -ItemType File -Path '$Ready' | Out-Null; $Wait; `$f.Close()"
+  foreach ($Case in @('releases', 'holds', 'staged')) {
+    $env:CASPER_VERSION = if ($Case -eq 'staged') { '9.9.9' } else { $Expected }
+    $Ready = Join-Path $Temp ('held-' + $Case)
+    $Hold = switch ($Case) {
+      'releases' { "`$f = [IO.File]::Open('$Binary', 'Open', 'Read', 'Read'); New-Item -ItemType File -Path '$Ready' | Out-Null; `$d = (Get-Date).AddSeconds(120); while (-not (Test-Path -LiteralPath '$StagedPath') -and (Get-Date) -lt `$d) { Start-Sleep -Milliseconds 50 }; Start-Sleep -Milliseconds 2500; `$f.Close()" }
+      'holds' { "`$f = [IO.File]::Open('$Binary', 'Open', 'Read', 'Read'); New-Item -ItemType File -Path '$Ready' | Out-Null; Start-Sleep -Seconds 120; `$f.Close()" }
+      'staged' { "`$f = `$null; `$d = (Get-Date).AddSeconds(120); while (-not `$f -and (Get-Date) -lt `$d) { try { `$f = [IO.File]::Open('$StagedPath', 'Open', 'Read', 'Read') } catch { Start-Sleep -Milliseconds 10 } }; if (`$f) { New-Item -ItemType File -Path '$Ready' | Out-Null; Start-Sleep -Milliseconds 2500; `$f.Close() }" }
+    }
     $Holder = Start-Process $Shell -ArgumentList @('-NoProfile', '-Command', $Hold) -PassThru -WindowStyle Hidden
     try {
-      for ($Attempt = 0; $Attempt -lt 80 -and -not (Test-Path $Ready); $Attempt++) { Start-Sleep -Milliseconds 250 }
-      if (-not (Test-Path $Ready)) { throw 'The process that holds casper.exe did not start' }
+      if ($Case -ne 'staged') {
+        for ($Attempt = 0; $Attempt -lt 80 -and -not (Test-Path $Ready); $Attempt++) { Start-Sleep -Milliseconds 250 }
+        if (-not (Test-Path $Ready)) { throw 'The process that holds casper.exe did not start' }
+      } else {
+        # The holder must be waiting before the installer writes the staged file.
+        Start-Sleep -Seconds 2
+      }
       $Clock = [Diagnostics.Stopwatch]::StartNew()
       $Failure = $null
       try { Invoke-RestMethod "$env:CASPER_BASE_URL/install.ps1" | Invoke-Expression } catch { $Failure = $_.Exception.Message }
       $Clock.Stop()
-      if ($Releases) {
-        if ($Failure) { throw "The installer gave up on a casper.exe held for 2.5 s: $Failure" }
-      } else {
-        if (-not $Failure) { throw 'The installer replaced casper.exe while another process held it' }
-        if ($Failure -notmatch 'Could not replace') { throw "Unexpected failure: $Failure" }
-        if ($Clock.Elapsed.TotalSeconds -lt 4) { throw "The installer gave up after $($Clock.Elapsed.TotalSeconds) s, without waiting" }
+      switch ($Case) {
+        'releases' { if ($Failure) { throw "The installer gave up on a casper.exe held for 2.5 s: $Failure" } }
+        'holds' {
+          if (-not $Failure) { throw 'The installer replaced casper.exe while another process held it' }
+          if ($Failure -notmatch 'Could not replace') { throw "Unexpected failure: $Failure" }
+          if ($Clock.Elapsed.TotalSeconds -lt 4) { throw "The installer gave up after $($Clock.Elapsed.TotalSeconds) s, without waiting" }
+        }
+        'staged' {
+          if ($Failure -notmatch 'Expected version 9\.9\.9') { throw "Unexpected result with a wrong version pin: $Failure" }
+          if (-not (Test-Path $Ready)) { throw 'The staged download was never held; nothing was tested' }
+        }
       }
-      if ((Get-FileHash $Binary).Hash -ne $Before) { throw 'casper.exe changed after a held-file install' }
-      if (Test-Path $StagedPath) { throw 'Staged download leaked after a held-file install' }
+      if ((Get-FileHash $Binary).Hash -ne $Before) { throw "casper.exe changed after a held-file install ($Case)" }
+      if (Test-Path $StagedPath) { throw "Staged download leaked after a held-file install ($Case)" }
     } finally {
       if (-not $Holder.HasExited) { Stop-Process -Id $Holder.Id -Force -ErrorAction SilentlyContinue }
       $Holder.WaitForExit()
     }
   }
-  Write-Host 'PASS: served Windows install, persistent/current PATH, version/help/licenses/project/diagram, rejected checksum and version preserve existing binary, waits for a held casper.exe'
+  Write-Host 'PASS: served Windows install, persistent/current PATH, version/help/licenses/project/diagram, rejected checksum and version preserve existing binary, waits for a held casper.exe and a held staged download'
 } finally {
   if ($Server -and -not $Server.HasExited) { Stop-Process -Id $Server.Id -ErrorAction SilentlyContinue }
   [Environment]::SetEnvironmentVariable('Path', $OldUserPath, 'User')
