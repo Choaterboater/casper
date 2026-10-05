@@ -178,7 +178,7 @@ temp and package caches and can't read `~/.ssh` or cloud logins. The AI's shell 
 reach only listed hosts (others ask first); services and dev servers keep the machine's network on
 Linux (on macOS they reach only listed hosts too), and you can reach them on localhost either way.
 On Windows, or Linux without bubblewrap, nothing holds the shell: the AI's shell asks before each
-command, and your checks run with your permissions. Worktrees, read-only agent roles and
+command that changes something (reads like `ls` or `git status` don't), and your checks run with your permissions. Worktrees, read-only agent roles and
 connection prompts do not isolate anything at the OS level. See [SECURITY.md](docs/SECURITY.md).
 
 Your code, tool output and chat may go to the model provider you picked, and may stay on
@@ -258,7 +258,7 @@ it. What each version changed, in more detail: [RELEASE.md](docs/RELEASE.md).
 - A shell sandbox on Linux (bubblewrap, socat and ripgrep: `sudo apt install bubblewrap socat ripgrep`) and macOS:
   the AI's shell, checks, services and dev servers write only the project, temp and package
   caches, can't read `~/.ssh` or cloud logins, and reach only listed hosts (others ask). On
-  Windows, or Linux without bubblewrap, the AI's shell asks before each command.
+  Windows, or Linux without bubblewrap, the AI's shell asks before each command that changes something (reads like `ls` don't).
   [SECURITY.md](docs/SECURITY.md)
 - A stricter "verified": `--require-verification` exits 3 unless the change is proven, so
   `• Checks passed — not proven` exits 3 too; the JSON `checksPassed` field still says the

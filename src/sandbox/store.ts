@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { lstat, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { hostName } from "./policy";
+import { matchesPrefix } from "./read-only";
 
 /**
  * What you told the sandbox to remember for one project, kept in Casper's own folder
@@ -10,7 +11,7 @@ import { hostName } from "./policy";
  * and, when no sandbox can run, exact shell commands you said not to ask about again. Private (0600), written only from your
  * own answer to a numbered question. The sandbox keeps the AI's shell from reading or writing this folder.
  */
-interface StoreFile { version: 1; hosts: string[]; commands: string[]; reach?: string[]; labReach?: false }
+interface StoreFile { version: 1; hosts: string[]; commands: string[]; prefixes?: string[]; reach?: string[]; labReach?: false }
 
 const MAX_ENTRIES = 500;
 
@@ -33,6 +34,7 @@ export class SandboxStore {
         version: 1,
         hosts: Array.isArray(value.hosts) ? value.hosts.filter((host): host is string => typeof host === "string").slice(0, MAX_ENTRIES) : [],
         commands: Array.isArray(value.commands) ? value.commands.filter((command): command is string => typeof command === "string").slice(0, MAX_ENTRIES) : [],
+        ...(Array.isArray(value.prefixes) ? { prefixes: value.prefixes.filter((prefix): prefix is string => typeof prefix === "string").slice(0, MAX_ENTRIES) } : {}),
         ...(Array.isArray(value.reach) ? { reach: value.reach.filter((host): host is string => typeof host === "string").slice(0, MAX_ENTRIES) } : {}),
         ...(value.labReach === false ? { labReach: false as const } : {}),
       };
@@ -42,6 +44,14 @@ export class SandboxStore {
 
   async hosts(): Promise<string[]> { return [...(await this.load()).hosts]; }
   async hasCommand(command: string): Promise<boolean> { return (await this.load()).commands.includes(command); }
+  /** A command you said "Yes, always for this project" to: the exact command, or one starting with a kept prefix. */
+  async allowsCommand(command: string): Promise<boolean> {
+    const data = await this.load();
+    return data.commands.includes(command) || (data.prefixes ?? []).some((prefix) => matchesPrefix(command, prefix));
+  }
+  addPrefix(prefix: string): Promise<void> {
+    return this.update((data) => { data.prefixes = [...new Set([...data.prefixes ?? [], prefix])]; });
+  }
   /** Machines the AI's ssh, scp and the like may reach without asking (lower case, as Casper resolved them). */
   async reachHosts(): Promise<string[]> { return [...(await this.load()).reach ?? []]; }
   addReach(host: string): Promise<void> {
@@ -67,7 +77,7 @@ export class SandboxStore {
   addCommand(command: string): Promise<void> { return this.update((data) => { if (!data.commands.includes(command)) data.commands.push(command); }); }
   forgetCommands(): Promise<number> {
     let count = 0;
-    return this.update((data) => { count = data.commands.length; data.commands = []; }).then(() => count);
+    return this.update((data) => { count = data.commands.length + (data.prefixes?.length ?? 0); data.commands = []; delete data.prefixes; }).then(() => count);
   }
 
   private update(change: (data: StoreFile) => void): Promise<void> {
@@ -77,6 +87,7 @@ export class SandboxStore {
       change(data);
       data.hosts = data.hosts.slice(-MAX_ENTRIES); data.commands = data.commands.slice(-MAX_ENTRIES);
       if (data.reach) data.reach = data.reach.slice(-MAX_ENTRIES);
+      if (data.prefixes) data.prefixes = data.prefixes.slice(-MAX_ENTRIES);
       await mkdir(this.directory, { recursive: true, mode: 0o700 });
       const temporary = path.join(this.directory, `.sandbox.${randomUUID()}.tmp`);
       try {

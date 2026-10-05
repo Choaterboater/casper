@@ -414,6 +414,6 @@ export function asksBeforeShell(state: SandboxState): boolean {
 export function describeSandbox(state: SandboxState, hosts?: number): string {
   if (state.kind === "on") return `sandboxed · writes: this project, temp, package caches${hosts !== undefined ? ` · hosts: ${hosts} listed` : ""} (/sandbox)`;
   if (state.kind === "off") return `not sandboxed (${state.reason ?? "off"})`;
-  if (state.kind === "unsupported") return `not sandboxed (${state.reason === "Windows" ? "Windows has no sandbox yet" : state.reason ?? "this system"}) · Casper asks before each AI shell command`;
-  return `not sandboxed (${state.reason ?? "no sandbox"}) · Casper asks before each AI shell command`;
+  if (state.kind === "unsupported") return `not sandboxed (${state.reason === "Windows" ? "Windows has no sandbox yet" : state.reason ?? "this system"}) · Casper asks before AI shell commands that change things`;
+  return `not sandboxed (${state.reason ?? "no sandbox"}) · Casper asks before AI shell commands that change things`;
 }

@@ -15,7 +15,8 @@ import { terminalText } from "../tui/format";
 import { blockedBySandbox } from "../verify/command";
 import { hideCommandSecrets } from "../secrets/files";
 import { remoteTargets, runsAlone, targetLabel, type RemoteTarget } from "../sandbox/remote";
-import { HOST_CHOICES, REACH_CHOICES, SHELL_COMMAND_CHOICES, writeChoices, YES_ALWAYS, YES_ONCE, YES_SESSION } from "./safe-choices";
+import { HOST_CHOICES, REACH_CHOICES, shellCommandChoices, writeChoices, YES_ALWAYS, YES_ONCE, YES_SESSION } from "./safe-choices";
+import { commandPrefix, matchesPrefix, readOnlyCommand } from "../sandbox/read-only";
 
 /**
  * The session's shell sandbox, as the app uses it: the host question, the ask-only fallback for the AI's shell
@@ -94,6 +95,9 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
   const show = (entry: string) => displayPath(entry, sandbox.root, sandbox.home);
   /** Hosts you said "Yes, for this session" to. */
   const sessionReach = new Set<string>();
+  /** With no sandbox: commands (or command prefixes) you said "Yes, for this session" to. */
+  const sessionCommands = new Set<string>();
+  const sessionPrefixes = new Set<string>();
   /** Commands you said yes to just now, with the hosts they reach (wrap lets them through). */
   const cleared = new Map<string, RemoteTarget[]>();
   const said = new Set<string>();
@@ -197,11 +201,16 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
       if (!sandbox.asksFirst) return undefined;
       // The host question showed this command and you said yes: it is not asked twice.
       if (remote.asked) return undefined;
-      if (await store.hasCommand(command)) return undefined;
+      // Commands that only read run without a box, like they would in the sandbox.
+      if (readOnlyCommand(command)) return undefined;
+      if (sessionCommands.has(command) || [...sessionPrefixes].some((prefix) => matchesPrefix(command, prefix))) return undefined;
+      if (await store.allowsCommand(command)) return undefined;
       if (!host.canAsk()) return SHELL_CANT_ASK;
-      const answer = await host.pick(shellQuestion(command), [...SHELL_COMMAND_CHOICES], signal);
+      const prefix = commandPrefix(command);
+      const answer = await host.pick(shellQuestion(command), shellCommandChoices(prefix), signal);
       if (answer === YES_ONCE) return undefined;
-      if (answer === YES_ALWAYS) { await store.addCommand(command); return undefined; }
+      if (answer === YES_SESSION) { if (prefix) sessionPrefixes.add(prefix); else sessionCommands.add(command); return undefined; }
+      if (answer === YES_ALWAYS) { await (prefix ? store.addPrefix(prefix) : store.addCommand(command)); return undefined; }
       return SHELL_DECLINED;
     },
     logDir() {
@@ -231,7 +240,7 @@ export function outsideWritesReceipt(sandbox: ShellSandbox | undefined): Pick<Ta
 
 /** "shell     sandboxed · writes: ..." for the banner and /status. */
 export function sandboxStatusLine(sandbox: ShellSandbox): string {
-  if (sandbox.failure) return `not sandboxed (the sandbox could not start: ${sandbox.failure}) · Casper asks before each AI shell command`;
+  if (sandbox.failure) return `not sandboxed (the sandbox could not start: ${sandbox.failure}) · Casper asks before AI shell commands that change things`;
   return describeSandbox(sandbox.state, sandbox.on ? sandbox.allowedHosts().length : undefined);
 }
 

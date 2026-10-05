@@ -369,7 +369,7 @@ tree digest), or how many past three. The per-file table (a bounded `git diff --
 with `--verbose`; `/diff` shows the task's full changes.
 `/permissions` explains actual boundaries from the state Casper is in: whether the shell
 sandbox holds shell commands and checks here, or (without it) that the AI's shell asks
-before each command. `/sandbox` lists what it holds. Existing integration-specific
+before each command that changes something (reads like `ls` don't). `/sandbox` lists what it holds. Existing integration-specific
 approvals remain in force. Verification is still separate from tool completion.
 
 ### Local debugger

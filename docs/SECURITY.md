@@ -91,7 +91,12 @@ the operating system, not a list of words:
 | `--no-sandbox`, or `sandbox: off` in `~/.casper/config.yaml` | Off, your choice | Nothing asks; the receipt says `Shell commands and checks were not sandboxed (--no-sandbox)` |
 
 With no sandbox, each command the AI's shell (and the service tool's own start command) wants to run
-asks `Run this command?  npm test` with `1 No · 2 Yes, this once · 3 Yes, always for this project` (3 keeps that exact command in `~/.casper`).
+asks `Run this command?  npm test` with `1 No · 2 Yes, this once · 3 Yes, for this session · 4 Yes, always for
+this project`. 3 and 4 cover every command starting with the same prefix (`npm test`, `git commit`, `npm run build`);
+a line with more than one command, a redirect, a `VAR=value` start or an interpreter (`python3`, `bash`, `sudo`, `npx`)
+gets no prefix and is kept as the exact command. 4 keeps it in `~/.casper`. Commands that only read files in the
+project (`ls`, `cat`, `grep`, `find`, `git status`, `git diff`, `git log` and the like, with no redirect, nothing
+outside the project and no `.env` or key file) don't ask at all.
 Enter runs nothing. A run that can't ask refuses it:
 `Not run: shell commands need your OK here, and this run can't ask. Use --no-sandbox to allow them for this run.`
 Your project's own checks, services and dev servers then run with your permissions, as before
@@ -126,7 +131,7 @@ Each row names the test that fails without it.
 | While planning, the project is read-only to the shell, so a repository's own `git diff` program can't change it. | the write fails | `tests/sandbox-live.test.ts` › “during a plan turn the project is read-only too, so a repo's git diff program can't change it”; `tests/sandbox-asks.test.ts` › “while planning, the AI's shell gets a read-only project” |
 | A check the sandbox stopped says so, in the receipt and to the AI, and is never sent for repair. | `✗ test — blocked by the sandbox (wanted to write …)` | `tests/sandbox-wiring.test.ts` › “a check the sandbox refused says so in the receipt, is never sent for repair, and the same line reaches the AI”; `tests/sandbox-wiring.test.ts` › “the AI's bash: the sandbox wraps it, and a refusal is added to what the AI reads” |
 | When the sandbox could not start, it says so; the AI's command that found it asks too, and the check or tool run goes ahead not sandboxed, as the receipt says. | `[sandbox] The sandbox could not start` | `tests/sandbox-asks.test.ts` › “the AI's first command after the sandbox fails to start asks too, and a one-shot run refuses it”; `tests/sandbox-wiring.test.ts` › “when the sandbox fails to start on a check or a tool run, that run still goes ahead, not sandboxed, and the receipt says so” |
-| With no sandbox, the AI's shell asks before each command (Enter runs nothing); a run that can't ask refuses with the `--no-sandbox` hint. | `Run this command?  npm test` | `tests/sandbox-asks.test.ts` › “a run that can't ask refuses the command with the --no-sandbox hint, and never waits”; `tests/sandbox-app.test.ts` › “with no sandbox here, the banner says so and gives the fix” |
+| With no sandbox, the AI's shell asks before each command that changes something (reads like `ls` don't) that isn't a plain read (Enter runs nothing); a run that can't ask refuses with the `--no-sandbox` hint. | `Run this command?  npm test` | `tests/sandbox-asks.test.ts` › “a run that can't ask refuses the command with the --no-sandbox hint, and never waits”; `tests/no-sandbox-commands.test.ts` › “with no sandbox, ls and git status run without a box, even where nobody can ask”; `tests/sandbox-app.test.ts` › “with no sandbox here, the banner says so and gives the fix” |
 | `--no-sandbox` is reported on the receipt and in the JSON (`sandbox.held: false`). | `• Shell commands and checks were not sandboxed (--no-sandbox)` | `tests/sandbox-app.test.ts` › “--no-sandbox: the one-shot banner, the receipt and the JSON say shell commands were not sandboxed”; `tests/sandbox-wiring.test.ts` › “with --no-sandbox nothing is wrapped, and the receipt and JSON say so” |
 | A project can only add denies; a repo's `.pi/sandbox.json` is ignored. | `[sandbox] Ignored .pi/sandbox.json: a project can't loosen the sandbox.` | `tests/sandbox-policy.test.ts` › “your own settings add hosts and write folders; a project's settings only add denies”; `tests/sandbox-policy.test.ts` › “a project can't turn the sandbox off; you can”; `tests/sandbox-app.test.ts` › “a repo's .pi/sandbox.json is ignored, and Casper says so” |
 | The compiled Casper carries the seccomp helper (Linux), written to `~/.casper/bin` after a hash check. | — | `tests/release-compile.test.ts` › “the compiled binary carries the sandbox and its seccomp helper, written to ~/.casper/bin after a hash check” |
@@ -179,7 +184,7 @@ Each row names the test that fails without it.
   page they serve can call any address. On macOS they reach only listed hosts.
 - **On Linux the sandbox has its own `localhost`.** A command that goes straight to `localhost` reaches
   the sandbox, not a dev server Casper started; the service tool's `request` reaches those.
-- **Windows, and Linux without bubblewrap**, have no sandbox: the AI's shell asks before each command,
+- **Windows, and Linux without bubblewrap**, have no sandbox: the AI's shell asks before each command that changes something (reads like `ls` don't),
   and your project's checks, services and dev servers run with your permissions and network. Use
   `--no-verify` in a repository you don't trust.
 - **The model provider sees what the AI reads.** Code, file contents and command output go to the

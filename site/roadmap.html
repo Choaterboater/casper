@@ -208,7 +208,7 @@
             project, temp and package caches and can't read <code>~/.ssh</code> or cloud logins. The
             AI's shell and checks reach only listed hosts; any other host asks. Services and dev
             servers keep the machine's network on Linux and reach only listed hosts on macOS. On
-            Windows, or Linux without bubblewrap, the AI's shell asks before each command.
+            Windows, or Linux without bubblewrap, the AI's shell asks before each command that changes something (reads like <code>ls</code> don't).
             <code>--no-sandbox</code> turns it off.</li>
             <li><strong>An AI security review.</strong> After its tools, <code>/security-review</code>
             offers to run a model over the changes. It asks first and shows the cost; files the

@@ -168,12 +168,18 @@ export const REACH_CHOICES = [
   { label: YES_ALWAYS, description: "kept in ~/.casper, never in the repo; /sandbox forget <host> undoes it" },
 ] as const satisfies readonly Choice[];
 
-/** "Run this command?  npm test" when no sandbox can run (Windows, bubblewrap missing). Enter runs nothing. */
-export const SHELL_COMMAND_CHOICES = [
-  { label: NO, description: "the command does not run" },
-  { label: YES_ONCE, description: "it runs with your permissions and network" },
-  { label: YES_ALWAYS, description: "this exact command; kept in ~/.casper, never in the repo" },
-] as const satisfies readonly Choice[];
+/** "Run this command?  npm test --watch" when no sandbox can run (Windows, bubblewrap missing). Enter runs nothing.
+ * 3 and 4 cover commands starting with the prefix (`npm test`), or this exact command when it has none. */
+export function shellCommandChoices(prefix?: string): Choice[] {
+  const covers = prefix ? `commands starting with ${prefix}` : "this exact command";
+  return [
+    { label: NO, description: "the command does not run" },
+    { label: YES_ONCE, description: "it runs with your permissions and network" },
+    { label: YES_SESSION, description: `${covers} don't ask again until Casper exits` },
+    { label: YES_ALWAYS, description: `${covers}; kept in ~/.casper, never in the repo` },
+  ];
+}
+export const SHELL_COMMAND_CHOICES = shellCommandChoices();
 
 /** "Next: the AI can read the 12 changed files for security problems …" after /security-review's tools. Enter spends nothing. */
 export const AI_REVIEW_CHOICES = [

@@ -241,7 +241,7 @@
               <tr>
                 <th scope="row">Sandbox</th>
                 <td class="no">No</td>
-                <td class="yes">Yes on Linux (through bubblewrap, a small sandbox tool) and macOS: the AI's shell, checks, services and dev servers write only the project, temp and package caches and can't read <code>~/.ssh</code>; the AI's shell and checks reach only listed hosts (others ask), while services and dev servers keep the machine's network on Linux and reach only listed hosts on macOS. Windows has no sandbox yet; there the AI's shell asks before each command.</td>
+                <td class="yes">Yes on Linux (through bubblewrap, a small sandbox tool) and macOS: the AI's shell, checks, services and dev servers write only the project, temp and package caches and can't read <code>~/.ssh</code>; the AI's shell and checks reach only listed hosts (others ask), while services and dev servers keep the machine's network on Linux and reach only listed hosts on macOS. Windows has no sandbox yet; there the AI's shell asks before each command that changes something (reads like <code>ls</code> don't).</td>
               </tr>
             </tbody>
           </table>

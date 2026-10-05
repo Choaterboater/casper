@@ -188,8 +188,9 @@ commands.
 - **netconan** (optional secret checker): found as `netconan.exe`, `.cmd` or `.bat`
   when installed.
 - **No shell sandbox yet.** The banner and `/status` say
-  `shell     not sandboxed (Windows has no sandbox yet) · Casper asks before each AI shell command`,
-  and the AI's shell asks `Run this command?` before each command, with `1 No` first.
+  `shell     not sandboxed (Windows has no sandbox yet) · Casper asks before AI shell commands that change things`,
+  and the AI's shell asks `Run this command?` before each command that changes something, with `1 No` first
+  (reads like `ls`, `cat` or `git status` don't ask; 3 and 4 cover a command prefix such as `npm test`).
   A one-shot run refuses the AI's shell commands unless you pass `--no-sandbox`. On
   Windows your project's own checks, services and dev servers still run, not sandboxed,
   with your permissions and network. See [SECURITY.md](SECURITY.md).
