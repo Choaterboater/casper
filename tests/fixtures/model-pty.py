@@ -37,12 +37,10 @@ def exercise(bun, repo, root, no_color=False):
         s.until("Selected for this conversation only")
         assert not (s.root / "home/.casper/settings.json").exists()
         s.send("Q")
-        s.pump(0.1)
-        assert "x" * 93 + "Qxx" in re.sub(r"\n {2}", "", s.screen.text()), s.screen.text()
+        s.until_true(lambda text: "x" * 93 + "Qxx" in re.sub(r"\n {2}", "", text))
         # The exclusive handoff must retain editor history as well as its draft.
         s.send("\x01\x0b\x1b[A")
-        s.pump(0.1)
-        assert re.search(r"❯ /model\s*\n\s*─", s.screen.text()), s.screen.text()
+        s.until_true(lambda text: re.search(r"❯ /model\s*\n\s*─", text) is not None)
         # Direct exact match, then search-prefilled picker and explicit save.
         s.send("\x01\x0b/model fixture/first\n")
         s.until("fixture / first")
