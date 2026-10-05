@@ -88,6 +88,9 @@ sign-in, the banner and footer say `not signed in · type a request to sign in`,
 opens sign-in instead of an empty picker. Where sign-in can't open (a plain or piped terminal,
 a one-shot run) they say `not signed in · run casper in a terminal and type /login` instead.
 
+If you start Casper in your home folder or a folder that only holds projects (such as
+`~/Projects`), it asks which project to open: press its number, or Esc to stay where you are.
+
 On a rich terminal at least 58 columns wide the transcript opens with the
 wordmark — the Casper ghost (bold white) beside a block-letter `CASPER` (accent)
 — followed by the `version` / `project` / `/help` lines. Narrower terminals,
@@ -320,6 +323,11 @@ never the provider's own text. A model whose provider has no sign-in names that 
 terminal with nothing signed in says `Not signed in yet. Run casper in a terminal and type /login.`
 A one-shot run with a key set but no model Casper can pick says
 `No Casper model selected. Pass --model <provider/model>, or run casper and type /model.`
+
+If you skip `/login`, Casper opens sign-in on your first request and picks that provider's
+default model (OpenRouter: `deepseek/deepseek-v4.1-flash`). `/model` picks another; Casper never
+replaces a model you chose. Type keys or codes only in the private login prompt, never in chat.
+Your provider's plans and charges still apply.
 
 The list reuses Pi's selection list: a digit picks its row at once, Up/Down moves the
 visible highlight in place, Enter confirms that item, and Esc exits without contacting

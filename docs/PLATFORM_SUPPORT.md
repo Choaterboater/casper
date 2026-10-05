@@ -1,6 +1,6 @@
 # Platform support — macOS, Linux, Windows
 
-**What this is:** what Casper 0.2.21 does on each operating system, and what has
+**What this is:** what Casper 0.2.22 does on each operating system, and what has
 really been tested on each. **When you'd use it:** before you run Casper on a new
 kind of machine, or when something works on your Mac but not on Windows or Linux.
 
@@ -9,8 +9,8 @@ kind of machine, or when something works on your Mac but not on Windows or Linux
 | OS | What is tested | What is not |
 | --- | --- | --- |
 | macOS | Tested by hand, plus the full test suite | See **Limits** below |
-| Windows x64 | Install and startup, in CI (a GitHub build machine), under PowerShell 5.1 and 7 | The interactive screen, process cleanup on a real desktop, browser and debugger |
-| Linux | Release build runs `casper-linux-x64 --version` on Ubuntu when a release is published | No recorded run of the full test suite or the interactive screen on a real Linux machine |
+| Windows x64 | Install and startup, in CI (a GitHub build machine), under PowerShell 5.1 and 7, plus a list of test files (undo, project root, sign-in, receipts and more) | The full test suite (it does not pass on Windows yet), the interactive screen, process cleanup on a real desktop, browser and debugger |
+| Linux | The full test suite in CI on an Ubuntu build machine; the release build runs `casper-linux-x64 --version` on Ubuntu when a release is published | No recorded run of the full test suite or the interactive screen on a real Linux machine |
 | Windows ARM64 | Nothing | There is no release file for it |
 
 To test a machine yourself, run `bun tools/platform-report.ts` from a source checkout.

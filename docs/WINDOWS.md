@@ -22,7 +22,7 @@ without checking where the download came from.
 In PowerShell (a normal window, not "Run as administrator"):
 
 ```powershell
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.21/install.ps1 | iex
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.22/install.ps1 | iex
 ```
 
 What the installer does:
@@ -49,12 +49,13 @@ casper --help
 Get-Command casper | Select-Object Source
 ```
 
-`casper --version` should print `casper 0.2.21 (<path to casper.exe>)`. The `Source`
+`casper --version` should print `casper 0.2.22 (<path to casper.exe>)`. The `Source`
 line should point into the install folder, not an old checkout or some other program
 called casper.
 
-The command above always installs **v0.2.21**. Running it again reinstalls v0.2.21.
-To get a newer preview, use that release's own install command.
+The command above always installs **v0.2.22**. Running it again reinstalls v0.2.22.
+To get a newer preview, run `casper update`; it renames `casper.exe` to `casper.old.exe`
+and installs the new one with that release's own installer.
 
 ## 2. Automated checks (CI)
 
@@ -66,7 +67,7 @@ on `main`. It never publishes a release. Its steps:
 | --- | --- |
 | `bun run typecheck` | Source and test types |
 | `bun tools/platform-report.ts` | Windows process list, stopping a child and grandchild, leaving an unrelated process alone, the clean environment, opening state files, refusing a linked file (when Windows allows links), browser discovery |
-| The focused tests below | Process ownership rules, and the login, model and terminal code that does not depend on the OS |
+| The focused tests below | Process ownership rules; the login, model and terminal code that does not depend on the OS; undo, the project folder, browser sign-in, receipts and the network server update with real file locks. The full suite is not run on Windows: it does not pass there yet |
 | `bun test tests/release-compile.test.ts` | The compiled program starts and reads images with no Bun on `PATH` |
 | `bun run build:release` | Builds the release files; publishes nothing |
 | `scripts/test-install-windows.ps1` under PowerShell 5.1 and 7 | Installs from a local copy of the release files: `PATH` (saved and current), `--version`, `--help`, `--licenses`, `/project`, an inline diagram, and that a bad checksum or wrong version leaves the old program untouched |
@@ -76,7 +77,7 @@ on `main`. It never publishes a release. Its steps:
 To run the same focused tests from a checkout (after `bun install --frozen-lockfile`):
 
 ```powershell
-bun test tests/platform-processes.test.ts tests/login-picker.test.ts tests/login.test.ts tests/model-routing.test.ts tests/auto-effort.test.ts tests/model-selection.test.ts tests/daily-terminal.test.ts tests/terminal-review.test.ts tests/terminal-ux.test.ts tests/terminal-discovery.test.ts
+bun test tests/platform-processes.test.ts tests/login-picker.test.ts tests/login.test.ts tests/model-routing.test.ts tests/auto-effort.test.ts tests/model-selection.test.ts tests/daily-terminal.test.ts tests/terminal-review.test.ts tests/terminal-ux.test.ts tests/terminal-discovery.test.ts tests/network-update-swap.test.ts tests/undo.test.ts tests/project-root-path.test.ts tests/login-browser.test.ts tests/receipt.test.ts tests/undo-app.integration.test.ts
 ```
 
 These use fake providers, temporary folders and local-only services. They need no

@@ -7,7 +7,7 @@ search them with its `search_references` tool.
 
 **When you'd use it.** When you want the AI to look at real examples (for example
 how pycentral calls an API, or what a Junos YANG model allows) instead of guessing.
-`/references add` can download three vendor spec repos for you.
+`/references add` can download six vendor spec and SDK repos for you.
 
 It only finds and shows lines. It does not learn, rewrite rules or check that an
 example fits your project. The separate [`casper learn` command](LEARNING.md) makes

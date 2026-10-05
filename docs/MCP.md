@@ -113,7 +113,8 @@ file and set no variable.
 3. Every change asks you in the change box, like any server
    ([Turning writes on](#turning-writes-on)). The box names the product
    (`Change in Mist: ...`), and a disruptive, firmware, delete or admin change asks every
-   time. The real tool's kind comes from the server's `find_tool` and can only make a
+   time, unless you picked `Yes to everything` on that product (then nothing asks until
+   ctrl+o or the session ends). The real tool's kind comes from the server's `find_tool` and can only make a
    call stricter. A tool `find_tool` never named asks every time, with no
    "Yes, for this session".
    If the AI calls `access_check` first, it is told that a product with no login is
@@ -277,8 +278,8 @@ own. A `trusted` flag in a project file or a skill can't connect one. Only your
   file it replaces, its command and arguments or URL origin, and the names of its
   env values and headers (never the values). It also names every `${NAME}` it
   would send and where, for example
-  `sends $NETBOX_TOKEN to https://collector.example (header X-Key)`. You type `yes`
-  to connect.
+  `sends $NETBOX_TOKEN to https://collector.example (header X-Key)`, then asks
+  `1 No · 2 Yes, this once`.
 - Permission lasts for this run of Casper unless you remember the server (see
   [Remembered servers](#remembered-servers)). It is separate from skill trust.
 - `/mcp` lists name, transport (stdio or http), state, tool count, where it came

@@ -4,11 +4,132 @@
 published, and what the installers promise. **When you'd use it:** to see what is new
 before you upgrade, or when you build or publish a release yourself.
 
-Casper distributes an unsigned **v0.2.21 preview**, not a stable release. The installers
-download from `https://github.com/Choaterboater/casper/releases/download/v0.2.21`,
+Casper distributes an unsigned **v0.2.22 preview**, not a stable release. The installers
+download from `https://github.com/Choaterboater/casper/releases/download/v0.2.22`,
 because GitHub's `latest/download` link skips preview releases. The first published
 preview was **v0.1.0**. A published release is never changed; every fix ships under a
 new version.
+
+## v0.2.22: one box for every yes, and a network server Casper sets up
+
+Every question that lets something happen is now the same numbered box, Casper can set up its own
+network server for Mist, Central and ClearPass, device checks ask before they touch anything, and
+the screen keeps up with you while the AI works.
+
+**Casper sets up its network server.** Ask about ClearPass, Marvis or an SSID, or about Mist,
+Central or Wi-Fi next to a network word, or type `/mcp setup network`, and Casper asks once: `1 Not now · 2 Set it up`. `2` installs
+[casper-network-mcp](https://github.com/Choaterboater/casper-network-mcp) 0.1.1 into
+`~/.casper/tools`, every package checked against a hash lock that ships inside Casper, and
+connects it with writes off. Without uv the question shows uv's own installer and offers
+`2 Install uv, then set it up`. `1` is kept, and Casper doesn't offer when you already have
+hpe-networking-mcp, casper-network-mcp or a server named `network`. A web app's "central logging"
+never brings it up. `casper new network-mcp` now builds your own server the same way: a
+`--read-only` start flag, a change kind on every tool that changes things, and a login check that
+says where the login can change things (and lists no places when it can't see them all). See
+[Casper's network server](MCP.md#caspers-network-server).
+
+**Logins asked on first use, by you only.** The first time the AI uses a product with no login,
+Casper asks you (`1 Not now · 2 Add a login`), the secret typed hidden and kept in Casper's own
+private file; the AI never sees it, and a login the server echoes back is hidden too. Casper then
+says where it reaches: `Mist login: can change Branch-12 (checked)`. Mist and ClearPass are checked;
+Central shows `saved (not checked)`, and means new Central (GreenLake) only for now. When the
+product turns a saved login down, Casper asks `1 Not now · 2 Replace the login`. `/mcp login`
+changes or forgets one. When Casper pins a newer server version it asks `1 Not now · 2 Update it`;
+a failed update keeps the old one running.
+
+**One box for every yes.** Every approval is the same numbered panel: `1 No · 2 Yes, this once ·
+3 Yes, for this session · 4 Yes, always for this project`, offering only the answers that fit. One
+key picks, Esc is No, and a key pressed just as the box opens is ignored. Nothing asks you to type
+`yes` any more: browser actions and debugger launches use the box, a project's MCP server asks
+`1 No · 2 Yes, this once`, `/skills trust <id>` shows the skill and asks `1 No · 2 Trust it`, and
+`/references add` asks `1 No · 2 Download`. A Junos show command's box offers `3 Yes, show commands
+on <server> for this session`; commits and other commands still ask.
+
+**The change box says what changes.** An MCP change shows the product, the change in plain words
+and where the login can change things (from the server's own login check). Answering `2` or `3`
+turns writes on for that server; `2` turns them off again afterwards. Each change has a kind:
+config, troubleshoot, disruptive, firmware, delete or admin. Firmware, deletes and admin changes
+are off by default on every server: a first box allows the kind, then the change box still asks
+about each call. `3 Yes, for this session` never covers a disruptive or risky change or a tool
+that runs commands, so one yes to a harmless command can't let a later reboot run. A tool the
+server's own tool list never named, and a link check (cable test, ping, iperf), always ask. A
+server can make a kind stricter, never safer. `/mcp allow <server>` picks kinds ahead of time from
+a numbered list, for the session or remembered. The box's last answer, `Yes to everything on
+<product> this session`, asks once more, then no box asks about any change on that product,
+firmware, deletes, admin and reboots included, until ctrl+o or the session ends; the footer shows
+`ALLOW ALL`. See [Change kinds](MCP.md#change-kinds-and-mcp-allow).
+
+**Device checks ask, then reach any device.** A lab check no longer needs a lab list. When the
+work needs one, the AI asks for it and Casper shows a box naming every device, with
+`Not marked lab: core-r1 (10.1.2.3).` for the rest, and warnings when a playbook or jump host can
+reach others. Only your answer starts it; it is never rerun or repaired on its own. `/lab import
+<file>` adds devices to your lab list (GreenCLI's lab export, or one host per line) after
+`1 No · 2 Add them`. The AI's `ssh` to a device on your lab list doesn't ask; `/lab ssh off`
+makes it ask. The network skills push safely: on AOS-CX a checkpoint, confirm, then save; on Junos
+and AOS-CX one device first, then one at a time, stopping at the first error. See
+[Your lab](NETWORK-CHECKS.md#your-lab).
+
+**Risky config lines in the receipt.** After a task changes config files, the receipt lists each
+dangerous line it added and what it does: `risky configs/sw1.cfg:6 reload (reboots the switch)`.
+Reload, shutdown, erase, `load override`, rollbacks and the like; saving is not risky. It is a
+report, never a pass or a fail. The checker is GreenCLI's. See
+[Risky config lines](NETWORK-CHECKS.md#risky-config-lines-in-the-receipt).
+
+**Fewer questions with no sandbox.** On Windows, or Linux without bubblewrap, commands that only
+read files in the project (`ls`, `cat`, `grep`, `git status` …) run without a box. The shell box
+offers `3` and `4` for a command prefix such as `npm test`. A search over a folder that holds a
+`.env` or key file still asks. `ssh` to a machine can be allowed for good (`4 Yes, always for this
+project`; `/sandbox forget` undoes it). Script runs take `--allow-host`, `--allow-write` and
+`--allow-reach` for that run only. See [SECURITY.md](SECURITY.md) and
+[SCRIPTING.md](SCRIPTING.md).
+
+**Tighter in a few places.** A project's `sandbox.denyRead` now also holds for the AI's file
+tools and helpers, not only shell commands, and a refusal says why. When the sandbox fails to
+start on a service the AI started, Casper asks first: `1 No · 2 Yes, this once · 3 Yes, don't ask
+again`. ansible-lint gets file names after `--`, so a file name is never read as an option. A test
+script the AI wrote in the project can become a check, and a read outside the project shows one
+line: `[read] outside this project: ~/Projects`.
+
+**Talk to it while it works.** Enter during a task steers: the AI reads your line at its next
+step, or it waits in the queue for after the task (`↳ queued · runs when this task ends`); Esc
+gives queued lines back, and a queued line never answers a box. The `/` menu stays open during
+work and look-only commands run (`/diff`, `/receipt`, `/mcp`, `/details` …). Provider retries show
+as they happen: `Can't reach openrouter · trying again in 4s (1 of 3) · Esc stops`. From the
+second task on the footer keeps the session total. See [TERMINAL_UX.md](TERMINAL_UX.md).
+
+**A plainer first run.** `/login` is one numbered list, OpenRouter first. Model errors say the
+cause and one next step (bad key: `/login`; no credits: top up; rate limit: wait; too long:
+`/compact`); the provider's own words are behind Ctrl+T. `/settings` turns web lookups, the
+new-version notice, built-in skills, spend notes and the work shown on or off by number and saves
+them for you. `/help <word>` searches the help, and a mistyped command gets "Did you mean".
+`What are you building?` lists My own first. A check that timed out offers `Allow more time from
+now on`.
+
+**`casper update`.** A release binary installs the newest preview with that release's own
+installer and checks; a checkout pulls fast-forward only. A session says when a new version is
+out, from a check made in the background at most once a day (no model, no tokens). `/settings` or
+`CASPER_NO_UPDATE_CHECK=1` turns the notice off.
+
+**Smaller things.** The receipt's row is now `1 Show diff · 2 Undo`, so a stray `1` never undoes.
+The folded steps line names the changed files. `/resume` is a numbered picker. Code blocks copy
+clean, with no side borders. With OpenRouter the cost is what OpenRouter says it charged. The tab
+title shows the conversation's name in macOS Terminal and iTerm2. Opening your home folder takes
+half a second, not half a minute. Presets for a local Mist server (`mist_mcp`) and GreenCLI's
+server. A project's MCP server may run from an absolute folder inside the project, and an entry
+that is turned down says why. `/pane on|off` turns the steps pane on or off. OpenAI Codex sign-in
+opens the browser on a desktop; the device code stays for SSH. Flowchart labels with `<` and `>`
+(`List<T>`) show in full. AOS-CX REST secrets and webhook and DSN addresses (not local ones) are
+hidden from the AI; a ternary's
+`"pass" : "fail"` no longer is. The `mist-openapi` reference is gone (it gave nothing to search);
+use `mistapi` or the network server. An MCP server or security tool that fails to install or start
+says why.
+
+**Windows.** Undo saves its copy before each task again (git couldn't open its empty config).
+Session worktrees work, sign-in opens the whole address in the browser, the installer keeps your
+`%USERPROFILE%` PATH entries as they were, and the receipt's undo and diff commands show the folder
+as you'd type it. The old console gets an ASCII spinner. Windows CI now also runs the undo,
+project root, sign-in, receipt and network server update tests; the full suite does not pass on
+Windows yet.
 
 ## v0.2.21: a clearer screen, and pages checked on a phone
 
@@ -980,17 +1101,24 @@ below.
 
 ## Known preview limits
 
+- Some screen issues remain.
 - Binaries are not signed or notarized. SmartScreen (Windows) or Gatekeeper (macOS)
   may warn. `install.sh` clears the macOS quarantine flag; neither installer signs
   anything.
-- Windows x64 is tested for install and startup only, and Linux x64 only for startup
-  (`--version`); see [PLATFORM_SUPPORT.md](PLATFORM_SUPPORT.md). There is no Windows
-  ARM64 file.
+- Windows x64 is tested in CI for install and startup, plus a list of test files (undo,
+  project root, sign-in, receipts, network server update). The full test suite does not
+  pass on Windows yet; that work is still open. The interactive screen has not been tried
+  on a real Windows desktop. There is no Windows ARM64 file.
+- Linux: the full test suite runs in CI on an Ubuntu build machine, and the published
+  `casper-linux-x64` is started once (`--version`) before upload. Nothing has been run on a
+  real Linux machine, and `casper-linux-arm64` is not run anywhere. See
+  [PLATFORM_SUPPORT.md](PLATFORM_SUPPORT.md).
 - Published v0.1.0 appends login selection messages instead of moving the highlight,
   and lacks every change listed above. Those corrections ship in v0.2.13.
 - Windows diagram output is inline; screenshot/diagram artifact files require the
   POSIX bridge. Optional browser/debugger/LSP/MCP behavior is not fully host-tested.
-- There is no npm/Homebrew distribution channel, automatic updater or rollback.
+- There is no npm/Homebrew distribution channel. `casper update` installs a newer preview
+  when you run it; nothing updates on its own, and there is no rollback to an older one.
 - Installation does not install project language tools, browser/debugger adapters or
   Git Bash. Pi's model-facing Bash tool needs an available Bash on Windows; Casper's
   own verification commands use the Windows shell.
