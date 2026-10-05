@@ -45,7 +45,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Offline platform and terminal contracts
         run: |
-          bun test tests/platform-processes.test.ts tests/login-picker.test.ts tests/login.test.ts tests/model-routing.test.ts tests/auto-effort.test.ts tests/model-selection.test.ts tests/daily-terminal.test.ts tests/terminal-review.test.ts tests/terminal-ux.test.ts tests/terminal-discovery.test.ts tests/network-update-swap.test.ts tests/undo.test.ts tests/project-root-path.test.ts tests/login-browser.test.ts tests/receipt.test.ts 2>&1 | Tee-Object -FilePath .artifacts/windows-verification/source-tests.log
+          bun test tests/platform-processes.test.ts tests/login-picker.test.ts tests/login.test.ts tests/model-routing.test.ts tests/auto-effort.test.ts tests/model-selection.test.ts tests/daily-terminal.test.ts tests/terminal-review.test.ts tests/terminal-ux.test.ts tests/terminal-discovery.test.ts tests/network-update-swap.test.ts tests/undo.test.ts tests/project-root-path.test.ts tests/login-browser.test.ts tests/receipt.test.ts tests/undo-app.integration.test.ts 2>&1 | Tee-Object -FilePath .artifacts/windows-verification/source-tests.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Standalone compilation regressions
         run: |
