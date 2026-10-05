@@ -292,7 +292,7 @@ it. What each version changed, in more detail: [RELEASE.md](docs/RELEASE.md).
   own), then which one, with Back first. My own is an empty folder with git.
 - The AI does the next step in your project itself instead of telling you to edit a file, builds
   things on by default (with an off switch), and keeps risk notes to one line.
-- A write outside the project asks once, naming the folder: `1 No · 2 Yes, for this session`. This covers
+- A write outside the project asks once, naming the folder: `1 No · 2 Yes, this once · 3 Yes, for this session`. This covers
   the AI's shell and its edit and write tools.
 - `web_search` and `web_fetch`: the AI can look things up (DuckDuckGo by default, no key). Public
   pages only; a lookup holding a secret is refused. `web: off` turns them off.

@@ -101,7 +101,7 @@ test("the risky choices still exist, as a deliberate 2 or later", () => {
   expect(OSV_UPDATE_QUESTION.choices).toEqual(["Stop", "Download it"]);
   expect(undoChangedChoices("Undo", 2).map((choice) => choice.label)).toEqual(["Cancel", "Undo the other 2 files"]);
   expect(AI_REVIEW_CHOICES.map((choice) => choice.label)).toEqual(["Stop here", "Run the AI review"]);
-  expect(writeChoices("~/apps/x").map((choice) => choice.label)).toEqual(["No", "Yes, for this session"]);
+  expect(writeChoices("~/apps/x").map((choice) => choice.label)).toEqual(["No", "Yes, this once", "Yes, for this session"]);
   expect(REACH_CHOICES.map((choice) => choice.label)).toEqual(["No", "Yes, this once", "Yes, for this session", "Yes, always for this project"]);
   expect(missingFolderChoices("Documents", "sample-tools").map((choice) => choice.label)).toEqual(["Stay in Documents", "Make sample-tools here"]);
   expect(workFolderChoices("Documents", "sample-tools").map((choice) => choice.label)).toEqual(["Stay here", "Switch there"]);

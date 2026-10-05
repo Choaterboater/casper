@@ -47,7 +47,8 @@ export type HostAnswer = "no" | "once" | "session" | "project";
 /** Who wants to write outside the project: a shell command, or the AI's own edit and write tools. */
 export type WriteAsker = "shell" | "ai";
 /** What a write question came to: allowed for this session, no, or nobody could answer (refused, no question). */
-export type WriteDecision = "allowed" | "no" | "cant-ask";
+/** "once": allowed for this one write (the AI's tools) or the next command (the shell), not kept. */
+export type WriteDecision = "allowed" | "once" | "no" | "cant-ask";
 
 export interface ShellSandboxOptions {
   root: () => string;
@@ -70,7 +71,8 @@ export interface ShellSandboxOptions {
   askHost?: (host: string) => Promise<HostAnswer> | undefined;
   /** One numbered question about writes to folders (or, for the AI's tools, one file) outside the project (true
    * allows them for this session); undefined when nobody can answer now. Never remembered past the session. */
-  askWrite?: (targets: string[], from: WriteAsker) => Promise<boolean> | undefined;
+  /** true: for this session; "once": this one write or the next command. */
+  askWrite?: (targets: string[], from: WriteAsker) => Promise<boolean | "once"> | undefined;
   /** Plain lines for the user ([sandbox] ...). */
   note?: (line: string) => void;
   /** The temp folders commands may write; the system's by default. */
@@ -106,6 +108,10 @@ export class ShellSandbox {
   private readonly sessionWrites: string[] = [];
   /** Single files outside the project you allowed the AI's edit and write tools, this session (not the shell's). */
   private readonly sessionFiles: string[] = [];
+  /** Folders you allowed "Yes, this once" for a shell command: the next command only. */
+  private readonly nextWrites: string[] = [];
+  /** Places you allowed "Yes, this once" for the AI's tools, until its write is noted on the receipt. */
+  private readonly onceTargets: string[] = [];
   private readonly pendingWrites = new Map<string, Promise<WriteDecision>>();
   /** Allowed places the AI's tools wrote, and folders you allowed a shell command, since the last receipt. */
   private readonly wroteOutside = new Set<string>();
@@ -159,7 +165,7 @@ export class ShellSandbox {
       tempDirs: [...(this.options.tempDirs ?? systemTempDirs(this.platform)), ...(this.tempDir ? [this.tempDir] : [])],
       ...(this.options.settings?.user ? { user: this.options.settings.user } : {}),
       ...(this.options.settings?.project ? { project: this.options.settings.project } : {}),
-      rememberedHosts: this.remembered, sessionWrites: this.sessionWrites, ...(options.extraWrite ? { extraWrite: options.extraWrite } : {}),
+      rememberedHosts: this.remembered, sessionWrites: [...this.sessionWrites, ...this.nextWrites], ...(options.extraWrite ? { extraWrite: options.extraWrite } : {}),
       ...(options.readOnlyProject ? { readOnlyProject: true } : {}),
     });
   }
@@ -193,6 +199,8 @@ export class ShellSandbox {
     }
     for (const folder of [this.options.root(), ...(options.extraWrite ?? [])]) this.guardGit(folder);
     const policy = this.policy(options);
+    // "Yes, this once" for a shell write: this command may write there, the one after asks again.
+    this.nextWrites.length = 0;
     // Temp files land in the session's own temp folder; socat inside the sandbox listens on IPv4 when this
     // machine has no IPv6 (it would fail to start otherwise and every host would look blocked).
     const prefix = [`TMPDIR=${quote(this.tempDir!)}; export TMPDIR`, ...(IPV6_MISSING ? ["SOCAT_DEFAULT_LISTEN_IP=4; export SOCAT_DEFAULT_LISTEN_IP"] : [])].join("; ");
@@ -316,7 +324,9 @@ export class ShellSandbox {
     const decision = (async (): Promise<WriteDecision> => {
       const answer = this.options.askWrite?.(left, from);
       if (!answer) return "cant-ask";
-      if (!await answer.catch(() => false)) return "no";
+      const given = await answer.catch(() => false);
+      if (!given) return "no";
+      if (given === "once") { this.onceTargets.push(...left); return "once"; }
       const list = options.file ? this.sessionFiles : this.sessionWrites;
       for (const target of left) if (!list.includes(target)) list.push(target);
       return "allowed";
@@ -328,12 +338,24 @@ export class ShellSandbox {
   /** The AI's edit or write went through at `absolute`, outside the project: the receipt names its allowed place. */
   noteOutsideWrite(absolute: string): void {
     const real = realpathLongest(absolute);
-    const place = this.sessionFiles.find((entry) => entry === real) ?? this.sessionWrites.find((entry) => within(entry, real));
+    const place = this.sessionFiles.find((entry) => entry === real) ?? this.sessionWrites.find((entry) => within(entry, real))
+      ?? this.onceTargets.find((entry) => entry === real || within(entry, real));
     if (place) this.wroteOutside.add(place);
+    const once = this.onceTargets.indexOf(place ?? "");
+    if (once >= 0) this.onceTargets.splice(once, 1);
   }
 
   /** You allowed a shell command to write `folder`: the receipt says allowed, not written (the sandbox can't tell). */
   noteOutsideAllow(folder: string): void { this.allowedOutside.add(folder); }
+
+  /** "Yes, this once" for a shell write: the next command may write these folders, then they ask again. */
+  allowNextCommand(folders: readonly string[]): void {
+    for (const folder of folders) {
+      if (!this.nextWrites.includes(folder)) this.nextWrites.push(folder);
+      const once = this.onceTargets.indexOf(folder);
+      if (once >= 0) this.onceTargets.splice(once, 1);
+    }
+  }
 
   /** What one task's receipt says since the last call: places written, and folders only allowed. */
   takeOutsideWrites(): { wrote: string[]; allowed: string[] } {

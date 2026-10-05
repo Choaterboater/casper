@@ -164,6 +164,7 @@ export const HOST_CHOICES = [
 export function writeChoices(_folder: string): Choice[] {
   return [
     { label: NO, description: "nothing is written" },
+    { label: YES_ONCE, description: "this write only (for a shell command, the next command); Casper keeps no undo copy there" },
     { label: YES_SESSION, description: "until Casper exits; Casper keeps no undo copy there" },
   ];
 }

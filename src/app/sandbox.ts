@@ -51,6 +51,7 @@ export const writeQuestion = (from: WriteAsker, folder: string) => `${from === "
 export const writePlaces = (places: string[]) => places.length > 1 ? `${places.slice(0, -1).join(", ")} and ${places.at(-1)}` : places[0] ?? "";
 export const SANDBOX_REFUSED = "The sandbox refuses this every time. Don't retry it or work around it, not with the write or edit tool either. If the task needs it, say in one line what was blocked. No helper scripts for the user to run outside Casper.";
 export const writeAllowedLine = (folder: string) => `[sandbox] The user allowed writes to ${folder} for this session. Run the command again.`;
+export const writeOnceLine = (folder: string) => `[sandbox] The user allowed writes to ${folder} for the next command only. Run the command again.`;
 export const writeDeclined = (folder: string) => `The user said no to writing ${folder}. Don't retry it or work around it.`;
 export const writeCantAsk = (folder: string) => `${folder} is outside this project and this run can't ask. To allow it for one run: --allow-write ${folder}.`;
 export const PI_SANDBOX_IGNORED = "[sandbox] Ignored .pi/sandbox.json: a project can't loosen the sandbox.";
@@ -73,7 +74,7 @@ export function createSessionSandbox(host: SandboxHost, context: ProjectContext,
       if (!host.canAsk()) return undefined;
       const shown = writePlaces(targets.map((target) => displayPath(target, options.root(), options.home)));
       const choices = writeChoices(shown);
-      return host.pick(writeQuestion(from, shown), choices).then((answer) => answer === YES_SESSION);
+      return host.pick(writeQuestion(from, shown), choices).then((answer) => answer === YES_SESSION ? true : answer === YES_ONCE ? "once" : false);
     },
     note: (line) => host.write(`${line}\n`),
     seccompPath: () => seccompHelper({ home: options.home }),
@@ -180,8 +181,9 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
       const unique = [...new Set(folders as string[])];
       const shown = writePlaces(unique.map(show));
       const decision = await sandbox.decideWrite(unique, "shell");
-      if (decision !== "allowed") return `${blocked} ${decision === "no" ? writeDeclined(shown) : writeCantAsk(shown)}`;
+      if (decision !== "allowed" && decision !== "once") return `${blocked} ${decision === "no" ? writeDeclined(shown) : writeCantAsk(shown)}`;
       for (const folder of unique) sandbox.noteOutsideAllow(folder);
+      if (decision === "once") { sandbox.allowNextCommand(unique); return writeOnceLine(shown); }
       return writeAllowedLine(shown);
     },
     async outsideWrite(absolute) {
@@ -189,7 +191,7 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
       const offer = sandbox.writeTarget(absolute);
       if (!offer) return `Not done: ${show(absolute)} is outside this project, and Casper doesn't let the AI write there.`;
       const decision = await sandbox.decideWrite(offer.target, "ai", { file: offer.file });
-      if (decision === "allowed") return undefined;
+      if (decision === "allowed" || decision === "once") return undefined;
       return `Not done: ${decision === "no" ? writeDeclined(show(offer.target)) : writeCantAsk(show(offer.target))}`;
     },
     wroteOutside(absolute) { sandbox.noteOutsideWrite(absolute); },
@@ -265,7 +267,7 @@ export function sandboxReport(sandbox: ShellSandbox, root: string, reach: readon
   lines.push(`Remembered for this project: ${remembered.length ? `${remembered.join(", ")} (/sandbox forget <host>)` : "none"}`);
   lines.push("Other hosts: Casper asks (1 No · 2 Yes, this once · 3 Yes, for this session · 4 Yes, always for this project); a run that can't ask blocks them.");
   const folders = sandbox.allowedWriteFolders();
-  lines.push(`Other writes outside the project: Casper asks (1 No · 2 Yes, for this session)${folders.length ? `; allowed this session: ${[...new Set(folders.map(show))].join(", ")}` : ""}.`);
+  lines.push(`Other writes outside the project: Casper asks (1 No · 2 Yes, this once · 3 Yes, for this session)${folders.length ? `; allowed this session: ${[...new Set(folders.map(show))].join(", ")}` : ""}.`);
   lines.push(machines);
   lines.push("Not in the sandbox: MCP servers, language servers, the debugger, the browser and lab checks.");
   return `${lines.join("\n")}\n`;
