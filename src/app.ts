@@ -3094,6 +3094,12 @@ export class CasperApp {
     try { sent = await this.session?.steer?.(line) ?? false; } catch { sent = false; }
     if (this.closing) return;
     if (sent) { this.output.write("  ↳ sent to the AI · it reads this at its next step\n"); return; }
+    // The task ended while Casper asked the AI: nothing would run the queue now, so the line goes back in the prompt.
+    if (!this.commandActive) {
+      if (this.terminal.restoreDraft(line)) this.output.write("  ↳ the task had just ended · your line is back in the prompt\n");
+      else this.output.write("  ↳ the task had just ended · type it again to send it\n");
+      return;
+    }
     this.queuedLines.push(line);
     const waiting = this.queuedLines.length;
     this.output.write(`  ↳ queued · runs when this task ends${waiting > 1 ? ` (${waiting} waiting)` : ""} · Esc stops the task and gives it back\n`);
