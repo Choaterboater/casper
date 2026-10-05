@@ -40,6 +40,8 @@ async function repository(prefix = "casper-phase7-repo-"): Promise<{ home: strin
   await mkdir(home);
   await mkdir(repo);
   await git(repo, "init", "-b", "main");
+  // Keep LF in checkouts whatever the machine's git says (core.autocrlf=true on Windows would write CRLF).
+  await git(repo, "config", "core.autocrlf", "false");
   await git(repo, "config", "user.name", "Casper Test");
   await git(repo, "config", "user.email", "casper@example.invalid");
   await writeFile(path.join(repo, "tracked.txt"), "base\n");
