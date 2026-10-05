@@ -1,3 +1,4 @@
+import { lstatSync, readdirSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { privatePlaces, realpathLongest, within } from "../platform/project-paths";
@@ -36,6 +37,8 @@ interface Spec {
   pathOptions?: readonly string[];
   /** It reads whole folders: a folder holding a private place asks (and no folder means this one). */
   recursive?: boolean | ((options: ReadonlySet<string>) => boolean);
+  /** It prints what is in the files it reads (grep, rg, git grep): a whole-folder read asks when a .env or key is inside. */
+  contents?: boolean;
   /** Words are only allowed with one of these options (git branch -l). */
   wordsOnlyWith?: readonly string[];
   maxWords?: number;
@@ -67,7 +70,7 @@ const READERS: Record<string, Spec> = {
       "--text", "--quiet", "--type-list", "--sort=", "--sortr=", "--glob=", "--iglob=", "--type=", "--type-not=", "--max-count=", "--context=",
       "--after-context=", "--before-context=", "--max-depth=", "--max-columns=", "--max-filesize=", "--regexp=", "--file=", "--threads=",
       "--replace=", "--encoding=", ...COLOR],
-    pattern: ["-e", "-f", "--regexp", "--file", "--files", "--type-list"], pathOptions: ["-f", "--file"], recursive: true,
+    pattern: ["-e", "-f", "--regexp", "--file", "--files", "--type-list"], pathOptions: ["-f", "--file"], recursive: true, contents: true,
   },
   which: { short: "as", words: "text" }, whereis: { short: "bmsu", words: "text" },
   file: { short: "bikNnhL", long: ["--mime", "--mime-type", "--mime-encoding", "--brief"] },
@@ -112,7 +115,7 @@ function grepSpec(): Spec {
       "--with-filename", "--only-matching", "--quiet", "--silent", "--no-messages", "--binary-files=", "--null", "--text", "--label=", "--include=",
       "--exclude=", "--exclude-dir=", "--max-count=", "--context=", "--after-context=", "--before-context=", "--regexp=", "--file=", ...COLOR],
     pattern: ["-e", "-f", "--regexp", "--file"], pathOptions: ["-f", "--file"],
-    recursive: (options) => options.has("-r") || options.has("--recursive"),
+    recursive: (options) => options.has("-r") || options.has("--recursive"), contents: true,
   };
 }
 
@@ -151,7 +154,7 @@ const GIT_READERS: Record<string, Spec> = {
     "--untracked", "--full-name", "--heading", "--break", "--only-matching", "--show-function", "--function-context", "--all-match", "--and",
     "--or", "--not", "--column", "--null", "--quiet", "--recurse-submodules", "--exclude-standard", "--max-depth=", "--context=",
     "--after-context=", "--before-context=", "--max-count=", "--threads=", ...COLOR],
-    pattern: ["-e", "-f"], pathOptions: ["-f"] },
+    pattern: ["-e", "-f"], pathOptions: ["-f"], recursive: true, contents: true },
   branch: { short: "arvl", long: ["--all", "--remotes", "--list", "--show-current", "--verbose", "--contains=", "--no-contains=", "--merged=",
     "--no-merged=", "--points-at=", "--sort=", "--format=", ...COLOR], wordsOnlyWith: ["-l", "--list"] },
   tag: { short: "l", optional: "n", long: ["--list", "--sort=", "--contains=", "--no-contains=", "--points-at=", "--merged=", "--no-merged=",
@@ -191,7 +194,7 @@ function placeOf(where: ReadPlace | string | undefined): Place {
 
 /** A file word is fine when it, and where its links lead, is in the project and not private. `folder`: the command
  * reads all of it, so a private place inside counts too. */
-function fileOk(word: string, place: Place, folder: boolean): boolean {
+function fileOk(word: string, place: Place, folder: boolean, contents = false): boolean {
   if (word === "-") return true;
   const absolute = path.resolve(place.root, word);
   const real = realpathLongest(absolute);
@@ -200,7 +203,34 @@ function fileOk(word: string, place: Place, folder: boolean): boolean {
     if (PRIVATE_NAME.test(candidate.split(path.sep).join("/"))) return false;
     if (place.private.some((entry) => within(entry, candidate) || (folder && within(candidate, entry)))) return false;
   }
-  return true;
+  return !(folder && contents && holdsPrivateFile(real));
+}
+
+/** Folders skipped when looking for a private file inside: git's own data, and installed packages. */
+const SKIP_FOLDERS = new Set([".git", "node_modules"]);
+/** More entries than this and the folder counts as holding one: asking costs less than walking a huge tree. */
+const MAX_ENTRIES = 20_000;
+
+/** True when a .env, key or login file is somewhere inside `folder` (links are not followed, as grep -r and rg don't). */
+function holdsPrivateFile(folder: string): boolean {
+  let seen = 0;
+  const stack = [folder];
+  while (stack.length) {
+    const current = stack.pop()!;
+    let names: string[];
+    try {
+      if (!lstatSync(current).isDirectory()) return PRIVATE_NAME.test(current.split(path.sep).join("/"));
+      names = readdirSync(current);
+    } catch { continue; }
+    for (const name of names) {
+      if (++seen > MAX_ENTRIES) return true;
+      const full = path.join(current, name);
+      if (PRIVATE_NAME.test(full.split(path.sep).join("/"))) return true;
+      if (SKIP_FOLDERS.has(name)) continue;
+      try { if (lstatSync(full).isDirectory()) stack.push(full); } catch { /* gone or unreadable */ }
+    }
+  }
+  return false;
 }
 
 /** Checks one program's words against its spec. */
@@ -255,7 +285,7 @@ function allowed(spec: Spec, args: readonly string[], place: Place): boolean {
   if (kind === "text") return true;
   const paths = spec.pattern && !spec.pattern.some((option) => options.has(option)) ? words.slice(1) : words;
   const recursive = typeof spec.recursive === "function" ? spec.recursive(options) : Boolean(spec.recursive);
-  return (paths.length ? paths : recursive ? ["."] : []).every((word) => fileOk(word, place, recursive));
+  return (paths.length ? paths : recursive ? ["."] : []).every((word) => fileOk(word, place, recursive, Boolean(spec.contents)));
 }
 
 /** find: start folders, then tests and -print only. No -exec, -ok, -delete, -fprint, -L or -follow. */

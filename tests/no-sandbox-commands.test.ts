@@ -225,3 +225,26 @@ test("with no sandbox, a read of a private file in a project that is your home f
   expect(await shell.approve!("cat .kube/config")).toBe(SHELL_DECLINED);
   expect(terminal.asked).toHaveLength(1);
 });
+
+test("a whole-folder search that prints contents asks when the folder holds a .env or a key; listings don't", async () => {
+  const base = await realpath(await mkdtemp(path.join(os.tmpdir(), "casper-no-sandbox-search-")));
+  try {
+    const root = path.join(base, "proj");
+    await mkdir(path.join(root, "src", "deep"), { recursive: true });
+    await writeFile(path.join(root, "a.txt"), "hi\n");
+    await writeFile(path.join(root, "src", "b.ts"), "hi\n");
+    const where = { root, home: path.join(base, "home") };
+    // No private file anywhere: searches run.
+    for (const command of ["grep -r hi .", "rg hi", "git grep hi"]) expect(readOnlyCommand(command, where)).toBe(true);
+    await writeFile(path.join(root, "src", "deep", ".env"), "TOKEN=1\n");
+    for (const command of ["grep -r '' .", "grep -r hi src", "rg -uu '' .", "rg hi", "rg hi src", "git grep hi"]) {
+      expect([command, readOnlyCommand(command, where)]).toEqual([command, false]);
+    }
+    // A search of a folder without one still runs, and listings only show names.
+    await mkdir(path.join(root, "docs"));
+    await writeFile(path.join(root, "docs", "c.md"), "hi\n");
+    for (const command of ["grep -r hi docs", "rg hi docs", "tree", "find . -name '*.ts'", "du -sh .", "ls -R"]) {
+      expect([command, readOnlyCommand(command, where)]).toEqual([command, true]);
+    }
+  } finally { await rm(base, { recursive: true, force: true }); }
+});
