@@ -25,7 +25,7 @@ async function folder(options: { git?: boolean } = {}) {
   await mkdir(home, { recursive: true }); await mkdir(project, { recursive: true });
   await writeFile(path.join(project, "notes.py"), "print('one')\n");
   if (options.git) {
-    const git = (...args: string[]) => execFileSync("git", args, { cwd: project, env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: os.devNull } });
+    const git = (...args: string[]) => execFileSync("git", args, { cwd: project, env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" } });
     git("init", "-q"); git("config", "user.email", "t@example.com"); git("config", "user.name", "t");
     await writeFile(path.join(project, "other.py"), "x = 1\n");
     git("add", "-A"); git("commit", "-qm", "first");

@@ -29,7 +29,8 @@ async function git(args: string[], cwd: string): Promise<string | null> {
 export async function inspectProject(cwd: string): Promise<ProjectInfo> {
   const resolvedCwd = path.resolve(cwd);
   const gitRoot = await git(["rev-parse", "--show-toplevel"], resolvedCwd);
-  const root = gitRoot ?? resolvedCwd;
+  // Git prints C:/... on Windows; keep the root in the same form as every other path.
+  const root = gitRoot ? path.resolve(gitRoot) : resolvedCwd;
   const gitBranch = gitRoot ? await git(["branch", "--show-current"], root) : null;
 
   return {
