@@ -1,6 +1,5 @@
 import { existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
-import os from "node:os";
 import path from "node:path";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai/compat";
 import { SettingsManager, type AgentSession, type ModelRuntime, type SessionManager } from "@earendil-works/pi-coding-agent";
@@ -43,9 +42,12 @@ export class PiModels {
   private readonly lifetime = new AbortController();
   private selectionDone: Promise<void> = Promise.resolve();
   private preparationDone: Promise<void> = Promise.resolve();
-  private readonly directory = path.join(os.homedir(), ".casper");
+  private readonly directory: string;
 
-  constructor(private readonly catalog: ModelRuntime, private readonly agentDir: string) {}
+  /** home is the session's home folder (tests pass a temporary one): model defaults live in its .casper. */
+  constructor(private readonly catalog: ModelRuntime, private readonly agentDir: string, home: string) {
+    this.directory = path.join(home, ".casper");
+  }
   get busy(): boolean { return this.selecting || this.preparing || this.authenticating; }
   setAuthenticating(active: boolean): void { this.authenticating = active; }
   invalidateAuth(provider: string): void { this.staleAuth.add(provider); }

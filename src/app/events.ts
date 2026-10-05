@@ -24,6 +24,8 @@ export interface RuntimeEventCallbacks {
   cancelled(): boolean;
   /** The project root, so tool paths print relative to it. */
   projectRoot?(): string | undefined;
+  /** The session's home folder, for ~ in paths. Unset: the real home. */
+  homeDir?(): string;
   /** How much of the work shows (display: in the config, /details). Unset: normal. */
   display?(): DisplayLevel;
 }
@@ -141,7 +143,7 @@ export class RuntimeEventView {
     const root = this.callbacks.projectRoot?.();
     const target = event.input?.path;
     if (!root || stepKind(event.toolName) !== "read" || typeof target !== "string" || !target) return;
-    const home = os.homedir();
+    const home = this.callbacks.homeDir?.() ?? os.homedir();
     const absolute = path.resolve(root, target.startsWith("~/") ? path.join(home, target.slice(2)) : target);
     const within = (base: string) => { const relative = path.relative(base, absolute); return relative === "" || !isOutside(relative); };
     if (within(root) || [os.tmpdir(), "/tmp", "/private/tmp", "/var/folders", "/private/var/folders"].some(within)) return;

@@ -46,7 +46,7 @@ test("a one-off model call (checklist, review) carries Casper's OpenRouter attri
     getModels: () => [openrouter, base], getModel: () => undefined, hasConfiguredAuth: () => true,
     async completeSimple(model: Model, _context: unknown, options?: { headers?: Record<string, string> }) { sent.push(options?.headers); return reply(model, "ok"); },
   } as unknown as ModelRuntime;
-  const models = new PiModels(catalog, dir);
+  const models = new PiModels(catalog, dir, dir);
   for (const model of [openrouter, base]) {
     const result = await models.complete({ model, thinkingLevel: "off" } as unknown as AgentSession, { systemPrompt: "s", user: "u" });
     expect(result.text).toBe("ok");

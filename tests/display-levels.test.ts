@@ -15,7 +15,7 @@ afterAll(() => { if (ambientTerm === undefined) delete process.env.TERM; else pr
 const cleanup: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
 
-function view(rich: boolean, level: DisplayLevel) {
+function view(rich: boolean, level: DisplayLevel, homeDir?: string) {
   const screen: string[] = [];
   const terminal = {
     rich, columns: 100, questionsShown: 0, questionOpen: false,
@@ -24,10 +24,18 @@ function view(rich: boolean, level: DisplayLevel) {
   };
   const events = new RuntimeEventView(terminal as unknown as InteractiveTerminal, { write: value => terminal.write(value) }, {
     updateFooter() {}, onToolEnd() {}, setTaskStop() {}, markRuntimeFailed() {}, turnLimitReached() {}, cancelled: () => false,
-    projectRoot: () => "/work/app", display: () => level,
+    projectRoot: () => "/work/app", display: () => level, ...(homeDir ? { homeDir: () => homeDir } : {}),
   });
   return { events, screen, handle: (...list: RuntimeEvent[]) => { for (const event of list) events.handle(event); } };
 }
+
+test("a read outside the project shows ~ for the session's home, not the real one", () => {
+  const s = view(false, "normal", "/session/home");
+  const input = { path: "/session/home/notes/a.txt" };
+  s.handle({ type: "tool_start", toolName: "read", toolCallId: "1", input }, { type: "tool_end", toolName: "read", toolCallId: "1", input, isError: false },
+    { type: "message_end" });
+  expect(s.screen.filter(line => line.startsWith("[read]"))).toEqual(["[read] outside this project: ~/notes"]);
+});
 
 const PATCH = "--- a/src/math.ts\n+++ b/src/math.ts\n@@ -1,3 +1,3 @@\n export const a = 1;\n-export const b = 2;\n+export const b = 3;\n";
 const work: RuntimeEvent[] = [

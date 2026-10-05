@@ -411,7 +411,7 @@ export class CasperApp {
   constructor(options: CasperAppOptions = {}) {
     const freshPiRuntime = async () => {
       const { PiRuntime } = await import("./runtime/pi");
-      return new PiRuntime();
+      return new PiRuntime({ homeDir: this.sessionHomeDir ?? os.homedir() });
     };
     this.runtimeFactory = options.runtimeFactory ?? freshPiRuntime;
     this.pageOpenerFn = options.pageOpener ?? pageOpener;
@@ -480,6 +480,7 @@ export class CasperApp {
       turnLimitReached: turns => { this.taskTurnLimit = turns; },
       cancelled: () => this.commandAbort?.signal.aborted === true,
       projectRoot: () => this.projectContext ? this.activeWorkspaceRoot() : undefined,
+      homeDir: () => this.sessionHomeDir ?? os.homedir(),
     });
     this.verbose = options.verbose ?? false;
     this.startupWarnings = options.startupWarnings ?? [];
@@ -2748,7 +2749,7 @@ export class CasperApp {
   private projectPrivatePaths(): string[] {
     if (!this.projectContext) return [];
     const root = this.activeWorkspaceRoot();
-    return (this.projectContext.sandbox?.project.denyRead ?? []).map((entry) => resolveEntry(entry, root, os.homedir()));
+    return (this.projectContext.sandbox?.project.denyRead ?? []).map((entry) => resolveEntry(entry, root, this.sessionHomeDir ?? os.homedir()));
   }
 
   /** The broker's per-server allowances, for /mcp allow (the user's own command). */
