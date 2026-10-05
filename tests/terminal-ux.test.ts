@@ -74,6 +74,8 @@ test("the startup wordmark gives way to the one-line header when the window narr
 
 test("model and auth display distinguishes uninitialized, missing, configured and unknown", () => {
   expect(formatRuntimeStatus(undefined, undefined, false)).toBe(" model     not signed in · type a request to sign in");
+  // Where sign-in can't open (plain terminal, script), the hint is the step that works.
+  expect(formatRuntimeStatus(undefined, undefined, false, false)).toBe(" model     not signed in · run casper in a terminal and type /login");
   expect(formatRuntimeStatus(undefined, undefined, true)).toBe(" model     none yet · your first request picks one (/model to choose)");
   expect(formatRuntimeStatus({ provider: "fixture", model: "test", auth: "configured" })).toContain("not a connection test");
   expect(formatRuntimeStatus({ provider: "fixture", model: "test", auth: "missing" })).toContain("credentials missing");
@@ -142,17 +144,22 @@ test("piped stdin runs every line through the real CLI", async () => {
 test("with no sign-in, the banner says so in one line and how to start; the footer says the same", async () => {
   expect(noModelFooter(false)).toBe("not signed in · type a request to sign in");
   expect(noModelFooter(true)).not.toContain("not initialized");
+  expect(noModelFooter(false, false)).toBe("not signed in · run casper in a terminal and type /login");
   const root = await mkdtemp(path.join(os.tmpdir(), "casper-banner-")); roots.push(root);
   const home = path.join(root, "home"); const project = path.join(root, "project");
   await Promise.all([mkdir(home), mkdir(project)]);
   const env = cleanEnv({ HOME: home, USERPROFILE: home, CASPER_PROFILE: "default" });
   for (const name of Object.keys(env)) if (/_API_KEY$|_TOKEN$/.test(name)) delete env[name];
   const child = Bun.spawn([process.execPath, path.resolve(import.meta.dir, "../src/cli.ts")], {
-    cwd: project, env, stdin: new Blob(["/exit\n"]), stdout: "pipe", stderr: "pipe",
+    cwd: project, env, stdin: new Blob(["explain this project\n/exit\n"]), stdout: "pipe", stderr: "pipe",
   });
   const [stdout, code] = await Promise.all([new Response(child.stdout).text(), child.exited]);
   expect(code).toBe(0);
-  expect(stdout).toContain(" model     not signed in · type a request to sign in\n");
+  // Piped stdin can't open sign-in, so neither the banner nor a request says "type a request".
+  expect(stdout).toContain(" model     not signed in · run casper in a terminal and type /login\n");
+  expect(stdout).not.toContain("Type a request");
+  expect(stdout).not.toContain("type a request");
+  expect(stdout).toContain("[model] Not signed in yet. Run casper in a terminal and type /login.");
   expect(stdout).not.toContain(" auth      ");
 }, 30_000);
 

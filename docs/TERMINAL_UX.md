@@ -63,7 +63,8 @@ are transcript lines like everything else. A model is not started just to paint
 the footer. A saved default is shown as an advisory startup snapshot; after
 runtime initialization the footer uses the active conversation's model. Before any
 sign-in, the banner and footer say `not signed in · type a request to sign in`, and `/model`
-opens sign-in instead of an empty picker.
+opens sign-in instead of an empty picker. Where sign-in can't open (a plain or piped terminal,
+a one-shot run) they say `not signed in · run casper in a terminal and type /login` instead.
 
 On a rich terminal at least 58 columns wide the transcript opens with the
 wordmark — the Casper ghost (bold white) beside a block-letter `CASPER` (accent)
@@ -287,8 +288,10 @@ separate hidden prompt (live character count, contents never rendered), never ch
 Escape/Ctrl-C cancel; EOF and shutdown drain the login lifecycle. A failed sign-in says the reason
 Casper has in plain words (timed out, couldn't reach the provider, the provider refused it) and
 never the provider's own text. A model whose provider has no sign-in names that provider, its
-`/login` and its key variable (for example `OPENROUTER_API_KEY`); a one-shot run with nothing
-signed in says `Not signed in yet. Run casper and type /login.`
+`/login` and its key variable (for example `OPENROUTER_API_KEY`); a one-shot run or a plain
+terminal with nothing signed in says `Not signed in yet. Run casper in a terminal and type /login.`
+A one-shot run with a key set but no model Casper can pick says
+`No Casper model selected. Pass --model <provider/model>, or run casper and type /model.`
 
 The list reuses Pi's selection list: a digit picks its row at once, Up/Down moves the
 visible highlight in place, Enter confirms that item, and Esc exits without contacting

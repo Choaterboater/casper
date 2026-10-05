@@ -610,7 +610,7 @@ export class CasperApp {
     if (!this.session) await this.checkSignIn();
     // --model names the model for this run: show it, not the saved default it overrides.
     const shown = this.runModel && !this.session ? `${terminalText(this.runModel)} for this run (--model)` : this.savedModelDisplay;
-    this.output.write(`${formatRuntimeStatus(this.session?.getStatus?.(), shown, this.signedIn)}\n`);
+    this.output.write(`${formatRuntimeStatus(this.session?.getStatus?.(), shown, this.signedIn, this.interactive && this.terminal.rich)}\n`);
     for (const warning of [...this.startupWarnings, ...context.warnings ?? []]) this.output.write(`[config] ${terminalText(warning)}\n`);
     for (const diagnostic of referenceConfiguration.diagnostics) this.output.write(`[references] ${formatReferenceResult(diagnostic)}\n`);
     this.reportSkillWarnings();
@@ -2185,10 +2185,14 @@ export class CasperApp {
         if (await runLogin(this, provider) && !session.getStatus?.().blocked) return true;
       }
     }
-    const blocked = session.getStatus?.().blocked;
-    if (!blocked) return true;
-    // A script can't sign in: say the one step that works, not "Use /model".
-    if (!this.interactive) throw new Error(!session.getStatus?.()?.provider && this.signedIn === false ? "Not signed in yet. Run casper and type /login." : blocked);
+    const after = session.getStatus?.();
+    if (!after?.blocked) return true;
+    // Where sign-in can't open (a plain terminal or a script), "type a request" would loop: say the step that works.
+    const blocked = canSignIn || after.provider ? after.blocked
+      : this.signedIn === false ? "Not signed in yet. Run casper in a terminal and type /login."
+      : this.interactive ? "No Casper model selected. Type /model to choose one."
+      : "No Casper model selected. Pass --model <provider/model>, or run casper and type /model.";
+    if (!this.interactive) throw new Error(blocked);
     this.output.write(`[model] ${blocked}\n`);
     return false;
   }
@@ -3227,8 +3231,8 @@ export class CasperApp {
       const percent = usage?.context?.percent;
       const effort = (status && formatEffort(status)) ?? "effort —";
       const model = status?.model ? `${status.provider}/${status.model} · ${effort}`
-        : this.session ? this.signedIn === false ? noModelFooter(false) : "no model selected · /model"
-        : (this.runModel ? `${terminalText(this.runModel)} (--model)` : this.savedModelDisplay) ?? noModelFooter(this.signedIn);
+        : this.session ? this.signedIn === false ? noModelFooter(false, this.interactive && this.terminal.rich) : "no model selected · /model"
+        : (this.runModel ? `${terminalText(this.runModel)} (--model)` : this.savedModelDisplay) ?? noModelFooter(this.signedIn, this.interactive && this.terminal.rich);
       // The current task's tokens and the session's total, with cost from the provider or the model's price; a free
       // model shows tokens only. A subscription pays no per-token price: its figure is only what the tokens would cost.
       const spent = this.observations.spent();

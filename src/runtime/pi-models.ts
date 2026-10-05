@@ -251,7 +251,7 @@ export class PiModels {
     // Claude sign-in is per-token extra usage (see pi-auth), so only other subscription sign-ins count.
     const billing = !reference || auth !== "configured" ? undefined
       : reference.provider !== "anthropic" && this.catalog.isUsingSubscription(reference.provider) ? "subscription" : "per-token";
-    const blocked = !reference ? "No Casper model selected. Type a request (Casper signs you in and picks one), or /model."
+    const blocked = !reference ? "No Casper model selected. Use /model to choose one, or /login to sign in."
       : stale ? "Credential state needs local refresh. Restart Casper before using this provider; do not repeat login blindly."
       : !model ? `Model ${reference.provider}/${reference.id} is unavailable. Use /model to choose another; no fallback was selected.`
       : auth === "missing" ? missingSignIn(reference.provider) : undefined;
