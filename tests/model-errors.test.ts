@@ -20,6 +20,8 @@ test("provider errors are sorted by cause", () => {
     ["prompt is too long: 210000 tokens > 200000 maximum", "context"],
     ['404 {"error":{"message":"No endpoints found for acme/gone-model.","code":404}}', "model"],
     ["The model `gpt-9` does not exist or you do not have access to it.", "model"],
+    ["403 Forbidden", "refused"],
+    ['403 {"error":{"message":"This model is not available in your region."}}', "refused"],
     ["500 Internal server error", undefined],
   ];
   expect(cases.map(([message]) => explainModelError(message)?.cause as string | undefined)).toEqual(cases.map(([, cause]) => cause));
@@ -30,6 +32,7 @@ test("each cause has one plain next step", () => {
   expect(explainModelError("402 Payment Required")?.line).toBe("The provider says the account is out of credits. Next: add credits on the provider's site, or /model to pick another model.");
   expect(explainModelError("429 Too Many Requests")?.line).toBe("The provider is limiting requests right now. Next: wait a minute, then ask again.");
   expect(explainModelError("fetch failed")?.line).toBe("Can't reach the provider. Next: check your internet connection, then ask again.");
+  expect(explainModelError("403 Forbidden")?.line).toBe("The provider refused the request. Next: check the key with /login, or /model to pick a model your account can use.");
   expect(explainModelError("prompt is too long")?.line).toBe("The conversation is too long for this model. Next: /compact, then ask again.");
 });
 
@@ -66,6 +69,8 @@ test("the receipt's next step follows the cause, not always another model", () =
   expect(next("rate", "interactive")).toBe("• Next: wait a minute, then ask again");
   expect(next("rate", "one-shot")).toBe("• Next: wait a minute, then run it again");
   expect(next("offline", "interactive")).toBe("• Next: check your internet connection, then ask again");
+  expect(next("refused", "interactive")).toBe("• Next: check the key with /login, or /model to pick a model your account can use");
+  expect(next("refused", "one-shot")).toBe("• Next: run casper and type /login to check the key, or casper --model <provider/id> \"…\" to use another model");
   expect(next("context", "interactive")).toBe("• Next: /compact, then ask again");
   expect(next("model", "interactive")).toBe("• Next: /model to try another model, then ask again");
   expect(next(undefined, "interactive")).toBe("• Next: /model to try another model, then ask again");
@@ -101,5 +106,46 @@ test("a run that fails on a rejected key ends with /login as the next step", asy
     expect(app.getLastTaskResult()?.modelError).toBe("key");
     expect(output).toContain("Next: /login to sign in again");
     expect(output).not.toContain("try another model");
+  } finally { await app.close(); await rm(root, { recursive: true, force: true }); }
+});
+
+test("a model error thrown to the prompt loop gets the plain cause line too", async () => {
+  const { mkdir, mkdtemp, rm, writeFile } = await import("node:fs/promises");
+  const os = await import("node:os");
+  const path = await import("node:path");
+  const { PassThrough } = await import("node:stream");
+  const { CasperApp } = await import("../src/app");
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-model-throw-"));
+  const home = path.join(root, "home"); const project = path.join(root, "project");
+  await mkdir(home); await mkdir(project); await writeFile(path.join(project, "notes.txt"), "not empty\n");
+  const runtime = {
+    async start() {
+      return {
+        getStatus: () => ({ provider: "fixture", model: "demo", auth: "configured" }),
+        getState: () => ({ cwd: project, isStreaming: false }),
+        subscribe: () => () => {},
+        abort: async () => {}, setTools: () => {},
+        // No error event: the provider's error only arrives as the thrown error.
+        prompt: async () => { throw new Error("401 Unauthorized"); },
+      };
+    },
+    async dispose() {},
+  };
+  const input = new PassThrough();
+  let output = "";
+  const shown = Promise.withResolvers<void>();
+  const app = new CasperApp({ input, output: { write: (text: string) => { output += text; if (output.includes("[error]")) shown.resolve(); } },
+    runtimeFactory: () => runtime as never, sessionHomeDir: home,
+    loadMCPConfiguration: async () => ({ servers: [], diagnostics: [] }), loadLSPConfiguration: async () => ({ servers: [], diagnostics: [] }),
+    loadReferenceConfiguration: async () => ({ sources: [], diagnostics: [] }) });
+  const interactive = app.runInteractive(project);
+  try {
+    input.write("fix the bug\n");
+    await shown.promise;
+    await Bun.sleep(50);
+    expect(output).toContain("[error] The provider rejected the sign-in (the key is wrong or expired). Next: /login to sign in again.");
+    expect(output).not.toContain("[error] 401 Unauthorized");
+    input.end();
+    await interactive;
   } finally { await app.close(); await rm(root, { recursive: true, force: true }); }
 });

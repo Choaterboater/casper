@@ -795,7 +795,7 @@ export class CasperApp {
         if (this.closing) break;
         this.events.ensureLineBreak();
         const message = error instanceof Error ? error.message : String(error);
-        if (!this.commandAbort?.signal.aborted && this.events.lastError !== message) this.output.write(`[error] ${message}\n`);
+        if (!this.commandAbort?.signal.aborted && this.events.lastError !== message) this.events.showError(message);
       }
     }
     this.terminal.close();
@@ -1285,6 +1285,10 @@ export class CasperApp {
     const usage = NEW_USAGE.replace(/casper new/g, "/new");
     const command = parseNewArgs(words);
     if (!command) { this.output.write(`${usage}\n`); return; }
+    if (command.help) {
+      this.output.write(`${usage}\nA lone kind word builds that kind and asks only the name. The kinds:\n${listLines().map((line) => `  ${line}`).join("\n")}\n`);
+      return;
+    }
     if (command.list) { this.output.write(`${listLines().join("\n")}\n`); return; }
     const canAsk = this.interactive && this.terminal.canAsk;
     // A lone kind word where nobody can be asked the name: the kind's usual name, like casper new.

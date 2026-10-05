@@ -267,6 +267,14 @@ export class RuntimeEventView {
     } else this.output.write(`[error] ${explained.line}\n  provider: ${redactPreview(message)}\n`);
   }
 
+  /** An error thrown to the prompt loop: a model error gets the same plain cause line as a provider error event;
+   * any other error (a command's usage line) is shown as it is. */
+  showError(message: string): void {
+    if (explainModelError(message)) this.writeError(message);
+    else this.output.write(`[error] ${message}\n`);
+    this.displayedError = message;
+  }
+
   /** ctrl+t: the last finished step in full, or undefined before the first one. */
   lastStep(): ExpandedStep | undefined { return this.expanded; }
 

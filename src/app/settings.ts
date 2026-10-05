@@ -39,9 +39,9 @@ export function settingRows(context: ProjectContext): Setting[] {
   const spend = context.spend ?? DEFAULT_SPEND_LIMITS;
   const display = context.display ?? "normal";
   const amount = (dollars: number | undefined) => dollars === undefined ? "off" : `at ${formatLimit(dollars)} a task`;
-  const money = (key: "noteAt" | "pauseAt", label: string, about: string): Setting => {
+  const money = (key: "noteAt" | "pauseAt", label: string, verbs: [off: string, on: string], about: string): Setting => {
     const now = spend[key];
-    return { label, value: amount(now), question: `${label} ${now === undefined ? "are" : "come"} ${amount(now)}. ${about}`,
+    return { label, value: amount(now), question: `${label} ${now === undefined ? verbs[0] : verbs[1]} ${amount(now)}. ${about}`,
       keep: `Keep ${now === undefined ? "it off" : `${formatLimit(now)}`}`,
       choices: [...(now === undefined ? [] : [{ label: "Turn it off", keys: ["spend", key], value: false, shown: "off" }]),
         ...SPEND_AMOUNTS.filter((dollars) => dollars !== now).map((dollars) => ({ label: `${formatLimit(dollars)} a task`, keys: ["spend", key], value: dollars, shown: amount(dollars) }))] };
@@ -58,8 +58,8 @@ export function settingRows(context: ProjectContext): Setting[] {
       keep: `Keep them ${context.skills.bundled === false ? "off" : "on"}`,
       choices: [context.skills.bundled === false ? { label: "Turn them on", keys: ["skills", "bundled"], value: true, shown: "on" }
         : { label: "Turn them off", keys: ["skills", "bundled"], value: false, shown: "off" }] },
-    money("noteAt", "Spend notes", "A quiet line says what a task has spent; it never stops the task."),
-    money("pauseAt", "Spend pause", "The task stops and asks before it spends more."),
+    money("noteAt", "Spend notes", ["are", "come"], "A quiet line says what a task has spent; it never stops the task."),
+    money("pauseAt", "Spend pause", ["is", "comes"], "The task stops and asks before it spends more."),
     { label: "Work shown", value: display, question: `Work shown: ${display} (${DISPLAY_WORDS[display]}).`, keep: `Keep ${display}`,
       choices: (["quiet", "normal", "detailed"] as const).filter((level) => level !== display)
         .map((level) => ({ label: `${level[0]!.toUpperCase()}${level.slice(1)}`, keys: ["display"], value: level, shown: level })) },

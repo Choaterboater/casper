@@ -177,3 +177,11 @@ describe("roadmap", () => {
     expect(page).toContain("planned, not started");
   });
 });
+
+test("the tour's /help example is the real short help", async () => {
+  const { HELP_TEXT } = await import("../src/tui/help");
+  const tour = readFileSync(join(site, "tour.html"), "utf8");
+  const block = /<span class="you">\/help<\/span>\n([\s\S]*?)<\/pre>/.exec(tour)?.[1];
+  const unescape = (text: string) => text.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+  expect(unescape(block ?? "")).toBe(HELP_TEXT.trimEnd());
+});

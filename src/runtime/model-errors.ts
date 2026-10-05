@@ -3,14 +3,17 @@
  * rules read words every vendor uses (status codes, "rate limit", "context length"); anything else keeps the
  * provider's own text. The provider's words stay available (ctrl+t, or a second line on a plain terminal).
  */
-export type ModelErrorCause = "key" | "credits" | "rate" | "offline" | "context" | "model";
+export type ModelErrorCause = "key" | "refused" | "credits" | "rate" | "offline" | "context" | "model";
 
 const RULES: ReadonlyArray<{ cause: ModelErrorCause; test: RegExp; line: string }> = [
   // Credits before rate: OpenAI says "exceeded your current quota" with a 429.
   { cause: "credits", test: /\b402\b|payment required|insufficient[_ ](?:credits|funds|quota|balance)|credit balance|requires more credits|exceeded your current quota|billing/i,
     line: "The provider says the account is out of credits. Next: add credits on the provider's site, or /model to pick another model." },
-  { cause: "key", test: /\b401\b|\b403\b|unauthori[sz]ed|forbidden|no auth credentials|(?:invalid|incorrect|missing|expired|revoked)[_ -](?:x-)?(?:api[_ -]?)?(?:key|token)|authentication[_ ]error|api key not valid|not signed in/i,
+  { cause: "key", test: /\b401\b|unauthori[sz]ed|no auth credentials|(?:invalid|incorrect|missing|expired|revoked)[_ -](?:x-)?(?:api[_ -]?)?(?:key|token)|authentication[_ ]error|api key not valid|not signed in/i,
     line: "The provider rejected the sign-in (the key is wrong or expired). Next: /login to sign in again." },
+  // 403 is not always a bad key: the key may be fine but not allowed this model, region or plan.
+  { cause: "refused", test: /\b403\b|forbidden|permission[_ ]denied|access[_ ]denied/i,
+    line: "The provider refused the request. Next: check the key with /login, or /model to pick a model your account can use." },
   { cause: "context", test: /context[_ ](?:length|window)|maximum context|prompt is too long|input is too long|too many (?:input )?tokens|token limit|context_length_exceeded/i,
     line: "The conversation is too long for this model. Next: /compact, then ask again." },
   { cause: "rate", test: /\b429\b|\b529\b|rate[_ -]?limit|too many requests|overloaded|resource[_ ]exhausted/i,
@@ -30,6 +33,7 @@ export function explainModelError(message: string): { cause: ModelErrorCause; li
 export function modelErrorNext(cause: ModelErrorCause | undefined, oneShot: boolean): string | undefined {
   switch (cause) {
     case "key": return oneShot ? "run casper and type /login" : "/login to sign in again";
+    case "refused": return oneShot ? "run casper and type /login to check the key, or casper --model <provider/id> \"…\" to use another model" : "check the key with /login, or /model to pick a model your account can use";
     case "credits": return oneShot ? "add credits on the provider's site, or casper --model <provider/id> \"…\" to use another model" : "add credits on the provider's site, or /model to pick another model";
     case "rate": return oneShot ? "wait a minute, then run it again" : "wait a minute, then ask again";
     case "offline": return oneShot ? "check your internet connection, then run it again" : "check your internet connection, then ask again";

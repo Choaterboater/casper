@@ -61,3 +61,21 @@ test("/new with a lone kind word where Casper can't ask builds that kind under i
     expect(built).toEqual([{ template: "python-cli", name: "my-tool" }]);
   } finally { await app.close(); await rm(root, { recursive: true, force: true }); }
 });
+
+test("/new --help in a session prints the help and asks nothing", async () => {
+  const { CasperApp } = await import("../src/app");
+  const { mkdtemp, rm } = await import("node:fs/promises");
+  const os = await import("node:os");
+  const root = await mkdtemp(path.join(os.tmpdir(), "casper-new-help-"));
+  const built: string[] = [];
+  let output = "";
+  const app = new CasperApp({ output: { write: (text) => { output += text; } }, runtimeFactory() { throw new Error("No model expected"); },
+    createProject: async (options) => { built.push(options.name); return { status: "not_created", exitCode: 1, dir: root, displayDir: options.name, steps: [] } as never; } });
+  try {
+    await app.runOnce("/new --help", root);
+    expect(output).toContain("Usage: /new [name]");
+    expect(output).toContain("web-app");
+    expect(output).not.toContain("needs a template");
+    expect(built).toEqual([]);
+  } finally { await app.close(); await rm(root, { recursive: true, force: true }); }
+});

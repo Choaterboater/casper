@@ -38,6 +38,13 @@ test("the settings list shows each switch and where it stands", async () => {
   expect(settingRows(context).map((row) => `${row.label}: ${row.value}`)).toEqual([
     "Web lookups: off", "New-version notice: off", "Built-in skills: on", "Spend notes: at $1 a task", "Spend pause: at $5 a task", "Work shown: normal",
   ]);
+  const questions = settingRows(context).map((row) => row.question);
+  expect(questions[3]).toStartWith("Spend notes come at $1 a task. ");
+  expect(questions[4]).toStartWith("Spend pause comes at $5 a task. ");
+  await writeFile(config, "spend:\n  noteAt: false\n  pauseAt: false\n");
+  const off = settingRows(await loadProjectContext(await inspectProject(project), { homeDir: home })).map((row) => row.question);
+  expect(off[3]).toStartWith("Spend notes are off. ");
+  expect(off[4]).toStartWith("Spend pause is off. ");
 });
 
 function fakeHost(home: string, project: string, answers: string[]): SettingsHost & { text: () => string; asked: string[] } {
@@ -61,6 +68,7 @@ test("/settings: 1 is Done, a pick asks with 1 Keep first, and the answer is sav
   await runSettings(host);
   expect(host.asked[0]!.split("\n").slice(1, 3)).toEqual(["1 Done", "2 Web lookups"]);
   expect(host.asked[1]).toBe("Web lookups are on (DuckDuckGo).\n1 Keep them on\n2 Turn them off");
+  expect(host.asked[3]).toStartWith("Spend pause is off. ");
   expect(host.asked[3]!.split("\n")[1]).toBe("1 Keep it off");
   expect(host.text()).toContain("[settings] Web lookups: off. Saved in ~/.casper/config.yaml.\n");
   expect(host.text()).toContain("[settings] Spend pause: at $5 a task. Saved in ~/.casper/config.yaml.\n");
