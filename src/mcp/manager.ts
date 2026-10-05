@@ -158,6 +158,8 @@ interface Entry {
   /** Exit code of the current child, once it has exited (null when it was killed by a signal). */
   exitCode?: number | null;
   exited?: boolean;
+  /** The command of the current child was not found (Windows reports this after the start, see watchExit). */
+  notFound?: Error;
   /** Calls sent on this connection that have not finished yet. */
   inFlight: number;
   /** The one call the user approved that is running now, if any. */
@@ -203,9 +205,12 @@ function sameDefinition(a: MCPServerDefinition, b: MCPServerDefinition): boolean
 }
 
 /** Record the child's exit through the SDK's private `_process` (see stdioChildAlive). */
-function watchExit(stdio: StdioClientTransport, onExit: (code: number | null) => void): void {
+function watchExit(stdio: StdioClientTransport, onExit: (code: number | null) => void, onNotFound: (error: Error) => void): void {
   const child = (stdio as unknown as { _process?: ChildProcess })._process;
   child?.once("exit", (code) => onExit(code));
+  // On Windows the SDK's cross-spawn runs a command it can't find through cmd.exe, so the start
+  // succeeds; when cmd exits, cross-spawn reports ENOENT in place of "exit".
+  child?.on("error", (error) => { if ((error as NodeJS.ErrnoException).code === "ENOENT") onNotFound(error); });
 }
 
 /** Model-facing call text also goes through the device-config secret scrubber: server error and
@@ -811,6 +816,7 @@ export class MCPManager {
     entry.generation++;
     entry.exited = false;
     entry.exitCode = undefined;
+    entry.notFound = undefined;
     entry.output = undefined;
     // Casper's own network server starts with the saved logins (read fresh on every start, so a saved,
     // changed or forgotten login counts at the next restart). They are never part of the definition.
@@ -904,7 +910,8 @@ export class MCPManager {
           await start();
           const generation = entry.generation;
           // The child's "exit" comes before the SDK's "close" (onclose), so failure text can name the code.
-          watchExit(stdio, (code) => { if (entry.generation === generation) { entry.exited = true; entry.exitCode = code; } });
+          watchExit(stdio, (code) => { if (entry.generation === generation) { entry.exited = true; entry.exitCode = code; } },
+            (error) => { if (entry.generation === generation) entry.notFound = error; });
           const pid = stdio.pid;
           // Own the child before the protocol handshake, which can fail or stall.
           entry.alive = stdioChildAlive(stdio);
@@ -940,7 +947,7 @@ export class MCPManager {
     } catch (error) {
       if (!this.closed && entry.approved) {
         entry.state = "failed";
-        entry.error = describeFailure(error, {
+        entry.error = describeFailure(entry.notFound ?? error, {
           phase: "start", secrets: entry.secrets,
           command: entry.definition.transport.type === "stdio" ? entry.definition.transport.command : undefined,
           connectMs, timedOut, exited: entry.exited, exitCode: entry.exitCode,
