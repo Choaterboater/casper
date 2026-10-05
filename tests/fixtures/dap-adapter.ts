@@ -37,7 +37,7 @@ function receive(request: { type: string; seq: number; command: string; argument
     if (mode !== "hang-launch") event("initialized");
     return;
   }
-  if (request.command === "setBreakpoints") { response(request, { breakpoints: (request.arguments?.breakpoints as Array<{ line: number }>).map(item => ({ ...item, verified: true })) }); return; }
+  if (request.command === "setBreakpoints") { response(request, { breakpoints: ((request.arguments?.breakpoints ?? []) as Array<{ line: number }>).map(item => ({ ...item, verified: true })) }); return; }
   if (request.command === "configurationDone") {
     response(request); response(launch!); stopped();
     if (mode === "reverse") send({ type: "request", command: "runInTerminal", arguments: { args: ["touch", "UNAUTHORIZED"] } });

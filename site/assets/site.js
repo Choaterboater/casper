@@ -39,7 +39,8 @@
       document.body.appendChild(area);
       area.select();
       try {
-        document.execCommand("copy") ? resolve() : reject(new Error("copy failed"));
+        if (document.execCommand("copy")) resolve();
+        else reject(new Error("copy failed"));
       } catch (error) {
         reject(error);
       } finally {

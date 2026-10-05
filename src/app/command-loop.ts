@@ -141,6 +141,8 @@ export async function handlePrompt(app: CasperApp, prompt: string): Promise<Veri
       await opener?.close().catch(() => {});
     } catch (error) {
       if (error instanceof ProcessCleanupError) app.cleanupError = error;
+      // A cleanup that failed wins over the request's own result: the next command must not start on it.
+      // oxlint-disable-next-line no-unsafe-finally
       throw error;
     } finally {
       // With the task's checks: the service tool must not record into them from a later, non-task prompt.
