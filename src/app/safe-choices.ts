@@ -165,6 +165,7 @@ export const REACH_CHOICES = [
   { label: NO, description: "the command does not run" },
   { label: YES_ONCE, description: "this command only" },
   { label: YES_SESSION, description: "commands to this host don't ask again until Casper exits" },
+  { label: YES_ALWAYS, description: "kept in ~/.casper, never in the repo; /sandbox forget <host> undoes it" },
 ] as const satisfies readonly Choice[];
 
 /** "Run this command?  npm test" when no sandbox can run (Windows, bubblewrap missing). Enter runs nothing. */

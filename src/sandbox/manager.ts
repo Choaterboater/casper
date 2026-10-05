@@ -140,6 +140,8 @@ export class ShellSandbox {
    * (--no-sandbox, sandbox: off): then they go through as before. */
   get asksOutsideWrites(): boolean { return this.state.kind !== "off"; }
   get user(): SandboxUserSettings { return this.options.settings?.user ?? {}; }
+  /** What this project's answers keep in ~/.casper (hosts, machines ssh may reach, commands). */
+  get store(): SandboxStore | undefined { return this.options.store; }
 
   /** The policy a command gets now. */
   policy(options: Pick<SandboxWrapOptions, "extraWrite" | "readOnlyProject"> = {}): SandboxPolicy {

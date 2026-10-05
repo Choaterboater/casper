@@ -252,12 +252,12 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       const forget = /^\/sandbox\s+forget\s+(\S+)\s*$/.exec(prompt);
       if (forget) {
         const found = await sandbox.forget(forget[1]!);
-        host.output.write(found ? `Forgot ${terminalText(forget[1]!)}: shell commands ask before reaching it again.\n` : `${terminalText(forget[1]!)} was not remembered for this project.\n`);
+        host.output.write(found ? `Forgot ${terminalText(forget[1]!)}: shell commands and ssh ask before reaching it again.\n` : `${terminalText(forget[1]!)} was not remembered for this project.\n`);
         return;
       }
       if (prompt.trim() !== "/sandbox") throw new Error("Use /sandbox or /sandbox forget <host>.");
       await sandbox.loadRemembered();
-      host.output.write(sandboxReport(sandbox, host.activeWorkspaceRoot()));
+      host.output.write(sandboxReport(sandbox, host.activeWorkspaceRoot(), await sandbox.store?.reachHosts() ?? []));
       return;
     }
     if (prompt === "/context" || prompt === "/usage") {
@@ -1015,12 +1015,23 @@ async function handleLabCommand(host: CommandHost, prompt: string): Promise<void
   const profile = host.projectContext?.labProfile;
   const place = labConfigPlace(profile);
   const match = /^\/lab\s+import\s+(.+?)\s*$/.exec(prompt);
+  const store = host.sandbox?.store;
   if (prompt.trim() === "/lab") {
+    const ssh = current.length && store ? (await store.labReach()
+      ? "ssh and scp to them don't ask first (/lab ssh off turns that off).\n" : "ssh and scp to them ask first (/lab ssh on stops that).\n") : "";
     host.output.write(`Lab devices: ${current.length ? current.map(terminalText).join(", ") : "none"}${current.length ? ` (from ${place})` : ""}\n`
-      + "They only mark devices as lab: any device can be checked, after your answer. /lab import <file> adds more.\n");
+      + "They only mark devices as lab: any device can be checked, after your answer. /lab import <file> adds more.\n" + ssh);
     return;
   }
-  if (!match) throw new Error("Use /lab or /lab import <file>.");
+  const ssh = /^\/lab\s+ssh\s+(on|off)\s*$/.exec(prompt);
+  if (ssh) {
+    if (!store) throw new Error("The shell sandbox starts with the project.");
+    // Only you type this; kept for this project in ~/.casper.
+    await store.setLabReach(ssh[1] === "on");
+    host.output.write(ssh[1] === "on" ? "[lab] ssh and scp to lab devices don't ask first.\n" : "[lab] ssh and scp to lab devices ask first again.\n");
+    return;
+  }
+  if (!match) throw new Error("Use /lab, /lab import <file> or /lab ssh on|off.");
   if (!host.interactive) throw new Error("/lab import asks you first; run it in an interactive session.");
   const given = match[1]!.replace(/^["']|["']$/g, "");
   const file = given === "~" || given.startsWith("~/") ? path.join(host.homeDir(), given.slice(2)) : path.resolve(host.activeWorkspaceRoot(), given);

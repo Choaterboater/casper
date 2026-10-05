@@ -5,11 +5,12 @@ import { hostName } from "./policy";
 
 /**
  * What you told the sandbox to remember for one project, kept in Casper's own folder
- * (~/.casper/projects/<id>/), never in the repo: hosts ("Yes, always for this project") and, when no sandbox
- * can run, exact shell commands you said not to ask about again. Private (0600), written only from your
+ * (~/.casper/projects/<id>/), never in the repo: hosts ("Yes, always for this project"), machines the AI's ssh may
+ * reach without asking (the same answer in the Reach box), whether ssh to your lab devices asks (/lab ssh off|on)
+ * and, when no sandbox can run, exact shell commands you said not to ask about again. Private (0600), written only from your
  * own answer to a numbered question. The sandbox keeps the AI's shell from reading or writing this folder.
  */
-interface StoreFile { version: 1; hosts: string[]; commands: string[] }
+interface StoreFile { version: 1; hosts: string[]; commands: string[]; reach?: string[]; labReach?: false }
 
 const MAX_ENTRIES = 500;
 
@@ -32,6 +33,8 @@ export class SandboxStore {
         version: 1,
         hosts: Array.isArray(value.hosts) ? value.hosts.filter((host): host is string => typeof host === "string").slice(0, MAX_ENTRIES) : [],
         commands: Array.isArray(value.commands) ? value.commands.filter((command): command is string => typeof command === "string").slice(0, MAX_ENTRIES) : [],
+        ...(Array.isArray(value.reach) ? { reach: value.reach.filter((host): host is string => typeof host === "string").slice(0, MAX_ENTRIES) } : {}),
+        ...(value.labReach === false ? { labReach: false as const } : {}),
       };
     } catch { /* none yet, or unreadable: nothing is remembered */ }
     return this.cached = data;
@@ -39,11 +42,27 @@ export class SandboxStore {
 
   async hosts(): Promise<string[]> { return [...(await this.load()).hosts]; }
   async hasCommand(command: string): Promise<boolean> { return (await this.load()).commands.includes(command); }
+  /** Machines the AI's ssh, scp and the like may reach without asking (lower case, as Casper resolved them). */
+  async reachHosts(): Promise<string[]> { return [...(await this.load()).reach ?? []]; }
+  addReach(host: string): Promise<void> {
+    return this.update((data) => { const name = host.toLowerCase(); data.reach = [...new Set([...data.reach ?? [], name])]; });
+  }
+  /** Whether ssh to a device on your lab list runs without asking (on unless /lab ssh off). */
+  async labReach(): Promise<boolean> { return (await this.load()).labReach !== false; }
+  setLabReach(on: boolean): Promise<void> {
+    return this.update((data) => { if (on) delete data.labReach; else data.labReach = false; });
+  }
 
   addHost(host: string): Promise<void> { return this.update((data) => { const name = hostName(host); if (!data.hosts.includes(name)) data.hosts.push(name); }); }
   forgetHost(host: string): Promise<boolean> {
     let found = false;
-    return this.update((data) => { const name = hostName(host); found = data.hosts.includes(name); data.hosts = data.hosts.filter((entry) => entry !== name); }).then(() => found);
+    return this.update((data) => {
+      const name = hostName(host);
+      const reach = host.toLowerCase();
+      found = data.hosts.includes(name) || Boolean(data.reach?.includes(reach));
+      data.hosts = data.hosts.filter((entry) => entry !== name);
+      if (data.reach) data.reach = data.reach.filter((entry) => entry !== reach);
+    }).then(() => found);
   }
   addCommand(command: string): Promise<void> { return this.update((data) => { if (!data.commands.includes(command)) data.commands.push(command); }); }
   forgetCommands(): Promise<number> {
@@ -57,6 +76,7 @@ export class SandboxStore {
       const data = await this.load();
       change(data);
       data.hosts = data.hosts.slice(-MAX_ENTRIES); data.commands = data.commands.slice(-MAX_ENTRIES);
+      if (data.reach) data.reach = data.reach.slice(-MAX_ENTRIES);
       await mkdir(this.directory, { recursive: true, mode: 0o700 });
       const temporary = path.join(this.directory, `.sandbox.${randomUUID()}.tmp`);
       try {

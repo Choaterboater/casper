@@ -30,6 +30,8 @@ export interface SandboxHost {
   write(text: string): void;
   /** A plan turn: the project is read-only for the shell. */
   planning(): boolean;
+  /** Your lab list (names or addresses): ssh to these doesn't ask, unless /lab ssh off. */
+  labHosts?(): readonly string[];
 }
 
 export const hostQuestion = (host: string) => `A shell command wants to reach ${terminalText(host)}. Allow it?`;
@@ -79,7 +81,9 @@ export function sandboxStartupNotes(root: string): string[] {
 
 /** How the AI's bash runs this session (see RuntimeShell). Before a command reaches another machine (ssh, scp, sftp,
  * rsync, nc, telnet, socat) Casper asks "Reach <host>?", sandbox or not; a run that can't ask refuses it. */
-export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, store: SandboxStore): RuntimeShell & { close(): Promise<void> } {
+export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: SandboxStore): RuntimeShell & { close(): Promise<void> } {
+  // The sandbox's own store when it has one, so /sandbox forget and the shell see the same answers.
+  const store = sandbox.store ?? given;
   let logs: Promise<string> | undefined;
   const show = (entry: string) => displayPath(entry, sandbox.root, sandbox.home);
   /** Hosts you said "Yes, for this session" to. */
@@ -87,6 +91,12 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, store: Sa
   /** Commands you said yes to just now, with the hosts they reach (wrap lets them through). */
   const cleared = new Map<string, RemoteTarget[]>();
   const said = new Set<string>();
+  /** A device on your lab list, by the name the command typed or the address it resolves to (unless /lab ssh off). */
+  const onLabList = async (target: RemoteTarget): Promise<boolean> => {
+    const lab = (host.labHosts?.() ?? []).map((entry) => entry.toLowerCase());
+    if (!lab.length || !await store.labReach()) return false;
+    return lab.includes(target.typed.toLowerCase()) || lab.includes(target.host);
+  };
   const sayOnce = (line: string) => { if (said.has(line)) return; said.add(line); host.write(`${line}\n`); };
   /** undefined: runs (and whether the question already showed the command); a string: refused, the AI reads why. */
   const reach = async (command: string, signal?: AbortSignal): Promise<{ refused?: string; asked: boolean }> => {
@@ -94,7 +104,8 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, store: Sa
     if (!targets.length) return { asked: false };
     let asked = false;
     for (const target of targets) {
-      if (!target.unclear && sessionReach.has(target.host)) continue;
+      // A machine named as $HOST could be any machine: it always asks.
+      if (!target.unclear && (sessionReach.has(target.host) || (await store.reachHosts()).includes(target.host) || await onLabList(target))) continue;
       if (!host.canAsk()) {
         sayOnce(`[shell] Not run: the AI's command reaches ${targetLabel(target)}, and this run can't ask you. Nothing was sent.`);
         return { refused: reachCantAsk(target), asked };
@@ -103,6 +114,7 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, store: Sa
       asked = true;
       // A machine the command names as $HOST could be any machine next time: that yes counts for this command only.
       if (answer === YES_SESSION) { if (!target.unclear) sessionReach.add(target.host); }
+      else if (answer === YES_ALWAYS) { if (!target.unclear) await store.addReach(target.host); }
       else if (answer !== YES_ONCE) return { refused: reachDeclined(target), asked };
     }
     // Only the command about to run (a service start approved here never comes back to wrap).
@@ -213,15 +225,17 @@ export function sandboxStatusLine(sandbox: ShellSandbox): string {
   return describeSandbox(sandbox.state, sandbox.on ? sandbox.allowedHosts().length : undefined);
 }
 
-/** /sandbox: what the sandbox holds, on this machine, now. */
-export function sandboxReport(sandbox: ShellSandbox, root: string): string {
+/** /sandbox: what the sandbox holds, on this machine, now. `reach`: machines ssh may reach without asking. */
+export function sandboxReport(sandbox: ShellSandbox, root: string, reach: readonly string[] = []): string {
   const home = sandbox.home;
   const show = (entry: string) => entry === root ? "this project" : entry.startsWith(`${home}${path.sep}`) ? `~/${path.relative(home, entry).split(path.sep).join("/")}` : entry;
   const lines = [`Shell: ${sandboxStatusLine(sandbox)}`];
+  const machines = `ssh, scp and the like to other machines: Casper asks (1 No · 2 Yes, this once · 3 Yes, for this session · 4 Yes, always for this project)${reach.length ? `; always for this project: ${reach.join(", ")} (/sandbox forget <address>)` : ""}. Lab devices don't ask (/lab ssh off).`;
   if (!sandbox.on) {
     lines.push(sandbox.state.kind === "off"
       ? "Shell commands, checks, services and dev servers run with your permissions, files and network."
       : "Shell commands, checks, services and dev servers run with your permissions, files and network. The AI's shell commands ask first.");
+    lines.push(machines);
     return `${lines.join("\n")}\n`;
   }
   const policy = sandbox.policy();
@@ -233,6 +247,7 @@ export function sandboxReport(sandbox: ShellSandbox, root: string): string {
   lines.push("Other hosts: Casper asks (1 No · 2 Yes, this once · 3 Yes, for this session · 4 Yes, always for this project); a run that can't ask blocks them.");
   const folders = sandbox.allowedWriteFolders();
   lines.push(`Other writes outside the project: Casper asks (1 No · 2 Yes, for this session)${folders.length ? `; allowed this session: ${[...new Set(folders.map(show))].join(", ")}` : ""}.`);
+  lines.push(machines);
   lines.push("Not in the sandbox: MCP servers, language servers, the debugger, the browser and lab checks.");
   return `${lines.join("\n")}\n`;
 }

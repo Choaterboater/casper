@@ -246,8 +246,8 @@ test("ssh to a lab host asks first, naming the real address and the alias; Enter
   const shell = runtimeShell(terminal.value, sandbox, new SandboxStore(context.stateDirectory));
   const refused = await shell.approve!("ssh build-server 'cat /etc/pve/user.cfg'");
   expect(refused).toBe("Not run: the user said no to reaching 198.51.100.20 (build-server). Don't try it again another way; ask the user what to do instead.");
-  expect(terminal.asked).toEqual([{ question: "Reach 198.51.100.20 (build-server)?  ssh build-server 'cat /etc/pve/user.cfg'", options: ["No", "Yes, this once", "Yes, for this session"] }]);
-  expect(REACH_CHOICES.map((choice) => choice.label)).toEqual(["No", "Yes, this once", "Yes, for this session"]);
+  expect(terminal.asked).toEqual([{ question: "Reach 198.51.100.20 (build-server)?  ssh build-server 'cat /etc/pve/user.cfg'", options: ["No", "Yes, this once", "Yes, for this session", "Yes, always for this project"] }]);
+  expect(REACH_CHOICES.map((choice) => choice.label)).toEqual(["No", "Yes, this once", "Yes, for this session", "Yes, always for this project"]);
   // Nothing ran, so nothing was held or sent.
   expect(engine.wrapped).toEqual([]);
   await sandbox.close();
@@ -288,6 +288,48 @@ test("Yes, for this session remembers the host until Casper exits; a command wit
   shell.finished!(wrapped.id!);
   terminal.value.pick = async () => undefined;
   expect(await engine.ask!("198.51.100.20", 22)).toBe(false);
+  await sandbox.close();
+});
+
+test("Yes, always for this project keeps the machine in Casper's own folder: the next session doesn't ask; /sandbox forget undoes it", async () => {
+  const { home, project, context } = await labFixture();
+  const terminal = host(["Yes, always for this project"]);
+  const sandbox = createSessionSandbox(terminal.value, context, { root: () => project, home, seams: { engine: fakeEngine(), problem: () => undefined, platform: "linux" } });
+  const store = new SandboxStore(context.stateDirectory);
+  const shell = runtimeShell(terminal.value, sandbox, store);
+  expect(await shell.approve!("ssh build-server uptime")).toBeUndefined();
+  expect(await readdir(project)).toEqual([]);
+  expect(JSON.parse(await readFile(path.join(context.stateDirectory, "sandbox.json"), "utf8")).reach).toEqual(["198.51.100.20"]);
+  // A new session: no question, and a plain ssh still runs with your keys.
+  const next = host([]);
+  const later = createSessionSandbox(next.value, context, { root: () => project, home, seams: { engine: fakeEngine(), problem: () => undefined, platform: "linux" } });
+  const nextShell = runtimeShell(next.value, later, new SandboxStore(context.stateDirectory));
+  expect(await nextShell.approve!("ssh deploy@198.51.100.20 hostname")).toBeUndefined();
+  expect(await nextShell.wrap("ssh deploy@198.51.100.20 hostname", project)).toEqual({ command: "ssh deploy@198.51.100.20 hostname" });
+  expect(next.asked).toEqual([]);
+  expect(await later.forget("198.51.100.20")).toBe(true);
+  expect(await nextShell.approve!("ssh build-server uptime")).toContain("Not run: the user said no");
+  expect(next.asked).toHaveLength(1);
+  await sandbox.close(); await later.close();
+});
+
+test("a machine on your lab list doesn't ask before ssh; /lab ssh off makes it ask again", async () => {
+  const { home, project, context } = await labFixture();
+  const terminal = host([undefined, undefined]);
+  terminal.value.labHosts = () => ["build-server"];
+  const sandbox = createSessionSandbox(terminal.value, context, { root: () => project, home, seams: { engine: fakeEngine(), problem: () => undefined, platform: "linux" } });
+  const store = new SandboxStore(context.stateDirectory);
+  const shell = runtimeShell(terminal.value, sandbox, store);
+  expect(await shell.approve!("ssh build-server uptime")).toBeUndefined();
+  expect(await shell.approve!("scp notes.txt root@build-server:/tmp/")).toBeUndefined();
+  expect(terminal.asked).toEqual([]);
+  // A machine named as $HOST could be any machine: it still asks.
+  expect(await shell.approve!("ssh $TARGET uptime")).toContain("Not run: the user said no");
+  expect(terminal.asked).toHaveLength(1);
+  // /lab ssh off writes the sandbox's own store, the one the shell reads.
+  await sandbox.store!.setLabReach(false);
+  expect(await shell.approve!("ssh build-server uptime")).toContain("Not run: the user said no");
+  expect(terminal.asked).toHaveLength(2);
   await sandbox.close();
 });
 

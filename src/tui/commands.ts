@@ -32,7 +32,7 @@ export const COMMANDS: SlashCommand[] = [
   { name: "debug", description: "Inspect local targets; approve launch and debug code" },
   { name: "permissions", description: "Understand native-tool risks and exact approval boundaries" },
   { name: "sandbox", description: "What the shell sandbox holds here; forget a remembered host" },
-  { name: "lab", description: "Your lab devices; /lab import <file> marks more (GreenCLI's lab export)" },
+  { name: "lab", description: "Your lab devices; /lab import <file> marks more; /lab ssh off makes ssh to them ask" },
   { name: "tree", description: "Inspect named conversations and workspaces" },
   { name: "branch", description: "Create a named workspace conversation (requires approval)" },
   { name: "switch", description: "Switch named workspace conversation (requires approval)" },

@@ -140,7 +140,7 @@ Local commands:
   /receipt <n>, /receipt list       A saved receipt, or the last 10 (saved with secrets hidden)
   /permissions                      Explain enforcement, not change permission presets
   /sandbox                          What the shell sandbox holds: write folders, private folders, hosts
-  /sandbox forget <host>            Forget a host you allowed for this project (Yes, always)
+  /sandbox forget <host>            Forget a host or machine you allowed for this project (Yes, always)
   /login [provider]                 Codex, Copilot, Anthropic or OpenRouter (Casper's credential store)
   /project                          Show project context
   /project <name>                   Open a project folder inside this one, or offer to make it (before the model starts)

@@ -168,6 +168,10 @@ reaches one without your answer:
    lists the new ones and asks `1 No · 2 Add them`; `/lab` shows the list and the file it
    comes from. When your profile has its own lab list (it replaces yours), the hosts go there.
 
+   The AI's `ssh` and `scp` to a device on your lab list (by the name or address the command
+   types) don't ask first. `/lab ssh off` makes them ask again, for this project (kept in
+   `~/.casper`); `/lab ssh on` turns it back on.
+
    Entries are exact hostnames, single IP addresses or IP ranges. Casper does no DNS
    lookups and never guesses from a name: `lab-sw9` is not marked lab just because it
    says "lab". A host with `ansible_host` is matched by that address. A project file

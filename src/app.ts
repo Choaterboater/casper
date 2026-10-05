@@ -513,6 +513,7 @@ export class CasperApp {
       pick: (question, options, signal) => this.terminal.pick(question, options, signal ?? this.commandAbort?.signal),
       write: (text) => { if (!this.closing) this.output.write(text); },
       planning: () => this.planning,
+      labHosts: () => this.projectContext?.lab?.hosts ?? [],
     };
   }
 

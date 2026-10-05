@@ -54,8 +54,11 @@ the operating system, not a list of words:
   on macOS) can't reach other machines from inside the sandbox; Casper says so when it sees one.
 - **Other machines (ssh, scp, sftp, rsync, nc, telnet, socat).** From v0.2.19, before the AI's shell runs
   one of these to another machine, Casper asks `Reach 198.51.100.20 (build-server)?  ssh build-server uptime` with
-  `1 No · 2 Yes, this once · 3 Yes, for this session`, whether the sandbox is on, off or can't run. Casper
-  reads `~/.ssh/config` itself to name the real address; the AI never sees that file. Enter runs nothing.
+  `1 No · 2 Yes, this once · 3 Yes, for this session · 4 Yes, always for this project`, whether the sandbox
+  is on, off or can't run. `4` keeps the machine's address in `~/.casper/projects/<project>/sandbox.json`
+  (never in the repo; `/sandbox` lists it, `/sandbox forget <address>` takes it back). A device on your lab
+  list doesn't ask at all (`/lab ssh off` makes it ask again); a machine the command names as `$HOST` always
+  asks. Casper reads `~/.ssh/config` itself to name the real address; the AI never sees that file. Enter runs nothing.
   A run that can't ask refuses it: `[shell] Not run: the AI's command reaches 198.51.100.20 (build-server), and
   this run can't ask you. Nothing was sent.` After your yes, a plain `ssh` or `scp` command (no pipe,
   redirect, port forward or option that runs a program here) runs outside the sandbox with your own keys,
@@ -115,7 +118,7 @@ Each row names the test that fails without it.
 | Shell commands can't write git hooks or `core.hooksPath` in `.git/config`. | the write fails | `tests/sandbox-live.test.ts` › “git's own files stay read-only: no hook, no core.hooksPath” |
 | Shell commands can't change a submodule's git settings, hooks or `.git` file. | the write fails | `tests/sandbox-live.test.ts` › “a submodule's git settings, hooks and .git file can't be changed, in any network mode” |
 | A host that is not listed asks first (Enter keeps it blocked); a run that can't ask blocks it and says so. | `A shell command wants to reach api.mist.com.` | `tests/sandbox-asks.test.ts` › “a host that is not listed asks with three numbered choices, No first”; `tests/sandbox-live.test.ts` › “a host that is not listed is blocked when nobody can answer, and says so once” |
-| "Yes, always for this project" is kept in `~/.casper`, private, never in the repo. | `/sandbox` lists it | `tests/sandbox-asks.test.ts` › “Yes, always for this project is kept in Casper's own folder, never in the repo, and the next request doesn't ask” |
+| "Yes, always for this project" is kept in `~/.casper`, private, never in the repo. | `/sandbox` lists it | `tests/sandbox-asks.test.ts` › “Yes, always for this project is kept in Casper's own folder, never in the repo, and the next request doesn't ask”; `tests/sandbox-asks.test.ts` › “Yes, always for this project keeps the machine in Casper's own folder: the next session doesn't ask; /sandbox forget undoes it” |
 | Checks, network and security tools, services, dev servers, `uv` and `bun` in `casper new` and the AI's bash all run in the sandbox. | `shell     sandboxed · writes: this project, temp, package caches · hosts: 11 listed (/sandbox)` | `tests/sandbox-wiring.test.ts` › “a check runs in the sandbox, with the project's network rules”; `tests/sandbox-wiring.test.ts` › “network checks and security tools run with no network; a lab run is never wrapped”; `tests/sandbox-wiring.test.ts` › “a service or dev server runs in the sandbox with the machine's own network, so the host can reach it”; `tests/sandbox-wiring.test.ts` › “casper new runs uv and bun in the sandbox with the new folder writable; git runs as it is”; `tests/sandbox-app.test.ts` › “with the sandbox on, /status and /sandbox say what it holds, and the AI's bash is wrapped” |
 | Tools with no network get none at all (Linux); dev servers keep the machine's network and their files are held. | the request fails | `tests/sandbox-live.test.ts` › “no network at all for a tool run with network none; files still held”; `tests/sandbox-live.test.ts` › “a dev server's command (network host) is reached from the host, files still held” |
 | While planning, the project is read-only to the shell, so a repository's own `git diff` program can't change it. | the write fails | `tests/sandbox-live.test.ts` › “during a plan turn the project is read-only too, so a repo's git diff program can't change it”; `tests/sandbox-asks.test.ts` › “while planning, the AI's shell gets a read-only project” |
