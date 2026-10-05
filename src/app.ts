@@ -46,7 +46,7 @@ import { LifecycleRegistry } from "./app/lifecycle";
 import { helperActivityLine, RuntimeEventView } from "./app/events";
 import { diffSnapshots, snapshotFailureReason, snapshotTree, type TreeChanges } from "./task/changes";
 import { renderBanner, wordmarkHeader } from "./tui/banner";
-import { CHECK_NAMES, type CheckName, formatDuration, formatVerificationReport, formatVerificationResult, type VerificationReport, type VerificationResult } from "./verify/evidence";
+import { type CheckName, formatDuration, formatVerificationReport, formatVerificationResult, type VerificationReport, type VerificationResult } from "./verify/evidence";
 import { ProcessCleanupError } from "./platform/processes";
 import { safeGitArgs } from "./platform/git";
 import { VerifierRegistry } from "./verify/registry";
@@ -86,7 +86,7 @@ import { AGENT_DIR_ENV, casperAgentDir } from "./runtime/agent-store";
 import { loginValuesFrom, WebLookup, webProvider, type WebLookupOptions } from "./web/lookup";
 import { systemPromptAppend } from "./app/prompt";
 import type { VisualizationProvider } from "./visualize/types";
-import { SessionWorkspaceManager, type ReturnAction } from "./sessions/manager";
+import { SessionWorkspaceManager } from "./sessions/manager";
 import { runSlashCommand, type OutputWriter } from "./app/commands";
 import type { BackgroundTask } from "./app/background";
 import { detectHostTerminal } from "./tui/host-terminal";
@@ -116,6 +116,7 @@ import { spendNote, spendGate } from "./app/spend-gate";
 import { prepareCapabilities, browserSession, serviceManager, stopDebugger, backgroundTasks, planPages, pageNotesFor, pageRun, smokeRun, pagePaths } from "./app/task-tools";
 import { ensureModel, retryModelFailure, bigModelReceipt, bigModelNotice, switchToBigModel, restoreModel, askBigModelRetry, type BigModelChoice, bigModelOf, imagesForModel, switchForPictures } from "./app/big-model";
 import { newProjectFlowWithAbort, openProjectFolder, openProjectCommand, newProjectCommand, offerNewProject, childProjectOfTask, runChildChecks, offerWorkFolder } from "./app/workspace";
+import { ensureSessionWorkspace, handleBranchCommand, handleSwitchCommand, rebindWorkspace } from "./app/session-branches";
 
 export type { OutputWriter } from "./app/commands";
 
@@ -838,7 +839,7 @@ export class CasperApp {
           // The project's sandbox.denyRead (GreenCLI lists its data and log folders there): the file tools refuse them too.
           privatePaths: this.projectPrivatePaths(),
         });
-        const resumeNotice = await (await this.ensureSessionWorkspace()).resumeActive(this.session);
+        const resumeNotice = await (await ensureSessionWorkspace(this)).resumeActive(this.session);
         if (resumeNotice) this.output.write(`[sessions] ${resumeNotice}\n`);
         await this.applyRunConversation(this.session);
         await this.applyRunSelection(this.session);
@@ -902,7 +903,7 @@ export class CasperApp {
     try { current = session.getSessionInfo?.().sessionId; } catch { /* no persistence */ }
     if (target !== current) {
       await session.resumeConversation(target, { keepUnwritten: false });
-      if (this.interactive && session.getSessionInfo) await (await this.ensureSessionWorkspace()).rememberConversation(session);
+      if (this.interactive && session.getSessionInfo) await (await ensureSessionWorkspace(this)).rememberConversation(session);
     }
     this.output.write(`[session] Continuing conversation ${target}.\n`);
   }
@@ -957,7 +958,7 @@ export class CasperApp {
       // A Shift+Tab that arrived with this submit still applies; new presses see commandActive and wait.
       while (this.effortSteps > 0) await this.effortCycle;
       if (this.closing) return;
-      if (this.workspaceNeedsRebind) await this.rebindWorkspace(this.activeWorkspaceRoot());
+      if (this.workspaceNeedsRebind) await rebindWorkspace(this, this.activeWorkspaceRoot());
       // Whatever follows a receipt either picks one of its suggestions or leaves them (they fade when ignored).
       // Nothing on offer: no extra wait, so a close that arrives with this line still finds the command running.
       if (this.suggestions.pending) await this.suggestions.settle(prompt, this.projectContext);
@@ -2057,118 +2058,11 @@ export class CasperApp {
     return "more-time";
   }
 
-  async ensureSessionWorkspace(): Promise<SessionWorkspaceManager> {
-    if (this.sessionWorkspace) return this.sessionWorkspace;
-    if (!this.sessionWorkspaceStart) {
-      const context = this.projectContext!;
-      this.sessionWorkspaceStart = SessionWorkspaceManager.open({
-        projectRoot: context.info.root,
-        gitBranch: context.info.gitBranch,
-        policy: context.policy.workspace,
-        homeDir: this.sessionHomeDir,
-      }).then((manager) => {
-        this.sessionWorkspace = manager;
-        return manager;
-      }).finally(() => { this.sessionWorkspaceStart = undefined; });
-    }
-    return this.sessionWorkspaceStart;
-  }
+  async ensureSessionWorkspace(): Promise<SessionWorkspaceManager> { return ensureSessionWorkspace(this); }
 
-  async handleBranchCommand(prompt: string): Promise<void> {
-    if (this.subagents.isBusy) throw new Error("Wait for active subagents before changing workspaces");
-    const [, name, ...extra] = prompt.trim().split(/\s+/);
-    if (!name || extra.length) throw new Error("Usage: /branch <name>");
-    const manager = await this.ensureSessionWorkspace();
-    const context = [
-      `Casper named session branch: ${name}`,
-      `Parent session branch: ${manager.activeName}`,
-      this.lastTaskRequest ? `Latest task contract request: ${this.lastTaskRequest}` : "No task request has been submitted in this process.",
-      formatProjectContext(this.projectContext!),
-    ].join("\n\n");
-    const transition = await manager.branch(name, {
-      getRuntime: () => this.runtimeForWorkspaceTransition(),
-      // You typed /branch: no second box. A one-shot run still refuses (a branch is for a session).
-      confirm: async () => this.interactive,
-      context,
-    });
-    if (!transition) {
-      this.output.write("[sessions] Branch creation not approved.\n");
-      return;
-    }
-    await this.rebindWorkspace(transition.workspacePath);
-    this.output.write(`[sessions] active ${transition.name} · ${transition.workspacePath}\n`);
-  }
+  async handleBranchCommand(prompt: string): Promise<void> { return handleBranchCommand(this, prompt); }
 
-  async handleSwitchCommand(prompt: string): Promise<void> {
-    if (this.subagents.isBusy) throw new Error("Wait for active subagents before changing workspaces");
-    const [, name, action, ...extra] = prompt.trim().split(/\s+/);
-    if (!name || extra.length || (action !== undefined && action !== "apply" && action !== "discard")) {
-      throw new Error("Usage: /switch <branch> | /switch main <apply|discard>");
-    }
-    const manager = await this.ensureSessionWorkspace();
-    let transition;
-    if (action !== undefined) {
-      if (name !== "main") throw new Error("Apply/discard is only valid when returning to main");
-      transition = await manager.returnToMain(action as ReturnAction, {
-        getRuntime: () => this.runtimeForWorkspaceTransition(),
-        confirm: (preview, question) => confirmYes(this, preview, question),
-        verify: async () => (await this.runVerification(
-          CHECK_NAMES,
-          false,
-          `Verify session branch ${manager.activeName} before returning to main.`,
-        )).status,
-      });
-    } else {
-      transition = await manager.switch(name, {
-        getRuntime: () => this.runtimeForWorkspaceTransition(),
-        // You typed /switch: no second box. A one-shot run still refuses.
-        confirm: async () => this.interactive,
-      });
-    }
-    if (!transition) {
-      this.output.write("[sessions] Switch not approved.\n");
-      return;
-    }
-    await this.rebindWorkspace(transition.workspacePath);
-    this.output.write(`[sessions] active ${transition.name} · ${transition.workspacePath}\n`);
-    if (transition.preservedPath) this.output.write(`[sessions] Candidate files retained for recovery: ${JSON.stringify(transition.preservedPath)}\n`);
-    if (transition.cleanupWarning) {
-      this.output.write(`[sessions] Return did not complete cleanly; review the session tree and repository state: ${transition.cleanupWarning}\n`);
-    }
-  }
-
-  async revokeWorkspaceCapabilities(): Promise<void> {
-    this.workspaceNeedsRebind = true;
-    if (this.runtimeTools.length && !this.session?.setTools) throw new Error("Runtime cannot revoke workspace capabilities");
-    this.session?.setTools?.([]);
-    this.runtimeTools = [];
-    this.offeredTools.clear();
-    await Promise.all([this.broker?.close(), this.lsp?.close(), this.references?.close(), this.browser?.close(), this.services?.close(), stopDebugger(this)]);
-    this.browser = undefined;
-    this.services = undefined;
-    this.debugSession = undefined;
-  }
-
-  private async runtimeForWorkspaceTransition(): Promise<RuntimeSession> {
-    const session = await this.ensureRuntime();
-    await this.revokeWorkspaceCapabilities();
-    return session;
-  }
-
-  private async rebindWorkspace(cwd: string): Promise<void> {
-    await this.revokeWorkspaceCapabilities();
-    this.sessionYes.forget();
-    const { context } = await this.loadWorkspace(cwd);
-    if (this.closing) throw new Error("Casper is closing");
-    this.runtimeTools = [];
-    this.session?.setTools?.([]);
-    await this.session?.appendContext?.([
-      "Casper switched the active workspace for this named session branch.",
-      formatProjectContext(context),
-    ].join("\n\n"));
-    this.workspaceNeedsRebind = false;
-    this.output.write(`[sessions] workspace context rebound to ${context.info.root}; MCP/LSP connections require fresh explicit consent.\n`);
-  }
+  async handleSwitchCommand(prompt: string): Promise<void> { return handleSwitchCommand(this, prompt); }
 
   activeWorkspaceRoot(): string {
     return this.session?.getState().cwd ?? this.projectContext!.info.root;
