@@ -12,6 +12,7 @@ import { PRIVATE_PATHS } from "../src/platform/project-paths";
 import { networkLoginValues } from "../src/secrets/files";
 import { scrubToolOutput } from "../src/secrets/tool-output";
 import { scrubText } from "../src/secrets/scrub";
+import { needsPosixModes, needsSymlinks, posixModes } from "./support/platform";
 
 const cleanup: (() => Promise<unknown>)[] = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -67,7 +68,7 @@ test("logins go only to your own network server: never to a project's server or 
 test("the login file is 0600, private to the AI's shell, and its values are hidden", async () => {
   const home = await tempHome();
   await saveLogin(home, "clearpass", { CLEARPASS_BASE_URL: "https://cppm.example.com", CLEARPASS_API_TOKEN: "abc12" });
-  expect((await stat(path.join(home, LOGIN_FILE))).mode & 0o777).toBe(0o600);
+  if (posixModes) expect((await stat(path.join(home, LOGIN_FILE))).mode & 0o777).toBe(0o600);
   expect(PRIVATE_PATHS).toContain(".casper/network-logins.json");
   const hidden = networkLoginValues(path.join(home, LOGIN_FILE));
   expect(hidden).toContain("abc12"); // short secrets hidden too (>=4 chars)
@@ -77,7 +78,7 @@ test("the login file is 0600, private to the AI's shell, and its values are hidd
   expect(Object.keys(await readLogins(home)).sort()).toEqual(["central", "clearpass"]);
 });
 
-test("a linked or group-readable login file is refused", async () => {
+needsSymlinks("a linked login file is refused", async () => {
   const home = await tempHome();
   const file = path.join(home, LOGIN_FILE);
   await mkdir(path.dirname(file), { recursive: true });
@@ -88,7 +89,13 @@ test("a linked or group-readable login file is refused", async () => {
   expect(await readFile(elsewhere, "utf8")).toBe("{}\n");
   const said: string[] = [];
   expect(await readLogins(home, (text) => said.push(text))).toEqual({});
-  await rm(file);
+});
+
+// Windows has no group or other mode bits to read, so a "group-readable" file can't be made there.
+needsPosixModes("a group-readable login file is refused", async () => {
+  const home = await tempHome();
+  const file = path.join(home, LOGIN_FILE);
+  await mkdir(path.dirname(file), { recursive: true });
   await writeFile(file, JSON.stringify({ mist: { MIST_HOST: "https://api.mist.com", MIST_API_TOKEN: "tok_EXAMPLE_0123456789" } }), { mode: 0o644 });
   await chmod(file, 0o644);
   const warned: string[] = [];
@@ -129,7 +136,7 @@ test("forgetting a login drops it from spawn env and from hidden values", async 
   expect(env.CLEARPASS_API_TOKEN).toBe("cp_EXAMPLE_4455");
   expect(networkLoginValues(file)).not.toContain("tok_EXAMPLE_0123456789");
   expect(await readFile(file, "utf8")).not.toContain("tok_EXAMPLE_0123456789");
-  expect((await stat(file)).mode & 0o777).toBe(0o600);
+  if (posixModes) expect((await stat(file)).mode & 0o777).toBe(0o600);
   await forgetLogin(home, "clearpass");
   expect(await readLogins(home)).toEqual({});
   expect(networkLoginValues(file)).toEqual([]);

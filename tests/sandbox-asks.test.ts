@@ -10,7 +10,7 @@ import { bwrapFailure, linuxSandboxProblem, resetLinuxProbe, ripgrepPath } from 
 import { ShellSandbox } from "../src/sandbox/manager";
 import { SandboxStore } from "../src/sandbox/store";
 import { fakeEngine } from "./support/sandbox-fakes";
-import { posixOnly } from "./support/platform";
+import { posixModes, posixOnly } from "./support/platform";
 
 /**
  * The questions the sandbox asks: a host that is not listed, and (when no sandbox can run) each command the AI's
@@ -67,7 +67,7 @@ test("Yes, always for this project is kept in Casper's own folder, never in the 
   expect(await readdir(project)).toEqual([]);
   const saved = JSON.parse(await readFile(path.join(context.stateDirectory, "sandbox.json"), "utf8"));
   expect(saved.hosts).toEqual(["api.mist.com"]);
-  expect((await stat(path.join(context.stateDirectory, "sandbox.json"))).mode & 0o777).toBe(0o600);
+  if (posixModes) expect((await stat(path.join(context.stateDirectory, "sandbox.json"))).mode & 0o777).toBe(0o600);
   expect(engine.allowed).toContain("api.mist.com");
   // A new session starts with it listed; /sandbox forget takes it back.
   const next = createSessionSandbox(host([]).value, context, { root: () => project, home, seams: { engine: fakeEngine(), problem: () => undefined, platform: "linux" } });
