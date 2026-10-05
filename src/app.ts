@@ -635,7 +635,9 @@ export class CasperApp {
       const relative = path.relative(base, process.cwd());
       return relative === "" || !isOutside(relative);
     });
-    return inside ? {} : { folder: tildePath(root, this.sessionHomeDir ?? os.homedir()) };
+    if (inside) return {};
+    // cmd and Windows PowerShell never expand ~, so on Windows the command names the folder in full.
+    return { folder: process.platform === "win32" ? root : tildePath(root, this.sessionHomeDir ?? os.homedir()) };
   }
 
   /** Last normal coding/chat request; local commands other than /receipt clear it. Not acceptance evidence. */

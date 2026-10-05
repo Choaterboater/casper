@@ -390,6 +390,27 @@ test("one-shot with --cd: the undo command names the task's folder, so it never 
   } finally { process.chdir(started); await made.app.close(); }
 }, 30_000);
 
+// cmd and Windows PowerShell never expand ~, and --cd doesn't either, so ~/code/app would be "not a folder".
+test.if(process.platform === "win32")("Windows one-shot with --cd: a folder under the home folder is named in full, not as ~/...", async () => {
+  const place = await folder();
+  const elsewhere = path.join(place.root, "elsewhere");
+  await mkdir(elsewhere);
+  const started = process.cwd();
+  try {
+    process.chdir(elsewhere);
+    for (const [name, shown] of [["app", (dir: string) => dir], ["My Lab", (dir: string) => `"${dir}"`]] as const) {
+      const project = path.join(place.home, "code", name);
+      await mkdir(project, { recursive: true });
+      await writeFile(path.join(project, "notes.py"), "print('one')\n");
+      const made = makeApp({ home: place.home, project }, [edit("notes.py", "print('two')\n")]);
+      try {
+        await made.app.runOnce("fix the greeting in notes.py", project);
+        expect(made.output()).toContain(`Undo: casper --cd ${shown(project)} /undo 1 · Diff: casper --cd ${shown(project)} /diff 1\n`);
+      } finally { await made.app.close(); }
+    }
+  } finally { process.chdir(started); }
+}, 30_000);
+
 test("a file the task made over 8 MB is not counted as deleted: undo puts back the other files and leaves it", async () => {
   const place = await folder();
   await writeFile(path.join(place.project, "capture.pcap"), "small\n");
