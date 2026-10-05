@@ -1,4 +1,4 @@
-import { afterEach, expect } from "bun:test";
+import { afterEach, expect, test } from "bun:test";
 import { appendFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -95,6 +95,13 @@ export function events(stdout: string, project: string) {
     return event;
   });
 }
+
+/**
+ * The fix and proof projects check with POSIX shell commands (sh, grep, test). Windows has them only when Git's tools
+ * are on PATH (Git Bash has them, PowerShell usually not), so tests that run those checks skip without them.
+ */
+export const posixShellTools = ["sh", "grep", "test"].every((tool) => Bun.which(tool) !== null);
+export const shellCheckTest = test.skipIf(!posixShellTools);
 
 export async function fixProject(f: Awaited<ReturnType<typeof fixture>>, test = "grep -q fixed sum.js") {
   await mkdir(path.join(f.project, ".casper"));

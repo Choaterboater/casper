@@ -1,11 +1,11 @@
 import { expect, test } from "bun:test";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { cleanUpAfterEach, fixture, fixProject, lastUser, afterTool, REVIEW, reviewOn, PROOF_REPAIR, weaklyTestedProject, asked, TICKED } from "./support/scripting";
+import { cleanUpAfterEach, fixture, fixProject, lastUser, afterTool, REVIEW, reviewOn, PROOF_REPAIR, weaklyTestedProject, asked, TICKED, shellCheckTest } from "./support/scripting";
 
 cleanUpAfterEach();
 
-test("an unproven fix gets one round to add a test that fails without it; then the receipt says proven", async () => {
+shellCheckTest("an unproven fix gets one round to add a test that fails without it; then the receipt says proven", async () => {
   const f = await fixture((_request, payload) => {
     const prompt = lastUser(payload);
     if (prompt.includes(PROOF_REPAIR)) return afterTool(payload) ? { text: "Added a test that fails on the broken code." }
@@ -30,7 +30,7 @@ test("an unproven fix gets one round to add a test that fails without it; then t
   expect(result.stderr).toContain("✓ Verified · test passed · changed sum.js · after 1 repair\n");
 }, 60_000);
 
-test("a fix no test proves is not verified: the receipt says why, and --require-verification exits 3", async () => {
+shellCheckTest("a fix no test proves is not verified: the receipt says why, and --require-verification exits 3", async () => {
   const f = await fixture((_request, payload) => lastUser(payload).includes(REVIEW) ? TICKED
     : afterTool(payload) || lastUser(payload).includes(PROOF_REPAIR) ? { text: "Fixed sum.js." }
     : { tools: [{ name: "write", args: { path: "sum.js", content: "fixed\n" } }] });
@@ -44,7 +44,7 @@ test("a fix no test proves is not verified: the receipt says why, and --require-
   expect(f.payloads.filter((payload) => lastUser(payload).includes(PROOF_REPAIR)).length).toBe(1);
 }, 60_000);
 
-test("a feature worded like a test task is still reviewed and proven; a docs-only edit is not", async () => {
+shellCheckTest("a feature worded like a test task is still reviewed and proven; a docs-only edit is not", async () => {
   // "new test files" makes the keyword classifier say intent "test"; the work (a code change) decides.
   const f = await fixture((_request, payload) => lastUser(payload).includes(REVIEW) ? TICKED
     : afterTool(payload) ? { text: "Done." } : { tools: [{ name: "write", args: { path: "sum.js", content: "fixed\n" } }] });
@@ -65,7 +65,7 @@ test("a feature worded like a test task is still reviewed and proven; a docs-onl
   expect(docs.payloads.some((payload) => lastUser(payload).includes(REVIEW))).toBe(false);
 }, 90_000);
 
-test("the review round runs even after a fully ticked first checklist, and the receipt keeps the review's", async () => {
+shellCheckTest("the review round runs even after a fully ticked first checklist, and the receipt keeps the review's", async () => {
   const f = await fixture((_request, payload) => lastUser(payload).includes(REVIEW) ? TICKED
     : afterTool(payload) ? { text: "Fixed sum.js.\n\nRequirements:\n- [x] sum.js prints fixed — tests/sum.sh" }
     : { tools: [{ name: "write", args: { path: "sum.js", content: "fixed\n" } }, { name: "write", args: { path: "tests/sum.sh", content: "grep -q fixed sum.js\n" } }] });
@@ -84,7 +84,7 @@ test("the review round runs even after a fully ticked first checklist, and the r
     .toEqual({ outcome: "verified", review: { done: ["sum.js is fixed — tests/check.sh"], open: [] }, proof: "proven" });
 }, 60_000);
 
-test("the review round is off by default (and with verification.review: false); the change is still proven", async () => {
+shellCheckTest("the review round is off by default (and with verification.review: false); the change is still proven", async () => {
   const f = await fixture((_request, payload) => lastUser(payload).includes(REVIEW) ? TICKED
     : afterTool(payload) ? { text: "Fixed." } : { tools: [{ name: "write", args: { path: "sum.js", content: "fixed\n" } }] });
   // Pinned benchmarks: the review added no first-time-right and cost 40% of the wall time; the checks and the proof decide.
