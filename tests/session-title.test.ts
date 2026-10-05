@@ -36,10 +36,10 @@ test("the title is set in any rich terminal, written only when it changes, and t
   terminal.setTitle("Casper · notes");
   terminal.close(); input.destroy();
   const output = screen.output;
-  expect(output.split("\x1b]2;◐ Casper · notes\x07").length).toBe(2);
-  expect(output).toContain("\x1b]2;Casper · notes\x07");
-  expect(output.indexOf(TITLE_SAVE)).toBeLessThan(output.indexOf("\x1b]2;"));
-  expect(output.lastIndexOf(TITLE_RESTORE)).toBeGreaterThan(output.lastIndexOf("\x1b]2;"));
+  expect(output.split("\x1b]0;◐ Casper · notes\x07").length).toBe(2);
+  expect(output).toContain("\x1b]0;Casper · notes\x07");
+  expect(output.indexOf(TITLE_SAVE)).toBeLessThan(output.indexOf("\x1b]0;◐ Casper · notes"));
+  expect(output.lastIndexOf(TITLE_RESTORE)).toBeGreaterThan(output.lastIndexOf("\x1b]0;Casper · notes"));
 });
 
 test("a result gets a colored edge on the rich terminal (green pass, red fail, yellow between); plain stays as it was", () => {

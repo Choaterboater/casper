@@ -52,9 +52,10 @@ export function bellSequence(host: HostTerminal, message: string): string {
 export const TITLE_SAVE = "\x1b[22;0t";
 export const TITLE_RESTORE = "\x1b[23;0t";
 
-/** The window title (OSC 2). Inside tmux it is the pane's title, which tmux shows in its own title and borders. */
+/** The window and tab title (OSC 0: macOS Terminal and iTerm2 label the tab from it, not from OSC 2's window
+ * title). Inside tmux it is the pane's title, which tmux shows in its own title and borders. */
 export function titleSequence(title: string): string {
-  return `\x1b]2;${oneLine(title)}\x07`;
+  return `\x1b]0;${oneLine(title)}\x07`;
 }
 
 /** Runs a short helper program (tmux, osascript) by argv, never through a shell. */

@@ -84,8 +84,8 @@ test("the title is set for the session and the one before comes back at exit; th
   s.close();
   const output = s.screen.output;
   expect(output.indexOf(TITLE_SAVE)).toBeGreaterThanOrEqual(0);
-  expect(output).toContain("\x1b]2;Casper · notes\x07");
-  expect(output.indexOf(TITLE_RESTORE)).toBeGreaterThan(output.indexOf("\x1b]2;Casper · notes\x07"));
+  expect(output).toContain("\x1b]0;Casper · notes\x07");
+  expect(output.indexOf(TITLE_RESTORE)).toBeGreaterThan(output.indexOf("\x1b]0;Casper · notes\x07"));
   // Passthrough (for iTerm2's notice) is turned on for Casper's own pane only, then unset again.
   expect(calls).toContainEqual(["tmux", "set-option", "-p", "-t", "%4", "allow-passthrough", "on"]);
   expect(calls).toContainEqual(["tmux", "set-option", "-p", "-u", "-t", "%4", "allow-passthrough"]);
