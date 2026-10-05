@@ -20,8 +20,7 @@ import { formatTerminalJSON } from "./tui/json";
 import { InteractiveTerminal, type TerminalHost } from "./tui/terminal";
 import type { PaneSetting } from "./tui/pane-setting";
 import type { DisplayLevel } from "./tui/display";
-import { nextEffort } from "./tui/effort";
-import { formatEffort, formatRuntimeStartLine, formatRuntimeStatus, lineText, redactPreview, terminalText } from "./tui/format";
+import { formatRuntimeStartLine, formatRuntimeStatus, lineText, redactPreview, terminalText } from "./tui/format";
 import { ProjectMemory, type TaskOutcome } from "./memory/store";
 import { discoverReferenceConfiguration, type ReferenceConfiguration } from "./references/config";
 import { formatReferenceResult, ReferenceLibrary } from "./references/library";
@@ -94,8 +93,7 @@ import { systemPromptAppend } from "./app/prompt";
 import type { VisualizationProvider } from "./visualize/types";
 import { SessionWorkspaceManager, type ReturnAction } from "./sessions/manager";
 import { runLogin, runSlashCommand, type OutputWriter } from "./app/commands";
-import { runTasksCommand, type BackgroundTask } from "./app/background";
-import { runsDuringWork } from "./tui/commands";
+import type { BackgroundTask } from "./app/background";
 import { detectHostTerminal } from "./tui/host-terminal";
 import { NEW_USAGE, parseNewArgs, UsageError } from "./cli-args";
 import { checkEvent, RuntimeEventMapper, sessionStartEvent, type CasperEvent } from "./app/json-events";
@@ -120,6 +118,7 @@ import { tildePath, type NewProjectOptions, type NewProjectResult } from "./new/
 import { chooseAnswer, approveChoice, confirmCapability, confirmKind, answerServerQuestion, editGateReason, askToolFor, confirmYes, recordedApproval, exactPick } from "./app/approvals";
 import { networkSetupHost, offerNetworkServer, networkLoginHost, networkLoginFile, revertWrites, reportImports } from "./app/network-host";
 import { updateFooter, nameConversation, phase, clearSteps, displayLevel, loadPaneSetting, askPaneOnce, paneCommand, detailsCommand, expandLastStep } from "./app/footer";
+import { settleQueuedLines, submitDuringWork, cycleEffort } from "./app/during-work";
 
 export type { OutputWriter } from "./app/commands";
 
@@ -267,7 +266,7 @@ export class CasperApp {
   paneAsked = false;
   /** Lines typed during a task that the AI could not read then: each runs as the next request, in order. They live
    * here, never in the prompt editor, so no queued line can ever answer an approval box. */
-  private readonly queuedLines: string[] = [];
+  readonly queuedLines: string[] = [];
   /** /details for this session; unset follows display: in the config. */
   displayChoice?: DisplayLevel;
   closing = false;
@@ -325,8 +324,8 @@ export class CasperApp {
   /** What the session's earlier model tasks spent; the footer adds the current task to it. */
   spentBefore = { tokens: 0, cost: 0 };
   /** Shift+Tab steps already accepted. The prompt loop drains this before a request starts. */
-  private effortSteps = 0;
-  private effortCycle: Promise<void> = Promise.resolve();
+  effortSteps = 0;
+  effortCycle: Promise<void> = Promise.resolve();
   private workspaceTransition = false;
   private workspaceNeedsRebind = false;
   /** Project folders the user chose to stay out of at "The work is in ...": not asked again this session. */
@@ -350,7 +349,7 @@ export class CasperApp {
   /** Tokens the AI security review spent in this command (no task to carry them). */
   private commandSpent?: TaskUsage;
   /** Undo, redo, /diff and saved receipts: a copy before and after each task. */
-  private readonly taskUndo = ((app: CasperApp) => new TaskUndo({
+  readonly taskUndo = ((app: CasperApp) => new TaskUndo({
     output: { write: (text) => app.output.write(text) },
     get terminal() { return app.terminal; },
     get interactive() { return app.interactive; },
@@ -456,8 +455,8 @@ export class CasperApp {
     const host = options.terminalHost ?? (detected && (detected.tmux || detected.iterm) ? { host: detected } : undefined);
     this.terminal = new InteractiveTerminal(this.input, options.output ?? process.stdout,
       () => this.cancelCurrent(), () => { if (this.commandActive && !this.closing) void this.close().catch(() => {}); }, host);
-    this.terminal.setEffortCycle(() => this.cycleEffort());
-    this.terminal.setBusySubmit((line, plain) => this.submitDuringWork(line, plain));
+    this.terminal.setEffortCycle(() => cycleEffort(this));
+    this.terminal.setBusySubmit((line, plain) => submitDuringWork(this, line, plain));
     // ctrl+o: MCP writes off everywhere, at once, even while work runs.
     this.terminal.setWritesRevert(() => revertWrites(this));
     // ctrl+t: the last step in full, even while work runs.
@@ -807,7 +806,7 @@ export class CasperApp {
         const message = error instanceof Error ? error.message : String(error);
         if (!this.commandAbort?.signal.aborted && this.events.lastError !== message) this.events.showError(message);
       }
-      this.settleQueuedLines();
+      settleQueuedLines(this);
     }
     this.terminal.close();
     this.interactive = false;
@@ -1108,7 +1107,7 @@ export class CasperApp {
   }
 
   /** Local command dispatch moved to app/commands.ts; the app is the command host. */
-  private handleSlashCommand(prompt: string): Promise<VerificationReport | undefined> {
+  handleSlashCommand(prompt: string): Promise<VerificationReport | undefined> {
     if (/^\/pane(?:\s|$)/.test(prompt)) return paneCommand(this, prompt.slice(5).trim()).then(() => undefined);
     if (/^\/details(?:\s|$)/.test(prompt)) return detailsCommand(this, prompt.slice(8).trim()).then(() => undefined);
     if (prompt.trim() === "/settings") return this.settingsCommand().then(() => undefined);
@@ -2979,128 +2978,6 @@ export class CasperApp {
 
   private writePrompt(prompt: string): void {
     this.events.writePrompt(prompt);
-  }
-
-  /** After a task: lines the AI never read join the queue. A stopped task runs nothing more: its queued lines go
-   * back into the prompt (the rich terminal) for you to send or clear. */
-  private settleQueuedLines(): void {
-    let unsent: string[] = [];
-    try { unsent = this.session?.takeUnsent?.() ?? []; } catch { /* nothing left to take */ }
-    this.queuedLines.unshift(...unsent);
-    if (!this.queuedLines.length || !this.commandAbort?.signal.aborted || this.closing) return;
-    const lines = this.queuedLines.splice(0);
-    const count = `${lines.length} queued line${lines.length === 1 ? "" : "s"}`;
-    if (this.terminal.restoreDraft(lines.join("\n"))) this.output.write(`[cancel] Your ${count} ${lines.length === 1 ? "is" : "are"} back in the prompt; Enter sends ${lines.length === 1 ? "it" : "them"}.\n`);
-    else this.output.write(`[cancel] Dropped your ${count}; type ${lines.length === 1 ? "it" : "them"} again to send.\n`);
-  }
-
-  /** Enter while a task runs. Commands that only show something, and /effort, run now; other commands keep their
-   * draft with the reason. Anything else goes to the AI: it reads the line at its next step, or, when it is not working
-   * right now (checks, a receipt), the line is queued and runs as the next request. */
-  private submitDuringWork(line: string, plain = false): true | string {
-    if (this.closing) return "Casper is closing";
-    // No task yet: Casper is still opening a folder or project. Nothing is loaded to show, so the line waits.
-    if (!this.commandActive || !this.projectContext) return "draft kept · Enter again once Casper has opened the project";
-    if (runsDuringWork(line)) {
-      const effort = /^\/effort\s+(\S+)(?:\s+(--session))?$/.exec(line);
-      if (effort) { void this.setEffortDuringWork(effort[1]!, !effort[2]); return true; }
-      const failed = (error: unknown) => { this.output.write(`[error] ${terminalText(error instanceof Error ? error.message : String(error))}\n`); };
-      if (line === "/tasks") {
-        void runTasksCommand({ tasks: () => this.backgroundTasks(), write: text => this.output.write(text), canAsk: () => false,
-          pick: async () => undefined, duringWork: true }).catch(failed);
-        return true;
-      }
-      // A picker would sit in the way of any approval the task asks; the list prints instead.
-      if (/^\/diff\s+list$/.test(line)) {
-        void this.taskUndo.diff("list", undefined, true).catch(failed);
-        return true;
-      }
-      void this.handleSlashCommand(line).catch(failed);
-      return true;
-    }
-    if (line.startsWith("/")) return `${terminalText(line.split(/\s+/)[0]!)} waits until this task ends${plain ? "; type it again then" : " · draft kept"}`;
-    void this.steerOrQueue(line);
-    return true;
-  }
-
-  private async steerOrQueue(line: string): Promise<void> {
-    let sent = false;
-    try { sent = await this.session?.steer?.(line) ?? false; } catch { sent = false; }
-    if (this.closing) return;
-    if (sent) { this.output.write("  ↳ sent to the AI · it reads this at its next step\n"); return; }
-    // The task ended while Casper asked the AI: nothing would run the queue now, so the line goes back in the prompt.
-    if (!this.commandActive) {
-      if (this.terminal.restoreDraft(line)) this.output.write("  ↳ the task had just ended · your line is back in the prompt\n");
-      else this.output.write("  ↳ the task had just ended · type it again to send it\n");
-      return;
-    }
-    this.queuedLines.push(line);
-    const waiting = this.queuedLines.length;
-    this.output.write(`  ↳ queued · runs when this task ends${waiting > 1 ? ` (${waiting} waiting)` : ""} · Esc stops the task and gives it back\n`);
-  }
-
-  /** /effort <level> during a task: the model's next step uses it; the step already running keeps its level. */
-  private async setEffortDuringWork(level: string, persist: boolean): Promise<void> {
-    try {
-      const session = this.session;
-      if (!session?.setEffort) throw new Error("effort controls unavailable");
-      const updated = await session.setEffort(level, persist);
-      this.output.write(`[effort] ${formatEffort(updated) ?? level} from the model's next step${persist ? "; saved" : " (this conversation)"}\n`);
-      updateFooter(this);
-    } catch (error) { this.output.write(`[error] ${terminalText(error instanceof Error ? error.message : String(error))}\n`); }
-  }
-
-  /** Shift+Tab. A held key walks the ring; the level the presses stop at is saved once, like `/effort`. During a task
-   * the model's next step uses it. */
-  private cycleEffort(): void {
-    if (this.closing) return;
-    if (this.effortSteps >= 12) return;
-    this.effortSteps++;
-    this.effortCycle = this.effortCycle.then(async () => {
-      try {
-        if (!this.closing) await this.applyEffortCycle();
-        // What you pick sticks, like /effort: the level the presses stop at is saved once.
-        if (!this.closing && this.effortSteps === 1) await this.saveCycledEffort();
-      }
-      catch (error) {
-        if (!this.closing) this.terminal.flashNote(error instanceof Error ? error.message : String(error));
-      } finally { this.effortSteps--; }
-    });
-  }
-
-  private async saveCycledEffort(): Promise<void> {
-    const session = this.session;
-    const level = session?.getStatus?.().configuredEffort;
-    if (!session?.setEffort || !level) return;
-    const saved = await session.setEffort(level, true);
-    // During a task the footer shows its stages, not notes: say it in the transcript instead.
-    if (this.commandActive) this.output.write(`[effort] ${formatEffort(saved) ?? level} from the model's next step; saved\n`);
-    else this.terminal.flashNote(`effort ${formatEffort(saved) ?? level} · saved`);
-    updateFooter(this);
-  }
-
-  private async applyEffortCycle(): Promise<void> {
-    const session = await this.ensureRuntime();
-    if (this.closing) return;
-    if (!session.setEffort || !session.getStatus) {
-      this.terminal.flashNote("effort controls unavailable");
-      return;
-    }
-    const status = session.getStatus();
-    if (!status.model) {
-      this.terminal.flashNote("no model · use /model");
-      return;
-    }
-    const current = status.configuredEffort ?? status.thinkingLevel;
-    const next = nextEffort(current, status.availableThinkingLevels);
-    if (!next || next === current) {
-      this.terminal.flashNote("no other effort on this model");
-      return;
-    }
-    const updated = await session.setEffort(next, false);
-    const shown = formatEffort(updated) ?? next;
-    if (!this.commandActive) this.terminal.flashNote(`effort ${shown} · session`);
-    updateFooter(this);
   }
 
   /** Whether the task's cost is money you pay: not for a free model, and not on a subscription (ChatGPT, Claude),
