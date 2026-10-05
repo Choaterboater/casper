@@ -9,6 +9,7 @@ import { SkillRegistry } from "../src/skills/registry";
 import { discoverMCPConfiguration } from "../src/mcp/config";
 import type { AgentRuntime, RuntimeStartOptions, RuntimeTool } from "../src/runtime/types";
 import { cleanEnv } from "./support/env";
+import { waitForFile } from "./support/wait";
 
 const cleanup: (() => Promise<unknown>)[] = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -453,8 +454,7 @@ test("interactive /mcp connect shows a project definition's origin before approv
       expect(await Bun.file(marker).exists()).toBe(false);
     } else {
       // Approval starts the reviewed program (it is not a real MCP server, so the handshake fails).
-      for (let attempt = 0; attempt < 100 && !await Bun.file(marker).exists(); attempt++) await Bun.sleep(20);
-      expect(await Bun.file(marker).exists()).toBe(true);
+      expect(await waitForFile(marker)).toBe(true);
     }
   }
 }, 30_000);

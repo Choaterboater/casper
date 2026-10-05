@@ -8,6 +8,7 @@ import { CapabilityBroker, type ApprovalAnswer, type ConfirmCapability, type Con
 import { formatApproval } from "../src/capabilities/approval";
 import { numberPrompt } from "../src/tui/terminal";
 import { rejection } from "./support/settle";
+import { waitUntil } from "./support/wait";
 
 const cleanup: (() => Promise<unknown> | unknown)[] = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -238,7 +239,7 @@ test("a question after the approved call finished is declined without asking", a
   const { asked, elicit } = elicitor(() => ({ action: "accept", value: true }));
   const { broker, file, id } = await setup({ confirm: async () => true, elicit });
   await broker.invoke(id("late_question"), { serial_number: "SG1" });
-  for (let i = 0; i < 40 && !questions(await calls(file)).length; i++) await Bun.sleep(25);
+  await waitUntil(async () => questions(await calls(file)).length > 0);
   expect(asked).toEqual([]);
   expect(questions(await calls(file))).toEqual([{ question: "late_question", action: "decline", content: null }]);
 });

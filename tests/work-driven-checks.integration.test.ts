@@ -11,6 +11,7 @@ import { taskExitCode } from "../src/task/result";
 import type { VerificationMode } from "../src/verify/mode";
 import { checkCommand } from "./support/check-command";
 import { needsSymlinks, posixOnly } from "./support/platform";
+import { waitForFile as fileAppears } from "./support/wait";
 
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -100,8 +101,7 @@ async function check(tool: RuntimeTool, name = "test", signal?: AbortSignal): Pr
 }
 
 async function waitForFile(file: string): Promise<void> {
-  for (let attempt = 0; attempt < 200 && !await Bun.file(file).exists(); attempt++) await Bun.sleep(10);
-  expect(await Bun.file(file).exists()).toBe(true);
+  expect(await fileAppears(file)).toBe(true);
 }
 
 test("closing drains an active model-selected command and retains cancellation evidence without repair", async () => {
