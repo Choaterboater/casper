@@ -12,7 +12,10 @@ const execFileAsync = promisify(execFile);
 
 async function changedFiles(cwd: string, signal?: AbortSignal): Promise<string> {
   try {
-    const { stdout } = await execFileAsync("git", safeGitArgs(["status", "--short", "--untracked-files=normal"]), { cwd, timeout: 2000, maxBuffer: 16_384, signal });
+    // A real 2 s limit: execFile's `timeout` only sends SIGTERM and then waits for the child however long it takes.
+    const limit = AbortSignal.timeout(2000);
+    const { stdout } = await execFileAsync("git", safeGitArgs(["status", "--short", "--untracked-files=normal"]),
+      { cwd, maxBuffer: 16_384, killSignal: "SIGKILL", signal: signal ? AbortSignal.any([signal, limit]) : limit });
     return stdout.trim() || "No Git changes reported.";
   } catch {
     return "Git changed-file context unavailable (not a repository or output limit exceeded).";
