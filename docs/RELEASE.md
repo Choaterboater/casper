@@ -957,9 +957,10 @@ apart — a compiled binary cannot read `package.json`, so the version lives in 
   downloads), for GitHub's higher limit.
 - **Clears the macOS quarantine flag** on the staged binary before it is run (best
   effort), so the first run is not blocked by Gatekeeper.
-- Windows has an x64 artifact only. ARM64 is not claimed as native support. The
-  installer picks the artifact by `uname`/`PROCESSOR_ARCHITECTURE`; artifacts are
-  per-platform builds, not universal binaries.
+- Windows has an x64 and an ARM64 artifact. `install.sh` picks the artifact by `uname`;
+  `install.ps1` by the PC's own `PROCESSOR_ARCHITECTURE` (read from the registry, so an
+  x64 PowerShell running under emulation on an ARM64 PC still gets the ARM64 file).
+  Artifacts are per-platform builds, not universal binaries.
 
 ## Local verification (no release host required)
 
@@ -1036,6 +1037,12 @@ Today, the [Publish release](../.github/workflows/publish-release.yml) workflow 
 the Linux x64 file starts; it is not a full Linux test. `casper-linux-arm64` is built
 but not run anywhere.
 
+The [Windows ARM64 workflow](../.github/workflows/windows-arm64.yml) runs on GitHub's
+Windows 11 ARM64 runner: it builds `casper-windows-arm64.exe`, starts it (`--version`,
+`--help`, `/project`, an inline diagram) and runs `scripts/test-install-windows.ps1`
+under Windows PowerShell 5.1, PowerShell 7, and an x64 PowerShell 7 under emulation.
+The full test suite does not run there.
+
 The [Windows CI workflow](../.github/workflows/windows-preview.yml) installs locked
 dependencies on a Windows runner, typechecks, tests standalone startup and native
 image reads, builds the Windows executable, and tests served installation under
@@ -1069,7 +1076,8 @@ tag, for example `v0.2.15`. It:
 
 From v0.2.16 (not used for a release yet) the workflow has two jobs. The **build** job can
 only read: it does the checks and the build above, and it also stops unless the Linux, macOS
-and Windows preview workflows passed on this exact commit (run them first), and stops while
+and Windows preview workflows and the Windows ARM64 workflow passed on this exact commit (run
+them first), and stops while
 the tag's section below still says "Not released yet". The **publish** job is the only one
 that can write; it runs no project code, signs GitHub build provenance over every file in
 `SHA256SUMS`, checks the files again and publishes the prerelease. Every action in every
@@ -1114,6 +1122,9 @@ below.
   `casper-linux-x64` is started once (`--version`) before upload. Nothing has been run on a
   real Linux machine, and `casper-linux-arm64` is not run anywhere. See
   [PLATFORM_SUPPORT.md](PLATFORM_SUPPORT.md).
+- Windows ARM64 (from the release after v0.2.22): `casper-windows-arm64.exe` is built, started
+  and installed in CI on a GitHub ARM64 runner. The full test suite and the interactive
+  screen have not run on ARM64, and no one has tried it on a real ARM64 PC.
 - Published v0.1.0 appends login selection messages instead of moving the highlight,
   and lacks every change listed above. Those corrections ship in v0.2.13.
 - Windows diagram output is inline; screenshot/diagram artifact files require the
