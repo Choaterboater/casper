@@ -21,7 +21,7 @@ async function root(): Promise<string> {
   const dir = await mkdtemp(path.join(os.tmpdir(), "casper-check-secrets-"));
   dirs.push(dir);
   // The test prints the token as a bare value and a password as a secret-named KEY=VALUE line.
-  await writeFile(path.join(dir, "leak.sh"), `printf 'using %s\\n' "$MIST_API_TOKEN"\necho DB_PASSWORD=hunter2hunter2\nexit 1\n`);
+  await writeFile(path.join(dir, "leak.js"), `console.log("using " + process.env.MIST_API_TOKEN);\nconsole.log("DB_PASSWORD=hunter2hunter2");\nprocess.exit(1);\n`);
   return dir;
 }
 
@@ -30,7 +30,8 @@ function model(dir: string, commands: ProjectModel["commands"]): ProjectModel {
     commands, architecture: {}, conventions: [], detectedAt: "" };
 }
 
-const LEAKY_TEST = "sh leak.sh";
+// Run by the runtime, not `sh leak.sh`: on Windows a check runs through cmd.exe.
+const LEAKY_TEST = `${JSON.stringify(process.execPath)} leak.js`;
 
 test("casper_check hides secrets in a built-in check's output before the AI reads it", async () => {
   process.env.MIST_API_TOKEN = TOKEN;

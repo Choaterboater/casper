@@ -69,7 +69,9 @@ test("outside git, the walk skips virtual environments and Python caches", async
 });
 
 test("the proof copy links .venv like node_modules instead of copying it, and tells uv not to sync it", async () => {
-  const root = await tree({ "src/code.py": "old\n", "tests/check.sh": 'grep -q new src/code.py && test -f .venv/marker && test "$UV_NO_SYNC" = 1\n' });
+  // The test is a script the runtime runs, not sh: on Windows a check runs through cmd.exe.
+  const root = await tree({ "src/code.py": "old\n", "tests/check.js": 'const fs = require("fs");\n'
+    + 'process.exit(fs.readFileSync("src/code.py", "utf8").includes("new") && fs.existsSync(".venv/marker") && process.env.UV_NO_SYNC === "1" ? 0 : 1);\n' });
   await manyFiles(root, ".venv/lib", 300);
   await writeFile(path.join(root, ".venv/marker"), "");
   const before = await snapshotTree(root);
@@ -77,7 +79,7 @@ test("the proof copy links .venv like node_modules instead of copying it, and te
   try {
     await writeFile(path.join(root, "src/code.py"), "new\n");
     const changes = diffSnapshots(before, await snapshotTree(root));
-    const proof = await baseline.prove({ root, changes, check: "test", command: "sh tests/check.sh", timeoutMs: 20_000 });
+    const proof = await baseline.prove({ root, changes, check: "test", command: `${JSON.stringify(process.execPath)} tests/check.js`, timeoutMs: 20_000 });
     expect(proof).toMatchObject({ status: "proven" });
   } finally { await baseline.dispose(); }
   expect((await lstat(path.join(root, ".venv"))).isDirectory()).toBe(true);

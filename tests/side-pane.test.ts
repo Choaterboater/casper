@@ -138,6 +138,7 @@ test("secrets in a step never reach the pane's log", () => {
 });
 
 test("the host command runner never goes through a shell", () => {
-  const out = hostCommand()(["printf", "%s", "$HOME;echo x"]);
-  expect(out.stdout).toBe("$HOME;echo x");
+  // The runtime echoes its last argument (Windows has no printf program); a shell would expand it.
+  const out = hostCommand()([process.execPath, "-e", "process.stdout.write(process.argv.at(-1))", "$HOME;echo x %PATH%"]);
+  expect(out.stdout).toBe("$HOME;echo x %PATH%");
 });
