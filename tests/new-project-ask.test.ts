@@ -439,6 +439,28 @@ test("/new lists the templates, and once the model has started it builds but kee
   } finally { await finish(h, running); await dirs.cleanup(); }
 });
 
+test("/new after the model started never drops a typed request silently: it says it didn't run and how to run it", async () => {
+  const dirs = await setup("casper-new-slash-typed-");
+  const h = harness(dirs.home);
+  const running = h.app.runInteractive(dirs.work);
+  try {
+    await h.until(text => text.includes("idle"));
+    h.input.write("hello there\r");
+    await h.until(() => h.prompts.length === 1);
+    await h.until(settled);
+    h.input.write("/new\r");
+    await h.until(text => text.includes("What are you building?"));
+    h.input.write("a nightly backup of my switch configs\r");
+    await h.until(text => text.includes("Name it? (Enter for "));
+    h.input.write("\r");
+    await h.until(text => text.includes("To work in it, run: casper ~/Projects/"));
+    await h.until(text => text.includes("[new] Your request didn't run here."));
+    expect(h.visible()).toMatch(/\[new\] Your request didn't run here\. Run casper ~\/Projects\/[a-z0-9-]+ and type it there\./);
+    expect(h.prompts.length).toBe(1);
+    await h.until(settled);
+  } finally { await finish(h, running); await dirs.cleanup(); }
+});
+
 test("/new before the model starts opens the new project as the workspace", async () => {
   const dirs = await setup("casper-new-slash-open-");
   const h = harness(dirs.home);

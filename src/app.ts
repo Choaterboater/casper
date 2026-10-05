@@ -1271,6 +1271,8 @@ export class CasperApp {
     if (this.canMoveWorkspace()) { await this.openWorkspaceBeforeRuntime(result.dir); if (typed) this.queuedPrompt = typed; return; }
     this.output.write(`[folder] This conversation stays in ${terminalText(tildePath(this.activeWorkspaceRoot(), this.sessionHomeDir ?? os.homedir()))}. `
       + `To work in it, run: casper ${terminalText(result.displayDir)}\n`);
+    // The conversation can't move there, so the typed request isn't run here: say so, never drop it silently.
+    if (typed) this.output.write(`[new] Your request didn't run here. Run casper ${terminalText(result.displayDir)} and type it there.\n`);
   }
 
   /**
