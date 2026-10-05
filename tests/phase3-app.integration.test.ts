@@ -11,6 +11,7 @@ import { checkCommand } from "./support/check-command";
 import { posixOnly, sandboxAvailable } from "./support/platform";
 import { removeTempDir } from "./support/temp-dir";
 import { cleanEnv } from "./support/env";
+import { waitForFile } from "./support/wait";
 
 // Nearly every test here runs two or more fixture checks, each a fresh Bun process; under a
 // full parallel suite their startup alone has crossed Bun's 5 s default once.
@@ -415,7 +416,7 @@ test("closing the app cancels an active verification command without starting a 
   const { app, starts } = createApp(root);
   await app.start(root);
   const pending = app.runOnce("/verify repair test");
-  for (let attempt = 0; attempt < 100 && !await Bun.file(path.join(root, "started")).exists(); attempt++) await Bun.sleep(10);
+  await waitForFile(path.join(root, "started"));
   await app.close();
   expect((await pending)?.status).toBe("blocked");
   expect(starts()).toBe(0);
@@ -495,8 +496,7 @@ posixOnly("CLI termination cleans up a running verifier process group", async ()
     cwd: root, env: cleanEnv({ HOME: path.join(root, "home"), CASPER_PROFILE: "default" }), stdout: "ignore", stderr: "ignore",
   });
   try {
-    for (let attempt = 0; attempt < 200 && !await Bun.file(path.join(root, "started")).exists(); attempt++) await Bun.sleep(10);
-    expect(await Bun.file(path.join(root, "started")).exists()).toBe(true);
+    expect(await waitForFile(path.join(root, "started"))).toBe(true);
     child.kill("SIGTERM");
     expect(await child.exited).toBe(143);
     await Bun.sleep(1100);
@@ -510,14 +510,12 @@ posixOnly("verifier descendant fixture survives TERM without advancing its delay
     cwd: root, stdout: "ignore", stderr: "ignore",
   });
   try {
-    for (let attempt = 0; attempt < 200 && !await Bun.file(path.join(root, "started")).exists(); attempt++) await Bun.sleep(10);
-    expect(await Bun.file(path.join(root, "started")).exists()).toBe(true);
+    expect(await waitForFile(path.join(root, "started"))).toBe(true);
     child.kill("SIGTERM");
-    for (let attempt = 0; attempt < 20 && !await Bun.file(path.join(root, "term-received")).exists(); attempt++) await Bun.sleep(10);
-    expect(await Bun.file(path.join(root, "term-received")).exists()).toBe(true);
+    expect(await waitForFile(path.join(root, "term-received"))).toBe(true);
     expect(await Bun.file(path.join(root, "leaked")).exists()).toBe(false);
-    await Bun.sleep(1100);
-    expect(await Bun.file(path.join(root, "leaked")).exists()).toBe(true);
+    // Its 1 s timer still fires: TERM did not stop it (a busy machine can run the timer late).
+    expect(await waitForFile(path.join(root, "leaked"))).toBe(true);
   } finally { child.kill("SIGKILL"); await child.exited; }
 });
 
@@ -558,8 +556,7 @@ for (const sandbox of ["off", ...(sandboxAvailable ? ["on"] : [])] as const) for
   });
   let found: { pid: number; group: number } | undefined;
   try {
-    for (let attempt = 0; attempt < 200 && !await Bun.file(path.join(root, "started")).exists(); attempt++) await Bun.sleep(10);
-    expect(await Bun.file(path.join(root, "started")).exists()).toBe(true);
+    expect(await waitForFile(path.join(root, "started"))).toBe(true);
     found = hostDescendant(root);
     expect(found).toBeDefined();
     const { pid: descendant, group } = found!;
@@ -616,8 +613,7 @@ posixOnly("CLI shutdown has a deadline when runtime startup never settles", asyn
   });
   let deadline: ReturnType<typeof setTimeout> | undefined;
   try {
-    for (let attempt = 0; attempt < 200 && !await Bun.file(path.join(root, "runtime-started")).exists(); attempt++) await Bun.sleep(10);
-    expect(await Bun.file(path.join(root, "runtime-started")).exists()).toBe(true);
+    expect(await waitForFile(path.join(root, "runtime-started"))).toBe(true);
     // The 1s shutdown deadline is the contract; the SIGKILL backstop only bounds the
     // child's process startup + teardown wall clock, which full-suite load inflates.
     deadline = setTimeout(() => child.kill("SIGKILL"), 10_000);
