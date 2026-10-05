@@ -1,0 +1,97 @@
+name: Windows ARM64
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['src/**', 'scripts/**', 'package.json', 'bun.lock', 'tsconfig.json', 'bunfig.toml', 'THIRD_PARTY_NOTICES.txt', 'tests/release-targets.test.ts', '.github/workflows/windows-arm64.yml']
+  pull_request:
+    branches: [main]
+    paths: ['src/**', 'scripts/**', 'package.json', 'bun.lock', 'tsconfig.json', 'bunfig.toml', 'THIRD_PARTY_NOTICES.txt', 'tests/release-targets.test.ts', '.github/workflows/windows-arm64.yml']
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  arm64:
+    # GitHub's Windows 11 ARM64 runner: the release file and the installer run on real ARM64 here.
+    runs-on: windows-11-arm
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      # PowerShell 7 for x64, to run the installer under emulation like an x64 PowerShell on an ARM64 PC.
+      PWSH_X64_URL: https://github.com/PowerShell/PowerShell/releases/download/v7.6.6/PowerShell-7.6.6-win-x64.zip
+      PWSH_X64_SHA256: 02fe458be20493fbdf43f61ea20610b811ee6c738ab1676c61b9cfcd1a33c860
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: '1.4.0'
+      - name: Record the runner
+        run: |
+          Get-CimInstance Win32_OperatingSystem | Select-Object Caption, Version, BuildNumber, OSArchitecture | Format-List
+          $PSVersionTable | Format-Table
+          "PROCESSOR_ARCHITECTURE: $env:PROCESSOR_ARCHITECTURE"
+          "Machine (registry): " + (Get-ItemProperty -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment').PROCESSOR_ARCHITECTURE
+          bun --version
+          bun -e "console.log('Bun runs as ' + process.arch)"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Install locked dependencies
+        run: |
+          bun install --frozen-lockfile
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Release file list and installer file choice
+        run: |
+          bun test tests/release-targets.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build casper-windows-arm64.exe
+        run: |
+          bun run build:release -- --target bun-windows-arm64
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Run the ARM64 file
+        run: |
+          $Exe = Resolve-Path dist/release/casper-windows-arm64.exe
+          $Stream = [IO.File]::OpenRead($Exe)
+          try { $Head = New-Object byte[] 4096; $null = $Stream.Read($Head, 0, $Head.Length) } finally { $Stream.Close() }
+          $Machine = [BitConverter]::ToUInt16($Head, [BitConverter]::ToInt32($Head, 0x3C) + 4)
+          if ($Machine -ne 0xAA64) { throw ('Not an ARM64 file: machine 0x{0:X4}' -f $Machine) }
+          $Expected = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $Version = & $Exe --version
+          if ($LASTEXITCODE -ne 0 -or ($Version -join ' ') -notmatch ('^casper ' + [regex]::Escape($Expected) + ' ')) { throw "Version failed: $Version" }
+          $null = & $Exe --help
+          if ($LASTEXITCODE -ne 0) { throw 'Help failed' }
+          $Project = Join-Path $env:RUNNER_TEMP 'arm64-project'; New-Item -ItemType Directory -Path $Project | Out-Null
+          Set-Content (Join-Path $Project 'index.ts') 'export const answer = 42;'
+          Push-Location $Project
+          try {
+            $null = & $Exe /project
+            if ($LASTEXITCODE -ne 0) { throw 'Project inspection failed' }
+            $Diagram = & $Exe '/visualize repo'
+            if ($LASTEXITCODE -ne 0 -or ($Diagram -join "`n") -notmatch 'flowchart LR') { throw 'Inline visualization failed' }
+          } finally { Pop-Location }
+          "PASS: $Version"
+      - name: Windows PowerShell 5.1 installer
+        shell: powershell
+        run: |
+          $PSVersionTable | Format-Table
+          ./scripts/test-install-windows.ps1
+      - name: PowerShell 7 installer
+        run: |
+          $PSVersionTable | Format-Table
+          ./scripts/test-install-windows.ps1
+      - name: x64 PowerShell 7 installer, under emulation
+        run: |
+          $Zip = Join-Path $env:RUNNER_TEMP 'pwsh-x64.zip'
+          Invoke-WebRequest $env:PWSH_X64_URL -OutFile $Zip -UseBasicParsing
+          if ((Get-FileHash -Algorithm SHA256 $Zip).Hash -ne $env:PWSH_X64_SHA256) { throw 'PowerShell x64 download does not match its SHA-256' }
+          $Dir = Join-Path $env:RUNNER_TEMP 'pwsh-x64'
+          Expand-Archive $Zip -DestinationPath $Dir
+          $Shell = Join-Path $Dir 'pwsh.exe'
+          $Seen = & $Shell -NoProfile -Command '$env:PROCESSOR_ARCHITECTURE'
+          if ($Seen -ne 'AMD64') { throw "The x64 PowerShell should see AMD64 under emulation, it sees: $Seen" }
+          & $Shell -NoProfile -File ./scripts/test-install-windows.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

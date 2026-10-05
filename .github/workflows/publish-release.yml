@@ -30,9 +30,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-      - name: Stop unless the Linux, macOS and Windows previews passed on this commit
+      - name: Stop unless the Linux, macOS, Windows and Windows ARM64 checks passed on this commit
         run: |
-          for workflow in linux-preview.yml macos-preview.yml windows-preview.yml; do
+          for workflow in linux-preview.yml macos-preview.yml windows-preview.yml windows-arm64.yml; do
             conclusion="$(gh run list --workflow "$workflow" --commit "$GITHUB_SHA" --status completed --limit 1 --json conclusion --jq '.[0].conclusion // ""')"
             [ "$conclusion" = success ] || { echo "$workflow has not passed on $GITHUB_SHA (last result: ${conclusion:-no run}). Run it on this commit first."; exit 1; }
           done

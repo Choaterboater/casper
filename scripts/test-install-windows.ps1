@@ -27,6 +27,14 @@ try {
   $Binary = Join-Path $env:CASPER_INSTALL_DIR 'casper.exe'
   $Version = & $Binary --version
   if ($LASTEXITCODE -ne 0 -or ($Version -join ' ') -notmatch ('^casper ' + [regex]::Escape($Expected) + ' ')) { throw 'Installed binary version failed' }
+  # The installed file is built for this PC, also when this PowerShell runs under emulation.
+  $PcArch = (Get-ItemProperty -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment').PROCESSOR_ARCHITECTURE
+  $Stream = [IO.File]::OpenRead($Binary)
+  try { $Head = New-Object byte[] 4096; $null = $Stream.Read($Head, 0, $Head.Length) } finally { $Stream.Close() }
+  $Machine = [BitConverter]::ToUInt16($Head, [BitConverter]::ToInt32($Head, 0x3C) + 4)
+  $Want = @{ 'AMD64' = 0x8664; 'ARM64' = 0xAA64 }[$PcArch]
+  if ($Machine -ne $Want) { throw ('casper.exe is built for machine 0x{0:X4}, but this PC is {1} (shell sees {2})' -f $Machine, $PcArch, $env:PROCESSOR_ARCHITECTURE) }
+  Write-Host ('Installed casper.exe matches this PC: {0} (shell sees {1})' -f $PcArch, $env:PROCESSOR_ARCHITECTURE)
   if ((Get-Command casper).Source -ne $Binary) { throw 'Current-session PATH was not updated' }
   $UserPath = [Environment]::GetEnvironmentVariable('Path', 'User')
   if (($UserPath -split ';') -notcontains $env:CASPER_INSTALL_DIR) { throw 'Persistent PATH missing install directory' }
