@@ -70,6 +70,8 @@ on `main`. It never publishes a release. Its steps:
 | `bun test tests/release-compile.test.ts` | The compiled program starts and reads images with no Bun on `PATH` |
 | `bun run build:release` | Builds the release files; publishes nothing |
 | `scripts/test-install-windows.ps1` under PowerShell 5.1 and 7 | Installs from a local copy of the release files: `PATH` (saved and current), `--version`, `--help`, `--licenses`, `/project`, an inline diagram, and that a bad checksum or wrong version leaves the old program untouched |
+| `bun run test` | The full suite, files in parallel, as on Linux and macOS. Tests that need a PTY, POSIX signals or file modes, or a tool that is not installed, skip |
+| `bun run test:evals` | The evaluation bench's own tests, as on Linux |
 
 To run the same focused tests from a checkout (after `bun install --frozen-lockfile`):
 
