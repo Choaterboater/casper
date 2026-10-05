@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -13,16 +13,17 @@ import { networkServerEntry } from "../src/mcp/network/server";
 import { loadProjectContext } from "../src/project/context";
 import type { AgentRuntime, RuntimeStartOptions, RuntimeTool } from "../src/runtime/types";
 import { SkillRegistry } from "../src/skills/registry";
+import { allowSlowServerStopsOnWindows, fakeServerProgram } from "./support/fake-program";
 
 /**
  * Casper's network server end to end: the real app, manager and broker, with tests/fixtures/fake-network-mcp.ts
  * installed where Casper installs casper-network-mcp. The fake honours --read-only like the real server (changes
  * refused, its troubleshooting list let through) and reports the login's own reach whatever the pin.
  */
+allowSlowServerStopsOnWindows();
 const cleanup: (() => Promise<unknown>)[] = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
 
-const fakeServer = path.join(import.meta.dir, "fixtures/fake-network-mcp.ts");
 const site = (name: string, id = "s1") => ({ kind: "site", id, name });
 const hit = (name: string, kind: string, product: string, label = "write") => ({ name, product, summary: `${name}.`, kind, label });
 /** What find_tool knows in these tests (the fake checks a login for names starting mist_, central_ or clearpass_). */
@@ -61,12 +62,12 @@ async function networkSession(options: {
   const project = path.join(root, "project");
   await mkdir(path.join(project, ".casper"), { recursive: true });
   const calls = path.join(root, "calls.log");
-  const entry = options.lookalike ? path.join(root, "bin/netserver") : networkServerEntry(home).command;
-  await mkdir(path.dirname(entry), { recursive: true });
+  const where = options.lookalike ? path.join(root, "bin/netserver") : networkServerEntry(home).command;
+  await mkdir(path.dirname(where), { recursive: true });
   const reach = options.reach ?? { mist: { access: "read-write", can_change: [site("Branch-12")] } };
-  const extra = Object.entries(options.env ?? {}).map(([name, value]) => `${name}='${value}' `).join("");
-  await writeFile(entry, `#!/bin/sh\n${extra}FAKE_CALLS_FILE='${calls}' FAKE_REACH='${JSON.stringify(reach)}' FAKE_HITS='${JSON.stringify(HITS)}' exec "${process.execPath}" "${fakeServer}" "$@"\n`);
-  await chmod(entry, 0o755);
+  const entry = await fakeServerProgram(where, "fake-network-mcp", {
+    ...options.env, FAKE_CALLS_FILE: calls, FAKE_REACH: JSON.stringify(reach), FAKE_HITS: JSON.stringify(HITS),
+  });
   await mkdir(path.join(home, ".casper"), { recursive: true });
   await writeFile(path.join(home, ".casper/mcp.json"), JSON.stringify({ mcpServers: {
     network: options.lookalike ? { command: entry, args: [], env: {} } : networkServerEntry(home) } }));

@@ -1,9 +1,11 @@
 import { afterEach, expect, test } from "bun:test";
-import { chmod, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { NETCONAN_FAILED, Scrubber, findNetconan, mergeNetconan, netconanPass, scrubNote } from "../src/secrets/netconan";
 import { LINE_MARKER, SECRET_MARKER, scrubText } from "../src/secrets/scrub";
+import { fakeProgram } from "./support/fake-program";
+import { posixModes } from "./support/platform";
 
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -24,28 +26,21 @@ async function folder() {
  * fake ones, uses netconanRemovedN, and replaces some lines with a comment.
  */
 async function fakeNetconan(bin: string, log: string, mode: "work" | "sleep" = "work"): Promise<string> {
-  const file = path.join(bin, "netconan");
-  await writeFile(file, `#!${process.execPath}
-const fs = require("node:fs");
-const path = require("node:path");
-const args = process.argv.slice(2);
-const input = args[args.indexOf("-i") + 1];
+  return fakeProgram(path.join(bin, "netconan"), `const input = args[args.indexOf("-i") + 1];
 const output = args[args.indexOf("-o") + 1];
 fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify({ args, pid: process.pid, inputMode: fs.statSync(input).mode & 0o777,
   folderMode: fs.statSync(path.dirname(input)).mode & 0o777 }) + "\\n");
 if (${JSON.stringify(mode)} === "sleep") { setTimeout(() => {}, 30000); return; }
 let n = 0;
-const out = fs.readFileSync(input, "utf8").split("\\n").map((line) => {
+const scrubbed = fs.readFileSync(input, "utf8").split("\\n").map((line) => {
   if (line.includes("encrypted-password") || line.includes("key-material")) return '! Sensitive line SCRUBBED by netconan"';
   line = line.replace(/\\bciphertext\\b/g, () => "netconanRemoved" + n++);
   line = line.replace(/\\$9\\$[^\\s";]+/g, "$9$FakeFakeFake");
   line = line.replace("Zq8LeakyToken", () => "netconanRemoved" + n++);
   return line;
 }).join("\\n");
-fs.writeFileSync(output, out);
+fs.writeFileSync(output, scrubbed);
 `);
-  await chmod(file, 0o755);
-  return file;
 }
 
 const JUNOS = [
@@ -94,8 +89,11 @@ test("netconan adds markers for what the built-in missed; its fake values never 
   expect(args[3]).toBe("-o");
   expect(args.slice(5)).toEqual(["-l", "ERROR"]);
   expect(args.join(" ")).not.toContain("Zq8LeakyToken"); // the config never goes through argv
-  expect(inputMode).toBe(0o600);
-  expect(folderMode).toBe(0o700);
+  // Windows makes up mode bits, so 0600 and 0700 are checked only where the host keeps them.
+  if (posixModes) {
+    expect(inputMode).toBe(0o600);
+    expect(folderMode).toBe(0o700);
+  }
   expect(await readdir(tmp)).toEqual([]); // the temp folder is gone
 });
 
@@ -109,8 +107,8 @@ test("AOS-CX: netconan's rewritten keyword does not leak and does not add marker
 
 test("MCP results go through netconan too, inside JSON text blocks", async () => {
   const { tmp, bin, log } = await folder();
-  await fakeNetconan(bin, log);
-  const scrubber = new Scrubber({ env: { CASPER_NETCONAN: path.join(bin, "netconan") }, tmpRoot: tmp });
+  const fake = await fakeNetconan(bin, log);
+  const scrubber = new Scrubber({ env: { CASPER_NETCONAN: fake }, tmpRoot: tmp });
   const raw = { content: [{ type: "text", text: JSON.stringify({ device: "edge1", config: JUNOS }) }] };
   const result = await scrubber.scrubValue(raw);
   const config = JSON.parse(result.value.content[0]!.text).config as string;

@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -16,8 +16,10 @@ import { askForLogin, askToForgetLogin, loginExpired, loginLines, loginMissing, 
 import { LOGIN_FILE, readLogins, saveLogin, type NetworkProduct } from "../src/mcp/network/logins";
 import { networkServerEntry } from "../src/mcp/network/server";
 import { withLoginDisplay } from "../src/tui/login";
+import { allowSlowServerStopsOnWindows, fakeServerProgram } from "./support/fake-program";
 import { withLoginSurface } from "./support/login-surface";
 
+allowSlowServerStopsOnWindows();
 const cleanup: (() => Promise<unknown>)[] = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
 async function tempHome(): Promise<string> {
@@ -25,7 +27,6 @@ async function tempHome(): Promise<string> {
   cleanup.push(() => rm(dir, { recursive: true, force: true }));
   return dir;
 }
-const fakeServer = path.join(import.meta.dir, "fixtures/fake-network-mcp.ts");
 const textResult = (value: unknown) => ({ content: [{ type: "text", text: JSON.stringify(value) }] });
 const site = (name: string, id = "s1") => ({ kind: "site", id, name });
 
@@ -56,13 +57,13 @@ async function brokerRun(options: {
 }): Promise<Run> {
   const home = options.home ?? await tempHome();
   const calls = path.join(home, "calls.log");
-  const entry = options.lookalike ? path.join(home, "bin/netserver") : networkServerEntry(home).command;
-  await mkdir(path.dirname(entry), { recursive: true });
-  const env = [`FAKE_CALLS_FILE='${calls}'`, `FAKE_REACH='${JSON.stringify(options.reach ?? {})}'`,
-    ...options.invent ? [`FAKE_INVENT_PRODUCT='${options.invent}'`] : [],
-    ...Object.entries(options.env ?? {}).map(([name, value]) => `${name}='${value}'`)].join(" ");
-  await writeFile(entry, `#!/bin/sh\n${env} exec "${process.execPath}" "${fakeServer}" "$@"\n`);
-  await chmod(entry, 0o755);
+  const where = options.lookalike ? path.join(home, "bin/netserver") : networkServerEntry(home).command;
+  await mkdir(path.dirname(where), { recursive: true });
+  const entry = await fakeServerProgram(where, "fake-network-mcp", {
+    FAKE_CALLS_FILE: calls, FAKE_REACH: JSON.stringify(options.reach ?? {}),
+    ...options.invent ? { FAKE_INVENT_PRODUCT: options.invent } : {},
+    ...options.env,
+  });
   const definition: MCPServerDefinition = { name: "network", source: path.join(home, ".casper/mcp.json"), scope: options.scope ?? "user", cwd: home, disabled: false,
     transport: { type: "stdio", ...networkServerEntry(home), command: entry } };
   const manager = new MCPManager({ servers: [definition], diagnostics: [] }, { timeoutMs: 15_000, homeDir: home });
@@ -314,8 +315,7 @@ async function appSession(lines: string[], options: {
   await mkdir(path.join(project, ".casper"), { recursive: true });
   const entry = networkServerEntry(home).command;
   await mkdir(path.dirname(entry), { recursive: true });
-  await writeFile(entry, `#!/bin/sh\nexec "${process.execPath}" "${fakeServer}" "$@"\n`);
-  await chmod(entry, 0o755);
+  await fakeServerProgram(entry, "fake-network-mcp");
   await writeFile(path.join(home, ".casper/mcp.json"), JSON.stringify({ mcpServers: { network: networkServerEntry(home) } }));
   let tools: RuntimeTool[] = [];
   const runtime: AgentRuntime = {

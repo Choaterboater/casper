@@ -11,7 +11,7 @@ import { loadProjectContext } from "../src/project/context";
 import { projectStateDirectory } from "../src/project/model";
 import { SkillRegistry } from "../src/skills/registry";
 import type { AgentRuntime, RuntimeSession } from "../src/runtime/types";
-import { fakeTool, networkFixture, RECORD_CALL, writeProjectFile, type NetworkFixture } from "./support/network-fakes";
+import { ANSIBLE_PLATFORM, fakeTool, networkFixture, RECORD_CALL, writeProjectFile, type NetworkFixture } from "./support/network-fakes";
 
 setDefaultTimeout(30_000);
 
@@ -47,7 +47,7 @@ function makeApp(f: NetworkFixture, options: { input?: PassThrough; writer?: Nod
     loadMCPConfiguration: async () => ({ servers: [], diagnostics: [] }),
     loadLSPConfiguration: async () => ({ servers: [], diagnostics: [] }),
     loadReferenceConfiguration: async () => ({ sources: [], diagnostics: [] }),
-    networkTools: { path: f.path, tmpRoot: f.tmp, realHome: f.home },
+    networkTools: { path: f.path, tmpRoot: f.tmp, realHome: f.home, platform: ANSIBLE_PLATFORM },
     onEvent: (event) => { events.push(event); },
     ...(options.input ? { input: options.input } : {}),
     output: writer as never,
@@ -59,7 +59,7 @@ async function ansibleProject(): Promise<NetworkFixture> {
   const f = await networkFixture();
   await writeProjectFile(f, "ansible.cfg", "[defaults]\ninventory = inventory/\n");
   await writeProjectFile(f, "site.yml", ARUBA_SITE);
-  await fakeTool(f, "ansible-playbook", `${RECORD_CALL("ansible-playbook")}\necho "playbook: site.yml"`);
+  await fakeTool(f, "ansible-playbook", `${RECORD_CALL("ansible-playbook")}\nout(lines(["playbook: site.yml"]));`);
   return f;
 }
 
@@ -100,7 +100,7 @@ test("Casper finds the Ansible check but never adds it: /status offers it, /veri
   } finally { await second.app.close(); }
 });
 
-async function labProject(hosts: Record<string, Record<string, unknown>>, check: "aoscx-check" | "junos-commit", playbookBody = "exit 0"): Promise<NetworkFixture> {
+async function labProject(hosts: Record<string, Record<string, unknown>>, check: "aoscx-check" | "junos-commit", playbookBody = "process.exit(0);"): Promise<NetworkFixture> {
   const f = await networkFixture();
   await writeProjectFile(f, ".casper/project.yaml", [
     "verify:", "  checks:",
@@ -113,7 +113,7 @@ async function labProject(hosts: Record<string, Record<string, unknown>>, check:
   await writeProjectFile(f, "site.yml", ARUBA_SITE);
   await writeProjectFile(f, "change.set", "set system host-name lab-r1\n");
   await writeFile(path.join(f.records, "inventory.json"), JSON.stringify({ _meta: { hostvars: hosts }, all: { children: ["lab"] }, lab: { hosts: Object.keys(hosts) } }));
-  await fakeTool(f, "ansible-inventory", `${RECORD_CALL("ansible-inventory")}\ncat "$RECORDS/inventory.json"`);
+  await fakeTool(f, "ansible-inventory", `${RECORD_CALL("ansible-inventory")}\nout(fs.readFileSync(path.join(RECORDS, "inventory.json"), "utf8"));`);
   await fakeTool(f, "ansible-playbook", `${RECORD_CALL("ansible-playbook")}\n${playbookBody}`);
   void check;
   return f;
@@ -153,7 +153,7 @@ test("Always for this project lets junos-commit run without asking, and its chec
   const state = projectStateDirectory(f.root, f.home);
   // The key binds the inventory, hosts, host variables and the change file's contents: take it from the plan itself.
   const plan = await prepareLabCheck("junos-commit", { kind: "lab", preset: "junos-commit", inventory: "lab.yml", files: ["change.set"] },
-    { root, path: f.path, tmpRoot: f.tmp, realHome: f.home, lab: { hosts: ["10.99.0.0/24"] } });
+    { root, path: f.path, tmpRoot: f.tmp, realHome: f.home, lab: { hosts: ["10.99.0.0/24"] }, platform: ANSIBLE_PLATFORM });
   if (plan.state !== "ready") throw new Error(`expected ready, got ${plan.state}`);
   await rememberLabAlways(state, "junos-commit", plan.approvalKey);
   const { app, output, events } = makeApp(f);
@@ -191,7 +191,7 @@ function plainTerminal(f: NetworkFixture) {
 }
 
 test("on the plain terminal the AOS-CX lab check asks with no Always choice, runs on 2, and a failure asks Stop first", async () => {
-  const f = fixture = await labProject({ "lab-sw1": { ansible_host: "10.99.0.11" } }, "aoscx-check", `echo "fatal: lab-sw1 unreachable" >&2; exit 2`);
+  const f = fixture = await labProject({ "lab-sw1": { ansible_host: "10.99.0.11" } }, "aoscx-check", `err(lines(["fatal: lab-sw1 unreachable"])); process.exit(2);`);
   const t = plainTerminal(f);
   const running = t.app.runInteractive(f.root);
   try {
