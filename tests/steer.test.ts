@@ -171,25 +171,32 @@ test("a line typed as the task ends is never stranded: it comes back in the prom
   process.env.TERM = "xterm-256color";
   const gate = Promise.withResolvers<void>();
   const prompts: string[] = [];
+  let holder: { app?: unknown };
   const runtime: AgentRuntime = {
     async start() {
       return {
         setTools: () => {}, getStatus: () => ({ provider: "fixture", model: "demo", auth: "configured" as const }),
         getState: () => ({ cwd: "", isStreaming: false }), subscribe: () => () => {}, abort: async () => {},
         // The model's run ends while Casper offers it the line, so it was not taken.
-        steer: async () => { gate.resolve(); await Bun.sleep(300); return false; },
+        steer: async () => {
+          gate.resolve();
+          for (let i = 0; i < 400 && (holder.app as unknown as { commandActive: boolean } | undefined)?.commandActive !== false; i++) await Bun.sleep(10);
+          return false;
+        },
         prompt: async (text: string) => { prompts.push(text); if (prompts.length === 1) await gate.promise; },
       };
     },
     async dispose() {},
   };
+  holder = {};
   const app = await richApp(() => runtime);
+  holder.app = app.app;
   try {
     await app.until(text => text.includes("idle"));
     app.input.write("write a poem\r");
     await app.until(() => prompts.length === 1);
     app.input.write("make it rhyme\r");
-    await app.until(text => text.includes("your line is back in the prompt"));
+    await app.until(text => text.includes("your line is back in the prompt"), 8000);
     app.input.write("\r");
     await app.until(() => prompts.length === 2);
     expect(prompts[1]).toContain("make it rhyme");
