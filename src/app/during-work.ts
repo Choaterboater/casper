@@ -8,6 +8,7 @@ import { runTasksCommand } from "./background";
 import { runsDuringWork } from "../tui/commands";
 import { opened } from "./new-project";
 import { updateFooter } from "./footer";
+import { backgroundTasks } from "./task-tools";
 
 /** After a task: lines the AI never read join the queue. A stopped task runs nothing more: its queued lines go
  * back into the prompt (the rich terminal) for you to send or clear. */
@@ -34,7 +35,7 @@ export function submitDuringWork(app: CasperApp, line: string, plain = false): t
     if (effort) { void setEffortDuringWork(app, effort[1]!, !effort[2]); return true; }
     const failed = (error: unknown) => { app.output.write(`[error] ${terminalText(error instanceof Error ? error.message : String(error))}\n`); };
     if (line === "/tasks") {
-      void runTasksCommand({ tasks: () => app.backgroundTasks(), write: text => app.output.write(text), canAsk: () => false,
+      void runTasksCommand({ tasks: () => backgroundTasks(app), write: text => app.output.write(text), canAsk: () => false,
         pick: async () => undefined, duringWork: true }).catch(failed);
       return true;
     }

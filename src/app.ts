@@ -10,13 +10,10 @@ import { realpathSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import { hasSignIn, modelPreference } from "./tui/model-preference";
 import { BrowserSession } from "./browser/session";
-import { browserDefaults } from "./browser/discovery";
 import { ServiceManager } from "./services/manager";
-import { SmokeChecks, type SmokeReport } from "./services/smoke";
-import { serviceTool } from "./services/tool";
+import { SmokeChecks } from "./services/smoke";
 import { detectWebService, isDetectedWebService } from "./services/detect";
-import { formatPagesNotChecked, formatSkippedPage, PageChecks, pageOpener, planPageCheck, type DevServerNotice, type PageCheckPlan, type PageOpener, type PageReport } from "./services/page-checks";
-import { formatTerminalJSON } from "./tui/json";
+import { pageOpener, type DevServerNotice, type PageOpener } from "./services/page-checks";
 import { InteractiveTerminal, type TerminalHost } from "./tui/terminal";
 import type { PaneSetting } from "./tui/pane-setting";
 import type { DisplayLevel } from "./tui/display";
@@ -88,7 +85,6 @@ import { lookPrompt, pageLook, SHOW_PAGES_CHOICES, SHOW_PAGES_QUESTION } from ".
 import { DEFAULT_WEB } from "./config/load";
 import { AGENT_DIR_ENV, casperAgentDir } from "./runtime/agent-store";
 import { loginValuesFrom, WebLookup, webProvider, type WebLookupOptions } from "./web/lookup";
-import { webTools } from "./web/tools";
 import { systemPromptAppend } from "./app/prompt";
 import type { VisualizationProvider } from "./visualize/types";
 import { SessionWorkspaceManager, type ReturnAction } from "./sessions/manager";
@@ -115,11 +111,12 @@ import { runPreview } from "./services/preview";
 import { editUserConfig } from "./config/user-write";
 import { explainModelError } from "./runtime/model-errors";
 import { tildePath, type NewProjectOptions, type NewProjectResult } from "./new/scaffold";
-import { chooseAnswer, approveChoice, confirmCapability, confirmKind, answerServerQuestion, editGateReason, askToolFor, confirmYes, recordedApproval, exactPick } from "./app/approvals";
+import { chooseAnswer, approveChoice, confirmCapability, confirmKind, answerServerQuestion, editGateReason, confirmYes, recordedApproval, exactPick } from "./app/approvals";
 import { networkSetupHost, offerNetworkServer, networkLoginHost, networkLoginFile, revertWrites, reportImports } from "./app/network-host";
 import { updateFooter, nameConversation, phase, clearSteps, displayLevel, loadPaneSetting, askPaneOnce, paneCommand, detailsCommand, expandLastStep } from "./app/footer";
 import { settleQueuedLines, submitDuringWork, cycleEffort } from "./app/during-work";
 import { spendNote, spendGate } from "./app/spend-gate";
+import { prepareCapabilities, browserSession, serviceManager, stopDebugger, backgroundTasks, planPages, pageNotesFor, pageRun, smokeRun, pagePaths } from "./app/task-tools";
 
 export type { OutputWriter } from "./app/commands";
 
@@ -300,20 +297,20 @@ export class CasperApp {
   spendGuard?: SpendGuard;
   /** The spend question while it is open, so parallel tool calls wait on the one answer. */
   spendAsk?: Promise<string | undefined>;
-  private verificationAbort?: AbortController;
-  private verificationWork?: Promise<VerificationReport>;
+  verificationAbort?: AbortController;
+  verificationWork?: Promise<VerificationReport>;
   /** Active repair evidence; sharing it does not grant managed-tool consent. */
   private verificationTask?: VerificationTask;
-  private checkTask?: VerificationTask;
+  checkTask?: VerificationTask;
   /** This task's smoke checks (configured and model-recorded); run inside the task's verification. */
-  private smokeTask?: SmokeChecks;
+  smokeTask?: SmokeChecks;
   /** This task's page check: set when its changes reach a page of a web project in auto mode. */
   private pageTask?: { context: ProjectContext; root: string; before: Map<string, string> };
   /** The page opener of the current task (one disposable browser per task), closed when the task ends. */
-  private taskPageOpener?: PageOpener;
-  private readonly pageOpenerFn: NonNullable<CasperAppOptions["pageOpener"]>;
+  taskPageOpener?: PageOpener;
+  readonly pageOpenerFn: NonNullable<CasperAppOptions["pageOpener"]>;
   /** The dev-server lines are printed once per session. */
-  private readonly pageNotice: DevServerNotice = { shown: false };
+  readonly pageNotice: DevServerNotice = { shown: false };
   /** What may have changed this task's code since it started: a check the model records after that has no
    * before-the-change baseline. `before` is the task's starting tree, compared only after a shell command. */
   private taskEdits?: { before?: Map<string, string>; edited: boolean; shell: boolean; turnEnded: boolean };
@@ -405,12 +402,12 @@ export class CasperApp {
   private readonly flowWarnings = new Set<string>();
   /** The session's shell sandbox (src/sandbox): every shell path runs in it when it can run here. */
   sandbox?: ShellSandbox;
-  private shell?: RuntimeShell & { close(): Promise<void> };
+  shell?: RuntimeShell & { close(): Promise<void> };
   private readonly noSandbox: boolean;
   private readonly allow?: RunAllowances;
   private readonly sandboxSeams?: Partial<ShellSandboxOptions>;
   /** web_search and web_fetch for this workspace; unset when web: off. */
-  private web?: WebLookup;
+  web?: WebLookup;
   private readonly webSeams?: Partial<WebLookupOptions>;
 
   constructor(options: CasperAppOptions = {}) {
@@ -1515,7 +1512,7 @@ export class CasperApp {
       && (classification.intent === "implement" || classification.intent === "configure")
       && underSpecifiedTarget(prompt);
     // Debug values and active debuggees do not silently become model-task context.
-    await this.stopDebugger();
+    await stopDebugger(this);
     // A finished task's immutable evidence belongs to its receipt, not the next prompt.
     if (this.browser?.status().state === "closed") this.browser = undefined;
     this.lastTaskRequest = prompt;
@@ -1544,8 +1541,8 @@ export class CasperApp {
     // Smoke checks are verification: they run only when Casper checks this task.
     const edits: NonNullable<CasperApp["taskEdits"]> = { edited: false, shell: false, turnEnded: false };
     this.taskEdits = edits;
-    this.smokeTask = verificationMode !== "off" ? new SmokeChecks(context.smoke ?? [], () => this.serviceManager(), () => this.changedSinceTaskStart(edits)) : undefined;
-    await this.prepareCapabilities(prompt);
+    this.smokeTask = verificationMode !== "off" ? new SmokeChecks(context.smoke ?? [], () => serviceManager(this), () => this.changedSinceTaskStart(edits)) : undefined;
+    await prepareCapabilities(this, prompt);
     if (this.closing || this.commandAbort?.signal.aborted) return;
     const session = await this.ensureRuntime();
     if (this.closing || this.commandAbort?.signal.aborted) return;
@@ -1704,10 +1701,10 @@ export class CasperApp {
         const smokeDue = Boolean(this.smokeTask?.recordedCount || (this.smokeTask?.size && autoChecks.skipped !== "no-changes"));
         // Pages are opened when the project facts say so (a web project, changed files that reach a page), never the prompt.
         // A removed page is not opened: only files that exist now can reach a page.
-        const pagePlan = before && afterModel ? await this.planPages(context, pagePaths(diffSnapshots(before, afterModel))) : undefined;
+        const pagePlan = before && afterModel ? await planPages(this, context, pagePaths(diffSnapshots(before, afterModel))) : undefined;
         const pagesDue = Boolean(before && pagePlan && "service" in pagePlan && pagePlan.pages.open.length);
         this.pageTask = pagesDue ? { context, root: workspaceRoot, before: before! } : undefined;
-        pageNotes = pagesDue ? undefined : this.pageNotes(pagePlan);
+        pageNotes = pagesDue ? undefined : pageNotesFor(this, pagePlan);
         // Fresh passes the model already recorded are reused, not rerun (VerificationTask).
         if (autoChecks.run.length || this.checkTask.checks.length || smokeDue || pagesDue) {
           const pending = [...new Set([...autoChecks.run, ...this.checkTask.checks]), ...(smokeDue ? ["smoke"] : []), ...(pagesDue ? ["pages"] : [])];
@@ -1940,7 +1937,7 @@ export class CasperApp {
     this.output.write("↻ review: checking the work against every requirement\n");
     this.lastAnswer = "";
     const unreviewed = await this.snapshotWorkspace(input.root);
-    await this.prepareCapabilities(input.request);
+    await prepareCapabilities(this, input.request);
     const cutOff = await this.promptRound(input.session, requirementsReviewPrompt(input.request), input.request);
     if (stopped()) return { verification };
     if (cutOff) this.output.write(`↻ review: stopped at its ${ROUND_MAX_TURNS}-turn budget\n`);
@@ -1987,7 +1984,7 @@ export class CasperApp {
     if (proof?.status !== "unproven" || verification.repairAttempts >= max || stopped()) return { verification, proof };
     const attempt = verification.repairAttempts + 1;
     this.output.write(`↻ repair ${attempt}/${max}: add a test that fails without the change\n`);
-    await this.prepareCapabilities(input.request);
+    await prepareCapabilities(this, input.request);
     // A round cut off by its own budget needs no mark: the checks and the comparison below decide.
     await this.promptRound(input.session, proofRepairPrompt(input.request, proof), input.request);
     if (stopped()) return { verification: { ...verification, repairAttempts: attempt }, proof };
@@ -2014,7 +2011,7 @@ export class CasperApp {
     this.events.ensureLineBreak();
     this.output.write(`↻ look: the AI looks at ${look.images.length} screenshot${look.images.length === 1 ? "" : "s"} of ${look.shown.map((page) => terminalText(page.path)).join(", ")}\n`);
     const before = await this.snapshotWorkspace(root);
-    await this.prepareCapabilities(request);
+    await prepareCapabilities(this, request);
     await this.promptRound(session, lookPrompt(request, look), request, look.images);
     if (stopped()) return { verification, shown: look.images.length };
     const after = before && await this.snapshotWorkspace(root);
@@ -2099,7 +2096,7 @@ export class CasperApp {
         maxAttempts: maxAttempts ?? context.repair.maxAttempts,
         signal: controller.signal,
         repair: repair || labOnly ? async (prompt) => {
-          await this.prepareCapabilities(request);
+          await prepareCapabilities(this, request);
           const session = await this.ensureRuntime();
           // This try runs on the big model: the user chose it at the repair limit, or set repair.bigModelLastTry.
           const big = this.repairOnBigModel;
@@ -2140,9 +2137,9 @@ export class CasperApp {
         // Only a person can say whether a check that did not finish is worth a paid repair.
         onUnfinished: this.interactive && this.terminal.rich ? (unfinished, signal) => this.askUnfinished(unfinished, context.verification.timeoutMs, signal) : undefined,
         // The task's smoke checks join its own verification (repairs and review reruns), never a standalone /verify.
-        smoke: task && task === this.checkTask && this.smokeTask?.size ? this.smokeRun(this.smokeTask) : undefined,
+        smoke: task && task === this.checkTask && this.smokeTask?.size ? smokeRun(this, this.smokeTask) : undefined,
         // So do its page checks: planned again from every change since the task started, after each repair too.
-        pages: task && task === this.checkTask && this.pageTask ? this.pageRun(this.pageTask) : undefined,
+        pages: task && task === this.checkTask && this.pageTask ? pageRun(this, this.pageTask) : undefined,
       });
       const report = await this.verificationWork;
       await recordCheckTimings(context.stateDirectory, report.rounds.flat());
@@ -2591,58 +2588,6 @@ export class CasperApp {
     return "more-time";
   }
 
-  /** The page check for these changed files, from project facts only: undefined when this is not a web project,
-   * pages are off, or no change reaches a page; a reason when the dev server can't be started (a missing install). */
-  private async planPages(context: ProjectContext, changedPaths: readonly string[] | undefined): Promise<PageCheckPlan | undefined> {
-    if (!changedPaths?.length || context.pages === "off") return undefined;
-    try {
-      return await planPageCheck(this.activeWorkspaceRoot(), { frameworks: context.model.frameworks, packageManager: context.model.packageManager,
-        services: context.services ?? {} }, changedPaths, context.pages);
-    } catch { return undefined; }
-  }
-
-  /** The receipt lines for pages that were not opened: why the dev server can't start, or pages that need a value. */
-  private pageNotes(plan: PageCheckPlan | undefined): string[] | undefined {
-    if (!plan) return undefined;
-    if ("reason" in plan) return [formatPagesNotChecked(plan.reason)];
-    return plan.pages.skipped.length ? plan.pages.skipped.map(formatSkippedPage) : undefined;
-  }
-
-  /** One page check against the dev server, timed as the `pages` phase. The pages are planned again from every
-   * change since the task started, so a repair's edits count. Cancellation is reported by the loop. */
-  private pageRun(task: NonNullable<CasperApp["pageTask"]>): (signal: AbortSignal) => Promise<PageReport | undefined> {
-    return async (signal) => {
-      const now = await this.snapshotWorkspace(task.root, signal);
-      const plan = now ? await this.planPages(task.context, pagePaths(diffSnapshots(task.before, now))) : undefined;
-      if (signal.aborted || !plan || !("service" in plan) || !plan.pages.open.length) return undefined;
-      phase(this, "pages", "start");
-      try {
-        this.taskPageOpener ??= await this.pageOpenerFn({ projectRoot: task.root, stateDirectory: task.context.stateDirectory });
-        this.events.ensureLineBreak();
-        const checks = new PageChecks(() => this.serviceManager(), plan.service, this.taskPageOpener, plan.pages,
-          { announce: (line) => { if (!this.closing) this.output.write(`${terminalText(line)}\n`); }, notice: this.pageNotice });
-        return await checks.run(signal);
-      } catch (error) {
-        if (signal.aborted) return undefined;
-        const { name, label, spec } = plan.service;
-        return { status: "incomplete", pages: [], skipped: plan.pages.skipped, server: { name, label, command: spec.command },
-          reason: `Casper could not open the pages: ${redactPreview(error instanceof Error ? error.message : String(error)).slice(0, 300)}` };
-      } finally { phase(this, "pages", "end"); }
-    };
-  }
-
-  /** One smoke run against fresh services, timed as the `smoke` phase. Cancellation is reported by the loop. */
-  private smokeRun(smoke: SmokeChecks): (signal: AbortSignal) => Promise<SmokeReport> {
-    return async (signal) => {
-      phase(this, "smoke", "start");
-      try { return await smoke.run(signal); }
-      catch (error) {
-        if (signal.aborted) return { status: "incomplete", checks: [] };
-        throw error;
-      } finally { phase(this, "smoke", "end"); }
-    };
-  }
-
   async ensureSessionWorkspace(): Promise<SessionWorkspaceManager> {
     if (this.sessionWorkspace) return this.sessionWorkspace;
     if (!this.sessionWorkspaceStart) {
@@ -2729,7 +2674,7 @@ export class CasperApp {
     this.session?.setTools?.([]);
     this.runtimeTools = [];
     this.offeredTools.clear();
-    await Promise.all([this.broker?.close(), this.lsp?.close(), this.references?.close(), this.browser?.close(), this.services?.close(), this.stopDebugger()]);
+    await Promise.all([this.broker?.close(), this.lsp?.close(), this.references?.close(), this.browser?.close(), this.services?.close(), stopDebugger(this)]);
     this.browser = undefined;
     this.services = undefined;
     this.debugSession = undefined;
@@ -2773,7 +2718,7 @@ export class CasperApp {
   }
 
   /** Undefined when the tree is too large, unreadable or the task was cancelled mid-walk. */
-  private async snapshotWorkspace(root: string, signal?: AbortSignal): Promise<Map<string, string> | undefined> {
+  async snapshotWorkspace(root: string, signal?: AbortSignal): Promise<Map<string, string> | undefined> {
     try { return await snapshotTree(root, signal); }
     catch (error) {
       // Kept for the receipt: "Changes unknown: this folder has over 20,000 files; open a project folder".
@@ -2789,110 +2734,29 @@ export class CasperApp {
   private pastedImages?: Map<number, RuntimeImage>;
 
   /** Looked up once: the answer decides whether the browser tool is there from the first turn. */
-  private browserInstalled?: Promise<boolean>;
-
-  private async prepareCapabilities(task: string): Promise<void> {
-    this.browserInstalled ??= browserDefaults.installed().catch(() => false);
-    const nextTools = await assembleTaskTools(task, {
-      broker: this.broker!, delegate: this.delegateTool(), ask: askToolFor(this),
-      check: this.checkTask?.tool(), lsp: this.lsp!, confirmRename: this.confirmRename,
-      references: this.references!, ...(this.web ? { web: webTools(this.web, this.commandAbort?.signal) } : {}), visualization: this.visualization!, projectRoot: this.activeWorkspaceRoot(),
-      browserReady: this.browser?.status().state === "ready", browserInstalled: await this.browserInstalled, browser: () => this.browserSession(),
-      browserSignal: this.commandAbort?.signal,
-      services: { declared: Object.keys(this.projectContext?.services ?? {}).length > 0, live: this.services?.live({ detected: false }) ?? false },
-      serviceTool: () => serviceTool(() => this.serviceManager(), this.commandAbort?.signal, () => this.smokeTask,
-        this.shell?.approve ? (command, signal, options) => this.shell!.approve!(command, signal, options) : undefined),
-      offered: this.offeredTools,
-    });
-    if (this.closing) return;
-    if (this.session) {
-      if ((nextTools.length || this.runtimeTools.length) && !this.session.setTools) throw new Error("Runtime does not support custom capabilities");
-      this.session.setTools?.(nextTools);
-    }
-    this.runtimeTools = nextTools;
-    for (const tool of nextTools) this.offeredTools.add(tool.name);
-  }
+  browserInstalled?: Promise<boolean>;
 
   resetToolPicks(): void {
     this.broker?.resetPicks();
   }
 
-  async stopDebugger(): Promise<void> {
-    await this.debugSession?.close();
-    if (this.debugSession?.status().ownedProcessCleanup === "unknown") {
-      throw new Error("Debugger process cleanup is unconfirmed. Inspect /debug and owned processes before starting more work; restarting does not prove cleanup.");
-    }
-  }
+  async stopDebugger(): Promise<void> { return stopDebugger(this); }
 
-  browserSession(): BrowserSession {
-    if (!this.browser || this.browser.status().state === "closed") this.browser = new BrowserSession({
-      projectRoot: this.activeWorkspaceRoot(), stateDirectory: this.projectContext!.stateDirectory,
-      confirm: (request, signal) => this.sessionYes.approve("browser", `Browser action:\n${formatTerminalJSON(request)}\n`, "Allow this browser action?", signal),
-    });
-    // Capture the instance: the field is cleared after explicit closes (revoke, /clear),
-    // but the registered close must still close the session it was registered for.
-    const session = this.browser;
-    this.lifecycle.add({ name: "browser", close: () => session.close() });
-    return this.browser;
-  }
+  browserSession(): BrowserSession { return browserSession(this); }
 
   /** /tasks: dev servers, the browser, the debugger, helpers and checks that run now, each with its own stop. */
-  backgroundTasks(): BackgroundTask[] {
-    const tasks: BackgroundTask[] = [];
-    const services = this.services && !this.services.closed ? this.services : undefined;
-    for (const service of services?.status() ?? []) {
-      if (service.state !== "ready" && service.state !== "starting") continue;
-      tasks.push({ kind: "dev server", name: service.name, ...(service.startedAt !== undefined ? { startedAt: service.startedAt } : {}),
-        status: `${service.state === "ready" ? "running" : "starting"}${service.origin ? ` at ${service.origin}` : ""}${service.stale ? " · stale (restarts before next use)" : ""}`,
-        stop: async () => await services!.stop(service.name) ? `Stopped ${service.name}.` : `${service.name} had already stopped.` });
-    }
-    const browser = this.browser;
-    const browserState = browser?.status().state;
-    if (browser && (browserState === "ready" || browserState === "starting")) {
-      tasks.push({ kind: "browser", name: "for page checks", status: browserState === "ready" ? "open" : "starting",
-        stop: async () => { await browser.close(); if (this.browser === browser) this.browser = undefined; return "Closed the browser."; } });
-    }
-    const debugState = this.debugSession?.status().state;
-    if (this.debugSession && debugState && !["idle", "closing", "closed", "failed"].includes(debugState)) {
-      tasks.push({ kind: "debugger", name: this.debugSession.status().target ?? "session", status: debugState,
-        stop: async () => { await this.stopDebugger(); return "Stopped the debugger."; } });
-    }
-    for (const run of this.subagents.runs()) {
-      tasks.push({ kind: "helper", name: `${run.role}: ${run.goal}`, status: "running", startedAt: run.startedAt,
-        stop: async () => this.subagents.cancelRun(run.id) ? `Stopped the ${run.role} helper.` : `The ${run.role} helper had already finished.` });
-    }
-    if (this.verificationWork) {
-      tasks.push({ kind: "checks", name: "after the last change", status: "running",
-        stop: async () => { this.verificationAbort?.abort(); return "Stopped the checks; the receipt says they did not finish."; } });
-    }
-    return tasks;
-  }
+  backgroundTasks(): BackgroundTask[] { return backgroundTasks(this); }
 
   /** The session's service manager, created on first use for the active workspace's declared services. */
-  serviceManager(): ServiceManager {
-    if (!this.services || this.services.closed) {
-      const services = this.services = new ServiceManager({ projectRoot: this.activeWorkspaceRoot(), services: this.projectContext!.services ?? {} });
-      this.lifecycle.add({ name: "services", close: () => services.close() });
-    }
-    return this.services;
-  }
+  serviceManager(): ServiceManager { return serviceManager(this); }
 
   /** The delegate tool carries the per-task dispatch budget, so it is rebuilt only at task
    * boundaries (a new request, or an explicit /verify repair task) — never for repair rounds
    * of the current task. */
-  private delegateToolForTask?: RuntimeTool;
-
-  private delegateTool(): RuntimeTool {
-    // The child's usage joins the current task's totals (observations are replaced per task).
-    this.delegateToolForTask ??= this.subagents.createTool(() => ({
-      cwd: this.activeWorkspaceRoot(),
-      projectContext: formatProjectContext(this.projectContext!),
-    }), (usage) => this.observations.recordDelegatedUsage(usage));
-    return this.delegateToolForTask;
-  }
+  delegateToolForTask?: RuntimeTool;
 
   /** A rename is a normal edit inside the project: no box, like the AI's other edits (undo covers it). */
-  private confirmRename: ConfirmRename = async () => true;
+  confirmRename: ConfirmRename = async () => true;
 
   /** One inline result line per check; a failed check also boxes the tail of its output, since that is
    * what a person reads next. Passing checks stay quiet (their output remains in the evidence). */
@@ -3006,9 +2870,6 @@ export class CasperApp {
 export const PAGES_ONLY_PROOF = "pages load, but no test fails without the change";
 /** The same without Chrome: a page that answers over HTTP may still fail once its scripts run. */
 export const PAGES_ANSWER_ONLY_PROOF = "pages answer, but their console was not checked and no test fails without the change";
-
-/** The files a page check plans from: added and changed ones (a removed page is not opened). */
-function pagePaths(changes: TreeChanges): string[] { return [...changes.added, ...changes.modified].sort(); }
 
 export function proofSkipReason(options: { intent: string; testCommand?: string; snapshot: boolean; changedCode: boolean; testsAddedNow?: boolean }): string {
   if (options.intent === "refactor") return "a refactor should not change behavior, so no test is expected to fail without it";
