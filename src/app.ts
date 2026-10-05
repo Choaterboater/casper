@@ -119,6 +119,7 @@ import { chooseAnswer, approveChoice, confirmCapability, confirmKind, answerServ
 import { networkSetupHost, offerNetworkServer, networkLoginHost, networkLoginFile, revertWrites, reportImports } from "./app/network-host";
 import { updateFooter, nameConversation, phase, clearSteps, displayLevel, loadPaneSetting, askPaneOnce, paneCommand, detailsCommand, expandLastStep } from "./app/footer";
 import { settleQueuedLines, submitDuringWork, cycleEffort } from "./app/during-work";
+import { spendNote, spendGate } from "./app/spend-gate";
 
 export type { OutputWriter } from "./app/commands";
 
@@ -294,11 +295,11 @@ export class CasperApp {
   /** Turns after which --max-turns stopped the current task's model request. */
   private taskTurnLimit?: number;
   /** The spend pause stopped the current task's model request: what it had used, and the limit. */
-  private taskSpendStop?: { spent: number; limit: number };
+  taskSpendStop?: { spent: number; limit: number };
   /** This task's spend note and pause (src/task/spend.ts); a fresh one per task. */
-  private spendGuard?: SpendGuard;
+  spendGuard?: SpendGuard;
   /** The spend question while it is open, so parallel tool calls wait on the one answer. */
-  private spendAsk?: Promise<string | undefined>;
+  spendAsk?: Promise<string | undefined>;
   private verificationAbort?: AbortController;
   private verificationWork?: Promise<VerificationReport>;
   /** Active repair evidence; sharing it does not grant managed-tool consent. */
@@ -941,7 +942,7 @@ export class CasperApp {
             ?? hiddenSecretGate(toolName, input)
             ?? (toolName === "edit" || toolName === "write" ? editGateReason(this, toolName) : undefined),
           // At the spend pause the next tool call waits for the answer (Stop here is the Enter choice).
-          beforeToolWait: (_toolName, signal) => this.spendGate(signal),
+          beforeToolWait: (_toolName, signal) => spendGate(this, signal),
           // Config files and config-looking command output (/secrets files off stops these for this
           // session), plus .env, credential files and secret env values (always).
           scrubToolOutput: (toolName, input, texts, signal) => scrubToolOutput(this.scrubber, toolName, input, texts, signal, { configs: this.scrubFiles, networkLoginFile: networkLoginFile(this) }),
@@ -958,7 +959,7 @@ export class CasperApp {
           if (event.type === "tool_start" && event.toolName === "casper_check") this.modelCheckCalls++;
           if (event.type === "tool_end" && event.toolName === "casper_check") this.modelCheckCalls = Math.max(0, this.modelCheckCalls - 1);
           this.observations.observeUsage(event);
-          if (event.type === "assistant_response_end") this.spendNote();
+          if (event.type === "assistant_response_end") spendNote(this);
           if (event.type === "assistant_response_start") this.responseText = "";
           else if (event.type === "assistant_text_delta") this.responseText = (this.responseText + event.delta).slice(-65_536);
           else if (event.type === "assistant_response_end" && this.responseText.trim()) this.lastAnswer = this.responseText;
@@ -2978,52 +2979,6 @@ export class CasperApp {
 
   private writePrompt(prompt: string): void {
     this.events.writePrompt(prompt);
-  }
-
-  /** Whether the task's cost is money you pay: not for a free model, and not on a subscription (ChatGPT, Claude),
-   * where the catalog price is only what the tokens would cost pay-per-token ("sub ≈$X" in the footer). */
-  private spendCharged(): boolean {
-    const status = this.session?.getStatus?.();
-    return status?.priced !== false && status?.billing !== "subscription";
-  }
-
-  /** The task's cost after each model response: a quiet note once it reaches spend.noteAt (about $1). */
-  private spendNote(): void {
-    const guard = this.spendGuard;
-    if (!guard || this.closing || !this.spendCharged()) return;
-    const spent = this.observations.spent();
-    if (!guard.noteDue(spent.cost)) return;
-    // After the model's words from this response, not above them.
-    this.terminal.endAssistant();
-    this.events.ensureLineBreak();
-    this.output.write(`… This task has used ${formatCost(spent.cost)} so far (${formatTokens(spent.tokens)}).\n`);
-  }
-
-  /** Before each tool call: at spend.pauseAt (about $5) the task pauses on a numbered question, Stop here first.
-   * A run that can't ask stops there. Either stop keeps the work and says so on the receipt. */
-  private spendGate(signal?: AbortSignal): Promise<string | undefined> {
-    if (this.spendAsk) return this.spendAsk;
-    const guard = this.spendGuard;
-    if (!guard || this.taskSpendStop) return Promise.resolve(this.taskSpendStop ? SPEND_STOP_REASON : undefined);
-    if (!this.spendCharged()) return Promise.resolve(undefined);
-    const spent = this.observations.spent();
-    const limit = guard.pauseDue(spent.cost);
-    if (limit === undefined) return Promise.resolve(undefined);
-    const ask = async (): Promise<string | undefined> => {
-      const used = `This task has used ${formatCost(spent.cost)}.`;
-      if (this.interactive && this.terminal.canAsk && !this.closing) {
-        const next = guard.nextAfter(spent.cost)!;
-        const answer = await this.terminal.pick(used, spendChoices(formatLimit(next)), signal ?? this.commandAbort?.signal);
-        if (answer === "Keep going") { guard.keepGoing(spent.cost); return undefined; }
-      } else {
-        this.events.ensureLineBreak();
-        this.output.write(`[spend] ${used} Casper stops here, at the ${formatLimit(limit)} limit for one task; the work so far is kept. /settings changes the limit.\n`);
-      }
-      this.taskSpendStop = { spent: spent.cost, limit };
-      return SPEND_STOP_REASON;
-    };
-    this.spendAsk = ask().finally(() => { this.spendAsk = undefined; });
-    return this.spendAsk;
   }
 
   updateFooter(): void { updateFooter(this); }
