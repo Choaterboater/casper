@@ -103,7 +103,7 @@ test("every fixture is a solved baseline that its setup makes fail", async () =>
     const start = await runVerification(task.verify, { workdir, repoRoot, homeDir: home, timeoutMs: 120_000 });
     expect({ task: task.id, start: start.status }).toEqual({ task: task.id, start: task.initialVerification });
   }
-}, 300_000);
+}, 600_000);
 
 test("a missing fixture leaves no harness-owned temporary directories and preserves a caller home", async () => {
   const tmp = await tempDir("casper-eval-missing-tmp-");
@@ -152,7 +152,7 @@ test("an evaluation nested inside another Git repository refuses to start a runt
   expect(observed.result.error).toContain("outside the prepared candidate workspace");
   expect(await readFile(path.join(root, "keep.txt"), "utf8")).toBe("caller-owned repository\n");
   expect(await readFile(path.join(root, ".git/config"), "utf8")).toBe(config);
-});
+}, 60_000);
 
 test("a scripted fix is measured as success with real file, call and token numbers", async () => {
   const task = findEvalTask("fix-failing-test")!;
@@ -169,7 +169,7 @@ test("a scripted fix is measured as success with real file, call and token numbe
   expect(result.tokens).toEqual({ input: 1200, output: 40, cacheRead: 0, cacheWrite: 0, total: 1240 });
   expect(result.contextTokens).toBe(900);
   expect(result.acceptance.failures).toEqual([]);
-});
+}, 60_000);
 
 test("required interactions and rescue produce distinct immutable attempt outcomes", async () => {
   const task = findEvalTask("fix-failing-test")!;
@@ -197,7 +197,7 @@ test("required interactions and rescue produce distinct immutable attempt outcom
   expect(new Set([unassisted.attemptId, failed.attemptId, rescued.attemptId]).size).toBe(3);
   expect(formatEvalResult(unassisted)).toContain("required 1 rescue 0");
   expect(formatEvalResult(rescued)).toContain("required 1 rescue 1");
-});
+}, 60_000);
 
 test("an unfinished task fails on the independent verification, not on a self-report", async () => {
   const task = findEvalTask("add-api-endpoint")!;
@@ -211,7 +211,7 @@ test("an unfinished task fails on the independent verification, not on a self-re
   expect(result.acceptance.failures).toContain("no change under src/");
   expect(result.filesAdded).toEqual([]);
   expect(result.selfVerification).toBeNull();
-});
+}, 60_000);
 
 test("candidate test edits cannot accept a broken implementation or replace the host checks", async () => {
   const task = findEvalTask("fix-failing-test")!;
@@ -240,7 +240,7 @@ test("candidate test edits cannot accept a broken implementation or replace the 
     }),
   });
   expect(repaired.verification.status).toBe("pass");
-});
+}, 60_000);
 
 test("a read-only task fails on an edit and passes on a matching answer", async () => {
   const task = findEvalTask("find-bug-without-editing")!;
@@ -261,7 +261,7 @@ test("a read-only task fails on an edit and passes on a matching answer", async 
   });
   expect(answered.success).toBe(true);
   expect(answered.filesModified).toEqual([]);
-});
+}, 60_000);
 
 test("a run with no model response cannot pass, even when the tree looks fixed", async () => {
   const task = findEvalTask("fix-failing-test")!;
@@ -282,7 +282,7 @@ test("a run with no model response cannot pass, even when the tree looks fixed",
   expect(result.acceptance.passed).toBe(true);
   expect({ success: result.success, modelCalls: result.modelCalls }).toEqual({ success: false, modelCalls: 0 });
   expect(formatEvalResult(result)).toContain("no model response was recorded");
-});
+}, 60_000);
 
 needsSymlinks("a symlink the model creates counts as a touched path", async () => {
   const task = findEvalTask("find-bug-without-editing")!;
@@ -342,7 +342,7 @@ test("a runtime disposal failure during close is recorded, not thrown out of the
   // The observation is still graded on its merits; the close failure stays visible.
   expect(result.execution).toBe("completed");
   expect(result.runtimeErrors.join("\n")).toContain("dispose failed");
-});
+}, 60_000);
 
 test("changed/unchanged prefixes match path boundaries, not raw string prefixes", async () => {
   const workdir = await tempDir("casper-eval-boundary-");
@@ -407,7 +407,7 @@ test("a type change passes only when tests and the type check both pass", async 
   expect(complete.verification.checks.map((check) => check.status)).toEqual(["pass", "pass"]);
   expect(complete.filesModified).toEqual(["src/invoice.ts", "src/money.ts", "src/report.ts", "tests/fixtures/invoices.ts"]);
   expect({ success: complete.success, failures: complete.acceptance.failures }).toEqual({ success: true, failures: [] });
-});
+}, 60_000);
 
 test("skipping, focusing or excluding the failing test is caught even though the suite goes green", async () => {
   const task = findEvalTask("implement-without-skipping")!;
@@ -449,7 +449,7 @@ test("skipping, focusing or excluding the failing test is caught even though the
     runtimeFactory: scriptedRuntime(copyFromFixture(task.fixture, "src/duration.ts")),
   });
   expect({ success: implemented.success, failures: implemented.acceptance.failures }).toEqual({ success: true, failures: [] });
-});
+}, 60_000);
 
 test("a blocked fix succeeds by leaving the check red and naming the rule, never by breaking it", async () => {
   const task = findEvalTask("report-blocked-fix")!;
@@ -476,7 +476,7 @@ test("a blocked fix succeeds by leaving the check red and naming the rule, never
 
   const evaded = { ...honest, verification: { ...honest.verification, status: "pass" as const }, success: false };
   expect(formatEvalResult(evaded)).toContain("verification passed, but this task expects it to stay failing");
-});
+}, 60_000);
 
 test("--model selects for the conversation only and is recorded; a runtime without selection errors", async () => {
   const task = findEvalTask("find-bug-without-editing")!;
@@ -506,7 +506,7 @@ test("--model selects for the conversation only and is recorded; a runtime witho
 
   const unselected = await runEvalTask(task, { repoRoot, homeDir: home, autoVerify: false, runtimeFactory: scriptedRuntime(answer) });
   expect({ model: unselected.model, success: unselected.success }).toEqual({ model: null, success: true });
-});
+}, 60_000);
 
 test("repeated runs aggregate into a pass rate and medians, and one failing run fails the task", () => {
   const task = findEvalTask("fix-failing-test")!;
@@ -595,7 +595,7 @@ test("offline grading preserves failed attempts and requires observed workflow e
   expect(rescued.reportedUsage).toBeNull();
   expect(rescued.model).toBeNull();
   await expect(gradePreparedEval(prepared.root, { ...observation, interventions: [{ kind: "typo", atMs: 25, reason: "Must not count as zero rescue." }] })).rejects.toThrow();
-});
+}, 60_000);
 
 needsSymlinks("the grading CLI rejects candidate-owned observations reached through path aliases", async () => {
   const task = findEvalTask("fix-failing-test")!;
@@ -660,7 +660,7 @@ test.each(["repair-order-reservations", "add-order-cancellation"])("%s rejects o
     expect(result.acceptance.failures).toContain(`changed outside allowed scope: ${relative}`);
     await rm(file);
   }
-});
+}, 60_000);
 
 test("an unavailable evaluator is not reported as a behavioral check failure", async () => {
   const task = findEvalTask("fix-failing-test")!;

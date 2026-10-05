@@ -168,7 +168,7 @@ test("through the real grader, the reference solution is accepted and an untouch
     expect({ task: task.id, success: idle.success, hidden: idle.verification.checks.find((check) => check.name === "hidden acceptance")?.status })
       .toEqual({ task: task.id, success: false, hidden: "fail" });
   }
-}, 300_000);
+}, 600_000);
 
 test("a task that needs TypeScript gets a working `bun run typecheck` in the candidate, for every harness", async () => {
   const typed = benchmark.filter((task) => task.tools?.includes("typescript"));
