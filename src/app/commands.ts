@@ -1122,7 +1122,8 @@ export function loginFailureText(result: Extract<RuntimeAuthenticationResult, { 
 /** The sign-in flow behind /login, also opened by Casper itself when no model can run. After a saved
  * credential, a model is picked only when none is set yet (never replacing a choice). True when a
  * credential was saved and refreshed. */
-export async function runLogin(host: CommandHost, provider?: RuntimeAuthProvider): Promise<boolean> {
+/** `list`: Casper opened sign-in by itself, so the numbered list shows even for a provider with one way. */
+export async function runLogin(host: CommandHost, provider?: RuntimeAuthProvider, list = false): Promise<boolean> {
   const picker = host.interactive ? host.terminal.exclusiveHost() : undefined;
   if (!picker) { host.output.write(LOGIN_HELP); return false; }
   if (host.subagents.isBusy) throw new Error("Wait for active subagents before login.");
@@ -1130,7 +1131,7 @@ export async function runLogin(host: CommandHost, provider?: RuntimeAuthProvider
     const runtime = await host.acquireRuntime();
     host.commandAbort?.signal.throwIfAborted();
     if (!runtime.authenticate) { host.output.write("[login] This runtime does not support login.\n"); return false; }
-    const result = await runtime.authenticate({ provider,
+    const result = await runtime.authenticate({ provider, ...(list ? { list } : {}),
       terminalHost: picker, signal: host.commandAbort?.signal });
     if (result.status === "saved") {
       // Login never starts a conversation: with none open yet, the first request picks the model.

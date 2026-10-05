@@ -112,9 +112,9 @@ export async function authenticatePi(options: RuntimeAuthenticationOptions, dest
     return await options.terminalHost.run((io) => withLoginDisplay(io, signal, async (display): Promise<RuntimeAuthenticationResult> => {
       const saved = `Saved in ${tildePath(destination, home())}, only on this computer.`;
       display.setNote(saved);
-      // One numbered list (provider and method together); a provider with one way skips it.
+      // One numbered list (provider and method together); /login <provider> with one way skips it.
       const ways = signInWays(provider);
-      const pickedId = ways.length === 1 ? ways[0]!.id
+      const pickedId = ways.length === 1 && !options.list ? ways[0]!.id
         : await display.choose(provider ? `Sign in to ${providerNames[provider]}` : "Sign in", ways);
       const way = ways.find((item) => item.id === pickedId);
       if (!way) return { status: "cancelled", effect: "none" };

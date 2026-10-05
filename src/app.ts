@@ -2178,13 +2178,13 @@ export class CasperApp {
       if (await pickDefault()) return true;
       if (canSignIn && !signal?.aborted) {
         this.output.write("[model] No model yet. Sign in to a provider to start; Esc cancels.\n");
-        if (await runLogin(this) && await pickDefault()) return true;
+        if (await runLogin(this, undefined, true) && await pickDefault()) return true;
       }
     } else if (status.auth === "missing" && canSignIn && !signal?.aborted) {
       const provider = LOGIN_PROVIDERS.find((id) => id === status.provider);
       if (provider) {
         this.output.write(`[model] Credentials missing for ${provider}. Sign in to continue; Esc cancels.\n`);
-        if (await runLogin(this, provider) && !session.getStatus?.().blocked) return true;
+        if (await runLogin(this, provider, true) && !session.getStatus?.().blocked) return true;
       }
     }
     const after = session.getStatus?.();

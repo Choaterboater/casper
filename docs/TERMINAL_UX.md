@@ -275,7 +275,9 @@ Anthropic (Claude), then OpenAI Codex and GitHub Copilot. OpenAI Codex opens you
 a desktop; over SSH or on Linux with no display it shows a code to enter at openai.com
 instead (some accounts must turn that on first). GitHub Copilot always uses a code. Press a number, or Up/Down and
 Enter (Enter alone picks 1); Esc cancels. `/login <provider-id>` lists only that provider's
-ways, and opens the only one straight away. Picking a row is your go-ahead, as in Claude Code
+ways, and opens the only one straight away. When Casper opens sign-in by itself (a request
+with nothing signed in, or a model whose sign-in is missing), the list shows even for a provider
+with one way, so you see what is about to start. Picking a row is your go-ahead, as in Claude Code
 and Codex: no confirm screen follows. The list says where the key goes (`Saved in
 ~/.casper/agent/auth.json, only on this computer.`), and the next screen says what the provider
 charges. Only that provider's saved sign-in is replaced. Browser sign-in opens the system

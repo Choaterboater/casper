@@ -457,6 +457,29 @@ test("Esc at the sign-in list never creates auth or starts a session, and the li
   expect(await Bun.file(path.join(f.env.PI_CODING_AGENT_DIR, "auth.json")).exists()).toBe(false);
 });
 
+test("when Casper opens sign-in by itself, a provider with one way still shows the numbered list; /login <provider> skips it", async () => {
+  const f = await fixture();
+  const output = await f.run(`
+    import { PiRuntime } from ${JSON.stringify(path.join(repo, "src/runtime/pi.ts"))};
+    import { PassThrough } from 'node:stream';
+    const runtime = new PiRuntime(); const input = new PassThrough(); let screen = '';
+    globalThis.fetch = () => { throw new Error('NETWORK_FORBIDDEN'); };
+    try {
+      const result = await runtime.authenticate({ provider: 'github-copilot', list: true, terminalHost: { run: operation => withLoginSurface({ input, color: false, onEOF() {}, output: { write(text) {
+        screen += text; if (text.includes('Esc cancels')) setTimeout(() => input.write('\\x1b'), 0);
+      } } }, operation) } });
+      console.log(JSON.stringify({ result, screen }));
+    } finally { await runtime.dispose(); input.destroy(); }
+  `);
+  const result = JSON.parse(output);
+  expect(result.result).toEqual({ status: "cancelled", effect: "none" });
+  const visible = Bun.stripANSI(result.screen);
+  expect(visible).toContain("Sign in to GitHub Copilot");
+  expect(visible).toContain("1 GitHub Copilot · enter a code at github.com");
+  expect(visible).toContain("Enter continues · Esc cancels");
+  expect(await Bun.file(path.join(f.env.PI_CODING_AGENT_DIR, "auth.json")).exists()).toBe(false);
+});
+
 test("Codex on a desktop signs in with the browser (device code only over SSH or with no display)", async () => {
   const f = await fixture(); const agent = f.env.PI_CODING_AGENT_DIR;
   await mkdir(agent, { recursive: true });

@@ -149,6 +149,9 @@ export type RuntimeAuthProvider = "openai-codex" | "github-copilot" | "anthropic
 export interface RuntimeAuthenticationOptions {
   /** Omit to show the local provider chooser. Secrets are never command arguments. */
   provider?: RuntimeAuthProvider;
+  /** Show the numbered list even when the provider has one way (Casper opened sign-in by itself, so the
+   * user sees what is about to happen). /login <provider> leaves it off and a single way starts at once. */
+  list?: boolean;
   terminalHost: RuntimeModelPickerHost;
   signal?: AbortSignal;
 }
