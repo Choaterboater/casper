@@ -653,7 +653,7 @@ posixOnly("tool cancellation kills real commands and queued checks without start
   // escalation deterministically supplies the asserted signal exit. Bare `wait`
   // can return 0 as children terminate; cancellation must retain that real exit
   // code rather than fabricating null to satisfy this fixture.
-  const root = await fixture({ verify: { test: "trap '' TERM; touch started; (sleep 0.5 && touch leaked) & wait", build: checkCommand("touch:queued-ran") }, verification: { timeoutMs: 2000 } });
+  const root = await fixture({ verify: { test: "trap '' TERM; touch started; (sleep 0.5 && touch leaked) & wait", build: checkCommand("touch:queued-ran") }, verification: { timeoutMs: CHECK_LIMIT_MS } });
   const controller = new AbortController();
   const { app, prompts } = createApp(root, async (_prompt, tools) => {
     const tool = checkTool(tools);
