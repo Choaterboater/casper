@@ -9,10 +9,16 @@ function send(value: unknown) {
   const body = JSON.stringify(value);
   process.stdout.write(`Content-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`);
 }
+/** The same file written another legal way, like servers built on vscode-uri: a lower-case drive with
+ * its colon as "%3A" (file:///c%3A/...), and here also the file name's first letter percent-encoded. */
+function otherSpelling(uri: string): string {
+  return uri.replace(/^file:\/\/\/([A-Za-z]):/, (_, drive: string) => `file:///${drive.toLowerCase()}%3A`)
+    .replace(/\/([a-z])([^/]*)$/, (_, letter: string, rest: string) => `/%${letter.charCodeAt(0).toString(16)}${rest}`);
+}
 function publish(uri: string, version: number, text: string) {
   if (["silent", "pull", "pull-fail"].includes(mode)) return;
   send({ jsonrpc: "2.0", method: "textDocument/publishDiagnostics", params: {
-    uri, ...(mode === "unversioned" ? {} : { version: mode === "stale" ? version - 1 : version }),
+    uri: mode === "other-uri" ? otherSpelling(uri) : uri, ...(mode === "unversioned" ? {} : { version: mode === "stale" ? version - 1 : version }),
     diagnostics: (text.includes("BROKEN") || (mode === "dependency" && [...documents.values()].some((doc) => doc.text.includes("BROKEN"))) || (mode === "rename-dependency" && documents.size > 1 && [...documents.values()].every((doc) => doc.text.includes("new")))) ? [{ severity: 1, message: "fixture error" }] : [],
   } });
 }

@@ -110,6 +110,12 @@ describe("Phase 5 LSP", () => {
     expect(report.status).toBe(mode === "pull" ? "fresh" : mode === "pull-fail" ? "unavailable" : mode === "unversioned" ? "unversioned" : "timeout");
   });
 
+  test("diagnostics reach a file whose URI the server writes another way (file:///c%3A/... on Windows)", async () => {
+    const { manager } = await fixture("other-uri");
+    await manager.connect("fixture");
+    expect((await manager.diagnostics("fixture", "a.ts")).status).toBe("fresh");
+  });
+
   test("rename preflights all files, requires exact approval, then refreshes diagnostics", async () => {
     const { manager, root } = await fixture();
     await manager.connect("fixture");
