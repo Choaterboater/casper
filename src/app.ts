@@ -168,8 +168,11 @@ export interface CasperAppOptions {
   terminalHost?: TerminalHost;
 }
 
-/** A Casper session. Its code lives here and in the src/app/ modules (approvals, ...), which take the app as their
- * first argument: members without `private` may be read and set by those modules, not only by embedders. */
+/** A Casper session. This class holds the session's state and its public methods; the work itself lives in the
+ * src/app/ modules, which take the app as their first argument: wiring (opening a workspace), runtime-start,
+ * command-loop, task-run, verification, big-model, task-tools, workspace, session-branches, approvals,
+ * network-host, during-work, spend-gate and footer. Members without `private` may be read and set by those
+ * modules, not only by embedders. */
 export class CasperApp {
   /** The provider of the last successful /login, preferred when Casper picks a first model. */
   loginProvider?: RuntimeAuthProvider;
@@ -285,6 +288,7 @@ export class CasperApp {
   readonly sessionHomeDir?: string;
   sessionWorkspace?: SessionWorkspaceManager;
   sessionWorkspaceStart?: Promise<SessionWorkspaceManager>;
+  /** Last normal coding/chat request; local commands other than /receipt clear it. Not acceptance evidence. */
   lastTaskRequest?: string;
   commandActive = false;
   /** What the session's earlier model tasks spent; the footer adds the current task to it. */
@@ -506,7 +510,6 @@ export class CasperApp {
     return project;
   }
 
-  /** Last normal coding/chat request; local commands other than /receipt clear it. Not acceptance evidence. */
   /** Whether the session's shell sandbox holds its commands and checks, for a receipt with no task. */
   sandboxReceipt(): TaskResult["sandbox"] | undefined { return sandboxReceipt(this.sandbox); }
 
@@ -639,9 +642,6 @@ export class CasperApp {
   /** The mode and checks this session uses after a change; the banner, /status and every task share it. */
   async checksPlan(context: ProjectContext): Promise<ChecksPlan> { return checksPlan(this, context); }
 
-  /** A provider hiccup Pi does not retry (an empty response) ends a run for no reason of the task's: try once
-   * more on its own, then, in the terminal, ask. Sign-in, quota and context errors, and errors Pi already
-   * retried within its budget, are not retried again. */
   homeDir(): string { return this.sessionHomeDir ?? os.homedir(); }
 
   async savedModel(): Promise<string | undefined> { return modelPreference(this.sessionHomeDir ?? os.homedir()); }
@@ -754,7 +754,6 @@ export class CasperApp {
   async confirmYes(preview: string, question: string, signal?: AbortSignal): Promise<boolean> { return confirmYes(this, preview, question, signal); }
 
   updateFooter(): void { updateFooter(this); }
-
 }
 
 export { PAGES_ANSWER_ONLY_PROOF, PAGES_ONLY_PROOF, proofSkipReason } from "./app/task-run";

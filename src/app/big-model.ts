@@ -61,6 +61,9 @@ export async function ensureModel(app: CasperApp, session: RuntimeSession): Prom
   return false;
 }
 
+/** A provider hiccup Pi does not retry (an empty response) ends a run for no reason of the task's: try once
+ * more on its own, then, in the terminal, ask. Sign-in, quota and context errors, and errors Pi already
+ * retried within its budget, are not retried again. */
 export async function retryModelFailure(app: CasperApp, session: RuntimeSession, request: string): Promise<void> {
   for (let attempt = 1; ; attempt++) {
     const error = app.events.lastError ?? "";
