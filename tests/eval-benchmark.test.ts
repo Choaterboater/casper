@@ -448,9 +448,13 @@ test("tools/eval.ts --harness runs the benchmark, prints the rubric table and sa
   await mkdir(agent, { recursive: true });
   await writeFile(path.join(agent, "models.json"), JSON.stringify({ providers: { fixture: { baseUrl: "http://127.0.0.1:9/v1", api: "openai-completions", models: [{ id: "m" }] } } }));
   await writeFile(path.join(agent, "auth.json"), JSON.stringify({ fixture: { type: "api_key", key: "synthetic" } }));
-  const harness = path.join(host, "scripted-harness");
+  // Windows runs no `#!` scripts: there the harness is a .cmd file, the way npm installs pi and omp.
+  const harness = path.join(host, process.platform === "win32" ? "scripted-harness.cmd" : "scripted-harness");
   const cli = path.join(import.meta.dir, "fixtures/eval-benchmark-cli.ts");
-  await writeFile(harness, `#!/bin/sh\nexec "${process.execPath}" "${cli}" "${path.join(repoRoot, "evals/fixtures", task.fixture, "src")}" "$@"\n`, { mode: 0o755 });
+  const reference = path.join(repoRoot, "evals/fixtures", task.fixture, "src");
+  await writeFile(harness, process.platform === "win32"
+    ? `@"${process.execPath}" "${cli}" "${reference}" %*\r\n`
+    : `#!/bin/sh\nexec "${process.execPath}" "${cli}" "${reference}" "$@"\n`, { mode: 0o755 });
   const results = path.join(host, "results.json");
   const run = async (extra: string[]) => {
     const child = Bun.spawn([process.execPath, "--no-install", path.join(repoRoot, "tools/eval.ts"), "--task", task.id, "--harness", "casper", "--harness", "pi", "--harness", "omp",
@@ -468,7 +472,7 @@ test("tools/eval.ts --harness runs the benchmark, prints the rubric table and sa
   expect(document).toMatchObject({ kind: "quality-benchmark", version: 1, model: "fixture/m", effort: "medium", repeat: 1, timeLimitSeconds: 300, tasks: [task.id], failures: [] });
   expect(document.runs.map((entry: BenchmarkRun) => [entry.harness, entry.graded.success])).toEqual([["casper", true], ["pi", true], ["omp", true]]);
   // Temporary paths are redacted in saved evidence.
-  expect(document.harnesses.omp).toEqual({ command: ["<tmp>/scripted-harness"], version: "scripted-harness 1.0.0" });
+  expect(document.harnesses.omp).toEqual({ command: [`<tmp>${path.sep}${path.basename(harness)}`], version: "scripted-harness 1.0.0" });
   expect(document.summary.packs[0].pack).toBe("core");
   // Evidence is never replaced; a benchmark needs an explicit model.
   expect((await run([])).stderr).toContain("Refusing to replace existing evidence");
