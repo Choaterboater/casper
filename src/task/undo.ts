@@ -116,8 +116,9 @@ export class UndoStore {
   private env(): NodeJS.ProcessEnv {
     const env: NodeJS.ProcessEnv = {};
     for (const [name, value] of Object.entries(process.env)) if (!/^GIT_/i.test(name)) env[name] = value;
+    // "/dev/null", not os.devNull: Git for Windows reads "/dev/null" as an empty file but fails on os.devNull there.
     return { ...env, GIT_DIR: this.gitDir, GIT_WORK_TREE: this.root, GIT_INDEX_FILE: this.index, GIT_CONFIG_NOSYSTEM: "1",
-      GIT_CONFIG_GLOBAL: os.devNull, GIT_TERMINAL_PROMPT: "0", LC_ALL: "C" };
+      GIT_CONFIG_GLOBAL: "/dev/null", GIT_TERMINAL_PROMPT: "0", LC_ALL: "C" };
   }
 
   private git(args: string[], options: { input?: string | Buffer; limit?: number; signal?: AbortSignal } = {}): Promise<{ stdout: Buffer; truncated: boolean }> {

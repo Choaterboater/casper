@@ -16,7 +16,7 @@ async function setup(options: { git?: boolean } = {}) {
   const root = path.join(base, "project"), state = path.join(base, "home", ".casper", "projects", "project-0123456789abcdef");
   await mkdir(root, { recursive: true });
   if (options.git) {
-    const git = (...args: string[]) => execFileSync("git", args, { cwd: root, env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: os.devNull } });
+    const git = (...args: string[]) => execFileSync("git", args, { cwd: root, env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" } });
     git("init", "-q"); git("config", "user.email", "t@example.com"); git("config", "user.name", "t");
     await writeFile(path.join(root, "a.py"), "a = 1\n"); await writeFile(path.join(root, "c.py"), "c = 3\n");
     await writeFile(path.join(root, "run.sh"), "#!/bin/sh\necho hi\n"); await chmod(path.join(root, "run.sh"), 0o755);
@@ -26,7 +26,7 @@ async function setup(options: { git?: boolean } = {}) {
 }
 
 async function repoFingerprint(root: string): Promise<string> {
-  const git = (...args: string[]) => execFileSync("git", args, { cwd: root, env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: os.devNull } }).toString();
+  const git = (...args: string[]) => execFileSync("git", args, { cwd: root, env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" } }).toString();
   const hash = createHash("sha256");
   hash.update(await readFile(path.join(root, ".git", "index")));
   hash.update(await readFile(path.join(root, ".git", "HEAD")));
@@ -111,7 +111,7 @@ test("secret files and files over 8 MB are never copied, so they are named as le
   const snapshot = await store.snapshot();
   if (!("tree" in snapshot)) throw new Error("no copy");
   expect(snapshot.left).toEqual([{ path: ".env", why: "secret" }, { path: "big.bin", why: "big" }]);
-  const listed = execFileSync("git", ["--git-dir", store.gitDir, "ls-tree", "-r", "--name-only", snapshot.tree], { env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: os.devNull } }).toString();
+  const listed = execFileSync("git", ["--git-dir", store.gitDir, "ls-tree", "-r", "--name-only", snapshot.tree], { env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" } }).toString();
   expect(listed.trim().split("\n")).toEqual(["ok.txt"]);
 });
 
@@ -170,7 +170,7 @@ posixOnly("a hostile repo config and an inherited GIT_DIR never reach the user's
   const marker = path.join(base, "ran");
   const hook = path.join(base, "hook.sh");
   await writeFile(hook, `#!/bin/sh\ntouch ${marker}\n`); await chmod(hook, 0o755);
-  const git = (...args: string[]) => execFileSync("git", args, { cwd: root, env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: os.devNull } });
+  const git = (...args: string[]) => execFileSync("git", args, { cwd: root, env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" } });
   git("config", "core.fsmonitor", hook); git("config", "core.hooksPath", base);
   await writeFile(path.join(base, "post-index-change"), `#!/bin/sh\ntouch ${marker}\n`); await chmod(path.join(base, "post-index-change"), 0o755);
   const fingerprint = await repoFingerprint(root);
@@ -198,7 +198,7 @@ test("prune keeps the newest tasks' copies; git's clean-up keeps a kept copy", a
     await store.record(n, trees[n - 1]!, trees[n - 1]!);
   }
   await store.prune(2);
-  const env = { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: os.devNull };
+  const env = { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" };
   const refs = execFileSync("git", ["--git-dir", store.gitDir, "for-each-ref", "--format=%(refname)"], { env }).toString().trim().split("\n");
   expect(refs).toEqual(["refs/casper/2/after", "refs/casper/2/before", "refs/casper/3/after", "refs/casper/3/before"]);
   execFileSync("git", ["--git-dir", store.gitDir, "gc", "--quiet", "--prune=now"], { env });
@@ -273,7 +273,7 @@ test("a copy is still made after git's clean-up dropped a file that only this fo
   // No task kept that copy; git's clean-up run from another work tree (another index) drops its objects.
   await new Promise((resolve) => setTimeout(resolve, 1100));
   const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith("GIT_")));
-  execFileSync("git", ["--git-dir", store.gitDir, "prune", "--expire=now"], { env: { ...env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: os.devNull } });
+  execFileSync("git", ["--git-dir", store.gitDir, "prune", "--expire=now"], { env: { ...env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" } });
   await writeFile(path.join(root, "b.py"), "b = 2\n");
   const after = tree(await store.snapshot());
   expect((await store.readBlob(execFileSync("git", ["--git-dir", store.gitDir, "rev-parse", `${after}:a.py`]).toString().trim())).toString()).toBe("a = 1\n");
