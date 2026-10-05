@@ -9,7 +9,7 @@ Standalone builds embed these notices; run `casper --licenses` to read them.
 The same file and Casper LICENSE are also provided as release assets.
 
 Build sources and relinking:
-  Casper: https://github.com/Choaterboater/casper (release tag v0.1.0)
+  Casper: https://github.com/Choaterboater/casper (the release tag for the version `casper --version` prints)
   Bun: https://github.com/oven-sh/bun/tree/bun-v1.4.0
   Bun source archive: https://github.com/oven-sh/bun/archive/refs/tags/bun-v1.4.0.tar.gz
   JavaScriptCore/WebKit: https://github.com/oven-sh/WebKit/tree/0f966e81b78c84bb23213e391bc679c4ef83e56b
