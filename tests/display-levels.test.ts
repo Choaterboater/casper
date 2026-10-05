@@ -90,8 +90,8 @@ test("the inline diff keeps the changed lines only, at most twelve, then says ho
   const big = `@@ -1,20 +1,20 @@\n${Array.from({ length: 20 }, (_, i) => `+line ${i}`).join("\n")}`;
   const shown = inlineDiff(big);
   expect(shown.length).toBe(13);
-  // Ctrl+T opens only the last step, so an earlier edit points at /diff, which shows every change.
-  expect(shown.at(-1)).toBe("    … 8 more lines · /diff shows them all");
+  // Ctrl+T shows only the last step (and the plain terminal has none): /diff after the task has them all.
+  expect(shown.at(-1)).toBe("    … 8 more lines · /diff after the task shows them all");
 });
 
 test("/details with no word goes round quiet, normal, detailed", () => {
@@ -144,4 +144,11 @@ test("a read outside the project gets its own line, once per folder, on the rich
       expect(s.screen.filter(line => line.startsWith("[read]"))).toHaveLength(1);
     }
   }
+});
+
+test("the startup ghost uses the terminal's own text color (bold), so it shows on light and dark themes", async () => {
+  const { wordmarkHeader } = await import("../src/tui/banner");
+  const lines = wordmarkHeader(true).render(120).join("\n");
+  expect(lines).not.toContain("\x1b[1;37m");
+  expect(lines).toContain("\x1b[1m");
 });

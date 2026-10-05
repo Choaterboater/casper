@@ -17,6 +17,8 @@ test("tool targets and error messages are redacted; a provider failure becomes a
   // A cancel is not an error; a tool-use turn with no text emits nothing.
   expect(mapper.map({ type: "assistant_response_end", stopReason: "aborted", errorMessage: "aborted" })).toEqual([]);
   expect(mapper.map({ type: "assistant_response_end", stopReason: "toolUse" })).toEqual([]);
+  // A provider error Pi is about to retry is not the outcome: no error event for it.
+  expect(mapper.map({ type: "assistant_response_end", stopReason: "error", errorMessage: "429", retrying: true })).toEqual([]);
 });
 
 test("each event is one line with v:1, and terminal controls stay escaped", () => {

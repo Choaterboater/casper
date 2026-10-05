@@ -7,7 +7,8 @@ function displayList(values: string[]): string {
   return values.length ? values.join(" · ") : "(not detected)";
 }
 
-/** Casper the ghost: half-block pixel art, eyes are the two blank cells, scalloped hem. */
+/** Casper the ghost: half-block pixel art, eyes are the two blank cells, scalloped hem. Bold in the terminal's own
+ * text color, so it shows on light and dark themes alike. */
 const GHOST = [
   " ▄▄███▄▄ ",
   "██ ███ ██",
@@ -33,7 +34,7 @@ const TEXT_HEADER = `CASPER ${CASPER_VERSION} · your coding companion`;
  * classifier. It is chosen per render width: a window narrowed below the art gets the one-line header
  * instead of the art wrapped into fragments. */
 export function wordmarkHeader(color: boolean): Component {
-  const art = ["", ...GHOST.map((row, index) => `${paint(row, "1;37", color)}  ${paint(WORDMARK[index]!, "36", color)}`), "",
+  const art = ["", ...GHOST.map((row, index) => `${paint(row, "1", color)}  ${paint(WORDMARK[index]!, "36", color)}`), "",
     ` version   ${CASPER_VERSION} · your coding companion`];
   return { render: width => width >= WORDMARK_COLUMNS ? art : wrapTextWithAnsi(paint(TEXT_HEADER, "1;36", color), width), invalidate() {} };
 }

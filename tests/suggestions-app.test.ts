@@ -84,10 +84,10 @@ test("a fix whose tests pass without it gets \"Add a test\" on the row; its numb
   const f = await fixture({ projectYaml: PASSING });
   try {
     const first = await f.send("fix the add function in calc.py", f.receipt);
-    expect(first).toContain("Next: 1 Undo · 2 Show diff · 3 Add a test that proves this bug stays fixed (uses tokens)\n  3: the tests pass without your fix too\n");
+    expect(first).toContain("Next: 1 Show diff · 2 Undo · 3 Add a test that proves this bug stays fixed (uses tokens)\n  3: the tests pass without your fix too\n");
     expect(first).toContain("  A number picks one · type to ask something else · /suggestions off stops these\n");
     // Slots 1 and 2 are Undo and Show diff of this task.
-    expect(first).toContain("Next: 1 Undo · 2 Show diff · 3 Add a test");
+    expect(first).toContain("Next: 1 Show diff · 2 Undo · 3 Add a test");
     const flow = findFlow(bundledFlows(), "prove-fix")!;
     await f.send("3", f.receipt);
     expect(f.prompts).toHaveLength(2);
@@ -104,16 +104,16 @@ test("a fix whose tests pass without it gets \"Add a test\" on the row; its numb
 test("ignored three times in a row, a suggestion fades in this project; typed text is simply the next request", async () => {
   const f = await fixture({ projectYaml: PASSING });
   try {
-    expect(await f.send("fix the add function in calc.py", f.receipt)).toContain("Next: 1 Undo · 2 Show diff · 3 Add a test");
-    expect(await f.send("fix the add function in calc.py again", f.receipt)).toContain("Next: 1 Undo · 2 Show diff · 3 Add a test");
+    expect(await f.send("fix the add function in calc.py", f.receipt)).toContain("Next: 1 Show diff · 2 Undo · 3 Add a test");
+    expect(await f.send("fix the add function in calc.py again", f.receipt)).toContain("Next: 1 Show diff · 2 Undo · 3 Add a test");
     expect(f.prompts[1]).toContain("fix the add function in calc.py again");
-    expect(await f.send("fix the add function in calc.py once more", f.receipt)).toContain("Next: 1 Undo · 2 Show diff · 3 Add a test");
+    expect(await f.send("fix the add function in calc.py once more", f.receipt)).toContain("Next: 1 Show diff · 2 Undo · 3 Add a test");
     const faded = await f.send("fix the add function in calc.py for the last time", f.receipt);
     expect(faded).not.toContain("Add a test");
     const listed = await f.send("/suggestions", /\n> $/);
     expect(listed).toMatch(/prove-fix\s+faded \(hidden here until \d{4}-\d\d-\d\d\)/);
     await f.send("/suggestions on prove-fix", /\n> $/);
-    expect(await f.send("fix the add function in calc.py", f.receipt)).toContain("Next: 1 Undo · 2 Show diff · 3 Add a test");
+    expect(await f.send("fix the add function in calc.py", f.receipt)).toContain("Next: 1 Show diff · 2 Undo · 3 Add a test");
   } finally { await f.close(); }
 }, 60_000);
 
@@ -124,7 +124,7 @@ test("/suggestions off silences the row on the next task, and on brings it back"
     expect(await f.send("fix the add function in calc.py", f.receipt)).not.toContain("Add a test");
     expect(await f.send("/suggestions", /\n> $/)).toMatch(/prove-fix\s+off/);
     await f.send("/suggestions on", /\n> $/);
-    expect(await f.send("fix the add function in calc.py", f.receipt)).toContain("Next: 1 Undo · 2 Show diff · 3 Add a test");
+    expect(await f.send("fix the add function in calc.py", f.receipt)).toContain("Next: 1 Show diff · 2 Undo · 3 Add a test");
   } finally { await f.close(); }
 }, 60_000);
 
@@ -133,7 +133,7 @@ test("Remember saves the test command the model ran, exactly as shown, and keeps
   const f = await fixture({ projectYaml: yaml, shell: "uv run pytest" });
   try {
     const first = await f.send("fix the add function in calc.py", f.receipt);
-    expect(first).toContain("Next: 1 Undo · 2 Show diff · 3 Remember uv run pytest as this project's test command (free)\n"
+    expect(first).toContain("Next: 1 Show diff · 2 Undo · 3 Remember uv run pytest as this project's test command (free)\n"
       + "  3: the model ran it without error; saves verify.test: uv run pytest in .casper/project.yaml so Casper can check every change\n");
     const saved = await f.send("3", /\n> $/);
     expect(saved).toContain("[project] Saved verify.test: uv run pytest in .casper/project.yaml");
@@ -143,8 +143,8 @@ test("Remember saves the test command the model ran, exactly as shown, and keeps
     expect(text).toContain("checklist: false # no list before work");
     expect(text).toContain("verify:\n  test: uv run pytest\n");
     // Saving is undoable: its own receipt takes the file back to what it was, and /redo saves it again.
-    expect(saved).toContain("[project] Saved verify.test: uv run pytest in .casper/project.yaml. /undo 2 takes it back\nNext: 1 Undo\n");
-    const undone = await f.send("1", /\n> $/);
+    expect(saved).toContain("[project] Saved verify.test: uv run pytest in .casper/project.yaml. /undo 2 takes it back\nNext: 2 Undo\n");
+    const undone = await f.send("2", /\n> $/);
     expect(undone).toContain("✓ Undone — .casper/project.yaml is back as it was before task 2 (verify.test: uv run pytest is no longer saved).");
     expect(await readFile(path.join(f.project, ".casper/project.yaml"), "utf8")).toBe(yaml);
     await f.send("/redo", /\n> $/);

@@ -153,11 +153,11 @@ test("streamed assistant Markdown renders lists and fences once, whole, and re-r
     await screen.until(output => output.split(REPAINT).length > 1 && output.split(REPAINT).at(-1)!.includes("after"));
     const frame = plainLines(screen.output.split(REPAINT).at(-1)!);
     const body = frame.slice(0, frame.indexOf("after")).filter(line => line.trim());
-    // The fenced block is boxed with its language at the new width; no fence markers remain.
+    // The fenced block keeps its language title line at the new width, and its code copies clean: no side borders.
     expect(body.slice(0, 3)).toEqual(["Here is a plan:", "- first item", "- second item with code"]);
-    expect(body[3]).toMatch(/^╭─ ts ─+╮$/);
-    expect(body[4]).toMatch(/^│ const x = 1; +│$/);
-    expect(body[5]).toMatch(/^╰─+╯$/);
+    expect(body[3]).toMatch(/^── ts ─+$/);
+    expect(body[4]).toBe("const x = 1;");
+    expect(body[5]).toMatch(/^─+$/);
     expect(body[6]).toBe("Done.");
     expect(body[3]!.length).toBe(40);
     expect(screen.output).not.toContain("\x1b[?1049h");
@@ -181,8 +181,11 @@ test("tool, code and Working panels span the whole terminal width and follow it 
       await screen.until(output => output.split(REPAINT).length > repaints && output.split(REPAINT).at(-1)!.includes("Working"));
       const borders = plainLines(screen.output.split(REPAINT).at(-1)!).filter(line => /^[╭╰]/.test(line));
       // Titles, with the Working panel's spinner frame (a braille cell) removed.
-      expect(borders.filter(line => line.startsWith("╭")).map(line => line.replace(/[╭─╮\u2800-\u28ff]/g, "").trim())).toEqual(["output", "ts", "Working"]);
-      expect(borders.map(line => visibleWidth(line))).toEqual(Array(6).fill(columns));
+      expect(borders.filter(line => line.startsWith("╭")).map(line => line.replace(/[╭─╮\u2800-\u28ff]/g, "").trim())).toEqual(["output", "Working"]);
+      expect(borders.map(line => visibleWidth(line))).toEqual(Array(4).fill(columns));
+      // The code block's title line spans the width too.
+      const code = plainLines(screen.output.split(REPAINT).at(-1)!).find(line => line.startsWith("── ts "));
+      expect(visibleWidth(code!)).toBe(columns);
     }
   } finally { terminal.close(); input.destroy(); }
 });

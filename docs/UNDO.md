@@ -9,10 +9,11 @@ The receipt of a task that changed files ends with a row:
 
 ```
 ✓ Verified · test passed · changed app.py, tests/test_app.py
-Next: 1 Undo · 2 Show diff
+Next: 1 Show diff · 2 Undo
 ```
 
-Type `1` on the empty prompt to undo the task, or `2` to see its diff. Enter alone does nothing, and anything
+Type `1` on the empty prompt to see the task's diff, or `2` to undo it. 1 only shows something, so a
+stray `1` never undoes a task. Enter alone does nothing, and anything
 else you type is simply your next request. The row is gone once you type something else.
 
 A one-shot run ends with the commands instead:
@@ -30,7 +31,7 @@ Undo: casper /undo 12 · Diff: casper /diff 12
 | `/redo` | Puts the files of the newest undone task back the way that task left them. |
 | `/diff` | The newest task's changes (a patch), also in a folder that is not a git repository. With no task yet, git's view (`git diff HEAD`). |
 | `/diff 12` | Task 12's changes. |
-| `/diff list` | Pick one of your recent tasks by number. |
+| `/diff list` | Pick one of your recent tasks by number. While a task runs it prints the list instead; `/diff <n>` shows one. |
 | `/receipt` | The last receipt, also after Casper restarts. |
 | `/receipt 12` | Receipt 12, headed "Task 12 · 14:02 · fix the login bug". |
 | `/receipt list` | The last 10 receipts: number, time, first line and request. |

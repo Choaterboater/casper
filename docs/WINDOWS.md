@@ -101,7 +101,9 @@ This needs a **source checkout** with dependencies installed
 (`bun install --frozen-lockfile`). Write down: the commit, `bun --version`, the
 Windows build, `$PSVersionTable.PSVersion`, and the terminal app and version. Test in
 Windows Terminal under both PowerShell 7 and Windows PowerShell 5.1. Record any other
-console separately.
+console separately. The old Windows console (conhost, outside Windows Terminal) has no braille
+or rounded corners in its fonts, so there Casper's spinner is `| / - \` and panels have square
+corners.
 
 **Step A — the offline demo.** It makes no model calls and saves nothing:
 
@@ -201,8 +203,9 @@ commands.
 
 In the disposable project above (a git repository, with Git for Windows installed):
 
-- Ask for a small change, then press `1` on the `Next: 1 Undo · 2 Show diff` row. The
-  file goes back; `/redo` puts it back again. Press Enter on the row instead: nothing runs.
+- Ask for a small change, then press `2` on the `Next: 1 Show diff · 2 Undo` row. The
+  file goes back; `/redo` puts it back again (its row shows `2 Redo`). Press Enter on the row
+  instead: nothing runs.
 - Change the same file yourself after a task, then `/undo`: the question starts with
   `1 Cancel`, and Enter changes nothing.
 - `/diff`, `/receipt list`, then restart Casper and `/receipt 1`: the old receipt shows.

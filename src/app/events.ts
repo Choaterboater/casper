@@ -1,5 +1,5 @@
 import type { InteractiveTerminal } from "../tui/terminal";
-import { BUSY_GLYPH, formatDuration, formatToolActivity, redactPreview, terminalText } from "../tui/format";
+import { BUSY_GLYPH, displayPath, formatDuration, formatToolActivity, redactPreview, terminalText } from "../tui/format";
 import type { RuntimeEvent } from "../runtime/types";
 import type { OutputWriter } from "./commands";
 import { SPEND_STOP_REASON } from "../task/spend";
@@ -244,6 +244,13 @@ export class RuntimeEventView {
     else if (ran.length) {
       for (const step of ran) if (step.failed && !step.retried) this.output.write(`${step.printed}\n`);
       this.output.write(`${stepSummary(ran)}\n`);
+      // The files the folded edits changed, so a wrong one is easy to spot as it happens.
+      const changed = [...new Set(ran.filter(step => step.kind === "edit" && !step.failed && step.path !== undefined)
+        .map(step => displayPath(step.path!, this.fit())))];
+      if (changed.length) {
+        const shown = changed.slice(0, 5).join(", ");
+        this.output.write(`  changed ${redactPreview(shown)}${changed.length > 5 ? ` +${changed.length - 5} more` : ""}\n`);
+      }
     }
     this.endedWithNewline = true;
     this.renderBox();
@@ -334,7 +341,20 @@ export class RuntimeEventView {
         this.setResponseActivity(`${what}${size}`);
         break;
       }
+      case "retry": {
+        // Pi tries the provider again by itself: say so now, instead of an error that looks final and a blank pause.
+        this.terminal.endAssistant();
+        this.ensureLineBreak();
+        const provider = terminalText(event.provider ?? "the model provider");
+        const wait = `${Math.max(1, Math.ceil(event.delayMs / 1000))}s`;
+        this.output.write(`… Can't reach ${provider} · trying again in ${wait} (${event.attempt} of ${event.maxAttempts})${this.terminal.rich ? " · Esc stops" : ""}\n`);
+        this.setStaticActivity(`Waiting to try ${provider} again`);
+        this.endedWithNewline = true;
+        break;
+      }
       case "assistant_response_end": {
+        // A failed attempt that will be retried is not the outcome; the retry line says what happens next.
+        if (event.retrying) { this.terminal.endAssistant(); break; }
         this.setStaticActivity(event.stopReason === "toolUse" ? "Starting tools…" : undefined);
         this.terminal.endAssistant();
         // Pi may retry a provider error inside prompt(); only the final response

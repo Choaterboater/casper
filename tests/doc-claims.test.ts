@@ -94,3 +94,11 @@ test("no doc, help text or command still says the shell or checks are unsandboxe
   }
   expect(found).toEqual([]);
 });
+
+test("TERMINAL_UX.md describes the queue and steer instead of saying there is no queued prompt execution", () => {
+  const terminal = readFileSync(path.join(ROOT, "docs", "TERMINAL_UX.md"), "utf8");
+  const compatibility = terminal.slice(terminal.indexOf("## Compatibility"), terminal.indexOf("## Design references"));
+  expect(compatibility).not.toMatch(/queued prompt execution/i);
+  expect(compatibility).toMatch(/steers the\s+AI at its next step/);
+  expect(compatibility).toMatch(/runs when the task ends/);
+});

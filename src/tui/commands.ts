@@ -1,4 +1,4 @@
-import type { SlashCommand } from "@earendil-works/pi-tui";
+import { type SlashCommand, visibleWidth } from "@earendil-works/pi-tui";
 
 /** Discoverability only: command dispatch and authorization remain in CasperApp. */
 export const COMMANDS: SlashCommand[] = [
@@ -10,13 +10,14 @@ export const COMMANDS: SlashCommand[] = [
   { name: "usage", description: "Inspect session tokens and available cost estimates" },
   { name: "compact", description: "Summarize context (sends a model request)" },
   { name: "clear", description: "Start a fresh conversation; keep files and saved conversations" },
-  { name: "resume", description: "List or resume saved conversations in this workspace" },
+  { name: "resume", description: "Go back to a saved conversation (a numbered list)" },
   { name: "diff", description: "The last task's changes: /diff 12, /diff list" },
   { name: "undo", description: "Put the last task's files back (no model)" },
   { name: "redo", description: "Put an undone task's files back again" },
   { name: "new", description: "Start a new project in ~/Projects (no model)" },
   { name: "plan", description: "Plan first: the model writes a plan and cases to test, then you build" },
   { name: "suggestions", description: "Suggested next steps: list, or turn on or off" },
+  { name: "pane", description: "Steps in a split beside Casper (tmux, iTerm2): /pane on or /pane off, saved" },
   { name: "details", description: "How much work shows: quiet, normal or detailed, remembered (Ctrl+T: the last step in full)" },
   { name: "settings", description: "Turn web lookups, spend notes, built-in skills and more on or off by number" },
   { name: "output", description: "Full command and output of a recent tool call (/output [n|all])" },
@@ -45,3 +46,38 @@ export const COMMANDS: SlashCommand[] = [
   { name: "login", description: "Set up provider credentials in a private login flow" },
   { name: "exit", description: "Leave Casper" },
 ];
+
+/** Commands that only show something (or set effort or the display level) and so run while a task works. */
+export const RUNS_DURING_WORK: ReadonlySet<string> = new Set([
+  "help", "status", "usage", "context", "permissions", "effort", "diff", "tasks", "details", "receipt", "output",
+  "mcp", "tree", "project", "sandbox", "secrets", "skills", "lsp", "pane",
+]);
+
+/** This exact line runs now during a task; every other line waits for the task to end. */
+export function runsDuringWork(line: string): boolean {
+  return /^\/(?:help(?: \S.*)?|status|usage|context|permissions|tree|project|sandbox|secrets|skills|lsp|mcp)$/.test(line)
+    || /^\/(?:diff|receipt)(?:\s+(?:\d+|list))?$/.test(line)
+    || /^\/output(?:\s+(?:\d+|all))?$/.test(line)
+    || /^\/details(?:\s+(?:quiet|normal|detailed))?(?:\s+--session)?$/.test(line)
+    || /^\/tasks(?:\s+stop\s+(?:\d+|all))?$/.test(line)
+    || /^\/pane(?:\s+(?:on|off))?$/.test(line)
+    || /^\/effort(?:\s+[^\s-]\S*(?:\s+--session)?)?$/.test(line);
+}
+
+/** Pi's command menu cuts a long description at the column, mid-word and with no mark. Trimmed here first: it ends at
+ * a word, with "…". Mirrors Pi's slash-menu layout (a 12-32 column label, two columns of margin); verified against
+ * @earendil-works/pi-tui 0.87.0 (SelectList.renderItem). `width` is the menu's width. */
+export function fitDescriptions<T extends { value: string; label?: string; description?: string }>(items: readonly T[], width: number): T[] {
+  if (width <= 40) return [...items];
+  const widest = Math.max(0, ...items.map(item => visibleWidth(item.label || item.value)));
+  const column = Math.min(Math.max(widest + 2, 12), 32, width - 6);
+  const room = width - 2 - column - 2;
+  if (room <= 10) return [...items];
+  return items.map(item => {
+    const text = item.description;
+    if (!text || visibleWidth(text) <= room) return item;
+    const cut = text.slice(0, room - 1);
+    const space = cut.lastIndexOf(" ");
+    return { ...item, description: `${(space > room / 2 ? cut.slice(0, space) : cut).trimEnd()} …` };
+  });
+}

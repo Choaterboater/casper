@@ -69,8 +69,9 @@ are not tied to one model company.
   [Terminal guide](docs/TERMINAL_UX.md)
 - **Rich or plain terminal.** A live footer, colors and lines that update in place, or plain text with
   `NO_COLOR`, `TERM=dumb` or redirected output. [Terminal guide](docs/TERMINAL_UX.md)
-- **tmux, automatic.** Inside tmux (or iTerm2) the busy steps go to a view-only side pane that
-  Casper opens and closes itself; `/tasks` lists what runs in the background. [tmux](docs/TMUX.md)
+- **tmux, automatic.** Inside tmux (or iTerm2, after one question) the busy steps go to a view-only side
+  pane on a wide window that Casper opens and closes itself; `/pane off` turns it off. `/tasks` lists
+  what runs in the background. [tmux](docs/TMUX.md)
 
 ## What a receipt looks like
 
@@ -253,7 +254,7 @@ it. What each version changed, in more detail: [RELEASE.md](docs/RELEASE.md).
   servers run without AI provider keys.
 
 **v0.2.17: undo and a real safety net.**
-- `Next: 1 Undo · 2 Show diff` after each task; `/undo`, `/redo`, `/diff` and `/receipt` work on
+- `Next: 1 Show diff · 2 Undo` after each task; `/undo`, `/redo`, `/diff` and `/receipt` work on
   any saved task, also after a restart and outside git. Undo never overwrites a file you changed
   since. [UNDO.md](docs/UNDO.md)
 - A shell sandbox on Linux (bubblewrap, socat and ripgrep: `sudo apt install bubblewrap socat ripgrep`) and macOS:

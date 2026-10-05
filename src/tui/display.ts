@@ -1,5 +1,5 @@
 /** How much of the work shows on screen. quiet: the model's words, failures and receipts. normal: steps fold
- * into one summary line. detailed: every step, with a small diff under each edit. */
+ * into one summary line, with the changed files under it. detailed: every step, with a small diff under each edit. */
 export const DISPLAY_LEVELS = ["quiet", "normal", "detailed"] as const;
 export type DisplayLevel = typeof DISPLAY_LEVELS[number];
 
@@ -17,5 +17,5 @@ export function inlineDiff(patch: string, max = 12): string[] {
     if (inHunk && /^[+-]/.test(line)) changed.push(`    ${line.slice(0, 1)} ${line.slice(1)}`);
   }
   if (changed.length <= max) return changed;
-  return [...changed.slice(0, max), `    … ${changed.length - max} more lines · /diff shows them all`];
+  return [...changed.slice(0, max), `    … ${changed.length - max} more lines · /diff after the task shows them all`];
 }

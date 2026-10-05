@@ -60,6 +60,8 @@ export interface TasksHost {
   canAsk(): boolean;
   pick(question: string, options: Choice[], signal?: AbortSignal): Promise<string | undefined>;
   signal?: AbortSignal;
+  /** A task is running: a bare /tasks lists and says how to stop one, with no question (a box could open any moment). */
+  duringWork?: boolean;
 }
 
 /** The /tasks command. A one-shot run or a pipe never waits on the question: it lists and stops nothing. */
@@ -72,6 +74,7 @@ export async function runTasksCommand(host: TasksHost, argument = ""): Promise<v
   let picked: string | undefined;
   if (typed) picked = typed[1]!.toLowerCase() === "all" ? "Stop all" : `Stop ${typed[1]}`;
   else if (argument.trim()) { host.write("[tasks] Usage: /tasks | /tasks stop <n> | /tasks stop all\n"); return; }
+  else if (host.duringWork) { host.write("[tasks] To stop one now: /tasks stop <n> (or /tasks stop all).\n"); return; }
   else if (!host.canAsk()) { host.write("[tasks] Nothing was stopped: nobody is here to answer. To stop one: /tasks stop <n>\n"); return; }
   else picked = await host.pick(TASKS_QUESTION, tasksChoices(tasks), host.signal);
   const number = /^Stop (\d+)$/.exec(picked ?? "")?.[1];

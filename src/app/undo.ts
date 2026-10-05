@@ -186,7 +186,7 @@ export class TaskUndo {
     return { stat };
   }
 
-  /** "Next: 1 Undo · 2 Show diff" for a task that can be undone. */
+  /** "Next: 1 Show diff · 2 Undo" for a task that can be undone. */
   nextItems(task: TaskResult): { undo?: { label: string; command: string }; diff?: { label: string; command: string } } {
     if (!task.undo?.available || !task.receipt) return {};
     return { undo: { label: "Undo", command: `/undo ${task.receipt}` }, diff: { label: "Show diff", command: `/diff ${task.receipt}` } };
@@ -243,7 +243,7 @@ export class TaskUndo {
     const undo = receipt.undo;
     if (!undo.paths.length) { this.refuse(`Task ${n} changed no files Casper keeps copies of, so there is nothing to undo.`); return; }
     if (undo.undone) {
-      this.refuse(`Task ${n} is already undone.${this.host.interactive ? " 1 Redo" : ` casper /redo ${n} puts its files back.`}`);
+      this.refuse(`Task ${n} is already undone.${this.host.interactive ? " 2 Redo" : ` casper /redo ${n} puts its files back.`}`);
       this.offer(buildNextRow({ undo: { label: "Redo", command: `/redo ${n}` } }));
       return;
     }
@@ -347,7 +347,7 @@ export class TaskUndo {
     const setting = receipt.setting!;
     const n = receipt.n;
     if (kind === "undo" && setting.undone) {
-      this.refuse(`Task ${n} is already undone.${this.host.interactive ? " 1 Redo" : ` casper /redo ${n} saves it again.`}`);
+      this.refuse(`Task ${n} is already undone.${this.host.interactive ? " 2 Redo" : ` casper /redo ${n} saves it again.`}`);
       this.offer(buildNextRow({ undo: { label: "Redo", command: `/redo ${n}` } }));
       return;
     }
@@ -372,14 +372,16 @@ export class TaskUndo {
 
   /** /diff [n|list]: this task's changes, also outside git. False when no task has run in this folder (the caller
    * shows the git view instead). */
-  async diff(argument: string, signal?: AbortSignal): Promise<boolean> {
+  /** `duringWork`: a task is running, so /diff list prints its list instead of a picker; a box the task opens
+   * (an approval, a question) must never find a picker in its way. */
+  async diff(argument: string, signal?: AbortSignal, duringWork = false): Promise<boolean> {
     const receipts = this.receipts();
     const root = this.host.activeRoot();
     if (argument === "list") {
       const recent = (await receipts?.list(30) ?? []).flatMap(({ receipt }) => typeof receipt !== "string" && receipt.root === root && hasCopies(receipt) ? [receipt] : []).slice(0, 9);
       if (!recent.length) { this.write("No task has changed files in this folder yet.\n"); return true; }
       const label = (receipt: StoredReceipt) => `Task ${receipt.n} · ${time(receipt.createdAt)} · ${terminalText(receipt.request).replace(/\s+/g, " ").slice(0, 60)}`;
-      if (!this.host.interactive) {
+      if (!this.host.interactive || duringWork) {
         this.write(`${recent.map((receipt) => `  ${label(receipt)}`).join("\n")}\n/diff <task number> shows one.\n`);
         return true;
       }

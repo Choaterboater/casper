@@ -5,7 +5,7 @@ import { NEW_HELP_LINE } from "../new/templates";
 
 export const HELP_TEXT = `Casper — your coding companion
 
-Type a request and press Enter. Esc stops work. Type / for every command.
+Type a request and press Enter (during a task it steers the AI or waits in the queue). Esc stops work. Type / for every command.
   casper [folder]        Open Casper here, or in that folder
   casper <prompt>        Run one request and exit (options: /help all)
   casper new [name]      Start a new project (casper new --list shows the kinds)
@@ -80,7 +80,7 @@ Local commands:
   /usage                            Session tokens, cache share and optional catalog cost estimate
   /compact [instructions]           Summarize context using the model (not a local-only command)
   /clear                            New conversation; no file rollback
-  /resume [exact-session-id]        List/resume conversations in the current workspace
+  /resume [id]                      Pick a saved conversation (or give the start of its ID)
   /diff [n|list]                    Task n's changes (default: the last task in this folder), also outside git; list picks one. Before any task in this folder: git status plus tracked diff against HEAD
   /undo [n]                         Put back the files of the last task (or task n); files changed since are left alone
   /redo [n]                         Put an undone task's files back as the task left them
@@ -145,6 +145,7 @@ Local commands:
   /services start|restart|stop <name>  Start (waits for readiness; restarts a stale or crashed one), restart or stop
   /tasks                            What runs in the background, numbered; asks 1 Keep them · 2 Stop 1 ...
   /tasks stop <n>|all               Stop one of them, or all, without the question
+  /pane [on|off]                    The steps split beside Casper in tmux or iTerm2 (120+ columns); saved
   /debug                            Debugger state and .casper/debug.json targets
   /debug start <target>             Start the debugger and your program (asks first, every time)
   /debug breakpoints <path> <lines|clear>  Replace one file's breakpoint lines (first line is 1)
@@ -169,14 +170,14 @@ Unknown slash commands are rejected locally, never sent to a model.
 Shift+Tab cycles auto and the model's supported levels and saves the level it stops at, like /effort. One-off --effort never saves.
 /effort auto lets Casper pick per request: low for reading/explaining/diagrams, medium for tests and configuration, high for fixes, features and refactors, from the model's supported levels.
 Context is estimated and may be unavailable; cost estimates are not subscription billing.
-/clear keeps saved conversations and workspace files. /resume uses exact IDs; /switch uses workspace names.
+/clear keeps saved conversations and workspace files. /resume takes the start of an ID; /switch uses workspace names.
 Esc/Ctrl-C cancel the picker. Plain/redirected terminals list models; use an exact ID to select.
 Restored conversations keep their model; a missing or unavailable model blocks sending.
 Without a restored selection or Casper default, choose with /model; there is no other fallback.
 Switching provider sends the rest of the conversation to that provider.
 The picker refreshes provider catalogs over the network when CASPER_OFFLINE=1 is not set; selection does not generate a model response.
 Provider-defined credential checks may run configured key-resolution commands.
-Keys: Esc stops work. Ctrl-C cancels work; idle, it clears a draft; twice on empty exits. Ctrl+T shows the last step in full (an edit's diff, a command's output). Ctrl+O turns MCP writes off. Ctrl+L redraws the screen. Shift+Enter (when supported) or Ctrl+J inserts a newline; Up/Down recalls history. Tab completes commands and file paths (@). Enter during work keeps your draft; it does not queue a request.
+Keys: Esc stops work. Ctrl-C cancels work; idle, it clears a draft; twice on empty exits. Ctrl+T shows the last step in full (an edit's diff, a command's output). Ctrl+O turns MCP writes off. Ctrl+L redraws the screen. Shift+Enter (when supported) or Ctrl+J inserts a newline; Up/Down recalls history. Tab completes commands and file paths (@). Enter during work sends your line to the AI (it reads it at its next step) or queues it for after the task; Esc gives queued lines back. A queued line never answers an approval.
 Checks: typecheck lint test build (all configured by default; verification.checks selects).
 verification.mode: auto (Casper runs the checks after edits, repairs failures within repair.maxAttempts), offer (the model may use casper_check; the receipt suggests /verify) or off. Unset: auto, except that interactive sessions use offer once the checks are measured at 60 s or more.
 --verify selects auto and --no-verify selects off for one run. Auto skips checks when no files changed, and checks whose declared scope misses every changed file. The receipt says why.

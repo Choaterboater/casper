@@ -197,7 +197,11 @@ export interface RuntimeUsage {
   messages: number;
 }
 
-export interface RuntimeConversation { id: string; name?: string; modified: string; }
+export interface RuntimeConversation {
+  id: string; name?: string; modified: string;
+  /** The first message sent (Casper's wrapper included; see requestOf) and how many messages it has. */
+  firstMessage?: string; messages?: number;
+}
 
 export interface RuntimeState {
   cwd: string;
@@ -228,7 +232,11 @@ export type RuntimeEvent =
   | { type: "assistant_response_start"; provider?: string; model?: string }
   /** `usage` is what the provider reported for this response (the SDK's catalog cost estimate,
    * never an invoice); absent when the runtime has no report. */
-  | { type: "assistant_response_end"; stopReason: string; errorMessage?: string; usage?: { tokens: number; estimatedCost: number } }
+  | { type: "assistant_response_end"; stopReason: string; errorMessage?: string; usage?: { tokens: number; estimatedCost: number };
+      /** A provider error the runtime is about to retry: not the outcome, and not shown as an error. */
+      retrying?: boolean }
+  /** The provider failed and the runtime tries again after `delayMs` (attempt `attempt` of `maxAttempts`). */
+  | { type: "retry"; provider?: string; attempt: number; maxAttempts: number; delayMs: number; errorMessage: string }
   | { type: "assistant_text_delta"; delta: string }
   /** The model is producing something not yet visible: reasoning, or a tool call's arguments
    * (a large `write` body streams for seconds before `tool_start`). `chars` is cumulative for
@@ -284,10 +292,17 @@ export interface RuntimeSession {
   /** `keepUnwritten: false` drops a new conversation that has no saved response yet instead of
    * saving it for /resume (a startup `--resume` has nothing worth keeping). */
   resumeConversation?(id: string, options?: { keepUnwritten?: boolean }): Promise<void>;
+  /** The conversation's last messages with text, oldest first (shown after /resume). */
+  recentTurns?(count: number): Array<{ role: "user" | "assistant"; text: string }>;
   compact?(instructions?: string, signal?: AbortSignal): Promise<void>;
   /** `maxTurns` stops the request gracefully after that many model turns (tools of the last turn
    * still finish) and emits turn_limit; unset means no Casper turn limit. */
   prompt(text: string, signal?: AbortSignal, options?: { request: string; maxTurns?: number }): Promise<void>;
+  /** A line the user typed while the model works: the model reads it at its next step. False, with nothing sent,
+   * when no prompt is running (the caller keeps it as the next request). */
+  steer?(text: string): Promise<boolean>;
+  /** Lines steered in that the model never read (the run ended first); they are taken out of the runtime. */
+  takeUnsent?(): string[];
   abort(): Promise<void>;
   subscribe(listener: RuntimeEventListener): () => void;
   getState(): RuntimeState;

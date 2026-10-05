@@ -18,7 +18,8 @@ import { serviceTool } from "./services/tool";
 import { detectWebService, isDetectedWebService } from "./services/detect";
 import { formatPagesNotChecked, formatSkippedPage, PageChecks, pageOpener, planPageCheck, type DevServerNotice, type PageCheckPlan, type PageOpener, type PageReport } from "./services/page-checks";
 import { formatTerminalJSON } from "./tui/json";
-import { InteractiveTerminal, type TerminalHost } from "./tui/terminal";
+import { InteractiveTerminal, PANE_MIN_COLUMNS, type TerminalHost } from "./tui/terminal";
+import { readPaneSetting, savePaneSetting, type PaneSetting } from "./tui/pane-setting";
 import { askTool } from "./tui/ask";
 import { sessionTitle, windowTitle } from "./tui/session-title";
 import { DISPLAY_LEVELS, nextDisplay, type DisplayLevel } from "./tui/display";
@@ -110,7 +111,8 @@ import { systemPromptAppend } from "./app/prompt";
 import type { VisualizationProvider } from "./visualize/types";
 import { SessionWorkspaceManager, type ReturnAction } from "./sessions/manager";
 import { runLogin, runSlashCommand, type OutputWriter } from "./app/commands";
-import type { BackgroundTask } from "./app/background";
+import { runTasksCommand, type BackgroundTask } from "./app/background";
+import { runsDuringWork } from "./tui/commands";
 import { detectHostTerminal } from "./tui/host-terminal";
 import { NEW_USAGE, parseNewArgs, UsageError } from "./cli-args";
 import { checkEvent, phaseEvent, RuntimeEventMapper, sessionStartEvent, type CasperEvent, type PhaseEvent } from "./app/json-events";
@@ -270,6 +272,12 @@ export class CasperApp {
   session?: RuntimeSession;
   /** A request typed at a startup question: the first request of the session. */
   private queuedPrompt?: string;
+  /** /pane on|off as saved; undefined until something was saved. */
+  private paneSetting?: PaneSetting;
+  private paneAsked = false;
+  /** Lines typed during a task that the AI could not read then: each runs as the next request, in order. They live
+   * here, never in the prompt editor, so no queued line can ever answer an approval box. */
+  private readonly queuedLines: string[] = [];
   /** /details for this session; unset follows display: in the config. */
   private displayChoice?: DisplayLevel;
   closing = false;
@@ -458,7 +466,7 @@ export class CasperApp {
     this.terminal = new InteractiveTerminal(this.input, options.output ?? process.stdout,
       () => this.cancelCurrent(), () => { if (this.commandActive && !this.closing) void this.close().catch(() => {}); }, host);
     this.terminal.setEffortCycle(() => this.cycleEffort());
-    this.terminal.setBusySubmit((line) => this.submitDuringWork(line));
+    this.terminal.setBusySubmit((line, plain) => this.submitDuringWork(line, plain));
     // ctrl+o: MCP writes off everywhere, at once, even while work runs.
     this.terminal.setWritesRevert(() => this.revertWrites());
     // ctrl+t: the last step in full, even while work runs.
@@ -770,18 +778,20 @@ export class CasperApp {
 
     this.savedModelDisplay = await modelPreference(this.sessionHomeDir ?? os.homedir());
     await this.checkSignIn();
+    await this.loadPaneSetting();
     this.updateFooter();
     while (!this.closing) {
       this.cancelBeforeCommand = false;
       this.updateFooter();
       // A request typed at the empty-folder question runs first, as if typed at the prompt.
-      const queued = this.queuedPrompt;
+      const queued = this.queuedPrompt ?? this.queuedLines.shift();
       this.queuedPrompt = undefined;
-      if (queued) this.events.writePrompt(queued);
+      // A queued line is a request of its own: the last receipt's row no longer applies.
+      if (queued) { this.terminal.offerNext(undefined); this.events.writePrompt(queued); }
       const line = queued ?? await this.terminal.readCommand();
       if (line === undefined) break;
       if (this.cancelBeforeCommand) {
-        this.output.write("[cancel] Request cancelled before startup.\n");
+        this.output.write("[cancel] Stopped before it started; nothing ran.\n");
         continue;
       }
       const prompt = line.trim();
@@ -794,13 +804,17 @@ export class CasperApp {
         break;
       }
 
-      try { await this.handlePrompt(prompt); }
+      try {
+        if (!prompt.startsWith("/")) await this.askPaneOnce();
+        await this.handlePrompt(prompt);
+      }
       catch (error) {
         if (this.closing) break;
         this.events.ensureLineBreak();
         const message = error instanceof Error ? error.message : String(error);
         if (!this.commandAbort?.signal.aborted && this.events.lastError !== message) this.events.showError(message);
       }
+      this.settleQueuedLines();
     }
     this.terminal.close();
     this.interactive = false;
@@ -848,7 +862,7 @@ export class CasperApp {
     this.verificationAbort?.abort(); this.checkTask?.abort(); this.visualizationAbort?.abort();
     void this.session?.abort().catch(() => {});
     this.terminal.endAssistant();
-    this.output.write("[cancel] Cancelling active work; changes already made are retained.\n");
+    this.output.write("[cancel] Stopping. Changes made so far stay as they are.\n");
   }
 
   /** A session (never a one-shot run) says when a newer Casper is out, from the last check, then checks again in the
@@ -1096,6 +1110,7 @@ export class CasperApp {
 
   /** Local command dispatch moved to app/commands.ts; the app is the command host. */
   private handleSlashCommand(prompt: string): Promise<VerificationReport | undefined> {
+    if (/^\/pane(?:\s|$)/.test(prompt)) return this.paneCommand(prompt.slice(5).trim()).then(() => undefined);
     if (/^\/details(?:\s|$)/.test(prompt)) return this.detailsCommand(prompt.slice(8).trim()).then(() => undefined);
     if (prompt.trim() === "/settings") return this.settingsCommand().then(() => undefined);
     if (/^\/new(?:\s|$)/.test(prompt)) return this.newProjectCommand(prompt.slice(4).trim()).then(() => undefined);
@@ -3111,20 +3126,62 @@ export class CasperApp {
     this.events.writePrompt(prompt);
   }
 
-  /** Enter while a task runs (rich terminal). Commands that only show something, and /effort <level>, run now;
-   * anything else keeps its draft with the reason. Nothing is queued to run after the task. */
-  private submitDuringWork(line: string): true | string {
+  /** After a task: lines the AI never read join the queue. A stopped task runs nothing more: its queued lines go
+   * back into the prompt (the rich terminal) for you to send or clear. */
+  private settleQueuedLines(): void {
+    let unsent: string[] = [];
+    try { unsent = this.session?.takeUnsent?.() ?? []; } catch { /* nothing left to take */ }
+    this.queuedLines.unshift(...unsent);
+    if (!this.queuedLines.length || !this.commandAbort?.signal.aborted || this.closing) return;
+    const lines = this.queuedLines.splice(0);
+    const count = `${lines.length} queued line${lines.length === 1 ? "" : "s"}`;
+    if (this.terminal.restoreDraft(lines.join("\n"))) this.output.write(`[cancel] Your ${count} ${lines.length === 1 ? "is" : "are"} back in the prompt; Enter sends ${lines.length === 1 ? "it" : "them"}.\n`);
+    else this.output.write(`[cancel] Dropped your ${count}; type ${lines.length === 1 ? "it" : "them"} again to send.\n`);
+  }
+
+  /** Enter while a task runs. Commands that only show something, and /effort, run now; other commands keep their
+   * draft with the reason. Anything else goes to the AI: it reads the line at its next step, or, when it is not working
+   * right now (checks, a receipt), the line is queued and runs as the next request. */
+  private submitDuringWork(line: string, plain = false): true | string {
     if (this.closing) return "Casper is closing";
     // No task yet: Casper is still opening a folder or project. Nothing is loaded to show, so the line waits.
     if (!this.commandActive || !this.projectContext) return "draft kept · Enter again once Casper has opened the project";
-    if (/^\/(?:help(?: \S.*)?|status|usage|context|permissions)$/.test(line)) {
-      void runSlashCommand(this, line).catch((error) => { this.output.write(`[error] ${terminalText(error instanceof Error ? error.message : String(error))}\n`); });
+    if (runsDuringWork(line)) {
+      const effort = /^\/effort\s+(\S+)(?:\s+(--session))?$/.exec(line);
+      if (effort) { void this.setEffortDuringWork(effort[1]!, !effort[2]); return true; }
+      const failed = (error: unknown) => { this.output.write(`[error] ${terminalText(error instanceof Error ? error.message : String(error))}\n`); };
+      if (line === "/tasks") {
+        void runTasksCommand({ tasks: () => this.backgroundTasks(), write: text => this.output.write(text), canAsk: () => false,
+          pick: async () => undefined, duringWork: true }).catch(failed);
+        return true;
+      }
+      // A picker would sit in the way of any approval the task asks; the list prints instead.
+      if (/^\/diff\s+list$/.test(line)) {
+        void this.taskUndo.diff("list", undefined, true).catch(failed);
+        return true;
+      }
+      void this.handleSlashCommand(line).catch(failed);
       return true;
     }
-    const effort = /^\/effort\s+(\S+)(?:\s+(--session))?$/.exec(line);
-    if (effort) { void this.setEffortDuringWork(effort[1]!, !effort[2]); return true; }
-    if (line.startsWith("/")) return `${terminalText(line.split(/\s+/)[0]!)} waits until this task ends · draft kept`;
-    return "draft kept · Enter again when this task ends";
+    if (line.startsWith("/")) return `${terminalText(line.split(/\s+/)[0]!)} waits until this task ends${plain ? "; type it again then" : " · draft kept"}`;
+    void this.steerOrQueue(line);
+    return true;
+  }
+
+  private async steerOrQueue(line: string): Promise<void> {
+    let sent = false;
+    try { sent = await this.session?.steer?.(line) ?? false; } catch { sent = false; }
+    if (this.closing) return;
+    if (sent) { this.output.write("  ↳ sent to the AI · it reads this at its next step\n"); return; }
+    // The task ended while Casper asked the AI: nothing would run the queue now, so the line goes back in the prompt.
+    if (!this.commandActive) {
+      if (this.terminal.restoreDraft(line)) this.output.write("  ↳ the task had just ended · your line is back in the prompt\n");
+      else this.output.write("  ↳ the task had just ended · type it again to send it\n");
+      return;
+    }
+    this.queuedLines.push(line);
+    const waiting = this.queuedLines.length;
+    this.output.write(`  ↳ queued · runs when this task ends${waiting > 1 ? ` (${waiting} waiting)` : ""} · Esc stops the task and gives it back\n`);
   }
 
   /** /effort <level> during a task: the model's next step uses it; the step already running keeps its level. */
@@ -3240,6 +3297,52 @@ export class CasperApp {
   /** How much of the work shows: /details for this session, else display: in your config, else normal. */
   private displayLevel(): DisplayLevel { return this.displayChoice ?? this.projectContext?.display ?? "normal"; }
 
+  /** The saved /pane setting. Inside tmux the pane is on unless turned off; iTerm2 waits for its one question. */
+  private async loadPaneSetting(): Promise<void> {
+    this.paneSetting = await readPaneSetting(this.homeDir());
+    const where = this.terminal.paneHost;
+    this.terminal.setPane(this.paneSetting ?? (where === "iterm" ? "off" : "on"));
+  }
+
+  /** iTerm2, nothing saved yet: one numbered question before the first task (1 keeps one window). The answer is saved;
+   * Esc asks again next session. Splitting iTerm2 goes through its scripting, which macOS may ask you to allow. */
+  private async askPaneOnce(): Promise<void> {
+    if (this.paneAsked || this.paneSetting !== undefined || this.terminal.paneHost !== "iterm" || !this.terminal.canAsk || this.closing) return;
+    this.paneAsked = true;
+    const yes = "Yes, split when the window is wide";
+    const picked = await this.terminal.pick("Show Casper's steps in a split beside this window? (iTerm2 may ask once to let Casper control it.)", [
+      { label: "No, keep one window", description: "steps show in the Working box; /pane on turns the split on later" },
+      { label: yes, description: `${PANE_MIN_COLUMNS}+ columns; /pane off turns it off` },
+    ]);
+    if (picked === undefined || this.closing) return;
+    await this.savePane(picked === yes ? "on" : "off");
+  }
+
+  private async savePane(setting: PaneSetting): Promise<void> {
+    this.paneSetting = setting;
+    this.terminal.setPane(setting);
+    try { await savePaneSetting(this.homeDir(), setting); }
+    catch (error) { this.output.write(`[pane] Not saved (${terminalText(error instanceof Error ? error.message : String(error))}); it holds for this session.\n`); }
+  }
+
+  /** /pane, /pane on, /pane off (saved in ~/.casper/pane.json). */
+  private async paneCommand(argument: string): Promise<void> {
+    if (argument && argument !== "on" && argument !== "off") throw new Error("Usage: /pane | /pane on | /pane off");
+    const where = this.terminal.paneHost;
+    const place = where === "tmux" ? "tmux" : where === "iterm" ? "iTerm2" : undefined;
+    if (!argument) {
+      const on = (this.paneSetting ?? (where === "iterm" ? undefined : "on")) === "on";
+      this.output.write(place
+        ? `[pane] ${on ? "On" : "Off"}: ${on ? `Casper's steps show in a ${place} split beside this window when it is ${PANE_MIN_COLUMNS}+ columns wide` : "steps show in the Working box"}. /pane ${on ? "off" : "on"} switches it (saved).\n`
+        : `[pane] The steps split works inside tmux or iTerm2 on a Mac; here steps show in the Working box. Saved setting: ${this.paneSetting ?? "on"}.\n`);
+      return;
+    }
+    await this.savePane(argument as PaneSetting);
+    this.output.write(argument === "on"
+      ? `[pane] On: Casper's steps show in a split beside this window when it is ${PANE_MIN_COLUMNS}+ columns wide${place ? "" : " (inside tmux or iTerm2)"}; saved.\n`
+      : "[pane] Off: steps show in the Working box; saved. /pane on turns the split back on.\n");
+  }
+
   /** /details [quiet|normal|detailed] [--session]: no word goes to the next level. Remembered like /effort (display:
    * in ~/.casper/config.yaml, written for you); --session keeps it to this session. */
   private async detailsCommand(argument: string): Promise<void> {
@@ -3249,7 +3352,7 @@ export class CasperApp {
     this.displayChoice = (level as DisplayLevel) || nextDisplay(this.displayLevel());
     const words: Record<DisplayLevel, string> = {
       quiet: "the model's words, failures and receipts",
-      normal: "steps fold into one summary line",
+      normal: "steps fold into one summary line, with the changed files under it",
       detailed: "every step, with a small diff under each edit",
     };
     let saved = false;

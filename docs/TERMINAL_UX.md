@@ -12,7 +12,7 @@ Casper, `/help <word>` only the lines that mention a word (`/help mcp`), and
 
 | Key | What it does |
 | --- | --- |
-| Enter | Send the request (during work, keeps your draft; nothing is queued) |
+| Enter | Send the request (during work: the AI reads it at its next step, or it is queued for after the task) |
 | Shift+Enter or Ctrl+J | New line in the prompt (Shift+Enter only where the terminal supports it) |
 | Up / Down | Earlier prompts from this session |
 | `/` | Command list with fuzzy search; Tab completes |
@@ -41,7 +41,7 @@ over the network, and `/references add` downloads files after asking you.
 | `/context`, `/usage` | Context estimate; session tokens and estimated cost |
 | `/compact [instructions]` | Summarize the conversation (**makes a model request**) |
 | `/clear` | Start a fresh conversation; files and saved conversations stay |
-| `/resume [id]` | List saved conversations in this folder, or reopen one |
+| `/resume [id]` | Pick a saved conversation from a numbered list, or go back to one (the start of its ID is enough) |
 | `/diff [n\|list]` | The last task's changes (also outside git), task n's, or a list to pick from; before any task, git's view |
 | `/undo [n]`, `/redo [n]` | Put the last task's (or task n's) files back, or back again (no model; [UNDO.md](UNDO.md)) |
 | `/new [name]` | Start a new project in ~/Projects (no model; [NEW.md](NEW.md)) |
@@ -63,6 +63,7 @@ over the network, and `/references add` downloads files after asking you.
 | `/browser` | A disposable browser; screenshots ([BROWSER.md](BROWSER.md)) |
 | `/services` | Dev servers the project declares ([SERVICES.md](SERVICES.md)) |
 | `/tasks [stop <n>\|all]` | What runs in the background; stop one |
+| `/pane [on\|off]` | The steps split beside Casper inside tmux or iTerm2 (only on a window 120+ columns wide); saved for every session. See [TMUX.md](TMUX.md) |
 | `/debug` | The local debugger ([DEBUGGER.md](DEBUGGER.md)) |
 | `/tree`, `/branch <name>`, `/switch <name>` | Named conversations, each with its own workspace ([SESSIONS.md](SESSIONS.md)) |
 | `/memory` | Project facts you saved, and task outcomes ([MEMORY.md](MEMORY.md)) |
@@ -102,9 +103,12 @@ Transcript lines are inline, not boxed: `✓`/`✗`/`•` tool lines, `[model]`,
 `[approval]`, `[task]` and similar bracketed notices, and the `❯ …` echo of each
 prompt. Green marks success, red an error, amber a notice or decision, cyan the
 accent (banner, prompt echo, Markdown structure), dim the muted status lines.
-Bordered panels (`src/tui/presentation.ts`) are used for code-like output and
-live work status: every fenced block in an assistant message is boxed and titled
-with its language, `/output` replays a tool result in a box, `/diff` boxes `git status` and
+A fenced block in an assistant message copies clean: a title line with its language
+(`── ts ────`), then the code exactly as written with no side border and no indent, then a
+closing rule. A line wider than the window is cut at the edge only (no character added or
+dropped), so a mouse copy of switch config picks up no `│` characters.
+Bordered panels (`src/tui/presentation.ts`) are used for other code-like output and
+live work status: `/output` replays a tool result in a box, `/diff` boxes `git status` and
 the colored unified diff, a failed check boxes the tail of its stderr and stdout
 (last 40 lines; the full output stays in the evidence), and exclusive input flows such as `/login` use them.
 Prose, notices and tool lines stay inline. Panels span the terminal's current width, like
@@ -138,7 +142,8 @@ On a rich terminal the main screen keeps the model's words, questions and receip
 in a transient `Working` box that shows the last 3 steps, each updated in place (`• read · src/x.ts`
 while it runs, `✓ read · src/x.ts` once done), even with calls running side by side. When the model
 moves on (its next words, or the end of its turn), the finished steps fold into one line:
-`✓ 14 edits · 6 commands · 38s` (`•` instead of `✓` when a step failed); a single step prints its own line. A failed command
+`✓ 14 edits · 6 commands · 38s` (`•` instead of `✓` when a step failed), with the changed files on one line under
+it (`  changed app.py, tests/test_app.py`, five at most, then `+N more`); a single step prints its own line. A failed command
 prints its line and cause above the summary; a failed edit the model tried again at once is counted,
 not printed. `/output all` lists every call of the last task on its own line. A command Casper refused before it ran (a private place such as `~/.ssh`, another machine
 you said No to, or one a script run can't ask about) is not a failure: it reads
@@ -371,15 +376,25 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   empty editor the first Ctrl+C only shows `Ctrl-C again to exit`; a second within two
   seconds exits, any other key disarms it. Ctrl+D exits an empty editor at once.
   Ctrl+L forces a redraw.
-- Enter during work runs a command that only shows something (`/help`, `/status`, `/usage`,
-  `/context`, `/permissions`) or `/effort <level>` at once. Anything else keeps its draft and
-  says why (`/undo waits until this task ends · draft kept`); it never queues an automatic
-  next request.
+- Enter during work runs a command that only shows something at once: `/help`, `/status`,
+  `/usage`, `/context`, `/permissions`, `/diff`, `/receipt`, `/output`, `/tasks` (and
+  `/tasks stop <n>`), `/details`, `/mcp`, `/lsp`, `/skills`, `/sandbox`, `/secrets`, `/tree`,
+  `/project`, and `/effort` (a bare `/effort` opens its picker; an approval that arrives closes
+  it first). Typing `/` keeps the command menu; the commands that must wait are dimmed and say
+  `waits for this task`. Any other command keeps its draft and says why for a moment
+  (`/undo waits until this task ends · draft kept`).
+- Anything else you type during work goes to the AI. While the model is working it reads the
+  line at its next step (`↳ sent to the AI · it reads this at its next step`); while Casper
+  runs checks or writes the receipt, the line is queued and runs as the next request
+  (`↳ queued · runs when this task ends`). A line the AI never got to read runs next too. Esc
+  stops the task and puts queued lines back in the prompt instead of running them. Queued
+  lines live outside the prompt, so a queued line never answers an approval box.
   Pickers borrow exclusive input ownership; pretyped text cannot answer a later
   exact approval. NO_COLOR keeps input controls, while TERM=dumb/redirected output
   uses plain line input and retains existing fail-closed cooked-terminal approval.
   Plain lines that arrive before the first prompt (a fast typist, or a pipe) are
-  read in order once Casper starts reading; lines typed during work are dropped.
+  read in order once Casper starts reading. On a plain terminal, lines a person types during
+  work go to the AI or the queue as above; piped lines that arrive during work are dropped.
 
 Daily commands include `/help`, `/status`, `/project`, `/diff`, `/verify`, `/skills`,
 `/mcp`, `/lsp`, `/browser`, `/permissions`, `/model`, `/effort` and:
@@ -390,8 +405,8 @@ Daily commands include `/help`, `/status`, `/project`, `/diff`, `/verify`, `/ski
 | `/usage` | Tokens split into out, new and cached plus the raw counts; catalog cost estimate for the whole session, or the subscription name with the pay-per-token figure; not billing |
 | `/compact [instructions]` | Explicit cancellable model-assisted summary; **can make a model request** |
 | `/clear` | Fresh saved conversation; files stay as they are (`/undo` puts a task's files back); the earlier conversation stays resumable |
-| `/resume` | List saved conversation IDs in this workspace |
-| `/resume <exact-id>` | Restore one of those conversations, keeping named workspace linkage consistent |
+| `/resume` | Pick a saved conversation from a numbered list (title · when · messages; 1 stays here); then the last few turns show |
+| `/resume <id>` | Go back to that conversation; the first few characters of its ID are enough |
 | `/tree`, `/switch <name>` | Existing named-workspace navigation and its approval policy |
 | `/output [n]` | Full command and output of the last task's n-th most recent tool call (1 = latest; 20 retained per task); out-of-range n is a usage error |
 
@@ -437,8 +452,10 @@ surface, not live-model usefulness or human visual sign-off.
 macOS terminal behavior is exercised with real PTYs. Windows and Linux need host
 runs; exhaustive terminal compatibility is not claimed. Conversation/token storage
 is not automatically redacted. `/undo` puts back the files a task changed (see
-[UNDO.md](UNDO.md)); there is no automatic shell shortcut, queued prompt execution
-or enforced permission-mode selector.
+[UNDO.md](UNDO.md)); there is no automatic shell shortcut or enforced permission-mode
+selector. A line typed during a task steers the AI at its next step or waits in the
+queue and runs when the task ends (see Current interface above); Esc gives queued
+lines back to the prompt.
 
 ## Design references and reuse
 

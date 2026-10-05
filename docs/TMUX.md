@@ -1,12 +1,14 @@
 # tmux and iTerm2
 
-This is automatic. There is nothing to turn on and nothing to set. Casper never starts tmux itself;
-it only notices when you already run it inside tmux (or in iTerm2) and fits itself to it.
+This is automatic inside tmux: there is nothing to turn on. Casper never starts tmux itself; it only
+notices when you already run it inside tmux (or in iTerm2) and fits itself to it. `/pane off` turns the
+side pane off and `/pane on` back on; the choice is saved (in `~/.casper/pane.json`) for every session.
 
 ## What Casper does inside tmux
 
 - **Side pane for the busy steps.** On the first step of a task Casper opens one pane to the right of
-  its own. It shows each command and file step as it runs, and what the helpers (`delegate`) are
+  its own, when the window is at least 120 columns wide (a split halves it; a narrow window keeps the
+  Working box, and the pane opens on a later step once the window is wide). It shows each command and file step as it runs, and what the helpers (`delegate`) are
   doing. The main screen keeps the AI's words, its questions and the receipt.
 - **View only.** The pane shows a log that only Casper writes. tmux input is off for that pane, so
   nothing typed there (by you or by the AI) goes anywhere. Casper never sends keys to any pane.
@@ -29,9 +31,17 @@ Outside tmux the steps stay in the small Working box above the prompt, as before
 
 ## iTerm2 without tmux
 
-On a Mac in iTerm2, Casper opens the same view-only pane as a split next to its own session, through
-iTerm2's own scripting. The first time, macOS may ask whether your terminal may control iTerm2.
-If you say no, Casper keeps the Working box instead.
+On a Mac in iTerm2, Casper can open the same view-only pane as a split next to its own session, through
+iTerm2's own scripting. It asks once, before your first task:
+
+```
+Show Casper's steps in a split beside this window? (iTerm2 may ask once to let Casper control it.)
+  1 No, keep one window
+  2 Yes, split when the window is wide
+```
+
+The answer is saved; `/pane on` or `/pane off` changes it later. With a split, macOS may ask the first
+time whether your terminal may control iTerm2. If you say no there, Casper keeps the Working box.
 
 ## After a dropped SSH
 

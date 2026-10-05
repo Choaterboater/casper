@@ -50,6 +50,7 @@ import { TOOL_CALL_LIMIT, type TaskObservations } from "../task/observations";
 import { formatTaskResult, NO_CHECKS_FOUND, type TaskResult } from "../task/result";
 import { UndoStore } from "../task/undo";
 import { tildePath } from "../new/scaffold";
+import { conversationLabel, matchConversation, recentTurnLines } from "../sessions/resume";
 import { readFile, stat } from "node:fs/promises";
 import type { SessionWorkspaceManager } from "../sessions/manager";
 import { formatProjectContext } from "../project/context";
@@ -156,6 +157,9 @@ export interface CommandHost {
   backgroundTasks(): BackgroundTask[];
 }
 
+/** The first, safe choice of the /resume picker. */
+export const STAY_HERE = "Stay in this conversation";
+
 export const VERIFY_USAGE = "Usage: /verify [repair] [typecheck|lint|test|build|<named check> ...] | /verify add <found check>";
 
 export async function runSlashCommand(host: CommandHost, prompt: string): Promise<VerificationReport | undefined> {
@@ -229,10 +233,13 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       let choice = args[0] ? { level: args[0], persist: args[1] !== "--session" } : undefined;
       const status = session.getStatus?.();
       if (!choice) {
-        const picker = host.interactive ? host.terminal.exclusiveHost() : undefined;
+        // During a task an approval or question can arrive while the picker is open: the picker gives way to it.
+        const yielded = new AbortController();
+        const picker = host.interactive ? host.terminal.exclusiveHost({ onYield: () => yielded.abort() }) : undefined;
         if (picker && session.setEffort && status?.model) {
           const levels = effortChoices(status.availableThinkingLevels);
-          choice = await picker.mount(view => pickEffort(view, levels, status.configuredEffort ?? status.thinkingLevel, host.commandAbort?.signal));
+          const signal = host.commandAbort ? AbortSignal.any([yielded.signal, host.commandAbort.signal]) : yielded.signal;
+          choice = await picker.mount(view => pickEffort(view, levels, status.configuredEffort ?? status.thinkingLevel, signal));
           if (!choice) return;
         } else if (!status?.model) { host.output.write("Effort: no model selected. Use /model first; levels depend on the model.\n"); return; }
         else {
@@ -293,13 +300,38 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
     if (prompt === "/clear" || /^\/resume(?:\s|$)/.test(prompt)) {
       if (host.subagents.isBusy) throw new Error("Wait for active subagents before changing conversations.");
       const session = await host.ensureRuntime();
-      const id = prompt.slice(7).trim();
-      if (prompt === "/resume") {
-        if (!session.listConversations) throw new Error("This runtime does not support conversation listing. Use /tree and /switch for named workspaces.");
-        const saved = await session.listConversations();
-        host.output.write(saved.length ? saved.map(item => `${item.id}  ${item.name ?? "(unnamed)"}  ${item.modified}`).join("\n") + "\n" : "No saved conversations in this workspace.\n");
-        host.output.write("Use /resume <exact-id>; /tree and /switch manage named workspaces.\n");
-        return;
+      let id = prompt.slice(7).trim();
+      let title: string | undefined;
+      if (prompt !== "/clear") {
+        if (!session.listConversations) {
+          if (!id) throw new Error("This runtime does not support conversation listing. Use /tree and /switch for named workspaces.");
+        } else {
+          let current: string | undefined;
+          try { current = session.getSessionInfo?.().sessionId; } catch { current = undefined; }
+          const saved = (await session.listConversations()).filter(item => item.id !== current);
+          if (id) { const match = matchConversation(saved, id); id = match.id; title = conversationLabel(match).title; }
+          else if (!saved.length) { host.output.write("No other saved conversations in this folder.\n"); return; }
+          else if (host.interactive && host.terminal.canAsk) {
+            // A numbered picker, newest first; 1 stays here. Older ones are still there by ID.
+            const shown = saved.slice(0, 8).map(item => ({ item, ...conversationLabel(item) }));
+            const seen = new Set<string>();
+            const options = shown.map(entry => {
+              const label = seen.has(entry.title) ? `${entry.title} (${entry.item.id.slice(0, 8)})` : entry.title;
+              seen.add(entry.title);
+              return { label, description: entry.detail };
+            });
+            if (saved.length > shown.length) host.output.write(`${saved.length - shown.length} older conversation(s) not shown: /resume <id> opens one.\n`);
+            const picked = await host.terminal.pick("Resume which conversation?",
+              [{ label: STAY_HERE, description: "nothing changes" }, ...options], host.commandAbort?.signal);
+            const index = options.findIndex(option => option.label === picked);
+            if (index === -1) { host.output.write("[session] Staying in this conversation.\n"); return; }
+            id = shown[index]!.item.id; title = shown[index]!.title;
+          } else {
+            host.output.write(saved.map(item => { const label = conversationLabel(item); return `${item.id}  ${label.title} · ${label.detail}`; }).join("\n") + "\n");
+            host.output.write("Use /resume <id> (its first few characters are enough); /tree and /switch manage named workspaces.\n");
+            return;
+          }
+        }
       }
       await host.browser?.close(); host.browser = undefined;
       // Services belong to the conversation that started them.
@@ -316,8 +348,12 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       }
       host.lastTaskRequest = undefined;
       await (await host.ensureSessionWorkspace()).rememberConversation(session);
-      host.output.write(`[session] ${prompt === "/clear" ? "Fresh conversation started" : "Conversation resumed"}; workspace files unchanged. Previous conversations remain available through /resume.\n`);
+      host.output.write(prompt === "/clear"
+        ? "[session] New conversation. Your files are not changed; /resume brings the last one back.\n"
+        : `[session] Back in ${title ? `"${terminalText(title)}"` : "that conversation"}. Your files are not changed; /resume lists the others.\n`);
       host.output.write(`${formatRuntimeStatus(session.getStatus?.())}\n`);
+      const turns = prompt === "/clear" ? [] : recentTurnLines(session.recentTurns?.(12) ?? []);
+      if (turns.length) host.output.write(`Last turns:\n${turns.map(line => terminalText(line)).join("\n")}\n`);
       return;
     }
     if (prompt === "/diff") {
