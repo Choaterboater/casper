@@ -18,7 +18,7 @@ Type a request and press Enter (during a task it steers the AI or waits in the q
   /resume, /clear        Pick up a saved conversation, or start a fresh one
   /settings              Turn web lookups, spend notes and other switches on or off by number
   /help <word>           Search the help; /help all shows everything
-Ctrl+T shows the last step in full. Ctrl+C twice on an empty line exits. Approvals always need a fresh yes from you.
+Ctrl+T shows the last step in full. Ctrl+V pastes a picture. Ctrl+C twice on an empty line exits. Approvals always need a fresh yes from you.
 `;
 
 export const LOGIN_HELP = `Sign-in needs an interactive terminal. Run casper and type /login.
