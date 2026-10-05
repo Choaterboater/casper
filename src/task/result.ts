@@ -348,7 +348,7 @@ export function formatShortReceipt(task: TaskResult, options: ReceiptOptions = {
   const parts = body.filter(folded).sort((a, b) => rank(a) - rank(b)).map((line) => folds.get(line)!).filter(Boolean);
   // All well: one line. Otherwise the verdict says what is wrong, and what went well shares one line under it.
   // Check names stay as typed: "✓ test passed", never "Test".
-  const head = short !== undefined ? [[short, ...parts].join(" · ")] : [verdict!, ...(parts.length ? [`✓ ${parts.join(" · ")}`] : [])];
+  const head = short !== undefined ? [[short, ...parts].join(" · ")] : [verdict, ...(parts.length ? [`✓ ${parts.join(" · ")}`] : [])];
   const safe = lineText;
   // The problems come right after the verdict; the checklist's line follows them.
   return [...head, ...body.filter((line) => !folded(line)), ...checklistLines(task, safe), ...undo].join("\n");

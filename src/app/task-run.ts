@@ -295,7 +295,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
         }
         if (proving && verification.status === "pass" && changedCode) {
           const initialReview = parseChecklist(app.lastAnswer);
-          ({ verification, proof, review } = await finishChange(app, { baseline, baselineUnavailable, before: before!, root: workspaceRoot,
+          ({ verification, proof, review } = await finishChange(app, { baseline, baselineUnavailable, before, root: workspaceRoot,
             command: testCommand!, request: prompt, checks: autoChecks.run, verification, session, initialReview }));
         }
         // Not tied to the proof: any code change whose checks pass (server tasks and configure requests too).

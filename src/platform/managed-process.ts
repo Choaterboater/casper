@@ -199,7 +199,7 @@ export class ManagedProcess {
         this.logMatched = typeof ready.log === "string" ? window.includes(ready.log) : unanchored(ready.log).test(window);
       }
     };
-    child.stdout!.on("data", retain); child.stderr!.on("data", retain);
+    child.stdout.on("data", retain); child.stderr.on("data", retain);
     let failed = false;
     child.on("error", () => { failed = true; });
     child.once("exit", (code, exitSignal) => {

@@ -120,8 +120,8 @@ export function isPlanningCommand(command: string, shell: "bash" | "powershell" 
   if (!parts) return false;
   return parts.every(([name, ...args]) => {
     // PowerShell runs anything in brackets inside an argument, `gci (Remove-Item x)`, and @ splats.
-    if (shell === "powershell") return POWERSHELL_COMMANDS.has(name!.toLowerCase()) && !/[(){}[\]@]/.test(command);
-    const check = Object.hasOwn(BASH_COMMANDS, name!) ? BASH_COMMANDS[name!] : undefined;
+    if (shell === "powershell") return POWERSHELL_COMMANDS.has(name.toLowerCase()) && !/[(){}[\]@]/.test(command);
+    const check = Object.hasOwn(BASH_COMMANDS, name) ? BASH_COMMANDS[name] : undefined;
     return Boolean(check?.(args));
   });
 }
@@ -137,7 +137,7 @@ export function leavesLocalFilesAlone(command: string, home = os.homedir()): boo
   const parts = segments(command);
   if (!parts) return false;
   const lookOnly = parts.every(([name, ...args]) => name === "ssh" ? sshOnly(args)
-    : Boolean((Object.hasOwn(BASH_COMMANDS, name!) ? BASH_COMMANDS[name!] : undefined)?.(args)));
+    : Boolean((Object.hasOwn(BASH_COMMANDS, name) ? BASH_COMMANDS[name] : undefined)?.(args)));
   // ssh 127.0.0.1 (or localhost, or an alias for this machine) runs its command on this machine's files.
   return lookOnly && !(parts.some(([name]) => name === "ssh") && remoteTargets(command, home).some((target) => isThisMachine(target.host)));
 }

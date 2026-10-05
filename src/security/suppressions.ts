@@ -427,7 +427,7 @@ export function configIgnores(files: ReadonlyArray<IgnoreFile & { text: string }
       if (!tables || tables === "unreadable") continue;
       const parsed = JSON.parse(tables) as { bandit: { skips?: unknown } | null; ignore: unknown; extendIgnore: unknown; perFile: unknown; extendPerFile: unknown };
       const codes = new Set<string>();
-      for (const code of Array.isArray(parsed.bandit?.skips) ? parsed.bandit!.skips as unknown[] : []) if (typeof code === "string" && /^B\d{3}$/i.test(code)) codes.add(`S${code.slice(1)}`);
+      for (const code of Array.isArray(parsed.bandit?.skips) ? parsed.bandit.skips as unknown[] : []) if (typeof code === "string" && /^B\d{3}$/i.test(code)) codes.add(`S${code.slice(1)}`);
       for (const list of [parsed.ignore, parsed.extendIgnore]) for (const code of Array.isArray(list) ? list : []) if (typeof code === "string") codes.add(code.toUpperCase());
       const covered = (rule: string, list: Iterable<string>) => [...list].some((code) => code === "S" || code === "ALL" || rule === code || (code.length < rule.length && rule.startsWith(code) && /^S\d*$/.test(code)));
       if (codes.size) ignores.push({ file: entry.file, covers: (finding) => finding.tool === "ruff" && covered(finding.rule, codes) });

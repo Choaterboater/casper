@@ -468,7 +468,7 @@ export class PiModels {
       ...openRouterRequestHeaders(model) });
     const usage = response.usage;
     const cost = usage?.cost?.total;
-    const reported = usage && Number.isFinite(usage.totalTokens) ? { tokens: usage.totalTokens, estimatedCost: Number.isFinite(cost) && cost! >= 0 ? cost! : 0 } : null;
+    const reported = usage && Number.isFinite(usage.totalTokens) ? { tokens: usage.totalTokens, estimatedCost: Number.isFinite(cost) && cost >= 0 ? cost : 0 } : null;
     if (response.stopReason === "error" || response.stopReason === "aborted") return { text: "", error: response.errorMessage ?? response.stopReason, usage: reported };
     return { text: response.content.filter((part) => part.type === "text").map((part) => part.text).join(""), usage: reported };
   }

@@ -146,7 +146,7 @@ export class InteractiveTerminal {
     const host = this.host?.host;
     if (!this.surface || !host) return undefined;
     if (host.tmux) return host.tmuxPane ? "tmux" : undefined;
-    return host.iterm && host.itermSession && (this.host!.openPane || process.platform === "darwin") ? "iterm" : undefined;
+    return host.iterm && host.itermSession && (this.host.openPane || process.platform === "darwin") ? "iterm" : undefined;
   }
 
   /** The window title (the pane title inside tmux); the one before comes back at exit. Rich terminal only,
