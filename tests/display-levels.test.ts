@@ -90,7 +90,8 @@ test("the inline diff keeps the changed lines only, at most twelve, then says ho
   const big = `@@ -1,20 +1,20 @@\n${Array.from({ length: 20 }, (_, i) => `+line ${i}`).join("\n")}`;
   const shown = inlineDiff(big);
   expect(shown.length).toBe(13);
-  expect(shown.at(-1)).toBe("    … 8 more lines · ctrl+t");
+  // Ctrl+T opens only the last step, so an earlier edit points at /diff, which shows every change.
+  expect(shown.at(-1)).toBe("    … 8 more lines · /diff shows them all");
 });
 
 test("/details with no word goes round quiet, normal, detailed", () => {

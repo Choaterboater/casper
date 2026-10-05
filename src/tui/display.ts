@@ -17,5 +17,5 @@ export function inlineDiff(patch: string, max = 12): string[] {
     if (inHunk && /^[+-]/.test(line)) changed.push(`    ${line.slice(0, 1)} ${line.slice(1)}`);
   }
   if (changed.length <= max) return changed;
-  return [...changed.slice(0, max), `    … ${changed.length - max} more lines · ctrl+t`];
+  return [...changed.slice(0, max), `    … ${changed.length - max} more lines · /diff shows them all`];
 }
