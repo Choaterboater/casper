@@ -852,7 +852,7 @@ Build with Bun **1.4.0**, the runtime used for this preview:
 bun install --frozen-lockfile
 bun run check
 bun run build:release                 # host target
-bun run build:release -- --all         # all five release targets
+bun run build:release -- --all         # all six release targets
 bun run build:release -- --target bun-windows-x64
 ```
 
@@ -868,6 +868,7 @@ first `--all` needs network: Bun downloads the target runtimes into its cache.
 | `casper-linux-x64` | Linux, x86-64 |
 | `casper-linux-arm64` | Linux, arm64 |
 | `casper-windows-x64.exe` | Windows, x86-64 |
+| `casper-windows-arm64.exe` | Windows, ARM64 |
 
 The directory also contains both installers (copies of `scripts/`, so one upload
 makes `<base>/install.sh` reachable), `SHA256SUMS` (in `sha256sum -c` format),
@@ -1060,7 +1061,7 @@ tag, for example `v0.2.15`. It:
 - checks that the tag looks like `vX.Y.Z`, matches `package.json`, and does not exist yet;
 - installs the locked dependencies and runs `bun run typecheck` (it does **not** run the
   test suite, so run `bun run check` yourself first);
-- builds all five targets and checks `SHA256SUMS`;
+- builds all six targets and checks `SHA256SUMS` and that it lists every one;
 - runs `casper-linux-x64 --version` and checks it prints the tag's version;
 - refuses files that contain personal build paths;
 - publishes a prerelease titled `Casper <tag> — preview` with every file in

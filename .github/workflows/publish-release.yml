@@ -50,6 +50,10 @@ jobs:
         run: |
           cd dist/release
           sha256sum -c SHA256SUMS
+          # Every platform's file is built and listed in SHA256SUMS (the installers pick one by name).
+          for file in casper-darwin-arm64 casper-darwin-x64 casper-linux-x64 casper-linux-arm64 casper-windows-x64.exe casper-windows-arm64.exe; do
+            grep -qE "^[0-9a-f]{64}  $file\$" SHA256SUMS || { echo "SHA256SUMS does not list $file"; exit 1; }
+          done
           ./casper-linux-x64 --version | grep -F "casper ${RELEASE_TAG#v} ("
           ls install.sh install.ps1 VERSION LICENSE THIRD_PARTY_NOTICES.txt
           # Personal build paths must not be embedded in the executables.

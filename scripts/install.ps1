@@ -2,8 +2,8 @@
 #
 #   [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://github.com/Choaterboater/casper/releases/download/v0.2.22/install.ps1 | iex
 #
-# Downloads the self-contained casper-windows-x64.exe, verifies its SHA-256 against the
-# release's SHA256SUMS, installs it under %LOCALAPPDATA%\Programs\casper and adds that
+# Downloads the self-contained casper-windows-x64.exe (casper-windows-arm64.exe on an ARM64
+# PC), verifies its SHA-256 against the release's SHA256SUMS, installs it under %LOCALAPPDATA%\Programs\casper and adds that
 # directory to the user PATH. Re-running the same command updates in place.
 #
 # Environment only: this script takes no flags. install.sh also accepts --dir,
@@ -33,16 +33,19 @@ $InstallDir = if ($env:CASPER_INSTALL_DIR) { $env:CASPER_INSTALL_DIR } else { Jo
 $Version = $env:CASPER_VERSION
 $ExpectedSha = $env:CASPER_SHA256
 
-# PROCESSOR_ARCHITECTURE is x86 inside a 32-bit shell even on 64-bit Windows; the
-# "W6432" companion variable is what identifies the real machine.
-$MachineArch = if ($env:PROCESSOR_ARCHITEW6432) { $env:PROCESSOR_ARCHITEW6432 } else { $env:PROCESSOR_ARCHITECTURE }
-$Arch = switch ($MachineArch) {
-  'AMD64' { 'x64' }
-  'ARM64' { 'arm64' }
-  default { throw "Unsupported architecture: $MachineArch" }
+# The release file for this PC. $Machine is the PC's own value from the registry. The process
+# values can differ from it: a 32-bit shell sees x86 (the real one is in PROCESSOR_ARCHITEW6432),
+# and an x64 PowerShell on an ARM64 PC runs under emulation and sees AMD64 with no W6432 at all.
+function Select-CasperArtifact([string]$Process, [string]$Wow64, [string]$Machine) {
+  $Arch = if ($Machine) { $Machine } elseif ($Wow64) { $Wow64 } else { $Process }
+  switch ($Arch) {
+    'AMD64' { 'casper-windows-x64.exe' }
+    'ARM64' { 'casper-windows-arm64.exe' }
+    default { throw "Unsupported architecture: $Arch. Casper has Windows files for x64 and ARM64 only." }
+  }
 }
-if ($Arch -ne 'x64') { throw "No published Windows artifact for $Arch; only casper-windows-x64.exe is built." }
-$Artifact = 'casper-windows-x64.exe'
+$MachineArch = try { [string](Get-ItemProperty -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment' -Name PROCESSOR_ARCHITECTURE -ErrorAction Stop).PROCESSOR_ARCHITECTURE } catch { '' }
+$Artifact = Select-CasperArtifact $env:PROCESSOR_ARCHITECTURE $env:PROCESSOR_ARCHITEW6432 $MachineArch
 
 $Tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("casper-install-" + [guid]::NewGuid().ToString('N'))
 # An interrupted update must not leave the staged download behind.
