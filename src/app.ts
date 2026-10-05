@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import type { DebugRequest, DebugSession } from "./debug/session";
+import type { DebugSession } from "./debug/session";
 import { promisify } from "node:util";
 import os from "node:os";
 import { resolveEntry } from "./sandbox/policy";
@@ -9,7 +9,6 @@ import path from "node:path";
 import { realpathSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import { hasSignIn, modelPreference } from "./tui/model-preference";
-import { HELP_TEXT, FULL_HELP_TEXT, LOGIN_HELP } from "./tui/help";
 import { BrowserSession } from "./browser/session";
 import { browserDefaults } from "./browser/discovery";
 import { ServiceManager } from "./services/manager";
@@ -20,47 +19,30 @@ import { formatPagesNotChecked, formatSkippedPage, PageChecks, pageOpener, planP
 import { formatTerminalJSON } from "./tui/json";
 import { InteractiveTerminal, PANE_MIN_COLUMNS, type TerminalHost } from "./tui/terminal";
 import { readPaneSetting, savePaneSetting, type PaneSetting } from "./tui/pane-setting";
-import { askTool } from "./tui/ask";
 import { sessionTitle, windowTitle } from "./tui/session-title";
 import { DISPLAY_LEVELS, nextDisplay, type DisplayLevel } from "./tui/display";
-import { pickEffort } from "./tui/effort-picker";
 import { nextEffort } from "./tui/effort";
-import { formatEffort, formatRuntimeStartLine, formatRuntimeStatus, formatToolActivity, lineText, noModelFooter, redactPreview, terminalText } from "./tui/format";
+import { formatEffort, formatRuntimeStartLine, formatRuntimeStatus, lineText, noModelFooter, redactPreview, terminalText } from "./tui/format";
 import { ProjectMemory, type TaskOutcome } from "./memory/store";
 import { discoverReferenceConfiguration, type ReferenceConfiguration } from "./references/config";
 import { formatReferenceResult, ReferenceLibrary } from "./references/library";
-import { formatSubagentReport, SubagentManager, type SubagentRole } from "./agents/manager";
+import { SubagentManager } from "./agents/manager";
 import { discoverLSPConfiguration, type LSPConfiguration } from "./lsp/config";
 import { LSPManager, type ConfirmRename } from "./lsp/manager";
 import { SessionYes } from "./app/session-yes";
-import { boundCapabilityResult, NotExecutedError } from "./capabilities/result";
+import { boundCapabilityResult } from "./capabilities/result";
 import { discoverMCPConfiguration, type MCPConfiguration } from "./mcp/config";
-import { MCPManager, type ServerQuestionHandler } from "./mcp/manager";
+import { MCPManager } from "./mcp/manager";
 import { ConsentStore } from "./mcp/consent";
-import { changeScopeText } from "./mcp/access";
-import { formatApproval, kindBox, maskText, planLabel, TOO_LONG_TEXT, tooLongToShow } from "./capabilities/approval";
-import { KIND_TEXT } from "./capabilities/kinds";
-import { CapabilityBroker, type ConfirmCapability, type ConfirmKind } from "./capabilities/broker";
+import { CapabilityBroker } from "./capabilities/broker";
 import { Scrubber } from "./secrets/netconan";
 import { hiddenSecretGate } from "./secrets/gate";
 import { scrubToolOutput } from "./secrets/tool-output";
 import type { Readable } from "node:stream";
-import {
-  formatProjectContext,
-  loadProjectContext,
-  type ProjectContext,
-} from "./project/context";
+import { formatProjectContext, loadProjectContext, type ProjectContext } from "./project/context";
 import { findProjectCandidates, hasProjectSignals, inspectProject, type ProjectInfo } from "./project/inspect";
 import { childProjectOf, type ChildProject } from "./project/child";
-import type {
-  AgentRuntime,
-  RuntimeAuthProvider,
-  RuntimeSession,
-  RuntimeImage,
-  RuntimeModelInfo,
-  RuntimeStatus,
-  RuntimeTool,
-} from "./runtime/types";
+import type { AgentRuntime, RuntimeAuthProvider, RuntimeSession, RuntimeImage, RuntimeModelInfo, RuntimeStatus, RuntimeTool, RuntimeShell } from "./runtime/types";
 import { SkillRegistry, formatSelectedSkills, skillRegistryOptions } from "./skills/registry";
 import { classifyTask, formatTaskPrompt, underSpecifiedTarget } from "./task/classify";
 import { answerClaimsBrowserPass, formatReceipt, formatShortReceipt, liveCheckLine, undoPathsShown, formatTaskResult, type TaskResult, type TaskUsage } from "./task/result";
@@ -68,7 +50,7 @@ import { TaskObservations } from "./task/observations";
 import { LifecycleRegistry } from "./app/lifecycle";
 import { helperActivityLine, RuntimeEventView } from "./app/events";
 import { diffSnapshots, snapshotFailureReason, snapshotTree, type TreeChanges } from "./task/changes";
-import { renderBanner, renderProjectSummary, wordmarkHeader } from "./tui/banner";
+import { renderBanner, wordmarkHeader } from "./tui/banner";
 import { CHECK_NAMES, type CheckName, formatDuration, formatVerificationReport, formatVerificationResult, type VerificationReport, type VerificationResult } from "./verify/evidence";
 import { ProcessCleanupError } from "./platform/processes";
 import { safeGitArgs } from "./platform/git";
@@ -87,11 +69,11 @@ import { checkCommands, isBuiltinCheck, labNamedChecks } from "./verify/named";
 import { autoDetectedChecks } from "./verify/migrations-check";
 import type { NamedCheckRunner, NetworkToolContext } from "./verify/registry";
 import { buildNextRow, type NextItem } from "./tui/next-row";
-import { TaskUndo, type TaskUndoStart } from "./app/undo";
+import { TaskUndo } from "./app/undo";
 import { SuggestionController, SUGGESTION_COMMAND } from "./app/suggestions";
 import { findFlow, formatFlowPrompt, loadFlowCatalog, type Flow, type FlowRule } from "./flows/catalog";
 import { beforeWorkPanel, readBeforeWorkAnswer, suggestBeforeWork } from "./flows/suggest";
-import { extractPlan, formatBuildPrompt, parsePlanLines, planEditorHeading, planEditorLines, planToolGate, type ParsedPlan } from "./flows/plan";
+import { extractPlan, parsePlanLines, planEditorHeading, planEditorLines, planToolGate, type ParsedPlan } from "./flows/plan";
 import { PROJECT_YAML, saveNamedCheck, saveProjectCommand, saveProjectTimeout } from "./project/config-write";
 import { askLabFailure, labCheckRunner } from "./app/lab-checks";
 import type { SecurityAIReview, SecurityReviewHost } from "./app/security-review";
@@ -101,10 +83,7 @@ import { describeChecksPlan, hasChecks, manualChecks, planAutoChecks, resolveVer
 import { measuredCheckTime, recordCheckTimings } from "./verify/timings";
 import { MermaidProvider } from "./visualize/mermaid";
 import { MindMeshProvider } from "./visualize/mindmesh";
-import { buildRepoGraph } from "./visualize/repo";
 import { VisualizationRouter } from "./visualize/router";
-import { artifactFilesystemSupported } from "./visualize/artifacts";
-import { describeVisualization } from "./visualize/tools";
 import { assembleTaskTools } from "./app/capabilities";
 import { attachImages, leadingImagePath, startsWithImageFile } from "./app/images";
 import { lookPrompt, pageLook, SHOW_PAGES_CHOICES, SHOW_PAGES_QUESTION } from "./services/page-look";
@@ -129,12 +108,10 @@ import { createSessionSandbox, outsideWritesReceipt, runtimeShell, sandboxReceip
 import { useSandbox, currentSandbox, type ShellSandbox, type ShellSandboxOptions } from "./sandbox/manager";
 import { SandboxStore } from "./sandbox/store";
 import { loginMissingAnswer, type LoginHost } from "./mcp/network/ask-login";
-import { loginFile, PRODUCT_LABELS, type NetworkProduct } from "./mcp/network/logins";
+import { loginFile, type NetworkProduct } from "./mcp/network/logins";
 import { withLoginDisplay } from "./tui/login";
 import { namesNetworkProduct, runNetworkSetup, runNetworkUpdate, shouldOfferNetworkSetup, shouldOfferNetworkUpdate, type SetupHost } from "./mcp/network/setup";
-import type { RuntimeShell } from "./runtime/types";
-import { askBuildRequest, buildRequestNote, isEmptyFolder, newProjectFromQuestions, newProjectInEmptyFolder, offerMissingFolder, opened,
-  type NewProjectFlow } from "./app/new-project";
+import { askBuildRequest, buildRequestNote, isEmptyFolder, newProjectFromQuestions, newProjectInEmptyFolder, offerMissingFolder, opened, type NewProjectFlow } from "./app/new-project";
 import { listLines } from "./new/command";
 import { defaultNameFor } from "./new/templates";
 import { runSettings } from "./app/settings";
@@ -142,6 +119,7 @@ import { runPreview } from "./services/preview";
 import { editUserConfig } from "./config/user-write";
 import { explainModelError } from "./runtime/model-errors";
 import { tildePath, type NewProjectOptions, type NewProjectResult } from "./new/scaffold";
+import { oneAtATime, chooseAnswer, chooseNumbered, approveChoice, confirmCapability, confirmKind, answerServerQuestion, editGateReason, askToolFor, confirmYes, recordedApproval, exactPick } from "./app/approvals";
 
 export type { OutputWriter } from "./app/commands";
 
@@ -225,13 +203,15 @@ interface BigModelChoice {
   oneOff?: true;
 }
 
+/** A Casper session. Its code lives here and in the src/app/ modules (approvals, ...), which take the app as their
+ * first argument: members without `private` may be read and set by those modules, not only by embedders. */
 export class CasperApp {
   /** The provider of the last successful /login, preferred when Casper picks a first model. */
   loginProvider?: RuntimeAuthProvider;
   /** The current task's stages for the footer. */
   private readonly steps = new StepRail();
   /** Browser actions and debugger launches you said "Yes, for this session" to. */
-  readonly sessionYes = new SessionYes((preview, question, options, signal) => this.recordedApproval(preview, question, options, signal));
+  readonly sessionYes = new SessionYes((preview, question, options, signal) => recordedApproval(this, preview, question, options, signal));
   private readonly runtimeFactory: () => AgentRuntime | Promise<AgentRuntime>;
   readonly subagents: SubagentManager;
   readonly inspectProjectFn: (cwd: string) => Promise<ProjectInfo>;
@@ -268,8 +248,8 @@ export class CasperApp {
   readonly terminal: InteractiveTerminal;
   interactive = false;
   /** beforeChanges gate state for the current task; a recorded ask attempt satisfies it. */
-  private editGateActive = false;
-  private asksThisTask = 0;
+  editGateActive = false;
+  asksThisTask = 0;
   private cancelBeforeCommand = false;
   commandAbort?: AbortController;
   /** Transcript-flow renderer for runtime events; owns the open tool/progress line state. */
@@ -382,7 +362,7 @@ export class CasperApp {
     lastTask: () => app.lastTaskResult,
   }))(this);
   /** MCP servers this task changed things through (calls you approved that were not read-only). */
-  private taskChangeServers = new Set<string>();
+  taskChangeServers = new Set<string>();
   /** What the row under an interactive receipt offers (Undo, Show diff, suggestions...). Each source says what
    * it offers for this task, or nothing; Undo and Show diff keep slots 1 and 2, the rest follow from 3. */
   readonly nextSteps: Array<(task: TaskResult) => { undo?: NextItem; diff?: NextItem; more?: NextItem[] } | undefined> = [];
@@ -585,7 +565,7 @@ export class CasperApp {
       consent,
       // Casper's network server starts with the logins saved in ~/.casper/network-logins.json.
       homeDir: this.sessionHomeDir ?? os.homedir(),
-      elicit: (question, signal) => this.answerServerQuestion(question, signal),
+      elicit: (question, signal) => answerServerQuestion(this, question, signal),
       onNote: (text) => { if (!this.closing) this.output.write(`${text}\n`); },
     });
     // Re-reads the same layered files the manager was built from; the manager diffs them.
@@ -593,9 +573,9 @@ export class CasperApp {
     this.lsp = new LSPManager(context.info.root, lspConfiguration);
     this.visualization = new VisualizationRouter({ providers: this.visualizationProviders, settings: context.visualize, workspaceRoot: context.info.root });
     // Every server starts with writes off; only the user turns them on (/mcp writes <name>).
-    this.broker = new CapabilityBroker(this.mcp, (call, signal) => this.confirmCapability(call, signal), { writesGate: true, scrubber: this.scrubber,
+    this.broker = new CapabilityBroker(this.mcp, (call, signal) => confirmCapability(this, call, signal), { writesGate: true, scrubber: this.scrubber,
       onSessionCovered: (server, tool) => { if (!this.closing) this.output.write(`[approval] allowed (this session): ${terminalText(server)} · ${terminalText(tool)}\n`); },
-      confirmKind: (ask, signal) => this.confirmKind(ask, signal),
+      confirmKind: (ask, signal) => confirmKind(this, ask, signal),
       onAllowAll: (server, tool) => {
         this.taskChangeServers.add(server);
         if (!this.closing) this.output.write(`[approval] allowed (allow all): ${terminalText(server)} · ${terminalText(tool)}\n`);
@@ -960,7 +940,7 @@ export class CasperApp {
           // A plan turn refuses every tool but reading, whatever the tool says about itself.
           beforeToolGate: (toolName, input) => (this.planning ? planToolGate(toolName, input) : undefined)
             ?? hiddenSecretGate(toolName, input)
-            ?? (toolName === "edit" || toolName === "write" ? this.editGateReason(toolName) : undefined),
+            ?? (toolName === "edit" || toolName === "write" ? editGateReason(this, toolName) : undefined),
           // At the spend pause the next tool call waits for the answer (Stop here is the Enter choice).
           beforeToolWait: (_toolName, signal) => this.spendGate(signal),
           // Config files and config-looking command output (/secrets files off stops these for this
@@ -2079,8 +2059,6 @@ export class CasperApp {
     finally { this.memoryWork = undefined; }
   }
 
-
-
   async runVerification(
     checks: readonly CheckName[],
     repair: boolean,
@@ -2156,7 +2134,7 @@ export class CasperApp {
         // and --json runs never get it, so they never spend on a bigger model on their own.
         onRepairLimit: repair && this.interactive && this.terminal.canAsk ? (failures, signal) => this.askBigModelRetry(failures, signal) : undefined,
         onLabFailure: (repair || labOnly) && this.interactive
-          ? (failures, signal) => askLabFailure({ pick: (question, options, answerSignal) => this.exactPick(question, options, answerSignal) }, failures, signal) : undefined,
+          ? (failures, signal) => askLabFailure({ pick: (question, options, answerSignal) => exactPick(this, question, options, answerSignal) }, failures, signal) : undefined,
         // A check that was already failing before the change is not the change's doing: say so, and ask before paying to fix it.
         beforeRepair: repair && task && task === this.checkTask && this.taskBaseline ? (failures, signal) => this.repairPreexisting(failures, signal) : undefined,
         // Only a person can say whether a check that did not finish is worth a paid repair.
@@ -2208,18 +2186,9 @@ export class CasperApp {
     return { ...this.networkOptions(), runLab: labCheckRunner({
       // The approval box below decides whether a box can be answered (a cooked TTY with redirected output can't).
       canAsk: () => this.interactive && !this.closing,
-      pick: (question, options, signal) => this.exactPick(question, options, signal),
+      pick: (question, options, signal) => exactPick(this, question, options, signal),
       write: (text) => { if (!this.closing) this.output.write(text); }, stateDirectory: context.stateDirectory, ...(context.lab ? { lab: context.lab } : {}),
       ...(this.networkTools ? { network: this.networkTools } : {}) }, origin) };
-  }
-
-  /**
-   * A device-check box, an approval box like the MCP change box: keys typed before it appeared (mid-sentence) never
-   * answer it, and boxes come one at a time. The chosen label, or undefined (no answer, cancelled, a terminal that
-   * can't show the box).
-   */
-  private exactPick(question: string, options: { label: string; description?: string }[], signal?: AbortSignal): Promise<string | undefined> {
-    return this.approveChoice("", question, options, signal);
   }
 
   private networkOptions(): { network?: NetworkToolContext } {
@@ -2740,7 +2709,7 @@ export class CasperApp {
       if (name !== "main") throw new Error("Apply/discard is only valid when returning to main");
       transition = await manager.returnToMain(action as ReturnAction, {
         getRuntime: () => this.runtimeForWorkspaceTransition(),
-        confirm: (preview, question) => this.confirmYes(preview, question),
+        confirm: (preview, question) => confirmYes(this, preview, question),
         verify: async () => (await this.runVerification(
           CHECK_NAMES,
           false,
@@ -2837,7 +2806,7 @@ export class CasperApp {
   private async prepareCapabilities(task: string): Promise<void> {
     this.browserInstalled ??= browserDefaults.installed().catch(() => false);
     const nextTools = await assembleTaskTools(task, {
-      broker: this.broker!, delegate: this.delegateTool(), ask: this.askTool(),
+      broker: this.broker!, delegate: this.delegateTool(), ask: askToolFor(this),
       check: this.checkTask?.tool(), lsp: this.lsp!, confirmRename: this.confirmRename,
       references: this.references!, ...(this.web ? { web: webTools(this.web, this.commandAbort?.signal) } : {}), visualization: this.visualization!, projectRoot: this.activeWorkspaceRoot(),
       browserReady: this.browser?.status().state === "ready", browserInstalled: await this.browserInstalled, browser: () => this.browserSession(),
@@ -2867,7 +2836,6 @@ export class CasperApp {
     }
   }
 
-
   browserSession(): BrowserSession {
     if (!this.browser || this.browser.status().state === "closed") this.browser = new BrowserSession({
       projectRoot: this.activeWorkspaceRoot(), stateDirectory: this.projectContext!.stateDirectory,
@@ -2879,9 +2847,6 @@ export class CasperApp {
     this.lifecycle.add({ name: "browser", close: () => session.close() });
     return this.browser;
   }
-
-
-
 
   /** /tasks: dev servers, the browser, the debugger, helpers and checks that run now, each with its own stop. */
   backgroundTasks(): BackgroundTask[] {
@@ -2938,7 +2903,6 @@ export class CasperApp {
     return this.delegateToolForTask;
   }
 
-
   /** A rename is a normal edit inside the project: no box, like the AI's other edits (undo covers it). */
   private confirmRename: ConfirmRename = async () => true;
 
@@ -2961,12 +2925,7 @@ export class CasperApp {
   }
 
   /** Approvals and server questions are shown one at a time, so two boxes never race for one answer. */
-  private approvalQueue: Promise<unknown> = Promise.resolve();
-  private oneAtATime<T>(work: () => Promise<T>): Promise<T> {
-    const next = this.approvalQueue.then(work, work);
-    this.approvalQueue = next.catch(() => {});
-    return next;
-  }
+  approvalQueue: Promise<unknown> = Promise.resolve();
 
   /** Once per new set of imported servers: say where they were found. Interactive sessions only. */
   private async reportImports(): Promise<void> {
@@ -3025,7 +2984,7 @@ export class CasperApp {
       homeDir: home,
       // The approval box works wherever approvals do (it refuses a cooked terminal itself).
       canAsk: () => this.interactive && !this.closing,
-      chooseAnswer: (preview, question, choices) => this.chooseAnswer(preview, question, choices, this.commandAbort?.signal),
+      chooseAnswer: (preview, question, choices) => chooseAnswer(this, preview, question, choices, this.commandAbort?.signal),
       write: (text) => { if (!this.closing) this.output.write(text); },
       configured: async () => this.mcp ? this.mcp.status().map((status) => this.mcp!.definition(status.name)) : [],
       connect: async (name) => {
@@ -3086,7 +3045,7 @@ export class CasperApp {
       notNow: this.loginNotNow,
       // The private prompt needs Casper's full terminal (piped input has no way to hide what you type).
       canAsk: () => this.interactive && !this.closing && !!this.terminal.exclusiveHost(),
-      chooseAnswer: (preview, question, choices) => this.chooseNumbered(preview, question, choices, this.commandAbort?.signal),
+      chooseAnswer: (preview, question, choices) => chooseNumbered(this, preview, question, choices, this.commandAbort?.signal),
       privateInput: async (label) => {
         const picker = this.terminal.exclusiveHost();
         if (!picker || this.closing) return undefined;
@@ -3096,7 +3055,7 @@ export class CasperApp {
       write: (text) => { if (!this.closing) this.output.write(text); },
       restart: async (name) => { await this.mcp?.restartAfterCalls(name); },
       access: (name) => { try { return this.mcp?.policy(name).access; } catch { return undefined; } },
-      exclusive: (work) => this.oneAtATime(work),
+      exclusive: (work) => oneAtATime(this, work),
     };
   }
 
@@ -3106,181 +3065,14 @@ export class CasperApp {
   }
 
   /** One numbered answer from the user (never the model), in the same one-at-a-time queue as approvals. */
-  chooseAnswer(preview: string, question: string, choices: readonly string[], signal?: AbortSignal): Promise<string | undefined> {
-    return this.oneAtATime(() => this.chooseNumbered(preview, question, choices, signal));
-  }
-
-  /** A numbered question ("text\n  1 A\n  2 B\n", as the network setup and login ask it) in the same numbered box as
-   * every approval: one key picks, Esc is No. The answer is the number picked, or undefined when nobody answered. */
-  private async chooseNumbered(preview: string, _question: string, choices: readonly string[], signal?: AbortSignal): Promise<string | undefined> {
-    const lines = preview.replace(/\n+$/, "").split("\n");
-    const labels: string[] = [];
-    while (lines.length && /^ {2}\d+ /.test(lines.at(-1)!)) labels.unshift(lines.pop()!.replace(/^ {2}\d+ /, ""));
-    const offered = labels.length === choices.length ? labels : [...choices];
-    const question = lines.pop() ?? "";
-    const picked = await this.approveBox(lines.length ? `${lines.join("\n")}\n` : "", question, offered, signal);
-    const index = picked === undefined ? -1 : offered.indexOf(picked);
-    return index < 0 ? undefined : choices[index];
-  }
+  chooseAnswer(preview: string, question: string, choices: readonly string[], signal?: AbortSignal): Promise<string | undefined> { return chooseAnswer(this, preview, question, choices, signal); }
 
   /** One approval box from the user (never the model), in the same one-at-a-time queue as approvals: the chosen
    * label, or undefined when nobody answered. */
-  approveChoice(preview: string, question: string, options: ReadonlyArray<string | { label: string; description?: string }>, signal?: AbortSignal): Promise<string | undefined> {
-    return this.oneAtATime(() => this.approveBox(preview, question, options, signal));
-  }
-
-  private approvalStopped(signal?: AbortSignal): boolean {
-    return this.closing || Boolean(signal?.aborted) || Boolean(this.commandAbort?.signal.aborted);
-  }
-
-  /**
-   * The approval box for one MCP call: the real tool, EXECUTE or preview, secrets hidden, an AI-set
-   * confirm flagged, and the last preview. Only the user's typed answer counts; the model's ask tool
-   * never reaches this prompt. Nobody asked (one-shot, too long, closing) is never "you said no".
-   */
-  private confirmCapability: ConfirmCapability = async (call, signal) => {
-    const header = `MCP · ${call.plan.server} · ${call.plan.tool}  [${planLabel(call.plan)}]`;
-    if (tooLongToShow(call.arguments)) {
-      if (this.interactive && !this.closing) this.output.write(`${terminalText(header)}\n${TOO_LONG_TEXT}\n`);
-      throw new NotExecutedError("arguments too long to show you for approval");
-    }
-    if (!this.interactive) throw new NotExecutedError("needs your approval, and this run cannot ask");
-    return this.oneAtATime(async () => {
-      if (this.approvalStopped(signal)) throw new NotExecutedError("cancelled");
-      // A routed tool's own product (Mist, Central, ClearPass): the box names it, and the reach is that login's.
-      const access = this.mcp?.policy(call.plan.server).access;
-      // A tool of no known product on a server with more than one: whose reach applies isn't known, so no line.
-      const products = new Set(access?.products.map((item) => item.product));
-      const scope = !access ? undefined : call.product ? changeScopeText({ ...access, products: access.products.filter((item) => item.product === call.product) })
-        : products.size > 1 ? undefined : changeScopeText(access);
-      const box = formatApproval(call.plan, call.lastPreview, {
-        product: this.mcp?.productLabel(call.plan.server), ...(call.product ? { toolProduct: PRODUCT_LABELS[call.product] } : {}),
-        ...(scope ? { scope } : {}), ...(call.tool ? { tool: call.tool } : {}),
-        ...(call.showOnly ? { showOnly: true } : {}),
-      });
-      // The same channel as /mcp writes: only a key pressed after the box appeared answers it.
-      const picked = await this.approveBox(box.preview, box.question, box.labels, signal);
-      if (picked === undefined && this.approvalStopped(signal)) throw new NotExecutedError("cancelled");
-      const index = picked === undefined ? -1 : box.labels.indexOf(picked);
-      let result = index < 0 ? "no" : box.answers[String(index + 1)] ?? "no";
-      // "Yes to everything" asks once more, so a key pressed from habit (3 or 4 in another box) never grants it.
-      if (result === "allow-all") {
-        const product = this.mcp?.productLabel(call.plan.server) ?? call.plan.server;
-        const sure = await this.approveBox(`No box will ask about any change on ${terminalText(product)} until ctrl+o or the session ends.\n`,
-          `Yes to everything on ${terminalText(product)}?`, ["No", "Yes to everything"], signal);
-        if (sure === undefined && this.approvalStopped(signal)) throw new NotExecutedError("cancelled");
-        if (sure !== "Yes to everything") result = "no";
-      }
-      // A call you allowed that can change things: undo can't reach it, and /undo says so.
-      if ((result === "yes" || result === "yes-session" || result === "allow-all") && planLabel(call.plan) !== "read") this.taskChangeServers.add(call.plan.server);
-      if (!this.closing) {
-        const said = { yes: "allowed", "yes-session": "allowed for this session", "allow-all": "allowed (allow all)", preview: "preview first", no: "denied",
-          "show-session": `allowed show commands on ${terminalText(call.plan.server)} for this session` }[result];
-        this.output.write(`[approval] ${said}\n`);
-      }
-      return result;
-    });
-  };
-
-  /** A risky change kind (firmware, delete, admin) the user hasn't allowed on this server: 2 allows it for this session,
-   * then the change box asks about the call itself. Same box and queue as the change box. */
-  private confirmKind: ConfirmKind = async (ask, signal) => {
-    if (!this.interactive) throw new NotExecutedError("needs your approval, and this run cannot ask");
-    return this.oneAtATime(async () => {
-      if (this.approvalStopped(signal)) throw new NotExecutedError("cancelled");
-      const box = kindBox(ask.kind, this.mcp?.productLabel(ask.server) ?? ask.server, ask.realTool);
-      const picked = await this.approveBox(box.preview, box.question, box.labels, signal);
-      if (picked === undefined && this.approvalStopped(signal)) throw new NotExecutedError("cancelled");
-      const answer = picked === YES_SESSION ? true : picked === YES_ONCE ? "once" as const : false;
-      const kind = KIND_TEXT[ask.kind].toLowerCase();
-      if (!this.closing) this.output.write(`[approval] ${answer === true ? `allowed ${kind} on ${terminalText(ask.server)} for this session`
-        : answer ? `allowed ${kind} on ${terminalText(ask.server)} for this change` : "denied"}\n`);
-      return answer;
-    });
-  };
-
-  /**
-   * A server asked about the call the user approved (MCP elicitation). Only the user answers, in the
-   * same kind of box; one-shot runs and a closing Casper decline without asking.
-   */
-  private answerServerQuestion: ServerQuestionHandler = async (question, signal) => {
-    if (!this.interactive || this.closing) return { action: "decline" };
-    return this.oneAtATime(async () => {
-      if (this.approvalStopped(signal)) return { action: "cancel" as const };
-      const shown = (text: string) => maskText(text).replace(/[\r\n\v\f\u0085\u2028\u2029]+/g, " ");
-      const options = question.options?.map(shown) ?? [];
-      // A choice Casper would have to hide or change can't be offered as typed.
-      if (question.kind === "choice" && options.some((option, index) => option !== question.options![index])) {
-        if (!this.closing) this.output.write(`[mcp] ${terminalText(question.server)} asked a question Casper can only answer yes/no; declined.\n`);
-        return { action: "decline" as const };
-      }
-      // Secrets are hidden before the message is cut, so a cut never shows part of one.
-      const message = shown(question.message);
-      const cut = message.length > 4000 ? `${message.slice(0, 4000)} … (more not shown)` : message;
-      // Numbered like every box: 1 is always No; a yes/no question is 1 No · 2 Yes, a pick-one lists its options after No.
-      const labels = question.kind === "boolean" ? ["No", "Yes"] : ["No", ...options];
-      const preview = `${shown(question.server)} asks about the ${shown(question.realTool)} call you approved:\n`;
-      const chosen = await this.approveBox(preview, cut, labels, signal);
-      if (chosen === undefined) {
-        if (!this.closing) this.output.write("[server question] no\n");
-        return { action: "cancel" as const };
-      }
-      const picked = labels.indexOf(chosen);
-      if (picked < 1) {
-        if (!this.closing) this.output.write("[server question] no\n");
-        return { action: "decline" as const };
-      }
-      const answer = question.kind === "boolean" ? "yes" : options[picked - 1]!;
-      if (!this.closing) this.output.write(`[server question] ${answer}\n`);
-      return { action: "accept" as const, value: question.kind === "boolean" ? true : answer };
-    });
-  };
-
-  /** beforeChanges gate: deny native edit/write until one ask attempt is recorded. */
-  private editGateReason(toolName: string): string | undefined {
-    if (!this.editGateActive || this.asksThisTask > 0) return undefined;
-    return `askQuestions is set to beforeChanges and this request looks under-specified: call the ask tool once (concrete options plus Other) before using ${toolName}. If the human skips the question, state your assumptions in the reply and continue.`;
-  }
-
-  /** Structured clarification channel: rich surface required, command abort raced, receipt recorded. */
-  private askTool(): RuntimeTool {
-    return askTool({
-      available: () => this.interactive && this.terminal.rich && !this.closing,
-      ask: (question, options, multi, signal) => {
-        const signals = [signal, this.commandAbort?.signal].filter((value): value is AbortSignal => Boolean(value));
-        // Commit any open tool line first, so the recorded question starts on its own line.
-        this.output.write("");
-        // "ai": the question is labelled "The AI asks:", so it never looks like Casper's own approval.
-        return this.terminal.ask(question, options, multi, signals.length ? AbortSignal.any(signals) : undefined, "ai");
-      },
-      record: answer => {
-        this.asksThisTask++;
-        if (!this.closing) this.output.write(`[ask] ${answer}\n`);
-      },
-    });
-  }
+  approveChoice(preview: string, question: string, options: ReadonlyArray<string | { label: string; description?: string }>, signal?: AbortSignal): Promise<string | undefined> { return approveChoice(this, preview, question, options, signal); }
 
   /** A yes/no approval box: 1 No · 2 Yes, this once. Nobody to ask is a No. */
-  async confirmYes(preview: string, question: string, signal?: AbortSignal): Promise<boolean> {
-    return await this.recordedApproval(preview, question, [{ label: NO }, { label: YES_ONCE }], signal) === YES_ONCE;
-  }
-
-  /** An approval box whose outcome the transcript records: allowed (any yes) or denied. */
-  private async recordedApproval(preview: string, question: string, options: Array<{ label: string; description?: string }>, signal?: AbortSignal): Promise<string | undefined> {
-    const answer = await this.approveChoice(preview, question, options, signal);
-    // The answer itself is never echoed (it is a fresh keystroke, not a draft); record the outcome.
-    if (!this.closing && this.interactive) this.output.write(`[approval] ${answer === YES_SESSION ? "allowed for this session" : answer?.startsWith("Yes") ? "allowed" : "denied"}\n`);
-    return answer;
-  }
-
-  /** One approval box from the user (undefined when nobody could answer). The caller records it. */
-  private async approveBox(preview: string, question: string, options: ReadonlyArray<string | { label: string; description?: string }>, signal?: AbortSignal): Promise<string | undefined> {
-    if (!this.interactive || this.approvalStopped(signal)) return undefined;
-    const signals = [signal, this.commandAbort?.signal].filter((value): value is AbortSignal => Boolean(value));
-    this.output.write("");
-    return this.terminal.approve(preview, question, options, signals.length ? AbortSignal.any(signals) : undefined);
-  }
-
+  async confirmYes(preview: string, question: string, signal?: AbortSignal): Promise<boolean> { return confirmYes(this, preview, question, signal); }
 
   private reportSkillWarnings(): void {
     const warnings = this.skillRegistry!.diagnostics.filter((warning) => !this.reportedSkillWarnings.has(warning));
