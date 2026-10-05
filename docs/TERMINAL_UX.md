@@ -88,6 +88,9 @@ sign-in, the banner and footer say `not signed in · type a request to sign in`,
 opens sign-in instead of an empty picker. Where sign-in can't open (a plain or piped terminal,
 a one-shot run) they say `not signed in · run casper in a terminal and type /login` instead.
 
+If you start Casper in your home folder or a folder that only holds projects (such as
+`~/Projects`), it asks which project to open: press its number, or Esc to stay where you are.
+
 On a rich terminal at least 58 columns wide the transcript opens with the
 wordmark — the Casper ghost (bold white) beside a block-letter `CASPER` (accent)
 — followed by the `version` / `project` / `/help` lines. Narrower terminals,
@@ -309,6 +312,10 @@ and Codex: no confirm screen follows. The list says where the key goes (`Saved i
 charges. Only that provider's saved sign-in is replaced. Browser sign-in opens the system
 browser automatically; offline mode (CASPER_OFFLINE=1) suppresses the launch and keeps the URL
 printed for manual opening.
+If you skip `/login`, Casper opens sign-in on your first request and picks that provider's
+default model (OpenRouter: `deepseek/deepseek-v4.1-flash`). `/model` picks another; Casper never
+replaces a model you chose. Type keys or codes only in the private login prompt, never in chat.
+Your provider's plans and charges still apply.
 Typed API keys are verified with the provider before they are stored; a rejected
 key is never saved, and a key that cannot be verified (network or provider error)
 can be retried, saved explicitly, or cancelled. Keys and callback codes/URLs use a

@@ -366,7 +366,7 @@ A session checks for a newer Casper at most once a day, in the background (no mo
 tokens), and shows what the last check found as one `[update]` line at the start. A release
 install asks GitHub for the newest release; a source checkout fetches and counts how far its
 branch is behind. `updates: false`, `CASPER_NO_UPDATE_CHECK=1` or `CI` turns it off; a project
-cannot. `casper update` installs or pulls it.
+cannot. `casper update` installs or pulls it; `casper update --check` only says whether there is one.
 
 ### What a task spends
 

@@ -193,9 +193,16 @@ Each row names the test that fails without it.
 - **Windows, and Linux without bubblewrap**, have no sandbox: the AI's shell asks before each command that changes something (reads like `ls` don't),
   and your project's checks, services and dev servers run with your permissions and network. Use
   `--no-verify` in a repository you don't trust.
-- **The model provider sees what the AI reads.** Code, file contents and command output go to the
-  provider you picked, with secrets hidden as [SECRETS.md](SECRETS.md) says. Use read-only credentials
-  for AI work where you can.
+- **The model provider sees what the AI reads.** Code, file contents, command output and chat go to the
+  provider you picked, with secrets hidden as [SECRETS.md](SECRETS.md) says (known formats only; there is
+  no full secret scanner). They may also stay on disk as plain text. Use read-only credentials for AI
+  work where you can.
+- **Some things look like walls and are not.** Worktrees, read-only agent roles and connection prompts
+  do not isolate anything at the OS level.
+- **No hard spending cap.** Casper shows what a task spends, and `spend.pauseAt` pauses a task at a
+  limit you set ([CONFIGURATION.md](CONFIGURATION.md#what-a-task-spends)); neither is a hard cap.
+- **A passing check is not a full review.** It shows a command passed, not that the code is fully right.
+  Missing or old results are not a pass. Review important changes yourself.
 - **Private places are by name.** A key kept somewhere else (for example `~/work/deploy-key`) is not on
   the list; add it with `sandbox.denyRead` in the project's `.casper/project.yaml`. The file tools refuse
   those places too, not only shell commands.

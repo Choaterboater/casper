@@ -1101,6 +1101,7 @@ below.
 
 ## Known preview limits
 
+- Some screen issues remain.
 - Binaries are not signed or notarized. SmartScreen (Windows) or Gatekeeper (macOS)
   may warn. `install.sh` clears the macOS quarantine flag; neither installer signs
   anything.

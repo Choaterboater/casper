@@ -116,7 +116,14 @@ that passed and the files changed.
 
 Anything else puts the verdict on line 1 and each problem on its own short line under it (a failed
 check, why the change is not verified, a file undo can't put back); what went well shares one `✓`
-line. The per-file change table is behind `Diff` (`/diff`) and `--verbose`, and `/receipt` shows
+line, for example:
+
+```
+• Not verified — no configured check covers the changed files.
+✓ changed README.md
+```
+
+The per-file change table is behind `Diff` (`/diff`) and `--verbose`, and `/receipt` shows
 the full form below. The `--json` receipt's `text` and saved receipts keep the full form.
 
 The full form's line 1 is the verdict, one of:
