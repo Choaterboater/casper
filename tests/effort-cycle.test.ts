@@ -64,12 +64,12 @@ test("Shift+Tab while a command is in flight cycles (the next step uses it), but
     expect(await pending).toBe("work");
     input.write("\x1b[Z"); await tick();
     expect(cycles).toBe(1);
-    const approval = terminal.confirm("preview\n", "Type yes: ", undefined);
+    const approval = terminal.approve("preview\n", "Do it?", ["No", "Yes"]);
     input.write("\x1b[Z"); await tick();
     expect(cycles).toBe(1);
     expect(Bun.stripANSI(output)).toContain("effort unchanged · answer first");
-    input.write("yes\r");
-    expect(await approval).toBe(true);
+    input.write("2");
+    expect(await approval).toBe("Yes");
   } finally { terminal.close(); input.destroy(); }
 });
 

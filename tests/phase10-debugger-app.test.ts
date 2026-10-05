@@ -26,7 +26,7 @@ async function fixture(commands: string[] = []) {
     loadReferenceConfiguration: async () => ({ sources: [], diagnostics: [] }),
     output: { write(text) {
       output += text;
-      if (text.includes("Type yes:")) setImmediate(() => input.write("yes\n"));
+      if (text.endsWith("Type 1 or 2: ")) setImmediate(() => input.write("2\n"));
       if (text === "> " && commands.length) setImmediate(() => input.write(commands.shift()! + "\n"));
     } },
   });

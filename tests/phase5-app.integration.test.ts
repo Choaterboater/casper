@@ -85,7 +85,7 @@ test("interactive rename displays exact edits and requires yes", async () => {
     output: { write: (text) => {
       output += text;
       if (text === "> ") queueMicrotask(() => input.write(prompts++ === 0 ? "Rename old\n" : "/exit\n"));
-      if (text.includes("Type yes:")) queueMicrotask(() => input.write("yes\n"));
+      if (text.endsWith("Type 1 or 2: ")) queueMicrotask(() => input.write("2\n"));
     } },
   });
   cleanup.push(() => app.close());
@@ -153,7 +153,7 @@ test("real CLI/Pi tool surface appends LSP diagnostics to native writes before t
       if (chunk.done) break;
       transcript += decoder.decode(chunk.value, { stream: true });
       if (!prompted && transcript.endsWith("> ")) { prompted = true; interactive.stdin.write("Inspect and modify a.ts\n"); }
-      if (!approved && transcript.includes("Apply this exact rename? Type yes:")) { approved = true; interactive.stdin.write("yes\n"); }
+      if (!approved && transcript.includes("Apply this exact rename?") && transcript.endsWith("Type 1 or 2: ")) { approved = true; interactive.stdin.write("2\n"); }
       if (!exited && transcript.includes("LSP_WORKFLOW_COMPLETE") && transcript.endsWith("> ")) { exited = true; interactive.stdin.write("/exit\n"); }
     }
   })();

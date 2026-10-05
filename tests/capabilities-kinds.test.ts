@@ -63,9 +63,9 @@ test("a router call takes the kind of the real tool it runs", () => {
 test("the kind box: plain words, the real tool, 1 No and 2 Allow for this session", async () => {
   const { kindBox } = await import("../src/capabilities/approval");
   const box = kindBox("firmware", "Mist", "trigger_device_upgrade");
-  expect(box.preview).toBe("Firmware changes are off by default on Mist.\n  Runs: trigger device upgrade\n  1 No\n  2 Allow firmware changes for this session\n");
-  expect(box.question).toBe("Type 1 or 2: ");
-  expect(box.choices).toEqual(["1", "2"]);
+  expect(box.preview).toBe("Firmware changes are off by default on Mist.\n  Runs: trigger device upgrade\n");
+  expect(box.question).toBe("Allow firmware changes on Mist?");
+  expect(box.labels).toEqual(["No", "Allow firmware changes for this session"]);
 });
 
 test("review: a router call to a tool whose name reads as a read still gets its risky kind", () => {

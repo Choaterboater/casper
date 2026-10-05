@@ -6,6 +6,7 @@ import { MCPManager, type MCPManagerOptions, type ServerQuestion, type ServerQue
 import type { MCPServerDefinition } from "../src/mcp/config";
 import { CapabilityBroker, type ApprovalAnswer, type ConfirmCapability, type ConfirmKind } from "../src/capabilities/broker";
 import { formatApproval } from "../src/capabilities/approval";
+import { numberPrompt } from "../src/tui/terminal";
 
 const cleanup: (() => Promise<unknown> | unknown)[] = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -48,7 +49,8 @@ function answering(...answers: ApprovalAnswer[]) {
   const boxes: string[] = [];
   const confirm: ConfirmCapability = async (call) => {
     const box = formatApproval(call.plan, call.lastPreview, call.tool ? { tool: call.tool } : {});
-    boxes.push(box.preview + box.question);
+    // As the plain terminal shows it: the box, its numbered choices, then the prompt.
+    boxes.push(`${box.preview}${box.labels.map((label, index) => `  ${index + 1} ${label}\n`).join("")}${numberPrompt(box.labels.length)}`);
     return answers.shift() ?? false;
   };
   return { confirm, boxes };

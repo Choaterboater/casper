@@ -56,7 +56,6 @@ async function session(home: string, project: string, commands: string[], answer
       if (text === "> ") queueMicrotask(() => input.write(`${pending.shift() ?? "/exit"}\n`));
       // Every numbered box (remember, writes, a change): the next scripted answer, else 1 (the safe choice).
       if (/Type [\d, ]*\d or \d: $/.test(text)) queueMicrotask(() => input.write(`${answers.shift() ?? "1"}\n`));
-      if (text.endsWith("Type yes: ")) queueMicrotask(() => input.write("yes\n"));
     } },
   });
   cleanup.push(() => app.close());
@@ -82,7 +81,7 @@ test("after /mcp connect, 1 remembers nothing; 2 remembers it, and the next sess
   const { home, project } = await fixture({ casper: { mcpServers: { lab: entry({ FIXTURE_MODE: "access-bad" }) } } });
   const consentFile = path.join(home, ".casper/mcp-consent.json");
   const declined = await session(home, project, ["/mcp connect lab"], ["1"]);
-  expect(declined.output).toContain("Remember this server? Next time it connects on its own, with writes off. Every change still asks you.\n  1 Just this time\n  2 Remember\n");
+  expect(declined.output).toContain("Next time it connects on its own, with writes off. Every change still asks you.\nRemember lab?\n  1 Just this time\n  2 Remember\n");
   expect(declined.output).toContain("[mcp] Not remembered. lab is connected for this session only.");
   expect(await Bun.file(consentFile).exists()).toBe(false);
   const remembered = await session(home, project, ["/mcp connect lab"], ["2"]);
@@ -104,7 +103,7 @@ test("an unpinned package runner is never remembered, and the box is not shown",
   } } });
   const { output } = await session(home, project, ["/mcp connect karthik"]);
   expect(output).toContain("[mcp] Not remembered: karthik is not pinned to a version. An update could add write tools. Pin it (for example ==1.4.2 or a commit) and connect again.");
-  expect(output).not.toContain("Remember this server?");
+  expect(output).not.toContain("Remember karthik?");
 });
 
 test("writes on takes /mcp writes and then 2; 1 changes nothing; 2 drops the pins, shows the badge, and /mcp writes off reverts", async () => {
@@ -189,6 +188,7 @@ test("/mcp allow: 1 keeps the defaults; a kind can be allowed for this session o
   expect(first.output).toContain([
     "lab change kinds. Firmware changes, deletes and admin changes are off by default; every change still asks you.",
     "  Allowed now: none",
+    "Which change kinds may lab make?",
     "  1 Keep the defaults",
     "  2 Allow firmware changes",
     "  3 Allow deletes",

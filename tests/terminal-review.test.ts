@@ -17,11 +17,11 @@ test("redirected interactive input cannot reuse a pretyped yes for a later appro
     input.write("task\n");
     expect(await command).toBe("task");
     input.write("yes");
-    const approval = terminal.confirm("Exact operation\n", "Type yes: ");
+    const approval = terminal.approve("Exact operation\n", "Do it?", ["No", "Yes"]).then((answer) => answer === "Yes");
     input.write("\n");
     expect(await approval).toBe(false);
-    const fresh = terminal.confirm("Another exact operation\n", "Type yes: ");
-    input.write("yes\n");
+    const fresh = terminal.approve("Another exact operation\n", "Do it?", ["No", "Yes"]).then((answer) => answer === "Yes");
+    input.write("2\n");
     expect(await fresh).toBe(true);
   } finally { terminal.close(); input.destroy(); }
 });
@@ -33,10 +33,10 @@ test("cooked TTY input with redirected output cannot authorize an unseen pretype
   terminal.start();
   try {
     const command = terminal.readCommand(); input.write("task\n"); await command;
-    const approval = terminal.confirm("Exact operation\n", "Type yes: ");
+    const approval = terminal.approve("Exact operation\n", "Do it?", ["No", "Yes"]).then((answer) => answer === "Yes");
     // A cooked terminal can deliver a whole pretyped line only after the
     // confirmation appears, so flushing readline alone cannot establish freshness.
-    input.write("yes\n");
+    input.write("2\n");
     expect(await approval).toBe(false);
   } finally { terminal.close(); input.destroy(); }
 });
@@ -46,7 +46,7 @@ test("aborting plain confirmation discards its partial answer before accepting a
   try {
     const command = terminal.readCommand(); input.write("task\n"); await command;
     const controller = new AbortController();
-    const approval = terminal.confirm("Exact operation\n", "Type yes: ", controller.signal);
+    const approval = terminal.approve("Exact operation\n", "Do it?", ["No", "Yes"], controller.signal).then((answer) => answer === "Yes");
     input.write("ye"); controller.abort();
     expect(await approval).toBe(false);
     const next = terminal.readCommand(); input.write("/status\n");
@@ -72,45 +72,48 @@ test("lines piped ahead of an approval are discarded, never answering it or beco
     input.write("/branch x\nyes\nsecond prompt\n");
     expect(await command).toBe("/branch x");
     await new Promise((resolve) => setTimeout(resolve, 10));
-    const approval = terminal.confirm("Exact operation\n", "Type yes: ");
+    const approval = terminal.approve("Exact operation\n", "Do it?", ["No", "Yes"]).then((answer) => answer === "Yes");
     input.end();
     expect(await approval).toBe(false);
     expect(await terminal.readCommand()).toBeUndefined();
   } finally { terminal.close(); input.destroy(); }
 });
 
-test("plain choose resolves an offered answer, and 'no' for any other text", async () => {
+test("plain approve picks by number or by name; Enter alone and any other text are No", async () => {
   const { input, terminal, output } = terminalFixture();
   try {
     const command = terminal.readCommand(); input.write("task\n"); await command;
-    const preview = terminal.choose("Box\n", "Run it? Type yes, or p to preview first: ", ["yes", "p"]);
-    input.write(" p \n");
-    expect(await preview).toBe("p");
-    const other = terminal.choose("Box\n", "Run it? Type yes: ", ["yes"]);
+    const byNumber = terminal.approve("Box\n", "Make this change?", ["No", "Preview first", "Yes, this once"]);
+    input.write(" 2 \n");
+    expect(await byNumber).toBe("Preview first");
+    const other = terminal.approve("Box\n", "Make this change?", ["No", "Yes, this once"]);
     input.write("p\n");
-    expect(await other).toBe("no");
-    const yes = terminal.choose("Box\n", "Run it? Type yes: ", ["yes"]);
-    input.write("yes\n");
-    expect(await yes).toBe("yes");
-    expect(output()).toContain("Run it? Type yes, or p to preview first: ");
+    expect(await other).toBe("No");
+    const enter = terminal.approve("Box\n", "Make this change?", ["No", "Yes, this once"]);
+    input.write("\n");
+    expect(await enter).toBe("No");
+    const named = terminal.approve("Box\n", "Make this change?", ["No", "Yes, this once"]);
+    input.write("yes, this once\n");
+    expect(await named).toBe("Yes, this once");
+    expect(output()).toContain("Make this change?\n  1 No\n  2 Yes, this once\n");
   } finally { terminal.close(); input.destroy(); }
 });
 
-test("plain choose resolves undefined on abort or end of input, never an answer", async () => {
+test("plain approve resolves undefined on abort or end of input, never an answer", async () => {
   const { input, terminal } = terminalFixture();
   try {
     const command = terminal.readCommand(); input.write("task\n"); await command;
     const controller = new AbortController();
-    const aborted = terminal.choose("Box\n", "Run it? Type yes: ", ["yes"], controller.signal);
+    const aborted = terminal.approve("Box\n", "Make this change?", ["No", "Yes, this once"], controller.signal);
     controller.abort();
     expect(await aborted).toBeUndefined();
-    const ended = terminal.choose("Box\n", "Run it? Type yes: ", ["yes"]);
+    const ended = terminal.approve("Box\n", "Make this change?", ["No", "Yes, this once"]);
     input.end();
     expect(await ended).toBeUndefined();
   } finally { terminal.close(); input.destroy(); }
 });
 
-test("rich choose resolves 'p' when offered, and a pretyped draft 'p' never answers", async () => {
+test("rich approve: a pretyped draft never answers, one key picks, Esc is no answer", async () => {
   const previousTerm = process.env.TERM;
   process.env.TERM = "xterm-256color";
   const input = Object.assign(new PassThrough(), { isTTY: true, setRawMode() {} });
@@ -122,15 +125,15 @@ test("rich choose resolves 'p' when offered, and a pretyped draft 'p' never answ
     input.write("work\r");
     expect(await pending).toBe("work");
     await tick();
-    input.write("p"); await tick();
-    const first = terminal.choose("Box\n", "Run it? Type yes, or p to preview first: ", ["yes", "p"]);
+    input.write("2"); await tick();
+    const first = terminal.approve("Box\n", "Make this change?", ["No", "Preview first", "Yes, this once"]);
     input.write("\r");
-    expect(await first).toBe("no");
-    const second = terminal.choose("Box\n", "Run it? Type yes, or p to preview first: ", ["yes", "p"]);
+    expect(await first).toBe("No");
+    const second = terminal.approve("Box\n", "Make this change?", ["No", "Preview first", "Yes, this once"]);
     await tick();
-    input.write("p\r");
-    expect(await second).toBe("p");
-    const third = terminal.choose("Box\n", "Run it? Type yes: ", ["yes"]);
+    input.write("2");
+    expect(await second).toBe("Preview first");
+    const third = terminal.approve("Box\n", "Make this change?", ["No", "Yes, this once"]);
     await tick();
     input.write("\x1b"); await tick();
     expect(await third).toBeUndefined();
@@ -152,14 +155,14 @@ test("the model's ask tool cannot open or answer an open approval", async () => 
     input.write("work\r");
     expect(await pending).toBe("work");
     let settled: string | undefined = "open";
-    const approval = terminal.choose("Box\n", "Run it? Type yes: ", ["yes"]).then((answer) => { settled = answer; return answer; });
+    const approval = terminal.approve("Box\n", "Make this change?", ["No", "Yes, this once"]).then((answer) => { settled = answer; return answer; });
     await tick();
     // The ask tool gets nothing while the approval is open, and its answer never reaches the approval.
     expect(await terminal.ask("Enable writes?", [{ label: "yes" }], false)).toBeUndefined();
     await tick();
     expect(settled).toBe("open");
-    input.write("yes\r");
-    expect(await approval).toBe("yes");
+    input.write("2");
+    expect(await approval).toBe("Yes, this once");
   } finally {
     terminal.close(); input.destroy();
     if (previousTerm === undefined) delete process.env.TERM; else process.env.TERM = previousTerm;

@@ -213,7 +213,7 @@ test("a workspace transition (/branch) stops the session's services", async () =
     loadReferenceConfiguration: async () => ({ sources: [], diagnostics: [] }),
     output: { write(text) {
       f.output.push(text);
-      if (text.includes("Type yes:")) queueMicrotask(() => input.write("yes\n"));
+      if (text.endsWith("Type 1 or 2: ")) queueMicrotask(() => input.write("2\n"));
       if (text === "> ") queueMicrotask(() => input.write(["/branch services-rebind\n", "/exit\n"][prompts++] ?? "/exit\n"));
     } } });
   cleanups.push(() => branching.close().catch(() => {}));

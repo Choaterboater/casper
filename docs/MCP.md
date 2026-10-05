@@ -308,10 +308,10 @@ ignored.
 After an interactive `/mcp connect` of your own or an imported server, Casper asks:
 
 ```text
-Remember this server? Next time it connects on its own, with writes off. Every change still asks you.
+Next time it connects on its own, with writes off. Every change still asks you.
+Remember lab?
   1 Just this time
   2 Remember
-Type 1 or 2:
 ```
 
 `1` (or Enter, or anything other than `2`) connects it for this session only. (Before
@@ -495,6 +495,7 @@ The first such call asks about the kind before the change box:
 ```text
 Firmware changes are off by default on Mist.
   Runs: trigger device upgrade
+Allow firmware changes on Mist?
   1 No
   2 Allow firmware changes for this session
 Type 1 or 2:
@@ -512,6 +513,7 @@ config file):
 ```text
 Mist change kinds. Firmware changes, deletes and admin changes are off by default; every change still asks you.
   Allowed now: none
+Which change kinds may Mist make?
   1 Keep the defaults
   2 Allow firmware changes
   3 Allow deletes
@@ -674,11 +676,12 @@ Every tool gets a label. From least to most strict: `read`, `diagnostic`,
   Hidden: wpa_passphrase. The server still gets the real value.
   This makes the change.
   MCP · mist · set_ssid  [write]
-    1 No
+  Make this change?
+  → 1 No
     2 Yes, this once
     3 Yes, for this session
     4 Yes to everything on Mist this session (no more asking, even reboots, deletes or an AI-set confirm)
-  Type 1, 2, 3 or 4:
+  Press 1-4 or Up/Down + Enter · Esc is No
   ```
 
   - The first line names the product (from the preset, else the server) and the real
@@ -706,7 +709,7 @@ Every tool gets a label. From least to most strict: `read`, `diagnostic`,
   - `Yes to everything on <product> this session` (always last) runs it, and no later
     call on that server asks at all: not reboots, not deletes or other risky kinds, not
     a call where the AI set `confirm`. It asks once more (`1 No · 2 Yes to everything`),
-    so a digit typed from habit never grants it. Only you can pick it; the AI can't. It is never
+    so a key pressed from habit never grants it. Only you can pick it; the AI can't. It is never
     remembered, the footer shows `ALLOW ALL: <servers> · ctrl+o`, and ctrl+o,
     `/mcp writes off`, a disconnect or the end of the session ends it. Each call it
     covers is logged as `[approval] allowed (allow all): <server> · <tool>`. A read-only
@@ -716,10 +719,11 @@ Every tool gets a label. From least to most strict: `read`, `diagnostic`,
     `Last preview (just now)`. It is never offered through a router: Casper can't see
     the real tool's schema, and a server that ignores an unknown `dry_run` would make
     the change. After three previews the box comes once more without it.
-  - Only a digit typed after the box appeared counts: anything typed before it is
-    discarded (`[input] Discarded 1 line(s) entered before this approval appeared.`),
-    and a terminal that can't show the box (TERM=dumb, or output redirected while input
-    is a terminal) is refused.
+  - One key answers it, like every Casper box. Only a key pressed after the box appeared
+    counts: a draft is set aside, keys in the first moment after it opens are ignored,
+    lines typed ahead on the plain terminal are discarded (`[input] Discarded 1 line(s)
+    entered before this question appeared.`), and a terminal that can't show the box
+    (TERM=dumb, or output redirected while input is a terminal) is refused.
   - The transcript records `[approval] allowed`, `allowed for this session`, `allowed
     (this session)`, `allowed (allow all)`, `denied` or `preview first`.
 - **Server questions reach only you.** Some servers ask before a risky action (MCP

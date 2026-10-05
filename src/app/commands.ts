@@ -57,7 +57,7 @@ import { runSecurityReview, type SecurityAIReview, type SecurityReviewHost } fro
 import { sandboxReport, sandboxStatusLine } from "./sandbox";
 import { webStatusLine } from "../web/tools";
 import type { ShellSandbox } from "../sandbox/manager";
-import { allowKindsChoices, LAB_IMPORT_CHOICES, MCP_ALLOW_KEEP_CHOICES, MCP_REMEMBER_CHOICES, MCP_WRITES_CHOICES, numberedLines } from "./safe-choices";
+import { allowKindsChoices, LAB_IMPORT_CHOICES, MCP_ALLOW_KEEP_CHOICES, MCP_REMEMBER_CHOICES, MCP_WRITES_CHOICES } from "./safe-choices";
 import { KIND_TEXT, RISKY_KINDS } from "../capabilities/kinds";
 
 /** Output sink for the app; lives here so the command host stays import-cycle-free. */
@@ -127,12 +127,14 @@ export interface CommandHost {
   ensureSessionWorkspace(): Promise<SessionWorkspaceManager>;
   stopDebugger(): Promise<void>;
   confirmExact(preview: string, question: string, signal?: AbortSignal): Promise<boolean>;
-  /** The host for /mcp setup network: the exact channel, the MCP manager, and the install seams. */
+  /** The host for /mcp setup network: the numbered approval box, the MCP manager, and the install seams. */
   networkSetupHost(): SetupHost;
-  /** The host for /mcp login: the exact channel, the private prompt, and restarts through the MCP manager. */
+  /** The host for /mcp login: the numbered approval box, the private prompt, and restarts through the MCP manager. */
   networkLoginHost(): LoginHost;
-  /** One exact typed answer from the user (never the model), or undefined when nobody answered. */
+  /** One numbered answer from the user (never the model): the number picked, or undefined when nobody answered. */
   chooseAnswer(preview: string, question: string, choices: readonly string[], signal?: AbortSignal): Promise<string | undefined>;
+  /** One approval box from the user (never the model): the chosen label, or undefined when nobody answered. */
+  approveChoice(preview: string, question: string, options: ReadonlyArray<string | { label: string; description?: string }>, signal?: AbortSignal): Promise<string | undefined>;
   git(args: string[]): Promise<string>;
   runVerification(checks: readonly CheckName[], repair: boolean, request?: string, task?: VerificationTask): Promise<VerificationReport>;
   activeWorkspaceRoot(): string;
@@ -897,10 +899,9 @@ async function offerRemember(host: CommandHost, name: string): Promise<void> {
   if (!host.interactive || !status || status.scope === "project" || status.consent === "remembered") return;
   const block = host.mcp!.rememberBlock(name);
   if (block) { host.output.write(`[mcp] ${terminalText(block)}\n`); return; }
-  const answer = await host.chooseAnswer(
-    `Remember this server? Next time it connects on its own, with writes off. Every change still asks you.\n${numberedLines(MCP_REMEMBER_CHOICES)}`,
-    "Type 1 or 2: ", ["1", "2"], host.commandAbort?.signal);
-  if (answer !== "2") { host.output.write(`[mcp] Not remembered. ${name} is connected for this session only.\n`); return; }
+  const answer = await host.approveChoice("Next time it connects on its own, with writes off. Every change still asks you.\n",
+    `Remember ${terminalText(name)}?`, MCP_REMEMBER_CHOICES, host.commandAbort?.signal);
+  if (answer !== MCP_REMEMBER_CHOICES[1]) { host.output.write(`[mcp] Not remembered. ${name} is connected for this session only.\n`); return; }
   const result = await host.mcp!.remember(name);
   host.output.write(result.remembered
     ? `[mcp] Remembered ${name}. It connects on its own next time, with writes off. /mcp forget ${name} undoes this.\n`
@@ -932,9 +933,8 @@ async function handleMCPWrites(host: CommandHost, name: string): Promise<void> {
   if (status.writes === "on") { host.output.write(`[mcp] Writes are already on for ${name}. ${host.terminal.rich ? "ctrl+o" : "/mcp writes off"} turns them off.\n`); return; }
   if (status.access === "login: read-only (checked)") { host.output.write(`[mcp] ${READ_ONLY_LOGIN_ENABLE_TEXT}\n`); return; }
   const policy = mcp.policy(name);
-  const answer = await host.chooseAnswer(`${terminalText(writesTitle(name, policy.match))}\n${numberedLines(MCP_WRITES_CHOICES)}`,
-    "Type 1 or 2: ", ["1", "2"], host.commandAbort?.signal);
-  if (answer !== "2") { host.output.write(`[mcp] Writes stay off for ${name}.\n`); return; }
+  const answer = await host.approveChoice("", terminalText(writesTitle(name, policy.match)), MCP_WRITES_CHOICES, host.commandAbort?.signal);
+  if (answer !== MCP_WRITES_CHOICES[1]) { host.output.write(`[mcp] Writes stay off for ${name}.\n`); return; }
   await mcp.setWrites(name, true);
   host.output.write(`[mcp] Writes on for ${name}. Each change still asks you. ${host.terminal.rich ? "ctrl+o" : "/mcp writes off"} turns writes off.\n`);
   const note = ownSettingsNote(mcp.definition(name), policy.match);
@@ -970,12 +970,11 @@ async function handleMCPAllow(host: CommandHost, name: string, off: boolean): Pr
   const now = [...remembered.map((kind) => `${KIND_TEXT[kind]} (remembered)`), ...session.map((kind) => `${KIND_TEXT[kind]} (this session)`)];
   if (allowances.allowAllOn(name)) now.push("everything, no asking (this session)");
   const labels = allowKindsChoices();
-  const digits = labels.map((_, index) => String(index + 1));
-  const answer = await host.chooseAnswer([
+  const answer = await host.approveChoice([
     `${terminalText(product)} change kinds. Firmware changes, deletes and admin changes are off by default; every change still asks you.`,
     `  Allowed now: ${now.length ? now.join(", ") : "none"}`,
-  ].join("\n") + `\n${numberedLines(labels)}`, `Type ${digits.slice(0, -1).join(", ")} or ${digits.at(-1)}: `, digits, host.commandAbort?.signal);
-  const picked = Number(answer ?? "1") - 1;
+  ].join("\n") + "\n", `Which change kinds may ${terminalText(product)} make?`, labels, host.commandAbort?.signal);
+  const picked = answer === undefined ? 0 : labels.indexOf(answer);
   if (picked < 1) { host.output.write(`[mcp] ${name} keeps the defaults.\n`); return; }
   if (picked === labels.length - 1) {
     allowances.startAllowAll(name);
@@ -987,11 +986,11 @@ async function handleMCPAllow(host: CommandHost, name: string, off: boolean): Pr
   const words = kinds.length > 1 ? "All change kinds" : KIND_TEXT[kinds[0]!];
   // Project servers and unpinned runners can't be remembered: this session only, without asking.
   const block = mcp.rememberBlock(name);
-  const keep = block ? undefined : await host.chooseAnswer(`${numberedLines(MCP_ALLOW_KEEP_CHOICES)}`, "Type 1 or 2: ", ["1", "2"], host.commandAbort?.signal);
+  const keep = block ? undefined : await host.approveChoice("", "For how long?", MCP_ALLOW_KEEP_CHOICES, host.commandAbort?.signal);
   // Cancelled (ctrl+c, closing): nothing is allowed.
   if (!block && keep === undefined) { host.output.write(`[mcp] ${name} keeps the defaults.\n`); return; }
   for (const kind of kinds) allowances.allowKind(name, kind);
-  if (keep === "2") {
+  if (keep === MCP_ALLOW_KEEP_CHOICES[1]) {
     const result = await mcp.rememberKinds(name, kinds);
     if (result.remembered) {
       host.output.write(`[mcp] ${words} allowed on ${name}, remembered. /mcp allow ${name} off undoes this.\n`);
@@ -1033,9 +1032,8 @@ async function handleLabCommand(host: CommandHost, prompt: string): Promise<void
   if (!fresh.length) { host.output.write(`[lab] All ${hosts.length} are already in your lab list.\n`); return; }
   const shown = fresh.slice(0, 20).map(terminalText).join(", ") + (fresh.length > 20 ? ` and ${fresh.length - 20} more` : "");
   const devices = `${fresh.length} ${fresh.length === 1 ? "device" : "devices"}`;
-  const answer = await host.chooseAnswer(`Add ${devices} to your lab list (${place})? ${shown}\n${numberedLines(LAB_IMPORT_CHOICES)}`,
-    "Type 1 or 2: ", ["1", "2"], host.commandAbort?.signal);
-  if (answer !== "2") { host.output.write("[lab] Nothing added.\n"); return; }
+  const answer = await host.approveChoice("", `Add ${devices} to your lab list (${place})? ${shown}`, LAB_IMPORT_CHOICES, host.commandAbort?.signal);
+  if (answer !== LAB_IMPORT_CHOICES[1]) { host.output.write("[lab] Nothing added.\n"); return; }
   const result = await addLabHosts(host.homeDir(), fresh, profile);
   host.setLab?.({ hosts: [...current, ...result.added] });
   const added = `${result.added.length} ${result.added.length === 1 ? "device" : "devices"}`;

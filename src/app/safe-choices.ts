@@ -112,7 +112,8 @@ export function forgetLoginChoices(product: string): string[] {
 /** /mcp writes <name>: only "2" turns writes on. */
 export const MCP_WRITES_CHOICES = ["Keep writes off", "Enable for this server"] as const;
 
-/** "  1 Just this time\n  2 Remember\n" */
+/** "  1 No\n  2 Download\n": a numbered question's lines (the network setup, logins and /references add); the app
+ * asks them in the same numbered box as every approval. */
 export function numberedLines(choices: readonly string[]): string {
   return choices.map((choice, index) => `  ${index + 1} ${choice}\n`).join("");
 }

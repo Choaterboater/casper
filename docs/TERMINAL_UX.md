@@ -313,9 +313,13 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   (type a letter first); a digit past the last choice is ordinary text.
 - A question from the AI's `ask` tool starts with a muted `The AI asks:` line. Casper's own
   questions and approvals never do, so the AI can't pass off a question as a Casper approval.
-- Casper's own numbered questions (a new project, one more repair on your big model, a lab check,
-  security tools and ignores, Build this plan?) also work on the plain terminal: it prints the
-  choices as numbered lines and reads `Type 1-3 (Enter for 1)`; a number or a choice's words pick
+- Every box takes the same input: approvals (an MCP change, a host, a shell command, a device
+  check, `/mcp writes`) are the same numbered panel as any question. Press a choice's number
+  (no Enter), or Up/Down and Enter; Esc is No. An approval takes no typed answer: typed words are
+  a No. Keys pressed in the first moment after a box opens (about 0.3 s) are ignored, so a key
+  typed mid-sentence never answers a box that just appeared.
+- Casper's own numbered questions and approvals also work on the plain terminal: it prints the
+  choices as numbered lines and reads `Type 1, 2 or 3:`; a number or a choice's words pick
   it. Enter picks choice 1, and at every Casper question choice 1 is the one that does nothing
   risky (Stop, Skip, Not now, Use this folder, Leave it, No, Just this time, Keep writes off, Keep the
   default): building, installing, downloading, spending tokens, running a check again, saving a

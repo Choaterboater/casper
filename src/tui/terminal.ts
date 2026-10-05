@@ -9,6 +9,13 @@ import type { NextRow } from "./next-row";
 import { bellSequence, hostCommand, prepareTmuxPane, titleSequence, TITLE_RESTORE, TITLE_SAVE, type HostCommand, type HostTerminal } from "./host-terminal";
 import { SidePane, type ActivityPane } from "./side-pane";
 
+/** The plain terminal's prompt under numbered choices, the same for every question and box: "Type 1, 2 or 3: ".
+ * Enter alone picks 1, which is always the safe choice. */
+export function numberPrompt(count: number): string {
+  const digits = Array.from({ length: count }, (_, index) => String(index + 1));
+  return `Type ${digits.length === 2 ? "1 or 2" : `${digits.slice(0, -1).join(", ")} or ${digits.at(-1)}`}: `;
+}
+
 /** The terminal Casper was started in (tmux, iTerm2), when it is a real one. Tests leave it out. */
 export interface TerminalHost {
   host: HostTerminal;
@@ -224,46 +231,27 @@ export class InteractiveTerminal {
     try { this.rl?.write("\n"); } finally { this.discardingInput = false; }
   }
 
-  /** Exact yes/no approval: only a freshly typed "yes" approves. */
-  async confirm(preview: string, question: string, signal?: AbortSignal): Promise<boolean> {
-    return (await this.choose(preview, question, ["yes"], signal)) === "yes";
-  }
-
   /**
-   * One approval or server question with a few exact typed answers, on the rich surface or plain
-   * line input. It resolves one of `choices` as typed, "no" for any other text, and undefined for
-   * Ctrl+C, EOF or abort. Lines typed before the question appeared never answer it. The model's ask
-   * tool never reaches this channel.
+   * One approval box (a change, a host, a command, a device check), in the same numbered style as every other
+   * question: the context lines, then the choices. Rich: the panel, where one key picks; plain: numbered lines and
+   * a number with Enter. It resolves the chosen label (typed words or Enter alone are the first choice, No), or
+   * undefined for Esc, Ctrl+C, ctrl+o, EOF or abort. Lines and keys typed before the box appeared never answer it.
+   * The model's ask tool never reaches this channel.
    */
-  choose(preview: string, question: string, choices: readonly string[], signal?: AbortSignal): Promise<string | undefined> {
-    if (this.surface) return this.surface.choose(preview, question, choices, signal);
-    // Lines queued ahead of an approval were written before its preview existed: they can neither
-    // answer it nor, once it settles, silently become later commands or paid prompts.
-    if (this.earlyLines.length) {
-      this.write(`[input] Discarded ${this.earlyLines.length} line(s) entered before this approval appeared.\n`);
-      this.earlyLines.length = 0;
+  async approve(preview: string, question: string, options: ReadonlyArray<string | { label: string; description?: string }>, signal?: AbortSignal): Promise<string | undefined> {
+    const choices = options.map(option => typeof option === "string" ? { label: option } : option);
+    if (this.surface) return this.surface.approve(preview, question, choices, signal);
+    // A plain terminal on a TTY means the box can't be shown where it is answered (TERM=dumb, output redirected).
+    if ((this.input as NodeJS.ReadStream).isTTY && this.rl && !this.closed) {
+      this.write("[input] No: approval denied, because this terminal can't show the box (TERM=dumb, or output redirected).\n");
+      return undefined;
     }
-    if (!this.rl || this.closed || this.confirmation || signal?.aborted) return Promise.resolve(undefined);
-    if ((this.input as NodeJS.ReadStream).isTTY) {
-      this.write("[input] Exact approval denied: use an interactive terminal with TERM other than dumb and output not redirected.\n");
-      return Promise.resolve(undefined);
-    }
-    this.endAssistant(); this.discardPartialLine(); this.write(preview);
-    this.plainQuestions += 1;
-    return new Promise(resolve => {
-      let settled = false;
-      const finish = (answer: string | undefined) => {
-        if (settled) return; settled = true;
-        signal?.removeEventListener("abort", cancel);
-        this.confirmation = undefined; this.discardPartialLine();
-        resolve(answer === undefined ? undefined : choices.includes(answer) ? answer : "no");
-      };
-      const cancel = () => finish(undefined);
-      this.confirmation = finish;
-      signal?.addEventListener("abort", cancel, { once: true });
-      if (signal?.aborted) { cancel(); return; }
-      this.rl!.setPrompt(question); this.rl!.prompt();
-    });
+    if (!this.rl || this.closed || this.confirmation || signal?.aborted || !choices.length) return undefined;
+    this.endAssistant(); this.discardPartialLine();
+    if (preview.trim()) this.write(`${preview.replace(/\n+$/, "")}\n`);
+    const answer = await this.pick(question, choices, signal);
+    if (answer === undefined) return undefined;
+    return choices.some(choice => choice.label === answer) ? answer : choices[0]!.label;
   }
 
   modelPickerHost(): RuntimeModelPickerHost | undefined { return this.exclusiveHost(); }
@@ -307,7 +295,7 @@ export class InteractiveTerminal {
       this.confirmation = finish;
       signal?.addEventListener("abort", cancel, { once: true });
       if (signal?.aborted) { cancel(); return; }
-      this.rl!.setPrompt(options.length > 1 ? `Type 1-${options.length} (Enter for 1): ` : "Enter for 1, or type your own: ");
+      this.rl!.setPrompt(options.length > 1 ? numberPrompt(options.length) : "Enter for 1, or type your own: ");
       this.rl!.prompt();
     });
   }

@@ -140,8 +140,7 @@ reaches one without your answer:
 
 1. **Casper asks first.** When the work needs a device check, the AI asks for it (or you
    type `/verify <name>`), and Casper shows a numbered box naming every device. You answer
-   with a digit and Enter, typed after the box appeared (keys typed before it never answer
-   it). The AI can't answer the box, auto mode never asks for one, a device check is never
+   with one key, pressed after the box appeared (keys typed before it never answer it). The AI can't answer the box, auto mode never asks for one, a device check is never
    rerun on its own (not after a repair, not at the end of a task), and a failed one is never
    repaired without your answer. The one exception is yours: "Always for this project" on
    `junos-commit` lets *your own* `/verify` run it without the box, and only while the

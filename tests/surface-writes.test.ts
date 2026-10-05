@@ -21,7 +21,7 @@ test("the WRITES badge leads the footer and is never cut off, even 30 columns wi
     expect(surface.footerLine(80)).toStartWith("WRITES: aruba-central · ctrl+o ○ project/main");
     expect(surface.footerLine(30)).toContain("WRITES");
     expect(surface.footerLine(30)).toContain("ctrl+o");
-    const answer = surface.choose("Run it?\n", "Type yes: ", ["yes"]);
+    const answer = surface.approve("Run it?\n", "Make this change?", [{ label: "No" }, { label: "Yes, this once" }]);
     expect(surface.footerLine(80)).toStartWith("WRITES: aruba-central · ctrl+o ? waiting for you");
     surface.setBadge(undefined);
     expect(surface.footerLine(80)).not.toContain("WRITES");
@@ -38,11 +38,11 @@ test("ctrl+o turns writes off and denies an open approval; with nothing on, the 
     let reverts = 0;
     surface.setWritesRevert(() => { reverts++; const was = on; on = false; return was; });
     let settled = false;
-    const answer = surface.choose("MCP · lab · set_config  [write]\n", "Run it? Type yes: ", ["yes"]).finally(() => { settled = true; });
+    const answer = surface.approve("MCP · lab · set_config  [write]\n", "Make this change?", [{ label: "No" }, { label: "Yes, this once" }]).finally(() => { settled = true; });
     input.write("\x0f");
     expect(await answer).toBeUndefined();
     expect(reverts).toBe(1);
-    const second = surface.choose("MCP · lab · set_config  [write]\n", "Run it? Type yes: ", ["yes"]);
+    const second = surface.approve("MCP · lab · set_config  [write]\n", "Make this change?", [{ label: "No" }, { label: "Yes, this once" }]);
     let secondSettled = false;
     void second.finally(() => { secondSettled = true; });
     input.write("\x0f");

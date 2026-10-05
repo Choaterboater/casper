@@ -462,7 +462,7 @@ describe("Phase 8 bounded subagents", () => {
       subagentRuntimeFactory: () => { children++; return new ChildRuntime(); },
       output: { write(text) {
         if (text === "> ") queueMicrotask(() => input.write(questions++ === 0 ? "/branch experiment\n" : "/exit\n"));
-        if (text.includes("Type yes:")) approval.release();
+        if (text.endsWith("Type 1 or 2: ")) approval.release();
       } },
     });
     await app.runOnce("inspect", project);

@@ -826,7 +826,7 @@ const commands = ['/branch candidate', '/delegate explorer inspect fixture.txt',
 const app = new CasperApp({ input, output: { write(text) {
   process.stdout.write(text);
   if (text === '> ') queueMicrotask(() => input.write(commands.shift() + '\\n'));
-  else if (text.includes('Type yes:')) queueMicrotask(() => input.write('yes\\n'));
+  else if (text.endsWith('Type 1 or 2: ')) queueMicrotask(() => input.write('2\\n'));
 } } });
 try { await app.runInteractive(); } finally { await app.close(); }
 `);

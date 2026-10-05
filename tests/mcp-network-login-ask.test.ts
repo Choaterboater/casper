@@ -388,7 +388,7 @@ test("app: a 2 typed before the login question never answers it, and the questio
     },
   });
   expect(run.output()).toContain("Mist isn't set up yet.");
-  expect(run.output()).toContain("[input] Discarded 1 line(s) entered before this approval appeared.");
+  expect(run.output()).toContain("[input] Discarded 1 line(s) entered before this question appeared.");
   expect(run.output()).toContain("Not added. Type /mcp login mist any time.");
   expect(privatePrompts).toBe(0);
   expect(asks).toBe(0);
