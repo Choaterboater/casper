@@ -2,7 +2,7 @@
 
 Thanks for helping with Casper.
 
-## Develop from source
+## Develop from source and run the checks
 
 Needs Bun, Git, and Python 3 (for the POSIX terminal tests):
 
@@ -21,7 +21,8 @@ In a checkout, `casper update` pulls (fast-forward only, never forced) and runs
 `bun install --frozen-lockfile` when `bun.lock` changed. A session in a checkout says how many
 changes it is behind, the same way.
 
-`bun run check` needs no paid model. Browser and debugger tests skip when those tools are not
+`bun run check` runs `bun run typecheck` and `bun test`, and needs no paid model. While you work,
+run only the test files you touched: `bun test tests/<name>.test.ts`. Browser and debugger tests skip when those tools are not
 installed. Build the program for this machine with `bun run build:release`, or all five
 release targets with `bun run build:release -- --all`. [Host testing](docs/PLATFORM_VERIFICATION.md).
 
@@ -30,16 +31,6 @@ provider usage: `bun tools/eval.ts --list` shows the tasks.
 
 Project notes: [design decision](docs/adr/0001-casper-own-product.md),
 [eval results](docs/evals/), [pre-release review](docs/PRE_RELEASE_REVIEW.md).
-
-## Run the checks
-
-```sh
-bun install --frozen-lockfile
-bun run typecheck
-bun test
-```
-
-`bun run check` runs both. While you work, run only the test files you touched: `bun test tests/<name>.test.ts`.
 
 ## How changes are made
 

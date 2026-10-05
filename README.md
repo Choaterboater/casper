@@ -74,10 +74,11 @@ Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-r
 
 - **Receipts and proof.** Line 1 says `Verified`, `Checks passed — not proven`, `Failed` and so on.
   `Verified` means the checks pass and a test fails without the change. [Receipts](docs/VERIFICATION.md#receipts)
-- **Checks and repair.** After an edit, Casper runs the checks and sends real failures back for up
-  to three repair tries. Web pages are opened and checked too. [Verification](docs/VERIFICATION.md)
-- **One numbered box for every yes.** `1 No · 2 Yes, this once · 3 Yes, for this session`, only the
-  answers that fit. Nothing asks you to type `yes`. [Terminal guide](docs/TERMINAL_UX.md)
+- **Checks and repair.** After an edit, Casper runs the checks and sends real failures back for
+  three repair tries by default. Web pages are opened and checked too. [Verification](docs/VERIFICATION.md)
+- **One numbered box for every yes.** `1 No · 2 Yes, this once · 3 Yes, for this session ·
+  4 Yes, always for this project`, and network boxes add `Yes to everything on <product> this session`;
+  each box shows only the answers that fit. Nothing asks you to type `yes`. [Terminal guide](docs/TERMINAL_UX.md)
 - **Undo.** `Next: 1 Show diff · 2 Undo` after each task; `/undo`, `/redo` and `/diff` work on any
   saved task, also outside git. [Undo](docs/UNDO.md)
 - **Sessions.** Pick up a past chat (`--continue`, `/resume`), or try an idea in a named branch with
@@ -97,8 +98,8 @@ Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-r
   type each login yourself. [Casper's network server](docs/MCP.md#caspers-network-server)
 - **Change boxes and change kinds.** Each change says what changes and where the login reaches.
   Firmware, deletes and admin changes stay off until you allow them. [Change kinds](docs/MCP.md#change-kinds-and-mcp-allow)
-- **Device checks and `/lab`.** Lab checks reach a device only after your answer; the box names any
-  device not in your lab list. [Your lab](docs/NETWORK-CHECKS.md#your-lab)
+- **Device checks and `/lab`.** Device checks can reach any device, only after your answer; the box
+  names any device not in your lab list. [Your lab](docs/NETWORK-CHECKS.md#your-lab)
 - **Risky config lines.** The receipt lists lines a task added such as `reload` or `shutdown`, as
   a report, never a pass or a fail. [Risky lines](docs/NETWORK-CHECKS.md#risky-config-lines-in-the-receipt)
 - **MCP presets.** Works with hpe-networking-mcp, junos-mcp-server, Mist, NetBox and others; presets
@@ -108,7 +109,8 @@ Ctrl+D on an empty prompt exits. [Keys and commands](docs/TERMINAL_UX.md#quick-r
 
 - **Sandbox.** On macOS and Linux, the AI's shell and your checks write only the project, temp and
   package caches, can't read `~/.ssh` or cloud logins, and reach only listed hosts. On Windows, or
-  Linux without bubblewrap, the AI's shell asks before each command that changes something.
+  Linux without bubblewrap (`sudo apt install bubblewrap socat ripgrep`), the AI's shell asks before
+  each command that changes something. [Sandbox](docs/SECURITY.md)
 - **Secrets hidden, best effort.** Known device secrets (passwords, keys, SNMP communities) are
   swapped for `<secret hidden>` before the AI sees them. Known formats only. [Secrets](docs/SECRETS.md)
 - **Only you can approve.** The AI can't answer a box for you. What goes to your model provider,

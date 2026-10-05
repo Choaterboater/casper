@@ -312,10 +312,6 @@ and Codex: no confirm screen follows. The list says where the key goes (`Saved i
 charges. Only that provider's saved sign-in is replaced. Browser sign-in opens the system
 browser automatically; offline mode (CASPER_OFFLINE=1) suppresses the launch and keeps the URL
 printed for manual opening.
-If you skip `/login`, Casper opens sign-in on your first request and picks that provider's
-default model (OpenRouter: `deepseek/deepseek-v4.1-flash`). `/model` picks another; Casper never
-replaces a model you chose. Type keys or codes only in the private login prompt, never in chat.
-Your provider's plans and charges still apply.
 Typed API keys are verified with the provider before they are stored; a rejected
 key is never saved, and a key that cannot be verified (network or provider error)
 can be retried, saved explicitly, or cancelled. Keys and callback codes/URLs use a
@@ -327,6 +323,11 @@ never the provider's own text. A model whose provider has no sign-in names that 
 terminal with nothing signed in says `Not signed in yet. Run casper in a terminal and type /login.`
 A one-shot run with a key set but no model Casper can pick says
 `No Casper model selected. Pass --model <provider/model>, or run casper and type /model.`
+
+If you skip `/login`, Casper opens sign-in on your first request and picks that provider's
+default model (OpenRouter: `deepseek/deepseek-v4.1-flash`). `/model` picks another; Casper never
+replaces a model you chose. Type keys or codes only in the private login prompt, never in chat.
+Your provider's plans and charges still apply.
 
 The list reuses Pi's selection list: a digit picks its row at once, Up/Down moves the
 visible highlight in place, Enter confirms that item, and Esc exits without contacting
