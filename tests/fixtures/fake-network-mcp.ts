@@ -67,9 +67,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   if (process.env.FAKE_INVENT_PRODUCT) return text({ error: "login_missing", product: process.env.FAKE_INVENT_PRODUCT });
   if (LOGIN[product] && !hasLogin(product)) return text({ error: "login_missing", product });
   // FAKE_EXPIRED / FAKE_401: comma-separated products whose saved login the product no longer takes, answered the
-  // newer way ({"error": "login_expired"}) or the 0.1.0 way (the product's own HTTP 401 passed through).
+  // newer way ({"error": "login_expired"}) or the 0.1.0 way: ApiError.as_error() for the product's 401, sent the way
+  // its SDK sends a returned dict (one text block, and structuredContent {result: body}).
   if ((process.env.FAKE_EXPIRED ?? "").split(",").includes(product)) return text({ error: "login_expired", product });
-  if ((process.env.FAKE_401 ?? "").split(",").includes(product)) return text({ error: `HTTP 401 at /api/${product}: {"error":"invalid_token"}` });
+  if ((process.env.FAKE_401 ?? "").split(",").includes(product)) {
+    const url = `https://${product}.example.com/api/endpoint`;
+    const body = { error: `${product} answered 401 to GET ${url}: {"error": "invalid_token"}`, status: 401, detail: { error: "invalid_token" }, request_id: null, url };
+    return { ...text(body), structuredContent: { result: body } };
+  }
   const troubleshooting = (process.env.FAKE_TROUBLESHOOT ?? "cx_show,cx_ping").split(",");
   if (request.params.name === "invoke_tool" && readOnly && !troubleshooting.includes(name)) return text({ error: "This server is read-only. Nothing was sent." });
   // FAKE_ECHO_ENV: a successful result that repeats that variable's value (a tool that lists API clients).
