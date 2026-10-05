@@ -303,7 +303,7 @@ test("Anthropic browser sign-in completes through private manual input or real l
           screen += text;
           if (text.includes('Type a number')) setImmediate(() => { input.write('\\x1b[B'); setTimeout(() => input.write('\\r'), 20); });
           const displayed = Bun.stripANSI(text).replace(/[\\r\\n]/g, '');
-          const url = displayed.match(/https:\\/\\/[^ ╭]+/)?.[0];
+          const url = displayed.match(/https:\\/\\/[^ ╭┌]+/)?.[0];
           if (url && !authUrl) {
             authUrl = new URL(url);
             callbackUrl = new URL(authUrl.searchParams.get('redirect_uri'));
