@@ -10,6 +10,7 @@ import { confirmYes } from "./approvals";
 import { stopDebugger } from "./task-tools";
 import { runVerification } from "./verification";
 import { loadWorkspace } from "./wiring";
+import { ensureRuntime } from "./runtime-start";
 
 export async function ensureSessionWorkspace(app: CasperApp): Promise<SessionWorkspaceManager> {
   if (app.sessionWorkspace) return app.sessionWorkspace;
@@ -104,7 +105,7 @@ export async function revokeWorkspaceCapabilities(app: CasperApp): Promise<void>
 }
 
 export async function runtimeForWorkspaceTransition(app: CasperApp): Promise<RuntimeSession> {
-  const session = await app.ensureRuntime();
+  const session = await ensureRuntime(app);
   await revokeWorkspaceCapabilities(app);
   return session;
 }

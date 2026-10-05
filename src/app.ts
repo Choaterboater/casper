@@ -4,7 +4,7 @@ import { promisify } from "node:util";
 import os from "node:os";
 import type { LabSettings } from "./network/spec";
 import path from "node:path";
-import { hasSignIn, modelPreference } from "./tui/model-preference";
+import { modelPreference } from "./tui/model-preference";
 import { BrowserSession } from "./browser/session";
 import { ServiceManager } from "./services/manager";
 import { SmokeChecks } from "./services/smoke";
@@ -21,13 +21,11 @@ import { SubagentManager } from "./agents/manager";
 import { discoverLSPConfiguration, type LSPConfiguration } from "./lsp/config";
 import { LSPManager, type ConfirmRename } from "./lsp/manager";
 import { SessionYes } from "./app/session-yes";
-import { boundCapabilityResult } from "./capabilities/result";
 import { discoverMCPConfiguration, type MCPConfiguration } from "./mcp/config";
 import { MCPManager } from "./mcp/manager";
 import { ConsentStore } from "./mcp/consent";
 import { CapabilityBroker } from "./capabilities/broker";
 import { Scrubber } from "./secrets/netconan";
-import { hiddenSecretGate } from "./secrets/gate";
 import { scrubToolOutput } from "./secrets/tool-output";
 import type { Readable } from "node:stream";
 import { formatProjectContext, loadProjectContext, type ProjectContext } from "./project/context";
@@ -56,7 +54,6 @@ import type { NextItem } from "./tui/next-row";
 import { TaskUndo } from "./app/undo";
 import { SuggestionController } from "./app/suggestions";
 import type { Flow } from "./flows/catalog";
-import { planToolGate } from "./flows/plan";
 import type { SecurityAIReview, SecurityReviewHost } from "./app/security-review";
 import { resolveVerificationMode, type ChecksPlan, type VerificationMode } from "./verify/mode";
 import { MermaidProvider } from "./visualize/mermaid";
@@ -68,16 +65,13 @@ import { lookPrompt, pageLook, SHOW_PAGES_CHOICES, SHOW_PAGES_QUESTION } from ".
 import { DEFAULT_WEB } from "./config/load";
 import { AGENT_DIR_ENV, casperAgentDir } from "./runtime/agent-store";
 import { WebLookup, type WebLookupOptions } from "./web/lookup";
-import { systemPromptAppend } from "./app/prompt";
 import type { VisualizationProvider } from "./visualize/types";
 import { SessionWorkspaceManager } from "./sessions/manager";
 import type { OutputWriter } from "./app/commands";
 import type { BackgroundTask } from "./app/background";
 import { detectHostTerminal } from "./tui/host-terminal";
-import { UsageError } from "./cli-args";
-import { RuntimeEventMapper, sessionStartEvent, type CasperEvent } from "./app/json-events";
+import { RuntimeEventMapper, type CasperEvent } from "./app/json-events";
 import { StepRail } from "./app/steps";
-import { CASPER_VERSION } from "./version";
 import type { Install } from "./update/command";
 import { sandboxReceipt, sandboxStartupNotes, sandboxStatusLine, type RunAllowances } from "./app/sandbox";
 import type { ShellSandbox, ShellSandboxOptions } from "./sandbox/manager";
@@ -103,6 +97,7 @@ import { runVerification, checksPlan, saveFoundCheck } from "./app/verification"
 import { PAGES_ONLY_PROOF, PAGES_ANSWER_ONLY_PROOF, proofSkipReason } from "./app/task-run";
 import { runInteractive, handlePrompt, handleSlashCommand, cancelCurrent, writePrompt } from "./app/command-loop";
 import { loadWorkspace, reloadReferences, projectPrivatePaths, reportSkillWarnings, bannerChecks, reportNewerCasper } from "./app/wiring";
+import { acquireRuntime, ensureRuntime, checkSignIn } from "./app/runtime-start";
 
 export type { OutputWriter } from "./app/commands";
 
@@ -182,7 +177,7 @@ export class CasperApp {
   readonly steps = new StepRail();
   /** Browser actions and debugger launches you said "Yes, for this session" to. */
   readonly sessionYes = new SessionYes((preview, question, options, signal) => recordedApproval(this, preview, question, options, signal));
-  private readonly runtimeFactory: () => AgentRuntime | Promise<AgentRuntime>;
+  readonly runtimeFactory: () => AgentRuntime | Promise<AgentRuntime>;
   readonly subagents: SubagentManager;
   readonly inspectProjectFn: (cwd: string) => Promise<ProjectInfo>;
   readonly loadProjectContextFn: (project: ProjectInfo) => Promise<ProjectContext>;
@@ -252,13 +247,13 @@ export class CasperApp {
   readonly updateCheck?: { install: Install; currentVersion: string };
   readonly updateCheckAbort = new AbortController();
   readonly runModel?: string;
-  private readonly runEffort?: string;
+  readonly runEffort?: string;
   runConversation?: CasperAppOptions["conversation"];
   readonly maxTurns?: number;
   readonly onEvent?: (event: CasperEvent) => void;
-  private readonly eventMapper = new RuntimeEventMapper();
+  readonly eventMapper = new RuntimeEventMapper();
   /** The text of the response being streamed, and of the last response that had text. */
-  private responseText = "";
+  responseText = "";
   lastAnswer = "";
   /** casper_check calls in flight: their results were requested by the model, not by Casper. */
   modelCheckCalls = 0;
@@ -495,7 +490,7 @@ export class CasperApp {
     for (const note of sandboxStartupNotes(context.info.root)) this.output.write(`${note}\n`);
     // A returning user's saved default is known before the runtime starts; say so, not "not initialized".
     if (!this.session) this.savedModelDisplay = await modelPreference(this.sessionHomeDir ?? os.homedir());
-    if (!this.session) await this.checkSignIn();
+    if (!this.session) await checkSignIn(this);
     // --model names the model for this run: show it, not the saved default it overrides.
     const shown = this.runModel && !this.session ? `${terminalText(this.runModel)} for this run (--model)` : this.savedModelDisplay;
     this.output.write(`${formatRuntimeStatus(this.session?.getStatus?.(), shown, this.signedIn, this.interactive && this.terminal.rich)}\n`);
@@ -579,139 +574,9 @@ export class CasperApp {
   }
 
   /** One adapter-construction owner, shared by auth and session startup. */
-  acquireRuntime(): Promise<AgentRuntime> {
-    if (!this.runtimeLoad) this.runtimeLoad = Promise.resolve().then(async () => {
-      if (this.closing) throw new Error("Casper is closing");
-      this.runtime = await this.runtimeFactory();
-      if (this.closing) throw new Error("Casper is closing");
-      return this.runtime;
-    }).catch((error) => { if (!this.closing) this.runtimeLoad = undefined; throw error; });
-    return this.runtimeLoad;
-  }
+  acquireRuntime(): Promise<AgentRuntime> { return acquireRuntime(this); }
 
-  async ensureRuntime(): Promise<RuntimeSession> {
-    if (this.closing) throw new Error("Casper is closing");
-    if (this.session) return this.session;
-    if (!this.runtimeStart) {
-      const context = this.projectContext!;
-      // Record the whole load/start operation before invoking the factory, so
-      // close() also drains a lazy SDK import and prevents post-shutdown start.
-      this.runtimeStart = Promise.resolve().then(async () => {
-        if (this.closing) throw new Error("Casper is closing");
-        this.runtime = await this.acquireRuntime();
-        if (this.closing) throw new Error("Casper is closing");
-        this.session = await this.runtime.start({
-          cwd: context.info.root,
-          tools: this.runtimeTools,
-          afterFileEdit: async (file, signal) => {
-            this.observeEdit(file);
-            const reports = await this.lsp!.afterEdit(file, signal);
-            return reports.length ? `LSP diagnostics after edit: ${JSON.stringify(boundCapabilityResult(reports))}\nRepair new errors before continuing; unavailable or unversioned reports are not proof of a clean file.` : undefined;
-          },
-          systemPromptAppend: systemPromptAppend(context),
-          // A plan turn refuses every tool but reading, whatever the tool says about itself.
-          beforeToolGate: (toolName, input) => (this.planning ? planToolGate(toolName, input) : undefined)
-            ?? hiddenSecretGate(toolName, input)
-            ?? (toolName === "edit" || toolName === "write" ? editGateReason(this, toolName) : undefined),
-          // At the spend pause the next tool call waits for the answer (Stop here is the Enter choice).
-          beforeToolWait: (_toolName, signal) => spendGate(this, signal),
-          // Config files and config-looking command output (/secrets files off stops these for this
-          // session), plus .env, credential files and secret env values (always).
-          scrubToolOutput: (toolName, input, texts, signal) => scrubToolOutput(this.scrubber, toolName, input, texts, signal, { configs: this.scrubFiles, networkLoginFile: networkLoginFile(this) }),
-          ...(this.shell ? { shell: this.shell } : {}),
-          ...(context.cache ? { cache: context.cache } : {}),
-          // The project's sandbox.denyRead (GreenCLI lists its data and log folders there): the file tools refuse them too.
-          privatePaths: projectPrivatePaths(this),
-        });
-        const resumeNotice = await (await ensureSessionWorkspace(this)).resumeActive(this.session);
-        if (resumeNotice) this.output.write(`[sessions] ${resumeNotice}\n`);
-        await this.applyRunConversation(this.session);
-        await this.applyRunSelection(this.session);
-        this.unsubscribe = this.session.subscribe(event => {
-          if (event.type === "tool_start" && event.toolName === "casper_check") this.modelCheckCalls++;
-          if (event.type === "tool_end" && event.toolName === "casper_check") this.modelCheckCalls = Math.max(0, this.modelCheckCalls - 1);
-          this.observations.observeUsage(event);
-          if (event.type === "assistant_response_end") spendNote(this);
-          if (event.type === "assistant_response_start") this.responseText = "";
-          else if (event.type === "assistant_text_delta") this.responseText = (this.responseText + event.delta).slice(-65_536);
-          else if (event.type === "assistant_response_end" && this.responseText.trim()) this.lastAnswer = this.responseText;
-          this.events.handle(event);
-          if (this.onEvent) for (const mapped of this.eventMapper.map(event)) this.onEvent(mapped);
-        });
-        if (this.onEvent) {
-          let conversation: string | undefined;
-          try { conversation = this.session.getSessionInfo?.().sessionId; } catch { /* no persistence: no ID */ }
-          this.onEvent(sessionStartEvent({ casper: CASPER_VERSION, cwd: context.info.root, session: conversation, status: this.session.getStatus?.() }));
-        }
-        const status = this.session.getStatus?.() ?? { auth: "unknown" as const };
-        if (!status.blocked) this.output.write(`${formatRuntimeStartLine(status)}\n`);
-        updateFooter(this);
-        return this.session;
-      }).catch(async (error) => {
-        if (!this.closing) {
-          const failedRuntime = this.runtime;
-          this.runtime = undefined;
-          this.runtimeLoad = undefined;
-          this.session = undefined;
-          await failedRuntime?.dispose().catch(() => {});
-        }
-        throw error;
-      }).finally(() => {
-        if (!this.session) this.runtimeStart = undefined;
-      });
-    }
-    return this.runtimeStart;
-  }
-
-  /** `--continue`/`--resume` pick a saved conversation of this workspace before the first request.
-   * Applied once: a later runtime restart keeps whatever conversation is active by then. Like
-   * /resume, an interactive session binds its named session to the conversation; a one-shot run
-   * does not, so it never changes what later runs open. */
-  private async applyRunConversation(session: RuntimeSession): Promise<void> {
-    const request = this.runConversation;
-    if (!request) return;
-    const flag = "resume" in request ? "--resume" : "--continue";
-    if (!session.listConversations || !session.resumeConversation) throw new UsageError(`${flag}: this runtime does not support saved conversations.`);
-    // A new conversation is not listed until its first response is saved; a restored one is.
-    const saved = await session.listConversations();
-    let target: string | undefined;
-    if ("resume" in request) {
-      const matches = saved.filter((conversation) => conversation.id.startsWith(request.resume));
-      if (!matches.length) throw new UsageError(`--resume: no saved conversation in this workspace starts with "${request.resume}". Run casper /resume to list them.`);
-      if (matches.length > 1) throw new UsageError(`--resume: "${request.resume}" matches ${matches.length} conversations; give more of the ID.`);
-      target = matches[0]!.id;
-    } else target = [...saved].sort((a, b) => b.modified.localeCompare(a.modified))[0]?.id;
-    this.runConversation = undefined;
-    if (!target) { this.output.write("[session] No earlier conversation in this workspace; starting a new one.\n"); return; }
-    let current: string | undefined;
-    try { current = session.getSessionInfo?.().sessionId; } catch { /* no persistence */ }
-    if (target !== current) {
-      await session.resumeConversation(target, { keepUnwritten: false });
-      if (this.interactive && session.getSessionInfo) await (await ensureSessionWorkspace(this)).rememberConversation(session);
-    }
-    this.output.write(`[session] Continuing conversation ${target}.\n`);
-  }
-
-  /** `--model`/`--effort` select for this conversation only (persist: false), before any request.
-   * A selector or level the catalog rejects is a usage error; missing credentials are not. */
-  private async applyRunSelection(session: RuntimeSession): Promise<void> {
-    const flagError = (flag: string, error: unknown) => {
-      const message = error instanceof Error ? error.message : String(error);
-      return /^(?:Credential|Not signed in to|No key for)/.test(message) ? new Error(message) : new UsageError(`${flag}: ${message}`);
-    };
-    if (this.runModel) {
-      if (!session.selectModel) throw new UsageError("--model: this runtime does not support model selection.");
-      let selected: boolean;
-      try { selected = (await session.selectModel({ query: this.runModel, persist: false })).selected; }
-      catch (error) { throw flagError("--model", error); }
-      if (!selected) throw new UsageError(`--model: Unknown model "${this.runModel}". Run casper /model to list models.`);
-    }
-    if (this.runEffort) {
-      if (!session.setEffort) throw new UsageError("--effort: this runtime does not support effort controls.");
-      try { await session.setEffort(this.runEffort, false); }
-      catch (error) { throw flagError("--effort", error); }
-    }
-  }
+  async ensureRuntime(): Promise<RuntimeSession> { return ensureRuntime(this); }
 
   /** Local command dispatch moved to app/commands.ts; the app is the command host. */
   handleSlashCommand(prompt: string): Promise<VerificationReport | undefined> { return handleSlashCommand(this, prompt); }
@@ -745,7 +610,7 @@ export class CasperApp {
   securityAI(): SecurityAIReview {
     return {
       model: async () => {
-        const session = await this.ensureRuntime();
+        const session = await ensureRuntime(this);
         const status = session.getStatus?.();
         if (status?.auth === "missing" || status?.blocked) throw new Error("no model is signed in");
         let review: string | undefined;
@@ -780,13 +645,6 @@ export class CasperApp {
   homeDir(): string { return this.sessionHomeDir ?? os.homedir(); }
 
   async savedModel(): Promise<string | undefined> { return modelPreference(this.sessionHomeDir ?? os.homedir()); }
-
-  /** Whether any sign-in exists yet, for the banner and footer only. */
-  async checkSignIn(): Promise<void> {
-    const agentDir = this.sessionHomeDir ? path.join(this.sessionHomeDir, ".casper", "agent")
-      : process.env[AGENT_DIR_ENV] && process.env[AGENT_DIR_ENV] !== "undefined" ? process.env[AGENT_DIR_ENV]! : casperAgentDir();
-    this.signedIn = await hasSignIn(agentDir);
-  }
 
   async ensureSessionWorkspace(): Promise<SessionWorkspaceManager> { return ensureSessionWorkspace(this); }
 
@@ -897,13 +755,6 @@ export class CasperApp {
 
   updateFooter(): void { updateFooter(this); }
 
-  private observeEdit(path: string): void {
-    if (this.taskEdits) this.taskEdits.edited = true;
-    this.browser?.invalidate();
-    this.services?.markEdited(path);
-    (this.checkTask ?? this.verificationTask)?.invalidateForEdit(path);
-    this.observations.recordEdit(path);
-  }
 }
 
 export { PAGES_ANSWER_ONLY_PROOF, PAGES_ONLY_PROOF, proofSkipReason } from "./app/task-run";

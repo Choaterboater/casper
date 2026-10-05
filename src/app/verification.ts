@@ -27,6 +27,7 @@ import { phase, clearSteps } from "./footer";
 import { prepareCapabilities, pageRun, smokeRun } from "./task-tools";
 import { bigModelReceipt, switchToBigModel, restoreModel, askBigModelRetry, bigModelOf } from "./big-model";
 import { receiptSurface } from "./task-run";
+import { ensureRuntime } from "./runtime-start";
 
 export async function runVerification(app: CasperApp, checks: readonly CheckName[],
   repair: boolean,
@@ -68,7 +69,7 @@ export async function runVerification(app: CasperApp, checks: readonly CheckName
       signal: controller.signal,
       repair: repair || labOnly ? async (prompt) => {
         await prepareCapabilities(app, request);
-        const session = await app.ensureRuntime();
+        const session = await ensureRuntime(app);
         // This try runs on the big model: the user chose it at the repair limit, or set repair.bigModelLastTry.
         const big = app.repairOnBigModel;
         app.repairOnBigModel = undefined;

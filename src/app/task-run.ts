@@ -49,6 +49,7 @@ import { lookPrompt, pageLook, SHOW_PAGES_CHOICES, SHOW_PAGES_QUESTION } from ".
 import { offerNewProject, childProjectOfTask, runChildChecks, offerWorkFolder } from "./workspace";
 import { runVerification, writeCheckResult, taskNetworkOptions, checksPlan, saveFoundCheck, projectAfterSetup } from "./verification";
 import { reportSkillWarnings } from "./wiring";
+import { ensureRuntime } from "./runtime-start";
 
 export async function runModelTask(app: CasperApp, prompt: string, options: { flow?: Flow; planFirst?: boolean } = {}): Promise<VerificationReport | undefined> {
   if (app.closing) return;
@@ -116,7 +117,7 @@ export async function runModelTask(app: CasperApp, prompt: string, options: { fl
   app.smokeTask = verificationMode !== "off" ? new SmokeChecks(context.smoke ?? [], () => serviceManager(app), () => changedSinceTaskStart(app, edits)) : undefined;
   await prepareCapabilities(app, prompt);
   if (app.closing || app.commandAbort?.signal.aborted) return;
-  const session = await app.ensureRuntime();
+  const session = await ensureRuntime(app);
   if (app.closing || app.commandAbort?.signal.aborted) return;
   if (!await ensureModel(app, session)) return;
   // The question comes now; a switch it picks happens only for the build turn, which is the turn that sees them.

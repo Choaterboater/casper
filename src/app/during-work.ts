@@ -10,6 +10,7 @@ import { opened } from "./new-project";
 import { updateFooter } from "./footer";
 import { backgroundTasks } from "./task-tools";
 import { handleSlashCommand } from "./command-loop";
+import { ensureRuntime } from "./runtime-start";
 
 /** After a task: lines the AI never read join the queue. A stopped task runs nothing more: its queued lines go
  * back into the prompt (the rich terminal) for you to send or clear. */
@@ -110,7 +111,7 @@ export async function saveCycledEffort(app: CasperApp): Promise<void> {
 }
 
 export async function applyEffortCycle(app: CasperApp): Promise<void> {
-  const session = await app.ensureRuntime();
+  const session = await ensureRuntime(app);
   if (app.closing) return;
   if (!session.setEffort || !session.getStatus) {
     app.terminal.flashNote("effort controls unavailable");

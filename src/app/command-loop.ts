@@ -21,6 +21,7 @@ import { newProjectFlowWithAbort, openProjectFolder, newProjectCommand } from ".
 import { rebindWorkspace } from "./session-branches";
 import { runModelTask, runSuggestion } from "./task-run";
 import { applyWeb } from "./wiring";
+import { checkSignIn } from "./runtime-start";
 
 export async function runInteractive(app: CasperApp, cwd = process.cwd()): Promise<void> {
   // Own the terminal before the banner so startup output is transcript, not
@@ -45,7 +46,7 @@ export async function runInteractive(app: CasperApp, cwd = process.cwd()): Promi
   }
 
   app.savedModelDisplay = await modelPreference(app.sessionHomeDir ?? os.homedir());
-  await app.checkSignIn();
+  await checkSignIn(app);
   await loadPaneSetting(app);
   updateFooter(app);
   while (!app.closing) {
