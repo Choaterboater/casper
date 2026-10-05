@@ -100,11 +100,16 @@
           <p>Every question that lets something happen is the same numbered box, Casper sets up its
           own network server, and device checks ask before they touch anything.</p>
           <ul>
-            <li><strong>Casper sets up its network server.</strong> Ask about Mist, Central, ClearPass
-            or Wi-Fi, or type <code>/mcp setup network</code>: <code>1 Not now · 2 Set it up</code>.
+            <li><strong>Casper sets up its network server.</strong> Ask about ClearPass, Marvis or an
+            SSID, or about Mist, Central or Wi-Fi next to a network word, or type
+            <code>/mcp setup network</code>: <code>1 Not now · 2 Set it up</code>.
             <code>2</code> installs <a href="https://github.com/Choaterboater/casper-network-mcp">casper-network-mcp</a>
             0.1.1, every package checked by hash, and connects it with writes off. No file to edit,
             no variable to set.</li>
+            <li><strong>Your own servers the same way.</strong> <code>casper new network-mcp</code> now
+            builds a server with a <code>--read-only</code> start flag, the change kind on every tool
+            that changes things, and an <code>access_check</code> that says where the login can
+            change things.</li>
             <li><strong>Logins on first use.</strong> The first time the AI uses a product, Casper asks
             you for its login (<code>1 Not now · 2 Add a login</code>), typed hidden, kept in Casper's
             own private file. The AI never sees it. Casper says where it reaches:
@@ -116,7 +121,9 @@
             Esc is No, and nothing asks you to type <code>yes</code> any more.</li>
             <li><strong>Change kinds.</strong> Each MCP change is config, troubleshoot, disruptive,
             firmware, delete or admin. Firmware, deletes and admin changes are off by default;
-            <code>/mcp allow</code> picks them ahead of time. "Yes to everything" shows
+            <code>/mcp allow</code> picks them ahead of time. "Yes, for this session" never covers a
+            reboot, a risky kind or a tool that runs commands. "Yes to everything" covers every
+            change on that product, firmware, deletes and admin too, and shows
             <code>ALLOW ALL</code> in the footer until <kbd>ctrl+o</kbd>.</li>
             <li><strong>Device checks ask first.</strong> They can reach any device, only after your
             answer; the box names every device and those not marked lab. <code>/lab import</code>

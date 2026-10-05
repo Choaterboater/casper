@@ -331,8 +331,8 @@ install commands above give it. What each version changed, in more detail:
 - Every approval is one numbered box (`1 No · 2 Yes, this once · 3 Yes, for this session ·
   4 Yes, always for this project`, only the answers that fit); nothing asks you to type `yes`.
 - The MCP change box says what changes and where the login reaches. Firmware, deletes and admin
-  changes are off by default; `/mcp allow` picks them ahead of time, and "Yes to everything"
-  shows `ALLOW ALL` until ctrl+o. [Change kinds](docs/MCP.md#change-kinds-and-mcp-allow)
+  changes are off by default; `/mcp allow` picks them ahead of time. "Yes to everything" covers
+  every change on that product, those included, and shows `ALLOW ALL` until ctrl+o. [Change kinds](docs/MCP.md#change-kinds-and-mcp-allow)
 - Device checks reach any device, only after your answer; the box names devices not marked lab.
   `/lab import <file>` fills your lab list. [Your lab](docs/NETWORK-CHECKS.md#your-lab)
 - The receipt lists risky config lines a task added (`reload`, `shutdown`, `erase` …), as a

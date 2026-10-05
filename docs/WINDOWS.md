@@ -54,7 +54,8 @@ line should point into the install folder, not an old checkout or some other pro
 called casper.
 
 The command above always installs **v0.2.22**. Running it again reinstalls v0.2.22.
-To get a newer preview, use that release's own install command.
+To get a newer preview, run `casper update`; it renames `casper.exe` to `casper.old.exe`
+and installs the new one with that release's own installer.
 
 ## 2. Automated checks (CI)
 
