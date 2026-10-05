@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { buildPlan, planLabel } from "../src/capabilities/approval";
@@ -10,6 +10,7 @@ import { MCPManager } from "../src/mcp/manager";
 import { networkServerEntry } from "../src/mcp/network/server";
 import { toolLabel } from "../src/capabilities/labels";
 import type { MCPTool } from "../src/mcp/manager";
+import { allowSlowServerStopsOnWindows, fakeServerProgram } from "./support/fake-program";
 
 function kind(name: string, meta?: unknown, annotations?: MCPTool["annotations"]) {
   const tool = { name, annotations, ...(meta === undefined ? {} : { _meta: { "casper/change-kind": meta } }) };
@@ -147,7 +148,7 @@ test("a routed check named for a link test (cable, ping, iperf) asks even before
 
 // --- In the broker, with the network server's stand-in ---------------------------------------------------------
 
-const fakeServer = path.join(import.meta.dir, "fixtures/fake-network-mcp.ts");
+allowSlowServerStopsOnWindows();
 const cleanup: (() => Promise<unknown>)[] = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
 
@@ -156,12 +157,12 @@ async function troubleshootRun(preset: "network" | "hpe", tool = "cx_show", opti
   cleanup.push(() => rm(home, { recursive: true, force: true }));
   const calls = path.join(home, "calls.log");
   // The same stand-in, installed where Casper installs its network server, or under hpe-networking-mcp's program name.
-  const entry = preset === "network" ? networkServerEntry(home).command : path.join(home, "bin/hpe-mcp-router");
-  await mkdir(path.dirname(entry), { recursive: true });
+  const where = preset === "network" ? networkServerEntry(home).command : path.join(home, "bin/hpe-mcp-router");
+  await mkdir(path.dirname(where), { recursive: true });
   const hits = [{ name: tool, product: "central", summary: "Run a check.", kind: "troubleshoot", label: "diagnostic" }];
-  const destructive = options.destructive ? "FAKE_INVOKE_DESTRUCTIVE=1 " : "";
-  await writeFile(entry, `#!/bin/sh\n${destructive}FAKE_CALLS_FILE='${calls}' FAKE_HITS='${JSON.stringify(hits)}' exec "${process.execPath}" "${fakeServer}" "$@"\n`);
-  await chmod(entry, 0o755);
+  const entry = await fakeServerProgram(where, "fake-network-mcp", {
+    ...options.destructive ? { FAKE_INVOKE_DESTRUCTIVE: "1" } : {}, FAKE_CALLS_FILE: calls, FAKE_HITS: JSON.stringify(hits),
+  });
   const definition: MCPServerDefinition = { name: "network", source: path.join(home, ".casper/mcp.json"), scope: "user", cwd: home, disabled: false,
     transport: { type: "stdio", command: entry, args: [], env: preset === "hpe" ? { HPE_MCP_EXAMPLE: "1" } : {} } };
   const manager = new MCPManager({ servers: [definition], diagnostics: [] }, { timeoutMs: 15_000, homeDir: home });
@@ -222,8 +223,7 @@ test("review: a later find_tool that names a lower kind never lowers the kept on
   const entry = networkServerEntry(home).command;
   await mkdir(path.dirname(entry), { recursive: true });
   const hit = (kind: string) => [{ name: "mist_update_device", product: "mist", summary: "Update a device.", kind, label: "write" }];
-  await writeFile(entry, `#!/bin/sh\nFAKE_HITS='${JSON.stringify(hit("firmware"))}' FAKE_HITS_LATER='${JSON.stringify(hit("config"))}' exec "${process.execPath}" "${fakeServer}" "$@"\n`);
-  await chmod(entry, 0o755);
+  await fakeServerProgram(entry, "fake-network-mcp", { FAKE_HITS: JSON.stringify(hit("firmware")), FAKE_HITS_LATER: JSON.stringify(hit("config")) });
   const definition: MCPServerDefinition = { name: "network", source: path.join(home, ".casper/mcp.json"), scope: "user", cwd: home, disabled: false,
     transport: { type: "stdio", ...networkServerEntry(home) } };
   const manager = new MCPManager({ servers: [definition], diagnostics: [] }, { timeoutMs: 15_000, homeDir: home });
@@ -252,8 +252,11 @@ async function hitServer(hits: unknown[], later?: unknown[]) {
   await mkdir(path.dirname(entry), { recursive: true });
   await writeFile(path.join(home, "hits.json"), JSON.stringify(hits));
   await writeFile(path.join(home, "later.json"), JSON.stringify(later ?? hits));
-  await writeFile(entry, `#!/bin/sh\nFAKE_HITS="$(cat '${path.join(home, "hits.json")}')" FAKE_HITS_LATER="$(cat '${path.join(home, "later.json")}')" exec "${process.execPath}" "${fakeServer}" "$@"\n`);
-  await chmod(entry, 0o755);
+  // Read at each start, so a test can change the hits between starts.
+  await fakeServerProgram(entry, "fake-network-mcp", {}, [
+    `process.env.FAKE_HITS = fs.readFileSync(${JSON.stringify(path.join(home, "hits.json"))}, "utf8");`,
+    `process.env.FAKE_HITS_LATER = fs.readFileSync(${JSON.stringify(path.join(home, "later.json"))}, "utf8");`,
+  ].join("\n"));
   const definition: MCPServerDefinition = { name: "network", source: path.join(home, ".casper/mcp.json"), scope: "user", cwd: home, disabled: false,
     transport: { type: "stdio", ...networkServerEntry(home) } };
   const manager = new MCPManager({ servers: [definition], diagnostics: [] }, { timeoutMs: 15_000, homeDir: home });

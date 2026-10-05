@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -11,13 +11,16 @@ import {
   namesNetworkProduct, networkSetupLine, networkSetupQuestion, runNetworkSetup, runNetworkUpdate, shouldOfferNetworkSetup, shouldOfferNetworkUpdate,
   type SetupHost,
 } from "../src/mcp/network/setup";
+import { uvInstaller } from "../src/mcp/network/uv";
 import { loadProjectContext } from "../src/project/context";
 import type { AgentRuntime, RuntimeStartOptions } from "../src/runtime/types";
 import { installedVersion, type InstallOptions } from "../src/security/install";
 import type { ToolRunner } from "../src/security/spawn";
 import type { LockedSpec } from "../src/security/tools";
 import { SkillRegistry } from "../src/skills/registry";
+import { allowSlowServerStopsOnWindows, fakeProgram, fakeServerProgram } from "./support/fake-program";
 
+allowSlowServerStopsOnWindows();
 const cleanup: (() => Promise<unknown>)[] = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
 async function temp(prefix: string): Promise<string> {
@@ -27,13 +30,11 @@ async function temp(prefix: string): Promise<string> {
 }
 const exists = (file: string) => stat(file).then(() => true, () => false);
 
-const fixtureServer = path.join(import.meta.dir, "fixtures/mcp-network-server.ts");
 
 /** A fake uv on PATH and a runner whose `pip install` writes the server's entry: a script that starts the MCP fixture. */
 async function fakeInstall(options: { pipExit?: number } = {}): Promise<Pick<InstallOptions, "env" | "run"> & { calls: string[][] }> {
   const bin = await temp("casper-network-uv-");
-  await writeFile(path.join(bin, "uv"), "#!/bin/sh\nexit 0\n");
-  await chmod(path.join(bin, "uv"), 0o755);
+  await fakeProgram(path.join(bin, "uv"), "process.exit(0);");
   const calls: string[][] = [];
   const run: ToolRunner = async (call) => {
     calls.push([...call.args]);
@@ -41,9 +42,7 @@ async function fakeInstall(options: { pipExit?: number } = {}): Promise<Pick<Ins
       if (options.pipExit) return { exitCode: options.pipExit, signal: null, stdout: "", stderr: "" };
       const python = call.args[call.args.indexOf("--python") + 1]!;
       await mkdir(path.dirname(python), { recursive: true });
-      const entry = path.join(path.dirname(python), NETWORK_SERVER.source.entry);
-      await writeFile(entry, `#!/bin/sh\nexec "${process.execPath}" "${fixtureServer}" "$@"\n`);
-      await chmod(entry, 0o755);
+      await fakeServerProgram(path.join(path.dirname(python), NETWORK_SERVER.source.entry), "mcp-network-server");
     }
     return { exitCode: 0, signal: null, stdout: "", stderr: "" };
   };
@@ -98,8 +97,7 @@ async function fakeSetupHost(options: { answers?: string[]; canAsk?: boolean; pi
       host.uvInstalls++;
       if (options.uvInstall === "fail") return { ok: false, message: "curl: (6) Could not resolve host: astral.sh" };
       await mkdir(path.join(homeDir, ".local/bin"), { recursive: true });
-      await writeFile(path.join(homeDir, ".local/bin/uv"), "#!/bin/sh\nexit 0\n");
-      await chmod(path.join(homeDir, ".local/bin/uv"), 0o755);
+      await fakeProgram(path.join(homeDir, ".local/bin/uv"), "process.exit(0);");
       return { ok: true };
     },
     uvInstalls: 0,
@@ -166,7 +164,9 @@ test("Enter (or any other answer) counts as Not now and isn't asked again", asyn
 test("no uv: the setup question says so, shows uv's official installer, and 2 installs uv then sets the server up", async () => {
   const host = await fakeSetupHost({ answers: ["2"], uvMissing: true });
   expect(await runNetworkSetup(host, { explicit: false })).toBe("installed");
-  expect(host.asked[0]).toContain("It needs uv, which isn't installed. Casper installs it first with uv's official installer:\n  curl -LsSf https://astral.sh/uv/install.sh | sh\n");
+  // This OS's installer: curl … | sh, or PowerShell's irm … | iex on Windows.
+  expect(host.asked[0]).toContain(`It needs uv, which isn't installed. Casper installs it first with uv's official installer:\n  ${uvInstaller(process.platform).shown}\n`);
+  expect(host.asked[0]).toContain(process.platform === "win32" ? "https://astral.sh/uv/install.ps1" : "curl -LsSf https://astral.sh/uv/install.sh | sh");
   expect(host.asked[0]).toEndWith("  1 Not now\n  2 Install uv, then set it up\n");
   expect(host.asked).toHaveLength(1);
   expect(host.uvInstalls).toBe(1);
@@ -374,11 +374,9 @@ test("review: when the folders can't be swapped, the old version starts again an
 test("review: restartAfterCalls runs whileStopped with the server stopped, then starts it again", async () => {
   const { MCPManager } = await import("../src/mcp/manager");
   const home = await temp("casper-network-restart-");
-  const entry = path.join(home, "bin/server");
-  await mkdir(path.dirname(entry), { recursive: true });
+  await mkdir(path.join(home, "bin"), { recursive: true });
   const calls = path.join(home, "calls.log");
-  await writeFile(entry, `#!/bin/sh\nFAKE_CALLS_FILE='${calls}' exec "${process.execPath}" "${path.join(import.meta.dir, "fixtures/fake-network-mcp.ts")}" "$@"\n`);
-  await chmod(entry, 0o755);
+  const entry = await fakeServerProgram(path.join(home, "bin/server"), "fake-network-mcp", { FAKE_CALLS_FILE: calls });
   const definition: MCPServerDefinition = { name: "network", source: path.join(home, ".casper/mcp.json"), scope: "user", cwd: home, disabled: false,
     transport: { type: "stdio", command: entry, args: [], env: {} } };
   const manager = new MCPManager({ servers: [definition], diagnostics: [] }, { timeoutMs: 15_000, homeDir: home });
