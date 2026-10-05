@@ -19,7 +19,7 @@ bun install --frozen-lockfile     # once; needs network or a warm cache
 bun tools/platform-report.ts      # Step 1: must end with exit code 0
 bun run typecheck                 # Step 2
 bun test tests/platform-processes.test.ts
-bun test                          # full suite, one file at a time (serial)
+bun run test                      # full suite, files in parallel (slowest first)
 bun tools/terminal-demo.ts        # Step 4: look at the screen yourself
 ```
 
@@ -35,7 +35,7 @@ or needs model credentials. The sign-in tests use fake provider answers.
 
 | Workflow | What it runs | Evidence it keeps |
 | --- | --- | --- |
-| [Linux preview](../.github/workflows/linux-preview.yml) | Ubuntu 24.04, Bun 1.4.0, records `python3` and its PTY modules; locked install; platform probe; typecheck; focused platform/terminal/login/model/debugger suite; full serial `bun test` | `linux-preview-evidence`: host, install, probe, typecheck, focused and full-suite logs, kept 14 days, uploaded even when a check fails |
+| [Linux preview](../.github/workflows/linux-preview.yml) | Ubuntu 24.04, Bun 1.4.0, records `python3` and its PTY modules; locked install; platform probe; typecheck; focused platform/terminal/login/model/debugger suite; full `bun run test` (files in parallel) | `linux-preview-evidence`: host, install, probe, typecheck, focused and full-suite logs, kept 14 days, uploaded even when a check fails |
 | [Windows preview](../.github/workflows/windows-preview.yml) | `windows-latest`, Bun 1.4.0, locked install; typecheck; platform probe; focused platform/terminal/login/model suite; release-compile test; release build; installer test under Windows PowerShell 5.1 and PowerShell 7 | `windows-verification`: host and per-step logs, uploaded even on failure; the built files go to `windows-preview` |
 
 On Linux the Python PTY tests run (Windows skips them). A PTY is a fake terminal a
@@ -108,11 +108,13 @@ full suite:
 
 ```bash
 bun test tests/platform-processes.test.ts tests/login-picker.test.ts tests/login.test.ts tests/terminal-review.test.ts tests/terminal-ux.test.ts tests/terminal-discovery.test.ts tests/daily-terminal.test.ts tests/model-routing.test.ts tests/auto-effort.test.ts tests/model-selection.test.ts tests/phase10-debugger-app.test.ts
-bun test
+bun run test
 ```
 
-Run the full suite with plain `bun test`, one file at a time. `bun run test:fast`
-(parallel) is optional and is not this check. These tests use fake provider and
+`bun run test` runs the test files in parallel, slowest first (from
+`tests/timings.json`; refresh it with `bun run test:timings`), then the real
+debugger file on its own. The evaluation bench's own tests (`tests/eval-*`) are not
+part of it: run them with `bun run test:evals` after changing `evals/`. These tests use fake provider and
 adapter answers and real local processes, not paid model calls. Do not give them real
 provider credentials.
 
@@ -190,16 +192,16 @@ OS can still be a test bug.
 | macOS/Linux only because | Test files |
 | --- | --- |
 | Python 3 PTY tests | `daily-terminal`, `terminal-ux`, `terminal-layout`, `login`, `model-selection`, `phase10-debugger-app` |
-| Native shell commands the pinned Pi runs, whose text Casper reads — `rm`, `ln -s`, `test -f … && rm …`, `kill -TERM $$` | `phase8-pi.integration` (4 gates + 2 `!caseInsensitiveFilesystem \|\| !POSIX`), `work-driven-checks` (signal stop, cancel with `& wait`), `phase3-app` (process group, a child that ignores TERM, tests that match the configured command in the model's reported text), `pi-gate.integration`, `secrets-pi.integration` (hiding device secrets in file reads and command output) |
+| Native shell commands the pinned Pi runs, whose text Casper reads — `rm`, `ln -s`, `test -f … && rm …`, `kill -TERM $$` | `phase8-pi*.integration` (4 gates + 2 `!caseInsensitiveFilesystem \|\| !POSIX`), `work-driven-checks` (signal stop, cancel with `& wait`), `phase3-app` (process group, a child that ignores TERM, tests that match the configured command in the model's reported text), `pi-gate.integration`, `secrets-pi.integration` (hiding device secrets in file reads and command output) |
 | Shell scripts and shebang runs | `release-install` (the POSIX installer and its `#!/bin/sh` stand-in), `cli-flags` (`--version` through a PATH-style link; the source CLI run through its shebang) |
-| Creating symbolic links | `phase2-skills`, `phase5-lsp`, `phase6-review`, `phase6-visualize`, `phase9-learn`, `phase9-memory`, `phase9-references`, `phase10-browser`, `phase10-debugger`, `phase8-pi.integration`, `work-driven-checks`, `model-selection`, `eval-suite`, `context-files` |
+| Creating symbolic links | `phase2-skills`, `phase5-lsp`, `phase6-review`, `phase6-visualize`, `phase9-learn`, `phase9-memory`, `phase9-references`, `phase10-browser`, `phase10-debugger`, `phase8-pi*.integration`, `work-driven-checks`, `model-selection`, `eval-suite`, `context-files` |
 | FIFOs (`mkfifo`) | `phase9-learn`, `phase9-memory`, `phase9-references`, `review-config`, `coding-loop-evidence` |
 | Owner-only file permissions (`needsPosixModes`, `posixModes`, or checked inside a gated test) | `model-selection`, `coding-loop-evidence`, `phase9-learn`, `phase9-memory`, `phase10-browser`, `login`, `phase5-lsp`, `phase7-sessions`, `cli-flags` |
 | Process groups and POSIX signals | `platform-processes`, `phase3-app` |
 
 `phase3-verification`, the non-FIFO tests in `phase9-references`, and the rest of
 `work-driven-checks`, `phase3-app`, `coding-loop-evidence` and
-`phase8-pi.integration` run on Windows with no macOS/Linux-only test setup.
+`phase8-pi*.integration` run on Windows with no macOS/Linux-only test setup.
 
 The tests left on the list are macOS/Linux-only **by subject** (PTY, FIFO, link
 rights, permissions, process groups, signals), or because they check a native shell

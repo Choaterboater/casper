@@ -95,3 +95,18 @@ test("Linux and macOS CI run the live sandbox tests; dependabot keeps the action
   const dependabot = parse(readFileSync(path.resolve(import.meta.dir, "../.github/dependabot.yml"), "utf8")) as { updates: Array<{ "package-ecosystem": string }> };
   expect(dependabot.updates.map((update) => update["package-ecosystem"])).toContain("github-actions");
 });
+
+test("the full suite runs files in parallel, slowest first, with the eval tests in their own script; CI uses it", () => {
+  const scripts = (JSON.parse(readFileSync(path.resolve(import.meta.dir, "../package.json"), "utf8")) as { scripts: Record<string, string> }).scripts;
+  expect(scripts.test).toContain("bun test --parallel --timings=tests/timings.json");
+  expect(scripts.test).toContain("--path-ignore-patterns='tests/eval-*'");
+  // The real debugger shares the machine's debugger and Python; it runs alone after the rest.
+  expect(scripts.test).toContain("bun test tests/phase10-debugger-real.test.ts");
+  expect(scripts["test:evals"]).toContain("tests/eval-");
+  expect(scripts["test:fast"]).toBeUndefined();
+  for (const name of ["linux-preview.yml", "macos-preview.yml"]) {
+    const runs = Object.values(load(name).jobs).flatMap((job) => (job.steps ?? []).map((step) => step.run ?? ""));
+    expect(runs.some((run) => run.startsWith("bun run test 2>&1"))).toBe(true);
+    expect(runs.some((run) => /^bun test 2>&1/.test(run))).toBe(false);
+  }
+});

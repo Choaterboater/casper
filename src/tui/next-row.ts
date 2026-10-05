@@ -6,6 +6,7 @@
  * number typed on an empty prompt runs that step, and anything else typed is simply the next request. The AI
  * never picks from this row; only a key the user presses does.
  */
+import { lineText } from "./format";
 
 export const UNDO_SLOT = 1;
 export const DIFF_SLOT = 2;
@@ -30,7 +31,7 @@ export interface NextRow {
   keys: Map<string, string>;
 }
 
-const plain = (text: string) => text.replace(/[\x00-\x1f\x7f-\x9f‪-‮⁦-⁩]/g, " ").replace(/\s+/g, " ").trim();
+const plain = (text: string) => lineText(text).replace(/\s+/g, " ").trim();
 
 /** The row, or undefined when there is nothing to offer. Steps past 9 are left out: one key picks a step. */
 export function buildNextRow(input: { undo?: NextItem; diff?: NextItem; more?: readonly NextItem[]; hint?: string }): NextRow | undefined {

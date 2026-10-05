@@ -58,11 +58,6 @@ export function parseReview(answer: string): RequirementsReview | undefined {
  * ticked list made answers long and is the model's own claim anyway); the review's delta answer reuses that line
  * under its own heading and a count. */
 export const OPEN_ITEM_FORMAT = "- [ ] <requirement> — <why it is still not done>";
-export const CHECKLIST_FORMAT: readonly string[] = [
-  "Requirements:",
-  "- [x] <requirement> — <the test that covers it>",
-  OPEN_ITEM_FORMAT,
-];
 
 /** Checks every case but answers only the gaps: a full re-listed checklist made the answer 3.7-4.9x
  * Pi's length and the round 41-44% of the wall time, with no first-time-right gain in pinned runs. */

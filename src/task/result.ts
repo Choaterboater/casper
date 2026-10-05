@@ -12,6 +12,7 @@ import type { ChangeProof } from "../verify/proof";
 import type { AcceptanceResult } from "../verify/acceptance";
 import { ROUND_MAX_TURNS, type RequirementsReview } from "./review";
 import { formatCost, formatLimit } from "./spend";
+import { lineText } from "../tui/format";
 
 /** Tool-reported diagnostics, not process exit evidence or a reusable check pass. */
 export interface ObservedCheck {
@@ -218,7 +219,7 @@ const RECEIPT_PATH_LIMIT = 8;
 
 export function formatTaskResult(task: TaskResult): string {
   const report = task.verification;
-  const safe = (text: string) => text.replace(/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g, " ");
+  const safe = lineText;
   const lines = [`[task] Execution ${task.execution}`];
   if (task.spendLimit) lines.push(receiptLine("spend", `stopped at ${formatCost(task.spendLimit.spent)}, the ${formatLimit(task.spendLimit.limit)} limit for one task (spend.pauseAt)`));
 
@@ -337,7 +338,7 @@ export function formatShortReceipt(task: TaskResult, options: ReceiptOptions = {
   // All well: one line. Otherwise the verdict says what is wrong, and what went well shares one line under it.
   // Check names stay as typed: "✓ test passed", never "Test".
   const head = short !== undefined ? [[short, ...parts].join(" · ")] : [verdict!, ...(parts.length ? [`✓ ${parts.join(" · ")}`] : [])];
-  const safe = (text: string) => text.replace(/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g, " ");
+  const safe = lineText;
   // The problems come right after the verdict; the checklist's line follows them.
   return [...head, ...body.filter((line) => !folded(line)), ...checklistLines(task, safe), ...undo].join("\n");
 }
@@ -364,7 +365,7 @@ function checklistLines(task: TaskResult, safe: (text: string) => string): strin
  * says all is well to the few words it becomes on the one-line receipt ("" drops it); `short` is the verdict
  * word when nothing is wrong. */
 function receiptParts(task: TaskResult, options: ReceiptOptions): { lines: string[]; undo: string[]; folds: Map<string, string>; short?: string } {
-  const safe = (text: string) => text.replace(/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g, " ");
+  const safe = lineText;
   const slash = (command: string) => options.surface === "one-shot" ? `casper "${command}"` : command;
   const lines: string[] = [];
   const folds = new Map<string, string>();
@@ -500,7 +501,7 @@ export function receiptVerdict(task: TaskResult, options: ReceiptOptions = {}): 
 }
 
 function withVerdict(task: TaskResult, body: string[], options: ReceiptOptions): { lines: string[]; short?: string } {
-  const safe = (text: string) => text.replace(/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g, " ");
+  const safe = lineText;
   const promote = (prefix: string, fallback: string): string[] => {
     const index = body.findIndex((line) => line.startsWith(prefix));
     return index < 0 ? [fallback, ...body] : [body[index]!, ...body.slice(0, index), ...body.slice(index + 1)];
@@ -712,17 +713,17 @@ const elapsed = (ms: number) => ms < 1000 ? "" : formatDuration(ms);
 export function liveCheckLine(result: VerificationResult): string {
   const name = result.name;
   if (result.kind === "report") return `• ${name} · ${reportText(result)} (a diff, not a pass/fail check)`;
-  if (result.status === "skip" && !isBuiltinCheck(name)) return `– ${name} · not run${result.reason ? `: ${result.reason.replace(/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g, " ")}` : ""}`;
+  if (result.status === "skip" && !isBuiltinCheck(name)) return `– ${name} · not run${result.reason ? `: ${lineText(result.reason)}` : ""}`;
   if (result.status === "skip") return `– ${name} · skipped${result.command ? "" : ", no command"}`;
   // A lab check's own label ("dry run not guaranteed") stays beside its result.
-  const label = result.label ? `${result.label.replace(/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g, " ")} · ` : "";
+  const label = result.label ? `${lineText(result.label)} · ` : "";
   if (result.status === "pass") return result.reused ? `✓ ${name} · passed earlier, reused` : `✓ ${name}${[label.replace(/ · $/, ""), elapsed(result.durationMs)].filter(Boolean).map((part) => ` · ${part}`).join("")}`;
   const timeout = /^Timed out after (\d+)ms$/.exec(result.reason ?? "");
   if (result.ended === "timeout") return `✗ ${name} · timed out${timeout ? ` after ${duration(Number(timeout[1]))}` : ""}`;
   if (result.ended === "no_start") return `✗ ${name} · could not start${typeof result.exitCode === "number" ? ` (exit ${result.exitCode})` : ""}`;
-  if (result.ended === "blocked") return `✗ ${name} · ${(result.reason ?? "blocked by the sandbox").replace(/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g, " ")}`;
+  if (result.ended === "blocked") return `✗ ${name} · ${lineText(result.reason ?? "blocked by the sandbox")}`;
   const why = typeof result.exitCode === "number" ? `exit ${result.exitCode}` : result.signal ? `stopped by ${result.signal}`
-    : result.reason ? result.reason.replace(/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g, " ") : "no exit status";
+    : result.reason ? lineText(result.reason) : "no exit status";
   return `✗ ${name} · ${label}${why}${elapsed(result.durationMs) ? ` · ${elapsed(result.durationMs)}` : ""}`;
 }
 

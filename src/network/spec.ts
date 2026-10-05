@@ -84,6 +84,8 @@ export interface HierConfigReport {
 
 export const RESERVED_CHECK_NAMES = ["typecheck", "lint", "test", "build"] as const;
 export const MAX_NAMED_CHECKS = 16;
+/** Told to the model with a failed Junoser check: its grammar lags new Junos releases. */
+export const JUNOSER_NOTE = "Junoser could not read this line; it may be newer syntax than Junoser knows. Do not rewrite valid config just to please Junoser.";
 const NAME = /^[a-z][a-z0-9-]{0,31}$/;
 
 export function namedCheckNameError(label: string, name: string): string | undefined {
@@ -213,8 +215,6 @@ export function parseNetworkChecks(value: unknown, label = "verify.checks"): Rec
   }
   return checks;
 }
-
-export function isLabCheck(spec: NetworkCheckSpec): boolean { return spec.kind === "lab"; }
 
 /** Checks that may run after each change: offline ones not set to "ask". Never lab or report checks. */
 export function autoNetworkCheckNames(checks: Record<string, NetworkCheckSpec>): string[] {

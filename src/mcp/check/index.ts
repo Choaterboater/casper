@@ -197,8 +197,3 @@ function commandOutput(label: string, output: string): string {
   const skipped = lines.length > OUTPUT_LINES ? `  | … ${lines.length - OUTPUT_LINES} earlier lines not shown\n` : "";
   return `${label} output (secrets hidden):\n${skipped}${shown.join("\n")}${shown.length ? "\n" : ""}`;
 }
-
-export async function runMcpCheck(cmd: McpCheckCommand, options: McpCheckOptions = {}): Promise<CheckReport> {
-  const check = new McpCheck(cmd, options);
-  try { return await check.run(); } finally { await check.close(); }
-}

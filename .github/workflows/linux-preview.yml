@@ -70,9 +70,12 @@ jobs:
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: |
           bun test tests/sandbox-live.test.ts tests/sandbox-wiring.test.ts tests/platform-processes.test.ts tests/login-picker.test.ts tests/login.test.ts tests/terminal-review.test.ts tests/terminal-ux.test.ts tests/terminal-discovery.test.ts tests/daily-terminal.test.ts tests/model-routing.test.ts tests/auto-effort.test.ts tests/model-selection.test.ts tests/phase10-debugger-app.test.ts 2>&1 | tee "$RUNNER_TEMP/linux-preview/platform-terminal.log"
-      - name: Full serial regression suite
+      - name: Full regression suite (files in parallel)
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: bun test 2>&1 | tee "$RUNNER_TEMP/linux-preview/full-suite.log"
+        run: bun run test 2>&1 | tee "$RUNNER_TEMP/linux-preview/full-suite.log"
+      - name: Eval bench tests
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun run test:evals 2>&1 | tee "$RUNNER_TEMP/linux-preview/evals.log"
       - name: Retain host verification evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

@@ -4,8 +4,12 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
-  countsTowardVerified, formatNetworkCheckLine, networkResultForModel, networkStatus, pythonArgv, repairClass, runNetworkCheck,
+  pythonArgv, runNetworkCheck,
 } from "../src/network/checks";
+import { liveCheckLine } from "../src/task/result";
+import { countedResults, formatVerificationResult, repairClass, verificationStatus } from "../src/verify/evidence";
+import { checkResultForModel } from "../src/verify/model-output";
+import { fromNetworkResult } from "../src/verify/registry";
 import type { NetworkCheckResult, NetworkCheckSpec } from "../src/network/spec";
 import { fakeTool, networkFixture, RECORD_CALL, writeProjectFile, type NetworkFixture } from "./support/network-fakes";
 
@@ -32,21 +36,25 @@ test("the hier_config diff is a report: its line counts, never a pass that count
   const result = await runNetworkCheck("aoscx-diff", spec, context(f));
   expect(result.kind).toBe("report");
   expect(result.report).toMatchObject({ changeLines: 12, undoLines: 12 });
-  expect(formatNetworkCheckLine(result)).toBe("• aoscx-diff  12 lines to change · 12 to undo (a diff, not a pass/fail check)");
-  expect(countsTowardVerified(result)).toBe(false);
-  expect(repairClass(result)).toBe("never");
+  const shown = fromNetworkResult(result);
+  expect(liveCheckLine(shown)).toBe("• aoscx-diff · 12 lines to change · 12 to undo (a diff, not a pass/fail check)");
+  expect(formatVerificationResult(shown)).toBe("• aoscx-diff  12 lines to change · 12 to undo (a diff, not a pass/fail check)");
+  expect(countedResults([shown])).toEqual([]);
+  expect(repairClass(shown)).toBe("never");
   // A report alone is not a pass, and it does not change the status of real checks.
-  expect(networkStatus([result])).toBe("incomplete");
-  const failing = { ...result, name: "aruba-syntax", kind: "offline", status: "fail", report: undefined } as NetworkCheckResult;
-  expect(networkStatus([result, failing])).toBe("fail");
-  expect(networkStatus([result, { ...failing, status: "pass" }])).toBe("pass");
+  expect(verificationStatus([shown])).toBe("incomplete");
+  const failing = fromNetworkResult({ ...result, name: "aruba-syntax", kind: "offline", status: "fail", report: undefined } as NetworkCheckResult);
+  expect(verificationStatus([shown, failing])).toBe("fail");
+  expect(verificationStatus([shown, { ...failing, status: "pass" }])).toBe("pass");
 });
 
 test("the report text is scrubbed of secrets before anyone sees it", async () => {
   const f = await setup(`printf '%s\\n' '${REPORT}'`);
   const result = await runNetworkCheck("aoscx-diff", spec, context(f));
   expect(result.report!.remediation).not.toContain("RadKeyCX");
-  expect(JSON.stringify(networkResultForModel(result))).not.toContain("RadKeyCX");
+  // What casper_check hands the model, and the receipt's one line.
+  expect(JSON.stringify(checkResultForModel(fromNetworkResult(result)))).not.toContain("RadKeyCX");
+  expect(liveCheckLine(fromNetworkResult(result))).not.toContain("RadKeyCX");
 });
 
 test("the embedded script gets the platform and the two files, run by the project's Python", async () => {

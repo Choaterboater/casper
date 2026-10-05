@@ -75,6 +75,8 @@ function assignmentSpans(line: string, strict: boolean): Span[] {
     if (!raw || !indices || !isSecretName(name)) continue;
     // "a == b" and "a := b" are comparisons or code, not stored values.
     if (line[indices[0]] === "=" || (match[5] === ":" && line[match.indices![5]![1]] === "=")) continue;
+    // ok ? "pass" : "fail" is a ternary in grepped code: both sides are results, not a name and its value.
+    if (!strict && match[5] === ":" && /\?\s*$/.test(line.slice(0, match.indices![2]![0]))) continue;
     let [start, end] = indices;
     let value = raw;
     const quoted = value.length >= 2 && (value[0] === "\"" || value[0] === "'") && value.at(-1) === value[0];

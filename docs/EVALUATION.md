@@ -13,7 +13,7 @@ Quick start (from a source checkout, after `bun install --frozen-lockfile`):
 
 ```bash
 bun tools/eval.ts --list                         # see the tasks; no model call
-bun test tests/eval-suite.test.ts                # test the bench itself; no model call
+bun run test:evals                               # test the bench itself; no model call
 bun tools/eval.ts --task fix-failing-test        # one real task; PROVIDER CALLS
 ```
 
@@ -173,7 +173,7 @@ effort's classifier, whose model calls it does not total. Neither side counts co
 Transient provider errors (429, "Provider returned error", a dropped connection) get the same
 retry policy for Casper and Pi, since neither harness home has a `settings.json`: Pi's default of 3
 retries after 2, 4 and 8 s, then the run fails. Casper's delegated read-only children use that
-policy too (`tests/phase8-pi.integration.test.ts` pins both budgets against a loopback 429).
+policy too (`tests/phase8-pi-delegation.integration.test.ts` pins both budgets against a loopback 429).
 
 **Hidden acceptance tests.** Every pack fixture is the reference solution plus an
 `acceptance/` directory of tests the model never sees: the setup's `remove.json`
@@ -260,8 +260,9 @@ the setup (all fail, no spawned PID survives) and the solved server with one beh
 removed at a time (only that behavior's test fails).
 
 All network data is synthetic: documentation address ranges, `example.com`, made-up
-MACs and serials. The TLS key in `portcheck/acceptance/certs` is a throwaway
-self-signed test key for `portcheck.example.com`.
+MACs and serials. The portcheck acceptance test makes a throwaway self-signed
+certificate for `portcheck.example.com` with `openssl` each time it runs; no key is
+kept in the repository.
 
 `tests/eval-packs.test.ts` checks, with no model: the hidden tests never reach the
 candidate, the reference solution satisfies every acceptance and convention

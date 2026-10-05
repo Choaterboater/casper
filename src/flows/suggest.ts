@@ -16,6 +16,7 @@ import type { TaskResult } from "../task/result";
 import type { FlowCost, FlowRule } from "./catalog";
 import { rememberableTestCommand } from "./runners";
 import type { SuggestionState } from "./state";
+import { lineText } from "../tui/format";
 
 export const MAX_SUGGESTIONS = 3;
 
@@ -157,11 +158,6 @@ export class SuggestionRules {
   }
 }
 
-export interface RowItem {
-  key: number;
-  label: string;
-}
-
 export interface SuggestionRow {
   /** Lines to print under the receipt; empty when nothing fired. */
   lines: string[];
@@ -172,7 +168,7 @@ export interface SuggestionRow {
 }
 
 const COST_WORDS: Record<FlowCost, string> = { tokens: "uses tokens", free: "free" };
-const safe = (text: string) => text.replace(/[\x00-\x1f\x7f-\x9f‪-‮⁦-⁩]/g, " ").replace(/\s+/g, " ").trim();
+const safe = (text: string) => lineText(text).replace(/\s+/g, " ").trim();
 
 /**
  * The suggestions as lines on the receipt's row, numbered after the row's own items (Undo, Show diff).

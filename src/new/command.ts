@@ -13,7 +13,6 @@ import { EMPTY_TEMPLATE, listTemplates } from "./templates";
  */
 
 export { NEW_USAGE, parseNewArgs, type NewCommand } from "../cli-args";
-export const NEW_HELP_LINE = "casper new [name]    Start a new project (network, MCP server, web app, Python tool, or your own)";
 
 /** One plain line per ready template, then empty. */
 export function listLines(): string[] {

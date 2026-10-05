@@ -7,6 +7,7 @@ import { CHECK_NAMES } from "../verify/evidence";
 import type { ProjectCommand } from "./model";
 import { namedCheckNameError, parseNetworkChecks } from "../network/spec";
 import type { NamedCheckSpec } from "../verify/named";
+import { hasLineControls } from "../tui/format";
 
 /** The same bound the configuration loader applies to .casper/project.yaml. */
 const MAX_PROJECT_YAML_BYTES = 256 * 1024;
@@ -25,7 +26,7 @@ export interface ProjectCommandWrite {
 
 function checkCommand(name: ProjectCommand, command: string): void {
   if (!CHECK_NAMES.includes(name)) throw new Error(`${name} is not a check name (${CHECK_NAMES.join(", ")})`);
-  if (!command.trim() || command.length > 500 || /[\x00-\x1f\x7f-\x9f‪-‮⁦-⁩]/.test(command)) {
+  if (!command.trim() || command.length > 500 || hasLineControls(command)) {
     throw new Error("the command must be one plain line");
   }
 }
