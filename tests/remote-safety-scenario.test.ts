@@ -128,7 +128,7 @@ posix("interactive: each ssh asks first (No first), ~/.ssh stays private, secret
   const run = await scenario();
   const answers: Array<[string, string]> = [
     ["idle", `${PROMPT}\r`],
-    ...Array.from({ length: SSH_STEPS }, (): [string, string] => ["Press 1-3", "2"]),
+    ...Array.from({ length: SSH_STEPS }, (): [string, string] => ["Press 1-4", "2"]),
     ["2 Switch there", "\r"],
     ["✓ Stay here", ""],
     ["idle", "/exit\r"],
@@ -143,7 +143,7 @@ posix("interactive: each ssh asks first (No first), ~/.ssh stays private, secret
     expect(screen).toContain(`?  ${command}\n→ 1 No  the command does not run\n  2 Yes, this once`);
   }
   expect(screen).toContain("Reach 198.51.100.20 (build-server)?  ssh deploy@build-server hostname");
-  expect(screen.split("Press 1-3").length - 1).toBe(SSH_STEPS);
+  expect(screen.split("Press 1-4").length - 1).toBe(SSH_STEPS);
   // Only what you said yes to ran on the host.
   expect(await run.sshRan()).toEqual([
     "ssh deploy@build-server hostname",
