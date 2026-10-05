@@ -411,7 +411,9 @@ surface, not live-model usefulness or human visual sign-off.
 macOS terminal behavior is exercised with real PTYs. Windows and Linux need host
 runs; exhaustive terminal compatibility is not claimed. Conversation/token storage
 is not automatically redacted. There is no workspace rollback, automatic shell
-shortcut, queued prompt execution or enforced permission-mode selector.
+shortcut or enforced permission-mode selector. A line typed during a task steers the
+AI at its next step or waits in the queue and runs when the task ends (see Current interface above);
+Esc gives queued lines back to the prompt.
 
 ## Design references and reuse
 
