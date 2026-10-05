@@ -73,6 +73,19 @@ test("the fixture server is fixture code the validation task's setup leaves alon
   expect(touched.filter((entry) => entry === "src/server.ts" || entry === "package.json" || entry.startsWith(".casper/"))).toEqual([]);
 });
 
+/** True when `pid` is still a server started from `evaluator`. A live PID alone is not proof: Windows hands a
+ * freed PID to a new process within moments, so the command line must name this evaluator's folder. */
+function runsServerFrom(pid: number, evaluator: string): boolean {
+  if (!alive(pid)) return false;
+  const query = process.platform === "win32"
+    ? ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", `(Get-CimInstance Win32_Process -Filter 'ProcessId=${pid}').CommandLine`]
+    : ["ps", "-o", "args=", "-p", String(pid)];
+  let listed: ReturnType<typeof Bun.spawnSync>;
+  try { listed = Bun.spawnSync(query, { stdout: "pipe", stderr: "ignore" }); }
+  catch { return true; } // No way to read command lines here: a live PID counts.
+  return listed.stdout!.toString().includes(path.basename(evaluator));
+}
+
 /** Run the lifecycle task's hidden acceptance over `src` from `source`, as the frozen evaluator does,
  * and report each test's result and the server PIDs it said it spawned. */
 async function lifecycleAcceptance(source: string) {
@@ -88,7 +101,7 @@ async function lifecycleAcceptance(source: string) {
   const output = `${stdout}${stderr}`;
   const pids = [...output.matchAll(/\[server-lifecycle\] spawned pid (\d+)/g)].map((match) => Number(match[1]));
   // Kill by PID anything the acceptance left behind, after recording that it survived.
-  const survivors = pids.filter(alive);
+  const survivors = pids.filter((pid) => runsServerFrom(pid, evaluator));
   for (const pid of survivors) process.kill(pid, "SIGKILL");
   const results = [...output.matchAll(/^\((pass|fail|skip)\) (.+?)(?: \[[\d.]+m?s\])?$/gm)].map((match) => `${match[1]} ${match[2]!.split(" ").slice(0, 3).join(" ")}`);
   return { exitCode, results, pids, survivors, tail: exitCode ? output.slice(-1500) : "" };
