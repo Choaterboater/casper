@@ -37,6 +37,7 @@ export const HELP_TEXT = `Casper — your coding companion
   /browser               Disposable browser status; website tasks can reproduce bugs
   /services              Declared services: status, logs, start, restart, stop (no model)
   /tasks                 What runs in the background (dev servers, helpers, checks); stop one
+  /pane [on|off]         Steps in a split beside Casper (tmux, iTerm2); saved
   /debug                 Local debugger targets/status; explicit launch approval
   /exit, /quit           Exit
 
@@ -189,6 +190,7 @@ Local commands:
   /services start|restart|stop <name>  Start (waits for readiness; restarts a stale or crashed one), restart or stop
   /tasks                            What runs in the background, numbered; asks 1 Keep them · 2 Stop 1 ...
   /tasks stop <n>|all               Stop one of them, or all, without the question
+  /pane [on|off]                    The steps split beside Casper in tmux or iTerm2 (120+ columns); saved
   /debug                            Local DAP state and .casper/debug.json targets
   /debug start <target>             Fresh approval for adapter + debuggee execution
   /debug breakpoints <path> <lines|clear>  Replace one file's one-based line list

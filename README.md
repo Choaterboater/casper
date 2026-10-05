@@ -69,8 +69,9 @@ are not tied to one model company.
   [Terminal guide](docs/TERMINAL_UX.md)
 - **Rich or plain terminal.** A live footer, colors and lines that update in place, or plain text with
   `NO_COLOR`, `TERM=dumb` or redirected output. [Terminal guide](docs/TERMINAL_UX.md)
-- **tmux, automatic.** Inside tmux (or iTerm2) the busy steps go to a view-only side pane that
-  Casper opens and closes itself; `/tasks` lists what runs in the background. [tmux](docs/TMUX.md)
+- **tmux, automatic.** Inside tmux (or iTerm2, after one question) the busy steps go to a view-only side
+  pane on a wide window that Casper opens and closes itself; `/pane off` turns it off. `/tasks` lists
+  what runs in the background. [tmux](docs/TMUX.md)
 
 ## What a receipt looks like
 

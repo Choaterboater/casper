@@ -18,6 +18,9 @@ export interface TerminalHost {
   run?: HostCommand;
 }
 
+/** The steps pane opens only on a window at least this wide: a split halves it. */
+export const PANE_MIN_COLUMNS = 120;
+
 export type TerminalOutput = RuntimePickerIO["output"] & { isTTY?: boolean };
 
 /** Terminal ownership boundary. Rich raw editor on a TTY; line input otherwise.
@@ -44,6 +47,8 @@ export class InteractiveTerminal {
   /** The steps pane beside Casper inside tmux or iTerm2: opened on the first busy step, closed at exit. */
   private pane?: ActivityPane;
   private paneTried = false;
+  /** /pane off (saved), or iTerm2 before its one question is answered: no pane. */
+  private paneOff = false;
   private titleSaved = false;
   private title?: string;
   private undoHost?: () => void;
@@ -112,13 +117,29 @@ export class InteractiveTerminal {
   /** The steps pane is open (inside tmux or iTerm2, after the first busy step). */
   get hasPane(): boolean { return this.pane !== undefined; }
   private activityPane(): ActivityPane | undefined {
-    if (!this.surface || !this.host || this.closed) return undefined;
+    if (!this.surface || !this.host || this.closed || this.paneOff) return undefined;
     if (!this.paneTried) {
+      // A narrow window keeps its Working box; a later step tries again once it is wide.
+      if ((this.output.columns ?? 0) < PANE_MIN_COLUMNS) return undefined;
       this.paneTried = true;
       this.pane = this.host.openPane ? this.host.openPane() : SidePane.open({ host: this.host.host });
     }
     return this.pane;
   }
+  /** /pane on|off: off closes an open pane (the Working box comes back); on opens it at the next step. */
+  setPane(setting: "on" | "off"): void {
+    this.paneOff = setting === "off";
+    if (this.paneOff) { const pane = this.pane; this.pane = undefined; pane?.close(); }
+    this.paneTried = this.pane !== undefined;
+  }
+  /** Where a steps pane can open: inside tmux (its own pane known), or iTerm2 on a Mac. */
+  get paneHost(): "tmux" | "iterm" | undefined {
+    const host = this.host?.host;
+    if (!this.surface || !host) return undefined;
+    if (host.tmux) return host.tmuxPane ? "tmux" : undefined;
+    return host.iterm && host.itermSession && (this.host!.openPane || process.platform === "darwin") ? "iterm" : undefined;
+  }
+
   /** The window title (the pane title inside tmux); the one before comes back at exit. Rich terminal only,
    * written only when it changes (the footer sets it on every update). */
   setTitle(title: string): void {

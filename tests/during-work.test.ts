@@ -13,7 +13,7 @@ test("commands that only show something run during a task; ones that change thin
   for (const line of ["/help", "/help all", "/status", "/usage", "/context", "/permissions", "/diff", "/diff 12", "/diff list",
     "/tasks", "/tasks stop 2", "/tasks stop all", "/details", "/details quiet", "/receipt", "/receipt 3", "/receipt list",
     "/output", "/output 2", "/output all", "/mcp", "/tree", "/project", "/sandbox", "/secrets", "/skills", "/lsp",
-    "/effort", "/effort low", "/effort high --session"]) expect([line, runsDuringWork(line)]).toEqual([line, true]);
+    "/effort", "/effort low", "/effort high --session", "/pane", "/pane off"]) expect([line, runsDuringWork(line)]).toEqual([line, true]);
   for (const line of ["/undo", "/redo", "/clear", "/resume", "/model", "/mcp connect x", "/mcp writes on", "/sandbox forget h",
     "/secrets files off", "/skills trust a b", "/lsp connect x", "/project other", "/compact", "/verify", "/details loud"])
     expect([line, runsDuringWork(line)]).toEqual([line, false]);

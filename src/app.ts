@@ -18,7 +18,8 @@ import { serviceTool } from "./services/tool";
 import { detectWebService, isDetectedWebService } from "./services/detect";
 import { formatPagesNotChecked, formatSkippedPage, PageChecks, pageOpener, planPageCheck, type DevServerNotice, type PageCheckPlan, type PageOpener, type PageReport } from "./services/page-checks";
 import { formatTerminalJSON } from "./tui/json";
-import { InteractiveTerminal, type TerminalHost } from "./tui/terminal";
+import { InteractiveTerminal, PANE_MIN_COLUMNS, type TerminalHost } from "./tui/terminal";
+import { readPaneSetting, savePaneSetting, type PaneSetting } from "./tui/pane-setting";
 import { askTool } from "./tui/ask";
 import { sessionTitle, windowTitle } from "./tui/session-title";
 import { DISPLAY_LEVELS, nextDisplay, type DisplayLevel } from "./tui/display";
@@ -267,6 +268,9 @@ export class CasperApp {
   session?: RuntimeSession;
   /** A request typed at a startup question: the first request of the session. */
   private queuedPrompt?: string;
+  /** /pane on|off as saved; undefined until something was saved. */
+  private paneSetting?: PaneSetting;
+  private paneAsked = false;
   /** Lines typed during a task that the AI could not read then: each runs as the next request, in order. They live
    * here, never in the prompt editor, so no queued line can ever answer an approval box. */
   private readonly queuedLines: string[] = [];
@@ -772,6 +776,7 @@ export class CasperApp {
     }
 
     this.savedModelDisplay = await modelPreference(this.sessionHomeDir ?? os.homedir());
+    await this.loadPaneSetting();
     this.updateFooter();
     while (!this.closing) {
       this.cancelBeforeCommand = false;
@@ -797,7 +802,10 @@ export class CasperApp {
         break;
       }
 
-      try { await this.handlePrompt(prompt); }
+      try {
+        if (!prompt.startsWith("/")) await this.askPaneOnce();
+        await this.handlePrompt(prompt);
+      }
       catch (error) {
         if (this.closing) break;
         this.events.ensureLineBreak();
@@ -1100,6 +1108,7 @@ export class CasperApp {
 
   /** Local command dispatch moved to app/commands.ts; the app is the command host. */
   private handleSlashCommand(prompt: string): Promise<VerificationReport | undefined> {
+    if (/^\/pane(?:\s|$)/.test(prompt)) return this.paneCommand(prompt.slice(5).trim()).then(() => undefined);
     if (/^\/details(?:\s|$)/.test(prompt)) { this.detailsCommand(prompt.slice(8).trim()); return Promise.resolve(undefined); }
     if (/^\/new(?:\s|$)/.test(prompt)) return this.newProjectCommand(prompt.slice(4).trim()).then(() => undefined);
     if (/^\/suggestions(?:\s|$)/.test(prompt)) {
@@ -3202,6 +3211,52 @@ export class CasperApp {
 
   /** How much of the work shows: /details for this session, else display: in your config, else normal. */
   private displayLevel(): DisplayLevel { return this.displayChoice ?? this.projectContext?.display ?? "normal"; }
+
+  /** The saved /pane setting. Inside tmux the pane is on unless turned off; iTerm2 waits for its one question. */
+  private async loadPaneSetting(): Promise<void> {
+    this.paneSetting = await readPaneSetting(this.homeDir());
+    const where = this.terminal.paneHost;
+    this.terminal.setPane(this.paneSetting ?? (where === "iterm" ? "off" : "on"));
+  }
+
+  /** iTerm2, nothing saved yet: one numbered question before the first task (1 keeps one window). The answer is saved;
+   * Esc asks again next session. Splitting iTerm2 goes through its scripting, which macOS may ask you to allow. */
+  private async askPaneOnce(): Promise<void> {
+    if (this.paneAsked || this.paneSetting !== undefined || this.terminal.paneHost !== "iterm" || !this.terminal.canAsk || this.closing) return;
+    this.paneAsked = true;
+    const yes = "Yes, split when the window is wide";
+    const picked = await this.terminal.pick("Show Casper's steps in a split beside this window? (iTerm2 may ask once to let Casper control it.)", [
+      { label: "No, keep one window", description: "steps show in the Working box; /pane on turns the split on later" },
+      { label: yes, description: `${PANE_MIN_COLUMNS}+ columns; /pane off turns it off` },
+    ]);
+    if (picked === undefined || this.closing) return;
+    await this.savePane(picked === yes ? "on" : "off");
+  }
+
+  private async savePane(setting: PaneSetting): Promise<void> {
+    this.paneSetting = setting;
+    this.terminal.setPane(setting);
+    try { await savePaneSetting(this.homeDir(), setting); }
+    catch (error) { this.output.write(`[pane] Not saved (${terminalText(error instanceof Error ? error.message : String(error))}); it holds for this session.\n`); }
+  }
+
+  /** /pane, /pane on, /pane off (saved in ~/.casper/pane.json). */
+  private async paneCommand(argument: string): Promise<void> {
+    if (argument && argument !== "on" && argument !== "off") throw new Error("Usage: /pane | /pane on | /pane off");
+    const where = this.terminal.paneHost;
+    const place = where === "tmux" ? "tmux" : where === "iterm" ? "iTerm2" : undefined;
+    if (!argument) {
+      const on = (this.paneSetting ?? (where === "iterm" ? undefined : "on")) === "on";
+      this.output.write(place
+        ? `[pane] ${on ? "On" : "Off"}: ${on ? `Casper's steps show in a ${place} split beside this window when it is ${PANE_MIN_COLUMNS}+ columns wide` : "steps show in the Working box"}. /pane ${on ? "off" : "on"} switches it (saved).\n`
+        : `[pane] The steps split works inside tmux or iTerm2 on a Mac; here steps show in the Working box. Saved setting: ${this.paneSetting ?? "on"}.\n`);
+      return;
+    }
+    await this.savePane(argument as PaneSetting);
+    this.output.write(argument === "on"
+      ? `[pane] On: Casper's steps show in a split beside this window when it is ${PANE_MIN_COLUMNS}+ columns wide${place ? "" : " (inside tmux or iTerm2)"}; saved.\n`
+      : "[pane] Off: steps show in the Working box; saved. /pane on turns the split back on.\n");
+  }
 
   /** /details [quiet|normal|detailed]: no word goes to the next level. For this session; the config keeps the default. */
   private detailsCommand(argument: string): void {

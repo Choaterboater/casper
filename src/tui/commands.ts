@@ -17,6 +17,7 @@ export const COMMANDS: SlashCommand[] = [
   { name: "new", description: "Start a new project in ~/Projects (no model)" },
   { name: "plan", description: "Plan first: the model writes a plan and cases to test, then you build" },
   { name: "suggestions", description: "Suggested next steps: list, or turn on or off" },
+  { name: "pane", description: "Steps in a split beside Casper (tmux, iTerm2): /pane on or /pane off, saved" },
   { name: "details", description: "How much work shows: quiet, normal or detailed (Ctrl+T: the last step in full)" },
   { name: "output", description: "Full command and output of a recent tool call (/output [n|all])" },
   { name: "verify", description: "Run repository verification checks" },
@@ -48,7 +49,7 @@ export const COMMANDS: SlashCommand[] = [
 /** Commands that only show something (or set effort or the display level) and so run while a task works. */
 export const RUNS_DURING_WORK: ReadonlySet<string> = new Set([
   "help", "status", "usage", "context", "permissions", "effort", "diff", "tasks", "details", "receipt", "output",
-  "mcp", "tree", "project", "sandbox", "secrets", "skills", "lsp",
+  "mcp", "tree", "project", "sandbox", "secrets", "skills", "lsp", "pane",
 ]);
 
 /** This exact line runs now during a task; every other line waits for the task to end. */
@@ -58,5 +59,6 @@ export function runsDuringWork(line: string): boolean {
     || /^\/output(?:\s+(?:\d+|all))?$/.test(line)
     || /^\/details(?:\s+(?:quiet|normal|detailed))?$/.test(line)
     || /^\/tasks(?:\s+stop\s+(?:\d+|all))?$/.test(line)
+    || /^\/pane(?:\s+(?:on|off))?$/.test(line)
     || /^\/effort(?:\s+[^\s-]\S*(?:\s+--session)?)?$/.test(line);
 }

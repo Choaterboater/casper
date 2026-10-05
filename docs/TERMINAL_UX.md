@@ -40,6 +40,7 @@ over the network, and `/references add` downloads files after asking you.
 | `/clear`, `/resume [id]` | New conversation; list or reopen a saved one |
 | `/diff` | Git status and tracked changes against HEAD |
 | `/output [n]` | Full output of a recent tool call from the last task |
+| `/pane [on\|off]` | The steps split beside Casper inside tmux or iTerm2 (only on a window 120+ columns wide); saved for every session. See [TMUX.md](TMUX.md) |
 | `/receipt` | Detailed evidence behind the last task's receipt |
 | `/verify [checks]`, `/verify repair` | Run the project's checks; repair failures |
 | `/project`, `/permissions` | Project context; what is and is not enforced |
