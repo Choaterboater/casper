@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, realpath, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createSessionSandbox, runtimeShell, SHELL_DECLINED, type SandboxHost } from "../src/app/sandbox";
@@ -27,6 +27,52 @@ test("commands that only read are known; anything that writes, runs a program or
     "python3 -c 'print(1)'", "FOO=1 ls", "ls & rm x", "git branch -D old", "uniq in.txt out.txt", "git -c core.pager=./x log"]) {
     expect(readOnlyCommand(command)).toBe(false);
   }
+});
+
+test("options that run a program are not reads: git grep -O, sort --compress-program, rg --hostname-bin", () => {
+  for (const command of ["git grep -Osh touch", "git grep -O sh touch", "git grep --open-files-in-pager=sh x", "git grep --open-files-in-pager sh x",
+    "git grep -nOsh x", "sort --compress-program=sh big.txt", "sort --compress-program sh big.txt", "sort -uo out.txt in.txt",
+    "rg --hostname-bin=./x.sh foo", "rg --hostname-bin ./x.sh foo"]) {
+    expect(readOnlyCommand(command)).toBe(false);
+  }
+});
+
+test("a glob, a link out of the project, a link-following search or jq is not a read", async () => {
+  for (const command of ["cat .en*", "cat id_rs?", "cat id_rs[a]", "cat .e{nv,x}", "ls src/*.ts", "jq -n env", "jq . package.json",
+    "grep -R key docs", "grep -rnR key .", "rg -L key", "rg --follow key", "diff -r a b"]) {
+    expect(readOnlyCommand(command)).toBe(false);
+  }
+  // A quoted pattern is not a glob.
+  expect(readOnlyCommand("find . -name '*.ts'")).toBe(true);
+  expect(readOnlyCommand("grep -rn 'a*b' src")).toBe(true);
+  const { home, project } = await fixture();
+  await mkdir(path.join(home, ".ssh"));
+  await writeFile(path.join(home, ".ssh", "id_rsa"), "KEY");
+  await writeFile(path.join(home, "notes.txt"), "outside");
+  await mkdir(path.join(project, "docs"));
+  await writeFile(path.join(project, "docs", "readme.md"), "fine");
+  await writeFile(path.join(project, "real.env.txt"), "fine");
+  await symlink(path.join(home, ".ssh", "id_rsa"), path.join(project, "docs", "key"));
+  await symlink(path.join(home, "notes.txt"), path.join(project, "notes"));
+  await symlink(path.join(home, ".ssh"), path.join(project, "keys"));
+  await symlink(path.join(project, "docs", "readme.md"), path.join(project, "inside-link"));
+  for (const command of ["cat docs/key", "head notes", "cat keys/id_rsa", "ls keys", "grep -n x ./docs/key"]) {
+    expect(readOnlyCommand(command, project)).toBe(false);
+  }
+  for (const command of ["cat docs/readme.md", "cat inside-link", "ls docs", "grep -rn fine docs", "cat missing.txt"]) {
+    expect(readOnlyCommand(command, project)).toBe(true);
+  }
+});
+
+test("a prefix never covers a whole interpreter by another name, or a whole tool when an option comes first", () => {
+  for (const command of ["python3.12 -c 'import os'", "py -c x", "powershell.exe -Command x", "cmd.exe /c del x", "node.exe x.js", "node20 x.js",
+    "awk 'BEGIN{system(\"id\")}'", "gawk 1 x", "sed -n 1p x", "find . -delete", "osascript -e x", "tsx x.ts", "ts-node x.ts", "PYTHON.EXE x.py",
+    "C:/Python312/python.exe x.py", "'C:\\Python312\\python.exe' x.py","/usr/bin/python3.11 x.py", "git -C sub commit -m x", "npm --prefix x test", "cargo +nightly build"]) {
+    expect(commandPrefix(command)).toBeUndefined();
+  }
+  expect(commandPrefix("pip3 install -r req.txt")).toBe("pip3 install");
+  expect(commandPrefix("npm.cmd test")).toBe("npm.cmd test");
+  expect(commandPrefix("git")).toBe("git");
 });
 
 test("a prefix is the command and, for tools with subcommands, its subcommand; compound commands and interpreters get none", () => {

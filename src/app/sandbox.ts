@@ -202,7 +202,7 @@ export function runtimeShell(host: SandboxHost, sandbox: ShellSandbox, given: Sa
       // The host question showed this command and you said yes: it is not asked twice.
       if (remote.asked) return undefined;
       // Commands that only read run without a box, like they would in the sandbox.
-      if (readOnlyCommand(command)) return undefined;
+      if (readOnlyCommand(command, sandbox.root)) return undefined;
       if (sessionCommands.has(command) || [...sessionPrefixes].some((prefix) => matchesPrefix(command, prefix))) return undefined;
       if (await store.allowsCommand(command)) return undefined;
       if (!host.canAsk()) return SHELL_CANT_ASK;

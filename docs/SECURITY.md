@@ -93,10 +93,12 @@ the operating system, not a list of words:
 With no sandbox, each command the AI's shell (and the service tool's own start command) wants to run
 asks `Run this command?  npm test` with `1 No · 2 Yes, this once · 3 Yes, for this session · 4 Yes, always for
 this project`. 3 and 4 cover every command starting with the same prefix (`npm test`, `git commit`, `npm run build`);
-a line with more than one command, a redirect, a `VAR=value` start or an interpreter (`python3`, `bash`, `sudo`, `npx`)
-gets no prefix and is kept as the exact command. 4 keeps it in `~/.casper`. Commands that only read files in the
-project (`ls`, `cat`, `grep`, `find`, `git status`, `git diff`, `git log` and the like, with no redirect, nothing
-outside the project and no `.env` or key file) don't ask at all.
+a line with more than one command, a redirect, a `VAR=value` start, an option before the subcommand (`git -C sub
+commit`) or an interpreter under any name (`python3.12`, `py`, `node.exe`, `powershell.exe`, `bash`, `awk`, `sed`,
+`sudo`, `npx`) gets no prefix and is kept as the exact command. 4 keeps it in `~/.casper`. Commands that only read
+files in the project (`ls`, `cat`, `grep`, `find`, `git status`, `git diff`, `git log` and the like, with no redirect,
+no glob, nothing outside the project, no link that leads out of it, no `.env` or key file, and no option that runs a
+program such as `git grep -O`) don't ask at all.
 Enter runs nothing. A run that can't ask refuses it:
 `Not run: shell commands need your OK here, and this run can't ask. Use --no-sandbox to allow them for this run.`
 Your project's own checks, services and dev servers then run with your permissions, as before
