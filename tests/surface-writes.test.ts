@@ -54,3 +54,19 @@ test("ctrl+o turns writes off and denies an open approval; with nothing on, the 
     expect(await second).toBeUndefined();
   } finally { surface.close(); }
 });
+
+test("ctrl+o says Writes are off now when it just turned them off, and writes are already off when nothing was on", async () => {
+  const { surface, input } = makeSurface();
+  try {
+    surface.start();
+    surface.setStatus("project/main │ idle", process.cwd());
+    let on = true;
+    surface.setWritesRevert(() => { const was = on; on = false; return was; });
+    input.write("\x0f");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(surface.footerLine(80)).toContain("Writes are off now");
+    input.write("\x0f");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(surface.footerLine(80)).toContain("writes are already off");
+  } finally { surface.close(); }
+});

@@ -236,8 +236,9 @@ export class TerminalSurface {
       // approval is denied, so a change can't slip through while writes go off.
       if (matchesKey(data, "ctrl+o")) {
         const reverted = this.onWritesRevert?.() ?? false;
-        if (reverted && this.askFrom === "approval") this.pendingAsk?.(undefined);
-        else this.flashNote("writes are already off");
+        if (!reverted) { this.flashNote("writes are already off"); return { consume: true }; }
+        if (this.askFrom === "approval") this.pendingAsk?.(undefined);
+        this.flashNote("Writes are off now");
         return { consume: true };
       }
       if (this.slot || this.lending) {
