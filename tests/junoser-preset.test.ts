@@ -1,7 +1,11 @@
 import { afterEach, expect, test } from "bun:test";
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
-import { formatNetworkCheckLine, JUNOSER_NOTE, networkResultForModel, repairClass, repairNote, runNetworkCheck } from "../src/network/checks";
+import { runNetworkCheck } from "../src/network/checks";
+import { liveCheckLine } from "../src/task/result";
+import { formatVerificationResult, repairClass } from "../src/verify/evidence";
+import { checkResultForModel } from "../src/verify/model-output";
+import { fromNetworkResult } from "../src/verify/registry";
 import type { NetworkCheckSpec } from "../src/network/spec";
 import { fakeTool, networkFixture, RECORD_CALL, writeProjectFile, type NetworkFixture } from "./support/network-fakes";
 
@@ -25,9 +29,10 @@ test("a Junoser complaint is a failure that names the line and says it may be ne
   expect(result.status).toBe("fail");
   expect(result.stderr).toContain("Invalid syntax:  set foo");
   expect(result.reason).toBe("Junoser could not read configs/r1.set: set foo (it may be newer syntax)");
-  expect(repairClass(result)).toBe("repairable");
-  expect(repairNote(result)).toBe(JUNOSER_NOTE);
-  expect(formatNetworkCheckLine(result)).toStartWith("✗ junoser  junoser -c configs/r1.set  (Junoser could not read");
+  const shown = fromNetworkResult(result);
+  expect(repairClass(shown)).toBe("repairable");
+  expect(liveCheckLine(shown)).toStartWith("✗ junoser · exit 1");
+  expect(formatVerificationResult(shown)).toStartWith("✗ junoser  junoser -c configs/r1.set  (Junoser could not read");
   const argv = (await readFile(path.join(f.records, "junoser.argv"), "utf8")).trim().split("\n");
   expect(argv[0]).toBe("-c");
   expect(argv[1]).toEndWith(path.join("configs", "r1.set"));
@@ -36,19 +41,19 @@ test("a Junoser complaint is a failure that names the line and says it may be ne
 test("Junoser output is scrubbed before the casper_check text: a root password hash shows <secret hidden>", async () => {
   const f = await setup(`cat "$2"; echo "Invalid syntax:  set foo" >&2; exit 1`);
   const result = await runNetworkCheck("junoser", spec, context(f));
-  const forModel = JSON.stringify(networkResultForModel(result));
+  const forModel = JSON.stringify(checkResultForModel(fromNetworkResult(result)));
   expect(result.stdout).not.toContain(HASH);
   expect(forModel).not.toContain(HASH);
   expect(result.stdout).toContain("<secret hidden>");
-  expect(forModel).toContain(JUNOSER_NOTE);
+  expect(forModel).toContain("(it may be newer syntax)");
 });
 
 test("clean files pass, and a missing junoser reads not run with the gem line", async () => {
   const f = await setup("exit 0");
   expect((await runNetworkCheck("junoser", spec, context(f))).status).toBe("pass");
   const missing = await runNetworkCheck("junoser", spec, { ...context(f), path: path.join(f.root, "configs") });
-  expect(formatNetworkCheckLine(missing)).toBe("– junoser  not run: junoser is not installed (gem install junoser)");
-  expect(repairClass(missing)).toBe("never");
+  expect(liveCheckLine(fromNetworkResult(missing))).toBe("– junoser · not run: junoser is not installed (gem install junoser)");
+  expect(repairClass(fromNetworkResult(missing))).toBe("never");
 });
 
 test("a config file linked from outside the project is not read", async () => {

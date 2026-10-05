@@ -157,11 +157,6 @@ export class SuggestionRules {
   }
 }
 
-export interface RowItem {
-  key: number;
-  label: string;
-}
-
 export interface SuggestionRow {
   /** Lines to print under the receipt; empty when nothing fired. */
   lines: string[];

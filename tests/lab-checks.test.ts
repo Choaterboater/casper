@@ -2,9 +2,12 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdir, readFile, stat, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
-  countsTowardVerified, DRY_RUN_LABEL, formatNetworkCheckLine, labFailureAsk, networkEventFields, numberedChoices, prepareLabCheck,
-  repairClass,
+  DRY_RUN_LABEL, labFailureAsk, numberedChoices, prepareLabCheck,
 } from "../src/network/checks";
+import { namedCheckFields } from "../src/app/json-events";
+import { checksPassed, liveCheckLine } from "../src/task/result";
+import { formatVerificationResult, repairClass, verificationStatus } from "../src/verify/evidence";
+import { fromNetworkResult } from "../src/verify/registry";
 import { labAlwaysAllowed, LAB_LIMIT_NOTE, rememberLabAlways } from "../src/network/lab";
 import type { LabSettings, NetworkCheckSpec } from "../src/network/spec";
 import { fakeTool, networkFixture, RECORD_CALL, writeProjectFile, type NetworkFixture } from "./support/network-fakes";
@@ -65,9 +68,12 @@ test("an all-lab inventory gives a numbered ask with no Always choice for ansibl
   expect(result).toMatchObject({ status: "pass", kind: "lab", label: DRY_RUN_LABEL, hosts: ["lab-sw1", "lab-sw2", "lab-sw3"] });
   const argv = (await readFile(path.join(f.records, "ansible-playbook.argv"), "utf8")).trim().split("\n");
   expect(argv.slice(0, 3)).toEqual(["--check", "--diff", "-i"]);
-  expect(formatNetworkCheckLine(result)).toMatch(/^✓ aoscx-check {2}ansible --check on 3 switches {2}\(dry run not guaranteed · \d+\.\ds\)$/);
-  expect(networkEventFields(result)).toEqual({ kind: "lab", label: DRY_RUN_LABEL, hosts: ["lab-sw1", "lab-sw2", "lab-sw3"] });
-  expect(countsTowardVerified(result)).toBe(false);
+  // What the user sees, the JSON fields, and the receipt: a dry-run pass is shown but never grounds for passed.
+  const shown = fromNetworkResult(result);
+  expect(liveCheckLine(shown)).toMatch(/^✓ aoscx-check · dry run not guaranteed(?: · \d+\.\ds)?$/);
+  expect(formatVerificationResult(shown)).toStartWith("✓ aoscx-check  ansible --check on 3 switches  (dry run not guaranteed; ");
+  expect(namedCheckFields(shown)).toEqual({ kind: "lab", label: DRY_RUN_LABEL, hosts: ["lab-sw1", "lab-sw2", "lab-sw3"] });
+  expect(checksPassed({ status: verificationStatus([shown]), repairAttempts: 0, rounds: [[shown]], results: [shown] })).toBe(false);
 });
 
 test("a playbook with delegate_to is shown as a warning with its line; you decide, and nothing ran yet", async () => {
@@ -176,7 +182,7 @@ test("a failed lab check is never repaired on its own: the ask defaults to Stop"
   if (plan.state !== "ready") throw new Error("expected ready");
   const result = await plan.run();
   expect(result.status).toBe("fail");
-  expect(repairClass(result)).toBe("ask");
+  expect(repairClass(fromNetworkResult(result))).toBe("ask");
   const ask = labFailureAsk("junos-commit");
   expect(`${ask.text} ${numberedChoices(ask.choices)}`).toBe(
     "junos-commit failed on the lab. Casper did not ask the model to fix it, because each try touches lab devices. 1 Stop · 2 Ask the model to fix it");

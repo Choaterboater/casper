@@ -214,8 +214,6 @@ export function parseNetworkChecks(value: unknown, label = "verify.checks"): Rec
   return checks;
 }
 
-export function isLabCheck(spec: NetworkCheckSpec): boolean { return spec.kind === "lab"; }
-
 /** Checks that may run after each change: offline ones not set to "ask". Never lab or report checks. */
 export function autoNetworkCheckNames(checks: Record<string, NetworkCheckSpec>): string[] {
   return Object.entries(checks).filter(([, spec]) => spec.kind === "offline" && spec.after !== "ask").map(([name]) => name);
