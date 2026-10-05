@@ -313,8 +313,8 @@ export class TerminalSurface {
   /** An approval box is open: nothing else may take the terminal's input. */
   private get approvalOpen(): boolean { return Boolean(this.pendingAsk) && this.askFrom === "approval"; }
 
-  /** A question, checklist or approval is open: Casper is waiting on the user, not working. */
-  private get waiting(): boolean { return Boolean(this.pendingAsk || this.pendingEdit); }
+  /** A question, checklist, approval or picker is open: Casper is waiting on the user, not working. */
+  private get waiting(): boolean { return Boolean(this.pendingAsk || this.pendingEdit || this.slot || this.lending); }
 
   private footer(width: number): string {
     if (!this.badge) return this.footerText(width);
@@ -645,24 +645,24 @@ private updateSpinner(): void {
     return {
       run: async operation => {
         claim();
-        this.lending = true; this.terminal.suspendInput(); this.render();
+        this.lending = true; this.terminal.suspendInput(); this.updateSpinner(); this.render();
         try {
           return await operation({ input: this.io.input, color: this.io.color, onEOF: () => this.close(),
             output: { write: text => this.write(terminalText(text)) },
-            show: component => { this.slot = component; this.render(); },
+            show: component => { this.slot = component; this.updateSpinner(); this.render(); },
             requestRender: () => this.render() });
         } finally {
-          this.slot = undefined; this.lending = false;
+          this.slot = undefined; this.lending = false; this.updateSpinner();
           if (!this.closed) { this.terminal.resumeInput(); this.tui.setFocus(this.editor); this.render(); }
         }
       },
       mount: async operation => {
         claim();
         const view: RuntimePickerView = { tui: this.tui, color: this.io.color, onEOF: () => this.close(),
-          show: component => { this.slot = component; this.render(); } };
+          show: component => { this.slot = component; this.updateSpinner(); this.render(); } };
         try { return await operation(view); }
         finally {
-          this.slot = undefined;
+          this.slot = undefined; this.updateSpinner();
           if (!this.closed) { this.tui.setFocus(this.editor); this.render(); }
         }
       },
