@@ -50,12 +50,16 @@ export function resolveToolPath(input: string, cwd: string, home = os.homedir())
   return path.resolve(cwd, normal);
 }
 
+/** Windows' own realpath also turns 8.3 short names (C:\Users\RUNNER~1) into the long ones. Node's JS realpath keeps
+ * them, so ~/.ssh named through a short name would not match. Other systems keep the JS one. */
+const realpath = process.platform === "win32" ? realpathSync.native : realpathSync;
+
 /** realpath of the longest part of the path that exists, with the rest added back. */
 export function realpathLongest(absolute: string): string {
   let current = path.resolve(absolute);
   const rest: string[] = [];
   for (;;) {
-    try { return path.join(realpathSync(current), ...rest.reverse()); }
+    try { return path.join(realpath(current), ...rest.reverse()); }
     catch {
       const parent = path.dirname(current);
       if (parent === current) return path.resolve(absolute);
