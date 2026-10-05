@@ -79,9 +79,12 @@ Transcript lines are inline, not boxed: `✓`/`✗`/`•` tool lines, `[model]`,
 `[approval]`, `[task]` and similar bracketed notices, and the `❯ …` echo of each
 prompt. Green marks success, red an error, amber a notice or decision, cyan the
 accent (banner, prompt echo, Markdown structure), dim the muted status lines.
-Bordered panels (`src/tui/presentation.ts`) are used for code-like output and
-live work status: every fenced block in an assistant message is boxed and titled
-with its language, `/output` replays a tool result in a box, `/diff` boxes `git status` and
+A fenced block in an assistant message copies clean: a title line with its language
+(`── ts ────`), then the code exactly as written with no side border and no indent, then a
+closing rule. A line wider than the window is cut at the edge only (no character added or
+dropped), so a mouse copy of switch config picks up no `│` characters.
+Bordered panels (`src/tui/presentation.ts`) are used for other code-like output and
+live work status: `/output` replays a tool result in a box, `/diff` boxes `git status` and
 the colored unified diff, a failed check boxes the tail of its stderr and stdout
 (last 40 lines; the full output stays in the evidence), and exclusive input flows such as `/login` use them.
 Prose, notices and tool lines stay inline. Panels span the terminal's current width, like

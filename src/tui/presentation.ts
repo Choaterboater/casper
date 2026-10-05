@@ -1,4 +1,4 @@
-import { Container, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { Container, sliceByColumn, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { paint, terminalText } from "./format";
 
 export type PanelTone = "accent" | "assistant" | "success" | "warning" | "error" | "muted";
@@ -29,6 +29,26 @@ export function renderPanel(title: string, body: readonly string[], width: numbe
     }
   }
   rows.push(panelColor(`╰${"─".repeat(width - 2)}╯`, tone, color));
+  return rows;
+}
+
+/**
+ * A code block that copies clean: a title line (`── ts ────`), the code exactly as written with no side border and
+ * no indent, and a closing rule. A line wider than the screen is cut at the edge only, so every character stays and
+ * nothing is added (a terminal must break it somewhere). `style` colors each piece of code.
+ */
+export function renderCodeBlock(title: string, code: readonly string[], width: number, color: boolean,
+  style: (text: string) => string = text => text): string[] {
+  width = Number.isFinite(width) ? Math.max(1, Math.floor(width)) : 80;
+  const label = terminalText(title).replace(/\s+/g, " ").trim() || "code";
+  const head = truncateToWidth(`── ${label} `, width, "");
+  const rows = [panelColor(`${head}${"─".repeat(Math.max(0, width - visibleWidth(head)))}`, "muted", color)];
+  for (const line of code) {
+    const total = visibleWidth(line);
+    if (total <= width) { rows.push(line ? style(line) : ""); continue; }
+    for (let column = 0; column < total; column += width) rows.push(style(sliceByColumn(line, column, width)));
+  }
+  rows.push(panelColor("─".repeat(width), "muted", color));
   return rows;
 }
 
