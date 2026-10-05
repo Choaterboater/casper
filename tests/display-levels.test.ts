@@ -145,3 +145,10 @@ test("a read outside the project gets its own line, once per folder, on the rich
     }
   }
 });
+
+test("the startup ghost uses the terminal's own text color (bold), so it shows on light and dark themes", async () => {
+  const { wordmarkHeader } = await import("../src/tui/banner");
+  const lines = wordmarkHeader(true).render(120).join("\n");
+  expect(lines).not.toContain("\x1b[1;37m");
+  expect(lines).toContain("\x1b[1m");
+});
