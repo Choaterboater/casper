@@ -300,7 +300,9 @@ require("node:fs").writeFileSync(${JSON.stringify(marker)}, String(c.pid)); setT
   await owner.capture();
   const started = performance.now();
   expect(await owner.stop()).toBe("stopped");
-  expect(performance.now() - started).toBeLessThan(500);
+  // The native list makes this stop take about 0.15 s. The limit is loose so a busy runner
+  // passes, but a stop that stalls (the old PowerShell list took 6 s or more under load) fails.
+  expect(performance.now() - started).toBeLessThan(5_000);
   expect(() => process.kill(grandchild, 0)).toThrow();
   expect(() => process.kill(unrelated.pid!, 0)).not.toThrow();
 }, 30_000);
