@@ -10,7 +10,7 @@ import { loadProjectContext } from "../src/project/context";
 import { SkillRegistry } from "../src/skills/registry";
 import type { AgentRuntime, RuntimeEventListener, RuntimeSession, RuntimeStartOptions, RuntimeTool } from "../src/runtime/types";
 import { taskExitCode } from "../src/task/result";
-import { notesServer } from "./support/notes-server";
+import { CRASH_EXIT, crashService, notesServer } from "./support/notes-server";
 
 const cleanups: Array<() => unknown> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
@@ -192,7 +192,7 @@ test("a crash the smoke run found goes into the repair prompt, since no tool cal
   const f = await fixture({ smoke: [create] });
   f.runtime.turns.push(async runtime => {
     const { service } = await runtime.service({ action: "start", service: "api" });
-    process.kill(service.pid, "SIGKILL");
+    await crashService(service.pid);
     // Let the manager record the crash before the turn ends.
     await Bun.sleep(300);
     await runtime.write(path.join(f.project, "src/notes.ts"), "export {};\n");
@@ -200,7 +200,8 @@ test("a crash the smoke run found goes into the repair prompt, since no tool cal
   f.runtime.turns.push(async runtime => { await runtime.write(f.server, notesServer(true)); });
   await f.app.runOnce("Tidy the notes module");
   expect(f.runtime.prompts[1]).toContain("Service crashes since the last report");
-  expect(f.runtime.prompts[1]).toContain('"signal": "SIGKILL"');
+  expect(f.runtime.prompts[1]).toContain(`"code": ${CRASH_EXIT.code},`);
+  expect(f.runtime.prompts[1]).toContain(`"signal": ${JSON.stringify(CRASH_EXIT.signal)}`);
   expect(f.app.getLastTaskResult()!.verification?.smoke).toMatchObject({ status: "pass" });
   expect(f.text()).not.toContain("restarted after crash");
 }, 30_000);

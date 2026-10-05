@@ -7,7 +7,7 @@ import { ServiceManager } from "../src/services/manager";
 import { SmokeChecks, type SmokeCheck } from "../src/services/smoke";
 import { serviceTool } from "../src/services/tool";
 import { formatReceipt, formatTaskResult } from "../src/task/result";
-import { notesServer } from "./support/notes-server";
+import { CRASH_EXIT, crashService, notesServer } from "./support/notes-server";
 
 const cleanups: Array<() => unknown> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
@@ -27,6 +27,7 @@ async function fixture(options: { command?: string; platform?: ProcessPlatform }
 const list: SmokeCheck = { name: "list notes", service: "api", request: { method: "GET", path: "/notes" }, expect: { status: 200, json: [] } };
 const create = { name: "create note", service: "api", request: { method: "POST", path: "/notes", body: { title: "a" } }, expect: { status: 201, json: { title: "a" } } };
 const signal = () => new AbortController().signal;
+const killedLine = `api restarted after crash (${CRASH_EXIT.signal ? `signal ${CRASH_EXIT.signal}` : `exit ${CRASH_EXIT.code}`})`;
 
 test("a model check records a failing baseline on the unsolved server and replays to a pass after the fix restarts it", async () => {
   const f = await fixture();
@@ -118,14 +119,14 @@ test("unknown cleanup of another service makes smoke incomplete even when the ch
 test("a crash since the last report is surfaced on the smoke run, once, and the verbose receipt says the service restarted after it", async () => {
   const f = await fixture();
   const started = await f.manager.start("api", signal());
-  process.kill(started.pid!, "SIGKILL");
+  await crashService(started.pid!);
   while (f.manager.status()[0]!.state !== "crashed") await Bun.sleep(20);
   const report = await new SmokeChecks([list], () => f.manager).run(signal());
   expect(report.checks[0]).toMatchObject({ status: "pass", restarted: true });
-  expect(report.crashes).toEqual([{ service: "api", exit: { code: null, signal: "SIGKILL" }, tail: expect.any(String) }]);
+  expect(report.crashes).toEqual([{ service: "api", exit: CRASH_EXIT, tail: expect.any(String) }]);
   expect(f.manager.takeCrashes()).toEqual([]);
   expect(formatTaskResult({ execution: "completed", verification: { status: "pass", results: [], rounds: [], repairAttempts: 0, smoke: report } }))
-    .toContain("api restarted after crash (signal SIGKILL)");
+    .toContain(killedLine);
   expect(formatReceipt({ execution: "completed", verification: { status: "pass", results: [], rounds: [], repairAttempts: 0, smoke: report } }))
-    .toContain("api restarted after crash (signal SIGKILL)");
+    .toContain(killedLine);
 }, 30_000);
