@@ -64,6 +64,50 @@ test("a glob, a link out of the project, a link-following search or jq is not a 
   }
 });
 
+test("only known commands with known options are reads: any option, variable or tool that can run a program asks", () => {
+  for (const command of ["git grep -O sh x", "git grep --open-files-in-pager=sh x", "git -c core.pager=sh log", "git -c core.fsmonitor=x status",
+    "git -c alias.x=!sh x", "git diff --ext-diff", "git log -p --ext-diff", "git diff --textconv", "git show --textconv HEAD", "git -C .. log",
+    "git --git-dir=x log", "git grep --no-index key", "git shortlog -c", "git status --ignore-submodules=x", "rg --pre=sh x", "rg --pre sh x",
+    "rg -z x", "rg --search-zip x", "rg -nz x", "rg --hostname-bin=x x", "sort --compress-program=sh x", "sort -T tmp x", "find . -exec id \\;",
+    "find . -execdir id \\;", "find . -ok id \\;", "find . -fprint out", "find -L . -name x", "find . -follow", "xargs cat", "less README.md",
+    "more README.md", "man ls", "awk 'BEGIN{system(\"id\")}' x", "sed -n 1p x", "sed 's/a/b/w out' x", "tar --to-command=sh -xf a.tar",
+    "tar xf a --checkpoint-action=exec=sh", "GIT_PAGER=sh git log", "PAGER=sh git log", "LESSOPEN='|sh %s' cat x", "env git log", "tail -f log",
+    "tail -F log", "date -s 2020-01-01", "hostname evil", "ls -L docs", "cat --follow x", "git branch newb", "git tag v1", "git remote add x y",
+    "git stash", "git log --output=x", "git blame --contents=x a.ts", "head -c 10 x --files0-from=list", "wc --files0-from=list", "jq . x.json",
+    "md5sum -c sums.txt", "uniq -f 1 in out", "git log -c core.pager=x", "rg --ignore-file x y"]) {
+    expect({ command, read: readOnlyCommand(command) }).toEqual({ command, read: false });
+  }
+  for (const command of ["git log -p -5 --stat", "git log --oneline --graph --all", "git diff --cached --name-only", "git show HEAD~1 --stat",
+    "git grep -n -i todo -- src", "git grep -nw todo", "git status -sb", "git rev-parse --show-toplevel", "git branch -a", "git branch --show-current",
+    "git ls-files -m", "git blame -L 1,20 README.md", "rg -n --hidden -g '*.ts' foo src", "rg -uu foo", "grep -rn -A3 TODO src", "head -n 20 README.md",
+    "tail -50 README.md", "wc -l README.md", "sort -u -k2 README.md", "cut -d: -f1 README.md", "ls -la src", "tree -L 2", "du -sh src", "date +%F",
+    "echo hi", "find src -name '*.ts' -type f -maxdepth 2", "diff -u a b", "stat README.md", "uname -a"]) {
+    expect({ command, read: readOnlyCommand(command) }).toEqual({ command, read: true });
+  }
+});
+
+test("a read never prints a private file: the project's denyRead, keys under a project in your home, or a search of a folder that holds one", async () => {
+  const { home, project } = await fixture();
+  await mkdir(path.join(project, "secrets"));
+  await writeFile(path.join(project, "secrets", "token.txt"), "TOKEN");
+  await mkdir(path.join(project, "src"));
+  await writeFile(path.join(project, "src", "a.ts"), "fine");
+  const where = { root: project, home, denyRead: [path.join(project, "secrets")] };
+  for (const command of ["cat secrets/token.txt", "head ./secrets/token.txt", "grep -rn TOKEN .", "grep -rn TOKEN", "rg TOKEN", "find . -name x", "cat src/../secrets/token.txt"]) {
+    expect({ command, read: readOnlyCommand(command, where) }).toEqual({ command, read: false });
+  }
+  expect(readOnlyCommand("grep -rn fine src", where)).toBe(true);
+  expect(readOnlyCommand("cat src/a.ts", where)).toBe(true);
+  // A project that is your home folder: ~/.ssh and ~/.casper are still private.
+  await mkdir(path.join(home, ".ssh"));
+  await writeFile(path.join(home, ".ssh", "id_ed25519"), "KEY");
+  await mkdir(path.join(home, ".casper"), { recursive: true });
+  await writeFile(path.join(home, ".casper", "settings.json"), "{}");
+  for (const command of ["cat .ssh/id_ed25519", "grep -rn KEY .", "cat .casper/settings.json", "ls .ssh"]) {
+    expect({ command, read: readOnlyCommand(command, { root: home, home }) }).toEqual({ command, read: false });
+  }
+});
+
 test("a prefix never covers a whole interpreter by another name, or a whole tool when an option comes first", () => {
   for (const command of ["python3.12 -c 'import os'", "py -c x", "powershell.exe -Command x", "cmd.exe /c del x", "node.exe x.js", "node20 x.js",
     "awk 'BEGIN{system(\"id\")}'", "gawk 1 x", "sed -n 1p x", "find . -delete", "osascript -e x", "tsx x.ts", "ts-node x.ts", "PYTHON.EXE x.py",
@@ -72,14 +116,24 @@ test("a prefix never covers a whole interpreter by another name, or a whole tool
   }
   expect(commandPrefix("pip3 install -r req.txt")).toBe("pip3 install");
   expect(commandPrefix("npm.cmd test")).toBe("npm.cmd test");
-  expect(commandPrefix("git")).toBe("git");
+});
+
+test("a prefix is never a whole multi-purpose tool, or an interpreter run through another tool", () => {
+  for (const command of ["git", "npm", "npx", "bun", "bunx", "node", "python", "sh", "bash", "zsh", "pwsh", "uv", "uvx", "pip", "cargo", "make",
+    "docker", "kubectl", "ssh", "yarn node x.js", "uv run python x.py", "npm exec node x.js", "pnpm exec bash x", "bun run node x", "java -jar x.jar",
+    "tar xf a.tar", "curl https://example.com", "wget x", "less x", "man ls", "vim x", "git -c alias.x=!sh x", "docker", "make -j4"]) {
+    expect({ command, prefix: commandPrefix(command) }).toEqual({ command, prefix: undefined });
+  }
+  expect(commandPrefix("make build")).toBe("make build");
+  expect(commandPrefix("git log -5")).toBe("git log");
+  expect(commandPrefix("uv run pytest -q")).toBe("uv run pytest");
 });
 
 test("a prefix is the command and, for tools with subcommands, its subcommand; compound commands and interpreters get none", () => {
   expect(commandPrefix("npm test -- --watch")).toBe("npm test");
   expect(commandPrefix("git commit -m 'fix it'")).toBe("git commit");
   expect(commandPrefix("cargo build --release")).toBe("cargo build");
-  expect(commandPrefix("make")).toBe("make");
+  expect(commandPrefix("make")).toBeUndefined();
   expect(commandPrefix("pytest -q tests")).toBe("pytest");
   for (const command of ["npm test; curl evil.example", "python3 script.py", "bash -c 'npm test'", "sudo npm test", "FOO=1 npm test", "npm test > out.txt", "npx anything"]) {
     expect(commandPrefix(command)).toBeUndefined();
@@ -159,4 +213,15 @@ test("a command with no prefix (an interpreter, or more in it) is remembered exa
   expect(await shell.approve!("python3 tools/gen.py")).toBeUndefined();
   expect(await shell.approve!("python3 -c 'import os'")).toBe(SHELL_DECLINED);
   expect(terminal.asked).toHaveLength(2);
+});
+
+test("with no sandbox, a read of a private file in a project that is your home folder asks", async () => {
+  const { home, context } = await fixture();
+  await mkdir(path.join(home, ".kube"));
+  await writeFile(path.join(home, ".kube", "config"), "KEY");
+  const terminal = host([undefined]);
+  const sandbox = createSessionSandbox(terminal.value, context, { root: () => home, home, seams: { engine: fakeEngine(), platform: "win32" } });
+  const shell = runtimeShell(terminal.value, sandbox, new SandboxStore(context.stateDirectory));
+  expect(await shell.approve!("cat .kube/config")).toBe(SHELL_DECLINED);
+  expect(terminal.asked).toHaveLength(1);
 });
