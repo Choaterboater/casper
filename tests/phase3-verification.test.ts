@@ -134,7 +134,8 @@ verification:
     const missing = await verifyAndRepair({ registry, checks: ["typecheck", "build"], cwd: root, request: "test" });
     expect(missing.status).toBe("incomplete");
     const pwd = await runCommandCheck({ name: "test", command: checkCommand("cwd"), cwd: root, timeoutMs: 1000 });
-    expect(pwd.stdout.trim()).toBe(await realpath(root));
+    // The same folder, in whatever spelling the child sees: macOS adds /private, and a Windows TEMP can be an 8.3 name.
+  expect(await realpath(pwd.stdout.trim())).toBe(await realpath(root));
     const noisy = await runCommandCheck({ name: "test", command: checkCommand("stdout:HEAD", "pad:100000", "stdout:TAIL", "stderr:error-tail"), cwd: root, timeoutMs: 2000 });
     expect(noisy.status).toBe("pass");
     expect(noisy.truncated).toBe(true);
