@@ -154,9 +154,11 @@ export async function runCommandCheck(options: CommandCheckOptions): Promise<Ver
         resolve(blocked ? { ...result, reason: blocked, ended: "blocked" } : result);
       });
     };
+    let stopped = false;
     const stop = (message: string) => {
       if (reason) return;
       reason = message;
+      stopped = true;
       void kill("SIGTERM");
       killTimer = setTimeout(() => { void kill("SIGKILL"); }, 100);
     };
@@ -171,7 +173,8 @@ export async function runCommandCheck(options: CommandCheckOptions): Promise<Ver
       // On Windows also drain cleanup after a normal root exit: its observed
       // descendants may still be alive. Never discard an unknown outcome.
       if (reason || owner) await kill("SIGKILL");
-      finish(exitCode, exitSignal);
+      // Windows has no signals: a tree Casper stopped ends with exit code 1, which is not the command's own.
+      finish(stopped && process.platform === "win32" ? null : exitCode, exitSignal);
     });
     if (signal?.aborted) abort();
   });
