@@ -1,5 +1,5 @@
 import { afterAll, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -8,6 +8,7 @@ import { loadProjectContext } from "../src/project/context";
 import type { AgentRuntime, RuntimeEventListener, RuntimeModelSelectionOptions, RuntimeSession } from "../src/runtime/types";
 import { SkillRegistry } from "../src/skills/registry";
 import { checkCommand } from "./support/check-command";
+import { removeTempDir } from "./support/temp-dir";
 import { EventEmitter } from "node:events";
 
 // The rich-surface path is gated on `TERM !== "dumb"`.
@@ -126,7 +127,7 @@ async function fixture(options: Options = {}) {
   });
   let plainOutput = "";
   const text = (from = 0) => screen.output.slice(from).replaceAll("\r\n", "\n");
-  const cleanup = async () => { input.destroy(); await rm(root, { recursive: true, force: true }); };
+  const cleanup = async () => { input.destroy(); await removeTempDir(root); };
   return { project, home, selections, promptModels, roles, input, screen, text, make, plain: () => plainOutput, cleanup };
 }
 
