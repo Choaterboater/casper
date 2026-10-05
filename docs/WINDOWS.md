@@ -74,7 +74,7 @@ the full suite included. Its steps:
 | The focused tests below | Process ownership rules; the login, model and terminal code that does not depend on the OS; undo, the project folder, browser sign-in, receipts and the network server update with real file locks |
 | `bun test tests/release-compile.test.ts` | The compiled program starts and reads images with no Bun on `PATH` |
 | `bun run build:release` | Builds the release files; publishes nothing |
-| `scripts/test-install-windows.ps1` under PowerShell 5.1 and 7 | Installs from a local copy of the release files: `PATH` (saved and current), `--version`, `--help`, `--licenses`, `/project`, an inline diagram, that a bad checksum or wrong version leaves the old program untouched, and that the installer waits for a `casper.exe` another process holds for a moment |
+| `scripts/test-install-windows.ps1` under PowerShell 5.1 and 7 | Installs from a local copy of the release files: `PATH` (saved and current), `--version`, `--help`, `--licenses`, `/project`, an inline diagram, that a bad checksum or wrong version leaves the old program untouched, and that the installer waits for a `casper.exe` or staged download another process holds for a moment |
 | `bun run test` | The full suite, files in parallel, as on Linux and macOS. Tests that need a PTY, POSIX signals or file modes, or a tool that is not installed, skip |
 | `bun run test:evals` | The evaluation bench's own tests, as on Linux |
 

@@ -927,8 +927,8 @@ apart — a compiled binary cannot read `package.json`, so the version lives in 
   single rename within the install directory, so an interrupted update cannot leave
   a half-written `casper`; once renamed, the new binary is installed and is not
   rolled back automatically. On Windows, antivirus or a `casper.exe` that just closed can
-  hold the file for a moment, so `install.ps1` tries the rename again for about 5 seconds
-  before it gives up.
+  hold the file for a moment, so `install.ps1` tries the rename, and removing a staged
+  download it did not install, again for about 5 seconds before it gives up.
 - **Idempotent, per version.** Re-running a versioned installer reinstalls that
   preview, not an automatically selected newer release. Use a newer release's URL
   to upgrade.
