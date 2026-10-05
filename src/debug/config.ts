@@ -4,12 +4,13 @@ import { openNoFollow } from "../platform/files";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { isOutside } from "../platform/inside";
+import { hasLineControls } from "../tui/format";
 
 export function record(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function text(value: unknown): value is string {
-  return typeof value === "string" && value.length > 0 && value.length <= 4096 && !/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/u.test(value);
+  return typeof value === "string" && value.length > 0 && value.length <= 4096 && !hasLineControls(value);
 }
 function strings(value: unknown): value is string[] {
   return Array.isArray(value) && value.length <= 64 && value.every(item => item === "" || text(item));

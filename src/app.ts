@@ -24,7 +24,7 @@ import { sessionTitle, windowTitle } from "./tui/session-title";
 import { DISPLAY_LEVELS, nextDisplay, type DisplayLevel } from "./tui/display";
 import { pickEffort } from "./tui/effort-picker";
 import { nextEffort } from "./tui/effort";
-import { formatEffort, formatRuntimeStartLine, formatRuntimeStatus, formatToolActivity, redactPreview, terminalText } from "./tui/format";
+import { formatEffort, formatRuntimeStartLine, formatRuntimeStatus, formatToolActivity, lineText, redactPreview, terminalText } from "./tui/format";
 import { ProjectMemory, type TaskOutcome } from "./memory/store";
 import { discoverReferenceConfiguration, type ReferenceConfiguration } from "./references/config";
 import { formatReferenceResult, ReferenceLibrary } from "./references/library";
@@ -1751,7 +1751,7 @@ export class CasperApp {
     if (this.closing || this.commandAbort?.signal.aborted) return undefined;
     if ("error" in result) {
       this.events.ensureLineBreak();
-      this.output.write(`• Checklist not made: ${result.error.replace(/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g, " ")}\n`);
+      this.output.write(`• Checklist not made: ${lineText(result.error)}\n`);
       this.steps.skip("checklist"); this.terminal.setSteps(this.steps.text());
       return undefined;
     }

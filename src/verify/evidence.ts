@@ -3,6 +3,7 @@ import type { SmokeReport } from "../services/smoke";
 import type { PageReport } from "../services/page-report";
 import type { CheckName } from "./named";
 import type { VerificationScope } from "./scope";
+import { lineText } from "../tui/format";
 
 export type { CheckName } from "./named";
 
@@ -139,9 +140,7 @@ function formatQualification(check: VerificationCheckSummary): string {
 
 // Repository output may contain terminal escape sequences. Evidence stays raw;
 // only the compact terminal presentation is sanitized.
-function terminalText(value: string): string {
-  return value.replace(/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g, " ");
-}
+const terminalText = lineText;
 
 export function formatVerificationResult(result: VerificationResult): string {
   if (result.kind === "report") return `• ${result.name}  ${reportText(result)} (a diff, not a pass/fail check)`;
