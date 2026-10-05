@@ -109,8 +109,7 @@ import { useSandbox, currentSandbox, type ShellSandbox, type ShellSandboxOptions
 import { SandboxStore } from "./sandbox/store";
 import { loginMissingAnswer, type LoginHost } from "./mcp/network/ask-login";
 import { loginFile, type NetworkProduct } from "./mcp/network/logins";
-import { withLoginDisplay } from "./tui/login";
-import { namesNetworkProduct, runNetworkSetup, runNetworkUpdate, shouldOfferNetworkSetup, shouldOfferNetworkUpdate, type SetupHost } from "./mcp/network/setup";
+import type { SetupHost } from "./mcp/network/setup";
 import { askBuildRequest, buildRequestNote, isEmptyFolder, newProjectFromQuestions, newProjectInEmptyFolder, offerMissingFolder, opened, type NewProjectFlow } from "./app/new-project";
 import { listLines } from "./new/command";
 import { defaultNameFor } from "./new/templates";
@@ -119,7 +118,8 @@ import { runPreview } from "./services/preview";
 import { editUserConfig } from "./config/user-write";
 import { explainModelError } from "./runtime/model-errors";
 import { tildePath, type NewProjectOptions, type NewProjectResult } from "./new/scaffold";
-import { oneAtATime, chooseAnswer, chooseNumbered, approveChoice, confirmCapability, confirmKind, answerServerQuestion, editGateReason, askToolFor, confirmYes, recordedApproval, exactPick } from "./app/approvals";
+import { chooseAnswer, approveChoice, confirmCapability, confirmKind, answerServerQuestion, editGateReason, askToolFor, confirmYes, recordedApproval, exactPick } from "./app/approvals";
+import { networkSetupHost, offerNetworkServer, networkLoginHost, networkLoginFile, revertWrites, reportImports } from "./app/network-host";
 
 export type { OutputWriter } from "./app/commands";
 
@@ -231,7 +231,7 @@ export class CasperApp {
   visualizationWork?: Promise<void>;
   private readonly visualizationProviders: VisualizationProvider[];
   mcp?: MCPManager;
-  private mcpConsent?: ConsentStore;
+  mcpConsent?: ConsentStore;
   /** Re-reads MCP configuration from disk for /mcp reload; set with the loaded workspace. */
   reloadMCPConfiguration?: () => Promise<MCPConfiguration>;
   private broker?: CapabilityBroker;
@@ -317,7 +317,7 @@ export class CasperApp {
   /** What may have changed this task's code since it started: a check the model records after that has no
    * before-the-change baseline. `before` is the task's starting tree, compared only after a shell command. */
   private taskEdits?: { before?: Map<string, string>; edited: boolean; shell: boolean; turnEnded: boolean };
-  private readonly sessionHomeDir?: string;
+  readonly sessionHomeDir?: string;
   private sessionWorkspace?: SessionWorkspaceManager;
   private sessionWorkspaceStart?: Promise<SessionWorkspaceManager>;
   lastTaskRequest?: string;
@@ -372,12 +372,12 @@ export class CasperApp {
   private readonly createProjectFn?: CasperAppOptions["createProject"];
   private readonly networkTools?: NetworkToolContext;
   readonly securitySeams?: Pick<SecurityReviewHost, "check" | "install">;
-  private readonly networkSeams?: CasperAppOptions["networkSeams"];
+  readonly networkSeams?: CasperAppOptions["networkSeams"];
   /** Setup is offered at most once a session, and an update asked about at most once. */
-  private networkSetupOffered = false;
-  private networkUpdateAsked = false;
+  networkSetupOffered = false;
+  networkUpdateAsked = false;
   /** Network products the person said Not now to this session: the AI's next try doesn't ask again (/mcp login does). */
-  private readonly loginNotNow = new Set<NetworkProduct>();
+  readonly loginNotNow = new Set<NetworkProduct>();
   /** `casper new` on a terminal: the exit code when no project was opened (1 when nothing was created). */
   newProjectExitCode?: number;
   /** The build-request question is asked at most once per session. */
@@ -431,7 +431,7 @@ export class CasperApp {
     },
     // A child's file reads reach a model too: same scrubbing, same /secrets files switch (device
     // configs only; .env, credential files and secret env values are always hidden).
-    scrubToolOutput: (toolName, input, texts, signal) => scrubToolOutput(this.scrubber, toolName, input, texts, signal, { configs: this.scrubFiles, networkLoginFile: this.networkLoginFile() }),
+    scrubToolOutput: (toolName, input, texts, signal) => scrubToolOutput(this.scrubber, toolName, input, texts, signal, { configs: this.scrubFiles, networkLoginFile: networkLoginFile(this) }),
     cache: () => this.projectContext?.cache,
     privatePaths: () => this.projectPrivatePaths(),
     // Inside tmux or iTerm2 each helper's steps show in the view-only steps pane; nowhere else.
@@ -459,7 +459,7 @@ export class CasperApp {
     this.terminal.setEffortCycle(() => this.cycleEffort());
     this.terminal.setBusySubmit((line, plain) => this.submitDuringWork(line, plain));
     // ctrl+o: MCP writes off everywhere, at once, even while work runs.
-    this.terminal.setWritesRevert(() => this.revertWrites());
+    this.terminal.setWritesRevert(() => revertWrites(this));
     // ctrl+t: the last step in full, even while work runs.
     this.terminal.setExpandLast(() => this.expandLastStep());
     // Tool calls live in the event view's Working box on a rich surface; the transcript gets plain writes.
@@ -582,7 +582,7 @@ export class CasperApp {
       },
       onAllowAllStart: () => this.updateFooter(),
       // A product with no login: the person is asked (never the AI); the AI gets one line back.
-      onLoginMissing: (server, product, _signal, trouble) => loginMissingAnswer(this.networkLoginHost(), server, product, trouble) });
+      onLoginMissing: (server, product, _signal, trouble) => loginMissingAnswer(networkLoginHost(this), server, product, trouble) });
     this.lifecycle.add({ name: "references", close: () => this.references!.close() });
     this.applyWeb(context);
     this.lifecycle.add({ name: "mcp", close: () => this.broker!.close() });
@@ -614,7 +614,7 @@ export class CasperApp {
     for (const diagnostic of referenceConfiguration.diagnostics) this.output.write(`[references] ${formatReferenceResult(diagnostic)}\n`);
     this.reportSkillWarnings();
     for (const diagnostic of mcp.diagnostics) this.output.write(`[mcp] ${terminalText(diagnostic)}\n`);
-    if (this.interactive) await this.reportImports();
+    if (this.interactive) await reportImports(this);
     if (this.interactive) await this.reportNewerCasper(context);
     for (const diagnostic of lspConfiguration.diagnostics) this.output.write(`[lsp] ${diagnostic}\n`);
     for (const diagnostic of visualization.diagnostics) this.output.write(`[visualize] ${diagnostic}\n`);
@@ -945,7 +945,7 @@ export class CasperApp {
           beforeToolWait: (_toolName, signal) => this.spendGate(signal),
           // Config files and config-looking command output (/secrets files off stops these for this
           // session), plus .env, credential files and secret env values (always).
-          scrubToolOutput: (toolName, input, texts, signal) => scrubToolOutput(this.scrubber, toolName, input, texts, signal, { configs: this.scrubFiles, networkLoginFile: this.networkLoginFile() }),
+          scrubToolOutput: (toolName, input, texts, signal) => scrubToolOutput(this.scrubber, toolName, input, texts, signal, { configs: this.scrubFiles, networkLoginFile: networkLoginFile(this) }),
           ...(this.shell ? { shell: this.shell } : {}),
           ...(context.cache ? { cache: context.cache } : {}),
           // The project's sandbox.denyRead (GreenCLI lists its data and log folders there): the file tools refuse them too.
@@ -1491,7 +1491,7 @@ export class CasperApp {
     // A flow the user picked, or /plan, is already this task's one choice before work: no other panel.
     this.beforeWorkAsked = Boolean(options.flow || options.planFirst);
     if (await this.offerNewProject(prompt) === "stop" || this.closing || this.commandAbort?.signal.aborted) return;
-    await this.offerNetworkServer(prompt);
+    await offerNetworkServer(this, prompt);
     if (this.closing || this.commandAbort?.signal.aborted) return;
     const previous = this.observations.spent();
     this.spentBefore = { tokens: this.spentBefore.tokens + previous.tokens, cost: this.spentBefore.cost + previous.cost };
@@ -2222,7 +2222,7 @@ export class CasperApp {
         this.commandSpent = { turns: result.turns ?? 0, tokens: result.usage?.tokens ?? null, estimatedCost: result.usage?.estimatedCost ?? null };
         return result;
       },
-      scrub: (toolName, input, texts, signal) => scrubToolOutput(this.scrubber, toolName, input, texts, signal, { configs: true, networkLoginFile: this.networkLoginFile() }),
+      scrub: (toolName, input, texts, signal) => scrubToolOutput(this.scrubber, toolName, input, texts, signal, { configs: true, networkLoginFile: networkLoginFile(this) }),
     };
   }
 
@@ -2927,17 +2927,6 @@ export class CasperApp {
   /** Approvals and server questions are shown one at a time, so two boxes never race for one answer. */
   approvalQueue: Promise<unknown> = Promise.resolve();
 
-  /** Once per new set of imported servers: say where they were found. Interactive sessions only. */
-  private async reportImports(): Promise<void> {
-    const imported = this.mcp?.status().filter((status) => status.importedFrom && status.scope === "imported") ?? [];
-    const names = imported.map((status) => status.name);
-    if (!this.mcpConsent?.importSetIsNew(names)) return;
-    const places = [...new Set(imported.map((status) => (status.importedFrom ?? "").replace(/ \(this project\)$/, "")))];
-    const where = places.length > 1 ? `${places.slice(0, -1).join(", ")} and ${places.at(-1)}` : places[0];
-    this.output.write(`[mcp] Found ${names.length} server${names.length === 1 ? "" : "s"} in ${where}. Run /mcp to see them.\n`);
-    await this.mcpConsent.markImportSet(names).catch(() => {});
-  }
-
   /** The project's sandbox.denyRead as absolute paths, resolved like the shell sandbox does (from the session's folder). */
   private projectPrivatePaths(): string[] {
     if (!this.projectContext) return [];
@@ -2958,53 +2947,13 @@ export class CasperApp {
 
   /** ctrl+o: writes off for every server at once, and every allowed kind and session answer ended. Returns whether
    * any of those were in force. */
-  private revertWrites(): boolean {
-    if (this.closing) return false;
-    const ended = this.endAllowances();
-    const on = this.mcp?.writesOn() ?? [];
-    if (ended && !on.length) {
-      this.output.write("[mcp] Allowed change kinds ended. Every change asks you again.\n");
-      this.updateFooter();
-    }
-    if (!on.length) return ended;
-    // The gate flips at once; servers restart with their pins once their running calls finish.
-    for (const server of on) void this.mcp!.setWrites(server, false).catch(() => {});
-    for (const server of on) this.output.write(`[mcp] Writes off for ${server}. Every change asks you again.\n`);
-    this.updateFooter();
-    return true;
-  }
+  private revertWrites(): boolean { return revertWrites(this); }
 
   /**
    * The network server's setup host: questions in the numbered approval box (only the person, never the AI's ask tool),
    * and connecting goes through the same manager as /mcp connect.
    */
-  networkSetupHost(): SetupHost {
-    const home = this.sessionHomeDir ?? os.homedir();
-    return {
-      homeDir: home,
-      // The approval box works wherever approvals do (it refuses a cooked terminal itself).
-      canAsk: () => this.interactive && !this.closing,
-      chooseAnswer: (preview, question, choices) => chooseAnswer(this, preview, question, choices, this.commandAbort?.signal),
-      write: (text) => { if (!this.closing) this.output.write(text); },
-      configured: async () => this.mcp ? this.mcp.status().map((status) => this.mcp!.definition(status.name)) : [],
-      connect: async (name) => {
-        if (!this.mcp || !this.reloadMCPConfiguration) return { ok: false, message: "MCP is not available in this session" };
-        await this.mcp.reload(await this.reloadMCPConfiguration());
-        await this.mcp.connect(name);
-        const status = this.mcp.status().find((entry) => entry.name === name);
-        if (status?.state !== "ready") return { ok: false, ...(status?.error ? { message: status.error } : {}) };
-        const remembered = await this.mcp.remember(name);
-        if (!remembered.remembered) this.output.write(`[mcp] ${terminalText(remembered.reason)}\n`);
-        this.updateFooter();
-        return { ok: true };
-      },
-      restart: async (name, whileStopped) => {
-        if (this.mcp) await this.mcp.restartAfterCalls(name, whileStopped ? { whileStopped } : {});
-        else await whileStopped?.();
-      },
-      ...(this.networkSeams?.install ? { install: this.networkSeams.install } : {}),
-    };
-  }
+  networkSetupHost(): SetupHost { return networkSetupHost(this); }
 
   /** After /references add: the reference files read again; the next task's search tool uses them, and the old
    * library (and any tool that captured it) is closed. */
@@ -3017,52 +2966,11 @@ export class CasperApp {
     await old?.close();
   }
 
-  /** Before the AI's turn: an update to Casper's network server (asked once a session), and setup on the first request
-   * that names a network product. Interactive only; the AI never starts either. */
-  private async offerNetworkServer(prompt: string): Promise<void> {
-    if (!this.interactive || this.closing || !this.mcp) return;
-    if (this.networkUpdateAsked && (this.networkSetupOffered || !namesNetworkProduct(prompt))) return;
-    const host = this.networkSetupHost();
-    const configured = await host.configured();
-    if (!this.networkUpdateAsked) {
-      this.networkUpdateAsked = true;
-      if (await shouldOfferNetworkUpdate(host.homeDir, configured)) await runNetworkUpdate(host, { explicit: false });
-    }
-    if (this.networkSetupOffered || !namesNetworkProduct(prompt) || this.closing) return;
-    if (!await shouldOfferNetworkSetup(host.homeDir, configured)) return;
-    this.networkSetupOffered = true;
-    await runNetworkSetup(host, { explicit: false });
-  }
-
   /**
    * The network server's login host: the question in the numbered approval box and the values in the private prompt (only the
    * person, never the AI's ask tool), both in the approval queue; the restart after a save goes through the manager.
    */
-  networkLoginHost(): LoginHost {
-    return {
-      homeDir: this.sessionHomeDir ?? os.homedir(),
-      interactive: this.interactive,
-      notNow: this.loginNotNow,
-      // The private prompt needs Casper's full terminal (piped input has no way to hide what you type).
-      canAsk: () => this.interactive && !this.closing && !!this.terminal.exclusiveHost(),
-      chooseAnswer: (preview, question, choices) => chooseNumbered(this, preview, question, choices, this.commandAbort?.signal),
-      privateInput: async (label) => {
-        const picker = this.terminal.exclusiveHost();
-        if (!picker || this.closing) return undefined;
-        const signal = this.commandAbort?.signal ?? new AbortController().signal;
-        return picker.run((io) => withLoginDisplay(io, signal, (display) => display.privateInput(label))).catch(() => undefined);
-      },
-      write: (text) => { if (!this.closing) this.output.write(text); },
-      restart: async (name) => { await this.mcp?.restartAfterCalls(name); },
-      access: (name) => { try { return this.mcp?.policy(name).access; } catch { return undefined; } },
-      exclusive: (work) => oneAtATime(this, work),
-    };
-  }
-
-  /** ~/.casper/network-logins.json: its tokens are hidden in every tool output the AI reads. */
-  private networkLoginFile(): string {
-    return loginFile(this.sessionHomeDir ?? os.homedir());
-  }
+  networkLoginHost(): LoginHost { return networkLoginHost(this); }
 
   /** One numbered answer from the user (never the model), in the same one-at-a-time queue as approvals. */
   chooseAnswer(preview: string, question: string, choices: readonly string[], signal?: AbortSignal): Promise<string | undefined> { return chooseAnswer(this, preview, question, choices, signal); }
