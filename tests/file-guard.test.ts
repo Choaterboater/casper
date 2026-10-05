@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
+import { realpathSync } from "node:fs";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -159,4 +160,33 @@ test("review: a denyRead folder inside the project blocks reads of it, not a sea
   expect(fileToolGate("grep", { pattern: "x" }, denied)).toBeUndefined();
   expect(privatePathCommand("grep -r foo .", denied)).toBeUndefined();
   expect(privatePathCommand("cat secrets/key.pem", denied)).toContain("private");
+});
+
+/** The 8.3 short name Windows keeps for a long folder name, or undefined where there is none (8.3 names off, or
+ * not Windows). A user folder like C:\Users\runneradmin is also C:\Users\RUNNER~1, and TEMP often uses that form. */
+function shortName(folder: string): string | undefined {
+  if (process.platform !== "win32") return undefined;
+  const run = Bun.spawnSync(["cmd", "/d", "/s", "/c", `"for %I in ("${folder}") do @echo %~sI"`], { stdout: "pipe", stderr: "ignore", windowsVerbatimArguments: true });
+  const short = run.stdout.toString().trim();
+  return run.exitCode === 0 && short && short.toLowerCase() !== folder.toLowerCase() ? short : undefined;
+}
+const shortHome = await (async () => {
+  const folder = await mkdtemp(path.join(os.tmpdir(), "casper-long-home-folder-"));
+  try { return shortName(realpathSync.native(folder)); } finally { await rm(folder, { recursive: true, force: true }); }
+})();
+
+test.skipIf(!shortHome)("a private place named by its Windows 8.3 short name is still private", async () => {
+  const userHome = path.join(realpathSync.native(root), "long user name");
+  await mkdir(path.join(userHome, ".ssh"), { recursive: true });
+  await writeFile(path.join(userHome, ".ssh/id_test"), "key");
+  const short = shortName(userHome)!;
+  expect(short).not.toBe(userHome);
+  const named = { ...context, home: userHome };
+  for (const key of [path.join(userHome, ".ssh/id_test"), path.join(short, ".ssh/id_test"), path.join(short, ".ssh")]) {
+    expect([key, classifyPath(key, named, false)]).toEqual([key, "private"]);
+    expect(fileToolGate("read", { path: key }, named)).toBe("Not read: ~/.ssh is private (keys and logins). Casper keeps it from the AI.");
+  }
+  // And a project named by its short name is the same project.
+  const shortProject = shortName(realpathSync.native(project))!;
+  expect(classifyPath(path.join(shortProject, "src/a.ts"), { ...context, root: realpathSync.native(project) }, true)).toBe("inside");
 });

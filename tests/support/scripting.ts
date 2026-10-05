@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
+import { realpathSync } from "node:fs";
 import { appendFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -88,7 +89,8 @@ export function events(stdout: string, project: string) {
     for (const key of ["ms"]) if (key in event) event[key] = typeof event[key] === "number" ? "<ms>" : event[key];
     if (event.type === "session_start") {
       expect(event.session).toMatch(/^[0-9a-f-]{36}$/);
-      Object.assign(event, { casper: "<version>", session: "<id>", cwd: event.cwd === project ? "<project>" : event.cwd });
+      // The folder as the run spelled it: macOS adds /private, and a Windows TEMP can be a short 8.3 name (RUNNER~1).
+      Object.assign(event, { casper: "<version>", session: "<id>", cwd: realpathSync.native(event.cwd) === project ? "<project>" : event.cwd });
     }
     if (event.type === "receipt") event.checks = event.checks.map((check: { ms: number }) => ({ ...check, ms: "<ms>" }));
     if (event.type === "phase") event.atMs = "<ms>";

@@ -56,7 +56,9 @@ async function fixture(respond?: (payload: Payload, index: number) => Response |
   }
   async function run(args: string[]) {
     const child = spawn(args);
-    const timer = setTimeout(() => child.kill("SIGKILL"), 10_000);
+    // A hang guard only, as in support/scripting.ts: a run takes 1-2 s, but on a loaded 4-core Windows CI runner two
+    // runs passed 10 s (and were killed, exit 137) while the same window ran other CLI tests four times slower.
+    const timer = setTimeout(() => child.kill("SIGKILL"), 60_000);
     try {
       const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
       return { stdout, stderr, exit };

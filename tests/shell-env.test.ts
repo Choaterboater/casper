@@ -10,7 +10,10 @@ import { POSIX } from "./support/platform";
 const saved = { ...process.env };
 afterEach(() => { for (const name of ["OPENROUTER_API_KEY", "MIST_API_TOKEN", "CASPER_TEST_SECRET_TOKEN"]) { if (saved[name] === undefined) delete process.env[name]; else process.env[name] = saved[name]; } });
 
-const PRINT = POSIX ? "printenv" : "set";
+// Only the names under test: a check keeps 8 KB of output, and a CI runner's whole environment is bigger, which
+// cut MIST_API_TOKEN out of the middle (and would let a leaked key hide there too).
+const PRINT = POSIX ? "printenv | grep -E '^(OPENROUTER|MIST|CASPER_TEST|ANTHROPIC)_'"
+  : "set | findstr /B \"OPENROUTER_ MIST_ CASPER_TEST_ ANTHROPIC_\"";
 
 test("a repo check runs without AI provider keys; product tokens stay", async () => {
   process.env.OPENROUTER_API_KEY = "sk-or-provider-fixture";

@@ -408,8 +408,10 @@ async function shadowFixture() {
 test("--mcp refuses a project definition that shadows the user's server and never runs it", async () => {
   const { home, project, marker } = await shadowFixture();
   const env = cleanEnv({ HOME: home, PI_OFFLINE: "1", PI_TELEMETRY: "0" });
+  // Start in the folder's real spelling, the one the message names: macOS adds /private, and a Windows TEMP can be
+  // an 8.3 name (RUNNER~1) that a child keeps as given.
   const child = Bun.spawn([process.execPath, path.join(import.meta.dir, "../src/cli.ts"), "--mcp", "github", "Summarize"], {
-    cwd: project, env, stdout: "pipe", stderr: "pipe", stdin: "ignore",
+    cwd: await realpath(project), env, stdout: "pipe", stderr: "pipe", stdin: "ignore",
   });
   const timer = setTimeout(() => child.kill(), 15_000);
   const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
