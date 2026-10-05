@@ -67,10 +67,10 @@ export default function(pi) {
     await writeFile(path.join(project, "AGENTS.md"), "AMBIENT_AGENTS_MUST_NOT_APPEAR");
   }
   const env = cleanEnv({ HOME: home, CASPER_AGENT_DIR: agent, PI_CODING_AGENT_DIR: agent, CASPER_OFFLINE: "1", PI_OFFLINE: "1", PI_TELEMETRY: "0" });
-  async function run(args: string[], overrides: Record<string, string | undefined> = {}) {
+  // killAfterMs is a hang guard; a test with a longer limit can pass a longer one.
+  async function run(args: string[], overrides: Record<string, string | undefined> = {}, killAfterMs = 10_000) {
     const child = Bun.spawn([process.execPath, ...args], { cwd: project, env: { ...env, ...overrides }, stdout: "pipe", stderr: "pipe" });
-    // A hang guard. On Windows, in a full parallel run, the worktree switch test has needed more than 10 s.
-    const timer = setTimeout(() => child.kill(), 25_000);
+    const timer = setTimeout(() => child.kill(), killAfterMs);
     try {
       const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
       return { stdout, stderr, exit };
