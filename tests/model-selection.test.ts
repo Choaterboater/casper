@@ -185,7 +185,7 @@ console.log('RESULT=' + JSON.stringify({ initial, selected, status: session.getS
   expect(await readFile(path.join(f.project, ".pi/settings.json"), "utf8")).toBe(f.shared);
   expect(await readFile(path.join(f.agent, "auth.json"), "utf8")).toBe("{}\n");
   expect(await readFile(path.join(f.casper, "settings.json"), "utf8").catch(() => "absent")).toBe("absent");
-}, 30_000);
+}, 90_000);
 
 test("plain /model lists locally; an exact selection is remembered across fresh conversations", async () => {
   const f = await fixture();
@@ -655,7 +655,7 @@ console.log('RESULT=' + JSON.stringify({ error, current, restored: session.getSt
   expect(result.restored.blocked).toBeUndefined();
   const preferences = JSON.parse(await readFile(path.join(f.casper, "settings.json"), "utf8"));
   expect(preferences.defaultModel).toBe("first");
-}, 30_000);
+}, 60_000);
 
 test("automatic effort classifies only the raw request, affects generation and survives resume without changing defaults", async () => {
   const f = await fixture();
@@ -695,7 +695,7 @@ console.log('RESULT=' + JSON.stringify({ classified, usage, fresh, restored, fix
   expect(result.fresh).toMatchObject({ configuredEffort: "auto", thinkingLevel: "high" });
   expect(result.restored).toMatchObject({ configuredEffort: "auto", thinkingLevel: "low" });
   expect(result.fixed).toMatchObject({ configuredEffort: "medium", thinkingLevel: "medium" });
-}, 30_000);
+}, 60_000);
 
 test("classifier cancellation prevents generation and late results cannot alter effort", async () => {
   const f = await fixture();

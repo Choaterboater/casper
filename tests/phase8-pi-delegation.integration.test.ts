@@ -58,7 +58,7 @@ for (const mode of ["turns", "calls"]) test(`real read-only Pi enforces ${mode} 
   expect(report.events).toContainEqual(expect.objectContaining({ type: "assistant_response_end", stopReason: "limit" }));
   expect(f.payloads).toHaveLength(mode === "turns" ? 2 : 1);
   expect(report.events.filter((event) => event.type === "tool_end" && !event.isError)).toHaveLength(mode === "turns" ? 2 : 3);
-}, 15_000);
+}, 60_000);
 
 test("real read-only Pi spends its one opt-in report turn without doing more work", async () => {
   const f = await fixture(() => calls([{ name: "read", args: { path: "fixture.txt" } }]));

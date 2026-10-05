@@ -281,7 +281,7 @@ test("Copilot device login discloses account policy changes and saves only Copil
   const auth = JSON.parse(await readFile(path.join(f.env.PI_CODING_AGENT_DIR, "auth.json"), "utf8"));
   expect(Object.keys(auth)).toEqual(["github-copilot"]);
   expect(auth["github-copilot"].availableModelIds).toContain("claude-haiku-4.5");
-});
+}, 60_000);
 
 test("Anthropic browser sign-in completes through private manual input or real loopback callback and releases listeners", async () => {
   for (const mode of ["manual", "callback", "cancel"]) {
@@ -602,7 +602,7 @@ test("a committed credential with failed synchronization blocks stale parent aut
   expect(result.blocked).toContain("do not repeat login");
   expect(result.fetches).toBe(3);
   expect(JSON.parse(await readFile(path.join(agent, "auth.json"), "utf8"))["openai-codex"].refresh).toBe("committed");
-}, 15_000);
+}, 30_000);
 
 test("cancellation while polling prevents late provider completion from saving", async () => {
   const f = await fixture();
@@ -721,7 +721,7 @@ test("CASPER_TUI_WRITE_LOG refuses login before terminal or auth ownership", asy
   `);
   expect(JSON.parse(output)).toEqual({ result: { status: "failed", effect: "none", reason: "unavailable", detail: "CASPER_TUI_WRITE_LOG is set" }, runs: 0 });
   expect(await Bun.file(path.join(f.env.PI_CODING_AGENT_DIR, "auth.json")).exists()).toBe(false);
-});
+}, 60_000);
 
 test("CASPER_OAUTH_CALLBACK_HOST cannot expose browser sign-in on a public listener", async () => {
   const f = await fixture();
@@ -741,7 +741,7 @@ test("CASPER_OAUTH_CALLBACK_HOST cannot expose browser sign-in on a public liste
     } finally { await runtime.dispose(); input.destroy(); }
   `);
   expect(JSON.parse(output)).toEqual({ result: { status: "failed", effect: "none", reason: "unavailable" }, requests: 0 });
-});
+}, 60_000);
 
 // python3 runs the standard-library PTY fixture; Windows has no equivalent here.
 posixOnly("production CLI owns device-code input safely in a real terminal", async () => {

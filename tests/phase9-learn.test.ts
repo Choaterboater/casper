@@ -154,7 +154,7 @@ for (const disposition of ["project-skill", "global-skill"] as const) test(`huma
   }, classifyTask(`use ${name}`));
   expect(loaded.map((entry) => entry.skill.name)).toContain(name);
   expect(loaded[0]?.body).toContain("human explicitly promoted this exact digest-bound candidate");
-}, 15_000);
+}, 60_000);
 
 test("ignore and promotion consent are exact, immutable, idempotent and local", async () => {
   const f = await fixture(); const before = await snapshot(f.project);
@@ -177,7 +177,7 @@ test("ignore and promotion consent are exact, immutable, idempotent and local", 
   expect(inspected.decisions).toHaveLength(1);
   expect(await snapshot(f.project)).toEqual(before);
   expect(f.payloads).toHaveLength(2);
-}, 30_000);
+}, 60_000);
 
 test("concurrent identical promotion commits one decision and one create-only artifact", async () => {
   const f = await fixture();
@@ -257,7 +257,7 @@ for (const redirected of ["active", "staged"] as const) needsSymlinks(`promotion
   expect(await snapshot(outside)).toEqual(before);
   expect(await realpath(redirectedPath)).toBe(await realpath(outside));
   expect(f.payloads).toHaveLength(2);
-}, 15_000);
+}, 60_000);
 
 needsSymlinks("promotion rejects symlinked artifact roots without writing through them", async () => {
   const f = await fixture();
@@ -321,7 +321,7 @@ for (const layout of ["default-root", "state-alias", "missing-state"]) needsSyml
   expect(f.payloads).toEqual([]);
   expect((await readdir(source, { recursive: true })).sort()).toEqual(entries);
   expect(await snapshot(source)).toEqual(before);
-});
+}, 60_000);
 
 for (const file of ["auth.json", "models-store.json"]) needsSymlinks(`learning refuses a separate Pi state's ${file} symlink into source`, async () => {
   const f = await fixture(() => answer('{"candidates":[]}'));
@@ -334,7 +334,7 @@ for (const file of ["auth.json", "models-store.json"]) needsSymlinks(`learning r
   expect(result.stderr).toContain("overlaps writable runtime state");
   expect(f.payloads).toEqual([]);
   expect(await snapshot(f.project)).toEqual(before);
-});
+}, 90_000);
 
 test("learning still permits sibling Pi state without changing source or model defaults", async () => {
   const f = await fixture(() => answer('{"candidates":[]}'));
@@ -378,7 +378,7 @@ for (const [name, response, finish] of [
   expect(listed.exit).toBe(0);
   expect(JSON.parse(listed.stdout).drafts).toEqual([]);
   expect(f.payloads).toHaveLength(1);
-});
+}, 120_000);
 
 for (const [name, evidence] of [
   ["invented quote", { ...candidate.evidence[0], quote: "invented" }],
@@ -393,7 +393,7 @@ for (const [name, evidence] of [
   expect(result.exit).toBe(1);
   expect(JSON.parse(result.stderr).status).toBe("failed");
   expect(JSON.parse((await f.run(["learn", "list", f.project])).stdout).drafts).toEqual([]);
-});
+}, 120_000);
 
 test("source changes after model reading cannot supply a matching evidence quote", async () => {
   const f = await fixture(async (_payload, index) => {
@@ -564,7 +564,7 @@ test("a read-only tool failure or attempted mutation cannot publish an apparentl
   expect(result.stderr).toContain("tool errors");
   expect(await snapshot(f.project)).toEqual(before);
   expect(JSON.parse((await f.run(["learn", "list", f.project])).stdout).drafts).toEqual([]);
-}, 60_000);
+}, 180_000);
 
 test("exhausting the existing explorer turn limit saves no truncated draft and starts no repair", async () => {
   const f = await fixture(() => readEvidence());

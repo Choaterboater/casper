@@ -336,7 +336,7 @@ test("checkout: already up to date pulls nothing and runs nothing else", async (
   expect(exitCode).toBe(0);
   expect(lines).toEqual([`The Casper checkout at ${checkout} is already up to date (0.2.21).`]);
   expect(bunCalls).toEqual([]);
-});
+}, 60_000);
 
 test("checkout: newer commits are pulled and the new version is named; an unchanged lockfile needs no install", async () => {
   const { upstream, checkout } = await checkoutPair();

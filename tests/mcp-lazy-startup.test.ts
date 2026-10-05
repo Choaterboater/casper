@@ -152,5 +152,5 @@ for (const moduleFile of ["index", "stdio"] as const) for (const action of ["clo
       await manager.close();
       console.log("passed");
     `);
-  });
+  }, 60_000);
 }

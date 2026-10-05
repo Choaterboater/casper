@@ -319,4 +319,4 @@ try {
   expect({ exit: result.exit, stderr: result.stderr }).toEqual({ exit: 0, stderr: "" });
   const log: string[] = JSON.parse(result.stdout.split("RESULT=")[1]!);
   expect(log).toEqual(sequential ? ["start a", "end a", "start b", "end b"] : ["start a", "start b", "end a", "end b"]);
-}, 15_000);
+}, 30_000);

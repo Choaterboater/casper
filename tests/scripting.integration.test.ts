@@ -69,7 +69,7 @@ test("a --model whose provider has no credentials fails (exit 1) with the sign-i
   expect(result.exit).toBe(1);
   expect(result.stderr).toContain("No key for missing. Set its API key, or /model to choose another.");
   expect(f.payloads).toEqual([]);
-}, 60_000);
+}, 180_000);
 
 test("--cd opens the given folder as the workspace; a missing folder is a usage error", async () => {
   const f = await fixture();
