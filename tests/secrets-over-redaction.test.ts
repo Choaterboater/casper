@@ -64,3 +64,21 @@ test("real secrets on one line are still hidden", () => {
   expect(scrubPlainSecrets("{\"password\": \"hunter22\"}", { env: {} }).text).toBe(`{"password": "${SECRET_MARKER}"}`);
   expect(scrubPlainSecrets("const config = { password: \"hunter22\" };", { env: {} }).text).toContain(SECRET_MARKER);
 });
+
+test("a password that is itself a key word, or all punctuation, is still hidden", () => {
+  for (const [line, hidden] of [
+    ["password secret", `password ${SECRET_MARKER}`],
+    ["local-user admin password secret", `local-user admin password ${SECRET_MARKER}`],
+    ["snmp password secret", `snmp password ${SECRET_MARKER}`],
+    ["password hash", `password ${SECRET_MARKER}`],
+    ["password password", `password ${SECRET_MARKER}`],
+    ["password secret Hunter2", `password ${SECRET_MARKER} Hunter2`],
+    ["password !@#$%^&*", `password ${SECRET_MARKER}`],
+    ["secret ----", `secret ${SECRET_MARKER}`],
+  ]) expect({ line, out: scrubText(line).text }).toEqual({ line, out: hidden });
+});
+
+test("a key word inside a longer word does not stop the next password being hidden", () => {
+  expect(scrubText("rehash password Hunter2x").text).toBe(`rehash password ${SECRET_MARKER}`);
+  expect(scrubText("password secret;").text).toBe(`password ${SECRET_MARKER};`);
+});
