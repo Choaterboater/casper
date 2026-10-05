@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { ProjectModel } from "../src/project/model";
-import { bundledSkills, MAX_BUNDLED_ACTIVE, scoreSkillRule, STOP_AND_ASK_LINE } from "../src/skills/bundled";
+import { allBundledSkills, bundledSkills, MAX_BUNDLED_ACTIVE, scoreSkillRule, STOP_AND_ASK_LINE } from "../src/skills/bundled";
 import { formatSelectedSkills, SkillRegistry, skillRegistryOptions } from "../src/skills/registry";
 import { classifyTask, type TaskIntent } from "../src/task/classify";
 
@@ -40,7 +40,9 @@ async function prompts(): Promise<Fixture> {
 }
 
 async function names(registry: SkillRegistry, prompt: string, frameworks: string[] = []): Promise<string[]> {
-  return (await registry.loadForTask(prompt, model(frameworks), classifyTask(prompt))).map(({ skill }) => skill.name).sort();
+  // The network pack only: the web-frontend skill has its own tests (tests/web-skill.test.ts).
+  return (await registry.loadForTask(prompt, model(frameworks), classifyTask(prompt))).map(({ skill }) => skill.name)
+    .filter((name) => !name.startsWith("web-")).sort();
 }
 
 afterEach(async () => {
@@ -94,7 +96,8 @@ describe("picking bundled network skills (local word match, no model call)", () 
       const registry = await SkillRegistry.discover({ ...options, bundled: true });
       const { pick, skip } = await prompts();
       for (const { prompt } of pick) await registry.loadForTask(prompt, model(), classifyTask(prompt));
-      const unrelated = await registry.loadForTask(skip[0]!, model(), classifyTask(skip[0]!));
+      // A project with its own styles, so the web-frontend skill stays out too.
+      const unrelated = await registry.loadForTask(skip[0]!, { ...model(), architecture: { styles: "src/index.css" } }, classifyTask(skip[0]!));
       expect(formatSelectedSkills(unrelated)).toBe("");
     } finally {
       globalThis.fetch = originalFetch;
@@ -151,7 +154,7 @@ describe("your own skills next to the bundled ones", () => {
     const registry = await SkillRegistry.discover({ ...options, bundled: true });
     const selected = await registry.loadForTask("list APs per site in Mist with our naming", model(), classifyTask("list APs per site in Mist"));
     expect(selected.map(({ skill }) => skill.name).sort()).toEqual(["lab-naming", "network-mist-api"]);
-    expect(registry.list().filter((skill) => skill.source === "bundled")).toHaveLength(bundledSkills().length);
+    expect(registry.list().filter((skill) => skill.source === "bundled")).toHaveLength(allBundledSkills().length);
   });
 
   test("a same-name user skill replaces a bundled one only while it keeps the safety wording", async () => {

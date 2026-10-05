@@ -1,7 +1,7 @@
 # Skills and the network skills pack
 
 A skill is a short how-to file the AI reads only when a request needs it. Casper ships six network
-skills inside the `casper` binary, and you can add your own.
+skills and one frontend skill inside the `casper` binary, and you can add your own.
 
 The network skills pack is new in v0.2.18; releases before it have no bundled skills.
 Your own skills work the same way in both; see [CONFIGURATION.md](CONFIGURATION.md#skills).
@@ -82,8 +82,29 @@ skills:
 
 A project's `.casper/project.yaml` cannot turn the pack off: the skills only make the AI more
 careful, so a repository must not be able to remove them. `skills.maxActive: 0` turns all skill
-loading off, bundled ones included. `/status` shows `skills    6 indexed (6 bundled)` or
+loading off, bundled ones included. `/status` shows `skills    7 indexed (7 bundled)` or
 `bundled: off`.
+
+## The frontend skill
+
+New in v0.2.23. `web-frontend` is Casper's own short guide to building a page or app UI that looks
+deliberate and works for everyone: one type scale and spacing step, a few named colors with dark-mode
+values in one theme file, real HTML elements, a visible label on every field, a visible focus ring,
+44px tap targets, a 390px phone width first, 4.5:1 text contrast, and loading, empty and error states.
+It also lists what makes a page look machine-made (purple gradients, emoji as icons, everything in a
+card, lorem ipsum) so the AI skips them.
+
+- **Picked only for UI work in a project with no look of its own yet:** a request with a UI word
+  (page, form, layout, button, css, styles, web app …) that isn't a question, in a project where
+  Casper finds no styles, components or design folder and no styling package (Tailwind,
+  styled-components, Emotion). When the project has a look, the repo's style always wins and the
+  skill stays out. `casper new web-app` and `vite-react` start with a theme file, so they follow
+  that.
+- Zero tokens until picked; about 1,000 tokens when it is. It never installs anything or adds a
+  design system.
+- `/skills block web-frontend@bundled` stops it. A `web-frontend` skill in `~/.casper/skills/`
+  (your house style) is used in its place.
+- Written for Casper; no text is copied from another skill.
 
 ## Add your own
 

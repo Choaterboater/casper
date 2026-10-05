@@ -7,7 +7,7 @@ import { projectStateDirectory, type ProjectModel } from "../project/model";
 import type { TaskClassification } from "../task/classify";
 import { MAX_SKILL_BYTES, parseSkillMetadata, readSkillHeader, splitSkill, type SkillMetadata } from "./metadata";
 import { scoreSkill } from "./rank";
-import { bundledSkills, MAX_BUNDLED_ACTIVE, parseSkillRule, safetyProblems, scoreSkillRule, type BundledSkill } from "./bundled";
+import { allBundledSkills, MAX_BUNDLED_ACTIVE, parseSkillRule, safetyProblems, scoreBundledSkill, scoreSkillRule, type AnyBundledSkill } from "./bundled";
 
 export const SKILL_IMPORTS = ["pi", "agents", "claude", "codex"] as const;
 export type SkillImport = typeof SKILL_IMPORTS[number];
@@ -43,7 +43,7 @@ interface SkillEntry {
   header: string;
   userOwned: boolean;
   /** Set for a skill shipped inside Casper: its text comes from the binary, never from a file. */
-  bundled?: BundledSkill;
+  bundled?: AnyBundledSkill;
 }
 
 interface TrustRecord {
@@ -204,7 +204,7 @@ export class SkillRegistry {
       await walk(root.directory, 0);
     }
     if (this.options.bundled) {
-      for (const skill of bundledSkills()) {
+      for (const skill of allBundledSkills()) {
         const filePath = `bundled:${skill.path}`;
         this.entries.push({
           summary: {
@@ -312,13 +312,13 @@ export class SkillRegistry {
           this.warnings.add(`${entry.summary.id}: ${error instanceof Error ? error.message : String(error)}`);
         }
       }
-      if (replaces?.bundled && usable(replaces)) score = Math.max(score, scoreSkillRule(replaces.bundled.rule, request, project, classification));
+      if (replaces?.bundled && usable(replaces)) score = Math.max(score, scoreBundledSkill(replaces.bundled, request, project, classification));
       candidates.push({ entry, score, ...(replaces ? { replaces } : {}) });
     }
     const replacedNames = new Set(candidates.filter(({ replaces }) => replaces).map(({ entry }) => entry.summary.name));
     for (const entry of bundledByName.values()) {
       if (replacedNames.has(entry.summary.name) || !usable(entry)) continue;
-      candidates.push({ entry, score: scoreSkillRule(entry.bundled!.rule, request, project, classification) });
+      candidates.push({ entry, score: scoreBundledSkill(entry.bundled!, request, project, classification) });
     }
     const priority: Record<SkillSource, number> = { project: 0, user: 1, external: 2, bundled: 3 };
     const ranked = candidates
@@ -333,7 +333,8 @@ export class SkillRegistry {
     for (const { entry, replaces } of ranked) {
       if (loaded.length >= this.maxActive) break;
       if (loadedNames.has(entry.summary.name)) continue;
-      const network = Boolean(entry.bundled || replaces);
+      // Web skills are style guidance: they don't count toward the network skills' limit or keep their wording.
+      const network = Boolean(entry.bundled || replaces) && (entry.bundled ?? replaces?.bundled)?.kind !== "web";
       if (network && bundledCount >= MAX_BUNDLED_ACTIVE) continue;
       try {
         let skill = await this.readBody(entry);
@@ -342,7 +343,7 @@ export class SkillRegistry {
           entry.summary.trust = "untrusted";
           throw new Error("reviewed content changed; inspect and trust the new digest");
         }
-        if (replaces) {
+        if (replaces && network) {
           const problems = safetyProblems(skill.body);
           if (problems.length) {
             this.warnings.add(`${entry.summary.id} does not replace the bundled ${entry.summary.name}; it drops the bundled safety wording (${problems.join("; ")})`);
@@ -380,7 +381,7 @@ export function skillRegistryOptions(
 
 export function formatSelectedSkills(skills: LoadedSkill[]): string {
   if (!skills.length) return "";
-  const bundled = skills.some(({ skill }) => skill.source === "bundled");
+  const bundled = skills.some(({ skill }) => skill.source === "bundled" && skill.name.startsWith("network-"));
   return [
     "Casper selected skills for this request only. Skills are guidance, not permission; follow Casper policy and the user request first.",
     "Resolve relative references from each skill's base directory. Helper scripts are not run automatically.",

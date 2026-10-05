@@ -7,6 +7,7 @@ import centralSource from "../../skills/network/central/SKILL.md" with { type: "
 import clearpassSource from "../../skills/network/clearpass/SKILL.md" with { type: "text" };
 import junosSource from "../../skills/network/junos/SKILL.md" with { type: "text" };
 import mistSource from "../../skills/network/mist/SKILL.md" with { type: "text" };
+import frontendSource from "../../skills/web/frontend/SKILL.md" with { type: "text" };
 
 /** A bundled skill rides along with one request, so it stays small (about 1,500 tokens). */
 export const MAX_BUNDLED_BODY_BYTES = 6 * 1024;
@@ -67,6 +68,7 @@ export interface BundledSkillRule {
 }
 
 export interface BundledSkill {
+  kind?: "network";
   metadata: SkillMetadata;
   rule: BundledSkillRule;
   /** Frontmatter text, as the registry keeps it for other skills. */
@@ -210,4 +212,83 @@ export function scoreSkillRule(
     && rule.frameworks.some((framework) => project.frameworks.includes(framework));
   if (!strong && !weakHit && !frameworkHit) return 0;
   return strong * 6 + (weakHit ? 3 : 0) + (frameworkHit ? 2 : 0);
+}
+
+/**
+ * Bundled web skills (skills/web/<name>/SKILL.md): guidance for building UI, not rules about devices. They are
+ * picked by scoreWebSkill, never by network triggers, and carry no stop-and-ask wording.
+ */
+export interface BundledWebSkill {
+  kind: "web";
+  metadata: SkillMetadata;
+  header: string;
+  body: string;
+  source: string;
+  path: string;
+}
+
+export type AnyBundledSkill = BundledSkill | BundledWebSkill;
+
+/** Parse and check one bundled web skill. A broken one is a build error, so this throws. */
+export function parseWebSkill(text: string, filePath: string): BundledWebSkill {
+  const source = normaliseLineEndings(text);
+  const { header, body } = splitSkill(source);
+  const metadata = parseSkillMetadata(header);
+  if (!metadata.name.startsWith("web-")) throw new Error(`${filePath}: a bundled web skill's name starts with web-`);
+  if (metadata.description.length > MAX_BUNDLED_DESCRIPTION || /\n/.test(metadata.description)) {
+    throw new Error(`${metadata.name}: the description is one line of at most ${MAX_BUNDLED_DESCRIPTION} characters`);
+  }
+  if (Buffer.byteLength(body) > MAX_BUNDLED_BODY_BYTES) throw new Error(`${metadata.name}: the body is larger than 6 KiB`);
+  return { kind: "web", metadata, header, body, source, path: filePath };
+}
+
+let cachedWeb: BundledWebSkill[] | undefined;
+
+/** The web skills shipped inside Casper (today: web-frontend). */
+export function webSkills(): BundledWebSkill[] {
+  cachedWeb ??= [parseWebSkill(frontendSource, "skills/web/frontend/SKILL.md")];
+  return cachedWeb;
+}
+
+/** Words that make a request UI work. Matched as whole words or phrases after normaliseWords. */
+const UI_WORDS = [
+  "ui", "user interface", "frontend", "front end", "web page", "webpage", "landing page", "homepage", "home page",
+  "website", "web site", "web app", "webapp", "page", "pages", "layout", "css", "stylesheet", "style", "styles", "styling",
+  "html", "button", "buttons", "form", "forms", "navbar", "nav bar", "menu", "modal", "dialog", "sidebar", "header",
+  "footer", "component", "components", "screen", "theme", "dark mode", "responsive", "look", "looks", "design",
+] as const;
+
+/** Requests that ask about the UI rather than change it. */
+const QUESTION_INTENTS = new Set(["inspect", "document", "visualize"]);
+
+/** A styling system the project already uses: then the repo's look wins. */
+const STYLING_FRAMEWORKS = ["tailwind", "styled-components", "emotion"];
+
+/** The frontend skill's pick: UI work (not a question about it), in a project with no styles, components, design
+ * folder or styling package yet. 6 when picked, else 0. A local word match, no model call. */
+export function scoreWebSkill(
+  request: string,
+  project: Pick<ProjectModel, "architecture" | "frameworks">,
+  classification: Pick<TaskClassification, "intent">,
+): number {
+  if (QUESTION_INTENTS.has(classification.intent)) return 0;
+  const { ui, styles, design } = project.architecture;
+  if (ui || styles || design || project.frameworks.some((framework) => STYLING_FRAMEWORKS.includes(framework))) return 0;
+  const text = normaliseWords(request).join(" ");
+  return UI_WORDS.some((word) => contains(text, word)) ? 6 : 0;
+}
+
+/** Every bundled skill: the network pack and the web skills. */
+export function allBundledSkills(): AnyBundledSkill[] {
+  return [...bundledSkills(), ...webSkills()];
+}
+
+/** One bundled skill's score for a request, by its kind. */
+export function scoreBundledSkill(
+  skill: AnyBundledSkill,
+  request: string,
+  project: Pick<ProjectModel, "architecture" | "frameworks">,
+  classification: Pick<TaskClassification, "intent">,
+): number {
+  return skill.kind === "web" ? scoreWebSkill(request, project, classification) : scoreSkillRule(skill.rule, request, project, classification);
 }
