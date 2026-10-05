@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { attachImages, imageMimeType, MAX_IMAGES } from "../src/app/images";
+import { attachImages, imageMimeType, MAX_IMAGES, startsWithImageFile } from "../src/app/images";
 
 const PNG = Buffer.from("89504e470d0a1a0a0000000d49484452", "hex");
 const JPEG = Buffer.from("ffd8ffe000104a464946", "hex");
@@ -92,4 +92,15 @@ test("image types are read from the bytes, not the name", () => {
   expect(imageMimeType(Buffer.from("GIF89a"))).toBe("image/gif");
   expect(imageMimeType(Buffer.from("RIFF0000WEBP"))).toBe("image/webp");
   expect(imageMimeType(Buffer.from("hello"))).toBeUndefined();
+});
+
+test("a line that starts with a picture file's path is a request; a command or missing file is not", async () => {
+  const dir = await folder();
+  await writeFile(path.join(dir, "Screen Shot.png"), PNG);
+  const options = { cwd: dir, home: dir, platform: "darwin" as const };
+  expect(await startsWithImageFile(`${dir.replaceAll(" ", "\\ ")}/Screen\\ Shot.png why is this broken?`, options)).toBe(true);
+  expect(await startsWithImageFile("~/Screen\\ Shot.png", options)).toBe(true);
+  expect(await startsWithImageFile("/help", options)).toBe(false);
+  expect(await startsWithImageFile(`${dir}/missing.png fix it`, options)).toBe(false);
+  expect(await startsWithImageFile(`/model ${dir}/Screen\\ Shot.png`, options)).toBe(false);
 });

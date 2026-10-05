@@ -87,6 +87,23 @@ export async function attachImages(text: string, options: AttachOptions): Promis
   return { text: files.length ? `${out}\n\n${files.join("\n")}` : out, images, notes };
 }
 
+/** The picture path a line starts with, as typed (unescaped, ~ expanded); undefined when it starts with anything else. */
+export function leadingImagePath(text: string, options: Pick<AttachOptions, "home" | "platform"> = {}): string | undefined {
+  const platform = options.platform ?? process.platform;
+  const match = pathPattern(platform).exec(text);
+  if (!match || match.index !== 0 || match[3] === undefined) return undefined;
+  const plain = platform !== "win32" ? match[3].replace(/\\(.)/g, "$1") : match[3];
+  return /^~[\\/]/.test(plain) ? path.join(options.home ?? os.homedir(), plain.slice(2)) : plain;
+}
+
+/** Whether the line starts with a picture file's path (a file dropped into an empty prompt): a request, not a
+ * slash command. Only an existing file counts, so a command name never does. */
+export async function startsWithImageFile(text: string, options: Pick<AttachOptions, "cwd" | "home" | "platform">): Promise<boolean> {
+  const typed = leadingImagePath(text, options);
+  if (typed === undefined) return false;
+  try { return (await stat(path.resolve(options.cwd, typed))).isFile(); } catch { return false; }
+}
+
 /** The file as a picture; undefined (with a note when it matters) when it is missing, too big or not a picture. */
 async function readImage(file: string, notes: string[]): Promise<RuntimeImage | undefined> {
   let size: number;

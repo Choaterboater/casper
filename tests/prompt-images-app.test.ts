@@ -81,7 +81,7 @@ async function fixture(options: { vision: boolean; big?: string }) {
     loadLSPConfiguration: async () => ({ servers: [], diagnostics: [] }),
     loadReferenceConfiguration: async () => ({ sources: [], diagnostics: [] }),
   });
-  return { project, shot, prompts, selections, input, screen, make, plain: () => plainOutput, cleanup: async () => { input.destroy(); await removeTempDir(root); } };
+  return { project, shot, prompts, selections, model: () => current, input, screen, make, plain: () => plainOutput, cleanup: async () => { input.destroy(); await removeTempDir(root); } };
 }
 
 /** Idle again after `marker`: the task is over and the prompt takes a command. */
@@ -117,6 +117,62 @@ test("a text-only model asks: 2 switches for this request and goes back after it
     expect(f.prompts[0]!.model).toBe("fixture/eyes");
     expect(f.prompts[0]!.images).toHaveLength(1);
     expect(f.selections).toEqual(["fixture/eyes", "fixture/text"]);
+  } finally {
+    f.input.write("/exit\r"); await interactive; await app.close(); await f.cleanup();
+  }
+});
+
+test("2 then /plan that stops at the plan: the plan runs on your model, and no switch is left behind", async () => {
+  const f = await fixture({ vision: false, big: "fixture/eyes" });
+  const app = f.make(true);
+  const interactive = app.runInteractive(f.project);
+  try {
+    await f.screen.until((output) => output.includes("idle"));
+    f.input.write(`/plan make the page look like ${f.shot}\r`);
+    await f.screen.until(waiting("can't see pictures"));
+    f.input.write("2");
+    // The fixture's answer has no Plan: steps, so the plan turn stops before any build.
+    await f.screen.until(idleAfter("nothing was built"));
+    expect(f.prompts).toHaveLength(1);
+    expect(f.prompts[0]!.model).toBe("fixture/text");
+    expect(f.selections).toEqual([]);
+    expect(f.model()).toBe("fixture/text");
+  } finally {
+    f.input.write("/exit\r"); await interactive; await app.close(); await f.cleanup();
+  }
+});
+
+test("2 then 1 Plan first at the panel, and the plan stops: still on your model", async () => {
+  const f = await fixture({ vision: false, big: "fixture/eyes" });
+  const app = f.make(true);
+  const interactive = app.runInteractive(f.project);
+  try {
+    await f.screen.until((output) => output.includes("idle"));
+    f.input.write(`add a login page like ${f.shot}, then add a signup page, then add a logout button, and also add a help page\r`);
+    await f.screen.until(waiting("can't see pictures"));
+    f.input.write("2");
+    await f.screen.until(waiting("Suggested: plan first"));
+    f.input.write("1");
+    await f.screen.until(idleAfter("nothing was built"));
+    expect(f.prompts.map((prompt) => prompt.model)).toEqual(["fixture/text"]);
+    expect(f.selections).toEqual([]);
+    expect(f.model()).toBe("fixture/text");
+  } finally {
+    f.input.write("/exit\r"); await interactive; await app.close(); await f.cleanup();
+  }
+});
+
+test("a picture file dropped at the start of the line is a request, not a command", async () => {
+  const f = await fixture({ vision: true });
+  const app = f.make(true);
+  const interactive = app.runInteractive(f.project);
+  try {
+    await f.screen.until((output) => output.includes("idle"));
+    f.input.write(`${f.shot} why is this broken?\r`);
+    await f.screen.until(idleAfter("Looked."));
+    expect(f.screen.output).not.toContain("Unknown command");
+    expect(f.prompts[0]!.text).toContain("[image 1] why is this broken?");
+    expect(f.prompts[0]!.images).toHaveLength(1);
   } finally {
     f.input.write("/exit\r"); await interactive; await app.close(); await f.cleanup();
   }

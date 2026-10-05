@@ -356,11 +356,12 @@ only. See [platform support](PLATFORM_SUPPORT.md) for host-validation limits.
   completion labels are omitted.
 - Pictures: Ctrl+V (Alt+V on Windows) pastes the clipboard's picture as `[image 1]`, and
   a picture file dropped or typed as a full path (`/…/shot.png`, `~/…`, `C:\…`) becomes
-  `[image N]` when you send. PNG, JPEG, GIF and WebP, up to 8 a request. A dropped file's
+  `[image N]` when you send, also at the start of the line (then it is a request, not a
+  command). PNG, JPEG, GIF and WebP, up to 8 a request. A dropped file's
   path stays on a line under the request, so the AI can still copy it. A bare name like
   `logo.png` stays a word. When the model can't see pictures, one question:
-  `1 Send without it · 2 Switch to <a model you set up that can> for this request` (then back
-  to your model). With no such model, or in a one-shot run, one line says the request went
+  `1 Send without it · 2 Switch to <a model you set up that can> for this request` (the switch is
+  for the build turn only, then back to your model; a plan turn stays on your model). With no such model, or in a one-shot run, one line says the request went
   without them.
 - Clarification questions keep the question on its own line. The question and every
   option wrap in full at the current width (a description that does not fit beside

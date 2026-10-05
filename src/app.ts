@@ -106,7 +106,7 @@ import { VisualizationRouter } from "./visualize/router";
 import { artifactFilesystemSupported } from "./visualize/artifacts";
 import { describeVisualization } from "./visualize/tools";
 import { assembleTaskTools } from "./app/capabilities";
-import { attachImages } from "./app/images";
+import { attachImages, leadingImagePath, startsWithImageFile } from "./app/images";
 import { lookPrompt, pageLook, SHOW_PAGES_CHOICES, SHOW_PAGES_QUESTION } from "./services/page-look";
 import { DEFAULT_WEB } from "./config/load";
 import { AGENT_DIR_ENV, casperAgentDir } from "./runtime/agent-store";
@@ -1084,6 +1084,7 @@ export class CasperApp {
     this.commandSpent = undefined;
     this.updateFooter();
     this.workspaceTransition = transition;
+    let command = prompt.startsWith("/");
     try {
       // A Shift+Tab that arrived with this submit still applies; new presses see commandActive and wait.
       while (this.effortSteps > 0) await this.effortCycle;
@@ -1095,14 +1096,17 @@ export class CasperApp {
       else this.suggestions.forgetChoice();
       // Pictures pasted into this line (Ctrl+V) go with it, or with nothing when it is a command.
       this.pastedImages = this.terminal.takePastedImages();
-      return await (prompt.startsWith("/") ? this.handleSlashCommand(prompt) : this.runModelTask(prompt));
+      // A picture file dropped into an empty prompt starts the line with "/": that is a request, not a command.
+      // Commands go straight on (no wait, so a close that arrives with the line still finds the command running).
+      if (command && leadingImagePath(prompt) !== undefined) command = !await startsWithImageFile(prompt, { cwd: this.activeWorkspaceRoot() });
+      return await (command ? this.handleSlashCommand(prompt) : this.runModelTask(prompt));
     } catch (error) {
       if (error instanceof ProcessCleanupError) this.cleanupError = error;
       throw error;
     } finally {
       try {
         await this.checkTask?.close();
-        if (!prompt.startsWith("/")) await this.browser?.close();
+        if (!command) await this.browser?.close();
         const opener = this.taskPageOpener;
         this.taskPageOpener = undefined;
         await opener?.close().catch(() => {});
@@ -1548,8 +1552,9 @@ export class CasperApp {
     const session = await this.ensureRuntime();
     if (this.closing || this.commandAbort?.signal.aborted) return;
     if (!await this.ensureModel(session)) return;
-    const { images, back: visionBack } = attached.images.length ? await this.imagesForModel(session, attached.images) : { images: [], back: undefined };
-    if (this.closing || this.commandAbort?.signal.aborted) { if (visionBack) await this.restoreModel(session, visionBack); return; }
+    // The question comes now; a switch it picks happens only for the build turn, which is the turn that sees them.
+    let { images, switchTo } = attached.images.length ? await this.imagesForModel(session, attached.images) : { images: [], switchTo: undefined };
+    if (this.closing || this.commandAbort?.signal.aborted) return;
     this.nameConversation(session, prompt);
     this.updateFooter();
     this.bigModelNotice(session);
@@ -1638,9 +1643,15 @@ export class CasperApp {
     // totals cannot include it: any classification (or an unreadable count) makes them unknown.
     const classifications = () => { try { return session.getUsage?.().effortClassification?.requests ?? 0; } catch { return undefined; } };
     const classifiedBefore = classifications();
+    let visionBack: string | undefined;
     try {
       this.phase("task", "start");
       try {
+        if (switchTo) {
+          visionBack = await this.switchForPictures(session, switchTo);
+          if (!visionBack) images = [];
+          if (this.closing || this.commandAbort?.signal.aborted) return;
+        }
         await session.prompt([
           memoryContext,
           skillContext,
@@ -2443,9 +2454,9 @@ export class CasperApp {
   /**
    * Pictures for the model in use. One that can see them gets them. One that can't: a numbered question when a model
    * you set up can (1 Send without them · 2 Switch to it for this request), else one line and the request goes
-   * without them. `back` is the model to return to after the request's turn.
+   * without them. `switchTo` is the model to switch to for the build turn only (switchForPictures).
    */
-  private async imagesForModel(session: RuntimeSession, images: RuntimeImage[]): Promise<{ images: RuntimeImage[]; back?: string }> {
+  private async imagesForModel(session: RuntimeSession, images: RuntimeImage[]): Promise<{ images: RuntimeImage[]; switchTo?: string }> {
     let status: RuntimeStatus | undefined;
     try { status = session.getStatus?.(); } catch { status = undefined; }
     if (status?.images !== false) return { images };
@@ -2467,13 +2478,19 @@ export class CasperApp {
     const picked = await this.terminal.pick(`${name} can't see pictures, and this request has ${images.length === 1 ? "one" : images.length}.`,
       choices, this.commandAbort?.signal);
     if (picked !== choices[1]!.label) return { images: [] };
+    return { images, switchTo: label };
+  }
+
+  /** The switch picked in imagesForModel, right before the build turn; `back` is the model to return to after it. */
+  private async switchForPictures(session: RuntimeSession, label: string): Promise<string | undefined> {
     const back = await this.switchToBigModel(session, { query: label, label, oneOff: true });
     if (!back) {
       this.output.write(`[model] Casper could not switch to ${terminalText(label)}; the request goes without the pictures.\n`);
-      return { images: [] };
+      return undefined;
     }
     this.output.write(`[model] On ${terminalText(label)} for this request.\n`);
-    return { images, back };
+    this.updateFooter();
+    return back;
   }
 
   /** Back to the model the user was on, with its own effort. */
