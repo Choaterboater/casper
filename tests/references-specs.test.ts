@@ -8,6 +8,7 @@ import {
 import { addReferenceSource, discoverReferenceConfiguration } from "../src/references/config";
 import { ReferenceLibrary } from "../src/references/library";
 import { SECRET_MARKER } from "../src/secrets/scrub";
+import { posixModes } from "./support/platform";
 
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -103,7 +104,7 @@ test("addReferenceSource creates ~/.casper/references.yaml when it is missing an
   const discovered = await discoverReferenceConfiguration({ homeDir: home, profileName: "work" });
   expect(discovered.sources).toMatchObject([{ id: "junos-yang-23.4", paths: ["23.4"], maxFileBytes: 4_194_304 }]);
   await expect(stat(profile)).rejects.toThrow();
-  expect((await stat(path.join(home, ".casper/references.yaml"))).mode & 0o777).toBe(0o600);
+  if (posixModes) expect((await stat(path.join(home, ".casper/references.yaml"))).mode & 0o777).toBe(0o600);
 });
 
 test("the catalog lists the spec repos in plain words", () => {
@@ -143,7 +144,7 @@ test("AOS-CX, Central, ClearPass, Mist and Junos SDKs: sparse folders, search pa
   for (const [name, want] of Object.entries(expected)) {
     const request = planReferenceAdd(name, undefined, "/h");
     if (!("plan" in request)) throw new Error(request.error);
-    const destination = `/h/.casper/reference-repos/${name}`;
+    const destination = path.join("/h", ".casper", "reference-repos", name);
     expect(request.plan.commands).toEqual([
       ["git", "-c", "core.hooksPath=/dev/null", "clone", "--depth", "1", "--filter=blob:none", "--sparse", want.url, destination],
       ["git", "-c", "core.hooksPath=/dev/null", "-C", destination, "sparse-checkout", "set", ...want.sparse],
@@ -161,8 +162,8 @@ test("junos-yang needs a release; the clone is sparse, shallow and runs no hooks
   if (!("plan" in request)) throw new Error(request.error);
   expect(request.plan.id).toBe("junos-yang-23.4");
   expect(request.plan.commands[0]).toEqual(["git", "-c", "core.hooksPath=/dev/null", "clone", "--depth", "1", "--filter=blob:none", "--sparse",
-    "https://github.com/Juniper/yang.git", "/h/.casper/reference-repos/junos-yang-23.4"]);
-  expect(request.plan.commands[1]).toEqual(["git", "-c", "core.hooksPath=/dev/null", "-C", "/h/.casper/reference-repos/junos-yang-23.4",
+    "https://github.com/Juniper/yang.git", path.join("/h/.casper/reference-repos/junos-yang-23.4")]);
+  expect(request.plan.commands[1]).toEqual(["git", "-c", "core.hooksPath=/dev/null", "-C", path.join("/h/.casper/reference-repos/junos-yang-23.4"),
     "sparse-checkout", "set", "--no-cone", "/23.4/*/junos/conf/", "/23.4/*/common/"]);
   expect(request.plan.source).toMatchObject({ paths: ["23.4"], maxFileBytes: 4_194_304 });
   const pyez = SPEC_REPOS.find((entry) => entry.id === "junos-pyez")!;
@@ -192,7 +193,8 @@ test("/references add pycentral: nothing is downloaded or written unless the use
   const enter = host("no");
   expect(await runReferenceAdd("pycentral", undefined, home, enter.value)).toBe(false);
   expect(enter.calls).toEqual([]);
-  expect(no.lines[0]).toBe("Will run: git -c core.hooksPath=/dev/null clone --depth 1 --filter=blob:none --sparse https://github.com/aruba/pycentral.git ~/.casper/reference-repos/pycentral");
+  // The shown command is the argv that runs, with home as ~, so it keeps the platform's separators.
+  expect(no.lines[0]).toBe(`Will run: git -c core.hooksPath=/dev/null clone --depth 1 --filter=blob:none --sparse https://github.com/aruba/pycentral.git ~${path.join("/.casper/reference-repos/pycentral")}`);
   expect(await readFile(config, "utf8")).toBe("references: {}\n");
 
   let reloaded = 0;

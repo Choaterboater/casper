@@ -105,7 +105,8 @@ test("/references add lists the spec repos; 1 No downloads nothing; 2 Download r
   expect(list.output).toContain("Usage: /references add junos-yang <release>, for example 23.4");
 
   const declined = await session(home, project, ["/references add pycentral"], { runGit, answers: ["1"] });
-  expect(declined.output).toContain("Will run: git -c core.hooksPath=/dev/null clone --depth 1 --filter=blob:none --sparse https://github.com/aruba/pycentral.git ~/.casper/reference-repos/pycentral");
+  // The shown command is the argv that runs, with home as ~, so it keeps the platform's separators.
+  expect(declined.output).toContain(`Will run: git -c core.hooksPath=/dev/null clone --depth 1 --filter=blob:none --sparse https://github.com/aruba/pycentral.git ~${path.join("/.casper/reference-repos/pycentral")}`);
   expect(declined.output).toContain("Download pycentral?");
   expect(declined.output).not.toContain("Type yes");
   expect(declined.output).toContain("Nothing downloaded.");
