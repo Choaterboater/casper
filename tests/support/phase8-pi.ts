@@ -69,7 +69,8 @@ export default function(pi) {
   const env = cleanEnv({ HOME: home, CASPER_AGENT_DIR: agent, PI_CODING_AGENT_DIR: agent, CASPER_OFFLINE: "1", PI_OFFLINE: "1", PI_TELEMETRY: "0" });
   async function run(args: string[], overrides: Record<string, string | undefined> = {}) {
     const child = Bun.spawn([process.execPath, ...args], { cwd: project, env: { ...env, ...overrides }, stdout: "pipe", stderr: "pipe" });
-    const timer = setTimeout(() => child.kill(), 10_000);
+    // A hang guard. On Windows, in a full parallel run, the worktree switch test has needed more than 10 s.
+    const timer = setTimeout(() => child.kill(), 25_000);
     try {
       const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
       return { stdout, stderr, exit };

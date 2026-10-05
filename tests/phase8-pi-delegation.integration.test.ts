@@ -109,7 +109,7 @@ try { await app.runInteractive(); } finally { await app.close(); }
   expect(JSON.stringify(f.payloads[2]?.messages)).not.toContain(json(worktree!));
   expect(git("status", "--porcelain")).toBe("");
   expect(git("worktree", "list", "--porcelain").match(/^worktree /gm)).toHaveLength(1);
-}, 15_000);
+}, 30_000);
 
 test("review regression: truncated tool loops still obey the model-turn ceiling", async () => {
   let requests = 0;
