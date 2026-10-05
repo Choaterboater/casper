@@ -100,11 +100,13 @@ try { await app.runInteractive(); } finally { await app.close(); }
   expect({ exit: result.exit, stderr: result.stderr }).toEqual({ exit: 0, stderr: "" });
   expect(result.stdout).not.toContain("[error]");
   const worktree = result.stdout.match(/\[sessions\] active candidate · ([^\n]+)/)?.[1];
-  expect(worktree).toContain(".casper/worktrees/");
+  expect(worktree).toContain(path.join(".casper", "worktrees") + path.sep);
   expect(f.payloads).toHaveLength(4);
-  expect(JSON.stringify(f.payloads[0]?.messages)).toContain(`- root: ${worktree}`);
-  expect(JSON.stringify(f.payloads[2]?.messages)).toContain(`- root: ${await realpath(f.project)}`);
-  expect(JSON.stringify(f.payloads[2]?.messages)).not.toContain(worktree!);
+  // The payloads are JSON, where a Windows path's backslashes are escaped.
+  const json = (text: string) => JSON.stringify(text).slice(1, -1);
+  expect(JSON.stringify(f.payloads[0]?.messages)).toContain(json(`- root: ${worktree}`));
+  expect(JSON.stringify(f.payloads[2]?.messages)).toContain(json(`- root: ${await realpath(f.project)}`));
+  expect(JSON.stringify(f.payloads[2]?.messages)).not.toContain(json(worktree!));
   expect(git("status", "--porcelain")).toBe("");
   expect(git("worktree", "list", "--porcelain").match(/^worktree /gm)).toHaveLength(1);
 }, 15_000);

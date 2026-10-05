@@ -3,6 +3,7 @@ import { chmod, mkdir, mkdtemp, rm, stat, symlink, writeFile } from "node:fs/pro
 import os from "node:os";
 import path from "node:path";
 import { AGENT_DIR_ENV, agentStoreWarnings, casperAgentDir, importLegacyEngineState, useCasperAgentStore } from "../src/runtime/agent-store";
+import { needsSymlinks, posixModes } from "./support/platform";
 
 const env = process.env as Record<string, string | undefined>;
 
@@ -33,7 +34,8 @@ test("the agent store defaults to Casper's own directory and respects an explici
   expect(casperAgentDir()).toBe(path.join(process.env.HOME!, ".casper/agent"));
   env.CASPER_AGENT_DIR = "~/custom-casper-dir";
   expect(useCasperAgentStore()).toBe(false);
-  expect(env[AGENT_DIR_ENV]).toBe(path.join(process.env.HOME!, "custom-casper-dir"));
+  // "~/" expands to an absolute path: on Windows "/tmp/..." resolves onto the current drive.
+  expect(env[AGENT_DIR_ENV]).toBe(path.resolve(process.env.HOME!, "custom-casper-dir"));
   delete env.CASPER_AGENT_DIR;
   // `env.X = undefined` stores the string "undefined" in Bun; it is never a real directory,
   // and trusting it would put the store in `<cwd>/undefined/`.
@@ -61,7 +63,7 @@ test("an inherited PI_CODING_AGENT_DIR is ignored with a warning for the app's o
   expect(agentStoreWarnings()).toEqual([]);
 });
 
-test("legacy engine state is imported once by copy, and symlinks are refused", async () => {
+test("legacy engine state is imported once by copy", async () => {
   const home = await tempHome();
   const legacy = path.join(home, ".pi/agent");
   await mkdir(legacy, { recursive: true, mode: 0o700 });
@@ -80,14 +82,18 @@ test("legacy engine state is imported once by copy, and symlinks are refused", a
   const imported = path.join(home, ".casper/agent/auth.json");
   expect(await Bun.file(imported).json()).toEqual({ anthropic: { type: "api_key", key: "synthetic-legacy" } });
   expect(await Bun.file(imported).text()).not.toContain("synthetic-refresh");
-  expect(((await stat(imported)).mode & 0o777)).toBe(0o600);
-  expect(((await stat(path.join(home, ".casper/agent"))).mode & 0o777)).toBe(0o700);
+  // Windows makes up mode bits rather than storing them; the probe in support/platform says which host this is.
+  if (posixModes) {
+    expect(((await stat(imported)).mode & 0o777)).toBe(0o600);
+    expect(((await stat(path.join(home, ".casper/agent"))).mode & 0o777)).toBe(0o700);
+  }
   // A second run imports nothing: the target already exists.
   expect(await importLegacyEngineState()).toEqual({ imported: false, signIn: [] });
   // Existing Pi installations keep their originals.
   expect(await Bun.file(path.join(legacy, "auth.json")).text()).toBe(legacyAuth);
+});
 
-  // A symlinked legacy credential is never followed into the store.
+needsSymlinks("a symlinked legacy credential is never followed into the store", async () => {
   const home2 = await tempHome();
   const legacy2 = path.join(home2, ".pi/agent");
   await mkdir(legacy2, { recursive: true, mode: 0o700 });

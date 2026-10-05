@@ -548,7 +548,8 @@ test("interactive run: 1 at the allow-all check denies the change and allows not
 test("the project's sandbox.denyRead reaches the file tools as private paths (GreenCLI lists its data there)", async () => {
   const { root, home, project } = await fixture();
   const logs = path.join(root, "greencli-logs");
-  await writeFile(path.join(project, ".casper/project.yaml"), `sandbox:\n  denyRead:\n    - "${logs}"\n`);
+  // A JSON string is a YAML double-quoted string, so a Windows path's backslashes stay literal.
+  await writeFile(path.join(project, ".casper/project.yaml"), `sandbox:\n  denyRead:\n    - ${JSON.stringify(logs)}\n`);
   let seen: readonly string[] | undefined;
   const runtime: AgentRuntime = {
     async start(options: RuntimeStartOptions) {

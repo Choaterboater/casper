@@ -11,6 +11,17 @@ import { SkillRegistry } from "../src/skills/registry";
 import type { AgentRuntime, RuntimeSession } from "../src/runtime/types";
 import { cleanEnv } from "./support/env";
 
+/** Windows can keep a folder busy for a moment after the last thing in it closes: retry the cleanup briefly there. */
+async function removeTree(root: string): Promise<void> {
+  for (let attempt = 0; ; attempt++) {
+    try { await rm(root, { recursive: true, force: true }); return; }
+    catch (error) {
+      if (process.platform !== "win32" || (error as NodeJS.ErrnoException).code !== "EBUSY" || attempt >= 40) throw error;
+      await Bun.sleep(25);
+    }
+  }
+}
+
 setDefaultTimeout(15_000);
 // The ask flow renders only on a rich terminal; this suite must not depend on the ambient TERM.
 const ambientTerm = process.env.TERM;
@@ -350,5 +361,5 @@ test("/project <name> once the conversation started says the command to use", as
     expect(output).toContain("[folder] This conversation stays in Documents. To work in sample-tools: cd ~/Documents/sample-tools && casper\n");
     await app.runOnce("/project nope", docs);
     expect(output).toContain("[folder] nope isn't a folder in Documents. To start it as a new project: casper new nope\n");
-  } finally { await app.close(); await rm(root, { recursive: true, force: true }); }
+  } finally { await app.close(); await removeTree(root); }
 });
