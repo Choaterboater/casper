@@ -434,7 +434,7 @@ may do.
 
 ### Turning writes on
 
-Every server starts with writes off, including remembered ones. Writes off means:
+Every server starts with writes off, including remembered ones. Writes off: the server runs with its read-only settings, and every change asks you first. In detail:
 
 - the server runs with its preset's read-only pins, where it has one;
 - every change asks you first, in the change box (see [Safety](#safety)); nothing changes without your answer;
@@ -852,9 +852,11 @@ the background.
 - **What the server said.** Casper keeps the last 40 lines (8 KiB) a stdio server
   wrote to stderr. When a server fails, `/mcp` shows a plain reason, such as
   `No answer in 20 s while starting.`, `The server stopped while starting (exit code 1).`,
-  `Missing environment variable NAME`, `Command not found: uvx` or
+  `Missing environment variable NAME`, `Command not found: uvx. It comes with uv: <install page>`
+  (uv, Node.js, Bun, Docker and Python launchers name their install page) or
   `The server said HTTP 401: <body>`, then `Last lines from the server:` with up to
-  8 lines.
+  8 lines. `/mcp connect` gives that reason once, as its last line:
+  `[error] <server> did not start: Command not found: uvx. …`.
   - Every env and header value of that server (4 or more characters) becomes `•••`,
     and common token shapes are hidden too. This is best effort: Casper doesn't
     know a secret the server reads on its own (for example from its `.env`).

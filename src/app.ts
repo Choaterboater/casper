@@ -88,12 +88,12 @@ import { SuggestionController, SUGGESTION_COMMAND } from "./app/suggestions";
 import { findFlow, formatFlowPrompt, loadFlowCatalog, type Flow, type FlowRule } from "./flows/catalog";
 import { beforeWorkPanel, readBeforeWorkAnswer, suggestBeforeWork } from "./flows/suggest";
 import { extractPlan, formatBuildPrompt, parsePlanLines, planEditorHeading, planEditorLines, planToolGate, type ParsedPlan } from "./flows/plan";
-import { PROJECT_YAML, saveNamedCheck, saveProjectCommand } from "./project/config-write";
+import { PROJECT_YAML, saveNamedCheck, saveProjectCommand, saveProjectTimeout } from "./project/config-write";
 import { askLabFailure, labCheckRunner } from "./app/lab-checks";
 import type { SecurityAIReview, SecurityReviewHost } from "./app/security-review";
 import type { TaskClassification } from "./task/classify";
 import type { ProjectCommand } from "./project/model";
-import { describeChecksPlan, manualChecks, planAutoChecks, resolveVerificationMode, selectedChecks, type ChecksPlan, type VerificationMode } from "./verify/mode";
+import { describeChecksPlan, hasChecks, manualChecks, planAutoChecks, resolveVerificationMode, selectedChecks, type ChecksPlan, type VerificationMode } from "./verify/mode";
 import { measuredCheckTime, recordCheckTimings } from "./verify/timings";
 import { MermaidProvider } from "./visualize/mermaid";
 import { MindMeshProvider } from "./visualize/mindmesh";
@@ -129,6 +129,10 @@ import type { RuntimeShell } from "./runtime/types";
 import { askBuildRequest, buildRequestNote, isEmptyFolder, newProjectFromQuestions, newProjectInEmptyFolder, offerMissingFolder, opened,
   type NewProjectFlow } from "./app/new-project";
 import { listLines } from "./new/command";
+import { defaultNameFor } from "./new/templates";
+import { runSettings } from "./app/settings";
+import { editUserConfig } from "./config/user-write";
+import { explainModelError } from "./runtime/model-errors";
 import { tildePath, type NewProjectOptions, type NewProjectResult } from "./new/scaffold";
 
 export type { OutputWriter } from "./app/commands";
@@ -577,13 +581,7 @@ export class CasperApp {
       // A product with no login: the person is asked (never the AI); the AI gets one line back.
       onLoginMissing: (server, product, _signal, trouble) => loginMissingAnswer(this.networkLoginHost(), server, product, trouble) });
     this.lifecycle.add({ name: "references", close: () => this.references!.close() });
-    // Web lookups never ask: the checks in src/web/url.ts hold instead. Off only with web: off in your own config.
-    this.web?.close();
-    const web = context.web ?? DEFAULT_WEB;
-    const loginFile = path.join(casperAgentDir(), "auth.json");
-    this.web = web.enabled ? new WebLookup({ provider: webProvider(web, loginFile), loginValues: loginValuesFrom(loginFile), ...this.webSeams }) : undefined;
-    const lookup = this.web;
-    if (lookup) this.lifecycle.add({ name: "web", close: async () => lookup.close() });
+    this.applyWeb(context);
     this.lifecycle.add({ name: "mcp", close: () => this.broker!.close() });
     this.lifecycle.add({ name: "lsp", close: () => this.lsp!.close() });
     return { project, context, registry, mcp: this.mcp, visualization: this.visualization, lspConfiguration, referenceConfiguration };
@@ -601,7 +599,7 @@ export class CasperApp {
     // The shell line is always there in a session; a one-shot run shows it only when nothing holds its commands.
     const shell = this.sandbox && (this.interactive || !this.sandbox.on) ? sandboxStatusLine(this.sandbox) : undefined;
     this.output.write(renderBanner(context, { wordmark, interactive: this.interactive, ...(shell ? { shell } : {}),
-      ...(this.interactive ? { checks: describeChecksPlan(await this.checksPlan(context)) } : {}) }));
+      ...(this.interactive ? await this.bannerChecks(context) : {}) }));
     for (const note of sandboxStartupNotes(context.info.root)) this.output.write(`${note}\n`);
     // A returning user's saved default is known before the runtime starts; say so, not "not initialized".
     if (!this.session) this.savedModelDisplay = await modelPreference(this.sessionHomeDir ?? os.homedir());
@@ -797,7 +795,7 @@ export class CasperApp {
         if (this.closing) break;
         this.events.ensureLineBreak();
         const message = error instanceof Error ? error.message : String(error);
-        if (!this.commandAbort?.signal.aborted && this.events.lastError !== message) this.output.write(`[error] ${message}\n`);
+        if (!this.commandAbort?.signal.aborted && this.events.lastError !== message) this.events.showError(message);
       }
     }
     this.terminal.close();
@@ -1037,7 +1035,7 @@ export class CasperApp {
     if (this.commandActive) throw new Error("Another command is active; wait for active subagents or workspace transition");
     // Keep local status/help and cleanup available, but never forget an uncertain
     // tree just because its originating command or model tool has finished.
-    if (!/^\/(?:help(?: all)?|status|project|permissions|mcp|lsp|browser|debug|services|tasks|exit|quit|browser close|debug stop)$/.test(prompt)
+    if (!/^\/(?:help(?: \S.*)?|status|project|permissions|mcp|lsp|browser|debug|services|tasks|exit|quit|browser close|debug stop)$/.test(prompt)
       && !/^\/(?:mcp|lsp) disconnect\s/.test(prompt) && !/^\/(?:services|tasks) stop\s/.test(prompt) && !/^\/services logs\s/.test(prompt)) {
       if (this.cleanupError) throw this.cleanupError;
       this.browser?.assertCleanup(); this.mcp?.assertCleanup(); this.lsp?.assertCleanup(); this.services?.assertCleanup();
@@ -1094,7 +1092,8 @@ export class CasperApp {
 
   /** Local command dispatch moved to app/commands.ts; the app is the command host. */
   private handleSlashCommand(prompt: string): Promise<VerificationReport | undefined> {
-    if (/^\/details(?:\s|$)/.test(prompt)) { this.detailsCommand(prompt.slice(8).trim()); return Promise.resolve(undefined); }
+    if (/^\/details(?:\s|$)/.test(prompt)) return this.detailsCommand(prompt.slice(8).trim()).then(() => undefined);
+    if (prompt.trim() === "/settings") return this.settingsCommand().then(() => undefined);
     if (/^\/new(?:\s|$)/.test(prompt)) return this.newProjectCommand(prompt.slice(4).trim()).then(() => undefined);
     if (/^\/suggestions(?:\s|$)/.test(prompt)) {
       return this.suggestions.command(prompt.slice(12).trim(), this.projectContext).then((text) => { this.output.write(text); return undefined; });
@@ -1247,14 +1246,54 @@ export class CasperApp {
     await this.openWorkspaceBeforeRuntime(result.dir);
   }
 
+  /** Web lookups never ask: the checks in src/web/url.ts hold instead. Off only with your own setting (/settings). */
+  private applyWeb(context: ProjectContext): void {
+    this.web?.close();
+    const web = context.web ?? DEFAULT_WEB;
+    const loginFile = path.join(casperAgentDir(), "auth.json");
+    this.web = web.enabled ? new WebLookup({ provider: webProvider(web, loginFile), loginValues: loginValuesFrom(loginFile), ...this.webSeams }) : undefined;
+    const lookup = this.web;
+    if (lookup) this.lifecycle.add({ name: "web", close: async () => lookup.close() });
+  }
+
+  /** /settings: the off switches by number; a change is written to ~/.casper/config.yaml and applies from now on. */
+  private settingsCommand(): Promise<void> {
+    return runSettings({
+      output: this.output, homeDir: () => this.homeDir(), canAsk: this.interactive && this.terminal.canAsk,
+      context: async () => this.projectContext,
+      reload: async () => {
+        const before = this.projectContext;
+        if (!before) return;
+        try { this.projectContext = await this.loadProjectContextFn(before.info); } catch { return; }
+        this.applyWeb(this.projectContext);
+        // A new default for the work shown replaces this session's /details choice.
+        if (this.projectContext.display !== before.display) this.displayChoice = undefined;
+      },
+      ask: async (question, options, signal) => (await this.terminal.ask(question, options, false, signal))?.[0],
+    }, this.commandAbort?.signal);
+  }
+
+  /** The banner's checks line; none when there is nothing to check yet and checking is on (/status still says it). */
+  private async bannerChecks(context: ProjectContext): Promise<{ checks?: string }> {
+    const plan = await this.checksPlan(context);
+    return plan.mode === "off" || hasChecks(plan) ? { checks: describeChecksPlan(plan) } : {};
+  }
+
   /** /new [name] | /new <template> <name> | /new --list: the same local build as `casper new`, no model. */
   private async newProjectCommand(args: string): Promise<void> {
     const words = args ? args.split(/\s+/) : [];
     const usage = NEW_USAGE.replace(/casper new/g, "/new");
     const command = parseNewArgs(words);
     if (!command) { this.output.write(`${usage}\n`); return; }
+    if (command.help) {
+      this.output.write(`${usage}\nA lone kind word builds that kind and asks only the name. The kinds:\n${listLines().map((line) => `  ${line}`).join("\n")}\n`);
+      return;
+    }
     if (command.list) { this.output.write(`${listLines().join("\n")}\n`); return; }
-    if ((!this.interactive || !this.terminal.canAsk) && (!command.template || !command.name)) {
+    const canAsk = this.interactive && this.terminal.canAsk;
+    // A lone kind word where nobody can be asked the name: the kind's usual name, like casper new.
+    if (!canAsk && command.template && !command.name) command.name = defaultNameFor(command.template);
+    if (!canAsk && (!command.template || !command.name)) {
       this.output.write(`/new needs a template and a name when Casper can't ask. ${usage}\n`);
       return;
     }
@@ -1480,6 +1519,7 @@ export class CasperApp {
     edits.before = before;
     // The risky lines already in the project's config files, so the receipt lists only the ones this task adds.
     const riskyBefore = before ? await riskyBaseline(workspaceRoot, [...before.keys()]).catch(() => undefined) : undefined;
+    let thrownError: string | undefined;
     // verification.checklist: the cases the request states, listed before the model starts, so it tests each one.
     // Unset, it is on for interactive code changes and off otherwise: questions, docs, refactors and one-shot runs.
     // At most one question before work: after the new-project question there is no checklist panel.
@@ -1652,6 +1692,7 @@ export class CasperApp {
       }
     } catch (error) {
       this.taskRuntimeFailed = true;
+      thrownError = error instanceof Error ? error.message : String(error);
       throw error;
     } finally {
       this.taskBaseline = undefined;
@@ -1681,7 +1722,8 @@ export class CasperApp {
       const snapshotFailure = !changedPaths && this.snapshotFailure ? { reason: this.snapshotFailure,
         edited: observations.observedEdits.map((file) => { const relative = path.relative(workspaceRoot, path.resolve(workspaceRoot, file));
           return relative && !isOutside(relative) ? relative.split(path.sep).join("/") : file; }) } : undefined;
-      this.lastTaskResult = { execution, verification, ...observations, ...(snapshotFailure ? { snapshotFailure } : {}), ...(browser?.checks.length ? { browser, ...(browser.status !== "pass" && answerClaimsBrowserPass(this.lastAnswer) ? { browserClaimed: true } : {}) } : {}),
+      const modelError = execution === "failed" ? explainModelError(this.events.lastError ?? thrownError ?? "")?.cause : undefined;
+      this.lastTaskResult = { execution, ...(modelError ? { modelError } : {}), verification, ...observations, ...(snapshotFailure ? { snapshotFailure } : {}), ...(browser?.checks.length ? { browser, ...(browser.status !== "pass" && answerClaimsBrowserPass(this.lastAnswer) ? { browserClaimed: true } : {}) } : {}),
         ...(services.length ? { services } : {}), ...(riskyLines.length ? { riskyLines: [...riskyLines], ...(riskyLines.more ? { riskyMore: riskyLines.more } : {}) } : {}),
         // Smoke checks ran even without a configured command, so "no checks" no longer describes the task.
         verificationMode, ...(!flag && !configured && verificationMode === "auto" ? { verificationDefaulted: true as const } : {}),
@@ -2405,7 +2447,19 @@ export class CasperApp {
     this.events.ensureLineBreak();
     const answer = await this.terminal.ask(`${what}. Casper did not try to fix it. What now?`,
       options.map(({ label, description }) => ({ label, description })), false, signal);
-    return options.find((option) => option.label === answer?.[0])?.choice;
+    const choice = options.find((option) => option.label === answer?.[0])?.choice;
+    if (choice !== "more-time-saved") return choice;
+    // Saved for the user, no file to edit: every check in this project gets the longer limit from now on.
+    try {
+      const written = await saveProjectTimeout(this.activeWorkspaceRoot(), longer);
+      this.output.write(`[verify] Saved ${written.line} in ${PROJECT_YAML}: every check here gets ${formatDuration(longer)} from now on.\n`);
+      if (this.projectContext) {
+        try { this.projectContext = await this.loadProjectContextFn(this.projectContext.info); } catch { /* the file is read again at the next start */ }
+      }
+    } catch (error) {
+      this.output.write(`[verify] Not saved (${terminalText(error instanceof Error ? error.message : String(error))}); this run gets ${formatDuration(longer)}.\n`);
+    }
+    return "more-time";
   }
 
   /** The page check for these changed files, from project facts only: undefined when this is not a web project,
@@ -3043,7 +3097,7 @@ export class CasperApp {
     if (this.closing) return "Casper is closing";
     // No task yet: Casper is still opening a folder or project. Nothing is loaded to show, so the line waits.
     if (!this.commandActive || !this.projectContext) return "draft kept · Enter again once Casper has opened the project";
-    if (/^\/(?:help(?: all)?|status|usage|context|permissions)$/.test(line)) {
+    if (/^\/(?:help(?: \S.*)?|status|usage|context|permissions)$/.test(line)) {
       void runSlashCommand(this, line).catch((error) => { this.output.write(`[error] ${terminalText(error instanceof Error ? error.message : String(error))}\n`); });
       return true;
     }
@@ -3154,7 +3208,7 @@ export class CasperApp {
         if (answer === "Keep going") { guard.keepGoing(spent.cost); return undefined; }
       } else {
         this.events.ensureLineBreak();
-        this.output.write(`[spend] ${used} Casper stops here, at the ${formatLimit(limit)} limit for one task; the work so far is kept. spend.pauseAt in ~/.casper/config.yaml changes it.\n`);
+        this.output.write(`[spend] ${used} Casper stops here, at the ${formatLimit(limit)} limit for one task; the work so far is kept. /settings changes the limit.\n`);
       }
       this.taskSpendStop = { spent: spent.cost, limit };
       return SPEND_STOP_REASON;
@@ -3166,16 +3220,24 @@ export class CasperApp {
   /** How much of the work shows: /details for this session, else display: in your config, else normal. */
   private displayLevel(): DisplayLevel { return this.displayChoice ?? this.projectContext?.display ?? "normal"; }
 
-  /** /details [quiet|normal|detailed]: no word goes to the next level. For this session; the config keeps the default. */
-  private detailsCommand(argument: string): void {
-    if (argument && !DISPLAY_LEVELS.some(level => level === argument)) throw new Error("Usage: /details [quiet|normal|detailed]");
-    this.displayChoice = (argument as DisplayLevel) || nextDisplay(this.displayLevel());
+  /** /details [quiet|normal|detailed] [--session]: no word goes to the next level. Remembered like /effort (display:
+   * in ~/.casper/config.yaml, written for you); --session keeps it to this session. */
+  private async detailsCommand(argument: string): Promise<void> {
+    const session = /(?:^|\s)--session$/.test(argument);
+    const level = argument.replace(/(?:^|\s)--session$/, "").trim();
+    if (level && !DISPLAY_LEVELS.some(known => known === level)) throw new Error("Usage: /details [quiet|normal|detailed] [--session]");
+    this.displayChoice = (level as DisplayLevel) || nextDisplay(this.displayLevel());
     const words: Record<DisplayLevel, string> = {
       quiet: "the model's words, failures and receipts",
       normal: "steps fold into one summary line",
       detailed: "every step, with a small diff under each edit",
     };
-    this.output.write(`[details] ${this.displayChoice}: ${words[this.displayChoice]}. For this session; display: in ~/.casper/config.yaml sets the default.\n`);
+    let saved = false;
+    if (!session) {
+      try { await editUserConfig(this.homeDir(), ["display"], this.displayChoice); saved = true; }
+      catch (error) { this.output.write(`[details] Not saved (${terminalText(error instanceof Error ? error.message : String(error))}); for this session only.\n`); }
+    }
+    this.output.write(`[details] ${this.displayChoice}: ${words[this.displayChoice]}. ${saved ? "Saved; /details <level> --session changes only this session." : "For this session only."}\n`);
   }
 
   private expandLastStep(): void {
@@ -3255,7 +3317,7 @@ export function proofSkipReason(options: { intent: string; testCommand?: string;
   if (options.intent === "refactor") return "a refactor should not change behavior, so no test is expected to fail without it";
   if (["document", "inspect", "visualize", "configure"].includes(options.intent)) return `Casper does not compare ${options.intent} requests with and without the change`;
   if (!options.testCommand && options.testsAddedNow) return "the tests came with this change, so there is no version without it to compare with";
-  if (!options.testCommand) return "there is no test command to compare with; add verify.test to .casper/project.yaml";
+  if (!options.testCommand) return 'there are no tests yet to compare with; say "add tests"';
   if (!options.snapshot) return "Casper could not record the workspace before the change";
   if (!options.changedCode) return "only non-code files changed";
   return "Casper did not compare the tests with and without the change";

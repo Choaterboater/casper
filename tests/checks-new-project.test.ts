@@ -72,7 +72,7 @@ test("a package.json the model writes in this turn gets its test check on this t
 
 test("a change that adds no check leaves the receipt as it was", async () => {
   const { output } = await run({ "README.md": "# demo\n" });
-  expect(output).toContain("no checks");
+  expect(output).toContain("no tests yet");
 });
 
 test("a check the model ran before setting up the project stays on the task and the receipt", async () => {

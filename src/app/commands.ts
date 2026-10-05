@@ -9,7 +9,7 @@ import { formatSubagentReport, SubagentManager, type SubagentRole } from "../age
 import { formatReferenceResult, type ReferenceLibrary } from "../references/library";
 import { ProjectMemory } from "../memory/store";
 import { modelPreference } from "../tui/model-preference";
-import { HELP_TEXT, FULL_HELP_TEXT, LOGIN_HELP } from "../tui/help";
+import { HELP_TEXT, FULL_HELP_TEXT, LOGIN_HELP, helpFor, unknownCommandMessage, wrapHelp } from "../tui/help";
 import { formatTerminalJSON } from "../tui/json";
 import { formatCacheHitRate, formatCostLong, formatCostShort, formatTokenSplit } from "../tui/usage";
 import { effortChoices } from "../tui/effort";
@@ -19,7 +19,7 @@ import type { InteractiveTerminal } from "../tui/terminal";
 import type { CapabilityBroker } from "../capabilities/broker";
 import type { MCPManager, MCPStatus } from "../mcp/manager";
 import { READ_ONLY_LOGIN_ENABLE_TEXT } from "../mcp/access";
-import { ownSettingsNote, writesTitle } from "../mcp/presets";
+import { ownSettingsNote, writesTitle, WRITES_OFF_MEANING } from "../mcp/presets";
 import type { MCPConfiguration } from "../mcp/config";
 import { addUserServer, DOCS_TOOL_NAMES, docsOnlyDefinition, docsPinned, isDocsOnlyDefinition, MCP_FILE_LABEL } from "../mcp/docs";
 import { askForLogin, askToForgetLogin, loginLines, type LoginHost } from "../mcp/network/ask-login";
@@ -158,8 +158,10 @@ export const VERIFY_USAGE = "Usage: /verify [repair] [typecheck|lint|test|build|
 
 export async function runSlashCommand(host: CommandHost, prompt: string): Promise<VerificationReport | undefined> {
     if (host.closing) return;
-    if (prompt === "/help" || prompt === "/help all") {
-      host.output.write(prompt === "/help" ? HELP_TEXT : FULL_HELP_TEXT);
+    if (/^\/help(?:\s|$)/.test(prompt)) {
+      const word = prompt.slice(5).trim();
+      // Laid out for this terminal's width; piped output gets the text unchanged.
+      host.output.write(wrapHelp(!word ? HELP_TEXT : word === "all" ? FULL_HELP_TEXT : helpFor(word), host.interactive ? host.terminal.columns : undefined));
       return;
     }
     if (/^\/login(?:\s|$)/.test(prompt)) {
@@ -511,7 +513,7 @@ export async function runSlashCommand(host: CommandHost, prompt: string): Promis
       }
       return host.runVerification(args.length ? args : host.projectContext ? defaultVerifyNames(host.projectContext.model) : CHECK_NAMES, repair);
     }
-    throw new Error(`Unknown command ${JSON.stringify(prompt.split(/\s+/)[0])}. Type /help for local commands.`);
+    throw new Error(unknownCommandMessage(prompt.split(/\s+/)[0]!));
   }
 
 async function handleMemoryCommand(host: CommandHost, prompt: string): Promise<void> {
@@ -742,7 +744,7 @@ async function handleDelegateCommand(host: CommandHost, prompt: string): Promise
 
 const MCP_USAGE = "Usage: /mcp | /mcp setup network | /mcp login [mist|central|clearpass] [forget] | /mcp connect <name> | /mcp disconnect <name> | /mcp reload | /mcp writes <name> | /mcp writes off | /mcp allow <name> [off] | /mcp forget <name> | /mcp junos-show <name> on|off | /mcp docs";
 /** What "writes off" means, said once under the list: the server runs pinned and every change asks. */
-const WRITES_OFF_TEXT = "Writes off: the server runs with its read-only settings, and every change asks you first. Answer 2 or 3 in the change box to allow it, or /mcp writes <name> to turn writes on now.";
+const WRITES_OFF_TEXT = `${WRITES_OFF_MEANING} Answer 2 or 3 in the change box to allow it, or /mcp writes <name> to turn writes on now.`;
 
 async function handleMCPCommand(host: CommandHost, prompt: string): Promise<void> {
     const [, action, name, ...extra] = prompt.trim().split(/\s+/);
@@ -814,7 +816,8 @@ async function handleMCPCommand(host: CommandHost, prompt: string): Promise<void
       ...approvalLines(status),
       ...(status.preset?.lines ?? []).map((line) => `  ${terminalText(line)}`),
       ...(status.showOptIn ? ["  Plain show commands run without asking (/mcp junos-show " + status.name + " off)."] : []),
-      ...(status.error ? [`  ${terminalText(status.error)}`] : []),
+      // The server just asked for says why in the error below, once.
+      ...(status.error && !(action === "connect" && status.name === name) ? [`  ${terminalText(status.error)}`] : []),
       // Already redacted by the manager (known secrets and token shapes); shown to you, never to the model.
       ...(status.serverOutput?.length ? ["  Last lines from the server:", ...status.serverOutput.map((line) => `    | ${terminalText(line)}`)] : []),
     ].join("\n")).join("\n") + `\n${statuses.some((status) => status.writes === "off") ? `${WRITES_OFF_TEXT}\n` : ""}` : "No MCP servers configured.\n");
@@ -823,9 +826,8 @@ async function handleMCPCommand(host: CommandHost, prompt: string): Promise<void
       const line = await networkSetupLine(network.homeDir, await network.configured());
       if (line) host.output.write(`${line}\n`);
     }
-    if (action === "connect" && statuses.find((status) => status.name === name)?.state !== "ready") {
-      throw new Error("MCP connection failed; no tools exposed");
-    }
+    const asked = action === "connect" ? statuses.find((status) => status.name === name) : undefined;
+    if (asked && asked.state !== "ready") throw new Error(`${name} did not start${asked.error ? `: ${terminalText(asked.error)}` : "."}`);
     if (action === "connect") await offerRemember(host, name!);
   }
 
@@ -1062,7 +1064,7 @@ async function handleSkillsCommand(host: CommandHost, prompt: string): Promise<v
         host.output.write(skills.length ? skills.map((skill) => [
           `${skill.id} [${skill.source}; ${skill.trust}${skill.disableModelInvocation ? "; manual-only" : ""}]`,
           `  ${JSON.stringify(skill.description)}`,
-          `  ${skill.source === "bundled" ? `${skill.filePath.replace(/^bundled:/, "")} (inside Casper; turn off with skills.bundled: false)` : skill.filePath}`,
+          `  ${skill.source === "bundled" ? `${skill.filePath.replace(/^bundled:/, "")} (inside Casper; /settings turns them off)` : skill.filePath}`,
         ].join("\n")).join("\n\n") + "\n" : "No skills discovered.\n");
       } else if (action === "diagnostics" && !id) {
         host.output.write(registry.diagnostics.length ? registry.diagnostics.join("\n") + "\n" : "No skill warnings.\n");
@@ -1081,7 +1083,7 @@ async function handleSkillsCommand(host: CommandHost, prompt: string): Promise<v
           inspected.body,
           `SHA256: ${inspected.sha256}`,
           inspected.skill.source === "bundled"
-            ? `Bundled with Casper and trusted. /skills block ${id} stops it; skills.bundled: false turns them all off.`
+            ? `Bundled with Casper and trusted. /skills block ${id} stops it; /settings turns them all off.`
             : `After reviewing: /skills trust ${id} ${inspected.sha256}`,
           "",
         ].join("\n"));
@@ -1152,7 +1154,7 @@ export function permissionsText(sandbox: ShellSandbox | undefined): string {
     shell,
     `The AI's file tools (read, edit, write, grep, find, ls) stay out of private places and git's own files and never follow a link out of the project. ${sandbox && !sandbox.asksOutsideWrites
       ? "With the sandbox off, an edit or write outside the project doesn't ask." : "An edit or write outside the project asks first (temp and caches don't; --no-sandbox turns this off)."}`,
-    "Web lookups (web_search, web_fetch) read public pages without asking. Private and local addresses, other ports, and a search or address holding a secret are refused; what comes back has its secrets hidden. web: off in ~/.casper/config.yaml turns them off.",
+    "Web lookups (web_search, web_fetch) read public pages without asking. Private and local addresses, other ports, and a search or address holding a secret are refused; what comes back has its secrets hidden. /settings turns them off.",
     "MCP, workspace transitions, debugger launch and consequential browser operations have their own exact approvals. The AI can't approve anything for you.",
     "No SAFE/YOLO or read-only mode is implied. /verify and /services may execute project scripts (the declared checks and service commands). See docs/SECURITY.md.",
   ].join("\n");
@@ -1176,9 +1178,10 @@ export async function noChecksNote(model: ProjectModel, root: string, homeDir: s
   const names = defaultVerifyNames(model);
   const runnable = names.some((name) => !(CHECK_NAMES as readonly string[]).includes(name) || model.commands[name as keyof ProjectModel["commands"]]?.trim());
   if (runnable) return undefined;
-  const lines = [`No checks found in ${path.basename(root) || root}.`];
+  const folder = path.basename(root) || root;
   const children = await childProjectsWithTests(root, homeDir).catch(() => []);
+  if (!children.length) return `[verify] No tests in ${folder} yet. Say "add tests" and Casper writes some.\n`;
+  const lines = [`No checks found in ${folder}.`];
   for (const child of children) lines.push(`Tests found in ${child.relative}: /project ${child.relative}`);
-  if (!children.length) lines.push("To add one: verify.test in .casper/project.yaml.");
   return `[verify] ${lines.join(" ")}\n`;
 }

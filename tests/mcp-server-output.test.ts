@@ -125,7 +125,10 @@ test("start failures read plainly", () => {
   expect(describeFailure(new MissingEnvironmentError("CENTRAL_CLIENT_SECRET"), { phase: "start" }))
     .toBe("Missing environment variable CENTRAL_CLIENT_SECRET");
   const enoent = Object.assign(new Error("spawn uvx ENOENT"), { code: "ENOENT", path: "uvx", syscall: "spawn uvx" });
-  expect(describeFailure(enoent, { phase: "start" })).toBe("Command not found: uvx");
+  // A launcher that comes with a tool says which tool and where to get it.
+  expect(describeFailure(enoent, { phase: "start" })).toBe("Command not found: uvx. It comes with uv: https://docs.astral.sh/uv/getting-started/installation/");
+  expect(describeFailure(enoent, { phase: "start", command: "npx" })).toBe("Command not found: npx. It comes with Node.js: https://nodejs.org/");
+  expect(describeFailure(enoent, { phase: "start", command: "/usr/local/bin/docker" })).toBe("Command not found: /usr/local/bin/docker. Install Docker: https://docs.docker.com/get-docker/");
   expect(describeFailure(enoent, { phase: "start", command: "casper-no-such-cmd" })).toBe("Command not found: casper-no-such-cmd");
   expect(describeFailure(new Error("aborted"), { phase: "start", timedOut: true, connectMs: 20_000 })).toBe("No answer in 20 s while starting.");
   expect(describeFailure(new McpError(ErrorCode.RequestTimeout, "Request timed out"), { phase: "start", connectMs: 20_000 }))

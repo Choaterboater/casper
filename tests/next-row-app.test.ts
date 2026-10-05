@@ -55,7 +55,8 @@ test("the row under an interactive receipt runs the step whose number is typed n
   const interactive = app.runInteractive(project);
   try {
     input.write("fix the typo in notes.py\n");
-    await until("Next: 1 Undo · 2 Show status");
+    // The prompt is back: a line typed while Casper works is dropped on a plain terminal.
+    await until("Next: 1 Undo · 2 Show status\n> ");
     expect(offered).toEqual(["completed"]);
     input.write("2\n");
     // /status ran: its checks line is Casper's own output, not a model prompt.

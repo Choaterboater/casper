@@ -212,7 +212,7 @@ test("Set it up installs, adds the server and connects it remembered and read-on
 test("a failed install adds nothing", async () => {
   const host = await fakeSetupHost({ answers: ["2"], pipExit: 1 });
   expect(await runNetworkSetup(host, { explicit: true })).toBe("failed");
-  expect(host.output).toContain("casper-network-mcp: the hash-locked install failed");
+  expect(host.output).toContain("casper-network-mcp: the install failed.");
   expect(await exists(path.join(host.homeDir, ".casper/mcp.json"))).toBe(false);
   expect(host.connected).toEqual([]);
 });

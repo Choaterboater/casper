@@ -161,7 +161,8 @@ test("in the terminal, a timed-out check asks what to do instead of starting a p
     // While the question waits, the footer says so instead of spinning with a running timer.
     await screen.until((output) => { const text = Bun.stripANSI(output); return text.slice(text.lastIndexOf("What now?")).includes("? waiting for you"); });
     // More time gives a limit a slow suite can finish in (four times, at least a minute), and names the setting.
-    expect(Bun.stripANSI(screen.output)).toContain("run it with 1m; to keep a longer limit, set verification.timeoutMs");
+    expect(Bun.stripANSI(screen.output)).toContain("run it with 1m, this time only");
+    expect(Bun.stripANSI(screen.output)).toContain("5 Allow more time from now on");
     input.write("\r"); // Enter picks 1 Stop: nothing runs again and no repair starts.
     // Wait for idle after the receipt: /exit typed while the task is still finishing is kept as a draft.
     await screen.until((output) => { const text = Bun.stripANSI(output); const receipt = text.lastIndexOf("✗ Not checked — test timed out, so the change was not tested");
@@ -175,6 +176,60 @@ test("in the terminal, a timed-out check asks what to do instead of starting a p
     input.destroy();
   }
 }, 30_000);
+
+test("5 Allow more time from now on saves the longer limit for this project, with no file to edit", async () => {
+  const { PassThrough } = await import("node:stream");
+  const { mkdir, writeFile } = await import("node:fs/promises");
+  const { CasperApp } = await import("../src/app");
+  const { loadProjectContext } = await import("../src/project/context");
+  const { SkillRegistry } = await import("../src/skills/registry");
+  const { fakeWriter } = await import("./support/tty");
+  const { checkCommand } = await import("./support/check-command");
+  process.env.TERM = "xterm-256color";
+  const root = await dir();
+  const home = path.join(root, "home"); const project = path.join(root, "project");
+  await mkdir(home, { recursive: true }); await mkdir(path.join(project, ".casper"), { recursive: true });
+  await writeFile(path.join(project, ".casper/project.yaml"), `verify:\n  test: ${JSON.stringify(checkCommand("sleep:5000"))}\nverification:\n  mode: auto\n  timeoutMs: 300\n`);
+  let prompts = 0;
+  const runtime = {
+    start: async () => ({
+      getStatus: () => ({ provider: "fixture", model: "demo", auth: "configured" as const }),
+      getState: () => ({ cwd: project, isStreaming: false }),
+      setTools: () => {}, subscribe: () => () => {}, abort: async () => {},
+      prompt: async () => { prompts++; await writeFile(path.join(project, "notes.txt"), `edit ${prompts}\n`); },
+    }),
+    dispose: async () => {},
+  };
+  const input = Object.assign(new PassThrough(), { isTTY: true, setRawMode() {} });
+  const screen = fakeWriter();
+  const app = new CasperApp({
+    input, output: screen.writer, runtimeFactory: () => runtime as never, sessionHomeDir: home,
+    loadProjectContext: (info) => loadProjectContext(info, { homeDir: home }),
+    loadSkillRegistry: (context) => SkillRegistry.discover({ projectRoot: context.info.root, homeDir: home }),
+    loadMCPConfiguration: async () => ({ servers: [], diagnostics: [] }),
+    loadLSPConfiguration: async () => ({ servers: [], diagnostics: [] }),
+    loadReferenceConfiguration: async () => ({ sources: [], diagnostics: [] }),
+  });
+  const interactive = app.runInteractive(project);
+  try {
+    await screen.until((output) => output.includes("idle"));
+    input.write("hello there\r");
+    await screen.until((output) => output.includes("Casper did not try to fix it. What now?"));
+    input.write("5");
+    await screen.until((output) => Bun.stripANSI(output).includes("[verify] Saved verification.timeoutMs"));
+    const { readFile } = await import("node:fs/promises");
+    expect(await readFile(path.join(project, ".casper/project.yaml"), "utf8")).toContain("timeoutMs: 60000");
+    expect(Bun.stripANSI(screen.output).replace(/\s+/g, " ")).toContain("[verify] Saved verification.timeoutMs: 60000 in .casper/project.yaml: every check here gets 1m from now on.");
+    // The check runs again with the longer limit; /exit waits for the prompt (a line typed during work is a draft).
+    await screen.until((output) => { const text = Bun.stripANSI(output); const saved = text.lastIndexOf("[verify] Saved");
+      return /test\s+passed/.test(text.slice(saved)) && text.lastIndexOf("idle") > saved; });
+  } finally {
+    input.write("/exit\r");
+    await interactive;
+    await app.close();
+    input.destroy();
+  }
+}, 60_000);
 
 test("a longer limit the user gave stays with the check, so the model's own re-check gets it too", async () => {
   const { VerificationTask } = await import("../src/verify/task");

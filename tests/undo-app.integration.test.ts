@@ -279,9 +279,9 @@ test("receipts are kept across restarts, with no check output and secrets hidden
   const later = makeApp(place, []);
   try {
     await later.app.runOnce("/receipt 1", place.project);
-    expect(later.output()).toMatch(/Task 1 · \d\d:\d\d · fix notes\.py with token <redacted>\n• Not verified — /);
+    expect(later.output()).toMatch(/Task 1 · \d\d:\d\d · fix notes\.py with token <redacted>\n• Not checked — no tests yet/);
     await later.app.runOnce("/receipt list", place.project);
-    expect(later.output()).toMatch(/ {2}1 {2}\d\d:\d\d {2}• Not verified/);
+    expect(later.output()).toMatch(/ {2}1 {2}\d\d:\d\d {2}• Not checked — no tests yet/);
     await expect(later.app.runOnce("/receipt 9", place.project)).rejects.toThrow("No receipt 9. /receipt list shows recent ones.");
     const stateRoot = path.join(place.home, ".casper", "projects");
     const [projectState] = await readdir(stateRoot);

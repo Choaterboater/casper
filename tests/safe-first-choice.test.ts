@@ -85,7 +85,7 @@ test("the risky choices still exist, as a deliberate 2 or later", () => {
   expect(ALREADY_FAILING_CHOICES.map((choice) => choice.label)).toEqual(["Leave it", "Fix it anyway"]);
   expect(spendChoices("$10").map((choice) => choice.label)).toEqual(["Stop here", "Keep going"]);
   expect(modelFailedChoices("fixture/big").map((choice) => choice.label)).toEqual(["Stop", "Retry", "Retry with your big model"]);
-  expect(unfinishedChoices(600_000, 2_400_000).map((choice) => choice.label)).toEqual(["Stop", "Retry", "Fix it anyway", "Allow more time"]);
+  expect(unfinishedChoices(600_000, 2_400_000).map((choice) => choice.label)).toEqual(["Stop", "Retry", "Fix it anyway", "Allow more time", "Allow more time from now on"]);
   expect(unfinishedChoices(600_000, 2_400_000)[0]!.choice).toBeUndefined();
   expect([...MCP_REMEMBER_CHOICES]).toEqual(["Just this time", "Remember"]);
   expect([...MCP_WRITES_CHOICES]).toEqual(["Keep writes off", "Enable for this server"]);

@@ -62,7 +62,9 @@ declared scope (see [Configuration](#configuration)) contains none of the change
 Casper could not compare the workspace, it runs every selected check.
 
 **No checks set up.** If files changed but there are no checks, the change is `not_verified`
-(`• Not verified — no checks configured. Add verify.test to .casper/project.yaml.`). The one-shot
+(`• Not checked — no tests yet. Say "add tests".`), and the model writes tests and the check when
+you ask. The startup banner shows no checks line until there is something to check; `/status`
+says `none yet; say "add tests" and Casper writes some`. The one-shot
 exit code depends on who asked for checking:
 
 - checking only by default: exit 0;
@@ -81,8 +83,8 @@ session. A one-shot run prints `[folder] The work is in ~/Documents/sample-tools
 
 **`/verify` with nothing to run (from v0.2.19)** prints one line instead of one line per check:
 `[verify] No checks found in Documents. Tests found in sample-tools: /project sample-tools`, or
-`To add one: verify.test in .casper/project.yaml.` when no folder inside has tests. The receipt says
-`• Not checked — no checks found in this folder` and a one-shot run exits 2, so a script never
+`[verify] No tests in Documents yet. Say "add tests" and Casper writes some.` when no folder inside
+has tests. The receipt says `• Not checked — no tests yet. Say "add tests".` and a one-shot run exits 2, so a script never
 passes with nothing checked. In a project that has only tests, `/verify` says
 `[verify] No typecheck, lint or build command here, so Casper runs test.` and runs that.
 
@@ -148,10 +150,10 @@ The lines below the verdict give the evidence:
 ✓ test passed (npm run test, 1.3s)
 ✓ test passed earlier in this task, reused (npm run test, 1.3s)
 ✗ test failed (exit 1) — log above; /verify repair test to fix
-✗ test timed out after 10m — it did not finish, so it was not checked; /verify test to run it again, or raise verification.timeoutMs in .casper/project.yaml
+✗ test timed out after 10m — it did not finish, so it was not checked; /verify test to run it again (a session offers more time)
 ✗ lint could not start (exit 127) — check verify.lint in .casper/project.yaml
 • Not verified — test ran via bash only (npm test: passed). Run /verify test to record a check.
-• Not verified — no checks configured. Add verify.test to .casper/project.yaml.
+• Not checked — no tests yet. Say "add tests".
 • Not verified — stale: files changed after the last passing test. Run /verify test.
 • No files changed, so Casper ran no checks
 ✓ Proven: test fails without this change (exit 1) and passes with it
@@ -202,8 +204,10 @@ now?` with:
 - `3 Fix it anyway`
 - `4 Allow more time` — four times the limit the check just had (at least a minute, at most an
   hour), again each time you pick it. The longer limit also applies to the model's own runs of
-  that check for the rest of the task. The choice names `verification.timeoutMs`, which keeps a
-  longer limit.
+  that check for the rest of the task.
+- `5 Allow more time from now on` — the same, and Casper saves that limit for every check in this
+  project (`verification.timeoutMs` in `.casper/project.yaml`, written for you):
+  `[verify] Saved verification.timeoutMs: 2400000 in .casper/project.yaml: every check here gets 40m from now on.`
 
 Enter or Esc stops (before v0.2.16 there was no Stop choice and `1` was Retry). Casper asks at
 most eight times per round of checks (the review round, when on, is a
@@ -219,7 +223,21 @@ again, an interactive terminal asks `1 Stop · 2 Retry` (Enter stops; before v0.
 last. When the model run fails after it edited
 files, Casper still runs the checks on those edits, without a repair, and the verdict says how
 they fared (`✗ Failed — the model run failed; changes already made are kept; the checks pass on
-those changes`), followed by a `• Next:` line suggesting another model.
+those changes`), followed by a `• Next:` line for the cause.
+
+The `[error]` line names the cause in plain words with one next step, and Ctrl+T shows the
+provider's own message (a plain terminal prints it on the next line):
+
+| Cause | Next step |
+| --- | --- |
+| The key is wrong or expired (401) | `/login` to sign in again |
+| Out of credits (402, "quota") | Add credits on the provider's site, or `/model` to pick another model |
+| Rate limited or overloaded (429, 529) | Wait a minute, then ask again |
+| Can't reach the provider (offline, DNS) | Check your internet connection, then ask again |
+| The conversation is too long | `/compact`, then ask again |
+| The provider can't run this model | `/model` to pick another model |
+
+Any other error keeps the provider's text, and the receipt suggests another model.
 
 ## Independent acceptance check (experimental)
 

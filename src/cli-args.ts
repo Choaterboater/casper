@@ -278,6 +278,8 @@ export interface NewCommand {
   name?: string;
   template?: string;
   list: boolean;
+  /** casper new --help: the usage and the kinds. */
+  help?: boolean;
 }
 
 export const NEW_USAGE = "Usage: casper new [name] | casper new <template> <name> | casper new --list";
@@ -290,9 +292,12 @@ export const NEW_USAGE = "Usage: casper new [name] | casper new <template> <name
 export function parseNewArgs(rest: readonly string[]): NewCommand | null {
   if (rest.length === 0) return { list: false };
   if (rest.length === 1 && rest[0] === "--list") return { list: true };
+  if (rest.length === 1 && (rest[0] === "--help" || rest[0] === "-h")) return { list: false, help: true };
   if (rest.some((arg) => arg.startsWith("-"))) {
     throw new UsageError(`new takes no other options. ${NEW_USAGE}`);
   }
+  // A lone kind word is the kind ("casper new web-app"); Casper asks for the name, or uses the kind's usual one.
+  if (rest.length === 1 && (getTemplate(rest[0]!)?.manifest.ready || rest[0] === EMPTY_TEMPLATE)) return { template: rest[0]!, list: false };
   if (rest.length === 1) {
     const name = rest[0]!;
     if (!validName(name)) throw new UsageError(NAME_RULE);
@@ -364,14 +369,19 @@ export function parseSecurityArgs(rest: readonly string[]): SecurityCommand {
 export interface UpdateCommand {
   /** Only say whether a newer Casper is out; change nothing. */
   check: boolean;
+  /** casper update --help: what it does, and nothing else. */
+  help?: boolean;
 }
 
 export const UPDATE_USAGE = "Usage: casper update [--check]";
+/** What `casper update` does, for casper update --help and /help all. */
+export const UPDATE_HELP = "Update Casper (no model): an installed release runs the newest release's own installer on this program's folder; a source checkout pulls with git (fast-forward only) and runs bun install when its lockfile changed. --check only says what is newer. Exit 0 updated or nothing to do, 1 not finished (the message says what is left), 64 usage mistake";
 
 /** `rest` starts with "update". Anything but `--check` is a usage error (exit 64), never a lookup. */
 export function parseUpdateArgs(rest: readonly string[]): UpdateCommand {
   const result: UpdateCommand = { check: false };
   for (const arg of rest.slice(1)) {
+    if (arg === "--help" || arg === "-h") { result.help = true; continue; }
     if (arg !== "--check") throw new UsageError(`Unknown option ${arg}. ${UPDATE_USAGE}`);
     result.check = true;
   }

@@ -1,4 +1,5 @@
 import { formatDuration, formatVerificationReport, reportText, type VerificationReport, type VerificationResult } from "../verify/evidence";
+import { modelErrorNext, type ModelErrorCause } from "../runtime/model-errors";
 import type { RiskyLine } from "../network/risky-receipt";
 import { isBuiltinCheck } from "../verify/named";
 import { DRY_RUN_LABEL } from "../network/checks";
@@ -37,6 +38,8 @@ export interface TaskUsage {
 /** Execution completion is not behavioral acceptance or proof of correctness. */
 export interface TaskResult {
   execution: "completed" | "failed" | "cancelled";
+  /** Why the model run failed, when the provider's error names a cause (bad key, no credits, rate limit …). */
+  modelError?: ModelErrorCause;
   verification?: VerificationReport;
   browser?: BrowserReport;
   /** The model's answer says the browser checks passed; only said when Casper's record disagrees. */
@@ -465,7 +468,7 @@ function changedShort(paths: string[], safe: (text: string) => string): string {
 }
 
 /** The full no-checks line, shown once per session; later receipts say it short. */
-export const NO_CHECKS_LINE = "• Not verified — no checks configured. Add verify.test to .casper/project.yaml.";
+export const NO_CHECKS_LINE = '• Not checked — no tests yet. Say "add tests".';
 
 /** The undo reason when a task changed nothing: nothing to say on the receipt. */
 export const UNDO_NOTHING_CHANGED = "no files changed";
@@ -523,7 +526,8 @@ function withVerdict(task: TaskResult, body: string[], options: ReceiptOptions):
       if (task.execution === "failed") {
         // Casper checked the edits the model left: say how they fared, then what to do next.
         const checked = !report?.results.length ? "" : failedChecks.length ? `; on those changes ${failedChecks.join(", ")}` : "; the checks pass on those changes";
-        const next = `• Next: ${options.surface === "one-shot" ? "casper --model <provider/id> \"…\" to try another model" : "/model to try another model, then ask again"}`;
+        const next = `• Next: ${modelErrorNext(task.modelError, options.surface === "one-shot")
+          ?? (options.surface === "one-shot" ? "casper --model <provider/id> \"…\" to try another model" : "/model to try another model, then ask again")}`;
         const verdict = task.changedPaths?.length === 0 && !task.possibleMutations
           ? "✗ Failed — the model run failed before changing any files" : `✗ Failed — the model run failed; changes already made are kept${checked}`;
         lines = [verdict, ...body, next];
@@ -542,7 +546,7 @@ function withVerdict(task: TaskResult, body: string[], options: ReceiptOptions):
         : task.turnLimit !== undefined
         ? `• Incomplete — stopped after ${task.turnLimit} ${task.turnLimit === 1 ? "turn" : "turns"} (--max-turns); changes so far are kept; ${options.surface === "one-shot" ? "casper --continue" : "send another request"} to go on`
         : task.remoteNotRun?.length ? `• Incomplete — ${remoteNotRunVerdict(task.remoteNotRun, safe)}`
-        : report?.reason === NO_CHECKS_FOUND && !report.results.length ? "• Not checked — no checks found in this folder"
+        : report?.reason === NO_CHECKS_FOUND && !report.results.length ? NO_CHECKS_LINE
         : "• Incomplete — not every check ran", ...body];
       break;
     case "verified":
@@ -561,7 +565,7 @@ function withVerdict(task: TaskResult, body: string[], options: ReceiptOptions):
       break;
     }
     case "not_verified":
-      lines = promote("• Not verified", `• Not verified — ${notVerifiedReason(task)}`); break;
+      lines = body.includes(NO_CHECKS_LINE) ? promote(NO_CHECKS_LINE, NO_CHECKS_LINE) : promote("• Not verified", `• Not verified — ${notVerifiedReason(task)}`); break;
     case "unchanged":
       lines = body.length ? promote("• No files changed", "• No files changed") : body; break;
   }
@@ -670,7 +674,7 @@ function checkLine(result: VerificationResult, safe: (text: string) => string, s
   // A named check that could not run (a missing tool, a lab check) says why in its own words.
   if (result.status === "skip" && !isBuiltinCheck(name)) return `• Not verified — ${name} not run: ${safe(result.reason ?? "skipped").replace(/\.$/, "")}`;
   if (result.status === "skip") {
-    return result.command ? `• Not verified — ${name} was skipped.` : `• Not verified — ${name} has no command. Add verify.${name} to .casper/project.yaml.`;
+    return result.command ? `• Not verified — ${name} was skipped.` : `• Not verified — ${name} has no command here. Say ${name === "test" ? '"add tests"' : `"set up ${name}"`}.`;
   }
   if (result.status === "pass") {
     if (result.freshness === "stale") return `• Not verified — stale: files changed after the last passing ${name}. Run ${slash(`/verify ${name}`)}.`;
@@ -683,7 +687,7 @@ function checkLine(result: VerificationResult, safe: (text: string) => string, s
   const timeout = /^Timed out after (\d+)ms$/.exec(result.reason ?? "");
   // Unfinished checks are not the code failing: Casper does not repair them, so it does not offer to.
   if (result.ended === "timeout") {
-    return `✗ ${name} timed out${timeout ? ` after ${duration(Number(timeout[1]))}` : ""} — it did not finish, so it was not checked; ${slash(`/verify ${name}`)} to run it again, or raise verification.timeoutMs in .casper/project.yaml`;
+    return `✗ ${name} timed out${timeout ? ` after ${duration(Number(timeout[1]))}` : ""} — it did not finish, so it was not checked; ${slash(`/verify ${name}`)} to run it again (a session offers more time)`;
   }
   // The sandbox refused something the check tried: the same words the AI sees, so it does not retry it.
   if (result.ended === "blocked") return `✗ ${name} — ${safe(result.reason ?? "blocked by the sandbox")}`;

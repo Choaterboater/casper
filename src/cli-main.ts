@@ -9,14 +9,14 @@ import { agentStoreWarnings, importLegacyEngineState, useCasperAgentStore } from
 import { CandidateLibrary, formatLearningResult } from "./learn/candidates";
 import { taskExitCode } from "./task/result";
 import { looksLikePath, parseCliArgs, parseLearnArgs, parseMcpCheckArgs, parseNewArgs, parseSecurityArgs, parseUpdateArgs, UsageError, type McpCheckCommand,
-  type NewCommand, type SecurityCommand, type SubcommandName, type CliOptions, type UpdateCommand } from "./cli-args";
+  type NewCommand, type SecurityCommand, type SubcommandName, type CliOptions, type UpdateCommand, UPDATE_HELP, UPDATE_USAGE } from "./cli-args";
 import { runningFromBinary } from "./update/mode";
 import type { Install } from "./update/command";
 import type { VerificationMode } from "./verify/mode";
 
 import { redactPreview, terminalText } from "./tui/format";
 import { formatJsonEvent, receiptEvent, type CasperEvent } from "./app/json-events";
-import { HELP_TEXT } from "./tui/help";
+import { CLI_HELP_TEXT, wrapHelp } from "./tui/help";
 import { CASPER_VERSION } from "./version";
 import licenseNotices from "../THIRD_PARTY_NOTICES.txt" with { type: "text" };
 
@@ -137,6 +137,7 @@ function currentInstall(): Install {
  * Ctrl-C stops the update and waits (up to the shutdown deadline) for it to unwind, so a Windows swap is put back
  * and the downloaded installer is removed before the process exits. */
 async function runUpdateSubcommand(cmd: UpdateCommand): Promise<void> {
+  if (cmd.help) { process.stdout.write(`${UPDATE_USAGE}\n${UPDATE_HELP}\n`); return; }
   const { runUpdate } = await import("./update/command");
   const controller = new AbortController();
   let pending: Promise<unknown> = Promise.resolve();
@@ -172,7 +173,7 @@ async function withStandaloneSandbox(options: CliOptions, work: () => Promise<vo
 export function terminalNewProject(options: CliOptions, stdinTTY: boolean): NewCommand | undefined {
   if (options.command !== "new" || !stdinTTY) return undefined;
   const command = parseNewArgs(options.rest.slice(1));
-  return command && !command.list ? command : undefined;
+  return command && !command.list && !command.help ? command : undefined;
 }
 
 /** Subcommands that run with no app, no model and no saved state, in one place. `learn` needs Casper's agent store
@@ -191,7 +192,7 @@ export async function runCli(): Promise<void> {
     return;
   }
   if (options.info === "help") {
-    process.stdout.write(HELP_TEXT);
+    process.stdout.write(wrapHelp(CLI_HELP_TEXT, process.stdout.isTTY ? process.stdout.columns : undefined));
     return;
   }
   if (options.info === "version") {

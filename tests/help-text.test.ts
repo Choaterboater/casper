@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { FULL_HELP_TEXT, HELP_TEXT, LOGIN_HELP } from "../src/tui/help";
+import { CLI_HELP_TEXT, FULL_HELP_TEXT, HELP_TEXT, LOGIN_HELP } from "../src/tui/help";
 import { CLI_OPTIONS } from "../src/cli-args";
 
 test("help names Casper's own credential store and model routing, not Pi's", () => {
@@ -36,7 +36,7 @@ test("help says CLI server flags cover only the user's own definitions", async (
 });
 
 test("help lists casper mcp check", () => {
-  expect(HELP_TEXT).toContain("casper mcp check [repo]  Check an MCP server you built: its tests, labels and configs (no tool calls unless --live)");
+  expect(CLI_HELP_TEXT).toContain("casper mcp check [repo]  Check an MCP server you built: its tests, labels and configs (no tool calls unless --live)");
   expect(FULL_HELP_TEXT).toContain("casper mcp check [repo] [--server <name>] [--live]");
   expect(FULL_HELP_TEXT).toContain("only run it on repos you trust");
 });
@@ -54,8 +54,9 @@ test("the short help's slash commands line up in one column", () => {
 });
 
 test("help lists casper <folder>, /undo, /redo, /diff n and /receipt n", () => {
-  expect(HELP_TEXT).toContain("  casper <folder>        Open that folder\n");
-  expect(HELP_TEXT).toContain("  /undo, /redo           Put the last task's files back, or back again");
+  expect(HELP_TEXT).toContain("  casper [folder]        Open Casper here, or in that folder\n");
+  expect(HELP_TEXT).toContain("  /diff, /undo, /redo    See the last task's changes, or put its files back");
+  expect(CLI_HELP_TEXT).toContain("  casper <folder>      Open that folder");
   expect(FULL_HELP_TEXT).toContain("options go before the prompt (quote the whole request to send them as words)");
   for (const entry of ["/undo [n]", "/redo [n]", "/diff [n|list]", "/receipt <n>, /receipt list"]) expect(FULL_HELP_TEXT).toContain(entry);
 });

@@ -65,6 +65,11 @@ export interface ChecksPlan {
   pages?: string;
 }
 
+/** Something to say on the checks line: a check, a page check, or a /verify-only, lab or found check. */
+export function hasChecks(plan: ChecksPlan): boolean {
+  return Boolean(plan.checks.length || plan.pages || plan.manual?.length || plan.lab?.length || plan.found?.length);
+}
+
 /** The banner's and /status's plain line for a ChecksPlan. */
 export function describeChecksPlan(plan: ChecksPlan): string {
   if (plan.mode === "off") return "off for this session (--no-verify or verification.mode: off)";
@@ -73,7 +78,7 @@ export function describeChecksPlan(plan: ChecksPlan): string {
     + (plan.found?.length ? ` · found, not saved: ${plan.found.join(", ")} (/verify add <name> saves one)` : "");
   // Pages run only in auto mode (Casper opens them itself after a change).
   const checks = [...plan.checks, ...(plan.pages && plan.mode === "auto" ? [`pages (${plan.pages})`] : [])];
-  if (!checks.length) return `none found; add verify.test to .casper/project.yaml${manual}`;
+  if (!checks.length) return `none yet; say "add tests" and Casper writes some${manual}`;
   return `${checks.join(", ")} — ${plan.mode === "auto" ? "run after each change"
     : plan.slow ? "offered with /verify (they take a minute or more)" : "offered with /verify (verification.mode: offer)"}${manual}`;
 }

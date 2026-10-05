@@ -114,7 +114,7 @@ preview. After the first install, `casper update` gets the newest preview (it ru
 release's own installer, with the same checks), and `casper update --check` only says whether
 there is one. A session also tells you when one is out: one `[update]` line at the start, from a
 check it makes in the background at most once a day (no model, no tokens). Turn it off with
-`updates: false` in `~/.casper/config.yaml` or `CASPER_NO_UPDATE_CHECK=1`. If GitHub says it is limiting requests, set `GITHUB_TOKEN` (or `GH_TOKEN`) to a
+`/settings` (New-version notice) or `CASPER_NO_UPDATE_CHECK=1`. If GitHub says it is limiting requests, set `GITHUB_TOKEN` (or `GH_TOKEN`) to a
 GitHub token for a higher limit. Useful `install.sh` options: `--dir <path>`, `--version 0.2.21`, `--sha256 <hex>`
 and `--force` (replace a development symlink). [Installer details](docs/RELEASE.md).
 
@@ -154,18 +154,19 @@ in a sandbox (a sealed-off area). Use Casper only in projects you trust, or star
 
 | Command | What it does |
 | --- | --- |
-| `/help` | Short command guide; `/help all` for the full list |
+| `/help` | Short command guide; `/help <word>` searches it, `/help all` shows everything |
 | `/status` | Project, model and connections |
 | `/model`, `/effort` | Pick a model and how hard it thinks (`/effort auto` lets Casper choose) |
 | `/verify` | Run the checks with no model |
 | `/verify repair test` | Let the AI fix a failing test check, with a limit |
 | `/receipt` | Full detail behind the last receipt |
-| `/diff` | Show Git changes |
+| `/diff`, `/undo` | The last task's changes; put its files back |
 | `/output [n]` | Full output of a recent tool call |
 | `/clear`, `/resume` | Start fresh or bring back a chat (does not undo file changes) |
 | `/mcp` | MCP servers: status, connect, writes on/off |
 | `/secrets` | What secret hiding is doing |
 | `/permissions` | What Casper can and cannot do |
+| `/settings` | Turn web lookups, spend notes and other switches on or off by number |
 
 Ctrl+C stops the current work but keeps changes already made. On an empty prompt, a second
 Ctrl+C within two seconds exits; Ctrl+D exits at once.
@@ -320,9 +321,9 @@ it. What each version changed, in more detail: [RELEASE.md](docs/RELEASE.md).
 - The receipt's browser line says so when the answer claims the browser checks passed and
   Casper's record says they failed, or none of them finished.
 
-## Coming next
+## Planned next
 
-**v0.3: crews.**
+**v0.3: crews** (planned, not started).
 - For a big job, the AI splits the work on its own: builders in their own copies of the project,
   a reviewer for each part, a fixer, then one merge and the full tests. No command needed.
 - The status bar shows the crew (`crew 2/3 building · 1 reviewing · $0.40`), and `/crew` shows
@@ -331,7 +332,8 @@ it. What each version changed, in more detail: [RELEASE.md](docs/RELEASE.md).
   ("keep it under $2", "no crew for this") holds for the whole crew. `crew: off` turns crews off.
 
 Later, not scheduled: vendor packs (`casper pack add aruba` sets up a vendor's MCP server,
-read-only preset, references and skill in one step), `casper doctor` (Casper checks and fixes its
+read-only preset, references and skill in one step), chat that investigates your infrastructure,
+a reader for untrusted text that hands back only strict JSON, scheduled jobs with an AI on call, `casper doctor` (Casper checks and fixes its
 own setup), a terminal check (Casper tries a command-line program like a person), community lessons (fixes proven by passing checks, shared as a pack) and tool rules you
 write (for example, bounces only on lab sites in a maintenance window). See the [roadmap](https://choaterboater.github.io/casper/roadmap.html#later).
 

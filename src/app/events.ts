@@ -9,6 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import { tildePath } from "../new/scaffold";
 import { isOutside } from "../platform/inside";
+import { explainModelError } from "../runtime/model-errors";
 
 /** Session-owned effects the renderer needs; the app implements these against its state. */
 export interface RuntimeEventCallbacks {
@@ -255,6 +256,25 @@ export class RuntimeEventView {
     return diff ? [line, ...inlineDiff(diff)].join("\n") : line;
   }
 
+  /** A provider error: its cause and next step in plain words when Casper can name it, else the provider's text.
+   * The provider's own words stay one key away (ctrl+t), or on the next line where there is no ctrl+t. */
+  private writeError(message: string): void {
+    const explained = explainModelError(message);
+    if (!explained) { this.output.write(`[error] ${redactPreview(message)}\n`); return; }
+    if (this.terminal.rich) {
+      this.expanded = { title: "Provider error", body: redactPreview(message), diff: false };
+      this.output.write(`[error] ${explained.line} Ctrl+T shows the provider's message.\n`);
+    } else this.output.write(`[error] ${explained.line}\n  provider: ${redactPreview(message)}\n`);
+  }
+
+  /** An error thrown to the prompt loop: a model error gets the same plain cause line as a provider error event;
+   * any other error (a command's usage line) is shown as it is. */
+  showError(message: string): void {
+    if (explainModelError(message)) this.writeError(message);
+    else this.output.write(`[error] ${message}\n`);
+    this.displayedError = message;
+  }
+
   /** ctrl+t: the last finished step in full, or undefined before the first one. */
   lastStep(): ExpandedStep | undefined { return this.expanded; }
 
@@ -326,7 +346,7 @@ export class RuntimeEventView {
         // A cancel already printed its own notice, so its aborted stop is not an error.
         if (failed && !this.callbacks.cancelled() && event.errorMessage && this.displayedError !== event.errorMessage) {
           this.ensureLineBreak();
-          this.output.write(`[error] ${redactPreview(event.errorMessage)}\n`);
+          this.writeError(event.errorMessage);
           this.displayedError = event.errorMessage;
           this.endedWithNewline = true;
         }
@@ -437,7 +457,7 @@ export class RuntimeEventView {
         this.setStaticActivity();
         this.terminal.endAssistant();
         this.ensureLineBreak();
-        if (this.displayedError !== event.message && !this.callbacks.cancelled()) this.output.write(`[error] ${redactPreview(event.message)}\n`);
+        if (this.displayedError !== event.message && !this.callbacks.cancelled()) this.writeError(event.message);
         this.displayedError = event.message;
         this.endedWithNewline = true;
         break;

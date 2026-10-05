@@ -74,7 +74,7 @@ test("web_search and web_fetch are offered by default, never ask, and read throu
   expect(run.requests.map((request) => `${request.url.href} @${request.address.address}`)).toEqual(["https://docs.example.com/install @93.184.215.14"]);
   expect(run.picks()).toBe(0);
   await run.app.runOnce("/status");
-  expect(run.text()).toContain(" web       on (DuckDuckGo) · web: off in ~/.casper/config.yaml turns it off\n");
+  expect(run.text()).toContain(" web       on (DuckDuckGo) · /settings turns it off\n");
   await run.app.close();
 });
 
@@ -85,7 +85,7 @@ test("web: off in your own config takes both tools away", async () => {
   await run.app.runOnce("How do I install x?", project);
   expect(run.tools().map((tool) => tool.name).filter((name) => name.startsWith("web_"))).toEqual([]);
   await run.app.runOnce("/status");
-  expect(run.text()).toContain(" web       off (web: off in ~/.casper/config.yaml)\n");
+  expect(run.text()).toContain(" web       off (/settings turns it on)\n");
   await run.app.close();
 });
 

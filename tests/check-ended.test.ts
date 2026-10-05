@@ -59,6 +59,7 @@ test("a receipt whose only failures are unfinished checks says the change was no
     verification: { status: "fail", results, repairAttempts: 0 } } as never, { surface: "interactive" });
   const unfinished = receipt([timedOut]);
   expect(unfinished.split("\n")[0]).toBe("✗ Not checked — test timed out, so the change was not tested");
-  expect(unfinished).toContain("or raise verification.timeoutMs in .casper/project.yaml");
+  expect(unfinished).toContain("/verify test to run it again (a session offers more time)");
+  expect(unfinished).not.toContain("verification.timeoutMs");
   expect(receipt([timedOut, failed]).split("\n")[0]).toBe("✗ Failed — test timed out, lint failed");
 });

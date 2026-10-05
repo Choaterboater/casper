@@ -104,7 +104,7 @@ test("/permissions says /services runs the project's declared commands", async (
 });
 
 test("help and command discovery list /services", () => {
-  expect(HELP_TEXT).toContain("/services");
+  expect(FULL_HELP_TEXT).toContain("/services ");
   for (const entry of ["/services logs <name>", "/services start|restart|stop <name>"]) expect(FULL_HELP_TEXT).toContain(entry);
   expect(COMMANDS.some(command => command.name === "services")).toBe(true);
 });
