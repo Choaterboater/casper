@@ -115,6 +115,14 @@ class Session:
             if text in self.screen.text(): return
         raise AssertionError("Missing screen text: " + repr(text) + "\nSCREEN:\n" + self.screen.text()[-6000:])
 
+    def until_true(self, ready, timeout=15):
+        """Wait until ready(screen text) holds. A fixed pump then an assert fails when a busy machine draws late."""
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            self.pump(0.03)
+            if ready(self.screen.text()): return
+        raise AssertionError("Screen never matched\nSCREEN:\n" + self.screen.text()[-6000:])
+
     def until_new(self, text, timeout=15):
         """Wait for one more `text` than the screen holds now: a repeated prompt (an approval's "Type 1, 2, 3 or 4:")
         is already in the scrollback from the last time, so plain until() would return before the new one opens."""
