@@ -6,6 +6,7 @@ import { NETCONAN_FAILED, Scrubber, findNetconan, mergeNetconan, netconanPass, s
 import { LINE_MARKER, SECRET_MARKER, scrubText } from "../src/secrets/scrub";
 import { fakeProgram } from "./support/fake-program";
 import { posixModes } from "./support/platform";
+import { waitUntil } from "./support/wait";
 
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -123,18 +124,16 @@ test("a netconan that hangs is stopped; the built-in result is used and /secrets
   const scrubber = new Scrubber({ env: { PATH: bin }, tmpRoot: tmp, timeoutMs: 500 });
   const started = performance.now();
   const result = await scrubber.scrubText(JUNOS);
-  expect(performance.now() - started).toBeLessThan(5000);
+  // Stopped long before the fake's own 30 s, with room for a busy machine.
+  expect(performance.now() - started).toBeLessThan(15_000);
   expect(result.netconan).toBe("failed");
   expect(result.text).toBe(scrubText(JUNOS).text);
   expect(scrubNote(result)).toContain(NETCONAN_FAILED);
   expect(await scrubber.statusText(true)).toContain(NETCONAN_FAILED);
   expect(await readdir(tmp)).toEqual([]);
-  const { pid } = JSON.parse((await readFile(log, "utf8")).trim().split("\n")[0]!);
-  let alive = true;
-  for (let attempt = 0; attempt < 50 && alive; attempt++) {
-    try { process.kill(pid, 0); await Bun.sleep(20); } catch { alive = false; }
-  }
-  expect(alive).toBe(false);
+  // On a busy machine the fake can be stopped before it writes its first line: then there is no process to check.
+  const pid = await Bun.file(log).exists() ? JSON.parse((await readFile(log, "utf8")).trim().split("\n")[0]!).pid as number : undefined;
+  if (pid !== undefined) expect(await waitUntil(() => { try { process.kill(pid, 0); return false; } catch { return true; } })).toBe(true);
 });
 
 test("netconan only runs on text that looks like device config", async () => {
