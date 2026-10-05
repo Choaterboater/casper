@@ -97,3 +97,22 @@ test("Enter mid-task shows its note for a moment, then the steps and timer come 
     session.terminal.setSteps(undefined);
   } finally { session.close(); }
 }, 15_000);
+
+test("while a picker is open the footer waits for you: no spinner, no running timer, no 'idle'", async () => {
+  const { PassThrough } = await import("node:stream");
+  const { TerminalSurface } = await import("../src/tui/surface");
+  const input = Object.assign(new PassThrough(), { isTTY: true, setRawMode() {} });
+  const surface = new TerminalSurface({ input, output: { write: () => {}, columns: 100, rows: 30 }, color: false, onEOF: () => {} }, () => {}, () => {});
+  try {
+    surface.start();
+    surface.setStatus("project │ fixture/demo │ idle", process.cwd());
+    const command = surface.readCommand();
+    input.write("/effort\r");
+    await command;
+    const done = Promise.withResolvers<void>();
+    const picking = surface.exclusiveHost()!.mount(async view => { view.show({ render: () => ["PICKER"], invalidate() {} }); await done.promise; });
+    await Bun.sleep(20);
+    expect(surface.footerLine(100)).toStartWith("? waiting for you");
+    done.resolve(); await picking;
+  } finally { surface.close(); input.destroy(); }
+});
